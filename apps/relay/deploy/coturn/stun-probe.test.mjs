@@ -1,15 +1,8 @@
 import assert from 'node:assert/strict';
-import { createSocket } from 'node:dgram';
+import { createSocket, Socket } from 'node:dgram';
 import test from 'node:test';
 
-import {
-  STUN_RC,
-  STUN_RM,
-  STUN_RTO_MS,
-  bindingRequest,
-  parseBindingResponse,
-  probeStun,
-} from './stun-probe.mjs';
+import { STUN_RC, STUN_RM, STUN_RTO_MS, bindingRequest, parseBindingResponse, probeStun } from './stun-probe.mjs';
 
 const COOKIE = Buffer.from('2112a442', 'hex');
 const ID = Buffer.alloc(12, 9);
@@ -97,12 +90,20 @@ test('truncated or inconsistent messages are refused, not read around', () => {
   // A bare attribute header with no room for its value.
   assert.equal(parseBindingResponse(response(Buffer.from([0x80, 0x22, 0x00, 0x04])), ID), null);
   // A well-formed attribute list followed by a fragment of another.
-  assert.equal(parseBindingResponse(response(Buffer.concat([mapped('203.0.113.9', 1), Buffer.from([0x80, 0x22])])), ID), null);
+  assert.equal(
+    parseBindingResponse(response(Buffer.concat([mapped('203.0.113.9', 1), Buffer.from([0x80, 0x22])])), ID),
+    null
+  );
 });
 
 test('a XOR-MAPPED-ADDRESS must be the complete 8-byte IPv4 form', () => {
   const value = mappedIpv4('203.0.113.9', 5000);
-  for (const bad of [value.subarray(0, 7), value.subarray(0, 4), Buffer.concat([value, Buffer.alloc(4)]), Buffer.alloc(0)]) {
+  for (const bad of [
+    value.subarray(0, 7),
+    value.subarray(0, 4),
+    Buffer.concat([value, Buffer.alloc(4)]),
+    Buffer.alloc(0),
+  ]) {
     assert.equal(parseBindingResponse(response(attribute(0x0020, bad)), ID), null, `length ${bad.length}`);
   }
   const ipv6 = Buffer.alloc(20);
@@ -113,7 +114,10 @@ test('a XOR-MAPPED-ADDRESS must be the complete 8-byte IPv4 form', () => {
   assert.equal(parseBindingResponse(response(attribute(0x0020, unknownFamily)), ID), null);
   // A bad mapped attribute poisons the message even after a good one.
   assert.equal(
-    parseBindingResponse(response(Buffer.concat([mapped('203.0.113.9', 1), attribute(0x0020, value.subarray(0, 7))])), ID),
+    parseBindingResponse(
+      response(Buffer.concat([mapped('203.0.113.9', 1), attribute(0x0020, value.subarray(0, 7))])),
+      ID
+    ),
     null
   );
 });
@@ -137,18 +141,43 @@ async function endpoint(t, reply = () => null) {
 }
 
 test('probeStun resends the same request on the doubling schedule and answers on a later copy', async (t) => {
+  // A fake clock and a stubbed send on the real socket: every send is observed
+  // synchronously, so the schedule is asserted exactly, with no UDP delivery or
+  // scheduler timing.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const rto = 20;
-  const server = await endpoint(t, (count, request, remote) =>
-    count === 3 ? response(mapped(remote.address, remote.port), { id: request.subarray(8, 20) }) : null
+  const sent = [];
+  let socket;
+  const realClose = Socket.prototype.close;
+  t.mock.method(Socket.prototype, 'send', function send(message) {
+    socket = this;
+    sent.push(Buffer.from(message));
+  });
+  t.mock.method(Socket.prototype, 'close', () => {});
+  t.after(() => realClose.call(socket));
+  const probe = probeStun('203.0.113.1', 3478, { rtoMs: rto });
+
+  assert.equal(sent.length, 1, 'first copy goes out immediately');
+  // Copies 2 and 3 go out at rto and 3*rto: the wait doubles after each send.
+  for (const [wait, copies] of [
+    [rto, 2],
+    [2 * rto, 3],
+  ]) {
+    t.mock.timers.tick(wait - 1);
+    assert.equal(sent.length, copies - 1, `no copy ${copies} before ${wait} ms have passed`);
+    t.mock.timers.tick(1);
+    assert.equal(sent.length, copies, `copy ${copies} after ${wait} ms`);
+  }
+  assert.equal(
+    sent.every((request) => request.equals(sent[0])),
+    true,
+    'every copy is the same transaction'
   );
-  const result = await probeStun('127.0.0.1', server.port, { rtoMs: rto });
-  assert.equal(result.address, '127.0.0.1');
-  assert.equal(server.received.length, 3);
-  assert.equal(server.received.every(({ request }) => request.equals(server.received[0].request)), true);
-  // Sends at 0, rto, 3*rto (timers may fire a millisecond early).
-  const [first, second, third] = server.received.map(({ at }) => at);
-  assert.ok(second - first >= rto - 3, String(second - first));
-  assert.ok(third - second >= 2 * rto - 3, String(third - second));
+
+  socket.emit('message', response(mapped('198.51.100.7', 4000), { id: sent[2].subarray(8, 20) }));
+  assert.deepEqual(await probe, { address: '198.51.100.7', port: 4000 });
+  t.mock.timers.tick(100 * rto);
+  assert.equal(sent.length, 3, 'an answered transaction sends nothing more');
 });
 
 test('probeStun gives up after Rc requests and Rm times the RTO of silence', async (t) => {
