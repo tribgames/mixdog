@@ -18,13 +18,17 @@ import { ErrorNotice } from './ErrorNotice';
 import { ScreenHeaderRow, ScreenStateCard } from './RemoteScreenChrome';
 import { t } from './i18n';
 import type { DockAction } from './pane-dock-chrome';
+import { currentDeviceId } from './remote-saved-pcs';
 import { createScreenGestureAdapter, type ScreenInputMode } from './remote-screen-gesture';
 import {
   EMPTY_SCREEN_HELPER_FORM,
+  markScreenHelperNoticeShown,
   screenBlockReason,
   screenHelperAsksAccount,
   screenHelperFormReady,
+  screenHelperNoticeDue,
   screenHelperPanel,
+  screenHelperSheetShown,
   submitScreenHelperForm,
   type ScreenHelperForm,
   type ScreenHelperLine,
@@ -385,20 +389,43 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
   useEffect(() => {
     if (asksAccount) setAccountSeen(true);
   }, [asksAccount]);
-  const sheetShown = sheetOpen && blocked !== null && panel.action !== null;
+  // The one-time first-open notice (existing users never got the offer in
+  // Computer Use setup): its button opens the same sheet.
+  const [noticeOpen, setNoticeOpen] = useState(false);
+  const [sheetFromNotice, setSheetFromNotice] = useState(false);
+  const sheetShown = screenHelperSheetShown({
+    open: sheetOpen,
+    blocked: blocked !== null,
+    fromNotice: sheetFromNotice,
+    action: panel.action,
+  });
   useEffect(() => {
     if (sheetOpen && !sheetShown) {
       setSheetOpen(false);
+      setSheetFromNotice(false);
       setForm(EMPTY_SCREEN_HELPER_FORM);
     }
   }, [sheetOpen, sheetShown]);
+  useEffect(() => {
+    const deviceId = currentDeviceId();
+    if (noticeOpen || !screenHelperNoticeDue(view, panel, window.localStorage, deviceId)) return;
+    markScreenHelperNoticeShown(window.localStorage, deviceId);
+    setNoticeOpen(true);
+  }, [noticeOpen, view, panel]);
+  const noticeShown = noticeOpen && view.kind === 'live' && panel.action === 'install' && !sheetShown;
   const openSheet = useCallback(() => {
     setHelperNotSent(false);
     setForm(EMPTY_SCREEN_HELPER_FORM);
     setSheetOpen(true);
   }, []);
+  const openSheetFromNotice = useCallback(() => {
+    setNoticeOpen(false);
+    setSheetFromNotice(true);
+    openSheet();
+  }, [openSheet]);
   const closeSheet = useCallback(() => {
     setSheetOpen(false);
+    setSheetFromNotice(false);
     setForm(EMPTY_SCREEN_HELPER_FORM);
     setHelperNotSent(false);
   }, []);
@@ -627,6 +654,23 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
           </div>
         )}
       </div>
+      {/* Outside the stage: its touch layer would turn a tap on a button into a PC click. */}
+      {noticeShown && (
+        <div className="remote-screen-note remote-screen-note-bar" role="status">
+          <strong>{t('Set up PC access')}</strong>
+          <span>
+            {t('Approve PC access once to handle administrator prompts and the lock screen from your phone.')}
+          </span>
+          <div className="remote-screen-actions">
+            <button type="button" className="remote-screen-primary" onClick={openSheetFromNotice}>
+              {t('Approve PC access')}
+            </button>
+            <button type="button" onClick={() => setNoticeOpen(false)}>
+              {t('Not now')}
+            </button>
+          </div>
+        </div>
+      )}
       {bar.present && (
         <ScreenKeyboardBar
           fieldRef={fieldRef}

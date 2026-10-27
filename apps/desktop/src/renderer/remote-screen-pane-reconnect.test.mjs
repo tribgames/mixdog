@@ -8,7 +8,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
   jsdom: { url: 'https://mixdog.test/' },
-  expose: ['HTMLElement', 'KeyboardEvent', 'CustomEvent', 'Event', 'navigator'],
+  expose: ['HTMLElement', 'KeyboardEvent', 'CustomEvent', 'Event', 'navigator', 'location', 'localStorage'],
 });
 window.requestAnimationFrame = (callback) => window.setTimeout(callback, 0);
 window.cancelAnimationFrame = (handle) => window.clearTimeout(handle);

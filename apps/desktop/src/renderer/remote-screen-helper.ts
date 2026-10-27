@@ -136,6 +136,60 @@ export function screenHelperPanel(
   return { action, busy: pending && action !== null, lines };
 }
 
+// --- first-open notice --------------------------------------------------------
+
+/** Set the first time the notice is due for a PC, never cleared. Relay pages of
+ *  every PC share one origin's storage, so the flag is namespaced by the
+ *  connected PC's id (as the pairing keys are). */
+export const SCREEN_HELPER_NOTICE_KEY = 'mixdog.remote-screen.access-notice.v1';
+
+export type ScreenHelperNoticeStorage = Pick<Storage, 'getItem' | 'setItem'>;
+
+export function screenHelperNoticeKey(deviceId: string): string {
+  return deviceId ? `${SCREEN_HELPER_NOTICE_KEY}@${deviceId}` : SCREEN_HELPER_NOTICE_KEY;
+}
+
+/** Whether the one-time notice is due: the live picture is up (a blocked view
+ *  has its own button), the PC offers an install (so not installed, and never
+ *  on a PC that cannot install), and it was not shown before. Storage that
+ *  cannot be read counts as shown: no nagging. */
+export function screenHelperNoticeDue(
+  view: ScreenView,
+  panel: Pick<ScreenHelperPanel, 'action'>,
+  storage: ScreenHelperNoticeStorage | null | undefined,
+  deviceId: string
+): boolean {
+  if (view.kind !== 'live' || panel.action !== 'install' || !storage) return false;
+  try {
+    return storage.getItem(screenHelperNoticeKey(deviceId)) === null;
+  } catch {
+    return false;
+  }
+}
+
+/** Records that the notice was shown for this PC. */
+export function markScreenHelperNoticeShown(
+  storage: ScreenHelperNoticeStorage | null | undefined,
+  deviceId: string
+): void {
+  try {
+    storage?.setItem(screenHelperNoticeKey(deviceId), '1');
+  } catch {
+    // Unwritable storage: the notice already counts as shown above.
+  }
+}
+
+/** The install sheet shows while open and there is still something to approve:
+ *  over the blocked view, or when the first-open notice opened it. */
+export function screenHelperSheetShown(state: {
+  open: boolean;
+  blocked: boolean;
+  fromNotice: boolean;
+  action: ScreenHelperPanel['action'];
+}): boolean {
+  return state.open && state.action !== null && (state.blocked || state.fromNotice);
+}
+
 // --- install request --------------------------------------------------------
 
 /** Phone → PC: enroll this phone's controller key and install (or update) the

@@ -165,6 +165,16 @@ html:has(.remote-screen-overlay) {
   text-align: center;
 }
 
+/* The first-open access notice sits below the stage, not over it: the stage's
+   touch layer turns every touch into a PC gesture, so a button inside it could
+   not be pressed. */
+.remote-screen-note.remote-screen-note-bar {
+  position: static;
+  background: var(--mx-workspace-sheet);
+  pointer-events: auto;
+  padding: 12px 24px;
+}
+
 .remote-screen-note strong {
   color: var(--mx-text);
   font-size: var(--mx-font-ui);
