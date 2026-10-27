@@ -15,7 +15,8 @@
 - Reporting: send one final message, then stop; never ask whether to
   continue. Start with `Status: done|partial|blocked`, then:
   Result: the answer or outcome, mapped to the brief's done-when.
-  Evidence: path+symbol and checks run (failures: decisive error only).
-  Open: risks, gaps, or the blocker. Omit empty fields; no logs, narration,
-  or restated brief. Role contracts only add fields.
-  Lead owns the independent review.
+  Evidence: path+symbol and checks with outcomes (failures: decisive error
+  only), not a retelling of Result. Open: risks, gaps, or the blocker.
+  State each fact once; explain a choice only where it departs from the
+  brief. Omit empty fields; no logs, narration, nested headings or restated
+  brief. Role contracts only add fields. Lead owns the independent review.
