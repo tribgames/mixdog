@@ -1854,7 +1854,7 @@ test('the publisher sends no composer while the app still shows its boot cover',
   assert.deepEqual(on.calls.composer, [null], 'behind the cover: no composer, so no overlay yet');
   await act(async () => {
     gate.setAttribute('data-ready', 'true');
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextFrame();
   });
   assert.deepEqual(on.calls.composer.at(-1), { x: 300, y: 600, width: 700, height: 120, island: null });
 });
@@ -2054,6 +2054,11 @@ async function mountSettings(t, desktop, { legacy = null, remote = false, mixy =
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   return { ...dom, publisher };
 }
+
+/** The publisher re-measures and re-reads the look in one frame callback after
+ *  DOM changes: let the observers queue it (a task), then wait for that frame. */
+const nextFrame = () =>
+  new Promise((resolve) => setTimeout(() => requestAnimationFrame(() => setTimeout(resolve, 0)), 0));
 
 const switchOf = (document) => document.querySelector('input[type="checkbox"][aria-label="Show on screen"]');
 
@@ -2550,7 +2555,7 @@ test("while on, the publisher sends the focused pane's composer card rect, and n
   // The card goes (settings page): null.
   await act(async () => {
     focused.remove();
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextFrame();
   });
   assert.equal(on.calls.composer.at(-1), null);
 });
@@ -2943,7 +2948,7 @@ test("while on, the publisher sends the app's chat look and resends it when the 
     html.dataset.mixdogTheme = 'light';
     html.style.setProperty('--mx-composer-surface', '#ffffff');
     html.style.setProperty('--mx-accent', '#e11d48');
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextFrame();
   });
   const next = on.calls.theme.at(-1);
   assert.equal(next.scheme, 'light');
@@ -2952,7 +2957,7 @@ test("while on, the publisher sends the app's chat look and resends it when the 
   const count = on.calls.theme.length;
   await act(async () => {
     html.setAttribute('data-unrelated', '1');
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    await nextFrame();
   });
   assert.equal(on.calls.theme.length, count, 'an unchanged look is not resent');
 });
