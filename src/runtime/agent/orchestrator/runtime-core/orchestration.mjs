@@ -34,16 +34,16 @@ self-contained brief.`;
 export function orchestrationInstructions(value) {
   const mode = normalizeOrchestrationMode(value);
   if (mode === 'none') return SOLO;
+  // Focused already says Lead executes the main scope directly.
+  const oneScope =
+    mode === 'focused' ? '' : '\nIf the plan has only one implementation scope, Lead executes it directly.';
   return `# Orchestration Mode: ${mode[0].toUpperCase()}${mode.slice(1)}
 
 ${BATCHING[mode]}
 
 The mode sets how work splits; an agent's description sets its role and when
 it runs. Splitting applies to every role alike — implementation, review,
-investigation, writing — by file, module, commit range or risk area.${
-    // Focused already says Lead executes the main scope directly.
-    mode === 'focused' ? '' : '\nIf the plan has only one implementation scope, Lead executes it directly.'
-  }
+investigation, writing — by file, module, commit range or risk area.${oneScope}
 
 Delegation is for work whose size justifies a brief. When the brief would have
 to spell out the edits themselves — a few localized changes whose sites Lead

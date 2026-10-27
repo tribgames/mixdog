@@ -202,7 +202,12 @@ const LEGACY_SEARCH_TOOLS = {
   name: 'search_tools',
   description:
     'Search the tools available in this session by name, alias, description or MCP server. Returns names with short descriptions; pass nextCursor back to get the next page.',
-  inputSchema: { type: 'object', properties: { query: { type: 'string' } }, required: ['query'], additionalProperties: false },
+  inputSchema: {
+    type: 'object',
+    properties: { query: { type: 'string' } },
+    required: ['query'],
+    additionalProperties: false,
+  },
 };
 const LEGACY_BRIDGE_LOAD_TOOL = {
   name: 'load_tool',
@@ -210,7 +215,11 @@ const LEGACY_BRIDGE_LOAD_TOOL = {
     'Describe tools by exact name: description, input schema and annotations, or the part one JSON Pointer selects. Large definitions arrive in chunks; pass nextCursor back for the rest. Describing never enables a tool.',
   inputSchema: {
     type: 'object',
-    properties: { names: { type: 'array', items: { type: 'string' } }, pointer: { type: 'string' }, cursor: { type: 'string' } },
+    properties: {
+      names: { type: 'array', items: { type: 'string' } },
+      pointer: { type: 'string' },
+      cursor: { type: 'string' },
+    },
     required: ['names'],
     additionalProperties: false,
   },
@@ -277,7 +286,10 @@ test('a bridge-v1 session with search_tools migrates once and still replays its 
   assert.deepEqual(sends[0].names, ['read', 'shell', 'load_tool', 'call_tool']);
   assert.equal(sends[0].tools[2], JSON.stringify(TOOL_SEARCH_TOOL), 'the shared load_tool');
   assert.equal(sends[0].bp2.includes(SEARCH_TOOLS_GUIDANCE), false);
-  assert.match(sends[0].bp2, /use load_tool first to see its parameters \(a keyword instead of a name searches the deferred tools\)\. Call directly defined tools directly\./);
+  assert.match(
+    sends[0].bp2,
+    /use load_tool first to see its parameters \(a keyword instead of a name searches the deferred tools\)\. Call directly defined tools directly\./
+  );
   assert.equal(sends[0].bp2.match(/<tool-bridge>/g).length, 1);
   // History keeps the old call, and every request replays it.
   assert.ok(sends.every((send) => send.replayed));
@@ -336,7 +348,10 @@ test('a bridge-v1 session on the query/cursor load_tool migrates once to the nat
     JSON.stringify(TOOL_SEARCH_TOOL)
   );
   assert.equal(session.messages[1].content, current.bp2);
-  assert.equal(session.deferredToolCatalog.some((tool) => tool.description === interim.description), false);
+  assert.equal(
+    session.deferredToolCatalog.some((tool) => tool.description === interim.description),
+    false
+  );
   assert.equal(migrateToolExposureAtBoundary(session, session.messages), false);
 });
 

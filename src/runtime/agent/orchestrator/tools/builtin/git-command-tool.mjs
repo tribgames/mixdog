@@ -874,7 +874,8 @@ function snapshotContaining(repo) {
   }
   return (
     Object.values(entries).find(
-      (record) => record?.kind === WORKTREE_SNAPSHOT_KIND && typeof record.path === 'string' && isWithin(record.path, repo)
+      (record) =>
+        record?.kind === WORKTREE_SNAPSHOT_KIND && typeof record.path === 'string' && isWithin(record.path, repo)
     ) ?? null
   );
 }

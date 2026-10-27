@@ -133,8 +133,7 @@ export const BUILTIN_TOOLS = [
               },
             },
           ],
-          description:
-            'Overlapping windows of one file merge. A glob fans out to ≤10 newest files.',
+          description: 'Overlapping windows of one file merge. A glob fans out to ≤10 newest files.',
         },
         offset: {
           type: 'integer',

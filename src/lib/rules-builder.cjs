@@ -196,6 +196,7 @@ function omitKeySet(omitTools) {
 function omitToolRoutes(text, omitTools = [], allowTools = null, ownerIsAgent = false) {
   const deny = omitKeySet(omitTools);
   const allow = Array.isArray(allowTools) ? omitKeySet(allowTools) : null;
+  const permitted = (name) => (name === 'lead' ? !ownerIsAgent : !deny.has(name) && (!allow || allow.has(name)));
   const lines = String(text || '').split(/\r?\n/);
   const kept = [];
   let index = 0;
@@ -209,7 +210,6 @@ function omitToolRoutes(text, omitTools = [], allowTools = null, ownerIsAgent = 
     index += 1;
     if (index >= lines.length) break;
     const end = markedBlockEnd(lines, index);
-    const permitted = (name) => (name === 'lead' ? !ownerIsAgent : !deny.has(name) && (!allow || allow.has(name)));
     if (!tools.length || tools.some(permitted)) {
       kept.push(...lines.slice(index, end));
     }
