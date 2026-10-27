@@ -16,6 +16,11 @@ export const SLASH_COMMANDS = [
   },
   { name: 'compact', usage: '/compact', description: 'Compact older conversation context' },
   {
+    name: 'handoff',
+    usage: '/handoff',
+    description: 'Write a Devin handoff file and start the Devin CLI on this project',
+  },
+  {
     name: 'btw',
     usage: '/btw',
     params: '<question>',

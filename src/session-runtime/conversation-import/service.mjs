@@ -184,7 +184,7 @@ async function importOne(candidateId, context) {
     if (!info.isFile()) return failed(candidateId, 'unreadable');
     candidate.size = info.size;
     candidate.mtimeMs = info.mtimeMs;
-    conversion = await convertCandidateFile(candidate, context.limits);
+    conversion = await convertCandidateFile(candidate, { ...context.limits, env: context.env });
   } catch {
     return failed(candidateId, 'unreadable');
   }
@@ -357,6 +357,7 @@ export function createConversationImportApi({
             loadTitles: () => loadStoredTitles('codex', env),
             sessionExists,
             limits,
+            env,
             prepareLeadOptions,
             leadOptions: null,
             createImportedSession: (args) =>

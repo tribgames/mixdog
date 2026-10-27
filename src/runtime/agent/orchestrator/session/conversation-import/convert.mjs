@@ -6,6 +6,7 @@
  */
 import { createClaudeReducer } from './claude.mjs';
 import { createCodexReducer } from './codex.mjs';
+import { createDevinReducer } from './devin.mjs';
 import {
   IMPORT_ERROR_INTERNAL,
   IMPORT_WARNING_HISTORY_PARTIAL,
@@ -14,7 +15,7 @@ import {
   normalizeTurns,
 } from './turns.mjs';
 
-export const IMPORT_SOURCES = Object.freeze(['codex', 'claude']);
+export const IMPORT_SOURCES = Object.freeze(['codex', 'claude', 'devin']);
 /** A line or converted transcript beyond the import limits fails the file. */
 export const IMPORT_ERROR_TOO_LARGE = 'tooLarge';
 export const IMPORT_MAX_LINE_BYTES = 32 * 1024 * 1024;
@@ -53,8 +54,9 @@ export function createConversationConverter(
     maxMetadataBytes = IMPORT_MAX_METADATA_BYTES,
   } = {}
 ) {
-  if (!isImportSource(source)) throw new TypeError('source must be codex or claude.');
-  const reducer = source === 'codex' ? createCodexReducer() : createClaudeReducer();
+  if (!isImportSource(source)) throw new TypeError('source must be codex, claude or devin.');
+  const reducer =
+    source === 'codex' ? createCodexReducer() : source === 'claude' ? createClaudeReducer() : createDevinReducer();
   let records = 0;
   let malformed = 0;
   let tooLarge = false;

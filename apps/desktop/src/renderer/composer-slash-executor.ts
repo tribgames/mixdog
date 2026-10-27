@@ -18,6 +18,7 @@ import {
   type SettingsSection,
 } from './slash-commands';
 import { t } from './i18n';
+import { requestTerminalCommand } from './terminal-command-request';
 import { TURN_LOCKED_SLASH_COMMANDS, asRecord } from './text-format';
 
 type SlashExecutorDeps = {
@@ -105,6 +106,7 @@ async function runSlashCommand(
   if (rawName === 'new' || name === 'clear') return runNewOrClear(run, rawName);
   if (name === 'btw') return runBtw(run, argument);
   if (name === 'goal') return runGoal(run, argument);
+  if (name === 'handoff') return runHandoff(run);
   if (name === 'fast') return runFast(run, argument);
   if (name === 'model' && argument) return runModel(run, argument);
   if (name === 'fork' && deps.onInherit) return runInherit(run, deps.onInherit);
@@ -222,6 +224,28 @@ async function runGoal(run: SlashRun, argument: string): Promise<boolean | undef
   }
   const result = asRecord(await commandCapability<unknown>(run, 'goalControl', [{ command: argument }]));
   if (!run.failed) deps.showNotice(String(result?.message || 'Goal updated.'));
+  return undefined;
+}
+
+// /handoff writes the Devin handoff file on the daemon ('none': no separate
+// window), then the returned command is entered in this session's terminal
+// tab so Devin CLI continues in the project directory.
+async function runHandoff(run: SlashRun): Promise<undefined> {
+  const { deps } = run;
+  const result = asRecord(await commandCapability<unknown>(run, 'devinHandoff', [{ launch: 'none' }]));
+  if (run.failed) return;
+  if (result?.ok !== true) {
+    deps.setAttachmentError(`Handoff failed: ${String(result?.error || 'unknown error')}`);
+    run.failed = true;
+    return;
+  }
+  const command = String(result.command || '');
+  if (command && deps.sessionId) {
+    requestTerminalCommand(deps.sessionId, command);
+    deps.showNotice(`Handoff written to ${String(result.path)} — started Devin CLI in the session terminal.`);
+  } else {
+    deps.showNotice(`Handoff written to ${String(result.path)}`);
+  }
   return undefined;
 }
 

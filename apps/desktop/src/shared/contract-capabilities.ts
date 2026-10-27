@@ -71,6 +71,7 @@ export const DESKTOP_CAPABILITIES = [
   'selectTools',
   'getSystemShell',
   'setSystemShell',
+  'devinHandoff',
   'mcpStatus',
   'getMcpServerConfig',
   'reconnectMcp',

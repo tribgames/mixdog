@@ -353,6 +353,49 @@ test('Claude Code: a compaction summary stands in for history the file no longer
   assert.equal(result.title, 'Second question');
 });
 
+// Devin snapshot lines: the session row, then message nodes in node_id order.
+const devinMeta = (id = 'devin-1', cwd = '/home/me/demo') => ({
+  type: 'session_meta',
+  payload: { id, cwd, title: 'Devin session title', created_at: 1_700_000_000, last_activity_at: 1_700_000_100 },
+});
+const devinNode = (node_id, chat_message, parent_node_id = node_id - 1) => ({
+  type: 'node',
+  payload: { node_id, parent_node_id, created_at: 1_700_000_000 + node_id, chat_message },
+});
+const devinMessage = (role, content, extra = {}) => ({ message_id: `m-${content.slice(0, 8)}`, role, content, ...extra });
+
+test('Devin CLI: user inputs, assistant text and tool notes; envelopes and internal turns dropped', () => {
+  const text = jsonl([
+    devinMeta(),
+    devinNode(1, devinMessage('system', 'You are Devin.')),
+    devinNode(2, devinMessage('user', 'cache keepalive', { metadata: { is_user_input: false } })),
+    devinNode(3, devinMessage('user', 'Fix the flaky test', { metadata: { is_user_input: true } })),
+    devinNode(
+      4,
+      devinMessage('assistant', '', { tool_calls: [{ name: 'exec', arguments: { command: 'HIDDEN_ARG' } }] })
+    ),
+    devinNode(5, devinMessage('tool', 'TOOL OUTPUT')),
+    devinNode(6, devinMessage('assistant', 'Fixed it.')),
+    devinNode(7, devinMessage('user', 'Thanks', { metadata: { is_user_input: true } })),
+  ]);
+  const result = convertConversationText('devin', text);
+  assert.equal(result.errorCode, null);
+  assert.equal(result.foreignSessionId, 'devin-1');
+  assert.equal(result.cwd, '/home/me/demo');
+  assert.deepEqual(
+    result.turns.map(({ role, text: value }) => [role, value]),
+    [
+      ['user', 'Fix the flaky test'],
+      ['assistant', '[ran tools: exec ×1]\n\nFixed it.'],
+      ['user', 'Thanks'],
+    ]
+  );
+  const serialized = JSON.stringify(result.turns);
+  for (const dropped of ['You are Devin', 'cache keepalive', 'TOOL OUTPUT', 'HIDDEN_ARG']) {
+    assert.equal(serialized.includes(dropped), false, dropped);
+  }
+});
+
 test('Claude Code: a boundary whose logical parent was never written links to the history before it', () => {
   const boundary = (uuid, logicalParentUuid) => ({
     type: 'system',
@@ -434,6 +477,38 @@ test('Claude Code: slash commands read as Claude Code shows them; locally answer
   for (const dropped of ['command-', 'skill-format', 'opus', 'Expanded skill body']) {
     assert.equal(serialized.includes(dropped), false, dropped);
   }
+});
+
+test('Devin CLI: repeated context nodes keep the first position and the fuller copy', () => {
+  const user = devinMessage('user', 'Original question', { metadata: { is_user_input: true } });
+  const short = devinMessage('assistant', '…', {});
+  const full = { ...short, content: 'Complete answer text' };
+  const text = jsonl([
+    devinMeta('devin-2'),
+    devinNode(1, user),
+    devinNode(2, short),
+    // A later turn's chain repeats the same context under new node ids.
+    devinNode(3, { ...user, message_id: user.message_id }),
+    devinNode(4, { ...full, message_id: short.message_id }),
+    devinNode(5, devinMessage('user', 'Second question', { metadata: { is_user_input: true } })),
+  ]);
+  const result = convertConversationText('devin', text);
+  assert.equal(result.errorCode, null);
+  assert.deepEqual(
+    result.turns.map(({ role, text: value }) => [role, value]),
+    [
+      ['user', 'Original question'],
+      ['assistant', 'Complete answer text'],
+      ['user', 'Second question'],
+    ]
+  );
+});
+
+test('Devin CLI: a header-only snapshot reports the session but converts empty', () => {
+  const result = convertConversationText('devin', jsonl([devinMeta('devin-3')]));
+  assert.equal(result.errorCode, 'empty');
+  assert.equal(result.foreignSessionId, 'devin-3');
+  assert.equal(result.title, 'Devin session title');
 });
 
 test('Claude Code: the create-PR instructions are dropped and the app paste envelope is unwrapped', () => {

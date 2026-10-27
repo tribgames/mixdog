@@ -76,6 +76,29 @@ export const sessionCommands = {
     return true;
   },
 
+  handoff(ctx) {
+    const { store } = ctx;
+    void Promise.resolve(store.devinHandoff?.())
+      .then((result) => {
+        if (!result) {
+          store.pushNotice('handoff unavailable', 'warn');
+          return;
+        }
+        if (!result.ok) {
+          store.pushNotice(`handoff failed: ${result.error || 'unknown error'}`, 'error');
+          return;
+        }
+        store.pushNotice(
+          result.launched
+            ? `handoff written to ${result.path} — Devin CLI started`
+            : `handoff written to ${result.path} — run: ${result.command}`,
+          'info'
+        );
+      })
+      .catch((error) => store.pushNotice(`handoff failed: ${error?.message || error}`, 'error'));
+    return true;
+  },
+
   goal(ctx, arg) {
     const { store } = ctx;
     void Promise.resolve(store.goalControl?.({ command: arg }))

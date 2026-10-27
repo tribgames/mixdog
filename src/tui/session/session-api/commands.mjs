@@ -170,6 +170,12 @@ export function createSessionCommandsApi(bag) {
       });
     },
     compact: compactCommand,
+    // /handoff: write a Devin handoff file for this session (and start the
+    // Devin CLI when a console can be opened). Notices are the caller's.
+    devinHandoff: async () => {
+      if (getState().commandBusy) return null;
+      return (await runtime.devinHandoff?.()) || null;
+    },
     // /btw: answered from the conversation so far while a turn keeps running.
     // No command lock and no transcript row: the answer is only returned.
     askSide: (question) => runtime.askSide(question),

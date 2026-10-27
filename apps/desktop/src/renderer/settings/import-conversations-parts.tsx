@@ -27,6 +27,7 @@ const NEAR_END_PX = 240;
 const SOURCES: ReadonlyArray<{ value: ConversationImportSource; label: string }> = [
   { value: 'codex', label: 'Codex' },
   { value: 'claude', label: 'Claude Code' },
+  { value: 'devin', label: 'Devin CLI' },
 ];
 
 export function importHeading(job: ConversationImportJob | null, running: boolean): string {
@@ -140,7 +141,9 @@ function ImportEmptyState({ listing, onChooseFile }: { listing: ImportListing; o
       <b>
         {listing.source === 'codex'
           ? t('No Codex conversations to import')
-          : t('No Claude Code conversations to import')}
+          : listing.source === 'claude'
+            ? t('No Claude Code conversations to import')
+            : t('No Devin CLI conversations to import')}
       </b>
       <p>{t('No conversations were found in:')}</p>
       <code>{listing.list?.searchedRoot}</code>

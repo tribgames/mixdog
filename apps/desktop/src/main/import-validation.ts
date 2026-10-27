@@ -37,7 +37,9 @@ function text(value: unknown, name: string): void {
 }
 
 function source(value: unknown, name: string): void {
-  if (value !== 'codex' && value !== 'claude') throw new TypeError(`${name} must be codex or claude.`);
+  if (value !== 'codex' && value !== 'claude' && value !== 'devin') {
+    throw new TypeError(`${name} must be codex, claude or devin.`);
+  }
 }
 
 function optionalText(input: Record<string, unknown>, key: string, name: string): void {

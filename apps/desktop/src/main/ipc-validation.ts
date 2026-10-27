@@ -481,6 +481,7 @@ const CAPABILITY_ARITY = {
   recall: [1, 2],
   runDoctor: [0, 0],
   compact: [0, 0],
+  devinHandoff: [0, 1],
   askSide: [1, 1],
   cancelSide: [0, 0],
   listPresets: [0, 0],

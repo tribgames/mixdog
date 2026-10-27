@@ -3,6 +3,7 @@
  *
  *   codex   $CODEX_HOME/sessions/**\/rollout-*.jsonl   (default ~/.codex)
  *   claude  $CLAUDE_CONFIG_DIR/projects/*\/*.jsonl      (default ~/.claude)
+ *   devin   SQLite store → header snapshots in <data>/import-cache/devin   (devin-store.mjs)
  *
  * Enumeration is stat-only; per-file metadata (foreign id, cwd, title, and
  * the message count when the whole file fit the read) comes from a bounded
@@ -26,6 +27,7 @@ import {
 import { codexMetaFromTruncatedLine } from '../../runtime/agent/orchestrator/session/conversation-import/codex.mjs';
 import { IMPORT_WARNING_CWD_MISSING } from '../../runtime/agent/orchestrator/session/conversation-import/turns.mjs';
 import { importOriginKey } from '../../runtime/agent/orchestrator/session/conversation-import/imported-session.mjs';
+import { materializeDevinSnapshot, refreshDevinSnapshots, resetDevinStoreCache } from './devin-store.mjs';
 import { loadCodexThreadTitles } from './codex-titles.mjs';
 
 export const PREFIX_CHUNK_BYTES = 64 * 1024;
@@ -61,6 +63,7 @@ export function resetConversationDiscovery({ scanMaxBytes = IMPORT_MAX_FILE_BYTE
   state.pendingMeta.clear();
   state.queue.length = 0;
   state.views.clear();
+  resetDevinStoreCache();
 }
 
 const envDir = (value) => (typeof value === 'string' && value.trim() ? resolve(value.trim()) : null);
@@ -69,11 +72,15 @@ const envDir = (value) => (typeof value === 'string' && value.trim() ? resolve(v
 export function sourceRoot(source, env = process.env) {
   if (source === 'codex') return join(envDir(env.CODEX_HOME) || join(homedir(), '.codex'), 'sessions');
   if (source === 'claude') return join(envDir(env.CLAUDE_CONFIG_DIR) || join(homedir(), '.claude'), 'projects');
+  if (source === 'devin') {
+    const configured = envDir(env.MIXDOG_DEVIN_CLI_DB);
+    return configured ? dirname(configured) : join(homedir(), '.local', 'share', 'devin', 'cli');
+  }
   throw importError('unsupported');
 }
 
 export function requireSource(source) {
-  if (!isImportSource(source)) throw new TypeError('source must be codex or claude.');
+  if (!isImportSource(source)) throw new TypeError('source must be codex, claude or devin.');
   return source;
 }
 
@@ -174,16 +181,34 @@ async function mapBounded(items, limit, fn) {
 
 /** Regular files under the source root, canonical and contained, as candidates. */
 export async function enumerateCandidates(source, env = process.env) {
-  const root = sourceRoot(source, env);
+  let root = sourceRoot(source, env);
   let rootReal;
-  try {
-    rootReal = await realpath(root);
-  } catch {
-    return { root, candidates: [] };
-  }
   const paths = [];
-  if (source === 'codex') await walkCodex(rootReal, rootReal, paths, new Set([caseFold(rootReal)]));
-  else await walkClaude(rootReal, paths);
+  if (source === 'devin') {
+    // Devin's store is a SQLite DB, not files: refresh header snapshots and
+    // enumerate those. `root` shown to the user is the store's own location.
+    const snapshots = refreshDevinSnapshots(env);
+    if (!snapshots) return { root, candidates: [] };
+    root = snapshots.store.displayRoot;
+    try {
+      rootReal = await realpath(snapshots.dir);
+    } catch {
+      return { root, candidates: [] };
+    }
+    for (const entry of await entriesOf(rootReal)) {
+      if ((entry.isFile() || entry.isSymbolicLink()) && /\.jsonl$/i.test(entry.name)) {
+        paths.push(join(rootReal, entry.name));
+      }
+    }
+  } else {
+    try {
+      rootReal = await realpath(root);
+    } catch {
+      return { root, candidates: [] };
+    }
+    if (source === 'codex') await walkCodex(rootReal, rootReal, paths, new Set([caseFold(rootReal)]));
+    else await walkClaude(rootReal, paths);
+  }
   const stamped = await mapBounded(paths, STAT_CONCURRENCY, async (path) => {
     const real = await containedRealpath(rootReal, path);
     if (!real) return null;
@@ -536,8 +561,20 @@ export async function convertCandidateFile(
     maxRetainedEntries = IMPORT_MAX_RETAINED_ENTRIES,
     maxMetadataBytes = IMPORT_MAX_METADATA_BYTES,
     chunkBytes = IMPORT_CHUNK_BYTES,
+    env = process.env,
   } = {}
 ) {
+  if (candidate.source === 'devin' && candidate.root) {
+    // A managed snapshot is only a header until imported: dump the live
+    // session now so the import sees the current conversation. Picked files
+    // (root null) convert as they are.
+    if (!materializeDevinSnapshot(candidate.path, env)) throw importError('unreadable');
+    const info = await stat(candidate.path).catch(() => null);
+    if (!info?.isFile()) throw importError('unreadable');
+    candidate.size = info.size;
+    candidate.mtimeMs = info.mtimeMs;
+    candidate.fileId = fileIdentity(info);
+  }
   const converter = createConversationConverter(candidate.source, {
     maxTranscriptChars,
     maxRetainedEntries,
@@ -671,7 +708,9 @@ export function importedKeyMap(summaries) {
 function rowFor(candidate, meta, cwdInfo, imported, titles) {
   const warnings = new Set(meta?.warnings || []);
   if (meta && !meta.errorCode && !cwdInfo?.exists) warnings.add(IMPORT_WARNING_CWD_MISSING);
-  if (meta?.errorCode) warnings.add(meta.errorCode);
+  // A devin snapshot is header-only until import: meta-only is not "empty".
+  const headerOnly = candidate.source === 'devin' && meta?.errorCode === 'empty' && meta.foreignSessionId;
+  if (meta?.errorCode && !headerOnly) warnings.add(meta.errorCode);
   return {
     id: candidate.id,
     source: candidate.source,

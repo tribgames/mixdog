@@ -10,6 +10,7 @@ import { createSessionOps } from './turn/session-ops.mjs';
 import { createCompactionGate } from './turn/compaction-gate.mjs';
 import { createAgentOps } from './turn/agent-ops.mjs';
 import { createSideQuestionOps } from './turn/side-question-ops.mjs';
+import { createDevinHandoffApi } from './devin-handoff.mjs';
 
 export function createSessionTurnApi(deps) {
   // A model-scheduled compaction runs chained after its turn; the next turn
@@ -20,6 +21,7 @@ export function createSessionTurnApi(deps) {
   const session = createSessionOps(deps);
   const agent = createAgentOps(deps);
   const side = createSideQuestionOps(deps);
+  const handoff = createDevinHandoffApi(deps);
   return {
     askSide: side.askSide,
     cancelSide: side.cancelSide,
@@ -42,5 +44,6 @@ export function createSessionTurnApi(deps) {
     toolsStatus: agent.toolsStatus,
     selectTools: agent.selectTools,
     setCwd: session.setCwd,
+    devinHandoff: handoff.devinHandoff,
   };
 }

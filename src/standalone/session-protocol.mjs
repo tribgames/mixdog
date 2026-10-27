@@ -148,6 +148,7 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'deleteSession',
   'deleteWebhook',
   'deleteWorkflow',
+  'devinHandoff',
   'enablePluginMcp',
   'forgetProviderAuth',
   'goalControl',

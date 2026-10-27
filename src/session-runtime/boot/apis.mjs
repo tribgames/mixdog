@@ -731,6 +731,7 @@ function sessionTurnApiFor(boot) {
     mcpAgentGraceMs: tunables.mcpAgentGraceMs,
     awaitRoutePreparation: () => routePreparation.wait(),
     getReservedSessionId: () => rt.reservedSessionId,
+    goalSnapshotFor: (sessionId) => boot.goalRuntime?.snapshot?.(sessionId),
     assertSessionAdmission: () => assertAdmissionOpen(rt),
     isSessionAdmissionOpen: () => isAdmissionOpen(rt),
     registerActiveTurnController: boot.registerActiveTurnController,
