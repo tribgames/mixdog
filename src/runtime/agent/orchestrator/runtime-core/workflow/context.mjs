@@ -4,6 +4,8 @@ import { clean } from '../session-text.mjs';
 import { configuredOrchestrationMode } from '../../../../shared/orchestration.mjs';
 import { AGENT_MODE_DELEGATION, MIXY_CONTACTS_INTRO, orchestrationInstructions } from '../orchestration.mjs';
 import { DEFAULT_WORKFLOW_ID, isContactAgentId, normalizeWorkflowId } from '../workflow-ids.mjs';
+import { MIXY_AGENT_ID } from '../../session/agent-home.mjs';
+import { mixyDisplayName } from '../../session/mixy-name.mjs';
 
 export function createWorkflowContext({ packs, agents }) {
   function workflowSummary(pack, { hasAgents = true } = {}) {
@@ -59,7 +61,9 @@ export function createWorkflowContext({ packs, agents }) {
   // - coding: the orchestration mode block and the full agent catalog;
   // - agent mode: the fixed delegation block (no per-agent setting) and the
   //   sub-agent catalog — identical for every agent, so their prompts share
-  //   it — plus the contact-agent catalog: every bot but `agentId` itself.
+  //   it — plus the contact-agent catalog: every bot but `agentId` itself,
+  //   and for any bot but Mixy, Mixy first under her display name, so a bot
+  //   asked to hand work to her by that name finds her (session send lead).
   function leadPromptParts(config, dir, { agentMode = false, agentId = '' } = {}) {
     const mode = configuredOrchestrationMode(config);
     const ids = agents.delegatableAgentIds(config, dir);
@@ -79,10 +83,15 @@ export function createWorkflowContext({ packs, agents }) {
       dir,
       ids.filter((id) => !isContact(id))
     );
-    const contacts = agentCatalog(
-      dir,
-      ids.filter((id) => isContact(id) && id !== agentId)
-    );
+    const contacts = [
+      agentId === MIXY_AGENT_ID ? '' : `- ${mixyDisplayName()} (${MIXY_AGENT_ID}): the user's representative bot`,
+      agentCatalog(
+        dir,
+        ids.filter((id) => isContact(id) && id !== agentId)
+      ),
+    ]
+      .filter(Boolean)
+      .join('\n');
     return {
       // An agent-mode Lead without agents has no one to delegate to at all.
       orchestrationContext: subAgents || contacts ? AGENT_MODE_DELEGATION : '',

@@ -3,9 +3,13 @@
 // Every model- or user-facing string that names it reads this, re-read on each
 // use so a rename applies at once. Text shared across agents (tool schemas,
 // other agents' shared prompt block) says "the representative agent" instead,
-// so a rename never changes cached bytes.
-import { dirname, join } from 'node:path';
-import { mixdogGlobalDir, readSafe } from '../context/skill-catalog.mjs';
+// so a rename never changes those cached bytes. Each other bot's own contact
+// catalog (workflow/context.mjs) names her, so a request naming her finds her.
+// Light imports only: the prompt's contact catalog (workflow/context.mjs) reads
+// the name too, and must not pull the skill catalog and config in with it.
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { mixyIdentityDir } from '../../../shared/agent-store.mjs';
 
 export const DEFAULT_MIXY_NAME = 'Mixy';
@@ -19,8 +23,9 @@ export function mixyNameOf(manifest) {
 export function mixyDisplayName() {
   try {
     // bots/mixy once Mixy is its own bot, agents/lead before (agent-store.mjs).
-    const dir = mixyIdentityDir(dirname(mixdogGlobalDir('agents')));
-    return mixyNameOf(JSON.parse(readSafe(join(dir, 'agent.json')) || '{}'));
+    // A missing, empty or malformed agent.json falls back to Mixy below.
+    const dir = mixyIdentityDir(resolvePluginData());
+    return mixyNameOf(JSON.parse(readFileSync(join(dir, 'agent.json'), 'utf8')));
   } catch {
     return DEFAULT_MIXY_NAME;
   }

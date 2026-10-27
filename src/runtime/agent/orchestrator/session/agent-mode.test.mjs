@@ -348,8 +348,10 @@ test('a kind: agent or unmarked (pre-bot) agent is a sub-agent, never a contact;
   }
   const mixyParts = context.leadPromptParts({ agentMode: true, agentId: 'lead' });
   assert.match(mixyParts.contactCatalogContext, /\(other\)[\s\S]*\(sample\)/);
-  // A bot sees the other contacts but not itself.
+  assert.doesNotMatch(mixyParts.contactCatalogContext, /\(lead\)/);
+  // A bot sees Mixy first, then the other contacts, but not itself.
   const botParts = context.leadPromptParts({ agentMode: true, agentId: 'other' });
+  assert.match(botParts.contactCatalogContext, /brief\.\n\n- Mixy \(lead\): the user's representative bot\n- /);
   assert.match(botParts.contactCatalogContext, /\(sample\)/);
   assert.doesNotMatch(botParts.contactCatalogContext, /\(other\)/);
   // The coding catalog lists it with every other delegatable agent.
@@ -384,11 +386,15 @@ test('a renamed Mixy speaks under its display name; its id stays lead', (t) => {
   const renamed = compose({ agent: 'lead', sessionMode: 'agent' }).sessionMarkerCore;
   assert.match(renamed, /# Identity\n\nYou are Momo, the user's assistant in Mixdog\./);
   assert.doesNotMatch(renamed, /Mixy/);
-  // Another agent's prompt never names the representative: a rename leaves
-  // its bytes (shared block included) untouched.
+  // Another bot names the representative only in its own contact catalog, so a
+  // user asking it to hand work to "Momo" finds her: a rename changes that
+  // catalog and leaves everything before it (the shared block) untouched.
   const sampleAfter = compose({ agent: 'sample', sessionMode: 'agent', sourceType: 'schedule' }).sessionMarkerCore;
-  assert.equal(sampleAfter, sampleBefore);
-  assert.doesNotMatch(sampleAfter, /Mixy|Momo/);
+  const beforeBots = (core) => core.slice(0, core.indexOf('# Bots'));
+  assert.equal(beforeBots(sampleAfter), beforeBots(sampleBefore));
+  assert.match(sampleBefore, /- Mixy \(lead\): the user's representative bot\n/);
+  assert.match(sampleAfter, /- Momo \(lead\): the user's representative bot\n/);
+  assert.doesNotMatch(beforeBots(sampleAfter), /Mixy|Momo/);
   // Only the identity tail changes: everything before it is shared.
   const head = (core) => core.slice(0, core.indexOf('# Identity'));
   assert.equal(head(renamed), head(before));
