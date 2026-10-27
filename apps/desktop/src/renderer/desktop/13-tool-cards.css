@@ -719,8 +719,13 @@ html[data-mixdog-mobile-tabs]
   white-space: nowrap;
 }
 .transcript-browser-peek-owner {
-  flex: none;
   color: var(--mx-warning);
+}
+/* Only the title or command gives way to a narrow column: the labels and
+   separators keep their size and never break mid-word ("터/미/널"). */
+.transcript-browser-peek > :not(.transcript-browser-peek-title):not(.transcript-terminal-peek-command) {
+  flex: none;
+  white-space: nowrap;
 }
 /* The tab it named is gone: the same line, inert, saying so. */
 .transcript-browser-peek.is-gone {
@@ -733,12 +738,6 @@ html[data-mixdog-mobile-tabs]
    with the command truncated between the two separators. */
 .transcript-terminal-peek {
   max-width: 100%;
-}
-/* Only the title or command gives way to a narrow column: the labels and
-   separators keep their size and never break mid-word ("터/미/널"). */
-.transcript-browser-peek > :not(.transcript-browser-peek-title):not(.transcript-terminal-peek-command) {
-  flex: none;
-  white-space: nowrap;
 }
 .transcript-terminal-peek-command {
   min-width: 0;
