@@ -184,6 +184,24 @@ async function mountTranscript(
   const measure = () => act(async () => deliver());
   /** Time passing with no input — long enough for scroll-idle timers. */
   const idle = (ms) => act(() => new Promise((resolve) => dom.window.setTimeout(resolve, ms)));
+  /** From here on an animation frame runs only when the returned `frame()`
+   *  runs it: every frame requested so far, as one painted frame. */
+  const holdFrames = () => {
+    const frames = new Map();
+    let nextFrame = 0;
+    dom.window.requestAnimationFrame = (callback) => {
+      frames.set(++nextFrame, callback);
+      return nextFrame;
+    };
+    dom.window.cancelAnimationFrame = (id) => frames.delete(id);
+    return () =>
+      act(async () => {
+        const now = dom.window.performance.now();
+        for (const [id, callback] of [...frames]) {
+          if (frames.delete(id)) callback(now);
+        }
+      });
+  };
   /** A scroll that lands before any row there was measured. */
   const jump = (top) =>
     act(async () => {
@@ -208,6 +226,7 @@ async function mountTranscript(
     overlaps,
     measure,
     idle,
+    holdFrames,
     jump,
     positioned,
     viewport,
@@ -457,6 +476,9 @@ test('a resize queued while its row is wholly above the reader lands compensated
     // The row ends 50 px above the viewport top, the reader mid-gesture; it
     // renders 30 px taller, so its new box still ends above the top: queued.
     await mount.scrollTo(start + heights.get(target.key) + 50);
+    // The queue's flush frame runs only when this test runs it, so the
+    // reader's move below always comes first.
+    const frame = mount.holdFrames();
     gesture = true;
     heights.set(target.key, heights.get(target.key) + grown);
     await mount.measure();
@@ -470,8 +492,8 @@ test('a resize queued while its row is wholly above the reader lands compensated
     const before = offsetBelow();
     const writesBefore = mount.writes();
     assert.equal(writesBefore, writes + 1, 'only the reader moved the offset');
-    // The pump's animation frame lands it; the observer delivers nothing new.
-    for (let frame = 0; frame < 50 && slot() !== heights.get(target.key); frame += 1) await mount.idle(20);
+    // The pump's next animation frame lands it; the observer delivers nothing new.
+    await frame();
     assert.equal(slot(), heights.get(target.key), 'the queued size landed');
     assert.equal(mount.viewport.scrollTop, moved + grown, 'the native offset moved by exactly the landed growth');
     assert.equal(mount.writes(), writesBefore + 1, 'as one write');

@@ -17,6 +17,7 @@ writeFileSync(
 );
 delete process.env.MIXDOG_BOOT_INSTRUCTION_FILES;
 const { buildColdHeir } = await import('./cold-heir.mjs');
+const { sessionScratchDir } = await import('../../runtime/shared/session-scratch.mjs');
 process.on('exit', () => rmSync(root, { recursive: true, force: true }));
 
 const SEP = '\n\n---\n\n';
@@ -85,4 +86,41 @@ test('the heir of a worktree source drops its pending re-root and is rooted at t
   assert.ok(env.startsWith('- '), 'the Project folder facts lead the environment');
   assert.doesNotMatch(env, /C:\/old|worktree facts|worktrees|# Session/, 'the first turn stamps # Session');
   assert.equal(heir.sessionStartMetaInjected, false);
+});
+
+test('a same-folder heir keeps the inherited instruction files and names its own scratch directory', () => {
+  const project = join(root, 'same-folder');
+  mkdirSync(project, { recursive: true });
+  const agentsFile = join(project, 'AGENTS.md');
+  writeFileSync(agentsFile, 'inherited rule');
+  const core = `# Role${SEP}# Instruction Files\n\n## ${agentsFile}\n\ninherited rule${SEP}# Core Memory\n- memo`;
+  const sourceScratch = sessionScratchDir('sess_same_source');
+  const env = `- Cwd: ${project} — the active Project root.\n- Scratch: ${sourceScratch} — this session's scratch directory.`;
+  const source = {
+    id: 'sess_same_source',
+    owner: 'cli',
+    cwd: project,
+    bp3EnvSplit: true,
+    bp3CoreContext: core,
+    bp3EnvironmentContext: env,
+    messages: [
+      { role: 'system', content: 'Preserve instructions.' },
+      { role: 'system', content: core, cacheTier: 'tier3' },
+      { role: 'system', content: `# Session\nCwd: ${project}${SEP}${env}`, cacheTier: 'env' },
+      { role: 'user', content: 'question' },
+    ],
+  };
+  // The file changed on disk since the source was created, then went away.
+  writeFileSync(agentsFile, 'edited rule');
+  const edited = buildColdHeir(source);
+  rmSync(agentsFile);
+  const removed = buildColdHeir(source);
+  for (const heir of [edited, removed]) {
+    assert.equal(tier(heir, 'tier3'), core, 'the inherited instruction slice is kept byte for byte');
+    assert.equal(heir.bp3CoreContext, core);
+    const heirEnv = tier(heir, 'env');
+    assert.ok(heirEnv.includes(`- Scratch: ${sessionScratchDir(heir.id)} `), 'the scratch line names the heir');
+    assert.equal(heirEnv.includes(sourceScratch), false, "the source's scratch directory is gone");
+    assert.equal(heirEnv.includes(source.id), false);
+  }
 });

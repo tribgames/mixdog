@@ -341,7 +341,7 @@ test("a session's visualize owner comes from its own records, as the host maps i
       3
     ),
   ]);
-  assert.deepEqual(Object.keys(spoofed).sort(), ['at', 'id', 'label', 'pending', 'tabId', 'targets']);
+  assert.deepEqual(Object.keys(spoofed).sort(), ['at', 'callId', 'id', 'label', 'pending', 'tabId', 'targets']);
   // The host's stamp (the result's toolMeta, stored with it) is the owner,
   // with or without the sub-agent's pool row.
   const stamped = visualizeCardCalls([

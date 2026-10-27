@@ -150,14 +150,19 @@ export function buildColdHeir(source, now = Date.now()) {
   // earlier folder) is the source's own: the heir's prompt is built for the
   // folder it actually starts in. Project memory follows the Project, which a
   // worktree shares, so the source's current memory slice carries over.
+  // In the same folder only the environment facts are rebuilt: they name the
+  // heir's own scratch directory, never the source's, while the inherited
+  // instruction files and memory stay as the source presented them.
   const pending = source.workspaceReroot;
   delete heir.workspaceReroot;
-  if ((projectFolder || pending) && heir.cwd) {
-    refreshSessionWorkspaceContext(heir, {
-      cwd: heir.cwd,
-      ...buildWorkspacePromptContext(heir, heir.cwd),
-      coreMemoryContext: pending?.target?.coreMemoryContext,
-    });
+  if (heir.cwd) {
+    const context = buildWorkspacePromptContext(heir, heir.cwd);
+    refreshSessionWorkspaceContext(
+      heir,
+      projectFolder || pending
+        ? { cwd: heir.cwd, ...context, coreMemoryContext: pending?.target?.coreMemoryContext }
+        : { cwd: heir.cwd, environmentContext: context.environmentContext }
+    );
   }
   invalidateContextUsageSnapshot(heir);
   invalidateProviderContextBaseline(heir);

@@ -58,6 +58,24 @@ const until = async (condition, what = 'condition') => {
   assert.fail(`${what} never became true`);
 };
 
+/** Counts the desktop channel's seals and opens still running. The returned
+ *  wait resolves once none is: everything the coordinator sealed by then is
+ *  written, everything it was sent is handled, so the virtual clock never
+ *  runs ahead of the real crypto it waits on. */
+function trackChannel(channel) {
+  let running = 0;
+  for (const name of ['sealControl', 'openControl', 'encryptBinary', 'decryptJson']) {
+    const original = channel[name].bind(channel);
+    channel[name] = (...args) => {
+      running += 1;
+      return original(...args).finally(() => {
+        running -= 1;
+      });
+    };
+  }
+  return () => until(() => running === 0, 'the channel settles');
+}
+
 async function channels() {
   const identity = await generateRelayE2EEServerIdentity();
   const pairing = relayE2EEPairingMaterial(identity);
@@ -592,16 +610,20 @@ test('a hard failure demotes at once; a new peer may be promoted again with no h
 test('a slow but draining carrier is never demoted or re-sent to', async () => {
   const peerHost = fakePeerHost();
   const h = await harness({ peerHost });
+  const settled = trackChannel(h.desktopChannel);
   await h.ready();
   const { peer, lane } = await promote(h, peerHost);
   peer.buffered = 4_000_000;
   for (let i = 0; i < 4; i += 1) await h.coordinator.send({ event: 'bulk', i });
+  await settled();
   const sentApps = peer.sent.filter(({ channel }) => channel === 'app').length;
   let answered = peer.sent.length;
   for (let second = 0; second < 20; second += 1) {
     peer.buffered -= 100_000; // draining slowly, never acked
     await h.advance(1_000);
-    // The client answers the keep-alive pings on the direct lane.
+    // The client answers the keep-alive pings on the direct lane: the ones
+    // this tick sealed, and its pongs are handled before the clock moves on.
+    await settled();
     const fresh = peer.sent.slice(answered).filter(({ channel }) => channel === 'control');
     answered = peer.sent.length;
     const before = h.phone.controls.length;
@@ -612,6 +634,7 @@ test('a slow but draining carrier is never demoted or re-sent to', async () => {
     for (const { control } of h.phone.controls.slice(before)) {
       if (control.t === 'ping') peer.events.message(await h.phone.control({ v: 1, t: 'pong', id: control.id }, lane));
     }
+    await settled();
   }
   assert.equal(h.coordinator.diagnostics().path, 'direct');
   assert.equal(h.coordinator.diagnostics().retransmits, 0);
