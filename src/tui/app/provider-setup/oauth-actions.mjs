@@ -72,6 +72,20 @@ function showOAuthResult(flow, providerItem, ok, message = '') {
   });
 }
 
+function oauthCodeHint(manualUrl, loginUrl, providerName) {
+  if (manualUrl) return 'If the browser callback does not finish, open the URL below manually and paste code#state.';
+  if (loginUrl) {
+    return `Open the URL below to sign in, then paste the authorization code or full redirect URL for ${providerName}.`;
+  }
+  return `Paste the authorization code or full redirect URL for ${providerName}.`;
+}
+
+function pollingLoginMessage(userCode, loginUrl, opened) {
+  if (userCode) return `Enter code ${userCode} at:\n${loginUrl}${opened}`;
+  if (loginUrl) return `Open this URL to sign in:\n${loginUrl}${opened}`;
+  return 'Finish signing in for this provider.';
+}
+
 /** Login through store.beginOAuthProviderLogin: a code-completing login hands
  *  the surface to the OAuth code prompt; the callback (or the prompt) finishes. */
 function beginInteractiveOAuthLogin(flow, providerItem, login) {
@@ -108,11 +122,7 @@ function beginInteractiveOAuthLogin(flow, providerItem, login) {
           providerId: providerItem._providerId,
           providerName,
           label: `${providerName} OAuth code`,
-          hint: started?.manualUrl
-            ? 'If the browser callback does not finish, open the URL below manually and paste code#state.'
-            : loginUrl
-              ? `Open the URL below to sign in, then paste the authorization code or full redirect URL for ${providerName}.`
-              : `Paste the authorization code or full redirect URL for ${providerName}.`,
+          hint: oauthCodeHint(started?.manualUrl, loginUrl, providerName),
           // Shown inside the live panel only — never written to the
           // transcript, so it cannot linger in scrollback after the flow.
           detail: loginUrl,
@@ -138,12 +148,7 @@ function beginInteractiveOAuthLogin(flow, providerItem, login) {
         // Device-code and URL-only polling logins stay in the progress panel,
         // with the code and URL, until the result panel replaces it or Back.
         const opened = openBrowser ? ' (browser opened)' : '';
-        const message = started?.userCode
-          ? `Enter code ${started.userCode} at:\n${loginUrl}${opened}`
-          : loginUrl
-            ? `Open this URL to sign in:\n${loginUrl}${opened}`
-            : 'Finish signing in for this provider.';
-        showOAuthProgress(flow, providerItem, message, login.onBack);
+        showOAuthProgress(flow, providerItem, pollingLoginMessage(started?.userCode, loginUrl, opened), login.onBack);
       }
       started.waitForCallback
         ?.then((result) => {

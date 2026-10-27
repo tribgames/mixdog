@@ -83,7 +83,7 @@ async function storedTitle(sessionId) {
 export function createSessionControl({
   getSessionService,
   agentTasks = createAgentTaskSessions({ getSessionService }),
-  listBots = undefined,
+  listBots,
   botStatus = createBotStatus({ getSessionService, listBots }),
   // Agent work a session handed off and still waits on (agent-task-sessions.mjs).
   pendingWork = taskSessionPendingWork,
