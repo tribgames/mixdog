@@ -44,7 +44,8 @@ const TOOL_RUN_NAME_MAX_CHARS = 40;
 export function toolRunLine(tools) {
   const entries = tools.map(({ name, count }) => {
     const chars = Array.from(String(name));
-    const shown = chars.length > TOOL_RUN_NAME_MAX_CHARS ? `${chars.slice(0, TOOL_RUN_NAME_MAX_CHARS - 1).join('')}…` : name;
+    const shown =
+      chars.length > TOOL_RUN_NAME_MAX_CHARS ? `${chars.slice(0, TOOL_RUN_NAME_MAX_CHARS - 1).join('')}…` : name;
     return `${shown} ×${count}`;
   });
   const omittedSuffix = (omitted) => (omitted > 0 ? `, +${omitted} more` : '');

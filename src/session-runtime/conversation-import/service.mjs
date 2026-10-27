@@ -134,7 +134,7 @@ function touch(job, patch = {}) {
 
 const COUNTER = { imported: 'imported', alreadyImported: 'skippedAlreadyImported', failed: 'failed' };
 
-const titlesFor = (candidate, context) => (candidate?.source === 'codex' ? context.titles : null);
+const titlesFor = (candidate, context) => (candidate.source === 'codex' ? context.titles : null);
 
 /** Which record a result is about: its title and source file name, for the failure report. */
 function describeCandidate(candidateId, context) {

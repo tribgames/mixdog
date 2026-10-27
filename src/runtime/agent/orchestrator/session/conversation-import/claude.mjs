@@ -3,10 +3,10 @@
  * import turns. The active branch is followed from the last main-chain entry
  * back through `parentUuid` (and `logicalParentUuid` across a compaction), so
  * replayed or abandoned branches never duplicate. Kept: text blocks and
- * `tool_use` as `[ran tool: <name>]` notes; images become an omission marker;
- * a compaction summary (as an assistant recap) only when the history it
- * replaced is gone; a slash command as `/name args` unless the app answered it
- * locally; pasted text without the app's paste envelope. Dropped: sidechains, meta entries,
+ * `tool_use` as tool notes; images become an omission marker; a compaction
+ * summary (as an assistant recap) only when the history it replaced is gone;
+ * a slash command as `/name args` unless the app answered it locally; pasted
+ * text without the app's paste envelope. Dropped: sidechains, meta entries,
  * tool results, thinking, signatures and Claude Code's own
  * command-output/notification envelopes.
  */
@@ -160,7 +160,7 @@ function activeChain(entries) {
 }
 
 /** Kept parts of a message; a slash command is a `command` part, a local command's output marks `localOutput`. */
-function entryParts(role, content, warnings, marks = {}) {
+function entryParts(role, content, warnings, marks) {
   const blocks = typeof content === 'string' ? [{ type: 'text', text: content }] : content;
   if (!Array.isArray(blocks)) return [];
   const parts = [];

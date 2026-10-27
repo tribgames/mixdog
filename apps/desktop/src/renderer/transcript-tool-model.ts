@@ -1186,7 +1186,11 @@ export function desktopToolActivityItemPresentation(
   const { patchSummary } = outcome;
   // Only text that parses is JSON: a log line opening with "[warn]" is not.
   const outputLanguage = outcome.outputText && !command && isJsonText(outcome.outputText) ? 'json' : '';
-  const { outputText, outputNote: commandNote, diffPatch } = presentationCommandOutput({
+  const {
+    outputText,
+    outputNote: commandNote,
+    diffPatch,
+  } = presentationCommandOutput({
     normalizedName,
     command,
     tone,

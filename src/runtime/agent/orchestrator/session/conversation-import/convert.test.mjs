@@ -504,7 +504,9 @@ test('Claude Code: a <pasted_content> the user typed, or one not in the app enve
   // Unwrapping trims only toward a paste: the outer indentation and trailing
   // spaces stay (the message as a whole is trimmed like any other message).
   assert.equal(
-    unwrapClaudePastes('    indented first line\n<pasted_content id="0f9e">\nlog\n</pasted_content id="0f9e">\nlast line  '),
+    unwrapClaudePastes(
+      '    indented first line\n<pasted_content id="0f9e">\nlog\n</pasted_content id="0f9e">\nlast line  '
+    ),
     '    indented first line\nlog\nlast line  '
   );
 });

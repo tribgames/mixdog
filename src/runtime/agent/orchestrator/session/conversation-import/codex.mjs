@@ -1,7 +1,7 @@
 /**
  * Codex CLI rollout (`rollout-*.jsonl`) → raw import turns. Kept: the first
  * `session_meta` (foreign id, cwd), user/assistant `message` items as text and
- * tool calls as `[ran tool: <name>]` notes. Dropped: developer/system
+ * tool calls as tool notes. Dropped: developer/system
  * messages, Codex's own wrapper user messages, tool outputs, reasoning,
  * event_msg, token counts and turn_context.
  */
