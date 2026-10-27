@@ -40,11 +40,21 @@ test('a spawn pinned by display name reaches the agent control as the catalog id
   assert.equal(calls[0].provider, 'openai-oauth');
 });
 
-test('an exact id is forwarded unchanged', async () => {
+test('an exact id is forwarded as the same route', async () => {
   const { routedAgentTool, calls } = routedWithCatalog(async () => CATALOG);
   const args = { agent: 'worker', provider: 'openai-oauth', model: 'gpt-6.1-sol' };
   await routedAgentTool.execute(args);
-  assert.equal(calls[0], args);
+  assert.deepEqual(calls[0], args);
+});
+
+test('an exact id is not rejected as ambiguous by ids that collide once normalized', async () => {
+  const { routedAgentTool, calls } = routedWithCatalog(async () => [
+    { provider: 'custom-x', id: 'foo-bar', display: 'Foo Bar' },
+    { provider: 'custom-x', id: 'foo_bar', display: 'Foo Bar' },
+  ]);
+  const args = { type: 'spawn', agent: 'worker', tag: 't', provider: 'custom-x', model: 'foo-bar' };
+  await routedAgentTool.execute(args);
+  assert.deepEqual(calls[0], args);
 });
 
 test('a display name is matched case-insensitively, and an omitted provider is filled from the one match', async () => {
@@ -53,64 +63,78 @@ test('a display name is matched case-insensitively, and an omitted provider is f
   assert.deepEqual(calls[0], { agent: 'worker', provider: 'openai-oauth', model: 'gpt-6.1-luna' });
 });
 
-test('a name that only word-matches a catalog row is never substituted', async () => {
+test('a unique word match within the provider resolves to its catalog id', async () => {
   const { routedAgentTool, calls } = routedWithCatalog(async () => [
     { provider: 'custom', id: 'foo-pro', display: 'Foo Pro' },
   ]);
-  const args = { agent: 'worker', provider: 'custom', model: 'foo' };
-  await routedAgentTool.execute(args);
-  assert.equal(calls[0], args);
+  await routedAgentTool.execute({ agent: 'worker', provider: 'custom', model: 'foo' });
+  assert.deepEqual(calls[0], { agent: 'worker', provider: 'custom', model: 'foo-pro' });
 });
 
-test('an empty, partial or failing catalog never refuses or rewrites a model', async () => {
-  for (const list of [
-    async () => [],
-    async () => [{ provider: 'other', id: 'x', display: 'X' }],
-    async () => undefined,
-    async () => {
-      throw new Error('catalog down');
-    },
+test('bot surface: model "opus" on provider "anthropic" fails with candidates unless one model matches', async () => {
+  const rows = [
+    { provider: 'anthropic', id: 'claude-opus-5-5', display: 'Claude Opus 5.5' },
+    { provider: 'anthropic', id: 'claude-opus-4-8', display: 'Claude Opus 4.8' },
+    { provider: 'anthropic', id: 'claude-sonnet-5-5', display: 'Claude Sonnet 5.5' },
+    { provider: 'anthropic-oauth', id: 'claude-opus-5-5', display: 'Claude Opus 5.5' },
+  ];
+  const ambiguous = routedWithCatalog(async () => rows);
+  await assert.rejects(
+    ambiguous.routedAgentTool.execute({ type: 'spawn', agent: 'worker', provider: 'anthropic', model: 'opus' }),
+    /ambiguous: anthropic\/claude-opus-5-5, anthropic\/claude-opus-4-8/
+  );
+  assert.deepEqual(ambiguous.calls, []);
+
+  const unique = routedWithCatalog(async () => rows.filter((row) => row.id !== 'claude-opus-4-8'));
+  await unique.routedAgentTool.execute({ type: 'spawn', agent: 'worker', provider: 'anthropic', model: 'opus' });
+  assert.deepEqual(unique.calls[0], {
+    type: 'spawn',
+    agent: 'worker',
+    provider: 'anthropic',
+    model: 'claude-opus-5-5',
+  });
+});
+
+test('an unknown model fails with candidates after one forced catalog read, and is never forwarded', async () => {
+  const seen = [];
+  const { routedAgentTool, calls } = routedWithCatalog(async (options) => {
+    seen.push(options?.force === true ? 'force' : 'cache');
+    return CATALOG;
+  });
+  await assert.rejects(
+    routedAgentTool.execute({ agent: 'worker', provider: 'openai-oauth', model: 'nope' }),
+    /"nope" for provider "openai-oauth" not found; available: openai-oauth\/gpt-6\.1-sol, openai-oauth\/gpt-6\.1-luna/
+  );
+  assert.deepEqual(seen, ['cache', 'force']);
+  assert.deepEqual(calls, []);
+});
+
+test('an empty or failing catalog refuses instead of forwarding the name', async () => {
+  for (const [list, pattern] of [
+    [async () => [], /has no available models/],
+    [
+      async () => {
+        throw new Error('catalog down');
+      },
+      /catalog down/,
+    ],
   ]) {
     const { routedAgentTool, calls } = routedWithCatalog(list);
-    const args = { agent: 'worker', provider: 'custom', model: 'foo' };
-    assert.equal(await routedAgentTool.execute(args), 'ok');
-    assert.equal(calls[0], args);
+    await assert.rejects(routedAgentTool.execute({ agent: 'worker', provider: 'custom', model: 'foo' }), pattern);
+    assert.deepEqual(calls, []);
   }
 });
 
-test('a partial catalog never aliases a display name onto another id', async () => {
-  const partialRow = { catalogPartial: true, catalogMissing: ['custom'], catalogRetryAt: 1 };
-  const { routedAgentTool, calls } = routedWithCatalog(async () => [
-    { provider: 'custom', id: 'bar', display: 'foo', ...partialRow },
-  ]);
-  const args = { agent: 'worker', provider: 'custom', model: 'foo' };
-  await routedAgentTool.execute(args);
-  assert.equal(calls[0], args);
-  // An exact id still passes there, and the same alias resolves once complete.
-  const exact = { agent: 'worker', provider: 'custom', model: 'bar' };
-  await routedAgentTool.execute(exact);
-  assert.equal(calls[1], exact);
-  const complete = routedWithCatalog(async () => [{ provider: 'custom', id: 'bar', display: 'foo' }]);
-  await complete.routedAgentTool.execute(args);
-  assert.equal(complete.calls[0].model, 'bar');
-});
-
-test('an ambiguous exact match is forwarded unchanged', async () => {
+test('an ambiguous name fails with candidates instead of being forwarded', async () => {
   const { routedAgentTool, calls } = routedWithCatalog(async () => [
     { provider: 'a', id: 'm-1', display: 'Same' },
     { provider: 'b', id: 'm-2', display: 'Same' },
   ]);
-  const args = { agent: 'worker', model: 'same' };
-  await routedAgentTool.execute(args);
-  assert.equal(calls[0], args);
-});
-
-test('the catalog is read quick only, so a spawn never waits on a full or forced read', async () => {
-  const seen = [];
-  const { routedAgentTool } = routedWithCatalog(async (options) => (seen.push(options), CATALOG));
-  await routedAgentTool.execute({ agent: 'worker', provider: 'openai-oauth', model: 'GPT-6.1-Sol' });
-  await routedAgentTool.execute({ agent: 'worker', provider: 'openai-oauth', model: 'nope' });
-  assert.deepEqual(seen, [{ quick: true }, { quick: true }]);
+  await assert.rejects(
+    routedAgentTool.execute({ agent: 'worker', model: 'same' }),
+    /"same" is ambiguous: a\/m-1, b\/m-2; pass the exact one/
+  );
+  assert.deepEqual(calls, []);
 });
 
 test('without a catalog the model passes through unchanged', async () => {

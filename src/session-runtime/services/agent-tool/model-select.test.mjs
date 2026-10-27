@@ -47,6 +47,25 @@ test('exact id, display name and words resolve to one exact route', async () => 
   });
 });
 
+test('a literal id wins over ids that only collide once normalized', async () => {
+  const rows = [
+    { provider: 'custom-x', id: 'foo-bar', display: 'Foo Bar' },
+    { provider: 'custom-x', id: 'foo_bar', display: 'Foo Bar' },
+  ];
+  const { list, calls } = catalog(rows);
+  assert.deepEqual(await resolveRequestedModel({ model: 'foo-bar', provider: 'custom-x' }, list), {
+    model: 'foo-bar',
+    provider: 'custom-x',
+  });
+  assert.deepEqual(await resolveRequestedModel({ model: 'foo_bar' }, list), { model: 'foo_bar', provider: 'custom-x' });
+  assert.deepEqual(calls, ['cache', 'cache']);
+  // A non-literal spelling still matches both and stays ambiguous.
+  await assert.rejects(
+    resolveRequestedModel({ model: 'FOO-BAR' }, list),
+    /ambiguous: custom-x\/foo-bar, custom-x\/foo_bar/
+  );
+});
+
 test('ambiguous names fail with candidates instead of picking one', async () => {
   const { list } = catalog();
   await assert.rejects(

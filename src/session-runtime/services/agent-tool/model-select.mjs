@@ -1,7 +1,7 @@
 // One-off model selection for a spawn the user explicitly pinned to a model.
 // The agent's preset route stays the default; this only runs when `model` is
-// passed. The query is matched against the live provider catalog — exact id,
-// then exact display name, then every query word — and a catalog miss retries
+// passed. The query is matched against the live provider catalog — literal id,
+// then normalized id, then exact display name, then every query word — and a catalog miss retries
 // once on a refreshed catalog. One match runs; several or none fail with
 // candidates instead of substituting another model.
 import { clean } from './helpers.mjs';
@@ -33,6 +33,8 @@ function matchModels(rows, query) {
   // Nothing to match on ("???"): `[].every` would accept every row.
   if (!words.length) return [];
   const tiers = [
+    // A literal id wins over its normalized look-alikes (`foo-bar` vs `foo_bar`).
+    (row) => row.id === query,
     (row) => norm(row.id) === wanted,
     (row) => norm(row.display) === wanted,
     (row) => words.every((word) => `${norm(row.id)} ${norm(row.display)}`.includes(word)),
