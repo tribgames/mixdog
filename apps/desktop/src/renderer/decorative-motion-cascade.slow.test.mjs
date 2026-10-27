@@ -659,7 +659,6 @@ test('loops recreated by a layout switch, reduced motion or anything else lock t
     assert.equal(states.length, count, `${label}: ${states}`);
     for (const state of states) assert.match(state, /:running:0$/, label);
     const starts = await takeStarts();
-    console.log('DEBUGSTARTS', label, starts.length, JSON.stringify(starts));
     if (prePaint) {
       assert.ok(starts.length > 0, `${label}: loops were recreated`);
       for (const start of starts) assert.match(start, /:0$/, `${label}: locked before its first paint (${starts})`);
@@ -694,7 +693,14 @@ test('loops recreated by a layout switch, reduced motion or anything else lock t
   await takeStarts();
   await mediaChange();
   await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'no-preference' }]);
-  await check('reduced motion on -> off', 6, { prePaint: true, started: 1 });
+  // Chromium reports a preference change (the matchMedia `change` event) one
+  // frame after the style update that already recreated the loops with it, and
+  // dispatches their `animationstart` in the same step, ahead of the animation
+  // callbacks: whether that event still sees the unlocked start depends on
+  // frame scheduling. The cause is therefore not known before the first paint
+  // (unlike a layout switch, a DOM change seen before the frame's style
+  // update); the loops lock as soon as it is, and stay locked.
+  await check('reduced motion on -> off', 6, { prePaint: false, started: 1 });
 
   // A cause no hook knows (an inline animation override dropped): locked on
   // its reported start, a frame late. `getAnimations` flushes style, so the
@@ -802,8 +808,43 @@ test('phone: the mask position at step k is the keyframe interpolation, -band to
 
 /** A phone page with the sync module installed, every glint and the mark
  *  mounted through its ref hook, and every glint's step writes recorded. */
-async function drivenPage(t, { phone }) {
+async function drivenPage(t, { phone, virtualClock = false }) {
   const page = await launch(t);
+  if (virtualClock) {
+    // The page's clock and timers are the test's: a timer fires exactly when
+    // `advance` says (due time plus the lateness it is given), so the step
+    // timer's beat does not depend on the machine's timer latency.
+    await page.evaluate(() => {
+      const clock = { real: performance.now.bind(performance), now: performance.now(), timers: new Map(), ids: 0 };
+      performance.now = () => clock.now;
+      window.setTimeout = (callback, ms = 0) => {
+        clock.ids += 1;
+        clock.timers.set(clock.ids, { callback, due: clock.now + Math.max(0, ms) });
+        return clock.ids;
+      };
+      window.clearTimeout = (id) => {
+        clock.timers.delete(id);
+      };
+      // Runs the timers due within `ms`; the k-th fires `lateness[k % n]` after its due time.
+      clock.advance = async (ms, lateness) => {
+        const target = clock.now + ms;
+        for (let fired = 0; ; fired += 1) {
+          let next = null;
+          for (const [id, timer] of clock.timers) if (!next || timer.due < next.timer.due) next = { id, timer };
+          if (!next) break;
+          const at = next.timer.due + lateness[fired % lateness.length];
+          if (at > target) break;
+          clock.timers.delete(next.id);
+          clock.now = Math.max(clock.now, at);
+          next.timer.callback();
+          // The write's mutation record is delivered before the clock moves on.
+          await Promise.resolve();
+        }
+        clock.now = target;
+      };
+      window.__clock = clock;
+    });
+  }
   const bundle = await build({
     entryPoints: [new URL('./decorative-motion-sync.ts', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')],
     bundle: true,
@@ -845,7 +886,8 @@ async function drivenPage(t, { phone }) {
   }, phone);
   t.after(() => page.evaluate(() => window.__stopSync()).catch(() => {}));
   const drain = () => page.evaluate(() => window.__writes.splice(0));
-  return { page, meta, drain };
+  const advance = (ms, lateness) => page.evaluate((ms, lateness) => window.__clock.advance(ms, lateness), ms, lateness);
+  return { page, meta, drain, advance };
 }
 
 const FRAME = 1000 / 24;
@@ -856,10 +898,15 @@ const byContext = (writes) => {
 };
 
 test('phone: one write per step, on the running mark\'s beat, nothing while held', async (t) => {
-  const { page, meta, drain } = await drivenPage(t, { phone: true });
-  await sleep(300);
+  const { page, meta, drain, advance } = await drivenPage(t, { phone: true, virtualClock: true });
+  // The first lock pass (a frame callback) writes the first step and arms the
+  // step timer; this callback runs after it.
+  await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => resolve())));
+  // Every wake comes late by 1-25ms (a slow machine's timers), never on time.
+  const LATE = [1, 7, 15, 3, 25, 11];
+  await advance(300, LATE);
   await drain();
-  await sleep(1500);
+  await advance(1500, LATE);
   const writes = byContext(await drain());
   for (const name of RUNNING) {
     const list = writes[name];
@@ -887,7 +934,8 @@ test('phone: one write per step, on the running mark\'s beat, nothing while held
     return {
       startTime: animation.startTime,
       frame: animation.effect.getTiming().duration / Number(/steps\((\d+)/.exec(animation.effect.getKeyframes()[0].easing)[1]),
-      clock: Math.abs(document.timeline.currentTime - performance.now()),
+      // The page's real clock (`performance.now` is the test's here).
+      clock: Math.abs(document.timeline.currentTime - window.__clock.real()),
     };
   });
   assert.equal(mark.startTime, 0);

@@ -50,6 +50,15 @@ test('repeated Settings taps wait as one request that navigating elsewhere drops
     openFileTab() {},
     mountedSidebarPanels: new Set(),
   };
+  // The import is the real one, but it settles when the test says so: how soon
+  // the chunk resolves (the act below also yields to the event loop) is the
+  // machine's, and a fast one settled it before the assertions of the wait.
+  const realLoad = settingsViewModule.load;
+  let release;
+  const released = new Promise((resolve) => {
+    release = resolve;
+  });
+  settingsViewModule.load = () => released.then(realLoad);
   const root = createRoot(document.getElementById('root'));
   await act(async () => root.render(React.createElement(AppSidebarDrawer, props)));
   try {
@@ -65,6 +74,7 @@ test('repeated Settings taps wait as one request that navigating elsewhere drops
       document.querySelector('button[data-side-view="sessions"]').click();
     });
     assert.deepEqual(selected, ['sessions']);
+    release();
     await act(async () => {
       await loadSettingsViewModule();
     });
@@ -77,6 +87,7 @@ test('repeated Settings taps wait as one request that navigating elsewhere drops
     assert.deepEqual(opened, ['settings']);
     assert.deepEqual(closed, ['instant']);
   } finally {
+    settingsViewModule.load = realLoad;
     await act(async () => root.unmount());
   }
 });

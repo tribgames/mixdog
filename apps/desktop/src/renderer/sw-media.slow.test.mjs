@@ -62,7 +62,7 @@ async function transportSession() {
 /** The page's transport and the desktop adapter behind it, attached to `worker`. */
 async function directLane(worker, { key, downloads, device }) {
   const { client, server } = await transportSession();
-  const asked = { ranges: [], cancels: 0, records: 0 };
+  const asked = { ranges: [], requestIds: [], cancels: 0, cancelIds: [], records: 0 };
   let page = null;
   let sealing = Promise.resolve();
   // Records the desktop may still send (its stream credit, in records here).
@@ -97,8 +97,13 @@ async function directLane(worker, { key, downloads, device }) {
   let open = true;
   page = createRemoteTransportMediaClient({
     send: async (message) => {
-      if (message.op === 'request') asked.ranges.push(message.range);
-      else asked.cancels += 1;
+      if (message.op === 'request') {
+        asked.ranges.push(message.range);
+        asked.requestIds.push(message.id);
+      } else {
+        asked.cancels += 1;
+        asked.cancelIds.push(message.id);
+      }
       // The phone's own records travel the same way to the desktop.
       const opened = await server.decryptJson(await client.encryptBinary(message));
       assert.equal(adapter.receive(opened), true);
@@ -771,12 +776,38 @@ test('a direct window with no first frame within the relay head timeout answers 
   wait.callback();
   // The element gets the relay's own answer to a silent desktop.
   assert.equal((await silent).status, 504);
-  await settle();
-  assert.equal(lane.lane.asked.cancels, 1, 'the host was told to stop');
+  // The first window may also have been cancelled: a reader done with its
+  // bytes can beat the host's end record, and then cancels the stream it no
+  // longer needs. What is asserted is the silent window's own stream, the
+  // second request, cancelled exactly once.
+  const { requestIds, cancelIds } = lane.lane.asked;
+  for (let turn = 0; turn < 100 && !(requestIds.length === 2 && cancelIds.includes(requestIds[1])); turn += 1) {
+    await settle();
+  }
+  assert.equal(requestIds.length, 2);
+  assert.equal(cancelIds.filter((id) => id === requestIds[1]).length, 1, 'the host was told to stop');
   const records = lane.lane.asked.records;
   lane.lane.credit(Number.POSITIVE_INFINITY);
   await settle();
   assert.equal(lane.lane.asked.records, records, 'the cancelled pump sends nothing');
+  assert.deepEqual(lane.upstream, []);
+  lane.lane.page.close();
+});
+
+test('a reader that has every byte before the host\'s end record cancels that one stream', async () => {
+  // The order the silent-window test must not depend on: head, meta and the
+  // segment, then the host waits for credit before its end record.
+  const { assetId } = lease('direct-early.mp4', 300_000);
+  const lane = await setup({ direct: true });
+  lane.lane.credit(3);
+  const served = await lane.get(assetId, { range: 'bytes=0-99' });
+  assert.equal(served.status, 206);
+  assert.equal((await served.arrayBuffer()).byteLength, 100);
+  const { requestIds, cancelIds } = lane.lane.asked;
+  for (let turn = 0; turn < 100 && !cancelIds.length; turn += 1) await settle();
+  assert.deepEqual([requestIds, cancelIds], [['m1'], ['m1']]);
+  lane.lane.credit(Number.POSITIVE_INFINITY);
+  await settle();
   assert.deepEqual(lane.upstream, []);
   lane.lane.page.close();
 });
