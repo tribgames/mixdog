@@ -82,6 +82,27 @@ test('fixed ports are tried in order without re-entering the range after port ze
   assert.deepEqual(server.ports, [3350, 3351, 3352, 0]);
 });
 
+test('an OS-assigned fetch-blocked port is closed and replaced, then the bound port is reported', async (t) => {
+  const server = new ControlledServer();
+  const assigned = [6667, 54321];
+  let closes = 0;
+  server.address = () => ({ port: assigned[0] });
+  server.close = (done) => {
+    closes += 1;
+    assigned.shift();
+    queueMicrotask(done);
+  };
+  const { listener, logs } = fixture(t, { server });
+  const started = listener.start();
+  server.emit('listening');
+  await setImmediate();
+  assert.deepEqual(server.ports, [0, 0]);
+  server.emit('listening');
+  assert.equal(await started, 54321);
+  assert.equal(closes, 1);
+  assert.deepEqual(logs, ['HTTP listening 54321']);
+});
+
 test('fatal bind failures retain their error and do not poison a later start', async (t) => {
   const server = new ControlledServer();
   const { listener, logs } = fixture(t, { server });

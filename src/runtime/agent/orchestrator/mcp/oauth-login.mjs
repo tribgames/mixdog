@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { listenOnFetchSafePort } from '../../../shared/fetch-safe-listen.mjs';
 import { randomBytes } from 'node:crypto';
 import { normalizeMcpTransportUrl } from './client-config.mjs';
 import { identityFromTokenResponse } from './oauth-account.mjs';
@@ -48,8 +49,10 @@ export function createLoginFlow({ url, cache, flow, provider, lifetimeSignal, op
     await new Promise((resolve, reject) => {
       flow.listener.once('error', reject);
       // Retain the registered redirect URI if this connection later needs
-      // refresh or reauthorization; never register a different callback.
-      flow.listener.listen(creds.redirectUrl ? Number(new URL(creds.redirectUrl).port) : 0, '127.0.0.1', resolve);
+      // refresh or reauthorization; never register a different callback. A new
+      // one is a port the browser can be redirected to.
+      if (creds.redirectUrl) flow.listener.listen(Number(new URL(creds.redirectUrl).port), '127.0.0.1', resolve);
+      else listenOnFetchSafePort(flow.listener, '127.0.0.1', resolve);
     });
     creds.redirectUrl = `http://127.0.0.1:${flow.listener.address().port}/oauth/callback`;
   }

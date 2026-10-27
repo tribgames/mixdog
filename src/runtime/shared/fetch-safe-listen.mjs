@@ -8,7 +8,8 @@ export const FETCH_BLOCKED_PORTS = new Set([
   6000, 6566, 6665, 6666, 6667, 6668, 6669, 6679, 6697, 10080,
 ]);
 
-const DEFAULT_ATTEMPTS = 16;
+/** How many more OS-assigned ports a listener takes after a blocked one. */
+export const FETCH_SAFE_ATTEMPTS = 16;
 
 const assignedPort = (server) => {
   const address = server.address();
@@ -27,7 +28,7 @@ export function listenOnFetchSafePort(
   server,
   host,
   onListening,
-  { attempts = DEFAULT_ATTEMPTS, isCurrent = () => true, portOf = assignedPort } = {}
+  { attempts = FETCH_SAFE_ATTEMPTS, isCurrent = () => true, portOf = assignedPort } = {}
 ) {
   let retries = attempts;
   const attempt = () => {

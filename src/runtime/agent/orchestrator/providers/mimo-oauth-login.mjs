@@ -2,6 +2,7 @@
 // X25519 public key we send in the authorize URL; the reply (loopback redirect
 // or a pasted code) carries `u` = ephemeralPub(32) | nonce(12) | ciphertext | tag(16).
 import { createServer } from 'node:http';
+import { listenOnFetchSafePort } from '../../../shared/fetch-safe-listen.mjs';
 import { lookup } from 'node:dns/promises';
 import { createDecipheriv, createHash, createPublicKey, diffieHellman, generateKeyPairSync } from 'node:crypto';
 import { openLoginUrl } from './lib/open-login-url.mjs';
@@ -112,13 +113,16 @@ async function loopbackAddresses() {
   return ['127.0.0.1'];
 }
 
+// Port 0 takes an OS-assigned port the browser can be redirected to.
 function listenOn(server, port, host) {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, host, () => {
+    const listening = () => {
       server.off('error', reject);
       resolve();
-    });
+    };
+    if (port === 0) listenOnFetchSafePort(server, host, listening);
+    else server.listen(port, host, listening);
   });
 }
 

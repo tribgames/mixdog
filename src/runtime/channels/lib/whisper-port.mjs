@@ -1,6 +1,7 @@
 import net from 'node:net';
 import path from 'node:path';
 import { execFile } from 'node:child_process';
+import { FETCH_BLOCKED_PORTS, FETCH_SAFE_ATTEMPTS } from '../../shared/fetch-safe-listen.mjs';
 
 // whisper.cpp cannot bind port 0 itself. Ask the OS for an available port,
 // release the reservation immediately before spawn, then verify the listener's
@@ -15,9 +16,17 @@ export function selectWhisperPort(host, preferred) {
         server.close((error) => (error ? reject(error) : resolve(selected)));
       });
     });
+  // The server is reached with fetch, which refuses a "bad port" the OS may assign.
+  const reserveFetchSafe = async () => {
+    for (let attempt = 0; attempt <= FETCH_SAFE_ATTEMPTS; attempt += 1) {
+      const port = await reserve(0);
+      if (!FETCH_BLOCKED_PORTS.has(port)) return port;
+    }
+    throw new Error('no fetch-safe loopback port was assigned');
+  };
   return reserve(preferred).catch((error) => {
     if (error.code !== 'EADDRINUSE' && error.code !== 'EACCES') throw error;
-    return reserve(0);
+    return reserveFetchSafe();
   });
 }
 

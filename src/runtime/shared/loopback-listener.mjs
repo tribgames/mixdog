@@ -1,3 +1,5 @@
+import { FETCH_BLOCKED_PORTS, FETCH_SAFE_ATTEMPTS } from './fetch-safe-listen.mjs';
+
 // One loopback listener owns each bind attempt, its event handlers, and stop.
 export function createLoopbackListener({
   server,
@@ -24,7 +26,15 @@ export function createLoopbackListener({
 
     const { promise, resolve, reject } = Promise.withResolvers();
     const controller = new AbortController();
-    const attempt = { promise, reject, controller, port: basePort, bound: false, detach };
+    const attempt = {
+      promise,
+      reject,
+      controller,
+      port: basePort,
+      bound: false,
+      blockedRetries: FETCH_SAFE_ATTEMPTS,
+      detach,
+    };
     current = attempt;
 
     function detach() {
@@ -35,6 +45,19 @@ export function createLoopbackListener({
     function onListening() {
       if (current !== attempt) return;
       const boundPort = server.address().port;
+      // An OS-assigned port can be one fetch clients refuse ("bad port"):
+      // close it and take another, a bounded number of times.
+      if (attempt.port === 0 && FETCH_BLOCKED_PORTS.has(boundPort)) {
+        const exhausted = attempt.blockedRetries <= 0;
+        attempt.blockedRetries -= 1;
+        server.close(() => {
+          if (current !== attempt) return;
+          if (exhausted) onError(new Error('no fetch-safe loopback port was assigned'));
+          else listen();
+        });
+        return;
+      }
+      server.off('listening', onListening);
       attempt.bound = true;
       reportListening(boundPort);
       resolve(boundPort);
@@ -67,7 +90,7 @@ export function createLoopbackListener({
     }
 
     server.on('error', onError);
-    server.once('listening', onListening);
+    server.on('listening', onListening);
     listen();
     return promise;
   }

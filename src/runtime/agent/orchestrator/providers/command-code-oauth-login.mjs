@@ -3,6 +3,7 @@
 // A pasted key or pasted callback JSON completes the same login by hand. The
 // first sign-in on a machine adopts an existing Command Code CLI login instead.
 import { createServer } from 'node:http';
+import { listenOnFetchSafePort } from '../../../shared/fetch-safe-listen.mjs';
 import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
@@ -95,13 +96,16 @@ function readLocalAuth(path) {
   }
 }
 
+// Port 0 takes an OS-assigned port the browser can be redirected to.
 function listenOn(server, port, host) {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.listen(port, host, () => {
+    const listening = () => {
       server.off('error', reject);
       resolve();
-    });
+    };
+    if (port === 0) listenOnFetchSafePort(server, host, listening);
+    else server.listen(port, host, listening);
   });
 }
 
