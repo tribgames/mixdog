@@ -36,7 +36,7 @@ export const AGENT_TOOL = {
         type: 'string',
         enum: ['spawn', 'send', 'list', 'close', 'cancel', 'status', 'read', 'cleanup'],
         description:
-          'Required action. New spawn requires agent and one of prompt/message/file; send requires tag and one of prompt/message/file; read/status/close/cancel require task_id or tag; list/cleanup require no target.',
+          'Required action. New spawn requires agent and one of prompt/message/file; send requires tag and one of prompt/message/file; read/status/close/cancel require task_id or tag; list/cleanup require no target. list shows active agents and running tasks in full; idle/closed agents and finished tasks are counts plus a short latest tail (list with tag=<text> shows matching ones: case-insensitive substring, at most 25 per section).',
       },
       task_id: { type: 'string', description: 'Task ID returned by spawn/send; target for read/status/close/cancel.' },
       agent: {

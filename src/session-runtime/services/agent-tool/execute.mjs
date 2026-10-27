@@ -66,15 +66,20 @@ export function createAgentExecute({
             });
           }
           // Targetless status is the same compact overview as list.
-          return renderResult({
-            // Idle workers stay open for follow-ups; the model must see them to close them.
-            workers: views.list({
-              scanSessions: registry.wantsSessionScan(args),
-              context: scopedContext,
-              includeIdle: true,
-            }),
-            jobs: views.listJobs(scopedContext),
-          });
+          return renderResult(
+            {
+              // Idle workers stay open for follow-ups; the roster counts them and
+              // lists a bounded tail (or the `tag` matches) so they can be closed.
+              workers: views.list({
+                scanSessions: registry.wantsSessionScan(args),
+                context: scopedContext,
+                includeIdle: true,
+                includeClosed: true,
+              }),
+              jobs: views.listJobs(scopedContext),
+            },
+            { listFilter: clean(args.tag) }
+          );
         case 'read':
           return await readJob(args, scopedContext);
         case 'cleanup':

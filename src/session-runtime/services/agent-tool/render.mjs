@@ -1,5 +1,6 @@
 // Pure result-rendering and finish-classification helpers.
 import { oneLine } from '../../../runtime/shared/clean.mjs';
+import { isActiveWorkerRow } from './job-views/agent-list.mjs';
 import { compactIso, elapsedFromStamps, stripFinalAnswerWrapper } from './helpers.mjs';
 
 // A worker that gets truncated mid-synthesis or produces an empty terminal
@@ -33,24 +34,60 @@ export function abnormalEmptyFinishError(result, agent) {
 }
 
 // The /agents roster: worker rows then task rows.
-function renderRoster(value) {
+const ROSTER_TAIL = 5;
+const ROSTER_MATCH_CAP = 25;
+const FINISHED_JOB = /^(?:completed|failed|cancelled|canceled|closed|error|killed|timeout|timed[-_\s]?out)$/;
+
+function workerLine(worker) {
+  const status = worker.status || 'idle';
+  const stage = worker.worker_stage || worker.stage;
+  const progress = oneLine(worker.last_progress);
+  const summary = progress.length > 60 ? `${progress.slice(0, 59)}…` : progress;
+  return `- ${worker.tag}  ${status}${stage && stage !== status ? `/${stage}` : ''}${summary ? `  ${summary}` : ''}`;
+}
+
+function jobLine(job) {
+  const error = job.status === 'failed' ? oneLine(job.error) : '';
+  return `- ${job.task_id}  ${job.type}  ${job.status}  ${job.tag || '-'}${error ? ` error=${error}` : ''}`;
+}
+
+const stamp = (row) => String(row.updatedAt || row.lastUsedAt || row.finishedAt || row.startedAt || '');
+
+// Inactive rows: newest first (stable for rows without stamps).
+const newestFirst = (rows) => rows.slice().sort((a, b) => stamp(b).localeCompare(stamp(a)));
+
+// Inactive rows collapse to a count plus a short tail. A `tag` filter lists the
+// matching inactive rows (bounded) so a specific one can still be found.
+function inactiveSection(label, rows, render, tagOf, filter) {
+  if (rows.length === 0) return [];
+  const needle = filter.toLowerCase();
+  const matched = needle ? rows.filter((row) => String(tagOf(row) ?? '').toLowerCase().includes(needle)) : null;
+  const shown = newestFirst(matched ?? rows).slice(0, matched ? ROSTER_MATCH_CAP : ROSTER_TAIL);
+  const shownFilter = filter.replace(/\s+/g, ' ');
+  const head = matched
+    ? `${label}: ${rows.length} (${matched.length} match tag "${shownFilter}", showing ${shown.length})`
+    : `${label}: ${rows.length} (latest ${shown.length}; pass tag=<text> to find one)`;
+  // Bulleted: a non-bullet line would make the list read as an authored response.
+  return [`- ${head}`, ...shown.map(render)];
+}
+
+// The /agents roster: active workers and running tasks in full; idle/closed
+// workers and finished tasks as counts with a bounded tail.
+function renderRoster(value, filter = '') {
   const workers = Array.isArray(value.workers) ? value.workers : [];
   const jobs = Array.isArray(value.jobs) ? value.jobs : [];
   const lines = [`agents: ${workers.length} · tasks: ${jobs.length}`];
+  const isActive = (worker) => Boolean(worker.awaitingUser) || isActiveWorkerRow(worker);
+  const isRunning = (job) => !FINISHED_JOB.test(String(job.status ?? '').trim().toLowerCase());
   // Keep list bullets: agent cards distinguish these rows from authored responses.
-  for (const worker of workers) {
-    const status = worker.status || 'idle';
-    const stage = worker.worker_stage || worker.stage;
-    const progress = oneLine(worker.last_progress);
-    const summary = progress.length > 60 ? `${progress.slice(0, 59)}…` : progress;
-    lines.push(
-      `- ${worker.tag}  ${status}${stage && stage !== status ? `/${stage}` : ''}${summary ? `  ${summary}` : ''}`
-    );
-  }
-  for (const job of jobs) {
-    const error = job.status === 'failed' ? oneLine(job.error) : '';
-    lines.push(`- ${job.task_id}  ${job.type}  ${job.status}  ${job.tag || '-'}${error ? ` error=${error}` : ''}`);
-  }
+  lines.push(...workers.filter(isActive).map(workerLine));
+  lines.push(...jobs.filter(isRunning).map(jobLine));
+  lines.push(
+    ...inactiveSection('idle/closed agents', workers.filter((w) => !isActive(w)), workerLine, (w) => w.tag, filter)
+  );
+  lines.push(
+    ...inactiveSection('finished tasks', jobs.filter((j) => !isRunning(j)), jobLine, (j) => j.tag || j.task_id, filter)
+  );
   if (workers.length === 0 && jobs.length === 0) lines.push('(no agents or tasks)');
   return lines.join('\n');
 }
@@ -151,11 +188,11 @@ function renderContent(value) {
   return `${header}\n${stripFinalAnswerWrapper(value.content)}`;
 }
 
-export function renderResult(value, { includeDiagnostics = false } = {}) {
+export function renderResult(value, { includeDiagnostics = false, listFilter = '' } = {}) {
   if (value === undefined || value === null) return '';
   if (typeof value === 'string') return value;
   if (value && typeof value === 'object') {
-    if (Array.isArray(value.workers) || Array.isArray(value.jobs)) return renderRoster(value);
+    if (Array.isArray(value.workers) || Array.isArray(value.jobs)) return renderRoster(value, listFilter);
     // close-flow results carry `closed` plus task_id: render the close outcome.
     // close-flow results carry `closed` plus task_id: render the close outcome.
     if (value.closed !== undefined) return renderClosed(value);

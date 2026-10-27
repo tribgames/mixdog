@@ -3,6 +3,7 @@ import test from 'node:test';
 import { hasAgentResponseResult } from '../../../runtime/shared/tool-card-model/agent-surface.mjs';
 import { parseAgentJob } from '../../../tui/session/agent-envelope.mjs';
 import { createAgentExecute } from './execute.mjs';
+import { createAgentList } from './job-views/agent-list.mjs';
 import { renderResult } from './render.mjs';
 
 const common = {
@@ -56,6 +57,7 @@ const compactList = [
   '- beta  running/streaming  writing compact renderer',
   '- gamma  running/testing  running targeted agent contracts to verify compact list out…',
   '- task_alpha  spawn  running  alpha',
+  '- finished tasks: 2 (latest 2; pass tag=<text> to find one)',
   '- task_beta  send  completed  beta',
   '- task_gamma  spawn  failed  gamma error=contract failed',
 ].join('\n');
@@ -90,15 +92,43 @@ test('list keeps progress and failed errors on one line, bounds progress, and ne
     text,
     [
       'agents: 4 · tasks: 2',
-      `- edge  idle  ${'x'.repeat(60)}`,
       `- long  running/tool  ${'x'.repeat(59)}…`,
-      '- blank  idle',
       '- multiline  running  read render.mjs now',
+      '- idle/closed agents: 2 (latest 2; pass tag=<text> to find one)',
+      `- edge  idle  ${'x'.repeat(60)}`,
+      '- blank  idle',
+      '- finished tasks: 2 (latest 2; pass tag=<text> to find one)',
       '- task_no_tag  send  failed  - error=timeout waiting',
       '- task_done  spawn  completed  edge',
     ].join('\n')
   );
   assert.equal(hasAgentResponseResult(text), false);
+});
+
+test('large idle roster stays bounded; active rows in full; tag filter finds idle agents', () => {
+  const idle = Array.from({ length: 1000 }, (_, i) => ({
+    tag: `old-${i}`,
+    status: i % 2 ? 'closed' : 'idle',
+    updatedAt: new Date(1e12 + i * 1000).toISOString(),
+  }));
+  const done = Array.from({ length: 20 }, (_, i) => ({ task_id: `t${i}`, type: 'spawn', status: 'completed' }));
+  const value = {
+    workers: [...idle, { tag: 'busy', status: 'running' }, { tag: 'ask', status: 'idle', awaitingUser: 'approval' }],
+    jobs: [...done, { task_id: 'live', type: 'spawn', status: 'running', tag: 'busy' }],
+  };
+  const text = renderResult(value);
+  const lines = text.split('\n');
+  assert.ok(lines.length <= 20, `got ${lines.length} lines`);
+  assert.ok(text.startsWith('agents: 1002 · tasks: 21'));
+  assert.ok(lines.includes('- busy  running'));
+  assert.ok(lines.includes('- ask  idle'));
+  assert.ok(lines.includes('- live  spawn  running  busy'));
+  assert.ok(lines.includes('- idle/closed agents: 1000 (latest 5; pass tag=<text> to find one)'));
+  assert.ok(lines.includes('- old-999  closed'));
+  assert.ok(!text.includes('old-0 '));
+  const found = renderResult(value, { listFilter: 'OLD-12' }).split('\n');
+  assert.ok(found.length <= 40);
+  assert.ok(found.some((l) => l.startsWith('- old-12 ')));
 });
 
 test('empty and one-sided lists retain stable count headers', () => {
@@ -117,6 +147,34 @@ test('empty and one-sided lists retain stable count headers', () => {
   );
 });
 
+test('execute list counts closed agents, finds them by tag, and flattens a multiline filter', async () => {
+  const sessions = [
+    { id: 'live', status: 'running', stage: 'streaming' },
+    { id: 'sleepy', status: 'idle' },
+    { id: 'shut-1', status: 'idle', closed: true },
+    { id: 'shut-2', status: 'idle', closed: true },
+  ];
+  const list = createAgentList({
+    mgr: {},
+    refreshTagsFromSessions: () => {},
+    agentSessionEntries: () => sessions.map((session) => ({ tag: session.id, session, indexRow: null })),
+    progress: { sessionProgressExtras: () => ({}) },
+  });
+  const execute = executeWithViews({ list, listJobs: () => [] });
+  const text = await execute({ type: 'list' });
+  assert.ok(text.startsWith('agents: 4 · tasks: 0'));
+  assert.ok(text.includes('- idle/closed agents: 3 (latest 3; pass tag=<text> to find one)'));
+  assert.ok(text.includes('- shut-1  closed'));
+  const found = await execute({ type: 'list', tag: 'SHUT' });
+  assert.ok(found.includes('2 match tag "SHUT", showing 2'));
+  assert.ok(found.includes('- shut-2  closed'));
+  assert.ok(!found.includes('- sleepy'));
+  const multi = await execute({ type: 'list', tag: 'shut\n- injected\nline' });
+  assert.ok(multi.includes('0 match tag "shut - injected line", showing 0'));
+  assert.ok(multi.split('\n').every((l) => /^(?:agents: |- )/.test(l)));
+  assert.equal(hasAgentResponseResult(multi), false);
+});
+
 function executeWithViews(views) {
   return createAgentExecute({
     mgr: {},
@@ -130,7 +188,7 @@ test('list and targetless status use the same compact scoped overview', async ()
   const context = { callerSessionId: 'lead' };
   const execute = executeWithViews({
     list: (options) => {
-      assert.deepEqual(options, { scanSessions: false, context, includeIdle: true });
+      assert.deepEqual(options, { scanSessions: false, context, includeIdle: true, includeClosed: true });
       return workers;
     },
     listJobs: (scope) => {

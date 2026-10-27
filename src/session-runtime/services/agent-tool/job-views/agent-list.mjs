@@ -86,7 +86,10 @@ function agentRow({ tag, session, runtime, progress, now, indexRow = null }) {
 }
 
 export function createAgentList({ mgr, refreshTagsFromSessions, agentSessionEntries, progress }) {
-  return function list({ scanSessions = false, context = {}, includeTerminal = false, includeIdle = false } = {}) {
+  return function list({ scanSessions = false, context = {}, includeTerminal = false,
+    includeIdle = false,
+    includeClosed = false,
+  } = {}) {
     refreshTagsFromSessions({ scanSessions, context });
     const now = Date.now();
     const rows = [];
@@ -98,7 +101,13 @@ export function createAgentList({ mgr, refreshTagsFromSessions, agentSessionEntr
       // 2 s) would otherwise read every worker it ever ran, whole transcripts
       // on first sight, synchronously on the daemon loop.
       const state = rowState(session, runtime);
-      if (!includeTerminal && !isActiveWorkerRow(state) && !(includeIdle && isOpenIdleRow(state))) continue;
+      if (
+        !includeTerminal &&
+        !isActiveWorkerRow(state) &&
+        !(includeIdle && isOpenIdleRow(state)) &&
+        !(includeClosed && state.status === 'closed')
+      )
+        continue;
       rows.push(
         agentRow({
           tag,
