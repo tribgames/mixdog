@@ -262,7 +262,7 @@ export function createSession(createOpts) {
     : agentProfileRevision(surface.resolvedAgent, { mixy: sessionMode === AGENT_MODE });
   // A bot thread lives on across releases: the rules it was built from.
   const rulesRevision = agentProfile && sessionMode === AGENT_MODE ? promptRulesRevision() : '';
-  const prompt = composeSessionSystem(opts, { profile, providerName, modelName, surface, sessionMode });
+  const prompt = composeSessionSystem(opts, { profile, providerName, modelName, surface, sessionMode, sessionId: id });
   const messages = seedSessionMessages(prompt, opts.files);
   logSessionSurface(surface);
   const contextMeta = resolveSessionContextMeta(provider, modelName, {

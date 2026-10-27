@@ -21,6 +21,7 @@ import {
   describeShellToolsStartupState,
 } from '../../tools/builtin/runtime-capabilities.mjs';
 import { captureOriginalUserCwd } from '../../../../shared/user-cwd.mjs';
+import { sessionScratchDir } from '../../../../shared/session-scratch.mjs';
 import { delegationDisabled } from './session-tool-surface.mjs';
 import { contextAckMessage } from '../compact/user-message-kind.mjs';
 
@@ -31,7 +32,9 @@ import { contextAckMessage } from '../compact/user-message-kind.mjs';
 // it still get a location line via captureOriginalUserCwd(), which
 // resolves explicit session signals first and never leaks the daemon's
 // install root (user-cwd.mjs safe fallback chain).
-function buildShellEnvironmentContext(opts, ownerIsAgent, toolsForRouting) {
+function buildShellEnvironmentContext(opts, ownerIsAgent, toolsForRouting, sessionId = null) {
+  // Fixed per session id and data dir, so the line never changes across turns.
+  const scratchDir = sessionScratchDir(sessionId);
   const sessionCwdLine = opts.cwd || captureOriginalUserCwd();
   const wantsGitStartupLine = toolsForRouting.some((tool) => tool?.name === 'git');
   let cwdContextLine = '';
@@ -45,6 +48,9 @@ function buildShellEnvironmentContext(opts, ownerIsAgent, toolsForRouting) {
   return [
     cwdContextLine,
     `- Shell: ${shellName}. Use ${shellName} syntax unless the user specifies otherwise.`,
+    scratchDir
+      ? `- Scratch: ${scratchDir} — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.`
+      : '',
     // Which common tools the shell can run, measured where commands run
     // (login shell on POSIX, this process's PATH on Windows); see
     // runtime-capabilities.mjs. Recorded runs spent a round per session
@@ -84,7 +90,7 @@ export function buildWorkspacePromptContext(session, cwd) {
     ...(Array.isArray(session?.deferredToolCatalog) ? session.deferredToolCatalog : []),
   ];
   return {
-    environmentContext: buildShellEnvironmentContext({ cwd }, ownerIsAgent, tools),
+    environmentContext: buildShellEnvironmentContext({ cwd }, ownerIsAgent, tools, session?.id),
     // Agent mode never carries project instruction files.
     instructionFilesContext:
       session?.skipInstructionFiles === true || sessionModeOf(session) === AGENT_MODE
@@ -143,7 +149,7 @@ export function sessionRolePromptFields(identity, { ownerIsAgent, toolFreeRole, 
   };
 }
 
-export function composeSessionSystem(opts, { profile, providerName, modelName, surface, sessionMode }) {
+export function composeSessionSystem(opts, { profile, providerName, modelName, surface, sessionMode, sessionId }) {
   const agentMode = sessionMode === AGENT_MODE;
   const { ownerIsAgent, resolvedAgent, skills } = surface;
   // A tool-free hidden role (a one-shot classifier or title writer) carries
@@ -182,7 +188,7 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
   // gets none, which also keeps its prompt identical across projects.
   const shellEnvironmentContext = toolFreeRole
     ? ''
-    : buildShellEnvironmentContext(opts, ownerIsAgent, surface.toolsForRouting);
+    : buildShellEnvironmentContext(opts, ownerIsAgent, surface.toolsForRouting, sessionId);
   // Persisted env tail: refreshSessionBp3Environment rebuilds the env block
   // as [session, bp3EnvironmentContext], so the language block must
   // already sit at the end of this string to stay last after a refresh.

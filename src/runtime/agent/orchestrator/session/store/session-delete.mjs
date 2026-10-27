@@ -36,6 +36,7 @@ import { _savePending, _clearDebounce, _releasePendingSlot } from './pending-sav
 import { _runtimeLivenessVeto } from './liveness-veto.mjs';
 import { _runSessionPurgeHooks } from './session-observers.mjs';
 import { deleteCompactionArchive } from '../compaction-archive.mjs';
+import { removeSessionScratchDir } from '../../../../shared/session-scratch.mjs';
 
 /** Child-agent session ids linked to one visible parent. Candidates come from
  * metadata only (the summary rows and the agent-worker links — no folder
@@ -154,6 +155,12 @@ export function deleteSession(id, options = {}) {
     _runSessionPurgeHooks(id, { cwds: knownSessionCwds(id) });
     // The display-only compaction archive has no meaning without its session.
     deleteCompactionArchive(getStoreDir(), id);
+    // The session's scratch directory (shell TEMP/TMP/TMPDIR) goes with it.
+    try {
+      removeSessionScratchDir(id);
+    } catch {
+      /* a locked scratch file never fails the delete */
+    }
     _clearLiveSession(id);
     // The file is gone: every marker of the retired incarnation goes with it
     // (save error + failed-snapshot evidence, split-brain drop flag, lifecycle

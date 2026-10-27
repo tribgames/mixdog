@@ -55,8 +55,13 @@ function _disabled() {
   return process.env.MIXDOG_SHELL_WARM_STANDBY === '0';
 }
 
+// Per-session scratch variables: they differ between sessions by design, so
+// they stay out of the reuse signature and are set in the hand-off prelude.
+const SCRATCH_ENV_KEYS = Object.freeze(['TEMP', 'TMP', 'TMPDIR']);
+
 function envSignature(env) {
   const entries = Object.entries(env || {})
+    .filter(([key]) => !SCRATCH_ENV_KEYS.includes(key))
     .map(([key, value]) => `${key}=${value}`)
     .sort()
     .join('\n');
@@ -67,8 +72,16 @@ function _slotAlive(slot) {
   return Boolean(slot?.native?.child && slot.native.child.exitCode == null && !slot.native.child.killed);
 }
 
-function psQuote(value) {
-  return String(value).replace(/'/g, "''");
+// A PowerShell expression yielding `value` for any text. PowerShell quoting has
+// no safe form for typographic apostrophes and the like, so the value travels
+// as UTF-8 Base64 and is decoded inside the expression.
+function psStringExpr(value) {
+  return `[System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String('${Buffer.from(String(value), 'utf8').toString('base64')}'))`;
+}
+
+/** The parked standby slot, for tests. */
+export function _parkedShellStandbyForTest() {
+  return _slot;
 }
 
 /** Pre-spawn the next standby (fire-and-forget; a live one is kept). */
@@ -164,9 +177,18 @@ export function takeWarmShellStandby({ shell, env }) {
     // cwd prelude: the standby was spawned in the daemon cwd. Set-Location
     // fixes $PWD and native-child working dirs; Environment.CurrentDirectory
     // fixes .NET relative-path APIs.
-    const prelude = workDir
-      ? `Set-Location -LiteralPath '${psQuote(workDir)}'; [System.Environment]::CurrentDirectory = '${psQuote(workDir)}'; `
+    const cwdPrelude = workDir
+      ? `$__mixdogCwd = ${psStringExpr(workDir)}; Set-Location -LiteralPath $__mixdogCwd; [System.Environment]::CurrentDirectory = $__mixdogCwd; `
       : '';
+    // Scratch prelude: the standby was spawned for whichever session parked
+    // it. Set (or clear, when the request has none) the requested values
+    // before the command runs, so no other session's scratch path survives.
+    const scratchPrelude = SCRATCH_ENV_KEYS.map((key) =>
+      typeof env?.[key] === 'string'
+        ? `$env:${key} = ${psStringExpr(env[key])}; `
+        : `Remove-Item -LiteralPath 'Env:${key}' -ErrorAction SilentlyContinue; `
+    ).join('');
+    const prelude = scratchPrelude + cwdPrelude;
     // Single atomic write+EOF: a separate close message can race ahead
     // of the server's async write thread and feed an empty script.
     slot.native.child.writeStdin(prelude + String(commandText ?? ''), { close: true });

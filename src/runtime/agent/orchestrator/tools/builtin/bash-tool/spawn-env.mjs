@@ -1,3 +1,4 @@
+import { applySessionScratchEnv } from '../../../../../shared/session-scratch.mjs';
 import { withSkillLauncherPath } from '../../../../../shared/skill-script-runtime.mjs';
 import {
   applyShellEgressPolicy,
@@ -6,7 +7,8 @@ import {
   scrubRuntimeRootVars,
 } from '../../env-scrub.mjs';
 
-export function buildShellSpawnEnv(cwd, baseEnv = process.env) {
+// `sessionId` points TEMP/TMP/TMPDIR at that session's scratch directory.
+export function buildShellSpawnEnv(cwd, baseEnv = process.env, sessionId = null) {
   const spawnEnv = {
     ...baseEnv,
     LANG: 'C.UTF-8',
@@ -24,5 +26,5 @@ export function buildShellSpawnEnv(cwd, baseEnv = process.env) {
   // `mixdog-skill-node` (a skill's ${MIXDOG_SKILL_NODE}) resolves in every
   // model shell; only this env gets the entry, never the daemon's own.
   withSkillLauncherPath(spawnEnv);
-  return spawnEnv;
+  return applySessionScratchEnv(spawnEnv, sessionId);
 }

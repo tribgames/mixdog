@@ -28,9 +28,9 @@ function prefixPowerShellUtf8(command) {
 // UTF-8 prefix (+ optional filter-tee rescue), or a POSIX bash/zsh snapshot
 // wrapper delivered through the environment. Returns `{ failure }` when the
 // snapshot wrapper cannot be built.
-export async function planShellInvocation({ command, resolvedSpec, cwd }) {
+export async function planShellInvocation({ command, resolvedSpec, cwd, sessionId = null }) {
   const { shell, shellArg, shellArgs, shellType } = resolvedSpec;
-  const spawnEnv = buildShellSpawnEnv(cwd);
+  const spawnEnv = buildShellSpawnEnv(cwd, process.env, sessionId);
   const plan = {
     execShell: shell,
     execShellArg: shellArg,

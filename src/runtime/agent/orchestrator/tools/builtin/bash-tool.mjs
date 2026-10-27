@@ -116,7 +116,12 @@ export async function executeBashTool(args, workDir, options = {}) {
   // A queued run, or a foreground tree that may outlive its result, settles later.
   let runSettled = null;
   try {
-    const invocation = await planShellInvocation({ command, resolvedSpec, cwd: bashWorkDir });
+    const invocation = await planShellInvocation({
+      command,
+      resolvedSpec,
+      cwd: bashWorkDir,
+      sessionId: options?.callerSessionId || options?.sessionId || null,
+    });
     if (invocation.failure) return invocation.failure;
     combinedAbort = combineAbortSignals(await sessionAbortSignal(options?.sessionId), options?.abortSignal || null);
     const startedAtMs = Date.now();
