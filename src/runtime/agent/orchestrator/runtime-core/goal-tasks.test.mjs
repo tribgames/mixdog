@@ -44,7 +44,12 @@ test('a new-task entry that names an existing task id updates that task; unknown
   });
   const updated = applyGoalTaskChanges(
     goal(),
-    { tasks: [{ id: 'task_1', status: 'completed' }, { text: 'verify', status: 'pending' }] },
+    {
+      tasks: [
+        { id: 'task_1', status: 'completed' },
+        { text: 'verify', status: 'pending' },
+      ],
+    },
     { partial: true }
   );
   assert.deepEqual(updated.tasks, [
@@ -53,7 +58,8 @@ test('a new-task entry that names an existing task id updates that task; unknown
     { id: 'task_3', text: 'verify', status: 'pending' },
   ]);
   assert.throws(
-    () => applyGoalTaskChanges(goal(), { tasks: [{ id: 'verify', text: 'verify', status: 'pending' }] }, { partial: true }),
+    () =>
+      applyGoalTaskChanges(goal(), { tasks: [{ id: 'verify', text: 'verify', status: 'pending' }] }, { partial: true }),
     /new Goal tasks must omit ids/
   );
   assert.throws(

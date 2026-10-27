@@ -890,7 +890,12 @@ function drawChartBlock(flow, block, following) {
       });
       flow.y -= rowH;
     });
-    page.drawLine({ start: { x: left, y: top }, end: { x: left, y: flow.y }, thickness: 0.6, color: color(flow.ink.line) });
+    page.drawLine({
+      start: { x: left, y: top },
+      end: { x: left, y: flow.y },
+      thickness: 0.6,
+      color: color(flow.ink.line),
+    });
   } else {
     const baseline = flow.y - size * 1.6 - layout.plotH;
     values.forEach((value, index) => {

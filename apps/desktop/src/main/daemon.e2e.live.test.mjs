@@ -79,16 +79,24 @@ test('plain-Node daemon loads the unpacked desktop adapter and serves pane catal
       mkdirSync(project);
       const destination = join(project, 'a.txt');
       writeFileSync(destination, 'before');
-      const journal = await beginProjectRecovery(runtimeRoot, project, [{
-        relPath: 'a.txt', destination, parent: recoveryIdentity(project), mode: 0o600,
-        before: Buffer.from('before'), after: Buffer.from('after'),
-      }]);
+      const journal = await beginProjectRecovery(runtimeRoot, project, [
+        {
+          relPath: 'a.txt',
+          destination,
+          parent: recoveryIdentity(project),
+          mode: 0o600,
+          before: Buffer.from('before'),
+          after: Buffer.from('after'),
+        },
+      ]);
       await releaseRecoveryDirectory(journal.directory);
       writeFileSync(destination, 'after');
-      const recover = (request) => client.call('desktop.invoke', {
-        desktopId: initialized.desktopId, method: 'invokeDesktopOperation',
-        args: ['projectRecoveryIn', [project, request]],
-      });
+      const recover = (request) =>
+        client.call('desktop.invoke', {
+          desktopId: initialized.desktopId,
+          method: 'invokeDesktopOperation',
+          args: ['projectRecoveryIn', [project, request]],
+        });
       const listed = await recover({ action: 'list' });
       assert.equal(listed.records.length, 1);
       const inspected = await recover({ action: 'inspect', id: journal.id });

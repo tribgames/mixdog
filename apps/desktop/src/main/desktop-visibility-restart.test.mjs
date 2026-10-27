@@ -4,10 +4,8 @@ import { DesktopServiceRegistry } from '../../../../src/standalone/desktop-servi
 import { createDesktopServiceStateSync } from './desktop-service-state-sync.ts';
 import { createSnapshotDeltaDecoder } from './state-delta.ts';
 
-const moduleUrl = new URL(
-  '../../../../src/standalone/test-fixtures/lifecycle-desktop-service.mjs',
-  import.meta.url
-).href;
+const moduleUrl = new URL('../../../../src/standalone/test-fixtures/lifecycle-desktop-service.mjs', import.meta.url)
+  .href;
 
 function fixture(t) {
   const frames = [];

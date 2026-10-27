@@ -12,8 +12,14 @@ async function review(heading) {
   const zip = new JSZip();
   const run = (text, rpr = '') => `<w:r><w:rPr><w:sz w:val="22"/>${rpr}</w:rPr><w:t>${text}</w:t></w:r>`;
   const body = (id, text, rpr) => `<w:p><w:pPr><w:pStyle w:val="${id}"/></w:pPr>${run(text, rpr)}</w:p>`;
-  zip.file('word/document.xml', `<w:document ${W}><w:body>${body('Heading1', 'Overview')}${body('Normal', 'Body one.', '<w:color w:val="222222"/>')}${body('Normal', 'Body two.', '<w:color w:val="222222"/>')}</w:body></w:document>`);
-  zip.file('word/styles.xml', `<w:styles ${W}>${style('Normal', 'Normal', '<w:pPr><w:spacing w:before="0" w:after="120"/></w:pPr>')}${style('Heading1', 'heading 1', heading, '<w:basedOn w:val="Normal"/>')}</w:styles>`);
+  zip.file(
+    'word/document.xml',
+    `<w:document ${W}><w:body>${body('Heading1', 'Overview')}${body('Normal', 'Body one.', '<w:color w:val="222222"/>')}${body('Normal', 'Body two.', '<w:color w:val="222222"/>')}</w:body></w:document>`
+  );
+  zip.file(
+    'word/styles.xml',
+    `<w:styles ${W}>${style('Normal', 'Normal', '<w:pPr><w:spacing w:before="0" w:after="120"/></w:pPr>')}${style('Heading1', 'heading 1', heading, '<w:basedOn w:val="Normal"/>')}</w:styles>`
+  );
   const snapshot = await snapshotDocx(zip);
   return reviewDocxStructure(snapshot).some((entry) => entry.code === 'heading_not_distinct');
 }
@@ -22,8 +28,14 @@ async function snapshotOf(headingStyle, headingRun, bodyRun = '') {
   const zip = new JSZip();
   const para = (id, text, rpr = '') =>
     `<w:p><w:pPr><w:pStyle w:val="${id}"/></w:pPr><w:r><w:rPr><w:sz w:val="22"/>${rpr}</w:rPr><w:t>${text}</w:t></w:r></w:p>`;
-  zip.file('word/document.xml', `<w:document ${W}><w:body>${para('Heading1', 'Overview', headingRun)}${para('Normal', 'Body one.', bodyRun)}${para('Normal', 'Body two.', bodyRun)}</w:body></w:document>`);
-  zip.file('word/styles.xml', `<w:styles ${W}>${style('Normal', 'Normal', '')}${style('Heading1', 'heading 1', headingStyle, '<w:basedOn w:val="Normal"/>')}</w:styles>`);
+  zip.file(
+    'word/document.xml',
+    `<w:document ${W}><w:body>${para('Heading1', 'Overview', headingRun)}${para('Normal', 'Body one.', bodyRun)}${para('Normal', 'Body two.', bodyRun)}</w:body></w:document>`
+  );
+  zip.file(
+    'word/styles.xml',
+    `<w:styles ${W}>${style('Normal', 'Normal', '')}${style('Heading1', 'heading 1', headingStyle, '<w:basedOn w:val="Normal"/>')}</w:styles>`
+  );
   return snapshotDocx(zip);
 }
 
@@ -39,12 +51,18 @@ test('explicit caps and tracking resets override the style they inherit; unstate
 
 test('an explicit colour against automatic-black body text is a distinct heading', async () => {
   const snapshot = await snapshotOf('', '<w:color w:val="FF0000"/>', '<w:color w:val="auto"/>');
-  assert.equal(reviewDocxStructure(snapshot).some((entry) => entry.code === 'heading_not_distinct'), false);
+  assert.equal(
+    reviewDocxStructure(snapshot).some((entry) => entry.code === 'heading_not_distinct'),
+    false
+  );
 });
 
 test('a heading distinct only by style colour or preceding space is not reported heading_not_distinct', async () => {
   assert.equal(await review('<w:rPr><w:color w:val="C0392B"/></w:rPr>'), false);
   assert.equal(await review('<w:pPr><w:spacing w:before="480" w:after="120"/></w:pPr>'), false);
   assert.equal(await review('<w:rPr><w:caps/></w:rPr>'), false);
-  assert.equal(await review('<w:pPr><w:spacing w:before="0" w:after="120"/></w:pPr><w:rPr><w:color w:val="222222"/></w:rPr>'), true);
+  assert.equal(
+    await review('<w:pPr><w:spacing w:before="0" w:after="120"/></w:pPr><w:rPr><w:color w:val="222222"/></w:rPr>'),
+    true
+  );
 });

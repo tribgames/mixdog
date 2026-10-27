@@ -356,7 +356,22 @@ test('helper frames arrive as BGRA frames with their desktop origin', () => {
   const frames = [];
   adapter.onFrame((frame) => frames.push(frame));
   const pixels = Buffer.alloc(16);
-  fake.emit('frame', { seq: 1, width: 2, height: 2, stride: 8, format: 'bgra', timestampMs: 0, originX: -4, originY: 3, desktop: 'Winlogon', dirty: [] }, pixels);
+  fake.emit(
+    'frame',
+    {
+      seq: 1,
+      width: 2,
+      height: 2,
+      stride: 8,
+      format: 'bgra',
+      timestampMs: 0,
+      originX: -4,
+      originY: 3,
+      desktop: 'Winlogon',
+      dirty: [],
+    },
+    pixels
+  );
   assert.deepEqual(frames, [{ width: 2, height: 2, stride: 8, originX: -4, originY: 3, pixels }]);
   assert.equal(adapter.latestFrame(), frames[0]);
   fake.emit('close');

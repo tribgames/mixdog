@@ -1,6 +1,11 @@
 // Memory control and recall: the current session's own rows first, then the
 // memory runtime (with a forced ingest of the live session when it is empty).
-import { clean, toolResponseText, isEmptyRecallText, currentSessionRecallRows } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import {
+  clean,
+  toolResponseText,
+  isEmptyRecallText,
+  currentSessionRecallRows,
+} from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 
 function isIdentityRecallQuery(query) {
   const q = clean(query).toLowerCase().replace(/\s+/g, '');

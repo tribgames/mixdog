@@ -104,7 +104,10 @@ test('a hidden role keeps the schema profile it declares; a worker ignores a cal
   assert.deepEqual(toolNames(worker), toolNames(plain));
   // (This fixture provider is non-native: the rest of the schema is reached
   // through the bridge, from the same catalog.)
-  const reachable = (session) => [...toolNames(session), ...(session.deferredToolCatalog || []).map((tool) => tool.name)];
+  const reachable = (session) => [
+    ...toolNames(session),
+    ...(session.deferredToolCatalog || []).map((tool) => tool.name),
+  ];
   assert.deepEqual(reachable(worker), reachable(plain));
   assert.ok(reachable(worker).includes('shell') && toolNames(worker).includes('Skill'));
   assert.match(systemText(worker), /# Tool Workflow/);

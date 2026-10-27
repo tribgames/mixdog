@@ -80,9 +80,7 @@ export function normalizeFeedback(body) {
 function payloadHash({ kind, message, replyTo, attachments = [] }) {
   const parts = [kind, message, replyTo];
   if (attachments.length) {
-    parts.push(
-      attachments.map((a) => [a.name, a.mimeType, createHash('sha256').update(a.data).digest('hex')]),
-    );
+    parts.push(attachments.map((a) => [a.name, a.mimeType, createHash('sha256').update(a.data).digest('hex')]));
   }
   return createHash('sha256').update(JSON.stringify(parts)).digest('hex');
 }

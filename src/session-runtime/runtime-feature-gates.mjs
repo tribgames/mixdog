@@ -4,7 +4,11 @@
 //
 // Key names mirror the dependency names of settings-api.mjs / the session-build
 // deps, so the runtime can hand them straight through.
-import { builtinFeatureActive, featureDisallowedToolsFor, localGitToolsActive } from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
+import {
+  builtinFeatureActive,
+  featureDisallowedToolsFor,
+  localGitToolsActive,
+} from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { recapEnabled } from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { browserBridgeAvailableSync } from '../runtime/browser-bridge/client.mjs';
 import { computerBridgeAvailableSync } from '../runtime/computer-bridge/client.mjs';

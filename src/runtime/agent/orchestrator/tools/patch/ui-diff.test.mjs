@@ -32,7 +32,10 @@ test('callUiDiff bounds a 6,000-line replacement and returns one replacement hun
   const out = callUiDiff([{ displayPath: 'big.txt', before, after }]);
   const ms = performance.now() - start;
   assert.ok(ms < 1500, `took ${ms}ms`);
-  assert.match(out, /^diff --git a\/big\.txt b\/big\.txt\n--- a\/big\.txt\n\+\+\+ b\/big\.txt\n@@ -1,6000 \+1,6000 @@\n/);
+  assert.match(
+    out,
+    /^diff --git a\/big\.txt b\/big\.txt\n--- a\/big\.txt\n\+\+\+ b\/big\.txt\n@@ -1,6000 \+1,6000 @@\n/
+  );
   assert.equal(out.match(/^-old line/gm).length, 6000);
   assert.equal(out.match(/^\+new line/gm).length, 6000);
   assert.doesNotMatch(out, /Binary files/);

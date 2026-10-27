@@ -107,7 +107,8 @@ function parseOne(raw: unknown, index: number): { tweak: VisualizeTweak } | { er
   const where = `control ${index + 1}`;
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { error: `${where} is not an object` };
   const item = raw as Record<string, unknown>;
-  if (typeof item.id !== 'string' || !ID.test(item.id)) return { error: `${where} needs an id of letters, digits, - or _ (max 32)` };
+  if (typeof item.id !== 'string' || !ID.test(item.id))
+    return { error: `${where} needs an id of letters, digits, - or _ (max 32)` };
   const name = `control "${item.id}"`;
   const label = item.label === undefined ? item.id : clipText(item.label, 40);
   if (!label) return { error: `${name} has an empty or too long label (max 40)` };
@@ -115,7 +116,8 @@ function parseOne(raw: unknown, index: number): { tweak: VisualizeTweak } | { er
   if (type !== 'color' && type !== 'range' && type !== 'select' && type !== 'toggle') {
     return { error: `${name} type must be color, range, select or toggle` };
   }
-  if ((item.var === undefined) === (item.attr === undefined)) return { error: `${name} needs exactly one of "var" or "attr"` };
+  if ((item.var === undefined) === (item.attr === undefined))
+    return { error: `${name} needs exactly one of "var" or "attr"` };
   if (item.var !== undefined && (typeof item.var !== 'string' || !VAR.test(item.var))) {
     return { error: `${name} var must look like --my-name (lower-case letters, digits, -)` };
   }
@@ -155,7 +157,14 @@ function parseOne(raw: unknown, index: number): { tweak: VisualizeTweak } | { er
     }
     tweak.options = parsed;
   }
-  const fallback = type === 'range' ? tweak.min : type === 'select' ? tweak.options?.[0]?.value : type === 'toggle' ? false : undefined;
+  const fallback =
+    type === 'range'
+      ? tweak.min
+      : type === 'select'
+        ? tweak.options?.[0]?.value
+        : type === 'toggle'
+          ? false
+          : undefined;
   const given = item.default === undefined ? fallback : item.default;
   const value = sanitizeTweakValue(tweak, given);
   if (value === null) return { error: `${name} has no valid default for type ${type}` };
@@ -173,7 +182,8 @@ export function parseVisualizeTweaks(raw: string): { tweaks: VisualizeTweak[] } 
     return { error: 'the block is not valid JSON' };
   }
   if (!Array.isArray(data) || !data.length) return { error: 'the block must be a non-empty JSON array of controls' };
-  if (data.length > MAX_VISUALIZE_TWEAKS) return { error: `at most ${MAX_VISUALIZE_TWEAKS} controls (got ${data.length})` };
+  if (data.length > MAX_VISUALIZE_TWEAKS)
+    return { error: `at most ${MAX_VISUALIZE_TWEAKS} controls (got ${data.length})` };
   const tweaks: VisualizeTweak[] = [];
   const seen = new Set<string>();
   for (const [index, entry] of data.entries()) {
@@ -203,7 +213,10 @@ export function tweakValueOf(tweak: VisualizeTweak, values: Readonly<Record<stri
 }
 
 /** One op per control: the sanitized override, or removal at its default. */
-export function tweakOps(tweaks: readonly VisualizeTweak[], values: Readonly<Record<string, string>>): VisualizeTweakOp[] {
+export function tweakOps(
+  tweaks: readonly VisualizeTweak[],
+  values: Readonly<Record<string, string>>
+): VisualizeTweakOp[] {
   return tweaks.map((tweak) => {
     const value = tweakValueOf(tweak, values);
     return {
@@ -222,7 +235,10 @@ export interface VisualizeTweakChange {
 }
 
 /** The controls moved off their defaults. */
-export function tweakChanges(tweaks: readonly VisualizeTweak[], values: Readonly<Record<string, string>>): VisualizeTweakChange[] {
+export function tweakChanges(
+  tweaks: readonly VisualizeTweak[],
+  values: Readonly<Record<string, string>>
+): VisualizeTweakChange[] {
   const changes: VisualizeTweakChange[] = [];
   for (const tweak of tweaks) {
     const value = tweakValueOf(tweak, values);

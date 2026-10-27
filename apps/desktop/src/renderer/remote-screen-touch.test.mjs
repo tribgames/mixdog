@@ -32,12 +32,14 @@ test('every touch action maps to the right screen messages', () => {
     pointer('down', 100, 50, 'left'),
     pointer('up', 100, 50, 'left'),
   ]);
-  assert.deepEqual(messages({ type: 'click', button: 'right', at, count: 1 }).map((m) => m.button ?? m.action), [
-    'move',
-    'right',
-    'right',
-  ]);
-  assert.deepEqual(messages({ type: 'click', button: 'middle', at, count: 1 }).at(-1), pointer('up', 100, 50, 'middle'));
+  assert.deepEqual(
+    messages({ type: 'click', button: 'right', at, count: 1 }).map((m) => m.button ?? m.action),
+    ['move', 'right', 'right']
+  );
+  assert.deepEqual(
+    messages({ type: 'click', button: 'middle', at, count: 1 }).at(-1),
+    pointer('up', 100, 50, 'middle')
+  );
   // The second click of a double-click is one more press and lift at the point.
   assert.deepEqual(
     messages({ type: 'click', button: 'left', at, count: 1 }, { type: 'click', button: 'left', at, count: 2 }).map(
@@ -47,7 +49,11 @@ test('every touch action maps to the right screen messages', () => {
   );
   // press / drag / release hold the left button across moves.
   assert.deepEqual(
-    messages({ type: 'press', at }, { type: 'drag', at: { x: 120, y: 60 } }, { type: 'release', at: { x: 130, y: 70 } }),
+    messages(
+      { type: 'press', at },
+      { type: 'drag', at: { x: 120, y: 60 } },
+      { type: 'release', at: { x: 130, y: 70 } }
+    ),
     [
       pointer('move', 100, 50),
       pointer('down', 100, 50, 'left'),

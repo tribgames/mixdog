@@ -255,7 +255,11 @@ test('an answer that lands after its life (no event reported a sleep) is checked
   assert.equal(turnEntry(fresh.result) !== undefined, true, 'one millisecond inside the servable window');
   assert.equal(fresh.calls(), 1);
   const stale = await lands(refreshAfter);
-  assert.deepEqual(stale.result, [{ urls: [STUN] }], 'at the margin the credential is dropped; its STUN URL is not secret');
+  assert.deepEqual(
+    stale.result,
+    [{ urls: [STUN] }],
+    'at the margin the credential is dropped; its STUN URL is not secret'
+  );
   assert.equal(turnEntry(await stale.next()) !== undefined, true, 'and it was not cached: the next caller asks afresh');
   assert.equal(stale.calls(), 2);
   const expired = await lands(DAY_MS + 1);
@@ -277,7 +281,7 @@ test('when the relay cannot issue the list degrades to STUN, then to empty, and 
   assert.deepEqual(await throwing.resolve(), []);
 });
 
-test('the only wait is the one the relay names: a rate limit\'s retryAfterMs, from the monotonic or the wall clock', async () => {
+test("the only wait is the one the relay names: a rate limit's retryAfterMs, from the monotonic or the wall clock", async () => {
   const limited = relayAnswer({ issueLimit: 1, again: true });
   assert.equal(limited.error, 'rate-limited');
   assert.ok(limited.retryAfterMs > 0);
@@ -357,7 +361,9 @@ test('malformed answers are refused whole', async () => {
   // The contract's own maxima are accepted.
   const maxima = {
     ...good,
-    servers: Array.from({ length: MAX_ICE_SERVERS }, () => ({ urls: Array.from({ length: MAX_ICE_URLS }, () => STUN) })),
+    servers: Array.from({ length: MAX_ICE_SERVERS }, () => ({
+      urls: Array.from({ length: MAX_ICE_URLS }, () => STUN),
+    })),
   };
   assert.equal((await harness({ answers: [maxima] }).servers.resolve()).length, MAX_ICE_SERVERS);
 });

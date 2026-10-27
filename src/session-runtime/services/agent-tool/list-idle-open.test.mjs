@@ -80,7 +80,7 @@ function scenario() {
   return agent;
 }
 
-test('agent list shows the caller\'s idle open worker with its tag, drops it once closed, and hides another caller\'s', async () => {
+test("agent list shows the caller's idle open worker with its tag, drops it once closed, and hides another caller's", async () => {
   const agent = scenario();
   const ctx = { callerSessionId: 'sess_lead_a' };
   try {

@@ -28,11 +28,17 @@ function writeAdvert(ownerPid) {
   mkdirSync(join(directory, 'runtime', 'discovery'), { recursive: true });
   writeFileSync(
     advertFile,
-    JSON.stringify({ pg_port: 55432, pg_pgdata: join(directory, 'data'), pg_runtime_dir: join(directory, 'rt'), pg_owner_pid: ownerPid, updatedAt: 1 })
+    JSON.stringify({
+      pg_port: 55432,
+      pg_pgdata: join(directory, 'data'),
+      pg_runtime_dir: join(directory, 'rt'),
+      pg_owner_pid: ownerPid,
+      updatedAt: 1,
+    })
   );
 }
 
-test('exit-hook sync stop removes this run\'s pg.json along with the postmaster', async (t) => {
+test("exit-hook sync stop removes this run's pg.json along with the postmaster", async (t) => {
   t.after(() => rmSync(directory, { recursive: true, force: true }));
   const { stopPgForShutdown, stopPgForShutdownSync } = await import('./supervisor.mjs');
   writeAdvert(process.pid);

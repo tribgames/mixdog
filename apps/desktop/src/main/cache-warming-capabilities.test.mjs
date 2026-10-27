@@ -15,7 +15,12 @@ test('the cache warming getter is a read action and the setter a configure one, 
   assert.equal(SESSION_READ_ACTIONS.includes('setCacheWarmingEnabled'), false);
   assert.equal(SESSION_CONFIGURE_ACTIONS.includes('setCacheWarmingEnabled'), true);
   assert.equal(SESSION_CONFIGURE_ACTIONS.includes('getCacheWarmingSettings'), false);
-  for (const list of [DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES, SESSION_READ_ACTIONS, SESSION_CONFIGURE_ACTIONS]) {
+  for (const list of [
+    DESKTOP_CAPABILITIES,
+    DESKTOP_READ_CAPABILITIES,
+    SESSION_READ_ACTIONS,
+    SESSION_CONFIGURE_ACTIONS,
+  ]) {
     for (const name of ['getCacheWarmingSettings', 'setCacheWarmingEnabled']) {
       assert.ok(list.filter((entry) => entry === name).length <= 1, name);
     }

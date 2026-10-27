@@ -56,7 +56,10 @@ for (const display of [primary, secondary]) {
   report(`${display.label} native pixels`, `${display.physical.width}x${display.physical.height}`);
   report(`${display.label} capture plan`, `${size.width}x${size.height} (source ${display.captureSourceId})`);
   const { geometry, mapping } = lockScreenGeometry(display, 1);
-  report(`${display.label} locked geometry`, `css ${geometry.cssWidth}x${geometry.cssHeight} @${geometry.deviceScaleFactor}`);
+  report(
+    `${display.label} locked geometry`,
+    `css ${geometry.cssWidth}x${geometry.cssHeight} @${geometry.deviceScaleFactor}`
+  );
 
   // A harmless move to the centre of a hypothetical test window at the display
   // centre: show where it lands in desktop pixels. No input is sent.
@@ -67,7 +70,10 @@ for (const display of [primary, secondary]) {
     mapping,
     1
   );
-  report(`${display.label} move command`, move.map((command, index) => formatScreenHostCommand(index + 1, command)).join(' | '));
+  report(
+    `${display.label} move command`,
+    move.map((command, index) => formatScreenHostCommand(index + 1, command)).join(' | ')
+  );
   console.log('');
 }
 
@@ -75,12 +81,21 @@ for (const display of [primary, secondary]) {
 // dropped, and a held chord releases exactly once — through a recording
 // backend, so nothing reaches the real desktop.
 const { mapping } = lockScreenGeometry(primary, 7);
-check('far edge clamps in-bounds', mapScreenPointer(mapping, mapping.pixelWidth, mapping.pixelHeight).x === primary.physical.width - 1);
+check(
+  'far edge clamps in-bounds',
+  mapScreenPointer(mapping, mapping.pixelWidth, mapping.pixelHeight).x === primary.physical.width - 1
+);
 check('off-frame point dropped', mapScreenPointer(mapping, mapping.pixelWidth + 1, 0) === null);
-check('stale generation dropped', screenInputCommands({ type: 'screen-pointer', action: 'move', x: 0, y: 0 }, mapping, 6) === null);
+check(
+  'stale generation dropped',
+  screenInputCommands({ type: 'screen-pointer', action: 'move', x: 0, y: 0 }, mapping, 6) === null
+);
 
 const sent = [];
-const recorder = { send: async (command) => void sent.push(command), identity: () => ({ session: 1, desktop: 'default' }) };
+const recorder = {
+  send: async (command) => void sent.push(command),
+  identity: () => ({ session: 1, desktop: 'default' }),
+};
 const router = new ScreenInputRouter({ desktop: recorder, secure: recorder });
 await router.switchTo('desktop');
 for (const input of [

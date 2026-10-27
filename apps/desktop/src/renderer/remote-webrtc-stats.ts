@@ -40,7 +40,8 @@ export function remoteWebrtcPeerCertificate(
   for (const transport of stats(report, 'transport')) {
     if (transport.dtlsState !== 'connected') continue;
     const certificate = byId(report, transport.remoteCertificateId);
-    if (certificate) return { fingerprint: certificate.fingerprint, fingerprintAlgorithm: certificate.fingerprintAlgorithm };
+    if (certificate)
+      return { fingerprint: certificate.fingerprint, fingerprintAlgorithm: certificate.fingerprintAlgorithm };
   }
   return null;
 }

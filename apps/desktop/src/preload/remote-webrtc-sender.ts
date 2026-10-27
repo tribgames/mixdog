@@ -10,9 +10,7 @@ import {
 // on this window's webContents.ipc), never the app's DesktopApi.
 const bridge = {
   onCommand(listener: (command: RemoteWebrtcSenderCommand) => void): void {
-    ipcRenderer.on(REMOTE_WEBRTC_SENDER_IPC.command, (_event, command: RemoteWebrtcSenderCommand) =>
-      listener(command)
-    );
+    ipcRenderer.on(REMOTE_WEBRTC_SENDER_IPC.command, (_event, command: RemoteWebrtcSenderCommand) => listener(command));
   },
   emit(event: RemoteWebrtcSenderEvent): void {
     ipcRenderer.send(REMOTE_WEBRTC_SENDER_IPC.event, event);

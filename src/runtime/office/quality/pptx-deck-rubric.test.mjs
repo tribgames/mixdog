@@ -160,7 +160,8 @@ test('showcase decks skip density and object_scale; body_line is informational a
   assert.ok(ids(read).includes('density') && ids(read).includes('object_scale'));
   for (const mode of ['presentation', 'keynote', 'showcase']) {
     const shown = scoreDeck({ receipt, issues: [], brief: { readingMode: mode } });
-    for (const id of ['density', 'object_scale', 'body_line']) assert.ok(!ids(shown).includes(id), `${mode} skips ${id}`);
+    for (const id of ['density', 'object_scale', 'body_line'])
+      assert.ok(!ids(shown).includes(id), `${mode} skips ${id}`);
     assert.ok(shown.score > read.score, 'the skipped checks no longer pull the score down');
   }
   const line = read.checks.find((check) => check.id === 'body_line');

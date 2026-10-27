@@ -35,7 +35,9 @@ async function fixture(t) {
   // All five observed version fields collide, not just mtime and size.
   t.mock.method(handle, 'stat', async () => st);
   const stat = fs.stat;
-  const mocked = t.mock.method(fs, 'stat', (file, ...args) => file === path ? Promise.resolve(st) : stat(file, ...args));
+  const mocked = t.mock.method(fs, 'stat', (file, ...args) =>
+    file === path ? Promise.resolve(st) : stat(file, ...args)
+  );
   const open = fs.open;
   const mockedOpen = t.mock.method(fs, 'open', async (file, ...args) => {
     const opened = await open(file, ...args);
@@ -73,8 +75,10 @@ async function rewriteSuffix(path) {
 for (const staleDisk of [false, true]) {
   test(`deep same-version suffix newlines never reuse large anchors/counts (${staleDisk ? 'old disk row' : 'memory'})`, async (t) => {
     const { path, st, handle, disk } = await fixture(t);
-    assert.equal((await streamReadRange(path, 9000, 1, st, { fileHandle: handle })).text.split('\n')[0],
-      renderReadLine(9001, rows[9000]));
+    assert.equal(
+      (await streamReadRange(path, 9000, 1, st, { fileHandle: handle })).text.split('\n')[0],
+      renderReadLine(9001, rows[9000])
+    );
     assert.equal(await countLogicalLinesBytesSync(path, st.size, st), rows.length);
     indexes.flushReadRangeIndexesSync();
     assert.equal(existsSync(disk), false, 'even successful large scans publish nothing to disk');
@@ -85,7 +89,11 @@ for (const staleDisk of [false, true]) {
         path,
         fileVersion: fileVersion(st),
         prefixHash: hashText(original.subarray(0, READ_PREFIX_HASH_BYTES)),
-        anchors: [[0, 0], [4096, 4096 * width], [8192, 8192 * width]],
+        anchors: [
+          [0, 0],
+          [4096, 4096 * width],
+          [8192, 8192 * width],
+        ],
         totalLines: rows.length,
       });
       await fs.mkdir(join(root, 'data', 'read-range-index'), { recursive: true });
@@ -113,11 +121,18 @@ for (const staleDisk of [false, true]) {
     let trace;
     const result = await streamReadRange(path, 9000, 2, st, {
       fileHandle: handle,
-      ioTraceDone: (_event, _start, detail) => { trace = detail; },
+      ioTraceDone: (_event, _start, detail) => {
+        trace = detail;
+      },
     });
     const expectedRows = actual.toString('utf8').split('\n');
-    assert.equal(result.text.split('\n').slice(0, 2).join('\n'),
-      expectedRows.slice(9000, 9002).map((row, i) => renderReadLine(9001 + i, row)).join('\n'));
+    assert.equal(
+      result.text.split('\n').slice(0, 2).join('\n'),
+      expectedRows
+        .slice(9000, 9002)
+        .map((row, i) => renderReadLine(9001 + i, row))
+        .join('\n')
+    );
     assert.equal(result.firstEmitted, 9001);
     assert.equal(result.lastEmitted, 9002);
     assert.equal(trace.anchorLine, 0);
@@ -154,8 +169,13 @@ test('unchanged large early windows read one bounded chunk with no prefix-valida
   });
   for (let i = 0; i < 2; i++) {
     const result = await streamReadRange(path, 0, 2, st, { fileHandle: handle, maxOutputBytes: 1024 });
-    assert.equal(result.text.split('\n').slice(0, 2).join('\n'),
-      rows.slice(0, 2).map((row, j) => renderReadLine(j + 1, row)).join('\n'));
+    assert.equal(
+      result.text.split('\n').slice(0, 2).join('\n'),
+      rows
+        .slice(0, 2)
+        .map((row, j) => renderReadLine(j + 1, row))
+        .join('\n')
+    );
     assert.ok(Buffer.byteLength(result.text) <= 1024);
     assert.deepEqual(result.readSnapshotStat, fileVersion(st));
     assert.notEqual(result.readSnapshotStat, st);
@@ -181,11 +201,12 @@ for (const boundary of ['handle', 'path', 'handle-failure', 'path-failure']) {
       readBody = true;
       return result;
     });
-    if (boundary.startsWith('handle')) t.mock.method(handle, 'stat', async () => readBody ? terminalStat() : st);
+    if (boundary.startsWith('handle')) t.mock.method(handle, 'stat', async () => (readBody ? terminalStat() : st));
     else {
       const stat = fs.stat;
       const mocked = t.mock.method(fs, 'stat', async (file, ...args) =>
-        file === path && readBody ? terminalStat() : stat(file, ...args));
+        file === path && readBody ? terminalStat() : stat(file, ...args)
+      );
       syncBuiltinESMExports();
       t.after(() => {
         mocked.mock.restore();

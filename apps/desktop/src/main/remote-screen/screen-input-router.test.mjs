@@ -45,7 +45,15 @@ test('a key combo is pressed in order and released in reverse, as one step', asy
   const after = env.router.dispatch([keyDown(0x41)], always);
   assert.equal(await combo, 'applied');
   await after;
-  assert.deepEqual(env.desktop.sent, [CTRL, SHIFT, C, keyUp(0x43, 0x2e), keyUp(0xa0, 0x2a), keyUp(0xa2, 0x1d), keyDown(0x41)]);
+  assert.deepEqual(env.desktop.sent, [
+    CTRL,
+    SHIFT,
+    C,
+    keyUp(0x43, 0x2e),
+    keyUp(0xa0, 0x2a),
+    keyUp(0xa2, 0x1d),
+    keyDown(0x41),
+  ]);
   env.desktop.sent.length = 0;
   await env.router.releaseAll();
   assert.deepEqual(env.desktop.sent, [keyUp(0x41)], 'only the later key is still held');
@@ -338,7 +346,10 @@ test('a revoke after the text, before the re-press: AltGr is never pressed again
   // Authorization is lost the moment the text has gone out.
   const allowed = () => !env.desktop.sent.some((c) => c.op === 'text');
   assert.equal(await env.router.dispatch([{ op: 'text', text: '@' }], allowed), 'applied');
-  assert.deepEqual(env.desktop.sent, [{ ...rightAlt, down: false }, { op: 'text', text: '@' }]);
+  assert.deepEqual(env.desktop.sent, [
+    { ...rightAlt, down: false },
+    { op: 'text', text: '@' },
+  ]);
   await env.router.releaseAll();
   assert.equal(env.desktop.sent.length, 2, 'nothing held: the key is up');
 });

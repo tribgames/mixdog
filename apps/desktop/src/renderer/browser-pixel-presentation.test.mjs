@@ -93,9 +93,7 @@ function bridgedFixture(t) {
   }
   dom.window.Image.prototype.decode = async () => {};
   const painted = [];
-  dom.window.HTMLCanvasElement.prototype.getContext = function () {
-    return { drawImage: (video) => painted.push(video.id) };
-  };
+  dom.window.HTMLCanvasElement.prototype.getContext = () => ({ drawImage: (video) => painted.push(video.id) });
   t.after(() => dom.window.close());
   let receive;
   const module = { exports: {} };

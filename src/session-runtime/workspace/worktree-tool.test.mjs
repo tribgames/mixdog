@@ -72,17 +72,20 @@ test('its own session: enter, return, merge and remove tolerate the calling turn
     [
       'requestWorktree',
       // Not a slug: the text names the worktree the way a first message does.
-      { provision: true, name: null, prompt: 'Fix the login page', carryChanges: 'leave', confirmLarge: false, txId: 't' },
+      {
+        provision: true,
+        name: null,
+        prompt: 'Fix the login page',
+        carryChanges: 'leave',
+        confirmLarge: false,
+        txId: 't',
+      },
       { ownTurn: true },
     ],
     ['selectBranch', { branch: 'dev', create: true, confirmLarge: true, txId: 't2' }, { ownTurn: true }],
     // Back to the branch the project folder has checked out.
     ['selectBranch', { branch: 'main', expectedRevision: 4, txId: 't3' }, { ownTurn: true }],
-    [
-      'mergeWorkspace',
-      { confirmed: true, target: 'main', expectedRevision: 4, cleanup: true },
-      { ownTurn: true },
-    ],
+    ['mergeWorkspace', { confirmed: true, target: 'main', expectedRevision: 4, cleanup: true }, { ownTurn: true }],
     ['removeWorktree', { force: true }, { ownTurn: true }],
   ]);
 });

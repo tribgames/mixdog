@@ -73,12 +73,18 @@ test('invalid indexes and malformed extra lines cannot silently lose source memb
 test('ascending index ranges expand; reversed or overlapping ranges stay invalid', () => {
   const rows = Array.from({ length: 8 }, (_, i) => row(i + 1));
   const parsed = parseCycle1LineFormat(`${answer('1-3,5')}\n${answer('4')}\n${answer('6 - 8')}`);
-  assert.deepEqual(parsed.map((chunk) => chunk._idxList), [[1, 2, 3, 5], [4], [6, 7, 8]]);
+  assert.deepEqual(
+    parsed.map((chunk) => chunk._idxList),
+    [[1, 2, 3, 5], [4], [6, 7, 8]]
+  );
   assert.equal(validateCycle1Grouping(parsed, rows).valid, true);
   for (const text of [answer('3-1'), answer('1-'), answer('-2'), answer('1-2-3')]) {
     assert.equal(validateCycle1Grouping(parseCycle1LineFormat(text), [row(1), row(2), row(3)]).accepted.length, 0);
   }
-  assert.equal(validateCycle1Grouping(parseCycle1LineFormat(`${answer('1-2')}\n${answer('2-3')}`), rows.slice(0, 3)).valid, false);
+  assert.equal(
+    validateCycle1Grouping(parseCycle1LineFormat(`${answer('1-2')}\n${answer('2-3')}`), rows.slice(0, 3)).valid,
+    false
+  );
 });
 
 test('indexes past the safe-integer range are rejected without hanging the parser', () => {

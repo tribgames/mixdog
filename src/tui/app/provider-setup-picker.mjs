@@ -129,13 +129,17 @@ export function createProviderSetupPicker({
 
     flow.paint({
       title: options.title || 'Providers',
-      description: setup.managedByClient === true
-        ? 'Manage provider sign-ins and accounts in the local desktop window. Refresh to update availability.'
-        : options.description || 'Choose a provider. Enter opens provider actions.',
+      description:
+        setup.managedByClient === true
+          ? 'Manage provider sign-ins and accounts in the local desktop window. Refresh to update availability.'
+          : options.description || 'Choose a provider. Enter opens provider actions.',
       footer: providerFooter,
       footerGapRows: 1,
-      help: options.confirmBar ? undefined : setup.managedByClient === true
-        ? '↑/↓ Select · Enter Refresh · Esc Back' : '↑/↓ Select · Enter Open · Esc Back',
+      help: options.confirmBar
+        ? undefined
+        : setup.managedByClient === true
+          ? '↑/↓ Select · Enter Refresh · Esc Back'
+          : '↑/↓ Select · Enter Open · Esc Back',
       indexMode: 'always',
       labelWidth: 18,
       metaWidth: 12,

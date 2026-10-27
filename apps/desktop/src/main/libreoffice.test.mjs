@@ -40,5 +40,9 @@ test('every refresh re-probes at once and concurrent refreshes share one probe',
     [false, false, false]
   );
   installExternally();
-  assert.equal((await libreOfficeStatus(true)).installed, true, 'a refresh right after a probe still sees a new install');
+  assert.equal(
+    (await libreOfficeStatus(true)).installed,
+    true,
+    'a refresh right after a probe still sees a new install'
+  );
 });

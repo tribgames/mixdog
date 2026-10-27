@@ -204,10 +204,7 @@ export function registerSshHostIpc(deps: SshHostIpcDeps): () => void {
     [DESKTOP_IPC.sshServerLoginCancel, (_event, id, flowId) => serverLogins.cancel(id, flowId)],
     [DESKTOP_IPC.sshServerLoginSaveKey, (_event, id, provider, key) => serverLogins.saveKey(id, provider, key)],
     [DESKTOP_IPC.sshServerLoginLogout, (_event, id, provider) => serverLogins.logout(id, provider)],
-    [
-      DESKTOP_IPC.sshServerLoginRemoveCustom,
-      (_event, id, provider) => serverLogins.removeCustomProvider(id, provider),
-    ],
+    [DESKTOP_IPC.sshServerLoginRemoveCustom, (_event, id, provider) => serverLogins.removeCustomProvider(id, provider)],
     [
       DESKTOP_IPC.sshForgetHost,
       async (_event, id) => {

@@ -6,7 +6,12 @@ import test from 'node:test';
 
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-xai-effort-'));
 test.after(() => rmSync(dataDir, { recursive: true, force: true }));
-const row = (reasoning_options) => ({ id: 'x', reasoning: true, tool_call: true, ...(reasoning_options ? { reasoning_options } : {}) });
+const row = (reasoning_options) => ({
+  id: 'x',
+  reasoning: true,
+  tool_call: true,
+  ...(reasoning_options ? { reasoning_options } : {}),
+});
 const effort = (...values) => [{ type: 'effort', values }];
 // Every id is a fixture: the catalog's declaration alone decides.
 writeFileSync(

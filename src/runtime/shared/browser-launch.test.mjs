@@ -3,7 +3,8 @@ import test from 'node:test';
 
 import { launchPuppeteerBrowser } from './browser-launch.mjs';
 
-const launchTimeout = () => Object.assign(new Error('Timed out waiting for the WS endpoint URL'), { name: 'TimeoutError' });
+const launchTimeout = () =>
+  Object.assign(new Error('Timed out waiting for the WS endpoint URL'), { name: 'TimeoutError' });
 
 function fakePuppeteer(outcomes) {
   const calls = [];

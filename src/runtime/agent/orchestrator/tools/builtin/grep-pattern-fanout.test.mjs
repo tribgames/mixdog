@@ -324,12 +324,14 @@ for (const cacheSafe of [false, true]) {
   test(`combined pattern fanout preserves watcher cache safety (${cacheSafe})`, async (t) => {
     const root = fixture(t);
     const outcome = { complete: true, cacheSafe: true };
-    await runGrepPatternFanout(fanoutRequest(root, {
-      options: {
-        scopedCacheOutcome: outcome,
-        __runRgWindowedLines: async () => ({ lines: [], complete: true, partial: false, cacheSafe }),
-      },
-    }));
+    await runGrepPatternFanout(
+      fanoutRequest(root, {
+        options: {
+          scopedCacheOutcome: outcome,
+          __runRgWindowedLines: async () => ({ lines: [], complete: true, partial: false, cacheSafe }),
+        },
+      })
+    );
     assert.equal(outcome.cacheSafe, cacheSafe);
     assert.equal(outcome.complete, true);
   });

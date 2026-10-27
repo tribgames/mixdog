@@ -35,7 +35,10 @@ export interface LinuxComputerRefusal {
 export const MIN_WINDOW_HELPER_VERSION: number;
 export const CAPABILITY_UNAVAILABLE_CODE: 'computer_capability_unavailable';
 export function detectSession(env: Record<string, string | undefined>): 'wayland' | 'x11';
-export function detectDesktop(env: Record<string, string | undefined>, session: 'wayland' | 'x11'): LinuxComputerReadiness['desktop'];
+export function detectDesktop(
+  env: Record<string, string | undefined>,
+  session: 'wayland' | 'x11'
+): LinuxComputerReadiness['desktop'];
 export function checkLinuxComputerReadiness(options?: Record<string, unknown>): Promise<LinuxComputerReadiness>;
 export function getLinuxComputerReadiness(options?: Record<string, unknown>): Promise<LinuxComputerReadiness>;
 export function missingCapabilities(
@@ -47,4 +50,6 @@ export function resetLinuxComputerPreflightCache(): void;
 export const GNOME_EXTENSION_UUID: 'mixdog-windows@mixdog.io';
 export function gnomeExtensionDirs(env?: Record<string, string | undefined>): string[];
 export const CAPTURE_FALLBACK_NOTE: string;
-export function linuxCaptureFallback(options?: Record<string, unknown>): Promise<{ command: Record<string, unknown>; note: string } | null>;
+export function linuxCaptureFallback(
+  options?: Record<string, unknown>
+): Promise<{ command: Record<string, unknown>; note: string } | null>;

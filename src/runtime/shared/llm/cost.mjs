@@ -100,7 +100,11 @@ export function priceUsage(args) {
   // A provider-billed figure for a media request (e.g. xAI cost_in_usd_ticks)
   // is the price, with or without a catalog row.
   const media = args.media || null;
-  if (typeof media?.reportedCostUsd === 'number' && Number.isFinite(media.reportedCostUsd) && media.reportedCostUsd >= 0)
+  if (
+    typeof media?.reportedCostUsd === 'number' &&
+    Number.isFinite(media.reportedCostUsd) &&
+    media.reportedCostUsd >= 0
+  )
     return {
       input,
       costUsd: Number(media.reportedCostUsd.toFixed(6)),

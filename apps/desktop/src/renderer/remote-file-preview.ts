@@ -763,7 +763,14 @@ export function createRemoteTransportMediaClient(deps: {
     reply.close();
   };
   const open = (data: unknown): void => {
-    const asked = data as { op?: unknown; port?: unknown; assetId?: unknown; variant?: unknown; range?: unknown; enc?: unknown } | null;
+    const asked = data as {
+      op?: unknown;
+      port?: unknown;
+      assetId?: unknown;
+      variant?: unknown;
+      range?: unknown;
+      enc?: unknown;
+    } | null;
     if (asked?.op !== 'request' || !(asked.port instanceof MessagePort)) return;
     const reply = asked.port;
     const id = `m${++next}`;

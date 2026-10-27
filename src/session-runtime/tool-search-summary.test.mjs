@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { applyDeferredToolSurface, renderToolSearch } from '../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
+import {
+  applyDeferredToolSurface,
+  renderToolSearch,
+} from '../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
 
 test('native re-selection retains registration without duplicating schemas in prose', () => {
   const tool = {

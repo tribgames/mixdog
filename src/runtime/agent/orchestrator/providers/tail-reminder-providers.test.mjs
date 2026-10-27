@@ -34,8 +34,7 @@ const H2 = [
 const withReminder = (history, model = MODEL) => withTailReminder(history, { session: {}, model }, KO);
 // History as send-with-recovery leaves it: every assistant turn keeps the
 // reminder its request carried. A legacy wire must never send these.
-const stored = (history) =>
-  history.map((m) => (m.role === 'assistant' ? { ...m, turnReminder: REMINDER } : m));
+const stored = (history) => history.map((m) => (m.role === 'assistant' ? { ...m, turnReminder: REMINDER } : m));
 const strip = (value) => JSON.stringify(value, (key, v) => (key === 'cache_control' ? undefined : v));
 const marks = (messages) =>
   messages.flatMap((m, i) =>

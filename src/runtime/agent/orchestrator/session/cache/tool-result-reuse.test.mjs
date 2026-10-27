@@ -32,7 +32,9 @@ function fixture(mode) {
   const file = join(cwd, 'file.txt');
   writeFileSync(file, 'ORIGINAL\n');
   return {
-    mode, cwd, file,
+    mode,
+    cwd,
+    file,
     sessionId: `reuse-${randomUUID()}`,
     sessionRef: { schemaAllowedTools: null },
     crossTurnCalls: new Map(),
@@ -67,7 +69,10 @@ async function round(fx, name, args, { beforeBatch, afterRead } = {}) {
       const result = await executeGlobTool(structuredClone(input), cwd, {
         scopedCacheOutcome: outcome,
         __runRgWindowedLines: async () => ({
-          lines: [`snapshot-${fx.executions}.txt`], complete: true, partial: false, cacheSafe: fx.cacheSafe,
+          lines: [`snapshot-${fx.executions}.txt`],
+          complete: true,
+          partial: false,
+          cacheSafe: fx.cacheSafe,
         }),
       });
       assert.equal(outcome.complete, true, 'an unwatchable result is still complete');
@@ -75,18 +80,27 @@ async function round(fx, name, args, { beforeBatch, afterRead } = {}) {
     }
     if (toolName !== 'read') return `snapshot-${fx.executions}`;
     const paths = input.file_path ?? input.path;
-    const content = (Array.isArray(paths) ? paths : [paths]).map((value) => {
-      const path = typeof value === 'string' ? value : value.file_path ?? value.path;
-      return readFileSync(resolve(cwd, path), 'utf8');
-    }).join('\n');
+    const content = (Array.isArray(paths) ? paths : [paths])
+      .map((value) => {
+        const path = typeof value === 'string' ? value : (value.file_path ?? value.path);
+        return readFileSync(resolve(cwd, path), 'utf8');
+      })
+      .join('\n');
     afterRead?.();
     return content;
   };
   const dispatcher = createEagerDispatcher({
-    tools, cwd: fx.cwd, sessionId: fx.sessionId, sessionRef: fx.sessionRef,
-    signal: null, opts: {}, crossTurnCalls: fx.crossTurnCalls,
-    getIterations: () => fx.iterations, getNextIteration: () => fx.iterations,
-    repeatFailLimit: 3, executeToolFn,
+    tools,
+    cwd: fx.cwd,
+    sessionId: fx.sessionId,
+    sessionRef: fx.sessionRef,
+    signal: null,
+    opts: {},
+    crossTurnCalls: fx.crossTurnCalls,
+    getIterations: () => fx.iterations,
+    getNextIteration: () => fx.iterations,
+    repeatFailLimit: 3,
+    executeToolFn,
   });
   if (fx.mode === 'streaming') {
     dispatcher.onToolCall(call);
@@ -94,16 +108,31 @@ async function round(fx, name, args, { beforeBatch, afterRead } = {}) {
   }
   beforeBatch?.(dispatcher);
   const stats = await processToolBatch({
-    calls: [call], messages: fx.messages, tools, cwd: fx.cwd,
-    sessionId: fx.sessionId, sessionRef: fx.sessionRef, signal: null, opts: {},
+    calls: [call],
+    messages: fx.messages,
+    tools,
+    cwd: fx.cwd,
+    sessionId: fx.sessionId,
+    sessionRef: fx.sessionRef,
+    signal: null,
+    opts: {},
     iterations: fx.iterations,
     assistantTurnMsg: { role: 'assistant', content: '', toolCalls: [call] },
-    pending: dispatcher.pending, epoch: dispatcher.epoch,
+    pending: dispatcher.pending,
+    epoch: dispatcher.epoch,
     startEagerRun: fx.mode === 'serial' ? () => {} : dispatcher.startEagerRun,
-    crossTurnCalls: fx.crossTurnCalls, crossTurnCap: 100, sessionAgent: null,
-    pushToolResultMessage: (message) => { results.push(message); fx.messages.push(message); },
-    throwIfAborted: () => {}, repeatFailLimit: 3,
-    dedupStubTotal: fx.dedupStubTotal, editCount: fx.editCount, executeToolFn,
+    crossTurnCalls: fx.crossTurnCalls,
+    crossTurnCap: 100,
+    sessionAgent: null,
+    pushToolResultMessage: (message) => {
+      results.push(message);
+      fx.messages.push(message);
+    },
+    throwIfAborted: () => {},
+    repeatFailLimit: 3,
+    dedupStubTotal: fx.dedupStubTotal,
+    editCount: fx.editCount,
+    executeToolFn,
   });
   Object.assign(fx, stats);
   assert.equal(results.length, 1);

@@ -116,7 +116,8 @@ test('a running schedule is not renamed', async () => {
   running.add('schedule:a');
   await assert.rejects(
     saveSchedule({ ...base, name: 'a', newName: 'c' }),
-    (error) => /is running/.test(error.message) && error.code === 'SCHEDULE_RENAME_RUNNING' && error.details?.name === 'a'
+    (error) =>
+      /is running/.test(error.message) && error.code === 'SCHEDULE_RENAME_RUNNING' && error.details?.name === 'a'
   );
   assert.deepEqual([...rows.keys()], ['a']);
   running.clear();
@@ -138,7 +139,9 @@ test('with the channels worker up, the worker performs the check and the move; a
   const sent = [];
   let reply = {
     isError: true,
-    content: [{ type: 'text', text: 'rename_schedule failed: Schedule "a" is running. Rename it after the run finishes.' }],
+    content: [
+      { type: 'text', text: 'rename_schedule failed: Schedule "a" is running. Rename it after the run finishes.' },
+    ],
     code: 'SCHEDULE_RENAME_RUNNING',
     details: { name: 'a' },
   };

@@ -112,34 +112,112 @@ const ref = (sessionId) => ({ v: 1, sessionId, connectionId: 'conn-0001', genera
 test('signaling parser: roles, fingerprints bound to the SDP, strict fields', async () => {
   const sessionId = 'A'.repeat(43);
   const fingerprints = [{ algorithm: 'sha-256', value: FINGERPRINT }];
-  const offer = parseRemoteTransportSignal({ ...ref(sessionId), t: 'offer', sdp: SDP, fingerprints, iceServers: [{ urls: ['turn:example.org:3478'], username: 'u', credential: 'c' }] }, 'desktop');
+  const offer = parseRemoteTransportSignal(
+    {
+      ...ref(sessionId),
+      t: 'offer',
+      sdp: SDP,
+      fingerprints,
+      iceServers: [{ urls: ['turn:example.org:3478'], username: 'u', credential: 'c' }],
+    },
+    'desktop'
+  );
   assert.equal(offer.t, 'offer');
   assert.deepEqual(offer.fingerprints, fingerprints);
-  assert.throws(() => parseRemoteTransportSignal({ ...ref(sessionId), t: 'offer', sdp: SDP, fingerprints, iceServers: [] }, 'client'), /offer direction/);
-  assert.throws(() => parseRemoteTransportSignal({ ...ref(sessionId), t: 'answer', sdp: SDP, fingerprints }, 'desktop'), /answer direction/);
+  assert.throws(
+    () =>
+      parseRemoteTransportSignal({ ...ref(sessionId), t: 'offer', sdp: SDP, fingerprints, iceServers: [] }, 'client'),
+    /offer direction/
+  );
+  assert.throws(
+    () => parseRemoteTransportSignal({ ...ref(sessionId), t: 'answer', sdp: SDP, fingerprints }, 'desktop'),
+    /answer direction/
+  );
   const other = [{ algorithm: 'sha-256', value: FINGERPRINT.replace(/^10/u, '11') }];
-  assert.throws(() => parseRemoteTransportSignal({ ...ref(sessionId), t: 'answer', sdp: SDP, fingerprints: other }, 'client'), /fingerprints/);
-  assert.throws(() => parseRemoteTransportSignal({ ...ref(sessionId), t: 'answer', sdp: `${SDP}a=ice-lite\r\n`, fingerprints }, 'client'), /sdp/);
-  assert.equal(parseRemoteTransportSignal({ ...ref(sessionId), t: 'candidate', candidate: null }, 'client').candidate, null);
+  assert.throws(
+    () => parseRemoteTransportSignal({ ...ref(sessionId), t: 'answer', sdp: SDP, fingerprints: other }, 'client'),
+    /fingerprints/
+  );
+  assert.throws(
+    () =>
+      parseRemoteTransportSignal(
+        { ...ref(sessionId), t: 'answer', sdp: `${SDP}a=ice-lite\r\n`, fingerprints },
+        'client'
+      ),
+    /sdp/
+  );
+  assert.equal(
+    parseRemoteTransportSignal({ ...ref(sessionId), t: 'candidate', candidate: null }, 'client').candidate,
+    null
+  );
   const line = 'candidate:1 1 udp 2122260223 192.168.1.2 54321 typ host generation 0';
-  assert.equal(parseRemoteTransportSignal({ ...ref(sessionId), t: 'candidate', candidate: { candidate: line, sdpMid: '0' } }, 'desktop').candidate.candidate, line);
-  assert.throws(() => parseRemoteTransportSignal({ ...ref(sessionId), t: 'candidate', candidate: { candidate: 'candidate:bad', sdpMid: '0' } }, 'desktop'), /candidate/);
-  assert.equal(parseRemoteTransportSignal({ ...ref(sessionId), t: 'close', reason: 'stall' }, 'client').reason, 'stall');
-  assert.throws(() => parseRemoteTransportSignal({ ...ref(sessionId), t: 'close', reason: 'nope' }, 'client'), /close reason/);
-  assert.throws(() => parseRemoteTransportSignal({ ...ref(sessionId), v: 2, t: 'close', reason: 'stall' }, 'client'), /version/);
-  assert.throws(() => parseRemoteTransportSignal({ ...ref('short'), t: 'close', reason: 'stall' }, 'client'), /session id/);
-  assert.throws(() => parseRemoteTransportSignal({ ...ref(sessionId), generation: 0, t: 'close', reason: 'stall' }, 'client'), /generation/);
+  assert.equal(
+    parseRemoteTransportSignal(
+      { ...ref(sessionId), t: 'candidate', candidate: { candidate: line, sdpMid: '0' } },
+      'desktop'
+    ).candidate.candidate,
+    line
+  );
+  assert.throws(
+    () =>
+      parseRemoteTransportSignal(
+        { ...ref(sessionId), t: 'candidate', candidate: { candidate: 'candidate:bad', sdpMid: '0' } },
+        'desktop'
+      ),
+    /candidate/
+  );
+  assert.equal(
+    parseRemoteTransportSignal({ ...ref(sessionId), t: 'close', reason: 'stall' }, 'client').reason,
+    'stall'
+  );
+  assert.throws(
+    () => parseRemoteTransportSignal({ ...ref(sessionId), t: 'close', reason: 'nope' }, 'client'),
+    /close reason/
+  );
+  assert.throws(
+    () => parseRemoteTransportSignal({ ...ref(sessionId), v: 2, t: 'close', reason: 'stall' }, 'client'),
+    /version/
+  );
+  assert.throws(
+    () => parseRemoteTransportSignal({ ...ref('short'), t: 'close', reason: 'stall' }, 'client'),
+    /session id/
+  );
+  assert.throws(
+    () => parseRemoteTransportSignal({ ...ref(sessionId), generation: 0, t: 'close', reason: 'stall' }, 'client'),
+    /generation/
+  );
 });
 
 test('media adapter parser keeps direction, range and frame bounds', () => {
-  const request = { type: 'transport-media', op: 'request', id: 'm1', assetId: 'abcdef12-3456', variant: 'download', range: 'bytes=0-', enc: 'e2ee1' };
+  const request = {
+    type: 'transport-media',
+    op: 'request',
+    id: 'm1',
+    assetId: 'abcdef12-3456',
+    variant: 'download',
+    range: 'bytes=0-',
+    enc: 'e2ee1',
+  };
   assert.deepEqual(readRemoteTransportMedia(request, 'client'), request);
   assert.throws(() => readRemoteTransportMedia(request, 'desktop'), /media direction/);
   assert.throws(() => readRemoteTransportMedia({ ...request, range: 'bytes=a-b' }, 'client'), /media range/);
   assert.throws(() => readRemoteTransportMedia({ ...request, assetId: '../etc' }, 'client'), /media asset/);
-  assert.equal(readRemoteTransportMedia({ type: 'transport-media', op: 'head', id: 'm1', status: 412 }, 'desktop').status, 412);
-  assert.throws(() => readRemoteTransportMedia({ type: 'transport-media', op: 'head', id: 'm1', status: 302 }, 'desktop'), /media status/);
-  assert.throws(() => readRemoteTransportMedia({ type: 'transport-media', op: 'chunk', id: 'm1', frame: 'A'.repeat(90_000) }, 'desktop'), /media frame/);
+  assert.equal(
+    readRemoteTransportMedia({ type: 'transport-media', op: 'head', id: 'm1', status: 412 }, 'desktop').status,
+    412
+  );
+  assert.throws(
+    () => readRemoteTransportMedia({ type: 'transport-media', op: 'head', id: 'm1', status: 302 }, 'desktop'),
+    /media status/
+  );
+  assert.throws(
+    () =>
+      readRemoteTransportMedia(
+        { type: 'transport-media', op: 'chunk', id: 'm1', frame: 'A'.repeat(90_000) },
+        'desktop'
+      ),
+    /media frame/
+  );
   assert.equal(readRemoteTransportMedia({ type: 'transport-media', op: 'cancel', id: 'm1' }, 'client').op, 'cancel');
   assert.equal(readRemoteTransportMedia({ method: 'x' }, 'client'), null);
 });
@@ -162,20 +240,30 @@ test('framing: small records go whole, large ones chunk under the message bound'
   assert.throws(() => decodeRemoteTransportMessage(bad), /chunk index/);
   const truncated = chunks[0].slice(0, chunks[0].byteLength - 1);
   assert.throws(() => decodeRemoteTransportMessage(truncated), /chunk length/);
-  assert.throws(() => decodeRemoteTransportMessage(new Uint8Array(REMOTE_TRANSPORT_MAX_MESSAGE_BYTES + 1)), /message size/);
+  assert.throws(
+    () => decodeRemoteTransportMessage(new Uint8Array(REMOTE_TRANSPORT_MAX_MESSAGE_BYTES + 1)),
+    /message size/
+  );
   assert.throws(() => decodeRemoteTransportMessage(new Uint8Array([1, 2, 3, 4, 5, 6])), /magic/);
-  assert.equal(decodeRemoteTransportMessage(encodeRemoteTransportControl(await client.sealControl({ t: 'ping' }, RELAY))).kind, 'control');
+  assert.equal(
+    decodeRemoteTransportMessage(encodeRemoteTransportControl(await client.sealControl({ t: 'ping' }, RELAY))).kind,
+    'control'
+  );
 });
 
 test('receiver reorders, dedups and reassembles chunks before decryption', async () => {
   const { client, server } = await session();
   const boxes = [];
-  for (let i = 1; i <= 4; i += 1) boxes.push(await client.encryptBinary(i === 3 ? { i, big: 'y'.repeat(70_000) } : { i }));
+  for (let i = 1; i <= 4; i += 1)
+    boxes.push(await client.encryptBinary(i === 3 ? { i, big: 'y'.repeat(70_000) } : { i }));
   const messages = boxes.map((box) => encodeRemoteTransportRecord(box));
   const receiver = new RemoteTransportReceiver();
   const flat = [...messages[3], ...messages[2].reverse(), ...messages[1], ...messages[1], ...messages[0]];
   const delivered = await pump(receiver, server, flat);
-  assert.deepEqual(delivered.map((value) => value.i), [1, 2, 3, 4]);
+  assert.deepEqual(
+    delivered.map((value) => value.i),
+    [1, 2, 3, 4]
+  );
   assert.equal(receiver.stats().deliveredThrough, 4);
   assert.equal(receiver.stats().bufferedBytes, 0);
   // A late copy (e.g. from the old carrier) is a duplicate, not a replay error.
@@ -193,14 +281,23 @@ test('sender retains until an authenticated ack and re-sends only after a carrie
   const sent = sender.due(0);
   for (const { sequence } of sent) sender.markSent(sequence, 'direct:a', 0);
   const firstOnly = encodeRemoteTransportRecord(sent[0].box);
-  assert.deepEqual((await pump(receiver, server, firstOnly)).map((v) => v.i), [1]);
+  assert.deepEqual(
+    (await pump(receiver, server, firstOnly)).map((v) => v.i),
+    [1]
+  );
   assert.equal(sender.carrierFailed('direct:a', 10, 0), 3);
   const again = sender.due(10);
-  assert.deepEqual(again.map((r) => r.sequence), [1, 2, 3]);
+  assert.deepEqual(
+    again.map((r) => r.sequence),
+    [1, 2, 3]
+  );
   for (const { sequence } of again) sender.markSent(sequence, 'relay', 10);
   const viaRelay = again.flatMap((r) => encodeRemoteTransportRecord(r.box));
   // #1 again is a harmless duplicate; #2 and #3 complete the stream.
-  assert.deepEqual((await pump(receiver, server, viaRelay, 10)).map((v) => v.i), [2, 3]);
+  assert.deepEqual(
+    (await pump(receiver, server, viaRelay, 10)).map((v) => v.i),
+    [2, 3]
+  );
   // And a straggler from the dead direct carrier arrives last.
   assert.deepEqual(await pump(receiver, server, encodeRemoteTransportRecord(sent[1].box), 20), []);
   const ack = receiver.ackDue(20);
@@ -226,7 +323,10 @@ test('P1-1: a healthy slow carrier is never re-sent to; expiry counts from the l
   assert.equal(sender.expired(50_000 + REMOTE_TRANSPORT_RECORD_EXPIRY_MS), true);
   // A repair request (the receiver discarded a forged copy) re-sends that one only.
   assert.equal(sender.repair(await authenticatedRepair(server, client, 3)), 1);
-  assert.deepEqual(sender.due(60_000).map((r) => r.sequence), [3]);
+  assert.deepEqual(
+    sender.due(60_000).map((r) => r.sequence),
+    [3]
+  );
   assert.throws(() => sender.repair(remoteTransportRepair([3])), /unauthenticated/);
   assert.equal(sender.repair(await authenticatedRepair(server, client, 900)), 0, 'never sent: ignored');
 });
@@ -271,7 +371,10 @@ test('repeated discards keep a declared loss’s PTO deadline and backoff', asyn
   assert.deepEqual(receiver.repairDue(base + 2 * base - 1, rtt), [], 'the doubled backoff holds too');
   assert.deepEqual(receiver.repairDue(base + 2 * base, rtt), [1]);
   assert.equal(receiver.stats().discarded, 6);
-  assert.deepEqual((await pump(receiver, server, encodeRemoteTransportRecord(genuine), 2_000)).map((v) => v.i), [1]);
+  assert.deepEqual(
+    (await pump(receiver, server, encodeRemoteTransportRecord(genuine), 2_000)).map((v) => v.i),
+    [1]
+  );
 });
 
 test('repeated evictions keep a declared loss’s PTO deadline and backoff', () => {
@@ -299,7 +402,10 @@ test('repeated evictions keep a declared loss’s PTO deadline and backoff', () 
 
 test('repair budget (RFC 9002): one declared repair per sequence, then PTO probes', async () => {
   const initial = new RemoteTransportPathMonitor(0);
-  assert.equal(initial.ptoMs(), REMOTE_TRANSPORT_INITIAL_RTT_MS + 4 * (REMOTE_TRANSPORT_INITIAL_RTT_MS / 2) + REMOTE_TRANSPORT_MAX_ACK_DELAY_MS);
+  assert.equal(
+    initial.ptoMs(),
+    REMOTE_TRANSPORT_INITIAL_RTT_MS + 4 * (REMOTE_TRANSPORT_INITIAL_RTT_MS / 2) + REMOTE_TRANSPORT_MAX_ACK_DELAY_MS
+  );
   const lossDelay = initial.lossDelayMs();
   assert.equal(lossDelay, (REMOTE_TRANSPORT_INITIAL_RTT_MS * 9) / 8);
   // Packet threshold (§6.1.1): #4 arriving declares #1 at once; #2 and #3
@@ -367,11 +473,20 @@ for (const [label, order] of [
       if (message.t === 'ack') sender.acknowledge(message, 10);
       else assert.equal(sender.repair(message), 1);
     }
-    assert.deepEqual(sender.due(10).map((r) => r.sequence), [3], 'the repaired record goes out');
+    assert.deepEqual(
+      sender.due(10).map((r) => r.sequence),
+      [3],
+      'the repaired record goes out'
+    );
     assert.equal(sender.stats().ackedThrough, 1);
     // The cumulative point only moves forward: an older ack arriving after a
     // newer one changes nothing.
-    const [newer, older] = await controlInOrder(server, client, [remoteTransportAck(0), remoteTransportAck(2, [[4, 4]])], [1, 0]);
+    const [newer, older] = await controlInOrder(
+      server,
+      client,
+      [remoteTransportAck(0), remoteTransportAck(2, [[4, 4]])],
+      [1, 0]
+    );
     assert.equal(newer.through, 2);
     assert.equal(sender.acknowledge(newer, 20), 1);
     assert.equal(sender.acknowledge(older, 20), 0);
@@ -391,7 +506,11 @@ test('a lost whole record is declared by the time threshold, then probed with PT
   for (let i = 1; i <= 3; i += 1) boxes.push(await client.encryptBinary({ i }));
   const receiver = new RemoteTransportReceiver();
   // #2 is lost; #3 reveals the gap (below the packet threshold).
-  await pump(receiver, server, [boxes[0], boxes[2]].flatMap((box) => encodeRemoteTransportRecord(box)));
+  await pump(
+    receiver,
+    server,
+    [boxes[0], boxes[2]].flatMap((box) => encodeRemoteTransportRecord(box))
+  );
   const rtt = new RemoteTransportPathMonitor(0);
   rtt.rttSample(100);
   const wait = Math.ceil(rtt.lossDelayMs());
@@ -406,7 +525,10 @@ test('a lost whole record is declared by the time threshold, then probed with PT
     assert.deepEqual(receiver.repairDue(at, rtt), [2], `PTO ${round} probes`);
   }
   // Progress resumes: nothing more is asked.
-  assert.deepEqual((await pump(receiver, server, encodeRemoteTransportRecord(boxes[1]), at)).map((v) => v.i), [2, 3]);
+  assert.deepEqual(
+    (await pump(receiver, server, encodeRemoteTransportRecord(boxes[1]), at)).map((v) => v.i),
+    [2, 3]
+  );
   assert.deepEqual(receiver.repairDue(at + 600_000, rtt), []);
 });
 
@@ -422,12 +544,19 @@ test('a lost FINAL record is found through the authenticated ping.sent probe', a
   }
   for (const { sequence } of sender.due(0)) sender.markSent(sequence, 'direct:a', 0);
   // #3, the last one, is lost: no later record can reveal it.
-  await pump(receiver, server, [boxes[0], boxes[1]].flatMap((box) => encodeRemoteTransportRecord(box)));
+  await pump(
+    receiver,
+    server,
+    [boxes[0], boxes[1]].flatMap((box) => encodeRemoteTransportRecord(box))
+  );
   assert.deepEqual(receiver.repairDue(10_000), []);
   // Only bytes that have left the queue count: with #3 still queued, 2.
   assert.equal(sender.probeThrough('direct:a', boxes[2].byteLength), 2);
   assert.equal(sender.probeThrough('direct:a', 0), 3);
-  const opened = await server.openControl(await client.sealControl(remoteTransportPing(1, sender.probeThrough('direct:a', 0)), DIRECT_A), DIRECT_A);
+  const opened = await server.openControl(
+    await client.sealControl(remoteTransportPing(1, sender.probeThrough('direct:a', 0)), DIRECT_A),
+    DIRECT_A
+  );
   const ping = readRemoteTransportControl(opened, 'desktop');
   assert.equal(ping.sent, 3);
   receiver.probe(ping.sent, 20_000);
@@ -437,11 +566,21 @@ test('a lost FINAL record is found through the authenticated ping.sent probe', a
   assert.deepEqual(due, [3]);
   assert.equal(sender.repair(await authenticatedRepair(server, client, due)), 1);
   const again = sender.due(20_000 + wait);
-  assert.deepEqual(again.map((r) => r.sequence), [3]);
-  assert.deepEqual((await pump(receiver, server, encodeRemoteTransportRecord(again[0].box))).map((v) => v.i), [3]);
+  assert.deepEqual(
+    again.map((r) => r.sequence),
+    [3]
+  );
+  assert.deepEqual(
+    (await pump(receiver, server, encodeRemoteTransportRecord(again[0].box))).map((v) => v.i),
+    [3]
+  );
   assert.deepEqual(receiver.repairDue(100_000), []);
   // A probe is strictly validated.
-  assert.throws(() => readRemoteTransportControl({ stale: false, sequence: 9, value: { v: 1, t: 'ping', id: 1, sent: -1 } }, 'desktop'), /ping sent/);
+  assert.throws(
+    () =>
+      readRemoteTransportControl({ stale: false, sequence: 9, value: { v: 1, t: 'ping', id: 1, sent: -1 } }, 'desktop'),
+    /ping sent/
+  );
   // The sender's PTO (§6.2.1) says when to send that probe ping: after one
   // PTO without a send or an ack, doubling per expiry, reset by an ack.
   const probing = new RemoteTransportSender();
@@ -501,8 +640,14 @@ test('large-message assembly: relay-equal size cap, one per session, a process-w
   assert.equal(fit, Math.ceil(REMOTE_TRANSPORT_MAX_APPLICATION_MESSAGE_BYTES / REMOTE_TRANSPORT_FRAGMENT_BYTES));
   // Desktop → phone keeps parity: a 9 MiB view frame is split, not refused.
   const nine = 9 * 1024 * 1024 + 2;
-  assert.equal(splitRemoteTransportPayload('x'.repeat(9 * 1024 * 1024), 1).length, Math.ceil(nine / REMOTE_TRANSPORT_FRAGMENT_BYTES));
-  assert.throws(() => splitRemoteTransportPayload('x'.repeat(REMOTE_TRANSPORT_MAX_APPLICATION_MESSAGE_BYTES), 1), /message size/);
+  assert.equal(
+    splitRemoteTransportPayload('x'.repeat(9 * 1024 * 1024), 1).length,
+    Math.ceil(nine / REMOTE_TRANSPORT_FRAGMENT_BYTES)
+  );
+  assert.throws(
+    () => splitRemoteTransportPayload('x'.repeat(REMOTE_TRANSPORT_MAX_APPLICATION_MESSAGE_BYTES), 1),
+    /message size/
+  );
   const pool = new RemoteTransportAssemblyPool();
   // More fragments than a maximal message is refused before anything is kept.
   const over = new RemoteTransportMessageAssembler(pool);
@@ -573,14 +718,22 @@ test('P2-1: resume point at a carrier switch de-duplicates re-sends', async () =
   }
   for (const { sequence } of sender.due(0)) sender.markSent(sequence, 'direct:a', 0);
   // Over direct, #1, #2 arrived and #4, #5 are held (#3 and #6 lost with the path).
-  await pump(receiver, server, [1, 2, 4, 5].flatMap((n) => encodeRemoteTransportRecord(boxes[n - 1])));
+  await pump(
+    receiver,
+    server,
+    [1, 2, 4, 5].flatMap((n) => encodeRemoteTransportRecord(boxes[n - 1]))
+  );
   sender.carrierFailed('direct:a', 100, 500);
   assert.deepEqual(sender.due(100), [], 'held for about one RTT');
   receiver.carrierChanged(100);
   const resume = receiver.ackDue(100);
   assert.deepEqual(resume, { through: 2, ranges: [[4, 5]] });
   assert.equal(sender.acknowledge(await authenticatedAck(server, client, resume.through, resume.ranges), 150), 2);
-  assert.deepEqual(sender.due(150).map((r) => r.sequence), [3, 6], 'only what lies above and outside the ranges');
+  assert.deepEqual(
+    sender.due(150).map((r) => r.sequence),
+    [3, 6],
+    'only what lies above and outside the ranges'
+  );
   // Without a resume ack, the hold lapses and everything outstanding goes.
   const fresh = await session();
   const other = new RemoteTransportSender();
@@ -588,7 +741,10 @@ test('P2-1: resume point at a carrier switch de-duplicates re-sends', async () =
   for (const { sequence } of other.due(0)) other.markSent(sequence, 'direct:b', 0);
   other.carrierFailed('direct:b', 0, 400);
   assert.deepEqual(other.due(399), []);
-  assert.deepEqual(other.due(400).map((r) => r.sequence), [1, 2, 3]);
+  assert.deepEqual(
+    other.due(400).map((r) => r.sequence),
+    [1, 2, 3]
+  );
   // Relay backpressure: only what the carrier has room for.
   const first = other.due(400, 1);
   assert.equal(first.length, 1);
@@ -598,7 +754,8 @@ test('P2-1: resume point at a carrier switch de-duplicates re-sends', async () =
 
 test('P2-2: RFC 9002 RTT estimator, PTO and idle timeout; state resets on carrier change', () => {
   const path = new RemoteTransportPathMonitor(0);
-  const initialPto = REMOTE_TRANSPORT_INITIAL_RTT_MS + 4 * (REMOTE_TRANSPORT_INITIAL_RTT_MS / 2) + REMOTE_TRANSPORT_MAX_ACK_DELAY_MS;
+  const initialPto =
+    REMOTE_TRANSPORT_INITIAL_RTT_MS + 4 * (REMOTE_TRANSPORT_INITIAL_RTT_MS / 2) + REMOTE_TRANSPORT_MAX_ACK_DELAY_MS;
   assert.equal(path.ptoMs(), initialPto, '§6.2.2 initial values in the §6.2.1 formula');
   path.rttSample(40);
   assert.equal(path.smoothedRttMs(), 40, '§5.3 first sample');
@@ -630,7 +787,9 @@ test('P2-3: bulk never starves RPCs; each media stream has its own credit', asyn
     sender.push(await media('a'), { stream: 'a' });
     sentA += 1;
   }
-  assert.ok(sentA >= 2 && sentA * REMOTE_TRANSPORT_MEDIA_RECORD_MAX_BYTES <= REMOTE_TRANSPORT_MEDIA_STREAM_CREDIT_BYTES);
+  assert.ok(
+    sentA >= 2 && sentA * REMOTE_TRANSPORT_MEDIA_RECORD_MAX_BYTES <= REMOTE_TRANSPORT_MEDIA_STREAM_CREDIT_BYTES
+  );
   assert.equal(sender.canAdmit({ stream: 'b' }), true);
   // Many streams together stop at the bulk share; RPC records still fit.
   for (let stream = 0; stream < 32; stream += 1) {
@@ -664,11 +823,51 @@ test('forged, unauthenticated or impossible acks never release buffers', async (
   // The client's OWN ack reflected back to it: wrong direction key.
   await assert.rejects(async () => client.openControl(await client.sealControl(remoteTransportAck(1), RELAY), RELAY));
   // An authenticated ack for something never sent is a protocol violation.
-  assert.throws(() => sender.acknowledge(readRemoteTransportControl({ stale: false, sequence: 1, value: remoteTransportAck(5) }, 'client'), 0), /beyond sent/);
+  assert.throws(
+    () =>
+      sender.acknowledge(
+        readRemoteTransportControl({ stale: false, sequence: 1, value: remoteTransportAck(5) }, 'client'),
+        0
+      ),
+    /beyond sent/
+  );
   // Selective ranges beyond what was sent, or malformed, are refused as well.
-  assert.throws(() => sender.acknowledge(readRemoteTransportControl({ stale: false, sequence: 2, value: remoteTransportAck(0, [[3, 4]]) }, 'client'), 0), /beyond sent/);
-  assert.throws(() => readRemoteTransportControl({ stale: false, sequence: 3, value: { v: 1, t: 'ack', through: 2, ranges: [[2, 3]] } }, 'client'), /ack range/);
-  assert.throws(() => readRemoteTransportControl({ stale: false, sequence: 4, value: { v: 1, t: 'ack', through: 0, ranges: [[3, 4], [4, 5]] } }, 'client'), /ack range/);
+  assert.throws(
+    () =>
+      sender.acknowledge(
+        readRemoteTransportControl({ stale: false, sequence: 2, value: remoteTransportAck(0, [[3, 4]]) }, 'client'),
+        0
+      ),
+    /beyond sent/
+  );
+  assert.throws(
+    () =>
+      readRemoteTransportControl(
+        { stale: false, sequence: 3, value: { v: 1, t: 'ack', through: 2, ranges: [[2, 3]] } },
+        'client'
+      ),
+    /ack range/
+  );
+  assert.throws(
+    () =>
+      readRemoteTransportControl(
+        {
+          stale: false,
+          sequence: 4,
+          value: {
+            v: 1,
+            t: 'ack',
+            through: 0,
+            ranges: [
+              [3, 4],
+              [4, 5],
+            ],
+          },
+        },
+        'client'
+      ),
+    /ack range/
+  );
   // A stale copy reads as nothing.
   assert.equal(readRemoteTransportControl({ stale: true, sequence: 1 }, 'client'), null);
   assert.equal(sender.stats().retainedRecords, 1);
@@ -762,7 +961,10 @@ test('a genuine box is only ever exposed under its own sequence (relabeled chunk
   assert.equal(decodeRemoteTransportMessage(whole).sequence, 2);
   // The genuine records still arrive in order.
   const delivered = await pump(receiver, server, [...encodeRemoteTransportRecord(first), ...chunks]);
-  assert.deepEqual(delivered.map((v) => v.i), [1, 2]);
+  assert.deepEqual(
+    delivered.map((v) => v.i),
+    [1, 2]
+  );
   assert.equal(receiver.stats().deliveredThrough, 2);
 });
 
@@ -773,8 +975,14 @@ test('forged geometry and forged parts never poison a slot', async () => {
   const chunks = encodeRemoteTransportRecord(genuine);
   const total = genuine.byteLength;
   // A rival geometry first: it assembles beside the genuine one.
-  assert.equal(receiver.accept(decodeRemoteTransportMessage(chunkMessage(1, 1, total + REMOTE_TRANSPORT_CHUNK_BYTES)), 0), 'buffered');
-  assert.deepEqual((await pump(receiver, server, chunks)).map((v) => v.i), [1]);
+  assert.equal(
+    receiver.accept(decodeRemoteTransportMessage(chunkMessage(1, 1, total + REMOTE_TRANSPORT_CHUNK_BYTES)), 0),
+    'buffered'
+  );
+  assert.deepEqual(
+    (await pump(receiver, server, chunks)).map((v) => v.i),
+    [1]
+  );
 
   // Same geometry, forged part first: the assembly completes, fails to open,
   // is discarded, and the retransmission refills it.
@@ -783,21 +991,30 @@ test('forged geometry and forged parts never poison a slot', async () => {
   assert.equal(receiver.accept(decodeRemoteTransportMessage(chunkMessage(2, 1, next.byteLength)), 0), 'buffered');
   assert.deepEqual(await pump(receiver, server, nextChunks), []);
   assert.equal(receiver.stats().discarded, 1);
-  assert.deepEqual((await pump(receiver, server, nextChunks)).map((v) => v.i), [2]);
+  assert.deepEqual(
+    (await pump(receiver, server, nextChunks)).map((v) => v.i),
+    [2]
+  );
 
   // Rivals beyond the per-slot cap evict the least advanced; an assembly that
   // stops progressing is swept, and the slot recovers from retransmission.
   const third = await client.encryptBinary({ i: 3, pad: 'k'.repeat(2 * REMOTE_TRANSPORT_CHUNK_BYTES) });
   const thirdChunks = encodeRemoteTransportRecord(third);
   for (let rival = 1; rival <= 4; rival += 1) {
-    receiver.accept(decodeRemoteTransportMessage(chunkMessage(3, 1, third.byteLength + rival * REMOTE_TRANSPORT_CHUNK_BYTES)), 0);
+    receiver.accept(
+      decodeRemoteTransportMessage(chunkMessage(3, 1, third.byteLength + rival * REMOTE_TRANSPORT_CHUNK_BYTES)),
+      0
+    );
   }
   assert.ok(receiver.stats().evicted >= 2);
   // Only part of the genuine record arrives, then everything stalls.
   receiver.accept(decodeRemoteTransportMessage(thirdChunks[1]), 0);
   assert.ok(receiver.sweep(REMOTE_TRANSPORT_MAX_IDLE_TIMEOUT_MS) >= 2);
   assert.equal(receiver.stats().bufferedBytes, 0);
-  assert.deepEqual((await pump(receiver, server, thirdChunks, REMOTE_TRANSPORT_MAX_IDLE_TIMEOUT_MS)).map((v) => v.i), [3]);
+  assert.deepEqual(
+    (await pump(receiver, server, thirdChunks, REMOTE_TRANSPORT_MAX_IDLE_TIMEOUT_MS)).map((v) => v.i),
+    [3]
+  );
 });
 
 test('future forged records cannot saturate the budget and starve the head record', async () => {
@@ -807,7 +1024,10 @@ test('future forged records cannot saturate the budget and starve the head recor
   let accepted = 0;
   let sequence = 2;
   for (; sequence < 64; sequence += 1) {
-    const result = receiver.accept(decodeRemoteTransportMessage(chunkMessage(sequence, 1, REMOTE_TRANSPORT_MAX_RECORD_BYTES)), 0);
+    const result = receiver.accept(
+      decodeRemoteTransportMessage(chunkMessage(sequence, 1, REMOTE_TRANSPORT_MAX_RECORD_BYTES)),
+      0
+    );
     if (result === 'over-memory') break;
     assert.equal(result, 'buffered');
     accepted += 1;
@@ -817,14 +1037,23 @@ test('future forged records cannot saturate the budget and starve the head recor
   // The head slot still takes a forged rival AND the genuine maximal record.
   const head = await client.encryptBinary({ i: 1, pad: 'm'.repeat(REMOTE_TRANSPORT_MAX_RECORD_PLAINTEXT_BYTES - 30) });
   assert.ok(head.byteLength > REMOTE_TRANSPORT_MAX_RECORD_BYTES - 64);
-  assert.equal(receiver.accept(decodeRemoteTransportMessage(chunkMessage(1, 1, REMOTE_TRANSPORT_MAX_RECORD_BYTES)), 0), 'buffered');
-  assert.deepEqual((await pump(receiver, server, encodeRemoteTransportRecord(head))).map((v) => v.i), [1]);
+  assert.equal(
+    receiver.accept(decodeRemoteTransportMessage(chunkMessage(1, 1, REMOTE_TRANSPORT_MAX_RECORD_BYTES)), 0),
+    'buffered'
+  );
+  assert.deepEqual(
+    (await pump(receiver, server, encodeRemoteTransportRecord(head))).map((v) => v.i),
+    [1]
+  );
   const stats = receiver.stats();
   assert.ok(stats.bufferedBytes <= REMOTE_TRANSPORT_RECEIVE_BUDGET_BYTES);
 });
 
 test('byte-only window: every record is charged one carrier message, so tiny forged records are bounded', async () => {
-  assert.equal(REMOTE_TRANSPORT_MAX_RECORDS_IN_FLIGHT, Math.floor(REMOTE_TRANSPORT_MAX_OUTSTANDING_BYTES / REMOTE_TRANSPORT_MAX_MESSAGE_BYTES));
+  assert.equal(
+    REMOTE_TRANSPORT_MAX_RECORDS_IN_FLIGHT,
+    Math.floor(REMOTE_TRANSPORT_MAX_OUTSTANDING_BYTES / REMOTE_TRANSPORT_MAX_MESSAGE_BYTES)
+  );
   assert.equal(REMOTE_TRANSPORT_MAX_RECORDS_IN_FLIGHT, 128);
   const { client } = await session();
   const tiny = await client.encryptBinary({});
@@ -862,13 +1091,19 @@ test('receiver window cap; a forged whole record is vacated and refilled', async
   const first = await client.encryptBinary({ i: 1 });
   const future = first.slice();
   new DataView(future.buffer).setBigUint64(4, BigInt(REMOTE_TRANSPORT_MAX_RECORDS_IN_FLIGHT + 1), false);
-  assert.equal(receiver.accept(decodeRemoteTransportMessage(encodeRemoteTransportRecord(future)[0]), 0), 'out-of-window');
+  assert.equal(
+    receiver.accept(decodeRemoteTransportMessage(encodeRemoteTransportRecord(future)[0]), 0),
+    'out-of-window'
+  );
   const forged = first.slice();
   forged[forged.length - 1] ^= 1;
   assert.deepEqual(await pump(receiver, server, encodeRemoteTransportRecord(forged)), []);
   assert.equal(receiver.stats().discarded, 1);
   assert.equal(receiver.ackDue(1_000), null, 'nothing authenticated, nothing acked');
-  assert.deepEqual((await pump(receiver, server, encodeRemoteTransportRecord(first))).map((v) => v.i), [1]);
+  assert.deepEqual(
+    (await pump(receiver, server, encodeRemoteTransportRecord(first))).map((v) => v.i),
+    [1]
+  );
 });
 
 test('payloads above one record are split above the record layer and reassembled in order', async () => {
@@ -908,14 +1143,19 @@ test('payloads above one record are split above the record layer and reassembled
 
 test('control boundary: the largest valid signal fills one carrier message exactly', async () => {
   const { client, server, sessionId } = await session();
-  const hex = (bytes, seed) => Array.from({ length: bytes }, (_, i) => ((i + seed) % 256).toString(16).padStart(2, '0').toUpperCase()).join(':');
+  const hex = (bytes, seed) =>
+    Array.from({ length: bytes }, (_, i) => ((i + seed) % 256).toString(16).padStart(2, '0').toUpperCase()).join(':');
   const fingerprints = [
     { algorithm: 'sha-256', value: hex(32, 1) },
     { algorithm: 'sha-384', value: hex(48, 2) },
     { algorithm: 'sha-512', value: hex(64, 3) },
   ];
   const iceServers = [
-    { urls: ['turn:turn.example.org:3478?transport=udp', 'turns:turn.example.org:5349'], username: `1700000000:${'u'.repeat(40)}`, credential: 'c'.repeat(44) },
+    {
+      urls: ['turn:turn.example.org:3478?transport=udp', 'turns:turn.example.org:5349'],
+      username: `1700000000:${'u'.repeat(40)}`,
+      credential: 'c'.repeat(44),
+    },
   ];
   const offer = (pad) => ({
     ...ref(sessionId),
@@ -942,7 +1182,10 @@ test('control boundary: the largest valid signal fills one carrier message exact
   // An SDP the shared validator accepts (≤ 64 KiB) but no control box can carry.
   assert.throws(() => parseRemoteTransportSignal(offer(65_536 - offer(0).sdp.length), 'desktop'), /sdp size/);
   // The shared ICE normalizer turns a scalar `urls` into a list.
-  const scalar = parseRemoteTransportSignal({ ...offer(0), iceServers: [{ urls: 'stun:stun.example.org:3478' }] }, 'desktop');
+  const scalar = parseRemoteTransportSignal(
+    { ...offer(0), iceServers: [{ urls: 'stun:stun.example.org:3478' }] },
+    'desktop'
+  );
   assert.deepEqual(scalar.iceServers, [{ urls: ['stun:stun.example.org:3478'] }]);
   const oversize = new Uint8Array(REMOTE_TRANSPORT_MAX_CONTROL_BOX_BYTES + 1);
   oversize.set([0x4d, 0x58, 0x43, 0x01], 0);
@@ -966,11 +1209,19 @@ test('one repair round is one control box, however many records it names', async
   assert.equal(sender.repair(message), REMOTE_TRANSPORT_MAX_RECORDS_IN_FLIGHT);
   assert.equal(sender.due(0).length, REMOTE_TRANSPORT_MAX_RECORDS_IN_FLIGHT);
   // The list is strict: non-empty, ascending, distinct, within the span.
-  const read = (sequences, sequence) => readRemoteTransportControl({ stale: false, sequence, value: { v: 1, t: 'repair', sequences } }, 'client');
+  const read = (sequences, sequence) =>
+    readRemoteTransportControl({ stale: false, sequence, value: { v: 1, t: 'repair', sequences } }, 'client');
   assert.throws(() => read([], 900), /repair/);
   assert.throws(() => read([3, 2], 901), /repair order/);
   assert.throws(() => read([2, 2], 902), /repair order/);
-  assert.throws(() => read(Array.from({ length: REMOTE_TRANSPORT_MAX_RECORDS_IN_FLIGHT + 1 }, (_, i) => i + 1), 903), /repair/);
+  assert.throws(
+    () =>
+      read(
+        Array.from({ length: REMOTE_TRANSPORT_MAX_RECORDS_IN_FLIGHT + 1 }, (_, i) => i + 1),
+        903
+      ),
+    /repair/
+  );
   assert.throws(() => read([0], 904), /repair/);
 });
 
@@ -995,7 +1246,8 @@ test('a burst whose lanes deliver it out of order is accepted in full; within a 
   // A burst reversed WITHIN one FIFO lane cannot be genuine (a reordering
   // relay): only the first-delivered, highest box opens.
   const reversed = [];
-  for (let index = 0; index < 10; index += 1) reversed.push(await client.sealControl(remoteTransportPing(1_000 + index), RELAY));
+  for (let index = 0; index < 10; index += 1)
+    reversed.push(await client.sealControl(remoteTransportPing(1_000 + index), RELAY));
   const results = [];
   for (const box of [...reversed].reverse()) results.push((await server.openControl(box, RELAY)).stale);
   assert.deepEqual(results, [false, ...Array(9).fill(true)]);
@@ -1006,9 +1258,13 @@ test('signaling delayed across a carrier switch still opens after a flood of dir
   const fingerprints = [{ algorithm: 'sha-256', value: FINGERPRINT }];
   // The desktop sends a re-offer by relay, then promotes the direct carrier
   // and acks a long run of records there while the offer is still in transit.
-  const offer = await server.sealControl({ ...ref(sessionId), generation: 2, t: 'offer', sdp: SDP, fingerprints, iceServers: [] }, RELAY);
+  const offer = await server.sealControl(
+    { ...ref(sessionId), generation: 2, t: 'offer', sdp: SDP, fingerprints, iceServers: [] },
+    RELAY
+  );
   const acks = [];
-  for (let through = 1; through <= 1_000; through += 1) acks.push(await server.sealControl(remoteTransportAck(through), DIRECT_A));
+  for (let through = 1; through <= 1_000; through += 1)
+    acks.push(await server.sealControl(remoteTransportAck(through), DIRECT_A));
   for (const box of acks) assert.equal((await client.openControl(box, DIRECT_A)).stale, false);
   const opened = await client.openControl(offer, RELAY);
   assert.equal(opened.stale, false, 'not overtaken: lanes are checked separately');
@@ -1037,7 +1293,11 @@ test('application-progress policy: a healthy low-RTT path whose peer accepts lat
   // then restarts from that progress.
   path.ackAdvanced(REMOTE_TRANSPORT_MAX_IDLE_TIMEOUT_MS - 1);
   const resumed = REMOTE_TRANSPORT_MAX_IDLE_TIMEOUT_MS - 1;
-  for (let now = REMOTE_TRANSPORT_MAX_IDLE_TIMEOUT_MS; now < resumed + REMOTE_TRANSPORT_MAX_IDLE_TIMEOUT_MS; now += 100) {
+  for (
+    let now = REMOTE_TRANSPORT_MAX_IDLE_TIMEOUT_MS;
+    now < resumed + REMOTE_TRANSPORT_MAX_IDLE_TIMEOUT_MS;
+    now += 100
+  ) {
     path.inbound(now);
     assert.equal(path.stalled(now, 4096), null);
   }

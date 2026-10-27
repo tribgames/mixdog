@@ -61,11 +61,10 @@ test('git worktree add maps to a managed worktree or snapshot; the path is never
 
   // An existing branch (named, or git's path-basename convenience) is checked out as it is.
   await executeGitTool({ command: 'git worktree add ../x existing', confirm_large: true }, repo, asLead);
-  assert.deepEqual([calls[1].request.branch, calls[1].request.create, calls[1].request.confirmLarge], [
-    'existing',
-    false,
-    true,
-  ]);
+  assert.deepEqual(
+    [calls[1].request.branch, calls[1].request.create, calls[1].request.confirmLarge],
+    ['existing', false, true]
+  );
   await executeGitTool({ command: 'git worktree add ../existing' }, repo, asLead);
   assert.deepEqual([calls[2].request.branch, calls[2].request.create], ['existing', false]);
   await executeGitTool({ command: 'git worktree add ../fresh-name' }, repo, asLead);
@@ -130,12 +129,23 @@ test('git worktree prune validates every argument before any mutation and scopes
     request.op === 'list'
       ? [
           { id: 'mine', repoCommonDir: commonDir, path: '/managed/mine', state: 'ready', removable: true },
-          { id: 'theirs', repoCommonDir: join(tempDir(), '.git'), path: '/managed/theirs', state: 'ready', removable: true },
+          {
+            id: 'theirs',
+            repoCommonDir: join(tempDir(), '.git'),
+            path: '/managed/theirs',
+            state: 'ready',
+            removable: true,
+          },
         ]
       : { removed: ['mine'], kept: [] }
   );
   // Help answers without running anything.
-  for (const command of ['git worktree prune -h', 'git worktree add -h', 'git worktree remove -h', 'git worktree list -h']) {
+  for (const command of [
+    'git worktree prune -h',
+    'git worktree add -h',
+    'git worktree remove -h',
+    'git worktree list -h',
+  ]) {
     assert.ok(json(await executeGitTool({ command }, repo, asLead)).help, command);
   }
   // --help (a manual viewer) is refused by the git tool's policy before it gets here.
@@ -153,7 +163,10 @@ test('git worktree prune validates every argument before any mutation and scopes
   assert.equal(calls.length, 0, 'no host call for help or a rejected command');
   // The preview names only this repository; the real prune carries the same scope.
   const preview = json(await executeGitTool({ command: 'git worktree prune -n -v' }, repo, asLead));
-  assert.deepEqual(preview.wouldRemove.map((row) => row.id), ['mine']);
+  assert.deepEqual(
+    preview.wouldRemove.map((row) => row.id),
+    ['mine']
+  );
   assert.ok(calls.every((call) => call.request.op === 'list'));
   await executeGitTool({ command: 'git worktree prune' }, repo, asLead);
   assert.deepEqual(calls.at(-1).request, { op: 'prune', repoCommonDir: commonDir });
@@ -271,11 +284,7 @@ test('action:worktree forwards its fields; dirty-choice and large-repo refusals 
     });
   };
   const busy = json(
-    await executeGitTool(
-      { action: 'worktree', worktree_action: 'merge', session_id: 'sess_other' },
-      repo,
-      asLead
-    )
+    await executeGitTool({ action: 'worktree', worktree_action: 'merge', session_id: 'sess_other' }, repo, asLead)
   );
   assert.equal(calls.at(-1).request.sessionId, 'sess_other');
   assert.equal(busy.code, 'WORKTREE_BUSY_JOBS');

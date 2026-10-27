@@ -63,9 +63,7 @@ export function HeartbeatSwitch({ api, active }: { api: HeartbeatSwitchApi | und
         <span className="connector-switch-name">
           <b>{title}</b>
           <small>
-            {t(
-              'Regularly checks your bots and sessions and lets you know only when something needs attention.'
-            )}
+            {t('Regularly checks your bots and sessions and lets you know only when something needs attention.')}
           </small>
         </span>
         <CompactSwitch label={title} checked={enabled} disabled={busy} onChange={(next) => void change(next)} />

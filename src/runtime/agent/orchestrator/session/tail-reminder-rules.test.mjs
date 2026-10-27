@@ -233,7 +233,8 @@ const marks = (messages) =>
     (Array.isArray(m.content) ? m.content : []).flatMap((b, j) => (b?.cache_control ? [[i, j]] : []))
   );
 // The wire as JSON with every cache_control removed (and symbol keys gone).
-const noCacheMarks = (value) => JSON.parse(JSON.stringify(value, (key, v) => (key === 'cache_control' ? undefined : v)));
+const noCacheMarks = (value) =>
+  JSON.parse(JSON.stringify(value, (key, v) => (key === 'cache_control' ? undefined : v)));
 const systemMessages = (messages) => messages.filter((m) => m.role === 'system');
 // A committed assistant turn, carrying the reminder its request sent.
 const committed = (message) => ({ ...message, turnReminder: KOREAN_TEXT });
@@ -295,10 +296,17 @@ for (const [name, request] of Object.entries(requestBuilders)) {
       // The tool batch raises the effort: the control lands after it.
       [committed(HISTORY[2]), { ...HISTORY[3], ...snapshot('low', 'high') }],
       [
-        committed({ role: 'assistant', content: 'Editing.', toolCalls: [{ id: 'call_2', name: 'read', arguments: {} }] }),
+        committed({
+          role: 'assistant',
+          content: 'Editing.',
+          toolCalls: [{ id: 'call_2', name: 'read', arguments: {} }],
+        }),
         { role: 'tool', toolCallId: 'call_2', content: 'more output' },
       ],
-      [committed({ role: 'assistant', content: 'Done.' }), { role: 'user', content: 'Next.', ...snapshot('low', 'medium') }],
+      [
+        committed({ role: 'assistant', content: 'Done.' }),
+        { role: 'user', content: 'Next.', ...snapshot('low', 'medium') },
+      ],
     ];
     let controls = 0;
     await assertAppendOnly(request, steps, (wire) => {

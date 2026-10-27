@@ -3,7 +3,14 @@ import test from 'node:test';
 import { createAskUserToolHandlers } from './ask-user-tool.mjs';
 
 const questions = [
-  { question: 'Which db?', header: 'DB', options: [{ label: 'PG', description: 'p' }, { label: 'SQLite', description: 's' }] },
+  {
+    question: 'Which db?',
+    header: 'DB',
+    options: [
+      { label: 'PG', description: 'p' },
+      { label: 'SQLite', description: 's' },
+    ],
+  },
   {
     question: 'Which features?',
     header: 'Feat',
@@ -31,9 +38,15 @@ test('hook payload and answered / multi / typed / unanswered texts', async () =>
   assert.equal(seen.timeoutMs, null, 'no wait limit');
   assert.equal(seen.sessionId, 's1');
   assert.equal(seen.toolCallId, 'c1');
-  assert.equal(out, 'User has answered your questions: "Which db?"="PG"; "Which features?"="X, Y". You can now continue with these answers in mind.');
+  assert.equal(
+    out,
+    'User has answered your questions: "Which db?"="PG"; "Which features?"="X, Y". You can now continue with these answers in mind.'
+  );
   const typed = await run(async () => ({ approved: true, answers: [{ selected: [], text: 'Mongo' }, null] }));
-  assert.equal(typed, 'User has answered your questions: "Which db?"="Mongo" (typed); "Which features?"=(no answer). You can now continue with these answers in mind.');
+  assert.equal(
+    typed,
+    'User has answered your questions: "Which db?"="Mongo" (typed); "Which features?"=(no answer). You can now continue with these answers in mind.'
+  );
   const both = await run(async () => ({
     approved: true,
     answers: [{ selected: ['PG'], text: 'say "hi", then' }, { selected: ['X'] }],
@@ -67,7 +80,11 @@ test('chat reply: alone, with picks, quoted, bounded; absent reply unchanged', a
   );
   const noReply = await run(async () => ({ approved: true, answers: [{ selected: ['PG'] }, null], reply: '   ' }));
   assert.equal(noReply, `User has answered your questions: "Which db?"="PG"; "Which features?"=(no answer). ${CLOSE}`);
-  const tooLong = await run(async () => ({ approved: true, answers: [{ selected: ['PG'] }, null], reply: 'x'.repeat(4001) }));
+  const tooLong = await run(async () => ({
+    approved: true,
+    answers: [{ selected: ['PG'] }, null],
+    reply: 'x'.repeat(4001),
+  }));
   assert.doesNotMatch(tooLong, /replied in chat/);
   const max = await run(async () => ({ approved: true, reply: 'x'.repeat(4000) }));
   assert.match(max, /^User replied in chat: "x{4000}"\. /);

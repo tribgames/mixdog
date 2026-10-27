@@ -1481,7 +1481,10 @@ test('a Korean composed document sets its sans roles in the Korean face', () => 
     );
   // The Latin face is never replaced; Hangul takes a Korean face of its class beside it.
   const korean = [...fonts('도서관 야간 이용', 'data')];
-  assert.ok(korean.some((face) => /^(calibri|arial)$/i.test(face)), korean.join(', '));
+  assert.ok(
+    korean.some((face) => /^(calibri|arial)$/i.test(face)),
+    korean.join(', ')
+  );
   assert.ok(eastAsiaFaces('도서관 야간 이용', 'data').has('Malgun Gothic'));
   assert.ok(eastAsiaFaces('도서관 야간 이용', 'editorial').has('Batang'));
   // An East Asian face the author named is kept.

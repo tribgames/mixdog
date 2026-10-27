@@ -71,8 +71,12 @@ for (const [label, lock] of [
           }),
       });
       taskB.then(
-        () => { settled = true; },
-        () => { settled = true; }
+        () => {
+          settled = true;
+        },
+        () => {
+          settled = true;
+        }
       );
       await nextTurn();
       assert.equal(settled, false);

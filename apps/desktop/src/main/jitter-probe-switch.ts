@@ -19,7 +19,6 @@ interface SwitchProbeDeps {
   outPath: string;
 }
 
-
 export async function runSwitchProbe({ window, outPath }: SwitchProbeDeps): Promise<{ reversals: number }> {
   const clickSession = (id: string, waitMs: number) => clickProbeSession(window, id, waitMs);
   // Warm B into the renderer snapshot cache, leave for A, then start a

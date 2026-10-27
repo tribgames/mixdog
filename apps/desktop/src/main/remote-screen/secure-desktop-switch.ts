@@ -168,7 +168,10 @@ export function decideScreenSource(inputs: ScreenSwitchInputs): ScreenSourceDeci
 
   if (onSecure) {
     const reason: RemoteScreenStatus['reason'] = lockScreen ? 'lock' : local?.consent ? 'uac' : 'secure';
-    if (inputs.helperInstalled && usable && inputs.helperDesktop !== null &&
+    if (
+      inputs.helperInstalled &&
+      usable &&
+      inputs.helperDesktop !== null &&
       normalizeDesktopName(inputs.helperDesktop) !== 'default'
     ) {
       return { mode: 'helper', helper, helperActive: true, status: 'secure-desktop', reason };
@@ -188,7 +191,13 @@ export function decideScreenSource(inputs: ScreenSwitchInputs): ScreenSourceDeci
     if (inputs.helperInstalled && usable) {
       // The helper can act even for an in-place prompt; keep it warm so a jump
       // to the secure desktop has frames already flowing.
-      return { mode: 'default', helper, helperActive: true, status: 'elevation-prompt', reason: locked ? 'lock' : 'uac' };
+      return {
+        mode: 'default',
+        helper,
+        helperActive: true,
+        status: 'elevation-prompt',
+        reason: locked ? 'lock' : 'uac',
+      };
     }
     return {
       mode: 'elevation-prompt',

@@ -312,7 +312,11 @@ export function createTouchGestures(options: TouchGestureOptions): TouchGestures
         return;
       }
       // Fingers moving up scroll the content down.
-      wheel(centroid.x - next.x, centroid.y - next.y, trackpad ? trackpad.position() : options.toTarget(next.x, next.y));
+      wheel(
+        centroid.x - next.x,
+        centroid.y - next.y,
+        trackpad ? trackpad.position() : options.toTarget(next.x, next.y)
+      );
       sample(next);
     }
     centroid = next;
@@ -485,7 +489,8 @@ export function createTouchGestures(options: TouchGestureOptions): TouchGestures
       const touch = touches.get(id);
       if (!touch) return;
       if (!ignored && touches.size === 1 && (mode === 'pan' || mode === 'held')) move(id, x, y);
-      if (!ignored && mode === 'scroll' && touches.size === 2) swipeRelease = { at: now(), velocity: flingVelocity(samples, now()) };
+      if (!ignored && mode === 'scroll' && touches.size === 2)
+        swipeRelease = { at: now(), velocity: flingVelocity(samples, now()) };
       touches.delete(id);
       snapshot = null;
       if (ignored) return;

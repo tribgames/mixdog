@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { isSecureDesktopControllerKey, secureDesktopGrantPayload, signSecureDesktopGrant } from '../shared/secure-desktop-grant.ts';
+import {
+  isSecureDesktopControllerKey,
+  secureDesktopGrantPayload,
+  signSecureDesktopGrant,
+} from '../shared/secure-desktop-grant.ts';
 import {
   clearControllerKey,
   controllerKeyScopeFor,
@@ -122,8 +126,24 @@ test('the pairing scope is the key the shim stores the credential under', () => 
   const expected = remotePairingKeys('https://relay.example', device).token;
   const page = { origin: 'https://relay.example', pathname: `/d/${device}/`, cookie: '', deviceLabel: '' };
   assert.equal(controllerKeyScopeFor(page), expected, 'from the route');
-  assert.equal(controllerKeyScopeFor({ ...page, pathname: '/', cookie: `mixdog_device=${device}` }), expected, 'from the cookie');
-  assert.equal(controllerKeyScopeFor({ ...page, pathname: '/', deviceLabel: device }), expected, 'from the stored label');
-  assert.equal(controllerKeyScopeFor({ ...page, pathname: '/d/11111111-2222/', deviceLabel: device }), remotePairingKeys('https://relay.example', '11111111-2222').token, 'the route wins');
-  assert.equal(controllerKeyScopeFor({ ...page, pathname: '/' }), remotePairingKeys('https://relay.example', '').token, 'unrouted');
+  assert.equal(
+    controllerKeyScopeFor({ ...page, pathname: '/', cookie: `mixdog_device=${device}` }),
+    expected,
+    'from the cookie'
+  );
+  assert.equal(
+    controllerKeyScopeFor({ ...page, pathname: '/', deviceLabel: device }),
+    expected,
+    'from the stored label'
+  );
+  assert.equal(
+    controllerKeyScopeFor({ ...page, pathname: '/d/11111111-2222/', deviceLabel: device }),
+    remotePairingKeys('https://relay.example', '11111111-2222').token,
+    'the route wins'
+  );
+  assert.equal(
+    controllerKeyScopeFor({ ...page, pathname: '/' }),
+    remotePairingKeys('https://relay.example', '').token,
+    'unrouted'
+  );
 });

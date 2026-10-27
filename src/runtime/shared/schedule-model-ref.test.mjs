@@ -6,7 +6,14 @@ test('+noauto parses to autoEffort:false and formats back; absent means on', () 
   for (const [ref, route] of [
     [
       'openai/gpt-5@high+fast+noauto?serviceTier=priority',
-      { provider: 'openai', model: 'gpt-5', effort: 'high', fast: true, autoEffort: false, modelParameters: { serviceTier: 'priority' } },
+      {
+        provider: 'openai',
+        model: 'gpt-5',
+        effort: 'high',
+        fast: true,
+        autoEffort: false,
+        modelParameters: { serviceTier: 'priority' },
+      },
     ],
     ['openai/gpt-5@high+noauto', { provider: 'openai', model: 'gpt-5', effort: 'high', autoEffort: false }],
     ['openai/gpt-5+noauto', { provider: 'openai', model: 'gpt-5', autoEffort: false }],

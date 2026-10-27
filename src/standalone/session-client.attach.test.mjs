@@ -14,7 +14,16 @@ import { SESSION_PROTOCOL, SESSION_REVISION, runtimeVersion } from './session-wi
 // replaced, reconnect budget exhausted), and deregister on close.
 
 function stubDaemon({ pid = process.pid, registerStatuses = [] } = {}) {
-  const state = { registers: [], deregisters: [], heartbeats: [], calls: [], streams: [], tokens: 0, waiters: [], eventStatus: 200 };
+  const state = {
+    registers: [],
+    deregisters: [],
+    heartbeats: [],
+    calls: [],
+    streams: [],
+    tokens: 0,
+    waiters: [],
+    eventStatus: 200,
+  };
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (chunk) => {
@@ -262,7 +271,13 @@ test('probeSessionCompatibility checks an explicit discovery through the injecte
     {
       probeHealth: async (args) => {
         seen.push(args);
-        return { status: 'ok', pid: 7, protocol: SESSION_PROTOCOL, revision: SESSION_REVISION, version: runtimeVersion() };
+        return {
+          status: 'ok',
+          pid: 7,
+          protocol: SESSION_PROTOCOL,
+          revision: SESSION_REVISION,
+          version: runtimeVersion(),
+        };
       },
     }
   );

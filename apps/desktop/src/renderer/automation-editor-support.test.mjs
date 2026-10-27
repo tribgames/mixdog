@@ -19,7 +19,7 @@ test('project options lead with none, prefer alias over name, and keep an unlist
   assert.equal(automationProjectOptions([], '').length, 1);
 });
 
-test('only the host\'s exact task workspace reads as no project', () => {
+test("only the host's exact task workspace reads as no project", () => {
   const internal = 'C:\\Users\\tempe\\AppData\\Roaming\\mixdog-desktop\\workspace\\unclassified';
   for (const path of [internal, 'c:/users/tempe/appdata/roaming/mixdog-desktop/workspace/Unclassified/']) {
     assert.equal(automationDraftCwd(path, internal), '');

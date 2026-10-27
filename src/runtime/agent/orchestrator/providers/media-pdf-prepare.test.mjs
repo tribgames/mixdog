@@ -49,7 +49,10 @@ function minimalPdf(text) {
   });
   const xref = Buffer.byteLength(body, 'latin1');
   body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  body += offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+  body += offsets
+    .slice(1)
+    .map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`)
+    .join('');
   body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return Buffer.from(body, 'latin1');
 }
@@ -58,7 +61,12 @@ const history = (...texts) =>
   texts.map((text, index) => ({
     role: 'user',
     content: [
-      { type: 'file', data: minimalPdf(text).toString('base64'), mimeType: 'application/pdf', filename: `f${index}.pdf` },
+      {
+        type: 'file',
+        data: minimalPdf(text).toString('base64'),
+        mimeType: 'application/pdf',
+        filename: `f${index}.pdf`,
+      },
     ],
   }));
 
@@ -82,7 +90,9 @@ test('a corrupt PDF is a property of the bytes: fixed text, extracted once', asy
   const bad = [
     {
       role: 'user',
-      content: [{ type: 'file', data: Buffer.from('%PDF-1.4 garbage').toString('base64'), mimeType: 'application/pdf' }],
+      content: [
+        { type: 'file', data: Buffer.from('%PDF-1.4 garbage').toString('base64'), mimeType: 'application/pdf' },
+      ],
     },
   ];
   const before = media._pdfExtractionCount();
@@ -119,7 +129,10 @@ test('conversion returns a copy: other messages and parts are shared, the input 
   assert.equal(prepared[0], messages[0]);
   assert.notEqual(prepared[1], messages[1]);
   assert.equal(prepared[1].content[0].type, 'text');
-  assert.match(prepared[1].content[0].text, /^--- f0\.pdf \(application\/pdf, \d+ bytes\) ---\nPage|^--- f0\.pdf .*---\n--- Page 1 ---/);
+  assert.match(
+    prepared[1].content[0].text,
+    /^--- f0\.pdf \(application\/pdf, \d+ bytes\) ---\nPage|^--- f0\.pdf .*---\n--- Page 1 ---/
+  );
   const bare = [{ role: 'tool', toolCallId: 'c', content: messages[1].content[0] }];
   const preparedBare = await media.preparePdfTextForProvider(bare, TEXT_PDF);
   assert.equal(Array.isArray(preparedBare[0].content), true);

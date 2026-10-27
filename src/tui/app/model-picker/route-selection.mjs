@@ -27,9 +27,10 @@ export function createRouteSelection({ providerModels, state, currentRoute }) {
     const fastCapable = fast.fastAvailableFor(selected, coercedEffort);
     const contextSelection = context.contextSelectionFor(selected);
     const { serviceTier, ...otherParameters } = fast.modelParametersFor(selected);
-    const modelParameters = serviceTier && fastCapable && fast.getSelectedFast(selected)
-      ? { ...otherParameters, serviceTier }
-      : otherParameters;
+    const modelParameters =
+      serviceTier && fastCapable && fast.getSelectedFast(selected)
+        ? { ...otherParameters, serviceTier }
+        : otherParameters;
     return {
       effort: coercedEffort,
       routeInput: {
@@ -38,9 +39,7 @@ export function createRouteSelection({ providerModels, state, currentRoute }) {
         ...(coercedEffort ? { effort: coercedEffort } : {}),
         ...(contextSelection ? { contextPercent: contextSelection.percent } : {}),
         ...(selected.fastCapable ? { fast: fastCapable && fast.getSelectedFast(selected) } : {}),
-        ...((selected.modelParameterOptions || []).length
-          ? { modelParameters }
-          : {}),
+        ...((selected.modelParameterOptions || []).length ? { modelParameters } : {}),
       },
     };
   };

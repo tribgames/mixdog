@@ -73,7 +73,10 @@ test('secret-bearing capability errors are redacted for every client', () => {
     /abcdef123/
   );
   const mcpPaste = [
-    { capability: 'completeMcpOAuthLogin', args: ['mcp_oauth_1', 'http://127.0.0.1:1/oauth/callback?code=mcpcode1234'] },
+    {
+      capability: 'completeMcpOAuthLogin',
+      args: ['mcp_oauth_1', 'http://127.0.0.1:1/oauth/callback?code=mcpcode1234'],
+    },
   ];
   assert.doesNotMatch(
     redactRemoteError('failed http://127.0.0.1:1/oauth/callback?code=mcpcode1234', 'invokeCapability', mcpPaste),
@@ -93,7 +96,9 @@ test('a key echoed back in JSON-escaped form is redacted on the relay route too'
   const secret = 'sk-"quoted"\\back\tslash-0123';
   const escaped = JSON.stringify(secret).slice(1, -1);
   assert.notEqual(escaped, secret);
-  const params = [{ capability: 'saveCustomProviderKey', args: ['custom-0b0a8b3e-1111-4222-8333-444455556666', secret] }];
+  const params = [
+    { capability: 'saveCustomProviderKey', args: ['custom-0b0a8b3e-1111-4222-8333-444455556666', secret] },
+  ];
   const message = `plain ${secret} and in json {"key":"${escaped}"}`;
   const safe = redactRemoteError(message, 'invokeCapability', params);
   assert.equal(safe, 'plain [redacted] and in json {"key":"[redacted]"}');

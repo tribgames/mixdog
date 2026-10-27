@@ -112,14 +112,7 @@ export async function executeReadTool(args, ...rest) {
   return `${out}\n[skipped ${skipped.length} more file(s) over the per-call limit: ${skipped.join(', ')} — read them in another call]`;
 }
 
-async function executeReadToolBody(
-  args,
-  workDir,
-  readStateScope,
-  executeChildBuiltinTool,
-  options = {},
-  helpers = {}
-) {
+async function executeReadToolBody(args, workDir, readStateScope, executeChildBuiltinTool, options = {}, helpers = {}) {
   const { normalizeInputPath, normaliseReadLineWindowArgs } = helpers;
   applyFilePathAlias(args);
   args.path = coerceReadFamilyPathArg(args.path);

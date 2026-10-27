@@ -44,7 +44,8 @@ async function single(provider) {
   resetAccountProbePacing();
   return id;
 }
-const pick = (provider, model) => chooseProviderAccount(readProviderAccountPool(provider), new Set(), Date.now(), model);
+const pick = (provider, model) =>
+  chooseProviderAccount(readProviderAccountPool(provider), new Set(), Date.now(), model);
 const accountRow = (provider, id) => readProviderAccountPool(provider).accounts.find((row) => row.id === id);
 
 function antigravitySummary({ gemini = 0.5, thirdParty = 0.5, argon } = {}) {
@@ -61,13 +62,17 @@ function antigravitySummary({ gemini = 0.5, thirdParty = 0.5, argon } = {}) {
 test('Antigravity: a full Claude/GPT bucket blocks only Claude/GPT models, a full Gemini bucket only Gemini', async () => {
   const ag = 'antigravity-oauth';
   const id = await single(ag);
-  await recordProviderAccountUsage(ag, id, { quotaWindows: antigravityQuotaWindows(antigravitySummary({ thirdParty: 0 })) });
+  await recordProviderAccountUsage(ag, id, {
+    quotaWindows: antigravityQuotaWindows(antigravitySummary({ thirdParty: 0 })),
+  });
   assert.equal(pick(ag, 'gemini-3.8-flash-high')?.id, id, 'Gemini stays selectable');
   assert.equal(pick(ag, 'claude-opus-4-6-thinking'), null);
   assert.equal(pick(ag, 'gpt-oss-120b-medium'), null);
   assert.deepEqual(providerAccountLimit(accountRow(ag, id)), { scope: 'model', families: ['Claude/GPT'] });
 
-  await recordProviderAccountUsage(ag, id, { quotaWindows: antigravityQuotaWindows(antigravitySummary({ gemini: 0 })) });
+  await recordProviderAccountUsage(ag, id, {
+    quotaWindows: antigravityQuotaWindows(antigravitySummary({ gemini: 0 })),
+  });
   assert.equal(pick(ag, 'gemini-3.8-flash-high'), null);
   assert.equal(pick(ag, 'claude-opus-4-6-thinking')?.id, id, 'Claude stays selectable');
   assert.equal(pick(ag, 'gpt-oss-120b-medium')?.id, id);
@@ -110,9 +115,16 @@ test('a bare 429 on a Gemini model blocks only its bucket until the hinted time;
   assert.equal(pick(ag, 'gemini-3.1-pro-high'), null, 'the whole Gemini bucket waits');
   assert.equal((await gateway.send([], 'claude-sonnet-4-6', [], {})).content, 'ok');
   assert.deepEqual(served, [[id, 'claude-sonnet-4-6']], 'Claude still runs on the same account');
-  const later = chooseProviderAccount(readProviderAccountPool(ag), new Set(), row.blockedUntil + 1, 'gemini-3.8-flash-high');
+  const later = chooseProviderAccount(
+    readProviderAccountPool(ag),
+    new Set(),
+    row.blockedUntil + 1,
+    'gemini-3.8-flash-high'
+  );
   assert.equal(later?.id, id, 'the block expires at the hinted time');
-  await recordProviderAccountUsage(ag, id, { quotaWindows: antigravityQuotaWindows(antigravitySummary({ thirdParty: 0 })) });
+  await recordProviderAccountUsage(ag, id, {
+    quotaWindows: antigravityQuotaWindows(antigravitySummary({ thirdParty: 0 })),
+  });
   assert.equal(accountRow(ag, id).blockedUntil, undefined, 'a reading with Gemini room lifts the block');
   assert.equal(pick(ag, 'gemini-3.8-flash-high')?.id, id);
 });

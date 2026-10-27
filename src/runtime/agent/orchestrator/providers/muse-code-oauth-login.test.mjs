@@ -8,7 +8,9 @@ const dir = mkdtempSync(join(tmpdir(), 'mixdog-muse-code-'));
 process.env.MIXDOG_DATA_DIR = dir;
 process.env.MUSE_CODE_OAUTH_CREDENTIALS_PATH = join(dir, 'muse-code-oauth.json');
 
-const { pollDeviceToken, requestDeviceAuthorization, completeLogin, defaultSleep } = await import('./muse-code-oauth-login.mjs');
+const { pollDeviceToken, requestDeviceAuthorization, completeLogin, defaultSleep } = await import(
+  './muse-code-oauth-login.mjs'
+);
 const tokens = await import('./muse-code-oauth-tokens.mjs');
 
 test.after(() => rmSync(dir, { recursive: true, force: true }));
@@ -82,7 +84,11 @@ test('slow_down widens the polling interval', async () => {
   assert.deepEqual(sleeps, [10000]);
   const again = [];
   await pollDeviceToken(device, {
-    fetchFn: scripted([reply(400, { error: 'slow_down' }), reply(400, { error: 'authorization_pending' }), reply(200, { access_token: 't' })]),
+    fetchFn: scripted([
+      reply(400, { error: 'slow_down' }),
+      reply(400, { error: 'authorization_pending' }),
+      reply(200, { access_token: 't' }),
+    ]),
     sleep: async (ms) => again.push(ms),
     now: () => 0,
   });
@@ -105,11 +111,19 @@ test('the first poll happens before any sleep and the interval is clamped to one
 test('without expires_in the poll has no deadline', async () => {
   const sleeps = [];
   let calls = 0;
-  const fetchFn = async () => (++calls < 4 ? reply(400, { error: 'authorization_pending' }) : reply(200, { access_token: 't' }));
+  const fetchFn = async () =>
+    ++calls < 4 ? reply(400, { error: 'authorization_pending' }) : reply(200, { access_token: 't' });
   let clock = 0;
   const token = await pollDeviceToken(
     { ...device, expiresInS: null },
-    { fetchFn, sleep: async (ms) => { sleeps.push(ms); clock += 1e12; }, now: () => clock }
+    {
+      fetchFn,
+      sleep: async (ms) => {
+        sleeps.push(ms);
+        clock += 1e12;
+      },
+      now: () => clock,
+    }
   );
   assert.equal(token, 't');
   assert.equal(sleeps.length, 3);
@@ -135,7 +149,9 @@ test('an in-flight poll is aborted when the device code expires', async () => {
 test('the token response must be HTTP success without an OAuth error', async () => {
   await assert.rejects(
     pollDeviceToken(device, {
-      fetchFn: scripted([reply(200, { error: 'invalid_request', error_description: 'bad grant type', access_token: 'x' })]),
+      fetchFn: scripted([
+        reply(200, { error: 'invalid_request', error_description: 'bad grant type', access_token: 'x' }),
+      ]),
       sleep: async () => {},
       now: () => 0,
     }),
@@ -160,7 +176,10 @@ test('four consecutive 5xx replies fail with the redacted error; a well-formed r
   const calls = [];
   await assert.rejects(
     pollDeviceToken(device, {
-      fetchFn: scripted([reply(503, 'dc down'), reply(502, 'x'), reply(500, 'x'), reply(504, 'upstream dc gone')], calls),
+      fetchFn: scripted(
+        [reply(503, 'dc down'), reply(502, 'x'), reply(500, 'x'), reply(504, 'upstream dc gone')],
+        calls
+      ),
       sleep: async () => {},
       now: () => 0,
     }),
@@ -362,7 +381,8 @@ test('device and token requests time out after 30s and refuse redirects', async 
 
 test('a cross-origin redirect on the device-token request is rejected and the body is not resent', async () => {
   const { createServer } = await import('node:http');
-  const listen = (server) => new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
+  const listen = (server) =>
+    new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(server.address().port)));
   const received = [];
   const target = createServer((req, res) => {
     received.push(req.url);
@@ -438,8 +458,14 @@ test('device-auth and polling failures carry structured status and kind', async 
   );
   const poll = (body, status = 400) =>
     pollDeviceToken(device, { fetchFn: scripted([reply(status, body)]), sleep: async () => {}, now: () => 0 });
-  await assert.rejects(poll({ error: 'access_denied' }), (err) => err.kind === 'device-token' && err.code === 'access_denied' && err.status === 400);
-  await assert.rejects(poll({ error: 'expired_token' }), (err) => err.kind === 'device-token' && err.code === 'expired_token');
+  await assert.rejects(
+    poll({ error: 'access_denied' }),
+    (err) => err.kind === 'device-token' && err.code === 'access_denied' && err.status === 400
+  );
+  await assert.rejects(
+    poll({ error: 'expired_token' }),
+    (err) => err.kind === 'device-token' && err.code === 'expired_token'
+  );
   await assert.rejects(
     poll({ error: 'invalid_request', error_description: 'nope' }),
     (err) => err.kind === 'device-token' && err.code === 'invalid_request' && err.status === 400
@@ -450,7 +476,10 @@ test('transport failures are classified: device-auth/device-token, timeout, canc
   const boom = async () => {
     throw new TypeError('fetch failed');
   };
-  await assert.rejects(requestDeviceAuthorization({ fetchFn: boom }), (err) => err.kind === 'device-auth' && /fetch failed/.test(err.message));
+  await assert.rejects(
+    requestDeviceAuthorization({ fetchFn: boom }),
+    (err) => err.kind === 'device-auth' && /fetch failed/.test(err.message)
+  );
   await assert.rejects(
     pollDeviceToken(device, { fetchFn: boom, sleep: async () => {}, now: () => 0 }),
     (err) => err.kind === 'device-token' && /fetch failed/.test(err.message)
@@ -513,7 +542,10 @@ test('device authorization requires string codes and tolerates a missing expiry'
     { ...ok, user_code: undefined },
     { ...ok, verification_uri: undefined, verification_uri_complete: 'https://m/c' },
   ]) {
-    await assert.rejects(requestDeviceAuthorization({ fetchFn: scripted([reply(200, bad)]) }), /missing required fields/);
+    await assert.rejects(
+      requestDeviceAuthorization({ fetchFn: scripted([reply(200, bad)]) }),
+      /missing required fields/
+    );
   }
 });
 
@@ -598,8 +630,16 @@ test('payment required is an entitlement error; action URLs are trimmed before c
 });
 
 test('key responses with wrong field types are rejected, not stringified', () => {
-  for (const bad of [{ api_key: 123 }, { api_key: 'k', user_id: 42 }, { api_key: 'k', user_email: {} }, { api_key: 'k', is_subs_active: 'yes' }]) {
-    assert.throws(() => tokens.credentialsFromKeyResponse(bad, 't'), (err) => err.kind === 'validation');
+  for (const bad of [
+    { api_key: 123 },
+    { api_key: 'k', user_id: 42 },
+    { api_key: 'k', user_email: {} },
+    { api_key: 'k', is_subs_active: 'yes' },
+  ]) {
+    assert.throws(
+      () => tokens.credentialsFromKeyResponse(bad, 't'),
+      (err) => err.kind === 'validation'
+    );
   }
 });
 

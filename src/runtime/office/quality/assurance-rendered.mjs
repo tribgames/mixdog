@@ -152,7 +152,13 @@ export async function reviewRenderedOfficePages(
     // The cover/title page is short by design, and a page followed by a deliberate forced break ends where the
     // author ended it.
     const endsBeforeForcedBreak = forcedBreaks?.has(metric.page + 1) === true;
-    if (flowing && metric.page > 1 && !endsBeforeForcedBreak && metric.page < lastPage && metric.bodyEnd < PAGE_BODY_END_MIN) {
+    if (
+      flowing &&
+      metric.page > 1 &&
+      !endsBeforeForcedBreak &&
+      metric.page < lastPage &&
+      metric.bodyEnd < PAGE_BODY_END_MIN
+    ) {
       const empty = Math.round((1 - metric.bodyEnd) * 100);
       issues.push(
         issue(
@@ -166,7 +172,8 @@ export async function reviewRenderedOfficePages(
       continue;
     }
     // A short chapter is the author's: the page ends before a forced break, or it is the last page and opens with one.
-    const deliberateShort = endsBeforeForcedBreak || (forcedBreaks?.has(metric.page) === true && metric.page >= lastPage);
+    const deliberateShort =
+      endsBeforeForcedBreak || (forcedBreaks?.has(metric.page) === true && metric.page >= lastPage);
     if (
       ['docx', 'pdf'].includes(normalized) &&
       metric.page > 1 &&

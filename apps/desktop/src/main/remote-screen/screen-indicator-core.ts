@@ -77,7 +77,11 @@ export function createRemoteScreenIndicatorHost(deps: IndicatorDeps) {
   const targetDisplay = (): IndicatorDisplay | undefined => {
     const displays = deps.displays();
     const wanted = [...sessions][0]?.displayId;
-    return displays.find((display) => display.id === wanted) ?? displays.find((display) => display.id === deps.primaryDisplayId()) ?? displays[0];
+    return (
+      displays.find((display) => display.id === wanted) ??
+      displays.find((display) => display.id === deps.primaryDisplayId()) ??
+      displays[0]
+    );
   };
 
   const tooltip = (): string =>

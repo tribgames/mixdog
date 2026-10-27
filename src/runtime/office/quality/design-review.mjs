@@ -12,11 +12,7 @@ import {
   saturatedHueFamilies,
 } from '../design/design-discipline.mjs';
 import { authoredBackgroundLadder, isCardGridSlide, isOrnamentalStripe, slideSize } from './design-review-authored.mjs';
-import {
-  reviewBriefPromises,
-  reviewFactCoverage,
-  reviewSourceGrounding,
-} from '../authoring/pptx-brief.mjs';
+import { reviewBriefPromises, reviewFactCoverage, reviewSourceGrounding } from '../authoring/pptx-brief.mjs';
 import { isAdvisoryOfficeIssue } from './quality-pipeline.mjs';
 import { issue } from './assurance-issue.mjs';
 import { isPptxSpecimenSlide, isPptxStatementSlide } from './pptx-slide-roles.mjs';

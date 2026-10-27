@@ -58,16 +58,7 @@ import { NO_SECURE_DESKTOP, type SecureDesktopClient } from './secure-desktop-sw
 /** The part of the real client this adapter uses (tests supply a fake). */
 type SecureDesktopServicePort = Pick<
   SecureDesktopService,
-  | 'available'
-  | 'session'
-  | 'connect'
-  | 'on'
-  | 'setActive'
-  | 'sendInput'
-  | 'close'
-  | 'setVideoRun'
-  | 'sendGrant'
-  | 'sas'
+  'available' | 'session' | 'connect' | 'on' | 'setActive' | 'sendInput' | 'close' | 'setVideoRun' | 'sendGrant' | 'sas'
 >;
 
 /** The switch's client plus the protocol v4 grant, SAS and status surface. */
@@ -109,10 +100,7 @@ const NOT_INSTALLED: SecureDesktopAdapter = {
 };
 
 /** A host command as a helper input event; null when the helper has none. */
-function secureDesktopInputEvent(
-  command: ScreenHostCommand,
-  lastPointer: { x: number; y: number }
-): InputEvent | null {
+function secureDesktopInputEvent(command: ScreenHostCommand, lastPointer: { x: number; y: number }): InputEvent | null {
   switch (command.op) {
     case 'move':
       return { kind: 'pointer-move', x: command.x, y: command.y };

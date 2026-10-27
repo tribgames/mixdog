@@ -66,8 +66,11 @@ test('provider overload is an ordinary failure, never a usage limit', () => {
     'response.failed server_is_overloaded': Object.assign(new Error(message), {
       responseFailed: { response: { error: { code: 'server_is_overloaded', message } } },
     }),
-    '429 rate_limit_exceeded': Object.assign(new Error('Rate limit reached'), { httpStatus: 429, code: 'rate_limit_exceeded' }),
-    'slow_down': Object.assign(new Error('slow down'), { code: 'slow_down' }),
+    '429 rate_limit_exceeded': Object.assign(new Error('Rate limit reached'), {
+      httpStatus: 429,
+      code: 'rate_limit_exceeded',
+    }),
+    slow_down: Object.assign(new Error('slow down'), { code: 'slow_down' }),
     'server_error with quota flag text': Object.assign(new Error('quota'), { code: 'server_error' }),
   };
   for (const [name, error] of Object.entries(cases)) {
@@ -119,7 +122,9 @@ test('a provider-named quota reset reaches the quota metadata', () => {
   const resetAt = Date.now() + 3_600_000;
   const typed = failedItem(Object.assign(new Error('limit'), { status: 429, code: 'usage_limit_reached', resetAt }));
   assert.deepEqual(typed.quota, { provider: 'route-provider', model: 'route-model', resetAt });
-  const pooled = failedItem(Object.assign(new Error('limit'), { quotaExhausted: { provider: 'p', model: 'm' }, resetAt }));
+  const pooled = failedItem(
+    Object.assign(new Error('limit'), { quotaExhausted: { provider: 'p', model: 'm' }, resetAt })
+  );
   assert.deepEqual(pooled.quota, { provider: 'p', model: 'm', resetAt });
   const throttled = failedItem(Object.assign(new Error('slow'), { status: 429, code: 'rate_limit_exceeded' }));
   assert.equal('quota' in throttled, false);

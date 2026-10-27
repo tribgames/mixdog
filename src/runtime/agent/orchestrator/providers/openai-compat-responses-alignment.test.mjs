@@ -37,18 +37,22 @@ test('streamed refusal surfaces as a typed refusal, not an empty success', async
 });
 
 test('final refusal part alone (no stream events) is a typed refusal', async () => {
-  const { provider } = scripted('muse-code', [], [
-    { type: 'message', id: 'm1', role: 'assistant', content: [{ type: 'refusal', refusal: 'no' }] },
-  ]);
+  const { provider } = scripted(
+    'muse-code',
+    [],
+    [{ type: 'message', id: 'm1', role: 'assistant', content: [{ type: 'refusal', refusal: 'no' }] }]
+  );
   const r = await sendCompatResponses(provider, hist, 'muse-spark', [], {});
   assert.equal(r.stopReason, 'refusal');
   assert.equal(r.refusal, 'no');
 });
 
 test('function_call namespace is preserved on parsed calls', async () => {
-  const { provider } = scripted('opencode-go', [], [
-    { type: 'function_call', id: 'f1', call_id: 'c1', name: 'run', namespace: 'ns', arguments: '{}' },
-  ]);
+  const { provider } = scripted(
+    'opencode-go',
+    [],
+    [{ type: 'function_call', id: 'f1', call_id: 'c1', name: 'run', namespace: 'ns', arguments: '{}' }]
+  );
   const r = await sendCompatResponses(provider, hist, 'gpt-5.5', [], {});
   assert.equal(r.toolCalls[0].namespace, 'ns');
   assert.equal(r.toolCalls[0].name, 'run');
@@ -65,20 +69,27 @@ test('pinned nativeDeferredTools route declares native tool_search and replays t
     },
   };
   const run = async (session) => {
-    const { provider, requests } = scripted('opencode-go', [], [
-      { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] },
-    ]);
+    const { provider, requests } = scripted(
+      'opencode-go',
+      [],
+      [{ type: 'message', role: 'assistant', content: [{ type: 'output_text', text: 'ok' }] }]
+    );
     await sendCompatResponses(provider, history, 'gpt-5.5', tools, { session });
     return requests[0];
   };
-  const on = await run({ wireRoute: { provider: 'opencode-go', model: 'gpt-5.5', wire: 'responses', nativeDeferredTools: true } });
+  const on = await run({
+    wireRoute: { provider: 'opencode-go', model: 'gpt-5.5', wire: 'responses', nativeDeferredTools: true },
+  });
   assert.equal(on.tools[0].type, 'tool_search');
   const out = on.input.find((i) => i.type === 'tool_search_output');
   assert.equal(out.tools[0].name, 'x');
   assert.equal(out.tools[0].defer_loading, true);
   const off = await run({ wireRoute: { provider: 'opencode-go', model: 'gpt-5.5', wire: 'responses' } });
   assert.equal(off.tools[0].type, 'function');
-  assert.equal(off.input.some((i) => i.type === 'tool_search_output'), false);
+  assert.equal(
+    off.input.some((i) => i.type === 'tool_search_output'),
+    false
+  );
 });
 
 test('openrouter Responses rejects imported previous_response_id / store:true', async () => {

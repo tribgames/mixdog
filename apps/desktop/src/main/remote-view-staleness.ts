@@ -28,15 +28,20 @@ export function viewIsStale(
   const from =
     first === undefined || first === null
       ? 0
-      : Math.max(0, (latest as readonly TranscriptRowLike[]).findIndex((row) => row?.id === first));
-  return (latest as readonly TranscriptRowLike[]).slice(from).some(
-    (row) =>
-      row?.kind === 'user' &&
-      row.id !== undefined &&
-      row.id !== null &&
-      !known.has(row.id) &&
-      typeof row.device === 'string' &&
-      row.device !== '' &&
-      row.device !== device
-  );
+      : Math.max(
+          0,
+          (latest as readonly TranscriptRowLike[]).findIndex((row) => row?.id === first)
+        );
+  return (latest as readonly TranscriptRowLike[])
+    .slice(from)
+    .some(
+      (row) =>
+        row?.kind === 'user' &&
+        row.id !== undefined &&
+        row.id !== null &&
+        !known.has(row.id) &&
+        typeof row.device === 'string' &&
+        row.device !== '' &&
+        row.device !== device
+    );
 }

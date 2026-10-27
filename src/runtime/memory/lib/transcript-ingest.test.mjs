@@ -54,7 +54,7 @@ test('transcript watcher initialization waits for the first active-session sweep
   }
 });
 
-test('forgetTranscripts drops only the named files\' persisted offsets', async () => {
+test("forgetTranscripts drops only the named files' persisted offsets", async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'mixdog-transcript-forget-'));
   const keep = path.join(root, 'keep.jsonl');
   const drop = path.join(root, 'drop.jsonl');

@@ -68,8 +68,14 @@ test('window focus (recheckKeychain) skips the snapshot TTL; a plain read does n
   calls.length = 0;
   const { setupApi } = api();
   await setupApi.getProviderSetup({ recheckKeychain: true });
-  assert.deepEqual(calls.find((call) => call[0] === 'refresh'), ['refresh', { force: true }]);
+  assert.deepEqual(
+    calls.find((call) => call[0] === 'refresh'),
+    ['refresh', { force: true }]
+  );
   calls.length = 0;
   await setupApi.getProviderSetup({});
-  assert.deepEqual(calls.find((call) => call[0] === 'refresh'), ['refresh', { force: false }]);
+  assert.deepEqual(
+    calls.find((call) => call[0] === 'refresh'),
+    ['refresh', { force: false }]
+  );
 });

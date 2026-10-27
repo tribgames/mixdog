@@ -7,13 +7,26 @@ import { backgroundTaskFailureStatusLabel } from '../err-text.mjs';
 import { agentTerminalDetail, isAgentTool } from './agent-surface.mjs';
 import { backgroundTaskElapsed, backgroundTaskFailureDetail, isBackgroundTaskTool } from './background-task.mjs';
 import { shellDisplayStatus } from './shell-surface.mjs';
-import { normalizeTerminalStatus, resultControlStatus, resultEnvelopeStatus, shellResultElapsed } from './terminal-status.mjs';
+import {
+  normalizeTerminalStatus,
+  resultControlStatus,
+  resultEnvelopeStatus,
+  shellResultElapsed,
+} from './terminal-status.mjs';
 import { mediaTerminalStatus } from './media-result.mjs';
 import { gitTerminalStatus } from './git-result.mjs';
 import { isUserControlCancellation } from '../tool-status.mjs';
 
 // Tools whose result opens with a task/bridge envelope that reports the call's status.
-const ENVELOPE_STATUS_TOOLS = new Set(['agent', 'bridge', 'task', 'web_search', 'search_query', 'image_query', 'web_search_call']);
+const ENVELOPE_STATUS_TOOLS = new Set([
+  'agent',
+  'bridge',
+  'task',
+  'web_search',
+  'search_query',
+  'image_query',
+  'web_search_call',
+]);
 
 function shellFragments(base, display, isShellSurface) {
   if (!isShellSurface) return { shellStatus: '', shellElapsed: '' };

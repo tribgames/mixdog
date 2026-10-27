@@ -172,7 +172,7 @@ test('client handshakes, surfaces frames and desktop changes, and sends input', 
       protocol: PROTOCOL_VERSION,
       serverNonce: serverNonceB64,
       mac: serverAuthTag(STATE.secret, clientNonce, serverNonce),
-    }),
+    })
   );
   await settle();
   const auth = pipe.received[1]?.message;
@@ -185,7 +185,13 @@ test('client handshakes, surfaces frames and desktop changes, and sends input', 
   assert.equal(pipe.received.length, 2);
 
   pipe.sendToClient(
-    encodeControl({ type: 'server-hello', protocol: PROTOCOL_VERSION, version: '0.1.0', session: 2, desktop: 'Default' }),
+    encodeControl({
+      type: 'server-hello',
+      protocol: PROTOCOL_VERSION,
+      version: '0.1.0',
+      session: 2,
+      desktop: 'Default',
+    })
   );
   const serverHello = await connectPromise;
   assert.deepEqual(serverHello, { protocol: PROTOCOL_VERSION, version: '0.1.0', session: 2, desktop: 'Default' });
@@ -225,19 +231,21 @@ test('client handshakes, surfaces frames and desktop changes, and sends input', 
     .map((frame) => frame.message.event);
   assert.deepEqual(
     inputs.find((event) => event.kind === 'pointer-button'),
-    { kind: 'pointer-button', button: 'left', down: true, x: 10, y: 20 },
+    { kind: 'pointer-button', button: 'left', down: true, x: 10, y: 20 }
   );
   assert.deepEqual(
     inputs.find((event) => event.kind === 'key'),
-    { kind: 'key', down: false, vk: 0x41, scan: 0x1e, extended: false },
+    { kind: 'key', down: false, vk: 0x41, scan: 0x1e, extended: false }
   );
   assert.deepEqual(
     inputs.find((event) => event.kind === 'text'),
-    { kind: 'text', text: 'hi' },
+    { kind: 'text', text: 'hi' }
   );
   assert.ok(
-    pipe.received.some((frame) => frame.kind === 'control' && frame.message.type === 'control' && frame.message.active === true),
-    'active control reached the server',
+    pipe.received.some(
+      (frame) => frame.kind === 'control' && frame.message.type === 'control' && frame.message.active === true
+    ),
+    'active control reached the server'
   );
   assert.equal(errors.length, 0);
 });
@@ -272,7 +280,7 @@ async function runAgainstFakeServer(serverAuth) {
   client.on('error', (code) => errors.push(code));
   const outcome = client.connect().then(
     () => 'resolved',
-    (error) => error.message,
+    (error) => error.message
   );
   await settle();
   const hello = pipe.received[0].message;
@@ -311,7 +319,7 @@ test('a replayed server MAC from an earlier connection is rejected', async () =>
   const sn = generateNonce();
   const recordedMac = serverAuthTag(STATE.secret, recordedClientNonce, decodeNonce(sn));
   const result = await runAgainstFakeServer(() =>
-    encodeControl({ type: 'server-auth', protocol: PROTOCOL_VERSION, serverNonce: sn, mac: recordedMac }),
+    encodeControl({ type: 'server-auth', protocol: PROTOCOL_VERSION, serverNonce: sn, mac: recordedMac })
   );
   assert.equal(result.received.length, 1, 'no client-auth was sent');
   assert.match(result.outcome, /unauthorized/);
@@ -319,7 +327,7 @@ test('a replayed server MAC from an earlier connection is rejected', async () =>
 
 test('a server that skips server-auth or sends video first is dropped', async () => {
   const skipped = await runAgainstFakeServer(() =>
-    encodeControl({ type: 'server-hello', protocol: PROTOCOL_VERSION, version: 'x', session: 1, desktop: 'Default' }),
+    encodeControl({ type: 'server-hello', protocol: PROTOCOL_VERSION, version: 'x', session: 1, desktop: 'Default' })
   );
   assert.equal(skipped.received.length, 1);
   assert.match(skipped.outcome, /expected server-auth/);
@@ -332,16 +340,27 @@ test('schema-invalid control and header payloads are rejected by the decoder', (
   assert.throws(() => decodeBody(body(rawControl('{"type":"bogus"}'))), /unknown control/);
   assert.throws(
     () => decodeBody(body(rawControl('{"type":"desktop-changed","desktop":"","session":1}'))),
-    /malformed desktop-changed/,
+    /malformed desktop-changed/
   );
   assert.throws(
-    () => decodeBody(body(rawControl('{"type":"input","event":{"kind":"key","down":true,"vk":70000,"scan":0,"extended":false}}'))),
-    /malformed input/,
+    () =>
+      decodeBody(
+        body(rawControl('{"type":"input","event":{"kind":"key","down":true,"vk":70000,"scan":0,"extended":false}}'))
+      ),
+    /malformed input/
   );
 
   const header = {
-    seq: 1, width: 2, height: 2, stride: 8, format: 'bgra', timestampMs: 1,
-    originX: 0, originY: 0, desktop: 'Default', dirty: [],
+    seq: 1,
+    width: 2,
+    height: 2,
+    stride: 8,
+    format: 'bgra',
+    timestampMs: 1,
+    originX: 0,
+    originY: 0,
+    desktop: 'Default',
+    dirty: [],
   };
   const pixels = Buffer.alloc(16);
   const bad = (patch, re) => assert.throws(() => decodeBody(body(encodeVideo({ ...header, ...patch }, pixels))), re);
@@ -376,11 +395,22 @@ test('a null control after authentication closes the connection cleanly', async 
   const snB64 = generateNonce();
   const sn = decodeNonce(snB64);
   pipe.sendToClient(
-    encodeControl({ type: 'server-auth', protocol: PROTOCOL_VERSION, serverNonce: snB64, mac: serverAuthTag(STATE.secret, cn, sn) }),
+    encodeControl({
+      type: 'server-auth',
+      protocol: PROTOCOL_VERSION,
+      serverNonce: snB64,
+      mac: serverAuthTag(STATE.secret, cn, sn),
+    })
   );
   await settle();
   pipe.sendToClient(
-    encodeControl({ type: 'server-hello', protocol: PROTOCOL_VERSION, version: '0.1.0', session: 1, desktop: 'Default' }),
+    encodeControl({
+      type: 'server-hello',
+      protocol: PROTOCOL_VERSION,
+      version: '0.1.0',
+      session: 1,
+      desktop: 'Default',
+    })
   );
   await connected;
 
@@ -408,11 +438,11 @@ async function authenticate(client, pipe, desktop = 'Default') {
       protocol: PROTOCOL_VERSION,
       serverNonce: snB64,
       mac: serverAuthTag(STATE.secret, cn, decodeNonce(snB64)),
-    }),
+    })
   );
   await settle();
   pipe.sendToClient(
-    encodeControl({ type: 'server-hello', protocol: PROTOCOL_VERSION, version: '0.1.0', session: 3, desktop }),
+    encodeControl({ type: 'server-hello', protocol: PROTOCOL_VERSION, version: '0.1.0', session: 3, desktop })
   );
   return connected;
 }
@@ -450,11 +480,7 @@ test('v4: grant challenges surface, grants / video runs / sas reach the helper, 
   await settle();
   assert.deepEqual(
     pipe.received.slice(before).map((frame) => frame.message),
-    [
-      { type: 'video-run', epoch: 5 },
-      { type: 'grant', challenge, epoch: 5, signature: 'c2ln' },
-      { type: 'sas' },
-    ],
+    [{ type: 'video-run', epoch: 5 }, { type: 'grant', challenge, epoch: 5, signature: 'c2ln' }, { type: 'sas' }]
   );
   client.close();
   await assert.rejects(client.sas(), /not connected/);
@@ -543,12 +569,13 @@ test('desktop names are reported verbatim and validated by length', () => {
     assert.equal(decoded.message.desktop, name);
   }
   assert.throws(
-    () => decodeBody(body(rawControl(JSON.stringify({ type: 'desktop-changed', desktop: 'x'.repeat(257), session: 1 })))),
-    /malformed desktop-changed/,
+    () =>
+      decodeBody(body(rawControl(JSON.stringify({ type: 'desktop-changed', desktop: 'x'.repeat(257), session: 1 })))),
+    /malformed desktop-changed/
   );
   assert.throws(
     () => decodeBody(body(rawControl('{"type":"desktop-changed","desktop":7,"session":1}'))),
-    /malformed desktop-changed/,
+    /malformed desktop-changed/
   );
 });
 
@@ -559,11 +586,11 @@ test('executable path resolves like the other native tools', () => {
   const asWindows = (path) => path.replaceAll('/', '\\');
   assert.equal(
     asWindows(secureDesktopExePath({ ...WIN_ENV, isPackaged: true })),
-    'C:\\app\\resources\\native-tools\\mixdog-secure-desktop.exe',
+    'C:\\app\\resources\\native-tools\\mixdog-secure-desktop.exe'
   );
   assert.equal(
     asWindows(secureDesktopExePath({ ...WIN_ENV, isPackaged: false })),
-    'C:\\src\\native\\mixdog-secure-desktop\\target\\release\\mixdog-secure-desktop.exe',
+    'C:\\src\\native\\mixdog-secure-desktop\\target\\release\\mixdog-secure-desktop.exe'
   );
   assert.equal(asWindows(stateFilePath(WIN_ENV)), 'C:\\ProgramData\\Mixdog\\SecureDesktop\\state.json');
 });

@@ -345,8 +345,7 @@ function numbered(n, size) {
   return frame;
 }
 const numberOf = (frame) => frame.readUInt16BE(4);
-const transportNumbers = (sent) =>
-  sent.filter((data) => Buffer.isBuffer(data) && isTransportFrame(data)).map(numberOf);
+const transportNumbers = (sent) => sent.filter((data) => Buffer.isBuffer(data) && isTransportFrame(data)).map(numberOf);
 
 /** Hold every flush callback of `socket`'s sends, as a congested peer does.
  *  `bufferedAmount` is what is held; `flush(count)` releases the oldest first. */
@@ -457,7 +456,9 @@ test('upstream: an exhausted queue cuts the phone leg after a contiguous prefix,
   // Only this phone is cut; the shared PC leg stays up and is told the phone left.
   assert.equal(desktop.closed, null);
   assert.equal(entry.clients.size, 0);
-  const closes = desktop.sent.slice(base).filter((raw) => typeof raw === 'string' && JSON.parse(raw).type === 'client-close');
+  const closes = desktop.sent
+    .slice(base)
+    .filter((raw) => typeof raw === 'string' && JSON.parse(raw).type === 'client-close');
   assert.equal(closes.length, 1);
   wire.flush();
 });

@@ -33,7 +33,11 @@ test('orphaned host scripts, other builds and dead staging files are swept', () 
     };
     for (const [path, text] of Object.entries(files)) writeFileSync(path, text);
     sweepScreenHostFiles(dir, build, (pid) => pid === 200);
-    assert.deepEqual(readdirSync(dir).sort(), ['remote-screen-cache', 'remote-screen-host-200-abcd.ps1', 'unrelated.txt']);
+    assert.deepEqual(readdirSync(dir).sort(), [
+      'remote-screen-cache',
+      'remote-screen-host-200-abcd.ps1',
+      'unrelated.txt',
+    ]);
     assert.deepEqual(readdirSync(cache).sort(), [
       `remote-screen-host-${build}.dll`,
       `remote-screen-host-${build}.dll.200.tmp`,
@@ -78,7 +82,10 @@ test('a command the helper never acknowledges fails at the deadline and the help
     const exits = [];
     host.onExit(() => exits.push('exit'));
     await host.start();
-    const first = assert.rejects(host.command({ op: 'move', x: 1, y: 1 }), (error) => error.code === 'host_unresponsive');
+    const first = assert.rejects(
+      host.command({ op: 'move', x: 1, y: 1 }),
+      (error) => error.code === 'host_unresponsive'
+    );
     const second = assert.rejects(
       host.command({ op: 'key', vk: 0x41, scan: 0x1e, extended: false, down: true }),
       (error) => error.code === 'host_unresponsive' || error.code === 'host_exited'
@@ -133,7 +140,10 @@ test('the first desktop and the Windows session are known when start resolves', 
 
 test('the helper reports its first desktop before ready and its session in ready', () => {
   const program = screenInputHostProgram();
-  assert.match(program, /Write\("desktop " \+ lastState\);[\s\S]*Write\("ready " \+ Process\.GetCurrentProcess\(\)\.SessionId/);
+  assert.match(
+    program,
+    /Write\("desktop " \+ lastState\);[\s\S]*Write\("ready " \+ Process\.GetCurrentProcess\(\)\.SessionId/
+  );
 });
 
 test('kill fails pending commands at once and skips the release-on-quit', async () => {

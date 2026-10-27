@@ -76,7 +76,12 @@ export function createRemoteStreamEngine(host: StreamEngineHost, streams: Readon
 
   /** The page's CSS size changed under the lock (a PC-side resize or zoom):
    *  read its pixel ratio again, then lock the new layout. */
-  async function relock(sessionId: string, stream: RemoteStream, run: ScreencastRun, css: { width: number; height: number }) {
+  async function relock(
+    sessionId: string,
+    stream: RemoteStream,
+    run: ScreencastRun,
+    css: { width: number; height: number }
+  ) {
     if (relocking.has(stream)) return;
     relocking.add(stream);
     try {
@@ -88,7 +93,12 @@ export function createRemoteStreamEngine(host: StreamEngineHost, streams: Readon
   }
 
   /** Screenshot capture of the run's page: one in flight, newest only. */
-  async function shoot(sessionId: string, stream: RemoteStream, run: ScreencastRun, viewport: { width: number; height: number }) {
+  async function shoot(
+    sessionId: string,
+    stream: RemoteStream,
+    run: ScreencastRun,
+    viewport: { width: number; height: number }
+  ) {
     if (run.shooting) {
       run.dirty = true;
       return;
@@ -177,7 +187,15 @@ export function createRemoteStreamEngine(host: StreamEngineHost, streams: Readon
     // A frame from before a navigation must not carry the new document's id.
     if (browserDocumentId(state, guest) !== run.documentId) return;
     run.view = { size: jpegSize(data) ?? viewport, viewport };
-    composeFrame(sessionId, stream, guest, run.documentId, run.view, { mimeType: 'image/jpeg', data }, run.size === sizeKey(stream));
+    composeFrame(
+      sessionId,
+      stream,
+      guest,
+      run.documentId,
+      run.view,
+      { mimeType: 'image/jpeg', data },
+      run.size === sizeKey(stream)
+    );
     const geometry = stream.geometry?.geometry;
     if (geometry) host.captured?.(sessionId, { documentId: run.documentId, geometry, mimeType: 'image/jpeg', data });
   }
@@ -246,7 +264,11 @@ export function createRemoteStreamEngine(host: StreamEngineHost, streams: Readon
     const fit = stream.viewport;
     if (
       fit &&
-      !(stream.driven?.guest === guest && stream.driven.documentId === documentId && stream.driven.key === viewportKey(fit))
+      !(
+        stream.driven?.guest === guest &&
+        stream.driven.documentId === documentId &&
+        stream.driven.key === viewportKey(fit)
+      )
     ) {
       return;
     }

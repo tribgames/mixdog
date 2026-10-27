@@ -114,11 +114,11 @@ try {
     $button = @($snapshot.Nodes | Where-Object { $_.Name -eq 'live button' })
     if ($button.Count -eq 1) { $button[0].DoDefaultAction() }
     $payload = @{
-        visitedLeaves = $control.VisitedLeaves
-        laterBranchChecks = $control.LaterBranchChecks
-        keptDuringTraversal = $control.KeptDuringTraversal
-        names = @($snapshot.Nodes | ForEach-Object { $_.Name })
-        invocations = $control.Invocations
+        visitedLeaves          = $control.VisitedLeaves
+        laterBranchChecks      = $control.LaterBranchChecks
+        keptDuringTraversal    = $control.KeptDuringTraversal
+        names                  = @($snapshot.Nodes | ForEach-Object { $_.Name })
+        invocations            = $control.Invocations
         collectedAfterSnapshot = $control.CollectedAfterSnapshot()
     }
 }

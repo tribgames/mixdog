@@ -11,8 +11,8 @@ use windows::Win32::Security::Authorization::{
     ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
 };
 use windows::Win32::Security::{
-    GetTokenInformation, RevertToSelf, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY,
-    TOKEN_USER, TokenUser,
+    GetTokenInformation, RevertToSelf, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES,
+    TOKEN_QUERY, TOKEN_USER,
 };
 use windows::Win32::System::Pipes::ImpersonateNamedPipeClient;
 use windows::Win32::System::RemoteDesktop::WTSQueryUserToken;
@@ -220,9 +220,8 @@ pub fn client_user_sid(pipe: HANDLE) -> Option<String> {
 /// the pipe server process is SYSTEM before trusting it with the secret.
 pub fn process_user_sid(pid: u32) -> Option<String> {
     unsafe {
-        let process = OwnedHandle::new(
-            OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?,
-        )?;
+        let process =
+            OwnedHandle::new(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?)?;
         let mut raw = HANDLE::default();
         OpenProcessToken(process.get(), TOKEN_QUERY, &mut raw).ok()?;
         let token = OwnedHandle::new(raw)?;

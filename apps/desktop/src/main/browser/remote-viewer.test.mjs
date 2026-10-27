@@ -585,7 +585,10 @@ test('a fit that fails after the fit changed is still undone before the newer fi
   f.screencastFrame(f.a, 1, { deviceWidth: 390, deviceHeight: 780 });
   await f.advance(100);
   assert.equal(f.frames.filter((frame) => frame.image).at(-1).fitSettled, true, 'the newer fit applied');
-  assert.ok(f.frames.every((frame) => !frame.fitFailed), 'a stale failure is not reported');
+  assert.ok(
+    f.frames.every((frame) => !frame.fitFailed),
+    'a stale failure is not reported'
+  );
 });
 
 test('watching never fits the page; an explicit page resize locks out a later take-over fit', async (t) => {
@@ -597,7 +600,10 @@ test('watching never fits the page; an explicit page resize locks out a later ta
   await f.advance(200);
   assert.ok(!methods(f, 1).includes('drive.apply'), 'a watcher keeps the agent’s page geometry');
   assert.ok(f.frames.some((frame) => frame.image));
-  assert.ok(f.frames.every((frame) => !frame.fitSettled), 'an undecided layout is never marked settled');
+  assert.ok(
+    f.frames.every((frame) => !frame.fitSettled),
+    'an undecided layout is never marked settled'
+  );
   await f.remote.remoteBrowserStream('s', null);
   await settle();
 
@@ -732,7 +738,10 @@ test('a dialog holding back debugger initialization still reaches the client, an
     'no picture is described'
   );
   assert.equal(f.frames[0].documentId, browserDocumentId(f.state, f.a));
-  assert.equal(f.calls.some(([, method]) => method === 'Page.startScreencast'), false);
+  assert.equal(
+    f.calls.some(([, method]) => method === 'Page.startScreencast'),
+    false
+  );
 
   // The watch keeps reporting while the start is still stuck.
   shown.dialog = { id: 'd_2', type: 'confirm', message: 'Sure?' };
@@ -742,14 +751,17 @@ test('a dialog holding back debugger initialization still reaches the client, an
   shown.dialog = undefined;
   release();
   await f.advance(1_000);
-  assert.ok(f.calls.some(([, method]) => method === 'Page.startScreencast'), 'the screencast starts once it can');
+  assert.ok(
+    f.calls.some(([, method]) => method === 'Page.startScreencast'),
+    'the screencast starts once it can'
+  );
   f.screencastFrame(f.a);
   await f.advance(200);
   assert.ok(f.frames.at(-1).image);
   assert.equal(f.frames.at(-1).dialog, undefined);
 });
 
-test('remote toolbar navigation is a leave request like the pane\'s', async (t) => {
+test("remote toolbar navigation is a leave request like the pane's", async (t) => {
   const requests = [];
   const f = fixture(t, { leave: { request: (guest, run) => requests.push([guest.id, run]) } });
   await f.remote.remoteBrowserControl('s', { type: 'navigate', url: 'https://b.test/' });

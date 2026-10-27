@@ -33,7 +33,11 @@ function fixture({ loads, state = { clientHostPid: 1, busy: false } } = {}) {
         : Promise.resolve({
             shellJobsStatus: ({ clientHostPid }) => {
               calls.reads.push(clientHostPid);
-              return { count: 1, jobs: [job(`pid${clientHostPid}`)], sessions: { s: { count: 1, jobs: [job(`pid${clientHostPid}`)] } } };
+              return {
+                count: 1,
+                jobs: [job(`pid${clientHostPid}`)],
+                sessions: { s: { count: 1, jobs: [job(`pid${clientHostPid}`)] } },
+              };
             },
           });
     },
@@ -259,4 +263,3 @@ test('a running shell in a session bucket polls at the active cadence even with 
     f.poller.stop();
   }
 });
-

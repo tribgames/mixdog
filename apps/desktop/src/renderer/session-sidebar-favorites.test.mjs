@@ -71,11 +71,16 @@ test('Lead-only display hides agent rows without removing them from the supplied
 test('the ⋯ menu Show sections submenu toggles section visibility and persists it', async (t) => {
   const sessions = [row('fav', { favorite: true }), row('plain'), row('old', { archived: true })];
   const document = await mount(t, sessions);
-  const labels = () => [...document.querySelectorAll('.session-sidebar-scroll > section')].map((s) => s.getAttribute('aria-label'));
+  const labels = () =>
+    [...document.querySelectorAll('.session-sidebar-scroll > section')].map((s) => s.getAttribute('aria-label'));
   assert.deepEqual(labels(), ['Favorites', 'Recent sessions', 'Archived sessions']);
   const items = () => [...document.querySelectorAll('[role^="menuitem"]')];
   await act(async () => document.querySelector('button[aria-label="Session order"]').click());
-  await act(async () => items().find((item) => item.textContent === 'Show sections').click());
+  await act(async () =>
+    items()
+      .find((item) => item.textContent === 'Show sections')
+      .click()
+  );
   assert.deepEqual(
     items()
       .filter((item) => item.hasAttribute('aria-checked'))
@@ -89,17 +94,38 @@ test('the ⋯ menu Show sections submenu toggles section visibility and persists
       ['Archived', 'true'],
     ]
   );
-  await act(async () => items().find((item) => item.textContent === 'Recent').click());
+  await act(async () =>
+    items()
+      .find((item) => item.textContent === 'Recent')
+      .click()
+  );
   assert.deepEqual(labels(), ['Favorites', 'Archived sessions']);
   assert.equal(document.querySelector('[data-session-id="plain"]'), null);
-  assert.equal(items().find((item) => item.textContent === 'Recent').getAttribute('aria-checked'), 'false');
+  assert.equal(
+    items()
+      .find((item) => item.textContent === 'Recent')
+      .getAttribute('aria-checked'),
+    'false'
+  );
   assert.deepEqual(JSON.parse(document.defaultView.localStorage.getItem('mixdog:session-sidebar-hidden-sections')), [
     'recent',
   ]);
-  await act(async () => items().find((item) => item.textContent === 'Favorites').click());
-  await act(async () => items().find((item) => item.textContent === 'Archived').click());
+  await act(async () =>
+    items()
+      .find((item) => item.textContent === 'Favorites')
+      .click()
+  );
+  await act(async () =>
+    items()
+      .find((item) => item.textContent === 'Archived')
+      .click()
+  );
   assert.deepEqual(labels(), [], 'hiding every section leaves an empty list');
-  await act(async () => items().find((item) => item.textContent === 'Recent').click());
+  await act(async () =>
+    items()
+      .find((item) => item.textContent === 'Recent')
+      .click()
+  );
   assert.deepEqual(labels(), ['Recent sessions']);
 });
 

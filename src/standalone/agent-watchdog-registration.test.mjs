@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { createProgressWatchdogRegistry, getProgressWatchdogState } from '../session-runtime/services/agent-watchdog-registry.mjs';
+import {
+  createProgressWatchdogRegistry,
+  getProgressWatchdogState,
+} from '../session-runtime/services/agent-watchdog-registry.mjs';
 import { buildAgentTaskProgressFields } from '../session-runtime/services/agent-task-status.mjs';
 import { createAgentTree } from './session-service/agent-tree.mjs';
 

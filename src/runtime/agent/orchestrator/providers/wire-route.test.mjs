@@ -70,9 +70,15 @@ test('without model info Claude keeps Messages while GPT / Muse / Grok do not fl
 });
 
 test('exclude removes a wire from every tier', () => {
-  assert.equal(wireOf('command-code-oauth', 'gpt-5.5', { endpoints: ['chat', 'responses'], exclude: ['responses'] }), 'chat');
+  assert.equal(
+    wireOf('command-code-oauth', 'gpt-5.5', { endpoints: ['chat', 'responses'], exclude: ['responses'] }),
+    'chat'
+  );
   assert.equal(wireOf('openrouter', 'anthropic/claude-opus-4.8', { exclude: ['messages'] }), 'chat');
-  assert.equal(wireOf('openrouter', 'anthropic/claude-opus-4.8', { override: 'messages', exclude: ['messages'] }), 'chat');
+  assert.equal(
+    wireOf('openrouter', 'anthropic/claude-opus-4.8', { override: 'messages', exclude: ['messages'] }),
+    'chat'
+  );
   assert.equal(resolveWireRoute('command-code-oauth', 'x', { endpoints: ['chat'], exclude: ['chat'] }), null);
 });
 
@@ -97,7 +103,8 @@ test('OpenCode Go adds Claude to the cold-catalog Messages prefixes', () => {
   for (const model of ['claude-haiku-5-5', 'minimax-m3', 'qwen3.7-max']) {
     assert.equal(wireOf('opencode-go', model), 'messages', model);
   }
-  for (const model of ['gpt-6-luna', 'grok-4.7', 'muse-spark-1.3']) assert.equal(wireOf('opencode-go', model), 'responses');
+  for (const model of ['gpt-6-luna', 'grok-4.7', 'muse-spark-1.3'])
+    assert.equal(wireOf('opencode-go', model), 'responses');
   for (const model of ['glm-5.2', 'kimi-k3', 'deepseek-v4-pro']) assert.equal(wireOf('opencode-go', model), 'chat');
 });
 
@@ -194,7 +201,13 @@ test('a single-wire adapter, a failed resolution and an unknown model pin nothin
   assert.equal(failed, null);
   assert.equal(failing.wireRoute, null);
   const unknown = { ...session(), provider: 'command-code-oauth' };
-  assert.equal(await pinSessionWireRoute(unknown, fakeProvider('command-code-oauth', (m) => resolveWireRoute('command-code-oauth', m, { known: false }))), null);
+  assert.equal(
+    await pinSessionWireRoute(
+      unknown,
+      fakeProvider('command-code-oauth', (m) => resolveWireRoute('command-code-oauth', m, { known: false }))
+    ),
+    null
+  );
   assert.equal(unknown.wireRoute, null);
 });
 
@@ -236,15 +249,26 @@ test('an existing session keeps its wire when metadata recovers between the pin 
 
 test('a send uses the pinned route for its own provider and model, else resolves', async () => {
   const provider = fakeProvider('openrouter');
-  const pinned = { provider: 'openrouter', model: 'anthropic/claude-opus-4.8', wire: 'chat', profileId: 'openrouter:chat' };
+  const pinned = {
+    provider: 'openrouter',
+    model: 'anthropic/claude-opus-4.8',
+    wire: 'chat',
+    profileId: 'openrouter:chat',
+  };
   assert.equal(await sendWireRoute(provider, 'anthropic/claude-opus-4.8', [], { wireRoute: pinned }), pinned);
-  assert.equal(await sendWireRoute(provider, 'anthropic/claude-opus-4.8', [], { session: { wireRoute: pinned } }), pinned);
+  assert.equal(
+    await sendWireRoute(provider, 'anthropic/claude-opus-4.8', [], { session: { wireRoute: pinned } }),
+    pinned
+  );
   // Another model (e.g. a compaction model) resolves its own route.
   assert.equal((await sendWireRoute(provider, 'openai/o3', [], { wireRoute: pinned })).wire, 'responses');
   // A pin to a wire the provider does not serve is ignored.
   const deepseek = fakeProvider('deepseek');
   const bogus = { provider: 'deepseek', model: 'deepseek-v4-pro', wire: 'responses' };
-  assert.equal((await sendWireRoute(deepseek, 'deepseek-v4-pro', [{ name: 't' }], { wireRoute: bogus })).wire, 'messages');
+  assert.equal(
+    (await sendWireRoute(deepseek, 'deepseek-v4-pro', [{ name: 't' }], { wireRoute: bogus })).wire,
+    'messages'
+  );
   assert.equal((await sendWireRoute(deepseek, 'deepseek-v4-pro', [], {})).wire, 'chat');
 });
 
@@ -263,7 +287,10 @@ test('legacy resolution never selects a wire the model does not advertise', () =
 
 test('an unknown model with no advertised endpoint is not routable', () => {
   assert.equal(resolveWireRoute('command-code-oauth', 'x', { known: false, endpoints: [] }), null);
-  assert.equal(resolveWireRoute('command-code-oauth', 'x', { known: false, endpoints: ['responses'] }).wire, 'responses');
+  assert.equal(
+    resolveWireRoute('command-code-oauth', 'x', { known: false, endpoints: ['responses'] }).wire,
+    'responses'
+  );
   assert.equal(resolveWireRoute('command-code-oauth', 'x', { known: false }).source, 'unknown');
 });
 
@@ -273,7 +300,13 @@ test('a pinned wire the model no longer offers is resolved fresh and re-pinned; 
     resolveWireRoute('command-code-oauth', m, { ...ctx, endpoints })
   );
   const model = 'gpt-5.5';
-  const pin = { provider: 'command-code-oauth', model, wire: 'chat', profileId: 'command-code-oauth:chat', source: 'legacy' };
+  const pin = {
+    provider: 'command-code-oauth',
+    model,
+    wire: 'chat',
+    profileId: 'command-code-oauth:chat',
+    source: 'legacy',
+  };
   const session = { provider: 'command-code-oauth', model, wireRoute: pin, messages: [] };
   assert.equal(await sendWireRoute(provider, model, [], { session }), pin);
   endpoints = ['responses'];
@@ -291,7 +324,10 @@ test('only a clear endpoint refusal counts as an unsupported wire', () => {
   assert.equal(isWireUnsupportedError(http(405, 'Method Not Allowed')), true);
   assert.equal(isWireUnsupportedError(http(501, 'not implemented')), true);
   assert.equal(isWireUnsupportedError(http(400, 'This model is not supported on the /v1/responses endpoint')), true);
-  assert.equal(isWireUnsupportedError(http(404, 'Unsupported route: use the /v1/messages endpoint for Claude models')), true);
+  assert.equal(
+    isWireUnsupportedError(http(404, 'Unsupported route: use the /v1/messages endpoint for Claude models')),
+    true
+  );
   // Not an endpoint refusal: parameters, unknown model, auth, quota, server, abort.
   assert.equal(isWireUnsupportedError(http(400, 'Unsupported parameter: temperature')), false);
   assert.equal(isWireUnsupportedError(http(404, 'model gpt-x not found')), false);
@@ -319,17 +355,31 @@ test('an unsupported refusal before any output switches wire once and records th
     provider: 'command-code-oauth',
     model,
     wireRoute: pin,
-    messages: [{ role: 'user', content: 'q' }, { role: 'assistant', content: 'a', reasoningContent: 'r' }],
+    messages: [
+      { role: 'user', content: 'q' },
+      { role: 'assistant', content: 'a', reasoningContent: 'r' },
+    ],
   };
   const history = [...session.messages, { role: 'user', content: 'next' }];
   const calls = [];
-  const out = await sendOnRoute(provider, model, [], { session, compatWireApi: 'responses' }, history, async (wire, h, opts) => {
-    calls.push({ wire, h, opts });
-    if (wire === 'responses') throw Object.assign(new Error('responses endpoint is not supported for this model'), { status: 400 });
-    return { content: 'ok' };
-  });
+  const out = await sendOnRoute(
+    provider,
+    model,
+    [],
+    { session, compatWireApi: 'responses' },
+    history,
+    async (wire, h, opts) => {
+      calls.push({ wire, h, opts });
+      if (wire === 'responses')
+        throw Object.assign(new Error('responses endpoint is not supported for this model'), { status: 400 });
+      return { content: 'ok' };
+    }
+  );
   assert.equal(out.content, 'ok');
-  assert.deepEqual(calls.map((c) => c.wire), ['responses', 'chat']);
+  assert.deepEqual(
+    calls.map((c) => c.wire),
+    ['responses', 'chat']
+  );
   assert.equal('compatWireApi' in calls[0].opts, false, 'a caller wire switch never reaches an engine');
   assert.equal(session.wireRoute.wire, 'chat');
   assert.equal(session.wireRoute.source, 'reroute');
@@ -341,17 +391,22 @@ test('an unsupported refusal before any output switches wire once and records th
 test('a wire switch never follows output, auth, quota, abort or a second refusal', async () => {
   const model = 'gpt-5.5';
   const refuse = () => Object.assign(new Error('endpoint not supported'), { status: 400 });
-  const run = (provider, dispatch, opts = {}) => sendOnRoute(provider, model, [], opts, [{ role: 'user', content: 'q' }], dispatch);
+  const run = (provider, dispatch, opts = {}) =>
+    sendOnRoute(provider, model, [], opts, [{ role: 'user', content: 'q' }], dispatch);
   const both = () => routedProvider('command-code-oauth', ['chat', 'responses']);
 
   // Output already shown to the caller.
   let calls = 0;
   await assert.rejects(
-    run(both(), async (wire, _h, opts) => {
-      calls++;
-      opts.onTextDelta('partial');
-      throw refuse();
-    }, { onTextDelta() {} }),
+    run(
+      both(),
+      async (wire, _h, opts) => {
+        calls++;
+        opts.onTextDelta('partial');
+        throw refuse();
+      },
+      { onTextDelta() {} }
+    ),
     /not supported/
   );
   assert.equal(calls, 1);
@@ -359,18 +414,27 @@ test('a wire switch never follows output, auth, quota, abort or a second refusal
   // A tool call or reasoning delta counts as output too.
   calls = 0;
   await assert.rejects(
-    run(both(), async (wire, _h, opts) => {
-      calls++;
-      opts.onStreamDelta('reasoning');
-      throw refuse();
-    }, { onStreamDelta() {} })
+    run(
+      both(),
+      async (wire, _h, opts) => {
+        calls++;
+        opts.onStreamDelta('reasoning');
+        throw refuse();
+      },
+      { onStreamDelta() {} }
+    )
   );
   assert.equal(calls, 1);
 
   // Auth / quota / transport failures surface unchanged.
   for (const status of [401, 403, 429, 500]) {
     calls = 0;
-    await assert.rejects(run(both(), async () => { calls++; throw Object.assign(new Error('endpoint not supported'), { status }); }));
+    await assert.rejects(
+      run(both(), async () => {
+        calls++;
+        throw Object.assign(new Error('endpoint not supported'), { status });
+      })
+    );
     assert.equal(calls, 1, String(status));
   }
 
@@ -378,7 +442,16 @@ test('a wire switch never follows output, auth, quota, abort or a second refusal
   calls = 0;
   const controller = new AbortController();
   controller.abort();
-  await assert.rejects(run(both(), async () => { calls++; throw refuse(); }, { signal: controller.signal }));
+  await assert.rejects(
+    run(
+      both(),
+      async () => {
+        calls++;
+        throw refuse();
+      },
+      { signal: controller.signal }
+    )
+  );
   assert.equal(calls, 1);
 
   // Switch once: the second wire's refusal is the error, with no third attempt.
@@ -394,7 +467,12 @@ test('a wire switch never follows output, auth, quota, abort or a second refusal
 
   // A model served on no other wire keeps its error.
   calls = 0;
-  await assert.rejects(run(routedProvider('command-code-oauth', ['responses']), async () => { calls++; throw refuse(); }));
+  await assert.rejects(
+    run(routedProvider('command-code-oauth', ['responses']), async () => {
+      calls++;
+      throw refuse();
+    })
+  );
   assert.equal(calls, 1);
 });
 
@@ -403,17 +481,31 @@ test('a typed parameter, quota or billing error that mentions an endpoint never 
   // Parameter rejection on a 400, even though the message says "endpoint".
   assert.equal(isWireUnsupportedError(http(400, 'Unsupported parameter: temperature for this API endpoint')), false);
   assert.equal(
-    isWireUnsupportedError(http(400, 'Unsupported parameter: temperature for this API endpoint', { param: 'temperature' })),
+    isWireUnsupportedError(
+      http(400, 'Unsupported parameter: temperature for this API endpoint', { param: 'temperature' })
+    ),
     false
   );
-  assert.equal(isWireUnsupportedError(http(400, 'bad request', { providerErrorCode: 'unsupported_parameter', message: 'this endpoint is not supported' })), false);
+  assert.equal(
+    isWireUnsupportedError(
+      http(400, 'bad request', {
+        providerErrorCode: 'unsupported_parameter',
+        message: 'this endpoint is not supported',
+      })
+    ),
+    false
+  );
   // Typed quota / billing / auth, with endpoint-unavailable wording.
   assert.equal(
-    isWireUnsupportedError(http(400, 'The responses endpoint is not available on your plan', { code: 'insufficient_quota' })),
+    isWireUnsupportedError(
+      http(400, 'The responses endpoint is not available on your plan', { code: 'insufficient_quota' })
+    ),
     false
   );
   assert.equal(
-    isWireUnsupportedError(http(404, 'The /v1/messages endpoint is not available', { error: { type: 'billing_error' } })),
+    isWireUnsupportedError(
+      http(404, 'The /v1/messages endpoint is not available', { error: { type: 'billing_error' } })
+    ),
     false
   );
   assert.equal(isWireUnsupportedError(http(404, 'endpoint unavailable', { quotaExhausted: true })), false);
@@ -423,7 +515,9 @@ test('a typed parameter, quota or billing error that mentions an endpoint never 
   assert.equal(isWireUnsupportedError(http(400, 'model is not supported by this API')), false);
   // The specific wire rejection still qualifies when typed neutrally.
   assert.equal(
-    isWireUnsupportedError(http(400, 'This model is not supported on the /v1/responses endpoint', { code: 'invalid_request_error' })),
+    isWireUnsupportedError(
+      http(400, 'This model is not supported on the /v1/responses endpoint', { code: 'invalid_request_error' })
+    ),
     true
   );
 });
@@ -443,7 +537,8 @@ test('consecutive sends reusing one opts object follow the session pin through r
     },
   };
   const sendOpts = { session, wireRoute: pin }; // the same opts object every send of the turn
-  const refuse = (wire) => Object.assign(new Error(`${wire} endpoint is not supported for this model`), { status: 400 });
+  const refuse = (wire) =>
+    Object.assign(new Error(`${wire} endpoint is not supported for this model`), { status: 400 });
   const seen = [];
   // The gateway refuses whichever wire is tried first; the other one answers.
   for (const refused of ['responses', 'chat', 'responses']) {
@@ -457,6 +552,10 @@ test('consecutive sends reusing one opts object follow the session pin through r
   }
   // Send 1 starts on the pin (responses) and moves to chat. Send 2 starts on
   // the session's current pin (chat), not the stale opts copy, and moves back.
-  assert.deepEqual(seen, [['responses', 'chat'], ['chat', 'responses'], ['responses', 'chat']]);
+  assert.deepEqual(seen, [
+    ['responses', 'chat'],
+    ['chat', 'responses'],
+    ['responses', 'chat'],
+  ]);
   assert.equal(session.wireRoute.wire, 'chat');
 });

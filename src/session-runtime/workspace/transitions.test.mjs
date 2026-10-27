@@ -1885,12 +1885,10 @@ test('a snapshot lives for the turn that made it; addBranchWorktree never moves 
   const entry = await h.api.createSnapshot({ commit: BASE, txId: 'call-1:snap', repoCommonDir });
   assert.equal(entry.id, 'snapshot-1');
   const input = h.calls.find((call) => call[0] === 'snapshot')[1];
-  assert.deepEqual([input.projectPath, input.sessionId, input.commit, input.txId], [
-    h.project,
-    h.session.id,
-    BASE,
-    'call-1:snap',
-  ]);
+  assert.deepEqual(
+    [input.projectPath, input.sessionId, input.commit, input.txId],
+    [h.project, h.session.id, BASE, 'call-1:snap']
+  );
   assert.equal(h.state.cwd, h.project, 'the session did not move');
   leave();
   await until(() => backend.removals.length === 1);
@@ -1908,12 +1906,10 @@ test('a snapshot lives for the turn that made it; addBranchWorktree never moves 
   // A branch worktree is made for the session, which stays where it is.
   const added = await h.api.addBranchWorktree({ branch: 'feature', create: true, startPoint: BASE, txId: 'call-3' });
   const resolved = h.calls.filter((call) => call[0] === 'resolveBranch').at(-1)[1];
-  assert.deepEqual([resolved.branch, resolved.create, resolved.startPoint, resolved.txId], [
-    'feature',
-    true,
-    BASE,
-    'call-3',
-  ]);
+  assert.deepEqual(
+    [resolved.branch, resolved.create, resolved.startPoint, resolved.txId],
+    ['feature', true, BASE, 'call-3']
+  );
   assert.equal(added.branch, 'feature');
   assert.equal(h.state.cwd, h.project);
   assert.equal(h.session.workspace, undefined);

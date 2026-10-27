@@ -32,7 +32,10 @@ function minimalPdf(text) {
   });
   const xref = Buffer.byteLength(body, 'latin1');
   body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  body += offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+  body += offsets
+    .slice(1)
+    .map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`)
+    .join('');
   body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return Buffer.from(body, 'latin1');
 }
@@ -54,9 +57,24 @@ async function history() {
         { type: 'text', text: 'summarize' },
         { type: 'image', data: 'AAECAw==', mimeType: 'image/png' },
         { type: 'file', data: await docxBase64(), mimeType: DOCX, filename: 'plan.docx' },
-        { type: 'file', data: minimalPdf('Local PDF').toString('base64'), mimeType: 'application/pdf', filename: 'a.pdf' },
-        { type: 'file', data: Buffer.from('a,b\n1,2\n').toString('base64'), mimeType: 'text/csv', filename: 'rows.csv' },
-        { type: 'file', data: Buffer.from('PK\u0003\u0004zip').toString('base64'), mimeType: 'application/zip', filename: 'b.zip' },
+        {
+          type: 'file',
+          data: minimalPdf('Local PDF').toString('base64'),
+          mimeType: 'application/pdf',
+          filename: 'a.pdf',
+        },
+        {
+          type: 'file',
+          data: Buffer.from('a,b\n1,2\n').toString('base64'),
+          mimeType: 'text/csv',
+          filename: 'rows.csv',
+        },
+        {
+          type: 'file',
+          data: Buffer.from('PK\u0003\u0004zip').toString('base64'),
+          mimeType: 'application/zip',
+          filename: 'b.zip',
+        },
       ],
     },
   ];
@@ -65,7 +83,9 @@ async function history() {
 const LOCAL = { name: 'mixdog-local', nativePdf: false };
 
 const reloaded = (messages) =>
-  JSON.parse(JSON.stringify(messages.map((m) => ({ ...m, content: media.sanitizeContentForStoredHistory(m.content) }))));
+  JSON.parse(
+    JSON.stringify(messages.map((m) => ({ ...m, content: media.sanitizeContentForStoredHistory(m.content) })))
+  );
 
 test('a text-only local model receives the text form of documents, identically inline and after reload', async () => {
   const live = await history();
@@ -108,17 +128,38 @@ test('an unreadable referenced document lowers to the shared placeholder; a tran
   writeFileSync(join(dir, ref), 'tampered!');
   const out = assertLocalModelInput(
     model,
-    [{ role: 'user', content: [{ type: 'text', text: 'hi' }, { type: 'file', mimeType: 'text/plain', filename: 'n.txt', attachmentRef: ref, sizeBytes: 10 }] }],
+    [
+      {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'hi' },
+          { type: 'file', mimeType: 'text/plain', filename: 'n.txt', attachmentRef: ref, sizeBytes: 10 },
+        ],
+      },
+    ],
     []
   );
   assert.equal(out[0].content[1].text, '[attachment unavailable: n.txt]');
 });
 
 test('a current turn made only of a readable document is accepted; only omitted media is an error', async () => {
-  const pdfOnly = [{ role: 'user', content: [{ type: 'file', data: minimalPdf('Solo').toString('base64'), mimeType: 'application/pdf' }] }];
+  const pdfOnly = [
+    {
+      role: 'user',
+      content: [{ type: 'file', data: minimalPdf('Solo').toString('base64'), mimeType: 'application/pdf' }],
+    },
+  ];
   const preparedPdf = await media.preparePdfTextForProvider(pdfOnly, LOCAL);
   assert.match(assertLocalModelInput(model, preparedPdf, [])[0].content[0].text, /Solo/);
-  const zipOnly = [{ role: 'user', content: [{ type: 'file', data: Buffer.from('PK').toString('base64'), mimeType: 'application/zip' }] }];
+  const zipOnly = [
+    {
+      role: 'user',
+      content: [{ type: 'file', data: Buffer.from('PK').toString('base64'), mimeType: 'application/zip' }],
+    },
+  ];
   assert.throws(() => assertLocalModelInput(model, zipOnly, []), /text-only/);
-  assert.throws(() => assertLocalModelInput(model, [{ role: 'user', content: [{ type: 'image', data: 'AA==' }] }], []), /text-only/);
+  assert.throws(
+    () => assertLocalModelInput(model, [{ role: 'user', content: [{ type: 'image', data: 'AA==' }] }], []),
+    /text-only/
+  );
 });

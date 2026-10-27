@@ -170,7 +170,10 @@ test("Mixy's signature: both ears down, a low thick tail with a lighter tip, a s
     'the tail stays clear of the ear'
   );
   assert.deepEqual(
-    parts.tail.filter(({ fill }) => fill !== MIXY_AVATAR.color).map(key).sort(),
+    parts.tail
+      .filter(({ fill }) => fill !== MIXY_AVATAR.color)
+      .map(key)
+      .sort(),
     ['14,8', '14,9'],
     'only the tip is lighter'
   );

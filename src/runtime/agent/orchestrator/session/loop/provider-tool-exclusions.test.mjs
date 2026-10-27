@@ -53,7 +53,10 @@ test('an excluded tool is noticed once per session and per distinct tool', () =>
 test('a direct call to an excluded tool gets an actionable error naming the reason', () => {
   const session = { id: 's3', tools: [good, rootAllOf] };
   const request = sendRequest(session, [good, rootAllOf], []);
-  assert.deepEqual(request.tools.at(-1).functionDeclarations.map((d) => d.name), ['read']);
+  assert.deepEqual(
+    request.tools.at(-1).functionDeclarations.map((d) => d.name),
+    ['read']
+  );
   const denial = preDispatchDenyForSession(session, { name: 'mcp__x__broken', arguments: {} });
   assert.match(denial, /^Error: tool "mcp__x__broken" is unavailable with the current model/);
   assert.match(denial, /rejected its input schema at \/allOf \(.*root "allOf"\)/);

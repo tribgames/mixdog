@@ -302,21 +302,19 @@ test('fallback read: on a host with no keychain provider a refused file reads as
   });
 });
 
-test(
-  'fallback read: saving repairs a permissive store (directory 0700, file replaced at 0600) so it reads again',
-  { skip: NO_CHMOD_SKIP },
-  async () => {
-    await withStore('missing', async ({ keychain, dataDir }) => {
-      const { dir, file } = plant(dataDir, { dirMode: 0o755, fileMode: 0o644 });
-      assert.equal(keychain.hasFallbackSecret(ACCOUNT), false);
-      keychain.setSecret(ACCOUNT, `${SECRET}-new`);
-      assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
-      assert.equal(fs.statSync(file).mode & 0o777, 0o600);
-      assert.equal(keychain.getSecret(ACCOUNT), `${SECRET}-new`);
-      assert.equal(keychain.hasFallbackSecret(ACCOUNT), true);
-    });
-  }
-);
+test('fallback read: saving repairs a permissive store (directory 0700, file replaced at 0600) so it reads again', {
+  skip: NO_CHMOD_SKIP,
+}, async () => {
+  await withStore('missing', async ({ keychain, dataDir }) => {
+    const { dir, file } = plant(dataDir, { dirMode: 0o755, fileMode: 0o644 });
+    assert.equal(keychain.hasFallbackSecret(ACCOUNT), false);
+    keychain.setSecret(ACCOUNT, `${SECRET}-new`);
+    assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+    assert.equal(fs.statSync(file).mode & 0o777, 0o600);
+    assert.equal(keychain.getSecret(ACCOUNT), `${SECRET}-new`);
+    assert.equal(keychain.hasFallbackSecret(ACCOUNT), true);
+  });
+});
 
 test('fallback status: an unsafe store is reported with its directory and the kind of repair, never the value, and clears once repaired', async () => {
   const cases = [
@@ -399,18 +397,16 @@ test('fallback status: a symlinked account file is reported as a type problem', 
 
 // Last on purpose: an unguarded read would block forever on the FIFO, and that
 // must not hide the results of the cases above.
-test(
-  'fallback read: a FIFO where the account file should be is refused without blocking',
-  { skip: NO_POSIX_SKIP },
-  async (t) => {
-    await withStore('absent', async ({ keychain, dataDir }) => {
-      const file = path.join(secretsDirOf(dataDir), `${encodeURIComponent(ACCOUNT)}.secret`);
-      try {
-        childProcess.execFileSync('mkfifo', [file]);
-      } catch {
-        return t.skip('mkfifo is not available');
-      }
-      await assertRefused(keychain);
-    });
-  }
-);
+test('fallback read: a FIFO where the account file should be is refused without blocking', {
+  skip: NO_POSIX_SKIP,
+}, async (t) => {
+  await withStore('absent', async ({ keychain, dataDir }) => {
+    const file = path.join(secretsDirOf(dataDir), `${encodeURIComponent(ACCOUNT)}.secret`);
+    try {
+      childProcess.execFileSync('mkfifo', [file]);
+    } catch {
+      return t.skip('mkfifo is not available');
+    }
+    await assertRefused(keychain);
+  });
+});

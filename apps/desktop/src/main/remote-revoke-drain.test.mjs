@@ -7,7 +7,15 @@ import test from 'node:test';
 import { loadRemoteClientCache } from './remote-client-cache.ts';
 import { createPendingRevokeDrain } from './remote-revoke-drain.ts';
 
-const client = { id: 'abcdef12-0000', name: 'Phone', platform: 'ios', browser: 'Safari', createdAt: 1, lastSeenAt: 2, online: true };
+const client = {
+  id: 'abcdef12-0000',
+  name: 'Phone',
+  platform: 'ios',
+  browser: 'Safari',
+  createdAt: 1,
+  lastSeenAt: 2,
+  online: true,
+};
 
 /** A relay whose revokes wait until the test lets each one answer. */
 function heldRelay() {

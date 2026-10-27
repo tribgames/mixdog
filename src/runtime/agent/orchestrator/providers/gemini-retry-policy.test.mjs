@@ -14,7 +14,10 @@ import { streamGeminiSdkAttempt } from './gemini-sdk-request.mjs';
 const http = (status, extra = {}) =>
   Object.assign(new Error(`HTTP ${status}`), { status, httpStatus: status, initialResponseError: true, ...extra });
 const truncated = () => Object.assign(new Error('cut'), { code: 'TRUNCATED_STREAM', truncatedStream: true });
-const good = { response: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'ok' }] } }] }, textLeakGuard: null };
+const good = {
+  response: { candidates: [{ finishReason: 'STOP', content: { parts: [{ text: 'ok' }] } }] },
+  textLeakGuard: null,
+};
 
 function harness(script) {
   const sleeps = [];
@@ -55,14 +58,20 @@ test('request ladder options: 499 retried, advice jittered upward and never belo
 });
 
 test('connection phase: a server-advised wait is honored in full, with only upward jitter', async () => {
-  const h = harness([() => Promise.reject(http(429, { code: 'rate_limit_exceeded', retryAfterMs: 7000 })), async () => good]);
+  const h = harness([
+    () => Promise.reject(http(429, { code: 'rate_limit_exceeded', retryAfterMs: 7000 })),
+    async () => good,
+  ]);
   assert.equal(await h.go(), good);
   assert.equal(h.sleeps.length, 1);
   assert.ok(h.sleeps[0] >= 7000 && h.sleeps[0] <= 8400, `${h.sleeps[0]}`);
 });
 
 test('connection phase: advice shorter than the backoff step is raised to the step', async () => {
-  const h = harness([() => Promise.reject(http(429, { code: 'rate_limit_exceeded', retryAfterMs: 500 })), async () => good]);
+  const h = harness([
+    () => Promise.reject(http(429, { code: 'rate_limit_exceeded', retryAfterMs: 500 })),
+    async () => good,
+  ]);
   assert.equal(await h.go(), good);
   assert.ok(h.sleeps[0] >= 3500, `${h.sleeps[0]}`);
 });
@@ -225,7 +234,10 @@ test('invalid stream: tool calls, text, refusals and output limits are not retri
   assert.equal(geminiInvalidStreamReason(response('SAFETY', [])), null);
   assert.equal(geminiInvalidStreamReason(response('RECITATION', [])), null);
   assert.equal(geminiInvalidStreamReason(response('MAX_TOKENS', [])), null);
-  assert.equal(geminiInvalidStreamReason(response('MALFORMED_FUNCTION_CALL', []), { getRelayedText: () => 'seen' }), null);
+  assert.equal(
+    geminiInvalidStreamReason(response('MALFORMED_FUNCTION_CALL', []), { getRelayedText: () => 'seen' }),
+    null
+  );
   assert.equal(geminiInvalidStreamReason(response('STOP', []), { getLeakedToolCalls: () => [{ name: 'a' }] }), null);
 });
 
@@ -233,8 +245,14 @@ test('invalid stream: an empty response right after a tool result is accepted', 
   const after = { afterToolResult: true };
   assert.equal(geminiInvalidStreamReason(response('STOP', []), null, after), null);
   assert.equal(geminiInvalidStreamReason(response('STOP', [{ text: ' ' }]), null, after), null);
-  assert.equal(geminiInvalidStreamReason(response('MALFORMED_FUNCTION_CALL', []), null, after), 'MALFORMED_FUNCTION_CALL');
-  assert.equal(geminiEndsWithFunctionResponse([{ role: 'user', parts: [{ functionResponse: { name: 'a', response: {} } }] }]), true);
+  assert.equal(
+    geminiInvalidStreamReason(response('MALFORMED_FUNCTION_CALL', []), null, after),
+    'MALFORMED_FUNCTION_CALL'
+  );
+  assert.equal(
+    geminiEndsWithFunctionResponse([{ role: 'user', parts: [{ functionResponse: { name: 'a', response: {} } }] }]),
+    true
+  );
   assert.equal(geminiEndsWithFunctionResponse([{ role: 'user', parts: [{ text: 'hi' }] }]), false);
   assert.equal(geminiEndsWithFunctionResponse([]), false);
 });
@@ -257,7 +275,11 @@ test('invalid stream: empty answer is re-asked on the stream ladder, then throws
   assert.deepEqual(stuck.sleeps, [1000, 2000, 4000]);
 
   // Right after a tool result the same empty answer is accepted.
-  const after = await runGeminiStreamAttempts({ run: async () => empty, sleepFn: async () => {}, afterToolResult: true });
+  const after = await runGeminiStreamAttempts({
+    run: async () => empty,
+    sleepFn: async () => {},
+    afterToolResult: true,
+  });
   assert.equal(after, empty);
 });
 

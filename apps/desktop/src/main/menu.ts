@@ -6,10 +6,7 @@ interface NativeMenuExtras {
   showRemoteAccess?: () => void;
 }
 
-function nativeMenuTemplate(
-  development: boolean,
-  extras?: NativeMenuExtras
-): MenuItemConstructorOptions[] {
+function nativeMenuTemplate(development: boolean, extras?: NativeMenuExtras): MenuItemConstructorOptions[] {
   const template: MenuItemConstructorOptions[] = [];
   if (process.platform === 'darwin') {
     template.push({ role: 'appMenu' });

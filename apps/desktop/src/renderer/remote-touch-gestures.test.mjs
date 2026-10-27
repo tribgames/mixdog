@@ -22,7 +22,11 @@ import { initialView, pictureToStage, viewBounds } from './remote-viewport.ts';
  * A stage at client (10, 20) showing a picture through the shared viewport,
  * on a test clock with hand-run animation frames.
  */
-function rig({ strategy = 'direct', picture = { width: 1920, height: 1080 }, stage = { width: 390, height: 700 } } = {}) {
+function rig({
+  strategy = 'direct',
+  picture = { width: 1920, height: 1080 },
+  stage = { width: 390, height: 700 },
+} = {}) {
   const layout = { picture, stage };
   let view = initialView(layout);
   let cursor = null;
@@ -175,7 +179,8 @@ test('one finger pans the view within the picture; a fast lift-off flings on wit
   const ran = r.runFrames();
   assert.ok(ran > 5, 'animated over frames');
   const steps = r.views.slice(-ran).map((view, i, all) => (i ? all[i - 1].x - view.x : released - view.x));
-  for (let i = 1; i < steps.length; i += 1) assert.ok(steps[i] <= steps[i - 1] + 1e-9, 'each step no larger than the last');
+  for (let i = 1; i < steps.length; i += 1)
+    assert.ok(steps[i] <= steps[i - 1] + 1e-9, 'each step no larger than the last');
   const coast = released - r.view.x;
   const expected = FLING_PAN_TIME_CONSTANT_MS * (0.75 - FLING_STOP_SPEED);
   assert.ok(Math.abs(coast - expected) < 2, `coasted ${coast}, the decay predicts ${expected}`);
@@ -234,7 +239,10 @@ test('two fingers swiping wheel in picture units with the fraction carried, then
   r.runFrames();
   const coasting = r.of('wheel').slice(before);
   assert.ok(coasting.length > 0, 'the scroll coasts');
-  assert.ok(coasting.every((wheel) => wheel.deltaY > 0), 'on in the same direction');
+  assert.ok(
+    coasting.every((wheel) => wheel.deltaY > 0),
+    'on in the same direction'
+  );
 });
 
 test('a pinch zooms about the fingers and sends nothing; it never goes below the whole picture', () => {
@@ -376,7 +384,10 @@ test('trackpad: the cursor moves by the finger’s travel, the view follows it, 
   r.actions.length = 0;
   r.gestures.down(2, 50, 50);
   r.gestures.up(2, 50, 50);
-  assert.deepEqual(r.of('click').map((click) => click.at), [r.cursor]);
+  assert.deepEqual(
+    r.of('click').map((click) => click.at),
+    [r.cursor]
+  );
   // A pinch pivots on the cursor: it stays put on the stage.
   const before = pictureToStage(r.view, r.cursor);
   r.gestures.down(1, 100, 300);

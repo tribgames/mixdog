@@ -673,7 +673,15 @@ test('the art direction reading accepts the directions an authored brief declare
 // Deck-shape rules read a body-page grammar; a presentation, keynote, or showcase deck does not follow it, and a
 // brief that declares a concept or palette owns its colour fields.
 test('deck-shape rules and the body background reading yield to the brief', () => {
-  const title = (index) => ({ type: 17, text: `Title ${index}`, left: 58, top: 46, width: 780, height: 70, font: { size: 40 } });
+  const title = (index) => ({
+    type: 17,
+    text: `Title ${index}`,
+    left: 58,
+    top: 46,
+    width: 780,
+    height: 70,
+    font: { size: 40 },
+  });
   const beat = (index) => ({
     index,
     background: { color: '0F1B26' },
@@ -697,13 +705,32 @@ test('deck-shape rules and the body background reading yield to the brief', () =
     reviewOfficeDesign({
       format: 'pptx',
       document: { slideWidth: 960, slideHeight: 540, slides },
-      design: { intent: 'Approve the plan', signature: 'structure-led', deck: { backgroundMode: deckMode, enforce: deckMode !== 'custom' }, brief },
+      design: {
+        intent: 'Approve the plan',
+        signature: 'structure-led',
+        deck: { backgroundMode: deckMode, enforce: deckMode !== 'custom' },
+        brief,
+      },
     }).issues.map((entry) => entry.code);
-  const shaped = [beat(1), evidence(2), evidence(3), beat(4), beat(5), beat(6), evidence(7), evidence(8), evidence(9), beat(10)];
+  const shaped = [
+    beat(1),
+    evidence(2),
+    evidence(3),
+    beat(4),
+    beat(5),
+    beat(6),
+    evidence(7),
+    evidence(8),
+    evidence(9),
+    beat(10),
+  ];
   const underfilled = [beat(1), evidence(2), thin(3), evidence(4), beat(5)];
   for (const slides of [shaped, underfilled]) {
     const read = review(slides, { present: true, readingMode: 'balanced' });
-    assert.ok(read.some((code) => ['consecutive_beats', 'page_underfill'].includes(code)), read.join(', '));
+    assert.ok(
+      read.some((code) => ['consecutive_beats', 'page_underfill'].includes(code)),
+      read.join(', ')
+    );
   }
   for (const mode of ['presentation', 'keynote', 'showcase']) {
     const brief = { present: true, readingMode: mode };
@@ -717,7 +744,11 @@ test('deck-shape rules and the body background reading yield to the brief', () =
   deckMode = 'sandwich';
   const mixed = [1, 2, 3, 4, 5, 6, 7, 8].map((index) => evidence(index, index % 2 ? 'F7F9FC' : 'FDEBD0'));
   assert.ok(review(mixed, { present: true }).includes('theme_body_backgrounds'));
-  assert.ok(!review(mixed, { present: true, concept: 'field-led — the colour is the identity' }).includes('theme_body_backgrounds'));
+  assert.ok(
+    !review(mixed, { present: true, concept: 'field-led — the colour is the identity' }).includes(
+      'theme_body_backgrounds'
+    )
+  );
   assert.ok(!review(mixed, { present: true, palette: 'hue 160' }).includes('theme_body_backgrounds'));
 });
 
@@ -733,10 +764,24 @@ test('the art direction message states the required count and counts only textua
   const missing = (design) =>
     reviewPptxDeckDiversity({ document, design }).find((entry) => entry.code === 'art_direction_candidates_missing');
   assert.match(missing({}).message, /3 distinct candidates/);
-  const twin = { directions: { candidates: [{ id: 'A', text: 'Editorial' }, { id: 'B', text: ' editorial ' }], selected: 'A' } };
+  const twin = {
+    directions: {
+      candidates: [
+        { id: 'A', text: 'Editorial' },
+        { id: 'B', text: ' editorial ' },
+      ],
+      selected: 'A',
+    },
+  };
   assert.match(missing({ brief: twin }).message, /2 distinct candidates/);
-  const distinct = { directions: { candidates: [{ id: 'A', text: 'editorial' }, { id: 'B', text: 'swiss' }], selected: 'A' } };
+  const distinct = {
+    directions: {
+      candidates: [
+        { id: 'A', text: 'editorial' },
+        { id: 'B', text: 'swiss' },
+      ],
+      selected: 'A',
+    },
+  };
   assert.equal(missing({ brief: distinct }), undefined);
 });
-
-

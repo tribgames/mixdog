@@ -12,7 +12,10 @@ import type { DesktopService } from './desktop-service-contract';
 import { sanitizedFileName } from './ipc-validation';
 import { type SessionAttachment, sessionAttachments } from './transcript-file-links';
 
-export type AttachmentHost = Pick<DesktopService, 'readAttachmentImage' | 'readSessionTranscript' | 'readSessionHistory'>;
+export type AttachmentHost = Pick<
+  DesktopService,
+  'readAttachmentImage' | 'readSessionTranscript' | 'readSessionHistory'
+>;
 
 export function requiredAttachmentId(value: unknown): string {
   if (typeof value !== 'string' || !/^[a-f0-9]{64}$/.test(value)) throw new TypeError('attachment id is invalid.');
@@ -24,7 +27,11 @@ export function requiredAttachmentId(value: unknown): string {
  *  compaction moves older rows into the archive, so a chip the pane still
  *  shows can name an id only the session's whole stored conversation holds:
  *  that is read when the window does not name it. */
-async function namedAttachment(host: AttachmentHost, sessionId: string, id: string): Promise<SessionAttachment | undefined> {
+async function namedAttachment(
+  host: AttachmentHost,
+  sessionId: string,
+  id: string
+): Promise<SessionAttachment | undefined> {
   const windowed = host.readSessionTranscript ? await host.readSessionTranscript(sessionId) : null;
   const found = windowed ? sessionAttachments(windowed).get(id) : undefined;
   if (found) return found;

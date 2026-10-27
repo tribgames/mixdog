@@ -173,7 +173,13 @@ test('the status’s helper block: every offer, outcome and issue as given, and 
     const info = screenStatusFor(blocked, true, false, { ...facts, outcome, detail }).helperInfo;
     assert.deepEqual([info.outcome, info.detail], [outcome, detail]);
   }
-  for (const issue of ['grant_key_missing', 'grant_expired', 'input_failed', 'desktop_unavailable', 'sas_disabled_by_policy']) {
+  for (const issue of [
+    'grant_key_missing',
+    'grant_expired',
+    'input_failed',
+    'desktop_unavailable',
+    'sas_disabled_by_policy',
+  ]) {
     assert.equal(screenHelperIssue(issue), issue);
     assert.equal(screenStatusFor(blocked, true, false, { ...facts, issue }).helperInfo.issue, issue);
   }
@@ -186,7 +192,10 @@ test('the status’s helper block: every offer, outcome and issue as given, and 
   const unnamed = decideScreenSource({ local: { inputDesktop: null, consent: false, logonUi: false }, ...noHelper });
   assert.equal(unnamed.reason, 'secure');
   assert.equal(screenStatusFor(unnamed, true, false, facts).helperInfo.secure, null);
-  assert.equal(screenStatusFor(decideScreenSource({ local: ordinary, ...noHelper }), true, false, facts).helperInfo.secure, null);
+  assert.equal(
+    screenStatusFor(decideScreenSource({ local: ordinary, ...noHelper }), true, false, facts).helperInfo.secure,
+    null
+  );
 });
 
 test('a helper change ends every issue but a missing key, which stands while connected', () => {

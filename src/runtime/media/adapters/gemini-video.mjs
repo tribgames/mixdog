@@ -120,7 +120,10 @@ async function generateViaVeo({ model, prompt, options, references = [], signal,
     // Veo reports no usage; it bills per generated second. The response does
     // not echo the length, so the requested one (default 8s) is the billed one.
     // A failed download still leaves the generated seconds billed.
-    const usage = { seconds: parameters.durationSeconds || VEO_DEFAULT_SECONDS, resolution: parameters.resolution || '720p' };
+    const usage = {
+      seconds: parameters.durationSeconds || VEO_DEFAULT_SECONDS,
+      resolution: parameters.resolution || '720p',
+    };
     // The download is part of the generation budget: unbounded, it held an
     // active job slot (and the upstream connection) open indefinitely after
     // the poll loop finished.

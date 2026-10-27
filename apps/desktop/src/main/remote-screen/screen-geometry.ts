@@ -113,7 +113,11 @@ export function mapScreenPointer(mapping: ScreenPointerMapping, x: number, y: nu
 /** A desktop pixel → the video pixel showing it (the inverse of
  *  `mapScreenPointer`, to whole pixels), or null when it is not on this
  *  display. */
-export function screenPointToVideo(mapping: ScreenPointerMapping, x: number, y: number): { x: number; y: number } | null {
+export function screenPointToVideo(
+  mapping: ScreenPointerMapping,
+  x: number,
+  y: number
+): { x: number; y: number } | null {
   const { physical } = mapping;
   const column = x - physical.x;
   const row = y - physical.y;

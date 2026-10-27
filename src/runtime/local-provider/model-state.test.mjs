@@ -31,10 +31,31 @@ test('unsupported media and known-unsupported tools are refused, while unknown t
     assert.throws(() => assertLocalModelInput(model, [{ role: 'user', content: [{ type }] }], []), /text-only/);
   }
   const history = [
-    { role: 'user', content: [{ type: 'text', text: 'look' }, { type: 'image', data: 'AAAA', mimeType: 'image/png' }] },
-    { role: 'tool', content: [{ type: 'tool_result', tool_use_id: 'c', content: [{ type: 'file', data: 'AAAA', mimeType: 'application/zip' }] }] },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'look' },
+        { type: 'image', data: 'AAAA', mimeType: 'image/png' },
+      ],
+    },
+    {
+      role: 'tool',
+      content: [
+        {
+          type: 'tool_result',
+          tool_use_id: 'c',
+          content: [{ type: 'file', data: 'AAAA', mimeType: 'application/zip' }],
+        },
+      ],
+    },
     { role: 'user', content: [{ type: 'document', source: {} }] },
-    { role: 'user', content: [{ type: 'text', text: 'now' }, { type: 'image_url', image_url: { url: 'x' } }] },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'now' },
+        { type: 'image_url', image_url: { url: 'x' } },
+      ],
+    },
   ];
   const degraded = assertLocalModelInput(model, history, []);
   assert.equal(degraded[0].content[1].text, '[image omitted: local model is text-only]');

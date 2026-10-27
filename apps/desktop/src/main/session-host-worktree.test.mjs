@@ -6,7 +6,10 @@ import test from 'node:test';
 import { DesktopProjectRegistry } from './desktop-project-registry.ts';
 import { SessionHost } from './session-host.ts';
 
-async function fixture(t, { registerProject = true, entryFor, containing = false, strict = false, nestedProject = false } = {}) {
+async function fixture(
+  t,
+  { registerProject = true, entryFor, containing = false, strict = false, nestedProject = false } = {}
+) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'mixdog-host-worktree-')));
   const project = join(root, 'repo');
   const worktree = join(root, 'data', 'worktrees-v1', '0123456789abcdef', 'fix-login');
@@ -147,7 +150,9 @@ test('session-less branch capabilities reach the runtime only for a registered P
       });
     }
   }
-  const [read] = await host.readCapabilities([{ capability: 'getProjectBranchMenu', args: [{ projectPath: arbitrary }] }]);
+  const [read] = await host.readCapabilities([
+    { capability: 'getProjectBranchMenu', args: [{ projectPath: arbitrary }] },
+  ]);
   assert.equal(read.ok, false);
   assert.match(read.error, /WORKTREE_PROJECT_UNKNOWN/);
   assert.equal(forwarded.length, 3, 'nothing else reached the runtime');
@@ -330,7 +335,9 @@ test('inheritance propagates registry and directory errors without creating a se
   host.projects = new DesktopProjectRegistry({
     loadProjectsModule: async () => ({
       listProjects: () => [],
-      listProjectsStrict: () => { throw ioError; },
+      listProjectsStrict: () => {
+        throw ioError;
+      },
     }),
     userDataRoot: () => project,
   });
@@ -353,7 +360,6 @@ test('open hints carry the worktree cwd under the main project identity', async 
   assert.deepEqual(hints.desktopSession, { classification: 'project', projectPath: project });
 });
 
-
 test('recovery lookup retains a registered missing folder without granting general file access', async (t) => {
   const { host, project, worktree, arbitrary } = await fixture(t);
   await rm(project, { recursive: true });
@@ -366,14 +372,15 @@ test('recovery lookup retains a registered missing folder without granting gener
 });
 
 test('recovery lookup accepts a deleting managed record but never an unregistered parent', async (t) => {
-  const f = await fixture(t, { entryFor: ({ project, worktree }) => ({ projectPath: project, path: worktree, state: 'deleting' }) });
+  const f = await fixture(t, {
+    entryFor: ({ project, worktree }) => ({ projectPath: project, path: worktree, state: 'deleting' }),
+  });
   assert.equal(await f.host.projectRecoveryDirectory(f.worktree), f.worktree);
   await assert.rejects(f.host.projectDirectory(f.worktree));
   await assert.rejects(f.host.projectRecoveryDirectory(f.arbitrary));
   const removed = await fixture(t, { registerProject: false });
   await assert.rejects(removed.host.projectRecoveryDirectory(removed.worktree));
 });
-
 
 test('recovery resolves a registered parent alias consistently before and after checkout removal', async (t) => {
   let aliasEntry;
@@ -399,7 +406,6 @@ test('recovery resolves a registered parent alias consistently before and after 
   await symlink(f.arbitrary, f.worktree, process.platform === 'win32' ? 'junction' : 'dir');
   assert.equal(await f.host.projectRecoveryDirectory(aliasEntry), f.worktree);
 });
-
 
 test('registered project aliases resolve the same recovery store as workspace edits', async (t) => {
   const f = await fixture(t);

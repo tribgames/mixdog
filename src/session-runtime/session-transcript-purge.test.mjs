@@ -97,7 +97,7 @@ test('deleting a session removes its transcript and ingest offsets, and only its
   }
 });
 
-test('a transcript this process never wrote is found through the session\'s recorded folder', async () => {
+test("a transcript this process never wrote is found through the session's recorded folder", async () => {
   const home = useHome();
   const cwd = join(home, 'older-project');
   const forgotten = [];

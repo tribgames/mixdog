@@ -5,7 +5,14 @@ import { createScreenWebrtcSource } from './screen-webrtc-source.ts';
 
 function fakeScreen(over = {}) {
   const listeners = { geometry: new Set(), stop: new Set() };
-  const geometry = { generation: 3, pixelWidth: 1920, pixelHeight: 1080, cssWidth: 1920, cssHeight: 1080, deviceScaleFactor: 1 };
+  const geometry = {
+    generation: 3,
+    pixelWidth: 1920,
+    pixelHeight: 1080,
+    cssWidth: 1920,
+    cssHeight: 1080,
+    deviceScaleFactor: 1,
+  };
   const plan = { sourceId: 'screen:0:0', width: 1920, height: 1080, maxFrameRate: 30 };
   const state = { running: false, inputs: [], releases: 0, stops: [], outcome: 'applied' };
   return {

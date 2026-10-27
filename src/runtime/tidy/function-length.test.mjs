@@ -27,7 +27,11 @@ test('summary counts thresholds, lists the longest and flags spanless languages'
     },
     { rel: 'b.zzz', lang: 'zzz', symbols: [] },
   ];
-  const summary = await summarizeFunctionLengths({ cwd: '/x', files: ['a.js', 'b.zzz'], runFiles: async () => records });
+  const summary = await summarizeFunctionLengths({
+    cwd: '/x',
+    files: ['a.js', 'b.zzz'],
+    runFiles: async () => records,
+  });
   assert.equal(summary.over50, 2);
   assert.equal(summary.over100, 1);
   assert.equal(summary.over150, 1);

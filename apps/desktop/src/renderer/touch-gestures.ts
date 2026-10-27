@@ -373,7 +373,10 @@ export function installEdgeSwipe(
     if (!painted || drag || event.target !== painted.element) return;
     const gliding = painted.element
       .getAnimations()
-      .some((animation) => (animation as CSSTransition).transitionProperty === 'transform' && animation.playState === 'running');
+      .some(
+        (animation) =>
+          (animation as CSSTransition).transitionProperty === 'transform' && animation.playState === 'running'
+      );
     if (gliding) return;
     win.clearTimeout(settleTimer);
     clearLivePaint();

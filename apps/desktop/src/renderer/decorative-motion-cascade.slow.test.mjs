@@ -274,7 +274,8 @@ test('the arcs cross the loop seam with an ordinary step, as drawn', async (t) =
   const page = await launch(t);
   await page.setViewport({ width: 1200, height: 900, deviceScaleFactor: 4 });
   await page.addStyleTag({
-    content: 'body { background: #000 !important; } .live-activity-icon svg { display: none; } [data-context]:not([data-context=\"visible\"]) { display: none; }',
+    content:
+      'body { background: #000 !important; } .live-activity-icon svg { display: none; } [data-context]:not([data-context="visible"]) { display: none; }',
   });
   const icon = await page.$('[data-context="visible"] .live-activity-icon');
   const FRAME_MS = 1000 / 24;
@@ -289,19 +290,16 @@ test('the arcs cross the loop seam with an ordinary step, as drawn', async (t) =
   });
   for (let frame = 44; frame <= 51; frame += 1) {
     // Each pose is held as a still transform, so the raster is exactly that frame.
-    await page.evaluate(
-      (frame) => {
-        const icon = document.querySelector('[data-context="visible"] .live-activity-icon');
-        const strip = icon.querySelector('.live-activity-arc-strip');
-        const spin = icon.querySelector('.live-activity-arcs');
-        for (const element of [strip, spin]) element.getAnimations().forEach((animation) => animation.cancel());
-        strip.style.animation = 'none';
-        spin.style.animation = 'none';
-        strip.style.transform = `translateX(${-14 - 28 * (frame % 48)}px)`;
-        spin.style.rotate = '0deg';
-      },
-      frame
-    );
+    await page.evaluate((frame) => {
+      const icon = document.querySelector('[data-context="visible"] .live-activity-icon');
+      const strip = icon.querySelector('.live-activity-arc-strip');
+      const spin = icon.querySelector('.live-activity-arcs');
+      for (const element of [strip, spin]) element.getAnimations().forEach((animation) => animation.cancel());
+      strip.style.animation = 'none';
+      spin.style.animation = 'none';
+      strip.style.transform = `translateX(${-14 - 28 * (frame % 48)}px)`;
+      spin.style.rotate = '0deg';
+    }, frame);
     const png = await icon.screenshot({ encoding: 'base64' });
     measured.push(
       await page.evaluate(async (png) => {
@@ -334,7 +332,10 @@ test('the arcs cross the loop seam with an ordinary step, as drawn', async (t) =
   // between each pair of frames.
   measured.forEach(({ ink }, index) => assert.ok(ink > 0, `frame ${44 + index} has no ink`));
   for (let index = 0; index < measured.length - 1; index += 1) {
-    assert.ok(Math.abs(step(index)) > 0.01, `no angular movement from frame ${44 + index} to ${45 + index}: ${JSON.stringify(measured)}`);
+    assert.ok(
+      Math.abs(step(index)) > 0.01,
+      `no angular movement from frame ${44 + index} to ${45 + index}: ${JSON.stringify(measured)}`
+    );
   }
   // Frames 44..51: index 3 is the seam (47 -> 48).
   const seam = step(3);
@@ -452,7 +453,12 @@ test('every loop locks to the timeline origin when it mounts or resumes, and a h
     write: false,
   });
   await page.addScriptTag({ content: bundle.outputFiles[0].text });
-  const LOOP_NAMES = ['live-activity-arc-flow', 'live-activity-logo-spin', 'text-shimmer-window', 'text-shimmer-window-copy'];
+  const LOOP_NAMES = [
+    'live-activity-arc-flow',
+    'live-activity-logo-spin',
+    'text-shimmer-window',
+    'text-shimmer-window-copy',
+  ];
   const html = { band, heading };
   for (const phone of [false, true]) {
     const result = await page.evaluate(
@@ -625,7 +631,12 @@ test('loops recreated by a layout switch, reduced motion or anything else lock t
     },
     { band, heading }
   );
-  const NAMES = ['live-activity-arc-flow', 'live-activity-logo-spin', 'text-shimmer-window', 'text-shimmer-window-copy'];
+  const NAMES = [
+    'live-activity-arc-flow',
+    'live-activity-logo-spin',
+    'text-shimmer-window',
+    'text-shimmer-window-copy',
+  ];
   // The page's loops once `count` of them run, all locked to the origin.
   const locked = (count) =>
     page.waitForFunction(
@@ -683,7 +694,9 @@ test('loops recreated by a layout switch, reduced motion or anything else lock t
   const mediaChange = () =>
     page.evaluate(() => {
       window.__mediaChanged = new Promise((resolve) =>
-        window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => resolve(), { once: true })
+        window
+          .matchMedia('(prefers-reduced-motion: reduce)')
+          .addEventListener('change', () => resolve(), { once: true })
       );
     });
   await mediaChange();
@@ -754,7 +767,10 @@ test('phone: the mask position at step k is the keyframe interpolation, -band to
       const vars = getComputedStyle(shimmer);
       const number = (property) => Number(vars.getPropertyValue(property));
       const frames = Math.round(
-        Math.min((number('--text-shimmer-cells') + number('--text-shimmer-comet') + number('--text-shimmer-rest')) * 2.4, 76.8)
+        Math.min(
+          (number('--text-shimmer-cells') + number('--text-shimmer-comet') + number('--text-shimmer-rest')) * 2.4,
+          76.8
+        )
       );
       const band = Number.parseFloat(getComputedStyle(glint).maskSize);
       // --text-shimmer-rest-run in px.
@@ -876,7 +892,10 @@ async function drivenPage(t, { phone, virtualClock = false }) {
       const vars = getComputedStyle(shimmer);
       const number = (property) => Number(vars.getPropertyValue(property));
       meta[glint.closest('[data-context]').dataset.context] = Math.round(
-        Math.min((number('--text-shimmer-cells') + number('--text-shimmer-comet') + number('--text-shimmer-rest')) * 2.4, 76.8)
+        Math.min(
+          (number('--text-shimmer-cells') + number('--text-shimmer-comet') + number('--text-shimmer-rest')) * 2.4,
+          76.8
+        )
       );
       watch.observe(glint, { attributes: true, attributeFilter: ['style'] });
       (window.__unmounts ??= new Map()).set(glint, window.motionSync.lockDecorativeLoops(glint));
@@ -897,7 +916,7 @@ const byContext = (writes) => {
   return grouped;
 };
 
-test('phone: one write per step, on the running mark\'s beat, nothing while held', async (t) => {
+test("phone: one write per step, on the running mark's beat, nothing while held", async (t) => {
   const { page, meta, drain, advance } = await drivenPage(t, { phone: true, virtualClock: true });
   // The first lock pass (a frame callback) writes the first step and arms the
   // step timer; this callback runs after it.
@@ -933,7 +952,9 @@ test('phone: one write per step, on the running mark\'s beat, nothing while held
     const [animation] = strip.getAnimations();
     return {
       startTime: animation.startTime,
-      frame: animation.effect.getTiming().duration / Number(/steps\((\d+)/.exec(animation.effect.getKeyframes()[0].easing)[1]),
+      frame:
+        animation.effect.getTiming().duration /
+        Number(/steps\((\d+)/.exec(animation.effect.getKeyframes()[0].easing)[1]),
       // The page's real clock (`performance.now` is the test's here).
       clock: Math.abs(document.timeline.currentTime - window.__clock.real()),
     };
@@ -964,7 +985,9 @@ test('phone: every pause rule stops the writes and the resume lands on the beat'
   const reduced = async (value) => {
     await page.evaluate(() => {
       window.__mediaChanged = new Promise((resolve) =>
-        window.matchMedia('(prefers-reduced-motion: reduce)').addEventListener('change', () => resolve(), { once: true })
+        window
+          .matchMedia('(prefers-reduced-motion: reduce)')
+          .addEventListener('change', () => resolve(), { once: true })
       );
     });
     await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value }]);
@@ -999,9 +1022,15 @@ test('phone: every pause rule stops the writes and the resume lands on the beat'
       label: 'dock pane inactive',
       scope: ['dock: open, agents view'],
       hold: () => toggle('[data-context="dock: open, agents view"] .utility-dock-pane', 'data-surface-active', 'false'),
-      release: () => toggle('[data-context="dock: open, agents view"] .utility-dock-pane', 'data-surface-active', 'true'),
+      release: () =>
+        toggle('[data-context="dock: open, agents view"] .utility-dock-pane', 'data-surface-active', 'true'),
     },
-    { label: 'document hidden', scope: RUNNING, hold: () => rootMotion('paused'), release: () => rootMotion('running') },
+    {
+      label: 'document hidden',
+      scope: RUNNING,
+      hold: () => rootMotion('paused'),
+      release: () => rootMotion('running'),
+    },
     { label: 'reduced motion', scope: RUNNING, hold: () => reduced('reduce'), release: () => reduced('no-preference') },
     {
       label: 'desktop layout',
@@ -1062,10 +1091,13 @@ test('phone: one step timer while a glint runs; the last glint unmounting leaves
     const pending = new Set();
     const { setTimeout: set, clearTimeout: clear } = window;
     window.setTimeout = (callback, ...rest) => {
-      const id = set(() => {
-        pending.delete(id);
-        callback();
-      }, ...rest);
+      const id = set(
+        () => {
+          pending.delete(id);
+          callback();
+        },
+        ...rest
+      );
       pending.add(id);
       return id;
     };

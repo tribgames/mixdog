@@ -34,7 +34,9 @@ test('content_policy_violation and request_too_large keep their codes', () => {
   const tooLarge = applyCompatErrorContract(sdkError(413, { message: 'big', type: 'request_too_large' }));
   assert.equal(tooLarge.code, 'request_too_large');
   assert.equal(tooLarge.status, 413);
-  const both = applyCompatErrorContract(sdkError(400, { message: 'x', code: 'request_too_large', type: 'invalid_request_error' }));
+  const both = applyCompatErrorContract(
+    sdkError(400, { message: 'x', code: 'request_too_large', type: 'invalid_request_error' })
+  );
   assert.equal(both.code, 'request_too_large');
 });
 

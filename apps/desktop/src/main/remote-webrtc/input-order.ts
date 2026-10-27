@@ -28,12 +28,14 @@ export function createRemoteRelayInputOrder() {
         state = { stream: order.stream, run: order.run, lastSeq: 0, poisoned: false };
         states.set(k, state);
       }
-      if (order.run < state.run) return { dispatch: false, error: 'Remote Browser Use input of an older run; input was not sent.' };
+      if (order.run < state.run)
+        return { dispatch: false, error: 'Remote Browser Use input of an older run; input was not sent.' };
       if (order.run > state.run) {
         state.run = order.run;
         state.poisoned = false;
       }
-      if (order.seq <= state.lastSeq) return { dispatch: false, error: 'Remote Browser Use input repeated; input was not sent.' };
+      if (order.seq <= state.lastSeq)
+        return { dispatch: false, error: 'Remote Browser Use input repeated; input was not sent.' };
       state.lastSeq = order.seq;
       if (state.poisoned) {
         return { dispatch: false, error: 'Remote Browser Use input behind a failed one; input was not sent.' };

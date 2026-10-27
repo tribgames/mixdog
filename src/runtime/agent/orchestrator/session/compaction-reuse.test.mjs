@@ -22,11 +22,33 @@ const { executeGlobTool } = await import('../tools/builtin/search-glob-tool.mjs'
 process.once('exit', () => rmSync(root, { recursive: true, force: true }));
 
 const SUMMARY = [
-  '## Goal', '- continue', '', '## Constraints & Preferences', '- (none)', '',
-  '## Progress', '### Done', '- summarized', '', '### In Progress', '- (none)', '',
-  '### Blocked', '- (none)', '', '## Key Decisions', '- (none)', '',
-  '## Next Steps', '- continue', '', '## Critical Context', '- none', '',
-  '## Relevant Files', '- (none)',
+  '## Goal',
+  '- continue',
+  '',
+  '## Constraints & Preferences',
+  '- (none)',
+  '',
+  '## Progress',
+  '### Done',
+  '- summarized',
+  '',
+  '### In Progress',
+  '- (none)',
+  '',
+  '### Blocked',
+  '- (none)',
+  '',
+  '## Key Decisions',
+  '- (none)',
+  '',
+  '## Next Steps',
+  '- continue',
+  '',
+  '## Critical Context',
+  '- none',
+  '',
+  '## Relevant Files',
+  '- (none)',
 ].join('\n');
 
 const tools = [{ name: 'glob', annotations: { readOnlyHint: true } }];
@@ -35,14 +57,33 @@ function fixture() {
   const cwd = mkdtempSync(join(root, 'case-'));
   const sessionId = `compact-reuse-${randomUUID()}`;
   const session = {
-    id: sessionId, owner: 'agent', provider: 'compact-reuse', model: 'fake-model', cwd,
-    contextWindow: 20_000, compactBoundaryTokens: 20_000,
-    tools: [], compaction: { auto: true }, schemaAllowedTools: null,
+    id: sessionId,
+    owner: 'agent',
+    provider: 'compact-reuse',
+    model: 'fake-model',
+    cwd,
+    contextWindow: 20_000,
+    compactBoundaryTokens: 20_000,
+    tools: [],
+    compaction: { auto: true },
+    schemaAllowedTools: null,
   };
-  const messages = [{ role: 'user', content: 'small request' }, { role: 'assistant', content: 'small answer' }];
-  const provider = { name: 'compact-reuse', async send() { return { content: SUMMARY }; } };
+  const messages = [
+    { role: 'user', content: 'small request' },
+    { role: 'assistant', content: 'small answer' },
+  ];
+  const provider = {
+    name: 'compact-reuse',
+    async send() {
+      return { content: SUMMARY };
+    },
+  };
   const state = createLoopState({
-    provider, messages, model: 'fake-model', tools: [], cwd,
+    provider,
+    messages,
+    model: 'fake-model',
+    tools: [],
+    cwd,
     sendOpts: { session, sessionId },
   });
   return { cwd, sessionId, session, messages, state, scans: 0, executions: 0 };
@@ -71,15 +112,31 @@ async function globRound(fx, args) {
   const assistantTurnMsg = { role: 'assistant', content: '', toolCalls: [call] };
   fx.messages.push(assistantTurnMsg);
   const stats = await processToolBatch({
-    calls: [call], messages: fx.messages, tools, cwd: fx.cwd,
-    sessionId: fx.sessionId, sessionRef: fx.session, signal: null, opts: {},
+    calls: [call],
+    messages: fx.messages,
+    tools,
+    cwd: fx.cwd,
+    sessionId: fx.sessionId,
+    sessionRef: fx.session,
+    signal: null,
+    opts: {},
     iterations: state.iterations,
     assistantTurnMsg,
-    pending: new Map(), epoch: { mutation: 0 }, startEagerRun: () => {},
-    crossTurnCalls: state.crossTurnCalls, crossTurnCap: 100, sessionAgent: null,
-    pushToolResultMessage: (m) => { results.push(m); fx.messages.push(m); },
-    throwIfAborted: () => {}, repeatFailLimit: 3,
-    dedupStubTotal: state.dedupStubTotal, editCount: state.editCount, executeToolFn,
+    pending: new Map(),
+    epoch: { mutation: 0 },
+    startEagerRun: () => {},
+    crossTurnCalls: state.crossTurnCalls,
+    crossTurnCap: 100,
+    sessionAgent: null,
+    pushToolResultMessage: (m) => {
+      results.push(m);
+      fx.messages.push(m);
+    },
+    throwIfAborted: () => {},
+    repeatFailLimit: 3,
+    dedupStubTotal: state.dedupStubTotal,
+    editCount: state.editCount,
+    executeToolFn,
   });
   state.dedupStubTotal = stats.dedupStubTotal ?? state.dedupStubTotal;
   state.editCount = stats.editCount ?? state.editCount;
@@ -106,7 +163,9 @@ async function compactThroughBeginIteration(fx, { reactive }) {
   const map = state.crossTurnCalls;
   assert.ok(map.size > 0, 'a receipt exists before compaction');
   let receiptsBeforeCompact = 0;
-  state.opts.preCompactHook = () => { receiptsBeforeCompact = map.size; };
+  state.opts.preCompactHook = () => {
+    receiptsBeforeCompact = map.size;
+  };
   const round = await beginIteration(state);
   assert.ok(receiptsBeforeCompact > 0, 'healthy pairing repair must not mask the compaction reset');
   assert.equal(state.crossTurnCalls, map, 'the live map identity is preserved');

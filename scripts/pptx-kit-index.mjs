@@ -22,7 +22,11 @@ const SOURCES = [
 const WHOLE_STATEMENT = 240;
 
 const propertyName = (property) =>
-  property.type === 'Property' ? String(property.key.name ?? property.key.value ?? '') : property.type === 'SpreadElement' ? '…' : '';
+  property.type === 'Property'
+    ? String(property.key.name ?? property.key.value ?? '')
+    : property.type === 'SpreadElement'
+      ? '…'
+      : '';
 
 // The keys an object literal offers a script, one level into object-valued keys ("body: { x, y, w, h }"). A table of
 // like entries (STYLES: an id per style, each with the same fields) reads as its ids and the fields each carries.
@@ -30,7 +34,9 @@ function objectShape(node) {
   const properties = node.properties.filter((property) => propertyName(property));
   const nested = properties.filter((property) => property.value?.type === 'ObjectExpression');
   if (properties.length >= 4 && nested.length === properties.length) {
-    const fields = [...new Set(nested.flatMap((property) => property.value.properties.map(propertyName)))].filter(Boolean);
+    const fields = [...new Set(nested.flatMap((property) => property.value.properties.map(propertyName)))].filter(
+      Boolean
+    );
     return `{ ${properties.map(propertyName).join(', ')} } each { ${fields.join(', ')} }`;
   }
   const keys = properties.map((property) =>
@@ -48,7 +54,8 @@ function returnedShape(fn) {
   const visit = (node) => {
     if (!node || typeof node.type !== 'string') return;
     if (node !== fn.body && /Function/.test(node.type)) return;
-    if (node.type === 'ReturnStatement' && node.argument?.type === 'ObjectExpression') shapes.push(objectShape(node.argument));
+    if (node.type === 'ReturnStatement' && node.argument?.type === 'ObjectExpression')
+      shapes.push(objectShape(node.argument));
     for (const value of Object.values(node)) {
       if (Array.isArray(value)) value.forEach(visit);
       else if (value && typeof value === 'object' && typeof value.type === 'string') visit(value);
@@ -116,7 +123,13 @@ function summarizeFile({ file, prose }) {
       output.push('```js', summarizeCode(part).trimEnd(), '```');
       return;
     }
-    const kept = prose === 'all' ? part.trim() : part.split('\n').filter((line) => /^#{1,3} /.test(line)).join('\n');
+    const kept =
+      prose === 'all'
+        ? part.trim()
+        : part
+            .split('\n')
+            .filter((line) => /^#{1,3} /.test(line))
+            .join('\n');
     if (kept) output.push(kept.replace(/^# /m, '## '));
   });
   return [`# ${file}`, ...output].join('\n\n');

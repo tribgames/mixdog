@@ -1,7 +1,4 @@
-import {
-  normalizeDesktopFeedback,
-  type DesktopFeedbackReceipt,
-} from '../shared/contract-feedback';
+import { normalizeDesktopFeedback, type DesktopFeedbackReceipt } from '../shared/contract-feedback';
 import { resolveRelayUrl } from './remote-relay-device';
 
 /** The renderer cannot select a recipient, URL, SMTP account or credentials. */

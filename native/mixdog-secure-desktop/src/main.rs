@@ -42,29 +42,29 @@ mod acl;
 #[cfg(windows)]
 mod capture;
 #[cfg(windows)]
+mod delegation;
+#[cfg(windows)]
 mod desktop;
 #[cfg(windows)]
 mod helper;
 #[cfg(windows)]
 mod inject;
 #[cfg(windows)]
-mod delegation;
-#[cfg(windows)]
 mod install;
 #[cfg(windows)]
 mod ipc;
 #[cfg(windows)]
-mod logon;
-#[cfg(windows)]
 mod launch;
+#[cfg(windows)]
+mod logon;
 #[cfg(windows)]
 mod probe;
 #[cfg(windows)]
 mod service;
 #[cfg(windows)]
-mod signature;
-#[cfg(windows)]
 mod shutdown;
+#[cfg(windows)]
+mod signature;
 #[cfg(windows)]
 mod winutil;
 

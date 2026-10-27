@@ -12,7 +12,9 @@ function paragraphSize(paragraph) {
 }
 
 const median = (values) => {
-  const sorted = values.filter((value) => value !== '' && value !== undefined && value !== null).sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+  const sorted = values
+    .filter((value) => value !== '' && value !== undefined && value !== null)
+    .sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
   return sorted.length ? sorted[Math.floor(sorted.length / 2)] : undefined;
 };
 // Automatic colour is the effective default, black.

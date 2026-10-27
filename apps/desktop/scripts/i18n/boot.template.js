@@ -80,7 +80,7 @@ try {
   /* an unreadable hint list is a build nothing is recorded for */
 }
 window.mixdogBootSig = mixdogBootSig;
-window.mixdogThemeInputs = function () {
+window.mixdogThemeInputs = () => {
   var preference = '';
   var userTheme = '';
   var systemLight = false;
@@ -115,12 +115,12 @@ try {
       Boolean(mixdogBootAttributes) &&
       typeof mixdogBootAttributes['data-mixdog-skin'] === 'string' &&
       Boolean(mixdogBootVars) &&
-      Object.keys(mixdogBootAttributes).every(function (name) {
-        return /^data-mixdog-skin(-plate|-photo)?$/.test(name) && typeof mixdogBootAttributes[name] === 'string';
-      }) &&
-      Object.keys(mixdogBootVars).every(function (name) {
-        return /^--mx-skin-[a-z0-9-]+$/.test(name) && typeof mixdogBootVars[name] === 'string';
-      });
+      Object.keys(mixdogBootAttributes).every(
+        (name) => /^data-mixdog-skin(-plate|-photo)?$/.test(name) && typeof mixdogBootAttributes[name] === 'string'
+      ) &&
+      Object.keys(mixdogBootVars).every(
+        (name) => /^--mx-skin-[a-z0-9-]+$/.test(name) && typeof mixdogBootVars[name] === 'string'
+      );
     if (mixdogBootValid && mixdogBootImage) {
       if (typeof mixdogBootImage.url === 'string') {
         mixdogBootValid = /^url\("[^"\\]*"\)$/.test(mixdogBootImage.url);
@@ -161,7 +161,7 @@ try {
         // Fetch and decode the picture now, not when the bundle's CSS first asks for it.
         var mixdogPictureImage = new Image();
         mixdogPictureImage.src = mixdogBootPicture.slice(5, -2);
-        if (mixdogPictureImage.decode) mixdogPictureImage.decode().catch(function () {});
+        if (mixdogPictureImage.decode) mixdogPictureImage.decode().catch(() => {});
         window.mixdogBootPictureImage = mixdogPictureImage;
       }
       // The picture needs its plates in the SAME frame: until the app mounts

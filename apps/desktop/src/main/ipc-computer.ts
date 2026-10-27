@@ -1,10 +1,6 @@
 // Computer Use readiness reads and the one-press fixes the detail dialog offers.
 import type { Shell } from 'electron';
-import {
-  DESKTOP_IPC,
-  type DesktopComputerPermissionPane,
-  type DesktopComputerReadiness,
-} from '../shared/contract';
+import { DESKTOP_IPC, type DesktopComputerPermissionPane, type DesktopComputerReadiness } from '../shared/contract';
 import type { ComputerPermissions } from './computer/shared/permissions';
 import type { IpcHandle as Handle } from './ipc';
 import type { PcAccess } from './pc-access';

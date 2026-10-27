@@ -101,7 +101,11 @@ test('a "usage credits required" body is an ordinary fast-pool refusal: default 
 
 test('reference thresholds: short <20s, cooldown floor 10min, default hold 30min', () => {
   assert.deepEqual(
-    [_FAST_MODE_POLICY.SHORT_RETRY_THRESHOLD_MS, _FAST_MODE_POLICY.MIN_COOLDOWN_MS, _FAST_MODE_POLICY.DEFAULT_COOLDOWN_MS],
+    [
+      _FAST_MODE_POLICY.SHORT_RETRY_THRESHOLD_MS,
+      _FAST_MODE_POLICY.MIN_COOLDOWN_MS,
+      _FAST_MODE_POLICY.DEFAULT_COOLDOWN_MS,
+    ],
     [20_000, 600_000, 1_800_000]
   );
 });
@@ -128,7 +132,10 @@ test('an initial fast-pool 429 drops speed and flags a standard-speed replay', a
 });
 
 test('retry headers are parsed with the shared delay helper', () => {
-  const short = noteFastModeCapacityError({ httpStatus: 429, headers: new Headers({ 'retry-after': '3' }) }, { fast: true });
+  const short = noteFastModeCapacityError(
+    { httpStatus: 429, headers: new Headers({ 'retry-after': '3' }) },
+    { fast: true }
+  );
   assert.equal(short, 'retry-fast');
   assert.equal(fastModeAvailable(), true);
   const shortMs = noteFastModeCapacityError(

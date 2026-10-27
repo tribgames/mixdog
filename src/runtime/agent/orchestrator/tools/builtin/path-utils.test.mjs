@@ -19,23 +19,42 @@ test('toDisplayPath strips a cwd prefix without changing unmatched absolute path
   assert.equal(toDisplayPath('C:/proj/src/a.ts'), 'C:/proj/src/a.ts');
 });
 
-test('normalizeInputPath strips the slash before a drive letter on Windows', { skip: process.platform !== 'win32' }, () => {
+test('normalizeInputPath strips the slash before a drive letter on Windows', {
+  skip: process.platform !== 'win32',
+}, () => {
   assert.equal(normalizeInputPath('/C:/x/y'), 'C:\\x\\y');
   assert.equal(normalizeInputPath('/C:\\x\\y'), 'C:\\x\\y');
   assert.equal(normalizeInputPath('/c/x/y'), 'c:\\x\\y');
 });
 
-test('/C:/ paths pass the write guard on Windows while ADS and trailing dot stay rejected', { skip: process.platform !== 'win32' }, async () => {
+test('/C:/ paths pass the write guard on Windows while ADS and trailing dot stay rejected', {
+  skip: process.platform !== 'win32',
+}, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-slashdrive-'));
   try {
     const file = join(dir, 'a.txt');
     writeFileSync(file, 'one');
     const slashed = `/${file.replace(/\\/g, '/')}`;
-    const ok = await tryExecuteExternalToolAdapter('edit', { file_path: slashed, old_string: 'one', new_string: 'two' }, dir, {});
+    const ok = await tryExecuteExternalToolAdapter(
+      'edit',
+      { file_path: slashed, old_string: 'one', new_string: 'two' },
+      dir,
+      {}
+    );
     assert.match(String(ok), /^Updated /);
-    const ads = await tryExecuteExternalToolAdapter('edit', { file_path: `${file}:stream`, old_string: 'a', new_string: 'b' }, dir, {});
+    const ads = await tryExecuteExternalToolAdapter(
+      'edit',
+      { file_path: `${file}:stream`, old_string: 'a', new_string: 'b' },
+      dir,
+      {}
+    );
     assert.match(String(ads), /NTFS ADS/);
-    const dot = await tryExecuteExternalToolAdapter('write', { file_path: `${join(dir, 'b.txt')}.`, contents: 'x' }, dir, {});
+    const dot = await tryExecuteExternalToolAdapter(
+      'write',
+      { file_path: `${join(dir, 'b.txt')}.`, contents: 'x' },
+      dir,
+      {}
+    );
     assert.match(String(dot), /trailing dot/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -47,7 +66,12 @@ test('http(s) URLs are redirected to web_fetch for edit and read', async () => {
   try {
     assert.equal(urlAsPathMessage('https://example.com/a'), 'this is a URL; use web_fetch');
     assert.equal(urlAsPathMessage('C:\\a'), null);
-    const edit = await tryExecuteExternalToolAdapter('edit', { file_path: 'http://x.io/a', old_string: 'a', new_string: 'b' }, dir, {});
+    const edit = await tryExecuteExternalToolAdapter(
+      'edit',
+      { file_path: 'http://x.io/a', old_string: 'a', new_string: 'b' },
+      dir,
+      {}
+    );
     assert.match(String(edit), /this is a URL; use web_fetch/);
     const read = await executeBuiltinTool('read', { path: 'https://example.com/a' }, dir, {});
     assert.match(String(read), /this is a URL; use web_fetch/);

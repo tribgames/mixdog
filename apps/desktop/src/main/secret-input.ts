@@ -15,10 +15,10 @@ import { createSavedLoginRegistry } from './saved-login-registry';
 import { createSecretRequests } from './secret-requests';
 import { createSessionSecrets } from './session-secrets';
 
-export {
-  type SavedLoginOwnerProcess,
-  type SavedLoginPixelGuard,
-  type SavedLoginTurn,
+export type {
+  SavedLoginOwnerProcess,
+  SavedLoginPixelGuard,
+  SavedLoginTurn,
 } from './saved-login-registry';
 export {
   type ComputerSecretBinding,

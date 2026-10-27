@@ -21,8 +21,8 @@ use std::io;
 use windows::core::PCWSTR;
 use windows::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleBitmap, CreateCompatibleDC, CreateDCW, DeleteDC, DeleteObject,
-    GetDIBits, SelectObject, BITMAPINFO, BITMAPINFOHEADER, CAPTUREBLT, DIB_RGB_COLORS, HGDIOBJ, ROP_CODE,
-    SRCCOPY,
+    GetDIBits, SelectObject, BITMAPINFO, BITMAPINFOHEADER, CAPTUREBLT, DIB_RGB_COLORS, HGDIOBJ,
+    ROP_CODE, SRCCOPY,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
     GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN,
@@ -51,20 +51,34 @@ pub fn capture_virtual_screen() -> io::Result<Frame> {
         let height = GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1);
 
         let display = wide("DISPLAY");
-        let screen_dc = CreateDCW(PCWSTR(display.as_ptr()), PCWSTR::null(), PCWSTR::null(), None);
+        let screen_dc = CreateDCW(
+            PCWSTR(display.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            None,
+        );
         if screen_dc.is_invalid() {
-            return Err(io::Error::new(io::ErrorKind::Other, "CreateDCW(DISPLAY) failed"));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "CreateDCW(DISPLAY) failed",
+            ));
         }
         let mem_dc = CreateCompatibleDC(Some(screen_dc));
         if mem_dc.is_invalid() {
             let _ = DeleteDC(screen_dc);
-            return Err(io::Error::new(io::ErrorKind::Other, "CreateCompatibleDC failed"));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "CreateCompatibleDC failed",
+            ));
         }
         let bitmap = CreateCompatibleBitmap(screen_dc, width, height);
         if bitmap.is_invalid() {
             let _ = DeleteDC(mem_dc);
             let _ = DeleteDC(screen_dc);
-            return Err(io::Error::new(io::ErrorKind::Other, "CreateCompatibleBitmap failed"));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "CreateCompatibleBitmap failed",
+            ));
         }
         let previous = SelectObject(mem_dc, HGDIOBJ(bitmap.0));
 
@@ -121,7 +135,10 @@ pub fn capture_virtual_screen() -> io::Result<Frame> {
             return Err(io::Error::new(io::ErrorKind::Other, "BitBlt failed"));
         }
         if scanlines == 0 {
-            return Err(io::Error::new(io::ErrorKind::Other, "GetDIBits returned no scanlines"));
+            return Err(io::Error::new(
+                io::ErrorKind::Other,
+                "GetDIBits returned no scanlines",
+            ));
         }
 
         Ok(Frame {

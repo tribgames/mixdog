@@ -80,10 +80,7 @@ test('a post whose files are still being taken in is not overtaken by a later po
       pastedImages: { 1: { id: 1, type: 'image', mediaType: 'image/png', filename: 'shot.png', sizeBytes: 9 } },
     },
   };
-  const posts = [
-    delivery.append(ROOM_LOG, [user]),
-    delivery.append(ROOM_LOG, [speech('later')]),
-  ];
+  const posts = [delivery.append(ROOM_LOG, [user]), delivery.append(ROOM_LOG, [speech('later')])];
   await Promise.all(posts);
   assert.deepEqual(ids(session), ['sub-1', 'later']);
 });

@@ -175,12 +175,18 @@ test('caller include entries survive, deduped, alongside encrypted reasoning', a
   let { params } = await capture(hi, 'muse-spark-1.3', [], { include });
   assert.deepEqual(params.include, ['message.output_text.logprobs', 'reasoning.encrypted_content']);
   assert.equal(include.length, 3);
-  ({ params } = await capture(hi, 'muse-spark-1.3', [], { include: ['message.output_text.logprobs'], forceReasoningOff: true }));
+  ({ params } = await capture(hi, 'muse-spark-1.3', [], {
+    include: ['message.output_text.logprobs'],
+    forceReasoningOff: true,
+  }));
   assert.deepEqual(params.include, ['message.output_text.logprobs']);
 });
 
 test('extraBody overrides win last, including over system-message instructions', async () => {
-  const sys = [{ role: 'system', content: 'from system' }, { role: 'user', content: 'hi' }];
+  const sys = [
+    { role: 'system', content: 'from system' },
+    { role: 'user', content: 'hi' },
+  ];
   let { params } = await capture(sys, 'muse-spark-1.3', [], { extraBody: { instructions: 'from extra' } });
   assert.equal(params.instructions, 'from extra');
   ({ params } = await capture(sys, 'muse-spark-1.3', [], {}));
@@ -212,7 +218,7 @@ test('penalties and extra body fields are forwarded', async () => {
 });
 
 test('unknown revisioned Spark ids inherit the newest lineage; discovery names are kept', async () => {
-  let { params } = await capture(hi, 'muse-spark-1.4', [], { effort: 'max', maxOutputTokens: 999_999 });
+  const { params } = await capture(hi, 'muse-spark-1.4', [], { effort: 'max', maxOutputTokens: 999_999 });
   assert.equal(params.max_output_tokens, 131072);
   assert.equal(params.reasoning.effort, 'xhigh');
   const provider = new MuseCodeOAuthProvider({ preconnect: false });
@@ -340,8 +346,7 @@ test('surfaced errors redact the known api key and account token values', async 
 // the 60 s first-byte timeout stays real) fire immediately.
 async function withFastBackoff(run) {
   const realSetTimeout = globalThis.setTimeout;
-  globalThis.setTimeout = (fn, ms, ...rest) =>
-    realSetTimeout(fn, ms >= 200 && ms < 20_000 ? 1 : ms, ...rest);
+  globalThis.setTimeout = (fn, ms, ...rest) => realSetTimeout(fn, ms >= 200 && ms < 20_000 ? 1 : ms, ...rest);
   try {
     return await run();
   } finally {
@@ -349,84 +354,86 @@ async function withFastBackoff(run) {
   }
 }
 
-test('retry logging on the real Responses path never writes the api key to stderr', () => withFastBackoff(async () => {
-  const provider = new MuseCodeOAuthProvider({ preconnect: false });
-  const inner = provider._ensureInner('sk-retry-secret');
-  tokens.saveTokens({ accessToken: 'a', apiKey: 'sk-retry-secret', accountId: 'u', email: '' });
-  let calls = 0;
-  inner.client = {
-    responses: {
-      create: async () => {
-        calls += 1;
-        throw Object.assign(new Error('503 upstream rejected sk-retry-secret'), { status: 503 });
-      },
-    },
-  };
-  const written = [];
-  const realWrite = process.stderr.write;
-  process.stderr.write = (chunk, ...rest) => {
-    written.push(String(chunk));
-    return true;
-  };
-  try {
-    await assert.rejects(provider.send([{ role: 'user', content: 'hi' }], 'muse-spark-1.3', [], {}));
-  } finally {
-    process.stderr.write = realWrite;
-  }
-  assert.ok(calls > 1, 'the retry path ran');
-  assert.ok(written.some((line) => line.includes('retry attempt')));
-  assert.equal(written.join('').includes('sk-retry-secret'), false);
-}));
-
-test('response.failed stream events from a real SSE server never leak the key via retry logging', () => withFastBackoff(async () => {
-  const { createServer } = await import('node:http');
-  const { default: OpenAI } = await import('openai');
-  const key = 'sk-sse-secret-key';
-  let hits = 0;
-  const server = createServer((req, res) => {
-    hits += 1;
-    req.resume();
-    res.writeHead(200, { 'content-type': 'text/event-stream' });
-    const event = {
-      type: 'response.failed',
-      response: { id: 'r', status: 'failed', error: { code: 'server_error', message: `upstream rejected ${key}` } },
-    };
-    res.end(`event: response.failed\ndata: ${JSON.stringify(event)}\n\n`);
-  });
-  await new Promise((r) => server.listen(0, '127.0.0.1', r));
-  try {
+test('retry logging on the real Responses path never writes the api key to stderr', () =>
+  withFastBackoff(async () => {
     const provider = new MuseCodeOAuthProvider({ preconnect: false });
-    const inner = provider._ensureInner(key);
-    tokens.saveTokens({ accessToken: 'a', apiKey: key, accountId: 'u', email: '' });
-    inner.client = new OpenAI({
-      apiKey: key,
-      baseURL: `http://127.0.0.1:${server.address().port}/v1`,
-      organization: null,
-      project: null,
-      maxRetries: 0,
-    });
+    const inner = provider._ensureInner('sk-retry-secret');
+    tokens.saveTokens({ accessToken: 'a', apiKey: 'sk-retry-secret', accountId: 'u', email: '' });
+    let calls = 0;
+    inner.client = {
+      responses: {
+        create: async () => {
+          calls += 1;
+          throw Object.assign(new Error('503 upstream rejected sk-retry-secret'), { status: 503 });
+        },
+      },
+    };
     const written = [];
     const realWrite = process.stderr.write;
-    process.stderr.write = (chunk) => {
+    process.stderr.write = (chunk, ...rest) => {
       written.push(String(chunk));
       return true;
     };
-    let failure;
     try {
-      await provider.send([{ role: 'user', content: 'hi' }], 'muse-spark-1.3', [], {}).catch((e) => {
-        failure = e;
-      });
+      await assert.rejects(provider.send([{ role: 'user', content: 'hi' }], 'muse-spark-1.3', [], {}));
     } finally {
       process.stderr.write = realWrite;
     }
-    assert.ok(failure, 'the failed event surfaced as an error');
-    assert.ok(hits >= 1);
-    assert.equal(String(failure.message).includes(key), false);
-    assert.equal(written.join('').includes(key), false);
-  } finally {
-    await new Promise((r) => server.close(r));
-  }
-}));
+    assert.ok(calls > 1, 'the retry path ran');
+    assert.ok(written.some((line) => line.includes('retry attempt')));
+    assert.equal(written.join('').includes('sk-retry-secret'), false);
+  }));
+
+test('response.failed stream events from a real SSE server never leak the key via retry logging', () =>
+  withFastBackoff(async () => {
+    const { createServer } = await import('node:http');
+    const { default: OpenAI } = await import('openai');
+    const key = 'sk-sse-secret-key';
+    let hits = 0;
+    const server = createServer((req, res) => {
+      hits += 1;
+      req.resume();
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const event = {
+        type: 'response.failed',
+        response: { id: 'r', status: 'failed', error: { code: 'server_error', message: `upstream rejected ${key}` } },
+      };
+      res.end(`event: response.failed\ndata: ${JSON.stringify(event)}\n\n`);
+    });
+    await new Promise((r) => server.listen(0, '127.0.0.1', r));
+    try {
+      const provider = new MuseCodeOAuthProvider({ preconnect: false });
+      const inner = provider._ensureInner(key);
+      tokens.saveTokens({ accessToken: 'a', apiKey: key, accountId: 'u', email: '' });
+      inner.client = new OpenAI({
+        apiKey: key,
+        baseURL: `http://127.0.0.1:${server.address().port}/v1`,
+        organization: null,
+        project: null,
+        maxRetries: 0,
+      });
+      const written = [];
+      const realWrite = process.stderr.write;
+      process.stderr.write = (chunk) => {
+        written.push(String(chunk));
+        return true;
+      };
+      let failure;
+      try {
+        await provider.send([{ role: 'user', content: 'hi' }], 'muse-spark-1.3', [], {}).catch((e) => {
+          failure = e;
+        });
+      } finally {
+        process.stderr.write = realWrite;
+      }
+      assert.ok(failure, 'the failed event surfaced as an error');
+      assert.ok(hits >= 1);
+      assert.equal(String(failure.message).includes(key), false);
+      assert.equal(written.join('').includes(key), false);
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  }));
 
 async function leakCheck(key, handler) {
   const { createServer } = await import('node:http');
@@ -470,17 +477,18 @@ async function leakCheck(key, handler) {
   }
 }
 
-test('response.done failed events never leak the key via retry logging', () => withFastBackoff(async () => {
-  const key = 'sk-done-secret-key';
-  await leakCheck(key, (res) => {
-    res.writeHead(200, { 'content-type': 'text/event-stream' });
-    const event = {
-      type: 'response.done',
-      response: { id: 'r', status: 'failed', error: { code: 'x', message: `upstream rejected ${key}` } },
-    };
-    res.end(`event: response.done\ndata: ${JSON.stringify(event)}\n\n`);
-  });
-}));
+test('response.done failed events never leak the key via retry logging', () =>
+  withFastBackoff(async () => {
+    const key = 'sk-done-secret-key';
+    await leakCheck(key, (res) => {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      const event = {
+        type: 'response.done',
+        response: { id: 'r', status: 'failed', error: { code: 'x', message: `upstream rejected ${key}` } },
+      };
+      res.end(`event: response.done\ndata: ${JSON.stringify(event)}\n\n`);
+    });
+  }));
 
 test('normal stream output and tool arguments pass through unchanged over a real SSE server', async () => {
   const { createServer } = await import('node:http');
@@ -489,8 +497,21 @@ test('normal stream output and tool arguments pass through unchanged over a real
   const args = JSON.stringify({ key: 'Enter', code: 'console.log(42)' });
   const text = 'password: hunter2 token=abc';
   const send = (res, type, data) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...data })}\n\n`);
-  const item = { type: 'function_call', id: 'fc1', call_id: 'call1', name: 'press', arguments: args, status: 'completed' };
-  const message = { type: 'message', id: 'm1', role: 'assistant', status: 'completed', content: [{ type: 'output_text', text }] };
+  const item = {
+    type: 'function_call',
+    id: 'fc1',
+    call_id: 'call1',
+    name: 'press',
+    arguments: args,
+    status: 'completed',
+  };
+  const message = {
+    type: 'message',
+    id: 'm1',
+    role: 'assistant',
+    status: 'completed',
+    content: [{ type: 'output_text', text }],
+  };
   const server = createServer((req, res) => {
     req.resume();
     res.writeHead(200, { 'content-type': 'text/event-stream' });
@@ -595,18 +616,19 @@ test('model listing drops image/voice ids; failure uses seeds; an empty roster i
   const seeded = await provider.listModels();
   assert.deepEqual(
     seeded.map((m) => m.id),
-    [
-      'muse-spark-1.1',
-      'muse-spark-1.2',
-      'muse-spark-1.2-contributor',
-      'muse-spark-1.3',
-      'muse-spark-1.3-contributor',
-    ]
+    ['muse-spark-1.1', 'muse-spark-1.2', 'muse-spark-1.2-contributor', 'muse-spark-1.3', 'muse-spark-1.3-contributor']
   );
   const byId = Object.fromEntries(seeded.map((m) => [m.id, m]));
   assert.equal(byId['muse-spark-1.3'].contextWindow, 1_048_576);
   assert.equal(byId['muse-spark-1.3'].outputTokens, 131_072);
-  assert.deepEqual(byId['muse-spark-1.3'].reasoningOptions[0].values, ['minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
+  assert.deepEqual(byId['muse-spark-1.3'].reasoningOptions[0].values, [
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max',
+  ]);
   assert.deepEqual(byId['muse-spark-1.2'].reasoningOptions[0].values, ['minimal', 'low', 'medium', 'high', 'xhigh']);
   assert.equal(byId['muse-spark-1.3-contributor'].reasoningOptions[0].values.includes('max'), true);
   assert.equal(byId['muse-spark-1.2-contributor'].inputCostPerM, 0.1);
@@ -669,10 +691,7 @@ test('usage 401, 403 and an inactive subscription raise reauth errors', async ()
   ]) {
     const { provider, restore } = await usageProvider(res);
     try {
-      await assert.rejects(
-        provider.getUsageSnapshot(),
-        (err) => err.reauthRequired === true && err.status === status
-      );
+      await assert.rejects(provider.getUsageSnapshot(), (err) => err.reauthRequired === true && err.status === status);
     } finally {
       restore();
     }
@@ -764,6 +783,3 @@ test('subs_usage maps to quota windows', () => {
   );
   assert.equal(windows[1].resetAt, 1893456000 * 1000);
 });
-
-
-

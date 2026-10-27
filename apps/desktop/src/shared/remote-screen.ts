@@ -4,11 +4,7 @@
  * the capture plan and its constraints — are owned by remote-webrtc.ts; this
  * module adds only the phone's key table and the sender's track opener.
  */
-import {
-  remoteScreenCaptureConstraints,
-  type RemoteScreenCapturePlan,
-  type RemoteScreenKey,
-} from './remote-webrtc';
+import { remoteScreenCaptureConstraints, type RemoteScreenCapturePlan, type RemoteScreenKey } from './remote-webrtc';
 
 // ---------------------------------------------------------------------------
 // Keys: KeyboardEvent.code → virtual key + scan code (US physical layout)
@@ -33,7 +29,10 @@ const KEY_TABLE: ReadonlyMap<string, RemoteScreenKey> = new Map<string, RemoteSc
   ]),
   ['Digit0', key(0x30, 0x0b)],
   ...NUMPAD_SCANS.map((scan, index): [string, RemoteScreenKey] => [`Numpad${index}`, key(0x60 + index, scan)]),
-  ...Array.from({ length: 10 }, (_, index): [string, RemoteScreenKey] => [`F${index + 1}`, key(0x70 + index, 0x3b + index)]),
+  ...Array.from({ length: 10 }, (_, index): [string, RemoteScreenKey] => [
+    `F${index + 1}`,
+    key(0x70 + index, 0x3b + index),
+  ]),
   ['F11', key(0x7a, 0x57)],
   ['F12', key(0x7b, 0x58)],
   ['Enter', key(0x0d, 0x1c)],

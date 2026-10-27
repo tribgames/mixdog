@@ -126,7 +126,10 @@ test('browser callback stores credentials and redirects to success', async () =>
   assert.equal(url.searchParams.get('redirect_uri'), `http://localhost:${login.port}/`);
   assert.equal(url.searchParams.get('kn'), 'mimocode');
   assert.equal(url.searchParams.get('key_name'), getKeyName());
-  assert.equal(new URL(login.manualUrl).searchParams.get('redirect_uri'), 'https://platform.xiaomimimo.com/authorize/code/callback');
+  assert.equal(
+    new URL(login.manualUrl).searchParams.get('redirect_uri'),
+    'https://platform.xiaomimimo.com/authorize/code/callback'
+  );
 
   // A request without `u` is ignored and does not end the login.
   const stray = await fetch(`http://localhost:${login.port}/favicon.ico`);

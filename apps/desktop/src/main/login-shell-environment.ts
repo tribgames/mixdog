@@ -160,7 +160,11 @@ export async function readLoginShellEnvironment({
   platform = process.platform,
   shells = loginShellCandidates(),
   budgetMs = LOGIN_SHELL_READ_BUDGET_MS,
-}: { platform?: NodeJS.Platform; shells?: string[]; budgetMs?: number } = {}): Promise<LoginShellReadResult> {
+}: {
+  platform?: NodeJS.Platform;
+  shells?: string[];
+  budgetMs?: number;
+} = {}): Promise<LoginShellReadResult> {
   const failures: LoginShellFailure[] = [];
   if (platform === 'win32') return { environment: null, failures };
   const deadline = Date.now() + budgetMs;

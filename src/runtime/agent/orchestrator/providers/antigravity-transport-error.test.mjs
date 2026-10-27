@@ -8,7 +8,11 @@ const verify = (details) =>
     JSON.stringify({ error: { code: 403, status: 'PERMISSION_DENIED', message: 'verify your account', details } }),
     'https://x'
   );
-const info = (metadata) => ({ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'VALIDATION_REQUIRED', metadata });
+const info = (metadata) => ({
+  '@type': 'type.googleapis.com/google.rpc.ErrorInfo',
+  reason: 'VALIDATION_REQUIRED',
+  metadata,
+});
 const help = (...urls) => ({
   '@type': 'type.googleapis.com/google.rpc.Help',
   links: urls.map((url) => ({ description: 'Verify', url })),
@@ -26,9 +30,13 @@ test('verification URL prefers google.rpc.Help.links', () => {
 
 test('verification URL falls back to metadata.validation_url then validation_link', () => {
   assert.equal(
-    verify([info({ validation_url: 'https://accounts.google.com/url', validation_link: 'https://accounts.google.com/link' })])
-      .validationUrl,
+    verify([
+      info({ validation_url: 'https://accounts.google.com/url', validation_link: 'https://accounts.google.com/link' }),
+    ]).validationUrl,
     'https://accounts.google.com/url'
   );
-  assert.equal(verify([info({ validation_link: 'https://accounts.google.com/link' })]).validationUrl, 'https://accounts.google.com/link');
+  assert.equal(
+    verify([info({ validation_link: 'https://accounts.google.com/link' })]).validationUrl,
+    'https://accounts.google.com/link'
+  );
 });

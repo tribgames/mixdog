@@ -6,11 +6,20 @@ import { createCompositionFinisher } from './remote-composition.ts';
 import { createRemoteTouchController, TOUCH_SLOP_PX } from './remote-browser-touch.ts';
 import { remotePinchMaxZoom, remoteVideoInputFrame, zoomRemoteView } from './remote-view-zoom.ts';
 
-const geometry = { generation: 4, cssWidth: 640, cssHeight: 360, deviceScaleFactor: 2, pixelWidth: 1280, pixelHeight: 720 };
+const geometry = {
+  generation: 4,
+  cssWidth: 640,
+  cssHeight: 360,
+  deviceScaleFactor: 2,
+  pixelWidth: 1280,
+  pixelHeight: 720,
+};
 /** Client point → page CSS pixel through the (transformed) picture box. */
 const pagePoint = (bounds, frame, x, y) => {
   const pixel = remoteBrowserImagePoint(bounds, frame, { x, y });
-  return pixel && { x: (pixel.x * frame.viewportWidth) / frame.width, y: (pixel.y * frame.viewportHeight) / frame.height };
+  return (
+    pixel && { x: (pixel.x * frame.viewportWidth) / frame.width, y: (pixel.y * frame.viewportHeight) / frame.height }
+  );
 };
 
 test('video input maps through the acknowledged geometry, and only at its locked pixel size', () => {
@@ -123,7 +132,10 @@ test('two fingers moving together sideways scroll, decided from both fingers’ 
     // One finger's report alone (spread +20, centroid +10) decides nothing.
     c.touch.move(1, 120, 100);
     assert.equal(c.pinches.length + c.sent.length, 0, 'undecided');
-    frame(c, [2, 220, 100], null, [{ x: 120, y: 100 }, { x: 220, y: 100 }]);
+    frame(c, [2, 220, 100], null, [
+      { x: 120, y: 100 },
+      { x: 220, y: 100 },
+    ]);
     c.touch.up(1, 120, 100);
     c.touch.up(2, 220, 100);
     assert.equal(c.pinches.length, 0, 'no zoom');
@@ -173,7 +185,10 @@ test('a pinch with one finger held still is decided from the snapshot that shows
   c.touch.down(2, 200, 100);
   touchStart(c, [100, 100], [200, 100]);
   // Finger 1 is held: its position comes only with the touch list.
-  frame(c, [2, 300, 100], null, [{ x: 100, y: 100 }, { x: 300, y: 100 }]);
+  frame(c, [2, 300, 100], null, [
+    { x: 100, y: 100 },
+    { x: 300, y: 100 },
+  ]);
   assert.equal(c.pinches.length, 1);
   assert.equal(c.pinches[0].scale, 2);
   assert.equal(c.sent.length, 0);
@@ -182,7 +197,10 @@ test('a pinch with one finger held still is decided from the snapshot that shows
   s.touch.down(1, 100, 100);
   s.touch.down(2, 200, 100);
   touchStart(s, [100, 100], [200, 100]);
-  frame(s, [2, 200 + TOUCH_SLOP_PX, 100], null, [{ x: 100, y: 100 }, { x: 200 + TOUCH_SLOP_PX, y: 100 }]);
+  frame(s, [2, 200 + TOUCH_SLOP_PX, 100], null, [
+    { x: 100, y: 100 },
+    { x: 200 + TOUCH_SLOP_PX, y: 100 },
+  ]);
   assert.equal(s.pinches.length + s.sent.length, 0);
 });
 
@@ -214,7 +232,10 @@ test('a moving pinch keeps the page point that was under the fingers under them'
   c.touch.down(2, 200, 100);
   touchStart(c, [100, 100], [200, 100]);
   // Spread 100 → 150 (1.5×) while the centre moves 150 → 125.
-  frame(c, [1, 50, 100], null, [{ x: 50, y: 100 }, { x: 200, y: 100 }]);
+  frame(c, [1, 50, 100], null, [
+    { x: 50, y: 100 },
+    { x: 200, y: 100 },
+  ]);
   assert.equal(view.zoom, 1.5);
   const left = center.x + view.pan.x - (size.width * view.zoom) / 2;
   const top = center.y + view.pan.y - (size.height * view.zoom) / 2;
@@ -265,7 +286,10 @@ test('with both pointer reports and touch lists, each motion is dispatched once'
     wheels.reduce((sum, wheel) => sum + wheel.deltaX, 0),
     -60
   );
-  assert.ok(wheels.every((wheel) => wheel.deltaX !== 0), 'no empty wheel');
+  assert.ok(
+    wheels.every((wheel) => wheel.deltaX !== 0),
+    'no empty wheel'
+  );
   assert.equal(c.pinches.length, 0);
 
   // A gesture whose touch list came only after pointer reports had scrolled
@@ -341,7 +365,10 @@ test('two fingers spreading pinch-zoom locally; moving together they scroll the 
   c.touch.down(2, 200, 100);
   touchStart(c, [100, 100], [200, 100]);
   frame(c, [1, 50, 100], [2, 250, 100]);
-  frame(c, [2, 350, 100], null, [{ x: 50, y: 100 }, { x: 350, y: 100 }]);
+  frame(c, [2, 350, 100], null, [
+    { x: 50, y: 100 },
+    { x: 350, y: 100 },
+  ]);
   c.touch.up(1, 50, 100);
   c.touch.up(2, 350, 100);
   assert.equal(c.sent.length, 0, 'a pinch sends nothing to the page');

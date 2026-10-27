@@ -353,7 +353,14 @@ test('format-specific Office review catches orphan headings, chart totals, and s
   assert.equal(flat.path, '/body/p[3]');
   // A level's first occurrence may be a lead-in variant: 24 then 11 is not an inconsistency.
   assert.ok(!headingReview.some((entry) => entry.code === 'heading_style_inconsistent'));
-  const para = (index, style, text, font, extra = {}) => ({ path: `/body/p[${index}]`, index, style, text, font, ...extra });
+  const para = (index, style, text, font, extra = {}) => ({
+    path: `/body/p[${index}]`,
+    index,
+    style,
+    text,
+    font,
+    ...extra,
+  });
   const levelReview = reviewOfficeStructure({
     format: 'docx',
     document: {

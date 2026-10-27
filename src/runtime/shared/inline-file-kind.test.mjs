@@ -11,7 +11,10 @@ test('inlineFileKind recognises Office files by MIME type or by extension on a g
   assert.equal(inlineFileKind('application/octet-stream', zip, 'book.xlsm'), 'office');
   assert.equal(inlineFileKind('application/zip', zip, 'bundle.zip'), 'binary');
   assert.equal(inlineFileKind('application/zip', zip), 'binary');
-  assert.equal(inlineFileKind('application/octet-stream', Buffer.from('%PDF-1.7 x').toString('base64'), 'a.docx'), 'pdf');
+  assert.equal(
+    inlineFileKind('application/octet-stream', Buffer.from('%PDF-1.7 x').toString('base64'), 'a.docx'),
+    'pdf'
+  );
 });
 
 test('base64ByteLength counts decoded bytes across every padding width', () => {

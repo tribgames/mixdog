@@ -23,10 +23,13 @@ test('a custom row with a stale providerName takes the renamed name, and drops i
   const unnamed = { providers: { 'custom-chat': { type: 'custom' } } };
   assert.equal('providerName' in hydrateProviderModelRow(unnamed, stale), false);
   assert.equal('providerName' in hydrateProviderModelRow({ providers: {} }, stale), false);
-  assert.equal(hydrateProviderModelRow(renamed, { provider: 'openai', id: 'm', providerName: 'OpenAI' }).providerName, 'OpenAI');
+  assert.equal(
+    hydrateProviderModelRow(renamed, { provider: 'openai', id: 'm', providerName: 'OpenAI' }).providerName,
+    'OpenAI'
+  );
 });
 
-const LEVELS =['low', 'medium', 'high'];
+const LEVELS = ['low', 'medium', 'high'];
 const capable = (provider, row) => hydrateProviderModelRow(cfg, { provider, ...row }).autoEffortCapable;
 
 test('autoEffortCapable: custom Chat/Responses with levels on, without levels or on Anthropic off, first-party unchanged', () => {

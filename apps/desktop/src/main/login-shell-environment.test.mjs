@@ -50,11 +50,17 @@ test('the shell wins except for probe, Electron, and launcher-set MIXDOG values'
 
 test('missing Homebrew directories that exist are appended after the shell order', () => {
   const installed = new Set(['/opt/homebrew/bin', '/opt/homebrew/sbin', '/usr/local/bin']);
-  assert.deepEqual(withHomebrewPath('/usr/local/bin:/usr/bin:/bin', (dir) => installed.has(dir)), {
-    path: '/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:/opt/homebrew/sbin',
-    added: ['/opt/homebrew/bin', '/opt/homebrew/sbin'],
-  });
-  assert.deepEqual(withHomebrewPath(undefined, () => false), { path: '', added: [] });
+  assert.deepEqual(
+    withHomebrewPath('/usr/local/bin:/usr/bin:/bin', (dir) => installed.has(dir)),
+    {
+      path: '/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:/opt/homebrew/sbin',
+      added: ['/opt/homebrew/bin', '/opt/homebrew/sbin'],
+    }
+  );
+  assert.deepEqual(
+    withHomebrewPath(undefined, () => false),
+    { path: '', added: [] }
+  );
 });
 
 test('the original PATH string is kept verbatim, empty components included', () => {
@@ -63,7 +69,10 @@ test('the original PATH string is kept verbatim, empty components included', () 
     path: ':/usr/bin::/bin::/opt/homebrew/bin',
     added: ['/opt/homebrew/bin'],
   });
-  assert.deepEqual(withHomebrewPath('/usr/bin::/bin', () => false), { path: '/usr/bin::/bin', added: [] });
+  assert.deepEqual(
+    withHomebrewPath('/usr/bin::/bin', () => false),
+    { path: '/usr/bin::/bin', added: [] }
+  );
   assert.deepEqual(withHomebrewPath('', installed), { path: '/opt/homebrew/bin', added: ['/opt/homebrew/bin'] });
 });
 

@@ -40,7 +40,10 @@ function minimalPdf(text) {
   });
   const xref = Buffer.byteLength(body, 'latin1');
   body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
-  body += offsets.slice(1).map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`).join('');
+  body += offsets
+    .slice(1)
+    .map((offset) => `${String(offset).padStart(10, '0')} 00000 n \n`)
+    .join('');
   body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
   return Buffer.from(body, 'latin1');
 }
@@ -67,7 +70,12 @@ async function history() {
         { type: 'file', data: docx, mimeType: DOCX, filename: 'plan.docx' },
         { type: 'file', data: docx, mimeType: 'application/octet-stream', filename: 'again.docx' },
         { type: 'file', data: pdf, mimeType: 'application/octet-stream', filename: 'mislabelled' },
-        { type: 'file', data: Buffer.from('a,b\n1,2\n').toString('base64'), mimeType: 'text/csv', filename: 'rows.csv' },
+        {
+          type: 'file',
+          data: Buffer.from('a,b\n1,2\n').toString('base64'),
+          mimeType: 'text/csv',
+          filename: 'rows.csv',
+        },
       ],
     },
     { role: 'assistant', content: '', toolCalls: [{ id: 'c1', name: 'read', arguments: { file_path: 'x.pdf' } }] },
@@ -131,7 +139,15 @@ test('every request builder lowers live, saved/reloaded and cold histories ident
   assert.deepEqual(await buildAll(saved), liveBodies, 'warm again');
 
   // Office text and non-native PDF text actually reached the right builders.
-  for (const name of ['anthropic', 'openaiResponses', 'openaiChat', 'customChat', 'xaiResponses', 'gemini', 'antigravity']) {
+  for (const name of [
+    'anthropic',
+    'openaiResponses',
+    'openaiChat',
+    'customChat',
+    'xaiResponses',
+    'gemini',
+    'antigravity',
+  ]) {
     assert.match(liveBodies[name], /Parity body/, name);
   }
   assert.match(liveBodies.customChat, /Parity PDF/);
@@ -165,7 +181,10 @@ test('estimates and media bytes match for inline parts and their references, wit
 test('lowering a PDF part for a text-lowering provider is an internal error, never a raw block', async () => {
   const live = await history();
   assert.throws(() => toOpenAIMessages(live, 'my-custom-gateway', TEXT_PDF), /PDF part reached text lowering/);
-  assert.throws(() => toXaiResponsesInput(live, null, { providerName: 'xai', nativePdf: false }), /PDF part reached text lowering/);
+  assert.throws(
+    () => toXaiResponsesInput(live, null, { providerName: 'xai', nativePdf: false }),
+    /PDF part reached text lowering/
+  );
   const prepared = await media.preparePdfTextForProvider(live, TEXT_PDF);
   assert.doesNotThrow(() => toOpenAIMessages(prepared, 'my-custom-gateway', TEXT_PDF));
   assert.equal(JSON.stringify(live).includes('Parity PDF'), false, 'the live history is not rewritten');

@@ -89,9 +89,7 @@ export function createFastParameterSelection({ state, currentRoute, isCurrentRou
    *  on/off) to its next option; false when the model has none. Fast is
    *  dropped when the new parameters rule it out. */
   const cycleThinking = (model) => {
-    const definition = (model.modelParameterOptions || []).find((parameter) =>
-      TOGGLE_PARAMETER_IDS.has(parameter.id)
-    );
+    const definition = (model.modelParameterOptions || []).find((parameter) => TOGGLE_PARAMETER_IDS.has(parameter.id));
     if (!definition?.options?.length) return false;
     const wanted = definition.id;
     const parameters = modelParametersFor(model);

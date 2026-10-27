@@ -49,8 +49,20 @@ async function session({ offer = true, accept = true, binary = true } = {}) {
  *  straight from the spec (ECDH → HKDF info `…\0key\0…`), never through the
  *  module under test. */
 async function legacyOracleKey(identity, challenge, clientPublicKey) {
-  const privateKey = await subtle.importKey('jwk', identity.privateKeyJwk, { name: 'ECDH', namedCurve: 'P-256' }, false, ['deriveBits']);
-  const publicKey = await subtle.importKey('raw', fromB64u(clientPublicKey), { name: 'ECDH', namedCurve: 'P-256' }, false, []);
+  const privateKey = await subtle.importKey(
+    'jwk',
+    identity.privateKeyJwk,
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    ['deriveBits']
+  );
+  const publicKey = await subtle.importKey(
+    'raw',
+    fromB64u(clientPublicKey),
+    { name: 'ECDH', namedCurve: 'P-256' },
+    false,
+    []
+  );
   const bits = await subtle.deriveBits({ name: 'ECDH', public: publicKey }, privateKey, 256);
   const material = await subtle.importKey('raw', bits, 'HKDF', false, ['deriveKey']);
   return subtle.deriveKey(
@@ -71,11 +83,35 @@ test('neither side offering: hello, proof, e2ee-ready and boxes are the legacy o
   const identity = await generateRelayE2EEServerIdentity();
   const challenge = { ...createRelayE2EEChallenge(), binaryFrames: 1, deflate: 1 };
   for (const options of [undefined, { transportWebrtc: false }]) {
-    const { hello, channel } = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), challenge, options);
-    assert.deepEqual(Object.keys(hello), ['type', 'version', 'challenge', 'clientPublicKey', 'proof', 'binaryFrames', ...(hello.deflate ? ['deflate'] : [])]);
+    const { hello, channel } = await createRelayE2EEClientHandshake(
+      relayE2EEPairingMaterial(identity),
+      challenge,
+      options
+    );
+    assert.deepEqual(Object.keys(hello), [
+      'type',
+      'version',
+      'challenge',
+      'clientPublicKey',
+      'proof',
+      'binaryFrames',
+      ...(hello.deflate ? ['deflate'] : []),
+    ]);
     // The proof is the legacy HMAC over the legacy payload.
-    const hmac = await subtle.importKey('raw', fromB64u(identity.pairingSecret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-    const expected = await subtle.sign('HMAC', hmac, enc.encode(`mixdog-relay-e2ee-v1\0hello\0${challenge.challenge}\0${identity.serverPublicKey}\0${hello.clientPublicKey}`));
+    const hmac = await subtle.importKey(
+      'raw',
+      fromB64u(identity.pairingSecret),
+      { name: 'HMAC', hash: 'SHA-256' },
+      false,
+      ['sign']
+    );
+    const expected = await subtle.sign(
+      'HMAC',
+      hmac,
+      enc.encode(
+        `mixdog-relay-e2ee-v1\0hello\0${challenge.challenge}\0${identity.serverPublicKey}\0${hello.clientPublicKey}`
+      )
+    );
     assert.equal(hello.proof, b64u(new Uint8Array(expected)));
     const server = await acceptRelayE2EEClientHello(identity, challenge, hello);
     assert.deepEqual(server.handshakeConfirmation(), {}, 'e2ee-ready gains nothing');
@@ -85,7 +121,11 @@ test('neither side offering: hello, proof, e2ee-ready and boxes are the legacy o
     const view = new DataView(box.buffer);
     assert.equal(view.getBigUint64(4, false), 1n);
     const plaintext = await subtle.decrypt(
-      { name: 'AES-GCM', iv: box.slice(12, 24), additionalData: enc.encode('mixdog-relay-e2ee-v1\0client-to-server\x001') },
+      {
+        name: 'AES-GCM',
+        iv: box.slice(12, 24),
+        additionalData: enc.encode('mixdog-relay-e2ee-v1\0client-to-server\x001'),
+      },
       key,
       box.slice(24)
     );
@@ -98,13 +138,21 @@ test('downgrade: a relay stripping the transport OFFER is caught by the client c
   const identity = await generateRelayE2EEServerIdentity();
   const challenge = { ...createRelayE2EEChallenge(), binaryFrames: 1, transportWebrtc: 1 };
   for (const tamper of [
-    (c) => { delete c.transportWebrtc; },
-    (c) => { delete c.binaryFrames; },
-    (c) => { c.transportWebrtc = 2; },
+    (c) => {
+      delete c.transportWebrtc;
+    },
+    (c) => {
+      delete c.binaryFrames;
+    },
+    (c) => {
+      c.transportWebrtc = 2;
+    },
   ]) {
     const seen = { ...challenge };
     tamper(seen);
-    const client = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), seen, { transportWebrtc: true });
+    const client = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), seen, {
+      transportWebrtc: true,
+    });
     assert.equal(client.hello.transportWebrtc, undefined, 'the client was led to the legacy path');
     // The server takes it as an older browser (authenticated legacy proof)...
     const server = await acceptRelayE2EEClientHello(identity, challenge, client.hello);
@@ -124,10 +172,18 @@ test('downgrade: stripping or altering the SELECTION fails the handshake at the 
   });
   assert.equal(client.hello.transportWebrtc, 1);
   const variants = [
-    (h) => { delete h.transportWebrtc; },
-    (h) => { delete h.binaryFrames; },
-    (h) => { delete h.viewSync; },
-    (h) => { h.deflate = 1; },
+    (h) => {
+      delete h.transportWebrtc;
+    },
+    (h) => {
+      delete h.binaryFrames;
+    },
+    (h) => {
+      delete h.viewSync;
+    },
+    (h) => {
+      h.deflate = 1;
+    },
   ];
   for (const tamper of variants) {
     const hello = { ...client.hello };
@@ -142,12 +198,20 @@ test('downgrade: stripping or altering the SELECTION fails the handshake at the 
   );
   // And a selection answering a challenge that never offered it.
   const plain = { ...createRelayE2EEChallenge(), binaryFrames: 1 };
-  const injected = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), { ...plain, transportWebrtc: 1 }, { transportWebrtc: true });
+  const injected = await createRelayE2EEClientHandshake(
+    relayE2EEPairingMaterial(identity),
+    { ...plain, transportWebrtc: 1 },
+    { transportWebrtc: true }
+  );
   await assert.rejects(() => acceptRelayE2EEClientHello(identity, plain, injected.hello), /authentication failed/);
   // binaryFrames flipped ON for the client by the relay: the client selects
   // transport, the host that offered it without binary frames refuses.
   const noBinary = { ...createRelayE2EEChallenge(), transportWebrtc: 1 };
-  const flipped = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), { ...noBinary, binaryFrames: 1 }, { transportWebrtc: true });
+  const flipped = await createRelayE2EEClientHandshake(
+    relayE2EEPairingMaterial(identity),
+    { ...noBinary, binaryFrames: 1 },
+    { transportWebrtc: true }
+  );
   assert.equal(flipped.hello.transportWebrtc, 1);
   await assert.rejects(() => acceptRelayE2EEClientHello(identity, noBinary, flipped.hello), /authentication failed/);
   // Untouched, it completes and confirms.
@@ -161,14 +225,21 @@ test('compatibility paths are explicit: an older host confirms by offering nothi
   const identity = await generateRelayE2EEServerIdentity();
   // New browser, host that offers nothing: its e2ee-ready carries no transcript.
   const plain = { ...createRelayE2EEChallenge(), binaryFrames: 1 };
-  const browser = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), plain, { transportWebrtc: true });
+  const browser = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), plain, {
+    transportWebrtc: true,
+  });
   await assert.rejects(() => browser.channel.encryptBinary({ early: 1 }), /not confirmed/);
   const host = await acceptRelayE2EEClientHello(identity, plain, browser.hello);
   browser.channel.confirmHandshake(ready(host));
   assert.deepEqual(await host.decryptJson(await browser.channel.encryptBinary({ ok: 1 })), { ok: 1 });
   // A transcript that does not match is refused even on that path.
-  const again = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), plain, { transportWebrtc: true });
-  assert.throws(() => again.channel.confirmHandshake({ type: 'e2ee-ready', transcript: 'A'.repeat(43) }), /transcript mismatch/);
+  const again = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), plain, {
+    transportWebrtc: true,
+  });
+  assert.throws(
+    () => again.channel.confirmHandshake({ type: 'e2ee-ready', transcript: 'A'.repeat(43) }),
+    /transcript mismatch/
+  );
   // Older browser (no opt-in) against an offering host: legacy session, no confirmation needed.
   const offering = { ...createRelayE2EEChallenge(), binaryFrames: 1, transportWebrtc: 1 };
   const older = await createRelayE2EEClientHandshake(relayE2EEPairingMaterial(identity), offering);
@@ -223,7 +294,11 @@ test('control and app domains reject each other’s records (cross-domain replay
   await assert.rejects(() => server.openControl(asControl, RELAY));
   // The genuine records still open in their own domain afterwards.
   assert.deepEqual(await server.decryptJson(app), { t: 'ping', id: 1 });
-  assert.deepEqual(await server.openControl(control, RELAY), { stale: false, sequence: 1, value: { t: 'ping', id: 1 } });
+  assert.deepEqual(await server.openControl(control, RELAY), {
+    stale: false,
+    sequence: 1,
+    value: { t: 'ping', id: 1 },
+  });
 });
 
 test('control domain: replay is checked per FIFO lane; lanes are independent', async () => {
@@ -248,7 +323,10 @@ test('control domain: replay is checked per FIFO lane; lanes are independent', a
   const more = [];
   for (let index = 0; index < 20; index += 1) more.push(await client.sealControl({ m: index }, A));
   const opened = await Promise.all(more.map((box) => server.openControl(box, A)));
-  assert.deepEqual(opened.map((result) => result.stale), more.map(() => false));
+  assert.deepEqual(
+    opened.map((result) => result.stale),
+    more.map(() => false)
+  );
   // Concurrent seals resolve in sequence order.
   const resolved = [];
   await Promise.all(
@@ -258,7 +336,10 @@ test('control domain: replay is checked per FIFO lane; lanes are independent', a
       })
     )
   );
-  assert.deepEqual(resolved, [...resolved].sort((a, b) => a - b));
+  assert.deepEqual(
+    resolved,
+    [...resolved].sort((a, b) => a - b)
+  );
   // Tampered ciphertext throws rather than reading as stale; so does a bad lane.
   const forged = (await client.sealControl({ f: 1 }, RELAY)).slice();
   forged[forged.length - 1] ^= 1;

@@ -41,16 +41,16 @@ use windows::Win32::Foundation::{GetLastError, FILETIME, HANDLE, HWND};
 use windows::Win32::Security::Cryptography::{
     CertFreeCertificateChain, CertGetCertificateChain, CertGetEnhancedKeyUsage, CertNameToStrW,
     CERT_CHAIN_CONTEXT, CERT_CHAIN_PARA, CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT,
-    CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT, CERT_CONTEXT, CERT_FIND_EXT_ONLY_ENHKEY_USAGE_FLAG,
-    CERT_NAME_STR_REVERSE_FLAG, CERT_STRING_TYPE, CERT_TRUST_IS_OFFLINE_REVOCATION, CERT_TRUST_IS_REVOKED,
-    CERT_TRUST_REVOCATION_STATUS_UNKNOWN, CERT_X500_NAME_STR, CRYPT_INTEGER_BLOB, CTL_USAGE,
-    X509_ASN_ENCODING,
+    CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT, CERT_CONTEXT,
+    CERT_FIND_EXT_ONLY_ENHKEY_USAGE_FLAG, CERT_NAME_STR_REVERSE_FLAG, CERT_STRING_TYPE,
+    CERT_TRUST_IS_OFFLINE_REVOCATION, CERT_TRUST_IS_REVOKED, CERT_TRUST_REVOCATION_STATUS_UNKNOWN,
+    CERT_X500_NAME_STR, CRYPT_INTEGER_BLOB, CTL_USAGE, X509_ASN_ENCODING,
 };
 use windows::Win32::Security::WinTrust::{
     WTHelperGetProvSignerFromChain, WTHelperProvDataFromStateData, WinVerifyTrust,
-    WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_FILE_INFO, WTD_CHOICE_FILE,
-    WINTRUST_DATA_PROVIDER_FLAGS, WTD_REVOCATION_CHECK_NONE, WTD_REVOKE_NONE, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY,
-    WTD_UI_NONE,
+    WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_PROVIDER_FLAGS,
+    WINTRUST_FILE_INFO, WTD_CHOICE_FILE, WTD_REVOCATION_CHECK_NONE, WTD_REVOKE_NONE,
+    WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE,
 };
 use windows::Win32::Storage::FileSystem::{
     CreateFileW, GetFileSizeEx, GetFinalPathNameByHandleW, ReadFile, SetFilePointerEx,
@@ -78,7 +78,8 @@ const ARTIFACT_SIGNING_EKU_PREFIX: &str = "1.3.6.1.4.1.311.97.";
 const ARTIFACT_SIGNING_MARKER_EKU: &str = "1.3.6.1.4.1.311.97.1.0";
 
 /// The refusal for a build that carries no pin.
-pub const NO_PIN: &str = "this helper build has no release signer pin (a local or development build); \
+pub const NO_PIN: &str =
+    "this helper build has no release signer pin (a local or development build); \
 only a signed Mixdog release can install the secure-desktop service";
 
 /// The signer identity a release must carry.
@@ -174,10 +175,20 @@ fn read_all(handle: &OwnedHandle, label: &str) -> Result<Vec<u8>, String> {
     let mut offset = 0usize;
     while offset < buffer.len() {
         let mut read = 0u32;
-        unsafe { ReadFile(handle.get(), Some(&mut buffer[offset..]), Some(&mut read), None) }
-            .map_err(|error| format!("read {label}: {error}"))?;
+        unsafe {
+            ReadFile(
+                handle.get(),
+                Some(&mut buffer[offset..]),
+                Some(&mut read),
+                None,
+            )
+        }
+        .map_err(|error| format!("read {label}: {error}"))?;
         if read == 0 {
-            return Err(format!("{label} ended early ({offset} of {} bytes)", buffer.len()));
+            return Err(format!(
+                "{label} ended early ({offset} of {} bytes)",
+                buffer.len()
+            ));
         }
         offset += read as usize;
     }
@@ -189,7 +200,11 @@ fn read_all(handle: &OwnedHandle, label: &str) -> Result<Vec<u8>, String> {
 /// The open handle is passed, so what is verified is exactly the locked file,
 /// and the signer certificate comes from that same verification state rather
 /// than from a second parse of a path. Returns the signer's subject.
-fn verify_signed_handle(path: &str, handle: &OwnedHandle, pin: &SignerPin) -> Result<String, Refusal> {
+fn verify_signed_handle(
+    path: &str,
+    handle: &OwnedHandle,
+    pin: &SignerPin,
+) -> Result<String, Refusal> {
     let wide_path = wide(path);
     let mut file_info = WINTRUST_FILE_INFO {
         cbStruct: size_of::<WINTRUST_FILE_INFO>() as u32,
@@ -208,8 +223,13 @@ fn verify_signed_handle(path: &str, handle: &OwnedHandle, pin: &SignerPin) -> Re
         ..Default::default()
     };
     data.Anonymous.pFile = &mut file_info;
-    let status =
-        unsafe { WinVerifyTrust(HWND(std::ptr::null_mut()), &mut action, &mut data as *mut _ as *mut _) };
+    let status = unsafe {
+        WinVerifyTrust(
+            HWND(std::ptr::null_mut()),
+            &mut action,
+            &mut data as *mut _ as *mut _,
+        )
+    };
     // The signer certificate lives in the provider state: use it before CLOSE.
     let verdict = if status == 0 {
         verify_signer(data.hWVTStateData, pin)
@@ -222,7 +242,11 @@ fn verify_signed_handle(path: &str, handle: &OwnedHandle, pin: &SignerPin) -> Re
     // Always release the provider state, whatever the verdict.
     data.dwStateAction = WTD_STATEACTION_CLOSE;
     unsafe {
-        WinVerifyTrust(HWND(std::ptr::null_mut()), &mut action, &mut data as *mut _ as *mut _);
+        WinVerifyTrust(
+            HWND(std::ptr::null_mut()),
+            &mut action,
+            &mut data as *mut _ as *mut _,
+        );
     }
     verdict
 }
@@ -254,7 +278,10 @@ fn signer_from_state(state: HANDLE) -> Result<(*const CERT_CONTEXT, FILETIME), S
 /// cheap), and its chain must not be revoked.
 fn verify_signer(state: HANDLE, pin: &SignerPin) -> Result<String, Refusal> {
     let (cert, verified_as_of) = signer_from_state(state)?;
-    let signer = SignerIdentity { subject: cert_subject_dn(cert)?, ekus: cert_ekus(cert)? };
+    let signer = SignerIdentity {
+        subject: cert_subject_dn(cert)?,
+        ekus: cert_ekus(cert)?,
+    };
     check_signer(&signer, pin)?;
     check_revocation(cert, &verified_as_of)?;
     Ok(signer.subject)
@@ -354,7 +381,11 @@ fn check_revocation(cert: *const CERT_CONTEXT, verified_as_of: &FILETIME) -> Res
             &mut chain,
         )
     }
-    .map_err(|error| Refusal::RevocationUnknown(format!("{REVOCATION_UNKNOWN}: build the signer chain: {error}")))?;
+    .map_err(|error| {
+        Refusal::RevocationUnknown(format!(
+            "{REVOCATION_UNKNOWN}: build the signer chain: {error}"
+        ))
+    })?;
     let error_status = unsafe { (*chain).TrustStatus.dwErrorStatus };
     unsafe { CertFreeCertificateChain(chain) };
     revocation_verdict(error_status)
@@ -370,7 +401,8 @@ fn revocation_verdict(error_status: u32) -> Result<(), Refusal> {
             "the image's signing certificate, or one of its issuers, has been revoked".into(),
         ));
     }
-    if error_status & (CERT_TRUST_REVOCATION_STATUS_UNKNOWN | CERT_TRUST_IS_OFFLINE_REVOCATION) != 0 {
+    if error_status & (CERT_TRUST_REVOCATION_STATUS_UNKNOWN | CERT_TRUST_IS_OFFLINE_REVOCATION) != 0
+    {
         return Err(Refusal::RevocationUnknown(REVOCATION_UNKNOWN.into()));
     }
     Ok(())
@@ -390,8 +422,12 @@ fn cert_subject_dn(cert: *const CERT_CONTEXT) -> Result<String, String> {
         return Err("the signer certificate has an empty subject".into());
     }
     let mut buffer = vec![0u16; length as usize];
-    let written = unsafe { CertNameToStrW(X509_ASN_ENCODING, name, format, Some(&mut buffer)) } as usize;
-    let end = buffer[..written.min(buffer.len())].iter().position(|&c| c == 0).unwrap_or(written);
+    let written =
+        unsafe { CertNameToStrW(X509_ASN_ENCODING, name, format, Some(&mut buffer)) } as usize;
+    let end = buffer[..written.min(buffer.len())]
+        .iter()
+        .position(|&c| c == 0)
+        .unwrap_or(written);
     Ok(String::from_utf16_lossy(&buffer[..end]))
 }
 
@@ -420,9 +456,14 @@ fn cert_ekus(cert: *const CERT_CONTEXT) -> Result<Vec<String>, String> {
 /// that every Artifact Signing certificate carries.
 fn is_profile_eku(eku: &str) -> bool {
     eku != ARTIFACT_SIGNING_MARKER_EKU
-        && eku.strip_prefix(ARTIFACT_SIGNING_EKU_PREFIX).is_some_and(|rest| {
-            !rest.is_empty() && rest.split('.').all(|arc| !arc.is_empty() && arc.bytes().all(|b| b.is_ascii_digit()))
-        })
+        && eku
+            .strip_prefix(ARTIFACT_SIGNING_EKU_PREFIX)
+            .is_some_and(|rest| {
+                !rest.is_empty()
+                    && rest
+                        .split('.')
+                        .all(|arc| !arc.is_empty() && arc.bytes().all(|b| b.is_ascii_digit()))
+            })
 }
 
 /// The pin from its two build-time parts: both or neither (neither = an
@@ -452,7 +493,10 @@ pub fn release_pin() -> Result<SignerPin, String> {
 /// and this helper share the one release signer. An unpinned build has none.
 pub fn release_signer_policy() -> Result<SignerPolicy, String> {
     let pin = release_pin()?;
-    Ok(SignerPolicy { subject: pin.subject, profile_eku: pin.profile_eku })
+    Ok(SignerPolicy {
+        subject: pin.subject,
+        profile_eku: pin.profile_eku,
+    })
 }
 
 /// Verify an image against a stored [`SignerPolicy`] (the delegated app's
@@ -488,12 +532,21 @@ fn check_signer(signer: &SignerIdentity, pin: &SignerPin) -> Result<(), String> 
 /// The NT path (`\Device\HarddiskVolumeN\…`) the running image is mapped from,
 /// as it is named *now*: the mapping follows the file through renames.
 fn own_image_name() -> Result<String, String> {
-    let module =
-        unsafe { GetModuleHandleW(PCWSTR::null()) }.map_err(|error| format!("locate the running image: {error}"))?;
+    let module = unsafe { GetModuleHandleW(PCWSTR::null()) }
+        .map_err(|error| format!("locate the running image: {error}"))?;
     let mut buffer = vec![0u16; 32 * 1024];
-    let length = unsafe { GetMappedFileNameW(GetCurrentProcess(), module.0 as *const core::ffi::c_void, &mut buffer) };
+    let length = unsafe {
+        GetMappedFileNameW(
+            GetCurrentProcess(),
+            module.0 as *const core::ffi::c_void,
+            &mut buffer,
+        )
+    };
     if length == 0 {
-        return Err(format!("resolve the running image's name (error {})", unsafe { GetLastError() }.0));
+        return Err(format!(
+            "resolve the running image's name (error {})",
+            unsafe { GetLastError() }.0
+        ));
     }
     Ok(String::from_utf16_lossy(&buffer[..length as usize]))
 }
@@ -504,7 +557,10 @@ fn final_nt_path(handle: &OwnedHandle) -> Result<String, String> {
     let flags = GETFINALPATHNAMEBYHANDLE_FLAGS(FILE_NAME_NORMALIZED.0 | VOLUME_NAME_NT.0);
     let length = unsafe { GetFinalPathNameByHandleW(handle.get(), &mut buffer, flags) } as usize;
     if length == 0 || length >= buffer.len() {
-        return Err(format!("resolve the held image's path (error {})", unsafe { GetLastError() }.0));
+        return Err(format!(
+            "resolve the held image's path (error {})",
+            unsafe { GetLastError() }.0
+        ));
     }
     Ok(String::from_utf16_lossy(&buffer[..length]))
 }
@@ -519,10 +575,18 @@ fn held_file_is_image(opened: &str, image_after_open: &str, held_final: &str) ->
 
 /// Verify the held file against the pin and read its bytes through the same
 /// handle.
-fn verify_held(path: &str, handle: OwnedHandle, pin: &SignerPin) -> Result<VerifiedSource, Refusal> {
+fn verify_held(
+    path: &str,
+    handle: OwnedHandle,
+    pin: &SignerPin,
+) -> Result<VerifiedSource, Refusal> {
     let subject = verify_signed_handle(path, &handle, pin)?;
     let bytes = read_all(&handle, "source image")?;
-    Ok(VerifiedSource { _handle: handle, bytes, subject })
+    Ok(VerifiedSource {
+        _handle: handle,
+        bytes,
+        subject,
+    })
 }
 
 /// Verify the running image — the bytes `install` stages — and hold it open.
@@ -557,15 +621,22 @@ mod tests {
     const PROFILE: &str = "1.3.6.1.4.1.311.97.242221699.625311035.127201735.767223184";
 
     fn signer(subject: &str, ekus: &[&str]) -> SignerIdentity {
-        SignerIdentity { subject: subject.into(), ekus: ekus.iter().map(|e| e.to_string()).collect() }
+        SignerIdentity {
+            subject: subject.into(),
+            ekus: ekus.iter().map(|e| e.to_string()).collect(),
+        }
     }
 
     #[test]
     fn an_unpinned_build_is_refused_and_a_partial_pin_is_an_error() {
         assert_eq!(pin_from(None, None), Err(NO_PIN.into()));
         assert_eq!(pin_from(Some("  "), Some("")), Err(NO_PIN.into()));
-        assert!(pin_from(Some(SUBJECT), None).unwrap_err().contains("incomplete"));
-        assert!(pin_from(None, Some(PROFILE)).unwrap_err().contains("incomplete"));
+        assert!(pin_from(Some(SUBJECT), None)
+            .unwrap_err()
+            .contains("incomplete"));
+        assert!(pin_from(None, Some(PROFILE))
+            .unwrap_err()
+            .contains("incomplete"));
         assert!(pin_from(Some(SUBJECT), Some(PROFILE)).is_ok());
     }
 
@@ -579,7 +650,9 @@ mod tests {
         assert!(!is_profile_eku(ARTIFACT_SIGNING_EKU_PREFIX));
         assert!(!is_profile_eku("1.3.6.1.4.1.311.97.12..3"));
         assert!(!is_profile_eku("1.3.6.1.4.1.311.97.12a"));
-        assert!(pin_from(Some(SUBJECT), Some("1.3.6.1.5.5.7.3.3")).unwrap_err().contains("not an Artifact"));
+        assert!(pin_from(Some(SUBJECT), Some("1.3.6.1.5.5.7.3.3"))
+            .unwrap_err()
+            .contains("not an Artifact"));
     }
 
     #[test]
@@ -589,10 +662,18 @@ mod tests {
         assert_eq!(check_signer(&signer(SUBJECT, &release), &pin), Ok(()));
         // Same CN, different DN (another organisation's validated identity).
         let other_dn = r#"CN=TRIBGAMES, O=Someone Else, L=Seoul, C=KR"#;
-        assert!(check_signer(&signer(other_dn, &release), &pin).unwrap_err().contains("not the pinned"));
+        assert!(check_signer(&signer(other_dn, &release), &pin)
+            .unwrap_err()
+            .contains("not the pinned"));
         // Another Artifact Signing profile with a copied subject.
-        let other_profile = [ARTIFACT_SIGNING_MARKER_EKU, "1.3.6.1.5.5.7.3.3", "1.3.6.1.4.1.311.97.1.2.3.4"];
-        assert!(check_signer(&signer(SUBJECT, &other_profile), &pin).unwrap_err().contains("EKU"));
+        let other_profile = [
+            ARTIFACT_SIGNING_MARKER_EKU,
+            "1.3.6.1.5.5.7.3.3",
+            "1.3.6.1.4.1.311.97.1.2.3.4",
+        ];
+        assert!(check_signer(&signer(SUBJECT, &other_profile), &pin)
+            .unwrap_err()
+            .contains("EKU"));
         // The DN comparison is exact, not a display-name or case-folded match.
         let folded = SUBJECT.to_lowercase();
         assert!(check_signer(&signer(&folded, &release), &pin).is_err());
@@ -601,7 +682,8 @@ mod tests {
     #[test]
     fn chain_building_keeps_windows_network_retrieval_and_its_default_bound() {
         use windows::Win32::Security::Cryptography::{
-            CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL, CERT_CHAIN_DISABLE_AIA, CERT_CHAIN_REVOCATION_CHECK_CACHE_ONLY,
+            CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL, CERT_CHAIN_DISABLE_AIA,
+            CERT_CHAIN_REVOCATION_CHECK_CACHE_ONLY,
         };
         // The revocation chain checks the whole chain except the root under
         // the cumulative revocation bound, and never forbids fetching an
@@ -609,7 +691,11 @@ mod tests {
         let flags = revocation_chain_flags();
         assert_ne!(flags & CERT_CHAIN_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT, 0);
         assert_ne!(flags & CERT_CHAIN_REVOCATION_ACCUMULATIVE_TIMEOUT, 0);
-        for forbidden in [CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL, CERT_CHAIN_DISABLE_AIA, CERT_CHAIN_REVOCATION_CHECK_CACHE_ONLY] {
+        for forbidden in [
+            CERT_CHAIN_CACHE_ONLY_URL_RETRIEVAL,
+            CERT_CHAIN_DISABLE_AIA,
+            CERT_CHAIN_REVOCATION_CHECK_CACHE_ONLY,
+        ] {
             assert_eq!(flags & forbidden, 0);
         }
         // WinVerifyTrust: no revocation of its own and not cache-only.
@@ -638,7 +724,10 @@ mod tests {
             CERT_TRUST_IS_OFFLINE_REVOCATION,
             CERT_TRUST_REVOCATION_STATUS_UNKNOWN | CERT_TRUST_IS_OFFLINE_REVOCATION,
         ] {
-            assert_eq!(revocation_verdict(status), Err(Refusal::RevocationUnknown(REVOCATION_UNKNOWN.into())));
+            assert_eq!(
+                revocation_verdict(status),
+                Err(Refusal::RevocationUnknown(REVOCATION_UNKNOWN.into()))
+            );
         }
     }
 
@@ -653,6 +742,10 @@ mod tests {
         let moved = name.replace("mixdog-secure-desktop.exe", "moved.exe");
         assert!(!held_file_is_image(name, &moved, name));
         // The open resolved somewhere else (a redirected path component).
-        assert!(!held_file_is_image(name, name, r"\Device\HarddiskVolume3\Users\u\planted.exe"));
+        assert!(!held_file_is_image(
+            name,
+            name,
+            r"\Device\HarddiskVolume3\Users\u\planted.exe"
+        ));
     }
 }

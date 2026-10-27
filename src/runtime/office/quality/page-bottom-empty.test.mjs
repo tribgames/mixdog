@@ -59,10 +59,14 @@ test('a page rendered alone is held against the document length, not the images 
 test('a short chapter page before a forced break, or a last page that opens one, is not sparse', async () => {
   const sparse = (review) => review.issues.filter((entry) => entry.code === 'sparse_page').map((entry) => entry.path);
   const pages = [page(1, 0.88), page(2, 0.2), page(3, 0.2)];
-  assert.deepEqual(sparse(await reviewRenderedOfficePages(pages, { format: 'pdf', pageCount: 3, forcedBreakPages: [2, 3] })), []);
-  assert.deepEqual(sparse(await reviewRenderedOfficePages(pages, { format: 'pdf', pageCount: 3, forcedBreakPages: [] })), [
-    '/page[3]',
-  ]);
+  assert.deepEqual(
+    sparse(await reviewRenderedOfficePages(pages, { format: 'pdf', pageCount: 3, forcedBreakPages: [2, 3] })),
+    []
+  );
+  assert.deepEqual(
+    sparse(await reviewRenderedOfficePages(pages, { format: 'pdf', pageCount: 3, forcedBreakPages: [] })),
+    ['/page[3]']
+  );
 });
 
 test('a page before a deliberate forced break is exempt; without break data the warning stands', async () => {

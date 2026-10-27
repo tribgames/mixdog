@@ -52,7 +52,9 @@ writeSession('sess_unrelated', [
 writeFileSync(
   join(root, 'agent-workers.json'),
   JSON.stringify({
-    workers: [{ sessionId: 'sess_child_link', parentSessionId: 'sess_parent_link', ownerSessionId: 'sess_parent_link' }],
+    workers: [
+      { sessionId: 'sess_child_link', parentSessionId: 'sess_parent_link', ownerSessionId: 'sess_parent_link' },
+    ],
   })
 );
 writeFileSync(

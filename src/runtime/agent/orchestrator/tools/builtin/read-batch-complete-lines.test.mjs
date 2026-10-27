@@ -36,7 +36,10 @@ for (const encoding of ['utf16le', 'utf16be']) {
       writeFileSync(path, encode(content, encoding));
       const args = {
         file_path: coalesced
-          ? [{ file_path: path, offset: 1, limit: 2 }, { file_path: path, offset: 4, limit: 1 }]
+          ? [
+              { file_path: path, offset: 1, limit: 2 },
+              { file_path: path, offset: 4, limit: 1 },
+            ]
           : [{ file_path: path, offset: 1, limit: 4 }],
       };
       const options = { sessionId: randomUUID(), readOutputBudgetBytes: 512, suppressReadUnchangedStub: true };
@@ -60,13 +63,19 @@ for (const encoding of ['utf16le', 'utf16be']) {
       const time = new Date('2020-01-01T00:00:00.000Z');
       utimesSync(path, time, time);
       assert.notEqual(statSync(path).mtimeMs, cachedSnapshot.mtimeMs);
-      assert.equal(isSnapshotStale(statSync(path), cachedSnapshot, path), false,
-        'metadata-only drift must not reject unchanged complete lines');
+      assert.equal(
+        isSnapshotStale(statSync(path), cachedSnapshot, path),
+        false,
+        'metadata-only drift must not reject unchanged complete lines'
+      );
       writeFileSync(path, encode(content.replace('FIRST', 'OTHER'), encoding));
       const later = new Date('2021-01-01T00:00:00.000Z');
       utimesSync(path, later, later);
-      assert.equal(isSnapshotStale(statSync(path), cachedSnapshot, path), true,
-        'changes to the complete delivered line must still be detected');
+      assert.equal(
+        isSnapshotStale(statSync(path), cachedSnapshot, path),
+        true,
+        'changes to the complete delivered line must still be detected'
+      );
     });
   }
 }
@@ -75,9 +84,16 @@ test('a batch containing only a partial first row records no complete-line evide
   const path = join(root, `${randomUUID()}.txt`);
   writeFileSync(path, encode(`${'x'.repeat(600)}\nLAST\n`, 'utf16le'));
   const options = { sessionId: randomUUID(), readOutputBudgetBytes: 512, suppressReadUnchangedStub: true };
-  const output = String(await executeBuiltinTool('read', {
-    file_path: [{ file_path: path, offset: 1, limit: 2 }],
-  }, root, options));
+  const output = String(
+    await executeBuiltinTool(
+      'read',
+      {
+        file_path: [{ file_path: path, offset: 1, limit: 2 }],
+      },
+      root,
+      options
+    )
+  );
   assert.match(output, /x{20}/);
   assert.doesNotMatch(output, /x{600}|LAST/);
   const snapshot = getReadSnapshot(path, options.sessionId);
@@ -92,12 +108,14 @@ for (const scenario of ['same-path producers', 'elided middle', 'full-file produ
     const scope = randomUUID();
     const identity = { mtimeMs: 1, ctimeMs: 2, size: 20, ino: 3, dev: 4 };
     const entries = scenario === 'same-path producers' ? [{ path }, { path }] : [{ path }];
-    const bodies = scenario === 'same-path producers'
-      ? ['1→FIRST\n2→PAR', '2→COMPLETE']
-      : ['1→FIRST\n... omitted ...\n3→LAST\n[lines 1-3 of 3]'];
-    const certified = scenario === 'same-path producers'
-      ? [[{ startLine: 1, endLine: 1 }], [{ startLine: 2, endLine: 2 }]]
-      : [[{ startLine: 1, endLine: scenario === 'full-file producer' ? Infinity : 3 }]];
+    const bodies =
+      scenario === 'same-path producers'
+        ? ['1→FIRST\n2→PAR', '2→COMPLETE']
+        : ['1→FIRST\n... omitted ...\n3→LAST\n[lines 1-3 of 3]'];
+    const certified =
+      scenario === 'same-path producers'
+        ? [[{ startLine: 1, endLine: 1 }], [{ startLine: 2, endLine: 2 }]]
+        : [[{ startLine: 1, endLine: scenario === 'full-file producer' ? Infinity : 3 }]];
     let saved;
     const helpers = {
       resolveAgainstCwd: (path) => path,
@@ -105,18 +123,23 @@ for (const scenario of ['same-path producers', 'elided middle', 'full-file produ
       _hashText: hash,
       _mergeReadRanges: mergeReadRanges,
       _rangeHashesFromRenderedReadText: rangeHashesFromRenderedReadText,
-      _recordReadSnapshot: (_path, _st, _scope, meta) => { saved = meta; },
+      _recordReadSnapshot: (_path, _st, _scope, meta) => {
+        saved = meta;
+      },
     };
-    const child = (_name, args, _cwd, options) => runReadCachePublication(path, async () => {
-      const index = entries.indexOf(args);
-      options._readSnapshotRecorder(path, identity, scope, { ranges: certified[index] });
-      return bodies[index];
-    });
+    const child = (_name, args, _cwd, options) =>
+      runReadCachePublication(path, async () => {
+        const index = entries.indexOf(args);
+        options._readSnapshotRecorder(path, identity, scope, { ranges: certified[index] });
+        return bodies[index];
+      });
     const output = await runBatchReadSnapshotPublication(child, helpers, async (executeChild, snapshotHelpers) => {
       const results = [];
       for (const readEntry of entries) {
         results.push({
-          path, mode: 'full', readEntry,
+          path,
+          mode: 'full',
+          readEntry,
           body: await executeChild('read', readEntry, root),
         });
       }
@@ -125,9 +148,13 @@ for (const scenario of ['same-path producers', 'elided middle', 'full-file produ
     });
     assert.equal(output, bodies.join('\n'), 'evidence filtering must not rewrite delivered text');
     const lastLine = scenario === 'same-path producers' ? 2 : 3;
-    assert.deepEqual(saved.ranges, mergeReadRanges([
-      { startLine: 1, endLine: 1 }, { startLine: lastLine, endLine: lastLine },
-    ]));
+    assert.deepEqual(
+      saved.ranges,
+      mergeReadRanges([
+        { startLine: 1, endLine: 1 },
+        { startLine: lastLine, endLine: lastLine },
+      ])
+    );
     assert.deepEqual(saved.rangeHashes, [
       { startLine: 1, endLine: 1, hash: hash('FIRST') },
       { startLine: lastLine, endLine: lastLine, hash: hash(lastLine === 2 ? 'COMPLETE' : 'LAST') },

@@ -54,7 +54,11 @@ test('geminiRestError maps details/errorDetails into the contract fields', () =>
       code: 429,
       status: 'RESOURCE_EXHAUSTED',
       message: 'quota',
-      errorDetails: [errorInfo('QUOTA_EXHAUSTED'), quotaFailure('GenerateRequestsPerDayPerProjectPerModel'), retryInfo('3600s')],
+      errorDetails: [
+        errorInfo('QUOTA_EXHAUSTED'),
+        quotaFailure('GenerateRequestsPerDayPerProjectPerModel'),
+        retryInfo('3600s'),
+      ],
     },
   };
   const err = geminiRestError(res, JSON.stringify(body), 'Gemini');
@@ -194,14 +198,29 @@ test('zero RetryInfo is no advice: normal backoff, and the 60s window for a per-
 test('ErrorInfo QUOTA_EXHAUSTED and "limit: 0" are spent quotas with no window', () => {
   assert.equal(geminiErrorContract({ details: [errorInfo('QUOTA_EXHAUSTED')] }).quotaScope, 'plan');
   assert.equal(geminiErrorContract({ details: [errorInfo('INSUFFICIENT_G1_CREDITS_BALANCE')] }).quotaScope, 'plan');
-  const zeroLimit = { violations: [{ quotaId: 'GenerateContentFreeTierRequests', description: 'Quota exceeded, limit: 0, model: x' }] };
-  assert.equal(geminiErrorContract({ details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure', ...zeroLimit }] }).quotaScope, 'plan');
+  const zeroLimit = {
+    violations: [{ quotaId: 'GenerateContentFreeTierRequests', description: 'Quota exceeded, limit: 0, model: x' }],
+  };
   assert.equal(
-    geminiErrorContract({ details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaValue: '0' }] }] }).quotaScope,
+    geminiErrorContract({ details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure', ...zeroLimit }] })
+      .quotaScope,
     'plan'
   );
   assert.equal(
-    geminiErrorContract({ details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ description: 'limit: 0.5 something' }] }] }).quotaScope,
+    geminiErrorContract({
+      details: [{ '@type': 'type.googleapis.com/google.rpc.QuotaFailure', violations: [{ quotaValue: '0' }] }],
+    }).quotaScope,
+    'plan'
+  );
+  assert.equal(
+    geminiErrorContract({
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+          violations: [{ description: 'limit: 0.5 something' }],
+        },
+      ],
+    }).quotaScope,
     undefined
   );
 });
@@ -213,12 +232,23 @@ test('"limit: 0" in message text alone is never quota evidence', () => {
 
 test('a typed deterministic reason on a 503/529 is not restamped as capacity', () => {
   for (const status of [503, 529]) {
-    const body = { error: { code: status, status: 'INVALID_ARGUMENT', message: 'bad request', details: [errorInfo('INVALID_ARGUMENT')] } };
+    const body = {
+      error: {
+        code: status,
+        status: 'INVALID_ARGUMENT',
+        message: 'bad request',
+        details: [errorInfo('INVALID_ARGUMENT')],
+      },
+    };
     const err = antigravityError({ status, headers: new Headers() }, JSON.stringify(body), 'https://x');
     assert.notEqual(err.code, 'model_capacity_exhausted');
     assert.equal(isAntigravityCapacityError(err), false);
   }
-  const plain = antigravityError({ status: 503, headers: new Headers() }, JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE', message: 'busy' } }), 'https://x');
+  const plain = antigravityError(
+    { status: 503, headers: new Headers() },
+    JSON.stringify({ error: { code: 503, status: 'UNAVAILABLE', message: 'busy' } }),
+    'https://x'
+  );
   assert.equal(plain.code, 'model_capacity_exhausted');
 });
 
@@ -230,7 +260,8 @@ test('delay is read from the message when no RetryInfo is present', () => {
 });
 
 test('reset parsing accepts compound Go durations and bare seconds', () => {
-  const meta = (quotaResetDelay) => geminiErrorContract({ details: [errorInfo('RATE_LIMIT_EXCEEDED', { quotaResetDelay })] });
+  const meta = (quotaResetDelay) =>
+    geminiErrorContract({ details: [errorInfo('RATE_LIMIT_EXCEEDED', { quotaResetDelay })] });
   assert.equal(meta('1h16m0.667s').retryAfterMs, 4_560_667);
   assert.equal(meta('30').retryAfterMs, 30_000);
   assert.equal(meta('200ms').retryAfterMs, 200);
@@ -252,15 +283,38 @@ test('capacity is an overload, never a quota, and a typed reason outranks capaci
   assert.equal(quota.code, 'quota_exhausted');
   assert.equal(quota.quotaScope, 'plan');
   assert.equal(quota.retryAfterMs, 13_440_000);
-  assert.equal(geminiErrorContract({ details: [quotaFailure('PerMinute')], message: 'capacity exceeded' }).code, undefined);
+  assert.equal(
+    geminiErrorContract({ details: [quotaFailure('PerMinute')], message: 'capacity exceeded' }).code,
+    undefined
+  );
 });
 
 for (const [name, status, body, expected] of [
-  ['503 is capacity by status', 503, { code: 503, status: 'UNAVAILABLE', message: 'try later' }, 'model_capacity_exhausted'],
+  [
+    '503 is capacity by status',
+    503,
+    { code: 503, status: 'UNAVAILABLE', message: 'try later' },
+    'model_capacity_exhausted',
+  ],
   ['529 is capacity by status', 529, { code: 529, message: 'Overloaded' }, 'model_capacity_exhausted'],
-  ['429 "overloaded" wording is capacity', 429, { code: 429, message: 'The model is overloaded' }, 'model_capacity_exhausted'],
-  ['429 "per minute" wording is an RPM limit', 429, { code: 429, message: 'Too many requests per minute' }, 'rate_limit_exceeded'],
-  ['429 "quota" wording alone is not a typed quota refusal', 429, { code: 429, message: 'You exceeded your current quota' }, undefined],
+  [
+    '429 "overloaded" wording is capacity',
+    429,
+    { code: 429, message: 'The model is overloaded' },
+    'model_capacity_exhausted',
+  ],
+  [
+    '429 "per minute" wording is an RPM limit',
+    429,
+    { code: 429, message: 'Too many requests per minute' },
+    'rate_limit_exceeded',
+  ],
+  [
+    '429 "quota" wording alone is not a typed quota refusal',
+    429,
+    { code: 429, message: 'You exceeded your current quota' },
+    undefined,
+  ],
 ]) {
   test(`antigravityError: ${name}`, () => {
     const err = antigravityError({ status, headers: new Headers() }, JSON.stringify({ error: body }), 'e');

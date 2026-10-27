@@ -18,7 +18,9 @@ const IMAGE = 'iVBORw0KGgo=';
 
 test('Responses input_image keeps a supplied detail and leaves unsupplied or unknown detail out', () => {
   for (const detail of ['low', 'high', 'auto', 'original']) {
-    const out = media.normalizeContentForOpenAIResponses([{ type: 'image', data: IMAGE, mimeType: 'image/png', detail }]);
+    const out = media.normalizeContentForOpenAIResponses([
+      { type: 'image', data: IMAGE, mimeType: 'image/png', detail },
+    ]);
     assert.deepEqual(out, [{ type: 'input_image', image_url: `data:image/png;base64,${IMAGE}`, detail }]);
   }
   const nested = media.normalizeContentForOpenAIResponses([
@@ -58,7 +60,10 @@ test('Chat cache_control and multipart system content are kept only when the cal
   ];
   assert.equal(media.normalizeContentForOpenAIChat(system, { role: 'system' }), 'rules\nmore');
   assert.deepEqual(media.normalizeContentForOpenAIChat(system, { role: 'system', cacheControl: true }), system);
-  assert.equal(media.normalizeContentForOpenAIChat([{ type: 'text', text: 'solo' }], { role: 'system', cacheControl: true }), 'solo');
+  assert.equal(
+    media.normalizeContentForOpenAIChat([{ type: 'text', text: 'solo' }], { role: 'system', cacheControl: true }),
+    'solo'
+  );
   const user = [{ type: 'text', text: 'ctx', cache_control: { type: 'ephemeral' } }];
   assert.deepEqual(media.normalizeContentForOpenAIChat(user), [{ type: 'text', text: 'ctx' }]);
   assert.deepEqual(media.normalizeContentForOpenAIChat(user, { cacheControl: true }), user);
@@ -105,7 +110,13 @@ test('a provider without native documents gets every document variant as text, o
         { type: 'document', title: 'Notes', source: { type: 'text', media_type: 'text/plain', data: 'plain notes' } },
         {
           type: 'document',
-          source: { type: 'content', content: [{ type: 'text', text: 'block one' }, { type: 'text', text: 'block two' }] },
+          source: {
+            type: 'content',
+            content: [
+              { type: 'text', text: 'block one' },
+              { type: 'text', text: 'block two' },
+            ],
+          },
         },
         { type: 'text', text: 'question' },
       ],

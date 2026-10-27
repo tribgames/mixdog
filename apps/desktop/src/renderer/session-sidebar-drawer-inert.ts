@@ -40,8 +40,9 @@ export function usePhoneDrawerInert(
     if (!open) restoreSidebarFocus(sidebar);
     const frame = sidebar.closest('.sidebar-drawer-frame');
     const sliding = (): boolean =>
-      frame?.getAnimations().some((a) => (a as CSSTransition).transitionProperty === 'transform' && a.playState === 'running') ??
-      false;
+      frame
+        ?.getAnimations()
+        .some((a) => (a as CSSTransition).transitionProperty === 'transform' && a.playState === 'running') ?? false;
     // A drag release commits while the gesture's inline end-state paint is
     // still on the sheet: say so, so a paint at rest is handed to the class
     // (touch-gestures.ts) before reading whether a slide is running.

@@ -28,7 +28,12 @@ test('a valid block parses into normalized controls', () => {
   const { tweaks } = parseVisualizeTweaks(block(accent, size, density, dark));
   assert.deepEqual(
     tweaks.map((tweak) => [tweak.id, tweak.type, tweak.default]),
-    [['accent', 'color', '#3b82f6'], ['size', 'range', '14'], ['density', 'select', 'cozy'], ['dark', 'toggle', 'false']]
+    [
+      ['accent', 'color', '#3b82f6'],
+      ['size', 'range', '14'],
+      ['density', 'select', 'cozy'],
+      ['dark', 'toggle', 'false'],
+    ]
   );
   assert.equal(tweaks[1].unit, 'px');
   assert.equal(tweaks[2].options[1].label, 'compact');
@@ -40,7 +45,10 @@ test('a malformed block is refused with a reason the agent can act on', () => {
   assert.match(reason('{'), /not valid JSON/);
   assert.match(reason('{}'), /non-empty JSON array/);
   assert.match(reason('[]'), /non-empty JSON array/);
-  assert.match(reason(block(...Array.from({ length: MAX_VISUALIZE_TWEAKS + 1 }, (_, i) => ({ ...accent, id: `a${i}` })))), /at most 16/);
+  assert.match(
+    reason(block(...Array.from({ length: MAX_VISUALIZE_TWEAKS + 1 }, (_, i) => ({ ...accent, id: `a${i}` })))),
+    /at most 16/
+  );
   assert.match(reason(block(3)), /not an object/);
   assert.match(reason(block({ ...accent, id: 'bad id' })), /needs an id/);
   assert.match(reason(block({ ...accent, type: 'slider' })), /type must be/);

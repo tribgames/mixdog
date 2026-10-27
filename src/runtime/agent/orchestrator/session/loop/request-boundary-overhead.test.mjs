@@ -16,9 +16,7 @@ import test from 'node:test';
 // (static imports would be resolved and loaded before it runs).
 const { prepareProviderRequest } = await import('./request-boundary.mjs');
 const { recordProviderContextBaseline } = await import('./compact-policy.mjs');
-const { applyDeferredToolSurface, snapshotProviderRequestTools } = await import(
-  '../../runtime-core/tool-catalog.mjs'
-);
+const { applyDeferredToolSurface, snapshotProviderRequestTools } = await import('../../runtime-core/tool-catalog.mjs');
 const { presentErrorText } = await import('../../../../shared/err-text.mjs');
 const { describeError } = await import('../../../../shared/error-presentation.mjs');
 const { providerErrorKind } = await import('../../providers/provider-error-kind.mjs');
@@ -92,11 +90,7 @@ function session(provider, { contextWindow, tools = [], history = [], compaction
     compactBoundaryTokens: contextWindow,
     compaction: { auto: true, ...compaction },
     tools,
-    messages: [
-      { role: 'system', content: 'System rules.' },
-      ...history,
-      { role: 'user', content: 'current request' },
-    ],
+    messages: [{ role: 'system', content: 'System rules.' }, ...history, { role: 'user', content: 'current request' }],
     ...extra,
   };
 }
@@ -248,17 +242,19 @@ test('review: a provider-measured request below the boundary is never refused on
     messages: measured.messages,
     session: measured,
   });
-  assert.equal(
-    recordProviderContextBaseline(measured, measured.messages, { inputTokens: 6_000 }, { sendTools }),
-    true
-  );
+  assert.equal(recordProviderContextBaseline(measured, measured.messages, { inputTokens: 6_000 }, { sendTools }), true);
   const summary = summarizer('anthropic-oauth');
   await boundary(measured, summary);
   assert.deepEqual(summary.calls, []);
 
   // A reading taken with other tool schemas does not vouch for these.
   const retooled = session('anthropic-oauth', { contextWindow: 8_000, tools: overEstimatedTools() });
-  recordProviderContextBaseline(retooled, retooled.messages, { inputTokens: 6_000 }, { sendTools: [wideTool('x', 10)] });
+  recordProviderContextBaseline(
+    retooled,
+    retooled.messages,
+    { inputTokens: 6_000 },
+    { sendTools: [wideTool('x', 10)] }
+  );
   await assert.rejects(boundary(retooled, summarizer('anthropic-oauth')), { code: 'TOOL_SURFACE_EXCEEDS_CONTEXT' });
 });
 

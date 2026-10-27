@@ -28,7 +28,12 @@ function page(html, { width = 375, height = 812 } = {}) {
       return { left: x, top: y, width: w, height: h, right: x + w, bottom: y + h };
     },
   });
-  for (const [property, name] of [['scrollWidth', 'data-sw'], ['clientWidth', 'data-cw'], ['scrollHeight', 'data-sh'], ['clientHeight', 'data-ch']]) {
+  for (const [property, name] of [
+    ['scrollWidth', 'data-sw'],
+    ['clientWidth', 'data-cw'],
+    ['scrollHeight', 'data-sh'],
+    ['clientHeight', 'data-ch'],
+  ]) {
     Object.defineProperty(window.Element.prototype, property, {
       configurable: true,
       get() {
@@ -87,22 +92,42 @@ test('layout findings: overflow, clipped text, overlap, tap targets, contrast, a
   const by = (kind) => result.findings.filter((finding) => finding.kind === kind);
   assert.match(by('overflow-x')[0].message, /500px wide in a 375px viewport/);
   assert.equal(by('overflow-x')[0].severity, 'error');
-  assert.deepEqual(by('clipped-text').map((finding) => finding.selector), ['#clip']);
-  assert.deepEqual(by('overlap').map((finding) => finding.selector), ['#a']);
+  assert.deepEqual(
+    by('clipped-text').map((finding) => finding.selector),
+    ['#clip']
+  );
+  assert.deepEqual(
+    by('overlap').map((finding) => finding.selector),
+    ['#a']
+  );
   assert.match(by('overlap')[0].message, /Beta/);
-  assert.deepEqual(by('small-target').map((finding) => finding.selector), ['#tiny']);
+  assert.deepEqual(
+    by('small-target').map((finding) => finding.selector),
+    ['#tiny']
+  );
   assert.match(by('small-target')[0].message, /16x16/);
-  assert.deepEqual(by('low-contrast').map((finding) => finding.selector), ['#faint']);
+  assert.deepEqual(
+    by('low-contrast').map((finding) => finding.selector),
+    ['#faint']
+  );
   assert.match(by('low-contrast')[0].message, /4\.4:1 is below 4\.5:1 \(#777777 on #ffffff\)/);
-  assert.deepEqual(by('image-alt').map((finding) => finding.selector), ['#logo']);
-  assert.deepEqual(by('unlabeled-input').map((finding) => finding.selector), ['#email']);
+  assert.deepEqual(
+    by('image-alt').map((finding) => finding.selector),
+    ['#logo']
+  );
+  assert.deepEqual(
+    by('unlabeled-input').map((finding) => finding.selector),
+    ['#email']
+  );
   assert.equal(result.contrastUnknown, 1, 'text over a gradient is unknown, not a finding');
   assert.equal(result.findingCount, result.findings.length);
 });
 
 test('the walk stops at the node cap instead of listing the whole document', () => {
   const spans = '<i></i>'.repeat(4100);
-  const window = page(`<html><body data-box="0,0,375,812"><main data-box="0,0,375,100"><button id="first" data-box="0,0,100,44">Go</button></main>${spans}</body></html>`);
+  const window = page(
+    `<html><body data-box="0,0,375,812"><main data-box="0,0,375,100"><button id="first" data-box="0,0,100,44">Go</button></main>${spans}</body></html>`
+  );
   let steps = 0;
   const create = window.document.createTreeWalker.bind(window.document);
   window.document.createTreeWalker = (...args) => {
@@ -129,9 +154,12 @@ test('the walk stops at the node cap instead of listing the whole document', () 
 
 test('overlap findings match an all-pairs check across grid cells, wide boxes and nesting', () => {
   const targets = [
-    ['p1', '120,0,40,40'], ['p2', '130,10,40,40'], // straddle a cell edge: overlap
-    ['q1', '300,300,50,50'], ['q2', '340,340,50,50'], // 100px² of 2500: below the threshold
-    ['r1', '500,500,60,60'], ['r2', '505,505,60,60'], // overlap
+    ['p1', '120,0,40,40'],
+    ['p2', '130,10,40,40'], // straddle a cell edge: overlap
+    ['q1', '300,300,50,50'],
+    ['q2', '340,340,50,50'], // 100px² of 2500: below the threshold
+    ['r1', '500,500,60,60'],
+    ['r2', '505,505,60,60'], // overlap
     ['u', '200,1200,40,40'], // before the wide box
   ];
   const html = `<html data-cw="375" data-sw="375"><body data-box="0,0,375,812">
@@ -140,8 +168,16 @@ test('overlap findings match an all-pairs check across grid cells, wide boxes an
     <div id="w" onclick="0" data-box="0,1000,3000,3000"><button id="s" data-box="10,1010,40,40">s</button></div>
     <button id="t" data-box="100,1100,40,40">t</button>
   </body></html>`;
-  const boxes = new Map([...targets, ['n1', '700,0,100,50'], ['n2', '710,5,50,30'], ['w', '0,1000,3000,3000'], ['s', '10,1010,40,40'], ['t', '100,1100,40,40']]
-    .map(([id, box]) => [id, box.split(',').map(Number)]));
+  const boxes = new Map(
+    [
+      ...targets,
+      ['n1', '700,0,100,50'],
+      ['n2', '710,5,50,30'],
+      ['w', '0,1000,3000,3000'],
+      ['s', '10,1010,40,40'],
+      ['t', '100,1100,40,40'],
+    ].map(([id, box]) => [id, box.split(',').map(Number)])
+  );
   const nested = new Set(['n1>n2', 'w>s']);
   const order = ['p1', 'p2', 'q1', 'q2', 'r1', 'r2', 'u', 'n1', 'n2', 'w', 's', 't'];
   const expected = [];
@@ -152,7 +188,8 @@ test('overlap findings match an all-pairs check across grid cells, wide boxes an
       const [bx, by, bw, bh] = boxes.get(order[b]);
       const width = Math.min(ax + aw, bx + bw) - Math.max(ax, bx);
       const height = Math.min(ay + ah, by + bh) - Math.max(ay, by);
-      if (width > 0 && height > 0 && width * height > 0.2 * Math.min(aw * ah, bw * bh)) expected.push(`${order[a]}>${order[b]}`);
+      if (width > 0 && height > 0 && width * height > 0.2 * Math.min(aw * ah, bw * bh))
+        expected.push(`${order[a]}>${order[b]}`);
     }
   }
   assert.deepEqual(expected, ['p1>p2', 'r1>r2', 'u>w', 'w>t']);
@@ -164,25 +201,40 @@ test('overlap findings match an all-pairs check across grid cells, wide boxes an
 });
 
 test('stacked large controls sharing many grid cells still report overlaps and stay complete', () => {
-  const buttons = Array.from({ length: 84 }, (_, i) => `<button id="b${i}" data-box="0,0,800,800">b${i}</button>`).join('');
+  const buttons = Array.from({ length: 84 }, (_, i) => `<button id="b${i}" data-box="0,0,800,800">b${i}</button>`).join(
+    ''
+  );
   const result = run(page(`<html><body data-box="0,0,375,812">${buttons}</body></html>`));
   assert.equal(result.partial, false);
   assert.ok(result.findings.some((finding) => finding.kind === 'overlap'));
 });
 
 test('an exhausted overlap budget marks the result partial instead of reporting it complete', () => {
-  const wide = Array.from({ length: 1500 }, (_, i) => `<button id="w${i}" data-box="0,0,3000,3000">w${i}</button>`).join('');
+  const wide = Array.from(
+    { length: 1500 },
+    (_, i) => `<button id="w${i}" data-box="0,0,3000,3000">w${i}</button>`
+  ).join('');
   const result = run(page(`<html><body data-box="0,0,375,812">${wide}</body></html>`));
   assert.equal(result.partial, true);
-  assert.ok(result.findings.some((finding) => finding.kind === 'overlap'), 'rows before the budget ran out are still checked');
+  assert.ok(
+    result.findings.some((finding) => finding.kind === 'overlap'),
+    'rows before the budget ran out are still checked'
+  );
 });
 
 test('a page that fits has no findings; a selector scopes the read-out', () => {
-  const fits = run(page('<html data-cw="375" data-sw="375"><body><main data-box="0,0,375,100"><button data-box="0,0,100,44">Go</button></main></body></html>'));
+  const fits = run(
+    page(
+      '<html data-cw="375" data-sw="375"><body><main data-box="0,0,375,100"><button data-box="0,0,100,44">Go</button></main></body></html>'
+    )
+  );
   assert.equal(fits.findingCount, 0);
   const scoped = run(page(FIXTURE), { selector: 'main > h1' });
   assert.equal(scoped.scope, 'main > h1');
-  assert.deepEqual(scoped.outline.map((item) => item.name), ['Dashboard']);
+  assert.deepEqual(
+    scoped.outline.map((item) => item.name),
+    ['Dashboard']
+  );
   assert.equal(scoped.elementCount, 0);
   assert.deepEqual(run(page(FIXTURE), { selector: '#missing' }), { error: 'the selector matched nothing' });
   assert.deepEqual(run(page(FIXTURE), { selector: ':::' }), { error: 'invalid selector' });
@@ -193,7 +245,11 @@ test('secret field values are never included', () => {
   assert.equal(result.elements.find((element) => element.selector === '#pw').value, '[redacted]');
   assert.equal(result.elements.find((element) => element.selector === '#nick').value, 'ada');
   const token = 'sk-' + 'a1'.repeat(20);
-  const leaked = run(page(`<html><body data-box="0,0,100,100"><input name="api_key" value="${token}" aria-label="Key" data-box="0,0,100,40"><button data-box="0,50,100,40">Use ${token}</button></body></html>`));
+  const leaked = run(
+    page(
+      `<html><body data-box="0,0,100,100"><input name="api_key" value="${token}" aria-label="Key" data-box="0,0,100,40"><button data-box="0,50,100,40">Use ${token}</button></body></html>`
+    )
+  );
   assert.ok(!JSON.stringify(leaked).includes(token));
   assert.equal(leaked.elements[0].value, '[redacted]');
   assert.ok(!formatPageInspection(visualizePageInspection(leaked), 'x').includes(token));
@@ -216,14 +272,26 @@ test('contrast math follows WCAG', () => {
 });
 
 test('large text needs only 3:1, and a translucent backdrop is composited', () => {
-  const big = run(page('<html><body><h2 style="color:#888;background-color:#fff;font-size:30px" data-box="0,0,200,40">Big</h2></body></html>'));
+  const big = run(
+    page(
+      '<html><body><h2 style="color:#888;background-color:#fff;font-size:30px" data-box="0,0,200,40">Big</h2></body></html>'
+    )
+  );
   assert.equal(big.findings.filter((finding) => finding.kind === 'low-contrast').length, 0, '#888 on white is 3.5:1');
-  const dim = run(page('<html><body style="background-color:#000"><div style="background-color:rgba(255,255,255,0.1)"><p style="color:#333" data-box="0,0,200,20">Dim</p></div></body></html>'));
+  const dim = run(
+    page(
+      '<html><body style="background-color:#000"><div style="background-color:rgba(255,255,255,0.1)"><p style="color:#333" data-box="0,0,200,20">Dim</p></div></body></html>'
+    )
+  );
   assert.equal(dim.findings.filter((finding) => finding.kind === 'low-contrast').length, 1);
 });
 
 test('the element list is capped and the read-out stays within its budget', () => {
-  const buttons = Array.from({ length: 260 }, (_, index) => `<button id="b${index}" data-box="0,${index * 50},120,44">Button number ${index} with a fairly long accessible name</button>`).join('');
+  const buttons = Array.from(
+    { length: 260 },
+    (_, index) =>
+      `<button id="b${index}" data-box="0,${index * 50},120,44">Button number ${index} with a fairly long accessible name</button>`
+  ).join('');
   const result = run(page(`<html data-cw="375" data-sw="375"><body>${buttons}</body></html>`));
   assert.equal(result.elements.length, MAX_INSPECT_ELEMENTS);
   assert.equal(result.elementCount, 260);
@@ -243,7 +311,10 @@ test('the sanitizer bounds a page-controlled answer', () => {
     page: {},
     outline: [],
     elements: [{ role: 'button', name: 'n'.repeat(500), flags: ['secret'], value: 'hunter2', x: NaN, w: -4 }],
-    findings: [{ kind: 'not-a-kind', message: 'x' }, { kind: 'overlap', severity: 'weird', message: 'm', selector: 's' }],
+    findings: [
+      { kind: 'not-a-kind', message: 'x' },
+      { kind: 'overlap', severity: 'weird', message: 'm', selector: 's' },
+    ],
     elementCount: 3,
     findingCount: 9,
   });
@@ -252,7 +323,10 @@ test('the sanitizer bounds a page-controlled answer', () => {
   assert.equal(forged.elements[0].name.length, 80);
   assert.equal(forged.elements[0].value, '[redacted]');
   assert.equal(forged.elements[0].w, 0);
-  assert.deepEqual(forged.findings.map((finding) => [finding.kind, finding.severity]), [['overlap', 'warning']]);
+  assert.deepEqual(
+    forged.findings.map((finding) => [finding.kind, finding.severity]),
+    [['overlap', 'warning']]
+  );
   assert.deepEqual([forged.elementCount, forged.findingCount], [3, 9]);
 });
 
@@ -290,7 +364,11 @@ test('what a user typed never becomes a name: textareas, editable regions, refer
   const named = (selector) => result.elements.find((element) => element.selector === selector)?.name;
   const names = result.elements.map((element) => element.name);
   assert.ok(names.includes('Token'), 'the label text stays, without the field content');
-  assert.equal(result.elements.find((element) => element.tag === 'div').name, '', 'an editable region is named by none of its content');
+  assert.equal(
+    result.elements.find((element) => element.tag === 'div').name,
+    '',
+    'an editable region is named by none of its content'
+  );
   assert.ok(names.includes('Pick'));
   assert.equal(named('#other'), '', 'aria-labelledby on a secret field names nothing');
   assert.equal(named('#other2'), '', 'nor does one on an editable region');

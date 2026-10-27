@@ -144,9 +144,18 @@ test('lists servable models from /provider/v1/models', async () => {
 test('modelWire: Responses for GPT/Muse/Grok when advertised, else Chat, Messages when alone', () => {
   assert.equal(modelWire({ id: 'a' }), 'chat');
   assert.equal(modelWire({ id: 'a', supported_endpoints: ['/chat/completions', '/responses'] }), 'chat');
-  assert.equal(modelWire({ id: 'openai/gpt-5.5', supported_endpoints: ['/chat/completions', '/responses'] }), 'responses');
-  assert.equal(modelWire({ id: 'muse-spark-1.3', supported_endpoints: ['/chat/completions', '/v1/responses'] }), 'responses');
-  assert.equal(modelWire({ id: 'xai/grok-4.7', supported_endpoints: ['/chat/completions', '/responses'] }), 'responses');
+  assert.equal(
+    modelWire({ id: 'openai/gpt-5.5', supported_endpoints: ['/chat/completions', '/responses'] }),
+    'responses'
+  );
+  assert.equal(
+    modelWire({ id: 'muse-spark-1.3', supported_endpoints: ['/chat/completions', '/v1/responses'] }),
+    'responses'
+  );
+  assert.equal(
+    modelWire({ id: 'xai/grok-4.7', supported_endpoints: ['/chat/completions', '/responses'] }),
+    'responses'
+  );
   assert.equal(modelWire({ id: 'gpt-5.5', supported_endpoints: ['/chat/completions'] }), 'chat');
   assert.equal(modelWire({ id: 'a', supported_endpoints: ['/chat/completions', '/messages'] }), 'chat');
   assert.equal(modelWire({ id: 'a', supported_endpoints: ['/v1/messages'] }), 'messages');
@@ -293,7 +302,8 @@ test('a roster failure or miss keeps a known Messages-only model on Messages', a
   const api = recordingFetch((url) =>
     url.endsWith('/provider/v1/models') ? roster() : json({ type: 'error', error: { message: 'stop' } }, 400)
   );
-  const send = (provider) => assert.rejects(provider.send([{ role: 'user', content: 'hi' }], 'claude-sonnet-5', [], {}));
+  const send = (provider) =>
+    assert.rejects(provider.send([{ role: 'user', content: 'hi' }], 'claude-sonnet-5', [], {}));
   const messagesOnly = () => {
     const rows = inferenceRows(api.seen.splice(0));
     assert.ok(rows.length >= 1);

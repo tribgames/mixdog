@@ -58,7 +58,12 @@ function pair(id, result, args = { file_path: `${id}.js`, old_string: 'before', 
 function agentReport(body) {
   return {
     role: 'user',
-    content: renderAgentCompletionEnvelope({ id: 'task_agent_report', tag: 'advise', status: 'completed', result: body }),
+    content: renderAgentCompletionEnvelope({
+      id: 'task_agent_report',
+      tag: 'advise',
+      status: 'completed',
+      result: body,
+    }),
     meta: { source: 'task-notification' },
   };
 }
@@ -91,7 +96,10 @@ test('an unanswered report survives repeated rule-only Compact after its turn of
   const copy = first.messages.find((m) => m.content === 'Checking the files the report names.');
   assert.equal(copy.toolCalls, undefined);
   assert.equal(copy.meta.transcript.messageId, 'msg-text-call');
-  assert.equal(first.messages.some((m) => m.toolCallId === 'big'), false);
+  assert.equal(
+    first.messages.some((m) => m.toolCallId === 'big'),
+    false
+  );
   assert.ok(first.messages.some((m) => m.content === report.content));
   const second = freshContextCompactMessages(first.messages, 10_000, opts);
   const index = second.messages.findIndex((m) => m.content === report.content);

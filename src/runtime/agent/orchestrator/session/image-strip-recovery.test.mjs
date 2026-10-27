@@ -342,7 +342,9 @@ test('mid-stream xAI generation crash is retryable even as invalid_request_error
 });
 
 test('a failing image named by a preparation error: latest turn is stripped and persisted, an older one is not persisted, a runtime error strips nothing', async () => {
-  const { AnthropicImagePreparationError, AnthropicImageRuntimeError } = await import('../providers/lib/anthropic-image-input.mjs');
+  const { AnthropicImagePreparationError, AnthropicImageRuntimeError } = await import(
+    '../providers/lib/anthropic-image-input.mjs'
+  );
   const oldImage = { type: 'image', data: 'old', mimeType: 'image/png' };
   const newImage = { type: 'image', data: 'new', mimeType: 'image/png' };
   const messages = [
@@ -370,7 +372,13 @@ test('a failing image named by a preparation error: latest turn is stripped and 
   const reloaded = [
     messages[0],
     messages[1],
-    { role: 'user', content: [{ type: 'text', text: 'next' }, { type: 'image', attachmentRef, mimeType: 'image/png' }] },
+    {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'next' },
+        { type: 'image', attachmentRef, mimeType: 'image/png' },
+      ],
+    },
   ];
   const refStrip = stripFailingImage(reloaded, latest);
   assert.equal(refStrip.stripped, 1);

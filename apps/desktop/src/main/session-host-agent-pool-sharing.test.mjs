@@ -6,11 +6,19 @@ async function hostFor(t, loadSessionStore) {
   const host = await SessionHost.create(
     { userDataPath: '.', resourcesPath: '.', appPath: '.', packaged: false },
     {
-      async attachSessionClient() { return { async close() {} }; },
-      async loadProjects() { return {}; },
+      async attachSessionClient() {
+        return { async close() {} };
+      },
+      async loadProjects() {
+        return {};
+      },
       loadSessionStore,
-      async loadStatuslineSegments() { return { shellJobsStatus: () => ({ count: 0, jobs: [], sessions: {} }) }; },
-      async executeCodeGraphTool() { return {}; },
+      async loadStatuslineSegments() {
+        return { shellJobsStatus: () => ({ count: 0, jobs: [], sessions: {} }) };
+      },
+      async executeCodeGraphTool() {
+        return {};
+      },
     }
   );
   t.after(() => host.dispose());
@@ -26,7 +34,12 @@ test('concurrent agent pool callers share the store read but not returned arrays
   const host = await hostFor(t, async () => {
     loads++;
     await release.promise;
-    return { listStoredAgentWorkers: () => { reads++; return source; } };
+    return {
+      listStoredAgentWorkers: () => {
+        reads++;
+        return source;
+      },
+    };
   });
   const calls = Array.from({ length: 16 }, () => host.listAgentPool());
   assert.equal(loads, 1);
@@ -51,14 +64,25 @@ test('settled reads are not cached', async (t) => {
   const release = Promise.withResolvers();
   t.after(() => release.resolve());
   let reads = 0;
-  let rows = [{ tag: 'a', sessionId: 'a', status: 'running' }, { tag: 'b', sessionId: 'b', status: 'idle' }];
+  let rows = [
+    { tag: 'a', sessionId: 'a', status: 'running' },
+    { tag: 'b', sessionId: 'b', status: 'idle' },
+  ];
   const host = await hostFor(t, async () => {
     await release.promise;
-    return { listStoredAgentWorkers: () => { reads++; return rows; } };
+    return {
+      listStoredAgentWorkers: () => {
+        reads++;
+        return rows;
+      },
+    };
   });
   const pending = host.listAgentPool();
   release.resolve();
-  assert.deepEqual((await pending).map((row) => row.sessionId), ['a', 'b']);
+  assert.deepEqual(
+    (await pending).map((row) => row.sessionId),
+    ['a', 'b']
+  );
   rows = [{ tag: 'b', sessionId: 'b', status: 'running' }];
   assert.deepEqual(await host.listAgentPool(), [{ ...rows[0] }]);
   rows = [];
@@ -78,9 +102,7 @@ test('failed shared store loading rejects every caller and the next call retries
     if (fail) throw failure;
     return { listStoredAgentWorkers: () => [] };
   });
-  const pending = Array.from({ length: 8 }, () =>
-    assert.rejects(host.listAgentPool(), (error) => error === failure)
-  );
+  const pending = Array.from({ length: 8 }, () => assert.rejects(host.listAgentPool(), (error) => error === failure));
   release.resolve();
   await Promise.all(pending);
   assert.equal(loads, 1);

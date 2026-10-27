@@ -68,7 +68,10 @@ impl Read for PipeIo {
         match unsafe { ReadFile(self.0, Some(buf), Some(&mut read), None) } {
             Ok(()) => Ok(read as usize),
             // A peer that closed the pipe reads as end-of-stream, not an error.
-            Err(error) if is_win32_error(&error, ERROR_BROKEN_PIPE) || is_win32_error(&error, ERROR_NO_DATA) => {
+            Err(error)
+                if is_win32_error(&error, ERROR_BROKEN_PIPE)
+                    || is_win32_error(&error, ERROR_NO_DATA) =>
+            {
                 Ok(0)
             }
             Err(error) => Err(to_io(error)),
@@ -166,7 +169,12 @@ impl ServerPipe {
     /// `first_instance` is set, `FILE_FLAG_FIRST_PIPE_INSTANCE` refuses to
     /// create the pipe if another process already owns the name — a squatter
     /// cannot pre-create it and sit in the middle.
-    pub fn create(name: &str, sddl: &str, first_instance: bool, frame_deadline: Duration) -> io::Result<Self> {
+    pub fn create(
+        name: &str,
+        sddl: &str,
+        first_instance: bool,
+        frame_deadline: Duration,
+    ) -> io::Result<Self> {
         let descriptor = SecurityDescriptor::from_sddl(sddl).map_err(to_io)?;
         let attributes = descriptor.attributes();
         let wname = wide(name);
@@ -179,7 +187,7 @@ impl ServerPipe {
                 PCWSTR(wname.as_ptr()),
                 open_mode,
                 PIPE_TYPE_BYTE | PIPE_READMODE_BYTE | PIPE_WAIT | PIPE_REJECT_REMOTE_CLIENTS,
-                1, // single instance: no second server can shadow it
+                1,          // single instance: no second server can shadow it
                 OUT_BUFFER, // nOutBufferSize: the server's writes
                 IN_BUFFER,  // nInBufferSize: the server's reads
                 0,
@@ -205,10 +213,15 @@ impl ServerPipe {
     /// stop event and the service process). A client that connected between
     /// creation and this call reports `ERROR_PIPE_CONNECTED` (success).
     pub fn accept(&mut self, stops: &[HANDLE]) -> io::Result<Accept> {
-        let mut overlapped = OVERLAPPED { hEvent: self.io_event.get(), ..Default::default() };
+        let mut overlapped = OVERLAPPED {
+            hEvent: self.io_event.get(),
+            ..Default::default()
+        };
         match unsafe { ConnectNamedPipe(self.pipe.get(), Some(&mut overlapped)) } {
             Ok(()) => return Ok(Accept::Connected),
-            Err(error) if is_win32_error(&error, ERROR_PIPE_CONNECTED) => return Ok(Accept::Connected),
+            Err(error) if is_win32_error(&error, ERROR_PIPE_CONNECTED) => {
+                return Ok(Accept::Connected)
+            }
             Err(error) if is_win32_error(&error, ERROR_IO_PENDING) => {}
             Err(error) => return Err(to_io(error)),
         }
@@ -253,7 +266,12 @@ impl ServerPipe {
             let mut transferred = 0u32;
             unsafe {
                 let _ = CancelIoEx(self.pipe.get(), Some(&*in_flight.overlapped));
-                let _ = GetOverlappedResult(self.pipe.get(), &*in_flight.overlapped, &mut transferred, true);
+                let _ = GetOverlappedResult(
+                    self.pipe.get(),
+                    &*in_flight.overlapped,
+                    &mut transferred,
+                    true,
+                );
             }
         }
     }
@@ -272,15 +290,27 @@ impl ServerPipe {
     /// the helper free to keep capturing and monitoring the desktop.
     pub fn read_available(&mut self, buf: &mut [u8]) -> Option<usize> {
         let mut available = 0u32;
-        if unsafe { PeekNamedPipe(self.pipe.get(), None, 0, None, Some(&mut available), None) }.is_err() {
+        if unsafe { PeekNamedPipe(self.pipe.get(), None, 0, None, Some(&mut available), None) }
+            .is_err()
+        {
             return None;
         }
         if available == 0 {
             return Some(0);
         }
         let want = (available as usize).min(buf.len());
-        let mut overlapped = OVERLAPPED { hEvent: self.io_event.get(), ..Default::default() };
-        match unsafe { ReadFile(self.pipe.get(), Some(&mut buf[..want]), None, Some(&mut overlapped)) } {
+        let mut overlapped = OVERLAPPED {
+            hEvent: self.io_event.get(),
+            ..Default::default()
+        };
+        match unsafe {
+            ReadFile(
+                self.pipe.get(),
+                Some(&mut buf[..want]),
+                None,
+                Some(&mut overlapped),
+            )
+        } {
             Ok(()) => {}
             Err(error) if is_win32_error(&error, ERROR_IO_PENDING) => {}
             Err(_) => return None,
@@ -294,7 +324,10 @@ impl ServerPipe {
     /// Queue a complete frame for sending. Never blocks; call
     /// [`pump`](Self::pump) to make progress and observe failures.
     pub fn queue(&mut self, frame: Vec<u8>) {
-        self.outbox.push_back(Outgoing { frame, queued: Instant::now() });
+        self.outbox.push_back(Outgoing {
+            frame,
+            queued: Instant::now(),
+        });
     }
 
     /// True when nothing is queued or in flight. The helper captures a new
@@ -312,7 +345,12 @@ impl ServerPipe {
             if let Some(in_flight) = self.in_flight.as_mut() {
                 let mut transferred = 0u32;
                 match unsafe {
-                    GetOverlappedResult(self.pipe.get(), &*in_flight.overlapped, &mut transferred, false)
+                    GetOverlappedResult(
+                        self.pipe.get(),
+                        &*in_flight.overlapped,
+                        &mut transferred,
+                        false,
+                    )
                 } {
                     Ok(()) => {
                         in_flight.written += transferred as usize;
@@ -349,15 +387,30 @@ impl ServerPipe {
 
     /// Issue one overlapped `WriteFile` for `frame[written..]`. A synchronous
     /// completion still signals the event and is reaped by the next `pump`.
-    fn start_write(&mut self, frame: Vec<u8>, written: usize, queued: Instant) -> Result<(), SendError> {
+    fn start_write(
+        &mut self,
+        frame: Vec<u8>,
+        written: usize,
+        queued: Instant,
+    ) -> Result<(), SendError> {
         let mut in_flight = InFlight {
-            overlapped: Box::new(OVERLAPPED { hEvent: self.write_event.get(), ..Default::default() }),
+            overlapped: Box::new(OVERLAPPED {
+                hEvent: self.write_event.get(),
+                ..Default::default()
+            }),
             frame,
             written,
             queued,
         };
         let pointer: *mut OVERLAPPED = &mut *in_flight.overlapped;
-        match unsafe { WriteFile(self.pipe.get(), Some(&in_flight.frame[written..]), None, Some(pointer)) } {
+        match unsafe {
+            WriteFile(
+                self.pipe.get(),
+                Some(&in_flight.frame[written..]),
+                None,
+                Some(pointer),
+            )
+        } {
             Ok(()) => {}
             Err(error) if is_win32_error(&error, ERROR_IO_PENDING) => {}
             Err(error) => return Err(SendError::Closed(error.to_string())),

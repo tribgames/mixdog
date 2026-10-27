@@ -105,7 +105,11 @@ test('the xlsx composer wires the profile table style, the headline option, and 
         entry.op === 'set_style' && entry.properties?.fillColor === accent && Number(entry.properties?.fontSize) >= 20
     );
   };
-  assert.equal(headlineFill({ profile: 'data' }, { variant: 'comparison-board' }), false, 'only dashboard compositions fill the lead card');
+  assert.equal(
+    headlineFill({ profile: 'data' }, { variant: 'comparison-board' }),
+    false,
+    'only dashboard compositions fill the lead card'
+  );
   assert.equal(headlineFill({ profile: 'data' }, { variant: 'monitor-dashboard' }), true);
   assert.equal(headlineFill({ profile: 'data' }, { accentHeadline: true }), true);
 

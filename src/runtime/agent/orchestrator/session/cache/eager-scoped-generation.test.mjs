@@ -20,17 +20,28 @@ process.once('exit', () => rmSync(root, { recursive: true, force: true }));
 
 const tools = [{ name: 'grep', annotations: { readOnlyHint: true } }];
 const call = (pattern = 'needle') => ({
-  id: randomUUID(), name: 'grep', arguments: { path: root, pattern },
+  id: randomUUID(),
+  name: 'grep',
+  arguments: { path: root, pattern },
 });
 const cacheSpec = (fx, target) => ({
-  sessionId: fx.sessionId, toolName: target.name, args: target.arguments, cwd: root,
+  sessionId: fx.sessionId,
+  toolName: target.name,
+  args: target.arguments,
+  cwd: root,
 });
 
 function fixture(t) {
   const fx = {
-    sessionId: randomUUID(), sessionRef: { schemaAllowedTools: null, _scopedCacheOutcomeByCallId: new Map() },
-    crossTurnCalls: new Map(), messages: [], iterations: 0, dedupStubTotal: 0, editCount: 0,
-    revision: 'before', counts: new Map(),
+    sessionId: randomUUID(),
+    sessionRef: { schemaAllowedTools: null, _scopedCacheOutcomeByCallId: new Map() },
+    crossTurnCalls: new Map(),
+    messages: [],
+    iterations: 0,
+    dedupStubTotal: 0,
+    editCount: 0,
+    revision: 'before',
+    counts: new Map(),
   };
   fx.leaf = async () => fx.revision;
   fx.executeToolFn = async (_name, args, _cwd, _sessionId, sessionRef, options) => {
@@ -49,10 +60,17 @@ function fixture(t) {
 function round(fx, calls, mode, opts = {}) {
   fx.iterations += 1;
   const dispatcher = createEagerDispatcher({
-    tools, cwd: root, sessionId: fx.sessionId, sessionRef: fx.sessionRef,
-    signal: null, opts, crossTurnCalls: fx.crossTurnCalls,
-    getIterations: () => fx.iterations, getNextIteration: () => fx.iterations,
-    repeatFailLimit: 3, executeToolFn: fx.executeToolFn,
+    tools,
+    cwd: root,
+    sessionId: fx.sessionId,
+    sessionRef: fx.sessionRef,
+    signal: null,
+    opts,
+    crossTurnCalls: fx.crossTurnCalls,
+    getIterations: () => fx.iterations,
+    getNextIteration: () => fx.iterations,
+    repeatFailLimit: 3,
+    executeToolFn: fx.executeToolFn,
   });
   if (mode === 'streaming') for (const item of calls) dispatcher.onToolCall(item);
   let collected;
@@ -62,16 +80,30 @@ function round(fx, calls, mode, opts = {}) {
       if (!collected) {
         const results = [];
         collected = processToolBatch({
-          calls, messages: fx.messages, tools, cwd: root,
-          sessionId: fx.sessionId, sessionRef: fx.sessionRef, signal: null, opts,
+          calls,
+          messages: fx.messages,
+          tools,
+          cwd: root,
+          sessionId: fx.sessionId,
+          sessionRef: fx.sessionRef,
+          signal: null,
+          opts,
           iterations: fx.iterations,
           assistantTurnMsg: { role: 'assistant', content: '', toolCalls: calls },
-          pending: dispatcher.pending, epoch: dispatcher.epoch,
+          pending: dispatcher.pending,
+          epoch: dispatcher.epoch,
           startEagerRun: mode === 'serial' ? () => {} : dispatcher.startEagerRun,
-          crossTurnCalls: fx.crossTurnCalls, crossTurnCap: 100, sessionAgent: null,
-          pushToolResultMessage: (message) => { results.push(message); fx.messages.push(message); },
-          throwIfAborted: () => {}, repeatFailLimit: 3,
-          dedupStubTotal: fx.dedupStubTotal, editCount: fx.editCount,
+          crossTurnCalls: fx.crossTurnCalls,
+          crossTurnCap: 100,
+          sessionAgent: null,
+          pushToolResultMessage: (message) => {
+            results.push(message);
+            fx.messages.push(message);
+          },
+          throwIfAborted: () => {},
+          repeatFailLimit: 3,
+          dedupStubTotal: fx.dedupStubTotal,
+          editCount: fx.editCount,
           executeToolFn: fx.executeToolFn,
         }).then((stats) => {
           Object.assign(fx, stats);
@@ -104,7 +136,9 @@ const invalidations = {
 for (const mode of ['streaming', 'fallback']) {
   for (const phase of ['running', 'settled']) {
     for (const [label, invalidate] of Object.entries(invalidations)) {
-      test(`${mode}: ${label} after search is ${phase} prevents stale cache repopulation`, { timeout: 10_000 }, async (t) => {
+      test(`${mode}: ${label} after search is ${phase} prevents stale cache repopulation`, {
+        timeout: 10_000,
+      }, async (t) => {
         const fx = fixture(t);
         const started = Promise.withResolvers();
         const releaseSearch = Promise.withResolvers();
@@ -134,7 +168,11 @@ for (const mode of ['streaming', 'fallback']) {
           const results = await collecting;
           assert.equal(results.at(-1).content, 'before', 'the active caller retains its original observation');
           assert.equal(fx.counts.get('needle'), 1, 'invalidation does not replay the active call');
-          assert.equal(tryScopedToolCached(cacheSpec(fx, target)), null, 'old results must not acquire the new generation');
+          assert.equal(
+            tryScopedToolCached(cacheSpec(fx, target)),
+            null,
+            'old results must not acquire the new generation'
+          );
           await assertFreshThenReusable(fx, mode);
         } finally {
           releaseSearch.resolve();
@@ -148,13 +186,18 @@ for (const mode of ['streaming', 'fallback']) {
 }
 
 for (const mode of ['serial', 'fallback', 'streaming']) {
-  test(`${mode}: invalidation during the pre-execution hook does not disqualify a later fresh search`, { timeout: 10_000 }, async (t) => {
+  test(`${mode}: invalidation during the pre-execution hook does not disqualify a later fresh search`, {
+    timeout: 10_000,
+  }, async (t) => {
     const fx = fixture(t);
     const waiting = Promise.withResolvers();
     const release = Promise.withResolvers();
     const target = call();
     const run = round(fx, [target], mode, {
-      beforeToolExecution: async () => { waiting.resolve(); await release.promise; },
+      beforeToolExecution: async () => {
+        waiting.resolve();
+        await release.promise;
+      },
     });
     const collecting = run.collect();
     try {
@@ -197,8 +240,17 @@ test('eager generation is sampled after ordering barriers, not admission', { tim
   const release = Promise.withResolvers();
   const entry = createEagerEntry({ mutationEpoch: 0 });
   const promise = runEagerEntry({
-    call: call(), entry, preceding: {}, opts: {}, sessionId: fx.sessionId, cwd: root,
-    waitForPreceding: async () => { waiting.resolve(); await release.promise; return null; },
+    call: call(),
+    entry,
+    preceding: {},
+    opts: {},
+    sessionId: fx.sessionId,
+    cwd: root,
+    waitForPreceding: async () => {
+      waiting.resolve();
+      await release.promise;
+      return null;
+    },
     execute: async () => 'after',
   });
   try {

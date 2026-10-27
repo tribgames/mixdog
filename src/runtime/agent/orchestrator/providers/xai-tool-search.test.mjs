@@ -27,7 +27,8 @@ const ON = { xaiServerToolSearch: true };
 const HEAD = JSON.parse(readFileSync(new URL('./xai-tool-search-head-parity.json', import.meta.url), 'utf8'));
 
 const types = (input) => input.map((item) => item.type || item.role);
-const searchItems = (input) => input.filter((item) => item.type === 'tool_search_call' || item.type === 'tool_search_output');
+const searchItems = (input) =>
+  input.filter((item) => item.type === 'tool_search_call' || item.type === 'tool_search_output');
 
 // Documented exception to the parity guarantee: xAI/Grok WebSocket RESULTS now
 // always carry the owner-tagged providerReplay (encrypted reasoning and any
@@ -42,7 +43,11 @@ test('option OFF (unset, false, or opts false): xAI HTTP and WebSocket bodies ma
       assert.deepEqual(actual.ws, HEAD[`ws/${label}`], `ws/${label}`);
       // Deferred tools stay plain function tools: no tool_search tool, no defer_loading.
       for (const body of [actual.http, actual.ws]) {
-        assert.equal(body.tools.some((tool) => tool.type === 'tool_search' || 'defer_loading' in tool), false, label);
+        assert.equal(
+          body.tools.some((tool) => tool.type === 'tool_search' || 'defer_loading' in tool),
+          false,
+          label
+        );
       }
     }
   }
@@ -63,7 +68,10 @@ test('option ON: deferred tools carry defer_loading and the client loader become
         via
       );
       assert.deepEqual(body.tools[1], { type: 'tool_search' });
-      assert.equal(body.tools.some((tool) => tool.name === 'load_tool' || tool.name === 'tool_search'), false);
+      assert.equal(
+        body.tools.some((tool) => tool.name === 'load_tool' || tool.name === 'tool_search'),
+        false
+      );
       assert.equal(body.parallel_tool_calls, true);
     }
   }
@@ -86,7 +94,10 @@ test('option ON: the server tool_search is added for deferred tools without a lo
   assert.equal(twice.http.tools.filter((tool) => tool.type === 'tool_search').length, 1);
   // No deferred tools and no loader: nothing to add.
   const plain = await captureBodies(serverSearchHistory(), [SESSION_TOOLS[0]], { config: ON });
-  assert.equal(plain.http.tools.some((tool) => tool.type === 'tool_search'), false);
+  assert.equal(
+    plain.http.tools.some((tool) => tool.type === 'tool_search'),
+    false
+  );
 });
 
 function assertServerSearchTurn(result, dispatched, label) {
@@ -102,17 +113,37 @@ function assertServerSearchTurn(result, dispatched, label) {
     label
   );
   assert.equal(result.providerReplay.provider, 'xai-responses', label);
-  assert.deepEqual(result.providerReplay.items.map((item) => item.type), types(TURN_OUTPUT), label);
+  assert.deepEqual(
+    result.providerReplay.items.map((item) => item.type),
+    types(TURN_OUTPUT),
+    label
+  );
   assert.deepEqual(searchItems(result.providerReplay.items), [TS_CALL, TS_OUTPUT], label);
 }
 
 function assertReplayedVerbatim(input, label) {
   // Native items, in order, byte for byte; their results are never function_call_output.
   assert.deepEqual(searchItems(input), [TS_CALL, TS_OUTPUT], label);
-  assert.deepEqual(types(input), ['user', 'reasoning', 'tool_search_call', 'tool_search_output', 'function_call', 'function_call_output', 'user'], label);
-  assert.deepEqual(input.filter((item) => item.type === 'function_call_output').map((item) => item.call_id), ['call_w'], label);
-  assert.equal(input.some((item) => item.type === 'tool_search_output' && item.execution !== 'server'), false, label);
-  assert.deepEqual(input.find((item) => item.type === 'function_call'), FN_CALL, label);
+  assert.deepEqual(
+    types(input),
+    ['user', 'reasoning', 'tool_search_call', 'tool_search_output', 'function_call', 'function_call_output', 'user'],
+    label
+  );
+  assert.deepEqual(
+    input.filter((item) => item.type === 'function_call_output').map((item) => item.call_id),
+    ['call_w'],
+    label
+  );
+  assert.equal(
+    input.some((item) => item.type === 'tool_search_output' && item.execution !== 'server'),
+    false,
+    label
+  );
+  assert.deepEqual(
+    input.find((item) => item.type === 'function_call'),
+    FN_CALL,
+    label
+  );
 }
 
 function nextTurnHistory(result) {
@@ -132,11 +163,20 @@ function nextTurnHistory(result) {
 test('xAI WebSocket result keeps encrypted reasoning in providerReplay and providerState with the option unset', async () => {
   ws.scripts.push(serverSearchEvents());
   const { provider } = xaiProvider({});
-  const result = await sendXaiResponsesWebSocket(provider, [{ role: 'user', content: 'hi' }], 'grok-4', DEFERRED_TOOLS, {
-    sessionId: 'sess-1',
-    iteration: 1,
-  });
-  assert.deepEqual(result.providerReplay?.items?.map((item) => item.type), types(TURN_OUTPUT));
+  const result = await sendXaiResponsesWebSocket(
+    provider,
+    [{ role: 'user', content: 'hi' }],
+    'grok-4',
+    DEFERRED_TOOLS,
+    {
+      sessionId: 'sess-1',
+      iteration: 1,
+    }
+  );
+  assert.deepEqual(
+    result.providerReplay?.items?.map((item) => item.type),
+    types(TURN_OUTPUT)
+  );
   assert.equal(result.providerState.xaiResponses.encryptedReasoningItems.length, 1);
 });
 
@@ -184,10 +224,16 @@ for (const mode of ['off', 'on']) {
   test(`recorded server tool-search turn (HTTP, option ${mode}): never dispatched locally, replays as native items`, async () => {
     const dispatched = [];
     const first = xaiProvider(config, serverSearchEvents());
-    const result = await sendXaiResponses(first.provider, [{ role: 'user', content: 'weather in Seoul?' }], 'grok-4', DEFERRED_TOOLS, {
-      sessionId: 'sess-1',
-      onToolCall: (call) => dispatched.push(call),
-    });
+    const result = await sendXaiResponses(
+      first.provider,
+      [{ role: 'user', content: 'weather in Seoul?' }],
+      'grok-4',
+      DEFERRED_TOOLS,
+      {
+        sessionId: 'sess-1',
+        onToolCall: (call) => dispatched.push(call),
+      }
+    );
     assertServerSearchTurn(result, dispatched, 'http');
 
     const next = xaiProvider(config);
@@ -202,11 +248,17 @@ for (const mode of ['off', 'on']) {
     const dispatched = [];
     ws.scripts.push(serverSearchEvents());
     const first = xaiProvider(config);
-    const result = await sendXaiResponsesWebSocket(first.provider, [{ role: 'user', content: 'weather in Seoul?' }], 'grok-4', DEFERRED_TOOLS, {
-      sessionId: 'sess-1',
-      iteration: 1,
-      onToolCall: (call) => dispatched.push(call),
-    });
+    const result = await sendXaiResponsesWebSocket(
+      first.provider,
+      [{ role: 'user', content: 'weather in Seoul?' }],
+      'grok-4',
+      DEFERRED_TOOLS,
+      {
+        sessionId: 'sess-1',
+        iteration: 1,
+        onToolCall: (call) => dispatched.push(call),
+      }
+    );
     assertServerSearchTurn(result, dispatched, 'ws');
 
     const before = ws.bodies.length;

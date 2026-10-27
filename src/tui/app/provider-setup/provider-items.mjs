@@ -80,8 +80,14 @@ export function buildProviderItems(setup) {
   if (setup.managedByClient === true) {
     for (const p of setup.local || []) {
       providerItems.push({
-        value: `local:${p.id}`, label: p.name, meta: providerStatusLabel(p), description: '',
-        _type: 'local', _providerId: p.id, _providerName: p.name, _provider: p,
+        value: `local:${p.id}`,
+        label: p.name,
+        meta: providerStatusLabel(p),
+        description: '',
+        _type: 'local',
+        _providerId: p.id,
+        _providerName: p.name,
+        _provider: p,
       });
     }
   }

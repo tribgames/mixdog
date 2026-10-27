@@ -158,96 +158,92 @@ test('when the fallback file cannot be written the save fails with the env-var h
   }
 });
 
-test(
-  'a fallback store with unsafe permissions is reported to the UI status (with the folder), not shown as a bare "No Key"',
-  { skip: HOST_PLATFORM === 'win32' && 'win32 has no POSIX permission bits to restore' },
-  async () => {
-    await keychain.prewarmSecrets();
-    fs.mkdirSync(secretsDir, { recursive: true });
-    fs.writeFileSync(secretFile, SECRET);
-    fs.chmodSync(secretsDir, 0o700);
-    fs.chmodSync(secretFile, 0o644);
-    keychain.invalidateSecretCache();
+test('a fallback store with unsafe permissions is reported to the UI status (with the folder), not shown as a bare "No Key"', {
+  skip: HOST_PLATFORM === 'win32' && 'win32 has no POSIX permission bits to restore',
+}, async () => {
+  await keychain.prewarmSecrets();
+  fs.mkdirSync(secretsDir, { recursive: true });
+  fs.writeFileSync(secretFile, SECRET);
+  fs.chmodSync(secretsDir, 0o700);
+  fs.chmodSync(secretFile, 0o644);
+  keychain.invalidateSecretCache();
+  try {
+    assert.equal(config.getAgentApiKey('openai'), null, 'the unsafe file is never served');
+    assert.deepEqual(config.getKeychainStatus().unsafeStore, { path: secretsDir, kind: 'permissions' });
+    const issue = keychainIssueFor(true);
+    assert.equal(issue.state, 'unsafe-store');
+    assert.equal(issue.path, secretsDir);
+    assert.equal(issue.kind, 'permissions');
+    assert.match(issue.message, /chmod 700/);
+    assert.match(issue.message, /chmod 600/);
+
+    // One store scan per setup response, however many rows lack a key.
+    const realReaddir = fs.readdirSync;
+    let scans = 0;
+    fs.readdirSync = (...args) => {
+      if (path.resolve(String(args[0])) === path.resolve(secretsDir)) scans += 1;
+      return realReaddir(...args);
+    };
+    let setup;
     try {
-      assert.equal(config.getAgentApiKey('openai'), null, 'the unsafe file is never served');
-      assert.deepEqual(config.getKeychainStatus().unsafeStore, { path: secretsDir, kind: 'permissions' });
-      const issue = keychainIssueFor(true);
-      assert.equal(issue.state, 'unsafe-store');
-      assert.equal(issue.path, secretsDir);
-      assert.equal(issue.kind, 'permissions');
-      assert.match(issue.message, /chmod 700/);
-      assert.match(issue.message, /chmod 600/);
-
-      // One store scan per setup response, however many rows lack a key.
-      const realReaddir = fs.readdirSync;
-      let scans = 0;
-      fs.readdirSync = (...args) => {
-        if (path.resolve(String(args[0])) === path.resolve(secretsDir)) scans += 1;
-        return realReaddir(...args);
-      };
-      let setup;
-      try {
-        setup = await providerSetup({ providers: { openai: { enabled: true } } }, { checkSecrets: true });
-      } finally {
-        fs.readdirSync = realReaddir;
-      }
-      assert.equal(scans, 1, 'the setup response scans the secrets folder once');
-      assert.ok(setup.api.filter((provider) => provider.keychainIssue).length > 1, 'several rows carry the issue');
-      assert.equal(setup.keychain.state, 'unsafe-store');
-      assert.equal(setup.keychain.path, secretsDir);
-      assert.equal(setup.api.find((provider) => provider.id === 'openai').keychainIssue.state, 'unsafe-store');
-      assert.ok(!JSON.stringify(setup).includes(SECRET));
-
-      fs.chmodSync(secretFile, 0o600);
-      assert.equal(keychainIssueFor(true), null);
-      assert.equal(config.getAgentApiKey('openai'), SECRET);
+      setup = await providerSetup({ providers: { openai: { enabled: true } } }, { checkSecrets: true });
     } finally {
-      fs.rmSync(secretsDir, { recursive: true, force: true });
+      fs.readdirSync = realReaddir;
     }
-  }
-);
+    assert.equal(scans, 1, 'the setup response scans the secrets folder once');
+    assert.ok(setup.api.filter((provider) => provider.keychainIssue).length > 1, 'several rows carry the issue');
+    assert.equal(setup.keychain.state, 'unsafe-store');
+    assert.equal(setup.keychain.path, secretsDir);
+    assert.equal(setup.api.find((provider) => provider.id === 'openai').keychainIssue.state, 'unsafe-store');
+    assert.ok(!JSON.stringify(setup).includes(SECRET));
 
-test(
-  'the unsafe-store hint matches what is wrong: permissions chmod, another owner chown, a symlink or non-file removal',
-  { skip: HOST_PLATFORM === 'win32' && 'win32 has no POSIX permission bits, owners or symlinks' },
-  async () => {
-    await keychain.prewarmSecrets();
-    const hintFor = () => keychainIssueFor(true);
-    fs.mkdirSync(secretsDir, { recursive: true });
-    fs.chmodSync(secretsDir, 0o700);
-    fs.writeFileSync(secretFile, SECRET);
+    fs.chmodSync(secretFile, 0o600);
+    assert.equal(keychainIssueFor(true), null);
+    assert.equal(config.getAgentApiKey('openai'), SECRET);
+  } finally {
+    fs.rmSync(secretsDir, { recursive: true, force: true });
+  }
+});
+
+test('the unsafe-store hint matches what is wrong: permissions chmod, another owner chown, a symlink or non-file removal', {
+  skip: HOST_PLATFORM === 'win32' && 'win32 has no POSIX permission bits, owners or symlinks',
+}, async () => {
+  await keychain.prewarmSecrets();
+  const hintFor = () => keychainIssueFor(true);
+  fs.mkdirSync(secretsDir, { recursive: true });
+  fs.chmodSync(secretsDir, 0o700);
+  fs.writeFileSync(secretFile, SECRET);
+  try {
+    fs.chmodSync(secretFile, 0o640);
+    const permissions = hintFor();
+    assert.equal(permissions.kind, 'permissions');
+    assert.match(permissions.message, /chmod 700.*chmod 600/);
+
+    fs.chmodSync(secretFile, 0o600);
+    const realGetuid = process.getuid;
+    process.getuid = () => realGetuid() + 1;
+    let owner;
     try {
-      fs.chmodSync(secretFile, 0o640);
-      const permissions = hintFor();
-      assert.equal(permissions.kind, 'permissions');
-      assert.match(permissions.message, /chmod 700.*chmod 600/);
-
-      fs.chmodSync(secretFile, 0o600);
-      const realGetuid = process.getuid;
-      process.getuid = () => realGetuid() + 1;
-      let owner;
-      try {
-        owner = hintFor();
-      } finally {
-        process.getuid = realGetuid;
-      }
-      assert.equal(owner.kind, 'owner');
-      assert.match(owner.message, /chown/);
-      assert.doesNotMatch(owner.message, /chmod/);
-
-      fs.rmSync(secretFile);
-      fs.symlinkSync(path.join(root, 'nowhere'), secretFile);
-      const type = hintFor();
-      assert.equal(type.kind, 'type');
-      assert.match(type.message, /remove it and save the key again/);
-      assert.doesNotMatch(type.message, /chmod/);
-      for (const issue of [permissions, owner, type]) assert.ok(!JSON.stringify(issue).includes(SECRET));
-      assert.equal(new Set([permissions.message, owner.message, type.message]).size, 3);
+      owner = hintFor();
     } finally {
-      fs.rmSync(secretsDir, { recursive: true, force: true });
+      process.getuid = realGetuid;
     }
+    assert.equal(owner.kind, 'owner');
+    assert.match(owner.message, /chown/);
+    assert.doesNotMatch(owner.message, /chmod/);
+
+    fs.rmSync(secretFile);
+    fs.symlinkSync(path.join(root, 'nowhere'), secretFile);
+    const type = hintFor();
+    assert.equal(type.kind, 'type');
+    assert.match(type.message, /remove it and save the key again/);
+    assert.doesNotMatch(type.message, /chmod/);
+    for (const issue of [permissions, owner, type]) assert.ok(!JSON.stringify(issue).includes(SECRET));
+    assert.equal(new Set([permissions.message, owner.message, type.message]).size, 3);
+  } finally {
+    fs.rmSync(secretsDir, { recursive: true, force: true });
   }
-);
+});
 
 test('setup reports the effective credential source: private file, then the environment (aliases included) once it wins', async () => {
   const row = async (id) => {

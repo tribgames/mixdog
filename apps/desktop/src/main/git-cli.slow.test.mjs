@@ -2268,11 +2268,7 @@ describe('git cli', { concurrency: 4 }, () => {
             nativeCommitMessage(cleanup, message),
             gitCommitPaths(cwd, message, ['file.txt']),
           ]);
-          assert.equal(
-            await git(cwd, ['log', '-1', '--format=%B']),
-            native,
-            `commit.cleanup=${cleanup || '(unset)'}`
-          );
+          assert.equal(await git(cwd, ['log', '-1', '--format=%B']), native, `commit.cleanup=${cleanup || '(unset)'}`);
         } finally {
           await rm(cwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 300 });
         }

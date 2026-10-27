@@ -66,11 +66,7 @@ const insetsOf = (layout: RemoteViewLayout): ViewInsets => ({
 /** Both sizes are known and non-empty. */
 export function viewReady(layout: RemoteViewLayout | null | undefined): layout is RemoteViewLayout {
   return Boolean(
-    layout &&
-      layout.picture.width > 0 &&
-      layout.picture.height > 0 &&
-      layout.stage.width > 0 &&
-      layout.stage.height > 0
+    layout && layout.picture.width > 0 && layout.picture.height > 0 && layout.stage.width > 0 && layout.stage.height > 0
   );
 }
 
@@ -107,10 +103,7 @@ function axisRange(start: number, end: number, size: number): [number, number] {
 
 /** Per axis, the offsets a view at `scale` may take: those of the full stage,
  *  widened by those of the area the insets leave visible (overpan). */
-export function viewBounds(
-  layout: RemoteViewLayout,
-  scale: number
-): { x: [number, number]; y: [number, number] } {
+export function viewBounds(layout: RemoteViewLayout, scale: number): { x: [number, number]; y: [number, number] } {
   const insets = insetsOf(layout);
   const width = layout.picture.width * scale;
   const height = layout.picture.height * scale;
@@ -119,10 +112,7 @@ export function viewBounds(
     Math.max(a[1], b[1]),
   ];
   return {
-    x: union(
-      axisRange(0, layout.stage.width, width),
-      axisRange(insets.left, layout.stage.width - insets.right, width)
-    ),
+    x: union(axisRange(0, layout.stage.width, width), axisRange(insets.left, layout.stage.width - insets.right, width)),
     y: union(
       axisRange(0, layout.stage.height, height),
       axisRange(insets.top, layout.stage.height - insets.bottom, height)
@@ -145,7 +135,13 @@ export function initialView(layout: RemoteViewLayout, maxScale?: number): Remote
 }
 
 /** Move the picture by a stage-px delta. */
-export function panView(view: RemoteView, layout: RemoteViewLayout, dx: number, dy: number, maxScale?: number): RemoteView {
+export function panView(
+  view: RemoteView,
+  layout: RemoteViewLayout,
+  dx: number,
+  dy: number,
+  maxScale?: number
+): RemoteView {
   return clampView({ scale: view.scale, x: view.x + dx, y: view.y + dy }, layout, maxScale);
 }
 
@@ -206,7 +202,12 @@ export function clampToPicture(layout: RemoteViewLayout, point: ViewPoint): View
 
 /** The view moved so picture point `point` sits at the visible centre, as
  *  far as the bounds allow (the viewport following a trackpad cursor). */
-export function followPoint(view: RemoteView, layout: RemoteViewLayout, point: ViewPoint, maxScale?: number): RemoteView {
+export function followPoint(
+  view: RemoteView,
+  layout: RemoteViewLayout,
+  point: ViewPoint,
+  maxScale?: number
+): RemoteView {
   const center = visibleCenter(layout);
   return clampView(
     { scale: view.scale, x: center.x - point.x * view.scale, y: center.y - point.y * view.scale },
@@ -251,7 +252,11 @@ export function relaxView(
   if (progress >= 1 || (target.x === from.x && target.y === from.y)) return { view: target, settled: true };
   const remaining = decelerateRemaining(progress);
   return {
-    view: { scale: target.scale, x: target.x + (from.x - target.x) * remaining, y: target.y + (from.y - target.y) * remaining },
+    view: {
+      scale: target.scale,
+      x: target.x + (from.x - target.x) * remaining,
+      y: target.y + (from.y - target.y) * remaining,
+    },
     settled: false,
   };
 }

@@ -35,7 +35,9 @@ const INTERNAL = 'C:\\Users\\u\\AppData\\Roaming\\mixdog-desktop\\workspace\\unc
 async function mountPane(t) {
   resetSidebarReferenceCache();
   updateSidebarReference('channelSetup', {
-    schedules: [{ name: 'daily', whenCron: '0 9 * * *', instructions: 'Report', enabled: true, owner: 'lead', cwd: INTERNAL }],
+    schedules: [
+      { name: 'daily', whenCron: '0 9 * * *', instructions: 'Report', enabled: true, owner: 'lead', cwd: INTERNAL },
+    ],
     webhooks: [],
   });
   updateSidebarReference('projects', [{ path: '/repos/alpha', name: 'alpha', alias: '' }]);

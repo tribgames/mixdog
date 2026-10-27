@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { REMOTE_BROWSER_FRAME_EVENT, REMOTE_BROWSER_OPEN_EVENT, BROWSER_OPEN_REQUESTED_DESKTOP_EVENT } from '../shared/remote-browser.ts';
+import {
+  REMOTE_BROWSER_FRAME_EVENT,
+  REMOTE_BROWSER_OPEN_EVENT,
+  BROWSER_OPEN_REQUESTED_DESKTOP_EVENT,
+} from '../shared/remote-browser.ts';
 import { createBrowserRemoteStreams } from './remote-browser-streams.ts';
 import { createRelayPushLanes } from './remote-relay-push-lanes.ts';
 
@@ -47,11 +51,18 @@ test('a client gets one frame in flight; the newest replaces superseded ones aft
   f.streams.publish(frame(1));
   f.streams.publish(frame(2));
   f.streams.publish(frame(3));
-  assert.deepEqual(f.sent.map(([id, m]) => [id, m.event, m.payload.seq]), [['c1', REMOTE_BROWSER_FRAME_EVENT, 1]]);
+  assert.deepEqual(
+    f.sent.map(([id, m]) => [id, m.event, m.payload.seq]),
+    [['c1', REMOTE_BROWSER_FRAME_EVENT, 1]]
+  );
   f.streams.acknowledge('c1', 's', 99);
   assert.equal(f.sent.length, 1, 'an unrelated ack releases nothing');
   f.streams.acknowledge('c1', 's', 1);
-  assert.deepEqual(f.sent.map(([, m]) => m.payload.seq), [1, 3], 'frame 2 was dropped');
+  assert.deepEqual(
+    f.sent.map(([, m]) => m.payload.seq),
+    [1, 3],
+    'frame 2 was dropped'
+  );
   f.streams.acknowledge('c1', 's', 3);
   assert.equal(f.sent.length, 2, 'nothing newer to send');
 });
@@ -181,7 +192,10 @@ test('an unacknowledged frame is superseded after 1.5s', (t) => {
   t.mock.timers.tick(1_499);
   assert.equal(f.sent.length, 1);
   t.mock.timers.tick(1);
-  assert.deepEqual(f.sent.map(([, m]) => m.payload.seq), [1, 2]);
+  assert.deepEqual(
+    f.sent.map(([, m]) => m.payload.seq),
+    [1, 2]
+  );
 });
 
 test('clients are paced independently and a metadata-only frame keeps the waiting image', (t) => {
@@ -203,8 +217,14 @@ test('clients are paced independently and a metadata-only frame keeps the waitin
   f.streams.acknowledge('c2', 's', 2);
   f.streams.publish(frame(3, { image: undefined, title: 'renamed' }));
   const byClient = (id) => f.sent.filter(([to]) => to === id).map(([, m]) => m.payload);
-  assert.deepEqual(byClient('c2').map((p) => p.seq), [1, 2, 3]);
-  assert.deepEqual(byClient('c1').map((p) => p.seq), [1]);
+  assert.deepEqual(
+    byClient('c2').map((p) => p.seq),
+    [1, 2, 3]
+  );
+  assert.deepEqual(
+    byClient('c1').map((p) => p.seq),
+    [1]
+  );
   f.streams.acknowledge('c1', 's', 1);
   const last = byClient('c1').at(-1);
   assert.equal(last.seq, 3);

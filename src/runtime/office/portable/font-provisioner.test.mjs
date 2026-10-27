@@ -29,7 +29,9 @@ test('font registration passes the name and path as data, never as script text',
   assert.equal(env.MIXDOG_FONT_NAME, PROBE_FONT.registryName);
 });
 
-test('font registration hands PowerShell the path unchanged', { skip: platform() !== 'win32' && 'Windows only' }, async () => {
+test('font registration hands PowerShell the path unchanged', {
+  skip: platform() !== 'win32' && 'Windows only',
+}, async () => {
   const { command, args, env } = fontRegistrationCommand(PROBE_FONT, QUOTED_PATH);
   // The registry write is replaced by a function that reports what it received.
   const stub =
@@ -77,8 +79,16 @@ test('prepareOfficeFonts rejects downloads whose size or sha256 differ, writing 
   });
   t.mock.method(fs, 'rename', async () => {});
   t.mock.method(globalThis, 'fetch', async (url) => {
-    const body = url.endsWith('/tampered.ttf') ? Buffer.from('evil-font-bytes!') : url.endsWith('/short.ttf') ? Buffer.from('x') : good;
-    return { ok: true, status: 200, arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.length) };
+    const body = url.endsWith('/tampered.ttf')
+      ? Buffer.from('evil-font-bytes!')
+      : url.endsWith('/short.ttf')
+        ? Buffer.from('x')
+        : good;
+    return {
+      ok: true,
+      status: 200,
+      arrayBuffer: async () => body.buffer.slice(body.byteOffset, body.byteOffset + body.length),
+    };
   });
   const def = (id, file) => ({
     id,

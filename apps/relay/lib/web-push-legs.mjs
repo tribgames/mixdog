@@ -35,7 +35,12 @@ export function sendWebPushFromDesktop(leg, message) {
   const endpoint = typeof message.endpoint === 'string' ? message.endpoint : '';
   const clientId = typeof message.clientId === 'string' ? message.clientId : '';
   const reply = (fields) =>
-    sendJson(socket, { type: 'webpush-result', endpoint: endpoint.slice(0, 2048), clientId: clientId.slice(0, 128), ...fields });
+    sendJson(socket, {
+      type: 'webpush-result',
+      endpoint: endpoint.slice(0, 2048),
+      clientId: clientId.slice(0, 128),
+      ...fields,
+    });
   const body = webPushBody(message.payload);
   if (!endpoint || !clientId || !body) {
     reply({ ok: false, error: 'invalid-message' });

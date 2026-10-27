@@ -3,7 +3,10 @@ import test from 'node:test';
 import { isDefinitiveOAuthFailure } from './oauth-token-utils.mjs';
 
 test('isDefinitiveOAuthFailure accepts dead-grant signals and bare 401', () => {
-  assert.equal(isDefinitiveOAuthFailure('{"error":"invalid_grant","error_description":"Refresh token expired"}', 400), true);
+  assert.equal(
+    isDefinitiveOAuthFailure('{"error":"invalid_grant","error_description":"Refresh token expired"}', 400),
+    true
+  );
   assert.equal(isDefinitiveOAuthFailure('invalid_token', 400), true);
   assert.equal(isDefinitiveOAuthFailure('unauthorized_client', 400), true);
   assert.equal(isDefinitiveOAuthFailure('Refresh token revoked', 400), true);

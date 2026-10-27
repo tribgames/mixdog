@@ -16,7 +16,7 @@ const MINUTE_MS = 60 * 1000;
 // and synchronous, so one setImmediate turn runs everything already accepted.
 const delivered = (runtime, sessionId, revision) =>
   waitUntil(() => runtime.snapshot(sessionId).warningRevision === revision, {
-    message: `warning revision ${revision}` ,
+    message: `warning revision ${revision}`,
   });
 const drained = () => new Promise((resolve) => setImmediate(resolve));
 const warningRevisions = (events) =>

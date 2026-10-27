@@ -206,7 +206,12 @@ test('OpenRouter chat to a Gemini model: invalid tools are left out, valid ones 
       requests.push(body);
       return chatReply(body);
     };
-    const provider = new OpenRouterProvider({ apiKey: 'k', preconnect: false, fetchImpl, clientOptions: { fetch: fetchImpl } });
+    const provider = new OpenRouterProvider({
+      apiKey: 'k',
+      preconnect: false,
+      fetchImpl,
+      clientOptions: { fetch: fetchImpl },
+    });
     const { exclusions, onToolExcluded } = collect();
     await provider.send([{ role: 'user', content: 'hi' }], model, tools, {
       onToolExcluded,
@@ -227,13 +232,25 @@ test('OpenRouter chat to a Gemini model: invalid tools are left out, valid ones 
   // Other model families on the same route are validated by the OpenAI rule:
   // the same broken tools are left out.
   const other = await run('openrouter/auto', mixed);
-  assert.deepEqual(other.body.tools.map((t) => t.function.name), ['read']);
-  assert.deepEqual(other.exclusions.map((e) => e.name), ['mcp__x__bogus', 'mcp__x__tuple', 'mcp__x__root']);
+  assert.deepEqual(
+    other.body.tools.map((t) => t.function.name),
+    ['read']
+  );
+  assert.deepEqual(
+    other.exclusions.map((e) => e.name),
+    ['mcp__x__bogus', 'mcp__x__tuple', 'mcp__x__root']
+  );
   // A draft-07 tuple is lowered for them (normalized, not excluded).
-  const draft07 = mcp('mcp__x__draft07', { type: 'object', properties: { a: { type: 'array', items: [{ type: 'string' }] } } });
+  const draft07 = mcp('mcp__x__draft07', {
+    type: 'object',
+    properties: { a: { type: 'array', items: [{ type: 'string' }] } },
+  });
   const lowered = await run('openrouter/auto', [read, draft07]);
   assert.deepEqual(lowered.exclusions, []);
-  assert.deepEqual(lowered.body.tools[1].function.parameters.properties.a, { type: 'array', prefixItems: [{ type: 'string' }] });
+  assert.deepEqual(lowered.body.tools[1].function.parameters.properties.a, {
+    type: 'array',
+    prefixItems: [{ type: 'string' }],
+  });
 });
 
 // opencode-go answers Gemini ids on the gateway's generateContent endpoint (the

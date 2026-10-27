@@ -38,9 +38,7 @@ function agentNameFromResult(resultText) {
 // The agent identity a card shows: the call's own fields, else the result
 // envelope when the call only carried a tag/task id.
 function agentDisplayName(args, resultText = '') {
-  return (
-    titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '') || agentNameFromResult(resultText)
-  );
+  return titleizeAgentName(args?.agent || args?.subagent_type || args?.name || '') || agentNameFromResult(resultText);
 }
 
 function agentModelLabel(args) {

@@ -22,11 +22,15 @@ export function parseMaxTokensContextOverflow(status, message) {
   const match = OVERFLOW_RE.exec(String(message || ''));
   if (!match) return null;
   const [inputTokens, maxTokens, contextLimit] = match.slice(1).map((value) => Number.parseInt(value, 10));
-  return [inputTokens, maxTokens, contextLimit].every(Number.isFinite) ? { inputTokens, maxTokens, contextLimit } : null;
+  return [inputTokens, maxTokens, contextLimit].every(Number.isFinite)
+    ? { inputTokens, maxTokens, contextLimit }
+    : null;
 }
 
 const thinkingBudget = (body) =>
-  body?.thinking?.type === 'enabled' && Number(body.thinking.budget_tokens) > 0 ? Number(body.thinking.budget_tokens) : 0;
+  body?.thinking?.type === 'enabled' && Number(body.thinking.budget_tokens) > 0
+    ? Number(body.thinking.budget_tokens)
+    : 0;
 
 /**
  * Shrink `body.max_tokens` to fit the reported context. Returns true when the

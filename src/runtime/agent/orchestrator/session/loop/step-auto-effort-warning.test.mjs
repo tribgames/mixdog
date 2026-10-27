@@ -24,7 +24,14 @@ const ROWS = ['gpt-6.1-warn', 'gpt-6.1-quiet'].map((id) => ({
 function stepState(model, base) {
   const assistant = { role: 'assistant', content: 'Reading.', toolCalls: [{ id: 'c1', name: 'read', arguments: {} }] };
   const tool = { role: 'tool', toolCallId: 'c1', content: 'text' };
-  const snapshot = { version: 1, provider: 'openai-oauth', model, mode: 'responses', initialEffort: base, effort: base };
+  const snapshot = {
+    version: 1,
+    provider: 'openai-oauth',
+    model,
+    mode: 'responses',
+    initialEffort: base,
+    effort: base,
+  };
   return {
     assistant,
     state: {

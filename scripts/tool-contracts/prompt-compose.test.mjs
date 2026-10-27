@@ -77,10 +77,7 @@ test('BP layering keeps profile/skills in BP2 and ordered BP3 sections', () => {
       `BP3 core must exclude the refreshable session/environment suffix:${layeredPrompt.sessionMarkerCore}`
     );
   }
-  if (
-    layeredPrompt.sessionEnvironment !==
-    'BP3_SESSION\n\n---\n\nBP3_ENVIRONMENT\n\n---\n\nBP3_LANGUAGE'
-  ) {
+  if (layeredPrompt.sessionEnvironment !== 'BP3_SESSION\n\n---\n\nBP3_ENVIRONMENT\n\n---\n\nBP3_LANGUAGE') {
     throw new Error(
       `session environment must carry exactly the refreshable suffix: ${layeredPrompt.sessionEnvironment}`
     );

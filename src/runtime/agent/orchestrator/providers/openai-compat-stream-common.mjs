@@ -168,9 +168,11 @@ export async function nextAsyncWithWatchdog(
       }
       // The SDK JSON-decodes each frame inside next(): a SyntaxError here is a
       // malformed wire frame, typed at this boundary and nowhere else.
-      iterator.next().then(resolve, (error) =>
-        reject(error instanceof SyntaxError ? malformedCompatStreamError(streamLabel || idleLabel, error) : error)
-      );
+      iterator
+        .next()
+        .then(resolve, (error) =>
+          reject(error instanceof SyntaxError ? malformedCompatStreamError(streamLabel || idleLabel, error) : error)
+        );
     });
   } catch (err) {
     if (idleTimedOut)

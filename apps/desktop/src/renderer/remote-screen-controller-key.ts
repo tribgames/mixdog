@@ -72,7 +72,10 @@ function readStoredKey(value: unknown): SecureDesktopControllerKey | null {
 }
 
 /** The key stored for this pairing, or null when there is none. */
-export function loadControllerKey(scope: string, factory: Factory = defaultFactory()): Promise<SecureDesktopControllerKey | null> {
+export function loadControllerKey(
+  scope: string,
+  factory: Factory = defaultFactory()
+): Promise<SecureDesktopControllerKey | null> {
   return transact<SecureDesktopControllerKey | null>(factory, 'readonly', (store, report) => {
     const request = store.get(scope);
     request.onsuccess = () => report(readStoredKey(request.result));

@@ -98,7 +98,9 @@ test('direct API payload sends ultrafast for astra and 6.1-sol only', async (t) 
 
   const { hydrateProviderModelRow } = await import('./provider-models/row-hydration.mjs');
   const has = (id) =>
-    hydrateProviderModelRow({}, { id, provider: 'openai' }).modelParameterOptions?.some((o) => o.id === 'serviceTier') ?? false;
+    hydrateProviderModelRow({}, { id, provider: 'openai' }).modelParameterOptions?.some(
+      (o) => o.id === 'serviceTier'
+    ) ?? false;
   assert.equal(has('gpt-6-astra'), true);
   assert.equal(has('gpt-6-sol'), false);
 });

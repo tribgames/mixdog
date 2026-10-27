@@ -210,7 +210,8 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
 
     /** The displays a client may choose, once its connection's screen access is checked. */
     async screenDisplays(clientId: string, origin: RemoteWebrtcOrigin): Promise<unknown> {
-      if (!(await deps.screenAuthorized(clientId, origin))) throw new TypeError('Remote screen is not allowed for this device.');
+      if (!(await deps.screenAuthorized(clientId, origin)))
+        throw new TypeError('Remote screen is not allowed for this device.');
       return deps.screenDisplays();
     },
 

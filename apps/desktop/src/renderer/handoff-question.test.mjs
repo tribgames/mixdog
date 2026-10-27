@@ -148,8 +148,7 @@ function harness(t, chat = HOME) {
 }
 
 const cards = (host) => [...host.querySelectorAll('.question-card')];
-const optionLabels = (card) =>
-  [...card.querySelectorAll('.question-option-label')].map((label) => label.textContent);
+const optionLabels = (card) => [...card.querySelectorAll('.question-option-label')].map((label) => label.textContent);
 /** Each card with the hand-off line right before it (the session it belongs to). */
 const seats = (host) =>
   cards(host).map((card) => card.previousElementSibling?.querySelector('.mx-handoff-name')?.textContent ?? '');
@@ -256,7 +255,13 @@ test("a room shows each member's handed-off question under its newest words, ans
     _tag: 'AssistantPart',
     key,
     turnKey: key,
-    item: { kind: 'notice', id: key, text: `${speaker} ${key}`, at: DAY, room: { kind: 'speech', speaker, name: speaker } },
+    item: {
+      kind: 'notice',
+      id: key,
+      text: `${speaker} ${key}`,
+      at: DAY,
+      room: { kind: 'speech', speaker, name: speaker },
+    },
   });
   const rows = [user, speech('s1', 'gh'), speech('s2', 'rel'), speech('s3', 'gh'), speech('s4', 'rel')];
   // As the host projects a member's copy into its room (agent-room-views.ts).
@@ -271,7 +276,11 @@ test("a room shows each member's handed-off question under its newest words, ans
   await show(rows, null);
   const rowCount = host.querySelectorAll('.mx-chat-row').length;
   await show(rows, [inRoom('q1', LEAD, 'gh', RANK), inRoom('q2', TASK, 'bench', MARKETS)]);
-  assert.deepEqual(cards(host).map(rowOf), ['s3', 's4'], "under gh's newest words; bench, silent in view, under the last row");
+  assert.deepEqual(
+    cards(host).map(rowOf),
+    ['s3', 's4'],
+    "under gh's newest words; bench, silent in view, under the last row"
+  );
   assert.deepEqual(seats(host), ['Rank model', 'Markets'], "each under its asking session's line");
   assert.deepEqual(optionLabels(cards(host)[0]), ['All five', 'Only KR']);
   assert.equal(

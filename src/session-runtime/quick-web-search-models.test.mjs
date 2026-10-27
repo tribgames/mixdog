@@ -4,7 +4,10 @@ import { quickWebSearchModels } from './quick-web-search-models.mjs';
 
 test('quick web-search rows come from the catalog rows, newest first, with no ids in code', () => {
   const models = Object.fromEntries(
-    ['a', 'b', 'c', 'd', 'e', 'f'].map((id, i) => [`future-${id}`, { name: `Future ${id}`, release_date: `2031-0${i + 1}-01` }])
+    ['a', 'b', 'c', 'd', 'e', 'f'].map((id, i) => [
+      `future-${id}`,
+      { name: `Future ${id}`, release_date: `2031-0${i + 1}-01` },
+    ])
   );
   const rows = quickWebSearchModels('openai', models);
   assert.equal(rows.length, 5);

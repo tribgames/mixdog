@@ -29,19 +29,25 @@ test('wheel passes point and deltas, and drops a zero scroll', () => {
 
 test('a button up always maps, releasing in place when its geometry is stale', () => {
   // A press made before a geometry change must still be liftable.
-  assert.deepEqual(screenInputCommands({ type: 'screen-pointer', action: 'up', button: 'left', x: 5, y: 5 }, mapping, 4), [
-    { op: 'button', button: 'left', down: false },
-  ]);
-  assert.equal(screenInputCommands({ type: 'screen-pointer', action: 'down', button: 'left', x: 5, y: 5 }, mapping, 4), null);
-  assert.deepEqual(screenInputCommands({ type: 'screen-pointer', action: 'down', button: 'left', x: 5, y: 5 }, mapping, 5), [
-    { op: 'button', button: 'left', down: true, at: { x: 5, y: 5 } },
-  ]);
+  assert.deepEqual(
+    screenInputCommands({ type: 'screen-pointer', action: 'up', button: 'left', x: 5, y: 5 }, mapping, 4),
+    [{ op: 'button', button: 'left', down: false }]
+  );
+  assert.equal(
+    screenInputCommands({ type: 'screen-pointer', action: 'down', button: 'left', x: 5, y: 5 }, mapping, 4),
+    null
+  );
+  assert.deepEqual(
+    screenInputCommands({ type: 'screen-pointer', action: 'down', button: 'left', x: 5, y: 5 }, mapping, 5),
+    [{ op: 'button', button: 'left', down: true, at: { x: 5, y: 5 } }]
+  );
 });
 
 test('keys and text pass through; release is the router’s', () => {
-  assert.deepEqual(screenInputCommands({ type: 'screen-key', action: 'down', vk: 0x41, scan: 0x1e, extended: false }, null, 0), [
-    { op: 'key', vk: 0x41, scan: 0x1e, extended: false, down: true },
-  ]);
+  assert.deepEqual(
+    screenInputCommands({ type: 'screen-key', action: 'down', vk: 0x41, scan: 0x1e, extended: false }, null, 0),
+    [{ op: 'key', vk: 0x41, scan: 0x1e, extended: false, down: true }]
+  );
   assert.deepEqual(screenInputCommands({ type: 'screen-text', text: 'é😀' }, null, 0), [{ op: 'text', text: 'é😀' }]);
   assert.deepEqual(screenInputCommands({ type: 'screen-release' }, null, 0), []);
 });

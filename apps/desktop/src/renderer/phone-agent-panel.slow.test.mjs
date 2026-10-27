@@ -186,7 +186,10 @@ async function launch(t, { phone }) {
   );
   await page.addStyleTag({ content: styles });
   // A bundled dependency reads Node's `process` (the renderer build defines it).
-  await page.addScriptTag({ content: 'window.process = { env: {}, platform: "win32", version: "v20.0.0", versions: {}, cwd: () => "/", argv: [] };' });
+  await page.addScriptTag({
+    content:
+      'window.process = { env: {}, platform: "win32", version: "v20.0.0", versions: {}, cwd: () => "/", argv: [] };',
+  });
   await page.addScriptTag({ content: script });
   await page.addScriptTag({ content: PROBES });
   assert.deepEqual(errors, [], 'the bundle loaded');
@@ -267,7 +270,7 @@ test('the swipe closes the panel from its tabs and from its routine list', async
   assert.equal((await page.evaluate(() => state())).open, 'false', 'started over the routine list');
 });
 
-test('a swipe that starts in a profile input stays the input\'s and does not close', async (t) => {
+test("a swipe that starts in a profile input stays the input's and does not close", async (t) => {
   const page = await launch(t, { phone: true });
   const cdp = await page.createCDPSession();
   const input = await page.evaluate(() => centerOf('input[name="agent-name"]'));

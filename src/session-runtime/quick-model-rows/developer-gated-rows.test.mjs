@@ -16,8 +16,7 @@ const { createProviderModels } = await import('../provider-models.mjs');
 const { providerModelCacheRow } = await import('../model-recency.mjs');
 
 const ROUTE = { provider: 'devin-oauth', model: 'swe-1-6-slow', modelDisplay: 'SWE 1.6 Slow' };
-const setDevin = (enabled) =>
-  updateSection('agent', (current) => ({ ...current, developer: { devinOAuth: enabled } }));
+const setDevin = (enabled) => updateSection('agent', (current) => ({ ...current, developer: { devinOAuth: enabled } }));
 
 const OTHER_ROUTE = { provider: 'openai-oauth', model: 'gpt-fixture' };
 const CATALOG = {

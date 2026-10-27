@@ -85,10 +85,14 @@ export async function runBatchReadSnapshotPublication(executeChildBuiltinTool, h
       // A numbered row may end halfway through its content at the byte cap.
       // Only this slot's producer can certify complete lines; another read of
       // the same path must not authorize hashing this slot's partial text.
-      return mergeReadRanges(ranges.flatMap((range) => (observation?.ranges ?? []).map((complete) => ({
-        startLine: Math.max(range.startLine, complete.startLine),
-        endLine: Math.min(range.endLine, complete.endLine),
-      }))));
+      return mergeReadRanges(
+        ranges.flatMap((range) =>
+          (observation?.ranges ?? []).map((complete) => ({
+            startLine: Math.max(range.startLine, complete.startLine),
+            endLine: Math.min(range.endLine, complete.endLine),
+          }))
+        )
+      );
     },
     _recordReadSnapshot: (fullPath, _st, scope, meta) => {
       corrections.set(fullPath, { scope: scope ?? null, meta });
@@ -104,22 +108,29 @@ export async function runBatchReadSnapshotPublication(executeChildBuiltinTool, h
     }
     for (const [fullPath, correction] of corrections) {
       const delivered = tasks.filter((task) => task.fullPath === fullPath && hasRenderedLines(task.body));
-      const observations = delivered.map((task) => task.records.findLast(
-        (record) => record.fullPath === fullPath && record.scope === correction.scope
-      ));
+      const observations = delivered.map((task) =>
+        task.records.findLast((record) => record.fullPath === fullPath && record.scope === correction.scope)
+      );
       // Never combine different versions or bless stale/missing observations.
       // The eventual recorder rechecks the retained lease after all awaits.
-      if (observations.length && observations.every((record) =>
-        record?.isCurrent() && sameFileVersion(record.identity, observations[0].identity)
-      )) {
+      if (
+        observations.length &&
+        observations.every(
+          (record) => record?.isCurrent() && sameFileVersion(record.identity, observations[0].identity)
+        )
+      ) {
         observations[0].publish(correction.meta);
       }
     }
     // Rich media/binary results have no line slices. Preserve their original
     // evidence, still under the producer's lease rather than the batch's.
     for (const task of tasks) {
-      if (hasRenderedLines(task.body) || task.body?.isError === true ||
-          (typeof task.body === 'string' && helpers.classifyResultKind(task.body) === 'error')) continue;
+      if (
+        hasRenderedLines(task.body) ||
+        task.body?.isError === true ||
+        (typeof task.body === 'string' && helpers.classifyResultKind(task.body) === 'error')
+      )
+        continue;
       for (const record of task.records) {
         if (!corrections.has(record.fullPath)) record.publish();
       }

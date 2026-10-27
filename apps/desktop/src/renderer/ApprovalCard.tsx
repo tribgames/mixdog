@@ -1228,7 +1228,10 @@ function ToolApprovalCard({
   // The page's owner and the conversation whose panel shows it (they differ
   // when this chat shows a sub-session's takeover).
   const pageViewer = hostSessionId || browserSessionId || takeoverSessionId;
-  const pageOwnerTitle = useSessionTitle(takeoverSessionId !== pageViewer ? takeoverSessionId : '', t('Another session'));
+  const pageOwnerTitle = useSessionTitle(
+    takeoverSessionId !== pageViewer ? takeoverSessionId : '',
+    t('Another session')
+  );
   const browserTakeover = model.kind === 'takeover' && model.surface === 'browser' && !settled;
   // While it waits, a phone tap on the streamed page raises the soft keyboard.
   const takeoverTab = model.takeoverTarget?.tab ?? '';

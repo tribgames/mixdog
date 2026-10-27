@@ -580,7 +580,8 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
   for (const key of Object.keys(webrtc) as Array<keyof RemoteWebrtcBridge>) {
     Object.defineProperty(api, key, {
       enumerable: true,
-      get: () => (ctx.peerBrowserWebrtc === REMOTE_WEBRTC_VERSION ? webrtc[key] : key === 'remoteBrowserWebrtc' ? 0 : undefined),
+      get: () =>
+        ctx.peerBrowserWebrtc === REMOTE_WEBRTC_VERSION ? webrtc[key] : key === 'remoteBrowserWebrtc' ? 0 : undefined,
     });
   }
   // Read per access: a reconnect may reach a host without conversation tab controls.

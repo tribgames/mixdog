@@ -14,15 +14,34 @@
 //   pointer/keyboard the input device (uinput on Wayland, XTest on X11).
 
 const WINDOW_ACTIONS = new Set([
-  'list_windows', 'window_snapshot', 'related_windows', 'window_bounds', 'window_capture',
-  'window_integrity', 'validate_background_input', 'list_apps', 'verify', 'focus_window',
-  'move_window', 'window_state', 'close_window', 'terminate_process',
+  'list_windows',
+  'window_snapshot',
+  'related_windows',
+  'window_bounds',
+  'window_capture',
+  'window_integrity',
+  'validate_background_input',
+  'list_apps',
+  'verify',
+  'focus_window',
+  'move_window',
+  'window_state',
+  'close_window',
+  'terminate_process',
 ]);
 const ACCESSIBILITY_ACTIONS = new Set(['snapshot', 'find', 'window_predicates', 'accessibility_probe']);
 const SEMANTIC_ACTIONS = new Set(['invoke', 'set_value', 'toggle', 'invoke_menu']);
 const POINTER_ACTIONS = new Set([
-  'click', 'double_click', 'right_click', 'middle_click', 'triple_click',
-  'mouse_down', 'mouse_up', 'mouse_move', 'drag', 'scroll',
+  'click',
+  'double_click',
+  'right_click',
+  'middle_click',
+  'triple_click',
+  'mouse_down',
+  'mouse_up',
+  'mouse_move',
+  'drag',
+  'scroll',
 ]);
 const KEYBOARD_ACTIONS = new Set(['type', 'key', 'key_down', 'key_up']);
 

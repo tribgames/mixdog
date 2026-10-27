@@ -46,7 +46,10 @@ function verifySignature(secret, rawBody, signatureValue, parser) {
     if (!vMatch || !tMatch) return false;
     const ts = Number(tMatch[1]);
     if (!Number.isFinite(ts) || Math.abs(Date.now() - ts * 1000) > STRIPE_TOLERANCE_MS) return false;
-    const expected = crypto.createHmac('sha256', secret).update(Buffer.concat([Buffer.from(`${tMatch[1]}.`), Buffer.from(rawBody)])).digest('hex');
+    const expected = crypto
+      .createHmac('sha256', secret)
+      .update(Buffer.concat([Buffer.from(`${tMatch[1]}.`), Buffer.from(rawBody)]))
+      .digest('hex');
     return hexDigestsEqual(vMatch[1], expected);
   }
   const expected = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');

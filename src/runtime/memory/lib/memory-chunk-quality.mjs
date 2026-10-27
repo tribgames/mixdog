@@ -315,12 +315,7 @@ function createCycle1PacketGenerator({ callLlm, request, signal, inputTokenBudge
 
 export async function generateCycle1Chunks(
   rows,
-  {
-    callLlm,
-    request = {},
-    inputTokenBudget = CYCLE1_INPUT_TOKEN_BUDGET,
-    signal = request.signal,
-  } = {}
+  { callLlm, request = {}, inputTokenBudget = CYCLE1_INPUT_TOKEN_BUDGET, signal = request.signal } = {}
 ) {
   const startedAt = Date.now();
   const stats = { groupingCalls: 0, verificationCalls: 0, llmMs: 0, verificationMs: 0, retries: 0, fragments: 0 };

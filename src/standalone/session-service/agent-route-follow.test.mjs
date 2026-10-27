@@ -87,7 +87,10 @@ test('Mixy, room members of the bot and the latest change are followed; other bo
   await publishAgentRouteChange('writer', NEW);
   await publishAgentRouteChange('writer', { provider: 'openai', model: 'gpt-latest' });
   assert.equal(mixy.calls.length, 1);
-  assert.deepEqual(member.calls.map((call) => call.next.model), [NEW.model, 'gpt-latest']);
+  assert.deepEqual(
+    member.calls.map((call) => call.next.model),
+    [NEW.model, 'gpt-latest']
+  );
   assert.equal(member.state().model, 'gpt-latest');
   for (const untouched of [other, otherMember, coding]) assert.equal(untouched.calls.length, 0);
 });

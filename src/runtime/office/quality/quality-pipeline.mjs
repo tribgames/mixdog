@@ -289,7 +289,7 @@ const POLISH_GUIDANCE = Object.freeze({
   theme_background_drift:
     'Use only the ladder backgrounds (paper, paperAlt, dark, darkAlt); recolor the drifting slide.',
   theme_body_backgrounds:
-    'Advisory: body slides use several background colours; keep them to the concept\'s declared palette ladder, or declare the concept or palette in the brief when the colour fields are the design.',
+    "Advisory: body slides use several background colours; keep them to the concept's declared palette ladder, or declare the concept or palette in the brief when the colour fields are the design.",
   excessive_slide_text: "Cut the copy to the reading mode's budget (composition.md §4) or split the slide.",
   decorative_stripe: 'Remove the ornamental bar; a stripe that encodes nothing is decoration (composition.md §10).',
   // Visual critique contract (finalize).

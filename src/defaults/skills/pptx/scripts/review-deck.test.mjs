@@ -24,9 +24,7 @@ test('runReview removes its review-input dir when the output already exists', as
     );
     const output = path.join(root, 'out.json');
     fs.writeFileSync(output, 'existing');
-    await assert.rejects(
-      runReview({ input, output, provider: 'p', model: 'm' }, { execute: async () => 0 })
-    );
+    await assert.rejects(runReview({ input, output, provider: 'p', model: 'm' }, { execute: async () => 0 }));
     assert.deepEqual(
       fs.readdirSync(root).filter((n) => n.startsWith('review-input-')),
       []

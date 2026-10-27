@@ -324,7 +324,13 @@ export function rawContentCacheSet(fullPath, stat, rawBuf, now = Date.now()) {
   if (!canPublishReadCache(fullPath)) return;
   if (!fullPath || !Buffer.isBuffer(rawBuf)) return;
   const version = fileVersion(stat);
-  if (!version || !canCacheReadFile(version) || rawBuf.length !== version.size || rawBuf.length > RAW_CONTENT_CACHE_MAX_BYTES) return;
+  if (
+    !version ||
+    !canCacheReadFile(version) ||
+    rawBuf.length !== version.size ||
+    rawBuf.length > RAW_CONTENT_CACHE_MAX_BYTES
+  )
+    return;
   const key = canonicalCachePath(fullPath);
   rawContentCacheDelete(key);
   RAW_CONTENT_CACHE.set(key, {

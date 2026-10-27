@@ -81,7 +81,10 @@ export function normalizeRemoteBrowserStreamOptions(value: unknown): DesktopRemo
     }
     return Math.round(number);
   };
-  const options: DesktopRemoteBrowserStreamOptions = { maxWidth: dimension('maxWidth'), maxHeight: dimension('maxHeight') };
+  const options: DesktopRemoteBrowserStreamOptions = {
+    maxWidth: dimension('maxWidth'),
+    maxHeight: dimension('maxHeight'),
+  };
   if (input.fit === null) {
     // An explicit release of the subscription's take-over.
     options.fit = null;

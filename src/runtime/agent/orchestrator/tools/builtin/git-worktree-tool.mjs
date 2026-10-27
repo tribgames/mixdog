@@ -320,7 +320,8 @@ async function rawAdd(plan, input, options) {
       throw new Error(`git worktree add: ${value} is not supported for managed worktrees`);
     }
     if (ADD_BARE_FLAGS.has(value)) continue;
-    if (value.startsWith('-')) throw new Error(`git worktree add: option ${value} is not supported for managed worktrees`);
+    if (value.startsWith('-'))
+      throw new Error(`git worktree add: option ${value} is not supported for managed worktrees`);
     positional.push(value);
   }
   const [path, commitish = null] = positional;
@@ -440,8 +441,9 @@ async function rawPrune(plan, options) {
 const WORKTREE_HELP = Object.freeze({
   add: 'git worktree add [-b <branch>] [--detach] <path> [<commit-ish>]: a managed worktree for the branch (the session stays put), or a read-only snapshot for a detached commit.',
   remove: 'git worktree remove [-f] <path>: the managed removal of that worktree.',
-  list: 'git worktree list [-v]: managed worktrees plus the repository\'s other worktrees. --porcelain stays raw git.',
-  prune: 'git worktree prune [-n|--dry-run] [-v]: the managed prune of this repository (clean, merged worktrees no session retains); -n only lists what it would remove.',
+  list: "git worktree list [-v]: managed worktrees plus the repository's other worktrees. --porcelain stays raw git.",
+  prune:
+    'git worktree prune [-n|--dry-run] [-v]: the managed prune of this repository (clean, merged worktrees no session retains); -n only lists what it would remove.',
 });
 
 /** -h/--help before any `--` (the help answers instead of the operation running). */
@@ -454,7 +456,9 @@ function wantsHelp(args) {
 function checkListArgs(args) {
   for (const value of args) {
     if (value === '-v' || value === '--verbose') continue;
-    throw new Error(`git worktree list: ${value.startsWith('-') ? `option ${value} is not supported` : `unexpected argument ${value}`}`);
+    throw new Error(
+      `git worktree list: ${value.startsWith('-') ? `option ${value} is not supported` : `unexpected argument ${value}`}`
+    );
   }
 }
 
@@ -470,7 +474,8 @@ export async function executeRawWorktree(plan, input, options = {}) {
   if (sub === 'list' && plan.args.includes('--porcelain')) return null;
   try {
     if (sub === 'list') checkListArgs(plan.args.slice(1));
-    if (sub === 'list') return { text: okJson({ mapped: plan.command, ...(await listRows(options, plan.cwd)) }), failed: false };
+    if (sub === 'list')
+      return { text: okJson({ mapped: plan.command, ...(await listRows(options, plan.cwd)) }), failed: false };
     if (sub === 'add') return { text: await rawAdd(plan, input, options), failed: false };
     if (sub === 'remove') return { text: await rawRemove(plan, options), failed: false };
     if (sub === 'prune') return { text: await rawPrune(plan, options), failed: false };
@@ -483,7 +488,9 @@ export async function executeRawWorktree(plan, input, options = {}) {
       };
     }
     return {
-      text: fail(`git worktree ${sub || '(no subcommand)'} is not supported; use add, remove, list, prune or action:"worktree"`),
+      text: fail(
+        `git worktree ${sub || '(no subcommand)'} is not supported; use add, remove, list, prune or action:"worktree"`
+      ),
       failed: true,
     };
   } catch (error) {
@@ -533,7 +540,8 @@ export async function executeWorktreeAction(input, workDir, options = {}) {
   if (problem) return fail(problem);
   const action = input.worktree_action;
   try {
-    if (action === 'list') return okJson({ worktree_action: action, ...(await listRows(options, resolve(workDir || process.cwd()))) });
+    if (action === 'list')
+      return okJson({ worktree_action: action, ...(await listRows(options, resolve(workDir || process.cwd()))) });
     const host = leadHost(options, `git worktree_action ${action}`);
     const sessionId = input.session_id?.trim() || null;
     const request = {
@@ -549,7 +557,9 @@ export async function executeWorktreeAction(input, workDir, options = {}) {
           }
         : {}),
       ...(action === 'remove' ? { force: input.force === true } : {}),
-      ...(action === 'prune' ? { repoCommonDir: (await repositoryAt(resolve(workDir || process.cwd())))?.repoCommonDir ?? null } : {}),
+      ...(action === 'prune'
+        ? { repoCommonDir: (await repositoryAt(resolve(workDir || process.cwd())))?.repoCommonDir ?? null }
+        : {}),
       txId: txIdOf(options, action),
     };
     const result = await runOn(host, request, options);

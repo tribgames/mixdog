@@ -17,10 +17,20 @@ function report(text) {
 }
 
 function openIssue(repo, body) {
-  const existing = JSON.parse(gh([
-    'issue', 'list', '--repo', repo, '--state', 'open', '--search', `"${ISSUE_TITLE}" in:title`,
-    '--json', 'number,title',
-  ])).find((issue) => issue.title === ISSUE_TITLE);
+  const existing = JSON.parse(
+    gh([
+      'issue',
+      'list',
+      '--repo',
+      repo,
+      '--state',
+      'open',
+      '--search',
+      `"${ISSUE_TITLE}" in:title`,
+      '--json',
+      'number,title',
+    ])
+  ).find((issue) => issue.title === ISSUE_TITLE);
   if (existing) {
     gh(['issue', 'comment', String(existing.number), '--repo', repo, '--body', body]);
     return `commented on issue #${existing.number}`;
@@ -44,11 +54,13 @@ export function main(repo = process.env.GITHUB_REPOSITORY) {
   const problem = `GitHub Latest was \`${actual ?? 'none'}\` but the newest published app release is \`${expected.tag_name}\`.`;
   gh(['release', 'edit', expected.tag_name, '--repo', repo, '--latest']);
   const repaired = currentLatestTag(repo);
-  const outcome = repaired === expected.tag_name
-    ? `Set Latest back to \`${expected.tag_name}\`.`
-    : `Could not set Latest to \`${expected.tag_name}\`; it is now \`${repaired ?? 'none'}\`.`;
-  const detail = `${problem}\n${outcome}\n\nWorkflow run: ${process.env.GITHUB_SERVER_URL ?? ''}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}\n`
-    + 'Check which release or workflow published a non-app release without `--latest=false` / `make_latest: false`.';
+  const outcome =
+    repaired === expected.tag_name
+      ? `Set Latest back to \`${expected.tag_name}\`.`
+      : `Could not set Latest to \`${expected.tag_name}\`; it is now \`${repaired ?? 'none'}\`.`;
+  const detail =
+    `${problem}\n${outcome}\n\nWorkflow run: ${process.env.GITHUB_SERVER_URL ?? ''}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID ?? ''}\n` +
+    'Check which release or workflow published a non-app release without `--latest=false` / `make_latest: false`.';
   report(`## Latest release guard\n${detail}`);
   try {
     report(`Issue: ${openIssue(repo, detail)}.`);

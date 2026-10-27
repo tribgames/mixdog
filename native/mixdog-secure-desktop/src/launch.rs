@@ -40,16 +40,18 @@ use std::os::windows::ffi::OsStrExt;
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{HANDLE, LUID};
 use windows::Win32::Security::{
-    AdjustTokenPrivileges, DuplicateTokenEx, GetTokenInformation, LookupPrivilegeNameW, LookupPrivilegeValueW,
-    SetTokenInformation, SecurityImpersonation, TokenPrimary, TokenPrivileges, TokenSessionId,
-    LUID_AND_ATTRIBUTES, SE_PRIVILEGE_ENABLED, SE_PRIVILEGE_REMOVED, SE_ASSIGNPRIMARYTOKEN_NAME,
-    SE_INCREASE_QUOTA_NAME, SE_TCB_NAME, TOKEN_ADJUST_DEFAULT, TOKEN_ADJUST_PRIVILEGES, TOKEN_ADJUST_SESSIONID,
-    TOKEN_ALL_ACCESS, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_PRIVILEGES, TOKEN_QUERY, TOKEN_TYPE,
+    AdjustTokenPrivileges, DuplicateTokenEx, GetTokenInformation, LookupPrivilegeNameW,
+    LookupPrivilegeValueW, SecurityImpersonation, SetTokenInformation, TokenPrimary,
+    TokenPrivileges, TokenSessionId, LUID_AND_ATTRIBUTES, SE_ASSIGNPRIMARYTOKEN_NAME,
+    SE_INCREASE_QUOTA_NAME, SE_PRIVILEGE_ENABLED, SE_PRIVILEGE_REMOVED, SE_TCB_NAME,
+    TOKEN_ADJUST_DEFAULT, TOKEN_ADJUST_PRIVILEGES, TOKEN_ADJUST_SESSIONID, TOKEN_ALL_ACCESS,
+    TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_PRIVILEGES, TOKEN_QUERY, TOKEN_TYPE,
 };
 use windows::Win32::System::Threading::{
-    CreateProcessAsUserW, DeleteProcThreadAttributeList, GetCurrentProcess, InitializeProcThreadAttributeList,
-    OpenProcessToken, ResumeThread, UpdateProcThreadAttribute, CREATE_NO_WINDOW, CREATE_SUSPENDED, DETACHED_PROCESS,
-    EXTENDED_STARTUPINFO_PRESENT, LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_CREATION_FLAGS, PROCESS_INFORMATION,
+    CreateProcessAsUserW, DeleteProcThreadAttributeList, GetCurrentProcess,
+    InitializeProcThreadAttributeList, OpenProcessToken, ResumeThread, UpdateProcThreadAttribute,
+    CREATE_NO_WINDOW, CREATE_SUSPENDED, DETACHED_PROCESS, EXTENDED_STARTUPINFO_PRESENT,
+    LPPROC_THREAD_ATTRIBUTE_LIST, PROCESS_CREATION_FLAGS, PROCESS_INFORMATION,
     PROC_THREAD_ATTRIBUTE_JOB_LIST, STARTUPINFOEXW, STARTUPINFOW,
 };
 
@@ -165,7 +167,10 @@ impl BootstrapJob {
         let raw = unsafe { jobs::CreateJobObjectW(std::ptr::null(), PCWSTR::null()) };
         let job = OwnedHandle::new(HANDLE(raw)).ok_or_else(windows::core::Error::from_thread)?;
         let limits = ExtendedLimits {
-            basic: BasicLimits { limit_flags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, ..Default::default() },
+            basic: BasicLimits {
+                limit_flags: JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+                ..Default::default()
+            },
             ..Default::default()
         };
         set_limits(job.get(), &limits)?;
@@ -179,7 +184,10 @@ impl BootstrapJob {
     /// Whether closing the job would still terminate its processes.
     #[cfg(test)]
     pub fn kills_on_close(&self) -> windows::core::Result<bool> {
-        Ok(query_limits(self.handle())?.basic.limit_flags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE != 0)
+        Ok(
+            query_limits(self.handle())?.basic.limit_flags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+                != 0,
+        )
     }
 
     /// Clear kill-on-close and close the handle, leaving the helper running.
@@ -226,14 +234,19 @@ impl JobAttributeList {
         let mut list = vec![0usize; size.div_ceil(std::mem::size_of::<usize>())];
         unsafe {
             InitializeProcThreadAttributeList(
-                Some(LPPROC_THREAD_ATTRIBUTE_LIST(list.as_mut_ptr() as *mut core::ffi::c_void)),
+                Some(LPPROC_THREAD_ATTRIBUTE_LIST(
+                    list.as_mut_ptr() as *mut core::ffi::c_void
+                )),
                 1,
                 None,
                 &mut size,
             )?;
         }
         // Initialized: from here on `Drop` deletes it.
-        let built = JobAttributeList { list, jobs: Box::new(job.handle()) };
+        let built = JobAttributeList {
+            list,
+            jobs: Box::new(job.handle()),
+        };
         unsafe {
             UpdateProcThreadAttribute(
                 built.raw(),
@@ -277,7 +290,11 @@ const LAUNCH_FLAGS: PROCESS_CREATION_FLAGS = PROCESS_CREATION_FLAGS(
 fn start_in_job(
     job: BootstrapJob,
     desktop: PWSTR,
-    create: impl FnOnce(&STARTUPINFOW, PROCESS_CREATION_FLAGS, &mut PROCESS_INFORMATION) -> windows::core::Result<()>,
+    create: impl FnOnce(
+        &STARTUPINFOW,
+        PROCESS_CREATION_FLAGS,
+        &mut PROCESS_INFORMATION,
+    ) -> windows::core::Result<()>,
     before_resume: impl FnOnce(HANDLE) -> windows::core::Result<()>,
 ) -> windows::core::Result<(OwnedHandle, BootstrapJob)> {
     let attributes = JobAttributeList::new(&job)?;
@@ -385,7 +402,9 @@ pub const HELPER_KEPT_PRIVILEGES: [&str; 2] = ["SeChangeNotifyPrivilege", "SeImp
 
 /// Whether the helper's token keeps the privilege named `name`.
 pub fn helper_keeps_privilege(name: &str) -> bool {
-    HELPER_KEPT_PRIVILEGES.iter().any(|kept| kept.eq_ignore_ascii_case(name))
+    HELPER_KEPT_PRIVILEGES
+        .iter()
+        .any(|kept| kept.eq_ignore_ascii_case(name))
 }
 
 /// The service's own (LocalSystem) token duplicated as `kind` (a primary token
@@ -412,7 +431,14 @@ pub fn session_token(session_id: u32, kind: TOKEN_TYPE) -> windows::core::Result
         enable_privilege(token.get(), SE_INCREASE_QUOTA_NAME);
 
         let mut raw_dup = HANDLE::default();
-        DuplicateTokenEx(token.get(), TOKEN_ALL_ACCESS, None, SecurityImpersonation, kind, &mut raw_dup)?;
+        DuplicateTokenEx(
+            token.get(),
+            TOKEN_ALL_ACCESS,
+            None,
+            SecurityImpersonation,
+            kind,
+            &mut raw_dup,
+        )?;
         let dup = OwnedHandle::new(raw_dup).ok_or_else(windows::core::Error::from_thread)?;
 
         let session = session_id;
@@ -432,7 +458,13 @@ unsafe fn privilege_name(luid: &LUID) -> Option<String> {
     // (`SeDelegateSessionUserImpersonatePrivilege`, 39 characters).
     let mut buffer = [0u16; 128];
     let mut length = buffer.len() as u32;
-    LookupPrivilegeNameW(PCWSTR::null(), luid, Some(PWSTR(buffer.as_mut_ptr())), &mut length).ok()?;
+    LookupPrivilegeNameW(
+        PCWSTR::null(),
+        luid,
+        Some(PWSTR(buffer.as_mut_ptr())),
+        &mut length,
+    )
+    .ok()?;
     Some(String::from_utf16_lossy(&buffer[..length as usize]))
 }
 
@@ -449,16 +481,26 @@ fn strip_privileges(token: HANDLE) -> windows::core::Result<Vec<String>> {
         }
         // u32-backed so the LUID_AND_ATTRIBUTES array is aligned.
         let mut current = vec![0u32; (needed as usize).div_ceil(4)];
-        GetTokenInformation(token, TokenPrivileges, Some(current.as_mut_ptr() as *mut _), needed, &mut needed)?;
+        GetTokenInformation(
+            token,
+            TokenPrivileges,
+            Some(current.as_mut_ptr() as *mut _),
+            needed,
+            &mut needed,
+        )?;
         let held = &*(current.as_ptr() as *const TOKEN_PRIVILEGES);
-        let entries = std::slice::from_raw_parts(held.Privileges.as_ptr(), held.PrivilegeCount as usize);
+        let entries =
+            std::slice::from_raw_parts(held.Privileges.as_ptr(), held.PrivilegeCount as usize);
 
         let mut removed = Vec::new();
         let mut removals = Vec::new();
         for entry in entries {
             let name = privilege_name(&entry.Luid).ok_or_else(windows::core::Error::from_thread)?;
             if !helper_keeps_privilege(&name) {
-                removals.push(LUID_AND_ATTRIBUTES { Luid: entry.Luid, Attributes: SE_PRIVILEGE_REMOVED });
+                removals.push(LUID_AND_ATTRIBUTES {
+                    Luid: entry.Luid,
+                    Attributes: SE_PRIVILEGE_REMOVED,
+                });
                 removed.push(name);
             }
         }
@@ -470,7 +512,11 @@ fn strip_privileges(token: HANDLE) -> windows::core::Result<Vec<String>> {
         let mut request = vec![0u32; words];
         let header = request.as_mut_ptr() as *mut TOKEN_PRIVILEGES;
         (*header).PrivilegeCount = removals.len() as u32;
-        std::ptr::copy_nonoverlapping(removals.as_ptr(), (*header).Privileges.as_mut_ptr(), removals.len());
+        std::ptr::copy_nonoverlapping(
+            removals.as_ptr(),
+            (*header).Privileges.as_mut_ptr(),
+            removals.len(),
+        );
         AdjustTokenPrivileges(token, false, Some(header), 0, None, None)?;
         // AdjustTokenPrivileges succeeds with ERROR_NOT_ALL_ASSIGNED when it
         // changed only some of them; every one listed must be gone.
@@ -543,8 +589,12 @@ pub fn launch_in_session(
 mod tests {
     use super::*;
     use std::cell::Cell;
-    use windows::Win32::Foundation::{DuplicateHandle, DUPLICATE_SAME_ACCESS, E_FAIL, WAIT_OBJECT_0, WAIT_TIMEOUT};
-    use windows::Win32::System::Threading::{GetExitCodeProcess, TerminateProcess, WaitForSingleObject};
+    use windows::Win32::Foundation::{
+        DuplicateHandle, DUPLICATE_SAME_ACCESS, E_FAIL, WAIT_OBJECT_0, WAIT_TIMEOUT,
+    };
+    use windows::Win32::System::Threading::{
+        GetExitCodeProcess, TerminateProcess, WaitForSingleObject,
+    };
 
     /// How long a test waits for a termination it expects: the helper's own
     /// shutdown deadline, the bound the service gives any helper exit.
@@ -556,8 +606,16 @@ mod tests {
     fn keep(process: HANDLE) -> OwnedHandle {
         let mut kept = HANDLE::default();
         unsafe {
-            DuplicateHandle(GetCurrentProcess(), process, GetCurrentProcess(), &mut kept, 0, false, DUPLICATE_SAME_ACCESS)
-                .unwrap();
+            DuplicateHandle(
+                GetCurrentProcess(),
+                process,
+                GetCurrentProcess(),
+                &mut kept,
+                0,
+                false,
+                DUPLICATE_SAME_ACCESS,
+            )
+            .unwrap();
         }
         OwnedHandle::new(kept).unwrap()
     }
@@ -567,7 +625,10 @@ mod tests {
     fn end_stand_in(process: &OwnedHandle) {
         const OURS: u32 = 0x5EC;
         unsafe { TerminateProcess(process.get(), OURS) }.unwrap();
-        assert_eq!(unsafe { WaitForSingleObject(process.get(), deadline_ms()) }, WAIT_OBJECT_0);
+        assert_eq!(
+            unsafe { WaitForSingleObject(process.get(), deadline_ms()) },
+            WAIT_OBJECT_0
+        );
         let mut code = 0u32;
         unsafe { GetExitCodeProcess(process.get(), &mut code) }.unwrap();
         assert_eq!(code, OURS, "nothing had terminated it before");
@@ -581,13 +642,22 @@ mod tests {
         let in_job = Cell::new(false);
         let (process, job) = start_stand_in(job, |process| {
             let mut result = 0i32;
-            assert_ne!(unsafe { jobs::IsProcessInJob(process.0, job_handle.0, &mut result) }, 0);
+            assert_ne!(
+                unsafe { jobs::IsProcessInJob(process.0, job_handle.0, &mut result) },
+                0
+            );
             in_job.set(result != 0);
             Ok(())
         })
         .unwrap();
-        assert!(in_job.get(), "in the job while still suspended, before any hand-over or resume");
-        assert!(job.kills_on_close().unwrap(), "still armed after the launch");
+        assert!(
+            in_job.get(),
+            "in the job while still suspended, before any hand-over or resume"
+        );
+        assert!(
+            job.kills_on_close().unwrap(),
+            "still armed after the launch"
+        );
         end_stand_in(&process);
     }
 
@@ -602,14 +672,26 @@ mod tests {
         });
         assert!(result.is_err());
         let process = kept.take().unwrap();
-        assert_eq!(unsafe { WaitForSingleObject(process.get(), deadline_ms()) }, WAIT_OBJECT_0, "terminated through the job");
+        assert_eq!(
+            unsafe { WaitForSingleObject(process.get(), deadline_ms()) },
+            WAIT_OBJECT_0,
+            "terminated through the job"
+        );
 
         // A launch that succeeded but whose job is closed while still armed —
         // what the service's death does to its handle.
         let (process, job) = start_stand_in(BootstrapJob::new().unwrap(), |_| Ok(())).unwrap();
-        assert_eq!(unsafe { WaitForSingleObject(process.get(), 0) }, WAIT_TIMEOUT, "alive while the job is held");
+        assert_eq!(
+            unsafe { WaitForSingleObject(process.get(), 0) },
+            WAIT_TIMEOUT,
+            "alive while the job is held"
+        );
         drop(job);
-        assert_eq!(unsafe { WaitForSingleObject(process.get(), deadline_ms()) }, WAIT_OBJECT_0, "terminated through the job");
+        assert_eq!(
+            unsafe { WaitForSingleObject(process.get(), deadline_ms()) },
+            WAIT_OBJECT_0,
+            "terminated through the job"
+        );
     }
 
     #[test]
@@ -619,12 +701,24 @@ mod tests {
         // closed the bootstrap's own.
         let mut second = HANDLE::default();
         unsafe {
-            DuplicateHandle(GetCurrentProcess(), job.handle(), GetCurrentProcess(), &mut second, 0, false, DUPLICATE_SAME_ACCESS)
-                .unwrap();
+            DuplicateHandle(
+                GetCurrentProcess(),
+                job.handle(),
+                GetCurrentProcess(),
+                &mut second,
+                0,
+                false,
+                DUPLICATE_SAME_ACCESS,
+            )
+            .unwrap();
         }
         let second = OwnedHandle::new(second).unwrap();
         job.disarm().unwrap();
-        assert_eq!(query_limits(second.get()).unwrap().basic.limit_flags & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, 0);
+        assert_eq!(
+            query_limits(second.get()).unwrap().basic.limit_flags
+                & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+            0
+        );
         drop(second); // the job's last handle
         end_stand_in(&process);
     }

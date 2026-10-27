@@ -236,34 +236,36 @@ export function resolveOfficeArtDirection(
     String(format || '').toLowerCase() === 'xlsx'
       ? DIRECTION_BLUEPRINTS.filter((blueprint) => blueprint.backgroundMode !== 'dark')
       : DIRECTION_BLUEPRINTS;
-  const candidates = blueprints.map((blueprint) => {
-    const palette = directionPalette(baseHue, blueprint);
-    const motif = rawSubject ? `${blueprint.motif} · ${rawSubject}` : blueprint.motif;
-    return {
-      id: blueprint.id,
-      label: blueprint.label,
-      rationale: `${blueprint.label} fits ${purpose} through ${blueprint.motif}.`,
-      motif,
-      palette,
-      typography: { ...blueprint.typography },
-      style: { ...blueprint.style, pageRhythm: [...blueprint.style.pageRhythm] },
-      creativeSystem: creativeSystemOf(blueprint),
-      deck: {
-        backgroundMode: blueprint.backgroundMode,
+  const candidates = blueprints
+    .map((blueprint) => {
+      const palette = directionPalette(baseHue, blueprint);
+      const motif = rawSubject ? `${blueprint.motif} · ${rawSubject}` : blueprint.motif;
+      return {
+        id: blueprint.id,
+        label: blueprint.label,
+        rationale: `${blueprint.label} fits ${purpose} through ${blueprint.motif}.`,
         motif,
-        imageTreatment: blueprint.imageTreatment,
-        layoutBias: [...blueprint.layoutBias],
-        ...creativeSystemOf(blueprint),
-      },
-      score: directionScore(blueprint, {
-        purpose,
-        expressionMode,
-        tone: String(request.tone || ''),
-        requestedId: String(requested.id || ''),
-        seed,
-      }),
-    };
-  }).sort((left, right) => right.score - left.score || left.id.localeCompare(right.id));
+        palette,
+        typography: { ...blueprint.typography },
+        style: { ...blueprint.style, pageRhythm: [...blueprint.style.pageRhythm] },
+        creativeSystem: creativeSystemOf(blueprint),
+        deck: {
+          backgroundMode: blueprint.backgroundMode,
+          motif,
+          imageTreatment: blueprint.imageTreatment,
+          layoutBias: [...blueprint.layoutBias],
+          ...creativeSystemOf(blueprint),
+        },
+        score: directionScore(blueprint, {
+          purpose,
+          expressionMode,
+          tone: String(request.tone || ''),
+          requestedId: String(requested.id || ''),
+          seed,
+        }),
+      };
+    })
+    .sort((left, right) => right.score - left.score || left.id.localeCompare(right.id));
   const selected = candidates[0];
   const hasSubject = Boolean(rawSubject || requested.seed || requested.id);
   const disabled = request.artDirection === false || requested.enabled === false;

@@ -69,9 +69,12 @@ export function QuestionPanel({ questions, columns = 80, rows, onSubmit, onDismi
     if (text) commit({ ...s, buf: appendCapped(s.buf, text) });
   };
 
-  usePaste((text) => {
-    if (ref.current.typing) typeInto(text);
-  }, { isActive: isRawModeSupported });
+  usePaste(
+    (text) => {
+      if (ref.current.typing) typeInto(text);
+    },
+    { isActive: isRawModeSupported }
+  );
 
   useInput(
     (input, key) => {
@@ -232,7 +235,13 @@ export function QuestionPanel({ questions, columns = 80, rows, onSubmit, onDismi
   }
   if (plan.below > 0) out.push(moreRow('below', `↓ ${plan.below} more`));
 
-  const help = questionHelp({ multi, typing: state.typing, last: state.qi >= last, count: n, questionCount: questions.length });
+  const help = questionHelp({
+    multi,
+    typing: state.typing,
+    last: state.qi >= last,
+    count: n,
+    questionCount: questions.length,
+  });
 
   return (
     <Box flexDirection="column" flexShrink={0} width="100%">

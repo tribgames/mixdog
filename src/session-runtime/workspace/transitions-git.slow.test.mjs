@@ -328,12 +328,17 @@ test('a checkout made without moving the session (git worktree add) is prepared 
       messages: [],
     };
     const plans = [];
-    const api = realApi(session, [repo], { cwd: repo }, {
-      planWorktreeSetup: async (input) => {
-        plans.push(input.worktreeDir);
-        return { notes: [], commands: [] };
-      },
-    });
+    const api = realApi(
+      session,
+      [repo],
+      { cwd: repo },
+      {
+        planWorktreeSetup: async (input) => {
+          plans.push(input.worktreeDir);
+          return { notes: [], commands: [] };
+        },
+      }
+    );
     const added = await api.addBranchWorktree({ branch: 'raw-add', create: true, txId: 'raw-add-1' });
     assert.equal(session.cwd, repo, 'the session did not move');
     await api.prepareTurnWorkspace({ submissionId: 'turn-1' });

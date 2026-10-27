@@ -44,10 +44,13 @@ function referenceSurfacedBefore(rows, turnKey) {
 
 function referenceChangesAndVisualized(rows, turnKey) {
   const found = rows.find(
-    (other) => other.turnKey === turnKey && (other._tag === 'AssistantPart' || other._tag === 'Error') && other.turnChanges
+    (other) =>
+      other.turnKey === turnKey && (other._tag === 'AssistantPart' || other._tag === 'Error') && other.turnChanges
   );
   const changes = found ? found.turnChanges : undefined;
-  const items = rows.flatMap((other) => (other._tag === 'ToolActivity' && other.turnKey === turnKey ? other.items : []));
+  const items = rows.flatMap((other) =>
+    other._tag === 'ToolActivity' && other.turnKey === turnKey ? other.items : []
+  );
   return { changes, visualized: changes ? visualizedTargets(items) : undefined };
 }
 
@@ -88,7 +91,14 @@ const transcript = () => [
   toolRow('t2', 'tool3', [open('o4', 'site/a.html', 'v1', 15), open('o5', 'site/d.html', 'v4', 16)]),
   replyRow('t2', 'Final [two](docs/two.md) and [one](docs/one.md).', 18, changes2),
   userRow('t3', 20),
-  { _tag: 'Error', key: 'e1', turnKey: 't3', item: { kind: 'error', id: 'e1', text: 'x', at: 21 }, failures: [], turnChanges: changes3 },
+  {
+    _tag: 'Error',
+    key: 'e1',
+    turnKey: 't3',
+    item: { kind: 'error', id: 'e1', text: 'x', at: 21 },
+    failures: [],
+    turnChanges: changes3,
+  },
   toolRow('t3', 'tool4', [open('o6', 'site/e.html', 'v5', 22)]),
   userRow('t4', 30),
   replyRow('t4', 'No changes here.', 31),

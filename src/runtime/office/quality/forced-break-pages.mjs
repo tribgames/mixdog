@@ -25,9 +25,7 @@ const visibleText = (html) =>
 
 // A media query list reaches the printed page unless every query is screen-only.
 const appliesToPrint = (queries) =>
-  queries
-    .split(',')
-    .some((query) => !/^\s*(?:only\s+)?screen\b/i.test(query) && !/^\s*not\s+print\b/i.test(query));
+  queries.split(',').some((query) => !/^\s*(?:only\s+)?screen\b/i.test(query) && !/^\s*not\s+print\b/i.test(query));
 
 // Style rules in source order, flattened out of @media blocks that do not apply in print.
 function cssRules(css, active, rules) {
@@ -38,7 +36,10 @@ function cssRules(css, active, rules) {
     let depth = 1;
     let close = open + 1;
     for (; close < css.length && depth > 0; close += 1) depth += css[close] === '{' ? 1 : css[close] === '}' ? -1 : 0;
-    const head = css.slice(index, open).replace(/^(?:\s*@[^{;]*;)+/, '').trim();
+    const head = css
+      .slice(index, open)
+      .replace(/^(?:\s*@[^{;]*;)+/, '')
+      .trim();
     const inner = css.slice(open + 1, close - 1);
     if (/^@media\b/i.test(head)) cssRules(inner, active && appliesToPrint(head.slice(6)), rules);
     else if (active && head && !head.startsWith('@')) rules.push({ head, body: inner });
@@ -64,7 +65,8 @@ function breakDeclaration(body, rank) {
 }
 
 const beats = (a, b) => {
-  for (let index = 0; index < a.rank.length; index += 1) if (a.rank[index] !== b.rank[index]) return a.rank[index] > b.rank[index];
+  for (let index = 0; index < a.rank.length; index += 1)
+    if (a.rank[index] !== b.rank[index]) return a.rank[index] > b.rank[index];
   return true;
 };
 
@@ -80,7 +82,8 @@ function breakSelectors(html) {
         const classes = match[3].split('.').filter(Boolean);
         const specificity = (match[2] ? 100 : 0) + classes.length * 10 + (match[1] ? 1 : 0);
         const declaration = breakDeclaration(body, [0, specificity, order]);
-        if (declaration) selectors.push({ tag: (match[1] || '').toLowerCase(), id: match[2] || '', classes, declaration });
+        if (declaration)
+          selectors.push({ tag: (match[1] || '').toLowerCase(), id: match[2] || '', classes, declaration });
       }
     }
   }

@@ -4,12 +4,7 @@ import { connect as netConnect } from 'node:net';
 import type { Duplex } from 'node:stream';
 import { promisify } from 'node:util';
 
-import {
-  SERVICE_PIPE_NAME,
-  stateFilePath,
-  secureDesktopExePath,
-  type SecureDesktopEnvironment,
-} from './paths';
+import { SERVICE_PIPE_NAME, stateFilePath, secureDesktopExePath, type SecureDesktopEnvironment } from './paths';
 import {
   FRAME_DEADLINE_MS,
   FrameParser,
@@ -137,8 +132,10 @@ export class SecureDesktopClient {
   private pendingConnect?: { resolve: (hello: ServerHello) => void; reject: (error: Error) => void };
   /** Handshake progress: our nonce while awaiting `server-auth`, then 'proved'
    *  once we sent `client-auth`, then 'done' after `server-hello`. */
-  private handshake: { stage: 'await-server-auth'; clientNonce: Buffer } | { stage: 'await-hello' } | { stage: 'done' } =
-    { stage: 'done' };
+  private handshake:
+    | { stage: 'await-server-auth'; clientNonce: Buffer }
+    | { stage: 'await-hello' }
+    | { stage: 'done' } = { stage: 'done' };
   /** Set once authenticated; cleared when the connection ends. */
   private current?: SecureDesktopSession;
   private readonly inputDeadlineMs: number;
@@ -148,8 +145,7 @@ export class SecureDesktopClient {
   constructor(options: SecureDesktopClientOptions) {
     this.state = (options.readState ?? (() => defaultReadState(options.environment)))();
     this.available = this.state !== undefined;
-    this.createConnection =
-      options.createConnection ?? ((pipeName: string) => netConnect({ path: pipeName }));
+    this.createConnection = options.createConnection ?? ((pipeName: string) => netConnect({ path: pipeName }));
     this.inputDeadlineMs = options.inputDeadlineMs ?? FRAME_DEADLINE_MS;
   }
 
@@ -289,7 +285,7 @@ export class SecureDesktopClient {
       }
       this.handshake = { stage: 'await-hello' };
       this.connection?.write(
-        encodeControl({ type: 'client-auth', mac: clientAuthTag(this.state.secret, serverNonce, clientNonce) }),
+        encodeControl({ type: 'client-auth', mac: clientAuthTag(this.state.secret, serverNonce, clientNonce) })
       );
       return;
     }
@@ -378,7 +374,12 @@ export class SecureDesktopClient {
   /** Relay the phone's signed answer to a `grant-challenge`. The helper
    *  verifies it against the enrolled phone key; the app cannot forge one. */
   sendGrant(grant: SecureDesktopGrant): Promise<void> {
-    return this.sendBounded({ type: 'grant', challenge: grant.challenge, epoch: grant.epoch, signature: grant.signature });
+    return this.sendBounded({
+      type: 'grant',
+      challenge: grant.challenge,
+      epoch: grant.epoch,
+      signature: grant.signature,
+    });
   }
 
   /** Ask for Ctrl+Alt+Del (the service presses it). Settles like `sendInput`;
@@ -406,7 +407,7 @@ export class SecureDesktopClient {
       };
       const timer = setTimeout(
         () => settle(new Error(`input not taken by the helper within ${this.inputDeadlineMs} ms`)),
-        this.inputDeadlineMs,
+        this.inputDeadlineMs
       );
       this.pendingInputs.add(settle);
       connection.write(encodeControl(message), (error?: Error | null) => settle(error));
@@ -547,7 +548,7 @@ export type SecureDesktopImageCheck = { ok: true } | { ok: false; detail: string
  * elevated install re-verifies.
  */
 export async function verifySecureDesktopImage(
-  environment: SecureDesktopEnvironment,
+  environment: SecureDesktopEnvironment
 ): Promise<SecureDesktopImageCheck> {
   if (environment.platform !== 'win32') return { ok: false, detail: 'the secure-desktop helper is Windows-only' };
   try {
@@ -580,7 +581,7 @@ export type SecureDesktopAdminVerb = 'install' | 'enroll' | 'revoke';
 export async function elevateSecureDesktop(
   environment: SecureDesktopEnvironment,
   verbArgument: SecureDesktopAdminVerb,
-  extraArguments: readonly string[] = [],
+  extraArguments: readonly string[] = []
 ): Promise<number> {
   const exe = secureDesktopExePath(environment);
   const quote = (value: string) => `'${value.replace(/'/g, "''")}'`;
@@ -628,7 +629,7 @@ export function runSecureDesktopWithLogon(
   environment: SecureDesktopEnvironment,
   verbArgument: SecureDesktopAdminVerb,
   extraArguments: readonly string[],
-  credential: SecureDesktopCredential,
+  credential: SecureDesktopCredential
 ): Promise<number> {
   const exe = secureDesktopExePath(environment);
   const args = [verbArgument, ...extraArguments, '--logon'];
@@ -654,7 +655,7 @@ export function runSecureDesktopWithLogon(
 export function runSecureDesktopDelegated(
   environment: SecureDesktopEnvironment,
   verbArgument: 'enroll' | 'revoke',
-  extraArguments: readonly string[],
+  extraArguments: readonly string[]
 ): Promise<number> {
   return exitCodeOf(secureDesktopExePath(environment), [verbArgument, ...extraArguments, '--delegated']);
 }
@@ -696,7 +697,7 @@ export function installStateFromCheckExit(exitCode: number): SecureDesktopInstal
  *  reads as `not-enrolled` (an enroll adds it). */
 export async function secureDesktopInstallState(
   environment: SecureDesktopEnvironment,
-  controllerKey?: string,
+  controllerKey?: string
 ): Promise<SecureDesktopInstallState> {
   if (environment.platform !== 'win32') return 'unavailable';
   const args = controllerKey === undefined ? ['check'] : ['check', '--controller-key', controllerKey];
@@ -715,9 +716,7 @@ export async function secureDesktopInstallState(
  * after a reboot when a remote session needs it — never installs or prompts.
  * Returns whether it is running afterwards.
  */
-export async function startSecureDesktopService(
-  environment: SecureDesktopEnvironment,
-): Promise<SecureDesktopStatus> {
+export async function startSecureDesktopService(environment: SecureDesktopEnvironment): Promise<SecureDesktopStatus> {
   if (environment.platform !== 'win32') return { installed: false, running: false };
   try {
     // No wrapper timeout: `start` ends by the documented checkpoint/wait-hint

@@ -26,21 +26,41 @@ function fixture(t, mode = 'serial') {
   const cwd = mkdtempSync(join(root, 'case-'));
   const sessionId = `transcript-reuse-${randomUUID()}`;
   const session = {
-    id: sessionId, owner: 'agent', provider: 'transcript-reuse', model: 'fake-model', cwd,
-    tools: [], compaction: { auto: false }, schemaAllowedTools: null,
+    id: sessionId,
+    owner: 'agent',
+    provider: 'transcript-reuse',
+    model: 'fake-model',
+    cwd,
+    tools: [],
+    compaction: { auto: false },
+    schemaAllowedTools: null,
   };
-  const provider = { name: 'transcript-reuse', async send() { throw new Error('no model request expected'); } };
+  const provider = {
+    name: 'transcript-reuse',
+    async send() {
+      throw new Error('no model request expected');
+    },
+  };
   const state = createLoopState({
-    provider, messages: [{ role: 'user', content: 'Inspect the files.' }], model: 'fake-model', tools, cwd,
+    provider,
+    messages: [{ role: 'user', content: 'Inspect the files.' }],
+    model: 'fake-model',
+    tools,
+    cwd,
     sendOpts: { session, sessionId },
   });
   t.after(() => clearReadDedupSession(sessionId));
   return { state, mode, args: { path: cwd, pattern: '*.txt', sort: 'natural', limit: 25 }, executions: 0 };
 }
 
-const cached = (fx) => tryScopedToolCached({
-  sessionId: fx.state.sessionId, toolName: 'glob', cwd: fx.state.cwd, args: fx.args, touch: false,
-});
+const cached = (fx) =>
+  tryScopedToolCached({
+    sessionId: fx.state.sessionId,
+    toolName: 'glob',
+    cwd: fx.state.cwd,
+    args: fx.args,
+    touch: false,
+  });
 
 async function globRound(fx) {
   const { state, args } = fx;
@@ -57,10 +77,17 @@ async function globRound(fx) {
     return `snapshot-${fx.executions}.txt`;
   };
   const dispatcher = createEagerDispatcher({
-    tools, cwd: state.cwd, sessionId: state.sessionId, sessionRef: state.sessionRef,
-    signal: null, opts: {}, crossTurnCalls: state.crossTurnCalls,
-    getIterations: () => state.iterations, getNextIteration: () => state.iterations,
-    repeatFailLimit: 3, executeToolFn,
+    tools,
+    cwd: state.cwd,
+    sessionId: state.sessionId,
+    sessionRef: state.sessionRef,
+    signal: null,
+    opts: {},
+    crossTurnCalls: state.crossTurnCalls,
+    getIterations: () => state.iterations,
+    getNextIteration: () => state.iterations,
+    repeatFailLimit: 3,
+    executeToolFn,
   });
   if (fx.mode === 'streaming') {
     dispatcher.onToolCall(call);
@@ -68,15 +95,31 @@ async function globRound(fx) {
   }
   state.messages.push(assistant);
   const stats = await processToolBatch({
-    calls: [call], messages: state.messages, tools, cwd: state.cwd,
-    sessionId: state.sessionId, sessionRef: state.sessionRef, signal: null, opts: {},
-    iterations: state.iterations, assistantTurnMsg: assistant,
-    pending: dispatcher.pending, epoch: dispatcher.epoch,
+    calls: [call],
+    messages: state.messages,
+    tools,
+    cwd: state.cwd,
+    sessionId: state.sessionId,
+    sessionRef: state.sessionRef,
+    signal: null,
+    opts: {},
+    iterations: state.iterations,
+    assistantTurnMsg: assistant,
+    pending: dispatcher.pending,
+    epoch: dispatcher.epoch,
     startEagerRun: fx.mode === 'serial' ? () => {} : dispatcher.startEagerRun,
-    crossTurnCalls: state.crossTurnCalls, crossTurnCap: 100, sessionAgent: null,
-    pushToolResultMessage: (message) => { results.push(message); state.messages.push(message); },
-    throwIfAborted: () => {}, repeatFailLimit: 3,
-    dedupStubTotal: state.dedupStubTotal, editCount: state.editCount, executeToolFn,
+    crossTurnCalls: state.crossTurnCalls,
+    crossTurnCap: 100,
+    sessionAgent: null,
+    pushToolResultMessage: (message) => {
+      results.push(message);
+      state.messages.push(message);
+    },
+    throwIfAborted: () => {},
+    repeatFailLimit: 3,
+    dedupStubTotal: state.dedupStubTotal,
+    editCount: state.editCount,
+    executeToolFn,
   });
   Object.assign(state, stats);
   assert.equal(results.length, 1);

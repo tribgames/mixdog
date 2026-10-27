@@ -13,9 +13,7 @@ import { positiveInt } from '../runtime/shared/numbers.mjs';
 
 // One table owns both halves of a maintenance agent: which agents are hidden
 // from the worker list by default, and the short label they render as.
-const MAINTENANCE_AGENT_LABELS = new Map([
-  ['cycle1-agent', 'cycle1'],
-]);
+const MAINTENANCE_AGENT_LABELS = new Map([['cycle1-agent', 'cycle1']]);
 const DEFAULT_HIDDEN_STATUSLINE_AGENTS = Object.freeze([...MAINTENANCE_AGENT_LABELS.keys()]);
 const TERMINAL_AGENT_STATUS = /idle|done|complete|success|closed|error|fail|cancel|killed|timeout/i;
 const ACTIVE_AGENT_STATUS = /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting)$/i;

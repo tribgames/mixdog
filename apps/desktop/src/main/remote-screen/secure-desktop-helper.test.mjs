@@ -237,10 +237,14 @@ test('one session holds the helper: only its runs, grants, input and helper even
   assert.equal(second.latestFrame(), null);
   await first.sendGrant({ challenge: 'c1', epoch: run.first, signature: 's' });
   await first.sendInput(key);
-  assert.deepEqual(adapter.calls.slice(2), [
-    ['grant', 2],
-    ['input', 'key'],
-  ], 'only the holder’s run, grant and input');
+  assert.deepEqual(
+    adapter.calls.slice(2),
+    [
+      ['grant', 2],
+      ['input', 'key'],
+    ],
+    'only the holder’s run, grant and input'
+  );
 
   // The holder deactivates: deactivate (revoke), the successor's fresh run,
   // then activate.
@@ -368,7 +372,11 @@ test('an old challenge of the previous holder is dead after the handover', async
     await assert.rejects(second.sendGrant({ challenge: value, epoch: run, signature: 's' }), /no challenge/);
     await assert.rejects(first.sendGrant({ challenge: value, epoch: 1, signature: 's' }), /held by another/);
   }
-  assert.equal(adapter.calls.some(([op]) => op === 'grant'), false, 'nothing relayed');
+  assert.equal(
+    adapter.calls.some(([op]) => op === 'grant'),
+    false,
+    'nothing relayed'
+  );
 });
 
 test('a check that reads installed while the adapter reports not installed rebuilds it', async () => {

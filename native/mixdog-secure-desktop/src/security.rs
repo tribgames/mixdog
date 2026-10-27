@@ -116,7 +116,12 @@ impl DelegationPolicy {
 pub const MAX_CONTROLLER_KEYS: usize = 256;
 
 impl InstallState {
-    pub fn new(product_version: &str, user_sid: &str, pipe_name: &str, installed_at_ms: u64) -> Self {
+    pub fn new(
+        product_version: &str,
+        user_sid: &str,
+        pipe_name: &str,
+        installed_at_ms: u64,
+    ) -> Self {
         InstallState {
             schema: STATE_SCHEMA_VERSION,
             product_version: product_version.to_string(),
@@ -162,8 +167,13 @@ impl InstallState {
     /// that is not an uncompressed P-256 point, and refuses once
     /// [`MAX_CONTROLLER_KEYS`] keys are enrolled.
     pub fn enroll_key(&mut self, key: &str) -> Result<bool, String> {
-        let point = decode_controller_key(key).ok_or("controller key is not an uncompressed P-256 point")?;
-        if self.controller_keys.iter().any(|enrolled| decode_controller_key(enrolled) == Some(point)) {
+        let point = decode_controller_key(key)
+            .ok_or("controller key is not an uncompressed P-256 point")?;
+        if self
+            .controller_keys
+            .iter()
+            .any(|enrolled| decode_controller_key(enrolled) == Some(point))
+        {
             return Ok(false);
         }
         if self.controller_keys.len() >= MAX_CONTROLLER_KEYS {
@@ -183,14 +193,18 @@ impl InstallState {
             return false;
         };
         let before = self.controller_keys.len();
-        self.controller_keys.retain(|enrolled| decode_controller_key(enrolled) != Some(point));
+        self.controller_keys
+            .retain(|enrolled| decode_controller_key(enrolled) != Some(point));
         self.controller_keys.len() != before
     }
 
     /// Whether `key` is one of the enrolled keys (compared as decoded points).
     pub fn is_key_enrolled(&self, key: &str) -> bool {
         match decode_controller_key(key) {
-            Some(point) => self.controller_keys.iter().any(|enrolled| decode_controller_key(enrolled) == Some(point)),
+            Some(point) => self
+                .controller_keys
+                .iter()
+                .any(|enrolled| decode_controller_key(enrolled) == Some(point)),
             None => false,
         }
     }
@@ -198,7 +212,10 @@ impl InstallState {
     /// The enrolled controller keys, decoded; empty when none is enrolled. The
     /// helper verifies a grant against every one of these.
     pub fn controller_keys_bytes(&self) -> Vec<[u8; CONTROLLER_KEY_BYTES]> {
-        self.controller_keys.iter().filter_map(|key| decode_controller_key(key)).collect()
+        self.controller_keys
+            .iter()
+            .filter_map(|key| decode_controller_key(key))
+            .collect()
     }
 
     pub fn to_json(&self) -> String {
@@ -206,8 +223,8 @@ impl InstallState {
     }
 
     pub fn from_json(text: &str) -> Result<Self, String> {
-        let state: InstallState =
-            serde_json::from_str(text).map_err(|error| format!("invalid install state: {error}"))?;
+        let state: InstallState = serde_json::from_str(text)
+            .map_err(|error| format!("invalid install state: {error}"))?;
         if state.schema != STATE_SCHEMA_VERSION {
             return Err(format!(
                 "install state schema {} is not supported (expected {STATE_SCHEMA_VERSION})",
@@ -224,7 +241,11 @@ impl InstallState {
         // this read path: the state file is writable by SYSTEM/Administrators
         // only, so the keys it reads were written by an elevated or logon-path
         // operation.
-        if state.controller_keys.iter().any(|key| decode_controller_key(key).is_none()) {
+        if state
+            .controller_keys
+            .iter()
+            .any(|key| decode_controller_key(key).is_none())
+        {
             return Err("install state controller key is malformed".into());
         }
         if state.controller_keys.len() > MAX_CONTROLLER_KEYS {
@@ -457,7 +478,13 @@ pub struct GrantBook {
 
 impl GrantBook {
     pub fn new(connection_nonce: Vec<u8>) -> Self {
-        GrantBook { connection_nonce, open: Vec::new(), last_issued: None, epoch: None, live_until: None }
+        GrantBook {
+            connection_nonce,
+            open: Vec::new(),
+            last_issued: None,
+            epoch: None,
+            live_until: None,
+        }
     }
 
     pub fn connection_nonce(&self) -> &[u8] {
@@ -491,7 +518,8 @@ impl GrantBook {
     }
 
     fn prune(&mut self, now: Instant) {
-        self.open.retain(|open| now.saturating_duration_since(open.issued) <= GRANT_LIFETIME);
+        self.open
+            .retain(|open| now.saturating_duration_since(open.issued) <= GRANT_LIFETIME);
     }
 
     /// Whether a fresh challenge is due: none was issued since control was
@@ -510,7 +538,10 @@ impl GrantBook {
     /// [`GRANT_REFRESH`] later.
     pub fn issue(&mut self, now: Instant, challenge: Vec<u8>) {
         self.prune(now);
-        self.open.push(OpenChallenge { bytes: challenge, issued: now });
+        self.open.push(OpenChallenge {
+            bytes: challenge,
+            issued: now,
+        });
         self.last_issued = Some(now);
     }
 
@@ -554,7 +585,10 @@ impl GrantBook {
             .ok()
             .filter(|bytes| bytes.len() == GRANT_SIGNATURE_BYTES)
             .ok_or(GrantRefusal::Malformed)?;
-        if !verify(&grant_payload(&self.connection_nonce, &challenge, epoch), &signature) {
+        if !verify(
+            &grant_payload(&self.connection_nonce, &challenge, epoch),
+            &signature,
+        ) {
             return Err(GrantRefusal::BadSignature);
         }
         let until = issued + GRANT_LIFETIME;
@@ -572,11 +606,16 @@ impl GrantBook {
 /// — through the ECDSA P-256 algorithm pseudo-handle, available from
 /// Windows 10 (https://learn.microsoft.com/windows/win32/seccng/cng-algorithm-pseudo-handles).
 #[cfg(windows)]
-pub fn ecdsa_p256_verify(public_key: &[u8; CONTROLLER_KEY_BYTES], message: &[u8], signature: &[u8]) -> bool {
+pub fn ecdsa_p256_verify(
+    public_key: &[u8; CONTROLLER_KEY_BYTES],
+    message: &[u8],
+    signature: &[u8],
+) -> bool {
     use sha2::{Digest, Sha256};
     use windows::Win32::Security::Cryptography::{
         BCryptDestroyKey, BCryptImportKeyPair, BCryptVerifySignature, BCRYPT_ECCPUBLIC_BLOB,
-        BCRYPT_ECDSA_P256_ALG_HANDLE, BCRYPT_ECDSA_PUBLIC_P256_MAGIC, BCRYPT_FLAGS, BCRYPT_KEY_HANDLE,
+        BCRYPT_ECDSA_P256_ALG_HANDLE, BCRYPT_ECDSA_PUBLIC_P256_MAGIC, BCRYPT_FLAGS,
+        BCRYPT_KEY_HANDLE,
     };
     if signature.len() != GRANT_SIGNATURE_BYTES || public_key[0] != 0x04 {
         return false;
@@ -588,8 +627,15 @@ pub fn ecdsa_p256_verify(public_key: &[u8; CONTROLLER_KEY_BYTES], message: &[u8]
     let digest = Sha256::digest(message);
     unsafe {
         let mut key = BCRYPT_KEY_HANDLE(std::ptr::null_mut());
-        if BCryptImportKeyPair(BCRYPT_ECDSA_P256_ALG_HANDLE, None, BCRYPT_ECCPUBLIC_BLOB, &mut key, &blob, 0)
-            .is_err()
+        if BCryptImportKeyPair(
+            BCRYPT_ECDSA_P256_ALG_HANDLE,
+            None,
+            BCRYPT_ECCPUBLIC_BLOB,
+            &mut key,
+            &blob,
+            0,
+        )
+        .is_err()
         {
             return false;
         }
@@ -605,7 +651,8 @@ pub fn ecdsa_p256_verify(public_key: &[u8; CONTROLLER_KEY_BYTES], message: &[u8]
 /// 1 services, 2 Ease of Access (uiAccess) apps, 3 both — the "Disable or
 /// enable software Secure Attention Sequence" policy that the `SendSAS` docs
 /// name (https://learn.microsoft.com/windows/win32/api/sas/nf-sas-sendsas).
-pub const SOFTWARE_SAS_POLICY_KEY: &str = r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System";
+pub const SOFTWARE_SAS_POLICY_KEY: &str =
+    r"SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\System";
 pub const SOFTWARE_SAS_POLICY_VALUE: &str = "SoftwareSASGeneration";
 /// The value that lets services simulate the SAS.
 pub const SOFTWARE_SAS_SERVICES: u32 = 1;
@@ -753,9 +800,9 @@ pub fn send_sas_under_policy(
 ) -> Result<SasSent, String> {
     restore_software_sas(store)?;
     match sas_policy(store.value()?) {
-        SasPolicy::DisabledByPolicy => {
-            Err("sas_disabled_by_policy: SoftwareSASGeneration excludes services; left as set".into())
-        }
+        SasPolicy::DisabledByPolicy => Err(
+            "sas_disabled_by_policy: SoftwareSASGeneration excludes services; left as set".into(),
+        ),
         SasPolicy::Allowed => send().map(|()| SasSent::AsConfigured),
         SasPolicy::EnableTemporarily => {
             store.write_marker(&SasPolicyMarker::new(SOFTWARE_SAS_SERVICES).to_json())?;
@@ -764,9 +811,9 @@ pub fn send_sas_under_policy(
             match (sent, cleanup) {
                 (Ok(()), cleanup) => Ok(SasSent::Temporarily(cleanup)),
                 (Err(error), Ok(_)) => Err(error),
-                (Err(error), Err(cleanup)) => {
-                    Err(format!("{error}; removing the temporary value failed: {cleanup} (marker kept)"))
-                }
+                (Err(error), Err(cleanup)) => Err(format!(
+                    "{error}; removing the temporary value failed: {cleanup} (marker kept)"
+                )),
             }
         }
     }
@@ -777,16 +824,14 @@ pub fn send_sas_under_policy(
 /// never reach [`pipe_sddl`] or [`state_file_sddl`].
 pub fn is_sid_literal(sid: &str) -> bool {
     let mut parts = sid.split('-');
-    parts.next() == Some("S")
-        && parts.next() == Some("1")
-        && {
-            let rest: Vec<&str> = parts.collect();
-            !rest.is_empty()
-                && rest.len() <= 16
-                && rest
-                    .iter()
-                    .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
-        }
+    parts.next() == Some("S") && parts.next() == Some("1") && {
+        let rest: Vec<&str> = parts.collect();
+        !rest.is_empty()
+            && rest.len() <= 16
+            && rest
+                .iter()
+                .all(|part| !part.is_empty() && part.bytes().all(|b| b.is_ascii_digit()))
+    }
 }
 
 /// `FILE_GENERIC_READ | FILE_GENERIC_EXECUTE` as a hex access mask: the only
@@ -804,9 +849,8 @@ pub const USER_READ_EXECUTE: &str = "0x1200a9";
 /// low-integrity or AppContainer client (e.g. a sandboxed renderer) is denied
 /// access outright, before the secret is ever evaluated.
 pub fn pipe_sddl(user_sid: &str) -> Option<String> {
-    is_sid_literal(user_sid).then(|| {
-        format!("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;{user_sid})S:(ML;;NWNRNX;;;ME)")
-    })
+    is_sid_literal(user_sid)
+        .then(|| format!("D:P(A;;GA;;;SY)(A;;GA;;;BA)(A;;GRGW;;;{user_sid})S:(ML;;NWNRNX;;;ME)"))
 }
 
 /// SDDL for the service <-> helper shutdown events: SYSTEM only, protected.
@@ -831,7 +875,9 @@ pub fn generate_shutdown_token() -> String {
 /// building object names from it.
 pub fn is_shutdown_token(token: &str) -> bool {
     token.len() == SHUTDOWN_TOKEN_HEX
-        && token.bytes().all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        && token
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
 }
 
 /// SDDL for the state file: SYSTEM and Administrators full, installing user
@@ -841,8 +887,7 @@ pub fn is_shutdown_token(token: &str) -> bool {
 /// it for the pipe's mutual HMAC handshake, so that user keeps read access and
 /// every other principal is excluded. The user never writes it.
 pub fn state_file_sddl(user_sid: &str) -> Option<String> {
-    is_sid_literal(user_sid)
-        .then(|| format!("D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;{user_sid})"))
+    is_sid_literal(user_sid).then(|| format!("D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FR;;;{user_sid})"))
 }
 
 /// SDDL for the install directory (`%ProgramData%\Mixdog\SecureDesktop`), used
@@ -1098,7 +1143,7 @@ mod tests {
         assert!(dir.starts_with("O:BAG:SYD:P("));
         assert!(dir.contains(&format!("(A;OICI;{USER_READ_EXECUTE};;;{sid})")));
         assert!(!dir.contains("FA;;;S-1-5-21")); // user never gets full access
-        // Same posture on the copied binary.
+                                                 // Same posture on the copied binary.
         let bin = binary_sddl(sid).unwrap();
         assert!(bin.starts_with("O:BAG:SYD:P("));
         assert!(bin.ends_with(&format!("(A;;{USER_READ_EXECUTE};;;{sid})")));
@@ -1141,7 +1186,7 @@ mod tests {
         assert!(mask_can_modify_path(0x0004_0000, PathKind::File)); // WRITE_DAC
         assert!(mask_can_modify_path(0x4000_0000, PathKind::File)); // GENERIC_WRITE
         assert!(mask_can_modify_path(0x1000_0000, PathKind::File)); // GENERIC_ALL
-        // FILE_DELETE_CHILD is meaningless on a file and not treated as modify.
+                                                                    // FILE_DELETE_CHILD is meaningless on a file and not treated as modify.
         assert!(!mask_can_modify_path(0x0000_0040, PathKind::File));
         // Pure read/execute never counts as modify for either kind.
         assert!(!mask_can_modify_path(0x0012_00a9, PathKind::File)); // FILE_GENERIC_READ|EXECUTE
@@ -1156,8 +1201,8 @@ mod tests {
         assert_eq!(classify_ace_type(0x06), AceClass::Deny); // ACCESS_DENIED_OBJECT
         assert_eq!(classify_ace_type(0x0A), AceClass::Deny); // DENIED_CALLBACK
         assert_eq!(classify_ace_type(0x0C), AceClass::Deny); // DENIED_CALLBACK_OBJECT
-        // Object/callback ALLOW aces and unknown types fail closed: the SID is
-        // not at the plain offset, so they must not be silently ignored.
+                                                             // Object/callback ALLOW aces and unknown types fail closed: the SID is
+                                                             // not at the plain offset, so they must not be silently ignored.
         assert_eq!(classify_ace_type(0x05), AceClass::Unsupported); // ALLOWED_OBJECT
         assert_eq!(classify_ace_type(0x09), AceClass::Unsupported); // ALLOWED_CALLBACK
         assert_eq!(classify_ace_type(0x0B), AceClass::Unsupported); // ALLOWED_CALLBACK_OBJECT
@@ -1182,7 +1227,10 @@ mod tests {
             CONTAINER_INHERIT | INHERITED,
             OBJECT_INHERIT | CONTAINER_INHERIT | INHERITED,
         ] {
-            assert!(ace_controls_access(flags), "flags {flags:#04x} are effective");
+            assert!(
+                ace_controls_access(flags),
+                "flags {flags:#04x} are effective"
+            );
         }
         // Inherit-only (stock `C:\`: OI|CI|IO = 0x0B), inherited or not, with
         // any propagation flags, and bare `IO`.
@@ -1193,7 +1241,10 @@ mod tests {
             CONTAINER_INHERIT | NO_PROPAGATE_INHERIT | INHERIT_ONLY_ACE,
             INHERIT_ONLY_ACE | INHERITED,
         ] {
-            assert!(!ace_controls_access(flags), "flags {flags:#04x} are inherit-only");
+            assert!(
+                !ace_controls_access(flags),
+                "flags {flags:#04x} are inherit-only"
+            );
         }
         assert_eq!(OBJECT_INHERIT | CONTAINER_INHERIT | INHERIT_ONLY_ACE, 0x0B);
     }
@@ -1247,8 +1298,13 @@ mod tests {
         assert_ne!(a, b);
         assert!(!is_shutdown_token(""));
         assert!(!is_shutdown_token(&a[1..]));
-        assert!(!is_shutdown_token(&a.to_uppercase().replace(|c: char| c.is_ascii_digit(), "A")));
-        assert!(!is_shutdown_token(&format!("{}\\", &a[1..])), "no path separators");
+        assert!(!is_shutdown_token(
+            &a.to_uppercase().replace(|c: char| c.is_ascii_digit(), "A")
+        ));
+        assert!(
+            !is_shutdown_token(&format!("{}\\", &a[1..])),
+            "no path separators"
+        );
         let (stop, ack) = crate::paths::shutdown_event_names(&a);
         assert!(stop.starts_with(r"Global\") && ack.starts_with(r"Global\"));
         assert_ne!(stop, ack);
@@ -1315,7 +1371,10 @@ mod tests {
         // and no key field is written at all.
         let bare = InstallState::new("0.1.0", "S-1-5-18", crate::paths::PIPE_NAME, 0);
         assert!(!bare.to_json().contains("controllerKey"));
-        assert!(InstallState::from_json(&bare.to_json()).unwrap().controller_keys_bytes().is_empty());
+        assert!(InstallState::from_json(&bare.to_json())
+            .unwrap()
+            .controller_keys_bytes()
+            .is_empty());
         // Compressed points, wrong lengths and non-base64url are refused.
         let compressed = URL_SAFE_NO_PAD.encode([&[2u8][..], &[7u8; 64][..]].concat());
         for bad in [compressed.as_str(), "AAAA", "not base64!"] {
@@ -1350,14 +1409,25 @@ mod tests {
         assert!(!state.to_json().contains("delegation"));
         // The elevated opt-in records the authorized app signer.
         state.enable_delegation("CN=TRIBGAMES", "1.3.6.1.4.1.311.97.1.2.3");
-        assert_eq!(state.delegation.authorized_signer(), Some(("CN=TRIBGAMES", "1.3.6.1.4.1.311.97.1.2.3")));
+        assert_eq!(
+            state.delegation.authorized_signer(),
+            Some(("CN=TRIBGAMES", "1.3.6.1.4.1.311.97.1.2.3"))
+        );
         let round = InstallState::from_json(&state.to_json()).unwrap();
         assert_eq!(round.delegation, state.delegation, "the policy round-trips");
         // A security disable stops honoring delegated requests at once, but
         // keeps the recorded identity for audit; re-enabling needs elevation.
         state.disable_delegation();
-        assert_eq!(state.delegation.authorized_signer(), None, "no delegated request is honored");
-        assert_eq!(state.delegation.app_subject.as_deref(), Some("CN=TRIBGAMES"), "identity kept for audit");
+        assert_eq!(
+            state.delegation.authorized_signer(),
+            None,
+            "no delegated request is honored"
+        );
+        assert_eq!(
+            state.delegation.app_subject.as_deref(),
+            Some("CN=TRIBGAMES"),
+            "identity kept for audit"
+        );
     }
 
     #[test]
@@ -1377,7 +1447,12 @@ mod tests {
             state.controller_keys.push(a_key(fill));
         }
         assert_eq!(state.controller_keys.len(), MAX_CONTROLLER_KEYS);
-        assert!(state.enroll_key(&a_key(MAX_CONTROLLER_KEYS as u16)).is_err(), "the cap is enforced");
+        assert!(
+            state
+                .enroll_key(&a_key(MAX_CONTROLLER_KEYS as u16))
+                .is_err(),
+            "the cap is enforced"
+        );
     }
 
     // ---- control grants (pure) ----
@@ -1408,7 +1483,10 @@ mod tests {
             true
         });
         assert_eq!(result, Ok(()));
-        assert_eq!(signed, grant_payload(&NONCE, &decode_nonce(&challenge).unwrap(), 4));
+        assert_eq!(
+            signed,
+            grant_payload(&NONCE, &decode_nonce(&challenge).unwrap(), 4)
+        );
         // Live from the challenge's issue time, not from receipt.
         assert!(book.live(t0 + GRANT_LIFETIME - Duration::from_millis(1)));
         assert!(!book.live(t0 + GRANT_LIFETIME));
@@ -1418,7 +1496,10 @@ mod tests {
     fn a_bad_signature_is_refused_and_consumes_the_challenge() {
         let t0 = Instant::now();
         let (mut book, challenge) = book_with_challenge(1, t0);
-        assert_eq!(book.accept(t0, &challenge, 1, &signature(), |_, _| false), Err(GrantRefusal::BadSignature));
+        assert_eq!(
+            book.accept(t0, &challenge, 1, &signature(), |_, _| false),
+            Err(GrantRefusal::BadSignature)
+        );
         assert!(!book.live(t0));
         // The same challenge cannot be tried again, even with a good signature.
         assert_eq!(
@@ -1432,11 +1513,19 @@ mod tests {
         let t0 = Instant::now();
         let (mut book, challenge) = book_with_challenge(1, t0);
         let late = t0 + GRANT_LIFETIME + Duration::from_millis(1);
-        assert_eq!(book.accept(late, &challenge, 1, &signature(), |_, _| true), Err(GrantRefusal::Expired));
+        assert_eq!(
+            book.accept(late, &challenge, 1, &signature(), |_, _| true),
+            Err(GrantRefusal::Expired)
+        );
         assert!(!book.live(late));
         // At exactly the lifetime it is still accepted (and lapses at once).
         let (mut edge, challenge) = book_with_challenge(1, t0);
-        assert_eq!(edge.accept(t0 + GRANT_LIFETIME, &challenge, 1, &signature(), |_, _| true), Ok(()));
+        assert_eq!(
+            edge.accept(t0 + GRANT_LIFETIME, &challenge, 1, &signature(), |_, _| {
+                true
+            }),
+            Ok(())
+        );
     }
 
     #[test]
@@ -1448,7 +1537,10 @@ mod tests {
             book.accept(t0, &other_connection, 1, &signature(), |_, _| true),
             Err(GrantRefusal::UnknownChallenge)
         );
-        assert_eq!(book.accept(t0, "short", 1, &signature(), |_, _| true), Err(GrantRefusal::Malformed));
+        assert_eq!(
+            book.accept(t0, "short", 1, &signature(), |_, _| true),
+            Err(GrantRefusal::Malformed)
+        );
     }
 
     #[test]
@@ -1459,7 +1551,8 @@ mod tests {
         let (mut book, challenge) = book_with_challenge(1, t0);
         let foreign = grant_payload(&[0x22; NONCE_BYTES], &decode_nonce(&challenge).unwrap(), 1);
         assert_eq!(
-            book.accept(t0, &challenge, 1, &signature(), |payload, _| payload == foreign.as_slice()),
+            book.accept(t0, &challenge, 1, &signature(), |payload, _| payload
+                == foreign.as_slice()),
             Err(GrantRefusal::BadSignature)
         );
     }
@@ -1468,7 +1561,10 @@ mod tests {
     fn a_grant_for_another_run_or_before_any_run_is_refused_and_a_new_run_ends_the_grant() {
         let t0 = Instant::now();
         let (mut book, challenge) = book_with_challenge(5, t0);
-        assert_eq!(book.accept(t0, &challenge, 4, &signature(), |_, _| true), Err(GrantRefusal::WrongEpoch));
+        assert_eq!(
+            book.accept(t0, &challenge, 4, &signature(), |_, _| true),
+            Err(GrantRefusal::WrongEpoch)
+        );
 
         let mut fresh = GrantBook::new(NONCE.to_vec());
         let challenge = generate_challenge();
@@ -1479,8 +1575,14 @@ mod tests {
         );
 
         let (mut live, challenge) = book_with_challenge(5, t0);
-        assert_eq!(live.accept(t0, &challenge, 5, &signature(), |_, _| true), Ok(()));
-        assert!(!live.set_epoch(5), "re-declaring the same run changes nothing");
+        assert_eq!(
+            live.accept(t0, &challenge, 5, &signature(), |_, _| true),
+            Ok(())
+        );
+        assert!(
+            !live.set_epoch(5),
+            "re-declaring the same run changes nothing"
+        );
         assert!(live.live(t0));
         assert!(live.set_epoch(6));
         assert!(!live.live(t0), "a new run ends the grant");
@@ -1490,9 +1592,18 @@ mod tests {
     fn a_replayed_grant_is_refused() {
         let t0 = Instant::now();
         let (mut book, challenge) = book_with_challenge(1, t0);
-        assert_eq!(book.accept(t0, &challenge, 1, &signature(), |_, _| true), Ok(()));
         assert_eq!(
-            book.accept(t0 + Duration::from_millis(10), &challenge, 1, &signature(), |_, _| true),
+            book.accept(t0, &challenge, 1, &signature(), |_, _| true),
+            Ok(())
+        );
+        assert_eq!(
+            book.accept(
+                t0 + Duration::from_millis(10),
+                &challenge,
+                1,
+                &signature(),
+                |_, _| true
+            ),
             Err(GrantRefusal::UnknownChallenge)
         );
     }
@@ -1502,15 +1613,35 @@ mod tests {
         let t0 = Instant::now();
         let (mut book, challenge) = book_with_challenge(1, t0);
         let answered = t0 + Duration::from_millis(200);
-        assert_eq!(book.accept(answered, &challenge, 1, &signature(), |_, _| true), Ok(()));
-        assert!(book.open.is_empty(), "the grant consumed the only open challenge");
-        assert!(!book.needs_challenge(answered), "no new challenge right after a grant");
+        assert_eq!(
+            book.accept(answered, &challenge, 1, &signature(), |_, _| true),
+            Ok(())
+        );
+        assert!(
+            book.open.is_empty(),
+            "the grant consumed the only open challenge"
+        );
+        assert!(
+            !book.needs_challenge(answered),
+            "no new challenge right after a grant"
+        );
         assert!(!book.needs_challenge(t0 + GRANT_REFRESH - Duration::from_millis(1)));
-        assert!(book.needs_challenge(t0 + GRANT_REFRESH), "due one refresh after the last issue");
+        assert!(
+            book.needs_challenge(t0 + GRANT_REFRESH),
+            "due one refresh after the last issue"
+        );
         // Neither a refusal, re-declaring the same run, nor a revocation
         // restarts the cadence...
-        assert_eq!(book.accept(answered, "AAAAAAAAAAAAAAAAAAAAAA==", 1, &signature(), |_, _| true),
-            Err(GrantRefusal::UnknownChallenge));
+        assert_eq!(
+            book.accept(
+                answered,
+                "AAAAAAAAAAAAAAAAAAAAAA==",
+                1,
+                &signature(),
+                |_, _| true
+            ),
+            Err(GrantRefusal::UnknownChallenge)
+        );
         assert!(!book.set_epoch(1));
         book.revoke();
         assert!(!book.needs_challenge(answered));
@@ -1523,17 +1654,32 @@ mod tests {
     fn a_new_video_run_makes_a_challenge_due_at_once() {
         let t0 = Instant::now();
         let (mut book, challenge) = book_with_challenge(1, t0);
-        assert_eq!(book.accept(t0, &challenge, 1, &signature(), |_, _| true), Ok(()));
+        assert_eq!(
+            book.accept(t0, &challenge, 1, &signature(), |_, _| true),
+            Ok(())
+        );
         let switched = t0 + Duration::from_millis(100);
         assert!(!book.needs_challenge(switched), "mid-cadence");
         assert!(book.set_epoch(2), "the UAC prompt starts a new run");
         assert!(!book.live(switched), "the old grant ended with the run");
-        assert!(book.needs_challenge(switched), "a challenge is due at once, not at the next refresh");
+        assert!(
+            book.needs_challenge(switched),
+            "a challenge is due at once, not at the next refresh"
+        );
         // Once issued, the cadence runs from that issue.
         let challenge = generate_challenge();
         book.issue(switched, challenge.clone());
         assert!(!book.needs_challenge(switched + GRANT_REFRESH - Duration::from_millis(1)));
-        assert_eq!(book.accept(switched, &encode_nonce(&challenge), 2, &signature(), |_, _| true), Ok(()));
+        assert_eq!(
+            book.accept(
+                switched,
+                &encode_nonce(&challenge),
+                2,
+                &signature(),
+                |_, _| true
+            ),
+            Ok(())
+        );
         assert!(book.live(switched));
     }
 
@@ -1550,7 +1696,10 @@ mod tests {
         for _ in 0..20 {
             at += GRANT_REFRESH;
             book.issue(at, generate_challenge());
-            assert!(book.open.len() <= (GRANT_LIFETIME.as_millis() / GRANT_REFRESH.as_millis()) as usize + 1);
+            assert!(
+                book.open.len()
+                    <= (GRANT_LIFETIME.as_millis() / GRANT_REFRESH.as_millis()) as usize + 1
+            );
         }
         book.revoke();
         assert!(book.open.is_empty() && !book.live(at));
@@ -1564,7 +1713,11 @@ mod tests {
         assert_eq!(sas_policy(Some(1)), SasPolicy::Allowed);
         assert_eq!(sas_policy(Some(3)), SasPolicy::Allowed);
         assert_eq!(sas_policy(Some(0)), SasPolicy::DisabledByPolicy);
-        assert_eq!(sas_policy(Some(2)), SasPolicy::DisabledByPolicy, "Ease of Access only excludes services");
+        assert_eq!(
+            sas_policy(Some(2)),
+            SasPolicy::DisabledByPolicy,
+            "Ease of Access only excludes services"
+        );
         assert_eq!(sas_policy(Some(99)), SasPolicy::DisabledByPolicy);
     }
 
@@ -1582,7 +1735,10 @@ mod tests {
             Ok(self.value)
         }
         fn set_value(&mut self, data: u32) -> Result<(), String> {
-            assert!(self.marker.is_some(), "the marker is written before the value");
+            assert!(
+                self.marker.is_some(),
+                "the marker is written before the value"
+            );
             self.ops.push(format!("set {data}"));
             self.value = Some(data);
             Ok(())
@@ -1614,25 +1770,42 @@ mod tests {
     fn an_absent_value_is_set_under_a_marker_and_removed_after_the_sas() {
         let registry = std::cell::RefCell::new(FakeRegistry::default());
         let sent = send_sas_under_policy(&mut RegistryCell(&registry), || {
-            assert_eq!(registry.borrow().value, Some(1), "services are allowed during the call");
+            assert_eq!(
+                registry.borrow().value,
+                Some(1),
+                "services are allowed during the call"
+            );
             Ok(())
         });
         assert_eq!(sent, Ok(SasSent::Temporarily(Ok(SasCleanup::Removed))));
         let registry = registry.into_inner();
         assert_eq!(registry.ops, ["mark", "set 1", "delete", "unmark"]);
-        assert_eq!((registry.value, registry.marker), (None, None), "the machine is left as it was");
+        assert_eq!(
+            (registry.value, registry.marker),
+            (None, None),
+            "the machine is left as it was"
+        );
     }
 
     #[test]
     fn a_pre_existing_value_is_never_written_or_removed() {
         for existing in [1, 3] {
-            let mut registry = FakeRegistry { value: Some(existing), ..Default::default() };
-            assert_eq!(send_sas_under_policy(&mut registry, || Ok(())), Ok(SasSent::AsConfigured));
+            let mut registry = FakeRegistry {
+                value: Some(existing),
+                ..Default::default()
+            };
+            assert_eq!(
+                send_sas_under_policy(&mut registry, || Ok(())),
+                Ok(SasSent::AsConfigured)
+            );
             assert!(registry.ops.is_empty());
             assert_eq!(registry.value, Some(existing));
         }
         for excluded in [0, 2, 99] {
-            let mut registry = FakeRegistry { value: Some(excluded), ..Default::default() };
+            let mut registry = FakeRegistry {
+                value: Some(excluded),
+                ..Default::default()
+            };
             let mut called = false;
             let result = send_sas_under_policy(&mut registry, || {
                 called = true;
@@ -1654,7 +1827,10 @@ mod tests {
                 registry.borrow_mut().value = admin;
                 Ok(())
             });
-            assert_eq!(sent, Ok(SasSent::Temporarily(Ok(SasCleanup::LeftAlone(left)))));
+            assert_eq!(
+                sent,
+                Ok(SasSent::Temporarily(Ok(SasCleanup::LeftAlone(left))))
+            );
             let registry = registry.into_inner();
             assert_eq!(registry.value, admin, "the administrator's change survives");
             assert_eq!(registry.marker, None, "our marker is cleared");
@@ -1690,38 +1866,71 @@ mod tests {
     fn a_crash_is_recovered_at_the_next_start() {
         // Crashed after setting, before removing: the marker names our value.
         let ours = SasPolicyMarker::new(SOFTWARE_SAS_SERVICES).to_json();
-        let mut crashed = FakeRegistry { value: Some(1), marker: Some(ours.clone()), ..Default::default() };
+        let mut crashed = FakeRegistry {
+            value: Some(1),
+            marker: Some(ours.clone()),
+            ..Default::default()
+        };
         assert_eq!(restore_software_sas(&mut crashed), Ok(SasCleanup::Removed));
         assert_eq!((crashed.value, crashed.marker), (None, None));
 
         // Crashed after marking, before setting: nothing to remove.
-        let mut early = FakeRegistry { marker: Some(ours.clone()), ..Default::default() };
-        assert_eq!(restore_software_sas(&mut early), Ok(SasCleanup::LeftAlone(None)));
+        let mut early = FakeRegistry {
+            marker: Some(ours.clone()),
+            ..Default::default()
+        };
+        assert_eq!(
+            restore_software_sas(&mut early),
+            Ok(SasCleanup::LeftAlone(None))
+        );
         assert!(early.marker.is_none());
 
         // An administrator changed it while the service was down: left alone.
-        let mut changed = FakeRegistry { value: Some(0), marker: Some(ours.clone()), ..Default::default() };
-        assert_eq!(restore_software_sas(&mut changed), Ok(SasCleanup::LeftAlone(Some(0))));
+        let mut changed = FakeRegistry {
+            value: Some(0),
+            marker: Some(ours.clone()),
+            ..Default::default()
+        };
+        assert_eq!(
+            restore_software_sas(&mut changed),
+            Ok(SasCleanup::LeftAlone(Some(0)))
+        );
         assert_eq!(changed.value, Some(0));
 
         // A marker torn mid-write (so the value was never set) or about
         // something else never touches the registry.
-        for foreign in [&ours[..ours.len() / 2], r#"{"schema":1,"key":"X","value":"Y","wrote":1}"#] {
-            let mut torn = FakeRegistry { value: Some(1), marker: Some(foreign.into()), ..Default::default() };
-            assert_eq!(restore_software_sas(&mut torn), Ok(SasCleanup::UnrecognizedMarker));
+        for foreign in [
+            &ours[..ours.len() / 2],
+            r#"{"schema":1,"key":"X","value":"Y","wrote":1}"#,
+        ] {
+            let mut torn = FakeRegistry {
+                value: Some(1),
+                marker: Some(foreign.into()),
+                ..Default::default()
+            };
+            assert_eq!(
+                restore_software_sas(&mut torn),
+                Ok(SasCleanup::UnrecognizedMarker)
+            );
             assert_eq!(torn.value, Some(1));
             assert!(torn.marker.is_none());
         }
 
         // No marker: nothing happens.
-        let mut clean = FakeRegistry { value: Some(1), ..Default::default() };
+        let mut clean = FakeRegistry {
+            value: Some(1),
+            ..Default::default()
+        };
         assert_eq!(restore_software_sas(&mut clean), Ok(SasCleanup::Nothing));
         assert!(clean.ops.is_empty());
     }
 
     #[test]
     fn a_failed_removal_keeps_the_marker_and_the_next_sas_retries_it() {
-        let mut registry = FakeRegistry { fail_delete: true, ..Default::default() };
+        let mut registry = FakeRegistry {
+            fail_delete: true,
+            ..Default::default()
+        };
         let sent = send_sas_under_policy(&mut registry, || Ok(())).unwrap();
         assert!(matches!(sent, SasSent::Temporarily(Err(_))));
         assert_eq!(registry.value, Some(1));
@@ -1732,7 +1941,10 @@ mod tests {
         registry.ops.clear();
         let sent = send_sas_under_policy(&mut registry, || Ok(()));
         assert_eq!(sent, Ok(SasSent::Temporarily(Ok(SasCleanup::Removed))));
-        assert_eq!(registry.ops, ["delete", "unmark", "mark", "set 1", "delete", "unmark"]);
+        assert_eq!(
+            registry.ops,
+            ["delete", "unmark", "mark", "set 1", "delete", "unmark"]
+        );
         assert_eq!((registry.value, registry.marker), (None, None));
     }
 
@@ -1768,8 +1980,16 @@ mod tests {
         let payload = grant_payload(&[0x11; NONCE_BYTES], &[0x22; NONCE_BYTES], 7);
         assert!(ecdsa_p256_verify(&key, &payload, &signature));
         // Another epoch, another nonce, a flipped signature bit, another key.
-        assert!(!ecdsa_p256_verify(&key, &grant_payload(&[0x11; NONCE_BYTES], &[0x22; NONCE_BYTES], 8), &signature));
-        assert!(!ecdsa_p256_verify(&key, &grant_payload(&[0x12; NONCE_BYTES], &[0x22; NONCE_BYTES], 7), &signature));
+        assert!(!ecdsa_p256_verify(
+            &key,
+            &grant_payload(&[0x11; NONCE_BYTES], &[0x22; NONCE_BYTES], 8),
+            &signature
+        ));
+        assert!(!ecdsa_p256_verify(
+            &key,
+            &grant_payload(&[0x12; NONCE_BYTES], &[0x22; NONCE_BYTES], 7),
+            &signature
+        ));
         let mut flipped = signature.clone();
         flipped[10] ^= 1;
         assert!(!ecdsa_p256_verify(&key, &payload, &flipped));
@@ -1787,7 +2007,9 @@ mod tests {
         let payload = grant_payload(&NONCE, &decode_nonce(&challenge).unwrap(), 3);
         let signed = BASE64.encode(cng::sign(&private, &payload));
         assert_eq!(
-            book.accept(t0, &challenge, 3, &signed, |payload, signature| ecdsa_p256_verify(&public, payload, signature)),
+            book.accept(t0, &challenge, 3, &signed, |payload, signature| {
+                ecdsa_p256_verify(&public, payload, signature)
+            }),
             Ok(())
         );
         assert!(book.live(t0));
@@ -1795,9 +2017,13 @@ mod tests {
         let second = generate_challenge();
         book.issue(t0, second.clone());
         assert_eq!(
-            book.accept(t0, &encode_nonce(&second), 3, &signed, |payload, signature| {
-                ecdsa_p256_verify(&public, payload, signature)
-            }),
+            book.accept(
+                t0,
+                &encode_nonce(&second),
+                3,
+                &signed,
+                |payload, signature| { ecdsa_p256_verify(&public, payload, signature) }
+            ),
             Err(GrantRefusal::BadSignature)
         );
     }
@@ -1807,8 +2033,9 @@ mod tests {
     mod cng {
         use sha2::{Digest, Sha256};
         use windows::Win32::Security::Cryptography::{
-            BCryptDestroyKey, BCryptExportKey, BCryptFinalizeKeyPair, BCryptGenerateKeyPair, BCryptSignHash,
-            BCRYPT_ECCPUBLIC_BLOB, BCRYPT_ECDSA_P256_ALG_HANDLE, BCRYPT_FLAGS, BCRYPT_KEY_HANDLE,
+            BCryptDestroyKey, BCryptExportKey, BCryptFinalizeKeyPair, BCryptGenerateKeyPair,
+            BCryptSignHash, BCRYPT_ECCPUBLIC_BLOB, BCRYPT_ECDSA_P256_ALG_HANDLE, BCRYPT_FLAGS,
+            BCRYPT_KEY_HANDLE,
         };
 
         pub struct Key(BCRYPT_KEY_HANDLE);
@@ -1824,11 +2051,22 @@ mod tests {
         pub fn key_pair() -> (Key, [u8; super::CONTROLLER_KEY_BYTES]) {
             unsafe {
                 let mut handle = BCRYPT_KEY_HANDLE(std::ptr::null_mut());
-                assert!(BCryptGenerateKeyPair(BCRYPT_ECDSA_P256_ALG_HANDLE, &mut handle, 256, 0).is_ok());
+                assert!(
+                    BCryptGenerateKeyPair(BCRYPT_ECDSA_P256_ALG_HANDLE, &mut handle, 256, 0)
+                        .is_ok()
+                );
                 assert!(BCryptFinalizeKeyPair(handle, 0).is_ok());
                 let mut blob = [0u8; 8 + 64];
                 let mut written = 0u32;
-                assert!(BCryptExportKey(handle, None, BCRYPT_ECCPUBLIC_BLOB, Some(&mut blob), &mut written, 0).is_ok());
+                assert!(BCryptExportKey(
+                    handle,
+                    None,
+                    BCRYPT_ECCPUBLIC_BLOB,
+                    Some(&mut blob),
+                    &mut written,
+                    0
+                )
+                .is_ok());
                 let mut public = [0u8; super::CONTROLLER_KEY_BYTES];
                 public[0] = 4;
                 public[1..].copy_from_slice(&blob[8..]);
@@ -1841,9 +2079,15 @@ mod tests {
             let mut signature = vec![0u8; super::GRANT_SIGNATURE_BYTES];
             let mut written = 0u32;
             unsafe {
-                assert!(
-                    BCryptSignHash(key.0, None, &digest, Some(&mut signature), &mut written, BCRYPT_FLAGS(0)).is_ok()
-                );
+                assert!(BCryptSignHash(
+                    key.0,
+                    None,
+                    &digest,
+                    Some(&mut signature),
+                    &mut written,
+                    BCRYPT_FLAGS(0)
+                )
+                .is_ok());
             }
             signature
         }

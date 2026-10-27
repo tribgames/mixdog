@@ -137,9 +137,12 @@ async function readRangeFromHandle(fh, fullPath, offset, limit, stHint, hooks) {
   }
   if (!stop) lines.finishTail();
   let readSnapshotStat = null;
-  if (!(await publishReadRangeIndex(rangeIndex, fh, null, checkDeadline, (version) => {
-    readSnapshotStat = version;
-  }))) checkDeadline();
+  if (
+    !(await publishReadRangeIndex(rangeIndex, fh, null, checkDeadline, (version) => {
+      readSnapshotStat = version;
+    }))
+  )
+    checkDeadline();
 
   ioTraceDone('read_range_stream', traceStart, {
     pathHash: hashText(fullPath).slice(0, 12),

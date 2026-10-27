@@ -63,7 +63,10 @@ for (const finish of ['length', 'content_filter']) {
   test(`finish_reason=${finish} never dispatches a tool call and stays a partial result`, async () => {
     const dispatched = [];
     const assembled = await consume(
-      [toolDelta('{"x":1}', { id: 'c1', function: { name: 'f' } }), { choices: [{ delta: {}, finish_reason: finish }] }],
+      [
+        toolDelta('{"x":1}', { id: 'c1', function: { name: 'f' } }),
+        { choices: [{ delta: {}, finish_reason: finish }] },
+      ],
       (call) => dispatched.push(call)
     );
     assert.equal(dispatched.length, 0);
@@ -80,10 +83,7 @@ test('a tool call leaked into text runs only after a normal finish_reason', asyn
   const leak = '<invoke name="f"><parameter name="x">1</parameter></invoke>';
   const run = async (finish) => {
     const dispatched = [];
-    const events = [
-      { choices: [{ delta: { content: leak } }] },
-      { choices: [{ delta: {}, finish_reason: finish }] },
-    ];
+    const events = [{ choices: [{ delta: { content: leak } }] }, { choices: [{ delta: {}, finish_reason: finish }] }];
     let error = null;
     try {
       await consumeCompatChatCompletionStream(arrayStream(events), {

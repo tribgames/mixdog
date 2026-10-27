@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { mergeStoredProviders } from './config-providers-merge.mjs';
 import { readAgentApiKeyAsync } from '../../shared/provider-api-key.mjs';
 
-test('a presence-only merge marks a stored key\'s provider enabled without attaching the key', async (t) => {
+test("a presence-only merge marks a stored key's provider enabled without attaching the key", async (t) => {
   const prior = process.env.MIXDOG_AGENT_DEEPSEEK_APIKEY;
   process.env.MIXDOG_AGENT_DEEPSEEK_APIKEY = 'pc-deepseek-key';
   t.after(() => {

@@ -143,7 +143,9 @@ function manyPagePdf(pages) {
   objects.push('<< >>');
   pages.forEach((n, i) => {
     const text = `P${n}`;
-    objects.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << /Font << /F1 3 0 R >> >> /Contents ${7 + i * 2} 0 R >>`);
+    objects.push(
+      `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 100] /Resources << /Font << /F1 3 0 R >> >> /Contents ${7 + i * 2} 0 R >>`
+    );
     const stream = `BT /F1 12 Tf 10 50 Td (${text}) Tj ET`;
     objects.push(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
   });
@@ -172,7 +174,9 @@ const TEXT_PDF = { nativePdf: false };
 
 test('a non-native provider receives bounded PDF text, identically inline and after reload', async () => {
   const data = minimalPdf('Hello PDF text').toString('base64');
-  const content = [{ type: 'document', source: { type: 'base64', media_type: 'application/pdf', data }, title: 'a.pdf' }];
+  const content = [
+    { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data }, title: 'a.pdf' },
+  ];
   const history = pdfHistory(content);
   const reloadedHistory = pdfHistory(reloaded(content));
   assert.throws(() => toOpenAIMessages(history, 'deepseek', TEXT_PDF), /PDF part reached text lowering/);
@@ -205,7 +209,10 @@ test('a PDF longer than the page cap is read for its first pages instead of repo
   const pages = Array.from({ length: 103 }, (_, i) => i + 1);
   const data = manyPagePdf(pages).toString('base64');
   const [prepared] = await Promise.all([
-    media.preparePdfTextForProvider(pdfHistory([{ type: 'file', data, mimeType: 'application/pdf', filename: 'long.pdf' }]), TEXT_PDF),
+    media.preparePdfTextForProvider(
+      pdfHistory([{ type: 'file', data, mimeType: 'application/pdf', filename: 'long.pdf' }]),
+      TEXT_PDF
+    ),
   ]);
   const text = JSON.stringify(prepared);
   assert.match(text, /--- Page 1 ---/);
@@ -243,7 +250,13 @@ test('a missing or corrupt attachment blob lowers to placeholder text on every p
   const content = [
     { type: 'image', mimeType: 'image/png', attachmentRef: missing.ref, sizeBytes: missing.sizeBytes },
     { type: 'file', mimeType: 'text/plain', filename: 'notes.txt', attachmentRef: file.ref, sizeBytes: file.sizeBytes },
-    { type: 'file', mimeType: 'text/plain', filename: 'bad.txt', attachmentRef: corrupt.ref, sizeBytes: corrupt.sizeBytes },
+    {
+      type: 'file',
+      mimeType: 'text/plain',
+      filename: 'bad.txt',
+      attachmentRef: corrupt.ref,
+      sizeBytes: corrupt.sizeBytes,
+    },
     { type: 'text', attachmentRef: file.ref, sizeBytes: file.sizeBytes, filename: 'paste.txt' },
   ];
   const wire = lowerEverywhere(content);

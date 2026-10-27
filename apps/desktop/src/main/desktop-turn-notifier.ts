@@ -58,7 +58,7 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
   const report = (event: string, sessionId: string, details: Record<string, unknown> = {}) =>
     options.diagnostic(event, { sessionId, ...details });
   let preferencesFailing = false;
-  const messageOf =(error: unknown): string => (error instanceof Error ? error.message : String(error));
+  const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
 
   /** This PC's preferences, mutes, quiet hours and what is on screen decide;
    *  a refusal is reported with its reason. `undefined`: the preferences could

@@ -129,6 +129,5 @@ async function checkPrewarmLifetime(validContract) {
 
 for (const validContract of [true, false]) {
   test(`prewarm preserves handshake lifetime through ${validContract ? 'success' : 'failure'}`, () =>
-    checkPrewarmLifetime(validContract)
-  );
+    checkPrewarmLifetime(validContract));
 }

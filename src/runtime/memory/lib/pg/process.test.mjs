@@ -47,10 +47,7 @@ test('the official data directory is never a sweep candidate', () => {
 });
 
 test('initdb keeps its default share dir for an ASCII runtime path', async () => {
-  assert.equal(
-    await withInitdbShareDir(join(tempRoot, 'mixdog', 'runtime'), (shareDir) => shareDir),
-    null
-  );
+  assert.equal(await withInitdbShareDir(join(tempRoot, 'mixdog', 'runtime'), (shareDir) => shareDir), null);
 });
 
 test('initdb reads a non-ASCII runtime share dir through a temporary ASCII junction', {

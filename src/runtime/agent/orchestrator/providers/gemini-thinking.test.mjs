@@ -31,7 +31,10 @@ test('Gemini thinking controls preserve explicit values and reject only what the
   });
   assert.deepEqual(geminiThinkingConfig('gemini-2.5-pro', { thinkingBudgetTokens: -1 }), { thinkingBudget: -1 });
   assert.deepEqual(geminiThinkingConfig('gemini-3.6-flash', { effort: 'minimal' }), { thinkingLevel: 'minimal' });
-  assert.throws(() => geminiThinkingConfig('gemini-3.8-flash', { effort: 'minimal' }), /supports thinking levels low, medium, high/);
+  assert.throws(
+    () => geminiThinkingConfig('gemini-3.8-flash', { effort: 'minimal' }),
+    /supports thinking levels low, medium, high/
+  );
   assert.throws(() => geminiThinkingConfig('gemini-2.5-pro', { thinkingBudget: 0 }), /cannot disable/);
   assert.throws(() => geminiThinkingConfig('gemini-2.5-flash', { thinkingBudget: 30000 }), /0, or 0–24576/);
   // Only values outside the wire's own vocabulary fail locally.
@@ -110,7 +113,10 @@ test('catalog effort ladder decides the allowed levels for gemini-4-argon, by th
     });
   }
   // 'xhigh' is a catalog value the Gemini wire cannot take; 'minimal' is not declared.
-  assert.throws(() => geminiThinkingConfig('gemini-4-argon', { effort: 'xhigh' }), /supports thinking levels low, medium, high/);
+  assert.throws(
+    () => geminiThinkingConfig('gemini-4-argon', { effort: 'xhigh' }),
+    /supports thinking levels low, medium, high/
+  );
   assert.throws(() => geminiThinkingConfig('gemini-4-argon', { effort: 'minimal' }), /supports thinking levels/);
   assert.ok(catalogHits.every((hit) => hit === 'gemini:gemini-4-argon'));
 });
@@ -120,7 +126,10 @@ test('a catalog ladder decides the allowed levels for any id, whatever its name 
   // Any id can be declared narrower or wider than its neighbours.
   catalogRows.set('gemini:gemini-3.1-pro', effortRow('minimal', 'high'));
   assert.deepEqual(geminiThinkingConfig('gemini-3.1-pro', { effort: 'minimal' }), { thinkingLevel: 'minimal' });
-  assert.throws(() => geminiThinkingConfig('gemini-3.1-pro', { effort: 'medium' }), /supports thinking levels minimal, high/);
+  assert.throws(
+    () => geminiThinkingConfig('gemini-3.1-pro', { effort: 'medium' }),
+    /supports thinking levels minimal, high/
+  );
   // A catalog row with no effort ladder declares nothing, so the value passes through.
   catalogRows.set('gemini:gemini-3.6-flash', { supportsReasoning: true, reasoningOptions: [] });
   assert.deepEqual(geminiThinkingConfig('gemini-3.6-flash', { effort: 'minimal' }), { thinkingLevel: 'minimal' });
@@ -143,7 +152,10 @@ test('the Antigravity request resolves a bare Gemini id against the antigravity-
   const messages = [{ role: 'user', content: 'hi' }];
   const body = buildAntigravityRequest(messages, 'gemini-4-pro', [], { effort: 'high' }, 'p');
   assert.deepEqual(body.request.generationConfig.thinkingConfig, { includeThoughts: true, thinkingLevel: 'high' });
-  assert.throws(() => buildAntigravityRequest(messages, 'gemini-4-pro', [], { effort: 'medium' }, 'p'), /supports thinking levels low, high/);
+  assert.throws(
+    () => buildAntigravityRequest(messages, 'gemini-4-pro', [], { effort: 'medium' }, 'p'),
+    /supports thinking levels low, high/
+  );
 });
 
 const IMAGE_DATA = 'iVBORw0KGgo=';

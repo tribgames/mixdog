@@ -12,7 +12,10 @@ test('Gemini 2.5 maps effort to thinkingBudget and rejects thinkingLevel and out
   assert.deepEqual(geminiThinkingConfig('gemini-2.5-pro', { thinkingBudget: 32768 }), { thinkingBudget: 32768 });
   assert.deepEqual(geminiThinkingConfig('gemini-2.5-flash', { thinkingBudget: 0 }), { thinkingBudget: 0 });
   assert.deepEqual(geminiThinkingConfig('gemini-2.5-pro', { thinkingBudget: -1 }), { thinkingBudget: -1 });
-  assert.throws(() => geminiThinkingConfig('gemini-2.5-flash', { thinkingLevel: 'low' }), /does not support thinkingLevel/);
+  assert.throws(
+    () => geminiThinkingConfig('gemini-2.5-flash', { thinkingLevel: 'low' }),
+    /does not support thinkingLevel/
+  );
   assert.throws(() => geminiThinkingConfig('gemini-2.5-pro', { thinkingBudget: 0 }), /cannot disable/);
   assert.throws(() => geminiThinkingConfig('gemini-2.5-pro', { thinkingBudget: 100 }), /128–32768/);
   assert.throws(() => geminiThinkingConfig('gemini-2.5-pro', { thinkingBudget: 32769 }), /128–32768/);
@@ -45,7 +48,10 @@ test('buildGeminiRequest forwards supported controls, rejects the rest, and is u
   });
   assert.throws(() => buildGeminiRequest(messages, 'gemini-3.1-pro', [], { maxOutputTokens: 0 }), /maxOutputTokens/);
   assert.throws(() => buildGeminiRequest(messages, 'gemini-3.1-pro', [], { temperature: 5 }), /temperature/);
-  assert.throws(() => buildGeminiRequest(messages, 'gemini-3.1-pro', [], { safetySettings: 'BLOCK_NONE' }), /safetySettings/);
+  assert.throws(
+    () => buildGeminiRequest(messages, 'gemini-3.1-pro', [], { safetySettings: 'BLOCK_NONE' }),
+    /safetySettings/
+  );
 });
 
 test('usage includes toolUsePromptTokenCount without double-counting cached or thought tokens', () => {

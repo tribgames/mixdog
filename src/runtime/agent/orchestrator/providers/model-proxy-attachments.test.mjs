@@ -39,7 +39,10 @@ function capturingChannel() {
 
 test('a proxied send carries stored attachments inline, not as daemon references', async () => {
   const prompt = storedPrompt();
-  assert.ok(prompt.every((part) => typeof part.attachmentRef === 'string'), 'intake stored every part');
+  assert.ok(
+    prompt.every((part) => typeof part.attachmentRef === 'string'),
+    'intake stored every part'
+  );
   const channel = capturingChannel();
   const provider = new ModelProxyProvider('anthropic', {}, channel);
   const messages = [

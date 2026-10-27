@@ -38,9 +38,7 @@ function renderToolApproval({ toolApproval, store, frameColumns, expandedOptionP
         onSubmit={(answers) =>
           store.resolveToolApproval?.(toolApproval.id, { approved: true, reason: 'answered by user', answers })
         }
-        onDismiss={() =>
-          store.resolveToolApproval?.(toolApproval.id, { approved: false, reason: 'dismissed by user' })
-        }
+        onDismiss={() => store.resolveToolApproval?.(toolApproval.id, { approved: false, reason: 'dismissed by user' })}
       />
     );
   }
@@ -249,7 +247,12 @@ export function renderFloatingPanel(ctx) {
   }
   if (btwPanel) {
     return (
-      <BtwPanel panel={btwPanel} columns={frameColumns} panelRows={floatingPanelRows} themeEpoch={ctx.state?.themeEpoch || 0} />
+      <BtwPanel
+        panel={btwPanel}
+        columns={frameColumns}
+        panelRows={floatingPanelRows}
+        themeEpoch={ctx.state?.themeEpoch || 0}
+      />
     );
   }
   return null;

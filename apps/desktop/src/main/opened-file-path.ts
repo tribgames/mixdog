@@ -36,7 +36,10 @@ export type OpenedFileLocator = (
 
 /** The descriptor-based locator for `platform`, its native functions loaded
  *  through `foreign` on first use. */
-export function openedFileLocator(platform: NodeJS.Platform, foreign: () => Promise<ForeignFunctions>): OpenedFileLocator {
+export function openedFileLocator(
+  platform: NodeJS.Platform,
+  foreign: () => Promise<ForeignFunctions>
+): OpenedFileLocator {
   // The kernel's own name for the open file description.
   if (platform === 'linux') return (handle) => readlink(`/proc/self/fd/${handle.fd}`);
   if (platform === 'win32') return windowsLocator(foreign);
@@ -105,7 +108,16 @@ function windowsLocator(foreign: () => Promise<ForeignFunctions>): OpenedFileLoc
 
 async function windowsFilePath(api: Kernel32, openedBy: string, identity: OpenedFileIdentity): Promise<string> {
   const file = Number(
-    await callAsync(api.createFile, toNamespacedPath(openedBy), FILE_READ_ATTRIBUTES, FILE_SHARE_ALL, null, OPEN_EXISTING, 0, null)
+    await callAsync(
+      api.createFile,
+      toNamespacedPath(openedBy),
+      FILE_READ_ATTRIBUTES,
+      FILE_SHARE_ALL,
+      null,
+      OPEN_EXISTING,
+      0,
+      null
+    )
   );
   if (file === INVALID_HANDLE_VALUE) throw new Error('The open file cannot be located.');
   try {

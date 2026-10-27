@@ -2,19 +2,16 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { consumeGeminiRestStreamResponse, consumeGeminiSdkStream } from './gemini-stream.mjs';
 import { geminiInvalidStreamReason } from './gemini-retry-policy.mjs';
-import {
-  geminiFinishReasonKind,
-  geminiPolicyFinishCode,
-} from './gemini-error-contract.mjs';
+import { geminiFinishReasonKind, geminiPolicyFinishCode } from './gemini-error-contract.mjs';
 import { geminiBareModelId, geminiCacheCreateBody, geminiPrefixBelowMinimum } from './gemini-cache-policy.mjs';
 import { buildGeminiRequest, geminiCachedRestBody } from './gemini-request-body.mjs';
 import { GeminiProvider } from './gemini.mjs';
 
 const rest = (chunks, options = {}) =>
-  consumeGeminiRestStreamResponse(
-    new Response(chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('')),
-    { label: 'fixture', ...options }
-  );
+  consumeGeminiRestStreamResponse(new Response(chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join('')), {
+    label: 'fixture',
+    ...options,
+  });
 const sdk = (chunks, options = {}) =>
   consumeGeminiSdkStream(
     {
@@ -94,7 +91,10 @@ for (const [name, consume] of transports) {
 
   test(`${name}: thought-only EOF without finishReason is unfinished; an empty STOP is complete`, async () => {
     const thought = cand({ content: { role: 'model', parts: [{ text: 'hmm', thought: true }] } });
-    await assert.rejects(consume([thought]), (error) => error.code === 'TRUNCATED_STREAM' && /no finishReason/.test(error.message));
+    await assert.rejects(
+      consume([thought]),
+      (error) => error.code === 'TRUNCATED_STREAM' && /no finishReason/.test(error.message)
+    );
     await assert.rejects(consume([cand({ finishReason: 'FINISH_REASON_UNSPECIFIED' })]), /no finishReason/);
     const empty = await consume([cand({ finishReason: 'STOP' })]);
     assert.equal(empty.candidates[0].finishReason, 'STOP');
@@ -109,10 +109,7 @@ for (const [name, consume] of transports) {
       consume([callPart(good), callPart({ name: 'read', args: 'unfinished' })]),
       (error) => error.code === 'TRUNCATED_STREAM' && /no finishReason/.test(error.message)
     );
-    await assert.rejects(
-      consume([callPart({ name: 'read', args: 'unfinished' }), callPart(good)]),
-      /no finishReason/
-    );
+    await assert.rejects(consume([callPart({ name: 'read', args: 'unfinished' }), callPart(good)]), /no finishReason/);
   });
 
   test(`${name}: continuationToken is preserved`, async () => {
@@ -125,10 +122,26 @@ const response = (finishReason, parts = []) => ({ candidates: [{ finishReason, c
 
 test('every documented non-STOP finish is classified; only STOP with no text is "no text"', () => {
   const terminal = [
-    'SAFETY', 'RECITATION', 'LANGUAGE', 'OTHER', 'BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'IMAGE_SAFETY',
-    'IMAGE_PROHIBITED_CONTENT', 'IMAGE_OTHER', 'NO_IMAGE', 'IMAGE_RECITATION', 'TOO_MANY_TOOL_CALLS',
-    'MISSING_THOUGHT_SIGNATURE', 'ESCALATION', 'PUP_LIMITED_DISABLED', 'MAX_TOKENS', 'CONTINUATION',
-    'FINISH_REASON_BLOCKLIST', 'SOME_FUTURE_REASON',
+    'SAFETY',
+    'RECITATION',
+    'LANGUAGE',
+    'OTHER',
+    'BLOCKLIST',
+    'PROHIBITED_CONTENT',
+    'SPII',
+    'IMAGE_SAFETY',
+    'IMAGE_PROHIBITED_CONTENT',
+    'IMAGE_OTHER',
+    'NO_IMAGE',
+    'IMAGE_RECITATION',
+    'TOO_MANY_TOOL_CALLS',
+    'MISSING_THOUGHT_SIGNATURE',
+    'ESCALATION',
+    'PUP_LIMITED_DISABLED',
+    'MAX_TOKENS',
+    'CONTINUATION',
+    'FINISH_REASON_BLOCKLIST',
+    'SOME_FUTURE_REASON',
   ];
   for (const finish of terminal) assert.equal(geminiInvalidStreamReason(response(finish)), null, finish);
   for (const finish of ['MALFORMED_FUNCTION_CALL', 'UNEXPECTED_TOOL_CALL', 'MALFORMED_RESPONSE']) {
@@ -141,7 +154,14 @@ test('every documented non-STOP finish is classified; only STOP with no text is 
 });
 
 test('policy finish reasons carry policy codes', () => {
-  for (const finish of ['BLOCKLIST', 'PROHIBITED_CONTENT', 'SPII', 'IMAGE_SAFETY', 'ESCALATION', 'PUP_LIMITED_DISABLED']) {
+  for (const finish of [
+    'BLOCKLIST',
+    'PROHIBITED_CONTENT',
+    'SPII',
+    'IMAGE_SAFETY',
+    'ESCALATION',
+    'PUP_LIMITED_DISABLED',
+  ]) {
     assert.equal(geminiPolicyFinishCode(finish), 'safety', finish);
   }
   assert.equal(geminiPolicyFinishCode('IMAGE_RECITATION'), 'recitation');
@@ -179,7 +199,14 @@ const send = (provider, opts = {}) => provider.send([{ role: 'user', content: 'h
 test('a failed candidate never dispatches its native tool calls; a STOP one does', async () => {
   const dispatched = [];
   const onToolCall = (c) => dispatched.push(c.name);
-  const failed = sdkProvider([cand({ content: { role: 'model', parts: [call] }, finishReason: 'SAFETY', safetyRatings: [{ category: 'C', probability: 'HIGH' }], finishMessage: 'blocked' })]);
+  const failed = sdkProvider([
+    cand({
+      content: { role: 'model', parts: [call] },
+      finishReason: 'SAFETY',
+      safetyRatings: [{ category: 'C', probability: 'HIGH' }],
+      finishMessage: 'blocked',
+    }),
+  ]);
   await assert.rejects(send(failed, { onToolCall }), (error) => {
     assert.equal(error.code, 'safety');
     assert.equal(error.finishReason, 'SAFETY');
@@ -200,7 +227,8 @@ test('a call leaked as text is dispatched only when the response finishes cleanl
     text: '<invoke name="read"><parameter name="path">a.txt</parameter></invoke>',
   };
   const tools = [{ name: 'read', description: 'd', inputSchema: { type: 'object', properties: {} } }];
-  const sendWithTools = (provider) => provider.send([{ role: 'user', content: 'hi' }], 'gemini-test', tools, { onToolCall });
+  const sendWithTools = (provider) =>
+    provider.send([{ role: 'user', content: 'hi' }], 'gemini-test', tools, { onToolCall });
   const failed = sdkProvider([cand({ content: { role: 'model', parts: [leaked] }, finishReason: 'SAFETY' })]);
   await assert.rejects(sendWithTools(failed), (error) => error.finishReason === 'SAFETY');
   assert.deepEqual(dispatched, []);
@@ -211,7 +239,11 @@ test('a call leaked as text is dispatched only when the response finishes cleanl
 
 test('CONTINUATION surfaces a typed unsupported error that keeps the token and partial text', async () => {
   const provider = sdkProvider([
-    cand({ content: { role: 'model', parts: [{ text: 'partial' }] }, finishReason: 'CONTINUATION', continuationToken: 'dG9rZW4=' }),
+    cand({
+      content: { role: 'model', parts: [{ text: 'partial' }] },
+      finishReason: 'CONTINUATION',
+      continuationToken: 'dG9rZW4=',
+    }),
   ]);
   await assert.rejects(send(provider), (error) => {
     assert.equal(error.code, 'CONTINUATION_UNSUPPORTED');
@@ -249,7 +281,9 @@ test('the model id is canonicalized once for cache bodies and REST URLs', async 
     genAI: { getGenerativeModel: () => ({}) },
     fetchFn: async (url) => {
       urls.push(url);
-      return new Response(`data: ${JSON.stringify(cand({ content: { role: 'model', parts: [{ text: 'ok' }] }, finishReason: 'STOP' }))}\n\n`);
+      return new Response(
+        `data: ${JSON.stringify(cand({ content: { role: 'model', parts: [{ text: 'ok' }] }, finishReason: 'STOP' }))}\n\n`
+      );
     },
   });
   provider._ensureGeminiCache = async () => 'cachedContents/x';
@@ -284,7 +318,10 @@ test('safetySettings are forwarded on the SDK and cached REST paths; absent stay
   );
 
   const captured = {};
-  const provider = sdkProvider([cand({ content: { role: 'model', parts: [{ text: 'ok' }] }, finishReason: 'STOP' })], captured);
+  const provider = sdkProvider(
+    [cand({ content: { role: 'model', parts: [{ text: 'ok' }] }, finishReason: 'STOP' })],
+    captured
+  );
   await send(provider, { safetySettings });
   assert.deepEqual(captured.params.safetySettings, safetySettings);
   await send(provider, {});
@@ -297,7 +334,9 @@ test('safetySettings are forwarded on the SDK and cached REST paths; absent stay
     genAI: { getGenerativeModel: () => ({}) },
     fetchFn: async (_url, init) => {
       bodies.push(JSON.parse(init.body));
-      return new Response(`data: ${JSON.stringify(cand({ content: { role: 'model', parts: [{ text: 'ok' }] }, finishReason: 'STOP' }))}\n\n`);
+      return new Response(
+        `data: ${JSON.stringify(cand({ content: { role: 'model', parts: [{ text: 'ok' }] }, finishReason: 'STOP' }))}\n\n`
+      );
     },
   });
   cached._ensureGeminiCache = async () => 'cachedContents/x';

@@ -64,7 +64,10 @@ test('compat Responses replays native tool_search and custom calls with their ow
   ]);
   assert.equal(input.find((i) => i.type === 'tool_search_output').call_id, 'ts1');
   assert.equal(input.find((i) => i.type === 'custom_tool_call_output').call_id, 'cu1');
-  assert.equal(input.some((i) => i.type === 'function_call_output' && i.call_id === 'ts1'), false);
+  assert.equal(
+    input.some((i) => i.type === 'function_call_output' && i.call_id === 'ts1'),
+    false
+  );
 });
 
 // The only intentional delta from HEAD: HEAD's pairing guard synthesized a
@@ -103,7 +106,11 @@ test('without the native-items flag compat request bodies match the HEAD convert
       assertHeadParity(`compat/${name}/${model}/${label}`, actual);
       if (label !== 'server-replay') {
         const wire = JSON.stringify(actual.input);
-        assert.equal(/tool_search_call|tool_search_output|custom_tool_call|"phase"/.test(wire), false, `${name}/${model}/${label}`);
+        assert.equal(
+          /tool_search_call|tool_search_output|custom_tool_call|"phase"/.test(wire),
+          false,
+          `${name}/${model}/${label}`
+        );
       }
     }
   }
@@ -125,9 +132,21 @@ test('with the flag on (config or opts) native pairs replay on every route kind'
       const { provider, requests } = fixture(name, via === 'config' ? { config: NATIVE } : {});
       await sendCompatResponses(provider, nativeHistory(), model, [], via === 'opts' ? NATIVE : {});
       const input = requests[0].input;
-      assert.equal(input.some((i) => i.type === 'tool_search_call'), true, `${name} ${via}`);
-      assert.equal(input.some((i) => i.type === 'tool_search_output' && i.call_id === 'ts1'), true, `${name} ${via}`);
-      assert.equal(input.some((i) => i.type === 'custom_tool_call_output' && i.call_id === 'cu1'), true, `${name} ${via}`);
+      assert.equal(
+        input.some((i) => i.type === 'tool_search_call'),
+        true,
+        `${name} ${via}`
+      );
+      assert.equal(
+        input.some((i) => i.type === 'tool_search_output' && i.call_id === 'ts1'),
+        true,
+        `${name} ${via}`
+      );
+      assert.equal(
+        input.some((i) => i.type === 'custom_tool_call_output' && i.call_id === 'cu1'),
+        true,
+        `${name} ${via}`
+      );
     }
   }
 });
@@ -250,7 +269,9 @@ test('first-party lowering defaults are unchanged: system skipped, openai-respon
       role: 'assistant',
       content: 'a',
       reasoningItems: [{ id: 'r', encrypted_content: 'E', summary: [] }],
-      providerReplay: createProviderReplay('compat-responses:opencode-go', [{ type: 'reasoning', encrypted_content: 'X' }]),
+      providerReplay: createProviderReplay('compat-responses:opencode-go', [
+        { type: 'reasoning', encrypted_content: 'X' },
+      ]),
     },
   ];
   assert.deepEqual(convertMessagesToResponsesInput(messages), [
@@ -381,14 +402,24 @@ test('state reasoning is owner-tagged and never replayed under a different owner
       model: 'gpt-5.5',
       ...(owner === undefined ? {} : { owner }),
       ...(shape === 'history'
-        ? { encryptedReasoningHistory: [{ messageIndex: 1, items: [reasoning], ...(owner === undefined ? {} : { owner }) }] }
+        ? {
+            encryptedReasoningHistory: [
+              { messageIndex: 1, items: [reasoning], ...(owner === undefined ? {} : { owner }) },
+            ],
+          }
         : { encryptedReasoningItems: [reasoning] }),
     },
   });
   for (const config of [{}, NATIVE]) {
     for (const shape of ['history', 'items']) {
       const send = async (owner) => {
-        const { input } = await captureCompat('opencode-go', 'gpt-5.5', turn, { providerState: stateFor(owner, shape) }, config);
+        const { input } = await captureCompat(
+          'opencode-go',
+          'gpt-5.5',
+          turn,
+          { providerState: stateFor(owner, shape) },
+          config
+        );
         return JSON.stringify(input);
       };
       const label = `${shape} native=${config.responsesNativeItems === true}`;

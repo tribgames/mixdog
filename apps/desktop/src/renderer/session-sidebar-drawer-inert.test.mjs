@@ -39,14 +39,20 @@ async function mount(t, { phone }) {
           {
             className: 'sidebar-drawer-frame',
             ref(frame) {
-              if (frame) frame.getAnimations = () => (sliding ? [{ transitionProperty: 'transform', playState: 'running' }] : []);
+              if (frame)
+                frame.getAnimations = () =>
+                  sliding ? [{ transitionProperty: 'transform', playState: 'running' }] : [];
             },
           },
           React.createElement('nav', { className: 'activity-rail' }, [
             React.createElement('button', { key: 'r', 'data-side-view': 'sessions' }, 'rail'),
           ]),
           // biome-ignore lint/correctness/noChildrenProp: props object passed through to createElement
-          React.createElement(SessionSidebar, { ...props, open, children: React.createElement('button', { id: 'inside' }, 'in') })
+          React.createElement(SessionSidebar, {
+            ...props,
+            open,
+            children: React.createElement('button', { id: 'inside' }, 'in'),
+          })
         )
       )
     );
@@ -106,7 +112,7 @@ test('phone: with no slide running the flip is immediate', async (t) => {
   assert.equal(aside().hasAttribute('inert'), false);
 });
 
-test('phone: a reversal\'s cancel of the old slide does not settle while the replacement runs', async (t) => {
+test("phone: a reversal's cancel of the old slide does not settle while the replacement runs", async (t) => {
   const { render, aside, end, slide } = await mountPanel(t, { phone: true });
   await render(false);
   slide(true);
@@ -115,9 +121,9 @@ test('phone: a reversal\'s cancel of the old slide does not settle while the rep
   await render(true);
   assert.equal(aside().hasAttribute('inert'), true, 'still inert mid-slide');
   await end('transitioncancel');
-  assert.equal(aside().hasAttribute('inert'), true, 'the old transition\'s cancel leaves the replacement running');
+  assert.equal(aside().hasAttribute('inert'), true, "the old transition's cancel leaves the replacement running");
   await end('transitionend');
-  assert.equal(aside().hasAttribute('inert'), false, 'the replacement\'s end settles');
+  assert.equal(aside().hasAttribute('inert'), false, "the replacement's end settles");
   slide(true);
   await render(false);
   await render(true);
@@ -173,7 +179,9 @@ async function mountPanel(t, { phone }) {
             ref(frame) {
               if (frame)
                 frame.getAnimations = () =>
-                  sliding ? [Object.assign(new CSSTransition(), { transitionProperty: 'transform', playState: 'running' })] : [];
+                  sliding
+                    ? [Object.assign(new CSSTransition(), { transitionProperty: 'transform', playState: 'running' })]
+                    : [];
             },
           },
           React.createElement('nav', { key: 'rail', className: 'activity-rail' }, [
@@ -271,7 +279,7 @@ test('phone: the drawer panel clears inert at the open slide end; a reversal doe
   await render(false);
   await render(true);
   await end('transitioncancel');
-  assert.equal(aside().hasAttribute('inert'), true, 'the old slide\'s cancel does not settle the replacement');
+  assert.equal(aside().hasAttribute('inert'), true, "the old slide's cancel does not settle the replacement");
   await end('transitionend');
   assert.equal(aside().hasAttribute('inert'), false);
 });

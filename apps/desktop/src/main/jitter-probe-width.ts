@@ -19,7 +19,6 @@ interface WidthProbeDeps {
   outPath: string;
 }
 
-
 export async function runWidthProbe({
   window,
   baseSnapshot,

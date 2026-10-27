@@ -8,7 +8,10 @@ test.afterEach(() => invalidateBuiltinResultCache());
 for (const field of ['complete', 'cacheSafe']) {
   test(`shared scan propagates ${field}=false to every subscriber`, async () => {
     const release = Promise.withResolvers();
-    const outcomes = [{ complete: true, cacheSafe: true }, { complete: true, cacheSafe: true }];
+    const outcomes = [
+      { complete: true, cacheSafe: true },
+      { complete: true, cacheSafe: true },
+    ];
     let calls = 0;
     const compute = async ({ scopedCacheOutcome }) => {
       calls++;
@@ -27,6 +30,9 @@ for (const field of ['complete', 'cacheSafe']) {
 test('a safe persisted result remains text and does not clear an earlier unsafe outcome', async () => {
   cacheSet('safe-result', 'cached body');
   const outcome = { complete: true, cacheSafe: false };
-  assert.equal(await runScopedSearchInFlight('safe-result', () => assert.fail('unexpected execution'), {}, outcome), 'cached body');
+  assert.equal(
+    await runScopedSearchInFlight('safe-result', () => assert.fail('unexpected execution'), {}, outcome),
+    'cached body'
+  );
   assert.equal(outcome.cacheSafe, false);
 });

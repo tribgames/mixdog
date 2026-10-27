@@ -50,7 +50,9 @@ export function anthropicQuotaError(status, headers, bodyText = '') {
   const detail = bodyText ? `: ${String(bodyText).slice(0, 200)}` : '';
   const retry = retryAfter ? ` retryAfter=${retryAfter}` : '';
   const quota = hasQuotaHeaders(headers);
-  const err = new Error(`Anthropic OAuth API ${status} ${quota ? 'quota/rate limit' : 'request rejected'}${retry}${detail}`);
+  const err = new Error(
+    `Anthropic OAuth API ${status} ${quota ? 'quota/rate limit' : 'request rejected'}${retry}${detail}`
+  );
   err.name = quota ? 'ProviderQuotaError' : 'ProviderRequestRejectedError';
   err.headers = headers;
   err.response = { status, headers };

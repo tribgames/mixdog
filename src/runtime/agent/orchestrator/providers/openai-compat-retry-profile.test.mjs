@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
-import {
-  COMPAT_RETRY_PROFILES,
-  compatRetryOptions,
-  withCompatRetryProfile,
-} from './openai-compat-retry-profile.mjs';
+import { COMPAT_RETRY_PROFILES, compatRetryOptions, withCompatRetryProfile } from './openai-compat-retry-profile.mjs';
 import { isProviderRecoveryExhausted, isProviderRecoveryTerminal, withRetry } from './retry-classifier.mjs';
 
 const httpError = (status, extra = {}) => Object.assign(new Error(`HTTP ${status}`), { status, ...extra });
@@ -88,7 +84,8 @@ test('xai: a 429 is retried once, 520-524 and 529 are retried, 525/526 are not',
   const limited = await run('xai', httpError(429));
   assert.equal(limited.calls, 2);
   assert.equal(isProviderRecoveryExhausted(limited.error), true);
-  for (const status of [520, 524, 529, 530]) assert.equal((await run('xai', httpError(status))).calls, 15, String(status));
+  for (const status of [520, 524, 529, 530])
+    assert.equal((await run('xai', httpError(status))).calls, 15, String(status));
   for (const status of [525, 526]) assert.equal((await run('xai', httpError(status))).calls, 1, String(status));
 });
 
@@ -136,7 +133,8 @@ test('muse-code: six sends, 500ms doubling, no jitter', async () => {
 });
 
 test('muse-code: only 408, 429 and 5xx retry; other 4xx are terminal', async () => {
-  for (const status of [408, 429, 500]) assert.equal((await run('muse-code-oauth', httpError(status))).calls, 6, String(status));
+  for (const status of [408, 429, 500])
+    assert.equal((await run('muse-code-oauth', httpError(status))).calls, 6, String(status));
   for (const status of [400, 401, 403, 404, 409, 425]) {
     assert.equal((await run('muse-code-oauth', httpError(status))).calls, 1, String(status));
   }
@@ -147,7 +145,8 @@ test('mimo: server budget of 8 retries, rate-limit budget of 5, 501/505 terminal
   assert.equal(server.calls, 9);
   [2000, 4000, 8000, 16000, 30000].forEach((base, index) => within(server.waits[index], base, 0.1));
   assert.equal((await run('mimo-oauth', httpError(429))).calls, 6);
-  for (const status of [501, 505, 402, 404, 401]) assert.equal((await run('mimo-oauth', httpError(status))).calls, 1, String(status));
+  for (const status of [501, 505, 402, 404, 401])
+    assert.equal((await run('mimo-oauth', httpError(status))).calls, 1, String(status));
   assert.equal((await run('mimo-oauth', httpError(425))).calls, 9);
 });
 
@@ -215,18 +214,24 @@ test('every profile stop decision is provider-terminal', async () => {
 test('a non-positive Retry-After is no advice: the local backoff applies', async () => {
   const stamped = await run('xai', (n) => (n === 1 ? httpError(503, { retryAfterMs: 0 }) : httpError(401)));
   within(stamped.waits[0], 2000, 0.2);
-  const headerObject = await run('xai', (n) => (n === 1 ? httpError(503, { headers: { 'retry-after': '0' } }) : httpError(401)));
+  const headerObject = await run('xai', (n) =>
+    n === 1 ? httpError(503, { headers: { 'retry-after': '0' } }) : httpError(401)
+  );
   within(headerObject.waits[0], 2000, 0.2);
   const headersClass = await run('deepseek', (n) =>
     n === 1 ? httpError(503, { headers: new Headers({ 'retry-after': '0', 'retry-after-ms': '0' }) }) : httpError(401)
   );
   within(headersClass.waits[0], 500, 0.1);
-  const both = await run('muse-code-oauth', (n) => (n === 1 ? httpError(503, { retryAfterMs: 0, headers: { 'retry-after': '0' } }) : httpError(401)));
+  const both = await run('muse-code-oauth', (n) =>
+    n === 1 ? httpError(503, { retryAfterMs: 0, headers: { 'retry-after': '0' } }) : httpError(401)
+  );
   assert.ok(both.waits[0] > 0);
 });
 
 test('a positive Retry-After still replaces the backoff', async () => {
-  const advised = await run('muse-code-oauth', (n) => (n === 1 ? httpError(503, { headers: { 'retry-after': '3' } }) : httpError(401)));
+  const advised = await run('muse-code-oauth', (n) =>
+    n === 1 ? httpError(503, { headers: { 'retry-after': '3' } }) : httpError(401)
+  );
   assert.deepEqual(advised.waits, [3000]);
 });
 
@@ -239,7 +244,8 @@ test('command-code: advice is a floor under the jittered backoff, never a replac
 });
 
 test('Retry-After ceilings: muse-code 60s, command-code 60s, mimo 300s', async () => {
-  const wait = (seconds) => (n) => (n === 1 ? httpError(503, { headers: { 'retry-after': String(seconds) } }) : httpError(401));
+  const wait = (seconds) => (n) =>
+    n === 1 ? httpError(503, { headers: { 'retry-after': String(seconds) } }) : httpError(401);
   for (const [name, ceiling] of [
     ['muse-code-oauth', 60],
     ['command-code-oauth', 60],
@@ -254,7 +260,13 @@ test('Retry-After ceilings: muse-code 60s, command-code 60s, mimo 300s', async (
 });
 
 // A completed turn with no text, no tool call and no reasoning.
-const emptyTurn = (extra = {}) => ({ content: '', toolCalls: [], stopReason: 'stop', reasoningContent: null, ...extra });
+const emptyTurn = (extra = {}) => ({
+  content: '',
+  toolCalls: [],
+  stopReason: 'stop',
+  reasoningContent: null,
+  ...extra,
+});
 
 async function runResults(providerName, results) {
   let calls = 0;
@@ -269,8 +281,15 @@ async function runResults(providerName, results) {
 }
 
 test('xai and deepseek: an empty normal-finish response is retried inside the profile ladder', async () => {
-  for (const [name, attempts] of [['xai', 15], ['deepseek', 6]]) {
-    const recovered = await runResults(name, [emptyTurn(), emptyTurn(), { content: 'ok', toolCalls: [], stopReason: 'stop' }]);
+  for (const [name, attempts] of [
+    ['xai', 15],
+    ['deepseek', 6],
+  ]) {
+    const recovered = await runResults(name, [
+      emptyTurn(),
+      emptyTurn(),
+      { content: 'ok', toolCalls: [], stopReason: 'stop' },
+    ]);
     assert.equal(recovered.calls, 3, name);
     assert.equal(recovered.value.content, 'ok');
     const spent = await runResults(name, [emptyTurn()]);
@@ -281,7 +300,11 @@ test('xai and deepseek: an empty normal-finish response is retried inside the pr
 });
 
 test('muse-code: an empty normal finish is retried at most twice, then delivered as-is', async () => {
-  const recovered = await runResults('muse-code-oauth', [emptyTurn(), emptyTurn(), { content: 'ok', toolCalls: [], stopReason: 'stop' }]);
+  const recovered = await runResults('muse-code-oauth', [
+    emptyTurn(),
+    emptyTurn(),
+    { content: 'ok', toolCalls: [], stopReason: 'stop' },
+  ]);
   assert.equal(recovered.calls, 3);
   assert.equal(recovered.value.content, 'ok');
   const spent = await runResults('muse-code-oauth', [emptyTurn()]);
@@ -320,7 +343,6 @@ test('providers whose reference does not retry an empty response return it', asy
 
 test('profiles are frozen data', () => {
   assert.throws(() => {
-    'use strict';
     COMPAT_RETRY_PROFILES.xai.maxAttempts = 1;
   }, TypeError);
 });

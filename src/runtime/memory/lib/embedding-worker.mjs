@@ -300,7 +300,11 @@ async function loadTokenizer() {
 async function createExtractor(device) {
   const ort = loadOrt();
   const encode = await loadTokenizer();
-  const graphPath = await ensureModelGraph(MODEL_CACHE_DIR, MODEL_ID, getEmbeddingModelGraphFile(MODEL_ID, configuredDtype));
+  const graphPath = await ensureModelGraph(
+    MODEL_CACHE_DIR,
+    MODEL_ID,
+    getEmbeddingModelGraphFile(MODEL_ID, configuredDtype)
+  );
   const session = await ort.InferenceSession.create(graphPath, {
     executionProviders: [device],
     intraOpNumThreads: INTRA_OP_THREADS,
@@ -397,8 +401,7 @@ async function loadExtractor() {
             } catch (e) {
               // Unprivileged processes cannot raise priority back (EACCES/EPERM);
               // on Linux that is expected, not a stuck state worth warning about.
-              const expectedOnLinux =
-                process.platform === 'linux' && /EACCES|EPERM/.test(`${e?.code} ${e?.message}`);
+              const expectedOnLinux = process.platform === 'linux' && /EACCES|EPERM/.test(`${e?.code} ${e?.message}`);
               if (!expectedOnLinux) {
                 __mixdogMemoryLog(
                   `[embed-worker] WARN: process priority stuck below normal (restore failed: ${e?.message || e})\n`

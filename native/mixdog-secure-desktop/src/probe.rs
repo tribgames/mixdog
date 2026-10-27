@@ -10,9 +10,7 @@
 //!                               [--move X Y] [--click X Y]
 //!                               [--text STRING] [--key VK]
 
-use crate::protocol::{
-    self, Decoded, InputEvent, Message, PointerButton, PROTOCOL_VERSION,
-};
+use crate::protocol::{self, Decoded, InputEvent, Message, PointerButton, PROTOCOL_VERSION};
 use crate::security::{self, InstallState};
 use crate::{ipc, paths};
 
@@ -35,7 +33,11 @@ fn authenticate(io: &mut ipc::PipeIo, state: &InstallState) -> Result<Message, S
 
     // The server proves knowledge of the secret before we send ours.
     let (server_nonce, server_mac) = match protocol::read_frame(io) {
-        Ok(Decoded::Control(Message::ServerAuth { protocol, server_nonce, mac })) => {
+        Ok(Decoded::Control(Message::ServerAuth {
+            protocol,
+            server_nonce,
+            mac,
+        })) => {
             if protocol != PROTOCOL_VERSION {
                 return Err(format!(
                     "server speaks protocol {protocol}, expected {PROTOCOL_VERSION}"
@@ -61,8 +63,11 @@ fn authenticate(io: &mut ipc::PipeIo, state: &InstallState) -> Result<Message, S
 
     // Only after the server is proven do we reveal our own proof.
     let client_mac = security::client_auth_tag(&state.secret, &server_nonce_bytes, &client_nonce);
-    protocol::write_all(io, &protocol::encode_control(&Message::ClientAuth { mac: client_mac }))
-        .map_err(|error| format!("failed to send client-auth: {error}"))?;
+    protocol::write_all(
+        io,
+        &protocol::encode_control(&Message::ClientAuth { mac: client_mac }),
+    )
+    .map_err(|error| format!("failed to send client-auth: {error}"))?;
 
     match protocol::read_frame(io) {
         Ok(Decoded::Control(hello @ Message::ServerHello { .. })) => Ok(hello),
@@ -95,17 +100,19 @@ pub fn run(args: &[String]) -> i32 {
                 index += 1;
             }
             "--move" => {
-                if let (Some(x), Some(y)) =
-                    (parse_i32(args.get(index + 1)), parse_i32(args.get(index + 2)))
-                {
+                if let (Some(x), Some(y)) = (
+                    parse_i32(args.get(index + 1)),
+                    parse_i32(args.get(index + 2)),
+                ) {
                     pending.push(InputEvent::PointerMove { x, y });
                 }
                 index += 3;
             }
             "--click" => {
-                if let (Some(x), Some(y)) =
-                    (parse_i32(args.get(index + 1)), parse_i32(args.get(index + 2)))
-                {
+                if let (Some(x), Some(y)) = (
+                    parse_i32(args.get(index + 1)),
+                    parse_i32(args.get(index + 2)),
+                ) {
                     pending.push(InputEvent::PointerButton {
                         button: PointerButton::Left,
                         down: true,
@@ -130,8 +137,18 @@ pub fn run(args: &[String]) -> i32 {
             "--key" => {
                 if let Some(vk) = parse_i32(args.get(index + 1)) {
                     let vk = vk as u16;
-                    pending.push(InputEvent::Key { down: true, vk, scan: 0, extended: false });
-                    pending.push(InputEvent::Key { down: false, vk, scan: 0, extended: false });
+                    pending.push(InputEvent::Key {
+                        down: true,
+                        vk,
+                        scan: 0,
+                        extended: false,
+                    });
+                    pending.push(InputEvent::Key {
+                        down: false,
+                        vk,
+                        scan: 0,
+                        extended: false,
+                    });
                 }
                 index += 2;
             }
@@ -148,7 +165,10 @@ pub fn run(args: &[String]) -> i32 {
     {
         Some(state) => state,
         None => {
-            eprintln!("probe: not installed (no readable state at {})", paths::state_file().display());
+            eprintln!(
+                "probe: not installed (no readable state at {})",
+                paths::state_file().display()
+            );
             return 2;
         }
     };
@@ -163,7 +183,13 @@ pub fn run(args: &[String]) -> i32 {
     let mut io = ipc::PipeIo(pipe.get());
 
     match authenticate(&mut io, &state) {
-        Ok(Message::ServerHello { protocol, version, session, desktop, locked }) => {
+        Ok(Message::ServerHello {
+            protocol,
+            version,
+            session,
+            desktop,
+            locked,
+        }) => {
             println!(
                 "server-hello protocol={protocol} version={version} session={session} desktop={desktop} locked={locked:?}"
             );
@@ -176,11 +202,17 @@ pub fn run(args: &[String]) -> i32 {
     }
 
     if activate {
-        let _ = protocol::write_all(&mut io, &protocol::encode_control(&Message::Control { active: true }));
+        let _ = protocol::write_all(
+            &mut io,
+            &protocol::encode_control(&Message::Control { active: true }),
+        );
     }
     for event in pending {
         println!("sending input {event:?}");
-        let _ = protocol::write_all(&mut io, &protocol::encode_control(&Message::Input { event }));
+        let _ = protocol::write_all(
+            &mut io,
+            &protocol::encode_control(&Message::Input { event }),
+        );
     }
 
     let mut seen = 0u32;
@@ -200,7 +232,11 @@ pub fn run(args: &[String]) -> i32 {
                     header.dirty.len()
                 );
             }
-            Ok(Decoded::Control(Message::DesktopChanged { desktop, session, locked })) => {
+            Ok(Decoded::Control(Message::DesktopChanged {
+                desktop,
+                session,
+                locked,
+            })) => {
                 println!("desktop-changed desktop={desktop} session={session} locked={locked:?}");
             }
             Ok(Decoded::Control(Message::Error { code, message })) => {
@@ -214,7 +250,10 @@ pub fn run(args: &[String]) -> i32 {
         }
     }
 
-    let _ = protocol::write_all(&mut io, &protocol::encode_control(&Message::Control { active: false }));
+    let _ = protocol::write_all(
+        &mut io,
+        &protocol::encode_control(&Message::Control { active: false }),
+    );
     println!("probe: done ({seen} frames)");
     0
 }

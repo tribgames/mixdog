@@ -56,7 +56,11 @@ test('every marker of the template is filled', () => {
   }
   // No relay-load limit is configured (the template says why).
   for (const option of ['max-bps', 'bps-capacity', 'total-quota']) {
-    assert.equal(conf.some((line) => line.startsWith(`${option}=`)), false, option);
+    assert.equal(
+      conf.some((line) => line.startsWith(`${option}=`)),
+      false,
+      option
+    );
   }
   assert.equal(
     conf.filter((line) => !line.startsWith('static-auth-secret=')).some((line) => /@TURN_[A-Z_]+@/u.test(line)),

@@ -121,7 +121,11 @@ test('a superseded computer stub keeps its outcome and reference, not the frame'
       content: [
         {
           type: 'text',
-          text: act('hwnd:0x1', { bounds: { x: 1, y: 2, w: 3, h: 4 }, title: 'App', image: { width: 800, height: 600 } }),
+          text: act('hwnd:0x1', {
+            bounds: { x: 1, y: 2, w: 3, h: 4 },
+            title: 'App',
+            image: { width: 800, height: 600 },
+          }),
         },
       ],
     }),
@@ -150,18 +154,42 @@ test('a superseded computer stub keeps its outcome and reference, not the frame'
 
 test('a visualize inspect or check is superseded by a later one for the same tab and scope', () => {
   const messages = [
-    { ...call('v1', 'visualize'), toolCalls: [{ id: 'v1', name: 'visualize', arguments: { action: 'inspect', input: { tab: 't1' } } }] },
+    {
+      ...call('v1', 'visualize'),
+      toolCalls: [{ id: 'v1', name: 'visualize', arguments: { action: 'inspect', input: { tab: 't1' } } }],
+    },
     result('v1', { content: [{ type: 'text', text: 'viewport 1280x800\nlandmarks...' }] }),
-    { ...call('v2', 'visualize'), toolCalls: [{ id: 'v2', name: 'visualize', arguments: JSON.stringify({ action: 'inspect', input: { tab: 't1', viewport: { width: 375 } } }) }] },
+    {
+      ...call('v2', 'visualize'),
+      toolCalls: [
+        {
+          id: 'v2',
+          name: 'visualize',
+          arguments: JSON.stringify({ action: 'inspect', input: { tab: 't1', viewport: { width: 375 } } }),
+        },
+      ],
+    },
     result('v2', 'viewport 375x800'),
-    { ...call('v3', 'visualize'), toolCalls: [{ id: 'v3', name: 'visualize', arguments: { action: 'check', input: { tab: 't1' } } }] },
+    {
+      ...call('v3', 'visualize'),
+      toolCalls: [{ id: 'v3', name: 'visualize', arguments: { action: 'check', input: { tab: 't1' } } }],
+    },
     result('v3', 'No problems.'),
-    { ...call('v4', 'visualize'), toolCalls: [{ id: 'v4', name: 'visualize', arguments: { action: 'inspect', input: { tab: 't2' } } }] },
+    {
+      ...call('v4', 'visualize'),
+      toolCalls: [{ id: 'v4', name: 'visualize', arguments: { action: 'inspect', input: { tab: 't2' } } }],
+    },
     result('v4', 'other tab'),
-    { ...call('v5', 'visualize'), toolCalls: [{ id: 'v5', name: 'visualize', arguments: { action: 'inspect', input: { tab: 't1' } } }] },
+    {
+      ...call('v5', 'visualize'),
+      toolCalls: [{ id: 'v5', name: 'visualize', arguments: { action: 'inspect', input: { tab: 't1' } } }],
+    },
     result('v5', 'viewport 1280x800 again'),
     { role: 'user', content: 'now check it' },
-    { ...call('v6', 'visualize'), toolCalls: [{ id: 'v6', name: 'visualize', arguments: { action: 'check', input: { tab: 't1' } } }] },
+    {
+      ...call('v6', 'visualize'),
+      toolCalls: [{ id: 'v6', name: 'visualize', arguments: { action: 'check', input: { tab: 't1' } } }],
+    },
     result('v6', 'Error: bridge down', { toolKind: 'error' }),
   ];
   const stale = staleObservations(messages);
@@ -201,7 +229,10 @@ test('an image file read is superseded by a later read of the same file; the new
     result('r6', 'text'),
   ];
   const stale = staleObservations(messages);
-  assert.deepEqual([...stale.keys()].sort((a, b) => a - b), [1, 5]);
+  assert.deepEqual(
+    [...stale.keys()].sort((a, b) => a - b),
+    [1, 5]
+  );
   const placeholder = supersedeObservation(messages[1], stale.get(1), 'Archived at A.');
   assert.deepEqual(placeholder.content, {
     content: [
@@ -242,12 +273,7 @@ test('observations of one kind in the latest tool-call group are all kept', () =
     ];
     assert.equal(staleObservations(messages).size, 0, name);
     // A later group makes the earlier ones replaceable, and the newest stays.
-    const next = [
-      ...messages,
-      { role: 'user', content: 'again' },
-      batch([['d', name, args]]),
-      result('d', output()),
-    ];
+    const next = [...messages, { role: 'user', content: 'again' }, batch([['d', name, args]]), result('d', output())];
     assert.deepEqual([...staleObservations(next).keys()].sort(), [2, 3, 4], name);
   }
 });
@@ -332,7 +358,10 @@ test('browser and computer observations stay replaceable mid-request', () => {
     call('t', 'edit'),
     result('t', 'ok'),
   ];
-  assert.deepEqual([...staleObservations(messages).keys()].sort((a, b) => a - b), [2, 4]);
+  assert.deepEqual(
+    [...staleObservations(messages).keys()].sort((a, b) => a - b),
+    [2, 4]
+  );
 });
 
 test('a user attachment is never superseded', () => {

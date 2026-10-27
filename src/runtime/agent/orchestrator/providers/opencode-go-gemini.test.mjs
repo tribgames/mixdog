@@ -21,7 +21,10 @@ test('OpenCode Go sends Gemini models to the gateway generateContent endpoint wi
   const route = await provider.resolveWireRoute('gemini-4-argon-contributor', { agent: true });
   assert.equal(route.wire, 'gemini');
   const result = await provider.send(
-    [{ role: 'system', content: 'be brief' }, { role: 'user', content: 'hi' }],
+    [
+      { role: 'system', content: 'be brief' },
+      { role: 'user', content: 'hi' },
+    ],
     'gemini-4-argon-contributor',
     [],
     { sessionId: 's1' }

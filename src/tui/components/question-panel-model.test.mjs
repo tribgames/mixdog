@@ -2,11 +2,24 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { approvalShortcutDecision } from '../app/use-global-key-input/approval-shortcut.mjs';
 import stringWidth from 'string-width';
-import { answerFor, appendCapped, buildAnswers, initialCursor, optionLayout, planQuestionView, questionPanelRows } from './question-panel-model.mjs';
+import {
+  answerFor,
+  appendCapped,
+  buildAnswers,
+  initialCursor,
+  optionLayout,
+  planQuestionView,
+  questionPanelRows,
+} from './question-panel-model.mjs';
 
 const questions = [
   { question: 'Auth?', header: 'Auth', options: [{ label: 'GitHub' }, { label: 'Email' }], recommended: 1 },
-  { question: 'Features?', header: 'Feat', multi_select: true, options: [{ label: 'Dark' }, { label: 'Push' }, { label: 'Files' }] },
+  {
+    question: 'Features?',
+    header: 'Feat',
+    multi_select: true,
+    options: [{ label: 'Dark' }, { label: 'Push' }, { label: 'Files' }],
+  },
   { question: 'Deploy?', header: 'Deploy', options: [{ label: 'Vercel' }] },
   { question: 'Skipped?', header: 'Skip', options: [{ label: 'A' }] },
 ];
@@ -38,7 +51,15 @@ test('initialCursor follows the 0-based recommended index', () => {
 });
 
 test('optionLayout: the tradeoff follows the label on the same line, cut to fit', () => {
-  const q = { question: 'Q?', header: 'h', recommended: 0, options: [{ label: 'Local', description: 'No setup, but this device only.' }, { label: 'Server', description: 'word '.repeat(40) }] };
+  const q = {
+    question: 'Q?',
+    header: 'h',
+    recommended: 0,
+    options: [
+      { label: 'Local', description: 'No setup, but this device only.' },
+      { label: 'Server', description: 'word '.repeat(40) },
+    ],
+  };
   const wide = optionLayout(q, 80);
   assert.equal(wide.rows[0].detail, '  No setup, but this device only.');
   const cut = wide.rows[1];
@@ -50,12 +71,15 @@ test('optionLayout: the tradeoff follows the label on the same line, cut to fit'
 
 test('questionPanelRows: one row per option, descriptions never add rows', () => {
   const plain = [{ question: 'Q?', header: 'h', options: [{ label: 'A' }, { label: 'B' }] }];
-  const described = [{ question: 'Q?', header: 'h', options: [{ label: 'A', description: 'word '.repeat(60) }, { label: 'B' }] }];
+  const described = [
+    { question: 'Q?', header: 'h', options: [{ label: 'A', description: 'word '.repeat(60) }, { label: 'B' }] },
+  ];
   assert.equal(questionPanelRows(described, 60), questionPanelRows(plain, 60));
 });
 
 test('planQuestionView fits 60x24 (20 panel rows) and keeps question + highlighted option', () => {
-  const desc = '비밀번호 저장 없이 기존 계정으로 바로 로그인합니다. 기존 이메일 가입자는 다음 로그인 때 계정 연결을 안내합니다.';
+  const desc =
+    '비밀번호 저장 없이 기존 계정으로 바로 로그인합니다. 기존 이메일 가입자는 다음 로그인 때 계정 연결을 안내합니다.';
   const q = {
     question: '로그인은 어떤 방식으로 구현할까요? 보안과 편의성의 균형을 고려해서 골라 주세요.',
     header: '인증',
@@ -67,7 +91,10 @@ test('planQuestionView fits 60x24 (20 panel rows) and keeps question + highlight
     const lines = plan.items.reduce((s, it) => s + it.lines, 0) + (plan.above ? 1 : 0) + (plan.below ? 1 : 0);
     assert.ok(5 + plan.qLines.length + lines <= 20, `cursor ${cursor} overflows`);
     assert.ok(plan.qLines.length >= 1);
-    assert.ok(plan.items.some((it) => it.index === cursor), `cursor ${cursor} hidden`);
+    assert.ok(
+      plan.items.some((it) => it.index === cursor),
+      `cursor ${cursor} hidden`
+    );
     assert.equal(plan.above + plan.below + plan.items.length, 7);
   }
   const unbudgeted = planQuestionView(q, 60, Infinity, 0);

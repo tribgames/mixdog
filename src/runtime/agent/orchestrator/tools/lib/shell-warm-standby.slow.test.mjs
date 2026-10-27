@@ -17,9 +17,12 @@ import {
 import { STANDBY_ARGS, _parkedShellStandbyForTest, takeWarmShellStandby } from './shell-warm-standby.mjs';
 
 const spawnBinary = ['release', 'debug']
-  .map((profile) => resolve('native/mixdog-spawn/target', profile, process.platform === 'win32' ? 'mixdog-spawn.exe' : 'mixdog-spawn'))
+  .map((profile) =>
+    resolve('native/mixdog-spawn/target', profile, process.platform === 'win32' ? 'mixdog-spawn.exe' : 'mixdog-spawn')
+  )
   .find((path) => existsSync(path));
-const hasPwsh = process.platform === 'win32' && spawnSync('pwsh', ['-NoLogo', '-Command', '1'], { windowsHide: true }).status === 0;
+const hasPwsh =
+  process.platform === 'win32' && spawnSync('pwsh', ['-NoLogo', '-Command', '1'], { windowsHide: true }).status === 0;
 
 const standbyHandOff = {
   skip: !(spawnBinary && hasPwsh) && 'needs Windows, pwsh and the built mixdog-spawn',
@@ -69,16 +72,21 @@ async function handOffAcrossSessions(scratchOverride, workDir = fixtureRoot) {
 }
 
 test('a standby parked for one session is reused by another and the command sees its scratch dir', standbyHandOff, () =>
-  handOffAcrossSessions(null));
+  handOffAcrossSessions(null)
+);
 
-test('a hand-off scratch path and project path with typographic apostrophes still parse and run the command', standbyHandOff, async () => {
-  const project = mkdtempSync(join(tmpdir(), 'mixdog-it’s ‘project’ ‚low‛ $x -'));
-  try {
-    await handOffAcrossSessions('C:\\Data’s ‘space’ ‚low‛\\scratch $x `y', project);
-  } finally {
-    rmSync(project, { recursive: true, force: true });
+test(
+  'a hand-off scratch path and project path with typographic apostrophes still parse and run the command',
+  standbyHandOff,
+  async () => {
+    const project = mkdtempSync(join(tmpdir(), 'mixdog-it’s ‘project’ ‚low‛ $x -'));
+    try {
+      await handOffAcrossSessions('C:\\Data’s ‘space’ ‚low‛\\scratch $x `y', project);
+    } finally {
+      rmSync(project, { recursive: true, force: true });
+    }
   }
-});
+);
 
 test('warm PowerShell preserves cold command status and output', {
   skip: process.platform !== 'win32' && 'Windows only',

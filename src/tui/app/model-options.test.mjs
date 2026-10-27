@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parsedModelVersion, modelVersion, compareModelVersion, modelContextWindow, normalizeModelOptions } from './model-options.mjs';
+import {
+  parsedModelVersion,
+  modelVersion,
+  compareModelVersion,
+  modelContextWindow,
+  normalizeModelOptions,
+} from './model-options.mjs';
 import { isRollingModelAlias } from '../../runtime/shared/model-alias.mjs';
 
 test('model version parsing preserves Claude, compact and generic precedence and missing components', () => {
@@ -53,7 +59,7 @@ test('all OpenRouter rolling aliases remain selectable beyond the eight-model fa
   const models = ids.map((id, index) => ({ id, provider: 'openrouter', created: 1000 + index }));
   const normalized = normalizeModelOptions(models);
   assert.equal(normalized.length, ids.length);
-  assert.deepEqual(new Set(normalized.map(model => model.id)), new Set(ids));
+  assert.deepEqual(new Set(normalized.map((model) => model.id)), new Set(ids));
 });
 
 test('rolling aliases do not consume the existing versioned-model allowance', () => {
@@ -66,8 +72,11 @@ test('rolling aliases do not consume the existing versioned-model allowance', ()
   const normalized = normalizeModelOptions([...versions, alias]);
   assert.ok(normalized.includes(alias));
   assert.deepEqual(
-    normalized.filter(model => model !== alias).map(model => model.id),
-    versions.slice(2).reverse().map(model => model.id)
+    normalized.filter((model) => model !== alias).map((model) => model.id),
+    versions
+      .slice(2)
+      .reverse()
+      .map((model) => model.id)
   );
 });
 
@@ -80,13 +89,11 @@ test('Anthropic concrete family limits still keep three Opus versions and one So
     'claude-sonnet-4-5',
     'claude-sonnet-5-5',
   ];
-  const normalized = normalizeModelOptions(ids.map(id => ({ id, provider: 'anthropic-oauth' })));
-  assert.deepEqual(new Set(normalized.map(model => model.id)), new Set([
-    'claude-opus-4-7',
-    'claude-opus-5',
-    'claude-opus-5-5',
-    'claude-sonnet-5-5',
-  ]));
+  const normalized = normalizeModelOptions(ids.map((id) => ({ id, provider: 'anthropic-oauth' })));
+  assert.deepEqual(
+    new Set(normalized.map((model) => model.id)),
+    new Set(['claude-opus-4-7', 'claude-opus-5', 'claude-opus-5-5', 'claude-sonnet-5-5'])
+  );
 });
 
 test('only a terminal latest alias marker bypasses version trimming', () => {

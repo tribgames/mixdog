@@ -33,7 +33,10 @@ test('video size keeps native pixels, scales oversize displays and stays even', 
 });
 
 test('locked geometry carries css bounds, scale and even pixels', () => {
-  const locked = lockScreenGeometry(display({ scaleFactor: 1.5, physical: { x: 0, y: 0, width: 2880, height: 1620 } }), 1);
+  const locked = lockScreenGeometry(
+    display({ scaleFactor: 1.5, physical: { x: 0, y: 0, width: 2880, height: 1620 } }),
+    1
+  );
   assert.equal(locked.geometry.generation, 1);
   assert.equal(locked.geometry.cssWidth, 1920);
   assert.equal(locked.geometry.deviceScaleFactor, 1.5);
@@ -75,14 +78,17 @@ test('geometry change is detected by physical rect only', () => {
 });
 
 test('summary reports physical pixels a phone chooses from', () => {
-  assert.deepEqual(summarizeScreenDisplay(display({ scaleFactor: 2, physical: { x: 0, y: 0, width: 3840, height: 2160 } })), {
-    screenId: '1',
-    label: 'Primary',
-    primary: true,
-    pixelWidth: 3840,
-    pixelHeight: 2160,
-    scaleFactor: 2,
-  });
+  assert.deepEqual(
+    summarizeScreenDisplay(display({ scaleFactor: 2, physical: { x: 0, y: 0, width: 3840, height: 2160 } })),
+    {
+      screenId: '1',
+      label: 'Primary',
+      primary: true,
+      pixelWidth: 3840,
+      pixelHeight: 2160,
+      scaleFactor: 2,
+    }
+  );
 });
 
 test('screenFrameRegion locates the display in a helper frame without touching a pixel', () => {

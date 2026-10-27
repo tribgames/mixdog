@@ -129,7 +129,9 @@ function federateRoots(name, args, plan, signal, options, execute) {
   }
   const runOne = async (root, nextArgs) =>
     execute(name, nextArgs, root, signal, { ...options, excludedProjectRoots: excludedRootsFor(root, roots) });
-  const work = _runCodeGraphFederation(roots, runOne, projectArgs, options.scopedCacheOutcome).then((sections) => sections.join('\n\n'));
+  const work = _runCodeGraphFederation(roots, runOne, projectArgs, options.scopedCacheOutcome).then((sections) =>
+    sections.join('\n\n')
+  );
   return raceAbort(work, signal);
 }
 

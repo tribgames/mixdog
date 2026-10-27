@@ -51,7 +51,12 @@ function mockFs(t, name, impl) {
   };
 }
 const routes = [
-  { name: 'source', run: (f) => readSourceWindows(f.path, [{ start: 9001, end: 9001 }]), finalStat: 4, finalPathStat: 2 },
+  {
+    name: 'source',
+    run: (f) => readSourceWindows(f.path, [{ start: 9001, end: 9001 }]),
+    finalStat: 4,
+    finalPathStat: 2,
+  },
   { name: 'range', run: (f) => streamReadRange(f.path, 9000, 1, f.st), finalStat: 3, finalPathStat: 1 },
   { name: 'count', run: (f) => countLogicalLinesBytesSync(f.path, f.st.size, f.st), finalStat: 3, finalPathStat: 1 },
 ];
@@ -60,43 +65,43 @@ for (const route of routes)
   for (const seed of [false, true])
     for (const large of [false, true])
       for (const stage of ['descriptor', 'path']) {
-      test(`${route.name}: expiry during final ${stage} validation cannot publish (${large ? 'large private' : 'small cached'}, ${seed ? 'prior read' : 'fresh'})`, async (t) => {
-        const f = await fixture(seed, large);
-        let now = 1000;
-        let expired = false;
-        let pathStats = 0;
-        t.mock.method(Date, 'now', () => now);
-        const expire = () => {
-          expired = true;
-          now += READ_STREAM_TIMEOUT_MS + 1;
-        };
-        const restore =
-          stage === 'path'
-            ? mockFs(t, 'stat', (original) => async (path, ...args) => {
-                const st = await original(path, ...args);
-                if (path === f.path && ++pathStats === route.finalPathStat) expire();
-                return st;
-              })
-            : mockFs(t, 'open', (original) => async (path, ...args) => {
-                const handle = await original(path, ...args);
-                if (path === f.path) {
-                  const stat = handle.stat.bind(handle);
-                  let calls = 0;
-                  handle.stat = async (...options) => {
-                    const st = await stat(...options);
-                    if (++calls === route.finalStat - Number(large)) expire();
-                    return st;
-                  };
-                }
-                return handle;
-              });
-        t.after(restore);
-        await assert.rejects(route.run(f), /timed out/);
-        assert.equal(expired, true, 'the final validation barrier was reached');
-        restore();
-        await assertUnpublished(f);
-      });
-    }
+        test(`${route.name}: expiry during final ${stage} validation cannot publish (${large ? 'large private' : 'small cached'}, ${seed ? 'prior read' : 'fresh'})`, async (t) => {
+          const f = await fixture(seed, large);
+          let now = 1000;
+          let expired = false;
+          let pathStats = 0;
+          t.mock.method(Date, 'now', () => now);
+          const expire = () => {
+            expired = true;
+            now += READ_STREAM_TIMEOUT_MS + 1;
+          };
+          const restore =
+            stage === 'path'
+              ? mockFs(t, 'stat', (original) => async (path, ...args) => {
+                  const st = await original(path, ...args);
+                  if (path === f.path && ++pathStats === route.finalPathStat) expire();
+                  return st;
+                })
+              : mockFs(t, 'open', (original) => async (path, ...args) => {
+                  const handle = await original(path, ...args);
+                  if (path === f.path) {
+                    const stat = handle.stat.bind(handle);
+                    let calls = 0;
+                    handle.stat = async (...options) => {
+                      const st = await stat(...options);
+                      if (++calls === route.finalStat - Number(large)) expire();
+                      return st;
+                    };
+                  }
+                  return handle;
+                });
+          t.after(restore);
+          await assert.rejects(route.run(f), /timed out/);
+          assert.equal(expired, true, 'the final validation barrier was reached');
+          restore();
+          await assertUnpublished(f);
+        });
+      }
 
 for (const route of routes) {
   test(`${route.name}: expired validation IO failure still checks the unpublished return path`, async (t) => {

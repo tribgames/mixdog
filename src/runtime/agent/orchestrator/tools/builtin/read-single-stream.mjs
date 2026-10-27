@@ -53,7 +53,13 @@ export async function streamRangeResult(ctx, { source, fileHandle, prefixBuffer 
       res.firstEmitted && res.lastEmitted ? [{ startLine: res.firstEmitted, endLine: res.lastEmitted }] : [];
     const snapshotMeta = { source, ranges, rangeHashes: _rangeHashesFromRenderedReadText(res.text, ranges) };
     if (!res.readSnapshotStat) return res.text;
-    return await commitStreamResult({ ...ctx, st: res.readSnapshotStat }, res.text, snapshotMeta, res.prefixHash, helpers);
+    return await commitStreamResult(
+      { ...ctx, st: res.readSnapshotStat },
+      res.text,
+      snapshotMeta,
+      res.prefixHash,
+      helpers
+    );
   } catch (err) {
     return `Error: ${normalizeErrorMessage(err instanceof Error ? err.message : String(err))}`;
   }

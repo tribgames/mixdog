@@ -176,10 +176,7 @@ function removeLegacyKeys(root, dataDir) {
  * not set the marker. `stripRouteDefaults` drops shipped presets and
  * maintenance routes (their defaults live with the agent config).
  */
-function separateDefaultsInConfig(
-  root,
-  { stripRouteDefaults = (agent) => agent, dataDir = resolvePluginData() } = {}
-) {
+function separateDefaultsInConfig(root, { stripRouteDefaults = (agent) => agent, dataDir = resolvePluginData() } = {}) {
   const from = Number(root?.[DEFAULTS_VERSION_KEY]) || 0;
   let next = { ...(root || {}) };
   if (from < 1) {

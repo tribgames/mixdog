@@ -78,7 +78,9 @@ for (const [name, build] of Object.entries(builders)) {
   test(`${name}: the breakpoint stays on the shared prefix after a JSON round-trip of request and options`, async () => {
     const original = await build(PREFIX, {});
     const [[markIndex, markBlock]] = markedPositions(original.messages);
-    const wire = JSON.parse(JSON.stringify({ messages: [...PREFIX, ...SUFFIX], opts: { sharedCachePrefixCount: PREFIX.length } }));
+    const wire = JSON.parse(
+      JSON.stringify({ messages: [...PREFIX, ...SUFFIX], opts: { sharedCachePrefixCount: PREFIX.length } })
+    );
     const fork = await build(wire.messages, wire.opts);
     assert.deepEqual(markedPositions(fork.messages), [[markIndex, markBlock]]);
     assert.deepEqual(fork.messages.slice(0, markIndex + 1), original.messages);

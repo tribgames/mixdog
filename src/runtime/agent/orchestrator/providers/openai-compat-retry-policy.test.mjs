@@ -118,7 +118,10 @@ test('a provider-terminal stream failure is not re-issued as a non-streaming req
   const { recoverCompatNonStreaming } = await import('./openai-compat-chat-send.mjs');
   const { markProviderRecoveryExhausted } = await import('./retry-classifier.mjs');
   const failure = () => Object.assign(new Error('HTTP 503'), { status: 503 });
-  for (const [terminal, expectedCalls] of [[true, 0], [false, 1]]) {
+  for (const [terminal, expectedCalls] of [
+    [true, 0],
+    [false, 1],
+  ]) {
     let calls = 0;
     const provider = {
       name: 'xai',
@@ -145,7 +148,11 @@ test('a provider-terminal stream failure is not re-issued as a non-streaming req
 });
 
 test('a profile stop is final at the loop level', async () => {
-  for (const [name, status] of [['xai', 429], ['command-code-oauth', 429], ['mimo-oauth', 501]]) {
+  for (const [name, status] of [
+    ['xai', 429],
+    ['command-code-oauth', 429],
+    ['mimo-oauth', 501],
+  ]) {
     const provider = compat(name);
     const counter = { attempts: 0 };
     await assert.rejects(

@@ -73,7 +73,7 @@ test('a snapshot is a locked, detached managed checkout of the commit, bound to 
   assert.equal(git(entry.path, 'rev-parse', 'HEAD'), first);
   assert.equal(existsSync(join(entry.path, 'later.txt')), false);
   const listed = git(repo, 'worktree', 'list', '--porcelain');
-  assert.match(listed, new RegExp(`detached`));
+  assert.match(listed, /detached/);
   assert.match(listed, /locked mixdog snapshot session=/);
   assert.equal(await getSessionWorktree(sessionId), null, 'the holder retains no worktree');
   // The same transaction answers with the same snapshot.
@@ -260,7 +260,11 @@ test('a git write of another process in a snapshot and its removal never overlap
   } finally {
     hold();
   }
-  assert.equal(git(second.path, 'log', '-1', '--format=%s'), git(repo, 'log', '-1', '--format=%s'), 'nothing was committed');
+  assert.equal(
+    git(second.path, 'log', '-1', '--format=%s'),
+    git(repo, 'log', '-1', '--format=%s'),
+    'nothing was committed'
+  );
 });
 
 test('every new branch checkout keeps its first-turn setup pending in the registry until claimed once', async () => {
@@ -312,7 +316,10 @@ test('a stale snapshot cleanup never removes the snapshot that replaced it', asy
   assert.equal((await getRecord(replacement.entry.id)).txId, replacement.txId);
   // The same call with the replacement's own identity removes it.
   const own = { kind: 'snapshot', txId: replacement.txId, holderSessionId: replacement.sessionId };
-  assert.equal((await removeSnapshotWorktree({ entryId: replacement.entry.id, force: true, expected: own })).removed, true);
+  assert.equal(
+    (await removeSnapshotWorktree({ entryId: replacement.entry.id, force: true, expected: own })).removed,
+    true
+  );
   // A record already gone is skipped through the snapshot wrapper too, not an error.
   assert.deepEqual(await removeSnapshotWorktree({ entryId: stale.entry.id, force: true, expected: staleExpected }), {
     removed: false,
@@ -327,10 +334,10 @@ test('a stale snapshot cleanup skips an entry that is now a branch worktree', as
   const stale = await snapshot(repo);
   const staleExpected = { kind: 'snapshot', txId: stale.txId, holderSessionId: stale.sessionId };
   const resolved = await resolveBranchWorkspace({ projectPath: repo, branch: 'kept', create: true, ...nextIds() });
-  assert.deepEqual(
-    await removeSnapshotWorktree({ entryId: resolved.entry.id, force: true, expected: staleExpected }),
-    { removed: false, skipped: true }
-  );
+  assert.deepEqual(await removeSnapshotWorktree({ entryId: resolved.entry.id, force: true, expected: staleExpected }), {
+    removed: false,
+    skipped: true,
+  });
   assert.equal(existsSync(resolved.entry.path), true);
   assert.equal((await getRecord(resolved.entry.id)).kind, resolved.entry.kind);
   await assert.rejects(removeSnapshotWorktree({ entryId: resolved.entry.id, force: true }), {

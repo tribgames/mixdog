@@ -215,12 +215,7 @@ export function getReleaseByTag(repo, tag, run = gh) {
  * rethrown, so an API outage fails the job instead of silently skipping
  * verification of a release that may be public.
  */
-export async function detectPublished({
-  fetchRelease,
-  sleep = defaultSleep,
-  attempts = 5,
-  firstDelayMs = 2000,
-}) {
+export async function detectPublished({ fetchRelease, sleep = defaultSleep, attempts = 5, firstDelayMs = 2000 }) {
   let delay = firstDelayMs;
   for (let attempt = 1; ; attempt++) {
     try {

@@ -16,9 +16,15 @@ const tool = (name, inputSchema) => ({
 });
 const good = tool('mcp__x__good', { type: 'object', properties: { a: { type: 'string' } } });
 const bogus = tool('mcp__x__bogus', { type: 'object', properties: { a: { type: 'bogus-type' } } });
-const tuple = tool('mcp__x__tuple', { type: 'object', properties: { a: { type: 'array', items: { type: 'bogus-type' } } } });
+const tuple = tool('mcp__x__tuple', {
+  type: 'object',
+  properties: { a: { type: 'array', items: { type: 'bogus-type' } } },
+});
 // Draft-07 tuple items: lowered on every route, so it loads everywhere.
-const draft07 = tool('mcp__x__draft07', { type: 'object', properties: { a: { type: 'array', items: [{ type: 'string' }] } } });
+const draft07 = tool('mcp__x__draft07', {
+  type: 'object',
+  properties: { a: { type: 'array', items: [{ type: 'string' }] } },
+});
 const read = tool('read', { type: 'object', properties: { file_path: { type: 'string' } } });
 
 // A non-bridge, non-native session: deferred tools are loaded onto session.tools.
@@ -82,7 +88,10 @@ test('every route: a broken schema is blocked with the reason, a lowerable one l
   for (const [provider, model] of routes) {
     const result = load(loaderSession(model, { provider }), [good.name, bogus.name, tuple.name, draft07.name]);
     assert.deepEqual(result.loaded, [good.name, draft07.name], `${provider} ${model}`);
-    assert.deepEqual(result.blocked.map((entry) => entry.name), [bogus.name, tuple.name]);
+    assert.deepEqual(
+      result.blocked.map((entry) => entry.name),
+      [bogus.name, tuple.name]
+    );
     assert.match(result.blocked[0].reason, /is unavailable with the current model/);
     assert.ok(result.activeTools.includes(draft07.name));
     assert.equal(result.activeTools.includes(bogus.name), false);

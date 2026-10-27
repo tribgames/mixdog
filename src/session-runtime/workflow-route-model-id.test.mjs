@@ -2,7 +2,10 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { createAgentRouteApi } from './workflow-agents-api/agent-route.mjs';
-import { makeResolveRoute, validateRequestedModelSelector } from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
+import {
+  makeResolveRoute,
+  validateRequestedModelSelector,
+} from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
 import { createWorkflowRouteHelpers } from '../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 
 test('OpenRouter rolling aliases save and reload as agent routes without changing Main or other agents', async () => {

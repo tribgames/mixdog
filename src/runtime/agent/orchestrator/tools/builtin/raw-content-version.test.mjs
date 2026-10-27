@@ -329,27 +329,45 @@ test('hash rejection detaches an old same-version raw flight without cancelling 
   const oldStarted = Promise.withResolvers();
   const newDone = Promise.withResolvers();
   let loads = 0;
-  const old = runRawContentInFlight(path, () => {
-    oldStarted.resolve();
-    return oldDone.promise;
-  }, st);
+  const old = runRawContentInFlight(
+    path,
+    () => {
+      oldStarted.resolve();
+      return oldDone.promise;
+    },
+    st
+  );
   await oldStarted.promise;
   let fresh;
   try {
-    assert.deepEqual(await readCachedResult({ cacheKey: key, fullPath: path, st }, {
-      _cacheGetEntry: cacheGetEntry,
-      _hashText: hash,
-    }), { rejected: true });
+    assert.deepEqual(
+      await readCachedResult(
+        { cacheKey: key, fullPath: path, st },
+        {
+          _cacheGetEntry: cacheGetEntry,
+          _hashText: hash,
+        }
+      ),
+      { rejected: true }
+    );
     assert.equal(cacheGet(key), null, 'the rejected result is evicted');
-    fresh = runRawContentInFlight(path, () => {
-      loads++;
-      return newDone.promise;
-    }, st);
+    fresh = runRawContentInFlight(
+      path,
+      () => {
+        loads++;
+        return newDone.promise;
+      },
+      st
+    );
     oldDone.resolve(body);
     assert.equal(await old, body, 'existing readers keep their observation');
-    const joined = runRawContentInFlight(path, () => {
-      throw new Error('must share the replacement flight');
-    }, st);
+    const joined = runRawContentInFlight(
+      path,
+      () => {
+        throw new Error('must share the replacement flight');
+      },
+      st
+    );
     const newBody = Buffer.from('AFTER_\n');
     newDone.resolve(newBody);
     assert.deepEqual(await Promise.all([fresh, joined]), [newBody, newBody]);
@@ -393,10 +411,14 @@ for (const releaseAfterFresh of [false, true]) {
       const options = { sessionId: randomUUID(), suppressReadUnchangedStub: true };
       const first = String(await executeBuiltinTool('read', args, root, options));
       assert.match(first, /BEFORE/);
-      assert.equal(rawContentCacheGet(path, {
-        ...before,
-        ctimeMs: differentFieldValue(before.ctimeMs, 'ctimeMs'),
-      }), null, 'evict only raw bytes, retaining the full-read result');
+      assert.equal(
+        rawContentCacheGet(path, {
+          ...before,
+          ctimeMs: differentFieldValue(before.ctimeMs, 'ctimeMs'),
+        }),
+        null,
+        'evict only raw bytes, retaining the full-read result'
+      );
 
       // A different window misses the rendered cache and holds old bytes at
       // post-stat, before bufferedReadResult is allowed to publish them.
@@ -426,11 +448,17 @@ for (const releaseAfterFresh of [false, true]) {
       assert.match(String(await oldRead), /BEFORE/, 'the older reader keeps its original observation');
       assert.equal(reread, first.replace('BEFORE', 'AFTER_').replace('TAIL_A', 'TAIL_B'));
       assert.deepEqual(rawContentCacheGet(path, observed), Buffer.from('AFTER_\nTAIL_B\n'));
-      assert.deepEqual(getReadSnapshot(path, options.sessionId), freshSnapshot, 'old evidence cannot replace the fresh snapshot');
+      assert.deepEqual(
+        getReadSnapshot(path, options.sessionId),
+        freshSnapshot,
+        'old evidence cannot replace the fresh snapshot'
+      );
       const later = String(await executeBuiltinTool('read', { file_path: path, offset: 2, limit: 1 }, root, options));
       assert.match(later, /TAIL_B/);
       assert.doesNotMatch(later, /TAIL_A/);
-      const oldWindow = String(await executeBuiltinTool('read', { file_path: path, offset: 1, limit: 1 }, root, options));
+      const oldWindow = String(
+        await executeBuiltinTool('read', { file_path: path, offset: 1, limit: 1 }, root, options)
+      );
       assert.match(oldWindow, /AFTER_/);
       assert.doesNotMatch(oldWindow, /BEFORE/);
     } finally {

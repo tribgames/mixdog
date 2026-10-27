@@ -24,7 +24,11 @@ test('an excluded-tool notice lands once as a warn transcript notice, the item t
   const { onStageChange } = streamHandlers({ isCurrentTurn, stream, pushNotice: surface.pushNotice });
 
   const session = { id: 'notice-session' };
-  const exclusion = { name: 'mcp__x__broken', pointer: '/allOf', reason: 'Anthropic input_schema does not allow a root "allOf"' };
+  const exclusion = {
+    name: 'mcp__x__broken',
+    pointer: '/allOf',
+    reason: 'Anthropic input_schema does not allow a root "allOf"',
+  };
   recordProviderToolExclusion(session, exclusion, onStageChange);
   recordProviderToolExclusion(session, exclusion, onStageChange);
 

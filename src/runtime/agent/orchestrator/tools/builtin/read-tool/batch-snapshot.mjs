@@ -69,7 +69,12 @@ async function rawRangeHashes(fullPath, mergedRanges, { _hashText }) {
 
 export async function recordSlicedBatchSnapshots(orderedResults, workDir, readStateScope, helpers) {
   const { _mergeReadRanges, _recordReadSnapshot } = helpers;
-  const { exactRangesByPath, rangeHashesByPath } = deliveredRangesByPath(orderedResults, workDir, readStateScope, helpers);
+  const { exactRangesByPath, rangeHashesByPath } = deliveredRangesByPath(
+    orderedResults,
+    workDir,
+    readStateScope,
+    helpers
+  );
   for (const [fullPath, ranges] of exactRangesByPath) {
     const mergedRanges = _mergeReadRanges(ranges);
     let rangeHashes = rangeHashesByPath.get(fullPath) || [];

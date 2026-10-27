@@ -73,7 +73,7 @@ const RAW = {
   tab_flash_lite_preview: { maxTokens: 16384, quotaInfo: { remainingFraction: 1 } },
 };
 
-test('catalog rows keep the gateway-declared maxOutputTokens, the smallest across a record\'s wire ids', () => {
+test("catalog rows keep the gateway-declared maxOutputTokens, the smallest across a record's wire ids", () => {
   catalogRows.clear();
   const models = normalizeAntigravityCatalog({
     'gemini-3.8-flash-high': gemini('Gemini 3.8 Flash (High)', { maxOutputTokens: 65536 }),

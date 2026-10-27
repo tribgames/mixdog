@@ -53,13 +53,15 @@ use std::time::{Duration, Instant};
 use windows::core::{s, w, PCWSTR, PWSTR};
 use windows::Win32::Foundation::{FreeLibrary, HANDLE, WAIT_OBJECT_0};
 use windows::Win32::Security::{RevertToSelf, TokenImpersonation};
-use windows::Win32::System::LibraryLoader::{GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};
+use windows::Win32::System::LibraryLoader::{
+    GetProcAddress, LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32,
+};
 use windows::Win32::System::RemoteDesktop::WTSGetActiveConsoleSessionId;
 use windows::Win32::System::Services::{
-    RegisterServiceCtrlHandlerExW, SetServiceStatus, StartServiceCtrlDispatcherW, SERVICE_ACCEPT_SESSIONCHANGE,
-    SERVICE_ACCEPT_STOP, SERVICE_CONTROL_SESSIONCHANGE, SERVICE_CONTROL_STOP, SERVICE_RUNNING,
-    SERVICE_STATUS, SERVICE_STATUS_CURRENT_STATE, SERVICE_STATUS_HANDLE, SERVICE_STOPPED,
-    SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS,
+    RegisterServiceCtrlHandlerExW, SetServiceStatus, StartServiceCtrlDispatcherW,
+    SERVICE_ACCEPT_SESSIONCHANGE, SERVICE_ACCEPT_STOP, SERVICE_CONTROL_SESSIONCHANGE,
+    SERVICE_CONTROL_STOP, SERVICE_RUNNING, SERVICE_STATUS, SERVICE_STATUS_CURRENT_STATE,
+    SERVICE_STATUS_HANDLE, SERVICE_STOPPED, SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS,
 };
 use windows::Win32::System::Threading::{
     CreateEventW, GetExitCodeProcess, SetEvent, SetThreadToken, TerminateProcess,
@@ -158,13 +160,21 @@ fn set_status(state: SERVICE_STATUS_CURRENT_STATE, controls: u32, wait_hint: u32
 /// [`set_status`], with `failure` (a service-specific code) reported as
 /// `ERROR_SERVICE_SPECIFIC_ERROR` — which makes the SCM apply the failure
 /// actions on `SERVICE_STOPPED`.
-fn report_status(state: SERVICE_STATUS_CURRENT_STATE, controls: u32, wait_hint: u32, failure: Option<u32>) {
-    let handle = SERVICE_STATUS_HANDLE(STATUS_HANDLE.load(Ordering::SeqCst) as *mut core::ffi::c_void);
+fn report_status(
+    state: SERVICE_STATUS_CURRENT_STATE,
+    controls: u32,
+    wait_hint: u32,
+    failure: Option<u32>,
+) {
+    let handle =
+        SERVICE_STATUS_HANDLE(STATUS_HANDLE.load(Ordering::SeqCst) as *mut core::ffi::c_void);
     if handle.is_invalid() {
         return;
     }
     let pending = state == SERVICE_START_PENDING || state == SERVICE_STOP_PENDING;
-    let checkpoint = if pending { CHECKPOINT.fetch_add(1, Ordering::SeqCst) + 1 } else {
+    let checkpoint = if pending {
+        CHECKPOINT.fetch_add(1, Ordering::SeqCst) + 1
+    } else {
         CHECKPOINT.store(0, Ordering::SeqCst);
         0
     };
@@ -172,7 +182,11 @@ fn report_status(state: SERVICE_STATUS_CURRENT_STATE, controls: u32, wait_hint: 
         dwServiceType: SERVICE_WIN32_OWN_PROCESS,
         dwCurrentState: state,
         dwControlsAccepted: controls,
-        dwWin32ExitCode: if failure.is_some() { ERROR_SERVICE_SPECIFIC_ERROR } else { 0 },
+        dwWin32ExitCode: if failure.is_some() {
+            ERROR_SERVICE_SPECIFIC_ERROR
+        } else {
+            0
+        },
         dwServiceSpecificExitCode: failure.unwrap_or(0),
         dwCheckPoint: checkpoint,
         dwWaitHint: wait_hint,
@@ -213,7 +227,8 @@ unsafe extern "system" fn control_handler(
             wake();
         }
         SERVICE_CONTROL_INTERROGATE => {
-            let running = SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN | SERVICE_ACCEPT_SESSIONCHANGE;
+            let running =
+                SERVICE_ACCEPT_STOP | SERVICE_ACCEPT_SHUTDOWN | SERVICE_ACCEPT_SESSIONCHANGE;
             set_status(SERVICE_RUNNING, running, 0);
         }
         _ => {}
@@ -223,13 +238,14 @@ unsafe extern "system" fn control_handler(
 
 unsafe extern "system" fn service_main(_argc: u32, _argv: *mut PWSTR) {
     let name = wide(paths::SERVICE_NAME);
-    let handle = match RegisterServiceCtrlHandlerExW(PCWSTR(name.as_ptr()), Some(control_handler), None) {
-        Ok(handle) => handle,
-        Err(error) => {
-            log::event("service", &format!("register handler failed: {error}"));
-            return;
-        }
-    };
+    let handle =
+        match RegisterServiceCtrlHandlerExW(PCWSTR(name.as_ptr()), Some(control_handler), None) {
+            Ok(handle) => handle,
+            Err(error) => {
+                log::event("service", &format!("register handler failed: {error}"));
+                return;
+            }
+        };
     STATUS_HANDLE.store(handle.0 as usize, Ordering::SeqCst);
     set_status(SERVICE_START_PENDING, 0, SERVICE_START_WAIT_HINT_MS);
 
@@ -252,8 +268,14 @@ unsafe extern "system" fn service_main(_argc: u32, _argv: *mut PWSTR) {
     // in between, or the removal failed) is resolved before anything else.
     match recover_software_sas() {
         Ok(SasCleanup::Nothing) => {}
-        Ok(outcome) => log::event("service", &format!("software SAS marker resolved at start: {outcome:?}")),
-        Err(error) => log::event("service", &format!("software SAS marker unresolved at start: {error}")),
+        Ok(outcome) => log::event(
+            "service",
+            &format!("software SAS marker resolved at start: {outcome:?}"),
+        ),
+        Err(error) => log::event(
+            "service",
+            &format!("software SAS marker unresolved at start: {error}"),
+        ),
     }
 
     // The session policy needs the installing user's SID. Without readable
@@ -264,7 +286,10 @@ unsafe extern "system" fn service_main(_argc: u32, _argv: *mut PWSTR) {
         .and_then(|text| InstallState::from_json(&text).ok())
         .map(|state| state.user_sid);
     if installing_sid.is_none() {
-        log::event("service", "install state unavailable; no session will be served");
+        log::event(
+            "service",
+            "install state unavailable; no session will be served",
+        );
     }
 
     // The delegation pipe server (app-delegated enroll/revoke) runs on its own
@@ -272,7 +297,9 @@ unsafe extern "system" fn service_main(_argc: u32, _argv: *mut PWSTR) {
     // policy; it is stopped and joined after the monitor loop returns. It is
     // started only when the installing user is known (its pipe DACL needs the
     // SID), matching the session policy above.
-    let delegation = installing_sid.clone().map(|sid| std::thread::spawn(move || crate::delegation::serve(&sid)));
+    let delegation = installing_sid
+        .clone()
+        .map(|sid| std::thread::spawn(move || crate::delegation::serve(&sid)));
 
     let verdict = monitor_loop(event, installing_sid.as_deref());
 
@@ -330,17 +357,26 @@ struct Helper {
 /// ([`ServiceEnd::hand_over_parent`], [`crate::launch`], [`crate::shutdown`]).
 fn launch_helper(session: u32) -> Result<Helper, String> {
     let token = generate_shutdown_token();
-    let channel = ServiceEnd::create(&token).map_err(|error| format!("shutdown channel: {error}"))?;
-    let (process, job) = launch::launch_in_session(session, DESKTOP_DEFAULT, &["helper", &token], |helper| {
-        channel.hand_over_parent(helper)
+    let channel =
+        ServiceEnd::create(&token).map_err(|error| format!("shutdown channel: {error}"))?;
+    let (process, job) =
+        launch::launch_in_session(session, DESKTOP_DEFAULT, &["helper", &token], |helper| {
+            channel.hand_over_parent(helper)
+        })
+        .map_err(|error| error.to_string())?;
+    Ok(Helper {
+        process,
+        session,
+        channel,
+        bootstrap: Some(job),
     })
-    .map_err(|error| error.to_string())?;
-    Ok(Helper { process, session, channel, bootstrap: Some(job) })
 }
 
 fn exit_code(process: &OwnedHandle) -> Option<u32> {
     let mut code = 0u32;
-    unsafe { GetExitCodeProcess(process.get(), &mut code) }.ok().map(|()| code)
+    unsafe { GetExitCodeProcess(process.get(), &mut code) }
+        .ok()
+        .map(|()| code)
 }
 
 // ---- Ctrl+Alt+Del ------------------------------------------------------------
@@ -384,7 +420,9 @@ pub fn software_sas_generation() -> Result<Option<u32>, String> {
     match status {
         0 => Ok(Some(data)),
         ERROR_FILE_NOT_FOUND => Ok(None),
-        code => Err(format!("reading {SOFTWARE_SAS_POLICY_VALUE} failed ({code})")),
+        code => Err(format!(
+            "reading {SOFTWARE_SAS_POLICY_VALUE} failed ({code})"
+        )),
     }
 }
 
@@ -401,18 +439,31 @@ fn set_software_sas_generation(data: u32) -> Result<(), String> {
             std::mem::size_of::<u32>() as u32,
         )
     };
-    if status == 0 { Ok(()) } else { Err(format!("setting {SOFTWARE_SAS_POLICY_VALUE} failed ({status})")) }
+    if status == 0 {
+        Ok(())
+    } else {
+        Err(format!(
+            "setting {SOFTWARE_SAS_POLICY_VALUE} failed ({status})"
+        ))
+    }
 }
 
 fn delete_software_sas_generation() -> Result<(), String> {
     let key = wide(SOFTWARE_SAS_POLICY_KEY);
     let value = wide(SOFTWARE_SAS_POLICY_VALUE);
-    let status =
-        unsafe { registry::RegDeleteKeyValueW(hkey_local_machine(), PCWSTR(key.as_ptr()), PCWSTR(value.as_ptr())) };
+    let status = unsafe {
+        registry::RegDeleteKeyValueW(
+            hkey_local_machine(),
+            PCWSTR(key.as_ptr()),
+            PCWSTR(value.as_ptr()),
+        )
+    };
     if status == 0 || status == ERROR_FILE_NOT_FOUND {
         Ok(())
     } else {
-        Err(format!("removing {SOFTWARE_SAS_POLICY_VALUE} failed ({status})"))
+        Err(format!(
+            "removing {SOFTWARE_SAS_POLICY_VALUE} failed ({status})"
+        ))
     }
 }
 
@@ -432,7 +483,8 @@ fn send_sas_in_session(session: u32) -> Result<(), String> {
         let result = match GetProcAddress(module, s!("SendSAS")) {
             None => Err("sas.dll has no SendSAS".to_string()),
             Some(proc) => {
-                let send_sas: unsafe extern "system" fn(windows::core::BOOL) = std::mem::transmute(proc);
+                let send_sas: unsafe extern "system" fn(windows::core::BOOL) =
+                    std::mem::transmute(proc);
                 match SetThreadToken(None, Some(token.get())) {
                     Ok(()) => {
                         send_sas(false.into());
@@ -593,16 +645,21 @@ fn monitor_loop(event: HANDLE, installing_sid: Option<&str>) -> Option<u32> {
     while !STOP.load(Ordering::SeqCst) {
         let active = unsafe { WTSGetActiveConsoleSessionId() };
         let has_session = active != NO_ACTIVE_SESSION && active != 0;
-        let allowed = has_session
-            && installing_sid.is_some_and(|sid| session_allowed(active, sid));
+        let allowed = has_session && installing_sid.is_some_and(|sid| session_allowed(active, sid));
 
         if allowed {
-            if helper.as_ref().is_some_and(|running| running.session != active) {
+            if helper
+                .as_ref()
+                .is_some_and(|running| running.session != active)
+            {
                 if let Some(previous) = helper.take() {
                     stop_helper(previous, "relaunching for the active console session");
                 }
             }
-            if helper.as_ref().is_some_and(|running| !process_alive(&running.process)) {
+            if helper
+                .as_ref()
+                .is_some_and(|running| !process_alive(&running.process))
+            {
                 if let Some(exited) = helper.take() {
                     let code = exit_code(&exited.process);
                     log::event(
@@ -648,7 +705,8 @@ fn monitor_loop(event: HANDLE, installing_sid: Option<&str>) -> Option<u32> {
                 running.channel.sas_handle()
             });
         }
-        let woke = unsafe { WaitForMultipleObjects(&handles, false, POLL_INTERVAL.as_millis() as u32) };
+        let woke =
+            unsafe { WaitForMultipleObjects(&handles, false, POLL_INTERVAL.as_millis() as u32) };
         if LOCK_CHANGED.swap(false, Ordering::SeqCst) {
             if let Some(running) = helper.as_ref() {
                 running.channel.notify_session_state();
@@ -682,8 +740,13 @@ fn monitor_loop(event: HANDLE, installing_sid: Option<&str>) -> Option<u32> {
                 } else {
                     // One line per request: each is a user action under a grant.
                     match perform_sas(running.session) {
-                        Ok(how) => log::event("service", &format!("Ctrl+Alt+Del in session {}: {how}", running.session)),
-                        Err(error) => log::event("service", &format!("Ctrl+Alt+Del not sent: {error}")),
+                        Ok(how) => log::event(
+                            "service",
+                            &format!("Ctrl+Alt+Del in session {}: {how}", running.session),
+                        ),
+                        Err(error) => {
+                            log::event("service", &format!("Ctrl+Alt+Del not sent: {error}"))
+                        }
                     }
                 }
             }

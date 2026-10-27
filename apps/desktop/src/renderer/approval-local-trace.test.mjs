@@ -72,7 +72,7 @@ test("this PC's trace outlives its own resolved state and ends when the server r
   }
 });
 
-test('a result already published before the answer does not retire the answer\'s trace', async () => {
+test("a result already published before the answer does not retire the answer's trace", async () => {
   answer = async () => true;
   const ui = await mountHook('s1');
   try {

@@ -35,7 +35,13 @@ test('a Gemini tool result with a missing stored file lowers to the placeholder 
       toolCallId: 'c1',
       content: [
         { type: 'text', text: 'downloaded' },
-        { type: 'file', mimeType: 'text/csv', filename: 'rows.csv', attachmentRef: gone.ref, sizeBytes: gone.sizeBytes },
+        {
+          type: 'file',
+          mimeType: 'text/csv',
+          filename: 'rows.csv',
+          attachmentRef: gone.ref,
+          sizeBytes: gone.sizeBytes,
+        },
       ],
     },
   ];

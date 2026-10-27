@@ -272,12 +272,14 @@ export function validateHeader(value: unknown): FrameHeader {
   if (!isObject(value)) throw new Error('video header is not an object');
   const h = value;
   const fieldsOk =
-    Number.isSafeInteger(h.seq) && (h.seq as number) >= 0 &&
+    Number.isSafeInteger(h.seq) &&
+    (h.seq as number) >= 0 &&
     isInt(h.width, 1, U32) &&
     isInt(h.height, 1, U32) &&
     isInt(h.stride, 1, U32) &&
     h.format === 'bgra' &&
-    Number.isSafeInteger(h.timestampMs) && (h.timestampMs as number) >= 0 &&
+    Number.isSafeInteger(h.timestampMs) &&
+    (h.timestampMs as number) >= 0 &&
     isInt(h.originX, I32_MIN, I32_MAX) &&
     isInt(h.originY, I32_MIN, I32_MAX) &&
     isDesktop(h.desktop) &&

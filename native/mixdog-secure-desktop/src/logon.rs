@@ -29,10 +29,11 @@ use windows::core::{Error, BOOL, PCWSTR, PWSTR};
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::Security::Authentication::Identity::{GetUserNameExW, NameSamCompatible};
 use windows::Win32::Security::{
-    CheckTokenMembership, DuplicateToken, GetTokenInformation, ImpersonateLoggedOnUser, LogonUserW, RevertToSelf,
-    SecurityImpersonation, TokenElevationType, TokenElevationTypeFull, TokenElevationTypeLimited,
-    WinBuiltinAdministratorsSid, LOGON32_LOGON_BATCH, LOGON32_PROVIDER_DEFAULT, PSID, TOKEN_ACCESS_MASK,
-    TOKEN_DUPLICATE, TOKEN_ELEVATION_TYPE, TOKEN_QUERY,
+    CheckTokenMembership, DuplicateToken, GetTokenInformation, ImpersonateLoggedOnUser, LogonUserW,
+    RevertToSelf, SecurityImpersonation, TokenElevationType, TokenElevationTypeFull,
+    TokenElevationTypeLimited, WinBuiltinAdministratorsSid, LOGON32_LOGON_BATCH,
+    LOGON32_PROVIDER_DEFAULT, PSID, TOKEN_ACCESS_MASK, TOKEN_DUPLICATE, TOKEN_ELEVATION_TYPE,
+    TOKEN_QUERY,
 };
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 
@@ -87,8 +88,12 @@ fn logon_failure_for(code: u32) -> LogonFailure {
         ERROR_LOGON_TYPE_NOT_GRANTED => LogonFailure::LogonTypeDenied,
         ERROR_ACCOUNT_LOCKED_OUT => LogonFailure::AccountLocked,
         ERROR_ACCOUNT_DISABLED => LogonFailure::AccountDisabled,
-        ERROR_ACCOUNT_RESTRICTION | ERROR_INVALID_LOGON_HOURS | ERROR_INVALID_WORKSTATION
-        | ERROR_PASSWORD_EXPIRED | ERROR_PASSWORD_MUST_CHANGE | ERROR_ACCOUNT_EXPIRED => LogonFailure::PolicyBlocked,
+        ERROR_ACCOUNT_RESTRICTION
+        | ERROR_INVALID_LOGON_HOURS
+        | ERROR_INVALID_WORKSTATION
+        | ERROR_PASSWORD_EXPIRED
+        | ERROR_PASSWORD_MUST_CHANGE
+        | ERROR_ACCOUNT_EXPIRED => LogonFailure::PolicyBlocked,
         _ => LogonFailure::Other,
     }
 }
@@ -175,8 +180,11 @@ fn parse_credential(bytes: &[u8]) -> Result<Credential, String> {
         .iter()
         .position(|&byte| byte == b'\n')
         .ok_or("credential input must be <user>\\n<password>")?;
-    let user = std::str::from_utf8(&bytes[..newline]).map_err(|_| "username is not valid UTF-8")?.trim();
-    let password = std::str::from_utf8(&bytes[newline + 1..]).map_err(|_| "password is not valid UTF-8")?;
+    let user = std::str::from_utf8(&bytes[..newline])
+        .map_err(|_| "username is not valid UTF-8")?
+        .trim();
+    let password =
+        std::str::from_utf8(&bytes[newline + 1..]).map_err(|_| "password is not valid UTF-8")?;
     if password.is_empty() {
         return Err("password is empty".into());
     }
@@ -210,7 +218,10 @@ fn read_stdin_credential() -> Result<Credential, String> {
 /// them. `buffer` is wiped before returning on **every** path — success, parse
 /// error, and a read error after a partial read (`read_to_end` keeps the bytes
 /// it read before failing). Unit-tested with a failing reader.
-fn read_credential_from<R: std::io::Read>(reader: R, buffer: &mut Vec<u8>) -> Result<Credential, String> {
+fn read_credential_from<R: std::io::Read>(
+    reader: R,
+    buffer: &mut Vec<u8>,
+) -> Result<Credential, String> {
     use std::io::Read;
     let result = reader
         .take((STDIN_CAP + 1) as u64)
@@ -225,7 +236,10 @@ fn read_credential_from<R: std::io::Read>(reader: R, buffer: &mut Vec<u8>) -> Re
 /// a `user@upn` keeps a NULL domain, as `LogonUserW` documents. Pure.
 fn split_logon_name(user: &str) -> (Option<String>, String) {
     match user.find('\\') {
-        Some(index) => (Some(user[..index].to_string()), user[index + 1..].to_string()),
+        Some(index) => (
+            Some(user[..index].to_string()),
+            user[index + 1..].to_string(),
+        ),
         None => (None, user.to_string()),
     }
 }
@@ -256,7 +270,8 @@ fn resolve_logon_user(
             }
             own_account().ok_or_else(|| {
                 Prelogon::ResolveFailed(
-                    "could not determine the signed-in Windows account; send the account name".into(),
+                    "could not determine the signed-in Windows account; send the account name"
+                        .into(),
                 )
             })
         }
@@ -293,7 +308,11 @@ pub fn with_credential_logon(body: impl FnOnce() -> i32 + Send + 'static) -> i32
         Ok(credential) => credential,
         Err(error) => return install::fail(&error),
     };
-    let user = match resolve_logon_user(credential.user.as_deref(), resolve_own_account, current_account_is_admin) {
+    let user = match resolve_logon_user(
+        credential.user.as_deref(),
+        resolve_own_account,
+        current_account_is_admin,
+    ) {
         Ok(user) => user,
         Err(Prelogon::NotAdmin) => return report_not_admin(),
         Err(Prelogon::ResolveFailed(error)) => return install::fail(&error),
@@ -314,7 +333,9 @@ fn logon_impersonate_run(user: String, password: Password, body: impl FnOnce() -
     let logon = unsafe {
         LogonUserW(
             PCWSTR(account_w.as_ptr()),
-            domain_w.as_ref().map_or(PCWSTR::null(), |value| PCWSTR(value.as_ptr())),
+            domain_w
+                .as_ref()
+                .map_or(PCWSTR::null(), |value| PCWSTR(value.as_ptr())),
             password.pcwstr(),
             LOGON32_LOGON_BATCH,
             LOGON32_PROVIDER_DEFAULT,
@@ -366,7 +387,13 @@ unsafe fn token_is_admin_member(primary: HANDLE) -> bool {
         return false;
     };
     let mut is_member = BOOL::default();
-    if CheckTokenMembership(Some(impersonation.get()), PSID(admins.as_mut_ptr().cast()), &mut is_member).is_err() {
+    if CheckTokenMembership(
+        Some(impersonation.get()),
+        PSID(admins.as_mut_ptr().cast()),
+        &mut is_member,
+    )
+    .is_err()
+    {
         return false;
     }
     is_member.as_bool()
@@ -423,10 +450,16 @@ fn resolve_own_account() -> Option<String> {
             return None;
         }
         let mut buffer = vec![0u16; size as usize];
-        if !GetUserNameExW(NameSamCompatible, Some(PWSTR(buffer.as_mut_ptr())), &mut size) {
+        if !GetUserNameExW(
+            NameSamCompatible,
+            Some(PWSTR(buffer.as_mut_ptr())),
+            &mut size,
+        ) {
             return None;
         }
-        String::from_utf16(&buffer[..size as usize]).ok().filter(|name| !name.is_empty())
+        String::from_utf16(&buffer[..size as usize])
+            .ok()
+            .filter(|name| !name.is_empty())
     }
 }
 
@@ -438,23 +471,50 @@ mod tests {
 
     #[test]
     fn win32_errors_map_to_outcomes() {
-        assert_eq!(logon_failure_for(ERROR_LOGON_FAILURE), LogonFailure::BadCredentials);
-        assert_eq!(logon_failure_for(ERROR_LOGON_TYPE_NOT_GRANTED), LogonFailure::LogonTypeDenied);
-        assert_eq!(logon_failure_for(ERROR_ACCOUNT_LOCKED_OUT), LogonFailure::AccountLocked);
-        assert_eq!(logon_failure_for(ERROR_ACCOUNT_DISABLED), LogonFailure::AccountDisabled);
-        assert_eq!(logon_failure_for(ERROR_PASSWORD_EXPIRED), LogonFailure::PolicyBlocked);
+        assert_eq!(
+            logon_failure_for(ERROR_LOGON_FAILURE),
+            LogonFailure::BadCredentials
+        );
+        assert_eq!(
+            logon_failure_for(ERROR_LOGON_TYPE_NOT_GRANTED),
+            LogonFailure::LogonTypeDenied
+        );
+        assert_eq!(
+            logon_failure_for(ERROR_ACCOUNT_LOCKED_OUT),
+            LogonFailure::AccountLocked
+        );
+        assert_eq!(
+            logon_failure_for(ERROR_ACCOUNT_DISABLED),
+            LogonFailure::AccountDisabled
+        );
+        assert_eq!(
+            logon_failure_for(ERROR_PASSWORD_EXPIRED),
+            LogonFailure::PolicyBlocked
+        );
         assert_eq!(logon_failure_for(0xDEAD), LogonFailure::Other);
         // Each outcome maps to a distinct exit code and a fixed label (no echo).
-        assert_eq!(logon_outcome(LogonFailure::BadCredentials), (install::EXIT_BAD_CREDENTIALS, "bad-credentials"));
-        assert_eq!(logon_outcome(LogonFailure::LogonTypeDenied).0, install::EXIT_LOGON_TYPE_DENIED);
+        assert_eq!(
+            logon_outcome(LogonFailure::BadCredentials),
+            (install::EXIT_BAD_CREDENTIALS, "bad-credentials")
+        );
+        assert_eq!(
+            logon_outcome(LogonFailure::LogonTypeDenied).0,
+            install::EXIT_LOGON_TYPE_DENIED
+        );
     }
 
     #[test]
     fn only_an_unfiltered_admin_token_is_accepted() {
         assert!(admits_full_admin(true, TokenElevationTypeFull));
         assert!(admits_full_admin(true, TokenElevationTypeDefault));
-        assert!(!admits_full_admin(true, TokenElevationTypeLimited), "a UAC-filtered token is not admin");
-        assert!(!admits_full_admin(false, TokenElevationTypeFull), "a standard user is not admin");
+        assert!(
+            !admits_full_admin(true, TokenElevationTypeLimited),
+            "a UAC-filtered token is not admin"
+        );
+        assert!(
+            !admits_full_admin(false, TokenElevationTypeFull),
+            "a standard user is not admin"
+        );
     }
 
     #[test]
@@ -465,21 +525,39 @@ mod tests {
         // No account name: user is None (the PC resolves its own).
         assert!(parse_credential(b"\np4ss").unwrap().user.is_none());
         // Password is the exact remainder, not trimmed, and may contain spaces.
-        assert_eq!(String::from_utf16_lossy(&parse_credential(b"u\np ss ").unwrap().password.0), "p ss \0");
+        assert_eq!(
+            String::from_utf16_lossy(&parse_credential(b"u\np ss ").unwrap().password.0),
+            "p ss \0"
+        );
         // No newline, empty password, over-long fields and over-cap input are refused.
         assert!(parse_credential(b"nouserseparator").is_err());
         assert!(parse_credential(b"u\n").is_err());
-        assert!(parse_credential(format!("u\n{}", "x".repeat(CREDUI_MAX_PASSWORD_LENGTH + 1)).as_bytes()).is_err());
-        assert!(parse_credential(format!("{}\np", "u".repeat(CREDUI_MAX_USERNAME_LENGTH + 1)).as_bytes()).is_err());
+        assert!(parse_credential(
+            format!("u\n{}", "x".repeat(CREDUI_MAX_PASSWORD_LENGTH + 1)).as_bytes()
+        )
+        .is_err());
+        assert!(parse_credential(
+            format!("{}\np", "u".repeat(CREDUI_MAX_USERNAME_LENGTH + 1)).as_bytes()
+        )
+        .is_err());
         assert!(parse_credential(&vec![b'a'; STDIN_CAP + 1]).is_err());
     }
 
     #[test]
     fn split_logon_name_separates_a_domain() {
         assert_eq!(split_logon_name("user"), (None, "user".to_string()));
-        assert_eq!(split_logon_name("user@contoso.com"), (None, "user@contoso.com".to_string()));
-        assert_eq!(split_logon_name(".\\user"), (Some(".".to_string()), "user".to_string()));
-        assert_eq!(split_logon_name("DOMAIN\\user"), (Some("DOMAIN".to_string()), "user".to_string()));
+        assert_eq!(
+            split_logon_name("user@contoso.com"),
+            (None, "user@contoso.com".to_string())
+        );
+        assert_eq!(
+            split_logon_name(".\\user"),
+            (Some(".".to_string()), "user".to_string())
+        );
+        assert_eq!(
+            split_logon_name("DOMAIN\\user"),
+            (Some("DOMAIN".to_string()), "user".to_string())
+        );
     }
 
     #[test]
@@ -499,7 +577,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(user, "DOMAIN\\admin");
-        assert!(!resolved.get() && !admin_checked.get(), "the PC's own account is not consulted");
+        assert!(
+            !resolved.get() && !admin_checked.get(),
+            "the PC's own account is not consulted"
+        );
     }
 
     #[test]
@@ -520,7 +601,10 @@ mod tests {
             || false,
         );
         assert!(matches!(result, Err(Prelogon::NotAdmin)));
-        assert!(!resolved.get(), "a non-admin own account is rejected before resolving a name or logging on");
+        assert!(
+            !resolved.get(),
+            "a non-admin own account is rejected before resolving a name or logging on"
+        );
     }
 
     #[test]
@@ -533,7 +617,10 @@ mod tests {
         // Failed impersonation: nothing to revert, and the error propagates.
         let reverted = Cell::new(false);
         assert!(run_impersonated::<i32>(|| Err("no".into()), || reverted.set(true), || 0).is_err());
-        assert!(!reverted.get(), "no revert when impersonation never happened");
+        assert!(
+            !reverted.get(),
+            "no revert when impersonation never happened"
+        );
         // Panicking body: the guard still reverts during unwind.
         let reverted = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         let flag = reverted.clone();
@@ -546,7 +633,10 @@ mod tests {
             .map(|_: ()| ())
         }));
         assert!(caught.is_err());
-        assert!(reverted.load(Ordering::SeqCst), "revert runs even when the body panics");
+        assert!(
+            reverted.load(Ordering::SeqCst),
+            "revert runs even when the body panics"
+        );
     }
 
     #[test]
@@ -556,7 +646,10 @@ mod tests {
         impl std::io::Read for PartialThenError {
             fn read(&mut self, out: &mut [u8]) -> std::io::Result<usize> {
                 if self.0 {
-                    return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "pipe closed"));
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::BrokenPipe,
+                        "pipe closed",
+                    ));
                 }
                 self.0 = true;
                 let bytes = b"admin\nhunter2";
@@ -566,8 +659,14 @@ mod tests {
         }
         let mut buffer = Vec::with_capacity(STDIN_CAP + 1);
         assert!(read_credential_from(PartialThenError(false), &mut buffer).is_err());
-        assert!(!buffer.is_empty(), "the partial read was kept, so the wipe is observable");
-        assert!(buffer.iter().all(|&byte| byte == 0), "wiped on the read-error path");
+        assert!(
+            !buffer.is_empty(),
+            "the partial read was kept, so the wipe is observable"
+        );
+        assert!(
+            buffer.iter().all(|&byte| byte == 0),
+            "wiped on the read-error path"
+        );
         // The parse-error and success paths wipe too.
         let mut buffer = Vec::with_capacity(STDIN_CAP + 1);
         assert!(read_credential_from(&b"no-newline"[..], &mut buffer).is_err());

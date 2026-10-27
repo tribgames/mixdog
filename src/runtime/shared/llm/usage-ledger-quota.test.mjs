@@ -458,7 +458,10 @@ test('an early reset opens the current window before the next request', async (t
   ledger.recordQuota([reading(at(0, 30), 10), reading(at(1), 40)]);
   // The provider resets the window two hours early; nothing has run since.
   const early = at(2);
-  ledger.recordQuota([reading(early, 0, { resetAt: early + 5 * HOUR }), reading(at(2, 30), 0, { resetAt: early + 5 * HOUR })]);
+  ledger.recordQuota([
+    reading(early, 0, { resetAt: early + 5 * HOUR }),
+    reading(at(2, 30), 0, { resetAt: early + 5 * HOUR }),
+  ]);
   const now = at(2, 31);
   const history = await ledger.quotaHistoryAsync({ now });
   assert.equal(history.period.fromMs, early);
@@ -564,7 +567,8 @@ test('the statistics API carries account emails and flags accounts outside the r
     accountEmails: () => ({ 'kept-id': 'name@example.com' }),
   });
   const { subscriptions } = await api.getQuotaHistory({});
-  const row = (provider, account) => subscriptions.find((entry) => entry.provider === provider && entry.account === account);
+  const row = (provider, account) =>
+    subscriptions.find((entry) => entry.provider === provider && entry.account === account);
   assert.equal(row('anthropic-oauth', 'kept-id').accountEmail, 'name@example.com');
   assert.equal(row('anthropic-oauth', 'kept-id').accountInRoster, true);
   assert.equal(row('anthropic-oauth', 'removed-id').accountInRoster, false);

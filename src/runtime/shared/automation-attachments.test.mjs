@@ -9,7 +9,10 @@ test('office rows are accepted and become file parts like pdf, deterministically
     { kind: 'office', name: 'a.docx', mimeType: DOCX, data: 'QUJD' },
     { kind: 'pdf', name: 'b.pdf', data: 'REVG' },
   ]);
-  assert.deepEqual(rows.map((r) => r.kind), ['office', 'pdf']);
+  assert.deepEqual(
+    rows.map((r) => r.kind),
+    ['office', 'pdf']
+  );
   assert.equal(rows[1].mimeType, 'application/pdf');
   const parts = automationPromptContent('go', rows);
   assert.deepEqual(parts.slice(1), [

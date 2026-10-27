@@ -46,7 +46,11 @@ test('a delayed eviction never deletes a frame rewritten after the prune decisio
   setFrameRemoverForTest(
     (path) =>
       new Promise((resolve) => {
-        delayed.push(() => unlink(path).catch(() => undefined).then(resolve));
+        delayed.push(() =>
+          unlink(path)
+            .catch(() => undefined)
+            .then(resolve)
+        );
         setTimeout(delayed.at(-1), 50);
       })
   );

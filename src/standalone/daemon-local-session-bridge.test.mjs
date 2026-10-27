@@ -31,5 +31,8 @@ test('an aborted call rejects with the abort reason while the service call is st
   const reason = new Error('deadline');
   controller.abort(reason);
   await assert.rejects(call, (error) => error === reason);
-  assert.throws(() => client.read({ sessionId: 's' }, { signal: controller.signal }), (error) => error === reason);
+  assert.throws(
+    () => client.read({ sessionId: 's' }, { signal: controller.signal }),
+    (error) => error === reason
+  );
 });

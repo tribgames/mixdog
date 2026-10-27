@@ -64,10 +64,7 @@ interface WebhookDraft {
   enabled: boolean;
 }
 
-function webhookDraft(
-  webhook: RecordValue | undefined,
-  defaultAgent: string
-): WebhookDraft {
+function webhookDraft(webhook: RecordValue | undefined, defaultAgent: string): WebhookDraft {
   const source = record(webhook);
   return {
     name: String(source.name || ''),

@@ -164,7 +164,10 @@ test('phone: no scroll-driven animation, fades follow the scroller exactly as th
   assert.ok(before.declared.includes('header::after'), 'the title-band fade is timeline-driven on desktop');
   const desktop = await measure();
   assert.ok(desktop.list.at(-1).max > 100, 'the fixture scrolls');
-  assert.ok(desktop.panels.at(-3).header > 0.9 && desktop.panels[0].header === '0', 'the reference fades actually move');
+  assert.ok(
+    desktop.panels.at(-3).header > 0.9 && desktop.panels[0].header === '0',
+    'the reference fades actually move'
+  );
   await rest();
 
   // Phone: marker on, scrollers bound.
@@ -197,7 +200,11 @@ test('phone: no scroll-driven animation, fades follow the scroller exactly as th
       }
     });
   }
-  assert.deepEqual(await page.evaluate('scrollDriven()'), { timelines: 0, declared: [] }, 'phone: still none after scrolling');
+  assert.deepEqual(
+    await page.evaluate('scrollDriven()'),
+    { timelines: 0, declared: [] },
+    'phone: still none after scrolling'
+  );
 
   // A list that cannot scroll keeps both fades at 0; growing it (no scroll event) starts the bottom fade.
   const fades = () =>
@@ -208,7 +215,10 @@ test('phone: no scroll-driven animation, fades follow the scroller exactly as th
     });
   assert.deepEqual(await fades(), ['0px', '0px'], 'phone: a list that cannot scroll has no fade');
   await page.evaluate(() => {
-    document.getElementById('short').innerHTML += Array.from({ length: 20 }, () => '<div style="height:30px">x</div>').join('');
+    document.getElementById('short').innerHTML += Array.from(
+      { length: 20 },
+      () => '<div style="height:30px">x</div>'
+    ).join('');
   });
   assert.deepEqual(await fades(), ['0px', '20px'], 'phone: a list that grows scrollable fades its end');
 

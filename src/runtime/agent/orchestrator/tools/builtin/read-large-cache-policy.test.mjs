@@ -7,9 +7,9 @@ import { join } from 'node:path';
 
 const root = await fs.mkdtemp(join(tmpdir(), 'mixdog-large-cache-policy-'));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
-const {
-  rawContentCacheGet, rawContentCacheSet, runRawContentInFlight, invalidateBuiltinResultCache,
-} = await import('./cache-layers.mjs');
+const { rawContentCacheGet, rawContentCacheSet, runRawContentInFlight, invalidateBuiltinResultCache } = await import(
+  './cache-layers.mjs'
+);
 const { readSourceWindows } = await import('./read-source-windows.mjs');
 const { canCacheReadFile } = await import('./read-cache-policy.mjs');
 test.after(async () => {
@@ -39,20 +39,28 @@ test('large raw reads do not join an older same-version in-flight body', async (
   const entered = Promise.withResolvers();
   const release = Promise.withResolvers();
   let calls = 0;
-  const old = runRawContentInFlight(path, async () => {
-    calls++;
-    const bytes = await fs.readFile(path);
-    entered.resolve();
-    await release.promise;
-    return bytes;
-  }, st);
+  const old = runRawContentInFlight(
+    path,
+    async () => {
+      calls++;
+      const bytes = await fs.readFile(path);
+      entered.resolve();
+      await release.promise;
+      return bytes;
+    },
+    st
+  );
   try {
     await entered.promise;
     await fs.writeFile(path, after);
-    const fresh = runRawContentInFlight(path, async () => {
-      calls++;
-      return fs.readFile(path);
-    }, st);
+    const fresh = runRawContentInFlight(
+      path,
+      async () => {
+        calls++;
+        return fs.readFile(path);
+      },
+      st
+    );
     // Releasing the old reader cannot make it eligible for the new call.
     release.resolve();
     assert.deepEqual(await fresh, after);
@@ -90,7 +98,11 @@ test('large source windows do not share an older scan and close both handles', a
         return result;
       };
       handle.close = async () => {
-        try { return await close(); } finally { closes++; }
+        try {
+          return await close();
+        } finally {
+          closes++;
+        }
       };
     }
     return handle;

@@ -17,7 +17,10 @@ test('OpenRouter 402 in-flight budget is transient; other 402s stay billing', ()
   assert.equal(r.retryAfterMs, 3000);
   const plain = Object.assign(new Error('Insufficient credits'), { status: 402, error: { code: 402 } });
   assert.equal(providerErrorKind(plain).kind, 'billing');
-  const typed = Object.assign(new Error('pay'), { status: 402, error: { metadata: { error_type: 'payment_required' } } });
+  const typed = Object.assign(new Error('pay'), {
+    status: 402,
+    error: { metadata: { error_type: 'payment_required' } },
+  });
   assert.equal(providerErrorKind(typed).kind, 'billing');
 });
 

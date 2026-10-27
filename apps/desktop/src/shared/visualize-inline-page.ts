@@ -105,7 +105,8 @@ export const HTML_THEME_PRELUDE =
  *  after any doctype so the page keeps standards mode. */
 export function withHtmlThemePrelude(html: string): string {
   const head = /<head(?:\s[^>]*)?>/i.exec(html);
-  if (head) return html.slice(0, head.index + head[0].length) + HTML_THEME_PRELUDE + html.slice(head.index + head[0].length);
+  if (head)
+    return html.slice(0, head.index + head[0].length) + HTML_THEME_PRELUDE + html.slice(head.index + head[0].length);
   const root = /<html(?:\s[^>]*)?>/i.exec(html);
   if (root) {
     const end = root.index + root[0].length;

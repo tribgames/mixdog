@@ -193,7 +193,7 @@ function connectError(
   const error = new DevinWireError(text, {
     code: finalCode,
     // A reworded throttle reports its throttle status, not the carrier's.
-    status: tooLarge ? 413 : (reworded ? mappedStatus : status || mappedStatus),
+    status: tooLarge ? 413 : reworded ? mappedStatus : status || mappedStatus,
     retryable: tooLarge ? false : retryable,
     connectCode: code,
     detail: [detail, detailsSummary].filter(Boolean).join(' '),

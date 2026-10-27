@@ -699,9 +699,7 @@ test('a browser takeover offers "Open", which shows the exact handed-over page a
     assert.equal(ui.doc.querySelector('.approval-buttons').style.getPropertyValue('--approval-columns'), '2');
     assert.equal(ui.button('Done').dataset.wide, undefined);
     await ui.click(ui.button('Open'));
-    assert.deepEqual(selected, [
-      ['sess-t', { type: 'select-tab', tabId: 'p14', follow: 'view', documentId: 'p14:0' }],
-    ]);
+    assert.deepEqual(selected, [['sess-t', { type: 'select-tab', tabId: 'p14', follow: 'view', documentId: 'p14:0' }]]);
     assert.deepEqual(reveals, ['sess-t']);
     assert.equal(ui.rows().length, 3, 'the card stays open');
   } finally {

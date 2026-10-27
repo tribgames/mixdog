@@ -31,7 +31,16 @@ test.after(async () => {
 });
 
 async function plant(id, extra = {}) {
-  const session = { id, provider: 'openai', model: 'm', cwd: root, messages: [], generation: 0, closed: false, ...extra };
+  const session = {
+    id,
+    provider: 'openai',
+    model: 'm',
+    cwd: root,
+    messages: [],
+    generation: 0,
+    closed: false,
+    ...extra,
+  };
   await saveSessionAsync(session, { expectedGeneration: session.generation });
 }
 

@@ -70,7 +70,10 @@ export function createCompositionFinisher(field: () => HTMLTextAreaElement | nul
       if (!element) return;
       // Through the page input's own end, so it reaches the document (and
       // field) the composition started in.
-      input.onCompositionEnd({ data: text, currentTarget: element } as unknown as CompositionEvent<HTMLTextAreaElement>);
+      input.onCompositionEnd({
+        data: text,
+        currentTarget: element,
+      } as unknown as CompositionEvent<HTMLTextAreaElement>);
       if (document.activeElement === element) {
         // Focus leaving the textarea ends the IME's composition (its commit is
         // the echo above); focusing it again keeps the keyboard where it was.

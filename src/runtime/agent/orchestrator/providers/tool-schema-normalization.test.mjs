@@ -45,7 +45,16 @@ const VALID = [
   mcp('mcp__ok__anyofnull', object({ a: { anyOf: [{ type: 'string' }, { type: 'null' }] } })),
   mcp('mcp__ok__const', object({ a: { const: 'x' }, b: { enum: [1, 2] } })),
   mcp('mcp__ok__prefix', object({ a: { type: 'array', prefixItems: [{ type: 'string' }], items: false } })),
-  mcp('mcp__ok__deep', object({ l1: object({ l2: object({ l3: object({ l4: { type: 'array', items: object({ x: { type: 'number', exclusiveMinimum: 0 } }) } }) }) }) })),
+  mcp(
+    'mcp__ok__deep',
+    object({
+      l1: object({
+        l2: object({
+          l3: object({ l4: { type: 'array', items: object({ x: { type: 'number', exclusiveMinimum: 0 } }) } }),
+        }),
+      }),
+    })
+  ),
   mcp('mcp__ok__legacyid', object({ id: { type: 'string' } }, { id: 'urn:legacy' })),
   mcp('mcp__ok__empty', object({})),
 ];
@@ -53,18 +62,36 @@ const VALID = [
 // Draft-07/04 or sloppy shapes other clients accept: lowered, not excluded.
 const REPAIRABLE = [
   mcp('mcp__fix__tuple', object({ a: { type: 'array', items: [{ type: 'string' }, { type: 'number' }] } })),
-  mcp('mcp__fix__tuple_extra', object({ a: { type: 'array', items: [{ type: 'string' }], additionalItems: { type: 'number' } } })),
-  mcp('mcp__fix__exclusive', object({ a: { type: 'number', minimum: 1, exclusiveMinimum: true }, b: { type: 'number', maximum: 9, exclusiveMaximum: false } })),
+  mcp(
+    'mcp__fix__tuple_extra',
+    object({ a: { type: 'array', items: [{ type: 'string' }], additionalItems: { type: 'number' } } })
+  ),
+  mcp(
+    'mcp__fix__exclusive',
+    object({
+      a: { type: 'number', minimum: 1, exclusiveMinimum: true },
+      b: { type: 'number', maximum: 9, exclusiveMaximum: false },
+    })
+  ),
   mcp('mcp__fix__d07defs', {
     $schema: 'http://json-schema.org/draft-07/schema#',
     type: 'object',
     properties: { a: { type: 'array', items: [{ $ref: '#/definitions/s' }] } },
     definitions: { s: { type: 'string' } },
   }),
-  mcp('mcp__fix__d04', { $schema: 'http://json-schema.org/draft-04/schema#', type: 'object', properties: { a: { type: 'integer', minimum: 0, exclusiveMinimum: true } } }),
+  mcp('mcp__fix__d04', {
+    $schema: 'http://json-schema.org/draft-04/schema#',
+    type: 'object',
+    properties: { a: { type: 'integer', minimum: 0, exclusiveMinimum: true } },
+  }),
   mcp('mcp__fix__notype', { properties: { a: { type: 'string' } }, required: ['a'] }),
   mcp('mcp__fix__empty', {}),
-  mcp('mcp__fix__deeptuple', object({ l1: object({ l2: { type: 'array', items: [object({ l3: { type: 'array', items: [{ type: 'string' }] } })] } }) })),
+  mcp(
+    'mcp__fix__deeptuple',
+    object({
+      l1: object({ l2: { type: 'array', items: [object({ l3: { type: 'array', items: [{ type: 'string' }] } })] } }),
+    })
+  ),
 ];
 
 // Genuinely broken: nothing lowers them.
@@ -100,7 +127,8 @@ const names = (list) => list.map((t) => t.name ?? t.function?.name);
 // produced for a valid tool before schema normalization existed (`legacy`).
 const WIRES = {
   'anthropic messages': {
-    wire: (tools, onToolExcluded, provider = 'anthropic') => requestAnthropicTools(tools, messages, { onToolExcluded }, provider),
+    wire: (tools, onToolExcluded, provider = 'anthropic') =>
+      requestAnthropicTools(tools, messages, { onToolExcluded }, provider),
     legacy: (tools) =>
       tools.map((t) => ({
         name: t.name,
@@ -124,11 +152,20 @@ const WIRES = {
     legacy: (tools) => toResponsesTools(tools, { provider: 'xai' }),
     schemaOf: (e) => e.parameters,
     unfiltered: (tools) =>
-      tools.map((t) => ({ type: 'function', name: t.name, description: t.description, parameters: t.inputSchema || { type: 'object', additionalProperties: true }, strict: false })),
+      tools.map((t) => ({
+        type: 'function',
+        name: t.name,
+        description: t.description,
+        parameters: t.inputSchema || { type: 'object', additionalProperties: true },
+        strict: false,
+      })),
   },
   'openai / codex responses': {
     wire: (tools, onToolExcluded) =>
-      buildRequestBody(messages, 'gpt-5.5', tools, { promptCacheProvider: 'openai-oauth', onToolExcluded }).tools.filter((e) => e.type !== 'tool_search' || true),
+      buildRequestBody(messages, 'gpt-5.5', tools, {
+        promptCacheProvider: 'openai-oauth',
+        onToolExcluded,
+      }).tools.filter((e) => e.type !== 'tool_search' || true),
     schemaOf: (e) => e.parameters,
   },
 };
@@ -139,7 +176,10 @@ for (const [label, wire] of Object.entries(WIRES)) {
   test(`${label}: every built-in tool passes, none is excluded`, () => {
     const { exclusions, onToolExcluded } = collect();
     const sent = wire.wire(SURFACE, onToolExcluded);
-    assert.deepEqual(exclusions.map((e) => `${e.name} @ ${e.pointer}: ${e.reason}`), []);
+    assert.deepEqual(
+      exclusions.map((e) => `${e.name} @ ${e.pointer}: ${e.reason}`),
+      []
+    );
     assert.equal(sent.length, SURFACE.length);
   });
 
@@ -171,12 +211,36 @@ for (const [label, wire] of Object.entries(WIRES)) {
     for (const tool of BROKEN) assert.ok(!sentNames.includes(tool.name), `${tool.name} excluded`);
     // The lowered schemas hold nothing a 2020-12 validator rejects.
     const lowered = sent.find((e) => e.name === 'mcp__fix__tuple');
-    assert.deepEqual(sentSchema(wire, lowered).properties.a, { type: 'array', prefixItems: [{ type: 'string' }, { type: 'number' }] });
-    const exclusive = sentSchema(wire, sent.find((e) => e.name === 'mcp__fix__exclusive'));
-    assert.deepEqual(exclusive.properties, { a: { type: 'number', exclusiveMinimum: 1 }, b: { type: 'number', maximum: 9 } });
-    assert.equal(sentSchema(wire, sent.find((e) => e.name === 'mcp__fix__notype')).type, 'object');
-    assert.equal(sentSchema(wire, sent.find((e) => e.name === 'mcp__fix__empty')).type, 'object');
-    const d07 = sentSchema(wire, sent.find((e) => e.name === 'mcp__fix__d07defs'));
+    assert.deepEqual(sentSchema(wire, lowered).properties.a, {
+      type: 'array',
+      prefixItems: [{ type: 'string' }, { type: 'number' }],
+    });
+    const exclusive = sentSchema(
+      wire,
+      sent.find((e) => e.name === 'mcp__fix__exclusive')
+    );
+    assert.deepEqual(exclusive.properties, {
+      a: { type: 'number', exclusiveMinimum: 1 },
+      b: { type: 'number', maximum: 9 },
+    });
+    assert.equal(
+      sentSchema(
+        wire,
+        sent.find((e) => e.name === 'mcp__fix__notype')
+      ).type,
+      'object'
+    );
+    assert.equal(
+      sentSchema(
+        wire,
+        sent.find((e) => e.name === 'mcp__fix__empty')
+      ).type,
+      'object'
+    );
+    const d07 = sentSchema(
+      wire,
+      sent.find((e) => e.name === 'mcp__fix__d07defs')
+    );
     assert.deepEqual(d07.properties.a, { type: 'array', prefixItems: [{ $ref: '#/$defs/s' }] });
     assert.deepEqual(d07.$defs, { s: { type: 'string' } });
     // Repairing is deterministic.
@@ -185,10 +249,16 @@ for (const [label, wire] of Object.entries(WIRES)) {
   });
 
   test(`${label}: the route predicts the exclusion for load_tool / call_tool`, () => {
-    const providerFor = { 'anthropic messages': 'anthropic', 'anthropic-oauth messages': 'anthropic-oauth', 'openai / codex responses': 'openai-oauth' }[label] || 'xai';
+    const providerFor =
+      {
+        'anthropic messages': 'anthropic',
+        'anthropic-oauth messages': 'anthropic-oauth',
+        'openai / codex responses': 'openai-oauth',
+      }[label] || 'xai';
     const session = { provider: providerFor, model: 'm' };
     for (const tool of BROKEN) assert.match(routeToolExclusionReason(session, tool), /unavailable/, tool.name);
-    for (const tool of [...VALID, ...REPAIRABLE, ...SURFACE]) assert.equal(routeToolExclusionReason(session, tool), null, tool.name);
+    for (const tool of [...VALID, ...REPAIRABLE, ...SURFACE])
+      assert.equal(routeToolExclusionReason(session, tool), null, tool.name);
   });
 }
 
@@ -233,7 +303,9 @@ test('openai chat (OpenRouter Claude/GPT, DeepSeek): lowered, broken left out, v
 });
 
 test('Gemini routes lower draft-07 constructs and keep valid declarations byte-identical', () => {
-  const sameAsUnvalidated = (list) => json(toGeminiTools(list).functionDeclarations) === json(toGeminiTools(list, { validate: false }).functionDeclarations);
+  const sameAsUnvalidated = (list) =>
+    json(toGeminiTools(list).functionDeclarations) ===
+    json(toGeminiTools(list, { validate: false }).functionDeclarations);
   assert.ok(sameAsUnvalidated(VALID));
   assert.ok(sameAsUnvalidated(SURFACE));
   const { exclusions, onToolExcluded } = collect();
@@ -260,10 +332,12 @@ test('Antigravity Claude lowers draft-07 constructs, excludes broken ones, built
   assert.deepEqual(builtins.exclusions, []);
   const session = { provider: 'antigravity-oauth', model: 'claude-sonnet-4-5' };
   for (const tool of BROKEN) assert.match(routeToolExclusionReason(session, tool), /unavailable/);
-  for (const tool of [...VALID, ...REPAIRABLE, ...SURFACE]) assert.equal(routeToolExclusionReason(session, tool), null, tool.name);
+  for (const tool of [...VALID, ...REPAIRABLE, ...SURFACE])
+    assert.equal(routeToolExclusionReason(session, tool), null, tool.name);
   const gemini = { provider: 'gemini', model: 'gemini-3.5-flash' };
   for (const tool of BROKEN) assert.match(routeToolExclusionReason(gemini, tool), /unavailable/);
-  for (const tool of [...VALID, ...REPAIRABLE, ...SURFACE]) assert.equal(routeToolExclusionReason(gemini, tool), null, tool.name);
+  for (const tool of [...VALID, ...REPAIRABLE, ...SURFACE])
+    assert.equal(routeToolExclusionReason(gemini, tool), null, tool.name);
 });
 
 test('lowering is targeted: valid constraints survive, draft-07 $ref semantics only when declared', async () => {
@@ -298,20 +372,52 @@ test('lowering is targeted: valid constraints survive, draft-07 $ref semantics o
     assert.equal(out.unevaluatedProperties, false);
     assert.deepEqual(out.$defs, undeclared.$defs);
     // Declared 2019-09 / 2020-12: siblings kept as well.
-    for (const dialect of ['https://json-schema.org/draft/2019-09/schema', 'https://json-schema.org/draft/2020-12/schema']) {
-      const declared = lowered({ $schema: dialect, ...undeclared, properties: { ...undeclared.properties, b: { type: 'number', minimum: 1, exclusiveMinimum: true } } }, rule);
+    for (const dialect of [
+      'https://json-schema.org/draft/2019-09/schema',
+      'https://json-schema.org/draft/2020-12/schema',
+    ]) {
+      const declared = lowered(
+        {
+          $schema: dialect,
+          ...undeclared,
+          properties: { ...undeclared.properties, b: { type: 'number', minimum: 1, exclusiveMinimum: true } },
+        },
+        rule
+      );
       assert.deepEqual(declared.properties.x, { $ref: '#/$defs/X', maxLength: 2 });
       assert.deepEqual(declared.properties.b, { type: 'number', exclusiveMinimum: 1 });
     }
     // Declared draft-07: $ref siblings are ignored by that dialect, so dropped.
-    const d07 = lowered({ $schema: 'http://json-schema.org/draft-07/schema#', type: 'object', definitions: { Y: { type: 'string' } }, properties: { y: { $ref: '#/definitions/Y', maxLength: 1 }, pair: undeclared.properties.pair } }, rule);
+    const d07 = lowered(
+      {
+        $schema: 'http://json-schema.org/draft-07/schema#',
+        type: 'object',
+        definitions: { Y: { type: 'string' } },
+        properties: { y: { $ref: '#/definitions/Y', maxLength: 1 }, pair: undeclared.properties.pair },
+      },
+      rule
+    );
     assert.deepEqual(d07.properties.y, { $ref: '#/$defs/Y' });
     // definitions that nothing refers to stay where they are.
-    const plain = lowered({ type: 'object', properties: { t: { type: 'array', items: [{ type: 'string' }] } }, definitions: { Z: { type: 'array', items: [{ type: 'number' }] } } }, rule);
+    const plain = lowered(
+      {
+        type: 'object',
+        properties: { t: { type: 'array', items: [{ type: 'string' }] } },
+        definitions: { Z: { type: 'array', items: [{ type: 'number' }] } },
+      },
+      rule
+    );
     assert.deepEqual(Object.keys(plain.definitions), ['Z']);
     assert.deepEqual(plain.definitions.Z, { type: 'array', prefixItems: [{ type: 'number' }] });
     // prefixItems + items:false and a $ref sibling pass through untouched when valid.
-    const valid = { type: 'object', properties: { a: { type: 'array', prefixItems: [{ type: 'string' }], items: false }, r: { $ref: '#/$defs/X', minLength: 1 } }, $defs: { X: { type: 'string' } } };
+    const valid = {
+      type: 'object',
+      properties: {
+        a: { type: 'array', prefixItems: [{ type: 'string' }], items: false },
+        r: { $ref: '#/$defs/X', minLength: 1 },
+      },
+      $defs: { X: { type: 'string' } },
+    };
     assert.equal(wireInputSchema(valid, rule).schema, valid);
   }
 });

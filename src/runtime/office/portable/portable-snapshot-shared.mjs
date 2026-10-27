@@ -123,7 +123,12 @@ export function populatedCellPagination({ options, page, selectedSheets, sheets,
 
 export function statedRunFont(xml) {
   const direct = docxRunFont(xml);
-  return direct.size || direct.bold || direct.name || direct.color || direct.caps !== undefined || direct.letterSpacing !== undefined
+  return direct.size ||
+    direct.bold ||
+    direct.name ||
+    direct.color ||
+    direct.caps !== undefined ||
+    direct.letterSpacing !== undefined
     ? { font: direct }
     : {};
 }

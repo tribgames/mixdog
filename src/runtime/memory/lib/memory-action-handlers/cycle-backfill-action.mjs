@@ -6,13 +6,7 @@
 import { runFullBackfill } from '../memory-ops-policy.mjs';
 import { throwIfAborted } from '../memory-cycle-shared.mjs';
 
-export function createBackfillAction({
-  getDb,
-  dataDir,
-  awaitCycle1Run,
-  ingestTranscriptFile,
-  cwdFromTranscriptPath,
-}) {
+export function createBackfillAction({ getDb, dataDir, awaitCycle1Run, ingestTranscriptFile, cwdFromTranscriptPath }) {
   // Whole-action backfill mutex (transport-agnostic). memory-cycle1's
   // _runCycle1InFlight only protects cycle1; ingest workers
   // (memory-ops-policy.mjs) can still overlap if a second backfill

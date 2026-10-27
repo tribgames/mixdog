@@ -64,7 +64,9 @@ test('Windows aliases invalidate the same scope', { skip: process.platform !== '
   assert.equal(tryScopedToolCached(spec), null);
 });
 
-test('case-sensitive platforms keep distinct paths distinct', { skip: process.platform === 'win32' && 'Windows only' }, () => {
+test('case-sensitive platforms keep distinct paths distinct', {
+  skip: process.platform === 'win32' && 'Windows only',
+}, () => {
   const spec = request('case', 'Src');
   setScopedToolCached({ ...spec, content: 'before' });
   clearScopedToolsForSessionPaths(spec.sessionId, [resolve(root, 'src/a.ts')]);

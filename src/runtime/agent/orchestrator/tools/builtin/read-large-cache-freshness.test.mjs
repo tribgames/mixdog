@@ -64,7 +64,7 @@ function buildFixture(encoding, streamed) {
 
 function pinIdentity(t, path, ctimeMs) {
   const originalStat = fsPromises.stat;
-  const statMock = t.mock.method(fsPromises, "stat", async (target, ...args) => {
+  const statMock = t.mock.method(fsPromises, 'stat', async (target, ...args) => {
     const st = await originalStat(target, ...args);
     if (target === path) st.ctimeMs = ctimeMs;
     return st;
@@ -72,7 +72,7 @@ function pinIdentity(t, path, ctimeMs) {
   // Batch reads stream below 128KiB. FileHandle.stat is fstat, so it does not
   // observe the fsPromises.stat ctime pin.
   const originalOpen = fsPromises.open;
-  const openMock = t.mock.method(fsPromises, "open", async (target, ...args) => {
+  const openMock = t.mock.method(fsPromises, 'open', async (target, ...args) => {
     const handle = await originalOpen(target, ...args);
     if (target === path) {
       const bound = handle.stat.bind(handle);
@@ -96,7 +96,8 @@ function prepare(t, shape) {
   const built = buildFixture(shape.encoding, shape.streamed);
   const original = encode(shape.encoding, built.text);
   assert.ok(original.length > 65536, 'fixture must exceed the prefix validator');
-  if (shape.streamed) assert.ok(original.length > 128 * 1024, 'streamed fixture must exceed the range-stream threshold');
+  if (shape.streamed)
+    assert.ok(original.length > 128 * 1024, 'streamed fixture must exceed the range-stream threshold');
   else assert.ok(original.length <= 128 * 1024, 'buffered fixture must stay on the in-memory path');
   assert.equal(tokenOffset(original, 'DEEP_BEFORE', shape.encoding) > 65536, true);
   const path = join(root, `${randomUUID()}.txt`);
@@ -118,10 +119,11 @@ async function rewriteDeep(fx) {
   assert.deepEqual(readFileSync(fx.path), nextBytes);
   const observed = await fsPromises.stat(fx.path);
   for (const field of FIELDS) assert.equal(observed[field], fx.before[field], `${field} must collide`);
-  const handle = await fsPromises.open(fx.path, "r");
+  const handle = await fsPromises.open(fx.path, 'r');
   try {
     const borrowedStat = await handle.stat();
-    for (const field of FIELDS) assert.equal(borrowedStat[field], fx.before[field], "borrowed " + field + " must collide");
+    for (const field of FIELDS)
+      assert.equal(borrowedStat[field], fx.before[field], 'borrowed ' + field + ' must collide');
   } finally {
     await handle.close();
   }
@@ -146,12 +148,18 @@ function assertDelivered(snapshot, observed, parts) {
   assert.equal(snapshot.contentHash, undefined);
   assert.equal(snapshot.fileLineCount, undefined);
   assert.notEqual(snapshot.bodyDelivered, true);
-  assert.deepEqual(snapshot.ranges, parts.map(({ line }) => ({ startLine: line, endLine: line })));
-  assert.deepEqual(snapshot.rangeHashes, parts.map(({ line, text }) => ({
-    startLine: line,
-    endLine: line,
-    hash: hash(text),
-  })));
+  assert.deepEqual(
+    snapshot.ranges,
+    parts.map(({ line }) => ({ startLine: line, endLine: line }))
+  );
+  assert.deepEqual(
+    snapshot.rangeHashes,
+    parts.map(({ line, text }) => ({
+      startLine: line,
+      endLine: line,
+      hash: hash(text),
+    }))
+  );
 }
 
 function seedHonestMutation(path, st, scope, text) {
@@ -214,11 +222,18 @@ describe('large-file read cache freshness', { concurrency: false }, () => {
       const sessionId = randomUUID();
       const options = { sessionId, suppressReadUnchangedStub: true };
       try {
-        const first = String(await executeBuiltinTool('read', {
-          file_path: fx.path,
-          offset: fx.gapLine,
-          limit: 1,
-        }, root, options));
+        const first = String(
+          await executeBuiltinTool(
+            'read',
+            {
+              file_path: fx.path,
+              offset: fx.gapLine,
+              limit: 1,
+            },
+            root,
+            options
+          )
+        );
         assert.match(first, /GAP_____/);
         assert.doesNotMatch(first, /DEEP_BEFORE|OMITTED_/);
         assertWindow(getReadSnapshot(fx.path, sessionId), await fsPromises.stat(fx.path), {
@@ -227,11 +242,18 @@ describe('large-file read cache freshness', { concurrency: false }, () => {
           text: 'GAP_____',
         });
         const observed = await rewriteDeep(fx);
-        const second = String(await executeBuiltinTool('read', {
-          file_path: fx.path,
-          offset: fx.deepLine,
-          limit: 1,
-        }, root, options));
+        const second = String(
+          await executeBuiltinTool(
+            'read',
+            {
+              file_path: fx.path,
+              offset: fx.deepLine,
+              limit: 1,
+            },
+            root,
+            options
+          )
+        );
         assert.match(second, /DEEP_AFTER_/);
         assert.doesNotMatch(second, /DEEP_BEFORE|GAP_____|OMITTED_|a{200}/);
         assertWindow(getReadSnapshot(fx.path, sessionId), observed, {
@@ -280,11 +302,18 @@ describe('large-file read cache freshness', { concurrency: false }, () => {
     try {
       seedHonestMutation(fx.path, fx.before, sessionId, fx.text);
       const observed = await rewriteDeep(fx);
-      const out = String(await executeBuiltinTool('read', {
-        file_path: fx.path,
-        offset: fx.deepLine,
-        limit: 1,
-      }, root, { sessionId }));
+      const out = String(
+        await executeBuiltinTool(
+          'read',
+          {
+            file_path: fx.path,
+            offset: fx.deepLine,
+            limit: 1,
+          },
+          root,
+          { sessionId }
+        )
+      );
       assert.match(out, /DEEP_AFTER_/);
       assert.doesNotMatch(out, /DEEP_BEFORE|\[file unchanged:/);
       assertWindow(getReadSnapshot(fx.path, sessionId), observed, {
@@ -326,11 +355,18 @@ describe('large-file read cache freshness', { concurrency: false }, () => {
         assert.equal(seeded.bodyDelivered, true);
         assert.deepEqual(seeded.ranges, [{ startLine: 1, endLine: Infinity }]);
         const observed = await rewriteDeep(fx);
-        const out = String(await executeBuiltinTool('read', {
-          file_path: fx.path,
-          offset: fx.deepLine,
-          limit: 1,
-        }, root, { sessionId, suppressReadUnchangedStub: true }));
+        const out = String(
+          await executeBuiltinTool(
+            'read',
+            {
+              file_path: fx.path,
+              offset: fx.deepLine,
+              limit: 1,
+            },
+            root,
+            { sessionId, suppressReadUnchangedStub: true }
+          )
+        );
         assert.match(out, /DEEP_AFTER_/);
         assert.doesNotMatch(out, /DEEP_BEFORE/);
         const snapshot = getReadSnapshot(fx.path, sessionId);

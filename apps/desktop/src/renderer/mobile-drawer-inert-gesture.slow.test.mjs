@@ -281,9 +281,13 @@ function assertNoFlipWhileSliding(log, flips) {
   for (const entry of log) {
     if (entry === 'run') running += 1;
     else if (entry === 'end' || entry === 'cancel') running = Math.max(0, running - 1);
-    else if (entry === 'live' || entry === 'inert') assert.equal(running, 0, `inert flipped (${entry}) inside a running slide: ${log}`);
+    else if (entry === 'live' || entry === 'inert')
+      assert.equal(running, 0, `inert flipped (${entry}) inside a running slide: ${log}`);
   }
-  assert.ok(flips.every((during) => during === false), `inert flipped while a transform transition ran: ${flips}`);
+  assert.ok(
+    flips.every((during) => during === false),
+    `inert flipped while a transform transition ran: ${flips}`
+  );
 }
 
 const record = (page) => page.evaluate(() => ({ log: [...window.log], flips: [...window.flips] }));
@@ -327,7 +331,11 @@ test('a mid-travel release flips inert only after its glide, and the hold hand-o
   await page.evaluate(() => sleep(700));
   const { log, flips } = await record(page);
   assert.deepEqual(log.slice(0, 3), ['run', 'end', 'live']);
-  assert.deepEqual(log.filter((entry) => entry === 'run'), ['run'], 'dropping the paint started no second slide');
+  assert.deepEqual(
+    log.filter((entry) => entry === 'run'),
+    ['run'],
+    'dropping the paint started no second slide'
+  );
   assertNoFlipWhileSliding(log, flips);
 });
 
@@ -386,10 +394,16 @@ test('a token changed between bind and release: the end paint still equals the c
 test('the phone marker removed mid-gesture leaves no stale end paint', async (t) => {
   const page = await launch(t);
   await openInstantly(page);
-  await drag(page, 380, 4, () => page.evaluate(() => document.documentElement.removeAttribute('data-mixdog-mobile-tabs')));
+  await drag(page, 380, 4, () =>
+    page.evaluate(() => document.documentElement.removeAttribute('data-mixdog-mobile-tabs'))
+  );
   await page.evaluate(() => sleep(50));
   const paint = await page.evaluate(() => frameEl().getAttribute('style'));
-  assert.match(paint, /var\(--mx-drawer-closed-transform, translateX\(-100%\)\)/, 'the live reference keeps its fallback');
+  assert.match(
+    paint,
+    /var\(--mx-drawer-closed-transform, translateX\(-100%\)\)/,
+    'the live reference keeps its fallback'
+  );
   assert.equal(
     await page.evaluate(() => getComputedStyle(frameEl()).getPropertyValue('--mx-drawer-closed-transform')),
     '',

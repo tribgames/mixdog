@@ -297,7 +297,9 @@ const TRANSPORT_MAGIC = Buffer.from([0x4d, 0x58, 0x54, 0x01]);
 
 /** Whether `data` is a transport carrier message. */
 export function isTransportFrame(data) {
-  return typeof data !== 'string' && data.length >= TRANSPORT_MAGIC.length && TRANSPORT_MAGIC.equals(data.subarray(0, 4));
+  return (
+    typeof data !== 'string' && data.length >= TRANSPORT_MAGIC.length && TRANSPORT_MAGIC.equals(data.subarray(0, 4))
+  );
 }
 
 /** Desktop -> one phone. A pushed legacy frame is recoverable (resync), so it

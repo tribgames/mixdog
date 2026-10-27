@@ -70,15 +70,18 @@ export function createClientGrace({
     // tick for as long as the daemon took to go down. A lifecycle client that
     // attaches again clears the latch, because that daemon is staying up.
     if (graceTimer || signalled) return;
-    graceTimer = setTimeout(() => {
-      graceTimer = null;
-      if (isClosed() || lifecycleClientCount() > 0) return;
-      signalled = true;
-      log(`no clients remain (${reason}) — signalling shutdown`);
-      try {
-        onClientsEmpty();
-      } catch {}
-    }, lastLifecycleWasRemote ? remoteClientGraceMs() : clientGraceMs);
+    graceTimer = setTimeout(
+      () => {
+        graceTimer = null;
+        if (isClosed() || lifecycleClientCount() > 0) return;
+        signalled = true;
+        log(`no clients remain (${reason}) — signalling shutdown`);
+        try {
+          onClientsEmpty();
+        } catch {}
+      },
+      lastLifecycleWasRemote ? remoteClientGraceMs() : clientGraceMs
+    );
     graceTimer.unref?.();
   }
 

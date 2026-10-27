@@ -127,8 +127,14 @@ mod path_starts_with_tests {
     fn unicode_names() {
         let sep = std::path::MAIN_SEPARATOR;
         let root = format!("{sep}프로젝트{sep}소스");
-        assert!(path_starts_with(p(&format!("{root}{sep}파일.rs")), p(&root)));
-        assert!(!path_starts_with(p(&format!("{root}2{sep}파일.rs")), p(&root)));
+        assert!(path_starts_with(
+            p(&format!("{root}{sep}파일.rs")),
+            p(&root)
+        ));
+        assert!(!path_starts_with(
+            p(&format!("{root}2{sep}파일.rs")),
+            p(&root)
+        ));
     }
 
     #[cfg(windows)]
@@ -148,9 +154,18 @@ mod path_starts_with_tests {
     fn windows_verbatim_unc_roots_and_trailing() {
         assert!(path_starts_with(p(r"\\?\C:\Proj\a.rs"), p(r"c:\proj")));
         assert!(path_starts_with(p(r"C:\Proj\a.rs"), p(r"\\?\c:\PROJ")));
-        assert!(path_starts_with(p(r"\\?\UNC\srv\share\d\a"), p(r"\\SRV\share")));
-        assert!(path_starts_with(p(r"\\srv\share\d"), p(r"\\?\UNC\srv\share\")));
-        assert!(!path_starts_with(p(r"\\srv\share2\d"), p(r"\\?\UNC\srv\share")));
+        assert!(path_starts_with(
+            p(r"\\?\UNC\srv\share\d\a"),
+            p(r"\\SRV\share")
+        ));
+        assert!(path_starts_with(
+            p(r"\\srv\share\d"),
+            p(r"\\?\UNC\srv\share\")
+        ));
+        assert!(!path_starts_with(
+            p(r"\\srv\share2\d"),
+            p(r"\\?\UNC\srv\share")
+        ));
         assert!(path_starts_with(p(r"C:\a"), p(r"C:\")));
         assert!(path_starts_with(p(r"C:\"), p(r"C:\")));
         assert!(!path_starts_with(p(r"D:\a"), p(r"C:\")));

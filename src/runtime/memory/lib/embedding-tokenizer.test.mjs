@@ -76,7 +76,11 @@ function syntheticTokenizer(random) {
     pre_tokenizer: { type: 'Metaspace', replacement: '\u2581', add_prefix_space: true, prepend_scheme: 'always' },
     post_processor: {
       type: 'TemplateProcessing',
-      single: [{ SpecialToken: { id: '<s>', type_id: 0 } }, { Sequence: { id: 'A', type_id: 0 } }, { SpecialToken: { id: '</s>', type_id: 0 } }],
+      single: [
+        { SpecialToken: { id: '<s>', type_id: 0 } },
+        { Sequence: { id: 'A', type_id: 0 } },
+        { SpecialToken: { id: '</s>', type_id: 0 } },
+      ],
       pair: [],
       special_tokens: {
         '<s>': { id: '<s>', ids: [0], tokens: ['<s>'] },
@@ -105,14 +109,26 @@ test('compact Unigram encoder reproduces the reference library ids exactly', () 
   const reference = new Tokenizer(json, { model_max_length: 512 });
   withTokenizerFile(json, (path) => {
     const compact = loadUnigramTokenizer(path, { maxLength: Number.MAX_SAFE_INTEGER });
-    const alphabet = [...'abcdeklmnorst가나다라마바사아자한국어xyz日本😀～ｆＡ', ' ', ' ', '  ', '\t', '\n', '\u0001', '\u00a0', '<mask>', '<s>'];
+    const alphabet = [
+      ...'abcdeklmnorst가나다라마바사아자한국어xyz日本😀～ｆＡ',
+      ' ',
+      ' ',
+      '  ',
+      '\t',
+      '\n',
+      '\u0001',
+      '\u00a0',
+      '<mask>',
+      '<s>',
+    ];
     const fixed = ['', ' ', 'ab', ' ab  ab', 'xyz xyz', 'ab<mask> cd', '한국어   테스트', '～ａｂ～', '😀😀 ab'];
     const samples = [...fixed];
     for (let i = 0; i < 3000; i++) {
       const len = Math.floor(random() * 24);
       samples.push(Array.from({ length: len }, () => alphabet[Math.floor(random() * alphabet.length)]).join(''));
     }
-    for (const text of samples) assert.deepEqual(compact.encode(text), reference.encode(text).ids, JSON.stringify(text));
+    for (const text of samples)
+      assert.deepEqual(compact.encode(text), reference.encode(text).ids, JSON.stringify(text));
   });
 });
 

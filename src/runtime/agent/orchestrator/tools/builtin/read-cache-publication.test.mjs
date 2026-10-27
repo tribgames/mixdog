@@ -87,12 +87,14 @@ test('current concurrent read leases still share the same raw IO and publish', a
     loads++;
     return done.promise;
   };
-  const reads = Array.from({ length: 8 }, () => runReadCachePublication(path, async () => {
-    const bytes = await runRawContentInFlight(path, loader, version);
-    assert.equal(canPublishReadCache(), true);
-    rawContentCacheSet(path, version, bytes);
-    return bytes;
-  }));
+  const reads = Array.from({ length: 8 }, () =>
+    runReadCachePublication(path, async () => {
+      const bytes = await runRawContentInFlight(path, loader, version);
+      assert.equal(canPublishReadCache(), true);
+      rawContentCacheSet(path, version, bytes);
+      return bytes;
+    })
+  );
   done.resolve(newBody);
   assert.deepEqual(await Promise.all(reads), Array(8).fill(newBody));
   assert.equal(loads, 1);
@@ -161,22 +163,30 @@ for (const kind of ['cache-hit', 'stream']) {
         contentPrefixHash: hash(oldBody),
         readSnapshotMeta: { source: 'read', ranges: [{ startLine: 1, endLine: 1 }] },
       });
-      result = await runReadCachePublication(path, () => readCachedResult(ctx, {
-        ...helpers,
-        _hashText: (bytes) => {
-          invalidateBuiltinResultCache([path]);
-          return hash(bytes);
-        },
-      }));
+      result = await runReadCachePublication(path, () =>
+        readCachedResult(ctx, {
+          ...helpers,
+          _hashText: (bytes) => {
+            invalidateBuiltinResultCache([path]);
+            return hash(bytes);
+          },
+        })
+      );
       assert.equal(result.result, 'before');
     } else {
-      result = await runReadCachePublication(path, () => streamRangeResult(ctx, { source: 'read_stream_range' }, {
-        ...helpers,
-        streamReadRange: async () => {
-          invalidateBuiltinResultCache([path]);
-          return { text: 'before', firstEmitted: 1, lastEmitted: 1, prefixHash: hash(oldBody) };
-        },
-      }));
+      result = await runReadCachePublication(path, () =>
+        streamRangeResult(
+          ctx,
+          { source: 'read_stream_range' },
+          {
+            ...helpers,
+            streamReadRange: async () => {
+              invalidateBuiltinResultCache([path]);
+              return { text: 'before', firstEmitted: 1, lastEmitted: 1, prefixHash: hash(oldBody) };
+            },
+          }
+        )
+      );
       assert.equal(result, 'before');
     }
     assert.equal(cacheGet(key), null);
@@ -214,12 +224,17 @@ test('an invalidated batch cannot replace a newer snapshot but still records una
   let old;
   try {
     const options = { sessionId: randomUUID(), suppressReadUnchangedStub: true };
-    old = executeBuiltinTool('read', {
-      file_path: [
-        { file_path: path, offset: 1, limit: 1 },
-        { file_path: sibling, offset: 2, limit: 1 },
-      ],
-    }, root, options);
+    old = executeBuiltinTool(
+      'read',
+      {
+        file_path: [
+          { file_path: path, offset: 1, limit: 1 },
+          { file_path: sibling, offset: 2, limit: 1 },
+        ],
+      },
+      root,
+      options
+    );
     await Promise.race([
       paused.promise,
       old.then(() => assert.fail('the batch child must pause after reading its old body')),
@@ -301,17 +316,24 @@ test('batch snapshot publication rechecks its lease after awaiting fallback rang
   });
   syncBuiltinESMExports();
   try {
-    await runReadCachePublication([path, sibling], () => recordSlicedBatchSnapshots([
-      { path, mode: 'full', body: '[lines 1-1]\nBEFORE\n[lines 1-1 of 1]' },
-      { path: sibling, mode: 'full', body: '[lines 1-1]\nSIBLING\n[lines 1-1 of 1]' },
-    ], root, scope, {
-      classifyResultKind: () => 'text',
-      resolveAgainstCwd: (value) => value,
-      _rangeHashesFromRenderedReadText: () => [],
-      _mergeReadRanges: mergeReadRanges,
-      _recordReadSnapshot: recordReadSnapshot,
-      _hashText: hash,
-    }));
+    await runReadCachePublication([path, sibling], () =>
+      recordSlicedBatchSnapshots(
+        [
+          { path, mode: 'full', body: '[lines 1-1]\nBEFORE\n[lines 1-1 of 1]' },
+          { path: sibling, mode: 'full', body: '[lines 1-1]\nSIBLING\n[lines 1-1 of 1]' },
+        ],
+        root,
+        scope,
+        {
+          classifyResultKind: () => 'text',
+          resolveAgainstCwd: (value) => value,
+          _rangeHashesFromRenderedReadText: () => [],
+          _mergeReadRanges: mergeReadRanges,
+          _recordReadSnapshot: recordReadSnapshot,
+          _hashText: hash,
+        }
+      )
+    );
     assert.equal(invalidations, 1);
     assert.deepEqual(getReadSnapshot(path, scope), freshSnapshot);
     assert.equal(getReadSnapshot(sibling, scope).source, 'read_batch_sliced');

@@ -7,7 +7,11 @@ import { renderAgentCompletionEnvelope, renderShellCompletionEnvelope } from './
 
 test('ask_user summaries cover picks, and a composer reply compactly', () => {
   assert.equal(
-    summarizeToolResult('ask_user', {}, 'User has answered your questions: "q"="A". You can now continue with these answers in mind.'),
+    summarizeToolResult(
+      'ask_user',
+      {},
+      'User has answered your questions: "q"="A". You can now continue with these answers in mind.'
+    ),
     '"q"="A".'
   );
   assert.equal(
@@ -19,7 +23,11 @@ test('ask_user summaries cover picks, and a composer reply compactly', () => {
     'Answered in chat: keep "sort"'
   );
   assert.equal(
-    summarizeToolResult('ask_user', {}, 'User replied in chat: "just text". You can now continue with these answers in mind.'),
+    summarizeToolResult(
+      'ask_user',
+      {},
+      'User replied in chat: "just text". You can now continue with these answers in mind.'
+    ),
     'Answered in chat: just text'
   );
 });

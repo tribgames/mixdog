@@ -15,13 +15,13 @@
 use windows::core::PWSTR;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::RemoteDesktop::{
-    WTSFreeMemory, WTSQuerySessionInformationW, WTSSessionInfoEx, WTSINFOEXW, WTS_SESSIONSTATE_LOCK,
-    WTS_SESSIONSTATE_UNLOCK,
+    WTSFreeMemory, WTSQuerySessionInformationW, WTSSessionInfoEx, WTSINFOEXW,
+    WTS_SESSIONSTATE_LOCK, WTS_SESSIONSTATE_UNLOCK,
 };
 use windows::Win32::System::StationsAndDesktops::{
     GetUserObjectInformationW, OpenInputDesktop, SetThreadDesktop, DESKTOP_ACCESS_FLAGS,
-    DESKTOP_CREATEMENU, DESKTOP_CREATEWINDOW, DESKTOP_ENUMERATE, DESKTOP_HOOKCONTROL,
-    DESKTOP_READOBJECTS, DESKTOP_SWITCHDESKTOP, DESKTOP_WRITEOBJECTS, DESKTOP_CONTROL_FLAGS,
+    DESKTOP_CONTROL_FLAGS, DESKTOP_CREATEMENU, DESKTOP_CREATEWINDOW, DESKTOP_ENUMERATE,
+    DESKTOP_HOOKCONTROL, DESKTOP_READOBJECTS, DESKTOP_SWITCHDESKTOP, DESKTOP_WRITEOBJECTS,
     UOI_NAME,
 };
 
@@ -66,7 +66,8 @@ fn object_name(handle: HANDLE) -> Option<String> {
 /// `Winlogon` desktop, so there is no separate "locked" desktop to report.
 /// Comparing this against the attached desktop detects a UAC / lock transition.
 pub fn input_desktop_name() -> Option<String> {
-    let desktop = unsafe { OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, input_access()).ok()? };
+    let desktop =
+        unsafe { OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, input_access()).ok()? };
     let owned = OwnedDesktop::new(desktop)?;
     object_name(HANDLE(owned.get().0))
 }
@@ -84,7 +85,8 @@ pub fn session_locked(session: u32) -> Option<bool> {
     unsafe {
         let mut buffer = PWSTR::null();
         let mut bytes = 0u32;
-        WTSQuerySessionInformationW(None, session, WTSSessionInfoEx, &mut buffer, &mut bytes).ok()?;
+        WTSQuerySessionInformationW(None, session, WTSSessionInfoEx, &mut buffer, &mut bytes)
+            .ok()?;
         let info = (bytes as usize >= std::mem::size_of::<WTSINFOEXW>())
             .then(|| *(buffer.0 as *const WTSINFOEXW));
         WTSFreeMemory(buffer.0 as *mut _);
@@ -106,8 +108,7 @@ pub fn session_locked(session: u32) -> Option<bool> {
 pub fn attach_to_input_desktop() -> windows::core::Result<(OwnedDesktop, String)> {
     unsafe {
         let desktop = OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, input_access())?;
-        let owned = OwnedDesktop::new(desktop)
-            .ok_or_else(windows::core::Error::from_thread)?;
+        let owned = OwnedDesktop::new(desktop).ok_or_else(windows::core::Error::from_thread)?;
         SetThreadDesktop(owned.get())?;
         let name = object_name(HANDLE(owned.get().0))
             .filter(|name| !name.is_empty())

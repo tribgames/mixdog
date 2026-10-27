@@ -96,7 +96,9 @@ export function createNativePushStore(userDataPath: string): NativePushStore {
   };
   let queue: Promise<unknown> = Promise.resolve();
   // Serializes read -> modify -> persist; in-memory state is published only after the write succeeds.
-  const mutate = <T>(change: (current: NativePushSubscription[]) => { next: NativePushSubscription[] | null; result: T }): Promise<T> => {
+  const mutate = <T>(
+    change: (current: NativePushSubscription[]) => { next: NativePushSubscription[] | null; result: T }
+  ): Promise<T> => {
     const run = queue.then(async () => {
       const { next, result } = change(await state());
       if (next) {

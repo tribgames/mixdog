@@ -18,8 +18,7 @@ const row = (input, extra = {}) => ({
   cost: { input, output: input * 3 },
   ...extra,
 });
-const writeCatalog = (file, data) =>
-  writeFileSync(join(dir, file), JSON.stringify({ fetchedAt: Date.now(), data }));
+const writeCatalog = (file, data) => writeFileSync(join(dir, file), JSON.stringify({ fetchedAt: Date.now(), data }));
 
 let generation = 0;
 async function load({ modelsdev, litellm = {} }) {
@@ -62,7 +61,12 @@ test('the LiteLLM vendor outranks every models.dev provider', async () => {
     openai: { models: { 'zeta-9-max': row(700) } },
   };
   const litellm = {
-    'zeta-9-max': { litellm_provider: 'openai', mode: 'chat', input_cost_per_token: 7e-6, output_cost_per_token: 21e-6 },
+    'zeta-9-max': {
+      litellm_provider: 'openai',
+      mode: 'chat',
+      input_cost_per_token: 7e-6,
+      output_cost_per_token: 21e-6,
+    },
   };
   for (const order of [modelsdev, reversed(modelsdev)]) {
     assert.equal(relayPrice(await load({ modelsdev: order, litellm }), 'zeta-9-max'), 700);

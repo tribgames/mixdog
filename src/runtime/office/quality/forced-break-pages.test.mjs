@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import {
-  docxBreakOpenings,
-  forcedBreakPagesFromTexts,
-  htmlBreakOpenings,
-} from './forced-break-pages.mjs';
+import { docxBreakOpenings, forcedBreakPagesFromTexts, htmlBreakOpenings } from './forced-break-pages.mjs';
 
 // A page of the preview PDF layout: a running head, the body lines, and a folio.
 const page = (number, ...lines) => ({

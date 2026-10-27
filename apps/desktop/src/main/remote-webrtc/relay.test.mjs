@@ -10,7 +10,14 @@ const HEX = Array.from({ length: 32 }, () => 'AB').join(':');
 const SDP = `v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 ${HEX}\r\n`;
 const source = { kind: 'browser', sessionId: 's1' };
 const ref = { v: REMOTE_WEBRTC_VERSION, source, connectionId: 'c'.repeat(22), generation: 1 };
-const geometry = { generation: 1, cssWidth: 400, cssHeight: 300, deviceScaleFactor: 1, pixelWidth: 400, pixelHeight: 300 };
+const geometry = {
+  generation: 1,
+  cssWidth: 400,
+  cssHeight: 300,
+  deviceScaleFactor: 1,
+  pixelWidth: 400,
+  pixelHeight: 300,
+};
 
 function fixture({
   subscribed = true,
@@ -27,7 +34,9 @@ function fixture({
     subscribed: () => access.subscribed,
     awaitingFit: () => false,
     screenAuthorized: async () => access.screen,
-    screenDisplays: async () => [{ screenId: '1', label: 'Display', primary: true, pixelWidth: 1920, pixelHeight: 1080, scaleFactor: 1 }],
+    screenDisplays: async () => [
+      { screenId: '1', label: 'Display', primary: true, pixelWidth: 1920, pixelHeight: 1080, scaleFactor: 1 },
+    ],
     setImages: (clientId, sessionId, enabled) => images.push([clientId, sessionId, enabled]),
     resolveIceServers,
     forward: async (clientId, signal, servers) => forwarded.push([clientId, signal.type, servers]),
@@ -58,7 +67,10 @@ const offer = {
 
 test('a signal is refused unless the client streams the source it names', () => {
   const f = fixture({ subscribed: false });
-  assert.throws(() => f.relay.accept('c1', { v: REMOTE_WEBRTC_VERSION, source, type: 'ready', receiveCodecs: [] }), /not streamed/);
+  assert.throws(
+    () => f.relay.accept('c1', { v: REMOTE_WEBRTC_VERSION, source, type: 'ready', receiveCodecs: [] }),
+    /not streamed/
+  );
   assert.throws(() => fixture().relay.accept('c1', { type: 'ready' }), /invalid/);
 });
 
@@ -107,7 +119,10 @@ test('a ready still resolving ICE when the viewer leaves is never forwarded', as
   const order = deferredIce();
   const h = fixture({ resolveIceServers: order.resolveIceServers });
   const first = h.relay.forward('c1', h.relay.accept('c1', readySignal));
-  const second = h.relay.forward('c1', h.relay.accept('c1', { ...readySignal, videoLimit: { maxWidth: 1000, maxHeight: 750 } }));
+  const second = h.relay.forward(
+    'c1',
+    h.relay.accept('c1', { ...readySignal, videoLimit: { maxWidth: 1000, maxHeight: 750 } })
+  );
   order.settle(1);
   await second;
   order.settle(0);
@@ -126,7 +141,12 @@ test('a ready still resolving ICE when the viewer leaves is never forwarded', as
   // A screen grant revoked while ICE resolves.
   const screenIce = deferredIce();
   const s = fixture({ screen: true, resolveIceServers: screenIce.resolveIceServers });
-  const screenReady = { v: REMOTE_WEBRTC_VERSION, source: { kind: 'screen', screenId: '1' }, type: 'ready', receiveCodecs: ['video/VP8'] };
+  const screenReady = {
+    v: REMOTE_WEBRTC_VERSION,
+    source: { kind: 'screen', screenId: '1' },
+    type: 'ready',
+    receiveCodecs: ['video/VP8'],
+  };
   const screenPending = s.relay.forward('c1', s.relay.accept('c1', screenReady));
   await new Promise((resolve) => setImmediate(resolve));
   s.access.screen = false;
@@ -142,7 +162,8 @@ test('screen readies whose authorization checks finish out of order: only the ne
     subscribed: () => true,
     awaitingFit: () => false,
     // The first check of each ready is held; later ones answer at once.
-    screenAuthorized: () => (checks.length < 2 ? new Promise((resolve) => checks.push(resolve)) : Promise.resolve(true)),
+    screenAuthorized: () =>
+      checks.length < 2 ? new Promise((resolve) => checks.push(resolve)) : Promise.resolve(true),
     screenDisplays: async () => [],
     setImages: () => {},
     resolveIceServers: async () => [{ urls: 'turn:t.example:3478', username: 'u', credential: 'p' }],
@@ -151,11 +172,20 @@ test('screen readies whose authorization checks finish out of order: only the ne
     send: async () => {},
   });
   const screenSource = { kind: 'screen', screenId: '1' };
-  const older = relay.forward('c1', relay.accept('c1', { v: REMOTE_WEBRTC_VERSION, source: screenSource, type: 'ready', receiveCodecs: ['video/VP8'] }));
+  const older = relay.forward(
+    'c1',
+    relay.accept('c1', { v: REMOTE_WEBRTC_VERSION, source: screenSource, type: 'ready', receiveCodecs: ['video/VP8'] })
+  );
   const limit = { maxWidth: 1920, maxHeight: 1080 };
   const newer = relay.forward(
     'c1',
-    relay.accept('c1', { v: REMOTE_WEBRTC_VERSION, source: screenSource, type: 'ready', receiveCodecs: ['video/VP8'], videoLimit: limit })
+    relay.accept('c1', {
+      v: REMOTE_WEBRTC_VERSION,
+      source: screenSource,
+      type: 'ready',
+      receiveCodecs: ['video/VP8'],
+      videoLimit: limit,
+    })
   );
   assert.equal(checks.length, 2);
   checks[1](true);
@@ -181,7 +211,12 @@ test('regression: a screen ready stays bound to the connection that delivered it
     viewerLeft: async () => {},
     send: async () => {},
   });
-  const screenReady = { v: REMOTE_WEBRTC_VERSION, source: { kind: 'screen', screenId: '1' }, type: 'ready', receiveCodecs: ['video/VP8'] };
+  const screenReady = {
+    v: REMOTE_WEBRTC_VERSION,
+    source: { kind: 'screen', screenId: '1' },
+    type: 'ready',
+    receiveCodecs: ['video/VP8'],
+  };
   const settleSoon = async (index) => {
     await new Promise((resolve) => setImmediate(resolve));
     ice.settle(index);
@@ -222,7 +257,14 @@ test('regression: a screen ready stays bound to the connection that delivered it
 test('a take-over joining an unfitted stream is promoted only on media-ready for the fitted generation, after its settled picture', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const FIT = { width: 411, height: 782, deviceScaleFactor: 2.625 };
-  const fitted = { generation: 2, cssWidth: 411, cssHeight: 782, deviceScaleFactor: 2.625, pixelWidth: 1078, pixelHeight: 2052 };
+  const fitted = {
+    generation: 2,
+    cssWidth: 411,
+    cssHeight: 782,
+    deviceScaleFactor: 2.625,
+    pixelWidth: 1078,
+    pixelHeight: 2052,
+  };
   const streamFrame = (seq, extra = {}) => ({
     sessionId: 's1',
     seq,
@@ -285,10 +327,21 @@ test('a take-over joining an unfitted stream is promoted only on media-ready for
   const offer = signals.find((signal) => signal.type === 'offer');
   const ref = { connectionId: offer.connectionId, generation: offer.generation };
   await phone({ ...ref, type: 'answer', sdp: SDP, fingerprints: [{ algorithm: 'sha-256', value: HEX }] });
-  emit({ type: 'connected', connectionId: open.connectionId, remoteCertificate: { fingerprint: HEX, fingerprintAlgorithm: 'sha-256' } });
+  emit({
+    type: 'connected',
+    connectionId: open.connectionId,
+    remoteCertificate: { fingerprint: HEX, fingerprintAlgorithm: 'sha-256' },
+  });
   await phone({ type: 'geometry-ack', geometryGeneration: 1 });
   picture();
-  await phone({ ...ref, type: 'media-ready', documentId: 'p1:1', geometryGeneration: 1, pixelWidth: 400, pixelHeight: 300 });
+  await phone({
+    ...ref,
+    type: 'media-ready',
+    documentId: 'p1:1',
+    geometryGeneration: 1,
+    pixelWidth: 400,
+    pixelHeight: 300,
+  });
   assert.equal(promoted(), false, 'the unfitted geometry never promotes a take-over');
 
   // The fit lands: the fitted generation is locked and pictured, but its
@@ -297,7 +350,14 @@ test('a take-over joining an unfitted stream is promoted only on media-ready for
   host.geometryChanged('browser:s1', fitted);
   await phone({ type: 'geometry-ack', geometryGeneration: 2 });
   picture();
-  const fittedReady = { ...ref, type: 'media-ready', documentId: 'p1:1', geometryGeneration: 2, pixelWidth: 1078, pixelHeight: 2052 };
+  const fittedReady = {
+    ...ref,
+    type: 'media-ready',
+    documentId: 'p1:1',
+    geometryGeneration: 2,
+    pixelWidth: 1078,
+    pixelHeight: 2052,
+  };
   await phone(fittedReady);
   assert.equal(promoted(), false, 'not before its first settled picture');
 
@@ -306,7 +366,14 @@ test('a take-over joining an unfitted stream is promoted only on media-ready for
   streams.acknowledge('c2', 's1', 1);
   streams.publish(streamFrame(2, { viewportWidth: 411, viewportHeight: 782, fitSettled: true }));
   assert.equal(streams.awaitingFit('c2', 's1'), false);
-  await phone({ ...ref, type: 'media-ready', documentId: 'p1:1', geometryGeneration: 1, pixelWidth: 400, pixelHeight: 300 });
+  await phone({
+    ...ref,
+    type: 'media-ready',
+    documentId: 'p1:1',
+    geometryGeneration: 1,
+    pixelWidth: 400,
+    pixelHeight: 300,
+  });
   assert.equal(promoted(), false, 'a media-ready for the old generation is stale');
   await phone(fittedReady);
   const promote = signals.find((signal) => signal.type === 'promote');
@@ -357,7 +424,12 @@ test('a promote-ack after a demote is stale; close and departure hand input back
 });
 
 test('a screen source and its display list need the screen grant', async () => {
-  const ready = { v: REMOTE_WEBRTC_VERSION, source: { kind: 'screen', screenId: '1' }, type: 'ready', receiveCodecs: [] };
+  const ready = {
+    v: REMOTE_WEBRTC_VERSION,
+    source: { kind: 'screen', screenId: '1' },
+    type: 'ready',
+    receiveCodecs: [],
+  };
   const denied = fixture({ screen: false });
   const signal = denied.relay.accept('c1', ready);
   await assert.rejects(denied.relay.forward('c1', signal), /not allowed/);

@@ -275,7 +275,10 @@ test('Responses failure constructors carry the provider label', async () => {
       { label, responseOutputText: () => '', parseResponsesToolCalls: () => [] }
     )
   );
-  assert.equal(salvage.message, `${label} stream function_call salvage failed: missing call_id/name for item_id=item_9`);
+  assert.equal(
+    salvage.message,
+    `${label} stream function_call salvage failed: missing call_id/name for item_id=item_9`
+  );
 });
 
 test('Responses unresolved call followed by response.completed carries partialUsage', async () => {

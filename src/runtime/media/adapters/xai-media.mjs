@@ -120,7 +120,8 @@ export async function generateVideo({ lane, model, prompt, options = {}, referen
       // let the catalog's per-second rate price it otherwise.
       const seconds = Number(data?.video?.duration) || duration;
       const usage = { ...xaiUsage(data?.usage), seconds, resolution };
-      if (!url) throw withReportedUsage(mediaError('xAI video finished without a URL', 'MEDIA_EMPTY_RESULT', 502), usage);
+      if (!url)
+        throw withReportedUsage(mediaError('xAI video finished without a URL', 'MEDIA_EMPTY_RESULT', 502), usage);
       const bytes = await downloadPublicMedia(url, { signal, label: 'xAI video' }).catch((error) => {
         throw withReportedUsage(error, usage);
       });

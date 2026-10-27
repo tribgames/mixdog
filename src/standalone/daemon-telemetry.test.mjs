@@ -367,8 +367,5 @@ test('createStallDescriber names the overlapping spans and the in-flight work sn
     describe(100, 500),
     'spans: session.read#abcd1234:getTurnChanges 480ms action=480 | in-flight: activeCalls=2 queuedCalls=1 busySessions=1 busyMemoryAgents=0'
   );
-  assert.equal(
-    describe(900, 950),
-    'in-flight: activeCalls=2 queuedCalls=1 busySessions=1 busyMemoryAgents=0'
-  );
+  assert.equal(describe(900, 950), 'in-flight: activeCalls=2 queuedCalls=1 busySessions=1 busyMemoryAgents=0');
 });

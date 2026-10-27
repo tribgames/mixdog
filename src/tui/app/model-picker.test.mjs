@@ -132,7 +132,13 @@ const SPEED_OPTION = {
 
 test('Tab cycles Standard → Fast → Ultrafast → Standard when the model offers Ultrafast', async () => {
   const models = [
-    { provider: 'anthropic', id: 'ultra-1', display: 'Ultra', fastCapable: true, modelParameterOptions: [SPEED_OPTION] },
+    {
+      provider: 'anthropic',
+      id: 'ultra-1',
+      display: 'Ultra',
+      fastCapable: true,
+      modelParameterOptions: [SPEED_OPTION],
+    },
   ];
   const h = createHarness({ models, state: { model: 'other' } });
   await h.openProvider();
@@ -153,7 +159,10 @@ test('Tab cycles Standard → Fast → Ultrafast → Standard when the model off
   g.current().onTab(g.row('ultra-1'));
   g.current().onTab(g.row('ultra-1'));
   g.current().onTab(g.row('ultra-1'));
-  assert.deepEqual(g.footerText('ultra-1').filter((t) => /Fast|Ultrafast/.test(t)), ['Fast Off · Tab Toggle']);
+  assert.deepEqual(
+    g.footerText('ultra-1').filter((t) => /Fast|Ultrafast/.test(t)),
+    ['Fast Off · Tab Toggle']
+  );
   const standard = g.current();
   standard.onSelect(g.row('ultra-1').value, g.row('ultra-1'));
   await flush();

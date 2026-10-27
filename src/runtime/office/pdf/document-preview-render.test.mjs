@@ -122,7 +122,10 @@ test('an encrypted binary .ppt is refused before PowerPoint is started', async (
   });
   await assert.rejects(documentPreviewPdf(f.source, { cacheRoot: f.cacheRoot, engines: e.engines }), (error) => {
     assert.equal(error.code, 'OFFICE_PREVIEW_PASSWORD_UNSUPPORTED');
-    assert.equal(error.message, "This file is password-protected and can't be previewed. (OFFICE_PREVIEW_PASSWORD_UNSUPPORTED)");
+    assert.equal(
+      error.message,
+      "This file is password-protected and can't be previewed. (OFFICE_PREVIEW_PASSWORD_UNSUPPORTED)"
+    );
     return true;
   });
   assert.equal(e.calls.office.length, 0, 'Office is never asked to open it');

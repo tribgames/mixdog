@@ -58,8 +58,10 @@ test("the helper's grant cadence and lifetime are the relay's liveness probe and
   const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
   const security = read('../../../../native/mixdog-secure-desktop/src/security.rs');
   const relay = read('../../../relay/lib/relay-legs.mjs');
-  const secs = (name) => Number(new RegExp(`const ${name}: Duration = Duration::from_secs\\((\\d+)\\);`, 'u').exec(security)?.[1]);
-  const ms = (name) => Number(new RegExp(`export const ${name} = ([\\d_]+);`, 'u').exec(relay)?.[1].replaceAll('_', ''));
+  const secs = (name) =>
+    Number(new RegExp(`const ${name}: Duration = Duration::from_secs\\((\\d+)\\);`, 'u').exec(security)?.[1]);
+  const ms = (name) =>
+    Number(new RegExp(`export const ${name} = ([\\d_]+);`, 'u').exec(relay)?.[1].replaceAll('_', ''));
   assert.equal(secs('GRANT_REFRESH') * 1000, ms('DESKTOP_LIVENESS_PROBE_MS'));
   assert.equal(secs('RELAY_HANDSHAKE_STALL') * 1000, ms('DESKTOP_HANDSHAKE_STALL_MS'));
   assert.match(

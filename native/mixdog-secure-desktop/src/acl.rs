@@ -26,7 +26,7 @@ use std::path::Path;
 use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{LocalFree, ERROR_SUCCESS, HLOCAL};
 use windows::Win32::Security::Authorization::{
-    GetNamedSecurityInfoW, ConvertSidToStringSidW, SE_FILE_OBJECT,
+    ConvertSidToStringSidW, GetNamedSecurityInfoW, SE_FILE_OBJECT,
 };
 use windows::Win32::Security::{
     GetAce, ACCESS_ALLOWED_ACE, ACL, DACL_SECURITY_INFORMATION, OBJECT_SECURITY_INFORMATION,
@@ -38,7 +38,8 @@ use windows::Win32::Storage::FileSystem::{
 };
 
 use crate::security::{
-    ace_controls_access, classify_ace_type, is_trusted_path_sid, mask_can_modify_path, AceClass, PathKind,
+    ace_controls_access, classify_ace_type, is_trusted_path_sid, mask_can_modify_path, AceClass,
+    PathKind,
 };
 use crate::winutil::wide;
 
@@ -83,9 +84,7 @@ fn verify_element(path: &Path) -> Result<(), String> {
         let status = GetNamedSecurityInfoW(
             PCWSTR(wide_path.as_ptr()),
             SE_FILE_OBJECT,
-            OBJECT_SECURITY_INFORMATION(
-                OWNER_SECURITY_INFORMATION.0 | DACL_SECURITY_INFORMATION.0,
-            ),
+            OBJECT_SECURITY_INFORMATION(OWNER_SECURITY_INFORMATION.0 | DACL_SECURITY_INFORMATION.0),
             Some(&mut owner),
             None,
             Some(&mut dacl),
@@ -105,7 +104,10 @@ fn verify_element(path: &Path) -> Result<(), String> {
             let owner_sid = sid_to_string(owner)
                 .ok_or_else(|| format!("{} has no readable owner", path.display()))?;
             if !is_trusted_path_sid(&owner_sid) {
-                return Err(format!("{} is owned by untrusted SID {owner_sid}", path.display()));
+                return Err(format!(
+                    "{} is owned by untrusted SID {owner_sid}",
+                    path.display()
+                ));
             }
             verify_dacl(path, kind, dacl)
         })();
@@ -198,8 +200,8 @@ mod tests {
     use windows::Win32::Foundation::WIN32_ERROR;
     use windows::Win32::Security::Authorization::SetNamedSecurityInfoW;
     use windows::Win32::Security::{
-        GetSecurityDescriptorDacl, InitializeAcl, ACL_REVISION, INHERIT_ONLY_ACE as WINNT_INHERIT_ONLY_ACE,
-        PROTECTED_DACL_SECURITY_INFORMATION,
+        GetSecurityDescriptorDacl, InitializeAcl, ACL_REVISION,
+        INHERIT_ONLY_ACE as WINNT_INHERIT_ONLY_ACE, PROTECTED_DACL_SECURITY_INFORMATION,
     };
     use windows::Win32::Storage::FileSystem::CreateDirectoryW;
 
@@ -213,7 +215,10 @@ mod tests {
         let mut present = BOOL(0);
         let mut defaulted = BOOL(0);
         let mut dacl: *mut ACL = std::ptr::null_mut();
-        unsafe { GetSecurityDescriptorDacl(descriptor.raw(), &mut present, &mut dacl, &mut defaulted) }.unwrap();
+        unsafe {
+            GetSecurityDescriptorDacl(descriptor.raw(), &mut present, &mut dacl, &mut defaulted)
+        }
+        .unwrap();
         assert!(present.as_bool(), "the SDDL fixture has a DACL section");
         dacl
     }
@@ -269,7 +274,10 @@ mod tests {
             assert_eq!(verdict(&sddl, DIR), Ok(()), "{sddl}");
         }
         // The same on a file element.
-        assert_eq!(verdict("D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;IO;FW;;;AU)", PathKind::File), Ok(()));
+        assert_eq!(
+            verdict("D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;IO;FW;;;AU)", PathKind::File),
+            Ok(())
+        );
     }
 
     #[test]
@@ -279,8 +287,14 @@ mod tests {
             let sddl = format!("D:P{TRUSTED}(A;{flags};{AU_MODIFY})");
             assert_untrusted(verdict(&sddl, DIR), "S-1-5-11");
         }
-        assert_untrusted(verdict("D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FW;;;AU)", PathKind::File), "S-1-5-11");
-        assert_untrusted(verdict(&format!("D:P{TRUSTED}(A;OICI;GA;;;BU)"), DIR), "S-1-5-32-545");
+        assert_untrusted(
+            verdict("D:P(A;;FA;;;SY)(A;;FA;;;BA)(A;;FW;;;AU)", PathKind::File),
+            "S-1-5-11",
+        );
+        assert_untrusted(
+            verdict(&format!("D:P{TRUSTED}(A;OICI;GA;;;BU)"), DIR),
+            "S-1-5-32-545",
+        );
     }
 
     #[test]
@@ -291,7 +305,10 @@ mod tests {
             let sddl = format!("D:AI{TRUSTED}(A;{flags};{AU_MODIFY})");
             assert_untrusted(verdict(&sddl, DIR), "S-1-5-11");
         }
-        assert_untrusted(verdict("D:AI(A;;FA;;;SY)(A;;FA;;;BA)(A;ID;FW;;;AU)", PathKind::File), "S-1-5-11");
+        assert_untrusted(
+            verdict("D:AI(A;;FA;;;SY)(A;;FA;;;BA)(A;ID;FW;;;AU)", PathKind::File),
+            "S-1-5-11",
+        );
         // Inherited and still inherit-only (an OI-only grant that passed through a directory).
         let passing = format!("D:AI{TRUSTED}(A;OIIOID;{AU_MODIFY})");
         assert_eq!(verdict(&passing, DIR), Ok(()));
@@ -326,15 +343,22 @@ mod tests {
     fn everything_else_stays_strict() {
         // Unreadable layouts still fail closed — inherit-only or not.
         for flags in ["OICI", "OICIIO"] {
-            let object_ace = format!("D:P{TRUSTED}(OA;{flags};CC;bf967aba-0de6-11d0-a285-00aa003049e2;;AU)");
+            let object_ace =
+                format!("D:P{TRUSTED}(OA;{flags};CC;bf967aba-0de6-11d0-a285-00aa003049e2;;AU)");
             let error = verdict(&object_ace, DIR).unwrap_err();
-            assert!(error.ends_with("has an unsupported ACE type 5 that cannot be verified"), "{error}");
+            assert!(
+                error.ends_with("has an unsupported ACE type 5 that cannot be verified"),
+                "{error}"
+            );
         }
         // A null DACL is "no protection".
         let error = verdict("D:NO_ACCESS_CONTROL", DIR).unwrap_err();
         assert!(error.ends_with("has no DACL"), "{error}");
         // Create-only rights stay benign on a directory.
-        assert_eq!(verdict(&format!("D:P{TRUSTED}(A;OICI;0x6;;;AU)"), DIR), Ok(()));
+        assert_eq!(
+            verdict(&format!("D:P{TRUSTED}(A;OICI;0x6;;;AU)"), DIR),
+            Ok(())
+        );
     }
 
     #[test]
@@ -349,7 +373,10 @@ mod tests {
             assert_eq!(verify_dacl(Path::new("fixture"), DIR, acl), Ok(()));
             (*acl).AceCount = 2;
             let error = verify_dacl(Path::new("fixture"), DIR, acl).unwrap_err();
-            assert_eq!(error, "fixture has an unreadable ACE at index 0 that cannot be verified");
+            assert_eq!(
+                error,
+                "fixture has an unreadable ACE at index 0 that cannot be verified"
+            );
         }
     }
 
@@ -421,10 +448,19 @@ mod tests {
 
     impl TempTree {
         fn new(tag: &str) -> Self {
-            let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
-            let root = std::env::temp_dir().join(format!("mixdog-sd-acl-{tag}-{}-{nanos}", std::process::id()));
+            let nanos = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos();
+            let root = std::env::temp_dir().join(format!(
+                "mixdog-sd-acl-{tag}-{}-{nanos}",
+                std::process::id()
+            ));
             std::fs::create_dir(&root).unwrap();
-            TempTree { root, dirs: Vec::new() }
+            TempTree {
+                root,
+                dirs: Vec::new(),
+            }
         }
 
         fn track(&mut self, dir: PathBuf) -> PathBuf {
@@ -446,7 +482,8 @@ mod tests {
     }
 
     #[test]
-    fn on_disk_an_inherit_only_grant_is_ignored_on_its_directory_and_counted_where_it_is_inherited() {
+    fn on_disk_an_inherit_only_grant_is_ignored_on_its_directory_and_counted_where_it_is_inherited()
+    {
         let user = current_user_sid().unwrap();
         let mut tree = TempTree::new("inherit");
         // The ancestor, like a stock root: trusted principals, plus an
@@ -474,11 +511,21 @@ mod tests {
         for flags in ["OICIIO", "IO"] {
             let tree = TempTree::new("noaccess");
             let made = tree.root.join("made");
-            assert_eq!(set_dacl(&tree.root, &format!("D:P(A;{flags};FA;;;{user})"), true), ERROR_SUCCESS);
+            assert_eq!(
+                set_dacl(&tree.root, &format!("D:P(A;{flags};FA;;;{user})"), true),
+                ERROR_SUCCESS
+            );
             let denied = std::fs::create_dir(&made).unwrap_err();
-            assert_eq!(denied.kind(), std::io::ErrorKind::PermissionDenied, "{flags}: {denied}");
+            assert_eq!(
+                denied.kind(),
+                std::io::ErrorKind::PermissionDenied,
+                "{flags}: {denied}"
+            );
             // The same grant without IO does open the directory.
-            assert_eq!(set_dacl(&tree.root, &format!("D:P(A;OICI;FA;;;{user})"), true), ERROR_SUCCESS);
+            assert_eq!(
+                set_dacl(&tree.root, &format!("D:P(A;OICI;FA;;;{user})"), true),
+                ERROR_SUCCESS
+            );
             std::fs::create_dir(&made).unwrap();
         }
     }

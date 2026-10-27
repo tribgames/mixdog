@@ -73,7 +73,11 @@ test('disabling during a pending enable cancels its login instead of waiting it 
     const enable = runtime.scheduleMcpToggle('server', true);
     const disable = runtime.scheduleMcpToggle('server', false);
     await Promise.all([enable, disable]);
-    assert.deepEqual(calls, [{ only: 'server', enabled: true }, ['cancel', 'server'], { only: 'server', enabled: false }]);
+    assert.deepEqual(calls, [
+      { only: 'server', enabled: true },
+      ['cancel', 'server'],
+      { only: 'server', enabled: false },
+    ]);
   } finally {
     runtime.dispose();
   }

@@ -82,7 +82,13 @@ test('a new session records verified native deferred-tool support at the turn-st
     // Pinned in prepareAskTurn, before the request boundary decides the surface.
     assert.equal(session.wireRoute.nativeDeferredTools, true);
     // The next turn finds history: an answered session keeps what it pinned.
-    const answered = sessionWith({ messages: [{ role: 'user', content: 'hi' }, { role: 'assistant', content: 'ok' }], wireRoute: null });
+    const answered = sessionWith({
+      messages: [
+        { role: 'user', content: 'hi' },
+        { role: 'assistant', content: 'ok' },
+      ],
+      wireRoute: null,
+    });
     await prepareAskTurn({ sessionId: 'n3', opened: opened(answered), input: { prompt: 'go' } });
     assert.equal(answered.wireRoute.wire, 'messages');
     assert.equal(answered.wireRoute.nativeDeferredTools, undefined);

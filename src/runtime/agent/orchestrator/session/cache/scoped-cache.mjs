@@ -4,9 +4,7 @@
 // touched path; unknown paths still fall back to a full session clear.
 import { join, resolve as _pathResolve, isAbsolute as _pathIsAbs, normalize as _pathNorm } from 'node:path';
 import { _normalizeCacheKey } from './util.mjs';
-import {
-  hasGlobMagic,
-} from '../../tools/builtin/path-utils.mjs';
+import { hasGlobMagic } from '../../tools/builtin/path-utils.mjs';
 import { prepareGrepArgs } from '../../tools/builtin/arg-guard.mjs';
 import { registerCacheInvalidationListener } from '../../tools/builtin/cache-layers.mjs';
 import { setBoundedTextCacheEntry } from './text-cache-budget.mjs';

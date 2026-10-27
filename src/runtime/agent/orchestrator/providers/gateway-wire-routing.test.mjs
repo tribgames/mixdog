@@ -32,8 +32,7 @@ test.after(() => {
 const prompt = [{ role: 'user', content: 'hi' }];
 const tool = { name: 'read', description: 'read a file', inputSchema: { type: 'object', properties: {} } };
 const frame = (event) => `${event.type ? `event: ${event.type}\n` : ''}data: ${JSON.stringify(event)}\n\n`;
-const sse = (events) =>
-  new Response(events.map(frame).join(''), { headers: { 'content-type': 'text/event-stream' } });
+const sse = (events) => new Response(events.map(frame).join(''), { headers: { 'content-type': 'text/event-stream' } });
 
 function respond({ path, body }) {
   if (path.endsWith('/messages')) {
@@ -69,14 +68,21 @@ function respond({ path, body }) {
       },
     ]);
   }
-  return sse([{ id: 'c', model: body.model, choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] }]);
+  return sse([
+    { id: 'c', model: body.model, choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] },
+  ]);
 }
 
 function recorder() {
   const requests = [];
   const fetchImpl = async (input, init = {}) => {
     const url = new URL(String(input?.url ?? input));
-    const request = { url: url.href, path: url.pathname, headers: new Headers(init.headers || {}), body: JSON.parse(init.body) };
+    const request = {
+      url: url.href,
+      path: url.pathname,
+      headers: new Headers(init.headers || {}),
+      body: JSON.parse(init.body),
+    };
     requests.push(request);
     return respond(request);
   };
@@ -85,7 +91,12 @@ function recorder() {
 
 test('DeepSeek agent/tool sends use its Anthropic endpoint with the DeepSeek key only', async () => {
   const { requests, fetchImpl } = recorder();
-  const provider = new DeepSeekProvider({ apiKey: 'ds-key', preconnect: false, fetchImpl, clientOptions: { fetch: fetchImpl } });
+  const provider = new DeepSeekProvider({
+    apiKey: 'ds-key',
+    preconnect: false,
+    fetchImpl,
+    clientOptions: { fetch: fetchImpl },
+  });
   assert.equal(provider.retryPolicy, COMPAT_RETRY_POLICY);
   const result = await provider.send(prompt, 'deepseek-v4-pro', [tool], { sessionId: 's' });
   assert.equal(requests[0].url, 'https://api.deepseek.com/anthropic/v1/messages');

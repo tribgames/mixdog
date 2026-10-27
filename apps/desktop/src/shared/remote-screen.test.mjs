@@ -33,11 +33,14 @@ test('the capture track opens from the plan with sharp-text hinting', async () =
   assert.equal(asked.video.mandatory.chromeMediaSourceId, 'screen:7:0');
   assert.equal(asked.video.mandatory.maxWidth, 1920);
   await assert.rejects(
-    openRemoteScreenCaptureTrack({ getUserMedia: async () => ({ getVideoTracks: () => [] }) }, {
-      sourceId: 'screen:7:0',
-      width: 64,
-      height: 64,
-      maxFrameRate: 30,
-    })
+    openRemoteScreenCaptureTrack(
+      { getUserMedia: async () => ({ getVideoTracks: () => [] }) },
+      {
+        sourceId: 'screen:7:0',
+        width: 64,
+        height: 64,
+        maxFrameRate: 30,
+      }
+    )
   );
 });

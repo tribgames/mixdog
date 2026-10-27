@@ -8,7 +8,14 @@ const HEX = Array.from({ length: 32 }, () => 'AB').join(':');
 const SDP = `v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 ${HEX}\r\n`;
 const TURN = [{ urls: ['turn:t.example:3478'], username: 'u', credential: 'p' }];
 const source = { kind: 'browser', sessionId: 's1' };
-const geometry = { generation: 1, cssWidth: 400, cssHeight: 300, deviceScaleFactor: 1, pixelWidth: 400, pixelHeight: 300 };
+const geometry = {
+  generation: 1,
+  cssWidth: 400,
+  cssHeight: 300,
+  deviceScaleFactor: 1,
+  pixelWidth: 400,
+  pixelHeight: 300,
+};
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 
 test('a demotion the phone caused by closing reaches it before the answer to that close', async () => {
@@ -39,12 +46,23 @@ test('a demotion the phone caused by closing reaches it before the answer to tha
   const offer = signals.find((signal) => signal.type === 'offer');
   const ref = { v: REMOTE_WEBRTC_VERSION, source, connectionId: offer.connectionId, generation: offer.generation };
   await host.signal('c1', { ...ref, type: 'answer', sdp: SDP, fingerprints: [{ algorithm: 'sha-256', value: HEX }] });
-  emit({ type: 'connected', connectionId: open.connectionId, remoteCertificate: { fingerprint: HEX, fingerprintAlgorithm: 'sha-256' } });
+  emit({
+    type: 'connected',
+    connectionId: open.connectionId,
+    remoteCertificate: { fingerprint: HEX, fingerprintAlgorithm: 'sha-256' },
+  });
   await host.signal('c1', { v: REMOTE_WEBRTC_VERSION, source, type: 'geometry-ack', geometryGeneration: 1 });
   host.frame('browser:s1', { documentId: 'p1:1', geometry, mimeType: 'image/jpeg', data: 'AA' });
   const frame = commands.find((command) => command.type === 'frame');
   emit({ type: 'frame-done', sourceKey: 'browser:s1', frameId: frame.frameId, ok: true });
-  await host.signal('c1', { ...ref, type: 'media-ready', documentId: 'p1:1', geometryGeneration: 1, pixelWidth: 400, pixelHeight: 300 });
+  await host.signal('c1', {
+    ...ref,
+    type: 'media-ready',
+    documentId: 'p1:1',
+    geometryGeneration: 1,
+    pixelWidth: 400,
+    pixelHeight: 300,
+  });
   const promote = signals.find((signal) => signal.type === 'promote');
   await host.signal('c1', { ...ref, type: 'promote-ack', inputEpoch: promote.inputEpoch });
 
@@ -88,12 +106,23 @@ test('the promoted and stats diagnostics record the path the selected candidate 
   const offer = signals.find((signal) => signal.type === 'offer');
   const ref = { v: REMOTE_WEBRTC_VERSION, source, connectionId: offer.connectionId, generation: offer.generation };
   await host.signal('c1', { ...ref, type: 'answer', sdp: SDP, fingerprints: [{ algorithm: 'sha-256', value: HEX }] });
-  emit({ type: 'connected', connectionId: open.connectionId, remoteCertificate: { fingerprint: HEX, fingerprintAlgorithm: 'sha-256' } });
+  emit({
+    type: 'connected',
+    connectionId: open.connectionId,
+    remoteCertificate: { fingerprint: HEX, fingerprintAlgorithm: 'sha-256' },
+  });
   await host.signal('c1', { v: REMOTE_WEBRTC_VERSION, source, type: 'geometry-ack', geometryGeneration: 1 });
   host.frame('browser:s1', { documentId: 'p1:1', geometry, mimeType: 'image/jpeg', data: 'AA' });
   const frame = commands.find((command) => command.type === 'frame');
   emit({ type: 'frame-done', sourceKey: 'browser:s1', frameId: frame.frameId, ok: true });
-  await host.signal('c1', { ...ref, type: 'media-ready', documentId: 'p1:1', geometryGeneration: 1, pixelWidth: 400, pixelHeight: 300 });
+  await host.signal('c1', {
+    ...ref,
+    type: 'media-ready',
+    documentId: 'p1:1',
+    geometryGeneration: 1,
+    pixelWidth: 400,
+    pixelHeight: 300,
+  });
   const promote = signals.find((signal) => signal.type === 'promote');
   await host.signal('c1', { ...ref, type: 'promote-ack', inputEpoch: promote.inputEpoch });
   const answerStats = (candidatePair) => {
@@ -102,7 +131,16 @@ test('the promoted and stats diagnostics record the path the selected candidate 
       type: 'stats',
       connectionId: open.connectionId,
       requestId: request.requestId,
-      stats: { connectionId: open.connectionId, generation: 0, at: 1, framesEncoded: 1, framesSent: 1, totalEncodeTimeMs: 1, bytesSent: 1, candidatePair },
+      stats: {
+        connectionId: open.connectionId,
+        generation: 0,
+        at: 1,
+        framesEncoded: 1,
+        framesSent: 1,
+        totalEncodeTimeMs: 1,
+        bytesSent: 1,
+        candidatePair,
+      },
     });
   };
   answerStats({ localType: 'srflx', remoteType: 'host', protocol: 'udp' });
@@ -114,7 +152,15 @@ test('the promoted and stats diagnostics record the path the selected candidate 
   const channelStats = JSON.stringify({
     v: REMOTE_WEBRTC_VERSION,
     kind: 'stats',
-    stats: { connectionId: open.connectionId, generation: offer.generation, at: 2, framesReceived: 1, framesDecoded: 1, framesDropped: 0, totalDecodeTimeMs: 1 },
+    stats: {
+      connectionId: open.connectionId,
+      generation: offer.generation,
+      at: 2,
+      framesReceived: 1,
+      framesDecoded: 1,
+      framesDropped: 0,
+      totalDecodeTimeMs: 1,
+    },
   });
   emit({ type: 'channel', connectionId: open.connectionId, text: channelStats, receivedAt: 2 });
   answerStats({ localType: 'relay', remoteType: 'srflx', protocol: 'udp', relayProtocol: 'udp' });
@@ -147,9 +193,15 @@ test('a captured source switches to a drawn track for raw pictures and back, and
   await host.signal('c1', { v: REMOTE_WEBRTC_VERSION, source: screen, type: 'geometry-ack', geometryGeneration: 1 });
   host.drawnTrack('screen:1', true);
   assert.deepEqual(of('source-draw'), [], 'nothing to switch before a connection');
-  await host.signal('c1', { v: REMOTE_WEBRTC_VERSION, source: screen, type: 'ready', receiveCodecs: ['video/VP8'] }, TURN);
+  await host.signal(
+    'c1',
+    { v: REMOTE_WEBRTC_VERSION, source: screen, type: 'ready', receiveCodecs: ['video/VP8'] },
+    TURN
+  );
   assert.deepEqual(
-    commands.filter((command) => command.type === 'source-draw' || command.type === 'open').map((command) => command.type),
+    commands
+      .filter((command) => command.type === 'source-draw' || command.type === 'open')
+      .map((command) => command.type),
     ['source-draw', 'open']
   );
   assert.deepEqual(of('source-capture'), [], 'no capture replaces the drawn track');
@@ -251,7 +303,14 @@ test('a ready that widens the video limit mid-negotiation offers only the reconc
   const commands = [];
   const signals = [];
   let emit = () => {};
-  const widened = { generation: 2, cssWidth: 400, cssHeight: 300, deviceScaleFactor: 2.5, pixelWidth: 1000, pixelHeight: 750 };
+  const widened = {
+    generation: 2,
+    cssWidth: 400,
+    cssHeight: 300,
+    deviceScaleFactor: 2.5,
+    pixelWidth: 1000,
+    pixelHeight: 750,
+  };
   const page = { documentId: 'p1:1', geometry };
   const limits = [];
   const host = createRemoteWebrtcHost({
@@ -315,7 +374,10 @@ test('a ready that widens the video limit mid-negotiation offers only the reconc
   assert.equal(offers().length, 2);
   assert.deepEqual(offers()[1].geometry, widened);
   assert.equal(offers()[1].connectionId, second.connectionId);
-  assert.ok(offers().every((offer) => offer.geometry), 'no offer without a geometry');
+  assert.ok(
+    offers().every((offer) => offer.geometry),
+    'no offer without a geometry'
+  );
   const geometrySignals = signals.filter((signal) => signal.type === 'geometry');
   assert.deepEqual(geometrySignals.at(-1).geometry, widened, 'the phone hears the widened geometry before the offer');
 });

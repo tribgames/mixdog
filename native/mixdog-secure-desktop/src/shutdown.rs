@@ -90,13 +90,13 @@ use std::time::{Duration, Instant};
 
 use windows::core::PCWSTR;
 use windows::Win32::Foundation::{
-    DuplicateHandle, GetLastError, DUPLICATE_HANDLE_OPTIONS, E_ACCESSDENIED, ERROR_ALREADY_EXISTS, HANDLE,
-    WAIT_OBJECT_0,
+    DuplicateHandle, GetLastError, DUPLICATE_HANDLE_OPTIONS, ERROR_ALREADY_EXISTS, E_ACCESSDENIED,
+    HANDLE, WAIT_OBJECT_0,
 };
 use windows::Win32::System::Threading::{
     CreateEventW, GetCurrentProcess, GetCurrentProcessId, GetProcessId, OpenEventW, SetEvent,
-    WaitForMultipleObjects, WaitForSingleObject, EVENT_MODIFY_STATE, INFINITE, PROCESS_QUERY_LIMITED_INFORMATION,
-    PROCESS_SYNCHRONIZE, SYNCHRONIZATION_SYNCHRONIZE,
+    WaitForMultipleObjects, WaitForSingleObject, EVENT_MODIFY_STATE, INFINITE,
+    PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, SYNCHRONIZATION_SYNCHRONIZE,
 };
 
 use crate::launch::BootstrapJob;
@@ -189,7 +189,12 @@ pub fn decode_parent(record: &[u8]) -> Option<(u64, u32)> {
 }
 
 /// Map `bytes` of `section` with `access` and run `f` on the view.
-fn with_view<R>(section: HANDLE, access: u32, bytes: usize, f: impl FnOnce(*mut u8) -> R) -> windows::core::Result<R> {
+fn with_view<R>(
+    section: HANDLE,
+    access: u32,
+    bytes: usize,
+    f: impl FnOnce(*mut u8) -> R,
+) -> windows::core::Result<R> {
     let view = unsafe { mapping::MapViewOfFile(section.0, access, 0, 0, bytes) };
     if view.is_null() {
         return Err(windows::core::Error::from_thread());
@@ -217,7 +222,9 @@ pub fn duplicate_parent(helper: HANDLE) -> windows::core::Result<[u8; PARENT_REC
             DUPLICATE_HANDLE_OPTIONS(0),
         )?;
     }
-    Ok(encode_parent(target.0 as usize as u64, unsafe { GetCurrentProcessId() }))
+    Ok(encode_parent(target.0 as usize as u64, unsafe {
+        GetCurrentProcessId()
+    }))
 }
 
 /// Accept `handle` (a value in this process) as the launching service's
@@ -228,10 +235,16 @@ pub fn launching_service(handle: u64, pid: u32) -> windows::core::Result<OwnedHa
     let raw = HANDLE(handle as usize as *mut core::ffi::c_void);
     let actual = unsafe { GetProcessId(raw) };
     if actual == 0 {
-        return Err(windows::core::Error::new(E_ACCESSDENIED, "the parent handle is not a queryable process handle"));
+        return Err(windows::core::Error::new(
+            E_ACCESSDENIED,
+            "the parent handle is not a queryable process handle",
+        ));
     }
     if actual != pid {
-        return Err(windows::core::Error::new(E_ACCESSDENIED, "the parent handle names another process"));
+        return Err(windows::core::Error::new(
+            E_ACCESSDENIED,
+            "the parent handle names another process",
+        ));
     }
     OwnedHandle::new(raw).ok_or_else(windows::core::Error::from_thread)
 }
@@ -252,7 +265,10 @@ pub struct ServiceEnd {
 /// The service runs in session 0, so creating it in the global namespace
 /// needs no `SeCreateGlobalPrivilege`
 /// (https://learn.microsoft.com/windows/win32/api/winbase/nf-winbase-createfilemappingw).
-fn create_section(name: &str, descriptor: &SecurityDescriptor) -> windows::core::Result<OwnedHandle> {
+fn create_section(
+    name: &str,
+    descriptor: &SecurityDescriptor,
+) -> windows::core::Result<OwnedHandle> {
     let attributes = descriptor.attributes();
     let wname = wide(name);
     let invalid = -1isize as *mut core::ffi::c_void; // INVALID_HANDLE_VALUE: backed by the paging file
@@ -288,11 +304,21 @@ fn read_parent(token: &str) -> windows::core::Result<[u8; PARENT_RECORD_BYTES]> 
 
 /// Create one fresh, SYSTEM-only named event, refusing a name that already
 /// exists (an existing object could have been created by someone else).
-fn create_event(name: &str, descriptor: &SecurityDescriptor, manual_reset: bool) -> windows::core::Result<OwnedHandle> {
+fn create_event(
+    name: &str,
+    descriptor: &SecurityDescriptor,
+    manual_reset: bool,
+) -> windows::core::Result<OwnedHandle> {
     let attributes = descriptor.attributes();
     let wname = wide(name);
-    let handle =
-        unsafe { CreateEventW(Some(&attributes as *const _), manual_reset, false, PCWSTR(wname.as_ptr())) }?;
+    let handle = unsafe {
+        CreateEventW(
+            Some(&attributes as *const _),
+            manual_reset,
+            false,
+            PCWSTR(wname.as_ptr()),
+        )
+    }?;
     let already_existed = unsafe { GetLastError() } == ERROR_ALREADY_EXISTS;
     let owned = OwnedHandle::new(handle).ok_or_else(windows::core::Error::from_thread)?;
     if already_existed {
@@ -329,7 +355,10 @@ impl ServiceEnd {
     /// once — it has confirmed its parent watch
     /// ([`release_after_confirmation`]). Returns the job, still armed, when the
     /// confirmation has not arrived.
-    pub fn release_bootstrap(&self, job: BootstrapJob) -> windows::core::Result<Option<BootstrapJob>> {
+    pub fn release_bootstrap(
+        &self,
+        job: BootstrapJob,
+    ) -> windows::core::Result<Option<BootstrapJob>> {
         release_after_confirmation(self.armed.get(), self.released.get(), job)
     }
 
@@ -338,9 +367,14 @@ impl ServiceEnd {
     /// between the suspended creation and `ResumeThread`.
     pub fn hand_over_parent(&self, helper: HANDLE) -> windows::core::Result<()> {
         let record = duplicate_parent(helper)?;
-        with_view(self.parent.get(), FILE_MAP_WRITE, PARENT_RECORD_BYTES, |view| unsafe {
-            std::ptr::copy_nonoverlapping(record.as_ptr(), view, PARENT_RECORD_BYTES)
-        })
+        with_view(
+            self.parent.get(),
+            FILE_MAP_WRITE,
+            PARENT_RECORD_BYTES,
+            |view| unsafe {
+                std::ptr::copy_nonoverlapping(record.as_ptr(), view, PARENT_RECORD_BYTES)
+            },
+        )
     }
 
     /// Tell the helper its session was locked or unlocked.
@@ -418,8 +452,9 @@ impl HelperEnd {
     /// process (its value read from the parent section) for the parent watch.
     pub fn open(token: &str) -> windows::core::Result<Self> {
         let record = read_parent(token)?;
-        let (handle, pid) = decode_parent(&record)
-            .ok_or_else(|| windows::core::Error::new(E_ACCESSDENIED, "the parent section was never written"))?;
+        let (handle, pid) = decode_parent(&record).ok_or_else(|| {
+            windows::core::Error::new(E_ACCESSDENIED, "the parent section was never written")
+        })?;
         let (stop, ack) = shutdown_event_names(token);
         let open = |name: &str, access| -> windows::core::Result<OwnedHandle> {
             let wname = wide(name);
@@ -505,9 +540,17 @@ mod tests {
     fn the_parent_record_round_trips_and_an_unwritten_or_short_one_is_refused() {
         let record = encode_parent(0x1a4, 4242);
         assert_eq!(decode_parent(&record), Some((0x1a4, 4242)));
-        assert_eq!(decode_parent(&[0u8; PARENT_RECORD_BYTES]), None, "an unwritten section");
+        assert_eq!(
+            decode_parent(&[0u8; PARENT_RECORD_BYTES]),
+            None,
+            "an unwritten section"
+        );
         assert_eq!(decode_parent(&encode_parent(0, 4242)), None, "no handle");
-        assert_eq!(decode_parent(&encode_parent(0x1a4, 0)), None, "no process id");
+        assert_eq!(
+            decode_parent(&encode_parent(0x1a4, 0)),
+            None,
+            "no process id"
+        );
         assert_eq!(decode_parent(&record[..11]), None, "short");
     }
 
@@ -515,8 +558,16 @@ mod tests {
     fn own_process_handle(access: u32) -> HANDLE {
         let mut target = HANDLE::default();
         unsafe {
-            DuplicateHandle(GetCurrentProcess(), GetCurrentProcess(), GetCurrentProcess(), &mut target, access, false, DUPLICATE_HANDLE_OPTIONS(0))
-                .unwrap();
+            DuplicateHandle(
+                GetCurrentProcess(),
+                GetCurrentProcess(),
+                GetCurrentProcess(),
+                &mut target,
+                access,
+                false,
+                DUPLICATE_HANDLE_OPTIONS(0),
+            )
+            .unwrap();
         }
         target
     }
@@ -529,37 +580,57 @@ mod tests {
         assert_eq!(pid, unsafe { GetCurrentProcessId() });
         let service = launching_service(handle, pid).unwrap();
         // A live process is not signalled.
-        assert_ne!(unsafe { WaitForSingleObject(service.get(), 0) }, WAIT_OBJECT_0);
+        assert_ne!(
+            unsafe { WaitForSingleObject(service.get(), 0) },
+            WAIT_OBJECT_0
+        );
     }
 
     fn unnamed_event() -> OwnedHandle {
-        OwnedHandle::new(unsafe { CreateEventW(None, true, false, PCWSTR::null()) }.unwrap()).unwrap()
+        OwnedHandle::new(unsafe { CreateEventW(None, true, false, PCWSTR::null()) }.unwrap())
+            .unwrap()
     }
 
     #[test]
     fn the_bootstrap_job_is_disarmed_only_after_the_helper_confirms_its_parent_watch() {
         let (armed, released) = (unnamed_event(), unnamed_event());
-        let (process, job) = crate::launch::start_stand_in(BootstrapJob::new().unwrap(), |_| Ok(())).unwrap();
+        let (process, job) =
+            crate::launch::start_stand_in(BootstrapJob::new().unwrap(), |_| Ok(())).unwrap();
 
         // No confirmation yet: the job comes back still armed, and the helper
         // is not released.
-        let job = release_after_confirmation(armed.get(), released.get(), job).unwrap().expect("not confirmed");
+        let job = release_after_confirmation(armed.get(), released.get(), job)
+            .unwrap()
+            .expect("not confirmed");
         assert!(job.kills_on_close().unwrap());
-        assert_ne!(unsafe { WaitForSingleObject(released.get(), 0) }, WAIT_OBJECT_0);
+        assert_ne!(
+            unsafe { WaitForSingleObject(released.get(), 0) },
+            WAIT_OBJECT_0
+        );
 
         // The helper confirms: the job is disarmed (and its handle closed),
         // then the helper is released.
         unsafe { SetEvent(armed.get()) }.unwrap();
-        assert!(release_after_confirmation(armed.get(), released.get(), job).unwrap().is_none());
-        assert_eq!(unsafe { WaitForSingleObject(released.get(), 0) }, WAIT_OBJECT_0);
+        assert!(release_after_confirmation(armed.get(), released.get(), job)
+            .unwrap()
+            .is_none());
+        assert_eq!(
+            unsafe { WaitForSingleObject(released.get(), 0) },
+            WAIT_OBJECT_0
+        );
 
         // Closing the disarmed job did not end the process: the test's own
         // termination code is the one it exits with.
         const OURS: u32 = 0x5EC;
-        unsafe { windows::Win32::System::Threading::TerminateProcess(process.get(), OURS) }.unwrap();
-        assert_eq!(unsafe { WaitForSingleObject(process.get(), INFINITE) }, WAIT_OBJECT_0);
+        unsafe { windows::Win32::System::Threading::TerminateProcess(process.get(), OURS) }
+            .unwrap();
+        assert_eq!(
+            unsafe { WaitForSingleObject(process.get(), INFINITE) },
+            WAIT_OBJECT_0
+        );
         let mut code = 0u32;
-        unsafe { windows::Win32::System::Threading::GetExitCodeProcess(process.get(), &mut code) }.unwrap();
+        unsafe { windows::Win32::System::Threading::GetExitCodeProcess(process.get(), &mut code) }
+            .unwrap();
         assert_eq!(code, OURS);
     }
 
@@ -567,16 +638,27 @@ mod tests {
     fn a_value_that_is_not_the_recorded_process_handle_is_refused() {
         let own = unsafe { GetCurrentProcessId() };
         // An event, not a process.
-        let event = OwnedHandle::new(unsafe { CreateEventW(None, true, false, PCWSTR::null()) }.unwrap()).unwrap();
+        let event =
+            OwnedHandle::new(unsafe { CreateEventW(None, true, false, PCWSTR::null()) }.unwrap())
+                .unwrap();
         assert!(launching_service(event.get().0 as usize as u64, own).is_err());
         // A process handle, but to a process other than the recorded one.
-        let process = OwnedHandle::new(own_process_handle((PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION).0)).unwrap();
+        let process = OwnedHandle::new(own_process_handle(
+            (PROCESS_SYNCHRONIZE | PROCESS_QUERY_LIMITED_INFORMATION).0,
+        ))
+        .unwrap();
         assert!(launching_service(process.get().0 as usize as u64, own.wrapping_add(4)).is_err());
         // A process handle without the query right cannot prove which process it is.
         let bare = OwnedHandle::new(own_process_handle(PROCESS_SYNCHRONIZE.0)).unwrap();
         assert!(launching_service(bare.get().0 as usize as u64, own).is_err());
         // Refusals did not close the handles they were shown.
-        assert_ne!(unsafe { WaitForSingleObject(process.get(), 0) }, windows::Win32::Foundation::WAIT_FAILED);
-        assert_ne!(unsafe { WaitForSingleObject(event.get(), 0) }, windows::Win32::Foundation::WAIT_FAILED);
+        assert_ne!(
+            unsafe { WaitForSingleObject(process.get(), 0) },
+            windows::Win32::Foundation::WAIT_FAILED
+        );
+        assert_ne!(
+            unsafe { WaitForSingleObject(event.get(), 0) },
+            windows::Win32::Foundation::WAIT_FAILED
+        );
     }
 }

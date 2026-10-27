@@ -35,7 +35,13 @@ test('a credential is "<expiry>:<id>" valid for one day by default and verifies 
   assert.equal(issued.username, `${issued.expiresAt}:device1`);
   assert.equal(issued.credential, turnPassword(SECRET, issued.username));
   const check = (nowMs, overrides = {}) =>
-    verifyTurnCredential({ secret: SECRET, username: issued.username, credential: issued.credential, nowMs, ...overrides });
+    verifyTurnCredential({
+      secret: SECRET,
+      username: issued.username,
+      credential: issued.credential,
+      nowMs,
+      ...overrides,
+    });
   assert.equal(check(NOW), true);
   assert.equal(check(NOW + 86_399_000), true);
   // From the expiry second on, coturn must refuse it.
@@ -67,7 +73,12 @@ test('a credential cannot be forged, altered, extended or used with another secr
   assert.equal(verify({ username: `${issued.expiresAt + 3600}:device1`, credential: issued.credential }), false);
   assert.equal(verify({ username: `${issued.expiresAt}:device2`, credential: issued.credential }), false);
   assert.equal(
-    verifyTurnCredential({ secret: 'b'.repeat(64), nowMs: NOW, username: issued.username, credential: issued.credential }),
+    verifyTurnCredential({
+      secret: 'b'.repeat(64),
+      nowMs: NOW,
+      username: issued.username,
+      credential: issued.credential,
+    }),
     false
   );
   for (const username of ['', 'device1', 'x:device1', `${issued.expiresAt}:`, null, undefined, 7]) {
@@ -94,7 +105,13 @@ test('settings come from the deploy environment and fail closed', () => {
   assert.equal(turnConfigFromEnv(undefined), null);
   const config = turnConfigFromEnv(ENV);
   assert.deepEqual(
-    { host: config.host, port: config.port, tlsPort: config.tlsPort, ttlSeconds: config.ttlSeconds, issueLimit: config.issueLimit },
+    {
+      host: config.host,
+      port: config.port,
+      tlsPort: config.tlsPort,
+      ttlSeconds: config.ttlSeconds,
+      issueLimit: config.issueLimit,
+    },
     { host: 'relay.example.com', port: TURN_DEFAULT_PORT, tlsPort: 0, ttlSeconds: 86_400, issueLimit: 4 }
   );
   assert.equal(TURN_DEFAULT_PORT, 3478);

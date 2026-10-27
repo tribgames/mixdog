@@ -1179,7 +1179,8 @@ export async function saveCustomProvider(cfgMod, rawInput) {
 export async function saveCustomProviderKey(cfgMod, rawId, rawKey) {
   requireLocalProviderManagement();
   const id = String(rawId || '').trim();
-  if (typeof rawKey !== 'string' || rawKey.length > CUSTOM_API_KEY_MAX) throw new TypeError('custom provider apiKey is invalid');
+  if (typeof rawKey !== 'string' || rawKey.length > CUSTOM_API_KEY_MAX)
+    throw new TypeError('custom provider apiKey is invalid');
   const key = rawKey.trim();
   if (!key) throw new Error('API key is required');
   const takesStoredKey = () => {

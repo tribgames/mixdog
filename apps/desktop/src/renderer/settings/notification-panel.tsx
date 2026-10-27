@@ -24,11 +24,7 @@ import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { subscribeSetupChanges } from '../setup-change-refresh';
 import { ActionButton, Group, SelectRow, ToggleRow } from './capability-controls';
 import { getCachedDesktopStatus, readDesktopStatus, storeDesktopStatus } from './desktop-status-cache';
-import {
-  quietTimeLabel,
-  scopeLabel,
-  useNotificationPreferences,
-} from './notification-state';
+import { quietTimeLabel, scopeLabel, useNotificationPreferences } from './notification-state';
 import { DevicePushRegistration } from './push-notification-toggle';
 import type { SettingsCategory } from './settings-items';
 
@@ -460,8 +456,7 @@ export function NotificationsPanel({
   if (!state) return notices;
   const usable = (id: string | null) =>
     state.devices.find((device) => device.id === id && (device.canNotify || id === state.currentDeviceId));
-  const selected =
-    usable(picked) ?? usable(state.currentDeviceId) ?? state.devices.find((device) => device.canNotify);
+  const selected = usable(picked) ?? usable(state.currentDeviceId) ?? state.devices.find((device) => device.canNotify);
   const prefs = selected && state.preferences[selected.id];
   if (!selected || !prefs) return notices;
   return (

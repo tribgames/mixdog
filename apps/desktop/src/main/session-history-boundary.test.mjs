@@ -91,7 +91,9 @@ function storeSession(sessionId, { messages, segments = [], archive = null }) {
 const sentMessage = (text, buffer) => ({
   role: 'user',
   content: text,
-  meta: { transcript: { messageId: `msg_${sha(Buffer.from(text)).slice(0, 8)}`, attachments: [record(buffer, 'image.png')] } },
+  meta: {
+    transcript: { messageId: `msg_${sha(Buffer.from(text)).slice(0, 8)}`, attachments: [record(buffer, 'image.png')] },
+  },
 });
 
 // s1: segment 1 was cleared (hidden), 2 is visible; segment 0 was dropped by the cap
@@ -185,10 +187,15 @@ test('no channel of the renderer, the paired phone or the service reaches the hi
     invokeDesktopOperation: async () => null,
   });
   assert.equal(
-    [...Object.keys(DESKTOP_IPC), ...Object.values(DESKTOP_IPC)].some((name) => /SessionHistory|session-history/i.test(name)),
+    [...Object.keys(DESKTOP_IPC), ...Object.values(DESKTOP_IPC)].some((name) =>
+      /SessionHistory|session-history/i.test(name)
+    ),
     false
   );
-  assert.equal([...handlers.keys()].some((channel) => /history/i.test(String(channel))), false);
+  assert.equal(
+    [...handlers.keys()].some((channel) => /history/i.test(String(channel))),
+    false
+  );
 });
 
 /** Source files of the app, tests excluded. */

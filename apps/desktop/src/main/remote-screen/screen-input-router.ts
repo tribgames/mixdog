@@ -76,8 +76,7 @@ const sameDesktopIdentity = (a: ScreenDesktopIdentity | null, b: ScreenDesktopId
   a !== null && b !== null && a.session === b.session && a.desktop === b.desktop;
 
 /** A held press's map key within its backend: origin plus key/button. */
-const heldKey = (origin: ScreenDesktopIdentity, hold: string): string =>
-  `${origin.session}|${origin.desktop}|${hold}`;
+const heldKey = (origin: ScreenDesktopIdentity, hold: string): string => `${origin.session}|${origin.desktop}|${hold}`;
 
 /** How a text command is typed given the modifiers this backend holds:
  *  `plain` (none held), `altgr` (only AltGr held, on the current desktop:

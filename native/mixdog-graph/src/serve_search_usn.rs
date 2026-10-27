@@ -66,7 +66,8 @@ mod platform {
             // An Instant that cannot step back a second falls back to itself.
             assert!(now.checked_sub(Duration::from_secs(u64::MAX / 4)).is_none());
             assert_eq!(
-                now.checked_sub(Duration::from_secs(u64::MAX / 4)).unwrap_or(now),
+                now.checked_sub(Duration::from_secs(u64::MAX / 4))
+                    .unwrap_or(now),
                 now
             );
         }

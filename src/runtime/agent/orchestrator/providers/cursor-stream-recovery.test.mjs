@@ -66,7 +66,8 @@ function endStreamError(error, metadata) {
 // A stream whose restarts are recorded; sleeps are captured, not awaited.
 // `sleep` overrides the recording stub; `read:false` leaves the body unread so
 // a test can cancel it.
-function retryHarness({ conversation = { checkpoint: null }, key, sleep = null, read = true }) {  const bridges = [fakeBridge()];
+function retryHarness({ conversation = { checkpoint: null }, key, sleep = null, read = true }) {
+  const bridges = [fakeBridge()];
   const delays = [];
   const stages = [];
   const restarts = [];
@@ -127,10 +128,19 @@ test('Cursor resource_exhausted is request_too_large only on explicit catalog/pa
   assert.equal(tooLarge.code, 'request_too_large');
   assert.equal(tooLarge.status, 413);
   assert.match(tooLarge.message, /tool catalog is too large/);
-  assert.equal(endStreamError({ code: 'resource_exhausted', message: 'request payload exceeds the size limit' }).code, 'request_too_large');
+  assert.equal(
+    endStreamError({ code: 'resource_exhausted', message: 'request payload exceeds the size limit' }).code,
+    'request_too_large'
+  );
   // No wording, no reclassification: a plain throttle stays a throttle.
-  assert.equal(endStreamError({ code: 'resource_exhausted', message: 'Too many requests, slow down' }).code, 'resource_exhausted');
-  assert.equal(endStreamError({ code: 'resource_exhausted', message: 'rate limit exceeded' }).code, 'resource_exhausted');
+  assert.equal(
+    endStreamError({ code: 'resource_exhausted', message: 'Too many requests, slow down' }).code,
+    'resource_exhausted'
+  );
+  assert.equal(
+    endStreamError({ code: 'resource_exhausted', message: 'rate limit exceeded' }).code,
+    'resource_exhausted'
+  );
   assert.equal(endStreamError({ code: 'internal', message: 'tool catalog is too large' }).code, 'internal');
 });
 
@@ -146,7 +156,10 @@ test('Cursor rate/quota wording on resource_exhausted stays a throttle even when
     assert.equal(error.status, 429, message);
   }
   // Explicit size wording without a rate cue is still terminal.
-  assert.equal(endStreamError({ code: 'resource_exhausted', message: 'request payload exceeds the size limit' }).code, 'request_too_large');
+  assert.equal(
+    endStreamError({ code: 'resource_exhausted', message: 'request payload exceeds the size limit' }).code,
+    'request_too_large'
+  );
 });
 
 test('Cursor providers disable the outer recovery cycles', async () => {
@@ -182,21 +195,51 @@ test('Cursor treats the shared transient errno set as retryable', () => {
 });
 
 test('Cursor stream retry is limited to an explicit transient set', () => {
-  const transient = ['unavailable', 'internal', 'deadline_exceeded', 'incomplete_stream', 'goaway', 'stream_aborted', 'ECONNRESET'];
-  for (const code of transient) assert.equal(isRetryableCursorStreamError(Object.assign(new Error('x'), { code })), true, code);
-  const deterministic = ['protocol_error', 'failed_precondition', 'invalid_argument', 'unauthenticated', 'request_too_large', 'resource_exhausted', 'unknown'];
-  for (const code of deterministic) assert.equal(isRetryableCursorStreamError(Object.assign(new Error('x'), { code })), false, code);
+  const transient = [
+    'unavailable',
+    'internal',
+    'deadline_exceeded',
+    'incomplete_stream',
+    'goaway',
+    'stream_aborted',
+    'ECONNRESET',
+  ];
+  for (const code of transient)
+    assert.equal(isRetryableCursorStreamError(Object.assign(new Error('x'), { code })), true, code);
+  const deterministic = [
+    'protocol_error',
+    'failed_precondition',
+    'invalid_argument',
+    'unauthenticated',
+    'request_too_large',
+    'resource_exhausted',
+    'unknown',
+  ];
+  for (const code of deterministic)
+    assert.equal(isRetryableCursorStreamError(Object.assign(new Error('x'), { code })), false, code);
   // The former blanket status-0 retry is gone.
   assert.equal(isRetryableCursorStreamError(new Error('decoder blew up')), false);
   assert.equal(isRetryableCursorStreamError(Object.assign(new Error('x'), { status: 502 })), false);
-  assert.equal(isRetryableCursorStreamError(Object.assign(new Error('x'), { name: 'AbortError', code: 'unavailable' })), false);
+  assert.equal(
+    isRetryableCursorStreamError(Object.assign(new Error('x'), { name: 'AbortError', code: 'unavailable' })),
+    false
+  );
 });
 
 test('Cursor separates incomplete framing from deterministic protocol errors', () => {
-  const truncated = __cursorWireInternals.createFrameParser(() => {}, () => {});
+  const truncated = __cursorWireInternals.createFrameParser(
+    () => {},
+    () => {}
+  );
   truncated(Buffer.from([0, 0, 0, 0, 9, 1]));
-  assert.throws(() => truncated.finish(), (error) => error.code === 'incomplete_stream' && isRetryableCursorStreamError(error));
-  const compressed = __cursorWireInternals.createFrameParser(() => {}, () => {});
+  assert.throws(
+    () => truncated.finish(),
+    (error) => error.code === 'incomplete_stream' && isRetryableCursorStreamError(error)
+  );
+  const compressed = __cursorWireInternals.createFrameParser(
+    () => {},
+    () => {}
+  );
   assert.throws(
     () => compressed(__cursorWireInternals.connectFrame(Buffer.from('x'), 1)),
     (error) => error.code === 'protocol_error' && !isRetryableCursorStreamError(error)
@@ -256,7 +299,9 @@ test('Cursor waits out the full Retry-After advice and reports the wait through 
   assert.equal(long.stages.at(-1).stage, 'streaming');
   // The budget stays bounded: a throttle past maxThrottleRetries fails with the advice attached.
   for (let attempt = 1; attempt < tuning.maxThrottleRetries; attempt += 1) {
-    long.bridges[attempt].close(endStreamError({ code: 'resource_exhausted', message: 'slow down' }, { 'retry-after': '600' }));
+    long.bridges[attempt].close(
+      endStreamError({ code: 'resource_exhausted', message: 'slow down' }, { 'retry-after': '600' })
+    );
     await tick();
   }
   long.bridges[tuning.maxThrottleRetries].close(
@@ -283,7 +328,9 @@ test('Cursor idle watchdog does not run during an intentional Retry-After wait',
       return new Promise((resolve) => setTimeout(resolve, ms));
     },
   });
-  harness.bridges[0].close(endStreamError({ code: 'resource_exhausted', message: 'slow down' }, { 'retry-after': '600' }));
+  harness.bridges[0].close(
+    endStreamError({ code: 'resource_exhausted', message: 'slow down' }, { 'retry-after': '600' })
+  );
   assert.deepEqual(delays, [600_000]);
 
   // Past the 180s idle deadline, still inside the advised wait: the stream is
@@ -328,7 +375,9 @@ test('Cursor cancels a pending throttle wait through the abort signal', async ()
       return new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
     },
   });
-  harness.bridges[0].close(endStreamError({ code: 'resource_exhausted', message: 'slow down' }, { 'retry-after': '600' }));
+  harness.bridges[0].close(
+    endStreamError({ code: 'resource_exhausted', message: 'slow down' }, { 'retry-after': '600' })
+  );
   await tick();
   assert.equal(waitSignal.aborted, false);
   await harness.response.body.cancel();
@@ -358,7 +407,12 @@ test('Cursor does not retry a transient code whose detail names a protocol misma
   const internal = (message) => endStreamError({ code: 'internal', message });
   assert.equal(isRetryableCursorStreamError(internal('')), true, 'empty internal stays retriable');
   assert.equal(isRetryableCursorStreamError(internal('request failed')), true);
-  for (const detail of ['protobuf decode failed', 'wire drift detected', 'invalid argument: field 3', 'protocol violation']) {
+  for (const detail of [
+    'protobuf decode failed',
+    'wire drift detected',
+    'invalid argument: field 3',
+    'protocol violation',
+  ]) {
     const error = internal(detail);
     assert.equal(isCursorProtocolDrift(error), true, detail);
     assert.equal(isRetryableCursorStreamError(error), false, detail);
@@ -375,7 +429,10 @@ test('Cursor final failures carry user guidance once and keep the Cursor detail'
   const drift = withCursorFailureHint(endStreamError({ code: 'internal', message: 'protobuf decode failed' }));
   assert.match(drift.message, /protobuf decode failed/);
   assert.match(drift.message, /wire protocol/);
-  assert.equal(withCursorFailureHint(endStreamError({ code: 'unavailable', message: 'busy' })).message, 'Cursor unavailable: busy');
+  assert.equal(
+    withCursorFailureHint(endStreamError({ code: 'unavailable', message: 'busy' })).message,
+    'Cursor unavailable: busy'
+  );
 
   const harness = retryHarness({ key: 'cursor-drift-final' });
   harness.bridges[0].close(endStreamError({ code: 'internal', message: 'protobuf decode failed' }));

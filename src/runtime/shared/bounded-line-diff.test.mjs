@@ -28,7 +28,8 @@ test('a spent budget gives one replacement hunk that applies exactly', () => {
   let seed = 7;
   const random = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) % 6;
   const text = (count) =>
-    Array.from({ length: count }, () => ['a', 'b', 'c', 'a\r', '', 'd'][random()]).join('\n') + (random() > 2 ? '\n' : '');
+    Array.from({ length: count }, () => ['a', 'b', 'c', 'a\r', '', 'd'][random()]).join('\n') +
+    (random() > 2 ? '\n' : '');
   const cases = [...pairs];
   for (let index = 0; index < 200; index += 1) cases.push([text(random() * 3), text(random() * 3)]);
   for (const [before, after] of cases) {

@@ -192,7 +192,12 @@ test('plain string content and reasoning_content parse and replay exactly as bef
   const result = await provider.send(
     [
       { role: 'user', content: 'q' },
-      { role: 'assistant', content: 'prev', reasoningContent: 'pr', providerMetadata: { openaiCompat: { reasoningField: 'reasoning' } } },
+      {
+        role: 'assistant',
+        content: 'prev',
+        reasoningContent: 'pr',
+        providerMetadata: { openaiCompat: { reasoningField: 'reasoning' } },
+      },
       { role: 'user', content: 'next' },
     ],
     'deepseek-v4-pro',
@@ -261,7 +266,10 @@ test('Mistral replays thinking as a leading chunk of the assistant content', () 
 
 test('Mistral streaming result records the chunk source for replay', async () => {
   const { provider } = mistral([
-    [delta({ content: [{ type: 'thinking', thinking: [{ type: 'text', text: 't' }] }] }), delta({ content: 'x' }, 'stop')],
+    [
+      delta({ content: [{ type: 'thinking', thinking: [{ type: 'text', text: 't' }] }] }),
+      delta({ content: 'x' }, 'stop'),
+    ],
   ]);
   const result = await provider.send(user, 'mistral-medium-3-5', [], {});
   assert.deepEqual(result.providerMetadata, { openaiCompat: { reasoningField: 'content_chunks' } });
@@ -273,9 +281,13 @@ test('Groq reads `reasoning` and never echoes it; vLLM reads and echoes `reasoni
   ]);
   const r = await groq.provider.send(user, 'openai/gpt-oss-20b', [], {});
   assert.equal(r.reasoningContent, 'g');
-  const out = toOpenAIMessages(history({ reasoningContent: 'g', providerMetadata: r.providerMetadata }), 'custom-groq', {
-    reasoningShape: shapeOf('https://api.groq.com/openai/v1'),
-  });
+  const out = toOpenAIMessages(
+    history({ reasoningContent: 'g', providerMetadata: r.providerMetadata }),
+    'custom-groq',
+    {
+      reasoningShape: shapeOf('https://api.groq.com/openai/v1'),
+    }
+  );
   assert.equal(Object.hasOwn(out[1], 'reasoning'), false);
   assert.equal(Object.hasOwn(out[1], 'reasoning_content'), false);
 
@@ -310,7 +322,10 @@ test('OpenRouter keeps text reasoning; reasoning_details replace it when present
 });
 
 test('developer role maps to system unless the endpoint documents it', () => {
-  const msgs = [{ role: 'developer', content: 'rules' }, { role: 'user', content: 'hi' }];
+  const msgs = [
+    { role: 'developer', content: 'rules' },
+    { role: 'user', content: 'hi' },
+  ];
   assert.equal(toOpenAIMessages(msgs, 'deepseek')[0].role, 'system');
   assert.equal(toOpenAIMessages(msgs, 'mimo-oauth', { developerRole: true })[0].role, 'developer');
 });

@@ -79,7 +79,13 @@ export function createRoomRecords(deps: Pick<AgentRoomDeps, 'store' | 'listAgent
       if (row) names.set(id, name);
       const rowDescription = row ? agentDescription(row) : '';
       const description = isLead ? "The user's main assistant." : rowDescription;
-      labels.set(id, { id, name, route: row?.route, description, ...(row?.disabled === true ? { disabled: true } : {}) });
+      labels.set(id, {
+        id,
+        name,
+        route: row?.route,
+        description,
+        ...(row?.disabled === true ? { disabled: true } : {}),
+      });
     }
     return labels;
   }

@@ -1040,7 +1040,9 @@ test('[powerpoint] persistent PowerPoint sessions create, save, and read Unicode
 // PowerPoint's InsertFromFile gives an imported slide the deck's own design and dropped the background the slide had:
 // the template's dark quote page arrived on the deck's light paper, its white words unreadable. The page keeps its
 // template background, as the portable import keeps it.
-test('[powerpoint] a template page keeps its own background on import', { skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1' }, async (t) => {
+test('[powerpoint] a template page keeps its own background on import', {
+  skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1',
+}, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
   t.after(async () => {
     resetOfficeSessionsForTest();
@@ -2320,7 +2322,9 @@ await pres.writeFile({ fileName: OUTPUT });
   value(await executeOfficeTool({ action: 'close', session: again.session }, { cwd }));
 });
 
-test('[word] move_paragraph moves the paragraph instead of deleting it', { skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1' }, async (t) => {
+test('[word] move_paragraph moves the paragraph instead of deleting it', {
+  skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1',
+}, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
   t.after(async () => {
     resetOfficeSessionsForTest();
@@ -2895,7 +2899,9 @@ test('[excel] an appended row is formatted as the last row is, as the portable w
   assert.deepEqual(await appended('portable'), excel);
 });
 
-test('[excel] a chart ended at toColumn reaches that column in the workbook font', { skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1' }, async (t) => {
+test('[excel] a chart ended at toColumn reaches that column in the workbook font', {
+  skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1',
+}, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
   const path = join(cwd, 'spanned.xlsx');
   t.after(async () => {
@@ -2950,7 +2956,9 @@ test('[excel] a chart ended at toColumn reaches that column in the workbook font
   assert.match(drawing, /<xdr:to><xdr:col>4<\/xdr:col><xdr:colOff>0<\/xdr:colOff>/);
 });
 
-test('[word] set_paragraph_text rewrites a table cell paragraph without adding one', { skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1' }, async (t) => {
+test('[word] set_paragraph_text rewrites a table cell paragraph without adding one', {
+  skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1',
+}, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
   t.after(async () => {
     resetOfficeSessionsForTest();
@@ -3152,7 +3160,9 @@ test('[word] a column inserted one past the last lands at the end, and one furth
   );
 });
 
-test('[word] a link or note placed by paragraph lands at the end of its text', { skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1' }, async (t) => {
+test('[word] a link or note placed by paragraph lands at the end of its text', {
+  skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1',
+}, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
   const path = join(cwd, 'placed.docx');
   t.after(async () => {
@@ -3526,7 +3536,9 @@ test('[excel] charts and pictures are reviewed against the print area and each o
   value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
 });
 
-test('[word] an edit of a table-of-contents entry says what to edit instead', { skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1' }, async (t) => {
+test('[word] an edit of a table-of-contents entry says what to edit instead', {
+  skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1',
+}, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
   t.after(async () => {
     resetOfficeSessionsForTest();
@@ -3777,7 +3789,9 @@ test('[word] a two-level header merges right to left and a shifted cell is expla
 
 // A Word chart is the picture the PDF chart block draws, placed as add_image places one, so Word holds the same
 // picture the portable writer does.
-test('[word] a chart lands as a picture that names its figures', { skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1' }, async (t) => {
+test('[word] a chart lands as a picture that names its figures', {
+  skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1',
+}, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
   t.after(async () => {
     resetOfficeSessionsForTest();
@@ -3817,7 +3831,9 @@ test('[word] a chart lands as a picture that names its figures', { skip: !enable
 
 // A provenance comment names its source in the language the source is named in, as the portable writer writes it:
 // Word's comment read "Source: 실적원장.xlsx#Raw!B8" beside the portable file's "출처: …".
-test('[word] a provenance comment cites its source in the copy language', { skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1' }, async (t) => {
+test('[word] a provenance comment cites its source in the copy language', {
+  skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1',
+}, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
   t.after(async () => {
     resetOfficeSessionsForTest();
@@ -3846,7 +3862,9 @@ test('[word] a provenance comment cites its source in the copy language', { skip
 
 // A display title's leading is held exactly when asked, as the portable writer sets it; without the rule it stays a
 // minimum.
-test('[word] a paragraph holds an exact line when asked and a minimum otherwise', { skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1' }, async (t) => {
+test('[word] a paragraph holds an exact line when asked and a minimum otherwise', {
+  skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1',
+}, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
   t.after(async () => {
     resetOfficeSessionsForTest();
@@ -3882,7 +3900,9 @@ test('[word] a paragraph holds an exact line when asked and a minimum otherwise'
 
 // A column of words that follows a column of figures takes room on its left, as the portable writer gives it: set
 // right, "96" ran into "내부 인력 4명" across the cells' own padding alone.
-test('[word] a column of words after a column of figures takes a gutter', { skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1' }, async (t) => {
+test('[word] a column of words after a column of figures takes a gutter', {
+  skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1',
+}, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
   t.after(async () => {
     resetOfficeSessionsForTest();
@@ -3991,7 +4011,9 @@ test('[excel] the snapshot names hidden rows and columns and reads formulas from
   value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
 });
 
-test('[excel] copy_sheet copies and insert_columns takes a column letter', { skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1' }, async (t) => {
+test('[excel] copy_sheet copies and insert_columns takes a column letter', {
+  skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1',
+}, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
   t.after(async () => {
     resetOfficeSessionsForTest();
@@ -4274,7 +4296,9 @@ test('[powerpoint] a large glyph its box holds is not an overflow; words past th
   value(await executeOfficeTool({ action: 'close', session: created.session }, { cwd }));
 });
 
-test('[powerpoint] qa repairs a box past the slide edge after fitting another', { skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1' }, async (t) => {
+test('[powerpoint] qa repairs a box past the slide edge after fitting another', {
+  skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1',
+}, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
   t.after(async () => {
     resetOfficeSessionsForTest();
@@ -4479,7 +4503,9 @@ test('[powerpoint] a footer and page number on a dark slide take the portable wr
   assert.match(number, /<a:off x="10185400"/, 'the number box ends 58 pt from the right edge');
 });
 
-test('[powerpoint] a cover picture is cropped about its focus, centred by default', { skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1' }, async (t) => {
+test('[powerpoint] a cover picture is cropped about its focus, centred by default', {
+  skip: !enabled && 'needs Windows with MIXDOG_TEST_LIVE_OFFICE=1',
+}, async (t) => {
   const cwd = await mkdtemp(join(tmpdir(), 'mixdog-office-live-'));
   const path = join(cwd, 'cover.pptx');
   t.after(async () => {

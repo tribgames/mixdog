@@ -35,8 +35,7 @@ const prompt = [{ role: 'user', content: 'hi' }];
 const tool = { name: 'read', description: 'read a file', inputSchema: { type: 'object', properties: {} } };
 
 const frame = (event) => `${event.type ? `event: ${event.type}\n` : ''}data: ${JSON.stringify(event)}\n\n`;
-const sse = (events) =>
-  new Response(events.map(frame).join(''), { headers: { 'content-type': 'text/event-stream' } });
+const sse = (events) => new Response(events.map(frame).join(''), { headers: { 'content-type': 'text/event-stream' } });
 
 function messagesStream(body) {
   return sse([
@@ -79,7 +78,9 @@ function responsesStream(body) {
 }
 
 function chatStream(body) {
-  return sse([{ id: 'c1', model: body.model, choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] }]);
+  return sse([
+    { id: 'c1', model: body.model, choices: [{ index: 0, delta: { content: 'ok' }, finish_reason: 'stop' }] },
+  ]);
 }
 
 function respond(request) {
@@ -134,15 +135,16 @@ test('Claude goes to OpenRouter Messages with the OpenRouter key alone and inclu
 
 test('the routing slug stays on the wire; capabilities come from the alias target', async () => {
   const { provider, requests } = harness();
-  provider.openai._enrichedModels = [
-    { id: '~anthropic/claude-opus-latest', aliasTarget: 'anthropic/claude-opus-5.5' },
-  ];
+  provider.openai._enrichedModels = [{ id: '~anthropic/claude-opus-latest', aliasTarget: 'anthropic/claude-opus-5.5' }];
   await provider.send(prompt, '~anthropic/claude-opus-latest', [tool], { effort: 'high' });
   assert.equal(requests[0].body.model, '~anthropic/claude-opus-latest');
   assert.equal(requests[0].body.thinking?.type, 'adaptive');
   assert.equal(requests[0].body.output_config?.effort, 'high');
   assert.equal(openRouterCapabilityModel('anthropic/claude-haiku-4.5:batch'), 'claude-haiku-4.5');
-  assert.equal(openRouterCapabilityModel('~anthropic/claude-opus-latest', 'anthropic/claude-opus-5.5'), 'claude-opus-5.5');
+  assert.equal(
+    openRouterCapabilityModel('~anthropic/claude-opus-latest', 'anthropic/claude-opus-5.5'),
+    'claude-opus-5.5'
+  );
 });
 
 test('a 401 on Messages re-reads the key and rebuilds the bearer auth', async () => {
@@ -237,9 +239,15 @@ test('OpenRouter error_type decides the Responses failure classification', async
 test('a canonical error_type outranks a conflicting native code on the HTTP path', async () => {
   const body = (error) => Response.json({ error }, { status: 400 });
   for (const [model, error] of [
-    ['openrouter/auto', { code: 'invalid_prompt', message: 'too long', metadata: { error_type: 'context_length_exceeded' } }],
+    [
+      'openrouter/auto',
+      { code: 'invalid_prompt', message: 'too long', metadata: { error_type: 'context_length_exceeded' } },
+    ],
     ['openrouter/auto', { code: 'invalid_prompt', message: 'too long', error_type: 'context_length_exceeded' }],
-    ['anthropic/claude-opus-4.8', { type: 'invalid_prompt', message: 'too long', error_type: 'context_length_exceeded' }],
+    [
+      'anthropic/claude-opus-4.8',
+      { type: 'invalid_prompt', message: 'too long', error_type: 'context_length_exceeded' },
+    ],
   ]) {
     const { provider } = harness(() => body(error));
     const err = await provider.send(prompt, model, [tool], {}).catch((e) => e);
@@ -277,18 +285,27 @@ test('OpenRouter reasoning control applies on the Messages route as on Responses
 });
 
 test('error_type normalization maps the documented vocabulary and leaves other details alone', () => {
-  assert.deepEqual(normalizeGatewayErrorDetail({ code: 'server_error', message: 'm' }, { error_type: 'provider_overloaded' }), {
-    code: 'overloaded',
-    message: 'm',
-    error_type: 'provider_overloaded',
-    native_code: 'server_error',
-  });
+  assert.deepEqual(
+    normalizeGatewayErrorDetail({ code: 'server_error', message: 'm' }, { error_type: 'provider_overloaded' }),
+    {
+      code: 'overloaded',
+      message: 'm',
+      error_type: 'provider_overloaded',
+      native_code: 'server_error',
+    }
+  );
   const plain = { code: 'server_error' };
   assert.equal(normalizeGatewayErrorDetail(plain, { error_type: 'unmapped' }), plain);
   assert.equal(normalizeGatewayErrorDetail(plain, null), plain);
   // Anthropic-skin and Chat-skin envelopes carry error_type inside the error.
   const kind = (err) => providerErrorKind(err).kind;
-  assert.equal(kind({ status: 400, error: { type: 'error', error: { type: 'invalid_request_error', error_type: 'context_length_exceeded' } } }), 'context_overflow');
+  assert.equal(
+    kind({
+      status: 400,
+      error: { type: 'error', error: { type: 'invalid_request_error', error_type: 'context_length_exceeded' } },
+    }),
+    'context_overflow'
+  );
   assert.equal(kind({ error: { code: 429, message: 'x', metadata: { error_type: 'payment_required' } } }), 'billing');
   assert.equal(kind({ status: 500, error: { type: 'api_error', error_type: 'authentication' } }), 'auth');
 });

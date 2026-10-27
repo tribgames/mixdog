@@ -214,10 +214,16 @@ test('every stored override and device is kept; adding one evicts nothing', asyn
   assert.equal(readPcNotificationView(notificationPreferencesPath(dir)).overrides.length, 501);
   const prefs = store(dir);
   assert.equal((await prefs.overrides()).length, 501);
-  assert.equal((await prefs.setConversation({ kind: 'room', id: 'extra' }, { mode: 'muted', until: null })).length, 502);
+  assert.equal(
+    (await prefs.setConversation({ kind: 'room', id: 'extra' }, { mode: 'muted', until: null })).length,
+    502
+  );
   const kept = await prefs.overrides();
   assert.equal(kept.length, 502);
-  assert.ok(kept.some((entry) => entry.target.id === 's0'), 'the oldest mute is still there');
+  assert.ok(
+    kept.some((entry) => entry.target.id === 's0'),
+    'the oldest mute is still there'
+  );
   assert.equal((await prefs.device('d200')).scope, 'bots');
 });
 

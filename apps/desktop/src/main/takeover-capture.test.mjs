@@ -31,7 +31,9 @@ test('a tab that cannot be handed over declines the pending takeover with that e
   });
   assert.equal(captureTakeoverOrDecline(deps, 's1', 't2', 'v9'), false);
   assert.deepEqual(calls.declined, [['s1', 't2', failure]]);
-  assert.deepEqual(calls.reports, [['takeover-capture-failed', { sessionId: 's1', id: 't2', tab: 'v9', message: failure }]]);
+  assert.deepEqual(calls.reports, [
+    ['takeover-capture-failed', { sessionId: 's1', id: 't2', tab: 'v9', message: failure }],
+  ]);
 });
 
 test('a decline that is itself refused is reported, not lost', async () => {

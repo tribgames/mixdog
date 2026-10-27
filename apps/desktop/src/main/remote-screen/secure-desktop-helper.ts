@@ -116,8 +116,7 @@ export interface SecureDesktopHelper {
 }
 
 /** A latched decline's answer to a later request. */
-export const DECLINED_ON_PC =
-  'the helper install was refused on the PC; restart Mixdog on the PC before asking again';
+export const DECLINED_ON_PC = 'the helper install was refused on the PC; restart Mixdog on the PC before asking again';
 
 interface SecureDesktopHelperDeps {
   /** A fresh client and its adapter. */
@@ -334,7 +333,13 @@ export function createSecureDesktopHelper(deps: SecureDesktopHelperDeps): Secure
   };
 
   const lease = (): SecureDesktopLease => {
-    const held: Lease = { hold: new Set(), change: new Set(), frame: new Set(), challenge: new Set(), issue: new Set() };
+    const held: Lease = {
+      hold: new Set(),
+      change: new Set(),
+      frame: new Set(),
+      challenge: new Set(),
+      issue: new Set(),
+    };
     if (!disposed) leases.add(held);
     const holds = (): boolean => holder === held;
     return {

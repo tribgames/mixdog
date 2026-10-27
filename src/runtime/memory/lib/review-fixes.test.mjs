@@ -61,7 +61,10 @@ test('runFullBackfill scope=workspace only ingests transcripts from the workspac
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'bf-'));
   try {
     const cwds = new Map();
-    for (const [dir, cwd] of [['p1', path.join(root, 'ws')], ['p2', path.join(root, 'other')]]) {
+    for (const [dir, cwd] of [
+      ['p1', path.join(root, 'ws')],
+      ['p2', path.join(root, 'other')],
+    ]) {
       fs.mkdirSync(path.join(root, dir));
       const fp = path.join(root, dir, 's.jsonl');
       fs.writeFileSync(fp, '{}');

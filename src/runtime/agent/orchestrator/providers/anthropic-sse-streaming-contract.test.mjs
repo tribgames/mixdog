@@ -3,10 +3,7 @@ import test from 'node:test';
 
 import { parseSSEStream } from './anthropic-sse.mjs';
 import { applyAnthropicErrorContract } from './anthropic-error-contract.mjs';
-import {
-  NATIVE_SERVER_TOOL_RESULT_BLOCK_TYPES,
-  isNativeServerToolBlockType,
-} from './lib/anthropic-native-blocks.mjs';
+import { NATIVE_SERVER_TOOL_RESULT_BLOCK_TYPES, isNativeServerToolBlockType } from './lib/anthropic-native-blocks.mjs';
 
 const frame = (event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
 const start = frame({ type: 'message_start', message: { model: 'm', usage: { input_tokens: 1 } } });
@@ -79,7 +76,13 @@ test('non-empty initial text of a text block reaches content and live relay once
 
 test('citations_delta and start citations stay on their text block', async () => {
   const first = { type: 'char_location', cited_text: 'a', document_index: 0, start_char_index: 0, end_char_index: 1 };
-  const second = { type: 'page_location', cited_text: 'b', document_index: 0, start_page_number: 1, end_page_number: 2 };
+  const second = {
+    type: 'page_location',
+    cited_text: 'b',
+    document_index: 0,
+    start_page_number: 1,
+    end_page_number: 2,
+  };
   const { result } = await run(
     start,
     blockStart(0, { type: 'text', text: '', citations: [first] }),

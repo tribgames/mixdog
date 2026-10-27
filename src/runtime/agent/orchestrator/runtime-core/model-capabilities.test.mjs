@@ -70,9 +70,17 @@ test('an id released after this code was written is capable with no code change'
 test('a row’s own supportsWebSearch flag wins both ways in every family', () => {
   for (const [provider, accepted, rejected] of FAMILIES) {
     assert.equal(webSearchCapableFor(provider, { id: rejected }), false, `${provider}/${rejected} regex`);
-    assert.equal(webSearchCapableFor(provider, { id: rejected, supportsWebSearch: true }), true, `${provider}/${rejected} true`);
+    assert.equal(
+      webSearchCapableFor(provider, { id: rejected, supportsWebSearch: true }),
+      true,
+      `${provider}/${rejected} true`
+    );
     assert.equal(webSearchCapableFor(provider, { id: accepted }), true, `${provider}/${accepted} regex`);
-    assert.equal(webSearchCapableFor(provider, { id: accepted, supportsWebSearch: false }), false, `${provider}/${accepted} false`);
+    assert.equal(
+      webSearchCapableFor(provider, { id: accepted, supportsWebSearch: false }),
+      false,
+      `${provider}/${accepted} false`
+    );
   }
 });
 
@@ -91,15 +99,20 @@ test('a web_search tool in any row tool list admits an id the regex rejects', ()
 
 test('the provider catalog row decides before the id regex, and the route row before the catalog', () => {
   const rows = new Map();
-  const catalogWebSearchCapableFor = makeWebSearchCapableFor(webSearchProviderFamily, (id, provider) =>
-    rows.get(`${provider}/${id}`) || null
+  const catalogWebSearchCapableFor = makeWebSearchCapableFor(
+    webSearchProviderFamily,
+    (id, provider) => rows.get(`${provider}/${id}`) || null
   );
   for (const [provider, accepted, rejected] of FAMILIES) {
     rows.set(`${provider}/${rejected}`, { supportsWebSearch: true });
     rows.set(`${provider}/${accepted}`, { supportsWebSearch: false });
     assert.equal(catalogWebSearchCapableFor(provider, { id: rejected }), true, `${provider}/${rejected} catalog true`);
     assert.equal(catalogWebSearchCapableFor(provider, rejected), true, `${provider}/${rejected} bare id`);
-    assert.equal(catalogWebSearchCapableFor(provider, { id: accepted }), false, `${provider}/${accepted} catalog false`);
+    assert.equal(
+      catalogWebSearchCapableFor(provider, { id: accepted }),
+      false,
+      `${provider}/${accepted} catalog false`
+    );
     assert.equal(
       catalogWebSearchCapableFor(provider, { id: accepted, supportsWebSearch: true }),
       true,
@@ -122,7 +135,8 @@ test('a catalog silent on web search leaves the id fallback in charge', () => {
 });
 
 test('a catalog row outranks the id fallback for a future id, both ways', () => {
-  const catalog = (supportsWebSearch) => makeWebSearchCapableFor(webSearchProviderFamily, () => ({ supportsWebSearch }));
+  const catalog = (supportsWebSearch) =>
+    makeWebSearchCapableFor(webSearchProviderFamily, () => ({ supportsWebSearch }));
   assert.equal(catalog(false)('openai', { id: 'gpt-9.2-sol' }), false);
   assert.equal(catalog(true)('anthropic', { id: 'claude-3-opus' }), true);
 });

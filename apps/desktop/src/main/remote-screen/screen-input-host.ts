@@ -435,7 +435,11 @@ function removeQuietly(path: string): void {
  * an assembly of another build, and a compile staging file whose PowerShell
  * is gone. Files of live processes and of this build are kept.
  */
-export function sweepScreenHostFiles(directory: string, build: string, alive: (pid: number) => boolean = processAlive): void {
+export function sweepScreenHostFiles(
+  directory: string,
+  build: string,
+  alive: (pid: number) => boolean = processAlive
+): void {
   const list = (folder: string): string[] => {
     try {
       return readdirSync(folder);
@@ -474,7 +478,7 @@ function publishProgram(directory: string): { script: string; assembly: string }
 }
 
 export function createScreenInputHost(options: ScreenInputHostOptions): ScreenInputHost {
-  const marker = options.marker ?? (Math.floor(Math.random() * 0x7ffffffe) + 1);
+  const marker = options.marker ?? Math.floor(Math.random() * 0x7ffffffe) + 1;
   let child: ChildProcessWithoutNullStreams | null = null;
   let starting: Promise<void> | null = null;
   let stopping = false;
@@ -588,7 +592,8 @@ export function createScreenInputHost(options: ScreenInputHostOptions): ScreenIn
 
   const command = (value: ScreenHostCommand): Promise<string[]> => {
     const process_ = child;
-    if (!process_ || stopping || !process_.stdin.writable) return Promise.reject(new ScreenHostError('host_unavailable'));
+    if (!process_ || stopping || !process_.stdin.writable)
+      return Promise.reject(new ScreenHostError('host_unavailable'));
     const id = nextId++;
     const line = formatScreenHostCommand(id, value);
     return new Promise<string[]>((resolve, reject) => {

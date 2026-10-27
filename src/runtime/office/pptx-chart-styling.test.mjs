@@ -286,7 +286,9 @@ await pres.writeFile({fileName:OUTPUT});`;
 const japaneseFaceMeasured = measureTextWidth('夜', { fontName: 'Noto Sans JP', fontSize: 100, bold: true }) > 90;
 
 test('a Japanese contrast phrase starts its own line, and the corner meta shares the kicker row', {
-  skip: !japaneseFaceMeasured && 'Noto Sans JP is not installed: the host measures a half-width substitute, so the wrap is not defined',
+  skip:
+    !japaneseFaceMeasured &&
+    'Noto Sans JP is not installed: the host measures a half-width substitute, so the wrap is not defined',
 }, async (t) => {
   const root = await mkdtemp(join(tmpdir(), 'pptx-kit-ja-'));
   t.after(() => rm(root, { recursive: true, force: true }));

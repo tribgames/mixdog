@@ -384,9 +384,7 @@ export interface RelayE2EETransportKeys {
  *  is checked per lane against its high-water mark: within a FIFO lane no
  *  genuine box can be overtaken, so the reorder window is 0, and across
  *  lanes no order is assumed (docs/remote-transport.md §10). */
-export type RelayE2EEControlLane =
-  | { kind: 'relay' }
-  | { kind: 'direct'; epoch: number; connectionId: string };
+export type RelayE2EEControlLane = { kind: 'relay' } | { kind: 'direct'; epoch: number; connectionId: string };
 
 export const RELAY_E2EE_RELAY_LANE: RelayE2EEControlLane = Object.freeze({ kind: 'relay' });
 
@@ -436,7 +434,8 @@ const E2EE_CONTROL_MAGIC = new Uint8Array([0x4d, 0x58, 0x43, 0x01]);
 export const RELAY_E2EE_TRANSPORT_MAX_PLAINTEXT_BYTES = 1024 * 1024;
 /** One transport box: header, the plaintext (deflate keeps a body only when
  *  smaller), tag. */
-export const RELAY_E2EE_TRANSPORT_MAX_BOX_BYTES = E2EE_BINARY_HEADER_BYTES + RELAY_E2EE_TRANSPORT_MAX_PLAINTEXT_BYTES + 16;
+export const RELAY_E2EE_TRANSPORT_MAX_BOX_BYTES =
+  E2EE_BINARY_HEADER_BYTES + RELAY_E2EE_TRANSPORT_MAX_PLAINTEXT_BYTES + 16;
 
 function transportInfo(
   domain: RelayE2EEDomain,
@@ -483,7 +482,9 @@ export function relayE2EETransportNegotiated(challenge: RelayE2EEChallenge, hell
   );
 }
 
-export type RelayE2EEControlOpen = { stale: false; sequence: number; value: unknown } | { stale: true; sequence: number };
+export type RelayE2EEControlOpen =
+  | { stale: false; sequence: number; value: unknown }
+  | { stale: true; sequence: number };
 
 /** Handshake confirmation state of one channel.
  *  `send`    (server) the transcript to put in `e2ee-ready`; present exactly
@@ -556,8 +557,7 @@ export class RelayE2EEChannel {
   confirmHandshake(ready: unknown): void {
     const expect = this.handshake.expect;
     if (!expect || this.confirmed) return;
-    const transcript =
-      ready && typeof ready === 'object' ? (ready as { transcript?: unknown }).transcript : undefined;
+    const transcript = ready && typeof ready === 'object' ? (ready as { transcript?: unknown }).transcript : undefined;
     if (transcript === undefined ? expect.offered : transcript !== expect.transcript) {
       throw new Error('Relay encryption handshake transcript mismatch.');
     }
@@ -575,9 +575,7 @@ export class RelayE2EEChannel {
 
   private appAad(direction: Direction, sequence: number): Uint8Array {
     return encoder.encode(
-      this.transport
-        ? `${E2EE_CONTEXT}\0app\0${direction}\0${sequence}`
-        : `${E2EE_CONTEXT}\0${direction}\0${sequence}`
+      this.transport ? `${E2EE_CONTEXT}\0app\0${direction}\0${sequence}` : `${E2EE_CONTEXT}\0${direction}\0${sequence}`
     );
   }
 
@@ -777,7 +775,11 @@ export class RelayE2EEChannel {
     const sequence = ++this.controlSendSequence;
     const nonce = randomBytes(12);
     const sealing = cryptoApi().subtle.encrypt(
-      { name: 'AES-GCM', iv: arrayBuffer(nonce), additionalData: this.controlAad(this.direction(true), lane, sequence) },
+      {
+        name: 'AES-GCM',
+        iv: arrayBuffer(nonce),
+        additionalData: this.controlAad(this.direction(true), lane, sequence),
+      },
       keys.controlSend,
       arrayBuffer(encoder.encode(JSON.stringify(value)))
     );

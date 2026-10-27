@@ -17,7 +17,12 @@ test('the heartbeat getter is a read capability and the setter a configure one, 
   assert.equal(SESSION_CONFIGURE_ACTIONS.includes('setHeartbeatEnabled'), true);
   assert.equal(SESSION_CONFIGURE_ACTIONS.includes('getHeartbeatSettings'), false);
   // Once each: a duplicate would shadow or double-register the route.
-  for (const list of [DESKTOP_CAPABILITIES, DESKTOP_READ_CAPABILITIES, SESSION_READ_ACTIONS, SESSION_CONFIGURE_ACTIONS]) {
+  for (const list of [
+    DESKTOP_CAPABILITIES,
+    DESKTOP_READ_CAPABILITIES,
+    SESSION_READ_ACTIONS,
+    SESSION_CONFIGURE_ACTIONS,
+  ]) {
     for (const name of ['getHeartbeatSettings', 'setHeartbeatEnabled']) {
       assert.ok(list.filter((entry) => entry === name).length <= 1, name);
     }
@@ -53,7 +58,9 @@ test('getHeartbeatSettings takes no argument; setHeartbeatEnabled takes exactly 
     );
   }
   for (const value of [true, false]) {
-    assert.deepEqual(requiredDesktopCapabilityRequest({ capability: 'setHeartbeatEnabled', args: [value] }).args, [value]);
+    assert.deepEqual(requiredDesktopCapabilityRequest({ capability: 'setHeartbeatEnabled', args: [value] }).args, [
+      value,
+    ]);
   }
   for (const args of [[], [true, true], [true, false], ['true'], ['false'], [1], [0], [null], [{}], [[]]]) {
     assert.throws(
@@ -63,8 +70,14 @@ test('getHeartbeatSettings takes no argument; setHeartbeatEnabled takes exactly 
     );
   }
   assert.throws(() => requiredDesktopCapabilityRequest({ capability: 'setHeartbeatEnabled' }), TypeError);
-  assert.throws(() => requiredDesktopCapabilityRequest({ capability: 'setHeartbeatEnabled', args: ['yes'] }), /boolean/);
-  assert.throws(() => requiredDesktopCapabilityRequest({ capability: 'setHeartbeatEnabledX', args: [true] }), TypeError);
+  assert.throws(
+    () => requiredDesktopCapabilityRequest({ capability: 'setHeartbeatEnabled', args: ['yes'] }),
+    /boolean/
+  );
+  assert.throws(
+    () => requiredDesktopCapabilityRequest({ capability: 'setHeartbeatEnabledX', args: [true] }),
+    TypeError
+  );
 });
 
 test('setHeartbeatInterval is a configure capability taking exactly one of the fixed minute choices', () => {
@@ -78,9 +91,15 @@ test('setHeartbeatInterval is a configure capability taking exactly one of the f
   );
   assert.deepEqual(CAPTURE_SETTINGS_VALUES.getHeartbeatSettings, { heartbeat: true, intervalMinutes: 60 });
   for (const minutes of [30, 60, 120, 240]) {
-    assert.deepEqual(requiredDesktopCapabilityRequest({ capability: 'setHeartbeatInterval', args: [minutes] }).args, [minutes]);
+    assert.deepEqual(requiredDesktopCapabilityRequest({ capability: 'setHeartbeatInterval', args: [minutes] }).args, [
+      minutes,
+    ]);
   }
   for (const args of [[], [45], [0], [-30], ['60'], [60.5], [null], [NaN], [Infinity], [{}], [60, 60]]) {
-    assert.throws(() => requiredDesktopCapabilityRequest({ capability: 'setHeartbeatInterval', args }), TypeError, JSON.stringify(args));
+    assert.throws(
+      () => requiredDesktopCapabilityRequest({ capability: 'setHeartbeatInterval', args }),
+      TypeError,
+      JSON.stringify(args)
+    );
   }
 });

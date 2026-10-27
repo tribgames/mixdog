@@ -225,7 +225,9 @@ export function publishAskTurn({ sessionId, opened, terminalResultPreview, askOp
   // (which inspects entry.emptyFinal first) classifies the
   // terminal state correctly even if it ticks during unwind.
   const isEmptyFinal =
-    !terminalResultPreview.content && !terminalResultPreview.reasoningContent && !terminalResultPreview.reactionCompleted;
+    !terminalResultPreview.content &&
+    !terminalResultPreview.reasoningContent &&
+    !terminalResultPreview.reactionCompleted;
   if (isEmptyFinal) {
     markSessionEmptyFinal(sessionId);
   }

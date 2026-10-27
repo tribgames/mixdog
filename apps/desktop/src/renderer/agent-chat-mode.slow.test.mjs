@@ -1448,7 +1448,7 @@ test('a visualize open leaves one card at turn end, above the changed-files line
   resetTurnChangesCache();
   for (const agentMode of [true, false]) {
     await show([user('u1', DAY1), open('f', 200), answer], agentMode);
-      assert.equal(cards().length, 1, `the visualize card stays (agentMode ${agentMode})`);
+    assert.equal(cards().length, 1, `the visualize card stays (agentMode ${agentMode})`);
     assert.equal(host().querySelector('.turn-changes-card'), null, `no changes card (agentMode ${agentMode})`);
     assert.equal(
       turnCards()[0].querySelector('.turn-changes-action')?.textContent,
@@ -2681,7 +2681,7 @@ test('a bot message shows its name and its words, never the envelope or LEAD, in
         );
       }
       await render(React.createElement(Rows));
-          return document.querySelector('main').textContent;
+      return document.querySelector('main').textContent;
     };
     const shown = await show([row]);
     assert.match(shown, /Please check the build/);

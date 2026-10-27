@@ -1406,9 +1406,7 @@ export async function removeSessionSnapshots(sessionId, { txIds = null } = {}) {
   const only = txIds ? new Set(txIds) : null;
   const held = Object.values((await readRegistry()).entries).filter(
     (record) =>
-      record.kind === WORKTREE_SNAPSHOT_KIND &&
-      record.holderSessionId === sessionId &&
-      (!only || only.has(record.txId))
+      record.kind === WORKTREE_SNAPSHOT_KIND && record.holderSessionId === sessionId && (!only || only.has(record.txId))
   );
   for (const record of held) {
     const row = { id: record.id, txId: record.txId };

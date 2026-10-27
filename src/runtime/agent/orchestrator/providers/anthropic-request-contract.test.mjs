@@ -79,7 +79,15 @@ test('ordinary request keeps tail marker byte-identical on both providers', asyn
   ];
   const oauth = _buildRequestBodyForCacheSmoke(messages, MODEL, TOOLS, {});
   const api = (
-    await buildAnthropicApiRequest({ name: 'anthropic', config: {}, messages, useModel: MODEL, tools: TOOLS, opts: {}, fastModeLatched: false })
+    await buildAnthropicApiRequest({
+      name: 'anthropic',
+      config: {},
+      messages,
+      useModel: MODEL,
+      tools: TOOLS,
+      opts: {},
+      fastModeLatched: false,
+    })
   ).params;
   for (const body of [oauth, api]) {
     assert.deepEqual(body.messages, [{ role: 'user', content: [{ type: 'text', text: 'hello', cache_control: eph }] }]);
@@ -91,23 +99,36 @@ test('ordinary request keeps tail marker byte-identical on both providers', asyn
 test('request: native tool markers reduce message slots', () => {
   const native = [1, 2, 3, 4].map((i) => ({ type: 'web_search_20250305', name: `w${i}`, cache_control: eph }));
   const body = _buildRequestBodyForCacheSmoke([{ role: 'user', content: 'hi' }], MODEL, TOOLS, { nativeTools: native });
-  assert.ok(countAnthropicCacheControls(body.tools) + countAnthropicCacheControls(body.system || []) + countAnthropicCacheControls(body.messages) <= 4);
+  assert.ok(
+    countAnthropicCacheControls(body.tools) +
+      countAnthropicCacheControls(body.system || []) +
+      countAnthropicCacheControls(body.messages) <=
+      4
+  );
 });
 
 test('systemBlockItems accepts string and text-block arrays, rejects unknown shapes', () => {
   assert.deepEqual(systemBlockItems('  hi '), [{ text: 'hi', tier: 'system' }]);
-  assert.deepEqual(systemBlockItems([{ type: 'text', text: 'a' }, { type: 'text', text: 'b' }]).map((i) => i.text), ['a', 'b']);
   assert.deepEqual(
-    systemBlockItems([{ role: 'system', cacheTier: 'tier3', content: [{ type: 'text', text: 'z' }] }]),
-    [{ text: 'z', tier: 'tier3' }]
+    systemBlockItems([
+      { type: 'text', text: 'a' },
+      { type: 'text', text: 'b' },
+    ]).map((i) => i.text),
+    ['a', 'b']
   );
+  assert.deepEqual(systemBlockItems([{ role: 'system', cacheTier: 'tier3', content: [{ type: 'text', text: 'z' }] }]), [
+    { text: 'z', tier: 'tier3' },
+  ]);
   assert.deepEqual(systemBlockItems(undefined), []);
   assert.throws(() => systemBlockItems([{ role: 'system', content: [{ type: 'image' }] }]), TypeError);
 });
 
 test('system role message with block-array content reaches the wire', () => {
   const body = _buildRequestBodyForCacheSmoke(
-    [{ role: 'system', content: [{ type: 'text', text: 'structured rules' }] }, { role: 'user', content: 'hi' }],
+    [
+      { role: 'system', content: [{ type: 'text', text: 'structured rules' }] },
+      { role: 'user', content: 'hi' },
+    ],
     MODEL,
     [],
     {}
@@ -132,20 +153,36 @@ test('toAnthropicToolChoice mapping and thinking awareness', () => {
     disable_parallel_tool_use: true,
   });
   assert.deepEqual(toAnthropicToolChoice('none', { disableParallelToolUse: true }), { type: 'none' });
-  assert.equal(toAnthropicToolChoice(undefined, { disableParallelToolUse: true, supportsDisableParallelToolUse: false }), undefined);
+  assert.equal(
+    toAnthropicToolChoice(undefined, { disableParallelToolUse: true, supportsDisableParallelToolUse: false }),
+    undefined
+  );
 });
 
 test('request wires tool_choice, parallel disable and gateway capability', async () => {
   const messages = [{ role: 'user', content: 'hi' }];
   const build = (config, opts) =>
-    buildAnthropicApiRequest({ name: 'anthropic', config, messages, useModel: MODEL, tools: TOOLS, opts, fastModeLatched: false });
+    buildAnthropicApiRequest({
+      name: 'anthropic',
+      config,
+      messages,
+      useModel: MODEL,
+      tools: TOOLS,
+      opts,
+      fastModeLatched: false,
+    });
   assert.deepEqual((await build({}, { toolChoice: 'required' })).params.tool_choice, { type: 'any' });
   assert.deepEqual((await build({}, { disableParallelToolUse: true })).params.tool_choice, {
     type: 'auto',
     disable_parallel_tool_use: true,
   });
-  assert.equal((await build({ supportsDisableParallelToolUse: false }, { disableParallelToolUse: true })).params.tool_choice, undefined);
-  assert.deepEqual(_buildRequestBodyForCacheSmoke(messages, MODEL, TOOLS, { toolChoice: 'none' }).tool_choice, { type: 'none' });
+  assert.equal(
+    (await build({ supportsDisableParallelToolUse: false }, { disableParallelToolUse: true })).params.tool_choice,
+    undefined
+  );
+  assert.deepEqual(_buildRequestBodyForCacheSmoke(messages, MODEL, TOOLS, { toolChoice: 'none' }).tool_choice, {
+    type: 'none',
+  });
 });
 
 test('max tokens: declared limit is a ceiling; gateway limit wins; env capped', () => {
@@ -153,8 +190,14 @@ test('max tokens: declared limit is a ceiling; gateway limit wins; env capped', 
   try {
     delete process.env.MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS;
     assert.equal(resolveAnthropicMaxTokens('claude-x', { catalogLookup: () => 4096 }), 4096);
-    assert.equal(resolveAnthropicMaxTokens('claude-x', { catalogLookup: () => 64000, modelMaxOutputTokens: 2048 }), 2048);
-    assert.equal(resolveAnthropicMaxTokens('claude-x', { catalogLookup: () => 4096, modelMaxOutputTokens: null }), 4096);
+    assert.equal(
+      resolveAnthropicMaxTokens('claude-x', { catalogLookup: () => 64000, modelMaxOutputTokens: 2048 }),
+      2048
+    );
+    assert.equal(
+      resolveAnthropicMaxTokens('claude-x', { catalogLookup: () => 4096, modelMaxOutputTokens: null }),
+      4096
+    );
     process.env.MIXDOG_ANTHROPIC_MAX_OUTPUT_TOKENS = '100000';
     assert.equal(resolveAnthropicMaxTokens('claude-x', { catalogLookup: () => 4096 }), 4096);
     assert.equal(resolveAnthropicMaxTokens('claude-x', { modelMaxOutputTokens: 8000 }), 8000);
@@ -177,7 +220,10 @@ test('turn result carries stopDetails, stopSequence and raw usage', () => {
   assert.deepEqual(r.stopDetails, { category: 'cyber' });
   assert.equal(r.stopSequence, 'END');
   assert.deepEqual(r.usage.raw, raw);
-  const plain = buildAnthropicTurnResult({ content: 'x', usage: {} }, { provider: 'anthropic', useModel: MODEL, opts: {} });
+  const plain = buildAnthropicTurnResult(
+    { content: 'x', usage: {} },
+    { provider: 'anthropic', useModel: MODEL, opts: {} }
+  );
   assert.equal('stopDetails' in plain, false);
   assert.equal('stopSequence' in plain, false);
   assert.equal('raw' in plain.usage, false);
@@ -193,14 +239,21 @@ test('non-streaming normalize carries stop fields, raw usage and tool_search rep
     content: [
       { type: 'text', text: 'looking' },
       { type: 'server_tool_use', id: 'srv_1', name: 'tool_search_tool_regex', input: { query: 'a' } },
-      { type: 'tool_search_tool_result', tool_use_id: 'srv_1', content: { type: 'tool_search_tool_search_result', tool_references: [] } },
+      {
+        type: 'tool_search_tool_result',
+        tool_use_id: 'srv_1',
+        content: { type: 'tool_search_tool_search_result', tool_references: [] },
+      },
     ],
   };
   const r = normalizeAnthropicNonStreamingResponse(message);
   assert.equal(r.stopSequence, 'END');
   assert.deepEqual(r.stopDetails, { category: 'x' });
   assert.deepEqual(r.usage.raw.server_tool_use, { web_search_requests: 1 });
-  assert.deepEqual(r.assistantBlocks.map((b) => b.type), ['text', 'server_tool_use', 'tool_search_tool_result']);
+  assert.deepEqual(
+    r.assistantBlocks.map((b) => b.type),
+    ['text', 'server_tool_use', 'tool_search_tool_result']
+  );
   const plain = normalizeAnthropicNonStreamingResponse({ content: [{ type: 'text', text: 'a' }], usage: {} });
   assert.equal('stopDetails' in plain, false);
   assert.equal('stopSequence' in plain, false);
@@ -228,7 +281,10 @@ test('serverToolUse and costUsd are normalized on streaming usage, non-streaming
   const r = buildAnthropicTurnResult({ content: 'x', usage }, { provider: 'anthropic', useModel: MODEL, opts: {} });
   assert.equal(r.usage.costUsd, 0.0123);
   assert.deepEqual(r.usage.serverToolUse, { webSearchRequests: 1, webFetchRequests: 0 });
-  const plain = buildAnthropicTurnResult({ content: 'x', usage: {} }, { provider: 'anthropic', useModel: MODEL, opts: {} });
+  const plain = buildAnthropicTurnResult(
+    { content: 'x', usage: {} },
+    { provider: 'anthropic', useModel: MODEL, opts: {} }
+  );
   assert.equal('serverToolUse' in plain.usage, false);
   assert.equal('costUsd' in plain.usage, false);
 });
@@ -236,7 +292,10 @@ test('serverToolUse and costUsd are normalized on streaming usage, non-streaming
 test('system markers are capped to the slots tools leave, earliest dropped first', () => {
   const sys = [1, 2, 3, 4].map((i) => ({ type: 'text', text: `s${i}`, cache_control: eph }));
   const r = resolveAnthropicMessageCacheSlots(sys, { messages: eph }, { tools: [{ name: 't', cache_control: eph }] });
-  assert.deepEqual(sys.map((b) => Boolean(b.cache_control)), [false, true, true, true]);
+  assert.deepEqual(
+    sys.map((b) => Boolean(b.cache_control)),
+    [false, true, true, true]
+  );
   assert.equal(r.reservedSlots, 4);
   assert.equal(r.messageSlots, 0);
 });
@@ -246,18 +305,40 @@ test('five tool markers are trimmed to the request-wide limit, earliest dropped,
   const originals = tools.slice();
   const sys = [{ type: 'text', text: 's', cache_control: eph }];
   const r = resolveAnthropicMessageCacheSlots(sys, { messages: eph }, { tools });
-  assert.deepEqual(tools.map((t) => Boolean(t.cache_control)), [false, true, true, true, true]);
-  assert.ok(originals.every((t) => t.cache_control), 'shared tool objects are not mutated');
+  assert.deepEqual(
+    tools.map((t) => Boolean(t.cache_control)),
+    [false, true, true, true, true]
+  );
+  assert.ok(
+    originals.every((t) => t.cache_control),
+    'shared tool objects are not mutated'
+  );
   assert.equal(sys[0].cache_control, undefined);
   assert.equal(r.reservedSlots, 4);
   assert.equal(r.messageSlots, 0);
 
   const native = [1, 2, 3, 4, 5].map((i) => ({ type: 'web_search_20250305', name: `w${i}`, cache_control: eph }));
-  const messages = [{ role: 'system', content: 'a' }, { role: 'user', content: 'hi' }];
+  const messages = [
+    { role: 'system', content: 'a' },
+    { role: 'user', content: 'hi' },
+  ];
   const oauth = _buildRequestBodyForCacheSmoke(messages, MODEL, TOOLS, { nativeTools: native });
-  const api = (await buildAnthropicApiRequest({ name: 'anthropic', config: {}, messages, useModel: MODEL, tools: TOOLS, opts: { nativeTools: native }, fastModeLatched: false })).params;
+  const api = (
+    await buildAnthropicApiRequest({
+      name: 'anthropic',
+      config: {},
+      messages,
+      useModel: MODEL,
+      tools: TOOLS,
+      opts: { nativeTools: native },
+      fastModeLatched: false,
+    })
+  ).params;
   for (const body of [oauth, api]) {
-    const total = countAnthropicCacheControls(body.system) + countAnthropicCacheControls(body.tools) + countAnthropicCacheControls(body.messages);
+    const total =
+      countAnthropicCacheControls(body.system) +
+      countAnthropicCacheControls(body.tools) +
+      countAnthropicCacheControls(body.messages);
     assert.ok(total <= 4, `total ${total}`);
     assert.ok(body.tools.filter((t) => t.cache_control).at(-1), 'latest tool marker kept');
   }
@@ -273,7 +354,10 @@ test('request with 1 native-tool marker never exceeds 4 breakpoints in total', (
     { role: 'user', content: 'hi' },
   ];
   const body = _buildRequestBodyForCacheSmoke(messages, MODEL, TOOLS, { nativeTools: native });
-  const total = countAnthropicCacheControls(body.system) + countAnthropicCacheControls(body.tools) + countAnthropicCacheControls(body.messages);
+  const total =
+    countAnthropicCacheControls(body.system) +
+    countAnthropicCacheControls(body.tools) +
+    countAnthropicCacheControls(body.messages);
   assert.ok(total <= 4, `total ${total}`);
   assert.ok(body.system.at(-1).cache_control, 'latest system marker kept');
 });

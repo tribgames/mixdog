@@ -12,7 +12,13 @@ import {
   xmlDecode,
 } from './portable-xml.mjs';
 import { countDocxPropertyChanges, docxRevisionTree, flattenDocxRevisions } from './docx-revisions.mjs';
-import { docxParagraphSpacing, docxRunFont, nextPageOffset, softBreakFacts, statedRunFont } from './portable-snapshot-shared.mjs';
+import {
+  docxParagraphSpacing,
+  docxRunFont,
+  nextPageOffset,
+  softBreakFacts,
+  statedRunFont,
+} from './portable-snapshot-shared.mjs';
 
 const REVISION_TYPES = Object.freeze({
   ins: 'insertion',

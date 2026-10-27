@@ -33,7 +33,10 @@ const specFor = (sessionId, args) => ({ sessionId, toolName: 'grep', cwd: root, 
 function assertSharedKey(left, right) {
   const sessionId = randomUUID();
   try {
-    for (const [first, second] of [[left, right], [right, left]]) {
+    for (const [first, second] of [
+      [left, right],
+      [right, left],
+    ]) {
       clearScopedToolsForSession(sessionId);
       setScopedToolCached({ ...specFor(sessionId, argsFor(first)), content: 'same-request', toolUseId: 'source' });
       assert.equal(tryScopedToolCached(specFor(sessionId, argsFor(second)))?.content, 'same-request');
@@ -51,8 +54,11 @@ test('public and legacy grep modes share only execution-equivalent cache keys in
       setScopedToolCached({ ...specFor(sessionId, argsFor(first.args)), content: first.label, toolUseId: 'source' });
       for (const second of variants) {
         const hit = tryScopedToolCached(specFor(sessionId, argsFor(second.args)));
-        assert.equal(hit?.content ?? null, first.group === second.group ? first.label : null,
-          `${first.label} -> ${second.label}`);
+        assert.equal(
+          hit?.content ?? null,
+          first.group === second.group ? first.label : null,
+          `${first.label} -> ${second.label}`
+        );
       }
     }
   } finally {
@@ -76,7 +82,13 @@ test('grep aliases and explicit mode precedence retain caller-owned arguments', 
   const sessionId = randomUUID();
   try {
     setScopedToolCached({ ...specFor(sessionId, input), content: 'paths', toolUseId: 'source' });
-    const canonical = { path: root, pattern: ['needle', 'other'], glob: '*.mjs', output_mode: 'files_with_matches', head_limit: 12 };
+    const canonical = {
+      path: root,
+      pattern: ['needle', 'other'],
+      glob: '*.mjs',
+      output_mode: 'files_with_matches',
+      head_limit: 12,
+    };
     assert.equal(tryScopedToolCached(specFor(sessionId, canonical))?.content, 'paths');
     assert.deepEqual(input, before);
     assert.equal(tryScopedToolCached(specFor(sessionId, input))?.content, 'paths');
@@ -113,8 +125,11 @@ test('invalid modes and context arguments cannot hit or populate a successful gr
       setScopedToolCached({ ...specFor(sessionId, argsFor(variant.args)), content: 'cached-success' });
     }
     for (const extra of [
-      { mode: 'invalid' }, { output_mode: 'invalid' }, { output_mode: 7 },
-      { mode: 'files', context: 'bad' }, { mode: 'count', context: 'bad' },
+      { mode: 'invalid' },
+      { output_mode: 'invalid' },
+      { output_mode: 7 },
+      { mode: 'files', context: 'bad' },
+      { mode: 'count', context: 'bad' },
     ]) {
       const args = argsFor(extra);
       const before = structuredClone(args);
@@ -154,26 +169,48 @@ async function round(fx, args) {
     return resolvedGrep(input);
   };
   const dispatcher = createEagerDispatcher({
-    tools, cwd: root, sessionId: fx.sessionId, sessionRef: fx.sessionRef,
-    signal: null, opts: {}, crossTurnCalls: fx.crossTurnCalls,
-    getIterations: () => fx.iterations, getNextIteration: () => fx.iterations,
-    repeatFailLimit: 3, executeToolFn,
+    tools,
+    cwd: root,
+    sessionId: fx.sessionId,
+    sessionRef: fx.sessionRef,
+    signal: null,
+    opts: {},
+    crossTurnCalls: fx.crossTurnCalls,
+    getIterations: () => fx.iterations,
+    getNextIteration: () => fx.iterations,
+    repeatFailLimit: 3,
+    executeToolFn,
   });
   if (fx.mode === 'streaming') {
     dispatcher.onToolCall(call);
     await Promise.all([...dispatcher.pending.values()].map((entry) => entry.promise));
   }
   const stats = await processToolBatch({
-    calls: [call], messages: fx.messages, tools, cwd: root,
-    sessionId: fx.sessionId, sessionRef: fx.sessionRef, signal: null, opts: {},
+    calls: [call],
+    messages: fx.messages,
+    tools,
+    cwd: root,
+    sessionId: fx.sessionId,
+    sessionRef: fx.sessionRef,
+    signal: null,
+    opts: {},
     iterations: fx.iterations,
     assistantTurnMsg: { role: 'assistant', content: '', toolCalls: [call] },
-    pending: dispatcher.pending, epoch: dispatcher.epoch,
+    pending: dispatcher.pending,
+    epoch: dispatcher.epoch,
     startEagerRun: fx.mode === 'serial' ? () => {} : dispatcher.startEagerRun,
-    crossTurnCalls: fx.crossTurnCalls, crossTurnCap: 100, sessionAgent: null,
-    pushToolResultMessage: (message) => { results.push(message); fx.messages.push(message); },
-    throwIfAborted: () => {}, repeatFailLimit: 3,
-    dedupStubTotal: fx.dedupStubTotal, editCount: fx.editCount, executeToolFn,
+    crossTurnCalls: fx.crossTurnCalls,
+    crossTurnCap: 100,
+    sessionAgent: null,
+    pushToolResultMessage: (message) => {
+      results.push(message);
+      fx.messages.push(message);
+    },
+    throwIfAborted: () => {},
+    repeatFailLimit: 3,
+    dedupStubTotal: fx.dedupStubTotal,
+    editCount: fx.editCount,
+    executeToolFn,
   });
   Object.assign(fx, stats);
   assert.equal(results.length, 1);
@@ -192,9 +229,15 @@ test('automatic context and explicit -B 8 -A 12 never share a cache entry', asyn
     [explicit, automatic, expectedExplicit, expectedAuto],
   ]) {
     const fx = {
-      mode: 'serial', sessionId: randomUUID(), sessionRef: { schemaAllowedTools: null },
-      crossTurnCalls: new Map(), messages: [], iterations: 0, executions: 0,
-      dedupStubTotal: 0, editCount: 0,
+      mode: 'serial',
+      sessionId: randomUUID(),
+      sessionRef: { schemaAllowedTools: null },
+      crossTurnCalls: new Map(),
+      messages: [],
+      iterations: 0,
+      executions: 0,
+      dedupStubTotal: 0,
+      editCount: 0,
     };
     try {
       const initial = await round(fx, first);
@@ -215,13 +258,27 @@ for (const mode of ['serial', 'fallback', 'streaming']) {
     assert.notEqual(expected[0], expected[3], 'the fixture distinguishes automatic context from bare content');
     assert.notEqual(expected[0], expected[4], 'the fixture distinguishes content from paths');
     assert.notEqual(expected[4], expected[6], 'the fixture distinguishes paths from counts');
-    for (const [firstIndex, secondIndex] of [[0, 4], [4, 0], [1, 3], [3, 1], [1, 2], [4, 5], [6, 7]]) {
+    for (const [firstIndex, secondIndex] of [
+      [0, 4],
+      [4, 0],
+      [1, 3],
+      [3, 1],
+      [1, 2],
+      [4, 5],
+      [6, 7],
+    ]) {
       const first = variants[firstIndex];
       const second = variants[secondIndex];
       const fx = {
-        mode, sessionId: randomUUID(), sessionRef: { schemaAllowedTools: null },
-        crossTurnCalls: new Map(), messages: [], iterations: 0, executions: 0,
-        dedupStubTotal: 0, editCount: 0,
+        mode,
+        sessionId: randomUUID(),
+        sessionRef: { schemaAllowedTools: null },
+        crossTurnCalls: new Map(),
+        messages: [],
+        iterations: 0,
+        executions: 0,
+        dedupStubTotal: 0,
+        editCount: 0,
       };
       try {
         const initial = await round(fx, argsFor(first.args));

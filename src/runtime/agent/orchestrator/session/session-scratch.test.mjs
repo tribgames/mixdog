@@ -121,7 +121,7 @@ test('shell children get the scratch env and, on Windows, no console window (nor
       mkdirSync(root, { recursive: true });
       writeFileSync(
         probe,
-        "Add-Type -MemberDefinition '[DllImport(\"kernel32.dll\")] public static extern IntPtr GetConsoleWindow();' -Name W -Namespace N\n[N.W]::GetConsoleWindow().ToString()\n"
+        'Add-Type -MemberDefinition \'[DllImport("kernel32.dll")] public static extern IntPtr GetConsoleWindow();\' -Name W -Namespace N\n[N.W]::GetConsoleWindow().ToString()\n'
       );
       const opts = '-NoProfile -ExecutionPolicy Bypass';
       const windows = await run(

@@ -1,11 +1,7 @@
 // A Word document or workbook held to its brief, as an authored deck is: every figure its words show has a fact with
 // a source, and a fact cites where a reader can open it. The brief is the deck's (`design.brief`, key: value lines);
 // the readings are the deck's own (pptx-brief.mjs), over the document's text instead of its slides.
-import {
-  parseAuthoringBrief,
-  reviewFactCoverage,
-  reviewSourceGrounding,
-} from '../authoring/pptx-brief.mjs';
+import { parseAuthoringBrief, reviewFactCoverage, reviewSourceGrounding } from '../authoring/pptx-brief.mjs';
 import { htmlBriefScript } from '../authoring/pptx-html-runner.mjs';
 
 /** The brief a docx/xlsx call names in design.brief (the HTML BRIEF's key: value lines), or null. */

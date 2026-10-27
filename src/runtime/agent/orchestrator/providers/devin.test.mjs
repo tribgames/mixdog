@@ -339,7 +339,9 @@ test('a response cut off before its trailer is a truncated stream: its complete 
 test('arguments the server could not parse (invalidJsonStr) are repaired or marked, never run as {}', async () => {
   const server = fakeDevin([
     streamReply([
-      data({ deltaToolCalls: [{ id: 'i1', name: 'read', invalidJsonStr: "{'path': 'a.ts'}", invalidJsonErr: 'quote' }] }),
+      data({
+        deltaToolCalls: [{ id: 'i1', name: 'read', invalidJsonStr: "{'path': 'a.ts'}", invalidJsonErr: 'quote' }],
+      }),
       trailer(),
     ]),
     streamReply([data({ deltaToolCalls: [{ id: 'i2', name: 'read', invalidJsonStr: '{"path":' }] }), trailer()]),

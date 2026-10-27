@@ -14,7 +14,11 @@ const kindOf = (props, message = 'x') => providerErrorKind(err(message, props)).
 
 test('every kind maps from its typed code', () => {
   const cases = {
-    overloaded: [{ code: 'server_is_overloaded' }, { error: { type: 'overloaded_error' } }, { code: 'model_capacity_exhausted' }],
+    overloaded: [
+      { code: 'server_is_overloaded' },
+      { error: { type: 'overloaded_error' } },
+      { code: 'model_capacity_exhausted' },
+    ],
     rate_limited: [{ code: 'rate_limit_exceeded' }, { code: 'slow_down' }, { error: { type: 'rate_limit_error' } }],
     quota_exhausted: [{ code: 'usage_limit_reached' }, { code: 'quota_exceeded' }],
     entitlement: [{ code: 'usage_not_included' }],
@@ -70,7 +74,10 @@ test('typed code wins over HTTP status', () => {
   assert.equal(kindOf({ status: 400, code: 'context_length_exceeded' }), 'context_overflow');
   assert.equal(kindOf({ status: 500, code: 'insufficient_quota' }), 'billing');
   // A specific code beats its envelope type.
-  assert.equal(kindOf({ error: { type: 'invalid_request_error', code: 'context_length_exceeded' } }), 'context_overflow');
+  assert.equal(
+    kindOf({ error: { type: 'invalid_request_error', code: 'context_length_exceeded' } }),
+    'context_overflow'
+  );
   assert.equal(kindOf({ status: 529 }), 'overloaded');
   assert.equal(kindOf({ status: 429 }), 'rate_limited');
 });
@@ -90,12 +97,23 @@ test('quota scope, reset time and pool evidence decide quota vs rate limit', () 
   assert.equal(kindOf({ status: 429, code: 'rate_limit_exceeded', providerQuota: true }), 'quota_exhausted');
   assert.equal(kindOf({ status: 429, code: 'rate_limit_error', quotaExhausted: { provider: 'p' } }), 'quota_exhausted');
   assert.equal(kindOf({ status: 429, code: 'rate_limit_error', quotaScope: 'day' }), 'quota_exhausted');
-  assert.equal(kindOf({ status: 429, code: 'rate_limit_error', providerQuota: true, quotaScope: 'minute' }), 'rate_limited');
+  assert.equal(
+    kindOf({ status: 429, code: 'rate_limit_error', providerQuota: true, quotaScope: 'minute' }),
+    'rate_limited'
+  );
   assert.equal(kindOf({ status: 529, code: 'overloaded_error', providerQuota: true }), 'overloaded');
   assert.equal(kindOf({ status: 429, code: 'rate_limit_error', resetAt: Date.now() + 60_000 }), 'rate_limited');
   assert.equal(kindOf({ quotaExhausted: { provider: 'p', model: 'm', resetAt: 5 } }), 'quota_exhausted');
-  const described = providerErrorKind(err('x', { status: 429, code: 'usage_limit_reached', resetAt: 1234, retryAfterMs: 50 }));
-  assert.deepEqual(described, { kind: 'quota_exhausted', code: 'usage_limit_reached', status: 429, retryAfterMs: 50, resetAt: 1234 });
+  const described = providerErrorKind(
+    err('x', { status: 429, code: 'usage_limit_reached', resetAt: 1234, retryAfterMs: 50 })
+  );
+  assert.deepEqual(described, {
+    kind: 'quota_exhausted',
+    code: 'usage_limit_reached',
+    status: 429,
+    retryAfterMs: 50,
+    resetAt: 1234,
+  });
 });
 
 test('message wording only for untyped errors', () => {
@@ -109,7 +127,11 @@ test('message wording only for untyped errors', () => {
 
 test('quota wording never yields a quota kind; only the legacy presentation option reads it on untyped errors', () => {
   const legacy = (props, message) => providerErrorKind(err(message, props), { legacyQuotaWording: true }).kind;
-  for (const message of ['You exceeded your current quota, please check your plan', 'insufficient_quota', 'You have hit your usage limit']) {
+  for (const message of [
+    'You exceeded your current quota, please check your plan',
+    'insufficient_quota',
+    'You have hit your usage limit',
+  ]) {
     assert.equal(kindOf({}, message), 'unknown', message);
     assert.equal(kindOf({ status: 429 }, message), 'rate_limited', message);
     assert.equal(kindOf({ status: 500 }, message), 'transient', message);
@@ -136,10 +158,17 @@ test('classification follows the typed kind; 413 compaction needs token-context 
   assert.equal(flex.kind, 'service_tier_unavailable');
   assert.ok(DETERMINISTIC_KINDS.has(flex.kind) && !QUOTA_KINDS.has(flex.kind));
   assert.equal(classifyError(err('x', { status: 429, code: 'flex_unavailable' })), 'permanent');
-  for (const props of [{ status: 413 }, { status: 413, code: 'payload_too_large' }, { status: 413, code: 'request_entity_too_large' }]) {
+  for (const props of [
+    { status: 413 },
+    { status: 413, code: 'payload_too_large' },
+    { status: 413, code: 'request_entity_too_large' },
+  ]) {
     assert.equal(isContextOverflowError(err('Request entity too large', props)), false, JSON.stringify(props));
   }
-  assert.equal(isContextOverflowError(err('wrapped', { cause: err('Request entity too large', { status: 413 }) })), false);
+  assert.equal(
+    isContextOverflowError(err('wrapped', { cause: err('Request entity too large', { status: 413 }) })),
+    false
+  );
   assert.equal(isContextOverflowError(err('prompt is too long: 300000 tokens', { status: 413 })), true);
   assert.equal(isContextOverflowError(err('x', { status: 413, code: 'context_length_exceeded' })), true);
   // An unlabelled byte-size wording (no status, no code) still routes to compaction.
@@ -149,12 +178,16 @@ test('classification follows the typed kind; 413 compaction needs token-context 
 test('retryAfterMsFromError reads stamped, nested wire, RetryInfo and slow_down advice', () => {
   assert.equal(retryAfterMsFromError(err('x', { retryAfterMs: 7_200_000 })), 7_200_000);
   assert.equal(
-    retryAfterMsFromError(err('x', { responseFailed: { response: { error: { code: 'x', headers: { 'Retry-After': '3' } } } } })),
+    retryAfterMsFromError(
+      err('x', { responseFailed: { response: { error: { code: 'x', headers: { 'Retry-After': '3' } } } } })
+    ),
     3000
   );
   assert.equal(retryAfterMsFromError(err('x', { error: { headers: { 'retry-after-ms': '250' } } })), 250);
   assert.equal(
-    retryAfterMsFromError(err('x', { errorDetails: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '12s' }] })),
+    retryAfterMsFromError(
+      err('x', { errorDetails: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '12s' }] })
+    ),
     12_000
   );
   assert.equal(retryAfterMsFromError(err('Slow down: please wait 5 seconds', { code: 'slow_down' })), 5000);
@@ -197,7 +230,13 @@ test('classifiers consume the kind', () => {
   assert.equal(isServerUnavailable(err('x', { status: 503, code: 'insufficient_quota' })), false);
   assert.equal(isServerUnavailable(err('x', { providerWireError: true, code: 'rate_limit_exceeded' })), false);
   // Deterministic wire codes outrank a numeric 5xx.
-  for (const code of ['credit_balance_exhausted', 'cyber_policy_violation', 'flex_unavailable', 'request_too_large', 'content_filter']) {
+  for (const code of [
+    'credit_balance_exhausted',
+    'cyber_policy_violation',
+    'flex_unavailable',
+    'request_too_large',
+    'content_filter',
+  ]) {
     assert.equal(isRetryableWireErrorEvent(err('x', { providerWireError: true, status: 500, code })), false, code);
   }
   assert.equal(isRetryableWireErrorEvent(err('x', { providerWireError: true, code: 'server_error' })), true);

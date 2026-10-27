@@ -102,7 +102,11 @@ export function normalizeRendererWhatsNewDiagnostic(input: unknown): Record<stri
   if (record.kind !== 'whats-new') return null;
   const event = String(record.event || '');
   if (!['taken', 'shown', 'skipped', 'failed'].includes(event)) return null;
-  const text = (value: unknown, max: number) => String(value ?? '').replace(/\s+/g, ' ').trim().slice(0, max);
+  const text = (value: unknown, max: number) =>
+    String(value ?? '')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, max);
   const reason = text(record.reason, 80);
   const errorName = text(record.errorName, 80);
   const message = text(record.message, 300);

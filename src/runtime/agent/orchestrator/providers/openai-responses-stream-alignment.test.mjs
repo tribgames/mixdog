@@ -42,7 +42,10 @@ function runHttp(events) {
     label: 'test',
   });
   for (const event of events) state.handleEvent(event);
-  return { result: () => state.finish({ useModel: 'gpt-fixture', poolKey: 'k', iteration: 0, sseStartedAt: Date.now() }), seen };
+  return {
+    result: () => state.finish({ useModel: 'gpt-fixture', poolKey: 'k', iteration: 0, sseStartedAt: Date.now() }),
+    seen,
+  };
 }
 
 const created = { type: 'response.created', response: { id: 'resp_1', model: 'gpt-fixture' } };
@@ -57,7 +60,10 @@ test('WS: max_output_tokens with function arguments in flight rejects as a pendi
     const { pending, seen } = runWs([
       created,
       { type: 'response.output_text.delta', delta: 'calling' },
-      { type: 'response.output_item.added', item: { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'edit' } },
+      {
+        type: 'response.output_item.added',
+        item: { type: 'function_call', id: 'fc_1', call_id: 'call_1', name: 'edit' },
+      },
       { type: 'response.function_call_arguments.delta', item_id: 'fc_1', delta: '{"path":"a' },
       maxOutput(frame),
     ]);
@@ -164,7 +170,10 @@ test('WS and HTTP/SSE: a server-truncated call item is never collected, dispatch
     const ws = runWs(events(frame));
     await assert.rejects(ws.pending, (err) => err.pendingToolUse === true && err.streamStalled === true);
     assert.deepEqual(ws.seen.tools, []);
-    assert.throws(() => runHttp(events(frame)), (err) => err.pendingToolUse === true && err.streamStalled === true);
+    assert.throws(
+      () => runHttp(events(frame)),
+      (err) => err.pendingToolUse === true && err.streamStalled === true
+    );
   }
   // Only present in the terminal bundle: still a truncated call, not a success.
   const bundleOnly = runWs([created, { ...maxOutput(), response: { ...maxOutput().response, output: [cut] } }]);
@@ -190,12 +199,26 @@ test('WS and HTTP/SSE: terminal-only message parts are all absorbed; streamed te
     response: {
       status: 'completed',
       usage,
-      output: [{ type: 'message', id: 'msg_1', role: 'assistant', content: parts.map((text) => ({ type: 'output_text', text })) }],
+      output: [
+        {
+          type: 'message',
+          id: 'msg_1',
+          role: 'assistant',
+          content: parts.map((text) => ({ type: 'output_text', text })),
+        },
+      ],
     },
   });
   const terminalOnly = [created, completed(['first', 'second'])];
-  const streamed = [created, { type: 'response.output_text.delta', delta: 'firstsecond' }, completed(['first', 'second'])];
-  for (const [frames, expected] of [[terminalOnly, 'firstsecond'], [streamed, 'firstsecond']]) {
+  const streamed = [
+    created,
+    { type: 'response.output_text.delta', delta: 'firstsecond' },
+    completed(['first', 'second']),
+  ];
+  for (const [frames, expected] of [
+    [terminalOnly, 'firstsecond'],
+    [streamed, 'firstsecond'],
+  ]) {
     const ws = await runWs(frames).pending;
     const http = runHttp(frames).result();
     assert.equal(ws.content, expected, 'ws');
@@ -316,8 +339,13 @@ test('namespaced calls keep their namespace through parsing, dedupe identity and
   assert.deepEqual(http.result().toolCalls, [{ id: 'call_n', name: 'read', namespace: 'fs', arguments: {} }]);
 
   assert.equal(
-    customToolCallFromResponseItem({ type: 'custom_tool_call', call_id: 'cu', name: 'apply_patch', namespace: 'ed', input: 'P' })
-      .namespace,
+    customToolCallFromResponseItem({
+      type: 'custom_tool_call',
+      call_id: 'cu',
+      name: 'apply_patch',
+      namespace: 'ed',
+      input: 'P',
+    }).namespace,
     'ed'
   );
 

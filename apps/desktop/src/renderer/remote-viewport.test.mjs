@@ -27,7 +27,8 @@ import {
 
 // A landscape PC on a portrait phone.
 const pc = { picture: { width: 1920, height: 1080 }, stage: { width: 390, height: 700 } };
-const near = (actual, expected, message) => assert.ok(Math.abs(actual - expected) < 1e-9, `${message}: ${actual} ≠ ${expected}`);
+const near = (actual, expected, message) =>
+  assert.ok(Math.abs(actual - expected) < 1e-9, `${message}: ${actual} ≠ ${expected}`);
 
 test('the first view fills the height and starts at the left edge, panning sideways', () => {
   const view = initialView(pc);
@@ -109,12 +110,22 @@ test('a bottom inset keeps the scale, moves nothing, and lets what is under it b
   near(at(OVERPAN_RETURN_MS / 2).view.y, pinned.y - distance / 4, 'halfway in time, three quarters of the way');
   const steps = [];
   for (let ms = 16; ms < OVERPAN_RETURN_MS; ms += 16) steps.push(at(ms).view.y - at(ms - 16).view.y);
-  assert.ok(steps.every((step) => step > 0), 'moving down each frame');
-  assert.ok(steps.every((step, i) => i === 0 || step < steps[i - 1]), 'each frame slower than the last');
+  assert.ok(
+    steps.every((step) => step > 0),
+    'moving down each frame'
+  );
+  assert.ok(
+    steps.every((step, i) => i === 0 || step < steps[i - 1]),
+    'each frame slower than the last'
+  );
   assert.equal(at(OVERPAN_RETURN_MS - 1).settled, false);
   assert.deepEqual(at(OVERPAN_RETURN_MS), { view: pinned, settled: true });
   assert.equal(OVERPAN_RETURN_MS, 250);
-  assert.deepEqual(relaxView({ from: pinned, elapsedMs: 0 }, pc), { view: pinned, settled: true }, 'nothing to do inside');
+  assert.deepEqual(
+    relaxView({ from: pinned, elapsedMs: 0 }, pc),
+    { view: pinned, settled: true },
+    'nothing to do inside'
+  );
 });
 
 test('the stage track insets only on keyboard evidence, and clears the inset without it', () => {
@@ -152,8 +163,14 @@ test('keyboard evidence: a focused field and the visual viewport’s shrink, not
   assert.equal(seen.open, true);
   assert.deepEqual(seen.baseline, visual(500));
   // The VirtualKeyboard API's rectangle over the page is evidence on its own.
-  assert.equal(keyboardEvidence(visual(800), { visual: visual(800), focused: false, closing: false, overlay: 280 }).open, true);
-  assert.equal(keyboardEvidence(visual(800), { visual: visual(800), focused: true, closing: false, overlay: 0 }).open, false);
+  assert.equal(
+    keyboardEvidence(visual(800), { visual: visual(800), focused: false, closing: false, overlay: 280 }).open,
+    true
+  );
+  assert.equal(
+    keyboardEvidence(visual(800), { visual: visual(800), focused: true, closing: false, overlay: 0 }).open,
+    false
+  );
   // A shrink without focus is no keyboard.
   assert.equal(keyboardEvidence(visual(800), { visual: visual(400), focused: false, closing: false }).open, false);
   // Blurred: sliding away it still counts while closing; once back, or the time over, not.

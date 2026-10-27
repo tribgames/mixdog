@@ -49,5 +49,8 @@ test('the tidy description states the routing, dry-run, and approval contracts',
   assert.match(description, /ok:true with status:partial/);
   assert.match(description, /no structural fix is written for that run/);
   assert.match(description, /Returns final results in this call\./);
-  assert.ok(description.length < 700, `tidy description is ${description.length} chars; budget 700 — trim the description or justify raising the budget`);
+  assert.ok(
+    description.length < 700,
+    `tidy description is ${description.length} chars; budget 700 — trim the description or justify raising the budget`
+  );
 });

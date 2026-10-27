@@ -27,12 +27,7 @@ const loadManager = () => import('../../runtime/shared/worktrees/manager.mjs');
  * @param {((args: object, context: object) => Promise<any>)|null} [deps.executeSessionControl] Cross-session lane.
  * @param {object|null} [deps.manager] Managed-worktree backend override (tests).
  */
-export function createWorktreeToolHost({
-  getSession,
-  getWorkspaceApi,
-  executeSessionControl = null,
-  manager = null,
-}) {
+export function createWorktreeToolHost({ getSession, getWorkspaceApi, executeSessionControl = null, manager = null }) {
   const backend = () => (manager ? Promise.resolve(manager) : loadManager());
 
   function workspaceApi() {
@@ -102,7 +97,11 @@ export function createWorktreeToolHost({
         'The project folder has no checked-out branch to return to (detached HEAD).'
       );
     }
-    return lane.call('selectBranch', { branch: projectBranch, expectedRevision: workspace.revision, txId: request.txId });
+    return lane.call('selectBranch', {
+      branch: projectBranch,
+      expectedRevision: workspace.revision,
+      txId: request.txId,
+    });
   }
 
   /** The desktop's "merge": into the confirmed merge target, then the cleanup autoCleanup allows. */

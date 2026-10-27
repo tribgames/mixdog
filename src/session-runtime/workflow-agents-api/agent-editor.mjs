@@ -19,7 +19,11 @@ import {
   writeJsonAtomicSync,
 } from '../../runtime/shared/atomic-file.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
-import { agentEntryFile, agentEntryPath, parseManifestText } from '../../runtime/agent/orchestrator/runtime-core/workflow/agents.mjs';
+import {
+  agentEntryFile,
+  agentEntryPath,
+  parseManifestText,
+} from '../../runtime/agent/orchestrator/runtime-core/workflow/agents.mjs';
 import { hasOwn } from '../../runtime/shared/object.mjs';
 import { serializeFrontmatterDoc } from '../../runtime/shared/markdown-frontmatter.mjs';
 import { isHiddenAgent } from '../../runtime/agent/orchestrator/internal-agents.mjs';

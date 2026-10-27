@@ -144,7 +144,10 @@ test('different request semantics stay independent', TIMEOUT, async (t) => {
   ];
   await backend.waitCalls(4);
   assert.equal(backend.calls.length, 4);
-  assert.deepEqual(backend.calls.map((call) => call.window.limit).sort((a, b) => a - b), [400, 400, 400, 1008]);
+  assert.deepEqual(
+    backend.calls.map((call) => call.window.limit).sort((a, b) => a - b),
+    [400, 400, 400, 1008]
+  );
   backend.releaseAll();
   await Promise.all(runs);
 });

@@ -611,7 +611,15 @@ function askWindow(lanePort, fields = {}) {
   const reply = new MessageChannel();
   const answers = inbox(reply.port1);
   lanePort.postMessage(
-    { op: 'request', assetId: 'aaaaaaaa-1111', variant: 'original', range: 'bytes=0-65535', enc: 'e2ee1', port: reply.port2, ...fields },
+    {
+      op: 'request',
+      assetId: 'aaaaaaaa-1111',
+      variant: 'original',
+      range: 'bytes=0-65535',
+      enc: 'e2ee1',
+      port: reply.port2,
+      ...fields,
+    },
     [reply.port2]
   );
   return { port: reply.port1, answers };
@@ -633,14 +641,25 @@ test('the direct media client carries a worker window over the transport and its
   const [request] = sent;
   assert.deepEqual(
     { ...request, id: undefined },
-    { type: 'transport-media', op: 'request', id: undefined, assetId: 'aaaaaaaa-1111', variant: 'original', range: 'bytes=0-65535', enc: 'e2ee1' }
+    {
+      type: 'transport-media',
+      op: 'request',
+      id: undefined,
+      assetId: 'aaaaaaaa-1111',
+      variant: 'original',
+      range: 'bytes=0-65535',
+      enc: 'e2ee1',
+    }
   );
   const id = request.id;
   assert.equal(media.receive({ type: 'transport-media', op: 'head', id, status: 200 }), true);
   assert.equal(media.receive({ type: 'transport-media', op: 'chunk', id, frame: FRAME.toString('base64url') }), true);
   assert.equal(media.receive({ type: 'transport-media', op: 'end', id }), true);
   await settle();
-  assert.deepEqual(window.answers.map((answer) => answer.op), ['head', 'chunk', 'end']);
+  assert.deepEqual(
+    window.answers.map((answer) => answer.op),
+    ['head', 'chunk', 'end']
+  );
   assert.equal(window.answers[0].status, 200);
   assert.deepEqual(Buffer.from(window.answers[1].frame), FRAME);
   // A finished window ignores late messages; anything else is not media.
@@ -709,7 +728,10 @@ test('closing the transport fails answered windows, returns the rest, and withdr
   media.receive({ type: 'transport-media', op: 'head', id: sent[0].id, status: 200 });
   media.close();
   await settle();
-  assert.deepEqual(answered.answers.map((answer) => answer.op), ['head', 'error']);
+  assert.deepEqual(
+    answered.answers.map((answer) => answer.op),
+    ['head', 'error']
+  );
   assert.deepEqual(waiting.answers, [{ op: 'unavailable' }]);
   assert.deepEqual(container.posted.at(-1), { type: 'mixdog:media-transport', sid: MEDIA_SID, port: null });
   assert.equal(container.listeners.size, 0);
@@ -736,7 +758,10 @@ test('a restarted worker asking for the session key gets the transport port agai
   assert.equal(container.posted.length, 2);
   assert.notEqual(container.posted[1].port, container.posted[0].port);
   // Without a controlling worker there is nobody to hand a port to.
-  const none = createRemoteTransportMediaClient({ send: () => undefined, container: { ...workerContainer(), controller: null } });
+  const none = createRemoteTransportMediaClient({
+    send: () => undefined,
+    container: { ...workerContainer(), controller: null },
+  });
   none.attach(MEDIA_SID);
   none.close();
   media.close();

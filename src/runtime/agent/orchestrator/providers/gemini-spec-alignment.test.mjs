@@ -8,7 +8,8 @@ import { buildAntigravityRequest } from './antigravity-request.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
 import { normalizeContentForGeminiParts } from './media-normalization.mjs';
 
-const declaration = (inputSchema) => toGeminiTools([{ name: 't', description: 'd', inputSchema }]).functionDeclarations[0];
+const declaration = (inputSchema) =>
+  toGeminiTools([{ name: 't', description: 'd', inputSchema }]).functionDeclarations[0];
 
 test('schemas the legacy Schema cannot express use parametersJsonSchema unchanged', () => {
   const unrepresentable = {
@@ -84,7 +85,10 @@ test('an Antigravity replay recorded for Claude never reaches Gemini; the functi
   for (const contents of requests) {
     const model = contents.find((content) => content.role === 'model');
     assert.equal(JSON.stringify(contents).includes('claude-'), false);
-    assert.equal(model.parts.some((part) => part.thought), false);
+    assert.equal(
+      model.parts.some((part) => part.thought),
+      false
+    );
     assert.equal(model.parts.find((part) => part.functionCall).thoughtSignature, 'skip_thought_signature_validator');
   }
 });
@@ -92,7 +96,10 @@ test('an Antigravity replay recorded for Claude never reaches Gemini; the functi
 test('a replay recorded for a Gemini model through Antigravity still replays its signatures', () => {
   const history = toolHistory();
   const parts = [{ functionCall: { name: 'glob', args: { p: '*' } }, thoughtSignature: 'gemini-sig' }];
-  history[1].providerReplay = { ...createProviderReplay('antigravity', parts), requestContext: { model: 'gemini-3.1-pro-high' } };
+  history[1].providerReplay = {
+    ...createProviderReplay('antigravity', parts),
+    requestContext: { model: 'gemini-3.1-pro-high' },
+  };
   assert.deepEqual(toGeminiContents(history, 'gemini-3.1-pro').find((c) => c.role === 'model').parts, parts);
 });
 
@@ -135,7 +142,10 @@ test('supplied part metadata such as mediaResolution survives normalization', ()
 });
 
 test('each parallel tool result keeps its own media inside functionResponse.parts', () => {
-  const img = (data) => [{ type: 'text', text: 'ok' }, { type: 'image', data, mimeType: 'image/png' }];
+  const img = (data) => [
+    { type: 'text', text: 'ok' },
+    { type: 'image', data, mimeType: 'image/png' },
+  ];
   const history = [
     { role: 'user', content: 'both' },
     {
@@ -174,7 +184,10 @@ const replayedTurn = (model, parts, toolCalls) => [
   ...toolCalls.map((call, index) => ({ role: 'tool', toolCallId: call.id, content: `out${index}` })),
 ];
 const callAndResponseIds = (contents) => ({
-  calls: contents.find((c) => c.role === 'model').parts.filter((p) => p.functionCall).map((p) => p.functionCall.id),
+  calls: contents
+    .find((c) => c.role === 'model')
+    .parts.filter((p) => p.functionCall)
+    .map((p) => p.functionCall.id),
   responses: contents
     .filter((c) => c.parts.some((p) => p.functionResponse))
     .flatMap((c) => c.parts.map((p) => p.functionResponse.id)),
@@ -206,7 +219,9 @@ test('Gemini: a response follows the server id the replayed functionCall carries
     [{ functionCall: { id: 'srv-call', name: 'glob', args: {} }, thoughtSignature: 'sig' }],
     [{ id: 'srv-call-2', name: 'glob', arguments: {} }]
   );
-  const { calls, responses } = callAndResponseIds(buildAntigravityRequest(history, model, [], {}, 'p').request.contents);
+  const { calls, responses } = callAndResponseIds(
+    buildAntigravityRequest(history, model, [], {}, 'p').request.contents
+  );
   assert.deepEqual(calls, ['srv-call']);
   assert.deepEqual(responses, ['srv-call']);
 });
@@ -240,7 +255,10 @@ test('Claude/GPT-OSS on Antigravity: the replayed functionCall carries the final
 
 test('a tool result with no replayed call keeps its own id', () => {
   const contents = toGeminiContents(
-    [{ role: 'user', content: 'x' }, { role: 'tool', toolCallId: 'orphan', content: 'r' }],
+    [
+      { role: 'user', content: 'x' },
+      { role: 'tool', toolCallId: 'orphan', content: 'r' },
+    ],
     'gemini-3-pro'
   );
   assert.equal(contents[1].parts[0].functionResponse.id, 'orphan');
@@ -278,7 +296,10 @@ test('parametersJsonSchema drops non-standard keys recursively but keeps names, 
       examples: { type: 'string', deprecated: true, 'x-ui': 'a', examples: ['q'] },
       'x-name': { type: 'array', items: { type: 'object', 'x-deep': 1, additionalProperties: false, properties: {} } },
       choice: {
-        anyOf: [{ type: 'string', $comment: 'c' }, { type: 'integer', examples: [1] }],
+        anyOf: [
+          { type: 'string', $comment: 'c' },
+          { type: 'integer', examples: [1] },
+        ],
         default: { 'x-data': 1, examples: [] },
       },
       mode: { enum: ['x-a', 'deprecated'], type: 'string' },

@@ -12,7 +12,9 @@ async function noisyPngBase64(width, height) {
     seed = (Math.imul(seed, 1103515245) + 12345) >>> 0;
     pixels[i] = seed >>> 24;
   }
-  const png = await sharp(pixels, { raw: { width, height, channels: 3 } }).png().toBuffer();
+  const png = await sharp(pixels, { raw: { width, height, channels: 3 } })
+    .png()
+    .toBuffer();
   return png.toString('base64');
 }
 
@@ -77,7 +79,9 @@ test('a small tool-result image and non-image results are left untouched', async
 });
 
 test('undecodable, mislabelled-type, and unsupported-type images become fixed text; valid small images stay', async () => {
-  const small = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#336699' } }).png().toBuffer();
+  const small = await sharp({ create: { width: 8, height: 8, channels: 3, background: '#336699' } })
+    .png()
+    .toBuffer();
   const good = small.toString('base64');
   const garbage = Buffer.from('definitely not an image').toString('base64');
   const make = () => ({
@@ -91,7 +95,10 @@ test('undecodable, mislabelled-type, and unsupported-type images become fixed te
   const result = await compactResultImages(make());
   assert.deepEqual(result.content[0], { type: 'text', text: '[image omitted: could not be decoded]' });
   assert.deepEqual(result.content[1], { type: 'text', text: '[image omitted: could not be decoded]' });
-  assert.deepEqual(result.content[2], { type: 'text', text: '[image omitted: image/svg+xml is not a supported image type]' });
+  assert.deepEqual(result.content[2], {
+    type: 'text',
+    text: '[image omitted: image/svg+xml is not a supported image type]',
+  });
   assert.equal(result.content[3].type, 'image');
   assert.equal(result.content[3].data, good);
   assert.deepEqual(await compactResultImages(make()), result);
@@ -102,12 +109,18 @@ test('a machine failure while resizing is a runtime error, not an image rejectio
   const { isEnvironmentError: isImageEnvironmentError } = await import('../../../../shared/environment-error.mjs');
   // Zero decoded bytes: the resizer reports "unavailable" rather than invalid.
   await assert.rejects(
-    prepareAnthropicImages([{ role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: '!!!!' } }] }]),
+    prepareAnthropicImages([
+      { role: 'user', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: '!!!!' } }] },
+    ]),
     (error) => error instanceof AnthropicImageRuntimeError && error.code === 'ANTHROPIC_IMAGE_RUNTIME_UNAVAILABLE'
   );
-  const wrapped = (cause) => Object.assign(new Error('invalid or corrupt image data', { cause }), { code: 'INVALID_IMAGE_DATA' });
+  const wrapped = (cause) =>
+    Object.assign(new Error('invalid or corrupt image data', { cause }), { code: 'INVALID_IMAGE_DATA' });
   assert.equal(isImageEnvironmentError(wrapped(new Error('Cannot allocate memory'))), true);
-  assert.equal(isImageEnvironmentError(wrapped(Object.assign(new Error('x'), { code: 'ERR_WORKER_OUT_OF_MEMORY' }))), true);
+  assert.equal(
+    isImageEnvironmentError(wrapped(Object.assign(new Error('x'), { code: 'ERR_WORKER_OUT_OF_MEMORY' }))),
+    true
+  );
   assert.equal(isImageEnvironmentError(wrapped(new Error('Input buffer contains unsupported image format'))), false);
   assert.equal(isImageEnvironmentError(wrapped(null)), false);
 });

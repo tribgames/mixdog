@@ -411,4 +411,3 @@ export async function gitDeleteTag(cwd: string, value: string): Promise<string> 
   const tag = await checkedTagName(cwd, value);
   return run(cwd, ['tag', '-d', tag]);
 }
-

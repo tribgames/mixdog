@@ -20,7 +20,6 @@ interface KeysProbeDeps {
   outPath: string;
 }
 
-
 export async function runKeysProbe({
   window,
   baseSnapshot,

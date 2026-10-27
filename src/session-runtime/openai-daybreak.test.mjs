@@ -172,7 +172,10 @@ test('capability: only the catalog list decides; no id is special', () => {
   assert.equal(daybreak.daybreakBlueSupported({ id: 'gpt-6-sol', accessPrograms: [] }), false);
   assert.equal(daybreak.daybreakBlueSupported({ id: 'future', accessPrograms: ['daybreak_blue'] }), true);
   assert.equal(daybreak.daybreakBlueSupported({ id: 'gpt-5.6-sol' }), false);
-  assert.equal(daybreak.daybreakBlueSupported({ id: 'gpt-9-future', accessPrograms: ['standard', 'daybreak_blue'] }), true);
+  assert.equal(
+    daybreak.daybreakBlueSupported({ id: 'gpt-9-future', accessPrograms: ['standard', 'daybreak_blue'] }),
+    true
+  );
   assert.equal(daybreak.daybreakBlueSupported('gpt-6-astra'), false);
 });
 

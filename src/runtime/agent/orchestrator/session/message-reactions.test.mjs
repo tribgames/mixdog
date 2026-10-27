@@ -107,7 +107,10 @@ test("the target skips what the user did not write: runtime notices, posted resu
     { ...userMessage('posted', 'Routine ok'), meta: { source: 'routine-result', transcript: { messageId: 'posted' } } },
     userMessage('bot', 'from a bot', { fromAgent: 'other' }),
     userMessage('fire', 'run it', { routineTrigger: { kind: 'schedule', name: 'daily' } }),
-    { ...userMessage('synthetic', 'done'), meta: { source: 'task-notification', transcript: { messageId: 'synthetic' } } },
+    {
+      ...userMessage('synthetic', 'done'),
+      meta: { source: 'task-notification', transcript: { messageId: 'synthetic' } },
+    },
     { role: 'user', content: 'no id' },
     userMessage('steered', 'and also this'),
   ];
@@ -141,12 +144,14 @@ test('the react tool: a home chat stores and shows it; a room member reacts on t
     });
   const home = handlers(session);
   assert.match(await home.react({ emoji: '🙏' }, {}), /^Reacted 🙏\. .*Say nothing about it/);
-  assert.deepEqual(session.messages[0].meta.transcript.reactions.map(({ agentId, emoji }) => ({ agentId, emoji })), [
-    { agentId: 'reviewer', emoji: '🙏' },
-  ]);
-  assert.deepEqual(shown.map(([id, messageId, reactions]) => [id, messageId, reactions.length]), [
-    ['sess_home_reviewer', 'm1', 1],
-  ]);
+  assert.deepEqual(
+    session.messages[0].meta.transcript.reactions.map(({ agentId, emoji }) => ({ agentId, emoji })),
+    [{ agentId: 'reviewer', emoji: '🙏' }]
+  );
+  assert.deepEqual(
+    shown.map(([id, messageId, reactions]) => [id, messageId, reactions.length]),
+    [['sess_home_reviewer', 'm1', 1]]
+  );
   assert.equal(await home.react({ remove: true }, {}), 'Removed your reaction.');
   await assert.rejects(home.react({ emoji: 'nice' }, {}), /exactly one of/);
 
@@ -183,16 +188,22 @@ test('a room keeps each member’s reaction apart, refuses a repeat of another m
   await delivery.react('sess_room_abc123', { agentId: 'gh', emoji: '😆' });
   const item = roomRowItem(log.messages[0], 'r');
   assert.equal(item.kind, 'user');
-  assert.deepEqual(item.reactions.map(({ agentId, emoji }) => [agentId, emoji]), [
-    ['gh', '😆'],
-    ['bench', '👍'],
-  ]);
+  assert.deepEqual(
+    item.reactions.map(({ agentId, emoji }) => [agentId, emoji]),
+    [
+      ['gh', '😆'],
+      ['bench', '👍'],
+    ]
+  );
   assert.equal(saves.length, 3, 'each change saved');
-  assert.deepEqual(shown.map(([id, messageId]) => [id, messageId]), [
-    ['sess_room_abc123', 'u1'],
-    ['sess_room_abc123', 'u1'],
-    ['sess_room_abc123', 'u1'],
-  ]);
+  assert.deepEqual(
+    shown.map(([id, messageId]) => [id, messageId]),
+    [
+      ['sess_room_abc123', 'u1'],
+      ['sess_room_abc123', 'u1'],
+      ['sess_room_abc123', 'u1'],
+    ]
+  );
   await assert.rejects(delivery.react('sess_home_x', { agentId: 'gh', emoji: '👍' }), /not a group-room session/);
 });
 
@@ -231,7 +242,13 @@ test("react is offered only in a bot's own chat with the user, and never while t
 
 test('an empty reply after a reaction that landed ends the turn; without one it is nudged as before', async () => {
   const resolver = () =>
-    createNoToolTurnResolver({ messages: [], opts: {}, sessionId: 's', sessionAgent: 'lead', drainSteering: () => false });
+    createNoToolTurnResolver({
+      messages: [],
+      opts: {},
+      sessionId: 's',
+      sessionAgent: 'lead',
+      drainSteering: () => false,
+    });
   const plain = resolver();
   assert.equal((await plain.resolve({ content: '' }, 1)).action, 'continue', 'nudged');
 
@@ -285,7 +302,11 @@ test('the exemption follows the id the react tool recorded, never a rebuilt targ
     // A room member's prompt is a runtime message naming the newest room row it showed.
     const messages = [
       shown
-        ? { role: 'user', content: '[mixdog-runtime] Group room', meta: { transcript: { messageId: 'w1', roomRow: shown } } }
+        ? {
+            role: 'user',
+            content: '[mixdog-runtime] Group room',
+            meta: { transcript: { messageId: 'w1', roomRow: shown } },
+          }
         : userMessage('w1', 'turn prompt'),
     ];
     const resolver = createNoToolTurnResolver({
@@ -306,7 +327,11 @@ test('the exemption follows the id the react tool recorded, never a rebuilt targ
   // A room reaction runs on the room log: its ids are not the worker's. It
   // counts only on the row this turn's prompt showed.
   assert.equal(await run({ messageId: 'row_5', room: true }, 'c', 'row_5'), 'break', 'the row the prompt showed');
-  assert.equal(await run({ messageId: 'row_9', room: true }, 'c', 'row_5'), 'continue', 'a newer row the worker never saw');
+  assert.equal(
+    await run({ messageId: 'row_9', room: true }, 'c', 'row_5'),
+    'continue',
+    'a newer row the worker never saw'
+  );
   assert.equal(await run({ messageId: 'row_3', room: true }, 'c', 'row_5'), 'continue', 'an older room row');
   assert.equal(await run({ messageId: 'row_5', room: true }), 'continue', 'a turn that showed no row');
   noteReactionTarget('s', 'stale', { messageId: 'w1', room: false });
@@ -321,7 +346,11 @@ test('a react record is turn-owned: a cancelled or failed turn leaves none, and 
   assert.equal(reactionTargetCount(), before + 2);
   const controller = new AbortController();
   controller.abort();
-  const provider = { async send() { return { content: 'never', toolCalls: [] }; } };
+  const provider = {
+    async send() {
+      return { content: 'never', toolCalls: [] };
+    },
+  };
   await assert.rejects(
     agentLoop(provider, [userMessage('m1')], 'fake-model', [], null, process.cwd(), {
       sessionId: 'cancelled-session',
@@ -329,7 +358,11 @@ test('a react record is turn-owned: a cancelled or failed turn leaves none, and 
     })
   );
   assert.equal(takeReactionTarget('cancelled-session', 'tc'), null, 'the cancelled turn left no record');
-  assert.deepEqual(takeReactionTarget('other-session', 'tc'), { messageId: 'm1', room: false }, 'another session is untouched');
+  assert.deepEqual(
+    takeReactionTarget('other-session', 'tc'),
+    { messageId: 'm1', room: false },
+    'another session is untouched'
+  );
   for (let i = 0; i < 1000; i += 1) noteReactionTarget('flood', `tc${i}`, { messageId: 'm', room: false });
   assert.ok(reactionTargetCount() <= 256, String(reactionTargetCount()));
   clearReactionTargets('flood');
@@ -401,7 +434,10 @@ test('a reaction is outside the provider prefix digest; other meta changes still
   const { prepareProviderPrefixGuard } = await import('./provider-prefix-guard.mjs');
   const prompt = userMessage('msg_p', 'hi');
   const before = prepareProviderPrefixGuard(null, [prompt], {}, {});
-  const reacted = { ...prompt, meta: { transcript: { ...prompt.meta.transcript, reactions: [{ agentId: 'a', emoji: '👍', at: 2 }] } } };
+  const reacted = {
+    ...prompt,
+    meta: { transcript: { ...prompt.meta.transcript, reactions: [{ agentId: 'a', emoji: '👍', at: 2 }] } },
+  };
   assert.doesNotThrow(() => prepareProviderPrefixGuard(before, [reacted], {}, {}));
   const rewritten = { ...prompt, content: 'hi!' };
   assert.throws(() => prepareProviderPrefixGuard(before, [rewritten], {}, {}), { code: 'PROVIDER_PREFIX_MUTATION' });
@@ -490,7 +526,12 @@ test('a reaction survives a reload of the session from disk', () => {
 
 test('restored rows carry the reactions; a row without any carries none', () => {
   const messages = [
-    userMessage('m1', 'hi', { reactions: [{ agentId: 'reviewer', emoji: '❤️', at: 1 }, { agentId: 'x y', emoji: '👍' }] }),
+    userMessage('m1', 'hi', {
+      reactions: [
+        { agentId: 'reviewer', emoji: '❤️', at: 1 },
+        { agentId: 'x y', emoji: '👍' },
+      ],
+    }),
     userMessage('m2', 'again'),
   ];
   const [first, second] = restoreTranscriptItems(messages, { sessionId: 's' });

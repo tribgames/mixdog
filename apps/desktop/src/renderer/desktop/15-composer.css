@@ -616,7 +616,8 @@
 .composer-island[data-measuring] > .composer-island-pill {
   width: max-content;
 }
-.composer-island[data-compact]:where(:not([data-measuring])) :is(.composer-island-seg-word, .composer-island-seg.turn-review-segment .diff-stats) {
+.composer-island[data-compact]:where(:not([data-measuring]))
+  :is(.composer-island-seg-word, .composer-island-seg.turn-review-segment .diff-stats) {
   display: none;
 }
 .composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg-num {
@@ -625,7 +626,9 @@
 .composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg-state > .composer-island-dot {
   display: inline-block;
 }
-.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg-state + .composer-island-seg-state::before {
+.composer-island[data-compact]:where(:not([data-measuring]))
+  .composer-island-seg-state
+  + .composer-island-seg-state::before {
   content: none;
 }
 .composer-island[data-compact]:where(:not([data-measuring])) :is(.composer-island-seg, .session-goal-trigger) {
@@ -655,7 +658,9 @@
   flex: none;
   color: var(--mx-accent);
 }
-.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg-branch :is(.composer-island-seg-prefix, .composer-island-seg-sub) {
+.composer-island[data-compact]:where(:not([data-measuring]))
+  .composer-island-seg-branch
+  :is(.composer-island-seg-prefix, .composer-island-seg-sub) {
   display: none;
 }
 .composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg-branch .composer-island-seg-text {

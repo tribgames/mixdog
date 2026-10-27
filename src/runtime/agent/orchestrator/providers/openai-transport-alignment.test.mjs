@@ -1,12 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import {
-  _buildResponseCreateFrame,
-  _computeDelta,
-  _sansInput,
-  _stableStringify,
-} from './openai-ws-delta.mjs';
+import { _buildResponseCreateFrame, _computeDelta, _sansInput, _stableStringify } from './openai-ws-delta.mjs';
 import { _buildOpenAIHttpFallbackHeaders } from './openai-oauth-http-sse.mjs';
 import { codexUserAgent, codexVersionHeader } from './codex-client-meta.mjs';
 import { _codexBetaFeatures } from './openai-ws-headers.mjs';
@@ -27,7 +22,13 @@ test('response.create frames always drop stream/background and keep every other 
   assert.deepEqual(full, { type: 'response.create', ...rest });
   const delta = _buildResponseCreateFrame(body, { previousResponseId: 'r1', inputOverride: [] });
   assert.deepEqual(Object.keys(delta), [
-    'type', 'model', 'instructions', 'store', 'previous_response_id', 'input', 'tools',
+    'type',
+    'model',
+    'instructions',
+    'store',
+    'previous_response_id',
+    'input',
+    'tools',
   ]);
 });
 

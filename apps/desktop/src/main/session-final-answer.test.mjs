@@ -101,7 +101,10 @@ test('a turn answered by a reaction alone is done with nothing to read; an unmar
   const { reacted: _reacted, ...plain } = reacted;
   assert.equal(sessionFinalAnswer(snapshot([user, plain]), 1_000), null);
   // A reaction beside a reply: the reply is the answer, as before.
-  const both = sessionFinalAnswer(snapshot([user, assistant('final', 'Congrats!'), { ...reacted, finalAssistantId: 'final' }]), 1_000);
+  const both = sessionFinalAnswer(
+    snapshot([user, assistant('final', 'Congrats!'), { ...reacted, finalAssistantId: 'final' }]),
+    1_000
+  );
   assert.equal(both.text, 'Congrats!');
   assert.equal(both.reacted, undefined);
 });
