@@ -4,7 +4,7 @@
 // and the secure-desktop / stopped states from the PC's `screen-status`.
 // Fingers drive the picture's viewport and the PC's pointer through
 // remote-screen-touch.ts (gestures) and remote-screen-gesture.ts (messages).
-import { Lock, Monitor, ShieldAlert, Square, X } from 'lucide-react';
+import { ArrowUp, Lock, Monitor, ShieldAlert, Square } from 'lucide-react';
 import {
   useCallback,
   useEffect,
@@ -328,10 +328,13 @@ function StoppedCard({
 function ScreenKeyboardBar({
   fieldRef,
   handlers,
+  onSend,
   visible,
   enabled,
 }: {
   fieldRef: RefObject<HTMLTextAreaElement | null>;
+  /** Send: a running composition is committed, then Enter goes to the PC. */
+  onSend(): void;
   /** False on the secure desktop: hidden, but its height stays reserved. */
   visible: boolean;
   /** Typable only while the PC accepts control. */
@@ -350,7 +353,7 @@ function ScreenKeyboardBar({
 }) {
   return (
     <div
-      className="browser-remote-keyboard"
+      className="browser-remote-keyboard is-composer"
       data-open="true"
       style={visible ? undefined : { visibility: 'hidden' }}
       aria-hidden={visible ? undefined : true}
@@ -368,8 +371,15 @@ function ScreenKeyboardBar({
         placeholder={t('Type on PC screen')}
         {...handlers}
       />
-      <button type="button" disabled={!enabled} onClick={() => fieldRef.current?.blur()} aria-label={t('Close')}>
-        <X size={16} />
+      <button
+        type="button"
+        className="send-button"
+        disabled={!enabled}
+        aria-label={t('Send')}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={onSend}
+      >
+        <ArrowUp size={16} />
       </button>
     </div>
   );
@@ -677,6 +687,10 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
         <ScreenKeyboardBar
           fieldRef={fieldRef}
           handlers={composition.handlers}
+          onSend={() => {
+            composition.finish();
+            text.submit();
+          }}
           visible={bar.visible}
           enabled={bar.enabled}
         />

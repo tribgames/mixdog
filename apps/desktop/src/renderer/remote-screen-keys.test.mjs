@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { parseRemoteScreenInput } from '../shared/remote-webrtc.ts';
+import { createCompositionFinisher } from './remote-composition.ts';
 import {
   SCREEN_SPECIAL_KEYS,
   SCREEN_TEXT_SENTINEL,
@@ -12,7 +13,17 @@ import {
   screenTextInputs,
 } from './remote-screen-keys.ts';
 
-const VK = { backspace: 0x08, enter: 0x0d, tab: 0x09, escape: 0x1b, del: 0x2e, ctrl: 0xa2, alt: 0xa4, win: 0x5b, print: 0x2c };
+const VK = {
+  backspace: 0x08,
+  enter: 0x0d,
+  tab: 0x09,
+  escape: 0x1b,
+  del: 0x2e,
+  ctrl: 0xa2,
+  alt: 0xa4,
+  win: 0x5b,
+  print: 0x2c,
+};
 const key = (extra) => ({ key: '', code: '', keyCode: 0, ...extra });
 const summary = (inputs) => inputs.map((input) => `${input.action}:${input.vk}`);
 
@@ -136,6 +147,66 @@ test('an IME composition is held back and committed once at its end', () => {
   field.value = `${SCREEN_TEXT_SENTINEL}한`;
   text.input(field);
   assert.equal(sent.length, 1);
+});
+
+// The screen bar's send button: onSend = composition.finish() then text.submit().
+function sendBar() {
+  const { sent, field, text } = controller();
+  globalThis.document ??= { activeElement: null };
+  let focused = true;
+  const element = Object.assign(field, {
+    blur() {
+      focused = false;
+      text.blur(field);
+    },
+    focus() {
+      focused = true;
+      text.focus(field);
+    },
+  });
+  const finisher = createCompositionFinisher(() => element);
+  const raw = {
+    onKeyDown() {},
+    onInput: (event) => text.input(event.currentTarget, event.nativeEvent?.isComposing),
+    onCompositionStart: () => text.compositionStart(),
+    onCompositionUpdate() {},
+    onCompositionEnd: (event) => text.compositionEnd(event.data, event.currentTarget),
+  };
+  const handlers = finisher.wrap(raw);
+  return {
+    sent,
+    element,
+    handlers,
+    isFocused: () => focused,
+    send() {
+      finisher.finish(raw);
+      text.submit();
+    },
+  };
+}
+
+test('send mid-composition commits the composed text once, then one Enter, and a late end adds nothing', () => {
+  const bar = sendBar();
+  const event = (extra) => ({ currentTarget: bar.element, data: '', nativeEvent: {}, ...extra });
+  bar.element.focus();
+  bar.handlers.onCompositionStart(event());
+  bar.handlers.onCompositionUpdate(event({ data: '한' }));
+  bar.send();
+  assert.deepEqual(bar.sent, [{ type: 'screen-text', text: '한' }, ...bar.sent.slice(1)]);
+  assert.deepEqual(summary(bar.sent.slice(1)), [`down:${VK.enter}`, `up:${VK.enter}`]);
+  // The IME's late end and its echo input are swallowed.
+  bar.handlers.onCompositionEnd(event({ data: '한' }));
+  bar.element.value = `${SCREEN_TEXT_SENTINEL}한`;
+  bar.handlers.onInput(event());
+  assert.equal(bar.sent.length, 3);
+  assert.equal(bar.isFocused(), true, 'focus is kept');
+});
+
+test('send with no composition is exactly one Enter', () => {
+  const bar = sendBar();
+  bar.element.focus();
+  bar.send();
+  assert.deepEqual(summary(bar.sent), [`down:${VK.enter}`, `up:${VK.enter}`]);
 });
 
 test('each special key is one atomic screen-keys combo, in press order', () => {

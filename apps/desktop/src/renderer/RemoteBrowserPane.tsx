@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  ArrowUp,
   ArrowRight,
   ExternalLink,
   Keyboard,
@@ -318,7 +319,8 @@ function useRemoteView(
     };
     const visualResize = () => {
       const visual = window.visualViewport;
-      if (closing && visual) closing = keyboardClosing(closing, { width: visual.width, height: visual.height }, baseline);
+      if (closing && visual)
+        closing = keyboardClosing(closing, { width: visual.width, height: visual.height }, baseline);
       measure();
     };
     measure();
@@ -440,7 +442,10 @@ function useRemoteView(
 type TouchDot = { x: number; y: number; size?: number; key: number };
 
 /** The gestures the picture's touch surface takes, on either controller. */
-type RemoteTouch = Pick<ReturnType<typeof createPhoneTouchController>, 'down' | 'move' | 'up' | 'cancel' | 'contacts' | 'dispose'>;
+type RemoteTouch = Pick<
+  ReturnType<typeof createPhoneTouchController>,
+  'down' | 'move' | 'up' | 'cancel' | 'contacts' | 'dispose'
+>;
 
 /** The view's side of touch, read per gesture: the phone's viewport, or the
  *  desktop pane's fitted zoom (which also pans only when zoomed in, and fits
@@ -1104,16 +1109,21 @@ type PageInput = ReturnType<typeof useBrowserPageInput>;
 function RemoteKeyboardBar({
   keyboardRef,
   open,
+  phone,
   onClose,
+  onSend,
   input,
 }: {
   keyboardRef: RefObject<HTMLTextAreaElement | null>;
   open: boolean;
+  phone: boolean;
   onClose(): void;
+  /** Send: a running composition is committed, then Enter goes to the page. */
+  onSend(): void;
   input: PageInput;
 }) {
   return (
-    <div className="browser-remote-keyboard" data-open={open ? 'true' : 'false'}>
+    <div className={`browser-remote-keyboard${phone ? ' is-composer' : ''}`} data-open={open ? 'true' : 'false'}>
       <textarea
         ref={keyboardRef}
         rows={1}
@@ -1132,9 +1142,21 @@ function RemoteKeyboardBar({
         onCompositionUpdate={input.onCompositionUpdate}
         onCompositionEnd={input.onCompositionEnd}
       />
-      <button type="button" onClick={onClose} aria-label={t('Close')}>
-        <X size={16} />
-      </button>
+      {phone ? (
+        <button
+          type="button"
+          className="send-button"
+          aria-label={t('Send')}
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={onSend}
+        >
+          <ArrowUp size={16} />
+        </button>
+      ) : (
+        <button type="button" onClick={onClose} aria-label={t('Close')}>
+          <X size={16} />
+        </button>
+      )}
     </div>
   );
 }
@@ -1629,13 +1651,19 @@ export default function RemoteBrowserPane({
   // A loopback page is the PC's own and already shown here; this device's
   // browser would reach itself, so it has no "system browser" to go to.
   const externalUrl = frame?.url && frame.url !== 'about:blank' && !isLoopbackWebUrl(frame.url) ? frame.url : '';
-  // The phone docks the typing bar under the page, always shown; ✕ lowers
-  // the soft keyboard. Elsewhere the toolbar button toggles it.
+  // The phone docks the typing bar under the page, always shown, in the
+  // chat composer's look with a send button; the soft keyboard lowers with the
+  // system back / keyboard dismiss. Elsewhere the toolbar button toggles it.
   const keyboardBar = (
     <RemoteKeyboardBar
       keyboardRef={keyboardRef}
       open={phone || keyboardOpen}
-      onClose={() => (phone ? keyboardRef.current?.blur() : setKeyboardOpen(false))}
+      phone={phone}
+      onClose={() => setKeyboardOpen(false)}
+      onSend={() => {
+        finishComposition();
+        input.submit();
+      }}
       input={input}
     />
   );
@@ -1713,8 +1741,7 @@ export default function RemoteBrowserPane({
           />
         </div>
       )}
-      <BrowserImportDialog open={importOpen} onClose={() => setImportOpen(false)} />{' '}
-      {!phone && keyboardBar}
+      <BrowserImportDialog open={importOpen} onClose={() => setImportOpen(false)} /> {!phone && keyboardBar}
       <div className="browser-remote-stage">
         <RemoteBrowserContent
           contentRef={contentRef}

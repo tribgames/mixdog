@@ -166,6 +166,8 @@ export function useBrowserPageInput(
       ].filter(Boolean);
       client.fire({ type: 'key', key: [...modifiers, event.key === ' ' ? 'Space' : event.key].join('+') });
     },
+    /** The bar's send button: Enter to the page (a composition is finished first by the caller). */
+    submit: () => client.fire({ type: 'key', key: 'Enter' }),
     onInput: (event: FormEvent<HTMLTextAreaElement>) => {
       if (!composing.current && !(event.nativeEvent as InputEvent).isComposing) text(event.currentTarget);
     },

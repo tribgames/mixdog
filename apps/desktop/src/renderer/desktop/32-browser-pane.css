@@ -267,6 +267,51 @@ html[data-mx-input="pointer"] .browser-pane-address:focus {
   border-color: var(--mx-focus);
 }
 
+/* Phone: the chat composer's card in one row — its surface, edge, radius and
+   prose font, with the composer's ink send disc (.send-button) at the end. */
+.browser-remote-keyboard.is-composer {
+  gap: 0;
+  margin: 6px 8px;
+  padding: 3px 4px 3px 0;
+  border-bottom: 0;
+  border-radius: var(--mx-radius-sheet);
+  background: var(--mx-composer-surface);
+  box-shadow: var(--mx-composer-edge), var(--mx-composer-lift);
+}
+
+.browser-remote-keyboard.is-composer textarea,
+.browser-remote-keyboard.is-composer textarea:focus {
+  height: 28px;
+  padding: 2px 12px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  font-family: var(--mx-font-prose);
+  font-size: var(--mx-font-body);
+  font-weight: var(--mx-weight-body);
+  line-height: var(--mx-line-body);
+  letter-spacing: 0;
+}
+
+.browser-remote-keyboard.is-composer textarea::placeholder {
+  color: var(--mx-text-faint);
+}
+
+.browser-remote-keyboard.is-composer .send-button {
+  width: 28px;
+  height: 28px;
+  /* The phone chrome's 44px tap-target minimum would stretch the disc. */
+  min-width: 28px;
+  min-height: 28px;
+  flex: none;
+  padding: 0;
+  border: 0;
+  border-radius: var(--mx-radius-pill);
+  background-color: var(--mx-text);
+  color: var(--mx-workspace-sheet);
+}
+
 /* Closed: the textarea stays focusable for PC keys/IME/paste but is invisible. */
 .browser-remote-keyboard[data-open="false"] {
   position: absolute;

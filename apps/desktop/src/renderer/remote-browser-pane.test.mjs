@@ -519,7 +519,11 @@ test('desktop pane: the picture stays contained in its box, as before', async ()
     await flush();
     assert.equal(pictureOf().style.transform, '', 'no view transform');
     assert.equal(pictureOf().style.width, '', 'the CSS fit (100%, object-fit: contain)');
-    assert.equal(document.querySelector('.browser-remote-keyboard').dataset.open, 'false', 'the typing bar is a toggle');
+    assert.equal(
+      document.querySelector('.browser-remote-keyboard').dataset.open,
+      'false',
+      'the typing bar is a toggle'
+    );
   } finally {
     await pane.unmount();
     screen.restore();
@@ -538,6 +542,18 @@ test('phone: the view fills one axis, keeps its scale under the keyboard, and re
     const bar = document.querySelector('.browser-remote-keyboard');
     assert.equal(bar.dataset.open, 'true', 'always shown');
     assert.equal(bar, document.querySelector('.browser-remote-pane').lastElementChild, 'docked under the page');
+    // The composer look: one send button, no separate X.
+    assert.ok(bar.classList.contains('is-composer'));
+    assert.equal(bar.querySelectorAll('button').length, 1);
+    assert.equal(bar.querySelector('svg.lucide-x'), null, 'no X button');
+    const send = bar.querySelector('button.send-button');
+    await act(async () => send.click());
+    await flush();
+    assert.deepEqual(
+      state.controls.at(-1).input,
+      { type: 'key', key: 'Enter', documentId: 'd1' },
+      'send presses Enter'
+    );
 
     // The bar takes focus and the keyboard comes up: the same view, inset.
     await act(async () => bar.querySelector('textarea').focus());
@@ -568,13 +584,64 @@ test('phone: the view fills one axis, keeps its scale under the keyboard, and re
   }
 });
 
+test('phone: send mid-composition commits the composed text once, then one Enter, keeping focus', async () => {
+  const screen = surface();
+  const state = fakeApi();
+  const pane = await mount();
+  try {
+    await showFrame(state);
+    const textarea = document.querySelector('.browser-remote-keyboard textarea');
+    const send = document.querySelector('.browser-remote-keyboard button.send-button');
+    // The DOM test env does not route composition events through React: call the field's handlers.
+    const props = textarea[Object.keys(textarea).find((name) => name.startsWith('__reactProps$'))];
+    const fire = (handler, data) => act(async () => props[handler]({ data, currentTarget: textarea, nativeEvent: {} }));
+    await act(async () => textarea.focus());
+    await fire('onCompositionStart', '');
+    await fire('onCompositionUpdate', '한');
+    await flush();
+    const before = state.controls.length;
+    await act(async () => send.click());
+    await flush();
+    const sent = state.controls.slice(before).map(({ input }) => input);
+    assert.deepEqual(
+      sent.map((input) => [input.type, input.text ?? input.key]),
+      [
+        ['composition-end', '한'],
+        ['key', 'Enter'],
+      ]
+    );
+    assert.equal(document.activeElement, textarea, 'focus is kept');
+    // The IME's late end of the same composition sends nothing more.
+    await fire('onCompositionEnd', '한');
+    await flush();
+    assert.equal(state.controls.length, before + 2);
+    // No composition: exactly one Enter.
+    await act(async () => send.click());
+    await flush();
+    assert.equal(state.controls.length, before + 3);
+    assert.equal(state.controls.at(-1).input.key, 'Enter');
+  } finally {
+    await pane.unmount();
+    screen.restore();
+  }
+});
+
 test('phone: a keyboard the VirtualKeyboard API reports over the page insets the view without a resize', async () => {
   const screen = surface();
   const state = fakeApi();
   const pane = await mount();
   try {
     const content = await showFrame(state);
-    content.getBoundingClientRect = () => ({ left: 0, top: 0, right: 390, bottom: 700, width: 390, height: 700, x: 0, y: 0 });
+    content.getBoundingClientRect = () => ({
+      left: 0,
+      top: 0,
+      right: 390,
+      bottom: 700,
+      width: 390,
+      height: 700,
+      x: 0,
+      y: 0,
+    });
     const touch = (type, id, x, y) =>
       content.dispatchEvent(pointerEvent(type, { pointerType: 'touch', pointerId: id, clientX: x, clientY: y }));
     const dragUp = async (id) => {
@@ -1467,7 +1534,10 @@ test('the default layout never sends a viewport control: renewals carry only the
       await act(async () => state.renew());
       await flush();
       assert.deepEqual(viewports(), [], drive ? 'a browserDrive host is not driven' : 'an older host neither');
-      assert.ok(state.streams.every(([, options]) => !options || !('fit' in options)), 'and nothing is fitted');
+      assert.ok(
+        state.streams.every(([, options]) => !options || !('fit' in options)),
+        'and nothing is fitted'
+      );
       assert.deepEqual(state.streams.at(-1)[1], { maxWidth: 700, maxHeight: 390 });
       await pane.unmount();
       box = { width: 390, height: 700 };

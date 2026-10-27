@@ -231,6 +231,10 @@ export function createScreenTextController(options: { emit(inputs: RemoteScreenI
       committed = text;
       options.emit(screenTextInputs(text));
     },
+    /** The bar's send button: Enter, pressed and lifted (a composition is finished first by the caller). */
+    submit(): void {
+      options.emit(keyPair('Enter'));
+    },
     paste(text: string): void {
       if (text) options.emit(screenTextInputs(text));
     },
