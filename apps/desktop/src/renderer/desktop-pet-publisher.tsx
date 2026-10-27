@@ -229,13 +229,23 @@ const FLOATING_SELECTOR =
 
 /** The side panels (visualize/file/browser panes, the pane dock): docked, not
  *  floating, yet the bot's window is above the whole app, so they are cut out
- *  of it like a menu: the bot stays on the conversation's side of them. */
-const SIDE_PANEL_SELECTOR = '.workbench-side-panel, .pane-side-dock';
+ *  of it like a menu: the bot stays on the conversation's side of them.
+ *  An expanded browser/terminal is not inside its dock: its surface is a
+ *  fixed container over the whole main panel (shown ones only: a parked one
+ *  sits off screen), and the dock's header widens across the same panel
+ *  (surface-slots.ts), both far beyond the dock's own box. */
+const SIDE_PANEL_SELECTOR =
+  '.workbench-side-panel, .pane-side-dock, .pane-side-dock-header[data-surface-expanded="true"], .session-browser-surface-container[data-parked="false"], .session-terminal-surface-container[data-parked="false"]';
 
 /** The layer and panel candidates, registered as they mount, unmount or
- *  change role/class: a publish reads these, never the whole document (a
- *  hidden but mounted dock panel can hold ~50k nodes). */
-const layerElements = registerElements(`${FLOATING_SELECTOR}, ${SIDE_PANEL_SELECTOR}`, ['role', 'class']);
+ *  change role/class/expansion/parking: a publish reads these, never the
+ *  whole document (a hidden but mounted dock panel can hold ~50k nodes). */
+const layerElements = registerElements(`${FLOATING_SELECTOR}, ${SIDE_PANEL_SELECTOR}`, [
+  'role',
+  'class',
+  'data-surface-expanded',
+  'data-parked',
+]);
 
 const roundedRect = (box: DOMRect): DesktopPetRect => ({
   x: Math.round(box.left),

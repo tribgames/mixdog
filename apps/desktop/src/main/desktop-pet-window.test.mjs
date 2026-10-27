@@ -1571,6 +1571,35 @@ test('at 200% zoom an app menu is cut out at its screen place in the pet window'
   assert.deepEqual(window.webContents.lastView().cutouts, []);
 });
 
+test('a side panel covering the pet is cut out of it in every placement, and the pet is not hidden', async () => {
+  // The whole app content, as an expanded dock or surface reports it.
+  const panel = { backdrop: false, rects: [{ x: 0, y: 0, width: APP_CONTENT.width, height: APP_CONTENT.height }] };
+  const placements = {
+    'pinned above the message box': {},
+    'pinned here': { ...FREE, pinnedHere: true },
+    'free in the app window': { ...FREE, positions: { 1: { x: 500, y: 300 } } },
+    'free on screen': { ...FREE, onScreen: true, positions: { 1: { x: 500, y: 300 } } },
+    'kept above other windows': { ...FREE, keepAbove: true, positions: { 1: { x: 500, y: 300 } } },
+  };
+  for (const [name, prefs] of Object.entries(placements)) {
+    const { window, app } = await started({ prefs });
+    app.webContents.emit(DESKTOP_PET_IPC.composer, COMPOSER);
+    window.webContents.emit(DESKTOP_PET_IPC.area, { x: 108, y: 120, width: 120, height: 84 });
+    assert.equal(window.shown, true, name);
+    app.webContents.emit(DESKTOP_PET_IPC.layers, panel);
+    assert.equal(window.shown, true, `${name}: cut, not hidden`);
+    const [cut, ...rest] = window.webContents.lastView().cutouts;
+    assert.deepEqual(rest, [], name);
+    const at = { x: window.bounds.x, y: window.bounds.y };
+    // The panel's screen box less the window's origin, clipped to the window.
+    const left = Math.max(0, APP_CONTENT.x - at.x);
+    const top = Math.max(0, APP_CONTENT.y - at.y);
+    const right = Math.min(SIZE.width, APP_CONTENT.x + APP_CONTENT.width - at.x);
+    const bottom = Math.min(SIZE.height, APP_CONTENT.y + APP_CONTENT.height - at.y);
+    assert.deepEqual(cut, { x: left, y: top, width: right - left, height: bottom - top }, name);
+  }
+});
+
 test("an app modal's backdrop hides the pet wherever it overlaps the app window; the quick message survives the hide", async () => {
   // The publisher flags a backdrop modal (the dialog itself may be a rect too).
   const BACKDROP = { backdrop: true, rects: [] };

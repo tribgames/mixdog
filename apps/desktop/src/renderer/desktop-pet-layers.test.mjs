@@ -200,6 +200,169 @@ test('scroll and animationend move a layer: one publish, coalesced into one fram
   scroller.remove();
 });
 
+test('an expanded browser/terminal surface and its widened dock header are cut out of the pet like the dock, a parked one is not', async (t) => {
+  const frames = manualFrames();
+  const { window, document, root } = installTestDom(t, {
+    rootId: 'root',
+    expose: ['MouseEvent', 'Event', 'HTMLElement', 'MutationObserver'],
+    globals: {
+      ResizeObserver: QuietResizeObserver,
+      requestAnimationFrame: frames.request,
+      cancelAnimationFrame: frames.cancel,
+    },
+  });
+  const layers = [];
+  window.mixdogDesktop = {
+    getDesktopPetConfig: async () => ({ enabled: true, pinned: true, keepAbove: false, collapsed: false, scale: 100 }),
+    subscribeDesktopPetConfig: () => () => {},
+    publishDesktopPet: () => {},
+    publishDesktopPetComposer: () => {},
+    publishDesktopPetTheme: () => {},
+    publishDesktopPetLayers: (value) => layers.push(value.rects),
+  };
+  const publisher = await import('./desktop-pet-publisher');
+  publisher.resetDesktopPetConfigForTests();
+  t.after(() => publisher.resetDesktopPetConfigForTests());
+  await act(async () => root.render(React.createElement(publisher.DesktopPetPublisher)));
+  const settle = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      while (frames.size) frames.run();
+    });
+  await settle();
+
+  // The dock keeps its narrow column; the expanded surface (a fixed container
+  // outside the dock) and the dock's header cover the whole main panel.
+  const dock = document.createElement('aside');
+  dock.className = 'pane-side-dock';
+  dock.getBoundingClientRect = () => ({ left: 900, top: 40, width: 360, height: 700 });
+  const header = document.createElement('div');
+  header.className = 'pane-side-dock-header';
+  header.getBoundingClientRect = () => ({ left: 300, top: 40, width: 960, height: 36 });
+  dock.append(header);
+  const surface = document.createElement('div');
+  surface.className = 'session-browser-surface-container';
+  surface.style.position = 'fixed';
+  surface.dataset.parked = 'true';
+  surface.getBoundingClientRect = () => ({ left: -10000, top: 0, width: 1280, height: 900 });
+  document.body.append(dock, surface);
+  await settle();
+  assert.deepEqual(
+    layers.at(-1),
+    [{ x: 900, y: 40, width: 360, height: 700 }],
+    'collapsed: the dock only, parked is off screen'
+  );
+
+  surface.dataset.parked = 'false';
+  surface.dataset.expanded = 'true';
+  surface.getBoundingClientRect = () => ({ left: 300, top: 76, width: 960, height: 664 });
+  header.dataset.surfaceExpanded = 'true';
+  header.style.position = 'fixed';
+  await settle();
+  assert.deepEqual(
+    layers.at(-1),
+    [
+      { x: 900, y: 40, width: 360, height: 700 },
+      { x: 300, y: 40, width: 960, height: 36 },
+      { x: 300, y: 76, width: 960, height: 664 },
+    ],
+    'expanded: the whole panel is cut out'
+  );
+
+  surface.dataset.parked = 'true';
+  delete header.dataset.surfaceExpanded;
+  await settle();
+  assert.deepEqual(layers.at(-1), [{ x: 900, y: 40, width: 360, height: 700 }], 'folded again');
+});
+
+test('a visualize page (HTML, PDF, image, video) shows inside the dock panel, so the dock reports it docked, overlaid at 1160px and expanded', async (t) => {
+  const frames = manualFrames();
+  const { window, document, root } = installTestDom(t, {
+    rootId: 'root',
+    expose: ['MouseEvent', 'Event', 'HTMLElement', 'MutationObserver'],
+    globals: {
+      ResizeObserver: QuietResizeObserver,
+      requestAnimationFrame: frames.request,
+      cancelAnimationFrame: frames.cancel,
+    },
+  });
+  const layers = [];
+  window.mixdogDesktop = {
+    getDesktopPetConfig: async () => ({ enabled: true, pinned: true, keepAbove: false, collapsed: false, scale: 100 }),
+    subscribeDesktopPetConfig: () => () => {},
+    publishDesktopPet: () => {},
+    publishDesktopPetComposer: () => {},
+    publishDesktopPetTheme: () => {},
+    publishDesktopPetLayers: (value) => layers.push(value.rects),
+  };
+  const publisher = await import('./desktop-pet-publisher');
+  publisher.resetDesktopPetConfigForTests();
+  t.after(() => publisher.resetDesktopPetConfigForTests());
+  await act(async () => root.render(React.createElement(publisher.DesktopPetPublisher)));
+  const settle = () =>
+    act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      while (frames.size) frames.run();
+    });
+  await settle();
+
+  // The dock host, its embedded panel, and a visualize page inside (an iframe
+  // for HTML/PDF/Office pages, an img or video otherwise: all in-flow).
+  const dock = document.createElement('aside');
+  dock.className = 'pane-side-dock';
+  const panel = document.createElement('aside');
+  panel.className = 'workbench-side-panel';
+  const page = document.createElement('iframe');
+  panel.append(page);
+  dock.append(panel);
+  const place = (host, inner) => {
+    dock.getBoundingClientRect = () => host;
+    panel.getBoundingClientRect = () => inner;
+  };
+  place({ left: 940, top: 40, width: 420, height: 700 }, { left: 941, top: 76, width: 419, height: 664 });
+  document.body.append(dock);
+  await settle();
+  assert.deepEqual(
+    layers.at(-1),
+    [
+      { x: 940, y: 40, width: 420, height: 700 },
+      { x: 941, y: 76, width: 419, height: 664 },
+    ],
+    'docked'
+  );
+
+  // Wider than the chat (the 1160px cap): the dock floats over the whole pane.
+  dock.dataset.overlay = 'true';
+  dock.style.position = 'absolute';
+  dock.style.zIndex = '30';
+  place({ left: 200, top: 40, width: 1160, height: 700 }, { left: 201, top: 76, width: 1159, height: 664 });
+  window.dispatchEvent(new window.Event('resize'));
+  await settle();
+  assert.deepEqual(
+    layers.at(-1),
+    [
+      { x: 200, y: 40, width: 1160, height: 700 },
+      { x: 201, y: 76, width: 1159, height: 664 },
+    ],
+    'overlay at 1160px'
+  );
+
+  // Expanded: the host is a fixed sheet over the whole main panel.
+  dock.dataset.expanded = 'true';
+  dock.style.position = 'fixed';
+  place({ left: 0, top: 0, width: 1400, height: 800 }, { left: 1, top: 36, width: 1399, height: 764 });
+  window.dispatchEvent(new window.Event('resize'));
+  await settle();
+  assert.deepEqual(
+    layers.at(-1),
+    [
+      { x: 0, y: 0, width: 1400, height: 800 },
+      { x: 1, y: 36, width: 1399, height: 764 },
+    ],
+    'expanded'
+  );
+});
+
 test('while no card shows (boot, a session loading), DOM and theme changes read the look once a frame, not per batch', async (t) => {
   const frames = manualFrames();
   const { window, document, root } = installTestDom(t, {
