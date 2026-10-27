@@ -21,7 +21,7 @@ const { computerReadinessBlocking, computerReadinessPending, computerReadinessRo
   './computer-readiness.ts'
 );
 const { featureStatus } = await import('./built-in-features-panel.tsx');
-const { ComputerReadinessSection, inputAccessError, useComputerReadiness } = await import(
+const { ComputerReadinessSection, inputAccessError, pcAccessApprovalError, useComputerReadiness } = await import(
   './computer-readiness-section.tsx'
 );
 
@@ -157,6 +157,75 @@ test('the PC access row’s Approve runs one approval, refreshes, and says so wh
     window.dispatchEvent(new window.Event('focus'));
   });
   assert.equal(host.querySelector('[data-computer-readiness]'), null);
+});
+
+test('every PC access Approve that did not set it up says why in the row', async (t) => {
+  const expected = {
+    declined: /PC access was not approved because the administrator prompt was declined or closed\./,
+    'in-progress': /PC access is already waiting for an open administrator prompt\. Answer it on this PC\./,
+    'other-user': /PC access is already set up by another Windows account on this PC\./,
+    unavailable: /PC access is not available on this PC\./,
+    failed: /PC access could not be set up\./,
+  };
+  for (const [outcome, line] of Object.entries(expected)) {
+    assert.match(pcAccessApprovalError({ outcome, detail: 'ENGLISH DIAGNOSTIC' }), line, outcome);
+  }
+  assert.equal(pcAccessApprovalError({ outcome: 'done' }), '');
+  assert.equal(pcAccessApprovalError({ outcome: 'nothing-to-do' }), '');
+
+  // In the section: a declined prompt leaves the row with the reason, not a bare Approve.
+  const api = {
+    computerReadiness: async () => windows('not-installed'),
+    approvePcAccess: async () => ({ outcome: 'declined', detail: 'ENGLISH DIAGNOSTIC' }),
+  };
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
+  await act(async () => root.render(React.createElement(Harness, { api })));
+  await act(async () => {});
+  await act(async () => host.querySelector('[data-readiness-row="pc-access"] button').click());
+  assert.match(host.textContent, expected.declined);
+  assert.doesNotMatch(host.textContent, /ENGLISH DIAGNOSTIC/);
+});
+
+test('while the PC access prompt is open the row says so and Approve cannot queue another', async (t) => {
+  let answer;
+  const approvals = [];
+  const api = {
+    computerReadiness: async () => windows('not-installed'),
+    approvePcAccess: () => {
+      approvals.push(true);
+      return new Promise((resolve) => {
+        answer = resolve;
+      });
+    },
+  };
+  const host = document.createElement('main');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
+  await act(async () => root.render(React.createElement(Harness, { api })));
+  await act(async () => {});
+  const button = () => host.querySelector('[data-readiness-row="pc-access"] button');
+  await act(async () => button().click());
+  assert.match(
+    host.textContent,
+    /PC access is waiting for the administrator prompt\. Approve it on this PC to continue\./
+  );
+  assert.equal(button().disabled, true);
+  await act(async () => button().click());
+  assert.equal(approvals.length, 1, 'a second press launches nothing');
+
+  await act(async () => answer({ outcome: 'done' }));
+  assert.doesNotMatch(host.textContent, /waiting for the administrator prompt/);
+  assert.equal(button().disabled, false);
 });
 
 test('allow_input is a Mouse and keyboard row with an Allow action', () => {
@@ -402,5 +471,14 @@ test('every locale carries the input-access guidance keys with literals and plac
     assert.match(get('The repair script failed (exit {{code}}).'), /\{\{code\}\}/, name);
     assert.ok(get('Authorization was cancelled.'), name);
     assert.match(get('pkexec is not installed, so access cannot be set up from here.'), /pkexec/, name);
+    for (const key of [
+      'PC access was not approved because the administrator prompt was declined or closed.',
+      'PC access is already waiting for an open administrator prompt. Answer it on this PC.',
+      'PC access is already set up by another Windows account on this PC.',
+      'PC access is not available on this PC.',
+      'PC access is waiting for the administrator prompt. Approve it on this PC to continue.',
+    ]) {
+      assert.ok(get(key), `${name}: ${key}`);
+    }
   }
 });

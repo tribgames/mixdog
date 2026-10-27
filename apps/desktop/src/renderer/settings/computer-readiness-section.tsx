@@ -2,7 +2,7 @@ import { Accessibility, AppWindow, ClipboardList, MousePointer2, Monitor, ScanTe
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 
 import type { DesktopApi, DesktopComputerReadiness } from '../../shared/contract';
-import type { DesktopComputerInputAccess } from '../../shared/contract-computer';
+import type { DesktopComputerInputAccess, DesktopPcAccessApproval } from '../../shared/contract-computer';
 import { ErrorNotice } from '../ErrorNotice';
 import { t } from '../i18n';
 import {
@@ -93,6 +93,27 @@ export function inputAccessError(result: DesktopComputerInputAccess | undefined)
   return detail ? `${base} ${detail}` : base;
 }
 
+/** The translated line for a PC access Approve that did not set it up, chosen
+ *  from the outcome (never the English `detail`); empty when it succeeded or
+ *  there was nothing to approve. */
+export function pcAccessApprovalError(result: DesktopPcAccessApproval | undefined): string {
+  switch (result?.outcome) {
+    case 'done':
+    case 'nothing-to-do':
+      return '';
+    case 'declined':
+      return t('PC access was not approved because the administrator prompt was declined or closed.');
+    case 'in-progress':
+      return t('PC access is already waiting for an open administrator prompt. Answer it on this PC.');
+    case 'other-user':
+      return t('PC access is already set up by another Windows account on this PC.');
+    case 'unavailable':
+      return t('PC access is not available on this PC.');
+    default:
+      return t('PC access could not be set up.');
+  }
+}
+
 /** Hidden entirely when nothing is pending. */
 export function ComputerReadinessSection({
   rows,
@@ -105,20 +126,22 @@ export function ComputerReadinessSection({
 }) {
   const [error, setError] = useState('');
   const [howTo, setHowTo] = useState<{ id: string; package: string } | null>(null);
+  /** The row whose action is still running (its button is disabled meanwhile). */
+  const [busy, setBusy] = useState<string | null>(null);
   if (!rows.length) return null;
   const run = async (row: ComputerReadinessRow) => {
     const action = row.action;
-    if (!action) return;
+    if (!action || busy) return;
     setError('');
+    setBusy(row.id);
     try {
       if (action.kind === 'install_how') {
         setHowTo((open) => (open?.id === row.id ? null : { id: row.id, package: action.package }));
       } else if (action.kind === 'open_settings') {
         await api.openComputerPermissionSettings?.(action.pane);
       } else if (action.kind === 'approve_pc_access') {
-        // One UAC prompt on this PC; a declined prompt is the person's answer.
-        const result = await api.approvePcAccess?.();
-        if (result?.outcome === 'failed') setError(t('PC access could not be set up.'));
+        // One UAC prompt on this PC; every outcome but success says why.
+        setError(pcAccessApprovalError(await api.approvePcAccess?.()));
         await refresh();
       } else if (action.kind === 'allow_input') {
         const result = await api.requestLinuxInputAccess?.();
@@ -129,8 +152,11 @@ export function ComputerReadinessSection({
       }
     } catch (failure) {
       setError(String((failure as Error)?.message || failure));
+    } finally {
+      setBusy(null);
     }
   };
+  const waitingForPrompt = rows.some((row) => row.id === busy && row.action?.kind === 'approve_pc_access');
   return (
     <ExtensionSection
       title={t('Readiness')}
@@ -149,7 +175,9 @@ export function ComputerReadinessSection({
             dataAttributes={{ 'data-readiness-row': row.id }}
             control={
               row.action ? (
-                <ExtensionAction onClick={() => void run(row)}>{row.action.label}</ExtensionAction>
+                <ExtensionAction disabled={busy !== null} onClick={() => void run(row)}>
+                  {row.action.label}
+                </ExtensionAction>
               ) : undefined
             }
           />
@@ -161,6 +189,11 @@ export function ComputerReadinessSection({
             package: howTo.package,
             command: `sudo apt install ${howTo.package}`,
           })}
+        </ExtensionNote>
+      ) : null}
+      {waitingForPrompt ? (
+        <ExtensionNote role="status">
+          {t('PC access is waiting for the administrator prompt. Approve it on this PC to continue.')}
         </ExtensionNote>
       ) : null}
       <ErrorNotice errors={[error]} />
