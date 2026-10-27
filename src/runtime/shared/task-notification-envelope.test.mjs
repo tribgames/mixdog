@@ -110,8 +110,8 @@ test('shell non-zero exit remains a completed command result, with log and previ
   assert.equal(modelVisibleToolCompletionMessage(empty), empty);
 });
 
-test('large results are not truncated by wrapping or re-enqueue', () => {
-  const result = `start\n${'x'.repeat(40_000)}\nend`;
+test('results within the model bound are not altered by wrapping or re-enqueue', () => {
+  const result = `start\n${'x'.repeat(3_000)}\nend`;
   const text = renderAgentCompletionEnvelope({ id: 'task_agent_large', status: 'completed', result });
   const entry = markCompletionEntry(modelVisibleToolCompletionMessage(text));
   assert.equal(entry.content, text);
