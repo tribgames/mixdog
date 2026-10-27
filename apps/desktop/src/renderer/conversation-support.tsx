@@ -425,12 +425,15 @@ export function transcriptRowNode(
     onOpenSettings,
     questionCard,
     quietTools = false,
+    toolsRunning = false,
     turnCards,
   }: {
     /** Coding mode: the turn's visualize cards, seated above its changed-files card. */
     turnCards?: TurnCardsSeat;
     /** Agent mode: no tool rows; only a question that needs the user shows. */
     quietTools?: boolean;
+    /** This tool group is where the running turn adds its next call. */
+    toolsRunning?: boolean;
     disclosureScope: string;
     optimisticActivityStartedAt: number;
     readOnly: boolean;
@@ -485,13 +488,23 @@ export function transcriptRowNode(
     const { rest, asked, waiting } = splitAskUser(row.items, cardKey !== undefined, cardKey);
     if (!asked.length && !waiting) {
       return quietTools ? null : (
-        <ToolActivityGroup items={row.items} disclosureScope={disclosureScope} turnKey={row.turnKey} />
+        <ToolActivityGroup
+          items={row.items}
+          disclosureScope={disclosureScope}
+          turnKey={row.turnKey}
+          running={toolsRunning}
+        />
       );
     }
     return (
       <>
         {rest.length > 0 && !quietTools && (
-          <ToolActivityGroup items={rest} disclosureScope={disclosureScope} turnKey={row.turnKey} />
+          <ToolActivityGroup
+            items={rest}
+            disclosureScope={disclosureScope}
+            turnKey={row.turnKey}
+            running={toolsRunning}
+          />
         )}
         {asked.map((item, index) => (
           <AskUserRecord key={String(item.id ?? index)} item={item} />

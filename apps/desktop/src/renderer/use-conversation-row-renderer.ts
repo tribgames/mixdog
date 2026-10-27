@@ -48,7 +48,7 @@ import type { DesktopPromptContent, DesktopSubmitOptions } from '../shared/contr
 import type { ConversationProps } from './conversation-pane-props';
 import { type TurnCardsSeat, transcriptRowNode } from './conversation-support';
 import type { Snapshot, TranscriptItem } from './desktop-types';
-import type { TranscriptRowModel } from './transcript-rows';
+import { type TranscriptRowModel, toolActivityStillOpen } from './transcript-rows';
 import { ToolVisualizeCards } from './transcript-visualize-card';
 import { turnIndexOf } from './conversation-turn-index';
 import { runningTurnKeyOf } from './turn-preview-model';
@@ -350,9 +350,10 @@ export function useConversationRowRenderer({
   // A line outside any run, in the bubble column (tool-round records, cards).
   const asideRow = (children: ReactNode): ReactNode =>
     createElement(AgentChatRow, { place: null, member: null }, children);
-  const rowNode = (row: TranscriptRowModel, seat?: TurnCardsSeat): ReactNode =>
+  const rowNode = (row: TranscriptRowModel, seat?: TurnCardsSeat, toolsRunning = false): ReactNode =>
     transcriptRowNode(row, {
       turnCards: seat,
+      toolsRunning,
       quietTools: agentMode,
       disclosureScope,
       optimisticActivityStartedAt,
@@ -417,7 +418,7 @@ export function useConversationRowRenderer({
       // turn's hand-off lines sit under its reply (or its working row while
       // it runs), as in a chat.
       if (taskReportHidden(rows, index, waiting)) return null;
-      const node = rowNode(row, seat);
+      const node = rowNode(row, seat, toolActivityStillOpen(rows, index, Boolean(snapshot.busy)));
       const block = handoffBlock(rows, index);
       return connectorCards || block ? createElement(Fragment, null, node, block, connectorCards) : node;
     }

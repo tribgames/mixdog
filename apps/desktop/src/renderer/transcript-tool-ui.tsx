@@ -186,6 +186,9 @@ interface ToolActivityGroupProps {
   disclosureScope?: string;
   /** The turn the group belongs to; scopes what is asked once per task. */
   turnKey?: string;
+  /** The turn is still running and ends in this group: its next call lands
+   *  here, so the group does not read finished between two calls. */
+  running?: boolean;
 }
 
 /** The live projection rebuilds a group's items array on every tick from the
@@ -193,6 +196,7 @@ interface ToolActivityGroupProps {
 function sameToolActivityGroupProps(previous: ToolActivityGroupProps, next: ToolActivityGroupProps): boolean {
   if ((previous.disclosureScope ?? '') !== (next.disclosureScope ?? '')) return false;
   if ((previous.turnKey ?? '') !== (next.turnKey ?? '')) return false;
+  if (Boolean(previous.running) !== Boolean(next.running)) return false;
   if (previous.items === next.items) return true;
   return (
     previous.items.length === next.items.length && previous.items.every((item, index) => item === next.items[index])
@@ -276,6 +280,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   items,
   disclosureScope = '',
   turnKey = '',
+  running = false,
 }: ToolActivityGroupProps) {
   const { mode, key: viewKey } = useToolActivityView();
   void warmToolMarkdownBody();
@@ -291,9 +296,11 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   const contentId = useId();
   const outcomeUnknown = useToolOutcomeUnknown();
   const pending = items.some((item) => !toolItemDone(item) && !outcomeUnknown(item.id));
-  // Past tense only once nothing in the group runs, a background command included.
+  // Past tense only once nothing in the group runs, a background command
+  // included, and the turn will add no more calls to it.
   const settled = useMemo(
     () =>
+      !running &&
       calls.every(
         (item) =>
           toolItemDone(item) &&
@@ -302,7 +309,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
             toolActivityBackgroundTask(String(item.result ?? item.rawResult ?? ''))?.running
           )
       ),
-    [calls]
+    [calls, running]
   );
   const summary = useMemo(() => desktopToolActivitySummary(items, settled), [items, settled]);
   // Settled changes count as soon as they land; a call still running (or
@@ -315,13 +322,16 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   // rests nearby, so opening a call shows its whole output at once.
   const groupRef = useRef<HTMLElement | null>(null);
   useToolOutputPrefetch(groupRef, disclosureScope, calls);
+  // The readout counts from the earliest call still pending; while the turn
+  // can still add calls to the group, from its first call, so it neither
+  // vanishes nor restarts in the gap between two calls.
   const pendingStartedAt = useMemo(() => {
     const starts = calls
-      .filter((item) => !toolItemDone(item))
+      .filter((item) => running || !toolItemDone(item))
       .map(toolItemStartedAt)
       .filter((value) => value > 0);
     return starts.length ? Math.min(...starts) : 0;
-  }, [calls]);
+  }, [calls, running]);
 
   return (
     <article ref={groupRef} className="tool-activity" data-surface="desktop" data-open={open ? 'true' : 'false'}>
@@ -342,7 +352,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
             {t('Running')}
           </span>
         )}
-        {pending && <ToolWorkingStatus startedAt={pendingStartedAt} />}
+        {(pending || running) && <ToolWorkingStatus startedAt={pendingStartedAt} />}
         <span className="tool-chevron" aria-hidden="true">
           <ChevronRight size={16} />
         </span>

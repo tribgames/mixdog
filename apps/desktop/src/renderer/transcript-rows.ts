@@ -594,7 +594,18 @@ export function appendLiveTranscriptRows({
   return builder.rows;
 }
 
-const TURN_CHROME_KINDS = new Set(['user', 'turndone', 'statusdone', 'notice']);
+/** Whether the tool group at `index` is where a running turn will add its next
+ *  call: nothing but the working row follows it. Between two calls every call
+ *  of such a group is finished for a moment, yet the group is not. */
+export function toolActivityStillOpen(rows: readonly TranscriptRowModel[], index: number, busy: boolean): boolean {
+  if (!busy || rows[index]?._tag !== 'ToolActivity') return false;
+  for (let next = index + 1; next < rows.length; next += 1) {
+    if (rows[next]?._tag !== 'Thinking') return false;
+  }
+  return true;
+}
+
+const TURN_CHROME_KINDS =new Set(['user', 'turndone', 'statusdone', 'notice']);
 
 /** Whether the turn produced assistant or tool output before it ended — a
  *  retry then continues from that output instead of resubmitting the prompt. */
