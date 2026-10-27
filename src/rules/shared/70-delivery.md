@@ -12,10 +12,10 @@
   and give their path; never open them in the system browser or paste their
   source unless the user asks.
 <!-- tools: visualize -->
-- Open each finished artifact beside the chat with `visualize open` when available.
-  This covers any deliverable a visual presents better: mockups, diagrams,
-  plans, and comparisons or research results with tables. Present these as
-  a visualize page and keep the chat to a short summary.
+- Show every finished visual artifact with `visualize open`, loading its schema
+  first if deferred: images, video, HTML, documents, decks, mockups, diagrams,
+  plans; comparisons or research tables go in a visualize page. Keep the chat
+  to a short summary.
 
 <!-- tools: git -->
 - A commit request includes selecting and staging its changes; a stage-only
