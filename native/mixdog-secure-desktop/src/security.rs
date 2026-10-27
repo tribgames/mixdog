@@ -984,6 +984,28 @@ pub fn classify_ace_type(ace_type: u8) -> AceClass {
     }
 }
 
+/// `INHERIT_ONLY_ACE` in an ACE header's `AceFlags` (`winnt.h` `0x08`; SDDL `IO`).
+pub const INHERIT_ONLY_ACE: u8 = 0x08;
+
+/// `true` if an ACE with these header flags controls access to the object
+/// whose DACL holds it.
+///
+/// An inherit-only ACE does not: "an inherit-only ACE which does not control
+/// access to the object to which it is attached" (`ACE_HEADER`, Microsoft
+/// Learn), and the kernel's access check skips it (`acl`'s on-disk test shows
+/// an `IO` grant to the running user does not let it create anything). It is
+/// only a template. A child created below (or re-propagated)
+/// receives it as an *effective* ACE of the child's own DACL — flagged
+/// `INHERITED_ACE`, `INHERIT_ONLY_ACE` cleared — and that copy is judged when
+/// the child itself is verified. Stock Windows roots carry exactly such an ACE
+/// (`C:\`: `(A;OICIIO;SDGXGWGR;;;AU)`, Authenticated Users "modify" for new
+/// children only); counting it against `C:\` itself refused every install on
+/// those machines. `INHERITED_ACE` alone changes nothing here: an inherited
+/// ACE without `INHERIT_ONLY_ACE` is effective and still counts.
+pub fn ace_controls_access(ace_flags: u8) -> bool {
+    ace_flags & INHERIT_ONLY_ACE == 0
+}
+
 /// SDDL for the Windows service object. SYSTEM and Administrators get full
 /// control; Authenticated Users keep the default read set; the installing user
 /// is additionally granted start/stop/query so the app can control the service
@@ -1140,6 +1162,40 @@ mod tests {
         assert_eq!(classify_ace_type(0x09), AceClass::Unsupported); // ALLOWED_CALLBACK
         assert_eq!(classify_ace_type(0x0B), AceClass::Unsupported); // ALLOWED_CALLBACK_OBJECT
         assert_eq!(classify_ace_type(0x11), AceClass::Unsupported); // SYSTEM_AUDIT etc.
+    }
+
+    #[test]
+    fn only_the_inherit_only_flag_stops_an_ace_controlling_access() {
+        const OBJECT_INHERIT: u8 = 0x01;
+        const CONTAINER_INHERIT: u8 = 0x02;
+        const NO_PROPAGATE_INHERIT: u8 = 0x04;
+        const INHERITED: u8 = 0x10;
+        // Effective ACEs: this object, with or without inheritance flags, and
+        // inherited copies that are not inherit-only.
+        for flags in [
+            0x00,
+            OBJECT_INHERIT,
+            CONTAINER_INHERIT,
+            OBJECT_INHERIT | CONTAINER_INHERIT,
+            OBJECT_INHERIT | NO_PROPAGATE_INHERIT,
+            INHERITED,
+            CONTAINER_INHERIT | INHERITED,
+            OBJECT_INHERIT | CONTAINER_INHERIT | INHERITED,
+        ] {
+            assert!(ace_controls_access(flags), "flags {flags:#04x} are effective");
+        }
+        // Inherit-only (stock `C:\`: OI|CI|IO = 0x0B), inherited or not, with
+        // any propagation flags, and bare `IO`.
+        for flags in [
+            INHERIT_ONLY_ACE,
+            OBJECT_INHERIT | CONTAINER_INHERIT | INHERIT_ONLY_ACE,
+            OBJECT_INHERIT | CONTAINER_INHERIT | INHERIT_ONLY_ACE | INHERITED,
+            CONTAINER_INHERIT | NO_PROPAGATE_INHERIT | INHERIT_ONLY_ACE,
+            INHERIT_ONLY_ACE | INHERITED,
+        ] {
+            assert!(!ace_controls_access(flags), "flags {flags:#04x} are inherit-only");
+        }
+        assert_eq!(OBJECT_INHERIT | CONTAINER_INHERIT | INHERIT_ONLY_ACE, 0x0B);
     }
 
     #[test]

@@ -4916,6 +4916,7 @@
   "The pasted address belongs to a different Devin sign-in.": "貼り付けたアドレスは別の Devin サインインのものです。",
   "The pasted address has no authorization code.": "貼り付けたアドレスに認証コードがありません。",
   "The pasted data is too large or malformed, so nothing was pasted.": "貼り付けたデータが大きすぎるか形式が不正なため、何も貼り付けませんでした。",
+  "The PC access installer failed (exit {{code}}).": "PCアクセス権のインストーラーが失敗しました(終了コード {{code}})。",
   "The PC is locked": "PCがロックされています",
   "The PC’s secure screen cannot be opened right now.": "現在、PCのセキュア画面を開くことができません。",
   "The plugin is turned off.": "プラグインがオフです。",

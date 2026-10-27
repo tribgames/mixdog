@@ -173,6 +173,22 @@ test('every PC access Approve that did not set it up says why in the row', async
   assert.equal(pcAccessApprovalError({ outcome: 'done' }), '');
   assert.equal(pcAccessApprovalError({ outcome: 'nothing-to-do' }), '');
 
+  // A failure from the installer exiting says so with its exit code (the English detail still stays out).
+  assert.equal(
+    pcAccessApprovalError({ outcome: 'failed', detail: 'ENGLISH DIAGNOSTIC', exitCode: 1 }),
+    'PC access could not be set up. The PC access installer failed (exit 1).'
+  );
+  assert.equal(
+    pcAccessApprovalError({ outcome: 'failed', detail: 'ENGLISH DIAGNOSTIC' }),
+    'PC access could not be set up.'
+  );
+  assert.equal(pcAccessApprovalError(undefined), 'PC access could not be set up.');
+  // Only a failure reads its code; the other outcomes keep their own reason.
+  assert.equal(
+    pcAccessApprovalError({ outcome: 'declined', exitCode: 1223 }),
+    'PC access was not approved because the administrator prompt was declined or closed.'
+  );
+
   // In the section: a declined prompt leaves the row with the reason, not a bare Approve.
   const api = {
     computerReadiness: async () => windows('not-installed'),
@@ -469,6 +485,7 @@ test('every locale carries the input-access guidance keys with literals and plac
     assert.match(get('Sign out and back in, or add your user to the input group, then try again.'), /input/, name);
     assert.match(get('The uinput kernel module is not available on this system.'), /uinput/, name);
     assert.match(get('The repair script failed (exit {{code}}).'), /\{\{code\}\}/, name);
+    assert.match(get('The PC access installer failed (exit {{code}}).'), /\{\{code\}\}/, name);
     assert.ok(get('Authorization was cancelled.'), name);
     assert.match(get('pkexec is not installed, so access cannot be set up from here.'), /pkexec/, name);
     for (const key of [

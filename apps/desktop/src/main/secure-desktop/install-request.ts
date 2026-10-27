@@ -162,6 +162,9 @@ export interface SecureDesktopKeyChangeResult {
   outcome: SecureDesktopKeyChangeOutcome;
   state: SecureDesktopInstallState;
   detail?: string;
+  /** The bridge's exit code when a `failed` came from it exiting without
+   *  installing; absent when it never ran or never exited (a spawn error). */
+  exitCode?: number;
 }
 
 export interface SecureDesktopInstallerOptions {
@@ -265,16 +268,18 @@ function keyChangeFromExit(
     return { outcome: 'in-progress', state: after, detail: 'another install is already running' };
   }
   if (exitCode === SECURE_DESKTOP_OTHER_USER_EXIT) return { outcome: 'other-user', state: after };
-  if (exitCode === SECURE_DESKTOP_UNTRUSTED_IMAGE_EXIT) return { outcome: 'failed', state: after, detail: IMAGE_REFUSED_DETAIL };
+  if (exitCode === SECURE_DESKTOP_UNTRUSTED_IMAGE_EXIT) {
+    return { outcome: 'failed', state: after, detail: IMAGE_REFUSED_DETAIL, exitCode };
+  }
   if (exitCode === SECURE_DESKTOP_REVOCATION_UNKNOWN_EXIT) {
-    return { outcome: 'failed', state: after, detail: REVOCATION_UNKNOWN_DETAIL };
+    return { outcome: 'failed', state: after, detail: REVOCATION_UNKNOWN_DETAIL, exitCode };
   }
   if (exitCode === SECURE_DESKTOP_DELEGATION_DISABLED_EXIT) return { outcome: 'delegation-disabled', state: after };
   if (exitCode === SECURE_DESKTOP_DELEGATION_DENIED_EXIT) return { outcome: 'delegation-denied', state: after };
   if (exitCode === SECURE_DESKTOP_DELEGATION_UNAVAILABLE_EXIT) return { outcome: 'service-unreachable', state: after };
   const credential = credentialOutcome(exitCode);
   if (credential) return { outcome: credential, state: after };
-  return { outcome: 'failed', state: after, detail: `the helper exited with ${exitCode}` };
+  return { outcome: 'failed', state: after, detail: `the helper exited with ${exitCode}`, exitCode };
 }
 
 /** The bridge args for a key op. `install`/`enroll` take `--controller-key` for

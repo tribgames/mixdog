@@ -5042,6 +5042,7 @@
   "The pasted address belongs to a different Devin sign-in.": "L’adresse collée appartient à une autre connexion à Devin.",
   "The pasted address has no authorization code.": "L’adresse collée ne contient aucun code d’autorisation.",
   "The pasted data is too large or malformed, so nothing was pasted.": "Les données collées sont trop volumineuses ou mal formées ; rien n’a été collé.",
+  "The PC access installer failed (exit {{code}}).": "Le programme d'installation de l'accès au PC a échoué (code de sortie {{code}}).",
   "The PC is locked": "Le PC est verrouillé",
   "The PC’s secure screen cannot be opened right now.": "L'écran sécurisé du PC ne peut pas être ouvert pour le moment.",
   "The plugin is turned off.": "Le plugin est désactivé.",

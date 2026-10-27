@@ -94,8 +94,9 @@ export function inputAccessError(result: DesktopComputerInputAccess | undefined)
 }
 
 /** The translated line for a PC access Approve that did not set it up, chosen
- *  from the outcome (never the English `detail`); empty when it succeeded or
- *  there was nothing to approve. */
+ *  from the outcome (never the English `detail`); a failure that came from the
+ *  installer exiting adds its exit code, the way a failed Allow adds the repair
+ *  script's. Empty when it succeeded or there was nothing to approve. */
 export function pcAccessApprovalError(result: DesktopPcAccessApproval | undefined): string {
   switch (result?.outcome) {
     case 'done':
@@ -109,8 +110,12 @@ export function pcAccessApprovalError(result: DesktopPcAccessApproval | undefine
       return t('PC access is already set up by another Windows account on this PC.');
     case 'unavailable':
       return t('PC access is not available on this PC.');
-    default:
-      return t('PC access could not be set up.');
+    default: {
+      const base = t('PC access could not be set up.');
+      return result?.exitCode === undefined
+        ? base
+        : `${base} ${t('The PC access installer failed (exit {{code}}).', { code: result.exitCode })}`;
+    }
   }
 }
 

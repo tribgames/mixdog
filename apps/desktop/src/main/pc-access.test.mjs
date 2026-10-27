@@ -196,6 +196,24 @@ test('Approve new phone: one UAC enroll of every missing phone, the pending revo
   assert.deepEqual(kept.keys, [KEY_OLD]);
 });
 
+test('Approve hands the installer’s exit code to the row with a failure, and only then', async () => {
+  const installer = fakeInstaller();
+  installer.install = async () => ({
+    outcome: 'failed',
+    state: 'not-installed',
+    detail: 'the helper exited with 1',
+    exitCode: 1,
+  });
+  assert.deepEqual(await pcAccessOver(installer).approve(), {
+    outcome: 'failed',
+    detail: 'the helper exited with 1',
+    exitCode: 1,
+  });
+  // A failure that never exited (nothing to show beyond the generic line) has no code.
+  const unexited = fakeInstaller({ answers: { install: 'failed' } });
+  assert.deepEqual(await pcAccessOver(unexited).approve(), { outcome: 'failed' });
+});
+
 const CREDENTIAL = { password: 'pw-secret', user: 'PC\\admin' };
 const asPhone = (clientId, publicKey) => ({ clientId, publicKey, credential: CREDENTIAL });
 

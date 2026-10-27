@@ -5105,6 +5105,7 @@
   "The pasted address belongs to a different Devin sign-in.": "Вставленный адрес относится к другому входу в Devin.",
   "The pasted address has no authorization code.": "Во вставленном адресе нет кода авторизации.",
   "The pasted data is too large or malformed, so nothing was pasted.": "Вставляемые данные слишком велики или повреждены, поэтому ничего не вставлено.",
+  "The PC access installer failed (exit {{code}}).": "Программа установки доступа к PC завершилась с ошибкой (код выхода {{code}}).",
   "The PC is locked": "PC заблокирован",
   "The PC’s secure screen cannot be opened right now.": "Защищенный экран PC не может быть открыт прямо сейчас.",
   "The plugin is turned off.": "Плагин выключен.",

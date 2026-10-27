@@ -118,12 +118,15 @@ const CANCELLED = 'the phone’s session ended before the request ran';
 const CREDENTIAL_BUSY = 'another phone password request is already running on the PC';
 
 /** The row's answer for an installer outcome; anything the UAC path should
- *  not produce reads as failed, naming it in the (English, log-only) detail. */
-function approvalOf({ outcome, detail }: SecureDesktopKeyChangeResult): DesktopPcAccessApproval {
+ *  not produce reads as failed, naming it in the (English, log-only) detail.
+ *  The installer's exit code goes along, which the row shows (the elevated
+ *  installer's own JSON `error` cannot reach this process through UAC). */
+function approvalOf({ outcome, detail, exitCode }: SecureDesktopKeyChangeResult): DesktopPcAccessApproval {
   if (APPROVED.has(outcome)) return { outcome: 'done' };
+  const exit = exitCode === undefined ? {} : { exitCode };
   if (PASSED_ON.has(outcome))
-    return { outcome: outcome as DesktopPcAccessApproval['outcome'], ...(detail ? { detail } : {}) };
-  return { outcome: 'failed', detail: detail ?? outcome };
+    return { outcome: outcome as DesktopPcAccessApproval['outcome'], ...(detail ? { detail } : {}), ...exit };
+  return { outcome: 'failed', detail: detail ?? outcome, ...exit };
 }
 
 /** Why a delegated step did not run, beside its outcome name in the log. */

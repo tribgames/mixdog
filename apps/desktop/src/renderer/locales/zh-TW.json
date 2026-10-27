@@ -4916,6 +4916,7 @@
   "The pasted address belongs to a different Devin sign-in.": "貼上的網址屬於另一次 Devin 登入。",
   "The pasted address has no authorization code.": "貼上的網址中沒有授權碼。",
   "The pasted data is too large or malformed, so nothing was pasted.": "貼上的資料過大或格式錯誤，因此未貼上任何內容。",
+  "The PC access installer failed (exit {{code}}).": "PC 存取權限安裝程式失敗(結束碼 {{code}})。",
   "The PC is locked": "PC 已鎖定",
   "The PC’s secure screen cannot be opened right now.": "目前無法開啟 PC 的安全螢幕。",
   "The plugin is turned off.": "外掛已關閉。",

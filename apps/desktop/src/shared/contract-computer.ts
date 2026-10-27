@@ -55,10 +55,14 @@ export interface DesktopPcAccessReadiness {
 }
 
 /** How an Approve on the PC access row ended. `detail` is an English
- *  diagnostic for logs, never shown as copy. */
+ *  diagnostic for logs, never shown as copy. `exitCode` is the installer's own
+ *  exit code when a `failed` came from it exiting (the elevated installer's
+ *  JSON output cannot cross the UAC boundary, its exit code can): the row shows
+ *  it as a translated line, like the Linux repair script's exit code. */
 export interface DesktopPcAccessApproval {
   outcome: 'done' | 'nothing-to-do' | 'declined' | 'failed' | 'in-progress' | 'other-user' | 'unavailable';
   detail?: string;
+  exitCode?: number;
 }
 
 /** Linux, non-.deb installs: one polkit prompt installs the /dev/uinput access rule. */

@@ -405,6 +405,29 @@ test('the credential variant passes the password to the op and never echoes it',
   assert.ok(!JSON.stringify(result).includes('hunter2-secret'));
 });
 
+test('a key op the bridge exited from without installing carries its exit code; one that never ran has none', async () => {
+  // The elevated bridge's JSON cannot cross UAC: the exit code is what the PC access row can show.
+  for (const exit of [1, 9, SECURE_DESKTOP_UNTRUSTED_IMAGE_EXIT, SECURE_DESKTOP_REVOCATION_UNKNOWN_EXIT]) {
+    const { port } = fakePort({ states: ['not-installed', 'not-installed'], elevations: [exit] });
+    const result = await createSecureDesktopInstaller(port).install([KEY]);
+    assert.equal(result.outcome, 'failed', `exit ${exit}`);
+    assert.equal(result.exitCode, exit, `exit ${exit}`);
+    assert.ok(result.detail, `exit ${exit} keeps its English detail for the log`);
+  }
+  const enroll = fakePort({ states: ['installed', 'installed'], keyOps: [1] });
+  const enrolled = await createSecureDesktopInstaller(enroll.port).enroll([KEY]);
+  assert.deepEqual([enrolled.outcome, enrolled.exitCode, enrolled.detail], ['failed', 1, 'the helper exited with 1']);
+
+  // Not an installer exit: no code (a spawn failure, a declined prompt, success).
+  const spawn = fakePort({ states: ['not-installed'], elevations: [new Error('spawn powershell ENOENT')] });
+  const spawned = await createSecureDesktopInstaller(spawn.port).install([KEY]);
+  assert.deepEqual([spawned.outcome, 'exitCode' in spawned], ['failed', false]);
+  const declined = fakePort({ states: ['not-installed', 'not-installed'], elevations: [ELEVATION_DECLINED_EXIT] });
+  assert.equal('exitCode' in (await createSecureDesktopInstaller(declined.port).install([KEY])), false);
+  const done = fakePort({ states: ['not-installed', 'installed'], elevations: [0] });
+  assert.equal('exitCode' in (await createSecureDesktopInstaller(done.port).install([KEY])), false);
+});
+
 test('credential refusals map to their outcomes without a password in the detail', async () => {
   const cases = [
     [SECURE_DESKTOP_BAD_CREDENTIALS_EXIT, 'bad-credentials'],

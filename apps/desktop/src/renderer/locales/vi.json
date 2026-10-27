@@ -4916,6 +4916,7 @@
   "The pasted address belongs to a different Devin sign-in.": "Địa chỉ đã dán thuộc về một lần đăng nhập Devin khác.",
   "The pasted address has no authorization code.": "Địa chỉ đã dán không có mã ủy quyền.",
   "The pasted data is too large or malformed, so nothing was pasted.": "Dữ liệu dán quá lớn hoặc không hợp lệ nên không có gì được dán.",
+  "The PC access installer failed (exit {{code}}).": "Trình cài đặt quyền truy cập PC thất bại (mã thoát {{code}}).",
   "The PC is locked": "PC đang bị khóa",
   "The PC’s secure screen cannot be opened right now.": "Hiện không thể mở màn hình bảo mật của PC.",
   "The plugin is turned off.": "Plugin đang tắt.",
