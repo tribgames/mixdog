@@ -20,6 +20,7 @@ import {
 import { agentListEntries } from '../../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { markToolSurfaceMigrated } from '../../runtime/agent/orchestrator/session/loop/tool-exposure-migration.mjs';
 import { resetBp2StableContext } from '../../runtime/agent/orchestrator/context/collect.mjs';
+import { requestPrefixIdentity } from '../../runtime/agent/orchestrator/session/thinking-binding.mjs';
 import {
   agentProfileRevision,
   leadRosterRevision,
@@ -40,15 +41,6 @@ const AGENT_PROFILE_INTENT = 'agent_profile';
 const PROMPT_FOLD_INTENT = 'prompt_fold';
 // Cache-break intents that already rebuild the conversation's cached prefix.
 const COLD_INTENTS = new Set(['post_turn_compaction', 'manual_compaction']);
-
-// What the next request sends ahead of the conversation: the system blocks and tools.
-const promptPrefix = (session) =>
-  JSON.stringify([
-    (Array.isArray(session.messages) ? session.messages : [])
-      .filter((message) => message?.role === 'system')
-      .map((message) => message.content),
-    session.tools,
-  ]);
 
 // A bot thread built from other shipped rules than these (a release changed one).
 const rulesStale = (session) =>
@@ -209,7 +201,7 @@ export function createAgentProfileFold({
     const config = configForSession(getConfig(), session.workflow?.id, currentMode(session));
     const staged = await stagePolicy(session, identity, config, { conversation: true });
     if (getSession?.() !== session) return false;
-    const before = promptPrefix(session);
+    const before = requestPrefixIdentity(session);
     // BP2 (profile meta, skill manifest) from current sources too; applyPolicy
     // re-appends its deferred manifest.
     if (typeof staged.stableContext === 'string') resetBp2StableContext(session, staged.stableContext);
@@ -222,7 +214,7 @@ export function createAgentProfileFold({
     }
     if (agentMode) session.rulesRevision = promptRulesRevision();
     session.updatedAt = Date.now();
-    if (promptPrefix(session) === before) return false;
+    if (requestPrefixIdentity(session) === before) return false;
     markToolSurfaceMigrated(session, session.pendingCacheBreakIntent || intent);
     return true;
   }

@@ -395,13 +395,6 @@ export function invalidateProviderContextBaseline(sessionRef) {
   delete sessionRef.contextPressureUnanchoredReason;
 }
 
-// A baseline is refreshed on every provider_send/turn-end. When the transcript
-// has grown but no fresh recording landed for this long, recording is failing
-// (zero/absent usage keeps the OLD baseline because record() only returns
-// false) — distrust it and fall back to the estimate. An idle session whose
-// transcript did NOT grow keeps its baseline regardless of age.
-const BASELINE_MAX_STALE_GROWTH_MS = 30 * 60 * 1000;
-
 /**
  * Does this anchor still describe this message prefix?
  *
@@ -481,17 +474,19 @@ function providerBaselinePressureTokens(messages, sessionRef, policy, { includeC
         ? Math.max(0, tokens - Math.round(storedRequestReserve) + currentRequestReserve)
         : tokens + currentRequestReserve;
   }
-  // Staleness means a baseline that stopped being refreshed WHILE the session
-  // kept working — never age on the wall clock. Measured against `now`, this
-  // discarded the reading of every session that simply sat unopened for a
-  // while (88 of 983 stored sessions), and the whole-transcript estimate that
-  // replaced it was the less accurate number in both directions: 1.12x over
-  // on the median, 0.82x under on a session already past its window.
-  // Comparing against the session's own last activity keeps the rule aimed at
-  // its actual target — a live session whose usage recording is failing while
-  // its transcript grows — and leaves a session at rest on its measurement.
-  const activityAt = Math.max(Number(sessionRef.updatedAt) || 0, Number(sessionRef.lastContextTokensUpdatedAt) || 0);
-  if (messages.length > count && baselineAt > 0 && activityAt - baselineAt > BASELINE_MAX_STALE_GROWTH_MS) return null;
+  // Staleness means usage recording is failing: a provider request completed
+  // AFTER this reading without replacing it (every send records its usage
+  // after it starts, so a working recorder always leaves the reading newer
+  // than the last send) — zero/absent usage keeps the OLD baseline because
+  // record() only returns false. Never age on a clock: measured against `now`
+  // it discarded the reading of every session that sat unopened for a while
+  // (88 of 983 stored sessions), and measured against the session's last
+  // activity it discarded it whenever anything was appended more than half an
+  // hour after the last request — a user back from a break, an agent's result
+  // posted to a waiting Lead — so the next send compacted on the
+  // whole-transcript estimate, far above the provider's own count.
+  const lastSendAt = Number(sessionRef.lastProviderSendAt) || 0;
+  if (messages.length > count && baselineAt > 0 && lastSendAt > baselineAt) return null;
   try {
     // Baseline tokens are authoritative provider billing; only the growth
     // after the baseline is a local estimate and needs billing calibration.

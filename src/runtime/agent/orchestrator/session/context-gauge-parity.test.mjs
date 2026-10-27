@@ -180,15 +180,24 @@ test('a settled session keeps its measured reading however long it sat idle', ()
   assert.equal(status.usedSource, 'provider');
   assert.equal(status.usedTokens, 88_900);
 
-  // A session that kept WORKING for half an hour past its last reading is the
-  // case the staleness rule exists for: usage recording is not keeping up, so
-  // the anchor stops being evidence.
-  const working = {
+  // Something appended long after the reading (a user back from a break, an
+  // agent's result posted to a waiting Lead) is growth on top of the measured
+  // prefix, not evidence against it.
+  const appended = { role: 'user', content: 'work that never reached a request' };
+  const resumed = {
     ...session,
     updatedAt: settledAt + 45 * 60 * 1000,
-    messages: [...messages, { role: 'user', content: 'work that never reached a request' }],
+    messages: [...messages, appended],
   };
-  assert.equal(statusOf(working).usedSource, 'estimated');
+  const resumedStatus = statusOf(resumed);
+  assert.equal(resumedStatus.usedSource, 'provider');
+  assert.ok(resumedStatus.usedTokens > 88_900 && resumedStatus.usedTokens < 88_900 + 1_000);
+
+  // A request that completed after the reading without replacing it is the
+  // case the staleness rule exists for: usage recording is failing, so the
+  // anchor stops being evidence.
+  const unrecorded = { ...resumed, lastProviderSendAt: settledAt + 40 * 60 * 1000 };
+  assert.equal(statusOf(unrecorded).usedSource, 'estimated');
 });
 
 test('an estimate never reports itself as a provider reading', () => {

@@ -18,6 +18,7 @@ import { isAgentOwner } from '../../agent-owner.mjs';
 import { honoredSchemaAllowlist } from '../manager/session-tool-surface.mjs';
 import { syncSystemPrefix } from '../manager/prompt-utils.mjs';
 import { invalidateProviderContextBaseline } from './compact-policy.mjs';
+import { rebindToChangedPrefix } from '../thinking-binding.mjs';
 
 /** Drop everything measured against the previous tool surface. */
 function invalidateForToolSurfaceMigration(session) {
@@ -34,6 +35,14 @@ function invalidateForToolSurfaceMigration(session) {
  */
 export function markToolSurfaceMigrated(session, intent = TOOL_SURFACE_MIGRATION_INTENT) {
   invalidateForToolSurfaceMigration(session);
+  // The stored thinking was bound to the previous prefix and can never be
+  // replayed again (../thinking-binding.mjs); an open tool round a stopped
+  // turn left behind is ended first. Outside a turn only: a running turn sends
+  // from its own working transcript, whose latest tool round must keep its
+  // thinking.
+  if (Array.isArray(session.messages) && !Array.isArray(session.liveTurnMessages)) {
+    session.messages = rebindToChangedPrefix(session.messages);
+  }
   session.pendingCacheBreakIntent = intent;
 }
 

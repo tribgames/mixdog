@@ -15,6 +15,10 @@ import {
   inheritanceRouteTarget,
 } from '../inheritance-fit.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import {
+  rebindToChangedPrefix,
+  requestPrefixIdentity,
+} from '../../runtime/agent/orchestrator/session/thinking-binding.mjs';
 import { buildColdHeir, committedSource, persistColdHeir } from './cold-heir.mjs';
 
 export function createInheritance(deps, { compactConversation, saveSession }) {
@@ -155,8 +159,17 @@ export function createInheritance(deps, { compactConversation, saveSession }) {
   async function carryConversation(source, target, { compact = false } = {}) {
     // System blocks belong to the session that BUILT them: the target's own
     // prompt was composed for the current model, tool surface, and workflow.
-    // Only the conversation itself travels.
-    let carried = inheritableMessages(source.messages);
+    // Only the conversation itself travels — without its thinking replay when
+    // the heir's prompt or tools differ from the source's: that replay is
+    // bound to the source's prefix, so the provider would drop it (and every
+    // thinking block after it) or refuse it, while the heir's context estimate
+    // kept counting it (thinking-binding.mjs); an open tool round the source
+    // stopped in is ended for the heir. An identical prefix keeps it all.
+    const carrySource =
+      requestPrefixIdentity(source) === requestPrefixIdentity(target)
+        ? source
+        : { ...source, messages: rebindToChangedPrefix(source.messages) };
+    let carried = inheritableMessages(carrySource.messages);
     if (!hasUserConversationMessage(carried)) {
       throw new Error('inheritFrom: the source session has no conversation to carry');
     }
@@ -169,7 +182,7 @@ export function createInheritance(deps, { compactConversation, saveSession }) {
     // compact:true summarizes even a conversation that fits; otherwise only
     // one that cannot fit is compacted.
     if (compact || (fit.known && !fit.fits)) {
-      const next = await fitConversationForHeir(source, target, carried, fit, { required: compact });
+      const next = await fitConversationForHeir(carrySource, target, carried, fit, { required: compact });
       compacted = next !== carried;
       carried = next;
     }

@@ -135,6 +135,179 @@ test('inheritToNewSession persists a cold resumable heir and leaves the live ses
   });
 });
 
+// Issue #238: thinking replay is bound to the prompt and tools that produced
+// it. A heir whose prompt was rebuilt (here: settings changed after the source
+// was created) would have the provider drop it while its estimate still
+// counted every signature.
+test('a heir carries thinking replay only when its prompt and tools match the source', async () => {
+  const signature = `Sig${'A'.repeat(600)}`;
+  const thinking = { type: 'thinking', thinking: 'weighing the options', signature };
+  const THOUGHTFUL = [
+    { role: 'user', content: 'Plan the migration.' },
+    {
+      role: 'assistant',
+      content: 'Here is the plan.',
+      thinkingBlocks: [thinking],
+      providerReplay: {
+        version: 1,
+        provider: 'anthropic',
+        items: [thinking, { type: 'text', text: 'Here is the plan.' }],
+      },
+    },
+  ];
+  const hasThinking = (session) => /"(redacted_)?thinking"|thinkingBlocks/.test(JSON.stringify(session.messages));
+  await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
+    const source = openLive(THOUGHTFUL);
+    const created = [];
+    const inheritInto = async (heir) => {
+      created.push(heir.id);
+      await createLifecycleApi({
+        getSession: () => heir,
+        getRoute: () => ({ provider: providerName, model: 'fake-model' }),
+        mgr: { getSession: (id) => (id === source.id ? source : loadSession(id)) },
+        invalidateContextStatusCache() {},
+        saveSession() {},
+      }).inheritFrom(source.id);
+    };
+    try {
+      // Byte-identical system blocks and tools: the replay is still valid.
+      const twin = openLive([]);
+      twin.messages = structuredClone(source.messages.filter((message) => message.role === 'system'));
+      twin.tools = source.tools;
+      await inheritInto(twin);
+      assert.equal(hasThinking(twin), true);
+
+      // A cold fork restamps its own session environment block: a new prefix.
+      const fork = (await lifecycleFor(source).inheritToNewSession(source.id)).sessionId;
+      created.push(fork);
+      assert.equal(hasThinking(loadSession(fork)), false);
+
+      // A heir whose prompt was composed from changed settings.
+      const heir = openLive([]);
+      const system = heir.messages.findIndex((message) => message.role === 'system');
+      heir.messages[system] = {
+        ...heir.messages[system],
+        content: `${heir.messages[system].content}\n# Instruction Files: all`,
+      };
+      await inheritInto(heir);
+      assert.equal(hasThinking(heir), false);
+      const answer = heir.messages.find((message) => message.role === 'assistant');
+      assert.deepEqual(answer.providerReplay.items, [{ type: 'text', text: 'Here is the plan.' }]);
+      assert.deepEqual(conversationOf(heir), [
+        ['user', 'Plan the migration.'],
+        ['assistant', 'Here is the plan.'],
+      ]);
+      // The source keeps its own replay.
+      assert.equal(hasThinking(source), true);
+    } finally {
+      for (const id of created) deleteSession(id);
+      deleteSession(source.id);
+    }
+  });
+});
+
+// A source stopped mid tool round by a provider error (completed calls and
+// results persisted, no closing marker): the heir's next request would
+// continue that round, whose latest assistant turn must start with thinking.
+test('a heir with a changed prompt ends an open tool round instead of carrying it without its thinking', async () => {
+  const { finalizeTurnInterruptionSnapshot } = await import(
+    '../../runtime/agent/orchestrator/session/manager/turn-interruption.mjs'
+  );
+  const { pendingTaskNotificationIndexes } = await import(
+    '../../runtime/agent/orchestrator/session/compact/messages.mjs'
+  );
+  const notification = {
+    role: 'user',
+    content: '<task-notification>Agent "worker" completed</task-notification>',
+    meta: { source: 'task-notification' },
+  };
+  const thinking = { type: 'thinking', thinking: 'checking first', signature: `Sig${'A'.repeat(600)}` };
+  const prompt = { role: 'user', content: 'Check the config.' };
+  const round = {
+    role: 'assistant',
+    content: 'Reading it.',
+    toolCalls: [{ id: 'call-1', name: 'read', arguments: '{}' }],
+    thinkingBlocks: [thinking],
+    providerReplay: {
+      version: 1,
+      provider: 'anthropic',
+      items: [thinking, { type: 'text', text: 'Reading it.' }, { type: 'tool_use', id: 'call-1', name: 'read' }],
+    },
+  };
+  const { messages: stopped } = finalizeTurnInterruptionSnapshot({
+    turnOutgoing: [prompt, round],
+    currentUserContent: prompt.content,
+    snapshot: {
+      responseStarted: true,
+      phase: 'tools',
+      observedToolResults: [['call-1', { toolCallId: 'call-1', content: 'config body' }]],
+    },
+    abortReason: 'provider-error',
+  });
+  const hasThinking = (session) => /"(redacted_)?thinking"|thinkingBlocks/.test(JSON.stringify(session.messages));
+  await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
+    // A task notification delivered after the round, not yet answered.
+    const source = openLive([...stopped, notification]);
+    const created = [];
+    const inheritInto = async (heir) => {
+      created.push(heir.id);
+      await createLifecycleApi({
+        getSession: () => heir,
+        getRoute: () => ({ provider: providerName, model: 'fake-model' }),
+        mgr: { getSession: (id) => (id === source.id ? source : loadSession(id)) },
+        invalidateContextStatusCache() {},
+        saveSession() {},
+      }).inheritFrom(source.id);
+    };
+    try {
+      // Same prefix: the open round travels as it is, thinking first.
+      const twin = openLive([]);
+      twin.messages = structuredClone(source.messages.filter((message) => message.role === 'system'));
+      twin.tools = source.tools;
+      await inheritInto(twin);
+      assert.deepEqual(conversationOf(twin), [
+        ['user', 'Check the config.'],
+        ['assistant', 'Reading it.'],
+        ['tool', 'config body'],
+        ['user', notification.content],
+      ]);
+      assert.equal(
+        twin.messages.findLast((message) => message.role === 'assistant').providerReplay.items[0].type,
+        'thinking'
+      );
+
+      // Changed prefix: a runtime turn ends the round ahead of the still
+      // pending notification, and no thinking travels.
+      const heir = openLive([]);
+      const system = heir.messages.findIndex((message) => message.role === 'system');
+      heir.messages[system] = {
+        ...heir.messages[system],
+        content: `${heir.messages[system].content}\n# Instruction Files: all`,
+      };
+      await inheritInto(heir);
+      assert.equal(hasThinking(heir), false);
+      assert.deepEqual(conversationOf(heir), [
+        ['user', 'Check the config.'],
+        ['assistant', 'Reading it.'],
+        ['tool', 'config body'],
+        ['assistant', '.'],
+        ['user', notification.content],
+      ]);
+      const closure = heir.messages.findLast((message) => message.role === 'assistant');
+      assert.equal(closure.meta.source, 'context-ack');
+      assert.equal(closure.meta.synthetic, true);
+      assert.equal(pendingTaskNotificationIndexes(heir.messages).length, 1);
+      assert.deepEqual(heir.messages.find((message) => message.toolCalls)?.toolCalls, round.toolCalls);
+      // The source keeps its open round untouched.
+      assert.equal(hasThinking(source), true);
+      assert.equal(source.messages.at(-2).role, 'tool');
+    } finally {
+      for (const id of created) deleteSession(id);
+      deleteSession(source.id);
+    }
+  });
+});
+
 test('inheritToNewSession titleSuffix marks the heir title as a locked model title', async () => {
   await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
     const live = openLive(CONVERSATION);

@@ -5,11 +5,13 @@ import {
   compactDisplayBeforeTokens,
   compactionTelemetryPressureTokens,
   currentContextEstimateTokens,
+  invalidateProviderContextBaseline,
   recordContextUsageSnapshot,
   recordProviderContextBaseline,
   rememberCompactTelemetry,
   resolveCompactionPressureTokens,
   resolveContextTokens,
+  resolveContextTokensWithSource,
   resolveContextUsageSnapshot,
   resolveGaugeContextTokens,
   resolveWorkerCompactPolicy,
@@ -228,6 +230,59 @@ test('provider baseline plus trailing growth is the only display and compaction 
     }),
     decisionPolicy.triggerTokens
   );
+});
+
+// Issue #238: a fork measured by the provider at 447,906 tokens compacted at a
+// pressure of 981,912 — (694,911 estimated + reserve) × 1.4 — against a
+// 900,000 trigger, because an agent result posted more than half an hour after
+// the last request made the measured reading count as "stale".
+test('a forked session anchors to its provider reading when growth arrives long after it', () => {
+  const messages = [
+    { role: 'system', content: 'fork prompt rebuilt from current settings' },
+    { role: 'user', content: 'carried conversation' },
+    { role: 'assistant', content: 'carried answer' },
+  ];
+  const session = {
+    provider: 'anthropic-oauth',
+    model: 'claude-sonnet-5-5',
+    contextWindow: 1_000_000,
+    compactBoundaryTokens: 1_000_000,
+    compaction: { auto: true },
+    tools: [],
+    messages,
+  };
+  // The heir starts unmeasured (cold-heir.mjs), then its first turn is measured.
+  invalidateProviderContextBaseline(session);
+  assert.equal(
+    recordProviderContextBaseline(session, messages, { inputTokens: 440_000, outputTokens: 7_906 }, { sendTools: [] }),
+    true
+  );
+  const measuredAt = Date.now() - 50 * 60_000;
+  session.contextPressureBaselineUpdatedAt = measuredAt;
+  session.lastProviderSendAt = measuredAt - 30_000;
+  session.lastContextTokens = 440_000;
+  session.lastContextTokensUpdatedAt = measuredAt;
+  // Fifty minutes later a delegated agent's result is posted to the waiting Lead.
+  messages.push({ role: 'user', content: 'agent result: the review is done' });
+  session.updatedAt = Date.now();
+
+  const policy = { ...resolveWorkerCompactPolicy(session, []), triggerTokens: 900_000 };
+  const messageTokensEst = 694_911;
+  assert.ok(currentContextEstimateTokens(messageTokensEst, policy) > policy.triggerTokens);
+
+  const resolved = resolveContextTokensWithSource(messageTokensEst, policy, { messages, sessionRef: session });
+  const growth = Math.round(estimateMessagesTokens(messages.slice(3)) * policy.tokenCalibration);
+  assert.deepEqual(resolved, { tokens: 447_906 + growth, source: 'provider' });
+  assert.equal(shouldCompactForSession(messageTokensEst, policy, { messages, sessionRef: session }), false);
+
+  // A request that completed after the reading without replacing it means
+  // usage recording failed: only then does the estimate take over.
+  session.lastProviderSendAt = measuredAt + 60_000;
+  assert.equal(
+    resolveContextTokensWithSource(messageTokensEst, policy, { messages, sessionRef: session }).source,
+    'estimated'
+  );
+  assert.equal(shouldCompactForSession(messageTokensEst, policy, { messages, sessionRef: session }), true);
 });
 
 test('a restarted tool surface adjusts only schema reserve instead of discarding provider usage', () => {
