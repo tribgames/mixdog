@@ -95,6 +95,13 @@ final class FileSaveSessions {
     return name;
   }
 
+  static final String APK_MIME = "application/vnd.android.package-archive";
+
+  /** An APK by stored MIME or by name; servers often send octet-stream for APKs. */
+  static boolean isApk(String name, String mime) {
+    return APK_MIME.equals(mime) || (name != null && name.toLowerCase(Locale.ROOT).endsWith(".apk"));
+  }
+
   static String sanitizeMime(String raw) {
     String mime = raw == null ? "" : raw.trim().toLowerCase(Locale.ROOT);
     return mime.matches("[a-z0-9][a-z0-9!#$&^_.+-]{0,126}/[a-z0-9][a-z0-9!#$&^_.+-]{0,126}")

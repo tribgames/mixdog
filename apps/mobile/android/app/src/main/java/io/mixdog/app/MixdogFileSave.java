@@ -49,8 +49,8 @@ import org.json.JSONObject;
  * Validation failures (bad offset, overflow, bad base64) leave the handle
  * open for the page to abort; storage / I/O failures delete the partial file
  * and invalidate the handle. Handles belong to the page that began them:
- * navigating the WebView (or destroying the activity) aborts them. APKs are
- * only saved or shared, never installed.
+ * navigating the WebView (or destroying the activity) aborts them. An APK is
+ * opened in the package installer instead of the share sheet.
  */
 final class MixdogFileSave {
   interface Reply {
@@ -430,6 +430,10 @@ final class MixdogFileSave {
 
   private void startShare(Uri uri, String mime, String name, Reply reply) {
     resolveShare(); // an older chooser is superseded
+    if (FileSaveSessions.isApk(name, mime)) {
+      startInstall(uri, reply);
+      return;
+    }
     Share share = new Share(reply);
     String action = activity.getPackageName() + ".FILE_SHARE_CHOSEN";
     share.receiver =
@@ -460,6 +464,25 @@ final class MixdogFileSave {
       pendingShare = null;
       activity.unregisterReceiver(share.receiver);
       reply.send(error(e instanceof SecurityException ? "permission" : "invalid"));
+    }
+  }
+
+  /** An APK goes straight to the package installer; opening it counts as handled. */
+  private void startInstall(Uri uri, Reply reply) {
+    Intent install =
+        new Intent(Intent.ACTION_VIEW)
+            .setDataAndType(uri, FileSaveSessions.APK_MIME)
+            .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+    try {
+      activity.startActivity(install);
+    } catch (ActivityNotFoundException | SecurityException e) {
+      reply.send(error(e instanceof SecurityException ? "permission" : "invalid"));
+      return;
+    }
+    try {
+      reply.send(ok(new JSONObject().put("shared", true)));
+    } catch (Exception ignored) {
+      // The page is gone.
     }
   }
 

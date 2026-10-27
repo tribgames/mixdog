@@ -165,6 +165,12 @@ public class FileSaveCheck {
     eq(FileSaveSessions.sanitizeMime("Image/PNG"), "image/png", "mime lower-cased");
     eq(FileSaveSessions.sanitizeMime("text/plain; charset=utf-8"), "application/octet-stream", "mime parameters refused");
     eq(FileSaveSessions.sanitizeMime(""), "application/octet-stream", "empty mime");
+    eq(FileSaveSessions.isApk("app.bin", FileSaveSessions.APK_MIME), true, "apk by mime");
+    eq(FileSaveSessions.isApk("app.apk", "application/octet-stream"), true, "apk by name");
+    eq(FileSaveSessions.isApk("APP.APK", "application/octet-stream"), true, "apk name is case-insensitive");
+    eq(FileSaveSessions.isApk("app.apk.txt", "text/plain"), false, "apk only as the final extension");
+    eq(FileSaveSessions.isApk("report.pdf", "application/pdf"), false, "other files are not apks");
+    eq(FileSaveSessions.isApk(null, "application/octet-stream"), false, "no name, no apk mime");
     eq(FileSaveSessions.numberedName("a.txt", 2), "a (2).txt", "numbered with extension");
     eq(FileSaveSessions.numberedName("a", 1), "a (1)", "numbered without extension");
     eq(FileSaveSessions.base64Url(new byte[] {(byte) 0xfb, (byte) 0xff, (byte) 0xbf}), "-_-_", "base64url alphabet");
