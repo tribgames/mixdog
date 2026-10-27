@@ -204,6 +204,7 @@ mod tests {
             username: "fixture-user".to_string(),
             password: "fixture-secret".to_string(),
             note: String::new(),
+            last_used_at: None,
         }];
         let output = seal(key, &credentials).expect("seal");
         assert!(!output.contains("fixture-secret"));
