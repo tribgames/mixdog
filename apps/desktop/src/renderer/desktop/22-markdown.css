@@ -1438,7 +1438,7 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 .session-goal-island[data-open="true"] > .session-goal-trigger {
   display: none;
 }
-.composer-island[data-compact] .session-goal-trigger-time {
+.composer-island[data-compact]:where(:not([data-measuring])) .session-goal-trigger-time {
   display: none;
 }
 /* The approval card and flashes hide the pill even with the Goal tab open. */

@@ -657,7 +657,10 @@ test('a stop that ends termination-unconfirmed offers release, and the release w
   assert.equal(stopping.disabled, true);
   // The host later reports the kill unconfirmed: the stop state is moot.
   await publish({ shellJobs: { count: 1, jobs: [{ ...job, terminationUnconfirmed: true }] } });
-  await untilDom(document, () => document.querySelector('.composer-island-row button')?.textContent === translate('Release anyway'));
+  await untilDom(
+    document,
+    () => document.querySelector('.composer-island-row button')?.textContent === translate('Release anyway')
+  );
   const release = document.querySelector('.composer-island-row button');
   assert.equal(release.textContent, translate('Release anyway'));
   assert.equal(release.disabled, false);
@@ -3264,11 +3267,219 @@ test('the worktree menu prefetches Changes on open and on pressing or focusing V
   const viewChanges = () => document.querySelector('[data-action-id="view-changes"]');
   await act(async () => viewChanges().dispatchEvent(new window.Event('pointerdown', { bubbles: true })));
   await flush(2);
-  assert.equal(batches, 2,'pressing View changes asks again');
+  assert.equal(batches, 2, 'pressing View changes asks again');
   // The first action already holds focus from the open: leave and return.
   await act(async () => viewChanges().blur());
   await act(async () => viewChanges().focus());
   await flush(3);
-  assert.equal(batches, 3,'focusing View changes asks again');
+  assert.equal(batches, 3, 'focusing View changes asks again');
   window.localStorage.removeItem('mixdog.session-changes-source.v1');
+});
+
+function petSwitchPage(t) {
+  return realPage(
+    t,
+    `
+        import React from 'react';
+        import { flushSync } from 'react-dom';
+        import { createRoot } from 'react-dom/client';
+        import { ComposerDock } from './ComposerDock.tsx';
+        import { DesktopPetPublisher } from './desktop-pet-publisher.tsx';
+        import { defaultSessionLaneStore } from './session-lane-store.ts';
+        const sessions = {
+          'sw-a': { cwd: 'C:/sw-a', branch: 'main', files: ['a.ts', 'b.ts', 'c.ts'], agents: 4 },
+          'sw-b': { cwd: 'C:/sw-b', branch: 'feature', files: ['a.ts'], agents: 2 },
+          'sw-c': { cwd: 'C:/sw-c', branch: 'main', files: ['a.ts', 'b.ts', 'c.ts'], agents: 4 },
+        };
+        const status = (cwd) => {
+          const s = Object.values(sessions).find((x) => x.cwd === cwd);
+          return { repository: true, root: cwd, branch: s.branch, detached: false, unborn: false, upstream: true, upstreamName: 'o/m', remote: true, ahead: 0, behind: 0, operation: '',
+            files: s.files.map((path) => ({ path, status: 'M', additions: 11, deletions: 2 })) };
+        };
+        const rows = Object.keys(sessions).flatMap((id) => Array.from({ length: sessions[id].agents }, (_, i) => ({ tag: id + i, agent: 'worker', ownerSessionId: id, stage: 'running', status: 'running', startedAt: Date.now() - 5000 })));
+        const workspace = (id) => ({ projectPath: '/repo', repoCommonDir: '/repo/.git', cwd: sessions[id].cwd, worktreeId: null, branch: sessions[id].branch, baseCommit: 'abc', mergeTarget: null, revision: 1, transition: { state: 'idle', txId: null } });
+        window.__sent = [];
+        window.__tick = 0;
+        const loop = () => { window.__tick += 1; requestAnimationFrame(loop); };
+        requestAnimationFrame(loop);
+        const rec = (kind) => (value) => window.__sent.push({ kind, tick: window.__tick, t: Math.round(performance.now()), value: JSON.parse(JSON.stringify(value)) });
+        window.mixdogDesktop = new Proxy({
+          listAgentPool: async () => rows,
+          gitStatus: async (cwd) => status(cwd),
+          gitReview: async (cwd) => ({ repository: true, root: cwd, base: 'HEAD', files: status(cwd).files.map((f) => ({ ...f, untracked: false })) }),
+          invokeCapability: async (request) => request.capability === 'getBranchMenu'
+            ? { value: { workspace: workspace(request.sessionId), branches: [], occupancy: [], retainedWorktree: null } }
+            : { value: { supported: true, authoritative: true, files: [], patch: '', historyTurns: 1 } },
+          getDesktopPetConfig: async () => ({ enabled: true, pinned: true }),
+          subscribeDesktopPetConfig: () => () => {},
+          subscribeDesktopPetAppLayout: () => () => {},
+          publishDesktopPet: () => {},
+          publishDesktopPetComposer: rec('composer'),
+          publishDesktopPetTheme: () => {},
+          publishDesktopPetLayers: () => {},
+          publishDesktopPetAvailable: () => {},
+        }, { get: (target, name) => (name in target ? target[name] : String(name).startsWith('subscribe') ? () => () => {} : async () => []) });
+        for (const id of Object.keys(sessions)) {
+          defaultSessionLaneStore.apply({ sessionId: id, snapshot: { sessionId: id, shellJobs: { count: 1, jobs: [{ taskId: id + 'j', command: 'npm test', startedAt: Date.now() }] } } });
+        }
+        const root = createRoot(document.getElementById('root'));
+        window.__render = (id) =>
+          flushSync(() =>
+            root.render(
+              React.createElement(React.Fragment, null,
+                React.createElement('div', { className: 'pane-cell is-focused conversation' },
+                  React.createElement(ComposerDock, {
+                    sessionId: id, reviewSessionId: id, goalSubmissionId: '', showProjectSelector: false,
+                    reviewItems: [{ kind: 'turndone', id: id + '-done' }], reviewActive: true, reviewBusy: false,
+                    reviewCwd: sessions[id].cwd, workspace: workspace(id), onOpenSessionDiff: () => {},
+                    children: React.createElement('form', { className: 'composer', style: { height: '96px' } }),
+                  })),
+                React.createElement(DesktopPetPublisher, { focusKey: 'leaf' }))
+            )
+          );
+      `,
+    readFileSync(new URL('./styles.css', import.meta.url), 'utf8') +
+      resolvedImports(new URL('./desktop.css', import.meta.url))
+  );
+}
+
+function resolvedImports(url) {
+  return readFileSync(url, 'utf8').replace(/@import "(.+?)";/g, (_, spec) =>
+    spec.endsWith('.css') ? resolvedImports(new URL(spec, url)) : ''
+  );
+}
+
+// User: 세션을 바꿀 때 핀된 봇이 한 번 위아래로 튄다. A new session's island is
+// drawn at its full-label width until its fit lands in the same frame; the
+// pinned pet's publisher measured it in that window and sent the pre-fit span
+// (the whole card wide, over the bot), then the fitted one.
+for (const width of [1100, 560, 480]) {
+  test(`a session switch publishes the pinned pet only the island's fitted span (${width}px)`, async (t) => {
+    const page = await petSwitchPage(t);
+    await page.setViewport({ width, height: 800 });
+    const { sent } = await page.evaluate(async () => {
+      window.__render('sw-a');
+      for (let i = 0; i < 60; i += 1) await window.__frame();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const before = window.__sent.length;
+      window.__render('sw-b');
+      for (let i = 0; i < 40; i += 1) await window.__frame();
+      return { sent: window.__sent.slice(before).map((entry) => entry.value) };
+    });
+    assert.ok(sent.length > 0, 'the new session’s island is published');
+    const settled = sent.at(-1);
+    assert.ok(settled.islandSpan.right - settled.islandSpan.left <= settled.width, 'the island fits inside the card');
+    assert.deepEqual(
+      sent.map((composer) => composer.islandSpan),
+      sent.map(() => settled.islandSpan),
+      'no pre-fit span is published on the way'
+    );
+  });
+}
+
+// The island's first frame after a session switch is already fitted: the
+// incoming island starts from the room's fit, not from the full labels that a
+// later frame would shrink.
+for (const width of [480, 560]) {
+  test(`a switched-to island's first committed state is the compact fit of the island it replaced (${width}px)`, async (t) => {
+    const page = await petSwitchPage(t);
+    await page.setViewport({ width, height: 800 });
+    const result = await page.evaluate(async () => {
+      const state = () => {
+        const island = document.querySelector('.composer-island');
+        const box = (selector) => {
+          const node = island.querySelector(selector);
+          const rect = node?.getBoundingClientRect();
+          return rect ? [Math.round(rect.left), Math.round(rect.width)] : null;
+        };
+        return {
+          compact: island.hasAttribute('data-compact'),
+          width: Math.round(island.getBoundingClientRect().width),
+          branch: box('.composer-island-seg-branch'),
+          agents: box('.composer-island-seg-agents'),
+        };
+      };
+      window.__render('sw-a');
+      for (let i = 0; i < 60; i += 1) await window.__frame();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const before = state();
+      window.__render('sw-c');
+      // The commit itself, before any frame or observer delivery.
+      const committed = state();
+      for (let i = 0; i < 30; i += 1) await window.__frame();
+      return { before, committed, settled: state() };
+    });
+    assert.equal(result.before.compact, true, 'the width compacts the island');
+    assert.deepEqual(result.committed, result.before, 'the first committed state is the replaced island’s fit');
+    assert.deepEqual(result.settled.branch, result.before.branch);
+    assert.deepEqual(result.settled.agents, result.before.agents);
+  });
+}
+
+function fitStabilityPage(t) {
+  return realPage(
+    t,
+    `
+        import React from 'react';
+        import { flushSync } from 'react-dom';
+        import { createRoot } from 'react-dom/client';
+        import { ComposerIsland, IslandSegLabel } from './ComposerIsland.tsx';
+        window.mixdogDesktop = { listAgentPool: async () => [], subscribeAgentPool: () => {} };
+        const root = createRoot(document.getElementById('root'));
+        const h = React.createElement;
+        window.__render = (count) =>
+          flushSync(() =>
+            root.render(
+              h(ComposerIsland, {
+                sessionId: 'fit-stability',
+                files: h('button', { type: 'button', className: 'composer-island-seg' },
+                  h(IslandSegLabel, { text: count + ' changed files in this session', count, icon: 'file-diff' })),
+              })
+            )
+          );
+        window.__toggles = 0;
+        window.__watch = () => new MutationObserver((records) => { window.__toggles += records.length; })
+          .observe(document.querySelector('.composer-island'), { attributes: true, attributeFilter: ['data-compact'] });
+        window.__compact = () => document.querySelector('.composer-island').hasAttribute('data-compact');
+        window.__needed = () => document.querySelector('.composer-island-pill').offsetWidth;
+      `
+  );
+}
+
+test('the fit holds its form near the threshold: updates never flip it, and it expands once with real room', async (t) => {
+  const page = await fitStabilityPage(t);
+  await page.setViewport({ width: 1200, height: 800 });
+  await page.evaluate(async () => {
+    window.__render(9);
+    await window.__frame();
+    await window.__frame();
+  });
+  const needed = await page.evaluate(() => window.__needed());
+  const frames = (count = 3) =>
+    page.evaluate(async (n) => {
+      for (let i = 0; i < n; i += 1) await window.__frame();
+    }, count);
+  await page.evaluate(() => window.__watch());
+  const resizeTo = async (width) => {
+    await page.setViewport({ width, height: 800 });
+    await frames();
+  };
+  await resizeTo(needed + 10);
+  assert.equal(await page.evaluate(() => window.__compact()), false, 'the full labels fit');
+  await resizeTo(needed - 10);
+  assert.equal(await page.evaluate(() => window.__compact()), true, 'they overflow: compact');
+  // Just wide enough for the full labels again, but without room to spare.
+  await resizeTo(needed + 10);
+  assert.equal(await page.evaluate(() => window.__compact()), true, 'no clear room: stays compact');
+  const toggles = await page.evaluate(() => window.__toggles);
+  // Updates at the threshold, a digit wider and back, and re-renders of the same content.
+  for (const count of [10, 9, 10, 10, 9, 9, 10]) {
+    await page.evaluate((n) => window.__render(n), count);
+    await frames(2);
+  }
+  assert.equal(await page.evaluate(() => window.__compact()), true);
+  assert.equal(await page.evaluate(() => window.__toggles), toggles, 'no update changed the fit state');
+  await resizeTo(needed + 60);
+  assert.equal(await page.evaluate(() => window.__compact()), false, 'clear room expands it');
+  assert.equal(await page.evaluate(() => window.__toggles), toggles + 1, 'once');
 });

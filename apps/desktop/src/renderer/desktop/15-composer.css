@@ -406,10 +406,10 @@
   gap: 6px;
   padding: 0 10px;
 }
-.composer-island[data-compact] .composer-island-git-main > span {
+.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-git-main > span {
   display: none;
 }
-.composer-island[data-compact] .composer-island-git-main {
+.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-git-main {
   padding: 0 8px;
 }
 /* The branch and git tabs expand the island upward in place, like the files
@@ -616,24 +616,24 @@
 .composer-island[data-measuring] > .composer-island-pill {
   width: max-content;
 }
-.composer-island[data-compact] :is(.composer-island-seg-word, .composer-island-seg.turn-review-segment .diff-stats) {
+.composer-island[data-compact]:where(:not([data-measuring])) :is(.composer-island-seg-word, .composer-island-seg.turn-review-segment .diff-stats) {
   display: none;
 }
-.composer-island[data-compact] .composer-island-seg-num {
+.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg-num {
   display: inline-block;
 }
-.composer-island[data-compact] .composer-island-seg-state > .composer-island-dot {
+.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg-state > .composer-island-dot {
   display: inline-block;
 }
-.composer-island[data-compact] .composer-island-seg-state + .composer-island-seg-state::before {
+.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg-state + .composer-island-seg-state::before {
   content: none;
 }
-.composer-island[data-compact] :is(.composer-island-seg, .session-goal-trigger) {
+.composer-island[data-compact]:where(:not([data-measuring])) :is(.composer-island-seg, .session-goal-trigger) {
   gap: 5px;
   padding-inline: 8px;
 }
 /* The git segment's spacing lives on its buttons, never its container. */
-.composer-island[data-compact] .composer-island-seg.composer-island-git {
+.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg.composer-island-git {
   gap: 0;
   padding-inline: 0;
 }
@@ -655,10 +655,10 @@
   flex: none;
   color: var(--mx-accent);
 }
-.composer-island[data-compact] .composer-island-seg-branch :is(.composer-island-seg-prefix, .composer-island-seg-sub) {
+.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg-branch :is(.composer-island-seg-prefix, .composer-island-seg-sub) {
   display: none;
 }
-.composer-island[data-compact] .composer-island-seg-branch .composer-island-seg-text {
+.composer-island[data-compact]:where(:not([data-measuring])) .composer-island-seg-branch .composer-island-seg-text {
   max-width: 104px;
 }
 /* Still overflowing once compact (useIslandFit): the running state leaves the
