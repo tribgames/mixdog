@@ -84,12 +84,16 @@ export function cleanSessionPreview(text, max = 160) {
   const limit = Math.max(16, Number(max) || 160);
   // Previews run on truncated source: an injected block that lost its closing
   // tag still must not become the preview.
-  return stripInjectedBlocks(stripSessionDisplayEnvelope(text), { dropUnterminated: true })
+  const cleaned = stripInjectedBlocks(stripSessionDisplayEnvelope(text), { dropUnterminated: true })
     .replace(/\[(?:Pasted text|Image)\s*#?\d+(?:\s*(?::[^\]\r\n]*|\+\d+\s+lines))?\]/gi, ' ')
     .replace(/^Reference files:\s*/i, '')
     .replace(/\s+/g, ' ')
-    .trim()
-    .slice(0, limit);
+    .trim();
+  if (cleaned.length <= limit) return cleaned;
+  // A slice of a longer string keeps that whole string alive in V8. Previews
+  // outlive their message (summary rows, catalog caches, the preview memo), so
+  // the cut is copied out: a 160-char preview must not pin the whole reply.
+  return JSON.parse(JSON.stringify(cleaned.slice(0, limit)));
 }
 
 // Stable sentinel carried in late-tool (deferred MCP) announcement reminders.

@@ -117,14 +117,21 @@ function recordPath(sessionId) {
 function chain(sessionId, task) {
   const previous = writeChains.get(sessionId) || Promise.resolve();
   const next = previous.then(task, task);
-  writeChains.set(
-    sessionId,
-    next.then(
-      () => undefined,
-      () => undefined
-    )
+  const settled = next.then(
+    () => undefined,
+    () => undefined
   );
+  writeChains.set(sessionId, settled);
+  // A settled chain with nothing queued behind it holds no order to keep.
+  void settled.then(() => {
+    if (writeChains.get(sessionId) === settled) writeChains.delete(sessionId);
+  });
   return next;
+}
+
+/** Sessions with a write chain still held (tests). */
+export function _turnSnapshotWriteChainCountForTest() {
+  return writeChains.size;
 }
 
 async function readRecordFile(path) {

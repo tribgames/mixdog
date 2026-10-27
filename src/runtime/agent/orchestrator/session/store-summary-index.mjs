@@ -56,24 +56,48 @@ const _computeCleanPreview = cleanSummaryPreview;
 // cleaning runs a chain of regex replaces that each allocate a copy. Those
 // short strings repeat from flush to flush, so the pure result is memoized per
 // (max, text). Long raw message text is not kept here (see _previewFromMessage).
+// Every new message's raw text (up to the text limit) also passes through, so
+// the memo is bounded by the characters it holds, least recently used first
+// out: at 8192 entries alone it kept ~16–32 MB of message text per `max`.
 const CLEAN_PREVIEW_MEMO_TEXT_LIMIT = 2048;
 const CLEAN_PREVIEW_MEMO_ENTRIES = 8192;
-const cleanPreviewMemo = new Map(); // max → Map<text, cleaned>
+const CLEAN_PREVIEW_MEMO_MAX_CHARS = 512 * 1024;
+const cleanPreviewMemo = new Map(); // max → { byText: Map<text, cleaned>, chars }
 
 function _cleanPreview(text, max = 240) {
   if (typeof text !== 'string' || text.length > CLEAN_PREVIEW_MEMO_TEXT_LIMIT) return _computeCleanPreview(text, max);
-  let byText = cleanPreviewMemo.get(max);
-  if (!byText) {
-    byText = new Map();
-    cleanPreviewMemo.set(max, byText);
+  let memo = cleanPreviewMemo.get(max);
+  if (!memo) {
+    memo = { byText: new Map(), chars: 0 };
+    cleanPreviewMemo.set(max, memo);
   }
+  const { byText } = memo;
   let cleaned = byText.get(text);
-  if (cleaned === undefined) {
-    cleaned = _computeCleanPreview(text, max);
-    if (byText.size >= CLEAN_PREVIEW_MEMO_ENTRIES) byText.clear();
+  if (cleaned !== undefined) {
+    byText.delete(text);
     byText.set(text, cleaned);
+    return cleaned;
+  }
+  cleaned = _computeCleanPreview(text, max);
+  byText.set(text, cleaned);
+  memo.chars += text.length + cleaned.length;
+  for (const [oldText, oldCleaned] of byText) {
+    if (byText.size <= CLEAN_PREVIEW_MEMO_ENTRIES && memo.chars <= CLEAN_PREVIEW_MEMO_MAX_CHARS) break;
+    byText.delete(oldText);
+    memo.chars -= oldText.length + oldCleaned.length;
   }
   return cleaned;
+}
+
+/** Entries and characters the preview memo holds, summed over every `max` (tests). */
+export function _cleanPreviewMemoStatsForTest() {
+  let entries = 0;
+  let chars = 0;
+  for (const memo of cleanPreviewMemo.values()) {
+    entries += memo.byText.size;
+    chars += memo.chars;
+  }
+  return { entries, chars };
 }
 
 const sessionMessageProjectionMemo = new WeakMap();
