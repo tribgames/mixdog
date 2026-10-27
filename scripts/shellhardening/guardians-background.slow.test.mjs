@@ -225,10 +225,14 @@ test('a real auto-backgrounded command leaves through the background result path
   process.env.MIXDOG_SHELL_AUTO_BACKGROUND_MS = '500';
   let taskId = null;
   try {
-    const raw = await executeBashTool({ command: isWindows ? 'Start-Sleep -Seconds 20' : 'sleep 20' }, process.cwd(), {
-      sessionId: 'sess_autobg_render',
-      callerSessionId: 'sess_autobg_render',
-    });
+    const raw = await executeBashTool(
+      { command: isWindows ? 'Write-Output started; Start-Sleep -Seconds 20' : 'echo started; sleep 20' },
+      process.cwd(),
+      {
+        sessionId: 'sess_autobg_render',
+        callerSessionId: 'sess_autobg_render',
+      }
+    );
     const rendered = normalizeToolEnvelope(raw)?.result ?? String(raw);
     taskId = rendered.match(/^task_id:\s*(\S+)/m)?.[1] || rendered.match(/\[task_id:\s*([^\]]+)\]/)?.[1] || null;
     assert.ok(taskId, `an auto-backgrounded command must return a task_id:\n${rendered}`);
