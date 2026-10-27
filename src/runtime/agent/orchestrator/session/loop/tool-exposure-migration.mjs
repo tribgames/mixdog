@@ -46,12 +46,44 @@ export function markToolSurfaceMigrated(session, intent = TOOL_SURFACE_MIGRATION
   session.pendingCacheBreakIntent = intent;
 }
 
-/** Provider switch: rebuild the surface for `provider`, migrating bridge ↔ native. */
-export function rebuildToolSurfaceForProviderWithMigration(session, provider) {
+/**
+ * Run `apply` with `messages` (the transcript a running turn works on) as the
+ * session's messages, so a fixed-guidance rewrite lands there; the canonical
+ * transcript takes the rewritten system prefix. Without `messages`, `apply`
+ * runs on the session's own. `apply` runs synchronously.
+ */
+function applyOnWorkingMessages(session, messages, apply) {
+  const stored = session.messages;
+  const working = Array.isArray(messages) ? messages : stored;
+  if (Array.isArray(working)) session.messages = working;
+  try {
+    apply();
+  } finally {
+    if (Array.isArray(working) && session.messages !== working) {
+      // The rewrite may drop an emptied system message: keep the array
+      // identity the request loop holds.
+      working.splice(0, working.length, ...session.messages);
+    }
+    session.messages = stored;
+  }
+  // The rewritten prompt messages are fresh objects; the canonical transcript
+  // the save path persists takes them too, so the next save writes the new
+  // prompt together with the new exposure.
+  if (Array.isArray(stored) && Array.isArray(working) && stored !== working) syncSystemPrefix(stored, working);
+}
+
+/**
+ * Provider switch: rebuild the surface for `provider`, migrating bridge ↔
+ * native. `messages`: the running turn's transcript, when a switch happens
+ * mid-turn (a route fallback hop).
+ */
+export function rebuildToolSurfaceForProviderWithMigration(session, provider, messages) {
   if (!session) return false;
   const migrating = toolExposureMigrationNeeded(session, provider);
-  rebuildDeferredToolSurfaceForProvider(session, provider);
-  if (migrating) markToolSurfaceMigrated(session);
+  applyOnWorkingMessages(session, messages, () => {
+    rebuildDeferredToolSurfaceForProvider(session, provider);
+    if (migrating) markToolSurfaceMigrated(session);
+  });
   return migrating;
 }
 
@@ -75,26 +107,12 @@ function hasUnansweredToolCalls(messages) {
  */
 export function migrateToolExposureAtBoundary(session, messages) {
   if (!session || !toolExposureMigrationNeeded(session) || hasUnansweredToolCalls(messages)) return false;
-  const stored = session.messages;
-  const working = Array.isArray(messages) ? messages : stored;
-  if (Array.isArray(working)) session.messages = working;
-  try {
+  applyOnWorkingMessages(session, messages, () =>
     applyDeferredToolSurface(session, session.deferredSurfaceMode || 'lead', [], {
       provider: session.provider,
       model: session.model,
-    });
-  } finally {
-    if (Array.isArray(working) && session.messages !== working) {
-      // The rewrite may drop an emptied system message: keep the request
-      // transcript array identity the loop holds.
-      working.splice(0, working.length, ...session.messages);
-    }
-    session.messages = stored;
-  }
-  // The rewritten prompt messages are fresh objects; the canonical transcript
-  // the save path persists takes them too, so the next save writes the new
-  // prompt together with the new exposure.
-  if (Array.isArray(stored) && Array.isArray(working) && stored !== working) syncSystemPrefix(stored, working);
+    })
+  );
   invalidateForToolSurfaceMigration(session);
   return true;
 }

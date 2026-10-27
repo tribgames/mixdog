@@ -17,6 +17,8 @@ import { buildRequestSendOptions } from '../manager/ask-turn-loop-options.mjs';
 import { prepareTurnEffortConfiguration } from '../../providers/effort-configuration.mjs';
 import { resolveSessionContextMeta } from '../manager/context-meta.mjs';
 import { stripProviderReplayMessages } from '../manager/provider-replay.mjs';
+import { isAgentOwner } from '../../agent-owner.mjs';
+import { rebuildToolSurfaceForProviderWithMigration } from './tool-exposure-migration.mjs';
 
 // The short reason a notice gives for leaving a model, by provider kind.
 const HOP_REASONS = {
@@ -149,6 +151,11 @@ export async function advanceAgentRoute(state, error) {
   updated.routeFallbackFailures = [...(session.routeFallbackFailures || []), failed];
   await pinSessionWireRoute(updated, provider);
   state.throwIfAborted();
+  // The route change replaced the session's tools with its whole resolved list.
+  // A delegated agent's surface was already re-applied by updateSessionRoute
+  // (applyAgentToolExposure); a Lead-class session gets its deferred surface
+  // restored for the new provider, as a manual model switch does.
+  if (!isAgentOwner(updated)) rebuildToolSurfaceForProviderWithMigration(updated, next.provider, state.messages);
   // The live turn (prompt, assistant tool calls, tool results) carries on;
   // only the previous provider's native replay state is dropped from it.
   state.messages.splice(0, state.messages.length, ...stripProviderReplayMessages(state.messages));

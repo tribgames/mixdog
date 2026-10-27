@@ -56,6 +56,10 @@ mock.module('../manager/ask-turn-loop-options.mjs', {
     }),
   },
 });
+// The surface rebuild is covered by route-fallback-tool-surface.test.mjs.
+mock.module('./tool-exposure-migration.mjs', {
+  namedExports: { rebuildToolSurfaceForProviderWithMigration: () => false },
+});
 const { advanceAgentRoute } = await import('./route-fallback.mjs');
 const { registerBotRouteStore, writeBotRoute } = await import('../../../../shared/agent-store.mjs');
 const { agentHomeSessionId } = await import('../agent-home.mjs');
