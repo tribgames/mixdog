@@ -2121,6 +2121,7 @@ pub fn verify_image(args: &[String]) -> i32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use windows::Win32::Security::PSECURITY_DESCRIPTOR;
 
     /// A fresh, uniquely named directory under `%TEMP%` (`create_dir` fails if
     /// it exists, so nothing pre-existing is ever reused or cleared).
@@ -2134,11 +2135,7 @@ mod tests {
     /// The DACL of `path` as SDDL, read back from disk.
     fn dacl_sddl(path: &Path) -> String {
         use windows::Win32::Foundation::{LocalFree, HLOCAL};
-        use windows::Win32::Security::Authorization::{
-            ConvertSecurityDescriptorToStringSecurityDescriptorW, GetNamedSecurityInfoW, SDDL_REVISION_1,
-            SE_FILE_OBJECT,
-        };
-        use windows::Win32::Security::PSECURITY_DESCRIPTOR;
+        use windows::Win32::Security::Authorization::{GetNamedSecurityInfoW, SE_FILE_OBJECT};
         let wide_path = wide(&path.to_string_lossy());
         unsafe {
             let mut descriptor = PSECURITY_DESCRIPTOR::default();
@@ -2153,6 +2150,19 @@ mod tests {
                 &mut descriptor,
             );
             assert_eq!(status, ERROR_SUCCESS);
+            let sddl = descriptor_dacl_sddl(descriptor);
+            let _ = LocalFree(Some(HLOCAL(descriptor.0)));
+            sddl
+        }
+    }
+
+    /// The DACL of `descriptor` as SDDL, the way Windows renders it.
+    fn descriptor_dacl_sddl(descriptor: PSECURITY_DESCRIPTOR) -> String {
+        use windows::Win32::Foundation::{LocalFree, HLOCAL};
+        use windows::Win32::Security::Authorization::{
+            ConvertSecurityDescriptorToStringSecurityDescriptorW, SDDL_REVISION_1,
+        };
+        unsafe {
             let mut text = PWSTR::null();
             ConvertSecurityDescriptorToStringSecurityDescriptorW(
                 descriptor,
@@ -2164,9 +2174,18 @@ mod tests {
             .unwrap();
             let sddl = text.to_string().unwrap();
             let _ = LocalFree(Some(HLOCAL(text.0 as *mut _)));
-            let _ = LocalFree(Some(HLOCAL(descriptor.0)));
             sddl
         }
+    }
+
+    /// `sddl` rendered the way Windows prints a stored DACL. Windows abbreviates
+    /// SIDs that have an SDDL alias, so the same ACE reads back differently per
+    /// account: the built-in Administrator (the CI runner's user, RID 500) comes
+    /// back as `LA`, not `S-1-5-21-…-500`. Comparing a read-back DACL with this,
+    /// not with the raw input, keeps the check on the ACEs and flags rather than
+    /// on which spelling the running account happens to get.
+    fn rendered_sddl(sddl: &str) -> String {
+        descriptor_dacl_sddl(SecurityDescriptor::from_sddl(sddl).unwrap().raw())
     }
 
     #[test]
@@ -2180,7 +2199,7 @@ mod tests {
         create_protected_file(&temp, b"{\"x\":1}", &sddl).unwrap();
         assert_eq!(std::fs::read(&temp).unwrap(), b"{\"x\":1}");
         // Born with exactly that descriptor: protected, nothing inherited from %TEMP%.
-        assert_eq!(dacl_sddl(&temp), sddl);
+        assert_eq!(dacl_sddl(&temp), rendered_sddl(&sddl));
         // CREATE_NEW: a pre-existing (possibly pre-planted) file is never reused.
         assert!(create_protected_file(&temp, b"other", &sddl).is_err());
         assert_eq!(std::fs::read(&temp).unwrap(), b"{\"x\":1}");

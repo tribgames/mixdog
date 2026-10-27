@@ -553,13 +553,17 @@ test('desktop names are reported verbatim and validated by length', () => {
 });
 
 test('executable path resolves like the other native tools', () => {
+  // The paths are joined with the host's `node:path`, so off Windows the join
+  // inserts `/` after the Windows-style base. Only that separator is
+  // normalised; the segments and the `.exe` name are still asserted literally.
+  const asWindows = (path) => path.replaceAll('/', '\\');
   assert.equal(
-    secureDesktopExePath({ ...WIN_ENV, isPackaged: true }),
+    asWindows(secureDesktopExePath({ ...WIN_ENV, isPackaged: true })),
     'C:\\app\\resources\\native-tools\\mixdog-secure-desktop.exe',
   );
   assert.equal(
-    secureDesktopExePath({ ...WIN_ENV, isPackaged: false }),
+    asWindows(secureDesktopExePath({ ...WIN_ENV, isPackaged: false })),
     'C:\\src\\native\\mixdog-secure-desktop\\target\\release\\mixdog-secure-desktop.exe',
   );
-  assert.equal(stateFilePath(WIN_ENV), 'C:\\ProgramData\\Mixdog\\SecureDesktop\\state.json');
+  assert.equal(asWindows(stateFilePath(WIN_ENV)), 'C:\\ProgramData\\Mixdog\\SecureDesktop\\state.json');
 });
