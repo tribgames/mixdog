@@ -1089,3 +1089,134 @@ test('the control itself refuses unknown actions, a missing caller, bad paging a
   );
   assert.deepEqual(calls.at(-1), ['configure', 'setEffort']);
 });
+
+// A bot chat addressing another bot by its bot id (not `sess_home_<id>`): the
+// live service knows only sessions, so a bare bot id is "not available" to it.
+const ANALYST = 'agent-915609ddc4';
+const MARKETER = 'agent-12c3dee5bf';
+function botIdFixture(session) {
+  const submits = [];
+  const reads = [];
+  const listBots = async () => [{ id: ANALYST }, { id: MARKETER }];
+  const service = {
+    materializeSession: async () => ({ getState: () => ({}), subscribe: () => () => {} }),
+    submitSession: async (params) => {
+      if (!params.sessionId.startsWith('sess_')) throw new Error(`session ${params.sessionId} is not available`);
+      submits.push(params);
+      return { accepted: true };
+    },
+    readSession: async (params) => {
+      if (!params.sessionId.startsWith('sess_')) throw new Error(`session ${params.sessionId} is not available`);
+      reads.push(params.sessionId);
+      return { full: { busy: false }, range: { offset: 0, items: [], hasOlder: false } };
+    },
+  };
+  const agentTasks = createAgentTaskSessions({
+    getSessionService: () => service,
+    deliver: async () => {},
+    watches: { add: async () => {}, list: async () => [], remove: async () => {} },
+    loadSession: async () => null,
+    agentName: async (id) => `Name ${id}`,
+    pendingWork: async () => false,
+    settleMs: 0,
+    log: () => {},
+  });
+  const execute = createSessionControl({
+    getSessionService: () => service,
+    agentTasks,
+    listBots,
+    readTitle: async () => null,
+    pendingWork: async () => false,
+  });
+  const handler = createWorkspaceToolHandlers({
+    rt: { session, config: {} },
+    executeSessionControl: execute,
+    listBots,
+  }).session;
+  const call = async (args) =>
+    JSON.parse(await handler(args, { callerCtx: { callerSessionId: session.id }, callerCwd: '/p' }));
+  return { submits, reads, call };
+}
+const botHome = (agent) => ({
+  id: `sess_home_${agent}`,
+  owner: 'cli',
+  agent,
+  sourceType: 'lead',
+  messages: [],
+});
+
+test("a bot chat sends to, reads and checks another bot by its bot id: it reaches that bot's home chat", async () => {
+  const h = botIdFixture(botHome(ANALYST));
+  const sent = await h.call({ action: 'send', session_id: MARKETER, prompt: 'promote the Unity assets' });
+  assert.equal(sent.sessionId, `sess_home_${MARKETER}`);
+  assert.equal(h.submits.length, 1);
+  assert.equal(h.submits[0].sessionId, `sess_home_${MARKETER}`);
+  assert.deepEqual(h.submits[0].options.transcriptMeta, {
+    sender: 'lead',
+    fromAgent: ANALYST,
+    hop: 1,
+    botChain: [ANALYST],
+  });
+  assert.equal((await h.call({ action: 'status', session_id: MARKETER })).sessionId, `sess_home_${MARKETER}`);
+  await h.call({ action: 'read', session_id: MARKETER });
+  assert.deepEqual(h.reads, [`sess_home_${MARKETER}`, `sess_home_${MARKETER}`]);
+  // Mixy is a bot too.
+  assert.equal((await h.call({ action: 'send', session_id: 'lead', prompt: 'hi' })).sessionId, 'sess_home_lead');
+});
+
+test('a send by bot id still meets the bot chain and the hop limit', async () => {
+  const { stampTurnHop } = await import('../runtime/shared/bot-hops.mjs');
+  // The marketer's turn was started by the analyst: it cannot hand the work back by the analyst's bot id.
+  const marketer = botHome(MARKETER);
+  stampTurnHop(marketer, { hop: 1, botChain: [ANALYST] });
+  const back = botIdFixture(marketer);
+  await assert.rejects(
+    back.call({ action: 'send', session_id: ANALYST, prompt: 'back to you' }),
+    /contact agent "agent-915609ddc4" is already in this delegation chain \(agent-915609ddc4 → agent-12c3dee5bf → agent-915609ddc4\)/
+  );
+  // Nor to itself.
+  await assert.rejects(back.call({ action: 'send', session_id: MARKETER, prompt: 'me' }), /another session/);
+  assert.deepEqual(back.submits, []);
+  // Past MAX_BOT_HOPS the chain stops, whatever bot is addressed.
+  const deep = botHome(ANALYST);
+  stampTurnHop(deep, { hop: 3, botChain: ['someone-else'] });
+  const limited = botIdFixture(deep);
+  await assert.rejects(
+    limited.call({ action: 'send', session_id: MARKETER, prompt: 'again' }),
+    /Bot-to-bot chain limit reached; ask the user before continuing\./
+  );
+  assert.deepEqual(limited.submits, []);
+});
+
+test('an unknown bot id fails with the valid bot ids, not "is not available"', async () => {
+  const h = botIdFixture(botHome(ANALYST));
+  for (const action of ['send', 'read', 'status']) {
+    await assert.rejects(
+      h.call({ action, session_id: 'agent-000000', prompt: 'x' }),
+      (error) =>
+        /^Error: session: "agent-000000" is neither a session nor a known bot id; bot ids: lead, agent-915609ddc4, agent-12c3dee5bf;/.test(
+          String(error)
+        ) && !/not available/.test(error.message),
+      action
+    );
+  }
+  assert.deepEqual(h.submits, []);
+});
+
+test('a task session still cannot send to its origin agent, by bot id either', async () => {
+  const task = {
+    id: 'sess_task_9',
+    owner: 'user',
+    agent: 'lead',
+    sourceType: 'lead',
+    messages: [],
+    taskOrigin: { agentId: MARKETER, sessionId: `sess_home_${MARKETER}` },
+  };
+  const h = botIdFixture(task);
+  const refused = /a task session reports to its agent only through its result/;
+  await assert.rejects(h.call({ action: 'send', session_id: MARKETER, prompt: 'x' }), refused);
+  await assert.rejects(h.call({ action: 'send', session_id: `sess_home_${MARKETER}`, prompt: 'x' }), refused);
+  assert.deepEqual(h.submits, []);
+  // Another bot is still reachable by id.
+  assert.equal((await h.call({ action: 'send', session_id: ANALYST, prompt: 'x' })).sessionId, `sess_home_${ANALYST}`);
+});

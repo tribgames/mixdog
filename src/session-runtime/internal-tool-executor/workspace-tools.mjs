@@ -17,6 +17,7 @@ import { scheduleCallerScope } from '../services/schedule-access.mjs';
 import { worktreeCallerScope } from '../services/worktree-access.mjs';
 import { resolveHandoffAttachments, sessionRoots } from '../handoff-attachments.mjs';
 import { delegationChainOf } from '../bot-chain.mjs';
+import { BOT_TARGET_ACTIONS, resolveBotTarget } from '../bot-target.mjs';
 
 const USER_TITLE_ERROR = 'session: the user already titled this session; the title was not changed';
 
@@ -50,6 +51,7 @@ export function createWorkspaceToolHandlers({
   getSessionManager = () => null,
   getLifecycleApi = () => null,
   executeSessionControl = null,
+  listBots = undefined,
 }) {
   const assertLead = (action, callerCtx) => {
     const callerSessionId = callerCtx?.callerSessionId || rt.session?.id || null;
@@ -110,12 +112,16 @@ export function createWorkspaceToolHandlers({
           'session: create belongs to a bot conversation; delegated workers, agent task sessions and schedule/webhook runs cannot create agent task sessions'
         );
       }
+      // A bot id names that bot's home chat; every check below and in the
+      // control runs on the chat it resolves to.
+      const sessionTarget =
+        BOT_TARGET_ACTIONS.has(action) && target ? await resolveBotTarget(target, listBots) : target;
       // A task session reaches its agent only through its reported result.
       const origin = rt.session?.taskOrigin;
       if (
         action === 'send' &&
         origin &&
-        (target === origin.sessionId || agentIdOfHomeSession(target) === origin.agentId)
+        (sessionTarget === origin.sessionId || agentIdOfHomeSession(sessionTarget) === origin.agentId)
       ) {
         throw new Error('session: a task session reports to its agent only through its result');
       }
@@ -129,7 +135,7 @@ export function createWorkspaceToolHandlers({
       const attachmentParts = callerAttachmentParts(rt, args, callerCwd, 'session');
       return JSON.stringify(
         await executeSessionControl(
-          { ...rest, action },
+          { ...rest, action, ...(sessionTarget !== target ? { session_id: sessionTarget } : {}) },
           {
             callerSessionId,
             callerAgentId,

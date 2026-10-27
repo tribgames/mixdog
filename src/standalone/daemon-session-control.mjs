@@ -7,6 +7,7 @@ import {
 import { createAgentTaskSessions, taskSessionPendingWork } from '../session-runtime/agent-task-sessions.mjs';
 import { createBotStatus, scanCatalog, scopedBot } from '../session-runtime/bot-status.mjs';
 import { handoffContent } from '../session-runtime/handoff-attachments.mjs';
+import { BOT_TARGET_ACTIONS, isBotShaped, unknownBotError } from '../session-runtime/bot-target.mjs';
 import { checkEffort, readModelCatalog } from '../session-runtime/task-session-route.mjs';
 import { assertBotChainTarget, botChainOf } from '../runtime/shared/bot-hops.mjs';
 import { agentIdOfHomeSession } from '../runtime/agent/orchestrator/session/agent-home.mjs';
@@ -82,7 +83,8 @@ async function storedTitle(sessionId) {
 export function createSessionControl({
   getSessionService,
   agentTasks = createAgentTaskSessions({ getSessionService }),
-  botStatus = createBotStatus({ getSessionService }),
+  listBots = undefined,
+  botStatus = createBotStatus({ getSessionService, listBots }),
   // Agent work a session handed off and still waits on (agent-task-sessions.mjs).
   pendingWork = taskSessionPendingWork,
   liveWork = storedLiveWork,
@@ -92,7 +94,7 @@ export function createSessionControl({
   const worktreeControl = createWorktreeControl(getSessionService);
   const routeControl = createRouteControl(getSessionService);
 
-  return async function executeSessionControl(args = {}, context = {}) {
+  async function control(args = {}, context = {}) {
     const action = args.action;
     const caller = requestCaller(action, context);
     // `callerAgentId`: set only for an attended agent conversation (workspace-tools.mjs).
@@ -263,5 +265,19 @@ export function createSessionControl({
       agentsWorking: (await pendingWork(sessionId)) === true,
       quotaResume: snapshot.quotaResume ?? null,
     };
+  }
+
+  return async function executeSessionControl(args = {}, context = {}) {
+    try {
+      return await control(args, context);
+    } catch (error) {
+      // A bot id is resolved to its home chat before this (workspace-tools.mjs),
+      // so a bot-shaped id the session service found no session for is no bot
+      // either: say which ids are.
+      const id = typeof args.session_id === 'string' ? args.session_id.trim() : '';
+      const missing = [`${id} is not available`, `${id} is unavailable`].some((text) => error?.message?.includes(text));
+      if (!BOT_TARGET_ACTIONS.has(args.action) || !isBotShaped(id) || !missing) throw error;
+      throw await unknownBotError(id, listBots, error);
+    }
   };
 }

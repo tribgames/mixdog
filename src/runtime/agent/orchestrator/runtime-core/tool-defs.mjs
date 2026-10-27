@@ -115,7 +115,7 @@ export const SESSION_TOOL = {
       session_id: {
         type: 'string',
         description:
-          'ID from list; required for read/send/cancel/delete, optional for status/bots. send/cancel/delete cannot target the caller.',
+          'ID from list; required for read/send/cancel/delete, optional for status/bots. send/cancel/delete cannot target the caller. read/send/status also take a bot id (its home chat).',
       },
       prompt: { type: 'string', description: 'send: message to enqueue; loads a cold session.' },
       to: {

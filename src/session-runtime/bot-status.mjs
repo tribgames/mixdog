@@ -143,7 +143,7 @@ function span(ms) {
 const ago = (at, now) => `${span(now - at)} ago`;
 const until = (at, now) => (at <= now ? 'due now' : `in ${span(at - now)}`);
 
-async function defaultListBots() {
+export async function defaultListBots() {
   const [{ workflowHelpers }, { getPluginData, loadConfig }, { isAgentDisabled, isContactAgentId }] = await Promise.all(
     [
       import('./boot/shared.mjs'),
