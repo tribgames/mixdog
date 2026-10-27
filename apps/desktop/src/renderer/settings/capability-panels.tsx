@@ -59,7 +59,7 @@ export function CategoryPanel({ category, context }: { category: CapabilityCateg
   if (category === 'context') return <ContextPanel {...context} />;
   if (category === 'system') return <SystemPanel {...context} />;
   if (category === 'shortcuts') return <ShortcutsPanel />;
-  if (category === 'connection') return <ConnectionPanel api={context.api} openCategory={context.openCategory} />;
+  if (category === 'connection') return <ConnectionPanel api={context.api} />;
   if (category === 'auth') return <AuthPanel api={context.api} active={context.active} />;
   if (category === 'notifications') return <NotificationsPanel api={context.api} openCategory={context.openCategory} />;
   if (category === 'developer') return <DeveloperPanel {...context} />;

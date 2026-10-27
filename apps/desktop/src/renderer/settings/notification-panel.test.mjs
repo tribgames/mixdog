@@ -8,7 +8,6 @@ import { setCachedConnectionInfo } from './connection-info.ts';
 import { ConnectionPanel } from './connection-panel.tsx';
 import { GeneralPanel } from './general-panel.tsx';
 import { NotificationsPanel } from './notification-panel.tsx';
-import { requestNotificationDevice, takeNotificationDeviceRequest } from './notification-state.ts';
 import { SETTINGS_CATEGORIES, settingsCategoriesForSurface } from './settings-items.ts';
 
 const DOM = { rootId: 'root', expose: ['HTMLElement', 'Node', 'KeyboardEvent', 'Event', 'CustomEvent'] };
@@ -142,13 +141,6 @@ test('the footer link opens Settings › Connection', async (t) => {
 test('a paired device starts on itself', async (t) => {
   const own = await mountPanel(t, makeApi(makeState('c1')));
   assert.equal(own.document.querySelector('.notif-device-button b').textContent, 'Galaxy S24');
-});
-
-test('a requested device preselects', async (t) => {
-  requestNotificationDevice('c2');
-  const requested = await mountPanel(t, makeApi());
-  assert.equal(requested.document.querySelector('.notif-device-button b').textContent, 'Office laptop');
-  assert.equal(takeNotificationDeviceRequest(), null, 'the request is consumed');
 });
 
 test('every control writes its patch for the selected device', async (t) => {
@@ -409,7 +401,7 @@ test('a rejected volume save puts the slider back on the saved volume', async (t
   assert.equal(document.querySelector('.notification-volume-control output').textContent, '100%');
 });
 
-test('the Connection tab summarizes each device and opens Notifications on it', async (t) => {
+test('the Connection tab lists devices without a notification line', async (t) => {
   const dom = installTestDom(t, DOM);
   const made = makeApi();
   const device = (id, name) => ({
@@ -432,23 +424,11 @@ test('the Connection tab summarizes each device and opens Notifications on it', 
   made.state.preferences.c2 = prefs({ scope: 'off' });
   const api = { ...made.api, getRemoteAccessInfo: () => Promise.resolve(info) };
   setCachedConnectionInfo(api, info);
-  const opened = [];
-  await act(async () =>
-    dom.root.render(React.createElement(ConnectionPanel, { api, openCategory: (category) => opened.push(category) }))
-  );
+  await act(async () => dom.root.render(React.createElement(ConnectionPanel, { api })));
   await settle();
   const rows = [...dom.document.querySelectorAll('.conn-list .conn-row')];
-  assert.equal(
-    flat(rows[0].querySelector('.conn-notif').textContent),
-    'Notifications: Bot chats only · Quiet 11:00 PM–8:00 AM'
-  );
-  assert.equal(rows[1].querySelector('.conn-notif').textContent, 'Notifications: Off');
-  const off = rows[2].querySelector('.conn-notif');
-  assert.equal(off.textContent, 'Notifications off — allow them on this device');
-  assert.equal(off.tagName, 'DIV', 'the muted line is not a link');
-  await clickEl(rows[0].querySelector('button.conn-notif'));
-  assert.deepEqual(opened, ['notifications']);
-  assert.equal(takeNotificationDeviceRequest(), 'c1');
+  assert.equal(rows.length, 3);
+  for (const row of rows) assert.doesNotMatch(row.textContent, /Notifications/);
 });
 
 test('General no longer carries the old task-finished notification group', async (t) => {

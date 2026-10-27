@@ -1,12 +1,9 @@
-// Shared by Settings › Notifications and the Connection tab's per-device
-// summary: the preference state hook, the "open Notifications on this device"
-// request, and the texts both pages show.
+// Settings › Notifications state: the preference hook and its labels.
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import type {
   DesktopApi,
   NotificationDevicePreferences,
-  NotificationDeviceSummary,
   NotificationPreferencesPatch,
   NotificationPreferencesState,
   NotificationScope,
@@ -16,20 +13,6 @@ import { subscribeSetupChanges } from '../setup-change-refresh';
 import { timeFormatOptions } from '../time-format-preference';
 
 type NotificationApi = Partial<Pick<DesktopApi, 'getNotificationPreferences' | 'setNotificationPreferences'>>;
-
-let pendingDevice: string | null = null;
-
-/** Settings › Connection → Notifications with this device selected. */
-export function requestNotificationDevice(deviceId: string): void {
-  pendingDevice = deviceId;
-}
-
-/** The waiting device request, once. */
-export function takeNotificationDeviceRequest(): string | null {
-  const id = pendingDevice;
-  pendingDevice = null;
-  return id;
-}
 
 function applyPreferencesPatch(
   prefs: NotificationDevicePreferences,
@@ -151,19 +134,4 @@ export function quietTimeLabel(value: string): string {
     minute: '2-digit',
     ...timeFormatOptions(),
   });
-}
-
-/** The Connection tab's line for one device; muted ones are not links. */
-export function notificationSummary(
-  device: NotificationDeviceSummary,
-  prefs: NotificationDevicePreferences | undefined
-): { text: string; muted: boolean } | null {
-  if (!device.canNotify) return { text: t('Notifications off — allow them on this device'), muted: true };
-  if (!prefs) return null;
-  const quiet = prefs.quietHours;
-  const base = t('Notifications: {{scope}}', { scope: scopeLabel(prefs.scope) });
-  const text = quiet.enabled
-    ? `${base} · ${t('Quiet {{start}}–{{end}}', { start: quietTimeLabel(quiet.start), end: quietTimeLabel(quiet.end) })}`
-    : base;
-  return { text, muted: false };
 }

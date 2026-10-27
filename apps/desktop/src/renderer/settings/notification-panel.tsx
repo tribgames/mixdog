@@ -27,7 +27,6 @@ import { getCachedDesktopStatus, readDesktopStatus, storeDesktopStatus } from '.
 import {
   quietTimeLabel,
   scopeLabel,
-  takeNotificationDeviceRequest,
   useNotificationPreferences,
 } from './notification-state';
 import { DevicePushRegistration } from './push-notification-toggle';
@@ -451,7 +450,7 @@ export function NotificationsPanel({
   openCategory?: (category: SettingsCategory) => void;
 }) {
   const { state, save, readError, writeError, retry } = useNotificationPreferences(api);
-  const [requested, setRequested] = useState<string | null>(() => takeNotificationDeviceRequest());
+  const [picked, setPicked] = useState<string | null>(null);
   const notices = (
     <>
       {readError != null && <ErrorNotice error={readError} onRetry={retry} />}
@@ -462,7 +461,7 @@ export function NotificationsPanel({
   const usable = (id: string | null) =>
     state.devices.find((device) => device.id === id && (device.canNotify || id === state.currentDeviceId));
   const selected =
-    usable(requested) ?? usable(state.currentDeviceId) ?? state.devices.find((device) => device.canNotify);
+    usable(picked) ?? usable(state.currentDeviceId) ?? state.devices.find((device) => device.canNotify);
   const prefs = selected && state.preferences[selected.id];
   if (!selected || !prefs) return notices;
   return (
@@ -472,7 +471,7 @@ export function NotificationsPanel({
         devices={state.devices}
         selected={selected}
         currentDeviceId={state.currentDeviceId}
-        onSelect={setRequested}
+        onSelect={setPicked}
         onOpenConnection={() => openCategory?.('connection')}
       />
       <DeviceSettings

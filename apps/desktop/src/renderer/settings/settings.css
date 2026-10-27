@@ -1880,12 +1880,3 @@ html[data-mixdog-mobile-tabs] .conn-qr-row {
   align-items: center;
   gap: 6px;
 }
-.conn-notif {
-  display: block;
-  margin-top: 2px;
-  font-size: var(--mx-font-meta);
-  text-align: left;
-}
-.conn-notif--off {
-  color: var(--mx-text-muted);
-}

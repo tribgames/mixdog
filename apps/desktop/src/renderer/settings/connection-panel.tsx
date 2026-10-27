@@ -36,8 +36,6 @@ import { SshConnectDialog } from './ssh-connect-dialog';
 import { SshCleanupDialog, SshHostSettingsDialog } from './ssh-host-dialogs';
 import { openSshHost, useSshHosts } from './ssh-hosts';
 import { ReopenServerWindowsToggle } from './reopen-server-windows-toggle';
-import { notificationSummary, requestNotificationDevice, useNotificationPreferences } from './notification-state';
-import type { SettingsCategory } from './settings-items';
 import { errorMessage } from '../editor-pane-session-errors';
 
 const CONNECTION_RETRY_MS = 2_000;
@@ -166,16 +164,14 @@ function SmallButton({ disabled, onClick, children }: { disabled?: boolean; onCl
   );
 }
 
-/** The devices connected to this PC, each with its notification summary and rename/disconnect actions. */
+/** The devices connected to this PC, each with rename/disconnect actions. */
 function ConnectedDevicesGroup({
   clients,
   enabled,
   rotating,
   revokingClient,
   confirmClient,
-  notifications,
   canRename,
-  openCategory,
   setConfirmClient,
   revokeClient,
   setDialog,
@@ -185,9 +181,7 @@ function ConnectedDevicesGroup({
   rotating: boolean;
   revokingClient: string;
   confirmClient: string;
-  notifications: ReturnType<typeof useNotificationPreferences>['state'];
   canRename: boolean;
-  openCategory?: (category: SettingsCategory) => void;
   setConfirmClient(id: string): void;
   revokeClient(id: string): void;
   setDialog: OpenDialog;
@@ -221,8 +215,6 @@ function ConnectedDevicesGroup({
             else if (enabled) status = client.online ? t('Online') : t('Offline');
             const defaultTitle = deviceTitle(client, kind);
             const baseMeta = `${deviceKindText(client, kind)} · ${lastSeen}`;
-            const device = notifications?.devices.find((entry) => entry.id === client.id);
-            const summary = device ? notificationSummary(device, notifications?.preferences[client.id]) : null;
             return (
               <ConnRow
                 key={client.id}
@@ -231,23 +223,6 @@ function ConnectedDevicesGroup({
                 status={status}
                 statusTone={enabled && client.online && !client.pendingRemoval ? 'on' : 'off'}
                 meta={client.alias ? `${defaultTitle} · ${baseMeta}` : baseMeta}
-                extra={
-                  summary &&
-                  (summary.muted ? (
-                    <div className="conn-notif conn-notif--off">{summary.text}</div>
-                  ) : (
-                    <button
-                      type="button"
-                      className="conn-link conn-notif"
-                      onClick={() => {
-                        requestNotificationDevice(client.id);
-                        openCategory?.('notifications');
-                      }}
-                    >
-                      {summary.text}
-                    </button>
-                  ))
-                }
                 actions={
                   <>
                     {canRename && (
@@ -545,14 +520,7 @@ function ConnectionDialogs({
   );
 }
 
-export function ConnectionPanel({
-  api,
-  openCategory,
-}: {
-  api: CapabilityApi;
-  openCategory?: (category: SettingsCategory) => void;
-}) {
-  const { state: notifications } = useNotificationPreferences(api);
+export function ConnectionPanel({ api }: { api: CapabilityApi }) {
   const [info, setInfo] = useState<DesktopRemoteAccessInfo | null | undefined>(() => getCachedConnectionInfo(api));
   const [rotating, setRotating] = useState(false);
   const [revokingClient, setRevokingClient] = useState('');
@@ -711,9 +679,7 @@ export function ConnectionPanel({
         rotating={rotating}
         revokingClient={revokingClient}
         confirmClient={confirmClient}
-        notifications={notifications}
         canRename={Boolean(api.setRemoteClientAlias)}
-        openCategory={openCategory}
         setConfirmClient={setConfirmClient}
         revokeClient={revokeClient}
         setDialog={setDialog}
