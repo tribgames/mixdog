@@ -214,7 +214,7 @@ async function satisfyMissingEngines({ resolution, cwd, engineFilter, approveDow
   if (policy === 'never') return { resolution, needsApproval: null, installed: null };
   const { installEngines, planInstall } = await import('./install.mjs');
   if (policy !== 'auto' && !approveDownloads) {
-    const plan = planInstall({
+    const plan = await planInstall({
       ids: installable,
       manifest: resolution.manifest,
       pluginData: resolution.pluginData,

@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs, { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
@@ -168,6 +169,93 @@ test('a managed install resolves under <pluginData>/tools/<engine>/<version>', a
     env: noPathEnv,
   });
   assert.notEqual(damaged.engines[0].source, 'managed');
+  // Replacing it with a good binary is picked up again; nothing is cached stale.
+  writeFileSync(managedBin, 'fake engine again');
+  const restored = await resolveEngines({
+    cwd: root,
+    engineIds: ['stylua'],
+    pluginData,
+    manifest,
+    probeVersions: false,
+    env: noPathEnv,
+  });
+  assert.equal(restored.engines[0].source, 'managed');
+});
+
+test('a slow managed-binary verification does not block the event loop', async (t) => {
+  const root = workspace(t);
+  const pluginData = join(root, 'data');
+  const binName = process.platform === 'win32' ? 'stylua.exe' : 'stylua';
+  fakeBin(join(pluginData, 'tools', 'stylua', '0.20.0'), binName);
+  const manifest = {
+    version: 1,
+    engines: {
+      stylua: {
+        version: '0.20.0',
+        license: 'MPL-2.0',
+        kind: ['format'],
+        languages: ['lua'],
+        source: 'upstream',
+        assets: {
+          [platformAssetKey()]: {
+            url: 'https://example.invalid/s.zip',
+            sha256: 'a'.repeat(64),
+            archive: 'zip',
+            binPath: binName,
+          },
+        },
+      },
+    },
+  };
+  // Child process with slow opens of the engine binary (as under an antivirus
+  // scan): a synchronous open busy-waits, an async open completes later via a
+  // timer. The default probe is exercised; a heartbeat counts loop turns.
+  const script = join(root, 'slow-open-child.mjs');
+  const resolveUrl = new URL('./resolve.mjs', import.meta.url).href;
+  writeFileSync(
+    script,
+    `import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+const SLOW_MS = 400;
+const slow = (p) => String(p).includes('stylua');
+const openSync = fs.openSync;
+fs.openSync = (p, ...rest) => {
+  if (slow(p)) for (const end = Date.now() + SLOW_MS; Date.now() < end; );
+  return openSync(p, ...rest);
+};
+const open = fs.promises.open;
+fs.promises.open = (p, ...rest) =>
+  slow(p) ? new Promise((resolve) => setTimeout(resolve, SLOW_MS)).then(() => open(p, ...rest)) : open(p, ...rest);
+syncBuiltinESMExports();
+const { resolveEngines } = await import(${JSON.stringify(resolveUrl)});
+let ticks = 0;
+const timer = setInterval(() => { ticks += 1; }, 10);
+const { engines } = await resolveEngines({
+  cwd: process.env.CHILD_ROOT,
+  engineIds: ['stylua'],
+  pluginData: process.env.CHILD_PLUGIN_DATA,
+  manifest: JSON.parse(process.env.CHILD_MANIFEST),
+  probeVersions: false,
+  env: { PATH: '', Path: '' },
+});
+clearInterval(timer);
+console.log(JSON.stringify({ ticks, source: engines[0].source, version: engines[0].version }));
+`
+  );
+  const out = spawnSync(process.execPath, [script], {
+    encoding: 'utf8',
+    env: {
+      ...process.env,
+      CHILD_ROOT: root,
+      CHILD_PLUGIN_DATA: pluginData,
+      CHILD_MANIFEST: JSON.stringify(manifest),
+    },
+  });
+  assert.equal(out.status, 0, out.stderr);
+  const result = JSON.parse(out.stdout.trim().split('\n').pop());
+  assert.equal(result.source, 'managed');
+  assert.equal(result.version, '0.20.0');
+  assert.ok(result.ticks >= 15, `event loop kept running during slow verification (ticks=${result.ticks})`);
 });
 
 test('an unresolved engine reports its install hint and whether tidy can fetch it', async (t) => {

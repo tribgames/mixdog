@@ -163,32 +163,32 @@ function manifestFor(id, { sha, archive = 'none', binPath = id, bytes = 0 } = {}
   };
 }
 
-test('policy gates every download decision before the network', () => {
+test('policy gates every download decision before the network', async () => {
   const manifest = manifestFor('shfmt', { sha: 'a'.repeat(64), bytes: 2048 });
   const base = { ids: ['shfmt'], manifest, pluginData: '/nowhere' };
 
-  const ask = planInstall({ ...base, policy: 'ask' });
+  const ask = await planInstall({ ...base, policy: 'ask' });
   assert.equal(ask.targets.length, 0);
   assert.deepEqual(ask.needsApproval.engines, [{ id: 'shfmt', version: '1.2.3', bytes: 2048, license: 'MIT' }]);
   assert.equal(ask.needsApproval.bytes, 2048);
 
-  assert.equal(planInstall({ ...base, policy: 'ask', approveDownloads: true }).targets.length, 1);
-  assert.equal(planInstall({ ...base, policy: 'auto' }).targets.length, 1);
-  assert.equal(planInstall({ ...base }).targets.length, 1, 'default policy is auto');
+  assert.equal((await planInstall({ ...base, policy: 'ask', approveDownloads: true })).targets.length, 1);
+  assert.equal((await planInstall({ ...base, policy: 'auto' })).targets.length, 1);
+  assert.equal((await planInstall({ ...base })).targets.length, 1, 'default policy is auto');
 
-  const never = planInstall({ ...base, policy: 'never' });
+  const never = await planInstall({ ...base, policy: 'never' });
   assert.equal(never.targets.length, 0);
   assert.equal(never.needsApproval, null);
   assert.match(never.errors[0].error, /disabled by policy/);
 
-  const toolchain = planInstall({ ids: ['rustfmt'], manifest, pluginData: '/nowhere', policy: 'auto' });
+  const toolchain = await planInstall({ ids: ['rustfmt'], manifest, pluginData: '/nowhere', policy: 'auto' });
   assert.match(toolchain.errors[0].error, /toolchain engine/);
   assert.match(toolchain.errors[0].installHint, /rustup/);
 
-  const unknown = planInstall({ ids: ['nope'], manifest, pluginData: '/nowhere', policy: 'auto' });
+  const unknown = await planInstall({ ids: ['nope'], manifest, pluginData: '/nowhere', policy: 'auto' });
   assert.match(unknown.errors[0].error, /unknown engine/);
 
-  const noAsset = planInstall({
+  const noAsset = await planInstall({
     ids: ['shfmt'],
     manifest: { version: 1, engines: {} },
     pluginData: '/nowhere',
@@ -201,13 +201,13 @@ test('install verifies, extracts, and lands the engine in its versioned dir', as
   const root = workspace(t);
   const payload = Buffer.from('#!/bin/sh\necho shfmt\n');
   const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
-  const target = planInstall({ ids: ['shfmt'], manifest, pluginData: root, policy: 'auto' }).targets[0];
+  const target = (await planInstall({ ids: ['shfmt'], manifest, pluginData: root, policy: 'auto' })).targets[0];
 
   const installed = await installEngine(target, { pluginData: root, fetchFn: fakeFetch(payload) });
   assert.equal(installed.status, 'installed');
   assert.equal(installed.path, join(root, 'tools', 'shfmt', '1.2.3', 'shfmt'));
   assert.equal(readFileSync(installed.path, 'utf8'), payload.toString('utf8'));
-  assert.equal(managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }).version, '1.2.3');
+  assert.equal((await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root })).version, '1.2.3');
 
   // A second install is a no-op, and no staging directory survives.
   const again = await installEngine(target, { pluginData: root, fetchFn: fakeFetch(payload) });
@@ -285,7 +285,7 @@ test('a download aborted mid-body leaves no engine dir or staging, and the next 
   });
   assert.deepEqual(first.installed, []);
   assert.match(first.errors[0].error, /network changed/);
-  assert.equal(managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null);
+  assert.equal(await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null);
   assert.deepEqual(readdirSync(join(root, 'tools', 'shfmt')), [], 'no staging or version dir survives');
 
   const retry = await installEngines({ ids: ['shfmt'], manifest, pluginData: root, fetchFn: fakeFetch(payload) });
@@ -299,11 +299,11 @@ test('an empty or binary-less engine dir is not installed and is replaced by the
   const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
   const dir = join(root, 'tools', 'shfmt', '1.2.3');
   mkdirSync(dir, { recursive: true });
-  assert.equal(managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null);
+  assert.equal(await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null);
   writeFileSync(join(dir, 'leftover.part'), 'half');
   writeFileSync(join(dir, 'shfmt'), Buffer.alloc(64));
-  assert.equal(managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null, 'a NUL-filled binary');
-  assert.equal(planInstall({ ids: ['shfmt'], manifest, pluginData: root }).targets.length, 1);
+  assert.equal(await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null, 'a NUL-filled binary');
+  assert.equal((await planInstall({ ids: ['shfmt'], manifest, pluginData: root })).targets.length, 1);
 
   const outcome = await installEngines({ ids: ['shfmt'], manifest, pluginData: root, fetchFn: fakeFetch(payload) });
   assert.equal(outcome.installed[0].status, 'installed');
@@ -376,14 +376,15 @@ test('an "ask" policy install returns the approval request without fetching', as
   assert.deepEqual(outcome.installed, []);
 });
 
-test('the manifest engines the catalog knows are installable by id', () => {
+test('the manifest engines the catalog knows are installable by id', async () => {
   const manifest = readEnginesManifest();
   for (const id of ['air', 'mago']) {
     if (!manifest.engines[id]?.assets?.[platformAssetKey()]) continue;
-    const plan = planInstall({ ids: [id], manifest, pluginData: '/nowhere', policy: 'ask' });
+    const plan = await planInstall({ ids: [id], manifest, pluginData: '/nowhere', policy: 'ask' });
     assert.deepEqual(plan.errors, [], `${id} must not be rejected as unknown`);
     assert.equal(plan.needsApproval.engines[0].id, id);
-    assert.equal(planInstall({ ids: [id], manifest, pluginData: '/nowhere', policy: 'auto' }).targets.length, 1);
+    const auto = await planInstall({ ids: [id], manifest, pluginData: '/nowhere', policy: 'auto' });
+    assert.equal(auto.targets.length, 1);
   }
 });
 

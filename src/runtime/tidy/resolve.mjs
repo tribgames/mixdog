@@ -135,7 +135,7 @@ function installableFlag(entry, manifest) {
   return entry.managed && manifestAsset(manifest, entry.id) ? { installable: true } : {};
 }
 
-function resolveOne({ cwd, entry, config, env, manifest, pluginData, pathIndex }) {
+async function resolveOne({ cwd, entry, config, env, manifest, pluginData, pathIndex }) {
   const base = {
     id: entry.id,
     kind: entry.kind,
@@ -169,7 +169,8 @@ function resolveOne({ cwd, entry, config, env, manifest, pluginData, pathIndex }
         installHint: entry.hostInstallHint || entry.installHint,
       };
     }
-    const managed = entry.managed && pluginData ? managedEngineBinary({ id: entry.id, manifest, pluginData }) : null;
+    const managed =
+      entry.managed && pluginData ? await managedEngineBinary({ id: entry.id, manifest, pluginData }) : null;
     if (managed) {
       return {
         ...base,
@@ -194,7 +195,7 @@ function resolveOne({ cwd, entry, config, env, manifest, pluginData, pathIndex }
   const onPath = pathBinary(entry, env, pathIndex);
   if (onPath) return { ...base, source: 'path', path: onPath.path, ...commandFor(entry, onPath.path) };
   if (entry.managed && pluginData) {
-    const managed = managedEngineBinary({ id: entry.id, manifest, pluginData });
+    const managed = await managedEngineBinary({ id: entry.id, manifest, pluginData });
     if (managed) {
       return {
         ...base,
@@ -282,12 +283,12 @@ export async function resolveEngines({
   else if (languages.length > 0) requested = enginesForLanguages(languages);
   const unknown = engineIds.filter((id) => !ENGINE_IDS.includes(id));
 
-  // One listing per PATH dir for the whole batch: this runs synchronously on
-  // the host loop (the desktop's Code Tidy status read at startup).
+  // One listing per PATH dir for the whole batch (the desktop's Code Tidy
+  // status read at startup runs this on the host loop).
   const pathIndex = createPathIndex(env);
-  const resolved = requested.map((id) => {
+  const resolved = await Promise.all(requested.map(async (id) => {
     const entry = ENGINE_CATALOG[id];
-    const result = resolveOne({ cwd, entry, config, env, manifest: loadedManifest, pluginData, pathIndex });
+    const result = await resolveOne({ cwd, entry, config, env, manifest: loadedManifest, pluginData, pathIndex });
     const configFile = projectConfigFileFor(cwd, entry);
     if (configFile) result.configFile = configFile;
     if (entry.requiresConfig && !configFile && result.source !== 'project-config') {
@@ -295,7 +296,7 @@ export async function resolveEngines({
     }
     if (entry.toolchain) result.toolchain = true;
     return result;
-  });
+  }));
 
   // A project driving Prettier/ESLint from node_modules/.bin keeps them: Biome
   // stands down rather than reformatting against the project's own config.

@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { MAX_NATIVE_BINARY_DOWNLOAD_BYTES, streamResponseToFile } from '../shared/bounded-download.mjs';
 import { platformEntryKey, platformKey, sha256File } from '../shared/native-asset.mjs';
-import { fileHasData } from '../shared/file-has-data.mjs';
+import { fileHasDataAsync } from '../shared/file-has-data.mjs';
 import { readJsonSafe } from '../shared/json-file.mjs';
 import { ENGINE_CATALOG } from './engines.mjs';
 import { extractArchive } from './extract.mjs';
@@ -45,14 +45,15 @@ export function manifestAsset(manifest, id, pkey = platformEntryKey(manifest?.en
   return { entry, asset, version: String(entry.version || '0'), pkey: entry?.assets?.[pkey] ? pkey : 'any' };
 }
 
-/** An already-installed managed binary for `id`, or null. Sync, no network. */
-export function managedEngineBinary({ id, manifest, pluginData }) {
+/** An already-installed managed binary for `id`, or null. No network; the
+ *  binary probe is async so a slow (scanned) open never stalls the event loop. */
+export async function managedEngineBinary({ id, manifest, pluginData }) {
   const found = manifestAsset(manifest, id);
   if (!found || !pluginData) return null;
   const binPath = String(found.asset.binPath || '');
   if (!binPath) return null;
   const full = join(managedEngineDir(pluginData, id, found.version), binPath);
-  return fileHasData(full) ? { path: full, version: found.version } : null;
+  return (await fileHasDataAsync(full)) ? { path: full, version: found.version } : null;
 }
 
 /** Throws unless `filePath` hashes to `expected`. */
@@ -72,7 +73,13 @@ export async function verifyDownloadDigest(filePath, expected, label = LABEL) {
  * Decide what an install call may do, without touching the network.
  * Returns { targets, present, needsApproval, errors }.
  */
-export function planInstall({ ids = [], manifest, pluginData = '', policy = 'auto', approveDownloads = false } = {}) {
+export async function planInstall({
+  ids = [],
+  manifest,
+  pluginData = '',
+  policy = 'auto',
+  approveDownloads = false,
+} = {}) {
   const targets = [];
   const present = [];
   const errors = [];
@@ -101,7 +108,7 @@ export function planInstall({ ids = [], manifest, pluginData = '', policy = 'aut
       });
       continue;
     }
-    const installed = managedEngineBinary({ id, manifest, pluginData });
+    const installed = await managedEngineBinary({ id, manifest, pluginData });
     if (installed) {
       present.push({ id, version: installed.version, path: installed.path });
       continue;
@@ -243,7 +250,7 @@ export async function installEngine(
   const finalDir = managedEngineDir(pluginData, target.id, target.version);
   const binFull = join(finalDir, target.binPath);
   // An engine binary a crash left NUL-filled is not present: it is installed again.
-  if (fileHasData(binFull)) {
+  if (await fileHasDataAsync(binFull)) {
     return { id: target.id, version: target.version, path: binFull, bytes: 0, status: 'present' };
   }
   mkdirSync(engineRoot, { recursive: true });
@@ -273,7 +280,7 @@ export async function installEngine(
       }
     }
     try {
-      if (existsSync(finalDir) && !fileHasData(binFull)) rmSync(finalDir, { recursive: true, force: true });
+      if (existsSync(finalDir) && !(await fileHasDataAsync(binFull))) rmSync(finalDir, { recursive: true, force: true });
       renameSync(stageDir, finalDir);
     } catch (error) {
       // A concurrent install won the race; its verified copy is equivalent.
@@ -305,7 +312,7 @@ export async function installEngines({
   stallTimeoutMs = undefined,
 } = {}) {
   const loaded = manifest || readEnginesManifest();
-  const plan = planInstall({ ids, manifest: loaded, pluginData, policy, approveDownloads });
+  const plan = await planInstall({ ids, manifest: loaded, pluginData, policy, approveDownloads });
   const installed = [...plan.present];
   const errors = [...plan.errors];
   if (!pluginData && plan.targets.length > 0) {

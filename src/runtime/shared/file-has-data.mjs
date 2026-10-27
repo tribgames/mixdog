@@ -1,4 +1,5 @@
 import { closeSync, openSync, readSync } from 'node:fs';
+import { open } from 'node:fs/promises';
 import { holdsNoData } from './atomic-file.mjs';
 
 const PROBE_BYTES = 4096;
@@ -24,5 +25,21 @@ export function fileHasData(path) {
         closeSync(fd);
       } catch {}
     }
+  }
+}
+
+/** Same verdict as `fileHasData`, without blocking the event loop on the open
+ *  (an antivirus scan of a binary can stall a synchronous open for seconds). */
+export async function fileHasDataAsync(path) {
+  let handle;
+  try {
+    handle = await open(path, 'r');
+    const head = Buffer.alloc(PROBE_BYTES);
+    const { bytesRead } = await handle.read(head, 0, PROBE_BYTES, 0);
+    return !holdsNoData(head.subarray(0, bytesRead));
+  } catch (err) {
+    return err?.code !== 'ENOENT' && err?.code !== 'ENOTDIR';
+  } finally {
+    await handle?.close().catch(() => {});
   }
 }
