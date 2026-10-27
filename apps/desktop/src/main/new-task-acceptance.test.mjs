@@ -160,7 +160,9 @@ for (const kind of ['prompt', 'goal']) {
   test(`${kind}: healthy title generation preserves unrelated metadata`, async (t) => {
     const f = await fixture(t, kind);
     assert.equal((await f.submit()).accepted, true);
-    await f.host.markSessionRead(f.sessionId, 1); // Also drains the real generated-title writer.
+    // An explicit metadata write persists at once and joins the generated-title writer. A read
+    // cursor is coalesced and deferred, so it cannot serve as the drain.
+    await f.host.setSessionFavorite(f.sessionId, true);
     const saved = JSON.parse(await fsp.readFile(f.metadataPath, 'utf8'));
     assert.equal(saved.titles[f.sessionId], kind === 'goal' ? 'Approved goal title' : 'Accepted work');
     assert.equal(saved.titles.keeper, 'Existing title');
@@ -448,7 +450,7 @@ for (const failureKind of ['read', 'write']) {
     });
     syncBuiltinESMExports();
     await assert.rejects(
-      f.host.markSessionRead(f.sessionId, 1),
+      f.host.setSessionFavorite(f.sessionId, true), // Explicit writes are immediate; read cursors are deferred.
       (error) => error === failure || error.cause === failure
     );
     assert.equal(fs.readFileSync(f.metadataPath, 'utf8'), f.original);

@@ -269,7 +269,7 @@ test('Workflow stays out of the row for a single pack, without reserving a slot,
   const request = Promise.withResolvers();
   window.mixdogDesktop.invokeCapability = () => request.promise;
   const { WorkflowSelect } = await import('./model-controls.tsx');
-  const { invalidateWorkflowOptions } = await import('./workflow-options-cache.ts');
+  const { invalidateSidebarReferenceForMutation } = await import('./sidebar-reference-cache.ts');
   const props = { disabled: false, invokeResult: (work) => work(), applySnapshot() {} };
   await view.render(React.createElement(WorkflowSelect, props));
   // No reserved slot: a placeholder that resolves to a single pack would shift
@@ -277,10 +277,11 @@ test('Workflow stays out of the row for a single pack, without reserving a slot,
   assert.equal(view.host.querySelector('[aria-busy="true"]'), null);
   await view.settle(() => request.resolve({ value: [{ id: 'solo', name: 'Solo', active: true }] }));
   assert.equal(view.host.querySelector('button'), null);
-  // A pack edit retires the shared list; a second pack makes it a real choice.
+  // A pack edit retires the shared list (the picker reads through the host-scoped
+  // sidebar reference loader); a second pack makes it a real choice.
   const reloaded = Promise.withResolvers();
   window.mixdogDesktop.invokeCapability = () => reloaded.promise;
-  await view.settle(() => invalidateWorkflowOptions());
+  await view.settle(() => invalidateSidebarReferenceForMutation('createWorkflow'));
   await view.settle(() =>
     reloaded.resolve({
       value: [
