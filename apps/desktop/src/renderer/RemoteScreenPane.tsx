@@ -5,20 +5,7 @@
 // Fingers drive the picture's viewport and the PC's pointer through
 // remote-screen-touch.ts (gestures) and remote-screen-gesture.ts (messages).
 import { ArrowUp, Lock, Monitor, ShieldAlert, Square } from 'lucide-react';
-import {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ClipboardEvent,
-  type CompositionEvent,
-  type CSSProperties,
-  type FocusEvent,
-  type FormEvent,
-  type KeyboardEvent,
-  type RefObject,
-} from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type RefObject } from 'react';
 
 import {
   CREDUI_MAX_PASSWORD_LENGTH,
@@ -31,7 +18,6 @@ import { ErrorNotice } from './ErrorNotice';
 import { ScreenHeaderRow, ScreenStateCard } from './RemoteScreenChrome';
 import { t } from './i18n';
 import type { DockAction } from './pane-dock-chrome';
-import { useCompositionFinisher } from './remote-composition';
 import { createScreenGestureAdapter, type ScreenInputMode } from './remote-screen-gesture';
 import {
   EMPTY_SCREEN_HELPER_FORM,
@@ -44,15 +30,16 @@ import {
   type ScreenHelperLine,
   type ScreenHelperPanel,
 } from './remote-screen-helper';
-import { SCREEN_SPECIAL_KEYS, createScreenTextController, screenSpecialKeyInputs } from './remote-screen-keys';
+import { SCREEN_SPECIAL_KEYS, screenSpecialKeyInputs } from './remote-screen-keys';
 import {
   installScreenReleaseTriggers,
   screenKeyboardBar,
   type ScreenBlockReason,
   type ScreenView,
 } from './remote-screen-state';
-import { bindScreenTouch, createScreenCursorStore } from './remote-screen-touch';
+import { createScreenCursorStore } from './remote-screen-touch';
 import { useRemoteScreen } from './use-remote-screen';
+import { useScreenInput, type ScreenKeyboardHandlers } from './use-screen-input';
 import { useScreenViewport } from './use-screen-viewport';
 
 const RELEASE: RemoteScreenInput = { type: 'screen-release' };
@@ -324,8 +311,9 @@ function StoppedCard({
   );
 }
 
-/** The one-line remote keyboard (`.browser-remote-keyboard`), docked at the bottom. */
-function ScreenKeyboardBar({
+/** The one-line remote keyboard (`.browser-remote-keyboard`), docked at the
+ *  bottom. What is typed stays here until Send (or the soft keyboard's Enter). */
+export function ScreenKeyboardBar({
   fieldRef,
   handlers,
   onSend,
@@ -333,23 +321,14 @@ function ScreenKeyboardBar({
   enabled,
 }: {
   fieldRef: RefObject<HTMLTextAreaElement | null>;
-  /** Send: a running composition is committed, then Enter goes to the PC. */
+  /** Send: a running composition is committed, then the bar's whole text goes
+   *  to the PC in one piece (an Enter key when the bar is empty). */
   onSend(): void;
   /** False on the secure desktop: hidden, but its height stays reserved. */
   visible: boolean;
   /** Typable only while the PC accepts control. */
   enabled: boolean;
-  handlers: {
-    onKeyDown(event: KeyboardEvent<HTMLTextAreaElement>): void;
-    onKeyUp(event: KeyboardEvent<HTMLTextAreaElement>): void;
-    onInput(event: FormEvent<HTMLTextAreaElement>): void;
-    onPaste(event: ClipboardEvent<HTMLTextAreaElement>): void;
-    onFocus(event: FocusEvent<HTMLTextAreaElement>): void;
-    onBlur(event: FocusEvent<HTMLTextAreaElement>): void;
-    onCompositionStart(event: CompositionEvent<HTMLTextAreaElement>): void;
-    onCompositionUpdate(event: CompositionEvent<HTMLTextAreaElement>): void;
-    onCompositionEnd(event: CompositionEvent<HTMLTextAreaElement>): void;
-  };
+  handlers: ScreenKeyboardHandlers;
 }) {
   return (
     <div
@@ -485,36 +464,6 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
     mounted: view.kind !== 'stopped',
   });
 
-  // Keyboard: text and keys, IME composition kept like the page keyboard.
-  const text = useMemo(() => createScreenTextController({ emit: sendAll }), [sendAll]);
-  const keyboard = useMemo(
-    () => ({
-      onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => {
-        event.stopPropagation();
-        const { key, code, keyCode, isComposing } = event.nativeEvent;
-        const { ctrlKey, altKey, metaKey, shiftKey } = event;
-        if (text.keyDown({ key, code, keyCode, isComposing, ctrlKey, altKey, metaKey, shiftKey }))
-          event.preventDefault();
-      },
-      onKeyUp: () => text.keyUp(),
-      onInput: (event: FormEvent<HTMLTextAreaElement>) =>
-        text.input(event.currentTarget, (event.nativeEvent as InputEvent).isComposing),
-      onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => {
-        event.preventDefault();
-        event.stopPropagation();
-        text.paste(event.clipboardData.getData('text/plain'));
-      },
-      onFocus: (event: FocusEvent<HTMLTextAreaElement>) => text.focus(event.currentTarget),
-      onBlur: (event: FocusEvent<HTMLTextAreaElement>) => text.blur(event.currentTarget),
-      onCompositionStart: () => text.compositionStart(),
-      onCompositionUpdate: () => {},
-      onCompositionEnd: (event: CompositionEvent<HTMLTextAreaElement>) =>
-        text.compositionEnd(event.data, event.currentTarget),
-    }),
-    [text]
-  );
-  const composition = useCompositionFinisher(keyboard, fieldRef);
-
   // Everything held on the PC is lifted whenever a touch or key can no longer
   // be trusted to end: the page hides, leaves or blurs, a touch is cancelled,
   // and when this view is left.
@@ -527,31 +476,24 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
   // A cancelled touch bubbles up from the stage to the document.
   useEffect(() => installScreenReleaseTriggers({ document, window, stage: document }, () => releaseRef.current()), []);
 
-  // Fingers pan and zoom the picture whenever it is live; what they would
-  // send is refused by the central gate unless the PC accepts control. A new
-  // strategy rebinds, which lifts a button a long-press still held.
+  // Typing stays in the bar until Send; fingers drive the picture and never
+  // touch the bar's field (use-screen-input.ts).
   const live = view.kind === 'live';
-  const finishComposition = composition.finish;
-  useEffect(() => {
-    const stage = stageRef.current;
-    if (!live || !stage) return undefined;
-    const dispose = bindScreenTouch({
-      stage,
-      mode,
-      viewport,
-      cursor: cursorStore,
-      send: (action) => sendAll(adapter.screenInputFromGesture(action)),
-      // A press on the picture commits a half-typed syllable first.
-      beforePress: finishComposition,
-      ring: (x, y, radius) => {
-        if (controllableRef.current) showRing(stage, x, y, radius);
-      },
-    });
-    return () => {
-      dispose();
-      releaseRef.current();
-    };
-  }, [live, mode, viewport, cursorStore, adapter, sendAll, finishComposition]);
+  const ring = useCallback((stage: HTMLElement, x: number, y: number, radius: number) => {
+    if (controllableRef.current) showRing(stage, x, y, radius);
+  }, []);
+  const input = useScreenInput({
+    stageRef,
+    fieldRef,
+    live,
+    mode,
+    viewport,
+    cursor: cursorStore,
+    adapter,
+    sendAll,
+    ring,
+    releaseRef,
+  });
 
   const controlling = bar.enabled;
   const menu: DockAction[] = [
@@ -686,11 +628,8 @@ export default function RemoteScreenPane({ display, onClose, onPickAgain }: Remo
       {bar.present && (
         <ScreenKeyboardBar
           fieldRef={fieldRef}
-          handlers={composition.handlers}
-          onSend={() => {
-            composition.finish();
-            text.submit();
-          }}
+          handlers={input.handlers}
+          onSend={input.onSend}
           visible={bar.visible}
           enabled={bar.enabled}
         />

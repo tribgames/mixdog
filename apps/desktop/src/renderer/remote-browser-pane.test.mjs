@@ -584,7 +584,7 @@ test('phone: the view fills one axis, keeps its scale under the keyboard, and re
   }
 });
 
-test('phone: send mid-composition commits the composed text once, then one Enter, keeping focus', async () => {
+test('phone: typing, a composing Korean syllable included, stays in the bar; send delivers it whole, once, with no Enter', async () => {
   const screen = surface();
   const state = fakeApi();
   const pane = await mount();
@@ -595,31 +595,171 @@ test('phone: send mid-composition commits the composed text once, then one Enter
     // The DOM test env does not route composition events through React: call the field's handlers.
     const props = textarea[Object.keys(textarea).find((name) => name.startsWith('__reactProps$'))];
     const fire = (handler, data) => act(async () => props[handler]({ data, currentTarget: textarea, nativeEvent: {} }));
+    const type = async (characters) => {
+      textarea.value += characters;
+      await act(async () => textarea.dispatchEvent(new window.Event('input', { bubbles: true })));
+    };
     await act(async () => textarea.focus());
-    await fire('onCompositionStart', '');
-    await fire('onCompositionUpdate', '한');
     await flush();
     const before = state.controls.length;
+    await type('hi ');
+    await fire('onCompositionStart', '');
+    await fire('onCompositionUpdate', 'ㅎ');
+    await type('하');
+    await fire('onCompositionUpdate', '하');
+    await flush();
+    assert.equal(state.controls.length, before, 'nothing goes to the page while typing');
+    assert.match(textarea.value, /hi 하$/, 'the composition shows in the bar');
+
     await act(async () => send.click());
     await flush();
     const sent = state.controls.slice(before).map(({ input }) => input);
+    assert.deepEqual(sent, [{ type: 'text', text: 'hi 하', documentId: 'd1' }], 'the whole text once, no Enter');
+    assert.equal(document.activeElement, textarea, 'focus is kept');
+    assert.equal(textarea.value.replaceAll('\u200b', ''), '', 'the bar is cleared');
+    // The IME's late end of the same composition sends nothing more.
+    await fire('onCompositionEnd', '하');
+    await flush();
+    assert.equal(state.controls.length, before + 1);
+  } finally {
+    await pane.unmount();
+    screen.restore();
+  }
+});
+
+test('phone: Gboard and Samsung line breaks send once with the full text; special keys and chords reach the page', async () => {
+  const screen = surface();
+  const state = fakeApi();
+  const pane = await mount();
+  try {
+    await showFrame(state);
+    const textarea = document.querySelector('.browser-remote-keyboard textarea');
+    const props = textarea[Object.keys(textarea).find((name) => name.startsWith('__reactProps$'))];
+    const fire = (event) => act(async () => textarea.dispatchEvent(event));
+    const keydown = (init) => fire(new window.KeyboardEvent('keydown', { bubbles: true, cancelable: true, ...init }));
+    await act(async () => textarea.focus());
+    await flush();
+    const before = state.controls.length;
+    const sentInputs = () => state.controls.slice(before).map(({ input }) => input);
+    // Gboard: keydown 229, compositionend, beforeinput insertLineBreak.
+    await act(async () => props.onCompositionStart({ data: '', currentTarget: textarea, nativeEvent: {} }));
+    await keydown({ key: 'Process', keyCode: 229 });
+    textarea.value += '한';
+    await act(async () => props.onCompositionEnd({ data: '한', currentTarget: textarea, nativeEvent: {} }));
+    const lineBreak = new window.Event('beforeinput', { bubbles: true, cancelable: true });
+    lineBreak.inputType = 'insertLineBreak';
+    await fire(lineBreak);
+    await flush();
+    assert.equal(lineBreak.defaultPrevented, true);
+    assert.deepEqual(sentInputs(), [{ type: 'text', text: '한', documentId: 'd1' }]);
+    // Samsung: the newline arrives in the input event.
+    state.controls.length = 0;
+    textarea.value += 'ls\n';
+    await fire(new window.Event('input', { bubbles: true }));
+    await flush();
     assert.deepEqual(
-      sent.map((input) => [input.type, input.text ?? input.key]),
+      state.controls.map(({ input }) => input),
+      [{ type: 'text', text: 'ls', documentId: 'd1' }]
+    );
+    // Special keys and chords go to the page at once while the bar is empty.
+    state.controls.length = 0;
+    await keydown({ key: 'Escape', code: 'Escape' });
+    await keydown({ key: 'Tab', code: 'Tab' });
+    await keydown({ key: 'ArrowLeft', code: 'ArrowLeft' });
+    await keydown({ key: 'c', code: 'KeyC', ctrlKey: true });
+    await flush();
+    assert.deepEqual(
+      state.controls.map(({ input }) => [input.type, input.key]),
       [
-        ['composition-end', '한'],
-        ['key', 'Enter'],
+        ['key', 'Escape'],
+        ['key', 'Tab'],
+        ['key', 'ArrowLeft'],
+        ['key', 'Control+c'],
       ]
     );
-    assert.equal(document.activeElement, textarea, 'focus is kept');
-    // The IME's late end of the same composition sends nothing more.
-    await fire('onCompositionEnd', '한');
+    // With text buffered the arrows edit it; a chord still goes; paste stays in the bar.
+    state.controls.length = 0;
+    textarea.value += 'abc';
+    await fire(new window.Event('input', { bubbles: true }));
+    await keydown({ key: 'ArrowLeft', code: 'ArrowLeft' });
+    assert.deepEqual(state.controls, []);
+    await keydown({ key: 'Escape', code: 'Escape' });
+    const paste = new window.KeyboardEvent('keydown', {
+      key: 'v',
+      code: 'KeyV',
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    await fire(paste);
     await flush();
-    assert.equal(state.controls.length, before + 2);
-    // No composition: exactly one Enter.
+    assert.equal(paste.defaultPrevented, false);
+    assert.deepEqual(
+      state.controls.map(({ input }) => input.key),
+      ['Escape']
+    );
+    // A multi-line paste stays text until send.
+    state.controls.length = 0;
+    await fire(new window.Event('paste', { bubbles: true }));
+    textarea.value += 'x\ny\n';
+    await fire(new window.Event('input', { bubbles: true }));
+    await flush();
+    assert.deepEqual(state.controls, []);
+    assert.match(textarea.value, /abcx\ny\n$/);
+  } finally {
+    await pane.unmount();
+    screen.restore();
+  }
+});
+
+test('phone: the soft keyboard’s Enter sends the bar’s text; an empty bar sends Enter, and Backspace a Backspace', async () => {
+  const screen = surface();
+  const state = fakeApi();
+  const pane = await mount();
+  try {
+    await showFrame(state);
+    const textarea = document.querySelector('.browser-remote-keyboard textarea');
+    const send = document.querySelector('.browser-remote-keyboard button.send-button');
+    const key = (name) =>
+      act(async () => {
+        textarea.dispatchEvent(new window.KeyboardEvent('keydown', { key: name, bubbles: true, cancelable: true }));
+      });
+    await act(async () => textarea.focus());
+    await flush();
+    const before = state.controls.length;
+    textarea.value += 'ls -la';
+    await act(async () => textarea.dispatchEvent(new window.Event('input', { bubbles: true })));
+    await key('Backspace');
+    await flush();
+    assert.equal(state.controls.length, before, 'Backspace edits a bar that has text');
+    await key('Enter');
+    await flush();
+    assert.deepEqual(
+      state.controls.slice(before).map(({ input }) => input),
+      [{ type: 'text', text: 'ls -la', documentId: 'd1' }]
+    );
+    // Empty bar: Enter, send and Backspace are keys for the page, once each.
+    state.controls.length = 0;
+    await key('Enter');
     await act(async () => send.click());
+    await key('Backspace');
     await flush();
-    assert.equal(state.controls.length, before + 3);
-    assert.equal(state.controls.at(-1).input.key, 'Enter');
+    assert.deepEqual(
+      state.controls.map(({ input }) => [input.type, input.key]),
+      [
+        ['key', 'Enter'],
+        ['key', 'Enter'],
+        ['key', 'Backspace'],
+      ]
+    );
+    // Pasting goes into the bar like typing: nothing is sent until send.
+    state.controls.length = 0;
+    const paste = new window.Event('paste', { bubbles: true, cancelable: true });
+    Object.defineProperty(paste, 'clipboardData', { value: { getData: () => 'pasted' } });
+    await act(async () => textarea.dispatchEvent(paste));
+    await flush();
+    assert.equal(paste.defaultPrevented, false);
+    assert.deepEqual(state.controls, []);
   } finally {
     await pane.unmount();
     screen.restore();

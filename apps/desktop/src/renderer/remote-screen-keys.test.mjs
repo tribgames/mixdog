@@ -2,16 +2,14 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { parseRemoteScreenInput } from '../shared/remote-webrtc.ts';
-import { createCompositionFinisher } from './remote-composition.ts';
+import { SEND_BAR_SENTINEL } from './remote-send-bar.ts';
 import {
   SCREEN_SPECIAL_KEYS,
-  SCREEN_TEXT_SENTINEL,
   createScreenTextController,
-  screenKeyCode,
-  screenKeyDown,
   screenSpecialKeyInputs,
   screenTextInputs,
 } from './remote-screen-keys.ts';
+import { screenInputAllowed } from './remote-screen-state.ts';
 
 const VK = {
   backspace: 0x08,
@@ -24,52 +22,7 @@ const VK = {
   win: 0x5b,
   print: 0x2c,
 };
-const key = (extra) => ({ key: '', code: '', keyCode: 0, ...extra });
 const summary = (inputs) => inputs.map((input) => `${input.action}:${input.vk}`);
-
-test('a named key with a code is sent as a down/up pair', () => {
-  const result = screenKeyDown(key({ key: 'Backspace', code: 'Backspace', keyCode: 8 }));
-  assert.deepEqual(summary(result.inputs), [`down:${VK.backspace}`, `up:${VK.backspace}`]);
-  assert.equal(result.preventDefault, true);
-  assert.equal(result.echo, null);
-});
-
-test('a soft keyboard with an empty code falls back to KeyboardEvent.key', () => {
-  const backspace = screenKeyDown(key({ key: 'Backspace', code: '', keyCode: 0 }));
-  assert.deepEqual(summary(backspace.inputs), [`down:${VK.backspace}`, `up:${VK.backspace}`]);
-  assert.equal(backspace.echo, 'Backspace');
-  const enter = screenKeyDown(key({ key: 'Enter', code: '', keyCode: 13 }));
-  assert.deepEqual(summary(enter.inputs), [`down:${VK.enter}`, `up:${VK.enter}`]);
-  assert.equal(enter.echo, 'Enter');
-});
-
-test('keyCode 229 ignores the code and reads the key', () => {
-  assert.equal(screenKeyCode({ key: 'Enter', code: 'KeyA', keyCode: 229 }), 'Enter');
-  const result = screenKeyDown(key({ key: 'Enter', code: 'KeyA', keyCode: 229 }));
-  assert.equal(result.echo, 'Enter');
-  assert.deepEqual(summary(result.inputs), [`down:${VK.enter}`, `up:${VK.enter}`]);
-});
-
-test('an unidentified key, a composing key and a bare printable character send no key', () => {
-  for (const event of [
-    key({ key: 'Unidentified', code: '', keyCode: 229 }),
-    key({ key: 'Process', code: 'KeyA', keyCode: 229 }),
-    key({ key: 'Enter', code: 'Enter', keyCode: 13, isComposing: true }),
-    key({ key: 'a', code: 'KeyA', keyCode: 65 }),
-    key({ key: 'Shift', code: 'ShiftLeft', keyCode: 16 }),
-  ]) {
-    const result = screenKeyDown(event);
-    assert.deepEqual(result.inputs, []);
-    assert.equal(result.preventDefault, false);
-  }
-});
-
-test('Ctrl/Alt/Win chords press their modifiers around the key', () => {
-  const result = screenKeyDown(key({ key: 'c', code: 'KeyC', keyCode: 67, ctrlKey: true }));
-  assert.deepEqual(summary(result.inputs), [`down:${VK.ctrl}`, 'down:67', 'up:67', `up:${VK.ctrl}`]);
-  // Paste is the paste event's.
-  assert.deepEqual(screenKeyDown(key({ key: 'v', code: 'KeyV', keyCode: 86, ctrlKey: true })).inputs, []);
-});
 
 test('text is chunked to the contract bound without splitting a surrogate pair', () => {
   assert.deepEqual(screenTextInputs('가나'), [{ type: 'screen-text', text: '가나' }]);
@@ -87,126 +40,423 @@ function controller() {
   return { sent, field, text };
 }
 
-test('focus puts the sentinel in so an empty field still emits Backspace', () => {
+/** The bar as the phone wires it: a field whose blur / focus run the bar's
+ *  own handlers, and a Korean IME that commits its syllable into the field
+ *  when focus leaves it. */
+function bar() {
   const { sent, field, text } = controller();
-  text.focus(field);
-  assert.equal(field.value, SCREEN_TEXT_SENTINEL);
-  // The keyboard deleted the sentinel: an input event with an empty value.
-  field.value = '';
-  text.input(field);
-  assert.deepEqual(summary(sent), [`down:${VK.backspace}`, `up:${VK.backspace}`]);
-  assert.equal(field.value, SCREEN_TEXT_SENTINEL);
-  text.blur(field);
-  assert.equal(field.value, '');
-});
-
-test('typed characters go out as text and the field is reset to the sentinel', () => {
-  const { sent, field, text } = controller();
-  text.focus(field);
-  field.value = `${SCREEN_TEXT_SENTINEL}hi`;
-  text.input(field);
-  assert.deepEqual(sent, [{ type: 'screen-text', text: 'hi' }]);
-  assert.equal(field.value, SCREEN_TEXT_SENTINEL);
-});
-
-test('Backspace read from keydown is not sent again by its input event', () => {
-  const { sent, field, text } = controller();
-  text.focus(field);
-  assert.equal(text.keyDown(key({ key: 'Backspace', code: '', keyCode: 229 })), true);
-  field.value = '';
-  text.input(field);
-  text.keyUp();
-  assert.equal(sent.length, 2);
-  // With no keydown to account for it, the next deletion is a new Backspace.
-  field.value = '';
-  text.input(field);
-  assert.equal(sent.length, 4);
-});
-
-test('Enter read from keydown swallows the newline the field would also insert', () => {
-  const { sent, field, text } = controller();
-  text.focus(field);
-  text.keyDown(key({ key: 'Enter', code: '', keyCode: 229 }));
-  field.value = `${SCREEN_TEXT_SENTINEL}\n`;
-  text.input(field);
-  assert.deepEqual(summary(sent), [`down:${VK.enter}`, `up:${VK.enter}`]);
-});
-
-test('an IME composition is held back and committed once at its end', () => {
-  const { sent, field, text } = controller();
-  text.focus(field);
-  text.compositionStart();
-  field.value = `${SCREEN_TEXT_SENTINEL}ㅎ`;
-  text.input(field, true);
-  assert.deepEqual(sent, []);
-  assert.equal(text.keyDown(key({ key: 'Process', code: 'KeyG', keyCode: 229 })), false);
-  text.compositionEnd('한', field);
-  assert.deepEqual(sent, [{ type: 'screen-text', text: '한' }]);
-  assert.equal(field.value, SCREEN_TEXT_SENTINEL);
-  // The IME's own late input of what it committed is an echo, not new text.
-  field.value = `${SCREEN_TEXT_SENTINEL}한`;
-  text.input(field);
-  assert.equal(sent.length, 1);
-});
-
-// The screen bar's send button: onSend = composition.finish() then text.submit().
-function sendBar() {
-  const { sent, field, text } = controller();
-  globalThis.document ??= { activeElement: null };
-  let focused = true;
+  let focused = false;
+  let imeSyllable = '';
   const element = Object.assign(field, {
     blur() {
+      if (!focused) return;
       focused = false;
-      text.blur(field);
+      if (text.composing) {
+        // The IME commits the syllable into the field, then ends.
+        element.value += imeSyllable;
+        imeSyllable = '';
+        text.compositionEnd(element);
+      }
+      text.blur(element);
     },
     focus() {
+      if (focused) return;
       focused = true;
-      text.focus(field);
+      text.focus(element);
     },
   });
-  const finisher = createCompositionFinisher(() => element);
-  const raw = {
-    onKeyDown() {},
-    onInput: (event) => text.input(event.currentTarget, event.nativeEvent?.isComposing),
-    onCompositionStart: () => text.compositionStart(),
-    onCompositionUpdate() {},
-    onCompositionEnd: (event) => text.compositionEnd(event.data, event.currentTarget),
+  const type = (characters) => {
+    element.value += characters;
+    text.input(element, false);
   };
-  const handlers = finisher.wrap(raw);
-  return {
-    sent,
-    element,
-    handlers,
-    isFocused: () => focused,
-    send() {
-      finisher.finish(raw);
-      text.submit();
-    },
+  const compose = (syllable) => {
+    if (!text.composing) text.compositionStart();
+    imeSyllable = syllable;
+    text.input(element, true);
   };
+  const endComposition = (syllable) => {
+    element.value += syllable;
+    imeSyllable = '';
+    text.compositionEnd(element);
+  };
+  return { sent, element, text, type, compose, endComposition, isFocused: () => focused };
 }
 
-test('send mid-composition commits the composed text once, then one Enter, and a late end adds nothing', () => {
-  const bar = sendBar();
-  const event = (extra) => ({ currentTarget: bar.element, data: '', nativeEvent: {}, ...extra });
-  bar.element.focus();
-  bar.handlers.onCompositionStart(event());
-  bar.handlers.onCompositionUpdate(event({ data: '한' }));
-  bar.send();
-  assert.deepEqual(bar.sent, [{ type: 'screen-text', text: '한' }, ...bar.sent.slice(1)]);
-  assert.deepEqual(summary(bar.sent.slice(1)), [`down:${VK.enter}`, `up:${VK.enter}`]);
-  // The IME's late end and its echo input are swallowed.
-  bar.handlers.onCompositionEnd(event({ data: '한' }));
-  bar.element.value = `${SCREEN_TEXT_SENTINEL}한`;
-  bar.handlers.onInput(event());
-  assert.equal(bar.sent.length, 3);
-  assert.equal(bar.isFocused(), true, 'focus is kept');
+const bodyOf = (value) => value.split(SEND_BAR_SENTINEL).join('');
+
+test('typing, a composing Korean syllable and a paste send nothing until send', () => {
+  const b = bar();
+  b.element.focus();
+  b.type('hi ');
+  b.compose('ㅎ');
+  b.compose('하');
+  b.endComposition('한');
+  b.compose('ㄱ');
+  assert.deepEqual(b.sent, []);
+  assert.equal(bodyOf(b.element.value), 'hi 한');
 });
 
-test('send with no composition is exactly one Enter', () => {
-  const bar = sendBar();
-  bar.element.focus();
-  bar.send();
-  assert.deepEqual(summary(bar.sent), [`down:${VK.enter}`, `up:${VK.enter}`]);
+test('send delivers the exact full text once, clears the bar, keeps focus and presses no Enter', () => {
+  const b = bar();
+  b.element.focus();
+  b.type('hi ');
+  b.compose('하');
+  b.endComposition('한');
+  b.type('글');
+  b.text.send(b.element);
+  assert.deepEqual(b.sent, [{ type: 'screen-text', text: 'hi 한글' }]);
+  assert.equal(bodyOf(b.element.value), '');
+  assert.equal(b.isFocused(), true);
+  assert.ok(parseRemoteScreenInput(b.sent[0]));
+});
+
+test('send mid-composition commits the running syllable into the text first', () => {
+  const b = bar();
+  b.element.focus();
+  b.type('a');
+  b.compose('한');
+  // A running composition is already in the field's value.
+  b.element.value += '한';
+  b.text.send(b.element);
+  assert.deepEqual(b.sent, [{ type: 'screen-text', text: 'a한' }]);
+  assert.equal(bodyOf(b.element.value), '');
+  assert.equal(b.isFocused(), true, 'focus is kept');
+  assert.equal(b.text.composing, false);
+  // The IME's late end of the same composition adds nothing.
+  b.text.compositionEnd(b.element);
+  assert.equal(b.sent.length, 1);
+});
+
+test('the soft keyboard’s Enter in the bar sends the text; the newline it also inserts is dropped', () => {
+  const b = bar();
+  b.element.focus();
+  b.type('ls');
+  assert.equal(b.text.keyDown({ key: 'Enter' }, b.element), true);
+  assert.deepEqual(b.sent, [{ type: 'screen-text', text: 'ls' }]);
+  b.element.value += '\n';
+  b.text.input(b.element, false);
+  assert.equal(bodyOf(b.element.value), '');
+  assert.equal(b.sent.length, 1);
+});
+
+test('an empty bar: send and Enter are one Enter key each, Backspace one Backspace key', () => {
+  const b = bar();
+  b.element.focus();
+  b.text.send(b.element);
+  assert.deepEqual(summary(b.sent), [`down:${VK.enter}`, `up:${VK.enter}`]);
+  b.sent.length = 0;
+  assert.equal(b.text.keyDown({ key: 'Enter' }, b.element), true);
+  assert.deepEqual(summary(b.sent), [`down:${VK.enter}`, `up:${VK.enter}`]);
+  b.text.keyUp();
+  b.sent.length = 0;
+  // A soft keyboard deletes the sentinel: an input event with an empty value.
+  b.element.value = '';
+  b.text.input(b.element, false);
+  assert.deepEqual(summary(b.sent), [`down:${VK.backspace}`, `up:${VK.backspace}`]);
+  assert.equal(b.element.value, SEND_BAR_SENTINEL);
+  b.sent.length = 0;
+  // A hardware Backspace is read from keydown, and its input event adds none.
+  assert.equal(b.text.keyDown({ key: 'Backspace' }, b.element), true);
+  b.element.value = '';
+  b.text.input(b.element, false);
+  assert.deepEqual(summary(b.sent), [`down:${VK.backspace}`, `up:${VK.backspace}`]);
+});
+
+test('Backspace with text in the bar edits the bar and sends nothing', () => {
+  const b = bar();
+  b.element.focus();
+  b.type('ab');
+  assert.equal(b.text.keyDown({ key: 'Backspace' }, b.element), false);
+  b.element.value = `${SEND_BAR_SENTINEL}a`;
+  b.text.input(b.element, false);
+  b.element.value = SEND_BAR_SENTINEL;
+  b.text.input(b.element, false);
+  // Select-all and delete takes the sentinel too: emptying text is not a Backspace.
+  b.type('x');
+  b.element.value = '';
+  b.text.input(b.element, false);
+  assert.deepEqual(b.sent, []);
+  assert.equal(b.element.value, SEND_BAR_SENTINEL);
+});
+
+const IME = { key: 'Process', keyCode: 229 };
+
+test('Gboard: keydown 229, compositionend, then beforeinput insertLineBreak sends the full text once, no Enter', () => {
+  const b = bar();
+  b.element.focus();
+  b.type('hi ');
+  b.compose('한');
+  assert.equal(b.text.keyDown(IME, b.element), false);
+  b.endComposition('한');
+  assert.equal(b.text.beforeInput({ inputType: 'insertLineBreak' }, b.element), true);
+  assert.deepEqual(b.sent, [{ type: 'screen-text', text: 'hi 한' }]);
+  assert.equal(bodyOf(b.element.value), '');
+  // The newline lands anyway (the event was not cancelable) and is dropped.
+  b.element.value += '\n';
+  b.text.input(b.element, false);
+  b.text.keyUp();
+  assert.equal(b.sent.length, 1);
+  assert.equal(bodyOf(b.element.value), '');
+});
+
+test('Samsung: keydown 229, compositionend, then an input with a trailing newline sends once', () => {
+  const b = bar();
+  b.element.focus();
+  b.compose('한');
+  b.text.keyDown(IME, b.element);
+  b.element.value += '한\n';
+  b.text.compositionEnd(b.element);
+  assert.deepEqual(b.sent, [{ type: 'screen-text', text: '한' }]);
+  assert.equal(b.sent.length, 1);
+  // Same keyboard without a composition: the newline arrives as input.
+  b.sent.length = 0;
+  b.type('ls\n');
+  assert.deepEqual(b.sent, [{ type: 'screen-text', text: 'ls' }]);
+});
+
+test('a line break arriving as beforeinput after a named Enter does not send twice', () => {
+  const b = bar();
+  b.element.focus();
+  b.type('ls');
+  assert.equal(b.text.keyDown({ key: 'Enter' }, b.element), true);
+  assert.equal(b.text.beforeInput({ inputType: 'insertLineBreak' }, b.element), true);
+  assert.deepEqual(b.sent, [{ type: 'screen-text', text: 'ls' }]);
+});
+
+test('a line break with an empty bar is one Enter key; a line break mid-composition ends it without a blur', () => {
+  const b = bar();
+  b.element.focus();
+  assert.equal(b.text.beforeInput({ inputType: 'insertParagraph' }, b.element), true);
+  assert.deepEqual(summary(b.sent), [`down:${VK.enter}`, `up:${VK.enter}`]);
+  b.sent.length = 0;
+  b.compose('한');
+  b.element.value += '한';
+  assert.equal(b.text.beforeInput({ inputType: 'insertLineBreak' }, b.element), true);
+  assert.deepEqual(b.sent, [{ type: 'screen-text', text: '한' }]);
+  assert.equal(b.isFocused(), true);
+  b.text.compositionEnd(b.element);
+  assert.equal(b.sent.length, 1, 'the IME’s late end adds nothing');
+  assert.equal(bodyOf(b.element.value), '');
+});
+
+/** The three signals of one Android Enter, each as the bar receives it. */
+const SIGNALS = {
+  enter: (b) => b.text.keyDown({ key: 'Enter' }, b.element),
+  break: (b) => b.text.beforeInput({ inputType: 'insertLineBreak' }, b.element),
+  newline: (b) => {
+    b.element.value += '\n';
+    b.text.input(b.element, false);
+  },
+};
+const ORDERINGS = [
+  ['enter', 'break', 'newline'],
+  ['enter', 'newline', 'break'],
+  ['break', 'enter', 'newline'],
+  ['break', 'newline', 'enter'],
+  ['newline', 'enter', 'break'],
+  ['newline', 'break', 'enter'],
+];
+
+for (const order of ORDERINGS) {
+  test(`one Enter signalled as ${order.join(' → ')} sends the text once and no Enter key`, () => {
+    const b = bar();
+    b.element.focus();
+    b.type('abc');
+    for (const signal of order) SIGNALS[signal](b);
+    assert.deepEqual(b.sent, [{ type: 'screen-text', text: 'abc' }]);
+    assert.equal(bodyOf(b.element.value), '');
+  });
+
+  test(`on an empty bar ${order.join(' → ')} is one Enter key`, () => {
+    const b = bar();
+    b.element.focus();
+    for (const signal of order) SIGNALS[signal](b);
+    assert.deepEqual(summary(b.sent), [`down:${VK.enter}`, `up:${VK.enter}`]);
+  });
+}
+
+test('a cancelled beforeinput submission, then typing, then a Process/229 submission sends the second text', () => {
+  const b = bar();
+  b.element.focus();
+  b.type('first');
+  SIGNALS.break(b);
+  assert.deepEqual(b.sent, [{ type: 'screen-text', text: 'first' }]);
+  // The newline never came (cancelled). The user keeps typing.
+  b.type('second');
+  b.text.keyDown(IME, b.element);
+  SIGNALS.break(b);
+  assert.deepEqual(b.sent, [
+    { type: 'screen-text', text: 'first' },
+    { type: 'screen-text', text: 'second' },
+  ]);
+});
+
+test('a blur between an Enter and its companion signals does not forget the submission', () => {
+  const b = bar();
+  b.element.focus();
+  b.type('first');
+  SIGNALS.enter(b);
+  b.element.blur();
+  b.element.focus();
+  SIGNALS.break(b);
+  SIGNALS.newline(b);
+  assert.deepEqual(b.sent, [{ type: 'screen-text', text: 'first' }]);
+});
+
+test('a genuinely new Enter after blur and refocus still submits', async () => {
+  const b = bar();
+  b.element.focus();
+  b.type('first');
+  SIGNALS.enter(b);
+  b.element.blur();
+  b.element.focus();
+  // Typing is a real edit: the next Enter is new, even in the same tick.
+  b.type('second');
+  SIGNALS.enter(b);
+  assert.deepEqual(b.sent, [
+    { type: 'screen-text', text: 'first' },
+    { type: 'screen-text', text: 'second' },
+  ]);
+  // On an empty bar, once the event loop has turned.
+  b.sent.length = 0;
+  b.element.blur();
+  b.element.focus();
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  SIGNALS.enter(b);
+  assert.deepEqual(summary(b.sent), [`down:${VK.enter}`, `up:${VK.enter}`]);
+});
+
+test('a later Enter after the event loop turns is a new submission, not a stale duplicate', async () => {
+  const b = bar();
+  b.element.focus();
+  SIGNALS.break(b);
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  SIGNALS.enter(b);
+  assert.equal(b.sent.length, 4, 'two Enter keys, down and up each');
+  // Two named Enters in a row are two submissions, too.
+  b.sent.length = 0;
+  SIGNALS.enter(b);
+  SIGNALS.enter(b);
+  assert.equal(b.sent.length, 4);
+});
+
+test('a multi-line paste stays text in the bar', () => {
+  const b = bar();
+  b.element.focus();
+  b.text.paste();
+  b.type('a\nb\n');
+  assert.deepEqual(b.sent, []);
+  assert.equal(bodyOf(b.element.value), 'a\nb\n');
+  b.element.value = SEND_BAR_SENTINEL;
+  b.text.beforeInput({ inputType: 'insertFromPaste' }, b.element);
+  b.type('c\nd\n');
+  assert.deepEqual(b.sent, []);
+  b.text.send(b.element);
+  assert.deepEqual(b.sent, [{ type: 'screen-text', text: 'c\nd\n' }]);
+});
+
+const press = (b, key, extra = {}) => b.text.keyDown({ key, code: key, keyCode: 0, ...extra }, b.element);
+
+test('special keys and chords go to the PC at once while the bar is empty', () => {
+  const b = bar();
+  b.element.focus();
+  const cases = [
+    ['Escape', {}, [VK.escape]],
+    ['Tab', {}, [VK.tab]],
+    ['ArrowLeft', {}, [0x25]],
+    ['Home', {}, [0x24]],
+    ['PageDown', {}, [0x22]],
+    ['Delete', {}, [VK.del]],
+    ['F5', {}, [0x74]],
+    ['c', { code: 'KeyC', ctrlKey: true }, [VK.ctrl, 0x43]],
+    ['Tab', { altKey: true }, [VK.alt, VK.tab]],
+    ['r', { code: 'KeyR', metaKey: true }, [VK.win, 0x52]],
+  ];
+  for (const [key, extra, vks] of cases) {
+    b.sent.length = 0;
+    assert.equal(press(b, key, extra), true, key);
+    assert.deepEqual(
+      b.sent.filter((input) => input.action === 'down').map((input) => input.vk),
+      vks,
+      key
+    );
+    assert.equal(b.sent.filter((input) => input.action === 'up').length, vks.length);
+  }
+});
+
+test('with text in the bar: arrows, Delete and Backspace edit it; Esc, Tab, F-keys and chords still go to the PC', () => {
+  const b = bar();
+  b.element.focus();
+  b.type('abc');
+  for (const key of ['ArrowLeft', 'ArrowRight', 'Home', 'End', 'Delete', 'Backspace', 'PageUp']) {
+    assert.equal(press(b, key), false, key);
+  }
+  assert.deepEqual(b.sent, []);
+  // Editing and paste chords stay local while there is text.
+  for (const key of ['a', 'x', 'z', 'y', 'v']) assert.equal(press(b, key, { ctrlKey: true }), false, key);
+  assert.equal(press(b, 'v', { metaKey: true }), false);
+  assert.deepEqual(b.sent, []);
+  for (const [key, extra] of [
+    ['Escape', {}],
+    ['Tab', {}],
+    ['F2', {}],
+    ['c', { ctrlKey: true }],
+    ['a', { altKey: true }],
+  ]) {
+    b.sent.length = 0;
+    assert.equal(press(b, key, extra), true, key);
+    assert.ok(b.sent.length > 0, key);
+  }
+  assert.equal(bodyOf(b.element.value), 'abc', 'the buffered text is untouched');
+});
+
+test('Ctrl/Cmd+V pastes into the bar even when it is empty; other keys and chords with no code send nothing', () => {
+  const b = bar();
+  b.element.focus();
+  assert.equal(press(b, 'v', { ctrlKey: true }), false);
+  assert.equal(press(b, 'v', { metaKey: true }), false);
+  assert.deepEqual(b.sent, []);
+  // Shift alone and plain letters are typing.
+  assert.equal(press(b, 'Shift'), false);
+  assert.equal(press(b, 'a'), false);
+  assert.equal(press(b, 'A', { shiftKey: true }), false);
+  assert.deepEqual(b.sent, []);
+  // A chord on a key with no fixed code is claimed (no local effect) but sends nothing.
+  assert.equal(press(b, '한', { code: '', ctrlKey: true }), true);
+  assert.deepEqual(b.sent, []);
+});
+
+test('typed text survives blur and focus; an empty bar shows its placeholder when blurred', () => {
+  const b = bar();
+  b.element.focus();
+  b.element.blur();
+  assert.equal(b.element.value, '');
+  b.element.focus();
+  b.type('abc');
+  b.element.blur();
+  b.element.focus();
+  assert.equal(bodyOf(b.element.value), 'abc');
+  assert.deepEqual(b.sent, []);
+});
+
+test('disabled (control not granted): neither text nor keys pass the gate', () => {
+  const b = bar();
+  b.element.focus();
+  const viewOnly = { kind: 'live', control: false };
+  b.type('hi');
+  b.text.send(b.element);
+  b.text.send(b.element);
+  assert.equal(b.sent.length, 3, 'text, then the empty bar’s Enter down and up');
+  // Only a release (a key-up) may pass without control; nothing is typed or pressed.
+  const passed = b.sent.filter((input) => screenInputAllowed(input, viewOnly));
+  assert.deepEqual(
+    passed.map((input) => [input.type, input.action]),
+    [['screen-key', 'up']]
+  );
+  assert.deepEqual(
+    b.sent.filter((input) => screenInputAllowed(input, { kind: 'live', control: true })),
+    b.sent
+  );
 });
 
 test('each special key is one atomic screen-keys combo, in press order', () => {

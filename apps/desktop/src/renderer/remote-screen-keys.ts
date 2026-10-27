@@ -1,40 +1,11 @@
 // The phone's keyboard for the whole-PC screen view (docs/remote-screen.md):
-// what a key event or typed text becomes as `screen-key` / `screen-text`
-// input, the Chrome-Remote-Desktop-style special keys, and the soft-keyboard
-// fallbacks. Pure: no DOM, so each rule is tested on plain event objects.
+// what typed text and the bar's keys become as `screen-text` / `screen-key`
+// input, and the Chrome-Remote-Desktop-style special keys. The bar sends at
+// once (remote-send-bar.ts): text goes only on Send. Pure: no DOM, so each
+// rule is tested on plain objects.
 import { remoteScreenKeyForCode } from '../shared/remote-screen';
 import { MAX_REMOTE_SCREEN_TEXT, type RemoteScreenInput } from '../shared/remote-webrtc';
-
-/** The field always holds this one invisible character while it has focus, so
- *  an empty field still has something for a soft keyboard's Backspace to
- *  delete: the deletion arrives as an `input` event, which is the only trace
- *  Android keyboards leave (they send keydown 229 with no usable key). */
-export const SCREEN_TEXT_SENTINEL = '\u200b';
-
-/** The parts of a KeyboardEvent the mapping reads. */
-export interface ScreenKeyEventLike {
-  key: string;
-  code: string;
-  keyCode: number;
-  isComposing?: boolean;
-  ctrlKey?: boolean;
-  altKey?: boolean;
-  metaKey?: boolean;
-  shiftKey?: boolean;
-}
-
-export type ScreenKeyEcho = 'Backspace' | 'Enter';
-
-export interface ScreenKeyResult {
-  inputs: RemoteScreenInput[];
-  /** The browser's own handling (a newline, a deletion) must not also happen. */
-  preventDefault: boolean;
-  /** The key was read from `key`, not `code`: the same press may still arrive
-   *  as an `input` event, which must not send it a second time. */
-  echo: ScreenKeyEcho | null;
-}
-
-const NO_KEY: ScreenKeyResult = { inputs: [], preventDefault: false, echo: null };
+import { createSendBar, type SendBarKey } from './remote-send-bar';
 
 /** `KeyboardEvent.key` → the physical `code` it names, for keyboards that
  *  report no code (soft keyboards) or keyCode 229. */
@@ -53,10 +24,9 @@ const KEY_NAME_CODES: Readonly<Record<string, string>> = {
   ArrowRight: 'ArrowRight',
   ArrowUp: 'ArrowUp',
   ArrowDown: 'ArrowDown',
+  ContextMenu: 'ContextMenu',
   ' ': 'Space',
 };
-
-const MODIFIER_KEYS: ReadonlySet<string> = new Set(['Shift', 'Control', 'Alt', 'Meta', 'CapsLock', 'AltGraph']);
 
 function codeFromKey(key: string): string | null {
   const named = KEY_NAME_CODES[key];
@@ -67,14 +37,26 @@ function codeFromKey(key: string): string | null {
   return null;
 }
 
-/** The `code` a key event stands for: its own when the keyboard reports one,
+/** The `code` a key press stands for: its own when the keyboard reports one,
  *  else the one its `key` names. */
-export function screenKeyCode(event: Pick<ScreenKeyEventLike, 'key' | 'code' | 'keyCode'>): string | null {
-  if (event.code && event.keyCode !== 229 && remoteScreenKeyForCode(event.code)) return event.code;
-  return codeFromKey(event.key);
+export function screenKeyCode(press: Pick<SendBarKey, 'key' | 'code' | 'keyCode'>): string | null {
+  if (press.code && press.keyCode !== 229 && remoteScreenKeyForCode(press.code)) return press.code;
+  return codeFromKey(press.key);
 }
 
-const keyPair = (code: string): RemoteScreenInput[] => screenKeyChord([code]);
+/** A routed key or chord as pressed-and-lifted `screen-key` input; Ctrl, Alt,
+ *  Win and Shift go down first and up last. A key with no code sends nothing. */
+export function screenKeyPress(press: SendBarKey): RemoteScreenInput[] {
+  const code = screenKeyCode(press);
+  if (!code) return [];
+  const modifiers = [
+    press.ctrlKey && 'ControlLeft',
+    press.altKey && 'AltLeft',
+    press.metaKey && 'MetaLeft',
+    press.shiftKey && 'ShiftLeft',
+  ].filter((modifier): modifier is string => Boolean(modifier));
+  return screenKeyChord([...modifiers, code]);
+}
 
 /** Down for each code in order, then up in reverse: a chord, or one key. */
 export function screenKeyChord(codes: readonly string[]): RemoteScreenInput[] {
@@ -89,32 +71,7 @@ export function screenKeyChord(codes: readonly string[]): RemoteScreenInput[] {
   ];
 }
 
-/** A key pressed down on the phone's keyboard, as screen input. A printable
- *  character is left to the field's text path; a named key (and a chord with
- *  Ctrl, Alt or Win) is sent as keys, pressed and lifted at once. */
-export function screenKeyDown(event: ScreenKeyEventLike): ScreenKeyResult {
-  if (event.isComposing || event.key === 'Process' || MODIFIER_KEYS.has(event.key)) return NO_KEY;
-  const chord = Boolean(event.ctrlKey || event.altKey || event.metaKey);
-  if (!chord && [...event.key].length === 1) return NO_KEY;
-  // Paste arrives through the paste event, with the text.
-  if (chord && event.key.toLowerCase() === 'v') return NO_KEY;
-  const code = screenKeyCode(event);
-  if (!code) return NO_KEY;
-  const modifiers = [
-    event.ctrlKey && 'ControlLeft',
-    event.altKey && 'AltLeft',
-    event.metaKey && 'MetaLeft',
-    event.shiftKey && 'ShiftLeft',
-  ].filter((modifier): modifier is string => Boolean(modifier));
-  const fallback = !event.code || event.keyCode === 229;
-  return {
-    inputs: screenKeyChord([...modifiers, code]),
-    preventDefault: true,
-    echo: fallback && (code === 'Backspace' || code === 'Enter') ? code : null,
-  };
-}
-
-/** Typed or pasted text as `screen-text`, in pieces the contract accepts
+/** The bar's text as `screen-text`, in pieces the contract accepts
  *  (never splitting a surrogate pair). */
 export function screenTextInputs(text: string): RemoteScreenInput[] {
   const inputs: RemoteScreenInput[] = [];
@@ -164,79 +121,16 @@ export function screenSpecialKeyInputs(id: ScreenSpecialKey['id']): RemoteScreen
   return [{ type: 'screen-keys', keys }];
 }
 
-/** The phone keyboard's field: keyboard events and text in, screen input out. */
+/** The phone bar's field: typing stays in the bar; Send (or Enter) delivers
+ *  its whole text as `screen-text`, or an Enter key when the bar is empty.
+ *  Special keys and chords go to the PC as keys (remote-send-bar.ts decides
+ *  which stay in the bar while it has text). */
 export function createScreenTextController(options: { emit(inputs: RemoteScreenInput[]): void }) {
-  let composing = false;
-  /** A key sent from its keydown whose input event may still follow. */
-  let echo: ScreenKeyEcho | null = null;
-  /** What the IME committed: its own late input of it is not new text. */
-  let committed: string | null = null;
-  const reset = (field: { value: string; setSelectionRange?(start: number, end: number): void }) => {
-    field.value = SCREEN_TEXT_SENTINEL;
-    field.setSelectionRange?.(SCREEN_TEXT_SENTINEL.length, SCREEN_TEXT_SENTINEL.length);
-  };
-  return {
-    get composing(): boolean {
-      return composing;
+  return createSendBar({
+    text: (text) => options.emit(screenTextInputs(text)),
+    key: (press) => {
+      const inputs = screenKeyPress(press);
+      if (inputs.length) options.emit(inputs);
     },
-    /** Focus puts the sentinel in; blur takes it out so the placeholder shows. */
-    focus: reset,
-    blur(field: { value: string }): void {
-      field.value = '';
-      echo = null;
-    },
-    /** True: the event's default must be prevented. */
-    keyDown(event: ScreenKeyEventLike): boolean {
-      const result = screenKeyDown({ ...event, isComposing: event.isComposing || composing });
-      if (event.keyCode !== 229) committed = null;
-      echo = result.echo;
-      if (result.inputs.length) options.emit(result.inputs);
-      return result.preventDefault;
-    },
-    keyUp(): void {
-      echo = null;
-    },
-    input(field: { value: string; setSelectionRange?(start: number, end: number): void }, isComposing = false): void {
-      if (composing || isComposing) return;
-      const raw = field.value;
-      reset(field);
-      if (raw === '') {
-        // The sentinel was deleted: a Backspace the keyboard never keyed.
-        if (echo === 'Backspace') echo = null;
-        else options.emit(keyPair('Backspace'));
-        return;
-      }
-      const text = raw.split(SCREEN_TEXT_SENTINEL).join('');
-      if (!text) return;
-      if (echo === 'Enter' && /^[\r\n]+$/u.test(text)) {
-        echo = null;
-        return;
-      }
-      if (committed !== null && text === committed) {
-        committed = null;
-        return;
-      }
-      committed = null;
-      options.emit(screenTextInputs(text));
-    },
-    compositionStart(): void {
-      composing = true;
-      committed = null;
-    },
-    /** The IME's final text; its field is cleared and the text goes out. */
-    compositionEnd(text: string, field: { value: string; setSelectionRange?(start: number, end: number): void }): void {
-      composing = false;
-      reset(field);
-      if (!text) return;
-      committed = text;
-      options.emit(screenTextInputs(text));
-    },
-    /** The bar's send button: Enter, pressed and lifted (a composition is finished first by the caller). */
-    submit(): void {
-      options.emit(keyPair('Enter'));
-    },
-    paste(text: string): void {
-      if (text) options.emit(screenTextInputs(text));
-    },
-  };
+  });
 }

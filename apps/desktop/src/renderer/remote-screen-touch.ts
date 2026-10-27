@@ -70,20 +70,20 @@ export interface ScreenTouchBinding {
   cursor: CursorStore & { sync(): void };
   /** One action to send; the pane's gate decides whether it goes. */
   send(action: ScreenGestureAction): void;
-  /** Called before a press or click goes (finish IME composition). */
-  beforePress(): void;
   /** A feedback ring at a point of the stage, in stage px. */
   ring(x: number, y: number, radius: number): void;
 }
 
-/** Wires finger events on the stage to the touch gestures; returns the disposer. */
+/** Wires finger events on the stage to the touch gestures; returns the disposer.
+ *  The touch layer never focuses a field: a touch on the picture is cancelled
+ *  (no synthesized mouse events, no focus change) and nothing here can open
+ *  the soft keyboard. */
 export function bindScreenTouch(binding: ScreenTouchBinding): () => void {
   const { stage } = binding;
   const bindings = viewportGestureBindings(binding.viewport, binding.mode === 'trackpad' ? binding.cursor : undefined);
   const gestures = createTouchGestures({
     ...bindings,
     strategy: binding.mode,
-    beforePress: binding.beforePress,
     screen: () => ({ width: window.innerWidth, height: window.innerHeight }),
     emit(action) {
       if (action.type === 'feedback') {

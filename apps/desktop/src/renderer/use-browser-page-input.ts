@@ -1,15 +1,17 @@
-import { useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import type {
   RefObject,
   PointerEvent,
   KeyboardEvent,
   ClipboardEvent,
+  FocusEvent,
   FormEvent,
   CompositionEvent,
   WheelEvent,
 } from 'react';
 import type { DesktopBrowserPageAction } from '../shared/contract';
 import { remoteBrowserImagePoint } from '../shared/remote-browser';
+import { createSendBar, type SendBarKey } from './remote-send-bar';
 
 /** What the input hook needs from a page client: the local isolated page
  * client and the relay-stream adapter both satisfy it. */
@@ -27,8 +29,37 @@ const COMMAND_KEY_SHORTCUTS: Partial<Record<string, string>> = { l: 'address', '
 export function useBrowserPageInput(
   client: BrowserPageInputClient,
   image: RefObject<HTMLElement | null>,
-  keyboard: RefObject<HTMLTextAreaElement | null>
+  keyboard: RefObject<HTMLTextAreaElement | null>,
+  /** `sendAtOnce` (the phone's typing bar): what is typed stays in the bar and
+   *  goes to the page in one piece on send (remote-send-bar.ts). Off, typing
+   *  and IME composition reach the page live. */
+  options: { sendAtOnce?: boolean } = {}
 ) {
+  const sendAtOnce = useRef(false);
+  sendAtOnce.current = options.sendAtOnce === true;
+  const clientRef = useRef(client);
+  clientRef.current = client;
+  const pressKeyRef = useRef<(press: SendBarKey) => void>(() => {});
+  const bar = useMemo(
+    () =>
+      createSendBar({
+        text: (text) => clientRef.current.fire({ type: 'text', text }),
+        key: (press) => pressKeyRef.current(press),
+      }),
+    []
+  );
+  // `beforeinput` is native only (React's onBeforeInput is another event): a
+  // soft keyboard's line break is Send. Rebound each render: the bar mounts late.
+  useEffect(() => {
+    const field = keyboard.current;
+    if (!field) return undefined;
+    const listener = (event: Event) => {
+      if (sendAtOnce.current && bar.beforeInput({ inputType: (event as InputEvent).inputType }, field))
+        event.preventDefault();
+    };
+    field.addEventListener('beforeinput', listener);
+    return () => field.removeEventListener('beforeinput', listener);
+  });
   const composing = useRef(false);
   const compositionOwner = useRef<{ client: typeof client; token: string } | null>(null);
   const pressed = useRef(new Map<number, 'left' | 'middle' | 'right'>());
@@ -77,6 +108,32 @@ export function useBrowserPageInput(
       clickCount: Math.min(3, Math.max(1, event.detail)),
     });
   };
+  /** A key or chord for the page: the browser shortcuts first (reload, zoom,
+   *  address, back / forward), else the key itself. */
+  const pressKey = (press: SendBarKey) => {
+    const command = press.ctrlKey || press.metaKey;
+    const key = press.key.toLowerCase();
+    if (key === 'f5' || (command && key === 'r')) {
+      client.fire({ type: 'reload' });
+      return;
+    }
+    if (command && ['+', '=', '-', '0', 'l'].includes(key)) {
+      client.shortcut(COMMAND_KEY_SHORTCUTS[key] ?? 'zoom-in');
+      return;
+    }
+    if (press.altKey && ['arrowleft', 'arrowright'].includes(key)) {
+      client.fire({ type: key === 'arrowleft' ? 'back' : 'forward' });
+      return;
+    }
+    const modifiers = [
+      press.ctrlKey && 'Control',
+      press.metaKey && 'Meta',
+      press.altKey && 'Alt',
+      press.shiftKey && 'Shift',
+    ].filter(Boolean);
+    client.fire({ type: 'key', key: [...modifiers, press.key === ' ' ? 'Space' : press.key].join('+') });
+  };
+  pressKeyRef.current = pressKey;
   const text = (element: HTMLTextAreaElement) => {
     const value = element.value;
     element.value = '';
@@ -103,7 +160,16 @@ export function useBrowserPageInput(
     onPointerMove: (event: PointerEvent<HTMLDivElement>) => pointer(event, 'mouseMoved'),
     onPointerUp: (event: PointerEvent<HTMLDivElement>) => pointer(event, 'mouseReleased'),
     onPointerCancel: releasePointer,
-    onBlur: releasePointer,
+    onBlur: (event: FocusEvent<HTMLTextAreaElement>) => {
+      releasePointer();
+      if (sendAtOnce.current) bar.blur(event.currentTarget);
+    },
+    onFocus: (event: FocusEvent<HTMLTextAreaElement>) => {
+      if (sendAtOnce.current) bar.focus(event.currentTarget);
+    },
+    onKeyUp: () => {
+      if (sendAtOnce.current) bar.keyUp();
+    },
     onWheel: (event: WheelEvent<HTMLDivElement>) => {
       const position = point(event.clientX, event.clientY);
       if (!position) return;
@@ -130,52 +196,49 @@ export function useBrowserPageInput(
     },
     onKeyDown: (event: KeyboardEvent<HTMLTextAreaElement>) => {
       event.stopPropagation();
-      if (
-        composing.current ||
-        event.nativeEvent.isComposing ||
-        event.nativeEvent.keyCode === 229 ||
-        event.key === 'Process'
-      )
-        return;
-      const command = event.ctrlKey || event.metaKey;
-      const key = event.key.toLowerCase();
-      if (key === 'f5' || (command && key === 'r')) {
-        event.preventDefault();
-        client.fire({ type: 'reload' });
-        return;
-      }
-      if (command && ['+', '=', '-', '0', 'l'].includes(key)) {
-        event.preventDefault();
-        client.shortcut(COMMAND_KEY_SHORTCUTS[key] ?? 'zoom-in');
+      const press = {
+        key: event.key,
+        code: event.code,
+        keyCode: event.nativeEvent.keyCode,
+        isComposing: event.nativeEvent.isComposing,
+        ctrlKey: event.ctrlKey,
+        altKey: event.altKey,
+        metaKey: event.metaKey,
+        shiftKey: event.shiftKey,
+      };
+      if (sendAtOnce.current) {
+        if (bar.keyDown(press, event.currentTarget)) event.preventDefault();
         return;
       }
-      if (event.altKey && ['arrowleft', 'arrowright'].includes(key)) {
-        event.preventDefault();
-        client.fire({ type: key === 'arrowleft' ? 'back' : 'forward' });
-        return;
-      }
+      if (composing.current || press.isComposing || press.keyCode === 229 || event.key === 'Process') return;
       if (event.key.length === 1 && !event.ctrlKey && !event.metaKey && !event.altKey) return;
       if (['Shift', 'Control', 'Alt', 'Meta', 'CapsLock'].includes(event.key)) return;
-      if (command && key === 'v') return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'v') return;
       event.preventDefault();
-      const modifiers = [
-        event.ctrlKey && 'Control',
-        event.metaKey && 'Meta',
-        event.altKey && 'Alt',
-        event.shiftKey && 'Shift',
-      ].filter(Boolean);
-      client.fire({ type: 'key', key: [...modifiers, event.key === ' ' ? 'Space' : event.key].join('+') });
+      pressKey(press);
     },
-    /** The bar's send button: Enter to the page (a composition is finished first by the caller). */
-    submit: () => client.fire({ type: 'key', key: 'Enter' }),
+    /** The bar's send button: the bar's whole text to the page (a running
+     *  composition is committed first), or an Enter key when the bar is empty. */
+    submit: () => {
+      const field = keyboard.current;
+      if (sendAtOnce.current && field) bar.send(field, document.activeElement === field);
+      else client.fire({ type: 'key', key: 'Enter' });
+    },
     onInput: (event: FormEvent<HTMLTextAreaElement>) => {
-      if (!composing.current && !(event.nativeEvent as InputEvent).isComposing) text(event.currentTarget);
+      const isComposing = (event.nativeEvent as InputEvent).isComposing;
+      if (sendAtOnce.current) bar.input(event.currentTarget, isComposing);
+      else if (!composing.current && !isComposing) text(event.currentTarget);
     },
     onCompositionStart: () => {
+      if (sendAtOnce.current) {
+        bar.compositionStart();
+        return;
+      }
       composing.current = true;
       compositionOwner.current = { client, token: client.inputToken() };
     },
     onCompositionUpdate: (event: CompositionEvent<HTMLTextAreaElement>) => {
+      if (sendAtOnce.current) return;
       const owner = compositionOwner.current;
       if (owner)
         owner.client.fire(
@@ -189,6 +252,10 @@ export function useBrowserPageInput(
         );
     },
     onCompositionEnd: (event: CompositionEvent<HTMLTextAreaElement>) => {
+      if (sendAtOnce.current) {
+        bar.compositionEnd(event.currentTarget);
+        return;
+      }
       composing.current = false;
       const owner = compositionOwner.current;
       compositionOwner.current = null;
@@ -196,6 +263,11 @@ export function useBrowserPageInput(
       if (owner) owner.client.fire({ type: 'composition-end', text: event.data }, owner.token);
     },
     onPaste: (event: ClipboardEvent<HTMLTextAreaElement>) => {
+      // Into the bar: it goes with the rest of the text on send.
+      if (sendAtOnce.current) {
+        bar.paste();
+        return;
+      }
       event.preventDefault();
       event.stopPropagation();
       const value = event.clipboardData.getData('text/plain');

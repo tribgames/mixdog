@@ -548,6 +548,8 @@ function useRemoteTouch({
   }, [phone, client, viewportPoint, frameRef, imageRef, contentRef, setTouchDot, tapRef, gestureRef]);
 }
 
+const noFinish = () => {};
+
 /** Human input to the streamed page: one ordered queue to the host, the
  *  keyboard/mouse client, page shortcuts, and touch on the frame image. */
 function useRemotePageInput({
@@ -622,9 +624,13 @@ function useRemotePageInput({
       }),
     [inputQueue, frameRef, setActionFailure, routeRef]
   );
-  const pageInput = useBrowserPageInput(client, imageRef, keyboardRef);
+  // The phone's typing bar sends at once (what is typed stays in the bar until
+  // send), so no half-typed syllable ever needs finishing before a touch; the
+  // desktop's bar types live and does.
+  const pageInput = useBrowserPageInput(client, imageRef, keyboardRef, { sendAtOnce: phone });
   const composition = useCompositionFinisher(pageInput, keyboardRef);
-  const input = composition.handlers;
+  const input = phone ? pageInput : composition.handlers;
+  const finishComposition = phone ? noFinish : composition.finish;
   const inputRef = useRef(input);
   inputRef.current = input;
 
@@ -694,7 +700,7 @@ function useRemotePageInput({
     touch,
     touchLost: phone ? touchLost : undefined,
     resetDocumentInput,
-    finishComposition: composition.finish,
+    finishComposition,
   };
 }
 
@@ -1118,7 +1124,8 @@ function RemoteKeyboardBar({
   open: boolean;
   phone: boolean;
   onClose(): void;
-  /** Send: a running composition is committed, then Enter goes to the page. */
+  /** Send: a running composition is committed, then the bar's whole text goes
+   *  to the page in one piece (an Enter key when the bar is empty). */
   onSend(): void;
   input: PageInput;
 }) {
@@ -1135,8 +1142,10 @@ function RemoteKeyboardBar({
         aria-label={t('Type on page')}
         placeholder={t('Type into selected page element')}
         onKeyDown={input.onKeyDown}
+        onKeyUp={input.onKeyUp}
         onInput={input.onInput}
         onPaste={input.onPaste}
+        onFocus={input.onFocus}
         onBlur={input.onBlur}
         onCompositionStart={input.onCompositionStart}
         onCompositionUpdate={input.onCompositionUpdate}
@@ -1660,10 +1669,7 @@ export default function RemoteBrowserPane({
       open={phone || keyboardOpen}
       phone={phone}
       onClose={() => setKeyboardOpen(false)}
-      onSend={() => {
-        finishComposition();
-        input.submit();
-      }}
+      onSend={input.submit}
       input={input}
     />
   );
