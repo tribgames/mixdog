@@ -13,7 +13,7 @@
 import { loadConfig } from '../../config.mjs';
 import { findPreset } from '../../runtime-core/config-helpers.mjs';
 import { normalizeWorkflowRoute } from '../../runtime-core/workflow.mjs';
-import { canonicalRouteProvider } from '../../../../shared/model-route-chain.mjs';
+import { canonicalRouteProvider, executionFallbacks } from '../../../../shared/model-route-chain.mjs';
 import { storedBotRoute } from '../../../../shared/agent-store.mjs';
 import { configuredAgentRouteCandidates } from '../../../../shared/agent-route-config.mjs';
 import { CODING_MODE } from '../agent-mode.mjs';
@@ -48,5 +48,5 @@ export function ownerConfiguredRoute({ sessionMode, agentId, config = null }) {
 export function ownerRouteFallbacks({ sessionMode, agentId, provider, model, config = null }) {
   const route = ownerConfiguredRoute({ sessionMode, agentId, config });
   if (!route?.fallbacks?.length) return [];
-  return sameRouteModel(route, { provider, model }) ? route.fallbacks : [];
+  return sameRouteModel(route, { provider, model }) ? executionFallbacks(route) : [];
 }

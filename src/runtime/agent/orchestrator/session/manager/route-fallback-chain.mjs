@@ -12,6 +12,7 @@
 import { findPreset } from '../../runtime-core/config-helpers.mjs';
 import { normalizeWorkflowRoute } from '../../runtime-core/workflow.mjs';
 import { configuredAgentRouteCandidates } from '../../../../shared/agent-route-config.mjs';
+import { executionFallbacks } from '../../../../shared/model-route-chain.mjs';
 import { CODING_MODE, resolveSessionMode } from '../agent-mode.mjs';
 import { _liveSessions } from '../store/live-state.mjs';
 import { ownerConfiguredRoute, sameRouteModel } from './owner-route-fallbacks.mjs';
@@ -64,7 +65,7 @@ export function liveRouteFallbacks(session, config) {
   if (!source)
     return { chain: Array.isArray(session?.routeFallbacks) ? session.routeFallbacks : [], fromSettings: false };
   const onSourcePrimary = sameRouteModel(source, sessionRoutePrimary(session));
-  return { chain: onSourcePrimary ? source.fallbacks || [] : [], fromSettings: true };
+  return { chain: onSourcePrimary ? executionFallbacks(source) : [], fromSettings: true };
 }
 
 /** Index in `chain` of the next route to try: the first after the session's

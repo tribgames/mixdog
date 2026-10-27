@@ -129,7 +129,7 @@ test('the Lead agent row sits above the built-in agents and edits the Main route
   assert.equal(routes.length, 1);
   assert.equal(routes[0].provider, 'anthropic');
   assert.equal(routes[0].model, 'claude-test');
-  assert.deepEqual(routes[0].fallbacks, [FALLBACK], 'the stored Lead fallbacks are loaded and saved back');
+  assert.equal('fallbacks' in routes[0], false, 'unedited stored Lead fallbacks are kept, not re-sent');
 });
 
 test('the Lead row and editor follow the stored Lead preset live (a New task pick), not the empty snapshot', async (t) => {

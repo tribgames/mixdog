@@ -52,7 +52,7 @@ import { draftModelSelectionFromSnapshot } from './draft-pane-prefs-store';
 import { ErrorNotice, errorMessageText } from './ErrorNotice';
 import { t } from './i18n';
 import { InitialSurface } from './InitialSurface';
-import { RouteChainEditor, routeChainComplete } from './RouteChainEditor';
+import { RouteChainEditor, routeChainComplete, routeWithEditedFallbacks } from './RouteChainEditor';
 import { customProviderDisplayNames, filterConfiguredModels } from './model-catalog';
 import { normalizeModelOptions } from './provider-display';
 import { record } from './record-utils';
@@ -464,8 +464,17 @@ export function AgentProfilePane({
       live = false;
     };
   }, [active, agentId, api, sessionId, reloads, deleted]);
-  const save = async (changes: RecordValue) => {
+  const save = async (edited: RecordValue) => {
     if (!profile) return;
+    const changes = edited.route
+      ? {
+          ...edited,
+          route: routeWithEditedFallbacks(
+            edited.route as unknown as RecordValue,
+            profile.route as unknown as RecordValue
+          ),
+        }
+      : edited;
     setBusy(true);
     setError('');
     try {

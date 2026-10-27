@@ -63,13 +63,14 @@ test('session pre-warm spawns no worker when the model is missing', () => {
 
 test('the judged base is the Auto reasoning base setting, clamped to the model ladder', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-auto-effort-base-'));
-  const keys = [...ENV_KEYS, 'MIXDOG_DATA_DIR'];
+  const keys = [...ENV_KEYS, 'MIXDOG_DATA_DIR', 'MIXDOG_USER_DATA_BACKUP_ROOT'];
   const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
   const log = join(root, 'decisions.jsonl');
   process.env.MIXDOG_AUTO_EFFORT = 'on';
   process.env.MIXDOG_EFFORT_JUDGE_DIR = root;
   process.env.MIXDOG_EFFORT_DECISIONS_LOG = log;
   process.env.MIXDOG_DATA_DIR = root;
+  process.env.MIXDOG_USER_DATA_BACKUP_ROOT = join(root, 'backups');
   const baseOf = async (sessionId, effort) => {
     await resolveTurnAutoEffort({
       sessionId,

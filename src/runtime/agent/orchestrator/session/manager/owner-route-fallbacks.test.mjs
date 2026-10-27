@@ -47,6 +47,25 @@ test('the coding Lead takes the Lead preset chain while on the Lead model', () =
   assert.deepEqual(ownerRouteFallbacks({ ...lead, config: bare, provider: 'p1', model: 'm1' }), []);
 });
 
+test('a stored fallback on the Lead model provider is inactive; the other fallbacks still apply', () => {
+  const stored = {
+    default: 'workflow-lead',
+    presets: [
+      {
+        id: 'workflow-lead',
+        provider: 'anthropic-oauth',
+        model: 'opus',
+        fallbacks: [
+          { provider: 'anthropic-oauth', model: 'sonnet' },
+          { provider: 'openai', model: 'gpt' },
+        ],
+      },
+    ],
+  };
+  const lead = { sessionMode: 'coding', agentId: 'lead', config: stored, provider: 'anthropic-oauth', model: 'opus' };
+  assert.deepEqual(ownerRouteFallbacks(lead), [{ provider: 'openai', model: 'gpt' }]);
+});
+
 test('a bot and Mixy use their own folder route, never the Lead or each other', () => {
   const agent = { sessionMode: 'agent', config };
   assert.deepEqual(ownerRouteFallbacks({ ...agent, agentId: 'sample', provider: 'p1', model: 'm1' }), [

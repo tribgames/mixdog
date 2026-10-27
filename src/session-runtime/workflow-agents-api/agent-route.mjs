@@ -22,7 +22,11 @@ import {
 
 /** Mixy's runtime id (agent-home.mjs MIXY_AGENT_ID). */
 const MIXY_RUNTIME_ID = 'lead';
-import { routeChain, validateRouteChainProviders } from '../../runtime/shared/model-route-chain.mjs';
+import {
+  canonicalRouteProvider,
+  routeChain,
+  validateRouteChainProviders,
+} from '../../runtime/shared/model-route-chain.mjs';
 
 // Agent route persistence. Route-scope isolation: an agent route owns its
 // model AND its effort/fast, stored in config.agents[<id>]. The shared
@@ -183,18 +187,25 @@ export function createAgentRouteApi(deps) {
     }
     if (!clean(requested.provider)) return clearOverride(id);
     if (!clean(requested.model)) throw new Error('agent route requires provider and model');
+    // An explicit list is validated; the stored one may hold a fallback on the
+    // picked model's provider, which stays saved untouched and inactive.
+    const explicitFallbacks = hasOwn(requested, 'fallbacks');
     const chain = routeChain({
       ...requested,
-      fallbacks: hasOwn(requested, 'fallbacks') ? requested.fallbacks : stored.fallbacks,
+      fallbacks: explicitFallbacks ? requested.fallbacks : stored.fallbacks,
     });
-    validateRouteChainProviders(chain);
+    validateRouteChainProviders(chain, { allowDuplicates: !explicitFallbacks });
     const storedChain = routeChain(stored);
     const resolved = [];
+    const usedProviders = new Set();
     for (const entry of chain) {
+      const provider = canonicalRouteProvider(entry.provider);
+      const inactive = usedProviders.has(provider);
+      usedProviders.add(provider);
       const previous = storedChain.find(
         (candidate) => candidate.provider === entry.provider && candidate.model === entry.model
       );
-      resolved.push(await resolveChainEntry(deps, entry, previous || {}));
+      resolved.push(inactive ? entry : await resolveChainEntry(deps, entry, previous || {}));
     }
     const [primary, ...fallbacks] = resolved;
     const routeToSave = normalizeWorkflowRoute({ ...primary, fallbacks });

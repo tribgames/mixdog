@@ -217,11 +217,20 @@ function switchSessionInPlace(deps, session) {
 
 /** The Lead's fallback models after this selection, checked like an agent's
  *  chain (leaf routes, distinct providers): an explicit list replaces the
- *  stored one ([] clears it), a selection without one keeps it. */
+ *  stored one ([] clears it), a selection without one keeps it as stored — a
+ *  fallback on the new main model's provider stays saved and is inactive
+ *  (executionFallbacks). */
 async function leadFallbackChain(deps, next, primary) {
   const storedPreset = findPreset(deps.getConfig(), workflowPresetId('lead'));
-  const requested = hasOwn(next || {}, 'fallbacks') ? next.fallbacks : storedPreset?.fallbacks;
+  const explicit = hasOwn(next || {}, 'fallbacks');
+  const requested = explicit ? next.fallbacks : storedPreset?.fallbacks;
   if (!Array.isArray(requested) || !requested.length) return [];
+  if (!explicit) {
+    return (
+      normalizeWorkflowRoute({ provider: primary.provider, model: primary.model, fallbacks: requested })?.fallbacks ||
+      []
+    );
+  }
   const chain = routeChain({ provider: primary.provider, model: primary.model, fallbacks: requested });
   validateRouteChainProviders(chain);
   const storedChain = routeChain(storedPreset || {});

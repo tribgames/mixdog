@@ -1,6 +1,7 @@
 import { GripVertical, Plus, X } from 'lucide-react';
 import { useRef } from 'react';
 import type { DesktopModelOption, DesktopModelSelection } from '../shared/contract';
+import { canonicalJson } from '../shared/remote-view-resume';
 import type { RecordValue } from './desktop-types';
 import { ModelRouteEditor } from './ModelRouteEditor';
 import { t } from './i18n';
@@ -9,6 +10,16 @@ import './route-chain-editor.css';
 
 export function routeChainComplete(route: RecordValue) {
   return routeChain(route).every((entry) => Boolean(entry.provider && entry.model));
+}
+
+/** The route to submit: its fallback list goes only when the rows differ from the
+ *  loaded ones. A primary-only edit omits it, so the stored list (which may hold
+ *  a fallback that is inactive on the new main provider) is kept as it is. */
+export function routeWithEditedFallbacks<T extends RecordValue>(route: T, loaded: RecordValue): T {
+  // Compared by content, row order kept: rows rebuilt with another key order are unchanged.
+  if (canonicalJson(routeChain(route).slice(1)) !== canonicalJson(routeChain(loaded).slice(1))) return route;
+  const { fallbacks: _unchanged, ...rest } = route;
+  return rest as T;
 }
 
 export function RouteChainEditor({

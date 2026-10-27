@@ -12,6 +12,7 @@ import { record } from './record-utils';
 import { announceSetupChange } from './setup-change-refresh';
 import { SidebarLoadingDialog } from './sidebar-dialog';
 import { useSidebarPanelDismiss } from './sidebar-panel-surface';
+import { routeWithEditedFallbacks } from './RouteChainEditor';
 import { useEditorModelCatalog } from './use-editor-model-catalog';
 import type { useSidebarCapabilityRunner } from './use-sidebar-capability-runner';
 import { AgentEditorDialog, RouteEditorDialog, type RouteEditorTarget, WorkflowEditorDialog } from './workflow-dialogs';
@@ -100,7 +101,11 @@ export function useWorkflowEditors({
       );
     }
   };
-  const saveAgent = async (payload: RecordValue) => {
+  const saveAgent = async (edited: RecordValue) => {
+    const loadedRoute = record(agentEditor?.agent?.route);
+    const payload = edited.route
+      ? { ...edited, route: routeWithEditedFallbacks(record(edited.route), loadedRoute) }
+      : edited;
     // Created here, it is a workflow agent for good: the marker is written
     // once, at creation (isContactAgentId reads it).
     const result = await run('saveAgentDefinition', [
@@ -122,7 +127,8 @@ export function useWorkflowEditors({
     if (!routeEditor) return;
     if (routeEditor.capability === 'setModelRoute') {
       try {
-        const snapshot = await api?.setModelRoute?.(route as unknown as DesktopModelSelection);
+        const submitted = routeWithEditedFallbacks(route, routeEditor.route);
+        const snapshot = await api?.setModelRoute?.(submitted as unknown as DesktopModelSelection);
         if (snapshot) {
           setMainRoute({
             ...draftModelSelectionFromSnapshot(snapshot as unknown as Snapshot),
@@ -138,7 +144,10 @@ export function useWorkflowEditors({
       }
       return;
     }
-    const args = routeEditor.capability === 'setWebSearchRoute' ? [route] : [routeEditor.id, route];
+    const args =
+      routeEditor.capability === 'setWebSearchRoute'
+        ? [route]
+        : [routeEditor.id, routeWithEditedFallbacks(route, routeEditor.route)];
     const result = await run(routeEditor.capability, args);
     if (result !== undefined) {
       setRouteEditor(null);
@@ -187,8 +196,9 @@ export function useWorkflowEditors({
     saveAgent,
     deleteAgent,
     saveRoute,
-    setAgentEnabled(id: string, enabled: boolean, route: RecordValue) {
-      void run('setAgentRoute', [id, enabled ? route : { disabled: true }]);
+    // Only the switch: the stored route (and its fallbacks) is never re-sent.
+    setAgentEnabled(id: string, enabled: boolean) {
+      void run('setAgentRoute', [id, { disabled: !enabled }]);
     },
   };
 }
@@ -255,9 +265,7 @@ export function WorkflowEditorDialogs({
           error={error}
           onCancel={editors.cancelAgentEditor}
           onSave={(payload) => void editors.saveAgent(payload)}
-          onToggle={(enabled, route) =>
-            editors.setAgentEnabled(String(record(agentEditor.agent).id || ''), enabled, route)
-          }
+          onToggle={(enabled) => editors.setAgentEnabled(String(record(agentEditor.agent).id || ''), enabled)}
           onDelete={() => void editors.deleteAgent(String(record(agentEditor.agent).id || ''))}
           armDelete={agentEditor.armDelete}
         />
@@ -271,7 +279,7 @@ export function WorkflowEditorDialogs({
           busy={busy}
           error={error}
           onCancel={editors.cancelRouteEditor}
-          onToggle={(enabled, route) => editors.setAgentEnabled(routeEditor.id, enabled, route)}
+          onToggle={(enabled) => editors.setAgentEnabled(routeEditor.id, enabled)}
           onSave={(route) => void editors.saveRoute(route)}
         />
       )}

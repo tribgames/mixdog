@@ -102,14 +102,13 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
   const openRowMenu = (label: string, point: { x: number; y: number }, items: ScmContextMenuState['items']) =>
     setMenu({ label, ...point, items });
   const agentToggleItem = (id: string, disabled: boolean, route: RecordValue): ScmContextMenuState['items'][number] => {
-    const { disabled: _off, ...picked } = route;
-    const canEnable = Boolean(picked.provider && picked.model);
+    const canEnable = Boolean(route.provider && route.model);
     return {
       id: 'toggle',
       label: disabled ? t('Enable') : t('Disable'),
       disabled: disabled && !canEnable,
       title: disabled && !canEnable ? t('Pick a model to turn this agent on.') : undefined,
-      onSelect: () => setAgentEnabled(id, disabled, picked),
+      onSelect: () => setAgentEnabled(id, disabled),
     };
   };
   const renderAgentRow = (agent: AgentSummary) => {

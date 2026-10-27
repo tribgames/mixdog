@@ -11,6 +11,8 @@ import test, { mock } from 'node:test';
 const root = mkdtempSync(join(tmpdir(), 'mixdog-owner-create-'));
 const dataDir = join(root, 'data');
 process.env.MIXDOG_DATA_DIR = dataDir;
+// The user-data guard backs up on config writes; without this it writes under the real ~/.mixdog.
+process.env.MIXDOG_USER_DATA_BACKUP_ROOT = join(root, 'backups');
 process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 mkdirSync(join(dataDir, 'bots', 'sample'), { recursive: true });
 const FALLBACK = { provider: 'fb-second', model: 'm-second' };

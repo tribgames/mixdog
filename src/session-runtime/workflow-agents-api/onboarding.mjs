@@ -20,7 +20,7 @@ import { resolveDataDir } from './shared.mjs';
 function applyWorkflowSlots(workflowInput, draft) {
   for (const slot of WORKFLOW_ROUTE_SLOTS) {
     if (!hasOwn(workflowInput, slot)) continue;
-    const normalized = normalizeWorkflowRoute(workflowInput[slot]);
+    const normalized = normalizeWorkflowRoute(workflowInput[slot], {}, { strict: true });
     if (slot === 'lead') {
       if (!normalized) continue;
       draft.presets = upsertWorkflowPreset(draft.presets, 'lead', normalized);
@@ -40,7 +40,7 @@ function applyAgentRouteInput(agentInput, agentRoutes, configurableIds) {
   const nextAgents = { ...agentRoutes };
   for (const id of configurableIds) {
     if (!hasOwn(agentInput, id)) continue;
-    const routeToSave = normalizeWorkflowRoute(agentInput[id]);
+    const routeToSave = normalizeWorkflowRoute(agentInput[id], {}, { strict: true });
     if (routeToSave) nextAgents[id] = routeToSave;
     else delete nextAgents[id];
   }
@@ -67,7 +67,7 @@ export function createOnboardingApi(deps) {
       const config = getConfig();
       const nextConfig = { ...config };
       const defaultRoute = hasOwn(payload, 'defaultRoute')
-        ? normalizeWorkflowRoute(payload.defaultRoute, getRoute())
+        ? normalizeWorkflowRoute(payload.defaultRoute, getRoute(), { strict: true })
         : null;
       const draft = {
         presets: Array.isArray(nextConfig.presets) ? nextConfig.presets.slice() : [],

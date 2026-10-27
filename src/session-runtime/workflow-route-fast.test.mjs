@@ -4,6 +4,7 @@ import test from 'node:test';
 import { createModelRouteApi } from './model-route-api.mjs';
 import { createWorkflowAgentsApi } from './workflow-agents-api.mjs';
 import { createWorkflowRouteHelpers } from '../runtime/agent/orchestrator/runtime-core/workflow.mjs';
+import { executionFallbacks } from '../runtime/shared/model-route-chain.mjs';
 
 test('Maintainer Fast off survives save and route reload', async () => {
   const route = {
@@ -71,6 +72,44 @@ test('agent contextPercent is saved, preserved, cleared and dropped on model cha
   await api.setAgentRoute('reviewer', { contextPercent: 70 });
   await api.setAgentRoute('reviewer', { model: 'claude-opus-5-5' });
   assert.equal(Object.hasOwn(config.agents.reviewer, 'contextPercent'), false);
+});
+
+test('picking an agent model on a stored fallback provider keeps the stored chain; an explicit duplicate list is refused', async () => {
+  const helpers = createWorkflowRouteHelpers({ findPreset: () => null });
+  const fallbacks = [
+    { provider: 'anthropic-oauth', model: 'claude-sonnet-5-5' },
+    { provider: 'openai', model: 'gpt-5.4' },
+  ];
+  let config = { agents: { reviewer: { provider: 'gemini', model: 'gemini-3-pro', fallbacks } } };
+  const api = createWorkflowAgentsApi({
+    getConfig: () => config,
+    resolveRoute: (_config, requested) => ({ ...requested }),
+    lookupModelMeta: async () => ({}),
+    saveConfigAndAdopt: (next) => {
+      config = next;
+    },
+    ensureProvidersReady: async () => {},
+    agentRouteFromConfig: helpers.agentRouteFromConfig,
+  });
+  await api.setAgentRoute('reviewer', { provider: 'anthropic-oauth', model: 'claude-opus-5-5' });
+  const stored = config.agents.reviewer;
+  assert.deepEqual([stored.provider, stored.model], ['anthropic-oauth', 'claude-opus-5-5']);
+  assert.deepEqual(
+    stored.fallbacks.map(({ provider, model }) => ({ provider, model })),
+    fallbacks
+  );
+  assert.deepEqual(
+    executionFallbacks(helpers.agentRouteFromConfig(config, 'reviewer')).map((entry) => entry.provider),
+    ['openai']
+  );
+  await assert.rejects(
+    api.setAgentRoute('reviewer', {
+      provider: 'anthropic-oauth',
+      model: 'claude-opus-5-5',
+      fallbacks: [{ provider: 'anthropic-oauth', model: 'claude-sonnet-5-5' }],
+    }),
+    /duplicate route provider "anthropic-oauth"/
+  );
 });
 
 test('turning an agent off with an empty provider also drops its route override', async () => {

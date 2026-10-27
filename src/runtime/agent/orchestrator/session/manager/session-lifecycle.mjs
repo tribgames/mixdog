@@ -42,6 +42,7 @@ import { ensureCodexWireSessionId, mintSessionId } from './session-id.mjs';
 import { providerCacheKey } from './provider-cache-key.mjs';
 import { buildSessionRecord, normalizeDesktopSessionMetadata, sessionOriginFields } from './session-record.mjs';
 import { normalizeWorkflowRoute } from '../../runtime-core/workflow.mjs';
+import { executionFallbacks } from '../../../../shared/model-route-chain.mjs';
 import { ownerRouteFallbacks } from './owner-route-fallbacks.mjs';
 import { applyPendingWorkspaceReroot, refreshSessionBp3Environment } from './prompt-utils.mjs';
 import { isWorktreeBound } from '../../../../shared/worktrees/contract.mjs';
@@ -240,11 +241,13 @@ export function createSession(createOpts) {
     ? Object.hasOwn(opts, 'routeFallbacks')
       ? opts.routeFallbacks
       : ownerRouteFallbacks({ sessionMode, agentId: actingAgent, provider: providerName, model: modelName })
-    : normalizeWorkflowRoute({
-        provider: providerName,
-        model: modelName,
-        fallbacks: Object.hasOwn(opts, 'routeFallbacks') ? opts.routeFallbacks : presetObj?.fallbacks,
-      })?.fallbacks;
+    : executionFallbacks(
+        normalizeWorkflowRoute({
+          provider: providerName,
+          model: modelName,
+          fallbacks: Object.hasOwn(opts, 'routeFallbacks') ? opts.routeFallbacks : presetObj?.fallbacks,
+        })
+      );
   // Provider cache strategy — agentRuntime.resolveSync() above is a
   // best-effort injection point (setAgentRuntime() has no live caller
   // today, so that branch never fires); build it directly here so every

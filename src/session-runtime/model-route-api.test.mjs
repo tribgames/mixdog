@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createModelRouteApi } from './model-route-api.mjs';
+import { executionFallbacks } from '../runtime/shared/model-route-chain.mjs';
 import {
   WEB_SEARCH_DEFAULT_MODEL,
   WEB_SEARCH_DEFAULT_PROVIDER,
+  normalizeWorkflowRoute,
 } from '../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 
 const sourceRoute = { provider: 'openai', model: 'gpt-5.4', effort: 'high', fast: false };
@@ -288,6 +290,45 @@ test('the Lead editor saves fallbacks with the Lead route; a pick without them k
   // A session's own pick never touches the Lead chain.
   await api.setRoute({ provider: 'openai', model: 'gpt-5.4' }, { keepMainModel: true });
   assert.equal(saved.length, 3);
+});
+
+test('a Lead main-model pick on a stored fallback provider succeeds, keeps the stored chain and runs only the other fallbacks', async () => {
+  const saved = [];
+  const fallbacks = [
+    { provider: 'anthropic-oauth', model: 'claude-sonnet-5-5' },
+    { provider: 'openai', model: 'gpt-5.4' },
+  ];
+  const { api } = fixture({
+    config: {
+      modelSettings: {},
+      presets: [{ id: 'workflow-lead', provider: 'gemini', model: 'gemini-3-pro', fallbacks }],
+      default: 'workflow-lead',
+    },
+    // The real writer normalizes the route it persists.
+    persistLeadRoute: (route) => {
+      saved.push(normalizeWorkflowRoute(route));
+      return null;
+    },
+  });
+  await api.setRoute({ provider: 'anthropic-oauth', model: 'claude-opus-5-5' }, { keepMainModel: false });
+  const [lead] = saved;
+  assert.deepEqual([lead.provider, lead.model], ['anthropic-oauth', 'claude-opus-5-5']);
+  assert.deepEqual(
+    lead.fallbacks.map(({ provider, model }) => ({ provider, model })),
+    fallbacks
+  );
+  assert.deepEqual(
+    executionFallbacks(lead).map(({ provider }) => provider),
+    ['openai']
+  );
+  // An explicit list that repeats the main provider is still refused.
+  await assert.rejects(
+    api.setRoute(
+      { provider: 'anthropic-oauth', model: 'claude-opus-5-5', fallbacks: [fallbacks[0]] },
+      { keepMainModel: false }
+    ),
+    /duplicate route provider "anthropic-oauth"/
+  );
 });
 
 test("Lead fallback entries are normalized by the agents' function: an unsupported fast flag is clamped, saved tuning kept", async () => {

@@ -1,4 +1,5 @@
 import { configuredAgentRouteCandidates } from '../../../runtime/shared/agent-route-config.mjs';
+import { executionFallbacks } from '../../../runtime/shared/model-route-chain.mjs';
 import {
   agentPresetName,
   clean,
@@ -30,7 +31,9 @@ export function resolveAgentSpawnPreset(config, args = {}) {
   // The agent's stored route: config.agents, or a store bot's own folder.
   const candidates = !clean(args.preset) ? configuredAgentRouteCandidates(config, agentName) : [];
   const agentRoute = candidates.map((candidate) => normalizeAgentRoute(candidate)).find(Boolean) || null;
-  const storedFallbacks = candidates.find((candidate) => normalizeAgentRoute(candidate))?.fallbacks;
+  const storedFallbacks = agentRoute
+    ? executionFallbacks({ ...agentRoute, fallbacks: candidates.find((c) => normalizeAgentRoute(c))?.fallbacks })
+    : undefined;
   // Where the spawned session reads its fallback chain at each hop
   // (route-fallback-chain.mjs): this agent's route, else Main's.
   const fallbackSource = { agent: agentName };

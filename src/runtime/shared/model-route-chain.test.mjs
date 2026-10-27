@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeRouteChain, routeChain } from './model-route-chain.mjs';
+import { executionFallbacks, normalizeRouteChain, routeChain } from './model-route-chain.mjs';
 
 const leaf = (route, previous = {}) => {
   const value = { ...previous, ...route };
@@ -55,6 +55,27 @@ test('canonical providers must be unique but API and OAuth remain distinct', () 
     ).length,
     2
   );
+});
+
+test('a stored chain may repeat the primary provider; only the execution chain skips the duplicates', () => {
+  const route = {
+    provider: 'anthropic-oauth',
+    model: 'opus',
+    fallbacks: [
+      { provider: 'anthropic-oauth', model: 'sonnet' },
+      { provider: 'openai', model: 'gpt' },
+      { provider: 'openai-api', model: 'gpt-api' },
+      { provider: 'openai', model: 'gpt-2' },
+    ],
+  };
+  assert.throws(() => normalizeRouteChain(route, leaf), /duplicate route provider "anthropic-oauth"/);
+  const stored = normalizeRouteChain(route, leaf, {}, { strict: false });
+  assert.equal(stored.fallbacks.length, 4);
+  assert.deepEqual(
+    executionFallbacks(stored).map((entry) => entry.model),
+    ['gpt']
+  );
+  assert.deepEqual(executionFallbacks(null), []);
 });
 
 test('malformed, nested and inherited fallback rows are rejected', () => {

@@ -178,8 +178,11 @@ export function webSearchRouteOrDefault(...routeLikes) {
   });
 }
 
-export function normalizeWorkflowRoute(routeLike, fallback = {}) {
-  return normalizeRouteChain(routeLike, normalizeWorkflowRouteLeaf, fallback);
+// A stored chain may hold a fallback on the main model's own provider (inactive,
+// see executionFallbacks), so reading and re-saving it is lenient; a route the
+// user saves directly passes `{ strict: true }`.
+export function normalizeWorkflowRoute(routeLike, fallback = {}, { strict = false } = {}) {
+  return normalizeRouteChain(routeLike, normalizeWorkflowRouteLeaf, fallback, { strict });
 }
 
 function normalizeWorkflowRouteLeaf(routeLike, fallback = {}) {
