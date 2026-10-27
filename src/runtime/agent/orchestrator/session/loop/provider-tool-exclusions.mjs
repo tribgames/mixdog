@@ -31,6 +31,13 @@ function exclusionsFor(sessionRef) {
 
 const isSessionRef = (value) => value !== null && typeof value === 'object';
 
+// A schema 400 drop holds for the schema rule that refused it: a route on
+// another wire family (a fallback hop, a model switch) sends the tool again.
+function droppedOnRoute(sessionRef, name) {
+  const entry = isSessionRef(sessionRef) ? sessions.get(sessionRef)?.dropped.get(String(name || '')) : null;
+  return entry && entry.family === routeSchemaFamily(sessionRef) ? entry : null;
+}
+
 /** A new provider request: exclusions describe the latest request only. */
 export function beginProviderToolExclusions(sessionRef) {
   if (isSessionRef(sessionRef)) sessions.get(sessionRef)?.current.clear();
@@ -64,15 +71,16 @@ export function providerToolExclusionReason(sessionRef, name) {
   if (!isSessionRef(sessionRef)) return null;
   const state = sessions.get(sessionRef);
   const key = String(name || '');
-  const exclusion = state?.current.get(key) || state?.dropped.get(key);
+  const exclusion = state?.current.get(key) || droppedOnRoute(sessionRef, key);
   return exclusion ? unavailableText(exclusion) : null;
 }
 
 /** The provider rejected `exclusion.name`'s schema with an HTTP 400: leave the
- *  tool out of every later request of the session and tell the user once. */
+ *  tool out of the session's later requests on this wire family and tell the
+ *  user once. */
 export function dropSessionTool(sessionRef, exclusion, onStageChange) {
   if (!isSessionRef(sessionRef)) return;
-  exclusionsFor(sessionRef).dropped.set(exclusion.name, exclusion);
+  exclusionsFor(sessionRef).dropped.set(exclusion.name, { ...exclusion, family: routeSchemaFamily(sessionRef) });
   recordProviderToolExclusion(sessionRef, exclusion, onStageChange);
 }
 
@@ -82,7 +90,7 @@ export function withoutDroppedTools(sessionRef, { sendTools, requestToolScope })
   const dropped = isSessionRef(sessionRef) ? sessions.get(sessionRef)?.dropped : null;
   if (!dropped?.size) return { sendTools, requestToolScope };
   const prefix = providerNativeToolPrefixCount(sendTools);
-  const kept = sendTools.filter((tool, index) => index < prefix || !dropped.has(tool?.name));
+  const kept = sendTools.filter((tool, index) => index < prefix || !droppedOnRoute(sessionRef, tool?.name));
   if (kept.length === sendTools.length) return { sendTools, requestToolScope };
   const next = finalizeProviderRequestTools(kept, prefix);
   return { sendTools: next, requestToolScope: { ...requestToolScope, requestTools: next } };
@@ -128,7 +136,7 @@ function schemaExclusion(session, family, tool) {
  *  tools are never excluded by the schema rule. */
 export function routeToolExclusionReason(session, tool) {
   if (!tool) return null;
-  const dropped = isSessionRef(session) ? sessions.get(session)?.dropped.get(String(tool.name || '')) : null;
+  const dropped = droppedOnRoute(session, tool.name);
   if (dropped) return unavailableText(dropped);
   const exclusion = schemaExclusion(session, routeSchemaFamily(session), tool);
   return exclusion ? unavailableText(exclusion) : null;

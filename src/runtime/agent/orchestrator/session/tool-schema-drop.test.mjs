@@ -11,8 +11,10 @@ const flaky = { name: 'mcp__x__flaky', description: 'd', inputSchema: { type: 'o
 const status400 = (message) => Object.assign(new Error(message), { httpStatus: 400, status: 400 });
 
 const MESSAGES = {
-  anthropic: (index) => `Anthropic API error 400: tools.${index}.custom.input_schema: JSON schema is invalid. It must match JSON Schema draft 2020-12`,
-  openai: () => "400 Invalid schema for function 'mcp__x__flaky': In context=('properties', 'a'), array schema missing items.",
+  anthropic: (index) =>
+    `Anthropic API error 400: tools.${index}.custom.input_schema: JSON schema is invalid. It must match JSON Schema draft 2020-12`,
+  openai: () =>
+    "400 Invalid schema for function 'mcp__x__flaky': In context=('properties', 'a'), array schema missing items.",
   openaiIndex: (index) => `400 Invalid 'tools[${index}].parameters': schema must be a JSON Schema of 'type: "object"'`,
 };
 
@@ -23,11 +25,19 @@ test('rejectedToolSchema names the tool a schema 400 points at, and nothing else
   assert.equal(rejectedToolSchema(status400(MESSAGES.openai()), ctx).name, 'mcp__x__flaky');
   assert.equal(rejectedToolSchema(status400(MESSAGES.openaiIndex(1)), ctx).name, 'mcp__x__flaky');
   const hosted = { ...ctx, opts: { nativeTools: [{ type: 'web_search' }] } };
-  assert.equal(rejectedToolSchema(status400(MESSAGES.openaiIndex(1)), hosted).name, 'lookup', 'hosted tools precede the functions');
+  assert.equal(
+    rejectedToolSchema(status400(MESSAGES.openaiIndex(1)), hosted).name,
+    'lookup',
+    'hosted tools precede the functions'
+  );
   assert.equal(rejectedToolSchema(status400(MESSAGES.anthropic(0)), ctx).name, 'lookup');
   assert.equal(rejectedToolSchema(status400(MESSAGES.anthropic(7)), ctx), null, 'index outside the request');
   assert.equal(rejectedToolSchema(status400('messages.2: tool_use ids must be unique'), ctx), null, 'another 400');
-  assert.equal(rejectedToolSchema(Object.assign(new Error(MESSAGES.anthropic(1)), { httpStatus: 500 }), ctx), null, 'not a 400');
+  assert.equal(
+    rejectedToolSchema(Object.assign(new Error(MESSAGES.anthropic(1)), { httpStatus: 500 }), ctx),
+    null,
+    'not a 400'
+  );
 });
 
 test('rejectedToolSchema reads every supported path form, structured fields first', () => {
@@ -39,18 +49,28 @@ test('rejectedToolSchema reads every supported path form, structured fields firs
   expectFlaky(status400("Invalid 'tools[1].function.parameters': bad"));
   expectFlaky(status400("Invalid 'tools.1.function.parameters': bad"));
   expectFlaky(status400("Invalid 'tools[1].parameters': bad"));
-  expectFlaky(status400("Invalid schema for function \"mcp__x__flaky\": bad"));
+  expectFlaky(status400('Invalid schema for function "mcp__x__flaky": bad'));
   // Structured OpenAI fields (message names nothing).
   expectFlaky(named({ param: 'tools[1].function.parameters' }));
   expectFlaky(named({ error: { param: 'tools.1.function.parameters', message: 'Invalid schema' } }));
   expectFlaky(named({ error: { message: "Invalid schema for function 'mcp__x__flaky': bad" } }));
   expectFlaky(named({ body: JSON.stringify({ error: { param: 'tools[1].parameters' } }) }));
-  expectFlaky(named({ responseBody: JSON.stringify({ error: { message: 'tools.1.custom.input_schema: JSON schema is invalid' } }) }));
+  expectFlaky(
+    named({
+      responseBody: JSON.stringify({ error: { message: 'tools.1.custom.input_schema: JSON schema is invalid' } }),
+    })
+  );
   // Structured Anthropic fields.
-  expectFlaky(named({ error: { type: 'invalid_request_error', message: 'tools.1.custom.input_schema: JSON schema is invalid' } }));
+  expectFlaky(
+    named({ error: { type: 'invalid_request_error', message: 'tools.1.custom.input_schema: JSON schema is invalid' } })
+  );
   expectFlaky(named({ error: { message: 'tools.1.input_schema: invalid' } }));
   // Structured Google fields and message forms.
-  expectFlaky(named({ details: [{ fieldViolations: [{ field: 'tools[0].function_declarations[1].parameters', description: 'bad' }] }] }));
+  expectFlaky(
+    named({
+      details: [{ fieldViolations: [{ field: 'tools[0].function_declarations[1].parameters', description: 'bad' }] }],
+    })
+  );
   expectFlaky(status400('Invalid JSON payload received. Unknown name at tools[0].function_declarations[1].parameters'));
   expectFlaky(status400('functionDeclarations[1].parameters schema invalid'));
   // Structured evidence wins over a vaguer message.
@@ -62,7 +82,10 @@ test('rejectedToolSchema reads every supported path form, structured fields firs
   // Nothing recognisable / not a 400 / out of range.
   assert.equal(rejectedToolSchema(named({ param: 'messages[0].content' }), ctx), null);
   assert.equal(rejectedToolSchema(named({ param: 'tools[9].parameters' }), ctx), null);
-  assert.equal(rejectedToolSchema(Object.assign(new Error("Invalid schema for function 'lookup'"), { status: 429 }), ctx), null);
+  assert.equal(
+    rejectedToolSchema(Object.assign(new Error("Invalid schema for function 'lookup'"), { status: 429 }), ctx),
+    null
+  );
 });
 
 for (const [label, message] of [
@@ -98,6 +121,11 @@ for (const [label, message] of [
     assert.equal(requests.length, 3, 'the next turn sends once, without the tool');
     assert.ok(!requests[2].includes(flaky.name));
     assert.equal(notices.length, 1, 'told once per session');
+    // A route on another wire family (fallback hop, model switch) sends it again.
+    session.provider = 'openai';
+    assert.equal(routeToolExclusionReason(session, flaky), null);
+    session.provider = 'anthropic';
+    assert.match(routeToolExclusionReason(session, flaky), /unavailable/);
   });
 }
 
@@ -111,7 +139,9 @@ test('a 400 that does not name a tool schema behaves as before (no drop, no retr
     },
   };
   await assert.rejects(
-    agentLoop(provider, [{ role: 'user', content: 'go' }], 'fake-model', [lookup, flaky], null, process.cwd(), { session }),
+    agentLoop(provider, [{ role: 'user', content: 'go' }], 'fake-model', [lookup, flaky], null, process.cwd(), {
+      session,
+    }),
     /valid list/
   );
   assert.equal(sends, 1);

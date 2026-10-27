@@ -171,6 +171,13 @@ export async function advanceAgentRoute(state, error) {
   state.cacheBreakTraceKeys.clear();
   state.transportRetriesUsed = 0;
   state.transportRetryMax = 0;
+  // The one-shot recoveries the left model spent belong to its requests; the
+  // next model's first request gets its own (its window, images and schemas).
+  state.contextOverflowRetryUsed = false;
+  state.imageStripUsed = false;
+  state.imageStrip = null;
+  state.thinkingReplayRepairUsed = false;
+  state.toolSchemaDropUsed = false;
   for (const key of Object.keys(oldOptions)) delete state.opts[key];
   Object.assign(
     state.opts,

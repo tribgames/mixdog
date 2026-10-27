@@ -84,6 +84,11 @@ function state() {
     throwIfAborted() {},
     transportRetriesUsed: 2,
     transportRetryMax: 2,
+    contextOverflowRetryUsed: true,
+    imageStripUsed: true,
+    imageStrip: { ids: new Set(['img']), persist: false },
+    thinkingReplayRepairUsed: true,
+    toolSchemaDropUsed: true,
   };
 }
 
@@ -101,6 +106,11 @@ test('a rejected first request switches once and rebuilds request state without 
   assert.equal(current.opts.effort, 'low');
   assert.equal(current.opts.onTextDelta, callback);
   assert.equal(current.cacheBreakTraceKeys.size, 0);
+  // The left model's one-shot recoveries do not carry over to the next model.
+  for (const key of ['contextOverflowRetryUsed', 'imageStripUsed', 'thinkingReplayRepairUsed', 'toolSchemaDropUsed']) {
+    assert.equal(current[key], false, key);
+  }
+  assert.equal(current.imageStrip, null);
   assert.equal(await advanceAgentRoute(current, { status: 429 }), false);
 });
 
