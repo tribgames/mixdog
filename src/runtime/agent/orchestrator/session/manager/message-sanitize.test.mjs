@@ -105,5 +105,9 @@ test('interrupted turns also retain notifications and the completed tool work th
     snapshot: { responseStarted: true },
     abortReason: 'process-crash',
   });
-  assert.deepEqual(result.messages.slice(0, messages.length), messages);
+  // The request already sent ended with the tool result: it is marked so later
+  // text stays beside it instead of rewriting it (turn-interruption.mjs).
+  const sentTail = messages.at(-1);
+  const expected = [...messages.slice(0, -1), { ...sentTail, meta: { ...sentTail.meta, sentRequestTail: true } }];
+  assert.deepEqual(result.messages.slice(0, messages.length), expected);
 });
