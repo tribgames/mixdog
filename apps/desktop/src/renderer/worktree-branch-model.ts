@@ -216,6 +216,10 @@ export function worktreeFailureText(
         ? t('This branch is already checked out in {{path}}.', { path })
         : t('This branch is already checked out in another worktree.');
     }
+    case 'WORKTREE_DEFAULT_BRANCH':
+      return t(
+        "The repository's default branch can't be opened in a worktree: the project folder could not switch to it while the worktree exists. Check it out in the project folder, or create a new branch for the worktree."
+      );
     case 'WORKTREE_REMOVAL_INCOMPLETE':
       return t(
         'The worktree could not be removed completely because a file is still in use. Close it and remove the worktree again.'
@@ -269,6 +273,11 @@ export function worktreeFailureText(
     default:
       return failure.message;
   }
+}
+
+/** The branch the project folder has checked out (its `current` occupancy row), or ''. */
+export function projectFolderBranch(menu: DesktopBranchMenu | null | undefined): string {
+  return menu?.occupancy.find((row) => row.kind === 'current')?.branch ?? '';
 }
 
 /** The runtime's own text after the last `<code>: ` prefix, trimmed. */

@@ -159,6 +159,9 @@ export interface DesktopWorktreeSettings {
 export const DESKTOP_WORKTREE_ERROR_CODES = [
   'WORKTREE_BUSY_JOBS',
   'WORKTREE_BRANCH_OCCUPIED',
+  /** An existing branch a remote declares its default: never opened in a
+   *  managed worktree (the project folder could not switch to it). */
+  'WORKTREE_DEFAULT_BRANCH',
   'WORKTREE_DISK_INSUFFICIENT',
   'WORKTREE_LARGE_REPO_CONFIRM',
   'WORKTREE_DIRTY',

@@ -101,6 +101,8 @@ function worktreeFailureText(code, message, details) {
       return typeof details.path === 'string' && details.path
         ? `This branch is already checked out in ${details.path}.`
         : 'This branch is already checked out in another worktree.';
+    case 'WORKTREE_DEFAULT_BRANCH':
+      return "The repository's default branch can't be opened in a worktree: the project folder could not switch to it while the worktree exists. Check it out in the project folder, or create a new branch for the worktree.";
     case 'WORKTREE_REMOVAL_INCOMPLETE':
       return 'The worktree could not be removed completely because a file is still in use. Close it and remove the worktree again.';
     case 'WORKTREE_PATH_UNSAFE':
@@ -162,6 +164,8 @@ function nextStep(code, details, { raw }) {
       return 'The workspace changed meanwhile; call again (the workspace is read afresh).';
     case 'WORKTREE_BUSY_JOBS':
       return 'Nothing was changed; try again once the session and its workers are idle.';
+    case 'WORKTREE_DEFAULT_BRANCH':
+      return 'Nothing was created. Work on a new branch instead (worktree_action:"enter" with branch and create:true), or ask the user to check the default branch out in the project folder.';
     case 'MERGE_CONFLICT':
       return 'Nothing was merged or forced. Resolve the conflict in the worktree (merge the target branch into it there), or ask the user.';
     case 'WORKTREE_DIRTY':

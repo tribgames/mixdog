@@ -27,6 +27,7 @@ const WORKTREE_ENTRY_STATES = Object.freeze(['creating', 'ready', 'deleting', 'r
 export const WORKTREE_ERROR_CODES = Object.freeze({
   WORKTREE_BUSY_JOBS: 'WORKTREE_BUSY_JOBS',
   WORKTREE_BRANCH_OCCUPIED: 'WORKTREE_BRANCH_OCCUPIED',
+  WORKTREE_DEFAULT_BRANCH: 'WORKTREE_DEFAULT_BRANCH',
   WORKTREE_DISK_INSUFFICIENT: 'WORKTREE_DISK_INSUFFICIENT',
   WORKTREE_LARGE_REPO_CONFIRM: 'WORKTREE_LARGE_REPO_CONFIRM',
   WORKTREE_DIRTY: 'WORKTREE_DIRTY',
@@ -54,6 +55,8 @@ export const WORKTREE_ERROR_CODES = Object.freeze({
 const DEFAULT_ERROR_MESSAGES = Object.freeze({
   WORKTREE_BUSY_JOBS: 'The session has running jobs; wait for them or stop them before changing its workspace.',
   WORKTREE_BRANCH_OCCUPIED: 'The branch is checked out in another worktree.',
+  WORKTREE_DEFAULT_BRANCH:
+    "The repository's default branch can't be opened in a worktree: the project folder could not switch to it while the worktree exists. Check it out in the project folder, or create a new branch for the worktree.",
   WORKTREE_DISK_INSUFFICIENT: 'Not enough free disk space to create the worktree.',
   WORKTREE_LARGE_REPO_CONFIRM: 'The repository is large; confirm before creating a worktree.',
   WORKTREE_DIRTY: 'The worktree has uncommitted changes.',

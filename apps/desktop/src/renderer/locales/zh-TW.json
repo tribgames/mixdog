@@ -4944,6 +4944,7 @@
   "The remote repository rules rejected this push. Review the details, then update the branch and try again.": "遠端儲存庫規則拒絕了此次 Push。請查看詳細資訊、更新分支，然後重試。",
   "The rename may or may not have applied because the scheduler did not answer. Check the schedule list.": "排程器沒有回應，無法確定重新命名是否已套用。請檢查排程清單。",
   "The repair script failed (exit {{code}}).": "修復指令碼失敗(結束碼 {{code}})。",
+  "The repository's default branch can't be opened in a worktree: the project folder could not switch to it while the worktree exists. Check it out in the project folder, or create a new branch for the worktree.": "無法在工作樹中開啟儲存庫的預設分支：工作樹存在期間，專案資料夾將無法切換到該分支。請在專案資料夾中簽出它，或為工作樹建立新分支。",
   "The representative bot helps with anything, sets up Mixdog and makes other bots.": "主機器人可以幫你處理各種事情、設定 Mixdog 並建立其他機器人。",
   "The request could not be sent to the PC.": "無法向 PC 傳送請求。",
   "The request exceeds the size limit.": "請求超出大小限制。",

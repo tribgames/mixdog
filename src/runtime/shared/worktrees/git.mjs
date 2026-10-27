@@ -186,6 +186,21 @@ export async function localBranches(cwd, { signal, prefix = '' } = {}) {
   return lines(result.stdout);
 }
 
+/** The local branch names the repository's remotes declare as their default (`refs/remotes/<remote>/HEAD`). */
+export async function remoteDefaultBranches(cwd) {
+  const result = await runGit(cwd, ['for-each-ref', '--format=%(refname) %(symref)', 'refs/remotes'], {
+    readOnly: true,
+  });
+  const names = [];
+  for (const line of lines(result.stdout)) {
+    const [ref, target] = line.split(' ');
+    if (!ref.endsWith('/HEAD') || !target) continue;
+    const remote = ref.slice(0, -'HEAD'.length);
+    if (target.startsWith(remote)) names.push(target.slice(remote.length));
+  }
+  return names;
+}
+
 export async function validBranchName(cwd, branch) {
   if (typeof branch !== 'string' || !branch.trim() || branch.startsWith('-')) return false;
   const result = await runGit(cwd, ['check-ref-format', '--branch', branch], { allowFailure: true });

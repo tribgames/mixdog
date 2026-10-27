@@ -4944,6 +4944,7 @@
   "The remote repository rules rejected this push. Review the details, then update the branch and try again.": "リモートリポジトリのルールによりプッシュが拒否されました。詳細を確認し、ブランチを更新してからもう一度実行してください。",
   "The rename may or may not have applied because the scheduler did not answer. Check the schedule list.": "スケジューラーが応答しなかったため、名前の変更が適用されたかどうか分かりません。スケジュール一覧を確認してください。",
   "The repair script failed (exit {{code}}).": "修復スクリプトが失敗しました(終了コード {{code}})。",
+  "The repository's default branch can't be opened in a worktree: the project folder could not switch to it while the worktree exists. Check it out in the project folder, or create a new branch for the worktree.": "リポジトリのデフォルトブランチはワークツリーで開けません。ワークツリーがある間、プロジェクトフォルダーをこのブランチに切り替えられなくなるためです。プロジェクトフォルダーでチェックアウトするか、ワークツリー用に新しいブランチを作成してください。",
   "The representative bot helps with anything, sets up Mixdog and makes other bots.": "メインボットは何でも手伝い、Mixdog の設定やほかのボットの作成も行います。",
   "The request could not be sent to the PC.": "PCにリクエストを送信できませんでした。",
   "The request exceeds the size limit.": "リクエストはサイズ制限を超えています。",

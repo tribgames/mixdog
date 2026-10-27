@@ -177,8 +177,10 @@ test('a path removal resolves its managed owner: snapshot, own or other session,
   await h.run({ op: 'remove-path', path: '/wt/theirs' });
   assert.deepEqual(h.calls[0], ['removeSnapshot', { path: '/wt/snap', force: false }]);
   assert.deepEqual(h.calls[1], ['removeWorktree', { force: true, expectedRevision: 4 }, { ownTurn: true }]);
-  assert.equal(h.calls[3][1].method, 'removeWorktree');
-  assert.deepEqual(h.calls[3][1].input, { force: false, expectedRevision: 9 });
+  // Another session's worktree: listed first (a gone owner's is removed here), then its own lane.
+  assert.equal(h.calls[2][0], 'listWorktrees');
+  assert.equal(h.calls[4][1].method, 'removeWorktree');
+  assert.deepEqual(h.calls[4][1].input, { force: false, expectedRevision: 9 });
   await assert.rejects(h.run({ op: 'remove-path', path: '/elsewhere' }), /not a Mixdog-managed worktree/);
   await assert.rejects(h.run({ op: 'remove-path', path: '/wt/orphan' }), /git worktree prune removes it/);
   await assert.rejects(h.run({ op: 'remove-path', path: '/wt/second' }), /not the current worktree/);

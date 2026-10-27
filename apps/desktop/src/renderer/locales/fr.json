@@ -5070,6 +5070,7 @@
   "The remote repository rules rejected this push. Review the details, then update the branch and try again.": "Les règles du dépôt distant ont refusé ce Push. Consultez les détails, mettez la branche à jour, puis réessayez.",
   "The rename may or may not have applied because the scheduler did not answer. Check the schedule list.": "Le renommage a peut-être été appliqué ou non, car le planificateur n'a pas répondu. Vérifiez la liste des planifications.",
   "The repair script failed (exit {{code}}).": "Le script de réparation a échoué (code de sortie {{code}}).",
+  "The repository's default branch can't be opened in a worktree: the project folder could not switch to it while the worktree exists. Check it out in the project folder, or create a new branch for the worktree.": "La branche par défaut du dépôt ne peut pas être ouverte dans un worktree : le dossier du projet ne pourrait pas y basculer tant que le worktree existe. Extrayez-la dans le dossier du projet ou créez une nouvelle branche pour le worktree.",
   "The representative bot helps with anything, sets up Mixdog and makes other bots.": "Le bot principal aide pour tout, configure Mixdog et crée d’autres bots.",
   "The request could not be sent to the PC.": "Impossible d'envoyer la demande au PC.",
   "The request exceeds the size limit.": "La requête dépasse la limite de taille.",

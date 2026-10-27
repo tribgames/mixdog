@@ -49,6 +49,7 @@ import {
   WORKTREE_SNAPSHOT_KIND,
   worktreeBranchName,
   worktreeError,
+  worktreeRefusal,
 } from './contract.mjs';
 import {
   assertCarryable,
@@ -68,6 +69,7 @@ import {
   listWorktrees,
   localBranches,
   parseStatusPaths,
+  remoteDefaultBranches,
   runGit,
   throwIfAborted,
   validBranchName,
@@ -757,6 +759,11 @@ export async function resolveBranchWorkspace({
         repoCommonDir: repo.repoCommonDir,
       };
     }
+    // Checked out in a managed worktree, the branch a remote declares its
+    // default would stay locked away from the project folder.
+    if (!create && (await remoteDefaultBranches(repo.projectPath)).includes(branch)) {
+      throw worktreeError('WORKTREE_DEFAULT_BRANCH', undefined, { branch });
+    }
     const entry = await createManagedWorktree({
       projectPath,
       sessionId,
@@ -770,10 +777,6 @@ export async function resolveBranchWorkspace({
       confirmLarge,
       signal,
     });
-    const record = await getRecord(entry.id);
-    record.mergeTarget = repo.currentBranch;
-    await putRecord(record);
-    entry.mergeTarget = repo.currentBranch;
     return { path: entry.path, branch, entry, created: true, repoCommonDir: repo.repoCommonDir };
   });
 }
@@ -1219,7 +1222,10 @@ export async function createManagedWorktree({
         path: managedWorktreePath(repo.repoCommonDir, slug),
         branch,
         baseCommit,
-        mergeTarget,
+        // An existing branch has no base it branched from: it merges where a
+        // merge first takes it (recorded then), and until that its own work is
+        // what it gained here since baseCommit.
+        mergeTarget: existingBranch ? null : mergeTarget,
         createdAt: Date.now(),
         ownerSessionId: owner.sessionId,
         existingBranch,
@@ -1854,19 +1860,59 @@ export async function removeManagedWorktree({
       if (!current && !expected) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
       return skipped;
     }
-    assertNotShared(current, sessionId);
-    if (current.state === 'creating' || current.state === 'recovery') {
-      const rollback = await rollbackCreation(current);
-      return rollback.complete ? { removed: true } : { removed: false, retryable: true, remaining: rollback.remaining };
+    return removeLocked(current, { force, sessionId, preserveBranch, safeOnly });
+  });
+}
+
+/** The removal of `current`, under its repository lock. */
+async function removeLocked(current, { force, sessionId, preserveBranch = false, safeOnly = false }) {
+  assertNotShared(current, sessionId);
+  if (current.state === 'creating' || current.state === 'recovery') {
+    const rollback = await rollbackCreation(current);
+    return rollback.complete ? { removed: true } : { removed: false, retryable: true, remaining: rollback.remaining };
+  }
+  // Every deletion attempt of a snapshot, a resumed one included, waits
+  // for (refuses on) its consumers.
+  const release = current.kind === WORKTREE_SNAPSHOT_KIND ? holdSnapshotFolder(current) : () => {};
+  try {
+    return await decideAndFinishDeletion(current, { force, preserveBranch, safeOnly });
+  } finally {
+    release();
+  }
+}
+
+/**
+ * Remove a worktree whose owner is gone, on an explicit request: under the
+ * repository lock its retention is read again right before anything moves,
+ * so an owner that came back (a live session, a running lease holder) or a
+ * session the store still keeps it for refuses (WORKTREE_BUSY_JOBS). Then
+ * the ordinary removal guards apply (dirty or unmerged work needs `force`).
+ * @param {{ entryId: string, force?: boolean, liveSessionIds?: string[], retainedSessionIds?: string[] }} input
+ */
+export async function removeOrphanedWorktree({
+  entryId,
+  force = false,
+  liveSessionIds = [],
+  retainedSessionIds = [],
+} = {}) {
+  const record = await getRecord(entryId);
+  if (!record) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
+  return withRepoLock(record.repoCommonDir, async () => {
+    const current = await getRecord(entryId);
+    if (!current || current.kind === WORKTREE_SNAPSHOT_KIND) {
+      throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
     }
-    // Every deletion attempt of a snapshot, a resumed one included, waits
-    // for (refuses on) its consumers.
-    const release = current.kind === WORKTREE_SNAPSHOT_KIND ? holdSnapshotFolder(current) : () => {};
-    try {
-      return await decideAndFinishDeletion(current, { force, preserveBranch, safeOnly });
-    } finally {
-      release();
+    const { ownerLive, removable } = await retentionOf(current, new Set(liveSessionIds), new Set(retainedSessionIds));
+    if (ownerLive) throw worktreeRefusal('workspace-lease', { entryId });
+    if (!removable) {
+      // Retained recovery data names itself; otherwise sessions still keep it.
+      await assertRecoveryStoresClear(current);
+      throw worktreeRefusal('workspace-retained', {
+        entryId,
+        sessions: [current.ownerSessionId, ...(current.sharedSessionIds ?? [])].filter(Boolean),
+      });
     }
+    return removeLocked(current, { force });
   });
 }
 
@@ -1900,25 +1946,7 @@ export async function listManagedWorktrees({ liveSessionIds = [], retainedSessio
   const retained = new Set(retainedSessionIds);
   const rows = [];
   for (const record of Object.values((await readRegistry()).entries)) {
-    const snapshot = record.kind === WORKTREE_SNAPSHOT_KIND;
-    const ownerLive = snapshot
-      ? await snapshotHolderLive(record, live)
-      : (!!record.ownerSessionId && live.has(record.ownerSessionId)) ||
-        leaseProcessAlive(await readOwnerLease(record));
-    const isRetained = !!record.ownerSessionId && retained.has(record.ownerSessionId);
-    // A snapshot outlives no holder: the prune removes it, changes and all.
-    let removable = snapshot
-      ? !ownerLive
-      : !record.sharedSessionIds?.length &&
-        (record.state !== 'ready' || (!ownerLive && (record.disposable === true || !isRetained)));
-    if (removable) {
-      try {
-        await assertRecoveryStoresClear(record);
-      } catch (error) {
-        if (error?.code !== 'WORKTREE_FILE_RECOVERY') throw error;
-        removable = false;
-      }
-    }
+    const { ownerLive, retained: isRetained, removable } = await retentionOf(record, live, retained);
     rows.push({
       ...entryView(record),
       projectPath: record.projectPath,
@@ -1928,6 +1956,29 @@ export async function listManagedWorktrees({ liveSessionIds = [], retainedSessio
     });
   }
   return rows;
+}
+
+/** Who keeps `record` (listManagedWorktrees): `live` and `retained` are session id sets. */
+async function retentionOf(record, live, retained) {
+  const snapshot = record.kind === WORKTREE_SNAPSHOT_KIND;
+  const ownerLive = snapshot
+    ? await snapshotHolderLive(record, live)
+    : (!!record.ownerSessionId && live.has(record.ownerSessionId)) || leaseProcessAlive(await readOwnerLease(record));
+  const isRetained = !!record.ownerSessionId && retained.has(record.ownerSessionId);
+  // A snapshot outlives no holder: the prune removes it, changes and all.
+  let removable = snapshot
+    ? !ownerLive
+    : !record.sharedSessionIds?.length &&
+      (record.state !== 'ready' || (!ownerLive && (record.disposable === true || !isRetained)));
+  if (removable) {
+    try {
+      await assertRecoveryStoresClear(record);
+    } catch (error) {
+      if (error?.code !== 'WORKTREE_FILE_RECOVERY') throw error;
+      removable = false;
+    }
+  }
+  return { ownerLive, retained: isRetained, removable };
 }
 
 /**

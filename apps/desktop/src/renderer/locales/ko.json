@@ -4944,6 +4944,7 @@
   "The remote repository rules rejected this push. Review the details, then update the branch and try again.": "원격 저장소 규칙이 푸시를 거부했습니다. 상세 내용을 확인하고 브랜치를 업데이트한 뒤 다시 시도하세요.",
   "The rename may or may not have applied because the scheduler did not answer. Check the schedule list.": "스케줄러가 응답하지 않아 이름 바꾸기가 적용되었는지 알 수 없습니다. 스케줄 목록을 확인해 주세요.",
   "The repair script failed (exit {{code}}).": "복구 스크립트가 실패했습니다(종료 코드 {{code}}).",
+  "The repository's default branch can't be opened in a worktree: the project folder could not switch to it while the worktree exists. Check it out in the project folder, or create a new branch for the worktree.": "저장소의 기본 브랜치는 워크트리에서 열 수 없습니다. 워크트리가 있는 동안에는 프로젝트 폴더를 이 브랜치로 전환할 수 없기 때문입니다. 대신 프로젝트 폴더에서 체크아웃하거나 워크트리용 새 브랜치를 만들어야 합니다.",
   "The representative bot helps with anything, sets up Mixdog and makes other bots.": "대표 봇은 무엇이든 돕고, Mixdog 설정을 맞추고, 다른 봇을 만듭니다.",
   "The request could not be sent to the PC.": "PC로 요청을 보내지 못했습니다.",
   "The request exceeds the size limit.": "요청이 전송 크기 제한을 초과했습니다.",

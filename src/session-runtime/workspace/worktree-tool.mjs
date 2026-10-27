@@ -117,6 +117,15 @@ export function createWorktreeToolHost({
   }
 
   /**
+   * The listed worktree matching `predicate` whose owner is gone and that the
+   * list reports removable, or null: no owner lane can remove it.
+   */
+  async function orphan(predicate) {
+    const rows = await workspaceApi().listWorktrees();
+    return rows.find((row) => predicate(row) && row.ownerLive === false && row.removable === true) ?? null;
+  }
+
+  /**
    * `git worktree remove <path>`: the managed removal of whichever owner
    * holds it — this session's snapshot, or the worktree a session retains
    * (its own lane: the same guards as the desktop's removal).
@@ -129,6 +138,9 @@ export function createWorktreeToolHost({
       );
     }
     if (entry.kind === 'snapshot') return workspaceApi().removeSnapshot({ path: entry.path, force: request.force });
+    if (entry.ownerSessionId !== callerSessionId && (await orphan((row) => row.id === entry.id))) {
+      return workspaceApi().removeOrphanWorktree({ entryId: entry.id, force: request.force === true });
+    }
     if (!entry.ownerSessionId) {
       throw new Error(
         `git worktree remove: no session retains ${entry.path}; git worktree prune removes it once it is clean and merged`
@@ -161,8 +173,14 @@ export function createWorktreeToolHost({
         return back(lane(), request);
       case 'merge':
         return merge(lane());
-      case 'remove':
-        return lane().call('removeWorktree', { force: request.force === true });
+      case 'remove': {
+        const force = request.force === true;
+        if (request.sessionId && request.sessionId !== callerSessionId) {
+          const gone = await orphan((row) => row.ownerSessionId === request.sessionId);
+          if (gone) return workspaceApi().removeOrphanWorktree({ entryId: gone.id, force });
+        }
+        return lane().call('removeWorktree', { force });
+      }
       case 'list':
         return workspaceApi().listWorktrees({ includeSnapshots: true });
       case 'prune':

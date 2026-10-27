@@ -2400,6 +2400,56 @@ test('removing the worktree asks in a danger popup and a refusal shows in a popu
   assert.equal(popup().querySelector('p').textContent, 'The worktree has uncommitted changes.');
 });
 
+test('a worktree on an existing branch (no merge target of its own) merges into the project folder branch', async (t) => {
+  const { root, document, window } = mount(t);
+  const calls = [];
+  const workspace = worktreeWorkspace({
+    cwd: '/data/worktrees/dev',
+    worktreeId: 'dev',
+    branch: 'dev',
+    mergeTarget: null,
+  });
+  window.mixdogDesktop.invokeCapability = async (request) => {
+    if (request.capability === 'getBranchMenu') {
+      return {
+        value: {
+          workspace,
+          branches: [islandBranch('trunk', true), islandBranch('dev')],
+          occupancy: [
+            { branch: 'trunk', kind: 'current' },
+            { branch: 'dev', kind: 'session', sessionId: 'island-session' },
+          ],
+          retainedWorktree: null,
+        },
+      };
+    }
+    if (request.capability === 'getSessionReviewDiff') return { value: null };
+    calls.push(request);
+    return { value: { merged: true, target: 'trunk', commit: 'abc999' } };
+  };
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps({ workspace }))));
+  const segment = () => document.querySelector('.composer-island-seg-worktree');
+  const menu = () => document.querySelector('.composer-island-branch-panel');
+  await act(async () => segment().click());
+  // The menu read (the project folder's branch) settles.
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  const merge = menu().querySelector('[data-action-id="merge"]');
+  assert.ok(merge, 'Merge is offered');
+  assert.equal(merge.textContent, 'Merge into trunk');
+  await act(async () => merge.click());
+  const popup = document.querySelector('.settings-confirm-dialog');
+  assert.equal(popup.querySelector('h3').textContent, 'Merge dev into trunk?');
+  assert.match(popup.querySelector('p').textContent, /The project folder must be on trunk/);
+  await act(async () => [...popup.querySelectorAll('footer button')][1].click());
+  assert.deepEqual(calls, [
+    {
+      capability: 'mergeWorkspace',
+      args: [{ confirmed: true, target: 'trunk', expectedRevision: 4, cleanup: true }],
+      sessionId: 'island-session',
+    },
+  ]);
+});
+
 test('a merge whose route changes mid-flight still flashes on the merging session only, once', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 5_000_000 });
   const { root, document, window } = mount(t);

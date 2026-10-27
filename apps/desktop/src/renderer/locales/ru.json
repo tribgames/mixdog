@@ -5133,6 +5133,7 @@
   "The remote repository rules rejected this push. Review the details, then update the branch and try again.": "Правила удалённого репозитория отклонили Push. Просмотрите подробности, обновите ветку и повторите попытку.",
   "The rename may or may not have applied because the scheduler did not answer. Check the schedule list.": "Неизвестно, применилось ли переименование: планировщик не ответил. Проверьте список расписаний.",
   "The repair script failed (exit {{code}}).": "Скрипт восстановления завершился с ошибкой (код выхода {{code}}).",
+  "The repository's default branch can't be opened in a worktree: the project folder could not switch to it while the worktree exists. Check it out in the project folder, or create a new branch for the worktree.": "Основную ветку репозитория нельзя открыть в worktree: пока worktree существует, папка проекта не сможет на неё переключиться. Переключитесь на неё в папке проекта или создайте для worktree новую ветку.",
   "The representative bot helps with anything, sets up Mixdog and makes other bots.": "Основной бот помогает с чем угодно, настраивает Mixdog и создаёт других ботов.",
   "The request could not be sent to the PC.": "Не удалось отправить запрос на PC.",
   "The request exceeds the size limit.": "Размер запроса превышает ограничение.",

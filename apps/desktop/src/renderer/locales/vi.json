@@ -4944,6 +4944,7 @@
   "The remote repository rules rejected this push. Review the details, then update the branch and try again.": "Các quy tắc của kho lưu trữ từ xa đã từ chối Push này. Xem chi tiết, cập nhật nhánh rồi thử lại.",
   "The rename may or may not have applied because the scheduler did not answer. Check the schedule list.": "Không rõ việc đổi tên đã được áp dụng hay chưa vì bộ lập lịch không phản hồi. Hãy kiểm tra danh sách lịch.",
   "The repair script failed (exit {{code}}).": "Tập lệnh sửa chữa thất bại (mã thoát {{code}}).",
+  "The repository's default branch can't be opened in a worktree: the project folder could not switch to it while the worktree exists. Check it out in the project folder, or create a new branch for the worktree.": "Không thể mở nhánh mặc định của kho lưu trữ trong worktree: thư mục dự án sẽ không thể chuyển sang nhánh đó khi worktree còn tồn tại. Hãy checkout nhánh đó trong thư mục dự án hoặc tạo nhánh mới cho worktree.",
   "The representative bot helps with anything, sets up Mixdog and makes other bots.": "Bot chính giúp mọi việc, thiết lập Mixdog và tạo các bot khác.",
   "The request could not be sent to the PC.": "Không thể gửi yêu cầu tới PC.",
   "The request exceeds the size limit.": "Yêu cầu vượt quá giới hạn kích thước.",

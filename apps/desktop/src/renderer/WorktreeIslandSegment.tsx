@@ -30,7 +30,13 @@ import { usePaneKey } from './pane-key-context';
 import { prefetchSessionChanges } from './session-changes-store';
 import { SettingsConfirmDialog } from './settings/capability-controls';
 import type { SettingsConfirmation } from './settings/capability-data';
-import { branchRows, invokeWorktree, worktreeFailure, worktreeFailureText } from './worktree-branch-model';
+import {
+  branchRows,
+  invokeWorktree,
+  projectFolderBranch,
+  worktreeFailure,
+  worktreeFailureText,
+} from './worktree-branch-model';
 
 /** A git checkout the segment can name. A project-folder workspace may carry
  *  its branch without repoCommonDir; a detached HEAD is told from "not a
@@ -225,6 +231,10 @@ export function BranchIslandSegment({
   const branch = workspace.branch || (worktree ? t('Worktree') : commit || 'HEAD');
   const slash = worktree ? branch.lastIndexOf('/') : -1;
   const target = workspace.mergeTarget || '';
+  // A worktree with no merge target of its own (an existing branch) merges
+  // where every merge goes: the project folder's checked-out branch, sent as
+  // the confirmed target so a switch meanwhile refuses.
+  const mergeInto = target || projectFolderBranch(menu);
 
   const toggle = () => {
     if (open) {
@@ -255,7 +265,7 @@ export function BranchIslandSegment({
       // Cleanup follows the worktree settings' automatic cleanup.
       const result = await invokeWorktree<DesktopMergeWorkspaceResult>(
         'mergeWorkspace',
-        [{ confirmed: true, target, expectedRevision: workspace.revision, cleanup: true }],
+        [{ confirmed: true, target: mergeInto, expectedRevision: workspace.revision, cleanup: true }],
         sessionId
       );
       if (!result.merged) {
@@ -269,10 +279,10 @@ export function BranchIslandSegment({
       // A refused cleanup never undoes the merge: it only keeps the worktree.
       const kept = result.cleanup?.removed === false;
       let text = result.upToDate
-        ? t('Nothing to merge into {{target}}', { target })
-        : t('Merged {{source}} into {{target}}', { source: branch, target });
+        ? t('Nothing to merge into {{target}}', { target: mergeInto })
+        : t('Merged {{source}} into {{target}}', { source: branch, target: mergeInto });
       if (kept && !result.upToDate) {
-        text = t('Merged {{source}} into {{target}}; the worktree was kept', { source: branch, target });
+        text = t('Merged {{source}} into {{target}}; the worktree was kept', { source: branch, target: mergeInto });
       }
       onFlash?.({ key: `worktree-merge:${result.commit ?? ''}:${workspace.revision}`, text }, sessionId);
     });
@@ -306,19 +316,19 @@ export function BranchIslandSegment({
         },
       });
     }
-    if (!recovery && target) {
+    if (!recovery && mergeInto) {
       items.push({
         id: 'merge',
-        label: t('Merge into {{value0}}', { value0: target }),
+        label: t('Merge into {{value0}}', { value0: mergeInto }),
         icon: GitMerge,
         switches: true,
         onSelect: () => {
           close();
           setDialog({
-            title: t('Merge {{source}} into {{target}}?', { source: branch, target }),
+            title: t('Merge {{source}} into {{target}}?', { source: branch, target: mergeInto }),
             description: t(
               'A merge commit joins the branches. The project folder must be on {{target}} with no uncommitted changes.',
-              { target }
+              { target: mergeInto }
             ),
             confirmLabel: t('Merge'),
             // Cleanup follows the worktree settings' automatic cleanup.

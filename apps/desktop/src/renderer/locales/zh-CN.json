@@ -4944,6 +4944,7 @@
   "The remote repository rules rejected this push. Review the details, then update the branch and try again.": "远程仓库规则拒绝了此次 Push。请查看详细信息，更新分支后重试。",
   "The rename may or may not have applied because the scheduler did not answer. Check the schedule list.": "调度器没有响应，无法确定重命名是否已生效。请检查计划列表。",
   "The repair script failed (exit {{code}}).": "修复脚本失败(退出码 {{code}})。",
+  "The repository's default branch can't be opened in a worktree: the project folder could not switch to it while the worktree exists. Check it out in the project folder, or create a new branch for the worktree.": "无法在工作树中打开仓库的默认分支：工作树存在期间，项目文件夹将无法切换到该分支。请在项目文件夹中检出它，或为工作树创建新分支。",
   "The representative bot helps with anything, sets up Mixdog and makes other bots.": "主机器人可以帮你处理各种事情、设置 Mixdog 并创建其他机器人。",
   "The request could not be sent to the PC.": "无法向 PC 发送请求。",
   "The request exceeds the size limit.": "请求超出大小限制。",
