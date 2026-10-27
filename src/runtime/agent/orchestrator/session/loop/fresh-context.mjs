@@ -278,14 +278,19 @@ function currentSkillResolver(sessionRef, { preview = false } = {}) {
   return (name) => {
     const delivery = currentSkillDelivery(name, cwd, config, skills);
     if (!delivery) return null;
-    if (preview) return { body: delivery.body, native: undefined };
     const { resource } = delivery;
+    // The tools whose use counts as use of the skill: its tool dependencies,
+    // an MCP server as `mcp:<server>`.
+    const tools = (resource.toolDependencies || []).flatMap(({ type, value }) =>
+      type === 'tool' ? [value] : type === 'mcp' ? [`mcp:${value}`] : []
+    );
+    if (preview) return { body: delivery.body, native: undefined, tools };
     const envelope = loadSkillToolDependencies(
       buildSkillToolEnvelope(name, resource.content, resource.dir, resource),
       sessionRef
     );
     const native = parseNativeToolSearchPayload('Skill', envelope.result);
-    return { body: delivery.body, native, summary: native?.summary ?? envelope.result };
+    return { body: delivery.body, native, summary: native?.summary ?? envelope.result, tools };
   };
 }
 

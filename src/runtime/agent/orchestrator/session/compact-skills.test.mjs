@@ -6,17 +6,31 @@ import test from 'node:test';
 import { buildSkillToolEnvelope } from '../context/collect.mjs';
 import { latestSkillBodies } from '../context/skill-state.mjs';
 import { freshContextCompactMessages } from './compact.mjs';
+import { SKILL_RELOAD_MAX_IDLE } from './compact/runner.mjs';
 import { estimateMessagesTokens } from './context-utils.mjs';
 import { latestActualUserInstructionMessage } from './compact/messages.mjs';
 import { prepareProviderPrefixGuard } from './provider-prefix-guard.mjs';
 
 const skill = (name, text) => buildSkillToolEnvelope(name, text, `/skills/${name}`).newMessages[0];
-const compact = (messages) =>
+const compact = (messages, extra = {}) =>
   freshContextCompactMessages(messages, 10_000, {
     force: true,
     handoffText: 'The request is still in progress.',
     activeTurn: true,
+    ...extra,
   });
+// Repeated Compacts archive the execution history they drop.
+function useDataDir(t) {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-compact-skill-window-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  t.after(() => {
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+}
+const reloadLines = (messages) => messages.filter((message) => message.meta?.source === 'compact-skill-reload');
 
 test('Compact restores the latest complete skill body and resume can reuse it without a new Skill call', () => {
   const old = skill('guide', '# Old procedure');
@@ -47,10 +61,15 @@ test('Compact restores the latest complete skill body and resume can reuse it wi
     { messages: resumed }
   );
   assert.deepEqual(repeat.newMessages, []);
+  // Nothing used either skill since: no bodies, one reload line each.
   const second = compact(resumed);
+  assert.deepEqual(latestSkillBodies(second.messages), []);
   assert.deepEqual(
-    latestSkillBodies(second.messages).map((entry) => entry.message),
-    [other, current]
+    reloadLines(second.messages).map((line) => [line.meta.skill, line.meta.idle]),
+    [
+      ['other', 1],
+      ['guide', 1],
+    ]
   );
   assert.equal(
     second.messages.some((message) => message.meta?.source === 'skill-context'),
@@ -185,4 +204,148 @@ test('skills are isolated by transcript, not by a process-wide loaded flag', () 
   ]);
   assert.equal(latestSkillBodies(compact(source).messages).length, 1);
   assert.equal(latestSkillBodies(separate.messages).length, 0);
+});
+
+// A model-driven load, as the Skill tool records it: the call, its stub result
+// and (unless the body is already in context) the injected body.
+let loadCount = 0;
+function load(messages, name, text) {
+  const id = `toolu_load_${name}_${(loadCount += 1)}`;
+  const envelope = buildSkillToolEnvelope(name, text, `/skills/${name}`, {}, { messages });
+  return [
+    { role: 'assistant', content: '', toolCalls: [{ id, name: 'Skill', arguments: { name } }] },
+    { role: 'tool', toolCallId: id, content: envelope.result },
+    ...envelope.newMessages,
+  ];
+}
+const bodiesOf = (messages, name) =>
+  messages.filter((message) => message.role === 'user' && String(message.content).startsWith(`<skill>\n<name>${name}</name>`));
+const idle = (messages) => Object.fromEntries(reloadLines(messages).map((line) => [line.meta.skill, line.meta.idle]));
+
+function twoSkills() {
+  const transcript = [{ role: 'system', content: 'S' }, { role: 'user', content: 'Start' }];
+  transcript.push(...load(transcript, 'alpha', '# Alpha'));
+  transcript.push(...load(transcript, 'beta', '# Beta'));
+  transcript.push({ role: 'user', content: 'Continue' });
+  return transcript;
+}
+
+test('after a Compact only the skills used in the window return as bodies; the rest become one reload line', () => {
+  const first = compact(twoSkills());
+  assert.deepEqual(
+    latestSkillBodies(first.messages).map((entry) => entry.name),
+    ['alpha', 'beta']
+  );
+  assert.deepEqual(reloadLines(first.messages), []);
+  // Window two uses beta only (its Skill call finds the restored body: no new one).
+  const next = [...first.messages, { role: 'assistant', content: 'Working.' }];
+  next.push(...load(next, 'beta', '# Beta'), { role: 'user', content: 'More' });
+  const second = compact(next);
+  assert.deepEqual(
+    latestSkillBodies(second.messages).map((entry) => entry.name),
+    ['beta']
+  );
+  assert.equal(bodiesOf(second.messages, 'beta').length, 1);
+  assert.deepEqual(idle(second.messages), { alpha: 1 });
+  const [line] = reloadLines(second.messages);
+  assert.match(line.content, /Skill "alpha" was active earlier, but Compact did not keep its instructions\. Reload it with the Skill tool/);
+  assert.doesNotMatch(line.content, /did not fit/);
+});
+
+test('a skill whose linked tool ran in the window is restored although it was not reloaded', () => {
+  const body = skill('guide', '# Guide');
+  const loader = nativeSkillLoader('guide', 'tidy');
+  const first = compact([
+    { role: 'system', content: 'S' },
+    { role: 'user', content: 'Start' },
+    { role: 'assistant', content: '', toolCalls: [loader.call] },
+    loader.result,
+    body,
+    { role: 'user', content: 'Continue' },
+  ]);
+  assert.equal(bodiesOf(first.messages, 'guide').length, 1);
+  const run = (tool) => [
+    ...first.messages,
+    { role: 'assistant', content: '', toolCalls: [{ id: 'toolu_run', name: tool, arguments: {} }] },
+    { role: 'tool', toolCallId: 'toolu_run', content: 'ok' },
+    { role: 'user', content: 'More' },
+  ];
+  const used = compact(run('tidy'));
+  assert.equal(bodiesOf(used.messages, 'guide').length, 1);
+  assert.deepEqual(reloadLines(used.messages), []);
+  assert.equal(referencing(used.messages, 'tidy').length, 1);
+  const unused = compact(run('read'));
+  assert.equal(bodiesOf(unused.messages, 'guide').length, 0);
+  assert.deepEqual(idle(unused.messages), { guide: 1 });
+});
+
+test('a reload line is dropped once its skill stayed unused for the bound', (t) => {
+  useDataDir(t);
+  const extra = { sessionId: 'compact-skill-window', contextWindow: 20_000 };
+  let messages = compact(twoSkills(), extra).messages;
+  const seen = [];
+  for (let round = 0; round <= SKILL_RELOAD_MAX_IDLE + 1; round += 1) {
+    messages = [...messages, { role: 'assistant', content: 'Working.' }];
+    messages.push(...load(messages, 'beta', '# Beta'), { role: 'user', content: `Round ${round}` });
+    messages = compact(messages, extra).messages;
+    seen.push(idle(messages).alpha);
+  }
+  assert.deepEqual(seen, [1, 2, 3, undefined, undefined]);
+  assert.equal(bodiesOf(messages, 'beta').length, 1);
+  assert.equal(JSON.stringify(messages).includes('Skill \\"alpha\\"'), false);
+});
+
+test('loading a skill whose body Compact restored adds no second copy, and a reload line is replaced by the body', () => {
+  const first = compact(twoSkills());
+  const again = load(first.messages, 'alpha', '# Alpha');
+  assert.equal(bodiesOf(again, 'alpha').length, 0);
+  assert.match(again[1].content, /already active/);
+  // alpha unused for one window: only a reload line is left.
+  const next = [...first.messages, { role: 'assistant', content: 'Working.' }];
+  next.push(...load(next, 'beta', '# Beta'), { role: 'user', content: 'More' });
+  const second = compact(next);
+  assert.equal(bodiesOf(second.messages, 'alpha').length, 0);
+  const reloaded = [...second.messages];
+  reloaded.push(...load(reloaded, 'alpha', '# Alpha'), { role: 'user', content: 'Again' });
+  assert.equal(bodiesOf(reloaded, 'alpha').length, 1);
+  const third = compact(reloaded);
+  assert.equal(bodiesOf(third.messages, 'alpha').length, 1);
+  assert.deepEqual(reloadLines(third.messages).filter((line) => line.meta.skill === 'alpha'), []);
+});
+
+test('consecutive passes that keep the summary verbatim still move the window boundary', (t) => {
+  useDataDir(t);
+  const extra = { sessionId: 'compact-skill-kept-summary', contextWindow: 20_000 };
+  const rules = (messages) => compact(messages, { ...extra, handoffText: '' }).messages;
+  const summaryOf = (messages) => messages.find((message) => message.meta?.source === 'compact-summary');
+  const first = compact(twoSkills(), extra).messages;
+  const next = [...first, { role: 'assistant', content: 'Working.' }];
+  next.push(...load(next, 'beta', '# Beta'), { role: 'user', content: 'More' });
+  const second = rules(next);
+  assert.deepEqual(latestSkillBodies(second).map((entry) => entry.name), ['beta']);
+  assert.equal(summaryOf(second).content, summaryOf(first).content);
+  assert.deepEqual(idle(second), { alpha: 1 });
+  // Nothing is used in the third window: beta's earlier call, still retained
+  // after the summary, is history.
+  const third = rules([...second, { role: 'assistant', content: 'Idle.' }, { role: 'user', content: 'Again' }]);
+  assert.deepEqual(latestSkillBodies(third), []);
+  assert.deepEqual(idle(third), { alpha: 2, beta: 1 });
+});
+
+test('without any summary an unused skill still ages to a reload line and disappears', (t) => {
+  useDataDir(t);
+  const extra = { sessionId: 'compact-skill-no-summary', contextWindow: 20_000, handoffText: '' };
+  const transcript = [{ role: 'system', content: 'S' }, { role: 'user', content: 'Start' }];
+  transcript.push(...load(transcript, 'alpha', '# Alpha'), { role: 'user', content: 'Continue' });
+  let messages = compact(transcript, extra).messages;
+  assert.equal(messages.some((message) => message.meta?.source === 'compact-summary'), false);
+  assert.equal(bodiesOf(messages, 'alpha').length, 1);
+  // The Skill call and its result stay in the preserved conversation; with no
+  // further use they are history, and nothing is restored again.
+  const seen = [];
+  for (let round = 0; round < SKILL_RELOAD_MAX_IDLE + 3; round += 1) {
+    messages = compact([...messages, { role: 'assistant', content: 'Idle.' }, { role: 'user', content: `Round ${round}` }], extra).messages;
+    seen.push([bodiesOf(messages, 'alpha').length, idle(messages).alpha]);
+  }
+  assert.deepEqual(seen, [[0, 1], [0, 2], [0, 3], [0, undefined], [0, undefined], [0, undefined]]);
 });

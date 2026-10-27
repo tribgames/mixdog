@@ -131,6 +131,37 @@ test('Compact restores an edited skill from its current source, with a loader pa
   });
 });
 
+test('running a skill\'s eager dependency tool in the window keeps its body; otherwise it becomes a reload line', async () => {
+  await withSkills(async ({ root, write }) => {
+    write('guide', '# Guide\nRULE', 'grep');
+    const session = newSession(root);
+    await load(session, 'guide');
+    session.messages.push(...work());
+    const first = await compact(session);
+    assert.equal(skillMessages(first).length, 1);
+    const window = (used) => [
+      ...first,
+      { role: 'assistant', content: 'Next.' },
+      ...(used
+        ? [
+            { role: 'assistant', content: '', toolCalls: [{ id: 'toolu_dep', name: 'grep', arguments: { pattern: 'x' } }] },
+            { role: 'tool', toolCallId: 'toolu_dep', content: 'ok' },
+          ]
+        : []),
+      { role: 'user', content: 'More' },
+    ];
+    const used = await compact({ ...session, messages: window(true) });
+    assert.equal(skillMessages(used).length, 1);
+    assert.equal(used.some((m) => m.meta?.source === 'compact-skill-reload'), false);
+    const idle = await compact({ ...session, messages: window(false) });
+    assert.equal(skillMessages(idle).length, 0);
+    assert.deepEqual(
+      idle.filter((m) => m.meta?.source === 'compact-skill-reload').map((m) => m.meta.skill),
+      ['guide']
+    );
+  });
+});
+
 test('Compact keeps an unchanged skill and its loader pair exactly as loaded', async () => {
   await withSkills(async ({ root, write }) => {
     write('guide', '# Guide\nSTEADY_RULE', 'office');

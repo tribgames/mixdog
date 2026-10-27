@@ -25,6 +25,7 @@ import { activeTurnContinuationMessage } from './continuation.mjs';
 import { EXECUTION_RECOVERY_SOURCE, buildExecutionTail } from './execution-tail.mjs';
 import { latestSkillBodies, skillMessageText } from '../../context/skill-state.mjs';
 import { effectiveBudget } from './budget.mjs';
+import { parseMcpToolName } from '../../../../shared/tool-primitives.mjs';
 import { stripRuntimeUserContext, withRuntimeUserContext } from '../runtime-user-context.mjs';
 import { carryMessageId, messageIdOf } from '../message-ids.mjs';
 import { normalizeIngestRole, shouldExcludeIngestMessage } from '../../../../memory/lib/session-ingest.mjs';
@@ -70,12 +71,23 @@ function splitFreshSource(messages) {
       break;
     }
   }
+  // Where the previous Compact's skill-use window opens: `live` index after
+  // the history it kept (see SKILL_WINDOW_SOURCE). Without a marker the whole
+  // transcript is the window.
+  const isKept = (message) => !isSummaryMessage(message) && message?.meta?.source !== SKILL_WINDOW_SOURCE;
+  const markerAt = conversation.findLastIndex((message) => message?.meta?.source === SKILL_WINDOW_SOURCE);
+  const span = conversation[markerAt]?.meta?.span;
+  const skillWindowStart =
+    markerAt >= 0 && Number.isInteger(span) && span >= 0
+      ? conversation.slice(0, markerAt).filter(isKept).length + span
+      : 0;
   const latestUserIndex = latestActualUserInstructionIndex(conversation);
   return {
     protectedPrefix,
     previousSummary: previousSummaryMessage?.content || null,
     previousSummaryMessage,
     previousAck,
+    skillWindowStart,
     // Budgeting, AI input and rule-only retention use this same projection.
     // Keep current-turn reminders; remove only proven runtime additions from
     // older requests. Unmarked legacy text remains part of the summary budget.
@@ -86,7 +98,7 @@ function splitFreshSource(messages) {
       .map((message, index) =>
         index === latestUserIndex ? message : referenceMessageMedia(stripRuntimeUserContext(message))
       )
-      .filter((message) => !isSummaryMessage(message)),
+      .filter(isKept),
     sanitized,
   };
 }
@@ -564,44 +576,140 @@ function currentSkillBodyMessage(message, current) {
 
 const SKILL_RELOAD_SOURCE = 'compact-skill-reload';
 
-function skillReloadReminder(name) {
+// How many Compacts in a row a skill may go unused before even its reload
+// line is dropped. The line costs ~40 tokens, so it is cheap to keep for a
+// while, but a skill untouched across three Compacts belongs to finished work;
+// the model still sees it in the skill manifest and can load it by name. Three
+// is also long enough for a skill used every other phase of a task to keep its
+// line without ever being forgotten mid-task.
+export const SKILL_RELOAD_MAX_IDLE = 3;
+
+const SKILL_TOOL_NAMES = new Set(['Skill', 'skill_view']);
+
+function skillReloadReminder(name, idle = 0) {
   return {
     role: 'user',
-    content: `[mixdog-runtime] Skill "${name}" was active, but its instructions did not fit after Compact. Reload it with the Skill tool before relying on them.`,
-    meta: { source: SKILL_RELOAD_SOURCE, synthetic: true, skill: name },
+    content: `[mixdog-runtime] Skill "${name}" was active earlier, but Compact did not keep its instructions. Reload it with the Skill tool before relying on them.`,
+    meta: { source: SKILL_RELOAD_SOURCE, synthetic: true, skill: name, idle },
   };
 }
 
-// Restore the skills active in the transcript, each as the Skill tool would
-// deliver it now. `currentSkill(name)` (the caller's resolver) answers
-// `{ body, native, summary }` for a skill that still loads in the session, or null for
-// one switched off, outside its scope or removed: such a skill is restored
-// neither as a body nor as a reload reminder, since its instructions are no
-// longer in force. Without a resolver the transcript copies are kept.
+function callArguments(call) {
+  if (call?.arguments && typeof call.arguments === 'object') return call.arguments;
+  try {
+    return JSON.parse(call?.arguments) || {};
+  } catch {
+    return {};
+  }
+}
+
+// Every Compact leaves this marker just ahead of the skills it restores, with
+// `span`: how many messages follow it (restored skills and retained tail).
+// All of them happened before that Compact, so the next one reads the skill
+// use window from after them, whether or not a summary exists. The marker is
+// not conversation: the next Compact removes it and writes a new one.
+const SKILL_WINDOW_SOURCE = 'compact-skill-window';
+
+function skillWindowMarker(span = 0) {
+  return {
+    role: 'user',
+    content: '[mixdog-runtime] Compact boundary.',
+    meta: { source: SKILL_WINDOW_SOURCE, synthetic: true, span },
+  };
+}
+
+// Restore the skills the session used since the previous Compact, each as the
+// Skill tool would deliver it now. A skill is used when it was loaded or one of
+// its linked tools ran in that window (`windowStart` onward); its linked
+// tools are the native tool references of its loader pair and, when the
+// resolver gives them, `tools`. `currentSkill(name)` (the caller's resolver)
+// answers `{ body, native, summary, tools? }` for a skill that still loads in
+// the session, or null for one switched off, outside its scope or removed:
+// such a skill is restored neither as a body nor as a reload line, since its
+// instructions are no longer in force. Without a resolver the transcript
+// copies are kept.
 // Never summarize/truncate operating instructions or displace the handoff
-// and current task. An omitted body leaves a one-line reload reminder, which
-// stands through later Compacts until the skill is loaded again. Reminders
-// are charged to the same budget: every skill's reminder is reserved before
-// any body is restored, and restoring a body releases its own reminder.
-function restoreSkillBodies(live, skillBudget, retainedTail, currentSkill = null) {
+// and current task. Every other active skill, and a used one whose body does
+// not fit, is left as a one-line reload line. The line counts the Compacts
+// the skill went unused (`meta.idle`) and is dropped past SKILL_RELOAD_MAX_IDLE.
+// Reload lines are charged to the same budget: every possible line is
+// reserved before any body is restored, and restoring a body releases its own.
+function restoreSkillBodies(live, skillBudget, retainedTail, currentSkill = null, windowStart = 0) {
   const retainedCallIds = new Set(retainedTail.filter((m) => m?.role === 'tool').map((m) => m.toolCallId));
   const current = (name) => (currentSkill ? currentSkill(name) : undefined);
   const loads = (name) => current(name) !== null;
   const transcriptBodies = latestSkillBodies(live);
   const loaded = new Set(transcriptBodies.map((body) => body.name));
   const bodies = transcriptBodies.filter((body) => loads(body.name));
-  const reload = live
-    .filter((m) => m?.meta?.source === SKILL_RELOAD_SOURCE && !loaded.has(m.meta.skill) && loads(m.meta.skill))
-    .map((m) => m.meta.skill);
-  const reminderCost = (name) => estimateMessagesTokens([skillReloadReminder(name)]);
-  let reserved = [...new Set([...reload, ...bodies.map((body) => body.name)])].reduce(
-    (sum, name) => sum + reminderCost(name),
-    0
-  );
-  const dropped = [];
+  // Reload lines from earlier Compacts: skill -> Compacts it went unused.
+  const earlier = new Map();
+  for (const m of live) {
+    if (m?.meta?.source !== SKILL_RELOAD_SOURCE || loaded.has(m.meta.skill) || !loads(m.meta.skill)) continue;
+    earlier.delete(m.meta.skill);
+    earlier.set(m.meta.skill, Number.isFinite(m.meta.idle) ? m.meta.idle : 0);
+  }
+
+  // Use since the previous Compact (from `windowStart`): the newest transcript
+  // position of a load or of a linked tool's call.
+  const skillsOfTool = new Map();
+  // A loader pair can sit anywhere in the transcript (a restored body stays
+  // ahead of the retained tail's pair), so read them all.
+  const results = new Map(live.filter((m) => m?.role === 'tool').map((m) => [m.toolCallId, m]));
+  const loaderTools = new Map();
+  for (const message of live) {
+    for (const call of message?.role === 'assistant' ? message.toolCalls || [] : []) {
+      const references = results.get(call.id)?.nativeToolSearch?.toolReferences;
+      if (call.name === 'Skill' && references) {
+        const name = String(callArguments(call).name || '').trim();
+        loaderTools.set(name, [...(loaderTools.get(name) || []), ...references]);
+      }
+    }
+  }
+  for (const name of new Set([...earlier.keys(), ...bodies.map((body) => body.name)])) {
+    const tools = [...(current(name)?.native?.toolReferences || []), ...(current(name)?.tools || []), ...(loaderTools.get(name) || [])];
+    for (const tool of tools) skillsOfTool.set(tool, [...new Set([...(skillsOfTool.get(tool) || []), name])]);
+  }
+  const lastUse = new Map();
+  const noteUse = (name, index) => lastUse.set(name, Math.max(lastUse.get(name) ?? -1, index));
+  live.forEach((message, index) => {
+    if (index < windowStart || message?.role !== 'assistant') return;
+    for (const call of message.toolCalls || []) {
+      const args = callArguments(call);
+      if (SKILL_TOOL_NAMES.has(call.name)) noteUse(String(args.name || '').trim(), index);
+      else {
+        const tool = call.name === 'call_tool' ? args.name : call.name;
+        const server = parseMcpToolName(tool)?.server;
+        for (const name of [...(skillsOfTool.get(tool) || []), ...(skillsOfTool.get(`mcp:${server}`) || [])]) {
+          noteUse(name, index);
+        }
+      }
+    }
+  });
+  for (const { name, message } of bodies) {
+    const index = live.lastIndexOf(message);
+    if (index >= windowStart) noteUse(name, index);
+  }
+
+  // Every active skill without a body ends as a reload line: an unused one
+  // ages by a Compact and goes once past the bound; one used (or whose body
+  // did not fit) starts over.
+  const reminders = new Map();
+  for (const [name, idle] of earlier) {
+    if (lastUse.has(name)) reminders.set(name, 0);
+    else if (idle < SKILL_RELOAD_MAX_IDLE) reminders.set(name, idle + 1);
+  }
+  const used = bodies.filter(({ name }) => lastUse.has(name)).sort((a, b) => lastUse.get(b.name) - lastUse.get(a.name));
+  const unused = bodies.filter(({ name }) => !lastUse.has(name));
+
+  const reminderCost = (name, idle = 0) => estimateMessagesTokens([skillReloadReminder(name, idle)]);
+  let reserved =
+    [...reminders].reduce((sum, [name, idle]) => sum + reminderCost(name, idle), 0) +
+    unused.reduce((sum, { name }) => sum + reminderCost(name, 1), 0) +
+    used.reduce((sum, { name }) => sum + reminderCost(name), 0);
+  const dropped = new Set();
   const restoredSkills = [];
   let skillTokens = 0;
-  for (const { name, message } of bodies.reverse()) {
+  for (const { name, message } of used) {
     const skill = current(name);
     const restored = [
       ...skillLoaderPair(live, live.lastIndexOf(message), name, retainedCallIds, skill),
@@ -610,24 +718,31 @@ function restoreSkillBodies(live, skillBudget, retainedTail, currentSkill = null
     const cost = estimateMessagesTokens(restored);
     const own = reminderCost(name);
     if (skillTokens + cost + reserved - own > skillBudget) {
-      dropped.unshift(name);
+      dropped.add(name);
       continue;
     }
     restoredSkills.unshift(...restored);
     skillTokens += cost;
     reserved -= own;
   }
-  // Newest skill first; only a budget too small for the reminders themselves
+  // In transcript order, after the lines of earlier Compacts.
+  for (const { name } of bodies) {
+    if (!lastUse.has(name)) reminders.set(name, 1);
+    else if (dropped.has(name)) reminders.set(name, 0);
+  }
+  // Newest skill first; only a budget too small for the lines themselves
   // leaves one out.
-  const pending = [...new Set([...reload, ...dropped])];
+  const pending = [...reminders];
   const reminded = new Set();
-  for (const name of pending.toReversed()) {
-    const cost = reminderCost(name);
+  for (const [name, idle] of pending.toReversed()) {
+    const cost = reminderCost(name, idle);
     if (skillTokens + cost > skillBudget) continue;
     reminded.add(name);
     skillTokens += cost;
   }
-  restoredSkills.push(...pending.filter((name) => reminded.has(name)).map(skillReloadReminder));
+  restoredSkills.push(
+    ...pending.filter(([name]) => reminded.has(name)).map(([name, idle]) => skillReloadReminder(name, idle))
+  );
   return { restoredSkills, skillTokens };
 }
 
@@ -864,15 +979,33 @@ export function freshContextCompactMessages(messages, budgetTokens, options = {}
   const summaryContent = String(summaryMessage?.content || '');
   assertHandoffFits(summaryMessage, handoff.room);
   const skillBudget = freshSkillBudget(targetBudget, budget, [...stableHead, ...tail.volatileTail]);
+  // Restored skills carry the window marker, which is charged to their budget.
+  const markerCost = estimateMessagesTokens([skillWindowMarker()]);
   const skills = {
-    ...restoreSkillBodies(source.live, skillBudget, tail.volatileTail, opts.currentSkill),
+    ...restoreSkillBodies(
+      source.live,
+      Math.max(0, skillBudget - markerCost),
+      tail.volatileTail,
+      opts.currentSkill,
+      source.skillWindowStart
+    ),
     skillBudget,
   };
-  const stablePrefixMessages = [...stableHead, ...skills.restoredSkills];
-  const result = rebaseCompactedEffortConfiguration(
+  // A session with no skill state has no use to window: no marker.
+  const marker = skills.restoredSkills.length ? [skillWindowMarker()] : [];
+  const stablePrefixMessages = [...stableHead, ...marker, ...skills.restoredSkills];
+  const compacted = rebaseCompactedEffortConfiguration(
     baseSanitized,
     reconcileDedupStubs(sanitizeToolPairs([...stablePrefixMessages, ...tail.volatileTail]))
   );
+  // The next Compact reads everything after the marker as history, not as use.
+  const markerAt = compacted.findLastIndex((message) => message?.meta?.source === SKILL_WINDOW_SOURCE);
+  const result =
+    markerAt < 0
+      ? compacted
+      : compacted.map((message, index) =>
+          index === markerAt ? skillWindowMarker(compacted.length - markerAt - 1) : message
+        );
   const finalTokens = estimateMessagesTokens(result);
   if (finalTokens > budget) {
     throw new Error(`freshContextCompactMessages: compacted result exceeds budget=${budget} (result=${finalTokens})`);
