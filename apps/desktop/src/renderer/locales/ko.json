@@ -4838,6 +4838,8 @@
   "The conversation is copied into a new session. This session stays exactly as it is.": "대화를 새 세션으로 복사해 이어갑니다. 현재 세션은 원래 상태 그대로 보존됩니다.",
   "The conversation is summarized first. The new session starts lighter, but some detail is condensed.": "먼저 대화를 요약합니다. 새 세션은 가볍게 시작되지만 세부 내용 일부가 축약됩니다.",
   "The conversation is too large to import.": "대화가 너무 커서 가져올 수 없습니다.",
+  "This is an internal record (a subagent or review), not a conversation.": "하위 에이전트나 검토에서 만들어진 내부 기록이며 대화가 아닙니다.",
+  "Part of this conversation is stored in another file and was left out.": "이 대화의 일부는 다른 파일에 저장되어 있어 가져오지 않았습니다.",
   "The conversation is too long for this model.": "대화가 이 모델에 비해 너무 깁니다.",
   "The conversation paused.": "대화가 잠시 멈췄습니다.",
   "The conversation's Project is unavailable.": "이 대화의 Project 경로를 확인할 수 없습니다.",

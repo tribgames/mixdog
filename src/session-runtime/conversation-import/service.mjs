@@ -14,6 +14,7 @@
  */
 import { randomUUID } from 'node:crypto';
 import { access, stat } from 'node:fs/promises';
+import { basename } from 'node:path';
 import {
   buildImportOrigin,
   createImportedSession,
@@ -24,10 +25,12 @@ import { sessionPath } from '../../runtime/agent/orchestrator/session/store/sess
 import {
   cachedMeta,
   convertCandidateFile,
+  displayTitle,
   getCandidate,
   importError,
   importedKeyMap,
   listConversations,
+  loadStoredTitles,
   recordConversion,
   registerFile,
   resolveSourceCwd,
@@ -131,6 +134,17 @@ function touch(job, patch = {}) {
 
 const COUNTER = { imported: 'imported', alreadyImported: 'skippedAlreadyImported', failed: 'failed' };
 
+const titlesFor = (candidate, context) => (candidate?.source === 'codex' ? context.titles : null);
+
+/** Which record a result is about: its title and source file name, for the failure report. */
+function describeCandidate(candidateId, context) {
+  const candidate = getCandidate(candidateId);
+  return {
+    title: candidate ? displayTitle(cachedMeta(candidate), titlesFor(candidate, context)) : null,
+    sourceName: candidate ? basename(candidate.path) : null,
+  };
+}
+
 function record(job, { projectPath = null, ...result }) {
   const counter = COUNTER[result.status];
   job[counter] += 1;
@@ -162,6 +176,7 @@ async function importOne(candidateId, context) {
   if (!candidate) return failed(candidateId, 'unknownCandidate');
   // The chat keeps the title the user picked it by: a long file's listing
   // title comes from its prefix and can differ from the converted branch.
+  // Codex's own stored title, when it has one, names the chat first.
   const listedTitle = cachedMeta(candidate)?.title ?? null;
   let conversion;
   try {
@@ -173,7 +188,11 @@ async function importOne(candidateId, context) {
   } catch {
     return failed(candidateId, 'unreadable');
   }
-  if (listedTitle) conversion = { ...conversion, title: listedTitle };
+  const title = displayTitle(
+    { foreignSessionId: conversion.foreignSessionId, title: listedTitle || conversion.title },
+    titlesFor(candidate, context)
+  );
+  if (title) conversion = { ...conversion, title };
   recordConversion(candidate, conversion);
   const cwdInfo = await resolveSourceCwd(conversion.cwd);
   const projectPath = cwdInfo.exists ? cwdInfo.path : null;
@@ -221,6 +240,7 @@ async function runJob(job, candidateIds, context) {
   try {
     // One catalog read per batch; later commits are seen through committedKeys.
     context.imported = await context.importedLookup();
+    context.titles = await context.loadTitles();
     for (const candidateId of candidateIds) {
       if (job.cancelRequested) break;
       let result;
@@ -228,8 +248,7 @@ async function runJob(job, candidateIds, context) {
         result = await admit(async () => {
           // A cancel that arrived while queued behind other jobs wins here.
           if (job.cancelRequested) return null;
-          const candidate = getCandidate(candidateId);
-          touch(job, { current: { candidateId, title: (candidate && cachedMeta(candidate)?.title) ?? null } });
+          touch(job, { current: { candidateId, title: describeCandidate(candidateId, context).title } });
           try {
             return await importOne(candidateId, context);
           } finally {
@@ -241,7 +260,7 @@ async function runJob(job, candidateIds, context) {
         result = failed(candidateId, 'importFailed');
       }
       if (result === null) break;
-      record(job, result);
+      record(job, { ...result, ...describeCandidate(candidateId, context) });
     }
     touch(job, { state: job.cancelRequested ? 'stopped' : 'completed' });
   } catch (error) {
@@ -296,7 +315,7 @@ export function createConversationImportApi({
       return listConversations(requireParams(params), { imported: await imported(), env });
     },
     async registerConversationImportFile(params) {
-      return registerFile(requireParams(params), { imported: await imported(), limits });
+      return registerFile(requireParams(params), { imported: await imported(), limits, env });
     },
     getConversationImportJobs(params = {}) {
       const { jobId } = requireParams(params ?? {});
@@ -334,6 +353,8 @@ export function createConversationImportApi({
           void runJob(job, candidateIds, {
             importedLookup: imported,
             imported: null,
+            titles: null,
+            loadTitles: () => loadStoredTitles('codex', env),
             sessionExists,
             limits,
             prepareLeadOptions,

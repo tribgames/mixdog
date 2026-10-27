@@ -4838,6 +4838,8 @@
   "The conversation is copied into a new session. This session stays exactly as it is.": "对话将复制到新会话，当前会话保持不变。",
   "The conversation is summarized first. The new session starts lighter, but some detail is condensed.": "先对对话生成摘要。新会话起步更轻量，但部分细节会被精简。",
   "The conversation is too large to import.": "对话过大，无法导入。",
+  "This is an internal record (a subagent or review), not a conversation.": "这是内部记录（子代理或审查），不是对话。",
+  "Part of this conversation is stored in another file and was left out.": "此对话的一部分存储在另一个文件中，未被导入。",
   "The conversation is too long for this model.": "对话对于此模型来说太长了。",
   "The conversation paused.": "对话暂时停下了。",
   "The conversation's Project is unavailable.": "对话的项目不可用。",

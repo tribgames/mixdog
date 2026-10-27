@@ -5024,6 +5024,8 @@
   "The conversation is copied into a new session. This session stays exactly as it is.": "Разговор копируется в новую сессию. Эта сессия остаётся без изменений.",
   "The conversation is summarized first. The new session starts lighter, but some detail is condensed.": "Сначала разговор обобщается. Новая сессия начинается легче, но часть деталей сокращается.",
   "The conversation is too large to import.": "Беседа слишком большая для импорта.",
+  "This is an internal record (a subagent or review), not a conversation.": "Это внутренняя запись (субагента или проверки), а не разговор.",
+  "Part of this conversation is stored in another file and was left out.": "Часть этого разговора хранится в другом файле и не была импортирована.",
   "The conversation is too long for this model.": "Разговор слишком длинный для этой модели.",
   "The conversation paused.": "Разговор приостановлен.",
   "The conversation's Project is unavailable.": "Проект беседы недоступен.",

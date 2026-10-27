@@ -57,6 +57,10 @@ export interface ConversationImportJob {
     sessionId?: string;
     errorCode?: string;
     warnings: string[];
+    /** The conversation's title, when it has one. */
+    title?: string | null;
+    /** File name of the source record, to tell untitled records apart. */
+    sourceName?: string | null;
   }>;
 }
 

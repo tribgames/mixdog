@@ -114,6 +114,8 @@ export function createClaudeReducer() {
   let recognized = false;
   let foreignSessionId = null;
   let cwd = null;
+  let sidechainSeen = false;
+  let mainSeen = false;
   let chars = 0;
   let metadataBytes = 0;
   return {
@@ -126,10 +128,18 @@ export function createClaudeReducer() {
     get metadataBytes() {
       return metadataBytes;
     },
+    /** Cheap running check: messages seen so far are all sidechain (a verdict only at the end of the file). */
+    get sidechainOnly() {
+      return sidechainSeen && !mainSeen;
+    },
     push(record) {
       const message = isMessageEntry(record);
       if (message) recognized = true;
       const main = message && record.isSidechain !== true;
+      if (message) {
+        if (main) mainSeen = true;
+        else sidechainSeen = true;
+      }
       if (main) {
         foreignSessionId ||= stringOrNull(record.sessionId);
         cwd ||= stringOrNull(record.cwd);
@@ -172,7 +182,9 @@ export function createClaudeReducer() {
         rawTurns.push({ role: entry.role, parts: entry.parts, at: entry.at });
         for (const code of entry.warnings || []) warnings.add(code);
       }
-      return { recognized, foreignSessionId, cwd, rawTurns, warnings };
+      // A transcript whose every message is a sidechain is a subagent's own, not a conversation.
+      const internalKind = this.sidechainOnly ? 'subagent' : null;
+      return { recognized, foreignSessionId, cwd, internalKind, rawTurns, warnings };
     },
   };
 }

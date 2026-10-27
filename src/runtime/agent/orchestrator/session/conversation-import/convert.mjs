@@ -6,7 +6,7 @@
  */
 import { createClaudeReducer } from './claude.mjs';
 import { createCodexReducer } from './codex.mjs';
-import { IMPORT_WARNING_MALFORMED, conversationTitle, normalizeTurns } from './turns.mjs';
+import { IMPORT_ERROR_INTERNAL, IMPORT_WARNING_MALFORMED, conversationTitle, normalizeTurns } from './turns.mjs';
 
 export const IMPORT_SOURCES = Object.freeze(['codex', 'claude']);
 /** A line or converted transcript beyond the import limits fails the file. */
@@ -35,7 +35,9 @@ const transcriptChars = (turns) => turns.reduce((total, turn) => total + turn.te
  * (an over-long line or file). `result()` may be called repeatedly and also
  * holds the normalized turns to `maxTranscriptChars`.
  * `errorCode` is null for an importable result, else one of `empty` |
- * `malformed` | `unsupported` | `tooLarge` (whose turns are not returned).
+ * `malformed` | `unsupported` | `internalRecord` (the source app's own
+ * subagent/review record; `internalKind` names it) | `tooLarge` (whose turns
+ * are not returned).
  */
 export function createConversationConverter(
   source,
@@ -52,6 +54,10 @@ export function createConversationConverter(
   let malformed = 0;
   let tooLarge = false;
   return {
+    /** True while every message seen so far is a Claude sidechain message. */
+    get sidechainOnly() {
+      return reducer.sidechainOnly === true;
+    },
     markTooLarge() {
       tooLarge = true;
     },
@@ -92,6 +98,7 @@ export function createConversationConverter(
       if (malformed) warnings.add(IMPORT_WARNING_MALFORMED);
       let errorCode = null;
       if (tooLarge) errorCode = IMPORT_ERROR_TOO_LARGE;
+      else if (parsed.internalKind) errorCode = IMPORT_ERROR_INTERNAL;
       else if (!records) errorCode = malformed ? 'malformed' : 'empty';
       else if (!parsed.recognized) errorCode = 'unsupported';
       else if (!turns.length) errorCode = 'empty';
@@ -100,6 +107,7 @@ export function createConversationConverter(
         errorCode,
         foreignSessionId: parsed.foreignSessionId,
         cwd: parsed.cwd,
+        internalKind: parsed.internalKind,
         turns: tooLarge ? [] : turns,
         title: conversationTitle(turns),
         messageCount: tooLarge ? 0 : turns.length,

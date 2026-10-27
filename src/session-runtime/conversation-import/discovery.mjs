@@ -13,7 +13,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { open, readdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
 import {
   IMPORT_MAX_FILE_BYTES,
   IMPORT_MAX_LINE_BYTES,
@@ -26,6 +26,7 @@ import {
 import { codexMetaFromTruncatedLine } from '../../runtime/agent/orchestrator/session/conversation-import/codex.mjs';
 import { IMPORT_WARNING_CWD_MISSING } from '../../runtime/agent/orchestrator/session/conversation-import/turns.mjs';
 import { importOriginKey } from '../../runtime/agent/orchestrator/session/conversation-import/imported-session.mjs';
+import { loadCodexThreadTitles } from './codex-titles.mjs';
 
 export const PREFIX_CHUNK_BYTES = 64 * 1024;
 export const PREFIX_MAX_BYTES = 512 * 1024;
@@ -49,10 +50,12 @@ const state = {
   queue: [],
   active: 0,
   views: new Map(), // viewId → view
+  scanMaxBytes: IMPORT_MAX_FILE_BYTES, // per-file budget of a sidechain-only scan
 };
 
-/** Test seam: forget every cached candidate, metadata entry and view. */
-export function resetConversationDiscovery() {
+/** Test seam: forget every cached candidate, metadata entry and view; `scanMaxBytes` overrides the scan budget. */
+export function resetConversationDiscovery({ scanMaxBytes = IMPORT_MAX_FILE_BYTES } = {}) {
+  state.scanMaxBytes = scanMaxBytes;
   state.candidates.clear();
   state.meta.clear();
   state.pendingMeta.clear();
@@ -72,6 +75,16 @@ export function sourceRoot(source, env = process.env) {
 export function requireSource(source) {
   if (!isImportSource(source)) throw new TypeError('source must be codex or claude.');
   return source;
+}
+
+/** Titles the source app stores per foreign session id (Codex only), read fresh; else null. */
+export function loadStoredTitles(source, env = process.env) {
+  return source === 'codex' ? loadCodexThreadTitles(dirname(sourceRoot(source, env))) : null;
+}
+
+/** The app's stored title of a conversation, else the one derived from its messages. */
+export function displayTitle(meta, titles) {
+  return (meta?.foreignSessionId && titles?.get(meta.foreignSessionId)) || meta?.title || null;
 }
 
 const caseFold = (value) => (process.platform === 'win32' ? value.toLowerCase() : value);
@@ -227,6 +240,8 @@ function metaFromConversion(conversion, whole) {
     foreignSessionId: conversion.foreignSessionId,
     cwd: conversion.cwd,
     title: conversion.title,
+    // A Codex marker sits in the first line; a Claude transcript is sidechain-only only once read to the end.
+    internalKind: whole || conversion.source === 'codex' ? (conversion.internalKind ?? null) : null,
     messageCount: whole && !conversion.errorCode ? conversion.messageCount : null,
     warnings: whole ? conversion.warnings : conversion.warnings.filter((code) => code !== 'malformed'),
     errorCode: whole ? conversion.errorCode : null,
@@ -327,15 +342,24 @@ async function streamJsonlLines(
 async function readPrefixMeta(candidate) {
   const converter = createConversationConverter(candidate.source);
   const handle = await openCandidate(candidate);
+  // Only the end of a Claude transcript proves it is sidechain-only, so while
+  // nothing but sidechain messages has been seen the scan streams on, line by
+  // line, to EOF or to the import file-size limit. A file over that limit stays
+  // unclassified (listed); importing it fails as tooLarge.
+  const claude = candidate.source === 'claude';
   let read;
   try {
     read = await streamJsonlLines(handle, (line) => converter.pushLine(line), {
-      maxLineBytes: PREFIX_MAX_BYTES,
+      maxLineBytes: claude ? IMPORT_MAX_LINE_BYTES : PREFIX_MAX_BYTES,
       chunkBytes: PREFIX_CHUNK_BYTES,
-      maxBytes: PREFIX_MAX_BYTES,
+      maxBytes: claude ? state.scanMaxBytes : PREFIX_MAX_BYTES,
       onChunk: (position) => {
         // A file read to its known size keeps going to EOF (whole-file metadata).
         if (position >= candidate.size) return true;
+        if (claude) {
+          if (converter.sidechainOnly) return true;
+          if (position >= PREFIX_MAX_BYTES) return false;
+        }
         const partial = converter.result();
         return !(partial.foreignSessionId && partial.cwd && partial.title);
       },
@@ -351,6 +375,7 @@ async function readPrefixMeta(candidate) {
     const fromLine = codexMetaFromTruncatedLine(read.firstPartial.replace(/^\uFEFF/, ''));
     meta.foreignSessionId ||= fromLine?.foreignSessionId || null;
     meta.cwd ||= fromLine?.cwd || null;
+    meta.internalKind ||= fromLine?.internalKind || null;
   }
   return meta;
 }
@@ -400,6 +425,7 @@ function pumpMetaQueue() {
         foreignSessionId: null,
         cwd: null,
         title: null,
+        internalKind: null,
         messageCount: null,
         warnings: [],
         errorCode: 'unreadable',
@@ -470,14 +496,14 @@ export function importedKeyMap(summaries) {
   return map;
 }
 
-function rowFor(candidate, meta, cwdInfo, imported) {
+function rowFor(candidate, meta, cwdInfo, imported, titles) {
   const warnings = new Set(meta?.warnings || []);
   if (meta && !meta.errorCode && !cwdInfo?.exists) warnings.add(IMPORT_WARNING_CWD_MISSING);
   if (meta?.errorCode) warnings.add(meta.errorCode);
   return {
     id: candidate.id,
     source: candidate.source,
-    title: meta?.title ?? null,
+    title: displayTitle(meta, titles),
     cwd: cwdInfo?.path ?? null,
     modifiedAt: candidate.mtimeMs,
     messageCount: meta?.messageCount ?? null,
@@ -486,10 +512,10 @@ function rowFor(candidate, meta, cwdInfo, imported) {
   };
 }
 
-export async function buildRow(candidate, imported, cwdCache = new Map()) {
+export async function buildRow(candidate, imported, cwdCache = new Map(), titles = null) {
   const meta = cachedMeta(candidate);
   const cwdInfo = meta?.cwd ? await resolveSourceCwd(meta.cwd, cwdCache) : null;
-  return rowFor(candidate, meta, cwdInfo, imported);
+  return rowFor(candidate, meta, cwdInfo, imported, titles);
 }
 
 // ── views & paging ───────────────────────────────────────────────────────────
@@ -553,7 +579,7 @@ async function pageResult(view, offset, limit, imported) {
   const rows = [];
   for (const id of ids) {
     const candidate = state.candidates.get(id);
-    if (candidate) rows.push(await buildRow(candidate, imported, cwdCache));
+    if (candidate) rows.push(await buildRow(candidate, imported, cwdCache, view.titles));
   }
   const nextOffset = offset + ids.length;
   return {
@@ -571,9 +597,10 @@ async function pageResult(view, offset, limit, imported) {
 /**
  * Apply a view's filters (time range, query on title/cwd, project) to
  * candidates using their cached metadata; a candidate whose metadata is still
- * pending cannot match a query or project and leaves the result incomplete.
+ * pending is neither a member nor counted and leaves the result incomplete.
+ * The source app's internal and empty records are never members.
  */
-async function filterCandidates(candidates, filters, imported) {
+async function filterCandidates(candidates, filters, imported, titles) {
   const { needle, projectFilter, modifiedAfter, modifiedBefore } = filters;
   const cwdCache = new Map();
   const memberIds = [];
@@ -584,15 +611,24 @@ async function filterCandidates(candidates, filters, imported) {
     if (modifiedAfter !== null && candidate.mtimeMs < modifiedAfter) continue;
     if (modifiedBefore !== null && candidate.mtimeMs > modifiedBefore) continue;
     const meta = cachedMeta(candidate);
-    if (!meta) complete = false;
-    const cwdInfo = meta?.cwd ? await resolveSourceCwd(meta.cwd, cwdCache) : null;
-    if (needle && (!meta || !(foldText(meta.title).includes(needle) || foldText(cwdInfo?.path).includes(needle)))) {
+    // Unclassified yet: neither a member nor counted until its metadata is read.
+    if (!meta) {
+      complete = false;
+      continue;
+    }
+    // The source app's own records and files read to the end without a message are not conversations.
+    if (meta.internalKind || meta.errorCode === 'empty') continue;
+    const cwdInfo = meta.cwd ? await resolveSourceCwd(meta.cwd, cwdCache) : null;
+    if (
+      needle &&
+      !(foldText(displayTitle(meta, titles)).includes(needle) || foldText(cwdInfo?.path).includes(needle))
+    ) {
       continue;
     }
     if (cwdInfo?.path) projectCounts.set(cwdInfo.path, (projectCounts.get(cwdInfo.path) || 0) + 1);
     if (projectFilter && !samePath(cwdInfo?.path, projectFilter)) continue;
     // Already-imported conversations are left out of the list entirely.
-    if (meta && imported.has(candidateKey(candidate, meta))) continue;
+    if (imported.has(candidateKey(candidate, meta))) continue;
     memberIds.push(candidate.id);
     selectableIds.push(candidate.id);
   }
@@ -624,7 +660,9 @@ export async function listConversations(params, { imported, env = process.env } 
     projectFilter: typeof project === 'string' && project.trim() ? project.trim() : null,
   };
   const { root, candidates } = await enumerateCandidates(source, env);
+  const titles = await loadStoredTitles(source, env);
   // Background metadata for everything, newest first; the first page is awaited.
+  // Candidates still unclassified stay out of the view (it is incomplete) and join it on a later listing.
   for (const candidate of candidates) void resolveMeta(candidate);
   if (!filters.needle && !filters.projectFilter) await Promise.all(candidates.slice(0, limit).map(resolveMeta));
   const view = {
@@ -632,8 +670,9 @@ export async function listConversations(params, { imported, env = process.env } 
     source,
     root,
     filters,
+    titles,
     candidateIds: candidates.map((candidate) => candidate.id),
-    ...(await filterCandidates(candidates, filters, imported)),
+    ...(await filterCandidates(candidates, filters, imported, titles)),
     touchedAt: Date.now(),
   };
   state.views.set(view.id, view);
@@ -651,14 +690,14 @@ export async function resolveViewSelection(viewId, excludeIds, imported) {
   const view = requireView(viewId);
   const candidates = view.candidateIds.map((id) => state.candidates.get(id)).filter(Boolean);
   await Promise.all(candidates.map(resolveMeta));
-  const { selectableIds } = await filterCandidates(candidates, view.filters, imported);
+  const { selectableIds } = await filterCandidates(candidates, view.filters, imported, view.titles);
   const excluded = new Set(Array.isArray(excludeIds) ? excludeIds : []);
   return selectableIds.filter((id) => !excluded.has(id));
 }
 
 // ── picked files ─────────────────────────────────────────────────────────────
 /** Validate and register a file chosen in a native picker (a local regular .jsonl). */
-export async function registerFile({ source, path } = {}, { imported, limits } = {}) {
+export async function registerFile({ source, path } = {}, { imported, limits, env = process.env } = {}) {
   requireSource(source);
   if (typeof path !== 'string' || !path.trim() || path.includes('\0')) throw importError('invalidPath');
   const requested = path.trim();
@@ -694,5 +733,5 @@ export async function registerFile({ source, path } = {}, { imported, limits } =
   }
   if (conversion.errorCode) throw importError(conversion.errorCode);
   recordConversion(candidate, conversion);
-  return { row: await buildRow(candidate, imported) };
+  return { row: await buildRow(candidate, imported, new Map(), await loadStoredTitles(source, env)) };
 }

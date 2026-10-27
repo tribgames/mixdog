@@ -259,6 +259,23 @@ html[data-mixdog-mobile-tabs] .settings-import-seg > button {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
 }
+/* Which conversations failed under each reason; long batches scroll. */
+.settings-import-result .settings-import-failed {
+  max-height: 140px;
+  margin: 4px 0 0;
+  padding-left: 18px;
+  overflow-y: auto;
+}
+.settings-import-result .settings-import-failed-toggle {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
 .settings-import-dialog > footer {
   justify-content: space-between;
   gap: 12px;

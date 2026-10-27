@@ -5,7 +5,14 @@
  * messages, Codex's own wrapper user messages, tool outputs, reasoning,
  * event_msg, token counts and turn_context.
  */
-import { IMAGE_OMITTED_TEXT, IMPORT_WARNING_IMAGE_OMITTED, isWholeElement, textPart, toolNote } from './turns.mjs';
+import {
+  IMAGE_OMITTED_TEXT,
+  IMPORT_WARNING_HISTORY_PARTIAL,
+  IMPORT_WARNING_IMAGE_OMITTED,
+  isWholeElement,
+  textPart,
+  toolNote,
+} from './turns.mjs';
 
 // User-role envelopes Codex injects itself (environment, instructions, abort
 // notices, plugin hints, shell-command echoes, image wrappers).
@@ -17,6 +24,7 @@ const CODEX_ENVELOPE_TAGS = [
   'user_shell_command',
   'subagent_notification',
   'skills_instructions',
+  'external_codex_apps_open_page',
 ];
 const TOOL_CALL_TYPES = new Set(['function_call', 'custom_tool_call', 'local_shell_call']);
 
@@ -53,6 +61,31 @@ function toolName(payload) {
 }
 
 const stringOrNull = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);
+
+// `session_meta.thread_source` values Codex gives threads it runs for itself.
+const INTERNAL_THREAD_SOURCES = {
+  subagent: 'subagent',
+  guardian_review: 'guardianReview',
+  memory_consolidation: 'internal',
+};
+
+/**
+ * What kind of Codex-internal record a `session_meta` payload marks, else null
+ * for a conversation the user had. Markers are Codex's own: `thread_source`
+ * (`subagent`, `guardian_review`, `memory_consolidation`) and a `source` of the
+ * form `{ subagent: … }` (spawned agent, review, compact; `{ other: "guardian" }`
+ * is the approval reviewer) or `{ internal: … }`. Other sources (cli, vscode,
+ * exec, mcp, custom) and features (automation, voice chat) are the user's.
+ */
+export function codexInternalKind(payload) {
+  const byThread = INTERNAL_THREAD_SOURCES[payload?.thread_source];
+  if (byThread) return byThread;
+  const source = payload?.source;
+  if (!source || typeof source !== 'object') return null;
+  if ('subagent' in source) return source.subagent?.other === 'guardian' ? 'guardianReview' : 'subagent';
+  if ('internal' in source) return source.internal === 'guardian' ? 'guardianReview' : 'internal';
+  return null;
+}
 // Rough fixed cost of one retained turn object, so tiny turns still count.
 const ENTRY_OVERHEAD_BYTES = 64;
 
@@ -67,6 +100,7 @@ export function createCodexReducer() {
   let recognized = false;
   let foreignSessionId = null;
   let cwd = null;
+  let internalKind = null;
   let metaSeen = false;
   let chars = 0;
   let metadataBytes = 0;
@@ -95,6 +129,10 @@ export function createCodexReducer() {
           metaSeen = true;
           foreignSessionId = stringOrNull(payload.id) || stringOrNull(payload.session_id);
           cwd = stringOrNull(payload.cwd);
+          internalKind = codexInternalKind(payload);
+          if (payload.history_base && typeof payload.history_base === 'object') {
+            warnings.add(IMPORT_WARNING_HISTORY_PARTIAL);
+          }
         }
         return;
       }
@@ -108,23 +146,95 @@ export function createCodexReducer() {
       }
     },
     result() {
-      return { recognized, foreignSessionId, cwd, rawTurns, warnings };
+      return { recognized, foreignSessionId, cwd, internalKind, rawTurns, warnings };
     },
   };
 }
 
-/** id/cwd of a `session_meta` first line cut off by a bounded prefix read. */
-export function codexMetaFromTruncatedLine(line) {
-  const text = String(line || '');
-  if (!/"type"\s*:\s*"session_meta"/.test(text)) return null;
-  const field = (name) => {
-    const match = new RegExp(`"${name}"\\s*:\\s*("(?:[^"\\\\]|\\\\.)*")`).exec(text);
-    if (!match) return null;
-    try {
-      return stringOrNull(JSON.parse(match[1]));
-    } catch {
-      return null;
+// ── bounded-prefix `session_meta` scan ───────────────────────────────────────
+// Index after the string starting at `i`, or -1 when the text ends inside it.
+function scanString(text, i) {
+  for (let j = i + 1; j < text.length; j++) {
+    if (text[j] === '\\') j++;
+    else if (text[j] === '"') return j + 1;
+  }
+  return -1;
+}
+
+// Index after the JSON value starting at `i`, or -1 when the text ends inside it.
+function scanValue(text, i) {
+  if (text[i] === '"') return scanString(text, i);
+  if (text[i] === '{' || text[i] === '[') {
+    let depth = 0;
+    for (let j = i; j < text.length; j++) {
+      if (text[j] === '"') {
+        j = scanString(text, j) - 1;
+        if (j < 0) return -1;
+      } else if (text[j] === '{' || text[j] === '[') depth++;
+      else if ((text[j] === '}' || text[j] === ']') && --depth === 0) return j + 1;
+    }
+    return -1;
+  }
+  const literal = /[^,}\]\s]+/y;
+  literal.lastIndex = i;
+  literal.exec(text);
+  return literal.lastIndex < text.length ? literal.lastIndex : -1;
+}
+
+/**
+ * Complete top-level values (raw JSON text) of the record object and of its
+ * `payload` object in a possibly cut-off line. Nested values are never
+ * inspected, so a key inside custom metadata is not mistaken for a payload field.
+ */
+function recordFields(text) {
+  const top = {};
+  const payload = {};
+  const walk = (start, target, descend) => {
+    let j = start + 1;
+    for (;;) {
+      while (/[\s,]/.test(text[j] ?? '')) j++;
+      if (text[j] !== '"') return;
+      const keyEnd = scanString(text, j);
+      if (keyEnd < 0) return;
+      const key = JSON.parse(text.slice(j, keyEnd));
+      j = keyEnd;
+      while (/\s/.test(text[j] ?? '')) j++;
+      if (text[j] !== ':') return;
+      j++;
+      while (/\s/.test(text[j] ?? '')) j++;
+      if (descend && key === 'payload' && text[j] === '{') return walk(j, payload, false);
+      const end = scanValue(text, j);
+      if (end < 0) return;
+      target[key] = text.slice(j, end);
+      j = end;
     }
   };
-  return { foreignSessionId: field('id') || field('session_id'), cwd: field('cwd') };
+  const open = text.indexOf('{');
+  if (open >= 0) walk(open, top, true);
+  return { top, payload };
+}
+
+const jsonOrNull = (raw) => {
+  try {
+    return raw === undefined ? null : JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * id/cwd/internal kind of a `session_meta` first line cut off by a bounded
+ * prefix read, from the payload fields that arrived whole. A marker that did
+ * not arrive whole leaves the record unclassified (`internalKind: null`).
+ */
+export function codexMetaFromTruncatedLine(line) {
+  const { top, payload } = recordFields(String(line || ''));
+  if (jsonOrNull(top.type) !== 'session_meta') return null;
+  const field = (name) => stringOrNull(jsonOrNull(payload[name]));
+  const meta = { thread_source: field('thread_source'), source: jsonOrNull(payload.source) };
+  return {
+    foreignSessionId: field('id') || field('session_id'),
+    cwd: field('cwd'),
+    internalKind: codexInternalKind(meta),
+  };
 }

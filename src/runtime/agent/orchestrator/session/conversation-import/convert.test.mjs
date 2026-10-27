@@ -115,7 +115,11 @@ test('error codes: empty, malformed, unsupported', () => {
 
 test('a truncated session_meta line still yields id and cwd; partial lines are dropped from prefixes', () => {
   const line = JSON.stringify(codexMeta('codex-3', 'D:\\work')).slice(0, -20);
-  assert.deepEqual(codexMetaFromTruncatedLine(line), { foreignSessionId: 'codex-3', cwd: 'D:\\work' });
+  assert.deepEqual(codexMetaFromTruncatedLine(line), {
+    foreignSessionId: 'codex-3',
+    cwd: 'D:\\work',
+    internalKind: null,
+  });
   const prefix = `${jsonl([codexMeta('codex-4'), codexMessage('user', 'Kept')])}{"type":"response_item","payload":{"ty`;
   const partial = convertConversationText('codex', prefix, { complete: false });
   assert.deepEqual([partial.title, partial.warnings], ['Kept', []]);
@@ -297,4 +301,148 @@ test('the title is the first user line, whitespace-normalized and capped at 100 
   assert.equal(result.title, 'word '.repeat(20).trim());
   const unbroken = convertConversationText('claude', jsonl([claudeEntry('u1', null, 'user', 'x'.repeat(150))]));
   assert.equal(unbroken.title.length, 100);
+});
+
+// ── internal records, envelopes, long conversations ──────────────────────────
+const codexMetaWith = (extra, id = 'codex-int') => ({
+  type: 'session_meta',
+  payload: { id, cwd: 'C:\\Project\\demo', originator: 'Codex Desktop', ...extra },
+});
+const conversationBody = (meta) => jsonl([meta, codexMessage('user', 'Hello'), codexMessage('assistant', 'Hi')]);
+
+test('Codex: records marked guardian review, subagent or internal by session_meta are internal, not conversations', () => {
+  const internal = {
+    guardianThread: [{ source: 'vscode', thread_source: 'guardian_review' }, 'guardianReview'],
+    guardianSource: [{ source: { subagent: { other: 'guardian' } } }, 'guardianReview'],
+    guardianInternal: [{ source: { internal: 'guardian' } }, 'guardianReview'],
+    spawned: [
+      { source: { subagent: { thread_spawn: { parent_thread_id: 'p', depth: 1 } } }, thread_source: 'subagent' },
+      'subagent',
+    ],
+    spawnedSourceOnly: [{ source: { subagent: { thread_spawn: { parent_thread_id: 'p', depth: 1 } } } }, 'subagent'],
+    review: [{ source: { subagent: 'review' } }, 'subagent'],
+    compact: [{ source: { subagent: 'compact' } }, 'subagent'],
+    memory: [{ source: { subagent: 'memory_consolidation' }, thread_source: 'memory_consolidation' }, 'internal'],
+    memoryThreadOnly: [{ source: 'exec', thread_source: 'memory_consolidation' }, 'internal'],
+  };
+  for (const [name, [extra, kind]] of Object.entries(internal)) {
+    const result = convertConversationText('codex', conversationBody(codexMetaWith(extra)));
+    assert.deepEqual([name, result.errorCode, result.internalKind], [name, 'internalRecord', kind]);
+  }
+  const user = [
+    { source: 'vscode', thread_source: 'user' },
+    { source: 'cli', thread_source: 'user' },
+    { source: 'exec' },
+    { source: 'mcp' },
+    { source: { custom: 'atlas' } },
+    { source: 'vscode', thread_source: 'automation' },
+    { source: 'vscode', thread_source: 'voice_chat' },
+    {},
+  ];
+  for (const extra of user) {
+    const result = convertConversationText('codex', conversationBody(codexMetaWith(extra)));
+    assert.deepEqual(
+      [JSON.stringify(extra), result.errorCode, result.internalKind],
+      [JSON.stringify(extra), null, null]
+    );
+  }
+});
+
+test('Codex: only the first session_meta marks a record, and a cut-off first line still carries the marker', () => {
+  const later = jsonl([
+    codexMetaWith({ source: 'vscode', thread_source: 'user' }),
+    codexMessage('user', 'Hello'),
+    codexMetaWith({ source: { subagent: 'review' } }, 'codex-other'),
+  ]);
+  const result = convertConversationText('codex', later);
+  assert.deepEqual([result.errorCode, result.foreignSessionId], [null, 'codex-int']);
+
+  const line = JSON.stringify({
+    type: 'session_meta',
+    payload: {
+      id: 'codex-cut',
+      cwd: 'D:\\work',
+      source: { subagent: { other: 'guardian' } },
+      thread_source: 'guardian_review',
+      base_instructions: { text: 'x'.repeat(5000) },
+    },
+  }).slice(0, 300);
+  assert.equal(codexMetaFromTruncatedLine(line).internalKind, 'guardianReview');
+  const sourceOnly = line.replace('"thread_source":"guardian_review",', '');
+  assert.equal(codexMetaFromTruncatedLine(sourceOnly).internalKind, 'guardianReview');
+  const spawn =
+    '{"type":"session_meta","payload":{"id":"c","cwd":"/w","source":{"subagent":{"thread_spawn":{"depth":1}}},"base_';
+  assert.equal(codexMetaFromTruncatedLine(spawn).internalKind, 'subagent');
+});
+
+test('Codex: the open-page envelope is not a user message and never names the conversation', () => {
+  const result = convertConversationText(
+    'codex',
+    jsonl([
+      codexMetaWith({ source: 'vscode', thread_source: 'user' }),
+      codexMessage('user', '<external_codex_apps_open_page>{"page_id":null}</external_codex_apps_open_page>'),
+      codexMessage('user', 'The real question'),
+      codexMessage('assistant', 'Answer'),
+    ])
+  );
+  assert.deepEqual([result.title, result.messageCount], ['The real question', 2]);
+  assert.equal(result.turns[0].text, 'The real question');
+});
+
+test('Codex: a thread whose history lives in another rollout (history_base) warns that it is partial', () => {
+  const base = { thread_id: 'rollout-1', end_ordinal_exclusive: 4, end_byte_offset: 100 };
+  const result = convertConversationText('codex', conversationBody(codexMetaWith({ history_base: base })));
+  assert.deepEqual([result.errorCode, result.warnings], [null, ['historyPartial']]);
+  assert.deepEqual(convertConversationText('codex', conversationBody(codexMetaWith({}))).warnings, []);
+});
+
+test('Codex: a long, repeatedly compacted and resumed thread converts completely as one conversation', () => {
+  const records = [codexMetaWith({ source: 'vscode', thread_source: 'user' })];
+  const pairs = 1500;
+  for (let n = 0; n < pairs; n++) {
+    records.push(codexMessage('user', `Question ${n}`), codexMessage('assistant', `Answer ${n}`));
+    if (n % 100 === 99) {
+      records.push({ type: 'compacted', payload: { message: '', replacement_history: [] } });
+      records.push({ type: 'event_msg', payload: { type: 'task_started' } });
+    }
+  }
+  const result = convertConversationText('codex', jsonl(records));
+  assert.equal(result.errorCode, null);
+  assert.equal(result.messageCount, pairs * 2);
+  assert.equal(result.turns[0].text, 'Question 0');
+  assert.equal(result.turns[result.turns.length - 1].text, `Answer ${pairs - 1}`);
+});
+
+test('Claude Code: a transcript made only of sidechain messages is a subagent record, not a conversation', () => {
+  const sidechain = (uuid, parentUuid, type, content) =>
+    claudeEntry(uuid, parentUuid, type, content, { isSidechain: true, agentId: 'agent-1' });
+  const only = convertConversationText(
+    'claude',
+    jsonl([sidechain('s1', null, 'user', 'Explore the repo'), sidechain('s2', 's1', 'assistant', 'Done')])
+  );
+  assert.deepEqual([only.errorCode, only.internalKind], ['internalRecord', 'subagent']);
+  const mixed = convertConversationText(
+    'claude',
+    jsonl([
+      claudeEntry('u1', null, 'user', 'Real question'),
+      sidechain('s1', 'u1', 'user', 'Explore the repo'),
+      claudeEntry('a1', 'u1', 'assistant', 'Answer'),
+    ])
+  );
+  assert.deepEqual([mixed.errorCode, mixed.internalKind, mixed.title], [null, null, 'Real question']);
+});
+
+test('a cut-off session_meta is classified only from payload fields that arrived whole', () => {
+  // A CLI record whose custom metadata merely contains marker-looking keys.
+  const nested =
+    '{"type":"session_meta","payload":{"id":"c","cwd":"/w","source":"cli","metadata":{"source":{"subagent":{"other":"guardian"}},"thread_source":"guardian_review"},"base_';
+  assert.deepEqual(codexMetaFromTruncatedLine(nested), { foreignSessionId: 'c', cwd: '/w', internalKind: null });
+  // The marker itself was cut off: unclassified rather than guessed.
+  const cut = '{"type":"session_meta","payload":{"id":"c","cwd":"/w","source":{"subagent":{"thread_sp';
+  assert.deepEqual(codexMetaFromTruncatedLine(cut), { foreignSessionId: 'c', cwd: '/w', internalKind: null });
+  // A marker inside an earlier string value is not a field.
+  const quoted =
+    '{"type":"session_meta","payload":{"id":"c","cwd":"/w","note":"\\"thread_source\\":\\"subagent\\"","source":"vscode","base_';
+  assert.equal(codexMetaFromTruncatedLine(quoted).internalKind, null);
+  assert.equal(codexMetaFromTruncatedLine('{"type":"response_item","payload":{"id":"c"'), null);
 });

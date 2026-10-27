@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type {
   ConversationImportJob,
   ConversationImportRow,
@@ -8,6 +8,7 @@ import { t } from '../i18n';
 import { OpenSelect } from '../OpenSelect';
 import type { ImportListing } from './import-conversations-hooks';
 import {
+  IMPORT_FAILURES_SHOWN,
   IMPORT_TIME_RANGES,
   importButtonLabel,
   importCodeMessage,
@@ -267,7 +268,14 @@ function ImportProgress({ job }: { job: ConversationImportJob }) {
 }
 
 function ImportSummary({ job }: { job: ConversationImportJob }) {
-  const failures = importFailureSummary(job);
+  const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
+  const toggleExpanded = (code: string) =>
+    setExpanded((current) => {
+      const next = new Set(current);
+      if (!next.delete(code)) next.add(code);
+      return next;
+    });
+  const failures = importFailureSummary(job, expanded);
   const warnings = importWarningCodes(job);
   return (
     <div className="settings-import-result">
@@ -285,6 +293,20 @@ function ImportSummary({ job }: { job: ConversationImportJob }) {
         {failures.map((entry) => (
           <li key={`failure:${entry.code}`}>
             {importCodeMessage(entry.code)} ({entry.count})
+            <ul className="settings-import-failed">
+              {entry.records.map((record) => (
+                <li key={record.candidateId}>{record.label}</li>
+              ))}
+            </ul>
+            {entry.count > IMPORT_FAILURES_SHOWN && (
+              <button
+                type="button"
+                className="settings-import-failed-toggle"
+                onClick={() => toggleExpanded(entry.code)}
+              >
+                {expanded.has(entry.code) ? t('Show less') : `${t('Show all')} (${entry.count})`}
+              </button>
+            )}
           </li>
         ))}
         {warnings.map((code) => (

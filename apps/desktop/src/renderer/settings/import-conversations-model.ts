@@ -105,6 +105,10 @@ export function importCodeMessage(code: string | undefined): string {
       return t('Connect a model in Settings > Providers first.');
     case 'tooLarge':
       return t('The conversation is too large to import.');
+    case 'internalRecord':
+      return t('This is an internal record (a subagent or review), not a conversation.');
+    case 'historyPartial':
+      return t('Part of this conversation is stored in another file and was left out.');
     default:
       return t('The conversation could not be imported.');
   }
@@ -113,22 +117,45 @@ export function importCodeMessage(code: string | undefined): string {
 /** The engine error code a rejected call's message carries, if any. */
 export function importCodeFromError(error: unknown): string | undefined {
   const message = error instanceof Error ? error.message : String(error ?? '');
-  return /\b(viewExpired|invalidCursor|invalidPath|unsupported|unreadable|jobNotFound|empty|malformed|unknownCandidate|importFailed|noModelRoute|cwdMissing|imageOmitted|tooLarge)\b/.exec(
+  return /\b(viewExpired|invalidCursor|invalidPath|unsupported|unreadable|jobNotFound|empty|malformed|unknownCandidate|importFailed|noModelRoute|cwdMissing|imageOmitted|tooLarge|internalRecord|historyPartial)\b/.exec(
     message
   )?.[1];
 }
 
-/** Distinct failure codes of a finished job, with how many conversations hit each. */
-export function importFailureSummary(job: ConversationImportJob): Array<{ code: string; count: number }> {
-  const counts = new Map<string, number>();
+export interface ImportFailureRecord {
+  candidateId: string;
+  /** What names the record: its title, else its source file name. */
+  label: string;
+}
+
+/** Failed records listed per reason before the rest are folded away. */
+export const IMPORT_FAILURES_SHOWN = 10;
+
+/**
+ * Distinct failure codes of a finished job. `count` is every conversation that
+ * hit the code; `records` names at most `IMPORT_FAILURES_SHOWN` of them unless
+ * the code is in `expanded`.
+ */
+export function importFailureSummary(
+  job: ConversationImportJob,
+  expanded: ReadonlySet<string> = new Set()
+): Array<{ code: string; count: number; records: ImportFailureRecord[] }> {
+  const groups = new Map<string, { count: number; records: ImportFailureRecord[] }>();
   for (const result of job.results) {
     if (result.status !== 'failed') continue;
     const code = result.errorCode ?? '';
-    counts.set(code, (counts.get(code) ?? 0) + 1);
+    const group = groups.get(code) ?? { count: 0, records: [] };
+    group.count += 1;
+    if (expanded.has(code) || group.records.length < IMPORT_FAILURES_SHOWN) {
+      group.records.push({
+        candidateId: result.candidateId,
+        label: result.title || result.sourceName || t('Untitled session'),
+      });
+    }
+    groups.set(code, group);
   }
-  return [...counts].map(([code, count]) => ({ code, count }));
+  return [...groups].map(([code, group]) => ({ code, ...group }));
 }
-
 /** Distinct warning codes across a finished job's results. */
 export function importWarningCodes(job: ConversationImportJob): string[] {
   return [...new Set(job.results.flatMap((result) => result.warnings))];

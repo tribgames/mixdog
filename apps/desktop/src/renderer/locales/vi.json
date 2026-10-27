@@ -4838,6 +4838,8 @@
   "The conversation is copied into a new session. This session stays exactly as it is.": "Cuộc trò chuyện được sao chép sang một phiên mới. Phiên này giữ nguyên.",
   "The conversation is summarized first. The new session starts lighter, but some detail is condensed.": "Cuộc trò chuyện được tóm tắt trước. Phiên mới khởi đầu nhẹ hơn nhưng một số chi tiết sẽ bị rút gọn.",
   "The conversation is too large to import.": "Cuộc trò chuyện quá lớn để nhập.",
+  "This is an internal record (a subagent or review), not a conversation.": "Đây là bản ghi nội bộ (của tác nhân phụ hoặc đánh giá), không phải cuộc trò chuyện.",
+  "Part of this conversation is stored in another file and was left out.": "Một phần của cuộc trò chuyện này được lưu trong tệp khác và đã bị bỏ qua.",
   "The conversation is too long for this model.": "Cuộc trò chuyện quá dài đối với mô hình này.",
   "The conversation paused.": "Cuộc trò chuyện tạm dừng.",
   "The conversation's Project is unavailable.": "Dự án của cuộc trò chuyện không khả dụng.",

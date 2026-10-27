@@ -9,6 +9,11 @@
 export const IMPORT_WARNING_IMAGE_OMITTED = 'imageOmitted';
 export const IMPORT_WARNING_MALFORMED = 'malformed';
 export const IMPORT_WARNING_CWD_MISSING = 'cwdMissing';
+/** The conversation continues a history stored in another file that was not followed. */
+export const IMPORT_WARNING_HISTORY_PARTIAL = 'historyPartial';
+
+/** Failure code of a record the source app writes for its own use (not a conversation). */
+export const IMPORT_ERROR_INTERNAL = 'internalRecord';
 
 /** Stands in for an image the importer does not carry over. */
 export const IMAGE_OMITTED_TEXT = '[image omitted]';
@@ -83,11 +88,20 @@ export function normalizeTurns(rawTurns) {
   return turns;
 }
 
-const titleLines = (turn) =>
-  (turn.titleText ?? turn.text)
+const textLines = (text) =>
+  String(text ?? '')
     .split('\n')
     .map((value) => value.replace(/\s+/g, ' ').trim())
     .filter(Boolean);
+
+const titleLines = (turn) => textLines(turn.titleText ?? turn.text);
+
+/** First non-empty line of a title text, whitespace-normalized, ≤100 chars. */
+export function titleFromText(text) {
+  const line = textLines(text)[0];
+  if (!line) return null;
+  return Array.from(line).slice(0, TITLE_MAX_CHARS).join('').trim() || null;
+}
 
 /** First line of the first genuine user turn, whitespace-normalized, ≤100 chars
  *  (an image marker only when the turn has no text line). */
@@ -95,7 +109,5 @@ export function conversationTitle(turns) {
   const first = turns.find((turn) => turn.role === 'user' && !turn.stub && titleLines(turn).length);
   if (!first) return null;
   const lines = titleLines(first);
-  const line = lines.find((value) => value !== IMAGE_OMITTED_TEXT) || lines[0];
-  if (!line) return null;
-  return Array.from(line).slice(0, TITLE_MAX_CHARS).join('').trim() || null;
+  return titleFromText(lines.find((value) => value !== IMAGE_OMITTED_TEXT) || lines[0]);
 }

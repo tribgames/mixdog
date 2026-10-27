@@ -91,6 +91,8 @@ test('engine codes map to messages and an unknown code falls back', () => {
     'cwdMissing',
     'imageOmitted',
     'tooLarge',
+    'internalRecord',
+    'historyPartial',
   ];
   for (const code of codes) {
     assert.equal(model.importCodeFromError(new Error(`x ${code} y`)), code);
@@ -270,6 +272,143 @@ test('dialog: reopening shows an unacknowledged finished job until dismissed', a
   assert.match(host.textContent, /Connect a model in Settings > Providers first\./);
   await click(host.querySelector('header button'));
   assert.equal(importJobStore.get(), null);
+  importJobStore.dispose();
+});
+
+test('failure summary groups records by reason and names each by title, else source file', () => {
+  const failed = (candidateId, errorCode, extra = {}) => ({
+    candidateId,
+    status: 'failed',
+    errorCode,
+    warnings: [],
+    ...extra,
+  });
+  const summary = model.importFailureSummary(
+    job({
+      failed: 3,
+      results: [
+        failed('a', 'empty', { title: null, sourceName: 'rollout-a.jsonl' }),
+        { candidateId: 'ok', status: 'imported', sessionId: 's', warnings: [] },
+        failed('b', 'empty', { title: 'Named thread', sourceName: 'rollout-b.jsonl' }),
+        failed('c', 'tooLarge', { title: 'Huge', sourceName: 'rollout-c.jsonl' }),
+        failed('d', 'unknownCandidate'),
+      ],
+    })
+  );
+  assert.deepEqual(
+    summary.map(({ code, count, records }) => [code, count, records.map((record) => record.label)]),
+    [
+      ['empty', 2, ['rollout-a.jsonl', 'Named thread']],
+      ['tooLarge', 1, ['Huge']],
+      ['unknownCandidate', 1, ['Untitled session']],
+    ]
+  );
+});
+
+test('failure summary keeps full counts but names only the first records until expanded', () => {
+  const results = Array.from({ length: 25 }, (_, index) => ({
+    candidateId: `f${index}`,
+    status: 'failed',
+    errorCode: 'empty',
+    warnings: [],
+    title: `Thread ${index}`,
+  }));
+  const folded = model.importFailureSummary(job({ failed: 25, results }));
+  assert.deepEqual([folded[0].count, folded[0].records.length], [25, model.IMPORT_FAILURES_SHOWN]);
+  const open = model.importFailureSummary(job({ failed: 25, results }), new Set(['empty']));
+  assert.deepEqual([open[0].count, open[0].records.length], [25, 25]);
+});
+
+test('dialog: a long failure list is folded behind a toggle that shows the rest', async (t) => {
+  const { importJobStore } = await import('../import-job-store.ts');
+  let emit;
+  window.mixdogDesktop = {
+    subscribeConversationImportProgress: (listener) => {
+      emit = listener;
+      return () => {};
+    },
+    listProjects: async () => [],
+    addProject: async () => undefined,
+  };
+  importJobStore.dispose();
+  importJobStore.start();
+  emit(
+    job({
+      state: 'completed',
+      total: 25,
+      processed: 25,
+      failed: 25,
+      results: Array.from({ length: 25 }, (_, index) => ({
+        candidateId: `f${index}`,
+        status: 'failed',
+        errorCode: 'empty',
+        warnings: [],
+        title: `Thread ${index}`,
+      })),
+    })
+  );
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const host = await mount(t, { rows: [row('a')], calls: [] });
+  const items = () => host.querySelectorAll('.settings-import-failed > li').length;
+  assert.equal(items(), model.IMPORT_FAILURES_SHOWN);
+  assert.match(host.textContent, /The conversation has no messages\. \(25\)/);
+  const toggle = host.querySelector('.settings-import-failed-toggle');
+  assert.match(toggle.textContent, /\(25\)/);
+  await click(toggle);
+  assert.equal(items(), 25);
+  await click(host.querySelector('.settings-import-failed-toggle'));
+  assert.equal(items(), model.IMPORT_FAILURES_SHOWN);
+  await click(host.querySelector('header button'));
+  importJobStore.dispose();
+});
+
+test('dialog: a finished job lists which conversations failed under each reason', async (t) => {
+  const { importJobStore } = await import('../import-job-store.ts');
+  let emit;
+  window.mixdogDesktop = {
+    subscribeConversationImportProgress: (listener) => {
+      emit = listener;
+      return () => {};
+    },
+    listProjects: async () => [],
+    addProject: async () => undefined,
+  };
+  importJobStore.dispose();
+  importJobStore.start();
+  emit(
+    job({
+      state: 'completed',
+      total: 3,
+      processed: 3,
+      imported: 1,
+      failed: 2,
+      results: [
+        { candidateId: 'ok', status: 'imported', sessionId: 's', warnings: [] },
+        {
+          candidateId: 'a',
+          status: 'failed',
+          errorCode: 'empty',
+          warnings: [],
+          title: null,
+          sourceName: 'rollout-a.jsonl',
+        },
+        {
+          candidateId: 'b',
+          status: 'failed',
+          errorCode: 'empty',
+          warnings: [],
+          title: 'Named thread',
+          sourceName: 'rollout-b.jsonl',
+        },
+      ],
+    })
+  );
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const host = await mount(t, { rows: [row('a')], calls: [] });
+  const items = [...host.querySelectorAll('.settings-import-failed > li')].map((item) => item.textContent);
+  assert.deepEqual(items, ['rollout-a.jsonl', 'Named thread']);
+  assert.match(host.textContent, /The conversation has no messages\. \(2\)/);
+  await click(host.querySelector('header button'));
   importJobStore.dispose();
 });
 

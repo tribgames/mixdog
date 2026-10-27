@@ -4961,6 +4961,8 @@
   "The conversation is copied into a new session. This session stays exactly as it is.": "La conversazione viene copiata in una nuova sessione. Questa sessione resta invariata.",
   "The conversation is summarized first. The new session starts lighter, but some detail is condensed.": "La conversazione viene prima riassunta. La nuova sessione parte più leggera, ma alcuni dettagli vengono condensati.",
   "The conversation is too large to import.": "La conversazione è troppo grande per essere importata.",
+  "This is an internal record (a subagent or review), not a conversation.": "Questo è un record interno (di un subagente o di una revisione), non una conversazione.",
+  "Part of this conversation is stored in another file and was left out.": "Una parte di questa conversazione è memorizzata in un altro file ed è stata omessa.",
   "The conversation is too long for this model.": "La conversazione è troppo lunga per questo modello.",
   "The conversation paused.": "La conversazione è in pausa.",
   "The conversation's Project is unavailable.": "Il progetto della conversazione non è disponibile.",
