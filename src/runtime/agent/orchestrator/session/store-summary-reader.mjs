@@ -24,14 +24,27 @@ import {
   stampedDerivation,
   storedSessionCatalogRow,
 } from './store-summary-catalog.mjs';
-import { createStoredTranscriptCache, nextProjectionStamp } from './store-transcript-cache.mjs';
+import {
+  createStoredTranscriptCache,
+  historyStampOf,
+  producedSlice,
+  projectionStampEpoch,
+  transcriptTextHash,
+} from './store-transcript-cache.mjs';
 import {
   forgetStoredTranscriptOffThread,
   OFFLOAD_MIN_CHARS,
   projectStoredTranscriptOffThread,
   storedTranscriptWorkerRunning,
 } from './store-transcript-worker.mjs';
-import { projectStoredTranscript, storedHistoryWindow } from './store-transcript-projection.mjs';
+import {
+  cursorPageRows,
+  heldRowsDigester,
+  prepareStoredTranscriptBase,
+  projectStoredTranscript,
+  storedHistorySlice,
+  windowStoredTranscript,
+} from './store-transcript-projection.mjs';
 import { dataDir } from './store-summary-locations.mjs';
 import { isStoredSessionId, workspaceSummary } from './store-summary-fields.mjs';
 import { readArchivedAgentResult } from './store-summary-archived-agent.mjs';
@@ -76,15 +89,55 @@ const storedTranscriptCache = createStoredTranscriptCache();
 // lookup can neither fill nor evict.
 const attachmentHistoryCache = createStoredTranscriptCache();
 
+// The display histories of SMALL sessions (record and archive under
+// OFFLOAD_MIN_CHARS, projected on this thread), kept for slicing within a
+// source-character budget; a larger one never stays on this thread (its
+// history lives in the projection worker, or is projected per read as a
+// bounded window).
+const SMALL_HISTORY_MAX_CHARS = 4 * 1024 * 1024;
+const smallHistories = (() => {
+  const entries = new Map();
+  let chars = 0;
+  const drop = (sessionId) => {
+    const entry = entries.get(sessionId);
+    if (!entry) return;
+    entries.delete(sessionId);
+    chars -= entry.chars;
+  };
+  return {
+    get(sessionId, identity) {
+      const entry = entries.get(sessionId);
+      if (!entry || entry.identity !== identity) return null;
+      entries.delete(sessionId);
+      entries.set(sessionId, entry);
+      return entry.history;
+    },
+    retain(sessionId, identity, sourceChars, history) {
+      drop(sessionId);
+      if (sourceChars > SMALL_HISTORY_MAX_CHARS) return;
+      entries.set(sessionId, { identity, chars: sourceChars, history });
+      chars += sourceChars;
+      while (chars > SMALL_HISTORY_MAX_CHARS && entries.size > 1) drop(entries.keys().next().value);
+    },
+    forget: drop,
+    clear() {
+      entries.clear();
+      chars = 0;
+    },
+  };
+})();
+
 /** Test seam: forget every cached projection. */
 export function clearStoredTranscriptCache() {
   storedTranscriptCache.clear();
+  smallHistories.clear();
 }
 
 /** Drop one session's cold projections: it went live, or its last view left. */
 export function forgetStoredSessionTranscript(sessionId) {
   const id = String(sessionId || '').trim();
   storedTranscriptCache.forget(`${id}|`);
+  smallHistories.forget(id);
   if (id) forgetStoredTranscriptOffThread(id);
 }
 
@@ -386,10 +439,16 @@ export function storedSessionTranscriptStamp(id) {
  *  itself). The answer is the cache's `project` contract; a worker failure
  *  rejects and the cache runs the in-process pipeline instead. */
 async function projectStoredTranscriptElsewhere(known, context) {
-  const { sessionId, recordPath, timing } = context;
+  const { sessionId, recordPath, timing, fingerprint, slice } = context;
   timing.worker = storedTranscriptWorkerRunning(sessionId) ? 'warm' : 'cold';
   const workerStartedAt = performance.now();
-  const answer = await projectStoredTranscriptOffThread({ sessionId, recordPath, known });
+  const answer = await projectStoredTranscriptOffThread({
+    sessionId,
+    recordPath,
+    known,
+    fingerprint,
+    slice: { ...slice, epoch: projectionStampEpoch() },
+  });
   timing.workerMs = performance.now() - workerStartedAt;
   Object.assign(timing, answer.timing);
   context.readState = answer.state;
@@ -397,15 +456,66 @@ async function projectStoredTranscriptElsewhere(known, context) {
   if (answer.same) return answer;
   if (answer.unreadable) return { ...answer, value: null };
   if (answer.stamp) readCanonicalLifecycle.rememberStrictVerdict(recordPath, answer.stamp, answer.lifecycle);
-  // Stamps are process-unique per module realm; re-issue in this one.
-  answer.value.projectionStamp = nextProjectionStamp();
+  if (answer.historyBuilt === false) timing.history = 'retained';
   return answer;
+}
+
+/** A projector (projectStoredTranscript's signature) for a historical-position
+ *  read on this thread (a checkpoint sidecar, or the worker unavailable): the
+ *  base once, then tail windows doubling from twice the page until one holds
+ *  the cursor's row with the page beside it, or history ends. Never the whole
+ *  display history: only as deep as the row itself. */
+const CURSOR_WINDOW_MAX_ITEMS = 8_192;
+
+function cursorWindowProjector(cursor, timing) {
+  return async (sessionId, doc, options) => {
+    const base = await prepareStoredTranscriptBase(sessionId, doc, options);
+    const id = cursor.before ?? cursor.after;
+    for (
+      let itemLimit = Math.max(64, cursor.maxRows * 2);
+      ;
+      itemLimit = Math.min(itemLimit * 2, CURSOR_WINDOW_MAX_ITEMS)
+    ) {
+      timing.cursorWindowItems = itemLimit;
+      const window = await windowStoredTranscript(sessionId, base, { itemLimit, includeMessages: false });
+      const at = window.items.findIndex((item) => item?.id === id);
+      if ((at >= 0 && (cursor.before == null || at >= cursor.maxRows)) || !window.transcriptHasOlder) return window;
+      // Never deeper on this thread: a row past the bound answers `reset`
+      // (the slice finds no such row), one at its edge a shorter page.
+      if (itemLimit >= CURSOR_WINDOW_MAX_ITEMS) return at >= 0 ? window : { ...window, items: [] };
+    }
+  };
+}
+
+/** The slice `request` names of `history` (the display history, or a window
+ *  of it), stamped `<history stamp>/<slice>`. */
+async function sliceOf(history, request, historyStamp) {
+  const proven = Boolean(request.held) && request.baseHistory === historyStamp;
+  const value = storedHistorySlice(
+    history,
+    { ...request, proven },
+    { digestOf: request.held && !proven ? await heldRowsDigester() : null }
+  );
+  const { windowStamp } = value;
+  delete value.windowStamp;
+  value.projectionStamp = `${historyStamp}/${windowStamp}`;
+  return value;
 }
 
 /** Projects the strictly parsed record `text` (read at full stamp `stamp`, or
  *  null when not provably stable) into the cached transcript value. */
 async function produceStoredTranscript(text, stamp, context) {
-  const { sessionId, recordPath, itemLimit, includeMessages, mode, checkpointAbsent, timing } = context;
+  const { sessionId, recordPath, itemLimit, slice, fingerprint, includeMessages, mode, checkpointAbsent, timing } =
+    context;
+  const historyStamp =
+    mode === 'items' ? historyStampOf(sessionId, transcriptTextHash(text), text.length, fingerprint) : null;
+  // A small session's retained history answers every other slice of it.
+  const keepHistory = mode === 'items' && checkpointAbsent && context.sourceChars < OFFLOAD_MIN_CHARS;
+  const retained = keepHistory ? smallHistories.get(sessionId, historyStamp) : null;
+  if (retained) {
+    timing.history = 'retained';
+    return producedSlice(await sliceOf(retained, slice, historyStamp), { historyBuilt: false });
+  }
   const parseStartedAt = performance.now();
   const record = readTopLevelLifecycleRecord(text);
   timing.parseMs = performance.now() - parseStartedAt;
@@ -431,25 +541,29 @@ async function produceStoredTranscript(text, stamp, context) {
   // load the hand-off serves, and projects the load cache's session
   // exactly as before; only that projection is detached.
   const projectStartedAt = performance.now();
-  const value = await projectStoredTranscript(
-    sessionId,
-    handedOver && checkpointAbsent ? JSON.parse(text) : record.doc,
-    {
-      itemLimit,
-      // An item read builds the whole display history once per content;
-      // its windows are cut from it (storedHistoryWindow).
-      history: mode === 'items',
-      includeMessages,
-      checkpointAbsent,
-    }
-  );
+  const project = keepHistory || !slice.cursor ? projectStoredTranscript : cursorWindowProjector(slice.cursor, timing);
+  const projected = await project(sessionId, handedOver && checkpointAbsent ? JSON.parse(text) : record.doc, {
+    itemLimit,
+    // Only a small session's whole display history is built (and kept) on
+    // this thread; any other item read projects just its bounded window
+    // (a tail of that history) and slices it; a historical-position read
+    // projects the tail window reaching its row (cursorWindowProjector).
+    history: keepHistory,
+    includeMessages,
+    checkpointAbsent,
+  });
   timing.projectMs = performance.now() - projectStartedAt;
-  if (!handedOver || checkpointAbsent || !value || mode !== 'items') return value;
-  try {
-    return structuredClone(value);
-  } catch {
-    return value;
+  if (mode !== 'items' || !projected) return projected;
+  if (keepHistory) smallHistories.retain(sessionId, historyStamp, context.sourceChars, projected);
+  let value = await sliceOf(projected, slice, historyStamp);
+  if (handedOver && !checkpointAbsent) {
+    try {
+      value = structuredClone(value);
+    } catch {
+      // Served as projected.
+    }
   }
+  return producedSlice(value);
 }
 
 /** The rows of one session's whole stored conversation that name attachments
@@ -493,25 +607,6 @@ async function readStoredAttachmentHistory(sessionId, recordPath, archivePath) {
   });
   if (!complete) attachmentHistoryCache.forget(key);
   return value ?? null;
-}
-
-// The last few windows cut from each cached display history (weakly: they go
-// with it), so a repeated read of one window returns the same object.
-const HISTORY_WINDOWS_PER_HISTORY = 4;
-const historyWindows = new WeakMap();
-function historyWindow(history, itemLimit) {
-  if (!history || typeof history !== 'object') return history;
-  let windows = historyWindows.get(history);
-  if (!windows) {
-    windows = new Map();
-    historyWindows.set(history, windows);
-  }
-  let window = windows.get(itemLimit);
-  if (window) windows.delete(itemLimit);
-  else window = storedHistoryWindow(history, itemLimit);
-  windows.set(itemLimit, window);
-  if (windows.size > HISTORY_WINDOWS_PER_HISTORY) windows.delete(windows.keys().next().value);
-  return window;
 }
 
 /** One page of a session's compaction archive (`{ after, before, skip,
@@ -577,6 +672,51 @@ export async function readStoredSessionTranscript(id, options = {}) {
   const archive = probePath(archivePath);
   const requestedLimit = Number(options.transcriptItemLimit);
   const itemLimit = Number.isFinite(requestedLimit) && requestedLimit > 0 ? requestedLimit : Number.POSITIVE_INFINITY;
+  // `transcriptSkip`: the window's newest rows to leave out (a range read
+  // slices only the rows above them, with `skippedFirstId`).
+  const requestedSkip = Number(options.transcriptSkip);
+  const skip =
+    Number.isFinite(itemLimit) && Number.isSafeInteger(requestedSkip) && requestedSkip > 0
+      ? Math.min(requestedSkip, itemLimit)
+      : 0;
+  // `transcriptHeld` (`{ firstId, count, digest }`): the newest rows a paged
+  // caller holds, proven by `transcriptBaseHistory` (the history stamp they
+  // were served under) or their digest, where the history is: only the page
+  // above them (`transcriptPage`: `{ maxRows, byteBudget }`) is sliced,
+  // whatever their count. Unproven, a tail of at most `maxRows` rows.
+  const heldOption = options.transcriptHeld;
+  const held =
+    Number.isFinite(itemLimit) && heldOption && Number.isSafeInteger(heldOption.count) && heldOption.count > 0
+      ? { firstId: heldOption.firstId, count: heldOption.count, digest: String(heldOption.digest ?? '') }
+      : null;
+  const page = options.transcriptPage || {};
+  // `transcriptCursor` (`{ before | after, maxRows, byteBudget }`): a
+  // historical-position read — the rows next to one row, by its id.
+  const cursorOption = options.transcriptCursor;
+  const cursor =
+    cursorOption && (cursorOption.before != null || cursorOption.after != null)
+      ? {
+          ...(cursorOption.before != null ? { before: cursorOption.before } : { after: cursorOption.after }),
+          maxRows: cursorPageRows(cursorOption.maxRows),
+          byteBudget: Number(cursorOption.byteBudget) > 0 ? Number(cursorOption.byteBudget) : null,
+        }
+      : null;
+  const slice = cursor
+    ? { cursor }
+    : held
+      ? {
+          limit: itemLimit,
+          held,
+          baseHistory: typeof options.transcriptBaseHistory === 'string' ? options.transcriptBaseHistory : null,
+          maxRows: Math.max(1, Math.floor(Number(page.maxRows) || itemLimit)),
+          byteBudget: Number(page.byteBudget) > 0 ? Number(page.byteBudget) : null,
+        }
+      : { limit: itemLimit, skip };
+  const sliceKey = cursor
+    ? `cursor:${cursor.before ?? ''}:${cursor.after ?? ''}:${cursor.maxRows}:${cursor.byteBudget}`
+    : held
+      ? `held:${held.count}:${held.firstId}:${held.digest}:${slice.baseHistory}:${slice.maxRows}:${slice.byteBudget}`
+      : skip;
   // Full stamp the loaded text provably came from (unchanged around the
   // read), or null. Only such a parse may serve other readers.
   let readStamp = null;
@@ -586,11 +726,27 @@ export async function readStoredSessionTranscript(id, options = {}) {
   const mode = includeMessages ? 'messages' : 'items';
   const checkpointAbsent = checkpoint.state === PROBE_ABSENT;
   // Large, checkpoint-free item projections run off the daemon event loop.
-  const offloadable = !includeMessages && checkpointAbsent && recordStat.size >= OFFLOAD_MIN_CHARS;
+  // A large compaction archive counts: the display history holds its rows.
+  const sourceChars = recordStat.size + (archive.state === PROBE_PRESENT ? Number(archive.size) || 0 : 0);
+  const offloadable = !includeMessages && checkpointAbsent && sourceChars >= OFFLOAD_MIN_CHARS;
+  const fingerprint = [
+    checkpoint.state,
+    checkpoint.mtimeMs,
+    checkpoint.ctimeMs,
+    checkpoint.size,
+    checkpoint.ino,
+    checkpoint.dev,
+    archive.state,
+    archive.mtimeMs,
+    archive.size,
+  ].join(':');
   const produceContext = {
     sessionId,
     recordPath,
     itemLimit,
+    slice,
+    sourceChars,
+    fingerprint,
     includeMessages,
     mode,
     checkpointAbsent,
@@ -598,29 +754,16 @@ export async function readStoredSessionTranscript(id, options = {}) {
     // How the record read went (the worker's read or loadText below).
     readState: PROBE_PRESENT,
   };
-  const {
-    value: built,
-    hit,
-    read,
-  } = await storedTranscriptCache.read({
-    // Item reads share the one display history of the content, so paging
-    // through it slices instead of re-projecting.
-    key: mode === 'items' ? `${sessionId}|history|items` : `${sessionId}|${itemLimit}|${mode}`,
+  const { value, hit, read, built } = await storedTranscriptCache.read({
+    // One slice (window or page) per request; the group keeps one per
+    // session: the display history it is cut from stays with the thread
+    // that built it.
+    key: `${sessionId}|${itemLimit}|${sliceKey}|${mode}`,
     // Growing history windows of one session replace each other.
     group: `${sessionId}|${mode}`,
-    // A page read keeps the history it pages through cached under pressure.
+    // A page read keeps its slice cached under pressure.
     pin: options.paging === true,
-    fingerprint: [
-      checkpoint.state,
-      checkpoint.mtimeMs,
-      checkpoint.ctimeMs,
-      checkpoint.size,
-      checkpoint.ino,
-      checkpoint.dev,
-      archive.state,
-      archive.mtimeMs,
-      archive.size,
-    ].join(':'),
+    fingerprint,
     fileStat: recordStat,
     project: offloadable ? (known) => projectStoredTranscriptElsewhere(known, produceContext) : null,
     loadText: async () => {
@@ -647,11 +790,11 @@ export async function readStoredSessionTranscript(id, options = {}) {
   });
   // The record vanished between stat and read: same answer as an absent probe.
   if (produceContext.readState === PROBE_ABSENT) return readVanishedSessionTranscript(sessionId);
-  const value = mode === 'items' ? historyWindow(built, itemLimit) : built;
   if (typeof options.trace === 'function') {
     options.trace({
       sessionId,
-      hit,
+      // A slice of a history already built counts as a hit: nothing was projected.
+      hit: hit || built === false,
       read,
       ms: performance.now() - startedAt,
       chars: recordStat.size,

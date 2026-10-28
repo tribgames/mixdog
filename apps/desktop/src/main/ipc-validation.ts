@@ -21,8 +21,10 @@ import {
   type DesktopSettingKey,
   type DesktopSubmitOptions,
   type DesktopTextFileEncoding,
+  type DesktopTranscriptHistoryRequest,
   type DesktopWorkspaceFolder,
   type DesktopWorkspaceTextWrite,
+  DESKTOP_TRANSCRIPT_HISTORY_PAGE_ITEMS,
   type ToolApprovalDecision,
 } from '../shared/contract';
 import {
@@ -970,15 +972,56 @@ export function requiredFileSearchLimit(value: unknown): number {
   return value as number;
 }
 
+/** The most rows a session's shared transcript window retains: a growth
+ *  request past it (an older client paging by window size) is held there.
+ *  Deeper history is read by position (requiredTranscriptHistoryRequest). */
+export const TRANSCRIPT_WINDOW_MAX_ITEMS = 8_192;
+
 /** Absent (JSON transports carry an omitted argument as null): re-read the
- *  session's current transcript window without growing it. History has no
- *  item ceiling: the daemon bounds what each answer carries. */
+ *  session's current transcript window without growing it. A larger window
+ *  is held at TRANSCRIPT_WINDOW_MAX_ITEMS rows. */
 export function requiredTranscriptItemLimit(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined;
   if (!Number.isSafeInteger(value) || (value as number) < 1) {
     throw new TypeError('transcript item limit is invalid.');
   }
-  return value as number;
+  return Math.min(value as number, TRANSCRIPT_WINDOW_MAX_ITEMS);
+}
+
+const TRANSCRIPT_ROW_ID_MAX_CHARS = 512;
+/** A row position the daemon named (spilled `s:` or archived `a:`). */
+const TRANSCRIPT_HISTORY_POSITION = /^(?:s:\d{1,15}:\d{1,15}|a:\d{1,15}:\d{1,15}:\d{1,15})$/;
+
+/** A historical-position read: exactly one boundary row id (`before` or
+ *  `after`), at most DESKTOP_TRANSCRIPT_HISTORY_PAGE_ITEMS rows, and an
+ *  optional positive byte budget. */
+export function requiredTranscriptHistoryRequest(value: unknown): DesktopTranscriptHistoryRequest {
+  const input = value && typeof value === 'object' ? (value as Record<string, unknown>) : null;
+  const id = input?.before ?? input?.after;
+  const both = input?.before != null && input?.after != null;
+  const limit = input?.limit;
+  const budget = input?.byteBudget;
+  if (
+    !input ||
+    both ||
+    typeof id !== 'string' ||
+    !id ||
+    id.length > TRANSCRIPT_ROW_ID_MAX_CHARS ||
+    !Number.isInteger(limit) ||
+    (limit as number) < 1 ||
+    (limit as number) > DESKTOP_TRANSCRIPT_HISTORY_PAGE_ITEMS ||
+    (budget !== undefined && budget !== null && (!Number.isSafeInteger(budget) || (budget as number) < 1)) ||
+    (input.position != null &&
+      (typeof input.position !== 'string' || !TRANSCRIPT_HISTORY_POSITION.test(input.position)))
+  ) {
+    throw new TypeError('transcript history request is invalid.');
+  }
+  return {
+    ...(input.before != null ? { before: id } : { after: id }),
+    limit: limit as number,
+    ...(typeof budget === 'number' ? { byteBudget: budget } : {}),
+    ...(typeof input.position === 'string' ? { position: input.position } : {}),
+  };
 }
 
 export function requiredSessionMessageCount(value: unknown): number {

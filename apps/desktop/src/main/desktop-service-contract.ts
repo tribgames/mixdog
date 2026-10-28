@@ -16,6 +16,8 @@ import type {
   DesktopPromptContent,
   DesktopSessionSummary,
   DesktopSessionStateUpdate,
+  DesktopTranscriptHistoryPage,
+  DesktopTranscriptHistoryRequest,
   DesktopSubmitOptions,
   SessionSnapshot,
   ToolApprovalDecision,
@@ -96,6 +98,11 @@ export interface DesktopService {
   setSessionProject(sessionId: string, projectPath: string): unknown;
   deleteSession(sessionId: string): unknown;
   prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean>;
+  /** A historical-position read outside the session's shared window. */
+  readTranscriptHistory?(
+    sessionId: string,
+    request: DesktopTranscriptHistoryRequest
+  ): Promise<DesktopTranscriptHistoryPage>;
   /** Transport-only recovery: capture current projections after refreshing
    * every requested lane, even when the daemon reports unchanged content. */
   replaySessionStates?(sessionIds: string[], deliver: (updates: DesktopSessionStateUpdate[]) => void): Promise<void>;
@@ -203,6 +210,7 @@ export const DESKTOP_SERVICE_METHODS = [
   'setSessionProject',
   'deleteSession',
   'prefetchSession',
+  'readTranscriptHistory',
   'setVisibleSessions',
   'searchProjectFiles',
   'submitNewTask',

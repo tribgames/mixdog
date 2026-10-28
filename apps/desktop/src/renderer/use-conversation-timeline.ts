@@ -37,6 +37,7 @@ export function useConversationTimeline({
     | 'activeStreamingTail'
     | 'showTranscriptTimeline'
     | 'requestEarlierTranscript'
+    | 'resetTranscriptToLive'
   >;
   sessionKey: string;
   draftMode: boolean;
@@ -54,7 +55,7 @@ export function useConversationTimeline({
   onTranscriptHiddenChange?: (hidden: boolean) => void;
 }) {
   const { viewport, content, conversation, follow, scrollToEndRef } = view;
-  const { settledItems, settledRowItems, requestEarlierTranscript } = source;
+  const { settledItems, settledRowItems, requestEarlierTranscript, resetTranscriptToLive } = source;
   const identity = source.transcriptIdentity.current;
   const liveItem = source.activeStreamingTail;
   const showTimeline = source.showTranscriptTimeline;
@@ -100,18 +101,20 @@ export function useConversationTimeline({
   // A short first window (down to 8 huge rows) may not fill the pane, and
   // with nothing to scroll the top threshold is never crossed.
   useTranscriptHistoryFill(viewport, requestEarlierTranscript, settledItems.length, transcriptRevealed);
+  // The latest reply lives on the live tail: a history window gives way.
   const jumpToLatest = useCallback(() => {
+    resetTranscriptToLive();
     resumeFollow();
-  }, [resumeFollow]);
+  }, [resetTranscriptToLive, resumeFollow]);
   // A tapped notification for this session lands on its latest reply.
   useEffect(() => {
     if (typeof window === 'undefined') return undefined;
     const onJump = (event: Event) => {
-      if ((event as CustomEvent<string>).detail === sessionKey) resumeFollow();
+      if ((event as CustomEvent<string>).detail === sessionKey) jumpToLatest();
     };
     window.addEventListener(NOTIFICATION_JUMP_LATEST_EVENT, onJump);
     return () => window.removeEventListener(NOTIFICATION_JUMP_LATEST_EVENT, onJump);
-  }, [resumeFollow, sessionKey]);
+  }, [jumpToLatest, sessionKey]);
   const shouldAnchorTranscriptBottom = useConversationFollowEffects({
     armFollow,
     following,

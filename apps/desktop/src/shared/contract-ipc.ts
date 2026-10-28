@@ -140,6 +140,7 @@ export const DESKTOP_IPC = {
   serverPortOpen: 'mixdog:server-port-open',
   connectionSignIn: 'mixdog:connection-sign-in',
   prefetchSession: 'mixdog:prefetch-session',
+  readTranscriptHistory: 'mixdog:read-transcript-history',
   setVisibleSessions: 'mixdog:set-visible-sessions',
   listAgentPool: 'mixdog:list-agent-pool',
   searchSessionContent: 'mixdog:search-session-content',

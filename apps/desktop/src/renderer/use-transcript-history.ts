@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useRef, type RefObject } from 'react';
+import { useCallback, useEffect, useReducer, useRef, type RefObject } from 'react';
 import { noteHistoryPageRequest } from './tool-output-prefetch';
 import {
   nextTranscriptHistoryLimit,
   nextTranscriptTailLimit,
   TRANSCRIPT_HISTORY_PAGE_ITEMS,
+  TranscriptHistoryPager,
 } from './transcript-history';
 import { transcriptScrollExtent, transcriptScrollGeometryRegistered } from './use-transcript-follow';
 
@@ -137,6 +138,72 @@ function endPage(paging: HistoryPaging, page = paging.page): void {
   if (!page || paging.page !== page) return;
   paging.page = null;
   page.release();
+}
+
+/**
+ * The rows a pane renders and how it pages. On the live tail (following, or a
+ * host that cannot read history by position) older history grows the
+ * session's window as before. A reader who scrolled up pages through a
+ * history window of its own (TranscriptHistoryPager): at most
+ * TRANSCRIPT_WINDOW_MAX_ITEMS items within their character bound, read by
+ * position from the daemon, never patched by live frames; at the bottom it
+ * returns to a fresh live tail.
+ */
+export function useTranscriptWindow<T extends { readonly id?: unknown }>(
+  sessionId: string,
+  liveItems: readonly T[],
+  liveHasOlder: boolean | undefined,
+  following: boolean
+) {
+  const liveRef = useRef({ items: liveItems, hasOlder: liveHasOlder === true });
+  liveRef.current = { items: liveItems, hasOlder: liveHasOlder === true };
+  const [, changed] = useReducer((count: number) => count + 1, 0);
+  const pagerRef = useRef<TranscriptHistoryPager<T> | null>(null);
+  if (!pagerRef.current || pagerRef.current.sessionId !== sessionId) {
+    pagerRef.current?.dispose();
+    pagerRef.current = new TranscriptHistoryPager<T>(
+      sessionId,
+      () => window.mixdogDesktop?.readTranscriptHistory,
+      () => liveRef.current,
+      changed
+    );
+  }
+  const pager = pagerRef.current;
+  useEffect(() => () => pager.dispose(), [pager]);
+  const growWindow = useTranscriptHistory(sessionId, liveItems.length, liveHasOlder);
+  const followingRef = useRef(following);
+  followingRef.current = following;
+  useEffect(() => {
+    if (following) void pager.atBottom();
+  }, [following, pager]);
+  const requestEarlier = useCallback(() => {
+    if (!sessionId) return;
+    // A host that predates `transcriptHasOlder` or reads by position, and a
+    // reader still following the tail (a short first window filling the
+    // pane), grow the session's window.
+    if (liveHasOlder === undefined || pager.unsupported || (followingRef.current && !pager.window)) {
+      growWindow();
+      return;
+    }
+    void pager.earlier().then((outcome) => {
+      if (outcome === 'unsupported' && !pager.window) growWindow();
+    });
+  }, [growWindow, liveHasOlder, pager, sessionId]);
+  const requestLater = useCallback(() => {
+    void pager.later();
+  }, [pager]);
+  const resetToLive = useCallback(() => {
+    pager.toLive();
+  }, [pager]);
+  const held = pager.window;
+  return {
+    items: held ? held.items : liveItems,
+    hasOlder: held ? held.hasOlder : liveHasOlder,
+    historyActive: held !== null,
+    requestEarlier,
+    requestLater,
+    resetToLive,
+  };
 }
 
 export function useTranscriptHistory(sessionId: string, itemCount: number, hasOlder?: boolean): () => void {

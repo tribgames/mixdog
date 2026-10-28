@@ -1,6 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import type { SessionSnapshot } from '../shared/contract';
+import type {
+  DesktopTranscriptHistoryPage,
+  DesktopTranscriptHistoryRequest,
+  SessionSnapshot,
+} from '../shared/contract';
 import { DESKTOP_READ_CAPABILITIES } from '../shared/contract';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import { TRANSCRIPT_READ_TIMEOUT_MS } from '../shared/transcript-read-policy';
@@ -137,6 +141,42 @@ export class SessionHostTransport {
       return this.readSession(id, true, publish, readTraceId, false, signal);
     }
     return this.owner.applySessionResult(id, result, publish);
+  }
+
+  /** A historical-position read: rows next to one row of the session's whole
+   *  history, outside its shared window — nothing is applied or published.
+   *  The request also names the current window and baseline, so a daemon that
+   *  predates `transcriptHistory` answers a plain read that moves nothing;
+   *  that answer is dropped and reported `unsupported`. */
+  async readTranscriptHistory(
+    sessionId: string,
+    request: DesktopTranscriptHistoryRequest
+  ): Promise<DesktopTranscriptHistoryPage> {
+    const id = sessionIdOf(sessionId);
+    const prior = this.owner.projection(id);
+    const result = await this.client.read(
+      {
+        sessionId: id,
+        open: this.owner.openHints(id),
+        ...this.owner.transcriptWindow(id),
+        baseRevision: prior?.revision ?? null,
+        ...(prior?.projectionStamp ? { baseProjectionStamp: prior.projectionStamp } : {}),
+        transcriptPrepend: true,
+        transcriptHistory: request,
+      },
+      this.callOptions(undefined, TRANSCRIPT_READ_TIMEOUT_MS)
+    );
+    const history = result.history as Record<string, unknown> | null | undefined;
+    if (!history || typeof history !== 'object' || !Array.isArray(history.items)) {
+      return { items: [], hasOlder: false, hasNewer: false, unsupported: true };
+    }
+    return {
+      items: history.items as DesktopTranscriptHistoryPage['items'],
+      hasOlder: history.hasOlder === true,
+      hasNewer: history.hasNewer === true,
+      ...(Array.isArray(history.positions) ? { positions: history.positions as (string | null)[] } : {}),
+      ...(history.reset === true ? { reset: true } : {}),
+    };
   }
 
   /** The rows of the session's whole stored conversation (compaction archive

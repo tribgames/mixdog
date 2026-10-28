@@ -13,6 +13,7 @@ import {
   requiredString,
   requiredSubmitOptions,
   requiredToolApprovalDecision,
+  requiredTranscriptHistoryRequest,
   requiredTranscriptItemLimit,
   sessionDisplayName,
 } from './ipc-validation';
@@ -128,6 +129,17 @@ export function sessionRemoteMethods(
         client?.releaseRead?.(session);
         throw error;
       }
+    },
+    // Older history by position, outside the shared window; read-only. Only
+    // a session this connection views.
+    readTranscriptHistory: async ([sessionId, request]) => {
+      const session = requiredSessionId(sessionId);
+      const history = requiredTranscriptHistoryRequest(request);
+      if (client?.viewedSessionIds && !client.viewedSessionIds().includes(session)) throw new Error(READ_NOT_VIEWED);
+      if (typeof host.readTranscriptHistory !== 'function') {
+        return { items: [], hasOlder: false, hasNewer: false, unsupported: true };
+      }
+      return host.readTranscriptHistory(session, history);
     },
     submitNewTask: async ([prompt, options, draft]) =>
       host.submitNewTask(

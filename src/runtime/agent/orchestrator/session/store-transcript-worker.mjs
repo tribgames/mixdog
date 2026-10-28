@@ -8,8 +8,10 @@
  * loop each read stretched to seconds. This worker runs exactly that pipeline
  * (stat → read → stat, digest, readTopLevelLifecycleRecord →
  * projectStoredTranscript with no turn checkpoint) and hands back the
- * digest and the same projection value; only the finished display history
- * crosses back, and the caller cuts every window from it.
+ * digest and one slice of the session's display history: the history itself
+ * is built once per content and kept here with its base, and only the window
+ * or page a request names (`slice`: `{ limit, skip }`) crosses back, with its
+ * serialized size measured here.
  *
  * Inside the worker, one projection base (recovery, prepared session and
  * whole-transcript context gauge) per session content is shared by every
@@ -60,8 +62,14 @@ function clientFor(sessionId) {
  * the full file stamp the bytes provably came from, or null. Rejects when the
  * worker cannot answer; callers then run the pipeline on their own thread.
  */
-export function projectStoredTranscriptOffThread({ sessionId, recordPath, known = null }) {
-  return clientFor(sessionId)({ sessionId, recordPath, known });
+export function projectStoredTranscriptOffThread({
+  sessionId,
+  recordPath,
+  known = null,
+  fingerprint = '',
+  slice = null,
+}) {
+  return clientFor(sessionId)({ sessionId, recordPath, known, fingerprint, slice });
 }
 
 /** Whether the projection worker of `sessionId` is attached (a request now
@@ -321,15 +329,108 @@ async function buildBase(sessionId, text, previousMessages, timing) {
 
 const baseBuilds = createBaseBuilds({ build: buildBase });
 
-async function project({ sessionId, recordPath, known }) {
+// Serialized bytes of the display histories this worker keeps for slicing:
+// one larger than the per-session bound is rebuilt per request instead, and
+// the oldest go once all of them exceed the worker's bound. The worker's idle
+// exit releases every one.
+// Measured: a history is about as large as its record (74 MB record: 75 MB
+// history) and a page of a retained one costs ~0.2 s, a rebuilt one ~1 s. 96
+// MB keeps the largest sessions seen (~78 MB records) smooth; 128 MB holds
+// one of those beside a few ordinary ones.
+export const WORKER_HISTORY_SESSION_MAX_BYTES = 96 * 1024 * 1024;
+export const WORKER_HISTORY_MAX_BYTES = 128 * 1024 * 1024;
+
+/**
+ * The display histories one worker retains (`{ value, rowBytes, bytes }`,
+ * keyed by session, Map order LRU) within `sessionMaxBytes` each and
+ * `maxBytes` together. A history of other content (`owner`, the record
+ * content it was built from, and its sidecar fingerprint) is never served.
+ */
+export function createHistoryRetention({
+  sessionMaxBytes = WORKER_HISTORY_SESSION_MAX_BYTES,
+  maxBytes = WORKER_HISTORY_MAX_BYTES,
+} = {}) {
+  const histories = new Map();
+  let retainedBytes = 0;
+  const drop = (sessionId) => {
+    const entry = histories.get(sessionId);
+    if (!entry) return;
+    histories.delete(sessionId);
+    retainedBytes -= entry.history.bytes;
+  };
+  return {
+    get(sessionId, owner, fingerprint) {
+      const entry = histories.get(sessionId);
+      if (!entry || entry.owner !== owner || entry.fingerprint !== fingerprint) return null;
+      histories.delete(sessionId);
+      histories.set(sessionId, entry);
+      return entry.history;
+    },
+    /** Keeps `history` when it fits; whether it was kept. */
+    retain(sessionId, owner, fingerprint, history) {
+      drop(sessionId);
+      if (history.bytes > sessionMaxBytes) return false;
+      histories.set(sessionId, { owner, fingerprint, history });
+      retainedBytes += history.bytes;
+      while (retainedBytes > maxBytes && histories.size > 1) drop(histories.keys().next().value);
+      return true;
+    },
+    forget: drop,
+    stats: () => ({ histories: histories.size, retainedBytes }),
+  };
+}
+
+const historyRetention = createHistoryRetention();
+/** sessionId -> { owner, fingerprint, promise }: histories being built. */
+const historyBuilds = new Map();
+
+/** The display history of `built` (one base) under sidecar `fingerprint`,
+ *  with each row's serialized bytes: retained, joined while another request
+ *  builds it, or built now. */
+async function displayHistory(sessionId, built, content, fingerprint, projection) {
+  const retained = historyRetention.get(sessionId, content, fingerprint);
+  if (retained) return { history: retained, historyBuilt: false };
+  const pending = historyBuilds.get(sessionId);
+  if (pending && pending.owner === content && pending.fingerprint === fingerprint) {
+    return { history: await pending.promise, historyBuilt: false };
+  }
+  const promise = (async () => {
+    const value = await projection.windowStoredTranscript(sessionId, built.base, {
+      history: true,
+      includeMessages: false,
+    });
+    const rowBytes = new Float64Array(value.items.length);
+    let bytes = 0;
+    for (let index = 0; index < value.items.length; index += 1) {
+      rowBytes[index] = Buffer.byteLength(JSON.stringify(value.items[index] ?? null));
+      bytes += rowBytes[index];
+    }
+    return { value, rowBytes, bytes };
+  })();
+  const record = { owner: content, fingerprint, promise };
+  historyBuilds.set(sessionId, record);
+  try {
+    const history = await promise;
+    if (historyBuilds.get(sessionId) === record) historyRetention.retain(sessionId, content, fingerprint, history);
+    return { history, historyBuilt: true };
+  } finally {
+    if (historyBuilds.get(sessionId) === record) historyBuilds.delete(sessionId);
+  }
+}
+
+async function project({ sessionId, recordPath, known, fingerprint = '', slice = null }) {
   const importStartedAt = performance.now();
-  const [{ statSessionStamp, sameSessionStamp }, { readTextFile, PROBE_PRESENT }, { transcriptTextHash }, projection] =
-    await Promise.all([
-      import('./store/canonical-reader.mjs'),
-      import('./store/fs-probe.mjs'),
-      import('./store-transcript-cache.mjs'),
-      import('./store-transcript-projection.mjs'),
-    ]);
+  const [
+    { statSessionStamp, sameSessionStamp },
+    { readTextFile, PROBE_PRESENT },
+    { transcriptTextHash, historyStampOf },
+    projection,
+  ] = await Promise.all([
+    import('./store/canonical-reader.mjs'),
+    import('./store/fs-probe.mjs'),
+    import('./store-transcript-cache.mjs'),
+    import('./store-transcript-projection.mjs'),
+  ]);
   const timing = { importMs: performance.now() - importStartedAt };
   const observe = () => {
     try {
@@ -374,14 +475,32 @@ async function project({ sessionId, recordPath, known }) {
       const built = await pending;
       if (built === RESTART_READ) continue;
       if (built.unreadable) return { ...digest, unreadable: true };
-      // The whole display history: every window is cut from it on the
-      // caller's thread (storedHistoryWindow).
-      const value = await projection.windowStoredTranscript(sessionId, built.base, {
-        history: true,
-        includeMessages: false,
-      });
+      // The whole display history stays here (within its budgets); only the
+      // requested slice crosses back.
+      const { history, historyBuilt } = await displayHistory(
+        sessionId,
+        built,
+        `${digest.textHash}:${digest.textChars}`,
+        fingerprint,
+        projection
+      );
+      const request = slice || {};
+      const historyStamp = historyStampOf(sessionId, digest.textHash, digest.textChars, fingerprint, request.epoch);
+      const proven = Boolean(request.held) && request.baseHistory === historyStamp;
+      const value = projection.storedHistorySlice(
+        history.value,
+        { ...request, proven },
+        {
+          digestOf: request.held && !proven ? await projection.heldRowsDigester() : null,
+          rowBytes: (index) => history.rowBytes[index],
+        }
+      );
+      const { windowStamp } = value;
+      delete value.windowStamp;
+      value.projectionStamp = `${historyStamp}/${windowStamp}`;
+      const bytes = Buffer.byteLength(JSON.stringify(value));
       timing.projectMs = performance.now() - projectStartedAt;
-      return { ...digest, value, lifecycle: built.lifecycle };
+      return { ...digest, value, bytes, historyBuilt, lifecycle: built.lifecycle };
     } finally {
       if (!submitted) baseBuilds.release(ticket);
     }
@@ -390,6 +509,9 @@ async function project({ sessionId, recordPath, known }) {
 
 if (!isMainThread && workerData?.kind === WORKER_KIND) {
   serveWorkerRequests((payload) => {
-    return payload?.forget ? baseBuilds.forget(payload.forget) : project(payload);
+    if (!payload?.forget) return project(payload);
+    historyRetention.forget(payload.forget);
+    historyBuilds.delete(payload.forget);
+    return baseBuilds.forget(payload.forget);
   });
 }

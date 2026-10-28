@@ -6,8 +6,10 @@ import { SESSION_READ_ACTION_SET } from '../../session-protocol.mjs';
 import { SESSION_ID_PATTERN } from '../agent-tree.mjs';
 import {
   loadLiveTranscriptHead,
+  readTranscriptHistory,
   readTranscriptRange,
   rebudgetTranscriptWindow,
+  requestedTranscriptHistory,
   requestedHeldTranscript,
   requestedTranscriptWindow,
   requestLiveTranscriptWindow,
@@ -193,7 +195,7 @@ export function createSessionViewCalls(ctx) {
   const { trackPendingViewer, dropPendingViewer, notePrependViewer } = ctx.viewers;
   const { retainUnwatched } = ctx.retention;
   const { assertAvailable, entryForSession, liveEntryForView, bindExternalSessionView } = ctx.entries;
-  const { storedSessionProjection, storedProjectionUnchanged, storedHeldProven, requestedMessageSlice } =
+  const { storedSessionProjection, storedProjectionUnchanged, storedPageOnly, requestedMessageSlice } =
     ctx.storedReader;
   const { createSession } = createSessionCreation(ctx);
   const { applyTranscriptRequest, boundedSessionResult, subscribeLive } = createLiveTranscriptAnswers(ctx);
@@ -238,6 +240,13 @@ export function createSessionViewCalls(ctx) {
       assertAvailable(live);
       return { range };
     }
+    const historyRequest = requestedTranscriptHistory(params);
+    if (historyRequest) {
+      // Read-only: no window, baseline or revision of any view moves.
+      const history = await readTranscriptHistory(live, id, readStoredSession, historyRequest);
+      assertAvailable(live);
+      return { history };
+    }
     if (live) {
       return liveSessionReadResult(live, params, id, baseRevision);
     }
@@ -272,9 +281,10 @@ export function createSessionViewCalls(ctx) {
       });
       const messages = await requestedMessageSlice(params, id);
       assertAvailable();
-      // The stored reader already proved (or disproved) the held rows.
-      const page = storedHeldProven(projection)
-        ? transcriptPageBody(result, heldRows, { proven: true, byteBudget: window?.byteBudget })
+      // The stored reader already proved (or disproved) the held rows, and
+      // its projection then carries only the page above them.
+      const page = storedPageOnly(projection)
+        ? transcriptPageBody(result, heldRows, { proven: true, byteBudget: window?.byteBudget, pageOnly: true })
         : result;
       return { ...page, ...messages };
     }

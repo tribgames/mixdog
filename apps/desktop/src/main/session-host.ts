@@ -22,6 +22,8 @@ import type {
   DesktopSessionFrameSource,
   DesktopSessionStateUpdate,
   DesktopSessionSummary,
+  DesktopTranscriptHistoryPage,
+  DesktopTranscriptHistoryRequest,
   DesktopSubmitOptions,
   SessionSnapshot,
   ToolApprovalDecision,
@@ -917,6 +919,13 @@ export class SessionHost implements DesktopService {
 
   async prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean> {
     return this.lifecycle.prefetchSession(sessionId, transcriptItemLimit, readTraceId);
+  }
+
+  async readTranscriptHistory(
+    sessionId: string,
+    request: DesktopTranscriptHistoryRequest
+  ): Promise<DesktopTranscriptHistoryPage> {
+    return this.transport.readTranscriptHistory(sessionId, request);
   }
 
   async replaySessionStates(

@@ -1,5 +1,10 @@
 import { sanitizeForWire } from '../session-wire-values.mjs';
-import { clampStoredWindow, holdsTranscriptTail } from './projection/transcript-window.mjs';
+import {
+  clampStoredPage,
+  clampStoredWindow,
+  holdsTranscriptTail,
+  TRANSCRIPT_RESPONSE_MAX_ITEMS,
+} from './projection/transcript-window.mjs';
 
 const SLOW_STORED_PROJECTION_MS = 250;
 const PROJECTED_FILE_LIMIT = 256;
@@ -24,7 +29,8 @@ const wireSnapshots = new WeakMap();
 function wireSnapshot(snapshot) {
   let wire = wireSnapshots.get(snapshot);
   if (!wire) {
-    const { items, ...fields } = snapshot;
+    // The slice's own proof fields stay here.
+    const { items, heldProven: _heldProven, skippedFirstId: _skippedFirstId, ...fields } = snapshot;
     wire = sanitizeForWire(fields);
     if (Array.isArray(items)) wire = { ...wire, items: items.map(wireItem) };
     wireSnapshots.set(snapshot, wire);
@@ -32,21 +38,8 @@ function wireSnapshot(snapshot) {
   return wire;
 }
 
-/** How many newest rows of `items` the caller is proven to hold (0: none):
- *  its first held row sits where its count says, and either its rows were
- *  served from this same display history (every window of one history is a
- *  tail of it, and its `baseProjectionStamp` names that history), or they
- *  match by digest. */
-function provenHeldRows(items, held, projectionStamp, baseProjectionStamp) {
-  if (!held) return 0;
-  const sameHistory =
-    typeof baseProjectionStamp === 'string' &&
-    typeof projectionStamp === 'string' &&
-    historyOf(baseProjectionStamp) === historyOf(projectionStamp);
-  return holdsTranscriptTail(items, held, sameHistory) ? held.count : 0;
-}
-// A window's stamp is `<history stamp>/<limit>` (storedHistoryWindow); an
-// answer cut from it is served as `<window stamp>#<rows delivered>`.
+// A slice's stamp is `<history stamp>/<slice>` (storedHistorySlice); an
+// answer cut from it is served as `<slice stamp>#<rows delivered>`.
 const historyOf = (stamp) => {
   const window = stamp.includes('#') ? stamp.slice(0, stamp.lastIndexOf('#')) : stamp;
   return window.includes('/') ? window.slice(0, window.lastIndexOf('/')) : window;
@@ -108,8 +101,9 @@ export function createStoredSessionReader({
   // that guarantee once several 512-item views exceed its byte budget: it
   // evicts each one just before its next refresh.
   const projectedFiles = new Map();
-  /** Projections whose window holds the caller's proven rows (provenHeldRows). */
-  const heldProven = new WeakSet();
+  /** Projections that carry only the page above their caller's proven rows
+   *  (storedPageOnly). */
+  const pageOnly = new WeakSet();
 
   /** Drop every cold projection the store retains for this session. */
   function forgetStoredProjection(sessionId) {
@@ -184,26 +178,50 @@ export function createStoredSessionReader({
     // stat -> read -> stat: the projection is attributed to a file identity
     // only when no write can have landed while it was read.
     const fileStamp = await fileStampOf(sessionId);
-    let snapshot = null;
-    try {
-      snapshot = await readStoredSession(sessionId, {
-        transcriptItemLimit: itemLimitFor(hints, window),
-        trace: traceStoredProjectionRead,
-        // A page read keeps the history it pages through cached.
-        paging: Boolean(held),
-      });
-    } catch (err) {
-      log(`stored session projection failed session=${sessionId}: ${err?.message || err}`);
-      return null;
-    }
-    if (!snapshot || typeof snapshot !== 'object') return null;
+    const read = async (options) => {
+      try {
+        const value = await readStoredSession(sessionId, { trace: traceStoredProjectionRead, ...options });
+        return value && typeof value === 'object' ? value : null;
+      } catch (err) {
+        log(`stored session projection failed session=${sessionId}: ${err?.message || err}`);
+        return undefined;
+      }
+    };
+    const limit = itemLimitFor(hints, window);
+    const pagedHeld = window?.paged ? held : null;
+    // A paged caller's held rows are proven where the history is (by the
+    // history stamp they were served under, or their digest), at any depth:
+    // only the page above them crosses, never the rows held. Unproven, a
+    // fresh tail of at most one answer's rows.
+    const snapshot = await read({
+      transcriptItemLimit: window?.paged && !pagedHeld ? Math.min(limit, TRANSCRIPT_RESPONSE_MAX_ITEMS) : limit,
+      ...(pagedHeld
+        ? {
+            transcriptHeld: pagedHeld,
+            transcriptBaseHistory: typeof baseProjectionStamp === 'string' ? historyOf(baseProjectionStamp) : null,
+            transcriptPage: { maxRows: TRANSCRIPT_RESPONSE_MAX_ITEMS, byteBudget: window.byteBudget },
+          }
+        : {}),
+      paging: Boolean(pagedHeld),
+    });
+    if (!snapshot) return null;
     const whole = wireSnapshot(snapshot);
-    const heldRows =
-      window && Array.isArray(whole.items)
-        ? provenHeldRows(whole.items, held, snapshot.projectionStamp, baseProjectionStamp)
-        : 0;
-    const wire = clampStoredWindow(whole, window, heldRows);
-    const delivered = Array.isArray(wire.items) ? wire.items.length : 0;
+    let paged = Boolean(pagedHeld) && snapshot.heldProven === true;
+    let wire;
+    if (pagedHeld && snapshot.heldProven === undefined && Array.isArray(whole.items)) {
+      // A reader that predates held rows answers the window itself: they are
+      // proven against it here, by digest.
+      const proven = holdsTranscriptTail(whole.items, pagedHeld);
+      wire = clampStoredWindow(whole, window, proven ? pagedHeld.count : 0);
+      if (proven) {
+        wire = { ...wire, items: wire.items.slice(0, wire.items.length - pagedHeld.count) };
+        paged = true;
+      }
+    } else {
+      wire = paged ? clampStoredPage(whole, window, pagedHeld.count) : clampStoredWindow(whole, window, 0);
+    }
+    const heldRows = paged ? pagedHeld.count : 0;
+    const delivered = (Array.isArray(wire.items) ? wire.items.length : 0) + heldRows;
     const projectionStamp = servedStamp(snapshot.projectionStamp, window, baseProjectionStamp, delivered);
     projectedFiles.delete(key);
     if (
@@ -234,13 +252,13 @@ export function createStoredSessionReader({
         : {}),
       queued: Array.isArray(snapshot.queued) ? wire.queued : [],
     };
-    if (heldRows > 0) heldProven.add(projection);
+    if (paged) pageOnly.add(projection);
     return projection;
   }
 
-  /** Whether `projection` holds its caller's proven rows as its tail, so a
-   *  page can be cut from it without digesting them again. */
-  const storedHeldProven = (projection) => Boolean(projection) && heldProven.has(projection);
+  /** Whether `projection` carries only the rows above its caller's proven
+   *  ones (the page itself), not those rows. */
+  const storedPageOnly = (projection) => Boolean(projection) && pageOnly.has(projection);
 
   async function requestedMessageSlice(params, sessionId) {
     if (!Number.isInteger(params?.messageStart)) return {};
@@ -272,7 +290,7 @@ export function createStoredSessionReader({
   return {
     storedSessionProjection,
     storedProjectionUnchanged,
-    storedHeldProven,
+    storedPageOnly,
     requestedMessageSlice,
     forgetStoredSession: forgetStoredProjection,
     releaseStoredSession: releaseStoredProjection,

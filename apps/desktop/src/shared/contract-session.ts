@@ -325,6 +325,34 @@ export type DesktopSessionStateUpdate = {
   laneEnd?: DesktopSessionLaneEnd;
 };
 
+/** A historical-position read: the rows directly older than row `before`, or
+ *  newer than row `after`, at most `limit` (DESKTOP_TRANSCRIPT_HISTORY_PAGE_ITEMS)
+ *  within `byteBudget`. It never moves the session's shared window. */
+export interface DesktopTranscriptHistoryRequest {
+  before?: string;
+  after?: string;
+  limit: number;
+  byteBudget?: number;
+  /** The boundary row's position, as an earlier answer named it
+   *  (`positions`): a spilled or archived row is then read where it is. */
+  position?: string;
+}
+
+/** The answer: `reset` when the boundary row is gone (compaction, rewind),
+ *  `unsupported` when the daemon predates historical-position reads. */
+export interface DesktopTranscriptHistoryPage {
+  items: DesktopTranscriptItem[];
+  hasOlder: boolean;
+  hasNewer: boolean;
+  /** Per row (aligned with `items`): its position, or null when it needs none. */
+  positions?: (string | null)[];
+  reset?: boolean;
+  unsupported?: boolean;
+}
+
+/** The most rows one historical-position read carries. */
+export const DESKTOP_TRANSCRIPT_HISTORY_PAGE_ITEMS = 512;
+
 export type DesktopSessionFrameSource = 'live' | 'replay';
 export type DesktopSessionLaneEnd = 'gone' | 'unloaded' | 'disconnected';
 

@@ -57,25 +57,35 @@ function readSpilledRows(pages, spilledRows, end, limit) {
   const stop = Math.max(0, Math.min(Number(end) || 0, spilledRows));
   const begin = Math.max(0, stop - Math.max(0, Number(limit) || 0));
   const parts = [];
-  let pageEnd = spilledRows;
   const result = (broken) => {
     const items = parts.reverse().flat();
     return { items, start: stop - items.length, broken };
   };
-  for (let index = pages.length - 1; index >= 0 && pageEnd > begin; index -= 1) {
+  // The page holding row `stop - 1`, by binary search over the pages' first
+  // rows: a read touches only the pages it returns rows from, at any depth.
+  let low = 0;
+  let high = pages.length - 1;
+  let last = -1;
+  while (low <= high) {
+    const middle = (low + high) >> 1;
+    if (pages[middle].start < stop) {
+      last = middle;
+      low = middle + 1;
+    } else high = middle - 1;
+  }
+  for (let index = last; index >= 0; index -= 1) {
     const record = pages[index];
-    const pageStart = pageEnd - record.count;
-    if (pageStart < stop) {
-      let items = null;
-      try {
-        items = decodePage(record);
-      } catch {
-        items = null;
-      }
-      if (!Array.isArray(items) || items.length !== record.count) return result(true);
-      parts.push(items.slice(Math.max(begin, pageStart) - pageStart, Math.min(stop, pageEnd) - pageStart));
+    const pageStart = record.start;
+    const pageEnd = pageStart + record.count;
+    if (pageEnd <= begin) break;
+    let items = null;
+    try {
+      items = decodePage(record);
+    } catch {
+      items = null;
     }
-    pageEnd = pageStart;
+    if (!Array.isArray(items) || items.length !== record.count) return result(true);
+    parts.push(items.slice(Math.max(begin, pageStart) - pageStart, Math.min(stop, pageEnd) - pageStart));
   }
   return result(false);
 }
@@ -110,8 +120,13 @@ export function createTranscriptSpillBuffer({
   let spilledRows = 0;
   let epoch = 0;
   let spilledInfo = { rows: 0, epoch: 0 };
+  // Each page's first absolute row (`start`) within the current page list.
   const replaced = () => {
-    spilledRows = pages.reduce((sum, record) => sum + record.count, 0);
+    spilledRows = 0;
+    for (const record of pages) {
+      record.start = spilledRows;
+      spilledRows += record.count;
+    }
     epoch += 1;
   };
   let warningEmitted = false;
@@ -251,7 +266,9 @@ export function createTranscriptSpillBuffer({
       let live = Array.isArray(items) ? items : [];
       if (spillDisabled) return live;
       while (live.length > cap) {
-        pages.push(encode(live.slice(0, chunkSize)));
+        const record = encode(live.slice(0, chunkSize));
+        record.start = spilledRows;
+        pages.push(record);
         spilledRows += chunkSize;
         live = live.slice(chunkSize);
       }

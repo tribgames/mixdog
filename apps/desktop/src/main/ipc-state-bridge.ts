@@ -11,7 +11,7 @@ import { SETTINGS_CHANGED_EVENT } from '../shared/settings-changed';
 import { ORCHESTRATION_MODE_EVENT } from '../shared/orchestration-mode';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type { DesktopService } from './desktop-service-contract';
-import { requiredTranscriptItemLimit } from './ipc-validation';
+import { requiredTranscriptHistoryRequest, requiredTranscriptItemLimit } from './ipc-validation';
 import {
   createSessionReadWindow,
   createSnapshotDeltaEncoder,
@@ -75,6 +75,14 @@ export class DesktopStateBridge {
       const traceId = typeof readTraceId === 'string' && readTraceId ? readTraceId : undefined;
       if (traceId) this.rememberRequestedReadTrace(traceId, id);
       return this.requestedReads.run(id, () => host.prefetchSession(id, limit, traceId));
+    });
+    handle(DESKTOP_IPC.readTranscriptHistory, (_event, sessionId, request) => {
+      const id = requiredSessionId(sessionId);
+      const history = requiredTranscriptHistoryRequest(request);
+      if (typeof host.readTranscriptHistory !== 'function') {
+        return { items: [], hasOlder: false, hasNewer: false, unsupported: true };
+      }
+      return host.readTranscriptHistory(id, history);
     });
     handle(DESKTOP_IPC.getSnapshot, () => host.getSnapshot());
     handle(DESKTOP_IPC.getUpdaterState, () => updater?.getState() ?? { status: 'disabled' });

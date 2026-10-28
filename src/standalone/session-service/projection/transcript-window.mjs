@@ -99,9 +99,15 @@ function withinAnswerBounds(items, byteBudget, maxItems = TRANSCRIPT_RESPONSE_MA
  *  (holdsTranscriptTail; `proven` when the reader already verified them) and
  *  the rows above them fit one answer (withinAnswerBounds, `byteBudget`);
  *  otherwise the full answer stands. */
-export function transcriptPageBody(result, held, { proven = false, byteBudget = null } = {}) {
+export function transcriptPageBody(result, held, { proven = false, byteBudget = null, pageOnly = false } = {}) {
   const snapshot = result?.full;
   if (!held || !snapshot || !Array.isArray(snapshot.items)) return result;
+  if (pageOnly) {
+    // Already only the (bounded) rows above the proven held ones.
+    const { full: _full, ...body } = result;
+    const { items, ...state } = snapshot;
+    return { ...body, page: { firstHeldId: held.firstId, heldCount: held.count, items, state } };
+  }
   const items = snapshot.items;
   if (!holdsTranscriptTail(items, held, proven)) return result;
   const start = items.length - held.count;
@@ -155,6 +161,17 @@ export function clampStoredWindow(wire, window, held = 0) {
   } else if (window.byteBudget) {
     start = tailWindowStart(items, { limit: items.length, byteBudget: window.byteBudget, pageBase: window.pageBase });
   }
+  return start === 0 ? wire : { ...wire, items: items.slice(start), transcriptHasOlder: true };
+}
+
+/** A stored page (only the rows above the `held` ones a paged caller proved)
+ *  cut to one answer: at most TRANSCRIPT_RESPONSE_MAX_ITEMS (and the window's
+ *  limit) newest of them within the byte budget. */
+export function clampStoredPage(wire, window, held) {
+  if (!Array.isArray(wire?.items)) return wire;
+  const items = wire.items;
+  const maxItems = Math.max(0, Math.min(window.limit - held, TRANSCRIPT_RESPONSE_MAX_ITEMS));
+  const start = budgetedStart(items, items.length, maxItems, window.byteBudget, TRANSCRIPT_WINDOW_MIN_ITEMS);
   return start === 0 ? wire : { ...wire, items: items.slice(start), transcriptHasOlder: true };
 }
 
@@ -275,10 +292,15 @@ export function requestLiveTranscriptWindow(entry, request) {
     };
     return;
   }
-  if (request.limit > view.limit) {
+  if (request.limit > view.limit && view.limit < TRANSCRIPT_WINDOW_MAX_ITEMS) {
     // One paged request reveals at most TRANSCRIPT_RESPONSE_MAX_ITEMS older
-    // rows; any other names at most TRANSCRIPT_WINDOW_MAX_ITEMS.
-    view.limit = request.paged ? Math.min(request.limit, view.size + TRANSCRIPT_RESPONSE_MAX_ITEMS) : request.limit;
+    // rows; any other names at most TRANSCRIPT_WINDOW_MAX_ITEMS. The shared
+    // window never grows past TRANSCRIPT_WINDOW_MAX_ITEMS: deeper history is
+    // a historical-position read (readTranscriptHistory), which no view shares.
+    view.limit = Math.min(
+      TRANSCRIPT_WINDOW_MAX_ITEMS,
+      request.paged ? Math.min(request.limit, view.size + TRANSCRIPT_RESPONSE_MAX_ITEMS) : request.limit
+    );
     // The page's own budget bounds the rows it reveals.
     view.grow = { byteBudget: request.byteBudget };
     view.paged = true;
@@ -382,6 +404,12 @@ export function windowTranscriptSnapshot(entry, wire) {
     const held = view.head.length + items.length - start;
     start = budgetedStart(items, start, view.limit - held, view.grow.byteBudget, TRANSCRIPT_WINDOW_MIN_ITEMS);
     view.grow = false;
+  }
+  if (!view.private && view.head.length + items.length - start > TRANSCRIPT_WINDOW_MAX_ITEMS) {
+    // Appends under a sticky start outgrew the shared window: its oldest rows
+    // go (a page's worth below the bound, so this does not recur per append).
+    resetLoadedHead(view);
+    start = Math.max(start, items.length - (TRANSCRIPT_WINDOW_MAX_ITEMS - TRANSCRIPT_RESPONSE_MAX_ITEMS));
   }
   view.start = start;
   view.anchorId = items[start]?.id;
@@ -583,6 +611,402 @@ export async function loadLiveTranscriptHead(entry, sessionId, readStoredSession
   return true;
 }
 
+/** The newest `requested` rows of a live session through a private window
+ *  (never the entry's own, which its views share): spilled rows, durable
+ *  history and archive load above the runtime's rows as for a view. */
+async function isolatedLiveRows(entry, sessionId, readStoredSession, requested) {
+  const state = entry.runtime.getState();
+  const isolated = {
+    runtime: { getState: () => state, readSpilledTranscript: entry.runtime.readSpilledTranscript },
+  };
+  requestLiveTranscriptWindow(isolated, { limit: requested, byteBudget: null, pageBase: 0 });
+  const view = isolated.transcriptView;
+  // Not shared: the shared window's row cap does not apply.
+  view.private = true;
+  windowTranscriptSnapshot(isolated, state);
+  view.limit = requested;
+  view.paged = true;
+  view.grow = { byteBudget: null };
+  let snapshot = windowTranscriptSnapshot(isolated, state);
+  // One load reads one source (spilled rows, durable history, archive): keep
+  // loading until the rows are covered, history ends, or a load adds nothing.
+  while (snapshot.items.length < requested && snapshot.transcriptHasOlder) {
+    const held = snapshot.items.length;
+    await loadLiveTranscriptHead(isolated, sessionId, readStoredSession);
+    snapshot = windowTranscriptSnapshot(isolated, state);
+    if (snapshot.items.length <= held) break;
+  }
+  privateViews.set(snapshot, view);
+  return snapshot;
+}
+
+/** The private window each isolatedLiveRows snapshot was read through. */
+const privateViews = new WeakMap();
+
+/** Positions (see HISTORY_POSITION) of rows `[from, to)` of a private
+ *  window's snapshot: its loaded head is archive rows (when it reached them)
+ *  then spilled rows from `spillFrom`; other rows need none. */
+function privateRowPositions(snapshot, state, from, to) {
+  const view = privateViews.get(snapshot);
+  const spilled = spilledOf(state);
+  const archive = runtimeArchiveRange(state);
+  const head = view?.head.length ?? 0;
+  const spillRows = view && view.spillFrom !== null && spilled ? spilled.rows - view.spillFrom : 0;
+  const archiveRows = view?.headSource === 'archive' ? head - spillRows : 0;
+  const positions = [];
+  for (let index = from; index < to; index += 1) {
+    if (index < archiveRows && archive) positions.push(archivePosition(archive, archiveRows - 1 - index));
+    else if (index >= head - spillRows && index < head && spilled) {
+      positions.push(spillPosition(spilled.epoch, view.spillFrom + index - (head - spillRows)));
+    } else positions.push(null);
+  }
+  return positions;
+}
+
+/** The most rows one historical-position read carries. */
+export const TRANSCRIPT_HISTORY_MAX_ITEMS = TRANSCRIPT_RESPONSE_MAX_ITEMS;
+
+/** A historical-position read (`transcriptHistory`: `{ before | after: row
+ *  id, limit, byteBudget? }`), validated; null when the params name none. */
+export function requestedTranscriptHistory(params) {
+  const request = params?.transcriptHistory;
+  if (request == null) return null;
+  const limit = Number(request?.limit);
+  const older = request?.before != null;
+  const id = older ? request.before : request?.after;
+  const budget = Number(request?.byteBudget);
+  if (
+    (typeof id !== 'string' && typeof id !== 'number') ||
+    (older && request.after != null) ||
+    !Number.isInteger(limit) ||
+    limit < 1 ||
+    limit > TRANSCRIPT_HISTORY_MAX_ITEMS
+  ) {
+    throw new TypeError('invalid transcript history request');
+  }
+  const position = request.position;
+  if (position != null && (typeof position !== 'string' || !HISTORY_POSITION.test(position))) {
+    throw new TypeError('invalid transcript history request');
+  }
+  return {
+    ...(older ? { before: id } : { after: id }),
+    limit,
+    byteBudget: Number.isSafeInteger(budget) && budget > 0 ? budget : null,
+    ...(position != null ? { position } : {}),
+  };
+}
+
+const historyAnswer = (sessionId, items, hasOlder, hasNewer, positions = null) => ({
+  sessionId,
+  items: sanitizeForWire(items),
+  hasOlder: hasOlder === true,
+  hasNewer: hasNewer === true,
+  ...(positions?.some((position) => position !== null) ? { positions } : {}),
+});
+
+/** Where a row of a live session's history sits in a store addressed by
+ *  position — `s:<epoch>:<index>`: a spilled row (absolute index in that spill
+ *  epoch); `a:<after>:<before>:<skip>`: a compaction-archive row (`skip` rows
+ *  newer than it in that archive range). An answer names its rows' positions
+ *  (`positions`) and a request may name its boundary row's (`position`): the
+ *  row is then read where it is — one page, verified by id — never searched
+ *  for. Rows of the runtime and of durable history need none (found by id). */
+const HISTORY_POSITION = /^(?:s:\d{1,15}:\d{1,15}|a:\d{1,15}:\d{1,15}:\d{1,15})$/;
+
+function parseHistoryPosition(position) {
+  if (typeof position !== 'string' || !HISTORY_POSITION.test(position)) return null;
+  const [kind, ...numbers] = position.split(':');
+  const values = numbers.map(Number);
+  return kind === 's'
+    ? { kind, epoch: values[0], index: values[1] }
+    : { kind, after: values[0], before: values[1], skip: values[2] };
+}
+
+const spillPosition = (epoch, index) => `s:${epoch}:${index}`;
+const archivePosition = (range, skip) => `a:${range.after}:${range.before}:${skip}`;
+
+/** Older (`before`) or newer rows than one positioned row, read where they
+ *  are: spilled rows by absolute index, archive rows by skip, past either end
+ *  into the next source (spill → archive or durable history above it; archive
+ *  → spill or runtime below it). Null when the position no longer names that
+ *  row (another epoch or range, or another row there): the caller looks up
+ *  the row instead. Every read is one bounded page. */
+async function readAtHistoryPosition(entry, state, sessionId, readStoredSession, request, older, id, position) {
+  const items = Array.isArray(state?.items) ? state.items : [];
+  const spilled = spilledOf(state);
+  const readSpill =
+    typeof entry.runtime?.readSpilledTranscript === 'function'
+      ? (range) => entry.runtime.readSpilledTranscript(range)
+      : null;
+  const archive = runtimeArchiveRange(state);
+  const readArchive = async (skip, limit) => {
+    if (!archive || limit <= 0 || typeof readStoredSession !== 'function') return null;
+    const page = await readStoredSession(sessionId, { compactionArchive: { ...archive, skip, limit }, paging: true });
+    return Array.isArray(page?.items) ? page : null;
+  };
+  const { limit, byteBudget } = request;
+  // Rows below the archive or the spill: the spill's first rows, else the runtime's.
+  const newerFromSpillStart = () => {
+    if (spilled && readSpill) {
+      const page = readSpill({ epoch: spilled.epoch, end: Math.min(spilled.rows, limit), limit });
+      // An unreadable spill page is a gap: never skipped to the runtime's rows.
+      if (!page || page.broken || page.start !== 0) return historyReset(sessionId);
+      const end = budgetedEnd(page.items, 0, limit, byteBudget);
+      const rows = page.items.slice(0, end);
+      return historyAnswer(
+        sessionId,
+        rows,
+        true,
+        true,
+        rows.map((_, i) => spillPosition(spilled.epoch, i))
+      );
+    }
+    const end = budgetedEnd(items, 0, limit, byteBudget);
+    return historyAnswer(sessionId, items.slice(0, end), true, end < items.length);
+  };
+  // Rows above the spill's first row (or the runtime's, when nothing spilled).
+  const olderThanSpillStart = async (first) => {
+    const source = headSourceFor(first, archive);
+    if (source === 'archive') return olderFromArchive(-1);
+    if (source === 'stored' && typeof readStoredSession === 'function' && first?.id != null) {
+      const page = await readStoredSession(sessionId, {
+        transcriptCursor: { before: first.id, maxRows: limit, byteBudget },
+        paging: true,
+      });
+      if (page && !page.cursorMissing && typeof page.transcriptHasNewer === 'boolean') {
+        return historyAnswer(sessionId, page.items, page.transcriptHasOlder, true);
+      }
+    }
+    return historyAnswer(sessionId, [], false, true);
+  };
+  // Archive rows older than the one `skip` rows from its newest (-1: from the newest).
+  const olderFromArchive = async (skip) => {
+    const page = await readArchive(skip + 1, limit);
+    if (!page) return historyAnswer(sessionId, [], false, true);
+    const start = budgetedStart(page.items, page.items.length, limit, byteBudget, TRANSCRIPT_WINDOW_MIN_ITEMS);
+    const rows = page.items.slice(start);
+    const positions = rows.map((_, i) => archivePosition(archive, skip + rows.length - i));
+    return historyAnswer(sessionId, rows, start > 0 || page.hasOlder === true, true, positions);
+  };
+  // Spilled rows ending just above index `end`.
+  const olderFromSpill = (end) => {
+    const page = readSpill({ epoch: spilled.epoch, end, limit });
+    if (!page || page.broken) return null;
+    const start = budgetedStart(page.items, page.items.length, limit, byteBudget, TRANSCRIPT_WINDOW_MIN_ITEMS);
+    const first = page.start + start;
+    const rows = page.items.slice(start);
+    const above = first > 0 || headSourceFor(rows[0], archive) !== null;
+    return historyAnswer(
+      sessionId,
+      rows,
+      above,
+      true,
+      rows.map((_, i) => spillPosition(spilled.epoch, first + i))
+    );
+  };
+  if (position.kind === 'runtime-start') {
+    // Older than the runtime's first row: the spill's last rows, else what
+    // lies above the runtime.
+    if (spilled && readSpill) return olderFromSpill(spilled.rows);
+    return olderThanSpillStart(items[0]);
+  }
+  if (position.kind === 's') {
+    if (!spilled || !readSpill || position.epoch !== spilled.epoch || position.index >= spilled.rows) return null;
+    const at = readSpill({ epoch: spilled.epoch, end: position.index + 1, limit: 1 });
+    if (!at || at.broken || at.items[0]?.id !== id) return null;
+    if (older) return position.index === 0 ? olderThanSpillStart(at.items[0]) : olderFromSpill(position.index);
+    const from = position.index + 1;
+    if (from >= spilled.rows) {
+      const end = budgetedEnd(items, 0, limit, byteBudget);
+      return historyAnswer(sessionId, items.slice(0, end), true, end < items.length);
+    }
+    const page = readSpill({ epoch: spilled.epoch, end: Math.min(spilled.rows, from + limit), limit });
+    if (!page || page.broken || page.start !== from) return null;
+    const end = budgetedEnd(page.items, 0, limit, byteBudget);
+    const rows = page.items.slice(0, end);
+    return historyAnswer(
+      sessionId,
+      rows,
+      true,
+      true,
+      rows.map((_, i) => spillPosition(spilled.epoch, from + i))
+    );
+  }
+  if (!archive || position.after !== archive.after || position.before !== archive.before) return null;
+  const at = await readArchive(position.skip, 1);
+  if (!at || at.items.at(-1)?.id !== id) return null;
+  if (older) return olderFromArchive(position.skip);
+  if (position.skip === 0) return newerFromSpillStart();
+  const take = Math.min(limit, position.skip);
+  const page = await readArchive(position.skip - take, take);
+  if (!page) return null;
+  const end = budgetedEnd(page.items, 0, limit, byteBudget);
+  const rows = page.items.slice(0, end);
+  return historyAnswer(
+    sessionId,
+    rows,
+    true,
+    true,
+    rows.map((_, i) => archivePosition(archive, position.skip - 1 - i))
+  );
+}
+const historyReset = (sessionId) => ({ sessionId, items: [], hasOlder: false, hasNewer: false, reset: true });
+
+/** Rows next to one row of the session's whole history — the rows directly
+ *  older than `before`, or newer than `after` — at most `limit` within
+ *  `byteBudget` (never fewer than TRANSCRIPT_WINDOW_MIN_ITEMS), with whether
+ *  more exist each way. Stateless and read-only: no view's window, baseline or
+ *  revision moves, so a reader deep in history never grows what live views
+ *  share. Rows are found by their stable ids (append-only history keeps
+ *  them); a row no longer there answers `reset` and the reader returns to the
+ *  live tail. */
+export async function readTranscriptHistory(entry, sessionId, readStoredSession, request) {
+  const older = request.before != null;
+  const id = older ? request.before : request.after;
+  const stored = async (rowId, before) => {
+    if (typeof readStoredSession !== 'function') return null;
+    const page = await readStoredSession(sessionId, {
+      transcriptCursor: {
+        ...(before ? { before: rowId } : { after: rowId }),
+        maxRows: request.limit,
+        byteBudget: request.byteBudget,
+      },
+      paging: true,
+    });
+    // A reader without historical positions answers no cursor fields.
+    if (!page || page.cursorMissing || typeof page.transcriptHasNewer !== 'boolean') return null;
+    return page;
+  };
+  if (!entry) {
+    const page = await stored(id, older);
+    return page
+      ? historyAnswer(sessionId, page.items, page.transcriptHasOlder, page.transcriptHasNewer)
+      : historyReset(sessionId);
+  }
+  const state = entry.runtime.getState();
+  const items = Array.isArray(state?.items) ? state.items : [];
+  const at = items.findIndex((item) => item?.id === id);
+  const spilled = spilledOf(state) !== null && typeof entry.runtime?.readSpilledTranscript === 'function';
+  const olderSource = headSourceFor(items[0], runtimeArchiveRange(state), spilled);
+  if (older && at > 0) {
+    const start = budgetedStart(items, at, request.limit, request.byteBudget, TRANSCRIPT_WINDOW_MIN_ITEMS);
+    return historyAnswer(sessionId, items.slice(start, at), start > 0 || olderSource !== null, true);
+  }
+  if (!older && at >= 0) {
+    const end = budgetedEnd(items, at + 1, request.limit, request.byteBudget);
+    return historyAnswer(sessionId, items.slice(at + 1, end), true, end < items.length);
+  }
+  // A row whose position the reader names (spilled or archived) is read
+  // where it is, and so is what lies above the runtime's first row.
+  const position = parseHistoryPosition(request.position);
+  if (position) {
+    const answer = await readAtHistoryPosition(
+      entry,
+      state,
+      sessionId,
+      readStoredSession,
+      request,
+      older,
+      id,
+      position
+    );
+    if (answer) return answer;
+  }
+  if (older && at === 0 && (olderSource === 'spill' || olderSource === 'archive')) {
+    const answer = await readAtHistoryPosition(entry, state, sessionId, readStoredSession, request, true, id, {
+      kind: 'runtime-start',
+    });
+    if (answer) return answer;
+  }
+  // Above the runtime's rows. Durable history aligns with restored rows by
+  // their ids while no compaction rewrote them: read it there directly.
+  if (olderSource === 'stored' && !items.some(isCompactionMark)) {
+    const page = await stored(older && at === 0 ? items[0].id : id, older);
+    if (!page) return historyReset(sessionId);
+    if (older) return historyAnswer(sessionId, page.items, page.transcriptHasOlder, true);
+    // Newer rows run into the runtime's own rows: continue there.
+    const joined = page.items.findIndex((item) => item?.id === items[0]?.id);
+    let rows = joined >= 0 ? page.items.slice(0, joined) : page.items;
+    if (rows.length === 0 && (joined >= 0 || !page.transcriptHasNewer)) {
+      rows = items.slice(0, budgetedEnd(items, 0, request.limit, request.byteBudget));
+      return historyAnswer(sessionId, rows, true, rows.length < items.length);
+    }
+    return historyAnswer(sessionId, rows, true, true);
+  }
+  // Spilled or archived rows (a live compaction): a private window loaded
+  // down to the row, deeper on each pass — but never more than
+  // TRANSCRIPT_HISTORY_LOOKUP_MAX_ITEMS rows above the runtime's own, nor on
+  // after a pass that loaded nothing new. Past that the row answers `reset`:
+  // no lookup here scales with the history's depth.
+  const bound = items.length + TRANSCRIPT_HISTORY_LOOKUP_MAX_ITEMS;
+  let requested = Math.min(bound, items.length + Math.max(request.limit * 2, 64));
+  let loaded = -1;
+  for (;;) {
+    const snapshot = await isolatedLiveRows(entry, sessionId, readStoredSession, requested);
+    const rows = snapshot.items;
+    const index = rows.findIndex((item) => item?.id === id);
+    // Found where a position names it: the page is read there.
+    const [own] = index >= 0 ? privateRowPositions(snapshot, state, index, index + 1) : [];
+    if (own) {
+      const answer = await readAtHistoryPosition(
+        entry,
+        state,
+        sessionId,
+        readStoredSession,
+        request,
+        older,
+        id,
+        parseHistoryPosition(own)
+      );
+      if (answer) return answer;
+    }
+    if (index >= 0 && (!older || index >= request.limit || !snapshot.transcriptHasOlder || requested >= bound)) {
+      if (older) {
+        const start = budgetedStart(rows, index, request.limit, request.byteBudget, TRANSCRIPT_WINDOW_MIN_ITEMS);
+        return historyAnswer(
+          sessionId,
+          rows.slice(start, index),
+          start > 0 || snapshot.transcriptHasOlder,
+          true,
+          privateRowPositions(snapshot, state, start, index)
+        );
+      }
+      const end = budgetedEnd(rows, index + 1, request.limit, request.byteBudget);
+      return historyAnswer(
+        sessionId,
+        rows.slice(index + 1, end),
+        true,
+        end < rows.length,
+        privateRowPositions(snapshot, state, index + 1, end)
+      );
+    }
+    if (!snapshot.transcriptHasOlder || rows.length < requested || rows.length <= loaded || requested >= bound) {
+      return historyReset(sessionId);
+    }
+    loaded = rows.length;
+    requested = Math.min(bound, requested * 2);
+  }
+}
+
+/** The most rows a live historical-position lookup loads above the runtime's
+ *  own (spilled or archived ones), as the stored reader's own bound. */
+const TRANSCRIPT_HISTORY_LOOKUP_MAX_ITEMS = TRANSCRIPT_WINDOW_MAX_ITEMS;
+
+/** Last index (exclusive) of the rows kept from `start`: at most `maxItems`
+ *  and, past TRANSCRIPT_WINDOW_MIN_ITEMS, within `byteBudget`. */
+function budgetedEnd(items, start, maxItems, byteBudget) {
+  let end = start;
+  let bytes = 0;
+  while (end < items.length && end - start < maxItems) {
+    const next = itemBytes(items[end]);
+    if (byteBudget && end - start >= Math.min(maxItems, TRANSCRIPT_WINDOW_MIN_ITEMS) && bytes + next > byteBudget)
+      break;
+    bytes += next;
+    end += 1;
+  }
+  return end;
+}
+
 /** A one-shot range must not grow or rebudget an attached desktop's window. */
 export async function readTranscriptRange(entry, sessionId, readStoredSession, { offset, limit }) {
   if (
@@ -597,29 +1021,31 @@ export async function readTranscriptRange(entry, sessionId, readStoredSession, {
   const requested = offset + limit;
   let snapshot;
   if (entry) {
-    const state = entry.runtime.getState();
-    const isolated = {
-      runtime: { getState: () => state, readSpilledTranscript: entry.runtime.readSpilledTranscript },
-    };
-    requestLiveTranscriptWindow(isolated, { limit: requested, byteBudget: null, pageBase: 0 });
-    // A private window answered by a slice of at most `limit` rows: it reads
-    // as far back as the range reaches, past what one view answer carries.
-    const view = isolated.transcriptView;
-    windowTranscriptSnapshot(isolated, state);
-    view.limit = requested;
-    view.paged = true;
-    view.grow = { byteBudget: null };
-    snapshot = windowTranscriptSnapshot(isolated, state);
-    // One load reads one source (spilled rows, durable history, archive): keep
-    // loading until the range is covered, history ends, or a load adds nothing.
-    while (snapshot.items.length < requested && snapshot.transcriptHasOlder) {
-      const held = snapshot.items.length;
-      await loadLiveTranscriptHead(isolated, sessionId, readStoredSession);
-      snapshot = windowTranscriptSnapshot(isolated, state);
-      if (snapshot.items.length <= held) break;
-    }
+    snapshot = await isolatedLiveRows(entry, sessionId, readStoredSession, requested);
   } else {
-    snapshot = await readStoredSession(sessionId, { transcriptItemLimit: requested, paging: true });
+    // Only the range itself is sliced from the stored history.
+    const slice = await readStoredSession(sessionId, {
+      transcriptItemLimit: requested,
+      transcriptSkip: offset,
+      paging: true,
+    });
+    if (!slice) throw new Error(`session ${sessionId} is not available`);
+    const items = slice.items || [];
+    // A reader that ignores `transcriptSkip` answers the whole window — and
+    // one that holds less than the range reaches says so, rather than an
+    // empty page that never advances.
+    const honored = Object.hasOwn(slice, 'skippedFirstId');
+    if (!honored && offset >= items.length && slice.transcriptHasOlder) {
+      throw new Error('session: requested history is not available in the retained projection');
+    }
+    const end = honored ? items.length : Math.max(0, items.length - offset);
+    const start = Math.max(0, end - limit);
+    return {
+      sessionId,
+      offset,
+      items: sanitizeForWire(items.slice(start, end)),
+      hasOlder: start > 0 || slice.transcriptHasOlder === true,
+    };
   }
   if (!snapshot) throw new Error(`session ${sessionId} is not available`);
   const source = snapshot.items || [];

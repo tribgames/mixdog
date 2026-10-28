@@ -159,6 +159,29 @@ test('prefetchSession drops an empty read trace id like the desktop handler', as
   );
 });
 
+test('a paired device reads history by position only for a session it views, within the page bound', async () => {
+  const calls = [];
+  const host = {
+    readTranscriptHistory: async (...args) => {
+      calls.push(args);
+      return { items: [], hasOlder: false, hasNewer: false };
+    },
+  };
+  const methods = createRemoteMethods({ host }, { viewedSessionIds: () => [SESSION] });
+  await methods.readTranscriptHistory([SESSION, { before: 'row_9', limit: 512 }]);
+  assert.deepEqual(calls, [[SESSION, { before: 'row_9', limit: 512 }]]);
+  await assert.rejects(async () => methods.readTranscriptHistory([SESSION, { before: 'row_9', limit: 513 }]));
+  await assert.rejects(async () =>
+    methods.readTranscriptHistory([`sess_desktop_${'b'.repeat(64)}`, { before: 'row_9', limit: 5 }])
+  );
+  // An older host answers that positions are unsupported: the device grows its window instead.
+  assert.equal(
+    (await createRemoteMethods({ host: {} }).readTranscriptHistory([SESSION, { after: 'a', limit: 1 }])).unsupported,
+    true
+  );
+  assert.equal(calls.length, 1);
+});
+
 test('openAgentHome resolves the same home thread on the desktop and a paired device', async () => {
   const calls = [];
   const host = {

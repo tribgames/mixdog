@@ -17,6 +17,8 @@ import type {
   DesktopSessionSummary,
   DesktopSessionStateUpdate,
   DesktopSubmitOptions,
+  DesktopTranscriptHistoryPage,
+  DesktopTranscriptHistoryRequest,
   SessionSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
@@ -909,6 +911,12 @@ export class DesktopServiceClient implements DesktopService {
   }
   prefetchSession(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean> {
     return this.invokeRead('prefetchSession', [sessionId, transcriptItemLimit, ...(readTraceId ? [readTraceId] : [])]);
+  }
+  readTranscriptHistory(
+    sessionId: string,
+    request: DesktopTranscriptHistoryRequest
+  ): Promise<DesktopTranscriptHistoryPage> {
+    return this.invokeRead('readTranscriptHistory', [sessionId, request]);
   }
   setVisibleSessions(sessionIds: string[]): Promise<boolean> {
     this.visibleSessionIds = filterSessionIds(sessionIds);

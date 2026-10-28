@@ -15,14 +15,38 @@ import {
   requiredNotificationDeviceId,
   requiredNotificationPreferencesPatch,
   requiredNotificationTarget,
+  requiredTranscriptHistoryRequest,
   requiredTranscriptItemLimit,
 } from './ipc-validation.ts';
 
-test('a transcript item limit has no ceiling: the daemon bounds each answer', () => {
+test('a shared transcript window retains at most 8,192 rows; deeper history is read by position', () => {
   assert.equal(requiredTranscriptItemLimit(null), undefined);
-  for (const limit of [1, 8_193, 20_064, 10_000_000]) assert.equal(requiredTranscriptItemLimit(limit), limit);
+  for (const limit of [1, 512, 8_192]) assert.equal(requiredTranscriptItemLimit(limit), limit);
+  for (const limit of [8_193, 20_064, 10_000_000]) assert.equal(requiredTranscriptItemLimit(limit), 8_192);
   for (const bad of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '64', Number.POSITIVE_INFINITY]) {
     assert.throws(() => requiredTranscriptItemLimit(bad), TypeError, String(bad));
+  }
+});
+
+test('a historical-position read names one row and returns at most 512 rows, at any depth', () => {
+  assert.deepEqual(requiredTranscriptHistoryRequest({ before: 'hist_s_0_0', limit: 512, byteBudget: 1_000 }), {
+    before: 'hist_s_0_0',
+    limit: 512,
+    byteBudget: 1_000,
+  });
+  assert.deepEqual(requiredTranscriptHistoryRequest({ after: 'arch1_9', limit: 1 }), { after: 'arch1_9', limit: 1 });
+  for (const bad of [
+    null,
+    { limit: 5 },
+    { before: 'a', after: 'b', limit: 5 },
+    { before: 'a', limit: 513 },
+    { before: 'a', limit: 0 },
+    { before: '', limit: 5 },
+    { before: 7, limit: 5 },
+    { before: 'x'.repeat(513), limit: 5 },
+    { before: 'a', limit: 5, byteBudget: -1 },
+  ]) {
+    assert.throws(() => requiredTranscriptHistoryRequest(bad), TypeError, JSON.stringify(bad));
   }
 });
 

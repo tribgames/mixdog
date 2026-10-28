@@ -21,6 +21,8 @@ import type {
   DesktopPromptContent,
   DesktopSessionStateUpdate,
   DesktopSubmitOptions,
+  DesktopTranscriptHistoryPage,
+  DesktopTranscriptHistoryRequest,
   DesktopUpdaterState,
   SessionSnapshot,
   ToolApprovalDecision,
@@ -661,6 +663,12 @@ export interface DesktopApi {
   listRemoteClientClaims?(): Promise<DesktopRemoteClientClaim[]>;
   resolveRemoteClientClaim?(claimId: string, approved: boolean): Promise<boolean>;
   prefetchSession?(sessionId: string, transcriptItemLimit?: number, readTraceId?: string): Promise<boolean>;
+  /** A historical-position read (rows next to one row), outside the session's
+   *  shared window: nothing is published. */
+  readTranscriptHistory?(
+    sessionId: string,
+    request: DesktopTranscriptHistoryRequest
+  ): Promise<DesktopTranscriptHistoryPage>;
   /** Replay a visible lane after its read ACK arrived without a renderer baseline. */
   resyncSessionState?(sessionId: string): void;
   /** Register every visible session for owner-pipe mirroring. */

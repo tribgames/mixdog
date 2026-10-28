@@ -361,6 +361,53 @@ function liveRuntime(initial, extra = {}) {
   };
 }
 
+const SHARED_WINDOW_MAX_ROWS = 8_192;
+
+/** An older host paging the session's shared window: it grows until the
+ *  window's row cap, where pages reveal nothing more. The pages taken. */
+async function pageSharedWindowToCap(view) {
+  let pages = 0;
+  while (view.hasOlder) {
+    const held = view.items.length;
+    await view.page();
+    pages += 1;
+    if (view.items.length <= held) break;
+    assert.ok(pages < 200);
+  }
+  assert.ok(view.items.length <= SHARED_WINDOW_MAX_ROWS, `${view.items.length} rows in the shared window`);
+  return pages;
+}
+
+/** Every row older than `firstId`, oldest first, read by position in
+ *  bounded pages (what a current reader does past the shared window). */
+async function readOlderByPosition(service, sessionId, firstId) {
+  const viewer = { clientToken: `positional-${sessionId}` };
+  let boundary = firstId;
+  // The boundary row's position when an answer named one (spilled/archived).
+  let position = null;
+  let rows = [];
+  for (let pages = 0; ; pages += 1) {
+    const { history } = await service.readSession(
+      {
+        sessionId,
+        transcriptHistory: {
+          before: boundary,
+          limit: 512,
+          byteBudget: PAGE_BYTES,
+          ...(position ? { position } : {}),
+        },
+      },
+      viewer
+    );
+    assert.ok(!history.reset && history.items.length <= TRANSCRIPT_RESPONSE_MAX_ITEMS, `page ${pages}`);
+    rows = history.items.concat(rows);
+    if (!history.hasOlder) return rows;
+    assert.ok(history.items.length > 0 && pages < 500);
+    boundary = history.items[0].id;
+    position = history.positions?.[0] ?? null;
+  }
+}
+
 test('a live runtime that spilled 19,000+ rows pages through its spill store to its first row', async (t) => {
   const id = 'sess_history_spilled';
   const spill = createTranscriptSpillBuffer();
@@ -383,18 +430,29 @@ test('a live runtime that spilled 19,000+ rows pages through its spill store to 
     const view = hostView(service, id);
     const startedAt = performance.now();
     await view.open();
-    const pages = await view.scrollToTop();
+    const pages = await pageSharedWindowToCap(view);
+    // Past the shared window, spilled rows are read where they are (each
+    // answer names their positions, each request its boundary's): every
+    // read covers only the spill rows it returns, at any depth.
+    const reads = [];
+    const read = live.runtime.readSpilledTranscript;
+    live.runtime.readSpilledTranscript = (range) => {
+      reads.push(range.limit);
+      return read(range);
+    };
+    const older = await readOlderByPosition(service, id, view.items[0].id);
+    live.runtime.readSpilledTranscript = read;
     const elapsed = performance.now() - startedAt;
     assert.deepEqual(
-      view.items.map((row) => row.id),
+      older.concat(view.items).map((row) => row.id),
       all.map((row) => row.id),
       'every row, in order, from the first'
     );
-    assert.equal(view.hasOlder, false);
+    assert.ok(Math.max(...reads) <= SHARED_WINDOW_MAX_ROWS, `spill reads of at most ${Math.max(...reads)} rows`);
     const bounds = assertBoundedAnswers(view.answers);
     t.diagnostic(
-      `live-spilled rows=${view.items.length} spilledRows=${spill.spilled.rows} pages=${pages}` +
-        ` maxAnswerRows=${bounds.maxRows} maxAnswerBytes=${bounds.maxBytes} elapsedMs=${Math.round(elapsed)}`
+      `live-spilled windowRows=${view.items.length} positionalRows=${older.length} spilledRows=${spill.spilled.rows}` +
+        ` pages=${pages} maxAnswerRows=${bounds.maxRows} maxAnswerBytes=${bounds.maxBytes} elapsedMs=${Math.round(elapsed)}`
     );
   } finally {
     await service.stop('test complete');
@@ -413,14 +471,13 @@ test('a runtime resumed on a compacted record pages its durable history and arch
     const view = hostView(service, id);
     const startedAt = performance.now();
     await view.open();
-    const pages = await view.scrollToTop();
+    const pages = await pageSharedWindowToCap(view);
+    const rows = (await readOlderByPosition(service, id, view.items[0].id)).concat(view.items);
     const elapsed = performance.now() - startedAt;
-    const rows = view.items;
     const archivedRows = ARCHIVE_SEGMENTS * ARCHIVE_ROWS;
     assert.equal(rows.length, archivedRows + MESSAGES);
     assert.equal(rows[0].id, 'arch1_0');
     assertRestoredRows(rows.slice(archivedRows), id);
-    assert.equal(view.hasOlder, false);
     const bounds = assertBoundedAnswers(view.answers);
     const stats = store.storedTranscriptCacheStats();
     assert.equal(stats.builds, 1, 'the durable history was built once for the whole scroll');
@@ -428,6 +485,54 @@ test('a runtime resumed on a compacted record pages its durable history and arch
       `live-resumed rows=${rows.length} pages=${pages} builds=${stats.builds} maxAnswerRows=${bounds.maxRows}` +
         ` maxAnswerBytes=${bounds.maxBytes} elapsedMs=${Math.round(elapsed)}`
     );
+  } finally {
+    await service.stop('test complete');
+  }
+});
+
+test('historical-position reads page a compacted stored session to its first row and back, without a window', async () => {
+  store.clearStoredTranscriptCache();
+  const id = 'sess_history_cursor';
+  writeStoredSession(id, { archive: true });
+  const service = storedService();
+  try {
+    const viewer = { clientToken: 'cursor-reader' };
+    const tail = await service.subscribeSession({ sessionId: id, ...TAIL }, viewer);
+    let rows = tail.full.items;
+    let hasOlder = tail.full.transcriptHasOlder;
+    let pages = 0;
+    let maxRows = 0;
+    while (hasOlder) {
+      const { history } = await service.readSession(
+        { sessionId: id, transcriptHistory: { before: rows[0].id, limit: 512, byteBudget: PAGE_BYTES } },
+        viewer
+      );
+      assert.ok(history.items.length > 0 && !history.reset, `page ${pages}`);
+      assert.ok(Buffer.byteLength(JSON.stringify(history.items)) <= PAGE_BYTES + history.items.length + 1);
+      maxRows = Math.max(maxRows, history.items.length);
+      // A reader keeps a bounded window: only the boundary row matters here.
+      rows = history.items;
+      hasOlder = history.hasOlder;
+      pages += 1;
+    }
+    assert.equal(rows[0].id, 'arch1_0', 'the first row of the oldest archive segment');
+    assert.ok(maxRows <= TRANSCRIPT_RESPONSE_MAX_ITEMS);
+    // And forward again from there, to the newest row.
+    let last = rows.at(-1);
+    let hasNewer = true;
+    let forward = 0;
+    while (hasNewer) {
+      const { history } = await service.readSession(
+        { sessionId: id, transcriptHistory: { after: last.id, limit: 512, byteBudget: PAGE_BYTES } },
+        viewer
+      );
+      if (history.items.length) last = history.items.at(-1);
+      hasNewer = history.hasNewer;
+      forward += 1;
+      assert.ok(forward < 200);
+    }
+    assert.equal(last.id, tail.full.items.at(-1).id);
+    assert.ok(store.storedTranscriptCacheStats().retainedBytes <= CACHE_MAX_BYTES);
   } finally {
     await service.stop('test complete');
   }
@@ -454,7 +559,9 @@ test('a session being paged stays cached while two other large sessions are read
     assert.ok(store.storedTranscriptCacheStats().retainedBytes <= CACHE_MAX_BYTES);
   }
   const builds = store.storedTranscriptCacheStats().builds - before;
-  assert.deepEqual(pageHits, [false, true, true, true, true, true, true, true], 'the paged history is built once');
+  // Only slices are evicted here: the display history stays where it was
+  // built, so no page builds it again.
+  assert.deepEqual(pageHits, [true, true, true, true, true, true, true, true], 'the paged history is not rebuilt');
   assert.ok(builds <= 1 + otherReads, `${builds} builds`);
   t.diagnostic(`alternating builds=${builds} (paged session 1, other reads ${otherReads})`);
 });
@@ -474,8 +581,10 @@ test('the store cache keeps the newest display history and stays within its byte
   }
   const stats = store.storedTranscriptCacheStats();
   assert.equal(stats.builds, 3);
-  // Each history is ~20 MB: two do not fit, so the older one went.
-  assert.equal(stats.entries, 1);
+  // Each history is ~20 MB, but only its 64-row slice crosses to this thread:
+  // one entry per session, a small fraction of the budget.
+  assert.equal(stats.entries, 3);
+  assert.ok(stats.retainedBytes < CACHE_MAX_BYTES / 32, `${stats.retainedBytes} retained bytes`);
   const again = await store.readStoredSessionTranscript('sess_history_third', { transcriptItemLimit: 128 });
   assert.equal(again.items.length, 128);
   assert.equal(store.storedTranscriptCacheStats().builds, 3, 'the newest is still cached');

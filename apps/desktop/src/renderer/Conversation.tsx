@@ -66,8 +66,11 @@ export function Conversation(props: ConversationProps) {
     transcriptPending,
     timelineMounted: view.timelineMounted,
     suppressDraftSubmitPaintHandoff,
+    following: view.follow.following,
   });
-  const { settledItems } = source;
+  // The live rows: a history window the reader scrolled into is the
+  // timeline's alone.
+  const settledItems = source.liveSettledItems;
   const submission = useConversationSubmission(props, {
     draftMode,
     settledItems,

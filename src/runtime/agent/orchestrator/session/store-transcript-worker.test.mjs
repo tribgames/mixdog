@@ -3,7 +3,7 @@
 // projection) must answer exactly what a fresh in-process projection of the
 // same bytes answers: projections feed the transcript.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -22,9 +22,9 @@ mkdirSync(sessionsDir);
 const { readStoredSessionTranscript, clearStoredTranscriptCache } = await import('./store-summary-reader.mjs');
 const { projectStoredTranscript } = await import('./store-transcript-projection.mjs');
 const { readTopLevelLifecycleRecord } = await import('./lifecycle-scan.mjs');
-const { OFFLOAD_MIN_CHARS, RESTART_READ, createBaseBuilds, reuseParsedPrefix, sameJsonValue } = await import(
-  './store-transcript-worker.mjs'
-);
+const { OFFLOAD_MIN_CHARS, RESTART_READ, createBaseBuilds, createHistoryRetention, reuseParsedPrefix, sameJsonValue } =
+  await import('./store-transcript-worker.mjs');
+const { heldRowsDigester, storedHistorySlice } = await import('./store-transcript-projection.mjs');
 const { contextMessagesSignature, toolSchemaSignature } = await import('./context-utils.mjs');
 
 test.after(() => {
@@ -232,6 +232,151 @@ test('concurrent reads of one session share one projection', async () => {
   assert.equal(misses.length, 1, 'one projected history serves every window');
   const { projectionStamp, ...wide } = reads[3];
   assert.deepEqual(wide, await fresh(id, text, 64));
+});
+
+test('the worker keeps display histories within its per-session and total byte budgets', () => {
+  const retention = createHistoryRetention({ sessionMaxBytes: 100, maxBytes: 150 });
+  const history = (bytes) => ({ value: { items: [] }, rowBytes: new Float64Array(0), bytes });
+  assert.equal(retention.retain('huge', 'c', 'f', history(101)), false, 'larger than one session may hold');
+  assert.equal(retention.get('huge', 'c', 'f'), null);
+  assert.equal(retention.retain('a', 'c', 'f', history(80)), true);
+  assert.equal(retention.retain('b', 'c', 'f', history(60)), true);
+  assert.deepEqual(retention.stats(), { histories: 2, retainedBytes: 140 });
+  assert.equal(retention.retain('c', 'c', 'f', history(60)), true);
+  assert.deepEqual(retention.stats(), { histories: 2, retainedBytes: 120 }, 'the oldest went');
+  assert.equal(retention.get('a', 'c', 'f'), null);
+  assert.equal(retention.get('b', 'other content', 'f'), null, 'never another content');
+  assert.equal(retention.get('b', 'c', 'other sidecars'), null);
+  retention.forget('b');
+  assert.deepEqual(retention.stats(), { histories: 1, retainedBytes: 60 });
+});
+
+test('a page above held rows is bounded by rows and bytes at any depth, and proven by stamp or digest', async () => {
+  const items = Array.from({ length: 50_000 }, (_, index) => ({
+    id: `r${index}`,
+    kind: 'assistant',
+    text: 'y'.repeat(100),
+  }));
+  const history = { items, transcriptHasOlder: false, transcriptArchivedRows: 0, model: 'm' };
+  const digestOf = await heldRowsDigester();
+  const { transcriptItemsDigest } = await import('../../../../standalone/session-state-patch.mjs');
+  for (const count of [32, 20_000, 49_990]) {
+    const held = { firstId: `r${50_000 - count}`, count, digest: 'stale' };
+    const page = storedHistorySlice(
+      history,
+      { limit: count + 512, held, proven: true, maxRows: 512, byteBudget: 10_000 },
+      { digestOf }
+    );
+    assert.equal(page.heldProven, true);
+    assert.equal(page.items.at(-1).id, `r${50_000 - count - 1}`, 'directly above the held rows');
+    assert.ok(page.items.length <= 512 && page.items.length >= Math.min(8, 50_000 - count));
+    const bytes = page.items.reduce((sum, item) => sum + Buffer.byteLength(JSON.stringify(item)), 0);
+    assert.ok(bytes <= 10_000 || page.items.length <= 8, `${bytes} bytes`);
+    assert.equal(page.transcriptHasOlder, 50_000 - count - page.items.length > 0);
+    assert.equal(page.model, 'm');
+  }
+  // Another history (a restart): the digest proves them; a forged one does not.
+  const held = items.slice(30_000);
+  const request = { limit: 20_512, maxRows: 512 };
+  const real = { firstId: held[0].id, count: held.length, digest: transcriptItemsDigest(held) };
+  const proven = storedHistorySlice(history, { ...request, held: real }, { digestOf });
+  assert.equal(proven.heldProven, true);
+  assert.equal(proven.items.length, 512);
+  const forged = storedHistorySlice(history, { ...request, held: { ...real, digest: 'forged' } }, { digestOf });
+  assert.equal(forged.heldProven, false);
+  assert.deepEqual(
+    forged.items.map((item) => item.id),
+    items.slice(-512).map((item) => item.id),
+    'unproven: a fresh tail of one answer'
+  );
+  // A stale proof's tail keeps the byte budget (rows of ~150 B: well below 512).
+  const budgeted = storedHistorySlice(
+    history,
+    { ...request, held: { ...real, digest: 'stale' }, byteBudget: 10_000 },
+    { digestOf }
+  );
+  const tailBytes = budgeted.items.reduce((sum, item) => sum + Buffer.byteLength(JSON.stringify(item)), 0);
+  assert.equal(budgeted.heldProven, false);
+  assert.ok(tailBytes <= 10_000 && budgeted.items.length >= 8, `${budgeted.items.length} rows, ${tailBytes} bytes`);
+  assert.equal(budgeted.items.at(-1).id, 'r49999');
+  const huge = { ...history, items: items.slice(-20).map((item) => ({ ...item, text: 'z'.repeat(50_000) })) };
+  const floor = storedHistorySlice(
+    huge,
+    { limit: 600, maxRows: 512, byteBudget: 10_000, held: { firstId: 'nope', count: 3, digest: 'x' } },
+    { digestOf }
+  );
+  assert.equal(floor.items.length, 8, 'the eight-row floor still holds');
+});
+
+test('a main-thread cursor read for a row it cannot find stops at its bound and answers missing; pages hold 512 rows', async (t) => {
+  const id = `sess_cursor_missing_${process.pid}`;
+  const messages = Array.from({ length: 12_000 }, (_, index) => ({
+    role: index % 2 ? 'assistant' : 'user',
+    content: `${index}`,
+  }));
+  writeFileSync(fileOf(id), JSON.stringify({ id, closed: true, generation: 1, messages }));
+  mkdirSync(join(sessionsDir, '..', 'turn-checkpoints'), { recursive: true });
+  const checkpointPath = join(sessionsDir, '..', 'turn-checkpoints', `${id}.json`);
+  writeFileSync(checkpointPath, '{}');
+  t.after(() => rmSync(checkpointPath, { force: true }));
+  clearStoredTranscriptCache();
+  const traces = [];
+  const missing = await readStoredSessionTranscript(id, {
+    transcriptCursor: { before: 'no_such_row', maxRows: 8 },
+    trace: (entry) => traces.push(entry.timing.cursorWindowItems),
+  });
+  assert.equal(missing.cursorMissing, true);
+  assert.deepEqual(traces, [8_192], 'never a window past 8,192 rows of the 12,000');
+  const tail = await readStoredSessionTranscript(id, { transcriptItemLimit: 4 });
+  const clamped = await readStoredSessionTranscript(id, {
+    transcriptCursor: { before: tail.items[0].id, maxRows: 1_000 },
+  });
+  assert.equal(clamped.items.length, 512);
+  const items = Array.from({ length: 2_000 }, (_, index) => ({ id: `r${index}` }));
+  const sliced = storedHistorySlice({ items }, { cursor: { before: 'r1999', maxRows: 1_000 } });
+  assert.equal(sliced.items.length, 512);
+});
+
+test('a cursor read on the main thread (checkpoint or worker failure) projects only the window reaching its row', async (t) => {
+  const id = `sess_cursor_bounded_${process.pid}`;
+  const messages = Array.from({ length: 4_000 }, (_, index) => ({
+    role: index % 2 ? 'assistant' : 'user',
+    content: `${index} ${'w'.repeat(400)}`,
+  }));
+  writeFileSync(fileOf(id), JSON.stringify({ id, closed: true, generation: 1, messages }));
+  // A checkpoint sidecar keeps the read on this thread.
+  mkdirSync(join(sessionsDir, '..', 'turn-checkpoints'), { recursive: true });
+  const checkpointPath = join(sessionsDir, '..', 'turn-checkpoints', `${id}.json`);
+  writeFileSync(checkpointPath, '{}');
+  t.after(() => rmSync(checkpointPath, { force: true }));
+  clearStoredTranscriptCache();
+  const projection = await import('./store-transcript-projection.mjs');
+  const traces = [];
+  const tail = await readStoredSessionTranscript(id, { transcriptItemLimit: 16 });
+  const boundary = tail.items[0].id;
+  const page = await readStoredSessionTranscript(id, {
+    transcriptCursor: { before: boundary, maxRows: 64, byteBudget: 1_000_000 },
+    trace: (entry) => traces.push(entry),
+  });
+  assert.equal(page.items.length, 64);
+  assert.equal(page.transcriptHasNewer, true);
+  assert.ok(page.items.at(-1).id !== boundary);
+  // The served answer is the 64-row page; nothing like the 4,000-row history
+  // was sliced, and the reference projection of the same window agrees.
+  const reference = await projection.projectStoredTranscript(id, JSON.parse(readFileSync(fileOf(id), 'utf8')), {
+    itemLimit: 80,
+    includeMessages: false,
+    checkpointAbsent: false,
+  });
+  assert.deepEqual(
+    page.items.map((item) => item.id),
+    reference.items.slice(0, 64).map((item) => item.id)
+  );
+  assert.deepEqual(
+    traces.map((entry) => [entry.items, entry.timing.cursorWindowItems]),
+    [[64, 128]],
+    'one 128-row window projected, not the 4,000-row history'
+  );
 });
 
 // What the worker does per request: reserve room, then read and submit.

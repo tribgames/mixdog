@@ -17,9 +17,9 @@
 
 import { createHash } from 'node:crypto';
 
-// Serialized (UTF-8 JSON) bytes of the retained PROJECTIONS: a session's whole
-// display history (every window of it is a slice), ~1 KB per row, so a few
-// long sessions or dozens of short ones; the newest is kept even when larger.
+// Serialized (UTF-8 JSON) bytes of the retained PROJECTIONS: windows and pages
+// sliced from a session's display history (which itself stays with the thread
+// that built it); one larger than the whole budget is not retained.
 const STORED_TRANSCRIPT_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 // Coarse filesystems stamp mtime at whole seconds (FAT: two). A write landing
 // inside that window after our read could keep the same stat, so only a file
@@ -70,6 +70,35 @@ export function nextProjectionStamp() {
   return `${stampEpoch}:${stampSequence}`;
 }
 
+const producedSlices = new WeakSet();
+/** What a `produce` returns for a slice of a display history it may already
+ *  hold: the value, its serialized `bytes` (measured by the producer) and
+ *  whether a history was built for it (`historyBuilt`). */
+export function producedSlice(value, { bytes = null, historyBuilt = true } = {}) {
+  const slice = { value, bytes, historyBuilt };
+  producedSlices.add(slice);
+  return slice;
+}
+
+/** This realm's stamp epoch (a worker composes history stamps with its
+ *  caller's). */
+export function projectionStampEpoch() {
+  return stampEpoch;
+}
+
+/** The identity of one display history: its session, record content and
+ *  sidecar fingerprint, within one process epoch (a restart re-proves held
+ *  rows by digest). Every slice of the history shares it, whichever thread
+ *  built it and however often, so held rows stay proven across pages,
+ *  evictions and worker restarts. */
+export function historyStampOf(sessionId, textHash, textChars, fingerprint, epoch = stampEpoch) {
+  const id = createHash('sha256')
+    .update(`${sessionId}|${textHash}|${textChars}|${fingerprint}`)
+    .digest('base64url')
+    .slice(0, 22);
+  return `${epoch}:h${id}`;
+}
+
 /** The retained entries and their eviction policy: byte/entry budget, paging
  *  pins, ghost admission and idle trimming. */
 function createEntryStore({ maxEntries, maxBytes, maxIdleBytes }) {
@@ -99,9 +128,9 @@ function createEntryStore({ maxEntries, maxBytes, maxIdleBytes }) {
   // ACTIVE_ENTRY_MS) stays cached under pressure: every page would otherwise
   // build it again.
   const paging = (entry, now) => now - entry.pinnedAt <= ACTIVE_ENTRY_MS;
-  // The newest entry always stays: alone, it may exceed the budget (a single
-  // history larger than the budget is still built once, not once per page).
-  // For an unpinned newcomer, entries being paged are not evicted.
+  // The newest entry stays (never larger than the budget: remember refuses
+  // those). For an unpinned newcomer, entries being paged are not evicted; a
+  // pinned one evicts whatever exceeds the budget, pinned or not.
   const prune = (now, keepPaging) => {
     const listed = [...entries];
     const newest = listed.at(-1)?.[0];
@@ -127,20 +156,22 @@ function createEntryStore({ maxEntries, maxBytes, maxIdleBytes }) {
     for (const other of idle) evict(other);
     return true;
   };
-  const remember = (key, group, textChars, textHash, fingerprint, fileStat, value, now, pin) => {
+  const remember = (key, group, textChars, textHash, fingerprint, fileStat, value, now, pin, measured) => {
     drop(key);
     // One entry per group: a growing history window replaces its smaller
     // predecessor instead of accumulating beside it.
     if (group !== null) {
       for (const [other, entry] of [...entries]) if (entry.group === group) drop(other);
     }
-    const bytes = Buffer.byteLength(JSON.stringify(value));
+    // Values are slices (a window or page), never a whole history; the
+    // producer's own measure is used when it has one.
+    const bytes = Number.isSafeInteger(measured) && measured >= 0 ? measured : Buffer.byteLength(JSON.stringify(value));
+    // Larger than the whole budget: served uncached, pinned or not.
+    if (bytes > maxBytes) return;
     if (pin) ghosts.delete(key);
     else {
       if (ghosts.has(key)) {
-        // One larger than the whole budget displaces everything (prune) and
-        // stays alone as the newest.
-        if (bytes <= maxBytes && !makeRoomForGhost(bytes, now)) return;
+        if (!makeRoomForGhost(bytes, now)) return;
         ghosts.delete(key);
       }
       // Never in place of a history being paged: served uncached instead.
@@ -262,11 +293,24 @@ export function createStoredTranscriptCache({
         return { value: entry.value, hit: true, read: true };
       }
       const value = answer.value ?? null;
-      if (value && typeof value === 'object') builds += 1;
+      // A worker that served the slice from a history it already held built nothing.
+      const built = Boolean(value && typeof value === 'object' && answer.historyBuilt !== false);
+      if (built) builds += 1;
       if (current && value && typeof value === 'object') {
-        store.remember(key, group, answer.textChars, answer.textHash, fingerprint, fileStat, value, now, pin);
+        store.remember(
+          key,
+          group,
+          answer.textChars,
+          answer.textHash,
+          fingerprint,
+          fileStat,
+          value,
+          now,
+          pin,
+          answer.bytes
+        );
       }
-      return { value, hit: false, read: true };
+      return { value, hit: false, read: true, built };
     }
     return undefined;
   }
@@ -294,18 +338,23 @@ export function createStoredTranscriptCache({
       return { value: await pending.promise, hit: true, read: true };
     }
     const record = { text, fingerprint, promise: null };
+    let built = false;
     const promise = (async () => {
-      const value = await produce(text);
-      if (value && typeof value === 'object') builds += 1;
+      const produced = await produce(text);
+      const slice = producedSlices.has(produced) ? produced : null;
+      const value = slice ? slice.value : produced;
+      built = Boolean(value && typeof value === 'object' && slice?.historyBuilt !== false);
+      if (built) builds += 1;
       if (inFlight.get(key) === record && value && typeof value === 'object') {
-        store.remember(key, group, text.length, textHash, fingerprint, fileStat, value, now, pin);
+        store.remember(key, group, text.length, textHash, fingerprint, fileStat, value, now, pin, slice?.bytes);
       }
       return value;
     })();
     record.promise = promise;
     inFlight.set(key, record);
     try {
-      return { value: await promise, hit: false, read: true };
+      const value = await promise;
+      return { value, hit: false, read: true, built };
     } finally {
       if (inFlight.get(key) === record) inFlight.delete(key);
     }

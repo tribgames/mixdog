@@ -269,6 +269,9 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     // arrives on the broadcast sessionState event like any live push.
     prefetchSession: (sessionId, transcriptItemLimit, readTraceId) =>
       call<boolean>('prefetchSession', [sessionId, transcriptItemLimit, ...(readTraceId ? [readTraceId] : [])]),
+    // Older history by position; a host that predates it rejects the call and
+    // the page falls back to growing its window.
+    readTranscriptHistory: (sessionId, request) => call('readTranscriptHistory', [sessionId, request]),
     // What this page paints, apart from the delivery subscription below: the
     // desktop holds a notification back only for a session named here.
     reportScreenSessions: (sessionIds) => {

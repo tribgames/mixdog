@@ -322,6 +322,7 @@ const api: DesktopApi = {
   subscribeConnectionSignIn: (listener) => subscribeIpc(DESKTOP_IPC.connectionSignIn, listener),
   prefetchSession: (sessionId, transcriptItemLimit, readTraceId) =>
     invokeIpc(DESKTOP_IPC.prefetchSession, sessionId, transcriptItemLimit, readTraceId),
+  readTranscriptHistory: (sessionId, request) => invokeIpc(DESKTOP_IPC.readTranscriptHistory, sessionId, request),
   setVisibleSessions: (sessionIds) => invokeIpc(DESKTOP_IPC.setVisibleSessions, sessionIds),
   searchProjectFiles: (projectIdOrWorkspaceId, query, limit, includeIgnored, includeDirectories) =>
     invokeIpc(DESKTOP_IPC.searchProjectFiles, projectIdOrWorkspaceId, query, limit, includeIgnored, includeDirectories),

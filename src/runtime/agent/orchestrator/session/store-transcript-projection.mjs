@@ -107,29 +107,154 @@ export async function prepareStoredTranscriptBase(sessionId, doc, options) {
   };
 }
 
-/** The window of a whole display history (windowStoredTranscript with
- *  `history`) a read with `itemLimit` receives: its newest `itemLimit` rows,
- *  or — without a finite limit, the legacy whole read — every restored row
- *  and none of the compaction archive. Slicing only: the history is built once
- *  per content and shared read-only. The stamp names the history and the
- *  limit, so an unchanged history keeps answering a held window unchanged. */
-export function storedHistoryWindow(history, itemLimit) {
+/** The digest a paged caller proves its held rows with: over their wire form,
+ *  as the caller serializes them. */
+export async function heldRowsDigester() {
+  const [{ sanitizeForWire }, { transcriptItemsDigest }] = await Promise.all([
+    import('../../../../standalone/session-wire-values.mjs'),
+    import('../../../../standalone/session-state-patch.mjs'),
+  ]);
+  return (rows) => transcriptItemsDigest(rows.map((row) => sanitizeForWire(row, 2) ?? null));
+}
+
+/** The rows a page reveals never go below this many whatever their size, so
+ *  paging always progresses (the caller's own floor). */
+const PAGE_MIN_ROWS = 8;
+
+/** The slice of a whole display history (windowStoredTranscript with
+ *  `history`) one read receives (`request`):
+ *  - `held` (`{ firstId, count, digest }`, the newest rows a paged caller
+ *    holds): when the history's newest `held.count` rows are those rows (same
+ *    first id and — unless `proven` — the same `digestOf` digest), only the
+ *    rows above them: at most `maxRows` (and `limit - held.count`) within
+ *    `byteBudget` (`rowBytes(index)`), never fewer than PAGE_MIN_ROWS, with
+ *    `heldProven`. Unproven: a tail of at most `maxRows` rows instead
+ *    (`heldProven: false`).
+ *  - otherwise its newest `limit` rows but the newest `skip` (with
+ *    `skippedFirstId`, the oldest skipped row) — or, without a finite limit
+ *    (the legacy whole read), every restored row and none of the compaction
+ *    archive.
+ *  `windowStamp` names the slice within the history (the caller composes the
+ *  projection stamp). Slicing only: whatever the depth, a slice carries only
+ *  its own rows, and the history never leaves the thread that built it. */
+export function storedHistorySlice(history, request = {}, { digestOf = null, rowBytes = null } = {}) {
   if (!history || typeof history !== 'object' || !Array.isArray(history.items)) return history;
-  const { transcriptArchivedRows: archivedRows = 0, items, ...fields } = history;
+  const { transcriptArchivedRows: archivedRows = 0, items, projectionStamp: _stamp, ...fields } = history;
+  const sizeOf =
+    typeof rowBytes === 'function' ? rowBytes : (index) => Buffer.byteLength(JSON.stringify(items[index] ?? null));
+  if (request.cursor) return historyCursorSlice(fields, items, request.cursor, history.transcriptHasOlder, sizeOf);
+  const itemLimit = Number(request.limit);
   if (!Number.isFinite(itemLimit)) {
     return {
       ...fields,
-      projectionStamp: `${history.projectionStamp}/whole`,
-      items: archivedRows > 0 ? items.slice(archivedRows) : items,
+      windowStamp: 'whole',
+      items: archivedRows > 0 ? items.slice(archivedRows) : items.slice(),
       transcriptHasOlder: false,
     };
   }
-  const older = items.length > itemLimit;
+  const limit = Math.max(0, Math.floor(itemLimit));
+  const held = request.held;
+  if (held) {
+    const maxRows = Math.max(1, Math.floor(Number(request.maxRows) || limit));
+    const end = items.length - held.count;
+    const holds =
+      end >= 0 &&
+      items[end]?.id === held.firstId &&
+      (request.proven === true || (typeof digestOf === 'function' && digestOf(items.slice(end)) === held.digest));
+    if (!holds) {
+      // A fresh tail of one answer, within the same byte budget (and floor).
+      const start = budgetedEdge(items.length, -1, items.length, Math.min(limit, maxRows), request.byteBudget, sizeOf);
+      return {
+        ...fields,
+        windowStamp: `${items.length - start}`,
+        items: items.slice(start),
+        transcriptHasOlder: start > 0 || history.transcriptHasOlder === true,
+        heldProven: false,
+      };
+    }
+    const rows = Math.max(0, Math.min(maxRows, limit - held.count));
+    const start = budgetedEdge(end, -1, items.length, rows, request.byteBudget, sizeOf);
+    return {
+      ...fields,
+      windowStamp: `${items.length - start}@${held.count}`,
+      items: items.slice(start, end),
+      transcriptHasOlder: start > 0 || history.transcriptHasOlder === true,
+      skippedFirstId: held.firstId,
+      heldProven: true,
+    };
+  }
+  const skipped = Math.max(0, Math.min(Math.floor(Number(request.skip) || 0), limit, items.length));
+  const end = items.length - skipped;
+  const start = Math.max(0, items.length - limit);
   return {
     ...fields,
-    projectionStamp: `${history.projectionStamp}/${itemLimit}`,
-    items: older ? items.slice(-itemLimit) : items,
-    transcriptHasOlder: older || history.transcriptHasOlder === true,
+    windowStamp: skipped ? `${limit}@${skipped}` : `${limit}`,
+    items: items.slice(start, end),
+    transcriptHasOlder: start > 0 || history.transcriptHasOlder === true,
+    ...(skipped ? { skippedFirstId: items[end]?.id ?? null } : {}),
+  };
+}
+
+/** The far edge of a run of at most `rows` rows within `byteBudget`
+ *  (`sizeOf(index)`), never fewer than PAGE_MIN_ROWS whatever their size:
+ *  older (`step` -1) ending just before index `from`, or newer (`step` +1)
+ *  starting at it. */
+function budgetedEdge(from, step, length, rows, byteBudget, sizeOf) {
+  const budget = Number(byteBudget) > 0 ? Number(byteBudget) : null;
+  const floor = Math.min(rows, PAGE_MIN_ROWS);
+  let edge = from;
+  let taken = 0;
+  let bytes = 0;
+  while (taken < rows) {
+    const index = step < 0 ? edge - 1 : edge;
+    if (index < 0 || index >= length) break;
+    const next = budget ? sizeOf(index) : 0;
+    if (budget && taken >= floor && bytes + next > budget) break;
+    bytes += next;
+    taken += 1;
+    edge += step;
+  }
+  return edge;
+}
+
+/** The most rows one historical-position read carries, whatever it asks. */
+export const CURSOR_PAGE_MAX_ROWS = 512;
+
+/** A cursor's page size: 1 to CURSOR_PAGE_MAX_ROWS rows. */
+export function cursorPageRows(maxRows) {
+  return Math.min(CURSOR_PAGE_MAX_ROWS, Math.max(1, Math.floor(Number(maxRows) || 1)));
+}
+
+/** A historical-position read (`cursor`: `{ before | after, maxRows,
+ *  byteBudget }`): the rows directly older than row `before`, or newer than
+ *  row `after`, at most `maxRows` within `byteBudget` (PAGE_MIN_ROWS floor),
+ *  with whether rows remain past them each way. Rows are located by their
+ *  stable id, so a page stays valid while the history only grows; a row the
+ *  history no longer holds (compaction, rewind, clear) answers
+ *  `cursorMissing`. */
+function historyCursorSlice(fields, items, cursor, olderBeyond, sizeOf) {
+  const older = cursor.before != null;
+  const id = older ? cursor.before : cursor.after;
+  const at = items.findIndex((item) => item?.id === id);
+  if (at < 0) return { ...fields, windowStamp: 'cursor', items: [], cursorMissing: true };
+  const rows = cursorPageRows(cursor.maxRows);
+  if (older) {
+    const start = budgetedEdge(at, -1, items.length, rows, cursor.byteBudget, sizeOf);
+    return {
+      ...fields,
+      windowStamp: 'cursor',
+      items: items.slice(start, at),
+      transcriptHasOlder: start > 0 || olderBeyond === true,
+      transcriptHasNewer: true,
+    };
+  }
+  const end = budgetedEdge(at + 1, 1, items.length, rows, cursor.byteBudget, sizeOf);
+  return {
+    ...fields,
+    windowStamp: 'cursor',
+    items: items.slice(at + 1, end),
+    transcriptHasOlder: true,
+    transcriptHasNewer: end < items.length,
   };
 }
 

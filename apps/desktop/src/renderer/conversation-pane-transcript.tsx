@@ -149,7 +149,12 @@ export function ConversationTranscript({
   >;
   source: Pick<
     ConversationTranscriptSource,
-    'requestEarlierTranscript' | 'showTranscriptTimeline' | 'transcriptIdentity' | 'activeStreamingTail'
+    | 'requestEarlierTranscript'
+    | 'requestLaterTranscript'
+    | 'transcriptHistoryActive'
+    | 'showTranscriptTimeline'
+    | 'transcriptIdentity'
+    | 'activeStreamingTail'
   >;
   timeline: Pick<
     ConversationTimeline,
@@ -174,7 +179,7 @@ export function ConversationTranscript({
 }) {
   const { viewport, content, follow } = view;
   useScrollProgress(viewport, ':scope > .transcript-scroll-fade');
-  const { requestEarlierTranscript } = source;
+  const { requestEarlierTranscript, requestLaterTranscript, transcriptHistoryActive } = source;
   const revealed = timeline.transcriptRevealed;
   const agentSurface = roomIdOfSession(routeSessionId) ? 'room' : 'agent';
   const showWelcome = conversationShowsWelcome({
@@ -219,7 +224,12 @@ export function ConversationTranscript({
         onScroll={(event) => {
           follow.handleScroll();
           const element = event.currentTarget;
-          if (element.scrollTop <= transcriptHistoryLead(element.clientHeight)) requestEarlierTranscript();
+          const lead = transcriptHistoryLead(element.clientHeight);
+          if (element.scrollTop <= lead) requestEarlierTranscript();
+          // A history window pages newer rows back in as the reader nears its bottom.
+          else if (transcriptHistoryActive && element.scrollHeight - element.clientHeight - element.scrollTop <= lead) {
+            requestLaterTranscript();
+          }
         }}
         onWheel={follow.handleWheel}
         onPointerDown={follow.handlePointerDown}
