@@ -31,6 +31,29 @@ test('a server window rejects the conversation import picker with a localized lo
   assert.equal(opened, 0);
 });
 
+test('the conversation import picker offers compressed Codex rollouts as well as .jsonl', async () => {
+  const handlers = new Map();
+  let options;
+  registerFileDialogIpc({
+    window: {},
+    app: {},
+    connectionKind: 'local',
+    dialog: {
+      showOpenDialog: async (_window, given) => {
+        options = given;
+        return { canceled: true, filePaths: [] };
+      },
+    },
+    host: {},
+    handle: (channel, fn) => handlers.set(channel, fn),
+    invokeDesktopOperation: async () => undefined,
+    nativeT: (key) => key,
+    describeLocalPaths: async () => [],
+  });
+  await handlers.get(DESKTOP_IPC.chooseConversationImportFile)({});
+  assert.deepEqual(options.filters[0].extensions, ['jsonl', 'zst']);
+});
+
 async function withServer(handler, run) {
   const dir = await mkdtemp(join(tmpdir(), 'save-as-'));
   const server = createServer(handler);

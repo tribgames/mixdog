@@ -1,10 +1,11 @@
 // Synthetic fixtures: the title records Claude Code appends to a transcript, and
 // Codex rollouts that continue another rollout through `history_base`.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import zlib from 'node:zlib';
 
 const { convertCandidateFile, enumerateCandidates, listConversations, resetConversationDiscovery } = await import(
   './discovery.mjs'
@@ -135,13 +136,13 @@ const meta = (threadId, cwd, extra = {}) => ({
 });
 const byteLength = (records) => Buffer.byteLength(jsonl(records));
 
-// Writes `rollout-…-<thread>[_<rollout>].jsonl` under sessions (or another folder).
+// Writes `rollout-…-<thread>[_<rollout>].jsonl[.zst]` under sessions (or another folder).
 function writeRollout(env, thread, rollout, records, { folder = 'sessions', ext = 'jsonl' } = {}) {
   const dir = join(env.CODEX_HOME, folder, '2026', '01', '01');
   mkdirSync(dir, { recursive: true });
   const ids = rollout === thread ? thread : `${thread}_${rollout}`;
   const path = join(dir, `rollout-2026-01-01T00-00-00-${ids}.${ext}`);
-  writeFileSync(path, jsonl(records));
+  writeFileSync(path, ext.endsWith('.zst') ? zlib.zstdCompressSync(jsonl(records)) : jsonl(records));
   return path;
 }
 
@@ -230,20 +231,198 @@ test('Codex history_base: a missing base keeps the partial warning and imports w
     msg('assistant', 'own answer'),
   ]);
   const conversation = await convert(env, path);
-  assert.deepEqual([conversation.errorCode, conversation.warnings], [null, ['historyPartial']]);
+  assert.deepEqual([conversation.errorCode, conversation.warnings], [null, ['historyUnavailable']]);
   assert.deepEqual(texts(conversation), ['own question', 'own answer']);
 });
 
-test('Codex history_base: a compressed base is not read and keeps the partial warning', async () => {
+// ── compressed (zstd) rollouts ───────────────────────────────────────────────
+const comparable = ({ bytesRead, ...conversation }) => conversation;
+
+test('compressed rollout: a conversation stored only as .jsonl.zst is listed and converts like its plain form', async () => {
+  const plain = freshEnv();
+  const records = [meta(id(100), plain.home), msg('user', 'packed question'), msg('assistant', 'packed answer')];
+  const plainPath = writeRollout(plain.env, id(100), id(100), records);
+  const packed = freshEnv();
+  const packedPath = writeRollout(packed.env, id(100), id(100), records, { ext: 'jsonl.zst' });
+  const rows = await listAll('codex', packed.env);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].warnings.includes('unreadable'), false);
+  const fromPlain = await convert(plain.env, plainPath);
+  const fromPacked = await convert(packed.env, packedPath);
+  assert.equal(fromPacked.errorCode, null);
+  assert.deepEqual(texts(fromPacked), ['packed question', 'packed answer']);
+  assert.deepEqual(comparable(fromPacked), comparable(fromPlain));
+});
+
+test('compressed rollout: a plain file and its compressed sibling are listed once, the plain one is read', async () => {
   const { home, env } = freshEnv();
-  writeRollout(env, id(30), id(30), [meta(id(30), home), msg('user', 'packed')], { ext: 'jsonl.zst' });
-  const path = writeRollout(env, id(31), id(31), [
-    meta(id(31), home, { history_base: { thread_id: id(30), end_ordinal_exclusive: 2, end_byte_offset: 10 } }),
+  const records = [meta(id(101), home), msg('user', 'plain question'), msg('assistant', 'plain answer')];
+  const plainPath = writeRollout(env, id(101), id(101), records);
+  // The sibling is unreadable on purpose: it must never be opened.
+  writeFileSync(`${plainPath}.zst`, 'not zstd');
+  assert.equal((await listAll('codex', env)).length, 1);
+  const { candidates } = await enumerateCandidates('codex', env);
+  assert.deepEqual(
+    candidates.map((candidate) => candidate.path),
+    [realpathSync.native(plainPath)]
+  );
+  assert.deepEqual(texts(await convert(env, plainPath)), ['plain question', 'plain answer']);
+});
+
+test('compressed rollout: a compressed base contributes exactly the records before its decompressed cutoff', async () => {
+  const { home, env } = freshEnv();
+  // Highly compressible, so the cutoff lies far beyond the compressed file size.
+  const head = [meta(id(110), home), msg('user', 'packed question'), msg('assistant', `packed ${'z'.repeat(50_000)}`)];
+  const packedPath = writeRollout(env, id(110), id(110), [...head, msg('user', 'dropped after cutoff')], {
+    ext: 'jsonl.zst',
+  });
+  const good = base(id(110), head);
+  assert.ok(good.end_byte_offset > statSync(packedPath).size);
+  const own = (historyBase, thread) => [
+    meta(thread, home, { history_base: historyBase }),
+    msg('user', 'own question'),
+    msg('assistant', 'own answer'),
+  ];
+  const path = writeRollout(env, id(111), id(111), own(good, id(111)));
+  const conversation = await convert(env, path);
+  assert.deepEqual([conversation.errorCode, conversation.warnings], [null, []]);
+  assert.deepEqual(texts(conversation), [
+    'packed question',
+    `packed ${'z'.repeat(50_000)}`,
+    'own question',
+    'own answer',
+  ]);
+  // A cutoff inside a record, or past the decompressed end, is never a slice.
+  for (const [index, end] of [
+    good.end_byte_offset - 3,
+    byteLength([...head, msg('user', 'dropped after cutoff')]) + 1,
+  ].entries()) {
+    const bad = writeRollout(
+      env,
+      id(112 + index),
+      id(112 + index),
+      own({ ...good, end_byte_offset: end }, id(112 + index))
+    );
+    const partial = await convert(env, bad);
+    assert.deepEqual(
+      [index, partial.warnings, texts(partial)],
+      [index, ['historyPartial'], ['own question', 'own answer']]
+    );
+  }
+});
+
+test('compressed rollout: the file limit counts decompressed bytes and stops the chain with the size-limit reason', async () => {
+  const { home, env } = freshEnv();
+  const head = [meta(id(120), home), msg('user', 'packed question'), msg('assistant', `packed ${'z'.repeat(50_000)}`)];
+  writeRollout(env, id(120), id(120), head, { ext: 'jsonl.zst' });
+  const own = [
+    meta(id(121), home, { history_base: base(id(120), head) }),
+    msg('user', 'own question'),
+    msg('assistant', 'own answer'),
+  ];
+  const path = writeRollout(env, id(121), id(121), own);
+  // The compressed base is a few hundred bytes, far under this limit; its decompressed cutoff is not.
+  const limited = await convert(env, path, { maxFileBytes: 20_000 });
+  assert.deepEqual([limited.errorCode, limited.warnings], [null, ['historySizeLimit']]);
+  assert.deepEqual(texts(limited), ['own question', 'own answer']);
+  const roomy = await convert(env, path, { maxFileBytes: 200_000 });
+  assert.deepEqual([roomy.warnings, roomy.turns.length], [[], 4]);
+});
+
+test('compressed rollout: an unreadable compressed base is reported as unavailable', async () => {
+  const { home, env } = freshEnv();
+  const head = [meta(id(130), home), msg('user', 'packed')];
+  const packed = writeRollout(env, id(130), id(130), head, { ext: 'jsonl.zst' });
+  writeFileSync(packed, 'damaged, not zstd');
+  const path = writeRollout(env, id(131), id(131), [
+    meta(id(131), home, { history_base: base(id(130), head) }),
     msg('user', 'own question'),
     msg('assistant', 'own answer'),
   ]);
   const conversation = await convert(env, path);
-  assert.deepEqual([conversation.warnings, texts(conversation)], [['historyPartial'], ['own question', 'own answer']]);
+  assert.deepEqual(
+    [conversation.warnings, texts(conversation)],
+    [['historyUnavailable'], ['own question', 'own answer']]
+  );
+});
+
+test('compressed rollout: a runtime without zstd lists the file with a newer-Node notice and refuses to convert it', async (t) => {
+  const { home, env } = freshEnv();
+  const packedPath = writeRollout(
+    env,
+    id(140),
+    id(140),
+    [meta(id(140), home), msg('user', 'q'), msg('assistant', 'a')],
+    { ext: 'jsonl.zst' }
+  );
+  const original = Object.getOwnPropertyDescriptor(zlib, 'createZstdDecompress');
+  Object.defineProperty(zlib, 'createZstdDecompress', { ...original, value: undefined });
+  t.after(() => Object.defineProperty(zlib, 'createZstdDecompress', original));
+  const rows = await listAll('codex', env);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].warnings.includes('needsNewerNode'), true);
+  await assert.rejects(convert(env, packedPath), { code: 'needsNewerNode' });
+});
+
+test('compressed rollout: without zstd, a plain conversation on a compressed base keeps the newer-Node reason, listed and converted', async (t) => {
+  const { home, env } = freshEnv();
+  const head = [meta(id(150), home), msg('user', 'packed question'), msg('assistant', 'packed answer')];
+  writeRollout(env, id(150), id(150), head, { ext: 'jsonl.zst' });
+  const path = writeRollout(env, id(151), id(151), [
+    meta(id(151), home, { history_base: base(id(150), head) }),
+    msg('user', 'own question'),
+    msg('assistant', 'own answer'),
+  ]);
+  const original = Object.getOwnPropertyDescriptor(zlib, 'createZstdDecompress');
+  Object.defineProperty(zlib, 'createZstdDecompress', { ...original, value: undefined });
+  t.after(() => Object.defineProperty(zlib, 'createZstdDecompress', original));
+  const { candidates } = await enumerateCandidates('codex', env);
+  const own = candidates.find((candidate) => candidate.path === realpathSync.native(path));
+  const row = (await listAll('codex', env)).find((entry) => entry.id === own.id);
+  assert.equal(row.warnings.includes('needsNewerNode'), true);
+  const conversation = await convert(env, path);
+  assert.deepEqual([conversation.warnings, texts(conversation)], [['needsNewerNode'], ['own question', 'own answer']]);
+});
+
+test('rollout file names follow the source app: `rollout-….jsonl` or `.jsonl.zst`, case-sensitive', async () => {
+  const { env } = freshEnv();
+  const dir = join(env.CODEX_HOME, 'sessions', '2026', '01', '01');
+  mkdirSync(dir, { recursive: true });
+  const record = jsonl([meta(id(160), env.CODEX_HOME), msg('user', 'q'), msg('assistant', 'a')]);
+  const stamp = '2026-01-01T00-00-00';
+  const kept = `rollout-${stamp}-${id(160)}.jsonl`;
+  writeFileSync(join(dir, kept), record);
+  for (const name of [
+    `notes-${stamp}-${id(161)}.jsonl.zst`, // not a rollout name
+    `rollout-${stamp}-${id(162)}.jsonl.ZST`, // the suffix is case-sensitive
+    `rollout-${stamp}-${id(163)}.JSONL`,
+    `rollout-${stamp}-${id(164)}.zst`, // compressed but not a .jsonl.zst
+  ]) {
+    writeFileSync(join(dir, name), zlib.zstdCompressSync(record));
+  }
+  const { candidates } = await enumerateCandidates('codex', env);
+  assert.deepEqual(
+    candidates.map((candidate) => candidate.path),
+    [realpathSync.native(join(dir, kept))]
+  );
+});
+
+test('compressed rollout: the continuing file itself counts at its decompressed size', async () => {
+  const { home, env } = freshEnv();
+  const head = [meta(id(170), home), msg('user', 'base question'), msg('assistant', 'base answer')];
+  writeRollout(env, id(170), id(170), head);
+  const ownRecords = [
+    meta(id(171), home, { history_base: base(id(170), head) }),
+    msg('user', 'own question'),
+    msg('assistant', `own ${'q'.repeat(50_000)}`),
+  ];
+  const path = writeRollout(env, id(171), id(171), ownRecords, { ext: 'jsonl.zst' });
+  const end = byteLength(head);
+  // The first-record pre-read takes one 8 KiB chunk; the file and the base cutoff would be one byte over together.
+  const limit = byteLength(ownRecords) + 8 * 1024 + end - 1;
+  const conversation = await convert(env, path, { maxFileBytes: limit });
+  assert.deepEqual([conversation.errorCode, conversation.warnings], [null, ['historySizeLimit']]);
+  assert.deepEqual(texts(conversation), ['own question', `own ${'q'.repeat(50_000)}`]);
 });
 
 test('Codex history_base: a cycle is cut where it closes', async () => {
@@ -276,7 +455,7 @@ test('Codex history_base: bases that would take the total over the file limit ar
   // Every metadata read counts too: C's first record, then B's (read up to B's cutoff).
   const limit = cSize + cSize + 2 * byteLength(bHead) + byteLength(aHead) - 1;
   const conversation = await convert(env, cPath, { maxFileBytes: limit });
-  assert.deepEqual(conversation.warnings, ['historyPartial']);
+  assert.deepEqual(conversation.warnings, ['historySizeLimit']);
   assert.equal(conversation.errorCode, null);
   assert.deepEqual(texts(conversation), ['second question', 'second answer', 'third question', 'third answer']);
 });
@@ -291,7 +470,7 @@ test('Codex history_base: metadata pre-reads count against the file limit', asyn
   ]);
   // The file and B's cutoff alone fit, but not once C's first record is also read ahead.
   const conversation = await convert(env, cPath, { maxFileBytes: cSize + byteLength(bHead) });
-  assert.deepEqual(conversation.warnings, ['historyPartial']);
+  assert.deepEqual(conversation.warnings, ['historySizeLimit']);
   assert.deepEqual(texts(conversation), ['third question', 'third answer']);
 });
 

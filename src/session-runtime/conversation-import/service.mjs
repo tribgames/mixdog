@@ -20,7 +20,10 @@ import {
   createImportedSession,
   importOriginKey,
 } from '../../runtime/agent/orchestrator/session/conversation-import/imported-session.mjs';
-import { IMPORT_WARNING_CWD_MISSING } from '../../runtime/agent/orchestrator/session/conversation-import/turns.mjs';
+import {
+  IMPORT_ERROR_NEEDS_NEWER_NODE,
+  IMPORT_WARNING_CWD_MISSING,
+} from '../../runtime/agent/orchestrator/session/conversation-import/turns.mjs';
 import { sessionPath } from '../../runtime/agent/orchestrator/session/store/session-paths.mjs';
 import {
   cachedMeta,
@@ -185,8 +188,11 @@ async function importOne(candidateId, context) {
     candidate.size = info.size;
     candidate.mtimeMs = info.mtimeMs;
     conversion = await convertCandidateFile(candidate, context.limits);
-  } catch {
-    return failed(candidateId, 'unreadable');
+  } catch (error) {
+    return failed(
+      candidateId,
+      error?.code === IMPORT_ERROR_NEEDS_NEWER_NODE ? IMPORT_ERROR_NEEDS_NEWER_NODE : 'unreadable'
+    );
   }
   const title = displayTitle(
     { foreignSessionId: conversion.foreignSessionId, title: listedTitle || conversion.title },

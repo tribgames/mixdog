@@ -1,7 +1,7 @@
 /**
  * Discovery of importable foreign conversations on disk (read-only).
  *
- *   codex   $CODEX_HOME/sessions/**\/rollout-*.jsonl   (default ~/.codex)
+ *   codex   $CODEX_HOME/sessions/**\/rollout-*.jsonl[.zst]   (default ~/.codex)
  *   claude  $CLAUDE_CONFIG_DIR/projects/*\/*.jsonl      (default ~/.claude)
  *
  * Enumeration is stat-only; per-file metadata (foreign id, cwd, title, and
@@ -13,7 +13,9 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { open, readdir, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
+import { pipeline } from 'node:stream';
+import zlib from 'node:zlib';
 import {
   IMPORT_MAX_FILE_BYTES,
   IMPORT_MAX_LINE_BYTES,
@@ -24,7 +26,13 @@ import {
   isImportSource,
 } from '../../runtime/agent/orchestrator/session/conversation-import/convert.mjs';
 import { codexMetaFromTruncatedLine } from '../../runtime/agent/orchestrator/session/conversation-import/codex.mjs';
-import { IMPORT_WARNING_CWD_MISSING } from '../../runtime/agent/orchestrator/session/conversation-import/turns.mjs';
+import {
+  IMPORT_ERROR_NEEDS_NEWER_NODE,
+  IMPORT_WARNING_CWD_MISSING,
+  IMPORT_WARNING_HISTORY_PARTIAL,
+  IMPORT_WARNING_HISTORY_SIZE_LIMIT,
+  IMPORT_WARNING_HISTORY_UNAVAILABLE,
+} from '../../runtime/agent/orchestrator/session/conversation-import/turns.mjs';
 import { importOriginKey } from '../../runtime/agent/orchestrator/session/conversation-import/imported-session.mjs';
 import { loadCodexThreadTitles } from './codex-titles.mjs';
 
@@ -106,6 +114,51 @@ export function isNetworkOrDevicePath(path) {
 
 const fileIdentity = (info) => `${info.dev}:${info.ino}`;
 
+// Rollout file-name rules, as the source app applies them: a compressed rollout is a
+// name ending `.jsonl.zst`; a rollout name is, after dropping a `.zst` suffix,
+// `rollout-` … `.jsonl`. Both are case-sensitive.
+const COMPRESSED_ROLLOUT_SUFFIX = '.jsonl.zst';
+const isCompressed = (path) => basename(path).endsWith(COMPRESSED_ROLLOUT_SUFFIX);
+const isRolloutName = (name) => {
+  const plain = name.endsWith(COMPRESSED_ROLLOUT_SUFFIX) ? name.slice(0, -'.zst'.length) : name;
+  return plain.startsWith('rollout-') && plain.endsWith('.jsonl');
+};
+const zstdSupported = () => typeof zlib.createZstdDecompress === 'function';
+
+/**
+ * Sequential `read(buffer, offset, length, position)` / `close()` over the
+ * decompressed bytes of an open compressed file, shaped like a file handle so
+ * the line reader needs no other change. Positions must run on from the last
+ * read; closing stops the decompression.
+ */
+function zstdReader(handle) {
+  if (!zstdSupported()) throw importError(IMPORT_ERROR_NEEDS_NEWER_NODE);
+  const decoder = zlib.createZstdDecompress();
+  pipeline(handle.createReadStream({ autoClose: false }), decoder, () => {});
+  const chunks = decoder[Symbol.asyncIterator]();
+  let rest = Buffer.alloc(0);
+  let position = 0;
+  return {
+    async read(buffer, offset, length, from) {
+      if (from !== position) throw importError('unreadable');
+      if (!rest.length) {
+        const next = await chunks.next();
+        if (next.done) return { bytesRead: 0, buffer };
+        rest = next.value;
+      }
+      const bytesRead = Math.min(length, rest.length);
+      rest.copy(buffer, offset, 0, bytesRead);
+      rest = rest.subarray(bytesRead);
+      position += bytesRead;
+      return { bytesRead, buffer };
+    },
+    async close() {
+      decoder.destroy();
+      await handle.close();
+    },
+  };
+}
+
 export function candidateId(source, canonicalPath) {
   return createHash('sha256')
     .update(`${source}\0${caseFold(canonicalPath)}`)
@@ -144,7 +197,10 @@ async function walkCodex(rootReal, dir, files, seenDirs) {
         continue;
       }
     }
-    if (/^rollout-.*\.jsonl$/i.test(entry.name)) files.push(path);
+    if (!isRolloutName(entry.name)) continue;
+    // A compressed rollout is skipped while its plain sibling exists.
+    if (isCompressed(entry.name) && (await stat(path.slice(0, -'.zst'.length)).catch(() => null))) continue;
+    files.push(path);
   }
 }
 
@@ -275,7 +331,7 @@ async function openCandidate(candidate) {
     ) {
       throw importError('unreadable');
     }
-    return handle;
+    return isCompressed(candidate.path) ? zstdReader(handle) : handle;
   } catch (error) {
     await handle.close();
     throw error;
@@ -404,10 +460,13 @@ async function readPrefixMeta(candidate) {
 // ── Codex history base chain ─────────────────────────────────────────────────
 const HISTORY_CHAIN_MAX_DEPTH = 32;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const ROLLOUT_ID_RE = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i;
+const ROLLOUT_ID_RE = /([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl(?:\.zst)?$/i;
 
-/** Rollout id a rollout file name ends with (`…-<thread>.jsonl` or `…-<thread>_<rollout>.jsonl`). */
-const rolloutIdOf = (path) => basename(path).match(ROLLOUT_ID_RE)?.[1].toLowerCase() ?? null;
+/** Rollout id a rollout file name ends with (`…-<thread>.jsonl[.zst]` or `…-<thread>_<rollout>.jsonl[.zst]`). */
+const rolloutIdOf = (path) => {
+  const name = basename(path);
+  return isRolloutName(name) ? (name.match(ROLLOUT_ID_RE)?.[1].toLowerCase() ?? null) : null;
+};
 
 const META_CHUNK_BYTES = 8 * 1024;
 
@@ -439,20 +498,34 @@ async function firstRecord(candidate, { maxBytes, maxLineBytes }) {
   }
 }
 
-// Whether a cutoff falls on a record boundary: the end of the file or just after a line feed.
+// Whether a cutoff, in (decompressed) file bytes, falls on a record boundary: the end of the file or just after a line feed.
 async function endsOnRecord(candidate, end) {
-  if (end === candidate.size) return true;
+  const compressed = isCompressed(candidate.path);
+  if (!compressed && end === candidate.size) return true;
   const handle = await openCandidate(candidate);
   try {
     const byte = Buffer.alloc(1);
-    const { bytesRead } = await handle.read(byte, 0, 1, end - 1);
-    return bytesRead === 1 && byte[0] === 10;
+    if (!compressed) {
+      const { bytesRead } = await handle.read(byte, 0, 1, end - 1);
+      return bytesRead === 1 && byte[0] === 10;
+    }
+    // The decompressed size is unknown: read up to the cutoff, then see whether the file ends there.
+    const chunk = Buffer.allocUnsafe(IMPORT_CHUNK_BYTES);
+    let position = 0;
+    let last = 0;
+    while (position < end) {
+      const { bytesRead } = await handle.read(chunk, 0, Math.min(chunk.length, end - position), position);
+      if (!bytesRead) return false;
+      position += bytesRead;
+      last = chunk[bytesRead - 1];
+    }
+    return last === 10 || (await handle.read(byte, 0, 1, position)).bytesRead === 0;
   } finally {
     await handle.close();
   }
 }
 
-/** The plain rollout file with this rollout id under the live, then the archived, sessions folder. */
+/** The rollout file with this rollout id under the live, then the archived, sessions folder (walking lists a plain file instead of its compressed sibling). */
 async function findRolloutById(home, rolloutId) {
   for (const folder of ['sessions', 'archived_sessions']) {
     let rootReal;
@@ -475,23 +548,43 @@ async function findRolloutById(home, rolloutId) {
   return null;
 }
 
+// Size of a compressed file once decompressed, counting no further than `cap`.
+async function decompressedLength(candidate, cap) {
+  const handle = await openCandidate(candidate);
+  try {
+    const chunk = Buffer.allocUnsafe(IMPORT_CHUNK_BYTES);
+    let length = 0;
+    while (length < cap) {
+      const { bytesRead } = await handle.read(chunk, 0, Math.min(chunk.length, cap - length), length);
+      if (!bytesRead) break;
+      length += bytesRead;
+    }
+    return length;
+  } finally {
+    await handle.close();
+  }
+}
+
 /**
  * Rollouts a `history_base` leads to, nearest first, each with the byte offset
  * its contribution ends at, and `metaBytes`, what reading their metadata took.
- * Stops (`partial`) at a base that is missing, unreadable (compressed rollouts
- * are not read), not paginated, already visited, past the depth cap, with a
- * cutoff that excludes the session metadata, passes the end of the file or
- * does not end a record, or that would take the total read (the file, the
+ * Cutoffs and byte counts are of the decompressed rollout. Stops (`partial`,
+ * the warning code saying why) at a base that is missing or unreadable
+ * (`historyUnavailable`), that would take the total read (the file, the
  * `spent` metadata reads so far, every cutoff and every metadata read) beyond
- * `maxFileBytes`.
+ * `maxFileBytes` (`historySizeLimit`), or is not paginated, already visited,
+ * past the depth cap, with a cutoff that excludes the session metadata,
+ * passes the end of the file or does not end a record (`historyPartial`).
  */
 async function resolveHistoryChain(candidate, firstBase, { maxFileBytes, maxLineBytes, spent }) {
   const home = dirname(candidate.root ?? sourceRoot('codex'));
   const seen = new Set([rolloutIdOf(candidate.path)]);
   const segments = [];
-  let used = candidate.size + spent;
+  // The file itself is reserved at its decompressed size, which only reading it tells.
+  let used =
+    (isCompressed(candidate.path) ? await decompressedLength(candidate, maxFileBytes) : candidate.size) + spent;
   let metaBytes = 0;
-  const partial = () => ({ segments, partial: true, metaBytes });
+  const partial = (warning = IMPORT_WARNING_HISTORY_PARTIAL) => ({ segments, partial: warning, metaBytes });
   for (let base = firstBase; base; ) {
     const id = typeof base.thread_id === 'string' ? base.thread_id.toLowerCase() : '';
     const end = base.end_byte_offset;
@@ -500,13 +593,20 @@ async function resolveHistoryChain(candidate, firstBase, { maxFileBytes, maxLine
     seen.add(id);
     if (!Number.isSafeInteger(ordinal) || ordinal <= 0 || !Number.isSafeInteger(end) || end <= 0) return partial();
     const found = await findRolloutById(home, id);
-    if (!found || end > found.size || used + end > maxFileBytes) return partial();
+    if (!found) return partial(IMPORT_WARNING_HISTORY_UNAVAILABLE);
+    if (!isCompressed(found.path) && end > found.size) return partial();
+    if (used + end > maxFileBytes) return partial(IMPORT_WARNING_HISTORY_SIZE_LIMIT);
     let head;
     try {
       if (!(await endsOnRecord(found, end))) return partial();
       head = await firstRecord(found, { maxBytes: Math.min(end, maxFileBytes - used - end), maxLineBytes });
-    } catch {
-      return partial();
+    } catch (error) {
+      // A runtime without zstd names its own fix; any other failure to open or read the base is "unavailable".
+      return partial(
+        error?.code === IMPORT_ERROR_NEEDS_NEWER_NODE
+          ? IMPORT_ERROR_NEEDS_NEWER_NODE
+          : IMPORT_WARNING_HISTORY_UNAVAILABLE
+      );
     }
     used += end + head.bytes;
     metaBytes += head.bytes;
@@ -515,7 +615,7 @@ async function resolveHistoryChain(candidate, firstBase, { maxFileBytes, maxLine
     const next = head.record.payload.history_base;
     base = next && typeof next === 'object' ? next : null;
   }
-  return { segments, partial: false, metaBytes };
+  return { segments, partial: null, metaBytes };
 }
 
 /**
@@ -524,8 +624,10 @@ async function resolveHistoryChain(candidate, firstBase, { maxFileBytes, maxLine
  * converter's limits fails the file with `tooLarge` without reading the rest.
  * A Codex rollout continuing a `history_base` is preceded by the records of
  * each base up to its cutoff, oldest first (their session metadata dropped),
- * all within the one `maxFileBytes`; a base that cannot be followed leaves the
- * `historyPartial` warning. `bytesRead` is how far the read got.
+ * all within the one `maxFileBytes` (counted in decompressed bytes for a
+ * compressed rollout); a base that cannot be followed leaves a `historyPartial`,
+ * `historySizeLimit` or `historyUnavailable` warning. `bytesRead` is how far
+ * the read got.
  */
 export async function convertCandidateFile(
   candidate,
@@ -553,10 +655,10 @@ export async function convertCandidateFile(
       const chain =
         head.record.payload.history_mode === 'paginated'
           ? await resolveHistoryChain(candidate, base, { maxFileBytes, maxLineBytes, spent: inheritedBytes })
-          : { segments: [], partial: true, metaBytes: 0 };
+          : { segments: [], partial: IMPORT_WARNING_HISTORY_PARTIAL, metaBytes: 0 };
       inheritedBytes += chain.metaBytes;
       const { segments, partial } = chain;
-      if (partial) converter.markHistoryPartial();
+      if (partial) converter.markHistoryPartial(partial);
       for (const { candidate: baseFile, end } of segments.reverse()) {
         const baseHandle = await openCandidate(baseFile);
         try {
@@ -587,12 +689,22 @@ export async function convertCandidateFile(
   }
 }
 
+// On a runtime without zstd, a listed conversation whose history base is compressed says so on its row.
+async function withCompressedBaseNotice(candidate, meta) {
+  if (!meta.historyBaseId || zstdSupported()) return meta;
+  const found = await findRolloutById(dirname(candidate.root ?? sourceRoot('codex')), meta.historyBaseId);
+  return found && isCompressed(found.path)
+    ? { ...meta, warnings: [...meta.warnings, IMPORT_ERROR_NEEDS_NEWER_NODE] }
+    : meta;
+}
+
 function pumpMetaQueue() {
   while (state.active < META_CONCURRENCY && state.queue.length) {
     const job = state.queue.shift();
     state.active += 1;
     readPrefixMeta(job.candidate)
-      .catch(() => ({
+      .then((meta) => withCompressedBaseNotice(job.candidate, meta))
+      .catch((error) => ({
         foreignSessionId: null,
         cwd: null,
         title: null,
@@ -600,7 +712,7 @@ function pumpMetaQueue() {
         historyBaseId: null,
         messageCount: null,
         warnings: [],
-        errorCode: 'unreadable',
+        errorCode: error?.code === IMPORT_ERROR_NEEDS_NEWER_NODE ? IMPORT_ERROR_NEEDS_NEWER_NODE : 'unreadable',
       }))
       .then((value) => {
         state.meta.set(job.candidate.path, { stampKey: stampKey(job.candidate), value });
@@ -903,7 +1015,7 @@ export async function resolveViewSelection(viewId, excludeIds, imported) {
 }
 
 // ── picked files ─────────────────────────────────────────────────────────────
-/** Validate and register a file chosen in a native picker (a local regular .jsonl). */
+/** Validate and register a file chosen in a native picker (a local regular .jsonl, or a Codex .jsonl.zst). */
 export async function registerFile({ source, path } = {}, { imported, limits, env = process.env } = {}) {
   requireSource(source);
   if (typeof path !== 'string' || !path.trim() || path.includes('\0')) throw importError('invalidPath');
@@ -911,7 +1023,8 @@ export async function registerFile({ source, path } = {}, { imported, limits, en
   // Network/device forms are refused before any filesystem call.
   if (isNetworkOrDevicePath(requested)) throw importError('unsupported');
   if (!isAbsolute(requested)) throw importError('invalidPath');
-  if (extname(basename(requested)).toLowerCase() !== '.jsonl') throw importError('unsupported');
+  const pickable = (path) => /\.jsonl$/i.test(path) || (source === 'codex' && isCompressed(path));
+  if (!pickable(basename(requested))) throw importError('unsupported');
   let real;
   let info;
   try {
@@ -920,7 +1033,7 @@ export async function registerFile({ source, path } = {}, { imported, limits, en
   } catch {
     throw importError('unreadable');
   }
-  if (isNetworkOrDevicePath(real) || !info.isFile() || extname(real).toLowerCase() !== '.jsonl') {
+  if (isNetworkOrDevicePath(real) || !info.isFile() || !pickable(basename(real))) {
     throw importError('unsupported');
   }
   const candidate = registerCandidate({
@@ -935,8 +1048,8 @@ export async function registerFile({ source, path } = {}, { imported, limits, en
   let conversion;
   try {
     conversion = await convertCandidateFile(candidate, limits);
-  } catch {
-    throw importError('unreadable');
+  } catch (error) {
+    throw importError(error?.code === IMPORT_ERROR_NEEDS_NEWER_NODE ? IMPORT_ERROR_NEEDS_NEWER_NODE : 'unreadable');
   }
   if (conversion.errorCode) throw importError(conversion.errorCode);
   recordConversion(candidate, conversion);

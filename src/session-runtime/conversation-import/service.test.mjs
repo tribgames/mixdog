@@ -15,6 +15,7 @@ import {
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
+import zlib, { zstdCompressSync } from 'node:zlib';
 
 const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'mixdog-conversation-import-')));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
@@ -698,6 +699,17 @@ test('a picked file is validated as a local regular .jsonl and registered', asyn
     ['Picked file', fixture.projectA, 2, null]
   );
   assert.equal(api.getConversationImportJobs().jobs.length, 0);
+  const packed = join(fixture.home, 'rollout-2026-01-01T00-00-00-id-packed.jsonl.zst');
+  writeFileSync(
+    packed,
+    zstdCompressSync(codexRollout({ id: 'id-packed', cwd: fixture.projectA, user: 'Packed file' }))
+  );
+  const packedRow = (await api.registerConversationImportFile({ source: 'codex', path: packed })).row;
+  assert.deepEqual([packedRow.title, packedRow.cwd, packedRow.messageCount], ['Packed file', fixture.projectA, 2]);
+  await assert.rejects(api.registerConversationImportFile({ source: 'claude', path: packed }), /unsupported/);
+  const shouted = join(fixture.home, 'picked.jsonl.ZST');
+  writeFileSync(shouted, zstdCompressSync('x'));
+  await assert.rejects(api.registerConversationImportFile({ source: 'codex', path: shouted }), /unsupported/);
   await assert.rejects(api.registerConversationImportFile({ source: 'codex', path: 'relative.jsonl' }), /invalidPath/);
   const text = join(fixture.home, 'picked.txt');
   writeFileSync(text, 'x');
@@ -715,6 +727,19 @@ test('a picked file is validated as a local regular .jsonl and registered', asyn
   for (const remote of ['\\\\server\\share\\a.jsonl', '\\\\?\\UNC\\server\\share\\a.jsonl', '\\\\.\\pipe\\a.jsonl']) {
     await assert.rejects(api.registerConversationImportFile({ source: 'codex', path: remote }), /unsupported/, remote);
   }
+});
+
+test('a picked .jsonl.zst on a runtime without zstd reports needsNewerNode, not unreadable', async (t) => {
+  const fixture = fixtureHome();
+  const packed = join(fixture.home, 'rollout-2026-01-01T00-00-00-id-nozstd.jsonl.zst');
+  writeFileSync(packed, zstdCompressSync(codexRollout({ id: 'id-nozstd', cwd: fixture.projectA, user: 'Packed' })));
+  const original = Object.getOwnPropertyDescriptor(zlib, 'createZstdDecompress');
+  Object.defineProperty(zlib, 'createZstdDecompress', { ...original, value: undefined });
+  t.after(() => Object.defineProperty(zlib, 'createZstdDecompress', original));
+  await assert.rejects(
+    freshApi(fixture.env).registerConversationImportFile({ source: 'codex', path: packed }),
+    /needsNewerNode/
+  );
 });
 
 test('a junction swapped in after enumeration is not followed: the opened file is revalidated', async () => {

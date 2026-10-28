@@ -157,7 +157,7 @@ export function registerFileDialogIpc({
     const result = await dialog.showOpenDialog(window, {
       title: nativeT('Choose a conversation file'),
       properties: ['openFile'],
-      filters: [{ name: nativeT('Conversation file'), extensions: ['jsonl'] }],
+      filters: [{ name: nativeT('Conversation file'), extensions: ['jsonl', 'zst'] }],
     });
     return result.canceled ? null : resolvePath(result.filePaths[0] || '') || null;
   });

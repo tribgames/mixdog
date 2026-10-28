@@ -93,6 +93,9 @@ test('engine codes map to messages and an unknown code falls back', () => {
     'tooLarge',
     'internalRecord',
     'historyPartial',
+    'historySizeLimit',
+    'historyUnavailable',
+    'needsNewerNode',
   ];
   for (const code of codes) {
     assert.equal(model.importCodeFromError(new Error(`x ${code} y`)), code);
@@ -206,6 +209,23 @@ test('dialog: nothing selected reads "Import" and a null message count is omitte
   const meta = [...host.querySelectorAll('.settings-import-item-meta')].map((el) => el.textContent);
   assert.match(meta[0], /12 messages/);
   assert.doesNotMatch(meta[1], /—|·/);
+});
+
+test('dialog: a row shows why history is missing without hovering, and not for harmless warnings', async (t) => {
+  const rows = [
+    { ...row('a'), warnings: ['historySizeLimit', 'cwdMissing'] },
+    { ...row('b'), warnings: ['needsNewerNode'] },
+    row('c'),
+  ];
+  const host = await mount(t, { rows, calls: [] });
+  const notices = [...host.querySelectorAll('.settings-import-item')].map((item) =>
+    [...item.querySelectorAll('.settings-import-item-notice')].map((el) => el.textContent)
+  );
+  assert.deepEqual(notices, [
+    ['Earlier history was left out because it is over the size limit.'],
+    ['This conversation is stored compressed. Update Node.js to read it.'],
+    [],
+  ]);
 });
 
 test('dialog: choose file from the empty state pins the returned row and imports it by id', async (t) => {

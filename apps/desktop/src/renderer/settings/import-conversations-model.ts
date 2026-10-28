@@ -109,15 +109,32 @@ export function importCodeMessage(code: string | undefined): string {
       return t('This is an internal record (a subagent or review), not a conversation.');
     case 'historyPartial':
       return t('Part of this conversation is stored in another file and was left out.');
+    case 'historySizeLimit':
+      return t('Earlier history was left out because it is over the size limit.');
+    case 'historyUnavailable':
+      return t('Earlier history was left out because its file is missing or could not be read.');
+    case 'needsNewerNode':
+      return t('This conversation is stored compressed. Update Node.js to read it.');
     default:
       return t('The conversation could not be imported.');
   }
 }
 
+const OMISSION_CODES: ReadonlySet<string> = new Set([
+  'historyPartial',
+  'historySizeLimit',
+  'historyUnavailable',
+  'needsNewerNode',
+]);
+
+/** Messages of a row's warnings that say content is missing or unreadable, shown on the row itself. */
+export const importRowNotices = (row: Pick<ConversationImportRow, 'warnings'>): string[] =>
+  row.warnings.filter((code) => OMISSION_CODES.has(code)).map(importCodeMessage);
+
 /** The engine error code a rejected call's message carries, if any. */
 export function importCodeFromError(error: unknown): string | undefined {
   const message = error instanceof Error ? error.message : String(error ?? '');
-  return /\b(viewExpired|invalidCursor|invalidPath|unsupported|unreadable|jobNotFound|empty|malformed|unknownCandidate|importFailed|noModelRoute|cwdMissing|imageOmitted|tooLarge|internalRecord|historyPartial)\b/.exec(
+  return /\b(viewExpired|invalidCursor|invalidPath|unsupported|unreadable|jobNotFound|empty|malformed|unknownCandidate|importFailed|noModelRoute|cwdMissing|imageOmitted|tooLarge|internalRecord|historyPartial|historySizeLimit|historyUnavailable|needsNewerNode)\b/.exec(
     message
   )?.[1];
 }

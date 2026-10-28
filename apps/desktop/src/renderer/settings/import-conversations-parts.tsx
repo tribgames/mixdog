@@ -13,6 +13,7 @@ import {
   importButtonLabel,
   importCodeMessage,
   importFailureSummary,
+  importRowNotices,
   importWarningCodes,
   isRowSelected,
   projectLabel,
@@ -239,6 +240,11 @@ function ImportRow({
         </span>
         {row.messageCount !== null && <span>· {t('{{count}} messages', { count: row.messageCount })}</span>}{' '}
       </span>
+      {importRowNotices(row).map((notice) => (
+        <span key={notice} className="settings-import-item-notice">
+          {notice}
+        </span>
+      ))}
     </label>
   );
 }

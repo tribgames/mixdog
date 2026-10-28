@@ -141,6 +141,12 @@
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-minor);
 }
+.settings-import-item-notice {
+  grid-column: 2 / -1;
+  color: var(--mx-warning);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-minor);
+}
 .settings-import-item-path {
   min-width: 0;
   overflow: hidden;

@@ -11,6 +11,13 @@ export const IMPORT_WARNING_MALFORMED = 'malformed';
 export const IMPORT_WARNING_CWD_MISSING = 'cwdMissing';
 /** The conversation continues a history stored in another file that was not followed. */
 export const IMPORT_WARNING_HISTORY_PARTIAL = 'historyPartial';
+/** Earlier history was left out because following it would pass the import size limit. */
+export const IMPORT_WARNING_HISTORY_SIZE_LIMIT = 'historySizeLimit';
+/** Earlier history was left out because its file is missing or could not be read. */
+export const IMPORT_WARNING_HISTORY_UNAVAILABLE = 'historyUnavailable';
+
+/** A compressed rollout needs a Node.js runtime with zstd; used as the failure code and as the warning of an unreadable base. */
+export const IMPORT_ERROR_NEEDS_NEWER_NODE = 'needsNewerNode';
 
 /** Failure code of a record the source app writes for its own use (not a conversation). */
 export const IMPORT_ERROR_INTERNAL = 'internalRecord';

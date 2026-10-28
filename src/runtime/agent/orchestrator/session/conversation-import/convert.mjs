@@ -58,7 +58,7 @@ export function createConversationConverter(
   let records = 0;
   let malformed = 0;
   let tooLarge = false;
-  let historyPartial = false;
+  let historyPartial = null;
   return {
     /** True while every message seen so far is a Claude sidechain message. */
     get sidechainOnly() {
@@ -67,9 +67,9 @@ export function createConversationConverter(
     markTooLarge() {
       tooLarge = true;
     },
-    /** A history base could not be followed in full. */
-    markHistoryPartial() {
-      historyPartial = true;
+    /** A history base could not be followed in full; `warning` names why. */
+    markHistoryPartial(warning = IMPORT_WARNING_HISTORY_PARTIAL) {
+      historyPartial = warning;
     },
     /** Feed a line for the stored title only (Claude Code's tail window); other sources ignore it. */
     pushTitleLine(raw) {
@@ -117,7 +117,7 @@ export function createConversationConverter(
       if (transcriptChars(turns) > maxTranscriptChars) tooLarge = true;
       const warnings = new Set(parsed.warnings);
       if (malformed) warnings.add(IMPORT_WARNING_MALFORMED);
-      if (historyPartial) warnings.add(IMPORT_WARNING_HISTORY_PARTIAL);
+      if (historyPartial) warnings.add(historyPartial);
       let errorCode = null;
       if (tooLarge) errorCode = IMPORT_ERROR_TOO_LARGE;
       else if (parsed.internalKind) errorCode = IMPORT_ERROR_INTERNAL;
