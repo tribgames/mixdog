@@ -186,6 +186,22 @@ export function sweepLiveIdentities(tracker) {
   return targets.length > 0 ? killProcessTrees(targets) : Promise.resolve();
 }
 
+/** A tracker for a watch that goes on after its hold was force-released: an
+ *  observation that stays 'unknown' on a tracker that can never complete (the
+ *  root is gone and its pre-kill capture was incomplete) ends the watch via
+ *  `stop`. Termination is never reported by it. */
+export function endWatchWhenUnconfirmable(tracker, { released, stop }) {
+  return Object.create(tracker, {
+    observe: {
+      value: async (options) => {
+        const state = await tracker.observe(options);
+        if (released() && state === 'unknown' && !tracker.complete) stop();
+        return state;
+      },
+    },
+  });
+}
+
 /** One observation loop: observe now, then every `intervalMs` until the tree
  *  is confirmed gone, then run `onTerminated` once. 'running', 'unknown', a
  *  failed or unanswered (by the next cadence tick) observation and a failing

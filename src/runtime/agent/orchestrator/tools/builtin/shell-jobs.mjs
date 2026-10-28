@@ -39,6 +39,7 @@ import {
 } from './lib/shell-job-records.mjs';
 import {
   createProcessTreeTracker,
+  endWatchWhenUnconfirmable,
   killAfterSnapshot,
   PROCESS_TABLE_READ_BOUND_MS,
   sweepLiveIdentities,
@@ -204,7 +205,7 @@ async function trackShellJobRecord(task, options) {
       return releaseHold();
     };
     const stop = watchTermination({
-      tracker,
+      tracker: endWatchWhenUnconfirmable(tracker, { released: () => released !== null, stop: () => stop() }),
       // A killed job is not over while processes it started still run.
       sweep: killed,
       onTerminated: finish,

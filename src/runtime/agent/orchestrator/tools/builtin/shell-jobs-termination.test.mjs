@@ -297,6 +297,39 @@ test('a force-release drops the folder hold without reporting a live job termina
   await until(() => settledCallbacks === 1);
 });
 
+test('after a force-release a permanently unknown job ends its watch without reporting it terminated', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const repo = makeRepo();
+  // No identity snapshot ever lands, so the killed root's tree can never be confirmed.
+  tree.state.next = () => {
+    throw new Error('process enumeration denied');
+  };
+  await promote(repo, 7200);
+  await flush();
+  let settledCallbacks = 0;
+  subscribeShellJobSettled('job_bg_7200', () => {
+    settledCallbacks += 1;
+  });
+  await cancelOwnedShellTrees('sess_bg');
+  tree.state.next = () => processTable([{ pid: 7202, ppid: 1, token: 'detached-worker', pgid: 7202 }]);
+  setTask('job_bg_7200', 'cancelled');
+  await until(async () => {
+    await _shellJobRecordWritesSettledForTest('job_bg_7200');
+    return (await readShellJobRecord('job_bg_7200'))?.terminationUnconfirmed;
+  });
+  assert.deepEqual(await forceReleaseTerminationHold('job_bg_7200', { callerSessionId: 'sess_bg' }), {
+    released: true,
+  });
+  assert.equal(isHeld(repo), false);
+  t.mock.timers.tick(5_000);
+  await flush();
+  const reads = tree.state.reads;
+  t.mock.timers.tick(60_000);
+  await flush();
+  assert.equal(tree.state.reads, reads, 'the watch is disposed');
+  assert.equal(settledCallbacks, 0, 'an unconfirmed job is never reported terminated');
+});
+
 // The root ends on its own or by a cancel; a worker it started keeps running.
 function endRoot(jobId, pid, ending) {
   const survivor = () => processTable([{ pid: pid + 1, ppid: pid, token: 'worker' }]);

@@ -3,7 +3,12 @@
 // lease cleanup that a promoted or unconfirmed-kill child defers to its own
 // real exit.
 import { ExecResult, SHELL_OUTPUT_INLINE_CAP } from '../shell-exec-output.mjs';
-import { createProcessTreeTracker, probeShellDescendants, watchTermination } from './shell-descendants.mjs';
+import {
+  createProcessTreeTracker,
+  endWatchWhenUnconfirmable,
+  probeShellDescendants,
+  watchTermination,
+} from './shell-descendants.mjs';
 import { unregisterOwnedShellTree } from './owned-shell-trees.mjs';
 import {
   adoptShellWorkspaceAdmission,
@@ -26,8 +31,8 @@ import {
 // it follows confirmed termination only (see below).
 const UNCONFIRMED_KILL_CLEANUP_CEILING_MS = 60_000;
 
-/** Settles once a held run's whole tree is confirmed gone (or its hold was
- *  force-released): what its result left in use defers to this. */
+/** Settles once a held run's whole tree is confirmed gone: what its result
+ *  left in use defers to this. A force-release does not settle it. */
 function treeSettled(run) {
   if (!run.treeSettled) {
     run.treeSettled = new Promise((resolve) => {
@@ -53,15 +58,25 @@ export function releaseAdmissionOnConfirmedTermination(run, { markNow = true, sw
   if (markNow) keepTerminationUnconfirmedRecord(run);
   treeSettled(run);
   // The workspace leases stop counting here; the returned promise settles once
-  // their removal is on disk.
+  // their removal is on disk. A force-release only drops the hold: the tree
+  // stays observed, and only its confirmed exit settles it (`terminated`).
+  let released;
+  let holdDropped = false;
   const release = () => {
-    const released = run.workspaceAdmission?.();
-    run.workspaceAdmission = null;
-    run.stopTerminationWatch?.();
     clearTerminationHold(run.foregroundRecordId);
-    clearForegroundRecord(run);
-    run.resolveTreeSettled();
+    if (!holdDropped) {
+      released = run.workspaceAdmission?.();
+      run.workspaceAdmission = null;
+      clearForegroundRecord(run);
+      holdDropped = true;
+    }
     return released;
+  };
+  const terminated = () => {
+    const dropped = release();
+    run.stopTerminationWatch?.();
+    run.resolveTreeSettled();
+    return dropped;
   };
   registerTerminationHold(run.foregroundRecordId, {
     ownerSessionId: run.foregroundRecordInput?.ownerSessionId || null,
@@ -69,14 +84,29 @@ export function releaseAdmissionOnConfirmedTermination(run, { markNow = true, sw
     release,
   });
   run.terminationTracker = run.terminationTracker || createProcessTreeTracker({ pid: child.pid });
+  // After a force-release the watch only waits for a confirmed exit. An
+  // incomplete pre-kill capture of a root that is gone can never be completed,
+  // so an observation that stays unknown on it ends the watch (never settling
+  // the tree: `treeSettled` follows a confirmed exit only).
   run.stopTerminationWatch = watchTermination({
-    tracker: run.terminationTracker,
+    tracker: endWatchWhenUnconfirmable(run.terminationTracker, {
+      released: () => holdDropped,
+      stop: () => run.stopTerminationWatch?.(),
+    }),
     rootExited: () => child.exitCode != null || child.signalCode != null,
     // A killed run is not over while processes it started still run.
     sweep,
-    onTerminated: release,
-    onUnconfirmed: markNow ? null : () => keepTerminationUnconfirmedRecord(run),
-    releaseRequested: () => takeReleaseRequest(run.foregroundRecordId),
+    onTerminated: terminated,
+    onUnconfirmed: markNow
+      ? null
+      : () => {
+          if (!holdDropped) keepTerminationUnconfirmedRecord(run);
+        },
+    // A release requested from another process is the same force-release.
+    releaseRequested: () => {
+      if (takeReleaseRequest(run.foregroundRecordId)) void release();
+      return false;
+    },
   });
 }
 

@@ -404,7 +404,72 @@ test(
 );
 
 test(
-  'an unconfirmed termination can be force-released only by its owner, and the watch ends',
+  'a force-release drops the hold but the live tree is not reported settled until it exits',
+  withTimers(async () => {
+    const repo = makeRepo();
+    const child = runningChild();
+    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    run.foregroundRecordId = 'job_force_live';
+    const survivor = { pid: 4420, ppid: ROOT, token: 'worker' };
+    await capturedBeforeKill(run, [{ pid: ROOT }, survivor]);
+    exitChild(child, 137);
+    tree.state.next = () => processTable([{ ...survivor, ppid: 1 }]);
+    let result;
+    run.resolveResult = (value) => {
+      result = value;
+    };
+    await settleAndFlush(run);
+    let ended = false;
+    void result.settled.then(() => {
+      ended = true;
+    });
+    assert.deepEqual(await forceReleaseTerminationHold('job_force_live', { callerSessionId: 'session' }), {
+      released: true,
+    });
+    assert.equal(isHeld(repo), false);
+    const reads = tree.state.reads;
+    await tick(5_000);
+    assert.ok(tree.state.reads > reads, 'the tree is still observed');
+    assert.equal(ended, false, 'the worker still runs');
+    tree.state.next = () => processTable([]);
+    await tick(5_000);
+    assert.equal(ended, true);
+  })
+);
+
+test(
+  'after a force-release a permanently unknown tree ends the watch without settling it',
+  withTimers(async () => {
+    const repo = makeRepo();
+    const child = runningChild();
+    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    run.foregroundRecordId = 'job_force_blind';
+    // No pre-kill capture: the exited root's tree can never be confirmed.
+    exitChild(child, 137);
+    tree.state.next = () => processTable([]);
+    let result;
+    run.resolveResult = (value) => {
+      result = value;
+    };
+    await settleAndFlush(run);
+    let ended = false;
+    void result.settled.then(() => {
+      ended = true;
+    });
+    assert.deepEqual(await forceReleaseTerminationHold('job_force_blind', { callerSessionId: 'session' }), {
+      released: true,
+    });
+    assert.equal(isHeld(repo), false);
+    await tick(5_000);
+    const reads = tree.state.reads;
+    await tick(60_000);
+    assert.equal(tree.state.reads, reads, 'the watch is disposed');
+    assert.equal(ended, false, 'an unconfirmed tree is never reported settled');
+  })
+);
+
+test(
+  'an unconfirmed termination can be force-released only by its owner, and the watch goes on',
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
@@ -428,7 +493,7 @@ test(
     assert.deepEqual(records.retired, ['job_unconfirmed_kill']);
     const reads = tree.state.reads;
     await tick(30_000);
-    assert.equal(tree.state.reads, reads, 'the observation loop stopped');
+    assert.ok(tree.state.reads > reads, 'a force-release does not end the observation');
     assert.equal(
       (await forceReleaseTerminationHold('job_unconfirmed_kill', { callerSessionId: 'session' })).released,
       false
@@ -516,9 +581,10 @@ test(
     );
     assert.equal(isHeld(repo), false);
     assert.deepEqual(records.retired, ['job_closed_blind']);
+    await tick(5_000);
     const reads = tree.state.reads;
     await tick(30_000);
-    assert.equal(tree.state.reads, reads, 'the observation loop stopped');
+    assert.equal(tree.state.reads, reads, 'a snapshot that can never complete ends the observation');
   })
 );
 
@@ -581,7 +647,7 @@ test(
     assert.equal(isHeld(repo), false);
     const reads = tree.state.reads;
     await tick(30_000);
-    assert.equal(tree.state.reads, reads, 'the observation loop stopped');
+    assert.ok(tree.state.reads > reads, 'a force-release does not end the observation');
   })
 );
 
@@ -604,7 +670,7 @@ test(
     assert.equal(existsSync(join(jobsDir, 'job_unconfirmed_kill.release-requested')), false, 'the request is consumed');
     const reads = tree.state.reads;
     await tick(30_000);
-    assert.equal(tree.state.reads, reads, 'the observation loop stopped');
+    assert.ok(tree.state.reads > reads, 'a force-release does not end the observation');
   })
 );
 
@@ -677,7 +743,7 @@ test(
       assert.equal(records.retired.length, retiredBefore + 1, 'the release retires the kept record');
       const reads = tree.state.reads;
       await tick(30_000);
-      assert.equal(tree.state.reads, reads, 'the observation loop stopped');
+      assert.ok(tree.state.reads > reads, 'a force-release does not end the observation');
     })
   )
 );
