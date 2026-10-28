@@ -605,7 +605,7 @@ export function toolActivityStillOpen(rows: readonly TranscriptRowModel[], index
   return true;
 }
 
-const TURN_CHROME_KINDS =new Set(['user', 'turndone', 'statusdone', 'notice']);
+const TURN_CHROME_KINDS = new Set(['user', 'turndone', 'statusdone', 'notice']);
 
 /** Whether the turn produced assistant or tool output before it ended — a
  *  retry then continues from that output instead of resubmitting the prompt. */

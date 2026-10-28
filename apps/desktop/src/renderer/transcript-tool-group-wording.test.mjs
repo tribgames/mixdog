@@ -20,9 +20,14 @@ function installDom() {
   dom.window.Element.prototype.getAnimations = () => [];
   dom.window.Document.prototype.getAnimations = () => [];
   const previous = new Map(
-    ['window', 'document', 'navigator', 'IS_REACT_ACT_ENVIRONMENT', 'requestAnimationFrame', 'cancelAnimationFrame'].map(
-      (key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)]
-    )
+    [
+      'window',
+      'document',
+      'navigator',
+      'IS_REACT_ACT_ENVIRONMENT',
+      'requestAnimationFrame',
+      'cancelAnimationFrame',
+    ].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
   );
   Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
   Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
@@ -69,10 +74,46 @@ const TURN = [
   ['A finishes; the model is choosing the next call', [sh(true)], true],
   ['call B starts', [sh(true), read(false)], true],
   ['B finishes; the model is choosing again', [sh(true), read(true)], true],
-  ['C and D run in parallel', [sh(true), read(true), grep(false), call('ed', 'edit', { file_path: 'b.ts', old_string: 'a', new_string: 'b' }, false)], true],
-  ['D finishes before C', [sh(true), read(true), grep(false), call('ed', 'edit', { file_path: 'b.ts', old_string: 'a', new_string: 'b' }, true)], true],
-  ['C finishes; nothing else started yet', [sh(true), read(true), grep(true), call('ed', 'edit', { file_path: 'b.ts', old_string: 'a', new_string: 'b' }, true)], true],
-  ['the turn ends', [sh(true), read(true), grep(true), call('ed', 'edit', { file_path: 'b.ts', old_string: 'a', new_string: 'b' }, true)], false],
+  [
+    'C and D run in parallel',
+    [
+      sh(true),
+      read(true),
+      grep(false),
+      call('ed', 'edit', { file_path: 'b.ts', old_string: 'a', new_string: 'b' }, false),
+    ],
+    true,
+  ],
+  [
+    'D finishes before C',
+    [
+      sh(true),
+      read(true),
+      grep(false),
+      call('ed', 'edit', { file_path: 'b.ts', old_string: 'a', new_string: 'b' }, true),
+    ],
+    true,
+  ],
+  [
+    'C finishes; nothing else started yet',
+    [
+      sh(true),
+      read(true),
+      grep(true),
+      call('ed', 'edit', { file_path: 'b.ts', old_string: 'a', new_string: 'b' }, true),
+    ],
+    true,
+  ],
+  [
+    'the turn ends',
+    [
+      sh(true),
+      read(true),
+      grep(true),
+      call('ed', 'edit', { file_path: 'b.ts', old_string: 'a', new_string: 'b' }, true),
+    ],
+    false,
+  ],
 ];
 
 function rowsFor(items, busy, trailing = []) {
@@ -120,7 +161,11 @@ test('the group readout counts on from the first call through the gaps between c
     const recorded = [];
     for (const [step, items, busy] of TURN) {
       const rows = rowsFor(items, busy);
-      const running = toolActivityStillOpen(rows, rows.findIndex((row) => row._tag === 'ToolActivity'), busy);
+      const running = toolActivityStillOpen(
+        rows,
+        rows.findIndex((row) => row._tag === 'ToolActivity'),
+        busy
+      );
       await act(async () => {
         dom.root.render(React.createElement(ToolActivityGroup, { items, disclosureScope: 'readout', running }));
       });
@@ -134,7 +179,11 @@ test('the group readout counts on from the first call through the gaps between c
       assert.ok(seconds >= 40 && seconds <= 41, `${step}: counts from the first call (${seconds}s)`);
     }
     const seconds = recorded.map(([, value]) => value);
-    assert.deepEqual(seconds, [...seconds].sort((a, b) => a - b), 'never counts back');
+    assert.deepEqual(
+      seconds,
+      [...seconds].sort((a, b) => a - b),
+      'never counts back'
+    );
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();
