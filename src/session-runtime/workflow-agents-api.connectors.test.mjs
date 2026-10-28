@@ -25,6 +25,7 @@ import {
 } from '../runtime/agent/orchestrator/runtime-core/workflow.mjs';
 import { readMarkdownDocument, normalizeAgentPermissionOrNone } from '../runtime/shared/markdown-frontmatter.mjs';
 import { agentConnectors, connectorToolPermission } from '../runtime/agent/orchestrator/mcp/agent-connectors.mjs';
+import { rememberServerConnector } from '../runtime/agent/orchestrator/mcp/server-connectors.mjs';
 
 const agentMcpToolPermission = (id, tool, dataDir) => connectorToolPermission(agentConnectors(id, dataDir), tool);
 
@@ -57,7 +58,7 @@ const TOOLS = [
   { name: 'mcp__notion__search', description: 'Search.' },
 ];
 
-function fixture(t, { projects = [], catalog = null } = {}) {
+function fixture(t, { projects = [], catalog = null, tools = TOOLS } = {}) {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-agent-connectors-api-'));
   t.after(() => rmSync(dataDir, { recursive: true, force: true }));
   const helpers = createWorkflowHelpers({
@@ -83,7 +84,7 @@ function fixture(t, { projects = [], catalog = null } = {}) {
     ensureProvidersReady: async () => {},
     invalidateContextStatusCache() {},
     mcpStatus: () => ({ servers: SERVERS }),
-    getMcpTools: () => TOOLS,
+    getMcpTools: () => tools,
     listProjects: () => projects,
     resolveConfiguredMcpCatalog: () =>
       catalog || { servers: Object.fromEntries(SERVERS.map((row) => [row.name, {}])), warnings: [] },
@@ -257,6 +258,33 @@ test('an existing per-tool override keeps working and never narrows the other co
   assert.equal(await api.setAgentConnectorToolPermission(id, 'github', 'create_issue', null), null, 'back to auto');
   await assert.rejects(api.setAgentConnectorToolPermission(id, 'github', 't', 'sometimes'), /permission must be/);
   assert.equal('connectors' in manifestOf(dataDir, id), false);
+});
+
+test('getAgentConnectorTools gives each tool its own effective permission and whether the bot set it', async (t) => {
+  // A catalog connector's high-risk tool asks by default.
+  rememberServerConnector('github', { connector: 'gmail' });
+  t.after(() => rememberServerConnector('github', {}));
+  const { api } = fixture(t, { tools: [...TOOLS, { name: 'mcp__github__send_email' }] });
+  const { id } = await api.saveAgentDefinition({ name: 'Scribe', body: 'Write.' });
+  const of = (connector) =>
+    Object.fromEntries(
+      api.getAgentConnectorTools(id).flatMap((row) => (row.connector === connector ? [[row.tool, [row.permission, row.explicit]]] : []))
+    );
+  assert.deepEqual(of('github'), {
+    list_issues: ['auto', false],
+    create_issue: ['auto', false],
+    send_email: ['needs_approval', false],
+  });
+  await api.setAgentConnectorToolPermission(id, 'github', 'create_issue', 'disabled');
+  await api.setAgentConnectorToolPermission(id, 'github', 'send_email', 'auto');
+  await api.setAgentConnectorToolPermission(id, 'notion', 'gone', 'needs_approval');
+  await api.setAgentConnectorEnabled(id, 'github', false);
+  assert.deepEqual(of('github'), {
+    list_issues: ['auto', false],
+    create_issue: ['disabled', true],
+    send_email: ['auto', true],
+  });
+  assert.deepEqual(of('notion'), { search: ['auto', false], gone: ['needs_approval', true] }, 'an override stays listed');
 });
 
 test('legacy allow lists and MCP project scopes migrate to the equivalent switched-off lists, once', async (t) => {

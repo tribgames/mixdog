@@ -4,6 +4,9 @@ import {
   assertConnectorPolicyNotWidened,
   CONNECTOR_PERMISSIONS,
   connectorEnabled,
+  connectorGroupId,
+  connectorToolEntries,
+  connectorToolPermission,
   DENY_ALL_CONNECTORS,
   migrateLegacyConnectorPolicy,
   NO_WIDEN_MESSAGE,
@@ -108,8 +111,8 @@ export function createAgentConnectorsApi(deps, editor) {
     return getAgentConnectors(agentId);
   }
 
-  // Older per-tool overrides keep working (the profile no longer shows them):
-  // `permission` null drops the tool's entry, so the tool is auto again.
+  // One tool's permission (the profile's tool list, getAgentConnectorTools):
+  // `permission` null drops the tool's entry, so the tool is on its default again.
   async function setAgentConnectorToolPermission(agentId, connectorId, toolName, permission, options) {
     if (permission != null && !CONNECTOR_PERMISSIONS.includes(permission)) {
       throw new Error(`permission must be one of ${CONNECTOR_PERMISSIONS.join(', ')}`);
@@ -117,19 +120,25 @@ export function createAgentConnectorsApi(deps, editor) {
     const server = requireId(connectorId, 'connector id');
     const tool = requireId(toolName, 'tool name');
     const policy = editablePolicy(agentId);
-    const own = { ...policy.tools[server] };
+    // The accounts of one connector (`gmail`, `gmail-2`…) share the permission,
+    // stored once under the connector's id; an entry an account kept of its own
+    // for this tool goes in the same write.
+    const group = connectorGroupId(server);
+    const tools = Object.fromEntries(
+      Object.entries(policy.tools).map(([id, entries]) => {
+        if (id === group || connectorGroupId(id) !== group) return [id, entries];
+        const { [tool]: _dropped, ...rest } = entries;
+        return [id, rest];
+      })
+    );
+    const own = { ...tools[group] };
     if (permission == null) delete own[tool];
     else own[tool] = permission;
+    tools[group] = own;
     if (options?.noWiden) {
-      assertConnectorPolicyNotWidened(editor.getAgentConnectorPolicy(agentId), {
-        off: policy.off,
-        tools: { ...policy.tools, [server]: own },
-      });
+      assertConnectorPolicyNotWidened(editor.getAgentConnectorPolicy(agentId), { off: policy.off, tools });
     }
-    return editor.setAgentConnectorPolicy(
-      agentId,
-      storedConnectorPolicy({ off: policy.off, tools: { ...policy.tools, [server]: own } })
-    );
+    return editor.setAgentConnectorPolicy(agentId, storedConnectorPolicy({ off: policy.off, tools }));
   }
 
   // A card's "항상 허용" for a connector tool saves through this same writer.
@@ -147,6 +156,34 @@ export function createAgentConnectorsApi(deps, editor) {
           .map(([tool]) => ({ connector, tool }))
       )
       .sort((a, b) => a.connector.localeCompare(b.connector) || a.tool.localeCompare(b.tool));
+  }
+
+  /** `[{ connector, tool, permission, explicit }]`: each installed connector's
+   *  tools (the connected server's own, and any the agent's policy names) with
+   *  the permission the agent has for the tool itself, so a connector switched
+   *  off does not change it, and whether that is an entry of its own policy
+   *  rather than the tool's default. The profile's per-tool editor reads it. */
+  function getAgentConnectorTools(agentId) {
+    const { tools } = editablePolicy(agentId);
+    return installedIds().flatMap((connector) => {
+      const group = connectorGroupId(connector);
+      const accounts = Object.entries(tools).filter(([id]) => connectorGroupId(id) === group);
+      const names = new Set([
+        ...listConnectorTools(connector).map(({ name }) => name),
+        ...accounts.flatMap(([, entries]) => Object.keys(entries)),
+      ]);
+      // Accounts share one permission (stored under the connector); entries an
+      // account kept of its own follow the topmost.
+      return [...names].map((tool) => ({
+        connector,
+        tool,
+        permission: connectorToolPermission(
+          { off: [], tools },
+          { mcpServerName: connector, mcpToolName: tool }
+        ),
+        explicit: connectorToolEntries(tools, group, tool).length > 0,
+      }));
+    });
   }
 
   /** Replace the agent's connector policy (null removes it). With `options.noWiden`
@@ -279,6 +316,7 @@ export function createAgentConnectorsApi(deps, editor) {
     setAgentConnectorEnabled,
     setAgentConnectorToolPermission,
     getAgentAlwaysAllowedTools,
+    getAgentConnectorTools,
     getProjectConnectors,
     setProjectConnectorEnabled,
     migrateConnectorPolicies,

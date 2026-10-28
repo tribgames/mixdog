@@ -11,6 +11,7 @@ import { SESSION_CONFIGURE_ACTIONS, SESSION_READ_ACTIONS } from '../../../../src
 
 const READS = {
   getAgentConnectors: ['github-watcher'],
+  getAgentConnectorTools: ['github-watcher'],
   listConnectors: [],
   listConnectorTools: ['github'],
   getProjectConnectors: ['C:\\work\\app'],

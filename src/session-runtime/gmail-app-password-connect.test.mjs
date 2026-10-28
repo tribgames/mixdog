@@ -582,6 +582,12 @@ test('migration maps per-agent, per-project and hook settings of merged-away ser
       },
     },
   });
+  put(['agents', 'topmost', 'agent.json'], {
+    connectors: { off: [], tools: { gmail: { send_email: 'auto' }, 'gmail-2': { send_email: 'disabled' } } },
+  });
+  put(['agents', 'fallback', 'agent.json'], {
+    connectors: { off: [], tools: { 'gmail-3': { send_email: 'auto' }, 'gmail-2': { send_email: 'disabled' } } },
+  });
   put(['agents', 'dormant', 'agent.json'], {
     connectors: {
       off: ['gmail-2'],
@@ -634,14 +640,22 @@ test('migration maps per-agent, per-project and hook settings of merged-away ser
   // Off only when every merged server was off for the agent; the key is gone otherwise.
   assert.deepEqual(read('agents', 'one-off', 'agent.json'), { name: 'One off' });
   assert.deepEqual(read('agents', 'all-off', 'agent.json').connectors, { off: ['gmail', 'notes'] });
-  // Per-tool entries move to the surviving name; on a conflict the more permissive wins
-  // (as "on beats off" does for the server); other servers keep theirs.
+  // Per-tool entries move to the surviving name; on a conflict the surviving server's own
+  // entry wins, else the first merged server's; other servers keep theirs.
   assert.deepEqual(read('agents', 'tools', 'agent.json').connectors, {
     off: [],
     tools: {
-      gmail: { send_email: 'auto', read_email: 'needs_approval', delete_email: 'disabled' },
+      gmail: { send_email: 'disabled', read_email: 'needs_approval', delete_email: 'disabled' },
       notes: { write: 'auto' },
     },
+  });
+  assert.deepEqual(read('agents', 'topmost', 'agent.json').connectors, {
+    off: [],
+    tools: { gmail: { send_email: 'auto' } },
+  });
+  assert.deepEqual(read('agents', 'fallback', 'agent.json').connectors, {
+    off: [],
+    tools: { gmail: { send_email: 'disabled' } },
   });
   // What a switched-off server held was dormant and does not come alive with the merge.
   assert.deepEqual(read('agents', 'dormant', 'agent.json').connectors, {

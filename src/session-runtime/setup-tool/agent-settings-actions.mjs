@@ -3,8 +3,12 @@
  *  prompt-cache warming. Each goes through the runtime method its settings
  *  surface uses. Permission and connector writes are made as a remote client's
  *  are (`noWiden`): a chat may take authority away, never give an agent more
- *  without asking — that stays with the person in the desktop app. */
+ *  without asking — that stays with the person: in the desktop app, or on
+ *  the approval card a connector tool's widening raises
+ *  (connector-widen-approval.mjs). */
+import { CONNECTOR_POLICY_WIDENS } from '../../runtime/agent/orchestrator/mcp/agent-connectors.mjs';
 import { agentPermissions, setAgentPermission } from '../../runtime/agent/orchestrator/session/human-gate/store.mjs';
+import { askToWidenConnectorTool } from './connector-widen-approval.mjs';
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 
 const NO_WIDEN = Object.freeze({ noWiden: true });
@@ -38,11 +42,17 @@ export const AGENT_SETTINGS_HANDLERS = {
     const name = requireText(args.name, 'name');
     return { agent, connectors: await rt.setAgentConnectorEnabled(agent, name, args.enabled, NO_WIDEN) };
   },
-  async set_agent_connector_tool(rt, args) {
+  // A narrowing applies at once; a widening waits on the person's card.
+  async set_agent_connector_tool(rt, args, context) {
     const agent = requireText(args.agent, 'agent');
     const name = requireText(args.name, 'name');
     const tool = requireText(args.tool, 'tool');
-    await rt.setAgentConnectorToolPermission(agent, name, tool, args.permission, NO_WIDEN);
+    try {
+      await rt.setAgentConnectorToolPermission(agent, name, tool, args.permission, NO_WIDEN);
+    } catch (error) {
+      if (error?.code !== CONNECTOR_POLICY_WIDENS) throw error;
+      return askToWidenConnectorTool(rt, { agent, server: name, tool, requested: args.permission }, context);
+    }
     return { agent, connector: name, tool, permission: args.permission };
   },
   async set_project_connector(rt, args) {

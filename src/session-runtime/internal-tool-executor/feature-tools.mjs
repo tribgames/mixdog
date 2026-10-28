@@ -50,6 +50,8 @@ export function createFeatureToolHandlers({ rt, setupTool, officeToolsEnabled, m
       await setupTool.execute(args || {}, {
         signal: signalFor(callerCtx),
         callerSessionId: callerCtx?.callerSessionId || null,
+        requestApproval: callerCtx?.toolApprovalHook || null,
+        toolCallId: callerCtx?.toolCallId || null,
       }),
   };
 }

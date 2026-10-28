@@ -14,11 +14,11 @@
 // Rule: the merged connector is OFF for an agent/project only when EVERY
 // merged server was off (the same rule as the merged server's `enabled`: one
 // working account keeps the connector usable). Per-tool permissions move to
-// the surviving name; where two merged servers disagree on a tool the MORE
-// PERMISSIVE permission wins, as "on beats off" does at server level. Entries
-// of a server that was off are dormant and are dropped when the connector
-// stays on, so they never become live. A setting that names no merged-away
-// server is never touched, which makes every run after the first a no-op.
+// the surviving name; where merged servers disagree on a tool the surviving
+// server's own entry wins, else the first merged server's. Entries of a server
+// that was off are dormant and dropped when the connector stays on. A setting
+// that names no merged-away server is never touched, so every run after the
+// first is a no-op.
 //
 // The merge is saved to the config once, so the rename mapping outlives it:
 // `<data>/connector-merge-pending.json` ({ merged: [{ name, from }] }) is
@@ -35,7 +35,6 @@ import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { normalizeRules, standardConfigReport } from './services/hook-bus/config.mjs';
 import {
-  PERMISSION_RANK,
   PROJECT_CONNECTORS_FILE,
   connectorEnabled,
   parseConnectorPolicy,
@@ -64,9 +63,11 @@ function mapMergedConnectorPolicy(policy, merged) {
     const tools = { ...current.tools };
     for (const server of from) delete tools[server];
     const moved = {};
-    for (const server of on ? live : from) {
+    const sources = on ? live : from;
+    for (const server of [name, ...sources.filter((id) => id !== name)]) {
+      if (!sources.includes(server)) continue;
       for (const [tool, permission] of Object.entries(current.tools[server] || {})) {
-        if (!(tool in moved) || PERMISSION_RANK[permission] > PERMISSION_RANK[moved[tool]]) moved[tool] = permission;
+        if (!(tool in moved)) moved[tool] = permission;
       }
     }
     if (Object.keys(moved).length) tools[name] = moved;

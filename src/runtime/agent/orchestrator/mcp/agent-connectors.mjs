@@ -20,7 +20,7 @@ import { cwdWithinProjects } from '../../../shared/extension-scopes.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { mixyIdentityDir, userDefinitionDir } from '../../../shared/agent-store.mjs';
 import { isSelfMcpToolName, parseMcpToolName } from '../../../shared/tool-primitives.mjs';
-import { connectorToolDefault } from '../../../shared/connector-catalog.mjs';
+import { connectorById, connectorToolDefault } from '../../../shared/connector-catalog.mjs';
 import { MIXY_AGENT_ID } from '../session/agent-home.mjs';
 import { AGENT_MODE, sessionModeOf } from '../session/agent-mode.mjs';
 import { serverConnector } from './server-connectors.mjs';
@@ -214,12 +214,43 @@ export function connectorToolPermission(policy, toolOrName) {
   const mcp = parseMcpToolName(toolOrName);
   if (!mcp || isSelfMcpToolName(toolOrName)) return 'auto';
   if (policy && !connectorEnabled(policy, mcp.server)) return 'disabled';
-  // An explicit per-tool entry decides; otherwise a catalog connector's
-  // high-risk tools ask (connectorToolDefault) and any other tool is auto.
-  return policy?.tools?.[mcp.server]?.[mcp.tool] || connectorToolDefault(serverConnector(mcp.server), mcp.tool);
+  // An explicit per-tool entry of the tool's connector decides; otherwise a
+  // catalog connector's high-risk tools ask (connectorToolDefault) and any
+  // other tool is auto.
+  const [own] = connectorToolEntries(policy?.tools, connectorGroupId(mcp.server), mcp.tool);
+  return own || connectorToolDefault(serverConnector(mcp.server), mcp.tool);
 }
 
 export const PERMISSION_RANK = Object.freeze({ disabled: 0, needs_approval: 1, auto: 2 });
+
+/** The connector a server (account) belongs to: `gmail-2` → `gmail` for a
+ *  catalog connector; any other id is its own. A tool's permission is stored
+ *  once, under this id, and governs every account. */
+export function connectorGroupId(serverId) {
+  const base = String(serverId).replace(/-\d+$/, '');
+  return base !== serverId && connectorById(base) ? base : serverId;
+}
+
+const accountNumber = (id) => Number(/-(\d+)$/.exec(id)?.[1] ?? 0);
+
+/** The entries for `tool` under the connector `group` or any of its accounts,
+ *  topmost first: the connector's own, then the lowest-numbered account. An
+ *  account only holds one in data saved before permissions were kept per
+ *  connector; the first entry is the one that applies. */
+export function connectorToolEntries(tools, group, tool) {
+  return Object.entries(tools || {})
+    .filter(([id, own]) => connectorGroupId(id) === group && CONNECTOR_PERMISSIONS.includes(own?.[tool]))
+    .sort(([a], [b]) => accountNumber(a) - accountNumber(b))
+    .map(([, own]) => own[tool]);
+}
+
+const UNLISTED_ACCOUNT = '\0unlisted account';
+
+/** Rank of `tool` on one account of connector `group`: 0 when that account is
+ *  off, else the topmost entry for the connector, else `unset` (no override:
+ *  at least asks / at most runs freely). */
+const accountRank = (tools, off, account, group, tool, unset) =>
+  off.has(account) ? 0 : (PERMISSION_RANK[connectorToolEntries(tools, group, tool)[0]] ?? unset);
 export const NO_WIDEN_MESSAGE = 'This change would widen what the bot may do without asking; make it on the desktop.';
 
 /** Whether replacing the stored policy `before` (a stored value, a parsed
@@ -243,21 +274,100 @@ function connectorPolicyWidens(before, after) {
   for (const server of offBefore) if (!offAfter.has(server)) return true;
   const toolsBefore = old.tools || {};
   const toolsAfter = next.tools || {};
-  for (const server of new Set([...Object.keys(toolsBefore), ...Object.keys(toolsAfter)])) {
-    const tools = new Set([...Object.keys(toolsBefore[server] || {}), ...Object.keys(toolsAfter[server] || {})]);
-    for (const tool of tools) {
-      // No override: at least asks / at most runs freely.
-      const was = offBefore.has(server) ? 0 : (PERMISSION_RANK[toolsBefore[server]?.[tool]] ?? 1);
-      const now = offAfter.has(server) ? 0 : (PERMISSION_RANK[toolsAfter[server]?.[tool]] ?? 2);
+  // Judged per connector and tool: the accounts of one connector share them.
+  const pairs = new Set(
+    [toolsBefore, toolsAfter].flatMap((tools) =>
+      Object.entries(tools).flatMap(([id, own]) => Object.keys(own || {}).map((tool) => `${connectorGroupId(id)}\0${tool}`))
+    )
+  );
+  for (const pair of pairs) {
+    const [group, tool] = pair.split('\0');
+    // Each account on its own: one that is off does not hold back its siblings.
+    // Plus one account the policy never names: it is on in both policies, so it
+    // stands for every installed account that is not listed.
+    const accounts = new Set([
+      UNLISTED_ACCOUNT,
+      ...[group, ...offBefore, ...offAfter, ...Object.keys(toolsBefore), ...Object.keys(toolsAfter)].filter(
+        (id) => connectorGroupId(id) === group
+      ),
+    ]);
+    for (const account of accounts) {
+      const was = accountRank(toolsBefore, offBefore, account, group, tool, 1);
+      const now = accountRank(toolsAfter, offAfter, account, group, tool, 2);
       if (now > was) return true;
     }
   }
   return false;
 }
 
-/** Throws NO_WIDEN_MESSAGE when `after` could widen `before` (see connectorPolicyWidens). */
+/** The `code` of the error a refused widening throws. */
+export const CONNECTOR_POLICY_WIDENS = 'CONNECTOR_POLICY_WIDENS';
+/** An approved tool change met a restriction newer than its request. */
+export const CONNECTOR_TOOL_NARROWED = 'CONNECTOR_TOOL_NARROWED';
+/** An approved tool change found the tool already at that level or more. */
+export const CONNECTOR_TOOL_ALREADY = 'CONNECTOR_TOOL_ALREADY';
+
+const codedError = (code, message) => Object.assign(new Error(message), { code });
+
+// The one change a person approved on a card (setup-tool connector-widen-approval.mjs),
+// set only for the synchronous stretch of its write.
+let approvedToolChange = null;
+
+/** Run `write` (a writer whose noWiden check runs synchronously, before it
+ *  writes) with one approved change `{ server, tool, from, to }`: its check
+ *  then lets exactly that tool go to `to`, judged on the stored policy it
+ *  writes over, and nothing else widen. Returns what `write` returns. */
+export function withApprovedConnectorToolChange(change, write) {
+  approvedToolChange = change;
+  try {
+    return write();
+  } finally {
+    approvedToolChange = null;
+  }
+}
+
+// The approved tool's entries (the connector's, and any account's) pinned to
+// one value in both policies, so the comparison judges every other tool and switch.
+const pinTool = (policy, group, tool) => {
+  const tools = Object.fromEntries(
+    Object.entries(policy?.tools || {}).map(([id, own]) => [
+      id,
+      connectorGroupId(id) === group ? { ...own, [tool]: 'disabled' } : own,
+    ])
+  );
+  tools[group] = { ...tools[group], [tool]: 'disabled' };
+  return { off: policy?.off || [], tools };
+};
+
+function assertApprovedToolChange(before, after, { server, tool, from, to }) {
+  let old;
+  try {
+    old = before == null ? { off: [], tools: {} } : parseConnectorPolicy(before);
+  } catch {
+    throw codedError(CONNECTOR_POLICY_WIDENS, NO_WIDEN_MESSAGE);
+  }
+  // The approved change is the connector's: its one entry goes to `to`.
+  const group = connectorGroupId(server);
+  if (old.allow || after?.tools?.[group]?.[tool] !== to) throw codedError(CONNECTOR_POLICY_WIDENS, NO_WIDEN_MESSAGE);
+  if (connectorPolicyWidens(pinTool(old, group, tool), pinTool(after, group, tool))) {
+    throw codedError(CONNECTOR_POLICY_WIDENS, NO_WIDEN_MESSAGE);
+  }
+  // No override: it asks at least (as connectorPolicyWidens reads it).
+  const was = accountRank(old.tools, new Set(old.off), server, group, tool, 1);
+  if (was < PERMISSION_RANK[from]) {
+    throw codedError(CONNECTOR_TOOL_NARROWED, 'A newer restriction on this tool landed meanwhile; it was kept.');
+  }
+  if (was >= PERMISSION_RANK[to]) {
+    throw codedError(CONNECTOR_TOOL_ALREADY, 'The tool already has this permission or more; nothing changed.');
+  }
+}
+
+/** Throws NO_WIDEN_MESSAGE (code CONNECTOR_POLICY_WIDENS) when `after` could
+ *  widen `before` (see connectorPolicyWidens); inside
+ *  withApprovedConnectorToolChange, only its approved change may. */
 export function assertConnectorPolicyNotWidened(before, after) {
-  if (connectorPolicyWidens(before, after)) throw new Error(NO_WIDEN_MESSAGE);
+  if (approvedToolChange) return assertApprovedToolChange(before, after, approvedToolChange);
+  if (connectorPolicyWidens(before, after)) throw codedError(CONNECTOR_POLICY_WIDENS, NO_WIDEN_MESSAGE);
 }
 
 let toolPermissionWriter = null;

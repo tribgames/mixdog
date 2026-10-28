@@ -169,6 +169,10 @@ export const DESKTOP_CAPABILITIES = [
   // getAgentAlwaysAllowedTools(agentId) → `[{ connector, tool }]` the agent runs
   // without asking; setAgentConnectorToolPermission(…, 'needs_approval') turns one back.
   'getAgentAlwaysAllowedTools',
+  // getAgentConnectorTools(agentId) → `[{ connector, tool, permission, explicit }]`: every tool
+  // with its own effective permission (the profile's per-tool editor; the write is
+  // setAgentConnectorToolPermission).
+  'getAgentConnectorTools',
   // Per-agent action-kind permissions: getAgentPermissions(agentId) →
   // DesktopAgentPermission[]; setAgentPermission(agentId, action, mode).
   'getAgentPermissions',
@@ -312,6 +316,7 @@ export const DESKTOP_READ_CAPABILITIES = [
   'getAgentConnectors',
   'getProjectConnectors',
   'getAgentAlwaysAllowedTools',
+  'getAgentConnectorTools',
   'getAgentPermissions',
   'listConnectors',
   'listConnectorTools',

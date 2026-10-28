@@ -477,7 +477,8 @@ export const SETUP_TOOL_DEFS = Object.freeze([
         permission: {
           type: 'string',
           enum: [...CONNECTOR_PERMISSIONS],
-          description: 'set_agent_connector_tool: needs_approval or disabled; auto is made in the desktop app.',
+          description:
+            'set_agent_connector_tool: a narrowing (toward disabled) applies at once; a widening (disabled → needs_approval/auto, needs_approval → auto) waits on an approval card the user answers (needs_approval, auto or deny, whatever was asked) and the result says what was applied.',
         },
         botOrder: {
           type: 'array',

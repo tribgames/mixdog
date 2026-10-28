@@ -134,8 +134,8 @@ The setup tool does not mutate:
   browser action confirmations (`MIXDOG_BROWSER_CONFIRM_ACTIONS`,
   `MIXDOG_BROWSER_CONFIRM_SUBMIT`; see the browser-use skill);
 - widening an agent's authority: action permission `allow`, a connector
-  switched back on for an agent or Project, a connector tool to `auto`
-  (setup only narrows them);
+  switched back on for an agent or Project (setup only narrows them; a
+  single connector tool's widening asks the user on an approval card);
 - the remote-access switch ("Use this PC from other devices") and this PC's
   name: turning it off from a phone would cut that phone off mid-session;
 - permanently deleting an archived bot (Sessions → Archived → delete);

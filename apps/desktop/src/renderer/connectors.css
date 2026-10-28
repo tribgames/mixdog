@@ -408,6 +408,109 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* An agent's connector name is a disclosure button in the name's place: it
+   opens that connector's tools. */
+.connector-switch-disclosure {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.connector-switch-disclosure:hover .connector-switch-label {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.connector-switch-disclosure:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: -1px;
+  border-radius: 4px;
+}
+.connector-switch-chevron {
+  flex: none;
+  color: var(--mx-text-muted);
+  transition: transform 0.15s;
+}
+.connector-switch-disclosure[aria-expanded="true"] .connector-switch-chevron {
+  transform: rotate(90deg);
+}
+.connector-switch-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.connector-switch-badge {
+  flex: none;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+/* The tools under an open connector: a note, then a name and a three-way choice per tool. */
+.connector-tools {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 6px 28px;
+  padding-left: 12px;
+  border-left: 1px solid var(--mx-border-muted);
+}
+.connector-tools-note {
+  margin: 2px 0 6px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.connector-tool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-height: 34px;
+}
+.connector-tool-name {
+  min-width: 0;
+  flex: 1 1 96px;
+  overflow: hidden;
+  font-family: var(--mx-font-mono);
+  font-size: var(--mx-font-code);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Three equal cells of one fixed width, so every row's choices line up
+   whatever the label length or font; the .mx-segmented skin does the rest. */
+.mx-segmented.connector-tool-seg {
+  --connector-tool-seg-width: 216px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  flex: none;
+  width: var(--connector-tool-seg-width);
+  padding: 2px;
+}
+.mx-segmented.connector-tool-seg button {
+  min-width: 0;
+  padding: 0 4px;
+  font-size: var(--mx-font-meta);
+}
+.mx-segmented.connector-tool-seg button > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mx-segmented.connector-tool-seg button[data-permission="disabled"][aria-pressed="true"] {
+  color: var(--mx-danger);
+}
+/* A connector that is off: its tools are listed dimmed, and cannot be changed. */
+.connector-tools[data-dim] .connector-tool {
+  opacity: 0.45;
+}
+.connector-tools[data-dim] .mx-segmented.connector-tool-seg button:disabled {
+  opacity: 1;
+}
 /* The representative bot's check-ins switch: a title over its description. */
 .agent-profile-heartbeat .connector-switch-name {
   white-space: normal;
@@ -447,6 +550,10 @@
 }
 
 /* Phone: rows and their buttons are touch targets. */
+html[data-mixdog-mobile-tabs] .connector-switch-disclosure,
+html[data-mixdog-mobile-tabs] .mx-segmented.connector-tool-seg button {
+  min-height: 44px;
+}
 html[data-mixdog-mobile-tabs] .connectors-row > .extensions-row {
   min-height: 44px;
 }

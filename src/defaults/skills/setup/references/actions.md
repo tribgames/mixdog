@@ -103,7 +103,7 @@ Read this when choosing a `setup` mutation.
 | Read a Project's connector switches | `read_project_connectors` |
 | An agent's action permission (block/ask per action kind) | `set_agent_permission` |
 | Switch a connector off for an agent / a Project (switching it back on is done in the desktop app) | `set_agent_connector`, `set_project_connector` |
-| One connector tool of an agent to needs_approval or disabled | `set_agent_connector_tool` |
+| One connector tool of an agent to disabled, needs_approval or auto (a widening asks the user on an approval card) | `set_agent_connector_tool` |
 | Bring back an archived bot or agent (`definitionKind: "agent"`) | `restore_definition` |
 | Bot display order (Bots page, Sessions bot section; `status agents` `botOrder`) | `set_bot_order` |
 
@@ -344,10 +344,16 @@ markers are read with `status desktop`.
   `status mcp` afterwards. `add_mcp_server` with the service URL is not the
   sign-in flow; never use it for a catalog service.
 - Agent permissions and connector switches change only toward less: `block`
-  or `ask`, a connector off, a tool to `needs_approval`/`disabled`. Anything
-  that lets an agent do more without asking (`allow`, a connector back on, a
-  tool to `auto`) is refused ("make it on the desktop"); `open agents` and let
-  the person do it. Payments and permanent deletes always ask regardless.
+  or `ask`, a connector off, a tool to `disabled`. An action permission
+  `allow` or a connector back on is refused ("make it on the desktop");
+  `open agents` and let the person do it. One connector tool's widening
+  (`set_agent_connector_tool` from `disabled` to `needs_approval`/`auto`, or
+  `needs_approval` to `auto`) asks the user instead: the call waits on an
+  approval card (on the desktop or a paired phone) offering "needs approval",
+  "auto" or Deny, whatever level was asked; the result's `permission` and
+  `note` say what was applied. Only a press on that card decides it: never
+  treat a chat reply as approval, and ask again for each change. Payments and
+  permanent deletes always ask regardless.
   Connector ids are MCP server names from `read_agent_settings`; a bot's
   thread changes only its own bot.
 - `enable_plugin_mcp` turns every server the plugin declares back on and

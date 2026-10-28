@@ -43,6 +43,7 @@ export function createAgentDefinitionApi(runtime) {
     setAgentConnectorToolPermission: async (agentId, connectorId, toolName, permission, options) =>
       runtime.setAgentConnectorToolPermission?.(agentId, connectorId, toolName, permission, options) ?? null,
     getAgentAlwaysAllowedTools: (agentId) => runtime.getAgentAlwaysAllowedTools?.(agentId) ?? [],
+    getAgentConnectorTools: (agentId) => runtime.getAgentConnectorTools?.(agentId) ?? [],
     // Per-agent action-kind permissions (ask / allow / block) for the profile.
     getAgentPermissions: async (agentId) =>
       (await import('../../../runtime/agent/orchestrator/session/human-gate/store.mjs')).agentPermissions(agentId),

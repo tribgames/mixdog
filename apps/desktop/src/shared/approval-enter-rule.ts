@@ -54,10 +54,12 @@ function permissionScopesOf(approval: unknown): Record<string, unknown>[] {
 }
 
 /** An allow that takes a pointer (a click or a tap; Enter and Space never press
- *  it): a payment, a permanent delete, an Office rollback or recovery discard. */
+ *  it): a payment, a permanent delete, an Office rollback or recovery discard,
+ *  a bot's request for more authority on a connector tool (kind `connector`). */
 export function approvalAllowIsPointerOnly(approval: unknown): boolean {
   const request = recordOf(approval);
   if (!request) return false;
+  if (request.kind === 'connector') return true;
   const category = request.kind === 'outbound' ? String(recordOf(request.outbound)?.category || '') : '';
   if (category === 'payment' || category === 'delete') return true;
   const action = String(recordOf(request.args)?.action || '').toLowerCase();

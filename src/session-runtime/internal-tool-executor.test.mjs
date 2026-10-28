@@ -67,10 +67,24 @@ test('model-tool calls to disabled features are refused before any dispatch', as
 test('injected runtimes receive the caller context each tool expects', async () => {
   const { execute, calls, rt } = harness({ memoryToolsEnabled: () => true });
   const signal = new AbortController().signal;
-  const ctx = { callerCwd: 'D:/proj', callerSessionId: 'caller-9', signal, clientHostPid: 42 };
+  const toolApprovalHook = async () => ({ approved: false });
+  const ctx = {
+    callerCwd: 'D:/proj',
+    callerSessionId: 'caller-9',
+    signal,
+    clientHostPid: 42,
+    toolApprovalHook,
+    toolCallId: 'call-7',
+  };
 
+  // setup also gets the turn's approval hook and call id: a bot's widening
+  // request waits on a human approval card through them.
   assert.equal(await execute('setup', { action: 'status' }, ctx), 'setup:ok');
-  assert.deepEqual(calls.at(-1), ['setup', { action: 'status' }, { signal, callerSessionId: 'caller-9' }]);
+  assert.deepEqual(calls.at(-1), [
+    'setup',
+    { action: 'status' },
+    { signal, callerSessionId: 'caller-9', requestApproval: toolApprovalHook, toolCallId: 'call-7' },
+  ]);
 
   assert.equal(await execute('recall', { query: 'q' }, ctx), 'memory:ok');
   assert.equal(calls.at(-1)[0], 'memory');

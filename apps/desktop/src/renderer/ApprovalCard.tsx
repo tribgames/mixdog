@@ -381,6 +381,8 @@ export function approvalCardModel(approval: Approval) {
     }
   } else if (kind === 'permission') {
     title = t('Permission request');
+  } else if (kind === 'connector') {
+    title = t('Permission request');
   } else if (kind === 'approval') {
     const noun = toolActionNoun(String(approval.name || ''));
     if (noun) title = t('Approval: {{action}}', { action: noun });
@@ -434,7 +436,40 @@ export function approvalCardModel(approval: Approval) {
     scopes: (Array.isArray(scopes) ? scopes : [])
       .map(asRecord)
       .filter((scope): scope is Record<string, unknown> => Boolean(scope?.id)),
+    /** A bot's widening of one connector tool (requests.mjs kind `connector`):
+     *  the tool, its level now, the level asked for and the levels offered. */
+    connector: connectorChange(kind === 'connector' ? asRecord(approval.connector) : null),
   };
+}
+
+function connectorChange(connector: Record<string, unknown> | null) {
+  if (!connector) return null;
+  return {
+    server: String(connector.server || ''),
+    tool: String(connector.tool || ''),
+    from: String(connector.from || ''),
+    requested: String(connector.requested || ''),
+    choices: (Array.isArray(connector.choices) ? connector.choices : []).map(String),
+  };
+}
+
+/** A connector tool's permission level as the UI names it. */
+export function connectorLevelLabel(level: string): string {
+  if (level === 'auto') return t('Auto');
+  if (level === 'needs_approval') return t('Needs approval');
+  return t('Disabled');
+}
+
+/** The connector card's sentence: which bot, which connector and tool, the
+ *  level now and the one asked for. */
+export function connectorChangeText(agentName: string, change: NonNullable<ReturnType<typeof connectorChange>>): string {
+  return t("{{agent}} wants to change {{service}}'s {{tool}} permission from '{{from}}' to '{{to}}'", {
+    agent: agentName,
+    service: connectorServiceLabel(`mcp__${change.server}__${change.tool}`) || change.server,
+    tool: change.tool,
+    from: connectorLevelLabel(change.from),
+    to: connectorLevelLabel(change.requested),
+  });
 }
 
 type CardModel = ReturnType<typeof approvalCardModel>;
@@ -496,6 +531,21 @@ export function approvalCardRows(
     return [
       { label: t('Enter'), decision: 'secret' },
       { label: t('Skip'), decision: { approved: false, response: 'skip' } },
+    ];
+  }
+  if (model.kind === 'connector') {
+    // The person picks the level, whatever the bot asked: Allow sets the tool
+    // to needs_approval, Always allow to auto (that tool's level, no
+    // remembered grant). Each is a click on this card (shared/approval-enter-rule.ts).
+    const choices = model.connector?.choices ?? [];
+    return [
+      ...(choices.includes('needs_approval')
+        ? [{ label: t('Allow'), decision: { ...approveClickDecision(), scope: 'needs_approval' } }]
+        : []),
+      ...(choices.includes('auto')
+        ? [{ label: t('Always allow'), decision: { ...approveClickDecision(), scope: 'auto' } }]
+        : []),
+      { ...cancel, label: t('Deny') },
     ];
   }
   if (model.kind === 'permission') {
@@ -1404,7 +1454,8 @@ function ToolApprovalCard({
   }
   const status = approvalSettledStatus(model.kind, settled);
   // The friendly service name; the raw tool id stays as its tooltip.
-  const rawTool = model.tool || (model.kind === 'outbound' ? String(approval.name || '') : '');
+  let rawTool = model.tool || (model.kind === 'outbound' ? String(approval.name || '') : '');
+  if (model.connector) rawTool = `mcp__${model.connector.server}__${model.connector.tool}`;
   const service = connectorServiceLabel(rawTool) || rawTool;
   // A sub-agent's request shown in the top-level chat links to its own
   // session, as does one of a session this chat handed work to.
@@ -1428,13 +1479,15 @@ function ToolApprovalCard({
   );
   const office = model.office && <OfficeApprovalDetails args={args} />;
   // What the agent asked in its own words, where the request is not outbound.
-  const ownText = model.kind !== 'outbound' && !(model.kind === 'secret' && !secretEntry) && model.text;
+  // A connector card says plainly which bot, connector and tool, and the levels.
+  const cardText = model.connector ? connectorChangeText(agentName, model.connector) : model.text;
+  const ownText = model.kind !== 'outbound' && !(model.kind === 'secret' && !secretEntry) && cardText;
   const previewNode =
     body || editor || office || ownText || model.detail || (model.kind === 'secret' && secretEntry) ? (
       <>
         {ownText && (
           <p className="approval-text" data-centered={model.kind === 'permission' || undefined}>
-            {model.text}
+            {cardText}
           </p>
         )}
         {model.kind === 'permission' &&

@@ -7,12 +7,19 @@
 //   secret     — the user types a value into a target field; the request names
 //                the target and the field label, never a value;
 //   takeover   — the user does a step themselves and says "done";
-//   permission — the user picks one of the offered scopes.
+//   permission — the user picks one of the offered scopes;
+//   connector  — a bot asks for more authority on one connector tool of its
+//                own: the card names the tool, its current level and the one
+//                asked for, and the person picks the level (`scope`: one of
+//                `choices`) or denies. Answered once, never remembered.
 // A response is one of HUMAN_RESPONSES plus a `remember` scope; a policy lists
 // the scopes it allows and can leave out `always`. Nothing here ever carries a
 // secret value: a decision that names one is stripped to its verdict.
 
-const HUMAN_REQUEST_KINDS = Object.freeze(['approval', 'outbound', 'secret', 'takeover', 'permission']);
+const HUMAN_REQUEST_KINDS = Object.freeze(['approval', 'outbound', 'secret', 'takeover', 'permission', 'connector']);
+/** The levels a connector card may raise a tool to. */
+export const CONNECTOR_WIDEN_LEVELS = Object.freeze(['needs_approval', 'auto']);
+const CONNECTOR_LEVELS = ['disabled', ...CONNECTOR_WIDEN_LEVELS];
 const HUMAN_RESPONSES = Object.freeze(['approve', 'deny', 'edit-and-approve', 'provide-secret', 'skip', 'done']);
 const REMEMBER_SCOPES = Object.freeze(['once', 'agent', 'always']);
 export const SECRET_REQUEST_TIMEOUT_MS = 120_000;
@@ -36,6 +43,7 @@ const RESPONSES_BY_KIND = Object.freeze({
   secret: ['provide-secret', 'skip'],
   takeover: ['done', 'deny'],
   permission: ['approve', 'deny'],
+  connector: ['approve', 'deny'],
 });
 const GRANTING_RESPONSES = new Set(['approve', 'edit-and-approve', 'provide-secret', 'done']);
 const TEXT_LIMIT = 200;
@@ -187,6 +195,20 @@ export function humanRequestFields(input = {}) {
         })),
     };
   }
+  if (kind === 'connector') {
+    const connector = isRecord(input.connector) ? input.connector : {};
+    const level = (value) => (CONNECTOR_LEVELS.includes(value) ? value : '');
+    fields.connector = {
+      server: text(connector.server),
+      tool: text(connector.tool),
+      from: level(connector.from),
+      requested: level(connector.requested),
+      choices: (Array.isArray(connector.choices) ? connector.choices : []).filter((choice) =>
+        CONNECTOR_WIDEN_LEVELS.includes(choice)
+      ),
+    };
+    fields.remember = ['once'];
+  }
   return fields;
 }
 
@@ -225,6 +247,11 @@ export function normalizeHumanResponse(request, approved, extra = {}) {
   if (kind === 'permission' && polarity) {
     const ids = (request?.permission?.scopes || []).map((scope) => scope.id);
     if (ids.includes(extra?.scope)) result.scope = extra.scope;
+  }
+  // The level the person picked; none of the offered ones picks nothing.
+  if (kind === 'connector' && polarity) {
+    const choices = Array.isArray(request?.connector?.choices) ? request.connector.choices : [];
+    if (choices.includes(extra?.scope)) result.scope = extra.scope;
   }
   return result;
 }

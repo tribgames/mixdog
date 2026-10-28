@@ -519,6 +519,7 @@ const CAPABILITY_ARITY = {
   setProjectConnectorEnabled: [3, 3],
   setAgentConnectorToolPermission: [4, 4],
   getAgentAlwaysAllowedTools: [1, 1],
+  getAgentConnectorTools: [1, 1],
   getAgentPermissions: [1, 1],
   setAgentPermission: [3, 3],
   recordAgentApprovalAudit: [3, 3],

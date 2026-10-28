@@ -16,6 +16,7 @@ export const SESSION_READ_ACTIONS = Object.freeze([
   'getAgentConnectors',
   'getProjectConnectors',
   'getAgentAlwaysAllowedTools',
+  'getAgentConnectorTools',
   'getAgentPermissions',
   'listConnectors',
   'listConnectorTools',

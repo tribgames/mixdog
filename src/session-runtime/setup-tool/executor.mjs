@@ -909,7 +909,7 @@ export function createSetupToolExecutor({
     };
   }
 
-  async function execute(args, { signal, callerSessionId }) {
+  async function execute(args, { signal, callerSessionId, requestApproval = null, toolCallId = null }) {
     signal?.throwIfAborted();
     const requestDesktop = (request) => desktop.request(request, { signal });
     const action = validateSetupInput(args);
@@ -948,6 +948,10 @@ export function createSetupToolExecutor({
       getSession: getCallerSession,
       getConfig: () => getConfig?.() || {},
       executeSessionControl,
+      // The calling turn's approval card (a connector tool's widening asks the person).
+      requestApproval,
+      signal,
+      toolCallId,
     });
   }
 
