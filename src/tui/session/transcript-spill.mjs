@@ -65,6 +65,16 @@ export function createTranscriptSpillBuffer({
   let cursor = null;
   let spillDir = null;
   let pageSequence = 0;
+  // Spilled rows in this page list, and its epoch: it moves whenever the list
+  // is replaced (reset, restored snapshot, dispose), so an absolute row index
+  // names one row only within an epoch. Cursor-independent.
+  let spilledRows = 0;
+  let epoch = 0;
+  let spilledInfo = { rows: 0, epoch: 0 };
+  const replaced = () => {
+    spilledRows = pages.reduce((sum, record) => sum + record.count, 0);
+    epoch += 1;
+  };
   let warningEmitted = false;
   let spillDisabled = false;
   const snapshots = new Set();
@@ -96,6 +106,7 @@ export function createTranscriptSpillBuffer({
     const record = {
       id: pageSequence,
       path: page,
+      count: items.length,
       pendingItems: items,
       cancelled: false,
       attempts: 0,
@@ -118,6 +129,14 @@ export function createTranscriptSpillBuffer({
     get hasNewer() {
       return cursor != null;
     },
+    /** `{ rows, epoch }`: how many rows were spilled above the live ones, in
+     *  which page list. The same object while neither changes. */
+    get spilled() {
+      if (spilledInfo.rows !== spilledRows || spilledInfo.epoch !== epoch) {
+        spilledInfo = { rows: spilledRows, epoch };
+      }
+      return spilledInfo;
+    },
     reset() {
       const retained = [...snapshots].some((snapshot) => snapshot.spillDir === spillDir);
       const oldPages = pages.splice(0);
@@ -127,6 +146,7 @@ export function createTranscriptSpillBuffer({
       pageSequence = 0;
       spillDisabled = false;
       warningEmitted = false;
+      replaced();
       if (!retained) cleanupRecords(oldPages, oldDir);
     },
     snapshot() {
@@ -155,6 +175,7 @@ export function createTranscriptSpillBuffer({
       pageSequence = snapshot.pageSequence;
       spillDisabled = snapshot.spillDisabled === true;
       warningEmitted = snapshot.warningEmitted === true;
+      replaced();
       snapshots.delete(snapshot);
       return true;
     },
@@ -169,6 +190,7 @@ export function createTranscriptSpillBuffer({
         if (snapshot.spillDir !== spillDir) cleanupRecords(snapshot.pages, snapshot.spillDir);
       }
       pages.length = 0;
+      replaced();
       snapshots.clear();
       cursor = null;
       spillDir = null;
@@ -192,9 +214,43 @@ export function createTranscriptSpillBuffer({
       if (spillDisabled) return live;
       while (live.length > cap) {
         pages.push(encode(live.slice(0, chunkSize)));
+        spilledRows += chunkSize;
         live = live.slice(chunkSize);
       }
       return live;
+    },
+    /** Spilled rows `[start, end)` by absolute index (0 = the first row ever
+     *  spilled in this `epoch`), at most `limit` ending at `end`, exactly as
+     *  they were spilled. Reads pages in order without moving the reading
+     *  cursor. Null for another epoch. A page that cannot be read whole (gone,
+     *  not JSON, not an array of its recorded length) ends the spilled
+     *  history there: `broken`, with only the rows below it. */
+    readSpilled({ epoch: wanted, end = spilledRows, limit = 0 } = {}) {
+      if (wanted !== epoch) return null;
+      const stop = Math.max(0, Math.min(Number(end) || 0, spilledRows));
+      const begin = Math.max(0, stop - Math.max(0, Number(limit) || 0));
+      const parts = [];
+      let pageEnd = spilledRows;
+      const result = (broken) => {
+        const items = parts.reverse().flat();
+        return { items, start: stop - items.length, broken };
+      };
+      for (let index = pages.length - 1; index >= 0 && pageEnd > begin; index -= 1) {
+        const record = pages[index];
+        const pageStart = pageEnd - record.count;
+        if (pageStart < stop) {
+          let items = null;
+          try {
+            items = decode(record);
+          } catch {
+            items = null;
+          }
+          if (!Array.isArray(items) || items.length !== record.count) return result(true);
+          parts.push(items.slice(Math.max(begin, pageStart) - pageStart, Math.min(stop, pageEnd) - pageStart));
+        }
+        pageEnd = pageStart;
+      }
+      return result(false);
     },
     restoreOlder(liveItems) {
       const nextCursor = cursor == null ? pages.length - 1 : cursor - 1;

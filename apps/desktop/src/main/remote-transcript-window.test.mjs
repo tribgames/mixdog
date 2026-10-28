@@ -1,7 +1,18 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { REMOTE_TRANSCRIPT_TAIL_BYTES, REMOTE_TRANSCRIPT_TAIL_ITEMS } from './desktop-support.ts';
+import {
+  DESKTOP_TRANSCRIPT_PAGE_BYTES,
+  REMOTE_TRANSCRIPT_TAIL_BYTES,
+  REMOTE_TRANSCRIPT_TAIL_ITEMS,
+} from './desktop-support.ts';
+import { archiveItemsForCompaction } from '../../../../src/tui/session/compaction-view.mjs';
+import { createTranscriptSpillBuffer } from '../../../../src/tui/session/transcript-spill.mjs';
+import {
+  loadLiveTranscriptHead,
+  requestLiveTranscriptWindow,
+  windowTranscriptSnapshot,
+} from '../../../../src/standalone/session-service/projection/transcript-window.mjs';
 import { REMOTE_HISTORY_OUTPUT_CHARS, remoteToolOutput } from './remote-transcript.ts';
 import { encodePhoneSessionState, requestPhoneTranscriptPage } from './remote-transcript-window.ts';
 import { viewIsStale } from './remote-view-staleness.ts';
@@ -117,6 +128,64 @@ test('an oversized newest tool row goes with its outputs cut to fit, readable wh
     assert.ok(record.remoteOutputTruncated > record.result.length, `${record.id}: offers Show full output`);
     assert.equal(remoteToolOutput({ items: [aggregate] }, record.id).result, members[index].result, 'read back whole');
   }
+});
+
+test('a compacted live session whose runtime spilled rows pages back on the phone to its first row', async (t) => {
+  // 700 rows, a live compaction after row 400, the runtime's real memory cap.
+  const spill = createTranscriptSpillBuffer({
+    workerFactory: () => ({ on() {}, postMessage() {}, terminate() {}, unref() {} }),
+  });
+  t.after(() => spill.dispose());
+  const row = (n) => user(`it_${n}`, 200);
+  let all = [];
+  let items = [];
+  const push = (item) => {
+    all = [...all, item];
+    items = spill.capLive([...items, item]);
+  };
+  for (let n = 0; n < 400; n += 1) push(row(n));
+  const divider = { id: 'it_div', at: 1 };
+  all = archiveItemsForCompaction(all, divider).items;
+  items = spill.capLive(archiveItemsForCompaction(items, divider).items);
+  for (let n = 400; n < 700; n += 1) push(row(n));
+  const state = { sessionId: 's', items, transcriptArchive: null, transcriptSpilled: spill.spilled };
+  assert.equal(items[0].id, 'it_256');
+  const entry = {
+    runtime: { getState: () => state, readSpilledTranscript: (range) => spill.readSpilled(range) },
+    transcriptView: null,
+    publishedSnapshot: null,
+  };
+  // The host's shared window, as a phone-only session opens it.
+  requestLiveTranscriptWindow(entry, {
+    limit: REMOTE_TRANSCRIPT_TAIL_ITEMS,
+    byteBudget: REMOTE_TRANSCRIPT_TAIL_BYTES,
+    pageBase: 0,
+  });
+  let host = windowTranscriptSnapshot(entry, state);
+  const reader = phone();
+  let held = reader.deliver(host).snapshot;
+  for (let step = 0; held.transcriptHasOlder && step < 100; step += 1) {
+    // The renderer asks one page above what it holds; the host grows the
+    // shared window when the page reaches past it.
+    const limit = held.items.length + 64;
+    requestPhoneTranscriptPage(reader.encoder, limit);
+    if (limit > host.items.length) {
+      requestLiveTranscriptWindow(entry, {
+        limit,
+        byteBudget: DESKTOP_TRANSCRIPT_PAGE_BYTES,
+        pageBase: host.items.length,
+      });
+      await loadLiveTranscriptHead(entry, 's', async () => null);
+      host = windowTranscriptSnapshot(entry, state);
+    }
+    held = reader.deliver(host).snapshot;
+  }
+  assert.deepEqual(
+    held.items.map((item) => item.id),
+    all.map((item) => item.id)
+  );
+  assert.equal(held.items[0].id, 'it_0');
+  assert.equal(held.transcriptHasOlder, false);
 });
 
 test('an oversized message row is sent whole, so a first page with it is over the budget (as HEAD)', () => {

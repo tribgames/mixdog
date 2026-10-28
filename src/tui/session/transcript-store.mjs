@@ -21,6 +21,8 @@ export function createTranscriptStore({ draft, store, flags, transcriptSpill, it
   const transcriptHistoryFlags = () => ({
     transcriptHistoryBefore: transcriptSpill.hasOlder,
     transcriptHistoryAfter: transcriptSpill.hasNewer,
+    // Paged views read spilled rows by this, never by the TUI reading cursor.
+    transcriptSpilled: transcriptSpill.spilled,
   });
   const restoreOlderTranscript = () => {
     const transcriptViewItems = transcriptSpill.restoreOlder(draft.state.items);

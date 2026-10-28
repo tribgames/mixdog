@@ -457,6 +457,8 @@ export async function createLocalSessionRuntime({
     snapshotTranscriptSpill: () => transcriptSpill.snapshot(),
     restoreTranscriptSpill: (snapshot) => transcriptSpill.restoreSnapshot(snapshot),
     releaseTranscriptSpill: (snapshot) => transcriptSpill.releaseSnapshot(snapshot),
+    // Paged views read the rows spilled out of memory (transcript-window.mjs).
+    readSpilledTranscript: (range) => transcriptSpill.readSpilled(range),
     presentNextToolApproval,
     finishToolApproval,
     denyAllToolApprovals,

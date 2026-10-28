@@ -128,11 +128,68 @@ function runtimeArchiveRange(state) {
   return Number.isInteger(after) && Number.isInteger(before) && before - 1 > after ? { after, before } : null;
 }
 
+/** The rows the runtime spilled out of memory above its first row
+ *  (`transcriptSpilled`: `{ rows, epoch }`), published with the rows
+ *  themselves and independent of the TUI's reading cursor; null when none. */
+function spilledOf(state) {
+  const spilled = spillStateOf(state);
+  return spilled && spilled.rows > 0 ? spilled : null;
+}
+
+/** The published spill state, zero rows included (null: none published). */
+function spillStateOf(state) {
+  const spilled = state?.transcriptSpilled;
+  const rows = Number(spilled?.rows);
+  const epoch = Number(spilled?.epoch);
+  return Number.isSafeInteger(rows) && rows >= 0 && Number.isSafeInteger(epoch) ? { rows, epoch } : null;
+}
+
+const sameSpill = (left, right) => left?.rows === right?.rows && left?.epoch === right?.epoch;
+
+/** Whether spilled rows sit above the runtime's first row, readable through
+ *  its spill accessor. A loaded head answers for itself. */
+function spilledAbove(entry, state, view) {
+  return !view.head.length && spilledOf(state) !== null && typeof entry.runtime?.readSpilledTranscript === 'function';
+}
+
 function resetLoadedHead(view) {
   view.head = [];
   view.headOlder = null;
   view.headSource = null;
   view.archiveHeld = 0;
+  // Absolute index of the oldest spilled row the head holds (null: none).
+  view.spillFrom = null;
+}
+
+/** Older rows a spilled head leaves above itself: more spilled rows, or the
+ *  source above the first spilled row. */
+function spilledHeadOlder(view, archive) {
+  return view.spillFrom > 0 || (view.head.length > 0 && headSourceFor(view.head[0], archive) !== null);
+}
+
+/** The runtime spilled its oldest rows while the window showed them (its
+ *  anchor among them): those rows join the head exactly as spilled, so the
+ *  window keeps its rows and its place. False when the spill does not
+ *  continue the rows this window last saw. */
+function followSpilledAnchor(entry, view, wire) {
+  const spilled = spilledOf(wire);
+  const before = view.spilled;
+  const read = entry.runtime?.readSpilledTranscript;
+  if (!spilled || typeof read !== 'function' || view.start === null) return false;
+  // Rows spilled when the window last looked: none, or a count in this epoch.
+  if (before && before.epoch !== spilled.epoch) return false;
+  const from = (before?.rows ?? 0) + view.start;
+  if (from >= spilled.rows) return false;
+  const page = read({ epoch: spilled.epoch, end: spilled.rows, limit: spilled.rows - from });
+  if (!page || page.broken || page.start !== from || page.items[0]?.id !== view.anchorId) return false;
+  view.head = view.head.concat(sanitizeForWire(page.items));
+  if (view.headSource !== 'stored' && view.headSource !== 'archive') {
+    view.spillFrom ??= from;
+    view.headSource = 'spill';
+    view.headOlder = spilledHeadOlder(view, runtimeArchiveRange(wire));
+  }
+  view.start = 0;
+  return true;
 }
 
 /** Fold a read/subscribe request into a live entry's window. */
@@ -156,10 +213,14 @@ export function requestLiveTranscriptWindow(entry, request) {
       paged: false,
       head: [],
       headOlder: null,
-      // Where the loaded head came from: 'stored' (durable history aligned by
-      // restore ids) or 'archive' (compaction-archive pages).
+      // Where the loaded head came from: 'spill' (the rows the runtime spilled
+      // out of memory, exactly), 'stored' (durable history aligned by restore
+      // ids) or 'archive' (compaction-archive pages).
       headSource: null,
       archiveHeld: 0,
+      spillFrom: null,
+      // The spilled rows (`{ rows, epoch }`) when the window last looked.
+      spilled: null,
       cache: null,
     };
     return;
@@ -195,12 +256,22 @@ export function windowTranscriptSnapshot(entry, wire) {
   if (!view || view.full || !wire || !Array.isArray(wire.items)) return wire;
   const items = wire.items;
   let start = view.start;
+  const spill = spillStateOf(wire);
+  // The spill store was reset or restored (another epoch, or no spill state):
+  // spilled and older rows the window loaded name another page list, so it
+  // restarts from the tail whether or not its anchor is still live.
+  if (view.spilled && spill?.epoch !== view.spilled.epoch) start = null;
   if (start !== null && view.anchorId !== undefined && items[start]?.id !== view.anchorId) {
-    // The runtime rewrote its transcript before the anchor (compaction,
-    // rewind, clear): follow the anchor, or restart from the tail.
     const moved = items.findIndex((item) => item?.id === view.anchorId);
-    start = moved < 0 ? null : moved;
-    resetLoadedHead(view);
+    if (moved < 0 && followSpilledAnchor(entry, view, wire)) {
+      // The runtime spilled the rows the window starts with: they are head now.
+      start = 0;
+    } else {
+      // The runtime rewrote its transcript before the anchor (compaction,
+      // rewind, clear): follow the anchor, or restart from the tail.
+      start = moved < 0 ? null : moved;
+      resetLoadedHead(view);
+    }
   }
   if (start !== null && start > items.length) start = null;
   if (start === null) {
@@ -225,8 +296,11 @@ export function windowTranscriptSnapshot(entry, wire) {
   }
   view.start = start;
   view.anchorId = items[start]?.id;
+  view.spilled = spill;
   const older =
-    start > 0 || (view.headOlder ?? headSourceFor(view.head[0] ?? items[0], runtimeArchiveRange(wire)) !== null);
+    start > 0 ||
+    (view.headOlder ??
+      headSourceFor(view.head[0] ?? items[0], runtimeArchiveRange(wire), spilledAbove(entry, wire, view)) !== null);
   const cache = view.cache;
   if (cache && cache.wire === wire && cache.start === start && cache.head === view.head && cache.older === older) {
     return cache.value;
@@ -239,11 +313,13 @@ export function windowTranscriptSnapshot(entry, wire) {
   return value;
 }
 
-/** Where older rows above `first` come from: durable history aligned by
- *  restore ids (which continues into the compaction archive), or — once the
- *  runtime's rows are not restored ones (a live compaction archived them, or
- *  nothing was restored) — compaction-archive pages alone. */
-function headSourceFor(first, archive) {
+/** Where older rows above `first` come from: the rows the runtime spilled out
+ *  of memory above it (`spilled`), then durable history aligned by restore
+ *  ids (which continues into the compaction archive), or — once the runtime's
+ *  rows are not restored ones (a live compaction archived them, or nothing was
+ *  restored) — compaction-archive pages alone. */
+function headSourceFor(first, archive, spilled = false) {
+  if (spilled) return 'spill';
   const restoredId = RESTORED_ITEM_ID.test(String(first?.id ?? ''));
   if (restoredId && first?.archived !== true) return restoredAfterFirstMessage(first) || archive ? 'stored' : null;
   if (archive) return 'archive';
@@ -324,11 +400,12 @@ function verifiedIdentityIndex(history, first, live) {
 }
 
 /** Load history OLDER than the runtime's first item when a grown window
- *  reaches past what the runtime holds (a resumed runtime restores only a
- *  bounded tail; a compaction moved earlier rows to the display-only
- *  archive). Durable items align by their deterministic restore ids; archive
- *  pages continue below the archived rows already held. Returns whether
- *  durable history was read. */
+ *  reaches past what the runtime holds (the runtime spilled its oldest rows
+ *  out of memory; a resumed runtime restores only a bounded tail; a compaction
+ *  moved earlier rows to the display-only archive). Spilled rows come first,
+ *  exactly as spilled; then durable items align by their deterministic
+ *  restore ids; archive pages continue below the archived rows already held.
+ *  Returns whether durable history was read. */
 export async function loadLiveTranscriptHead(entry, sessionId, readStoredSession) {
   const view = entry.transcriptView;
   if (!view || view.full || !view.paged || typeof readStoredSession !== 'function' || view.headOlder === false) {
@@ -340,12 +417,19 @@ export async function loadLiveTranscriptHead(entry, sessionId, readStoredSession
   const state = entry.runtime?.getState?.();
   const runtimeItems = Array.isArray(state?.items) ? state.items : [];
   const missing = view.limit - runtimeItems.length - view.head.length;
+  // The rows were spilled since the window last looked: its next snapshot
+  // moves them into the head first, so spilled indices stay its own.
+  if (!sameSpill(spillStateOf(state), view.spilled)) return false;
+  const spilled = spilledOf(state);
   const first = view.head[0] ?? runtimeItems[0];
   const archive = runtimeArchiveRange(state);
-  const source = view.headSource || headSourceFor(first, archive);
+  const spilling = view.headSource === 'spill' ? view.spillFrom > 0 : spilledAbove(entry, state, view);
+  const source = spilling ? 'spill' : (view.headSource !== 'spill' && view.headSource) || headSourceFor(first, archive);
   if (missing <= 0 || !source) return false;
   const generation = compactionGeneration(runtimeItems);
-  if (view.head.length && view.headGeneration !== generation) {
+  // Spilled rows are the runtime's own, joined exactly whatever compacted
+  // since; a durable head is valid only for its generation.
+  if (view.head.length && view.headSource !== 'spill' && view.headGeneration !== generation) {
     // A compaction since the head was loaded: keep the rows as they are, and
     // never join older rows across the generation.
     view.headOlder = false;
@@ -357,6 +441,22 @@ export async function loadLiveTranscriptHead(entry, sessionId, readStoredSession
     entry.transcriptView === view &&
     (view.head[0] ?? currentItems()?.[0]) === first &&
     compactionGeneration(Array.isArray(currentItems()) ? currentItems() : []) === generation;
+  if (source === 'spill') {
+    // Synchronous: the rows read are exactly the ones above `first` now.
+    const end = view.spillFrom ?? spilled.rows;
+    const page = entry.runtime.readSpilledTranscript({ epoch: spilled.epoch, end, limit: missing });
+    if (!page) return false;
+    const rows = page.items;
+    const from = budgetedStart(rows, rows.length, missing, pageBudget, TRANSCRIPT_WINDOW_MIN_ITEMS);
+    view.head = sanitizeForWire(rows.slice(from)).concat(view.head);
+    view.spillFrom = end - (rows.length - from);
+    view.headSource = 'spill';
+    // An unreadable page ends the history there: nothing above it joins
+    // without a gap. Past the spilled rows, the first of them names the next
+    // source.
+    view.headOlder = page.broken && from === 0 ? false : spilledHeadOlder(view, archive);
+    return false;
+  }
   if (source === 'archive') {
     const page = await readStoredSession(sessionId, {
       compactionArchive: { ...archive, skip: view.archiveHeld || 0, limit: missing },
@@ -374,7 +474,9 @@ export async function loadLiveTranscriptHead(entry, sessionId, readStoredSession
   const stored = await readStoredSession(sessionId, { transcriptItemLimit: view.limit + runtimeItems.length });
   if (!stillCurrent()) return true;
   const history = Array.isArray(stored?.items) ? stored.items : [];
-  const overlap = alignedHistoryIndex(history, first, view.head.concat(runtimeItems), view.head.length > 0);
+  // Only a head read from this durable history aligns by its ids; spilled
+  // rows are live rows like the runtime's own.
+  const overlap = alignedHistoryIndex(history, first, view.head.concat(runtimeItems), view.headSource === 'stored');
   if (overlap < 0) {
     view.headOlder = false;
     return true;
@@ -402,12 +504,20 @@ export async function readTranscriptRange(entry, sessionId, readStoredSession, {
   let snapshot;
   if (entry) {
     const state = entry.runtime.getState();
-    const isolated = { runtime: { getState: () => state } };
+    const isolated = {
+      runtime: { getState: () => state, readSpilledTranscript: entry.runtime.readSpilledTranscript },
+    };
     requestLiveTranscriptWindow(isolated, { limit: requested, byteBudget: null, pageBase: 0 });
-    windowTranscriptSnapshot(isolated, state);
-    isolated.transcriptView.paged = true;
-    await loadLiveTranscriptHead(isolated, sessionId, readStoredSession);
     snapshot = windowTranscriptSnapshot(isolated, state);
+    isolated.transcriptView.paged = true;
+    // One load reads one source (spilled rows, durable history, archive): keep
+    // loading until the range is covered, history ends, or a load adds nothing.
+    while (snapshot.items.length < requested && snapshot.transcriptHasOlder) {
+      const held = snapshot.items.length;
+      await loadLiveTranscriptHead(isolated, sessionId, readStoredSession);
+      snapshot = windowTranscriptSnapshot(isolated, state);
+      if (snapshot.items.length <= held) break;
+    }
   } else {
     snapshot = await readStoredSession(sessionId, { transcriptItemLimit: requested });
   }

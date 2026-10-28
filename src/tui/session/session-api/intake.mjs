@@ -20,6 +20,7 @@ export function createSessionIntakeApi(bag) {
     patchItem,
     restoreOlderTranscript,
     restoreNewerTranscript,
+    readSpilledTranscript,
     routeState,
     restoreQueued,
     prioritizeQueued,
@@ -32,6 +33,7 @@ export function createSessionIntakeApi(bag) {
     patchItem,
     restoreOlderTranscript,
     restoreNewerTranscript,
+    ...(typeof readSpilledTranscript === 'function' ? { readSpilledTranscript } : {}),
     subscribe: (listener) => {
       listeners.add(listener);
       return () => listeners.delete(listener);
