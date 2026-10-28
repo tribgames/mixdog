@@ -160,6 +160,52 @@ test('a staged workspace change of the source carries the archive id', async (t)
   });
 });
 
+// The archive's prefix changes with the rename, and resume then finds it
+// matching: stored thinking (bound to the source's prefix) and the baselines
+// measured against it must already be gone in the saved archive.
+for (const openRound of [false, true]) {
+  test(`the archive drops thinking bound to the source prefix and stale baselines (${openRound ? 'open tool round' : 'final reply'})`, async (t) => {
+    await withSource(t, async (sourceId) => {
+      const thinking = { type: 'thinking', thinking: 'weighing', signature: `SourceBoundSig${'A'.repeat(64)}` };
+      const source = loadSession(sourceId);
+      source.messages.push(
+        {
+          role: 'assistant',
+          content: 'Looking.',
+          ...(openRound ? { toolCalls: [{ id: 'call-1', name: 'read', arguments: '{}' }] } : {}),
+          thinkingBlocks: [thinking],
+          providerReplay: {
+            provider: 'anthropic',
+            items: [thinking, { type: 'text', text: 'Looking.' }].concat(
+              openRound ? [{ type: 'tool_use', id: 'call-1', name: 'read' }] : []
+            ),
+          },
+        },
+        ...(openRound ? [{ role: 'tool', toolCallId: 'call-1', content: 'result' }] : [])
+      );
+      source.contextPressureBaselineTokens = 4321;
+      source.contextPressureBaselineMessageCount = source.messages.length;
+      source.contextUsageSnapshot = { usedTokens: 4321 };
+      const known = new Set(storedIds());
+      await clearSessionMessages(sourceId, {});
+      const archiveId = storedIds().find((id) => !known.has(id));
+      assert.ok(archiveId, 'the archive is on disk');
+      t.after(() => deleteSession(archiveId, { deferSummaryUpdate: true }));
+
+      const record = storedRecord(archiveId);
+      assert.doesNotMatch(JSON.stringify(record.messages), /SourceBoundSig|thinkingBlocks/);
+      assert.match(JSON.stringify(record.messages), /Looking\./, 'the turn text stays');
+      if (openRound) assert.ok(JSON.stringify(record.messages).includes('call-1'), 'the tool round stays paired');
+      assert.equal(record.contextPressureBaselineTokens ?? null, null);
+      assert.equal(record.contextUsageSnapshot, undefined);
+      assert.equal(record.pendingCacheBreakIntent, undefined);
+
+      const first = await resumeAndAsk(archiveId);
+      assert.doesNotMatch(JSON.stringify(first), /SourceBoundSig|thinkingBlocks/);
+    });
+  });
+}
+
 test('resuming an archive saved with the source scratch line corrects it once; a matching session is untouched', async (t) => {
   await withSource(t, async (sourceId) => {
     // The record old code produced: a plain copy under a new id.

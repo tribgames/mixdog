@@ -14,6 +14,7 @@ import { runSessionCompaction, resolveSessionCompactionPolicy } from './compacti
 import {
   currentContextEstimateTokens,
   invalidateContextUsageSnapshot,
+  invalidateProviderContextBaseline,
   recordContextUsageSnapshot,
   resolveGaugeContextTokens,
 } from '../loop/compact-policy.mjs';
@@ -27,6 +28,7 @@ import { getProvider } from '../../providers/registry.mjs';
 import { isSessionCompactionBlocked, getSessionAbortSignal, _runtimeEntries } from './runtime-liveness.mjs';
 import { mintSessionId } from './session-id.mjs';
 import { useOwnScratchEnvironment } from './session-scratch-environment.mjs';
+import { rebindToChangedPrefix } from '../thinking-binding.mjs';
 import { hideCompactionArchive } from '../compaction-archive-capture.mjs';
 import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs';
 import { forgetSideQuestion } from '../side-question-store.mjs';
@@ -237,7 +239,16 @@ function forkOutgoingTranscript(session, messages, now, archiveAs = '') {
     delete fork.liveTurnMessages;
     // The spread copied the source's environment: the fork names its own
     // scratch directory (its shell commands use it), not the source's.
-    useOwnScratchEnvironment(fork);
+    if (useOwnScratchEnvironment(fork)) {
+      // The system prefix changed: thinking stored in the copy was bound to the
+      // source's prefix (and an open tool round ended), and every measurement
+      // taken against it is stale. Resume then finds a matching prefix and
+      // would repair nothing.
+      fork.messages = rebindToChangedPrefix(fork.messages);
+      delete fork._providerPrefixGuardState;
+      invalidateContextUsageSnapshot(fork);
+      invalidateProviderContextBaseline(fork);
+    }
     // The archive sidecar belongs to the source id; the fork has none.
     if (fork.compaction?.archive) {
       fork.compaction = { ...fork.compaction };
