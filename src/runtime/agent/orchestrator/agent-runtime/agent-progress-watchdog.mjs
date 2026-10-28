@@ -265,9 +265,9 @@ export function resolveAgentWatchdogPolicy(agent, overrides = {}) {
     // Part B: the provider-level idle abort is the first mid-stream catch, but
     // it is transport-based for Anthropic (pings reset it; other providers
     // judge semantic idle). This public-agent idle is a BACKSTOP only, so it
-    // must not exceed the stall abort (600s default) — the old 30-min value
-    // meant a ping-only wedge that slipped past the provider layer would still
-    // hang the owner for half an hour. Anthropic pings extend it only up to
+    // must not exceed the stall abort (600s default): a ping-only wedge that
+    // slipped past the provider layer would otherwise hang the owner for half
+    // an hour. Anthropic pings extend it only up to
     // KEEPALIVE_MAX_IDLE_MULTIPLIER times (evaluateAgentWatchdogAbort). Cap it at
     // the stall abort while keeping 30 min as an absolute ceiling. Long tool
     // calls refresh progress through the activity heartbeat, so they never

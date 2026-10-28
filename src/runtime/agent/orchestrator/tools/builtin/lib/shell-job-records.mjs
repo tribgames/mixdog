@@ -50,7 +50,11 @@ export function bothReleased(first, second) {
  */
 export function pendingWorkspaceAdmission(granting) {
   granting.catch(() => {});
-  return () => granting.then((leave) => leave?.(), () => {});
+  return () =>
+    granting.then(
+      (leave) => leave?.(),
+      () => {}
+    );
 }
 
 /** Transfer a foreground reader to a surviving-descendant task without a lease gap. */

@@ -281,9 +281,11 @@ function currentSkillResolver(sessionRef, { preview = false } = {}) {
     const { resource } = delivery;
     // The tools whose use counts as use of the skill: its tool dependencies,
     // an MCP server as `mcp:<server>`.
-    const tools = (resource.toolDependencies || []).flatMap(({ type, value }) =>
-      type === 'tool' ? [value] : type === 'mcp' ? [`mcp:${value}`] : []
-    );
+    const tools = (resource.toolDependencies || []).flatMap(({ type, value }) => {
+      if (type === 'tool') return [value];
+      if (type === 'mcp') return [`mcp:${value}`];
+      return [];
+    });
     if (preview) return { body: delivery.body, native: undefined, tools };
     const envelope = loadSkillToolDependencies(
       buildSkillToolEnvelope(name, resource.content, resource.dir, resource),

@@ -5,7 +5,14 @@
  * messages, Codex's own wrapper user messages, tool outputs, reasoning,
  * event_msg, token counts and turn_context.
  */
-import { IMAGE_OMITTED_TEXT, IMPORT_WARNING_IMAGE_OMITTED, isWholeElement, textPart, toolNote } from './turns.mjs';
+import {
+  IMAGE_OMITTED_TEXT,
+  IMPORT_WARNING_IMAGE_OMITTED,
+  isWholeElement,
+  stringOrNull,
+  textPart,
+  toolNote,
+} from './turns.mjs';
 
 // User-role envelopes Codex injects itself (environment, instructions, abort
 // notices, plugin hints, shell-command echoes, image wrappers).
@@ -36,7 +43,7 @@ export function isCodexEnvelopeText(text) {
 const USER_REQUEST_HEADING = '## My request for Codex:';
 
 /** A user text part as Codex displays it. */
-export function codexUserDisplayText(text) {
+function codexUserDisplayText(text) {
   const at = text.lastIndexOf(USER_REQUEST_HEADING);
   return at < 0 ? text : text.slice(at + USER_REQUEST_HEADING.length).trim();
 }
@@ -64,8 +71,6 @@ function toolName(payload) {
   return payload.type === 'local_shell_call' ? 'local_shell' : '';
 }
 
-const stringOrNull = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);
-
 // `session_meta.thread_source` values Codex gives threads it runs for itself.
 const INTERNAL_THREAD_SOURCES = {
   subagent: 'subagent',
@@ -81,7 +86,7 @@ const INTERNAL_THREAD_SOURCES = {
  * is the approval reviewer) or `{ internal: … }`. Other sources (cli, vscode,
  * exec, mcp, custom) and features (automation, voice chat) are the user's.
  */
-export function codexInternalKind(payload) {
+function codexInternalKind(payload) {
   const byThread = INTERNAL_THREAD_SOURCES[payload?.thread_source];
   if (byThread) return byThread;
   const source = payload?.source;

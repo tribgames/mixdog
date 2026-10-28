@@ -40,7 +40,7 @@ export function toolNote(name) {
 }
 
 /** Longest model-facing run line, and the longest tool name shown in it. */
-export const TOOL_RUN_LINE_MAX_CHARS = 400;
+const TOOL_RUN_LINE_MAX_CHARS = 400;
 const TOOL_RUN_NAME_MAX_CHARS = 40;
 
 /**
@@ -73,6 +73,9 @@ function toolRunCounts(notes) {
   for (const note of notes) counts.set(note.tool, (counts.get(note.tool) || 0) + 1);
   return [...counts].map(([name, count]) => ({ name, count }));
 }
+
+/** A trimmed non-blank string, else null. */
+export const stringOrNull = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);
 
 export function textPart(text) {
   return { text: String(text), note: false };

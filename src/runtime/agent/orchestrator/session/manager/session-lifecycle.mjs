@@ -165,9 +165,9 @@ function resolveSessionRoute(opts, presetObj, profile) {
   const modelName = opts.model || presetObj?.model;
   // opts.tools (caller-supplied) wins over presetObj.tools — caller
   // intent ('tools:readonly' from Pool C, etc.) must override the
-  // preset's default 'full'. Previous priority let HAIKU's tools='full'
-  // shadow Pool C's explicit readonly request, leaking write tools and
-  // bash into a read-only agent.
+  // preset's default 'full'; otherwise a preset's tools='full' would shadow
+  // an explicit readonly request and leak write tools and bash into a
+  // read-only agent.
   const toolPreset = opts.tools || presetObj?.tools || (typeof opts.preset === 'string' ? opts.preset : null) || 'full';
   const effort = Object.hasOwn(opts, 'effort') ? opts.effort || null : presetObj?.effort || null;
   const fast = presetObj?.fast === true || opts.fast === true;
@@ -238,17 +238,21 @@ export function createSession(createOpts) {
       : { ...createOpts, sessionMode };
   // A Lead-class session (actingAgent set) takes its owner's chain while it
   // runs on the owner's primary model; an agent keeps its preset's.
-  const routeFallbacks = actingAgent
-    ? Object.hasOwn(opts, 'routeFallbacks')
+  const explicitRouteFallbacks = Object.hasOwn(opts, 'routeFallbacks');
+  let routeFallbacks;
+  if (actingAgent) {
+    routeFallbacks = explicitRouteFallbacks
       ? opts.routeFallbacks
-      : ownerRouteFallbacks({ sessionMode, agentId: actingAgent, provider: providerName, model: modelName })
-    : executionFallbacks(
-        normalizeWorkflowRoute({
-          provider: providerName,
-          model: modelName,
-          fallbacks: Object.hasOwn(opts, 'routeFallbacks') ? opts.routeFallbacks : presetObj?.fallbacks,
-        })
-      );
+      : ownerRouteFallbacks({ sessionMode, agentId: actingAgent, provider: providerName, model: modelName });
+  } else {
+    routeFallbacks = executionFallbacks(
+      normalizeWorkflowRoute({
+        provider: providerName,
+        model: modelName,
+        fallbacks: explicitRouteFallbacks ? opts.routeFallbacks : presetObj?.fallbacks,
+      })
+    );
+  }
   // Provider cache strategy — agentRuntime.resolveSync() above is a
   // best-effort injection point (setAgentRuntime() has no live caller
   // today, so that branch never fires); build it directly here so every

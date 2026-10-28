@@ -125,11 +125,9 @@ export function sessionRolePromptFields(identity, { ownerIsAgent, toolFreeRole, 
       ? _buildAgentRules(identity.agentRulesProfile)
       : _buildLeadRules({ includeLeadBrief: !delegationFree });
   }
-  const identityLine = agentMode
-    ? agentModeIdentityLine(identity.agent || MIXY_AGENT_ID)
-    : lead
-      ? _buildLeadRules({ includeLeadBrief: !delegationFree, part: 'identity' })
-      : '';
+  let identityLine = '';
+  if (agentMode) identityLine = agentModeIdentityLine(identity.agent || MIXY_AGENT_ID);
+  else if (lead) identityLine = _buildLeadRules({ includeLeadBrief: !delegationFree, part: 'identity' });
   return {
     roleRules,
     ...(lead

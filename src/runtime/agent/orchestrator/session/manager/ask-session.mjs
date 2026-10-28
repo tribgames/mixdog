@@ -157,6 +157,34 @@ async function runAskTurn({ sessionId, opened, input, askOpts, onToolCall, cwdOv
   }
 }
 
+/** The prompt-cache warmer learns idle gaps from real turns only; a retry is
+ *  classified by the failed turn's stored provenance. The rebuilt retry
+ *  message keeps that provenance (ask-turn-execute.mjs). Returns the warmer's
+ *  turn handle. */
+function noteTurnForCacheWarm(sessionId, claimed, input) {
+  const retryProvenance = failedTurnProvenance(claimed.preSession?.messages, input);
+  if (retryProvenance) input.retryProvenance = retryProvenance;
+  return noteCacheWarmTurn(sessionId, cacheWarmTurnKind(input, claimed.preSession?.messages));
+}
+
+/** Clear the controller only if it's still ours (closeSession may have
+ *  swapped it). The rest of the runtime entry stays intact so agent type=list
+ *  can still surface the final stage (done/error/cancelling). */
+function detachAskRuntime(sessionId, askGeneration) {
+  const entry = _getRuntimeEntry(sessionId);
+  if (entry && entry.generation === askGeneration) {
+    _unlinkParentAbortListener(entry);
+    entry.controller = null;
+    // Detach the live session reference; ask is over.
+    entry.session = null;
+  }
+  // Final-stage runtime diagnostics are useful only while the turn is
+  // unwinding. Once its controller is detached, retaining the full entry
+  // (and any accidental references hanging from it) for the host lifetime
+  // turns one-shot agent traffic into an unbounded manager Map.
+  _evictTerminalSessionRuntime(sessionId);
+}
+
 export async function askSession(sessionId, prompt, context, onToolCall, cwdOverride, explicitPrefetch, askOpts = {}) {
   const askStartedAt = Date.now();
   const transcript = createAskTranscriptMeta(askOpts?.transcriptMeta);
@@ -193,8 +221,9 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
   // Hoisted so the outer finally (which runs once after the whole turn loop)
   // can compare against the last turn's generation.
   let askGeneration = 0;
-  let crashRecoveryChecked = false;
-  let sessionStartEmitted = false;
+  // Crash-checkpoint recovery and the session-start event belong to the first
+  // turn of this ask only.
+  let firstTurn = true;
   // A failed-turn retry rewinds only the turn it retries, never a drained
   // follow-up turn.
   let retryFailedTurn = askOpts.retryFailedTurn === true;
@@ -231,17 +260,11 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
       const claimed = claimTurnRuntime({
         sessionId,
         askOpts,
-        recoverCheckpoint: !crashRecoveryChecked,
-        emitStart: !sessionStartEmitted,
+        recoverCheckpoint: firstTurn,
+        emitStart: firstTurn,
       });
-      // The prompt-cache warmer learns idle gaps from real turns only; a
-      // retry is classified by the failed turn's stored provenance.
-      // The rebuilt retry message keeps that provenance (ask-turn-execute.mjs).
-      const retryProvenance = failedTurnProvenance(claimed.preSession?.messages, input);
-      if (retryProvenance) input.retryProvenance = retryProvenance;
-      warmTurn = noteCacheWarmTurn(sessionId, cacheWarmTurnKind(input, claimed.preSession?.messages));
-      crashRecoveryChecked = true;
-      sessionStartEmitted = true;
+      warmTurn = noteTurnForCacheWarm(sessionId, claimed, input);
+      firstTurn = false;
       askGeneration = claimed.askGeneration;
       const opened = {
         ...claimed,
@@ -300,21 +323,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
     queue.releaseUnstarted();
     // A thrown setup/provider path must never leave a delayed checkpoint
     // writer alive after the turn lock is released.
-    // Clear the controller only if it's still ours (closeSession may have
-    // swapped it). Leave the rest of the runtime entry intact so agent type=list
-    // can still surface the final stage (done/error/cancelling).
-    const entry = _getRuntimeEntry(sessionId);
-    if (entry && entry.generation === askGeneration) {
-      _unlinkParentAbortListener(entry);
-      entry.controller = null;
-      // Detach the live session reference; ask is over.
-      entry.session = null;
-    }
-    // Final-stage runtime diagnostics are useful only while the turn is
-    // unwinding. Once its controller is detached, retaining the full entry
-    // (and any accidental references hanging from it) for the host lifetime
-    // turns one-shot agent traffic into an unbounded manager Map.
-    _evictTerminalSessionRuntime(sessionId);
+    detachAskRuntime(sessionId, askGeneration);
     unlock();
   }
 }

@@ -14,6 +14,7 @@ import {
   IMAGE_OMITTED_TEXT,
   IMPORT_WARNING_IMAGE_OMITTED,
   isWholeElement,
+  stringOrNull,
   textPart,
   titleFromText,
   toolNote,
@@ -92,7 +93,7 @@ export function isClaudeEnvelopeText(text) {
 const tagValue = (text, tag) => new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text)?.[1].trim() || '';
 
 /** A slash-command envelope as Claude Code shows it (`/name args`), else null. */
-export function claudeCommandText(text) {
+function claudeCommandText(text) {
   const trimmed = String(text || '').trim();
   if (!SLASH_COMMAND_RE.test(trimmed)) return null;
   const name = (tagValue(trimmed, 'command-name') || tagValue(trimmed, 'command-message')).replace(/^\//, '');
@@ -101,7 +102,6 @@ export function claudeCommandText(text) {
 }
 
 const isMessageEntry = (record) => record?.type === 'user' || record?.type === 'assistant';
-const stringOrNull = (value) => (typeof value === 'string' && value.trim() ? value.trim() : null);
 const uuidOrNull = (value) => (typeof value === 'string' ? value : null);
 const timestampOrNull = (value) => (typeof value === 'string' || typeof value === 'number' ? value : null);
 // Rough fixed cost of one retained entry object, so tiny entries still count.
@@ -193,7 +193,7 @@ function entryParts(role, content, warnings, marks) {
  * (a cleared rename) ends the name tier without falling back to the AI title.
  * Other record types, such as `task-summary` or `agent-name`, never name it.
  */
-export function createClaudeTitleScan() {
+function createClaudeTitleScan() {
   let custom;
   let ai;
   let summary;

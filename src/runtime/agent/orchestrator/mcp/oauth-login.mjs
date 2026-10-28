@@ -6,6 +6,72 @@ import { identityFromTokenResponse } from './oauth-account.mjs';
 import { answerOAuthCallback } from './oauth-callback.mjs';
 import { anySignal, loginFailed, reauthenticationRequired, scopeNotGranted } from './oauth-shared.mjs';
 
+// Fetch for the SDK: transport-URL normalized, no redirects, bounded by the
+// login `signal`. The token endpoint's answer is read for who the tokens
+// belong to (oauth-account.mjs): the SDK keeps only the token fields.
+function makeSafeFetch({ fetchImpl, flow, signal }) {
+  return async (input, init = {}) => {
+    const response = await fetchImpl(normalizeMcpTransportUrl(input), {
+      ...init,
+      redirect: 'error',
+      signal: anySignal(signal, init.signal),
+    });
+    if (response.ok && /(^|&)grant_type=/.test(String(init.body ?? ''))) {
+      flow.identity = identityFromTokenResponse(
+        await response
+          .clone()
+          .json()
+          .catch(() => null)
+      );
+    }
+    return response;
+  };
+}
+
+// The caller's progress hooks (mcp-oauth-login.mjs): the callback arrived,
+// then the tokens are stored.
+function reportProgress(browser, hook) {
+  try {
+    browser?.[hook]?.();
+  } catch {
+    /* progress reporting never fails the login */
+  }
+}
+
+// The callback promise of one login, and the browser page held open for the
+// loopback callback until the code exchange and scope check end: `settle()` is
+// success, `settle({ code })` a failure. Bounded by `signal`, like the
+// exchange itself. `setFlushing` receives each answered page's flush.
+function awaitCallback({ flow, signal, stopListening, setFlushing }) {
+  let abort;
+  let respond;
+  const settle = (failure) => {
+    const answer = respond;
+    respond = undefined;
+    if (!answer) return undefined;
+    const flushed = answer(failure);
+    setFlushing(flushed);
+    return flushed;
+  };
+  const callback = new Promise((resolve, reject) => {
+    const finish = (code, page) => {
+      if (page) respond = page;
+      return code ? resolve(code) : reject(loginFailed());
+    };
+    flow.finishCallback = finish;
+    // Timeout, cancel or abort: the held page gets the generic failure now
+    // (the exchange or a credential write may be stalled past the deadline),
+    // and the listener closes once it is flushed.
+    abort = () => {
+      finish();
+      settle({});
+      stopListening();
+    };
+    signal.addEventListener('abort', abort, { once: true });
+  });
+  return { callback, settle, abort };
+}
+
 /**
  * The browser login of one connection over its credential `cache` and login
  * `flow` state: the loopback callback listener and the SDK authorization
@@ -65,58 +131,15 @@ export function createLoginFlow({ url, cache, flow, provider, lifetimeSignal, op
     // the token fields, so the token endpoint's answer is read here.
     flow.identity = undefined;
     flow.signal = signal;
-    const safeFetch = async (input, init = {}) => {
-      const response = await fetchImpl(normalizeMcpTransportUrl(input), {
-        ...init,
-        redirect: 'error',
-        signal: anySignal(signal, init.signal),
-      });
-      if (response.ok && /(^|&)grant_type=/.test(String(init.body ?? ''))) {
-        flow.identity = identityFromTokenResponse(
-          await response
-            .clone()
-            .json()
-            .catch(() => null)
-        );
-      }
-      return response;
-    };
-    // The caller's progress hooks (mcp-oauth-login.mjs): the callback arrived,
-    // then the tokens are stored.
-    const progress = (hook) => {
-      try {
-        browser?.[hook]?.();
-      } catch {
-        /* progress reporting never fails the login */
-      }
-    };
-    let abort;
-    // The browser page held open for the loopback callback until the code
-    // exchange and scope check end: `settle()` is success, `settle({ code })`
-    // a failure. Bounded by `signal`, like the exchange itself.
-    let respond;
-    const settle = (failure) => {
-      const answer = respond;
-      respond = undefined;
-      if (!answer) return undefined;
-      flushing = answer(failure);
-      return flushing;
-    };
-    const callback = new Promise((resolve, reject) => {
-      const finish = (code, page) => {
-        if (page) respond = page;
-        return code ? resolve(code) : reject(loginFailed());
-      };
-      flow.finishCallback = finish;
-      // Timeout, cancel or abort: the held page gets the generic failure now
-      // (the exchange or a credential write may be stalled past the deadline),
-      // and the listener closes once it is flushed.
-      abort = () => {
-        finish();
-        settle({});
-        stopListening();
-      };
-      signal.addEventListener('abort', abort, { once: true });
+    const safeFetch = makeSafeFetch({ fetchImpl, flow, signal });
+    const progress = (hook) => reportProgress(browser, hook);
+    const { callback, settle, abort } = awaitCallback({
+      flow,
+      signal,
+      stopListening,
+      setFlushing: (page) => {
+        flushing = page;
+      },
     });
     // A discovery/registration error can precede waiting for the callback.
     callback.catch(() => {});

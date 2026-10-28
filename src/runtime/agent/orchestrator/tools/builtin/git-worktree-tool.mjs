@@ -334,11 +334,9 @@ async function rawAdd(plan, input, options) {
   const txId = txIdOf(options, plan.command);
   const mapped = { mapped: plan.command, requestedPath: resolve(plan.cwd, path) };
   // A detached checkout, or a commit-ish that names no local branch: a snapshot.
-  const snapshotCommit = detach
-    ? (commitish ?? 'HEAD')
-    : !branch && commitish && !(await localBranchExists(plan.cwd, commitish))
-      ? commitish
-      : null;
+  let snapshotCommit = null;
+  if (detach) snapshotCommit = commitish ?? 'HEAD';
+  else if (!branch && commitish && !(await localBranchExists(plan.cwd, commitish))) snapshotCommit = commitish;
   if (snapshotCommit) {
     const commit = await commitIn(plan.cwd, snapshotCommit);
     if (!commit) throw new Error(`git worktree add: ${snapshotCommit} is not a commit`);

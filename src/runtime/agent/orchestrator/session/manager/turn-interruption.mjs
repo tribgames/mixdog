@@ -195,8 +195,8 @@ function appendObservedTurnOutput(
   }
 }
 
-export function createTurnInterruptionTracker() {
-  const state = {
+function newInterruptionState() {
+  return {
     responseStarted: false,
     partialAssistantContent: '',
     tombstonedAssistantContent: '',
@@ -213,7 +213,10 @@ export function createTurnInterruptionTracker() {
     tombEpoch: 0,
     callsEpoch: 0,
   };
+}
 
+/** Streamed assistant text, including the tombstone of a retracted attempt. */
+function textBufferMethods(state) {
   return {
     recordTextDelta(chunk) {
       const value = String(chunk ?? '');
@@ -263,33 +266,12 @@ export function createTurnInterruptionTracker() {
       state.tombEpoch += 1;
       return true;
     },
-    hasResponseStarted() {
-      return state.responseStarted;
-    },
-    recordReasoningDelta(chunk) {
-      const value = String(chunk ?? '');
-      if (!value) return;
-      state.responseStarted = true;
-      state.partialReasoningContent += value;
-    },
-    recordAssistantText(text) {
-      const value = String(text ?? '');
-      if (!value.trim()) return;
-      state.responseStarted = true;
-      // Buffered providers report the whole segment here; streaming
-      // providers already accumulated the same segment via text deltas.
-      if (!state.partialAssistantContent.trim()) state.partialAssistantContent += value;
-    },
-    markAssistantMessageCommitted() {
-      state.partialAssistantContent = '';
-      state.tombstonedAssistantContent = '';
-      state.partialReasoningContent = '';
-      state.observedToolCalls.clear();
-      state.textEpoch += 1;
-      state.reasoningEpoch += 1;
-      state.tombEpoch += 1;
-      state.callsEpoch += 1;
-    },
+  };
+}
+
+/** Tool calls and early-notified results observed during the turn. */
+function toolObservationMethods(state) {
+  return {
     recordToolCalls(calls, { eagerStarted = false } = {}) {
       for (const call of Array.isArray(calls) ? calls : []) {
         if (!call?.id) continue;
@@ -316,6 +298,42 @@ export function createTurnInterruptionTracker() {
         // The authoritative result is already present in outgoing.
         state.observedToolResults.delete(callId);
       }
+    },
+  };
+}
+
+export function createTurnInterruptionTracker() {
+  const state = newInterruptionState();
+
+  return {
+    ...textBufferMethods(state),
+    ...toolObservationMethods(state),
+    hasResponseStarted() {
+      return state.responseStarted;
+    },
+    recordReasoningDelta(chunk) {
+      const value = String(chunk ?? '');
+      if (!value) return;
+      state.responseStarted = true;
+      state.partialReasoningContent += value;
+    },
+    recordAssistantText(text) {
+      const value = String(text ?? '');
+      if (!value.trim()) return;
+      state.responseStarted = true;
+      // Buffered providers report the whole segment here; streaming
+      // providers already accumulated the same segment via text deltas.
+      if (!state.partialAssistantContent.trim()) state.partialAssistantContent += value;
+    },
+    markAssistantMessageCommitted() {
+      state.partialAssistantContent = '';
+      state.tombstonedAssistantContent = '';
+      state.partialReasoningContent = '';
+      state.observedToolCalls.clear();
+      state.textEpoch += 1;
+      state.reasoningEpoch += 1;
+      state.tombEpoch += 1;
+      state.callsEpoch += 1;
     },
     markProviderSendStarted() {
       state.phase = 'streaming';

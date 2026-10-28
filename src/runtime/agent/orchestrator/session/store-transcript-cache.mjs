@@ -70,27 +70,16 @@ export function nextProjectionStamp() {
   return `${stampEpoch}:${stampSequence}`;
 }
 
-export function createStoredTranscriptCache({
-  // Bound retained content, not the number of small sessions. An eight-entry
-  // LRU reparsed every unchanged record when nine visible sessions refreshed.
-  maxEntries = Number.POSITIVE_INFINITY,
-  maxBytes = STORED_TRANSCRIPT_CACHE_MAX_BYTES,
-  maxIdleBytes = STORED_TRANSCRIPT_IDLE_MAX_BYTES,
-} = {}) {
+/** The retained entries and their eviction policy: byte/entry budget, paging
+ *  pins, ghost admission and idle trimming. */
+function createEntryStore({ maxEntries, maxBytes, maxIdleBytes }) {
   // Retain a content digest, not a second full transcript beside its projection.
   // The bound is the size of what is actually retained: the projection.
   /** key -> { textHash, textChars, bytes, group, fingerprint, value, usedAt } (Map order is LRU order). */
   const entries = new Map();
-  /** key -> { text, fingerprint, promise } for reads still parsing. */
-  const inFlight = new Map();
-  /** key -> { fingerprint, fileStat, promise } for reads not yet answered,
-   *  from before their body is loaded. */
-  const reading = new Map();
   /** Keys evicted for space (insertion order = age), bounded. */
   const ghosts = new Set();
   let retainedBytes = 0;
-  // Projections produced (here or by `project`), cached or not.
-  let builds = 0;
 
   const drop = (key) => {
     const entry = entries.get(key);
@@ -193,6 +182,51 @@ export function createStoredTranscriptCache({
       : null;
   };
 
+  return {
+    get: (key) => entries.get(key),
+    remember,
+    touch,
+    trimIdle,
+    entryWithContent,
+    release(keyPrefix, now) {
+      for (const [key, entry] of entries) {
+        if (key.startsWith(keyPrefix)) entry.usedAt = Math.min(entry.usedAt, now - ACTIVE_ENTRY_MS - 1);
+      }
+      trimIdle(now);
+    },
+    forget(keyPrefix) {
+      for (const key of [...entries.keys()]) {
+        if (key.startsWith(keyPrefix)) drop(key);
+      }
+      for (const key of [...ghosts]) {
+        if (key.startsWith(keyPrefix)) ghosts.delete(key);
+      }
+    },
+    clear() {
+      entries.clear();
+      ghosts.clear();
+      retainedBytes = 0;
+    },
+    stats: () => ({ entries: entries.size, retainedBytes, ghosts: ghosts.size }),
+  };
+}
+
+export function createStoredTranscriptCache({
+  // Bound retained content, not the number of small sessions. An eight-entry
+  // LRU reparsed every unchanged record when nine visible sessions refreshed.
+  maxEntries = Number.POSITIVE_INFINITY,
+  maxBytes = STORED_TRANSCRIPT_CACHE_MAX_BYTES,
+  maxIdleBytes = STORED_TRANSCRIPT_IDLE_MAX_BYTES,
+} = {}) {
+  const store = createEntryStore({ maxEntries, maxBytes, maxIdleBytes });
+  /** key -> { text, fingerprint, promise } for reads still parsing. */
+  const inFlight = new Map();
+  /** key -> { fingerprint, fileStat, promise } for reads not yet answered,
+   *  from before their body is loaded. */
+  const reading = new Map();
+  // Projections produced (here or by `project`), cached or not.
+  let builds = 0;
+
   // `project(known)` reads, digests and projects the record elsewhere (a
   // worker thread) in one step: `{ textChars, textHash, value }`, or
   // `{ textChars, textHash, same: true }` without a projection when the
@@ -200,7 +234,7 @@ export function createStoredTranscriptCache({
   // cannot be read. Undefined when it could not answer at all.
   async function readProjected({ key, group, fingerprint, fileStat, project, now, pin }) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
-      const cached = entries.get(key);
+      const cached = store.get(key);
       const known =
         attempt === 0 && cached?.fingerprint === fingerprint
           ? { textChars: cached.textChars, textHash: cached.textHash }
@@ -220,17 +254,17 @@ export function createStoredTranscriptCache({
       if (answer === undefined) return undefined;
       if (answer === null || typeof answer !== 'object') return { value: null, hit: false, read: true };
       if (answer.same === true) {
-        const entry = entryWithContent(key, fingerprint, answer);
+        const entry = store.entryWithContent(key, fingerprint, answer);
         // Evicted meanwhile: project it after all.
         if (!entry) continue;
         entry.fileStat = fileStat;
-        touch(key, entry, now, pin);
+        store.touch(key, entry, now, pin);
         return { value: entry.value, hit: true, read: true };
       }
       const value = answer.value ?? null;
       if (value && typeof value === 'object') builds += 1;
       if (current && value && typeof value === 'object') {
-        remember(key, group, answer.textChars, answer.textHash, fingerprint, fileStat, value, now, pin);
+        store.remember(key, group, answer.textChars, answer.textHash, fingerprint, fileStat, value, now, pin);
       }
       return { value, hit: false, read: true };
     }
@@ -243,16 +277,16 @@ export function createStoredTranscriptCache({
       if (answered !== undefined) return answered;
       // It could not answer (worker unavailable): load and produce here.
     }
-    const cached = entries.get(key);
+    const cached = store.get(key);
     // `loadText` may answer asynchronously (a large record is read without
     // blocking the loop); a plain string is unchanged.
     let text = loadText();
     if (typeof text?.then === 'function') text = await text;
     if (typeof text !== 'string') return { value: null, hit: false, read: true };
     const textHash = transcriptTextHash(text);
-    if (cached && entryWithContent(key, fingerprint, { textChars: text.length, textHash }) === cached) {
+    if (cached && store.entryWithContent(key, fingerprint, { textChars: text.length, textHash }) === cached) {
       cached.fileStat = fileStat;
-      touch(key, cached, now, pin);
+      store.touch(key, cached, now, pin);
       return { value: cached.value, hit: true, read: true };
     }
     const pending = inFlight.get(key);
@@ -264,7 +298,7 @@ export function createStoredTranscriptCache({
       const value = await produce(text);
       if (value && typeof value === 'object') builds += 1;
       if (inFlight.get(key) === record && value && typeof value === 'object') {
-        remember(key, group, text.length, textHash, fingerprint, fileStat, value, now, pin);
+        store.remember(key, group, text.length, textHash, fingerprint, fileStat, value, now, pin);
       }
       return value;
     })();
@@ -297,10 +331,10 @@ export function createStoredTranscriptCache({
       now = Date.now(),
       pin = false,
     }) {
-      trimIdle(now);
-      const cached = entries.get(key);
+      store.trimIdle(now);
+      const cached = store.get(key);
       if (cached && cached.fingerprint === fingerprint && settledSameFile(cached.fileStat, fileStat, now)) {
-        touch(key, cached, now, pin);
+        store.touch(key, cached, now, pin);
         return { value: cached.value, hit: true, read: false };
       }
       const joined = reading.get(key);
@@ -321,10 +355,7 @@ export function createStoredTranscriptCache({
     /** The last view of these projections left: they turn idle now and stay
      *  only within the idle budget, ready for a revisit. */
     release(keyPrefix, now = Date.now()) {
-      for (const [key, entry] of entries) {
-        if (key.startsWith(keyPrefix)) entry.usedAt = Math.min(entry.usedAt, now - ACTIVE_ENTRY_MS - 1);
-      }
-      trimIdle(now);
+      store.release(keyPrefix, now);
     },
     forget(keyPrefix) {
       for (const pending of [inFlight, reading]) {
@@ -332,30 +363,17 @@ export function createStoredTranscriptCache({
           if (key.startsWith(keyPrefix)) pending.delete(key);
         }
       }
-      for (const key of [...entries.keys()]) {
-        if (key.startsWith(keyPrefix)) drop(key);
-      }
-      for (const key of [...ghosts]) {
-        if (key.startsWith(keyPrefix)) ghosts.delete(key);
-      }
+      store.forget(keyPrefix);
     },
     clear() {
-      entries.clear();
+      store.clear();
       inFlight.clear();
       reading.clear();
-      ghosts.clear();
-      retainedBytes = 0;
       builds = 0;
     },
     stats() {
-      return {
-        entries: entries.size,
-        retainedBytes,
-        inFlight: inFlight.size,
-        reading: reading.size,
-        ghosts: ghosts.size,
-        builds,
-      };
+      const { entries, retainedBytes, ghosts } = store.stats();
+      return { entries, retainedBytes, inFlight: inFlight.size, reading: reading.size, ghosts, builds };
     },
   };
 }

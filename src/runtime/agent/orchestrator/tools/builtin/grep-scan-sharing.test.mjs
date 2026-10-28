@@ -63,7 +63,9 @@ function heldBackend(t, result) {
     return w.promise;
   };
   const release = (i) => calls[i].hold.resolve();
-  const releaseAll = () => calls.forEach((c) => c.hold.resolve());
+  const releaseAll = () => {
+    for (const c of calls) c.hold.resolve();
+  };
   t.after(releaseAll);
   return { calls, run, waitCalls, release, releaseAll };
 }
