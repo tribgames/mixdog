@@ -17,6 +17,7 @@ export function providerPromptFields(providerPrompt) {
         providerPrompt.envName ? `Env: ${providerPrompt.envName}` : '',
         providerPrompt.source ? `Current: ${providerPrompt.source}` : '',
         providerPrompt.keyUrl ? `Get a key: ${providerPrompt.keyUrl}` : '',
+        providerPrompt.hint || '',
         'Stored in the OS keychain.',
       ]
         .filter(Boolean)

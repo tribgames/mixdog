@@ -152,6 +152,33 @@ test('set-key hands the surface to the API-key prompt with mode and console URL'
   assert.equal(h.prompts.at(-1).keyUrl, '');
 });
 
+test('Vertex AI set-key asks for the key type; express mode carries authMode and the Gemini-only hint', async () => {
+  const setup = { ...SETUP, api: [{ id: 'vertex-ai', name: 'Vertex AI', authenticated: false }] };
+  const h = createHarness({ setup });
+  await h.openProviderSetupPicker({});
+  h.select(h.row('api:vertex-ai'));
+  const before = h.prompts.length;
+  h.select(h.row('set-key'));
+  assert.equal(h.prompts.length, before, 'a key-type step comes before the prompt');
+  assert.deepEqual(
+    h.current().items.map((item) => item.value),
+    ['service-account', 'api-key']
+  );
+
+  h.select(h.row('api-key'));
+  const prompt = h.prompts.at(-1);
+  assert.equal(prompt.providerId, 'vertex-ai');
+  assert.equal(prompt.authMode, 'api-key');
+  assert.match(prompt.hint, /Gemini models on the global location only/);
+  assert.match(prompt.hint, /service-account key or the gcloud login/);
+
+  await h.openProviderSetupPicker({});
+  h.select(h.row('api:vertex-ai'));
+  h.select(h.row('set-key'));
+  h.select(h.row('service-account'));
+  assert.equal(h.prompts.at(-1).authMode, undefined);
+});
+
 test('forget-key: the ack clears model caches and reopens the list; a failure returns to the actions', async () => {
   const gate = Promise.withResolvers();
   const forgotten = [];

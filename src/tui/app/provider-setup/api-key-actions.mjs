@@ -6,9 +6,13 @@ import { openInBrowser } from '../../../runtime/shared/open-url.mjs';
 import { providerDetailText } from '../app-format.mjs';
 import { forgetProviderAuth, keyConsoleUrl, providerStatusFooter } from './provider-items.mjs';
 
-const setApiKeyPrompt = (flow, providerItem) => {
+const VERTEX_EXPRESS_HINT =
+  'Express mode API keys serve Gemini models on the global location only. Claude and MaaS models need a service-account key or the gcloud login.';
+
+const setApiKeyPrompt = (flow, providerItem, extra = {}) => {
   if (!flow.ownsSurface()) return;
   flow.setProviderPrompt({
+    ...extra,
     kind: 'api-key',
     providerId: providerItem._providerId,
     label: providerItem._providerName,
@@ -51,6 +55,28 @@ function apiKeyActions(providerItem, provider) {
   return { apiActions, keyUrl };
 }
 
+// Vertex AI takes either a service-account key or an express-mode API key.
+function openVertexModePicker(flow, providerItem) {
+  flow.paint({
+    title: `Provider · ${providerItem._providerName}`,
+    description: 'Choose the Vertex AI key type.',
+    help: '↑/↓ Select · Enter Choose · Esc Back',
+    indexMode: 'always',
+    labelWidth: 22,
+    pickerKey: `providers-vertex-mode:${providerItem.value}`,
+    initialIndex: 0,
+    items: [
+      { value: 'service-account', label: 'Service account key', description: 'service-account JSON' },
+      { value: 'api-key', label: 'API key (express mode)', description: 'Gemini only · global location' },
+    ],
+    onSelect: (mode) => {
+      flow.releaseSurface();
+      setApiKeyPrompt(flow, providerItem, mode === 'api-key' ? { authMode: 'api-key', hint: VERTEX_EXPRESS_HINT } : {});
+    },
+    onCancel: () => openApiProviderActions(flow, providerItem),
+  });
+}
+
 export function openApiProviderActions(flow, providerItem) {
   // Reached from acks (a failed forget-key) as well as key presses: prove
   // ownership at the sink so every caller is covered.
@@ -69,6 +95,10 @@ export function openApiProviderActions(flow, providerItem) {
     initialIndex: 0,
     items: apiActions,
     onSelect: (_detailValue, detail) => {
+      if (detail._action === 'set-key' && providerItem._providerId === 'vertex-ai') {
+        openVertexModePicker(flow, providerItem);
+        return;
+      }
       flow.releaseSurface();
       if (detail._action === 'set-key') {
         setApiKeyPrompt(flow, providerItem);

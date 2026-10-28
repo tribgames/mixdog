@@ -36,7 +36,9 @@ function saveApiKey(ctx, target, commandText) {
     requiredNotice: `API key is required for ${target.providerId}`,
     busyNotice: 'API key is already being saved',
     method: 'saveProviderApiKey',
-    args: [target.providerId, commandText],
+    args: target.authMode
+      ? [target.providerId, commandText, { authMode: target.authMode }]
+      : [target.providerId, commandText],
     onSaved: () => ctx.clearModelCaches('all'),
     failurePrefix: 'api key save failed',
   });

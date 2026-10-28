@@ -129,8 +129,8 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
     getOAuthProviderLoginStatus: (flowId) => oauthFlows.status(flowId),
     completeOAuthProviderLogin: async (flowId, code) => oauthFlows.complete(flowId, code),
     cancelOAuthProviderLogin: async (flowId) => oauthFlows.cancel(flowId),
-    saveProviderApiKey: async (provider, secret) => {
-      const result = await runtime.saveProviderApiKey(provider, secret);
+    saveProviderApiKey: async (provider, secret, options) => {
+      const result = await runtime.saveProviderApiKey(provider, secret, options);
       pushNotice(`provider api key saved: ${result.provider}`, 'info');
       return true;
     },
