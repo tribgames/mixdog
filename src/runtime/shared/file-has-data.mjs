@@ -4,6 +4,9 @@ import { holdsNoData } from './atomic-file.mjs';
 
 const PROBE_BYTES = 4096;
 
+// An open that failed for any reason but a missing path still counts as present.
+const presentDespite = (err) => err?.code !== 'ENOENT' && err?.code !== 'ENOTDIR';
+
 /**
  * Install check for a downloaded binary or model: false when `path` is absent
  * or its first bytes hold no data (empty, or NUL-filled by a crash that
@@ -18,7 +21,7 @@ export function fileHasData(path) {
     const head = Buffer.alloc(PROBE_BYTES);
     return !holdsNoData(head.subarray(0, readSync(fd, head, 0, PROBE_BYTES, 0)));
   } catch (err) {
-    return err?.code !== 'ENOENT' && err?.code !== 'ENOTDIR';
+    return presentDespite(err);
   } finally {
     if (fd !== undefined) {
       try {
@@ -38,7 +41,7 @@ export async function fileHasDataAsync(path) {
     const { bytesRead } = await handle.read(head, 0, PROBE_BYTES, 0);
     return !holdsNoData(head.subarray(0, bytesRead));
   } catch (err) {
-    return err?.code !== 'ENOENT' && err?.code !== 'ENOTDIR';
+    return presentDespite(err);
   } finally {
     await handle?.close().catch(() => {});
   }

@@ -88,7 +88,7 @@ const copyPaths = (commonDir) => {
   const primary = join(commonDir, FILE);
   return [primary, `${primary}.management`];
 };
-const envMs = (name, fallback) => {
+export const envMs = (name, fallback) => {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
 };

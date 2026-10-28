@@ -280,7 +280,8 @@ export async function installEngine(
       }
     }
     try {
-      if (existsSync(finalDir) && !(await fileHasDataAsync(binFull))) rmSync(finalDir, { recursive: true, force: true });
+      if (existsSync(finalDir) && !(await fileHasDataAsync(binFull)))
+        rmSync(finalDir, { recursive: true, force: true });
       renameSync(stageDir, finalDir);
     } catch (error) {
       // A concurrent install won the race; its verified copy is equivalent.

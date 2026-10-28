@@ -33,7 +33,8 @@ const admissionPath = (repo) => join(repo, '.git', FILE);
 const mirrorPath = (repo) => join(repo, '.git', MIRROR);
 const lockPath = (repo) => `${admissionPath(repo)}.lock`;
 const sessionsIn = (text) => (text ? JSON.parse(text).leases.map((lease) => lease.sessionId ?? lease.kind) : []);
-const copySessions = (repo) => [admissionPath(repo), mirrorPath(repo)].map((path) => sessionsIn(readFileSync(path, 'utf8')));
+const copySessions = (repo) =>
+  [admissionPath(repo), mirrorPath(repo)].map((path) => sessionsIn(readFileSync(path, 'utf8')));
 const UNVERIFIED = { code: 'WORKTREE_BUSY_JOBS', details: { reason: 'workspace-admission-unreadable' } };
 
 async function until(condition, timeoutMs = 10_000) {
@@ -148,7 +149,8 @@ test('a lease acknowledged while an older publication is in flight survives its 
   );
   assert.match(probe.stdout, /acknowledged/, probe.stderr);
   assert.notEqual(probe.status, 0, 'the probe was killed');
-  for (const sessions of copySessions(repo)) assert.ok(sessions.includes('newer'), `a copy lost the lease: ${sessions}`);
+  for (const sessions of copySessions(repo))
+    assert.ok(sessions.includes('newer'), `a copy lost the lease: ${sessions}`);
   assert.equal(await independentManagement(repo), 'folder-in-use', 'management ran while the command was alive');
 });
 
@@ -186,8 +188,10 @@ test('a failed write of either copy never acknowledges a grant and never drops a
       const copies = copySessions(repo);
       for (const sessions of copies) {
         assert.ok(sessions.includes('prior'), `${where}: an acknowledged lease was dropped (${sessions})`);
-        if (olderOutcome.leave) assert.ok(sessions.includes('older'), `${where}: acknowledged 'older' is missing (${sessions})`);
-        if (newer.leave) assert.ok(sessions.includes('newer'), `${where}: acknowledged 'newer' is missing (${sessions})`);
+        if (olderOutcome.leave)
+          assert.ok(sessions.includes('older'), `${where}: acknowledged 'older' is missing (${sessions})`);
+        if (newer.leave)
+          assert.ok(sessions.includes('newer'), `${where}: acknowledged 'newer' is missing (${sessions})`);
       }
       await olderOutcome.leave?.();
       newer.leave?.();
@@ -310,7 +314,11 @@ test('a removal that did not land is retried by the heal tick and never comes ba
   setAdmissionFaults({ op: 'rename', file: MIRROR, hits: [true], action: 'fail', code: 'EIO' });
   await late();
   setAdmissionFaults();
-  assert.deepEqual(copySessions(repo), [['keep'], ['keep', 'late']], 'the mirror kept the lease its write failed to drop');
+  assert.deepEqual(
+    copySessions(repo),
+    [['keep'], ['keep', 'late']],
+    'the mirror kept the lease its write failed to drop'
+  );
   // No other request comes: the heal tick finishes the removal by itself.
   await until(() => !copySessions(repo)[1].includes('late'));
   const next = await tryAdmitWorkspaceActivityAsync('next', repo);

@@ -286,17 +286,19 @@ export async function resolveEngines({
   // One listing per PATH dir for the whole batch (the desktop's Code Tidy
   // status read at startup runs this on the host loop).
   const pathIndex = createPathIndex(env);
-  const resolved = await Promise.all(requested.map(async (id) => {
-    const entry = ENGINE_CATALOG[id];
-    const result = await resolveOne({ cwd, entry, config, env, manifest: loadedManifest, pluginData, pathIndex });
-    const configFile = projectConfigFileFor(cwd, entry);
-    if (configFile) result.configFile = configFile;
-    if (entry.requiresConfig && !configFile && result.source !== 'project-config') {
-      result.skipped = 'no project config for this engine';
-    }
-    if (entry.toolchain) result.toolchain = true;
-    return result;
-  }));
+  const resolved = await Promise.all(
+    requested.map(async (id) => {
+      const entry = ENGINE_CATALOG[id];
+      const result = await resolveOne({ cwd, entry, config, env, manifest: loadedManifest, pluginData, pathIndex });
+      const configFile = projectConfigFileFor(cwd, entry);
+      if (configFile) result.configFile = configFile;
+      if (entry.requiresConfig && !configFile && result.source !== 'project-config') {
+        result.skipped = 'no project config for this engine';
+      }
+      if (entry.toolchain) result.toolchain = true;
+      return result;
+    })
+  );
 
   // A project driving Prettier/ESLint from node_modules/.bin keeps them: Biome
   // stands down rather than reformatting against the project's own config.

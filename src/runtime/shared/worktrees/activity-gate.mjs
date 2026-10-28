@@ -22,14 +22,10 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { MessageChannel, receiveMessageOnPort, SHARE_ENV, Worker } from 'node:worker_threads';
 import { WorktreeError, worktreeRefusal } from './contract.mjs';
-import { LEDGER_SLOTS as SLOT } from './activity-ledger.mjs';
+import { envMs, LEDGER_SLOTS as SLOT } from './activity-ledger.mjs';
 
 export { isExternalCheckout } from './activity-ledger.mjs';
 
-const envMs = (name, fallback) => {
-  const value = Number(process.env[name]);
-  return Number.isFinite(value) && value > 0 ? value : fallback;
-};
 // The longest a synchronous caller (or the exit) waits for the admission
 // thread, the requests queued ahead of it included: each is bounded by the
 // ledger lock timeout and the atomic writes' rename retries.
@@ -39,7 +35,9 @@ const syncTimeoutMs = () => envMs('MIXDOG_ADMISSION_SYNC_TIMEOUT_MS', 60_000);
 const unknownOutcome = (details = {}) =>
   worktreeRefusal('workspace-admission-unreadable', { ...details, outcome: 'unknown' });
 const stoppedError = (posted) =>
-  posted ? unknownOutcome({ admission: 'stopped' }) : worktreeRefusal('workspace-admission-unreadable', { admission: 'stopped' });
+  posted
+    ? unknownOutcome({ admission: 'stopped' })
+    : worktreeRefusal('workspace-admission-unreadable', { admission: 'stopped' });
 
 let gate = null;
 
@@ -142,7 +140,11 @@ function callSync(op, args) {
   const deadline = Date.now() + syncTimeoutMs();
   for (;;) {
     const seen = Atomics.load(slots, SLOT.ANSWERED);
-    for (let received = receiveMessageOnPort(current.syncPort); received; received = receiveMessageOnPort(current.syncPort)) {
+    for (
+      let received = receiveMessageOnPort(current.syncPort);
+      received;
+      received = receiveMessageOnPort(current.syncPort)
+    ) {
       if (received.message.id !== id) continue;
       if (received.message.error) throw revive(received.message.error);
       return received.message.value;

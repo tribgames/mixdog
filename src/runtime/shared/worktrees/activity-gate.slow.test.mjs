@@ -465,7 +465,15 @@ test('a writer that takes the lock the instant a recovery releases it still wait
   // The writer that meets the damage stops right after releasing the ledger
   // lock: the instant another process can take it.
   setAdmissionFaults(
-    { op: 'unlink', file: `${FILE}.lock`, when: 'after', hits: [true], action: 'snapshot', report: released, files: [] },
+    {
+      op: 'unlink',
+      file: `${FILE}.lock`,
+      when: 'after',
+      hits: [true],
+      action: 'snapshot',
+      report: released,
+      files: [],
+    },
     { op: 'unlink', file: `${FILE}.lock`, when: 'after', hits: [true], action: 'delay', ms: 3000 }
   );
   const first = holdWorkspaceActivityAsync([repo]).then(
