@@ -170,7 +170,9 @@ export class OpenCodeGoProvider {
       const { OpenCodeGoGeminiEngine } = await import('./opencode-go-gemini.mjs');
       this.gemini = new OpenCodeGoGeminiEngine({
         ...this.config,
-        baseURL: this.openai.baseURL,
+        // The OAuth org config names the chat base `.../go/openai/v1`; the
+        // generateContent routes live under `.../go/v1` and 404 on it.
+        baseURL: String(this.openai.baseURL).replace(/\/openai\/v1$/i, '/v1'),
         extraHeaders: {
           ...GO_GATEWAY_PRESET.extraHeaders,
           ...(this.config.extraHeaders || {}),

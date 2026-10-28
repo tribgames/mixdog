@@ -42,6 +42,23 @@ test('OpenCode Go sends Gemini models to the gateway generateContent endpoint wi
   assert.equal(req.body.cachedContent, undefined);
 });
 
+test('OpenCode Go Gemini ignores the OAuth org config chat base (/openai/v1) and uses /v1', async () => {
+  const urls = [];
+  const fetchImpl = async (input) => {
+    urls.push(String(input?.url ?? input));
+    const chunk = { candidates: [{ content: { role: 'model', parts: [{ text: 'ok' }] }, finishReason: 'STOP' }] };
+    return new Response(`data: ${JSON.stringify(chunk)}\n\n`, { headers: { 'content-type': 'text/event-stream' } });
+  };
+  const provider = new OpenCodeGoProvider({
+    apiKey: 'tok',
+    preconnect: false,
+    fetchImpl,
+    baseURL: 'https://opencode.ai/inference/go/openai/v1',
+  });
+  await provider.send([{ role: 'user', content: 'hi' }], 'gemini-4-argon', [], { sessionId: 's1' });
+  assert.equal(urls[0], 'https://opencode.ai/inference/go/v1/models/gemini-4-argon:streamGenerateContent?alt=sse');
+});
+
 test('Chat content keeps cache_control only where the gateway documents it', () => {
   const content = [{ type: 'text', text: 'a', cache_control: { type: 'ephemeral' } }];
   const kept = toOpenAIMessages([{ role: 'user', content }], 'openrouter', { cacheControl: true });
