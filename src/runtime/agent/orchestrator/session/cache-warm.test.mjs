@@ -49,11 +49,13 @@ import {
   IDLE_RETURN_MEASURED_WINDOW_MS,
   cacheWarmTurnKind,
   endCacheWarmTurn,
+  forgetCacheWarm,
   noteCacheWarmActivity,
   noteCacheWarmTurn,
   planCacheWarm,
   rearmCacheWarmsAfterRestart,
   sessionReturnChance,
+  warmRewrote,
   wilsonLowerBound,
   writtenCacheTtlMs,
 } from './cache-warm.mjs';
@@ -1387,6 +1389,71 @@ test('the chain stops on a miss, a late timer, a turn in flight, a new request o
   h.settle();
   retireCompactionFork(h.session.id);
   assert.equal(cacheWarmChain(h.session.id), null, 'a compaction cancels the chain');
+});
+
+test('a warm that would reach the provider after the entry’s lifetime is not sent, whatever delayed it', async () => {
+  // The refresh point passed on time, but the lookups before dispatch ran past
+  // the entry's lifetime (counted from its last confirmed use).
+  let release;
+  let h = harness({ gate: new Promise((resolve) => (release = resolve)) });
+  h.settle();
+  let chain = cacheWarmChain(h.session.id);
+  await h.fire(chain.touchAt + 59 * MINUTE);
+  h.clock = chain.touchAt + HOUR;
+  release();
+  await flush();
+  assert.equal(h.prov.calls.length, 0, 'the entry expired before dispatch');
+  assert.equal(h.usage.length, 0, 'nothing billed');
+  assert.equal(cacheWarmChain(h.session.id), null);
+  assert.match(h.logs.at(-1), /expired before dispatch/);
+
+  // A 5-minute entry is held to its own lifetime, not the hour's.
+  h = harness({ minutes: [179, 179, 179] });
+  h.settle({
+    usage: { cachedTokens: 69_000, cacheWriteTokens: 1_000, cacheWrite1hTokens: 0 },
+    providerMetadata: HIT.providerMetadata,
+  });
+  chain = cacheWarmChain(h.session.id);
+  assert.equal(chain.ttlMs, 5 * MINUTE);
+  await h.fire(chain.touchAt + 5 * MINUTE);
+  assert.equal(h.prov.calls.length, 0, 'a 5m entry past 5 min is not warmed');
+  assert.equal(cacheWarmChain(h.session.id), null);
+});
+
+test('a warm that rewrites what it should have read ends the session’s chains until its prefix is dropped', async () => {
+  const h = harness({ reply: { cachedTokens: 15_000, cacheWriteTokens: 320_000, cacheWrite1hTokens: 320_000 } });
+  h.settle();
+  let chain = cacheWarmChain(h.session.id);
+  await h.fire(chain.touchAt + 59 * MINUTE);
+  assert.equal(h.prov.calls.length, 1);
+  assert.equal(cacheWarmChain(h.session.id), null, 'a small read with a large write is a miss: the chain ends');
+  assert.equal(h.timers.length, 0, 'no warm is scheduled for the next interval');
+  assert.equal(h.usage.length, 1, 'the missed warm is billed');
+
+  // The next real request does not arm a new chain that would miss again.
+  h.settle();
+  assert.equal(cacheWarmChain(h.session.id), null);
+  assert.equal(h.timers.length, 0);
+  assert.equal(h.touches.get(h.session.id), null, 'no durable touch for a restart to re-arm');
+
+  // Dropping the cached prefix (compaction, clear) starts afresh.
+  forgetCacheWarm(h.session.id);
+  h.settle();
+  chain = cacheWarmChain(h.session.id);
+  assert.ok(chain, 'armed again');
+});
+
+test('a warm that reads the prompt and writes only its growth is a hit: the chain goes on, the session is not suppressed', async () => {
+  const h = harness({ reply: { cachedTokens: 320_000, cacheWriteTokens: 1_000, cacheWrite1hTokens: 1_000 } });
+  h.settle();
+  const chain = cacheWarmChain(h.session.id);
+  await h.fire(chain.touchAt + 59 * MINUTE);
+  assert.equal(h.prov.calls.length, 1);
+  assert.ok(cacheWarmChain(h.session.id), 'the chain continues');
+  assert.equal(h.timers.length, 1, 'the next warm is scheduled');
+  assert.equal(warmRewrote({ cachedTokens: 320_000, cacheWriteTokens: 1_000 }), false);
+  assert.equal(warmRewrote({ cachedTokens: 15_000, cacheWriteTokens: 320_000 }), true);
+  assert.equal(warmRewrote({ cachedTokens: 0, cacheWriteTokens: 500 }), false, 'below the floor: no suppression');
 });
 
 test('a provider instance replaced in the registry stops the chain instead of replaying on the old one', async () => {

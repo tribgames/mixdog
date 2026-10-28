@@ -36,7 +36,11 @@
 // warm counts as cache use for the idle auto-clear (sessionActivityTimestamp
 // in idle-auto-clear-gate.mjs), so its deadline moves with each one.
 // Any fact the rule needs that is not known (written tier, prices, prompt
-// size, the account holding the entry) means no warm. The chain stops on a
+// size, the account holding the entry) means no warm. A warm never goes into
+// an entry past its lifetime (counted from the last confirmed read or write,
+// checked at the refresh point and again right before dispatch), and a
+// session whose warm missed inside the lifetime gets no further chain until
+// its cached prefix is dropped. The chain stops on a
 // miss, a failure, a late timer, a turn in flight, a new real request
 // (side-question-store.mjs cancels), a compaction, a clear, a close, or a
 // delete; the auto-clear then runs from the last real or successful warm
@@ -134,6 +138,26 @@ export function sessionReturnChance(gaps, elapsedMs, withinMs) {
   return { idle, returns, p: wilsonLowerBound(returns, idle) };
 }
 
+// A write below this many tokens is prompt growth, never a rewrite: 4096 is
+// the largest minimum cacheable prompt length of the supported models.
+export const CACHE_WARM_REWRITE_FLOOR_TOKENS = 4096;
+
+/** Whether a warm's `usage` shows a substantial rewrite with poor read
+ *  coverage: the write reaches the floor and the read covers less than half
+ *  of read + write. A read of most of the prompt plus the new tail is a hit. */
+export function warmRewrote(usage) {
+  const read = Number(usage?.cachedTokens) || 0;
+  const write = Number(usage?.cacheWriteTokens) || 0;
+  return write >= CACHE_WARM_REWRITE_FLOOR_TOKENS && read < write;
+}
+
+/** Whether an entry last used at `touchAt` and living `ttlMs` will have
+ *  expired by the time a warm sent at `now` reaches the provider (`latencyMs`
+ *  later): a warm into an expired entry rewrites the whole prompt. */
+export function cacheEntryLapsed(touchAt, ttlMs, now, latencyMs = null) {
+  return touchAt + ttlMs - now <= (Number(latencyMs) || 0);
+}
+
 /** When a warm goes out after the last cache use of an entry living `ttlMs`. */
 export function cacheWarmDelayMs(ttlMs) {
   return Math.max(1, ttlMs - CACHE_WARM_LEAD_MS);
@@ -223,7 +247,7 @@ export function planCacheWarm({ now, touchAt, ttlMs, lastCallAt, gaps, promptTok
   // fires at or after the refresh point, TTL − lead, so the lead itself cannot
   // be the floor; the chain's measured warm latency (none before the first
   // warm) is.
-  if (touchAt + ttlMs - now <= (Number(latencyMs) || 0)) return { stop: 'late timer' };
+  if (cacheEntryLapsed(touchAt, ttlMs, now, latencyMs)) return { stop: 'late timer' };
   const economics = cacheWarmEconomics(promptTokens, prices);
   if (!economics) return { stop: 'prompt size or cache prices unknown' };
   const interval = cacheWarmDelayMs(ttlMs);
@@ -374,6 +398,7 @@ setCacheWarmUseSource((sessionId) => (sessionId ? deps.touches().warmUse(session
 registerSessionPurgeHook((sessionId) => {
   cancelCacheWarm(sessionId);
   turns.delete(sessionId);
+  missedSessions.delete(sessionId);
   deps.touches().forget(sessionId);
   deps.touches().forgetWarmUse(sessionId);
   deps.gaps().forget(sessionId);
@@ -413,12 +438,20 @@ async function planFor(sessionId, chain, at) {
 /** Test seam: replace some dependencies; call with no argument to restore. */
 export function _setCacheWarmDepsForTest(overrides = null) {
   for (const sessionId of [...chains.keys()]) cancelCacheWarm(sessionId);
+  missedSessions.clear();
   deps = overrides ? { ...DEFAULT_DEPS, ...overrides } : DEFAULT_DEPS;
 }
 
 // sessionId -> the armed chain: { request, ttlMs, touchAt, promptTokens,
 // accountId, latencyMs, refreshAt, timer, controller }.
 const chains = new Map();
+
+// Sessions whose warm read little of what it rewrote while the entry was
+// still inside its lifetime: the warm does not match what the real requests
+// cache, so no later chain of the session is armed (each would rewrite the
+// prompt once more) until its cached prefix is dropped (forgetCacheWarm) or
+// the session is deleted.
+const missedSessions = new Set();
 
 /** The armed chain of `sessionId` (tests and diagnostics). */
 export function cacheWarmChain(sessionId) {
@@ -598,6 +631,7 @@ export function cancelCacheWarm(sessionId) {
 export function forgetCacheWarm(sessionId) {
   cancelCacheWarm(sessionId);
   if (!sessionId) return;
+  missedSessions.delete(sessionId);
   deps.touches().forget(sessionId);
   deps.touches().forgetWarmUse(sessionId);
 }
@@ -666,6 +700,10 @@ export function armCacheWarm(sessionId, request, response) {
     deps.gaps().open(sessionId, Number(request.sentAt));
   }
   if (!sessionId || !request || cacheWarmIneligibility(request)) return;
+  if (missedSessions.has(sessionId)) {
+    deps.touches().forget(sessionId);
+    return;
+  }
   const usage = response?.usage || {};
   const touchAt = Number(request.sentAt);
   const ttlMs = writtenCacheTtlMs(usage, request.opts.cacheStrategy);
@@ -760,7 +798,12 @@ async function fireWarm(sessionId, chain) {
   // Last check before dispatch, after the final await: a turn that began
   // during the lookups has the cache to itself.
   if (deps.turnInFlight(sessionId)) return stopChain(sessionId, chain, 'turn in flight');
+  // The lookups above took time: the entry must still live when the warm goes
+  // out, counted from its last confirmed read or write.
   const sentAt = deps.now();
+  if (cacheEntryLapsed(chain.touchAt, chain.ttlMs, sentAt, chain.latencyMs)) {
+    return stopChain(sessionId, chain, 'entry expired before dispatch');
+  }
   let usage = null;
   let reportedAt = null;
   let failure = null;
@@ -781,8 +824,11 @@ async function fireWarm(sessionId, chain) {
   }
   if (chains.get(sessionId) !== chain) return;
   if (failure) return stopChain(sessionId, chain, `warm failed: ${failure?.message || failure}`);
-  if (!(Number(usage?.cachedTokens) > 0) || Number(usage?.cacheWriteTokens) > 0) {
+  const read = Number(usage?.cachedTokens) || 0;
+  const rewrite = warmRewrote(usage);
+  if (!(read > 0) || rewrite) {
     deps.touches().forget(sessionId);
+    if (rewrite) missedSessions.add(sessionId);
     return stopChain(sessionId, chain, 'warm missed the cache');
   }
   chain.touchAt = sentAt;
