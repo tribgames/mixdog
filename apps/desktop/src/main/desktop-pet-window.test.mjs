@@ -1813,6 +1813,15 @@ test('pet IPC validation keeps only the narrow state and bounded inputs', () => 
   );
   assert.throws(() => requiredDesktopPetTheme({ scheme: 'sepia', vars: {} }));
   assert.throws(() => requiredDesktopPetTheme({ scheme: 'dark', vars: { '--mx-text': 'red; x: y' } }));
+  for (const code of [0x00, 0x09, 0x1f]) {
+    const value = `a${String.fromCharCode(code)}b`;
+    assert.throws(() => requiredDesktopPetTheme({ scheme: 'dark', vars: { '--mx-text': value } }), /invalid/);
+  }
+  assert.throws(() => requiredDesktopPetTheme({ scheme: 'dark', vars: { '--mx-text': 'a\\b' } }), /invalid/);
+  assert.deepEqual(requiredDesktopPetTheme({ scheme: 'dark', vars: { '--mx-text': 'a b\u007f\u00e9' } }), {
+    scheme: 'dark',
+    vars: { '--mx-text': 'a b\u007f\u00e9' },
+  });
   assert.equal(requiredDesktopPetCommand('keep-above'), 'keep-above');
   for (const command of ['settings', 'pin-here']) assert.equal(requiredDesktopPetCommand(command), command);
   assert.throws(() => requiredDesktopPetCommand('always-on-top'));

@@ -118,8 +118,8 @@ function withoutProcessFailureToast(toasts: readonly unknown[]): unknown[] {
   );
 }
 
-function abortError(signal: AbortSignal): Error {
-  return signal.reason instanceof Error ? signal.reason : new Error('Mixdog session request aborted.');
+function abortError(signal: AbortSignal | undefined): Error {
+  return signal?.reason instanceof Error ? signal.reason : new Error('Mixdog session request aborted.');
 }
 
 function responseError(error: { name: string; message: string; code?: string; details?: unknown }): Error {
@@ -694,7 +694,7 @@ export class DesktopServiceClient implements DesktopService {
       const onAbort = () => {
         clearTimeout(timer);
         this.pending.delete(id);
-        reject(abortError(signal!));
+        reject(abortError(signal));
       };
       const settled = () => signal?.removeEventListener('abort', onAbort);
       const timer = setTimeout(() => {

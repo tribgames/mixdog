@@ -95,7 +95,10 @@ function loadShellJobProbe() {
   return shellJobProbe;
 }
 
-const isConfirmedGone = (job, isRunning) => (job.outcome ? job.terminated : isRunning ? !isRunning(job.taskId) : false);
+function isConfirmedGone(job, isRunning) {
+  if (job.outcome) return job.terminated;
+  return Boolean(isRunning) && !isRunning(job.taskId);
+}
 
 function reap(id, entry) {
   loadShellJobProbe();

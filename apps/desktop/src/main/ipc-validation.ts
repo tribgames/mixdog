@@ -1416,7 +1416,8 @@ function validateCredentialCapabilityArgs(capability: DesktopCapability, args: r
     }
     if (options.projectId !== undefined && options.projectId !== '') {
       requiredString(options.projectId, 'Vertex AI project ID', 128);
-      if (!/^[a-zA-Z0-9._:-]+$/.test(String(options.projectId))) throw new TypeError('Vertex AI project ID is invalid.');
+      if (!/^[a-zA-Z0-9._:-]+$/.test(String(options.projectId)))
+        throw new TypeError('Vertex AI project ID is invalid.');
     }
   }
   if (
@@ -2400,7 +2401,8 @@ export function requiredDesktopPetTheme(value: unknown): DesktopPetTheme {
     if (
       typeof entry !== 'string' ||
       entry.length > PET_THEME_VALUE_MAX ||
-      /[;{}<>\\\u0000-\u001f]/.test(entry) ||
+      /[;{}<>\\]/.test(entry) ||
+      [...entry].some((char) => char.charCodeAt(0) <= 0x1f) ||
       /url\s*\(/i.test(entry)
     ) {
       throw new TypeError(`pet theme value ${name} is invalid.`);

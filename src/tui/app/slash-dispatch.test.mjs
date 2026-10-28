@@ -132,7 +132,13 @@ test('/btw with no question shows the usage hint and sends no request', async ()
 test('/btw asks the side question while a turn is running and shows the answer', async () => {
   const h = createHarness({
     state: { busy: true },
-    store: { askSide: async (q) => (h.calls.push(['askSide', q]), { text: 'because' }), cancelSide: () => {} },
+    store: {
+      askSide: async (q) => {
+        h.calls.push(['askSide', q]);
+        return { text: 'because' };
+      },
+      cancelSide: () => {},
+    },
   });
   assert.equal(h.runSlashCommand('btw', 'why?'), true);
   await flush();
@@ -228,7 +234,10 @@ test('disposing the controller (unmount) cancels a pending /btw without touching
 test('a new /btw replaces a pending one and cancels it first', async () => {
   const h = createHarness({
     store: {
-      askSide: (q) => (h.calls.push(['askSide', q]), new Promise(() => {})),
+      askSide: (q) => {
+        h.calls.push(['askSide', q]);
+        return new Promise(() => {});
+      },
       cancelSide: () => h.calls.push(['cancelSide']),
     },
   });
@@ -242,7 +251,10 @@ test('a new /btw replaces a pending one and cancels it first', async () => {
 test('/btw followed immediately by close sends no request and no cancel', async () => {
   const h = createHarness({
     store: {
-      askSide: (q) => (h.calls.push(['askSide', q]), new Promise(() => {})),
+      askSide: (q) => {
+        h.calls.push(['askSide', q]);
+        return new Promise(() => {});
+      },
       cancelSide: (sessionId) => h.calls.push(['cancelSide', sessionId]),
     },
   });
@@ -256,7 +268,10 @@ test('/btw followed immediately by close sends no request and no cancel', async 
 test('/btw replaced before dispatch sends only the newest question', async () => {
   const h = createHarness({
     store: {
-      askSide: (q) => (h.calls.push(['askSide', q]), new Promise(() => {})),
+      askSide: (q) => {
+        h.calls.push(['askSide', q]);
+        return new Promise(() => {});
+      },
       cancelSide: (sessionId) => h.calls.push(['cancelSide', sessionId]),
     },
   });
@@ -269,7 +284,10 @@ test('/btw replaced before dispatch sends only the newest question', async () =>
 test('/btw followed immediately by a session switch never sends through the new session', async () => {
   const h = createHarness({
     store: {
-      askSide: (q) => (h.calls.push(['askSide', q]), new Promise(() => {})),
+      askSide: (q) => {
+        h.calls.push(['askSide', q]);
+        return new Promise(() => {});
+      },
       cancelSide: (sessionId) => h.calls.push(['cancelSide', sessionId]),
     },
   });
@@ -283,7 +301,13 @@ test('/btw followed immediately by a session switch never sends through the new 
 
 test('/btw session switch without sync still drops the undispatched request', async () => {
   const h = createHarness({
-    store: { askSide: (q) => (h.calls.push(['askSide', q]), { text: 'x' }), cancelSide: () => {} },
+    store: {
+      askSide: (q) => {
+        h.calls.push(['askSide', q]);
+        return { text: 'x' };
+      },
+      cancelSide: () => {},
+    },
   });
   h.runSlashCommand('btw', 'one');
   h.session.id = 's2';

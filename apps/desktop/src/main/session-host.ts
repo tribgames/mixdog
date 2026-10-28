@@ -534,7 +534,7 @@ export class SessionHost implements DesktopService {
       return { projectPath: await this.projects.knownPath(path), worktree: null };
     } catch (error) {
       const worktree = await resolveManagedWorktree(
-        this.runtime.loadWorktrees ? () => this.runtime.loadWorktrees!() : undefined,
+        this.runtime.loadWorktrees?.bind(this.runtime),
         (projectPath) => this.projects.knownPath(projectPath),
         path
       );

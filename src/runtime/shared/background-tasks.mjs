@@ -310,7 +310,9 @@ export function cleanupBackgroundTasks(options = {}) {
 function cancelRunningTask(task, reason, notify, terminalReason = null) {
   try {
     task.cancel?.();
-  } catch {}
+  } catch {
+    // A failing cancel hook must not stop the task from being marked cancelled.
+  }
   completeBackgroundTask(task.taskId, { status: 'cancelled', error: reason, notify: notify === true, terminalReason });
   if (task.notifyOnCancel !== true || notify === true || task.status !== 'cancelled' || task.cancelNotify) return;
   if (notify === false) {
@@ -418,13 +420,17 @@ function resultTextForTask(task) {
         // fallback below so the completion notification still carries a body.
         try {
           process.stderr.write(`[background-${task.surface}] renderResult failed: ${err?.message || err}\n`);
-        } catch {}
+        } catch {
+          // A closed stderr must not lose the completion body.
+        }
       }
     }
     if (typeof task.result === 'string') return task.result;
     try {
       return JSON.stringify(task.result, null, 2);
-    } catch {}
+    } catch {
+      // Unserializable result (circular, BigInt): fall back to the empty body.
+    }
   }
   return '';
 }

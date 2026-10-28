@@ -151,7 +151,9 @@ async function runAskTurn({ sessionId, opened, input, askOpts, onToolCall, cwdOv
     // own outcome.
     try {
       await releaseWorkspace?.();
-    } catch {}
+    } catch {
+      // Intentionally ignored: see the comment above.
+    }
   }
 }
 
