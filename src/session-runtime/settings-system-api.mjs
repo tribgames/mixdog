@@ -57,7 +57,7 @@ export function createSystemSettings({
     },
     getHeartbeatSettings() {
       return {
-        heartbeat: getConfig()?.heartbeat !== false,
+        heartbeat: getConfig()?.heartbeat === true,
         intervalMinutes: normalizeHeartbeatIntervalMinutes(getConfig()?.heartbeatIntervalMinutes),
       };
     },

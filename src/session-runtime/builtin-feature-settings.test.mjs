@@ -108,12 +108,12 @@ test('AI session titles default on, persist the top-level key and report the sam
   assert.equal(state.config().aiSessionTitles, true);
 });
 
-test('cache warming is one switch, default on', () => {
+test('cache warming is one switch, default off', () => {
   const state = fixture();
-  assert.deepEqual(state.api.getCacheWarmingSettings(), { enabled: true });
-  assert.deepEqual(state.api.setCacheWarmingEnabled(false), { enabled: false });
-  assert.equal(state.config().promptCacheWarming, false);
+  assert.deepEqual(state.api.getCacheWarmingSettings(), { enabled: false });
   assert.deepEqual(state.api.setCacheWarmingEnabled(true), { enabled: true });
+  assert.equal(state.config().promptCacheWarming, true);
+  assert.deepEqual(state.api.setCacheWarmingEnabled(false), { enabled: false });
   assert.throws(() => state.api.setCacheWarmingEnabled(['scheduled']), /on or off/);
 });
 

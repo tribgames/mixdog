@@ -89,47 +89,50 @@ test('the heartbeat setting end to end over the real config file: setup, stored 
     // Another stored setting must survive every toggle.
     saveConfig({ ...loadConfig({ secrets: false }), profile: { title: 'Kept', language: 'ko' } });
 
-    // Default: on, nothing stored.
-    assert.equal(loadConfig({ secrets: false }).heartbeat, true);
-    assert.equal(Object.hasOwn(stored(), 'heartbeat'), false);
-    assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: true, intervalMinutes: 60 });
-    assert.deepEqual(await features(), { enabled: true, intervalMinutes: 60 });
-    assert.equal(await heartbeat.tick(), 'armed');
-    clock += 2 * HOUR;
-
-    // Off through the setup tool.
-    const off = await setup({ action: 'set_heartbeat_enabled', enabled: false });
-    assert.equal(off.heartbeat, false);
-    assert.equal(stored().heartbeat, false, 'only the opt-out is stored');
+    // Default: off, nothing stored.
     assert.equal(loadConfig({ secrets: false }).heartbeat, false);
-    assert.deepEqual(await features(), { enabled: false, intervalMinutes: 60 });
+    assert.equal(Object.hasOwn(stored(), 'heartbeat'), false);
     assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: false, intervalMinutes: 60 });
-    assert.equal(stored().profile.title, 'Kept');
+    assert.deepEqual(await features(), { enabled: false, intervalMinutes: 60 });
     for (let step = 0; step < 6; step += 1) {
       clock += 2 * HOUR;
       assert.equal(await heartbeat.tick(), 'off');
     }
     assert.deepEqual(calls, { collect: 0, decide: 0, wake: 0 }, 'off: nothing is collected, asked or woken');
 
-    // A refused value changes nothing.
-    await assert.rejects(setup({ action: 'set_heartbeat_enabled', enabled: 'no' }), /boolean/);
-    await assert.rejects(setup({ action: 'set_heartbeat_enabled' }), /enabled is required/);
-    assert.equal(stored().heartbeat, false);
-
-    // On again: the key is gone, the check runs at its next tick.
+    // On through the setup tool.
     const on = await setup({ action: 'set_heartbeat_enabled', enabled: true });
     assert.equal(on.heartbeat, true);
-    assert.equal(Object.hasOwn(stored(), 'heartbeat'), false, 'turning it on removes the stored key');
+    assert.equal(stored().heartbeat, true, 'only the opt-in is stored');
+    assert.equal(loadConfig({ secrets: false }).heartbeat, true);
     assert.deepEqual(await features(), { enabled: true, intervalMinutes: 60 });
     assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: true, intervalMinutes: 60 });
     assert.equal(stored().profile.title, 'Kept');
+    assert.equal(await heartbeat.tick(), 'armed');
+    clock += 2 * HOUR;
     assert.equal(await heartbeat.tick(), 'nothing');
+    assert.deepEqual(calls, { collect: 1, decide: 1, wake: 0 });
+
+    // A refused value changes nothing.
+    await assert.rejects(setup({ action: 'set_heartbeat_enabled', enabled: 'no' }), /boolean/);
+    await assert.rejects(setup({ action: 'set_heartbeat_enabled' }), /enabled is required/);
+    assert.equal(stored().heartbeat, true);
+
+    // Off again: the key is gone, and the check stops.
+    const off = await setup({ action: 'set_heartbeat_enabled', enabled: false });
+    assert.equal(off.heartbeat, false);
+    assert.equal(Object.hasOwn(stored(), 'heartbeat'), false, 'turning it off removes the stored key');
+    assert.deepEqual(await features(), { enabled: false, intervalMinutes: 60 });
+    assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: false, intervalMinutes: 60 });
+    assert.equal(stored().profile.title, 'Kept');
+    clock += 2 * HOUR;
+    assert.equal(await heartbeat.tick(), 'off');
     assert.deepEqual(calls, { collect: 1, decide: 1, wake: 0 });
     `
   );
 });
 
-test('the session surface forwards the heartbeat setting, and reads on when the runtime does not know it', async () => {
+test('the session surface forwards the heartbeat setting, and reads off when the runtime does not know it', async () => {
   let config = {};
   const settings = createSettingsApi({
     getConfig: () => config,
@@ -152,7 +155,9 @@ test('the session surface forwards the heartbeat setting, and reads on when the 
       }
     );
   const api = createSessionApi(bag(settings));
-  assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: true, intervalMinutes: 60 });
+  assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: false, intervalMinutes: 60 });
+  assert.deepEqual(await api.setHeartbeatEnabled(true), { heartbeat: true, intervalMinutes: 60 });
+  assert.equal(config.heartbeat, true);
   assert.deepEqual(await api.setHeartbeatEnabled(false), { heartbeat: false, intervalMinutes: 60 });
   assert.equal(config.heartbeat, false);
   assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: false, intervalMinutes: 60 });
@@ -160,8 +165,8 @@ test('the session surface forwards the heartbeat setting, and reads on when the 
   assert.deepEqual(api.getHeartbeatSettings(), { heartbeat: true, intervalMinutes: 60 });
   // Only a literal true turns it on: the setter never guesses from a truthy value.
   assert.deepEqual(settings.setHeartbeatEnabled('yes'), { heartbeat: false, intervalMinutes: 60 });
-  // A runtime without the setting reads as on.
-  assert.deepEqual(createSessionApi(bag({})).getHeartbeatSettings(), { heartbeat: true, intervalMinutes: 60 });
+  // A runtime without the setting reads as off.
+  assert.deepEqual(createSessionApi(bag({})).getHeartbeatSettings(), { heartbeat: false, intervalMinutes: 60 });
 });
 
 // In its own process: noteUserTurn moves a process-wide time that only grows.

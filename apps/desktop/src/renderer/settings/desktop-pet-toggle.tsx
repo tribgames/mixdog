@@ -138,7 +138,7 @@ export function BotsPanel({ data, pending, run }: PanelContext) {
           description={t(
             'Regularly checks your bots and sessions and lets you know only when something needs attention.'
           )}
-          checked={record(data.heartbeat).heartbeat !== false}
+          checked={record(data.heartbeat).heartbeat === true}
           disabled={busy}
           onChange={(enabled) => void run('setHeartbeatEnabled', [enabled])}
         />

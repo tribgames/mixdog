@@ -104,7 +104,7 @@ test('auto-clear idle windows name a custom provider by its registered name, bui
 const warmSwitch = () =>
   document.querySelector('input[type="checkbox"][aria-label="Keep the Anthropic prompt cache warm"]');
 
-test('cache warming: one switch, on by default, with the learning note; saves on/off', async () => {
+test('cache warming: one switch, off by default, with the learning note; saves on/off', async () => {
   const calls = [];
   const run = async (capability, args) => {
     calls.push([capability, args]);
@@ -113,17 +113,17 @@ test('cache warming: one switch, on by default, with the learning note; saves on
   let view = await renderContext({}, run);
   try {
     assert.ok(warmSwitch());
-    assert.equal(warmSwitch().checked, true, 'absent setting: on');
+    assert.equal(warmSwitch().checked, false, 'absent setting: off');
     assert.match(document.body.textContent, /Learns from each conversation’s own return times/);
     assert.equal(document.querySelectorAll('input[type="checkbox"][aria-label$="(idle)"]').length, 0, 'no target list');
     await act(async () => warmSwitch().click());
-    assert.deepEqual(calls, [['setCacheWarmingEnabled', [false]]]);
+    assert.deepEqual(calls, [['setCacheWarmingEnabled', [true]]]);
   } finally {
     await view.cleanup();
   }
-  view = await renderContext({}, run, { cacheWarming: { enabled: false } });
+  view = await renderContext({}, run, { cacheWarming: { enabled: true } });
   try {
-    assert.equal(warmSwitch().checked, false, 'saved off');
+    assert.equal(warmSwitch().checked, true, 'saved on');
   } finally {
     await view.cleanup();
   }

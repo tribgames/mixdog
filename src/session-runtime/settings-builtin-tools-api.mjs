@@ -100,7 +100,7 @@ export function createBuiltinToolSettings(
     // default on. The warmer reads the saved value at each
     // warm, so a change applies without a restart.
     getCacheWarmingSettings() {
-      return { enabled: getConfig()?.promptCacheWarming !== false };
+      return { enabled: getConfig()?.promptCacheWarming === true };
     },
     setCacheWarmingEnabled(enabled) {
       if (typeof enabled !== 'boolean') throw new TypeError('cache warming must be on or off (a boolean)');

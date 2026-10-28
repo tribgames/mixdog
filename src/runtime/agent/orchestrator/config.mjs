@@ -303,13 +303,13 @@ export function loadConfig(options = {}) {
         recap: recapConfig,
         // The model may title the session (session tool, action=rename); default on.
         aiSessionTitles: raw.aiSessionTitles !== false,
-        // Mixy's heartbeat check (session-runtime/mixy-heartbeat.mjs); default on.
-        heartbeat: raw.heartbeat !== false,
+        // Mixy's heartbeat check (session-runtime/mixy-heartbeat.mjs); default off.
+        heartbeat: raw.heartbeat === true,
         // Minutes between its checks, one of a fixed set (shared/heartbeat-interval.mjs);
         // anything else reads as the default.
         heartbeatIntervalMinutes: normalizeHeartbeatIntervalMinutes(raw.heartbeatIntervalMinutes),
-        // Prompt-cache warming (session/cache-warm.mjs); default on.
-        promptCacheWarming: raw?.promptCacheWarming !== false,
+        // Prompt-cache warming (session/cache-warm.mjs); default off.
+        promptCacheWarming: raw?.promptCacheWarming === true,
         // Bots may leave an emoji reaction on the user's message (react tool); default on.
         reactions: raw.reactions !== false,
         // Bots page layout (order, hidden groups, pins, retention) and the shared
@@ -364,7 +364,7 @@ export function loadConfig(options = {}) {
     shell: {},
     update: {},
     recap: { enabled: true },
-    promptCacheWarming: true,
+    promptCacheWarming: false,
     worktree: normalizeWorktreeSettings(null),
     developer: {},
     modules: {},
@@ -494,7 +494,8 @@ function buildAgentSaveBuilder(config) {
     // Default true lives in code: only the opt-out is stored.
     if (config.aiSessionTitles === false) next.aiSessionTitles = false;
     else delete next.aiSessionTitles;
-    if (config.heartbeat === false) next.heartbeat = false;
+    // Default off lives in code: only the opt-in is stored.
+    if (config.heartbeat === true) next.heartbeat = true;
     else delete next.heartbeat;
     // Only a non-default choice is stored.
     const heartbeatMinutes = normalizeHeartbeatIntervalMinutes(config.heartbeatIntervalMinutes);
@@ -502,7 +503,7 @@ function buildAgentSaveBuilder(config) {
     else delete next.heartbeatIntervalMinutes;
     if (config.reactions === false) next.reactions = false;
     else delete next.reactions;
-    if (config.promptCacheWarming === false) next.promptCacheWarming = false;
+    if (config.promptCacheWarming === true) next.promptCacheWarming = true;
     else delete next.promptCacheWarming;
     if (Array.isArray(config.botOrder) && config.botOrder.length) next.botOrder = [...config.botOrder];
     else delete next.botOrder;

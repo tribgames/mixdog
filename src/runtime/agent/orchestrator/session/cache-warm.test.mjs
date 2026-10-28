@@ -400,8 +400,9 @@ test('plan: fails closed on an unknown fact, a late timer, or the learned window
   assert.match(planCacheWarm({ ...base, touchAt: 11 * HOUR + 1, now: 11 * HOUR + 1 + I }).stop, /learned window/);
 });
 
-test('the switch: on by default', () => {
-  assert.equal(cacheWarmingEnabled({}), true);
+test('the switch: off by default', () => {
+  assert.equal(cacheWarmingEnabled({}), false);
+  assert.equal(cacheWarmingEnabled({ promptCacheWarming: true }), true);
   assert.equal(cacheWarmingEnabled({ promptCacheWarming: false }), false);
 });
 

@@ -27,7 +27,7 @@ export function HeartbeatSwitch({ api, active }: { api: HeartbeatSwitchApi | und
       api
         .invokeCapability?.({ capability: 'getHeartbeatSettings', args: [] })
         .then((result) => {
-          if (live && mine === reads.current) setEnabled(record(record(result).value).heartbeat !== false);
+          if (live && mine === reads.current) setEnabled(record(record(result).value).heartbeat === true);
         })
         .catch((reason: unknown) => {
           if (live && mine === reads.current) setError(errorMessageText(reason));

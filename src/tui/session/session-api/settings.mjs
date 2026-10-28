@@ -113,13 +113,13 @@ export function createSessionSettingsApi(bag) {
       return await runtime.setAiSessionTitles?.(enabled);
     }),
     getCacheWarmingSettings: () => {
-      return runtime.getCacheWarmingSettings?.() || { enabled: true };
+      return runtime.getCacheWarmingSettings?.() || { enabled: false };
     },
     setCacheWarmingEnabled: withCommandLock(async (enabled) => {
       return await runtime.setCacheWarmingEnabled?.(enabled);
     }),
     getHeartbeatSettings: () => {
-      return runtime.getHeartbeatSettings?.() || { heartbeat: true, intervalMinutes: 60 };
+      return runtime.getHeartbeatSettings?.() || { heartbeat: false, intervalMinutes: 60 };
     },
     setHeartbeatEnabled: withCommandLock(async (enabled) => {
       return await runtime.setHeartbeatEnabled?.(enabled);

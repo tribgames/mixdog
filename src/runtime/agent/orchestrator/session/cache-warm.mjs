@@ -1,6 +1,6 @@
 // cache-warm.mjs — keeps a session's prompt cache readable for its next turn
 // — every session, Lead, bot or sub-agent, while warming is on
-// (`promptCacheWarming`, default on) — one interval at a time while the
+// (`promptCacheWarming`, default off) — one interval at a time while the
 // session idles, as far as the session's own history of returns says it
 // pays. A warm re-sends the session's last real request
 // (side-question-store.mjs) through the provider's cache-warm mode
@@ -97,9 +97,9 @@ export const IDLE_RETURN_LOOKBACK_MS = 7 * 24 * 60 * 60 * 1000;
 const WILSON_Z_95 = 1.959963984540054;
 
 /** Whether prompt-cache warming is on (config `promptCacheWarming`, default
- *  on; config.mjs migrates the earlier target list). */
+ *  off; config.mjs migrates the earlier target list). */
 export function cacheWarmingEnabled(config) {
-  return config?.promptCacheWarming !== false;
+  return config?.promptCacheWarming === true;
 }
 
 /** The lower bound of the 95% Wilson score interval of `hits` in `n`

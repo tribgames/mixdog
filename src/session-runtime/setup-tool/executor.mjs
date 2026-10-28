@@ -364,7 +364,7 @@ async function featureStatus(rt, getConfig) {
     computer: { active: builtinFeatureActive(config, 'computer') },
     terminal: { active: builtinFeatureActive(config, 'terminal') },
     heartbeat: {
-      enabled: config?.heartbeat !== false,
+      enabled: config?.heartbeat === true,
       intervalMinutes: normalizeHeartbeatIntervalMinutes(config?.heartbeatIntervalMinutes),
     },
     reactions: { enabled: config?.reactions !== false },

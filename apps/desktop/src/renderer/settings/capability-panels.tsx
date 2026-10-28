@@ -440,7 +440,7 @@ function ContextPanel({ data, pending, run }: PanelContext) {
           onChange={(summaryMode) => void run('setCompactionSettings', [{ summaryMode }])}
         />
       </Group>
-      <CacheWarmingGroup enabled={cacheWarming.enabled !== false} busy={busy} run={run} />
+      <CacheWarmingGroup enabled={cacheWarming.enabled === true} busy={busy} run={run} />
       <Group
         title={t('Idle session cleanup')}
         description={t(

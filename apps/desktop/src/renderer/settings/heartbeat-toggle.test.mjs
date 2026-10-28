@@ -53,12 +53,12 @@ test('the Regular check-ins switch reads data.heartbeat.heartbeat (from getHeart
   assert.equal(runs.length, 2);
 });
 
-test('the switch reads on before the setting has loaded, and cannot be flipped while another write is pending', async (t) => {
+test('the switch reads off before the setting has loaded, and cannot be flipped while another write is pending', async (t) => {
   const { render, toggle, runs } = mount(t);
   await render({});
-  assert.equal(toggle().checked, true, 'the default is on');
-  await render({ heartbeat: { heartbeat: false } }, 'setRecapEnabled');
-  assert.equal(toggle().checked, false);
+  assert.equal(toggle().checked, false, 'the default is off');
+  await render({ heartbeat: { heartbeat: true } }, 'setRecapEnabled');
+  assert.equal(toggle().checked, true);
   assert.equal(toggle().disabled, true);
   await act(async () => toggle().click());
   assert.deepEqual(runs, []);

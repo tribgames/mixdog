@@ -635,7 +635,7 @@ export function createMixyHeartbeat({
   now = Date.now,
   path = defaultStatePath(),
   isEnabled = async () =>
-    (await import('../runtime/agent/orchestrator/config.mjs')).loadConfig({ secrets: false }).heartbeat !== false,
+    (await import('../runtime/agent/orchestrator/config.mjs')).loadConfig({ secrets: false }).heartbeat === true,
   // Whether the representative bot exists (mixy-presence.mjs, the rule the
   // desktop and her routines follow): without it no check runs at all.
   mixyExists = async () => (await import('./routine-owner.mjs')).readMixyExists(),
