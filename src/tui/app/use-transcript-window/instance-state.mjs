@@ -65,6 +65,10 @@ export function useTranscriptInstanceState({ sessionKey, scrollOffset, setScroll
     followingRef.current = true;
     selectionLayoutRef.current = null;
   }
+  // Runs on a session switch only: normalizedSessionKey is the trigger, and
+  // scrollOffset is read (not tracked) so scrolling never re-runs the reset.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(normalizedSessionKey): session-switch trigger
+  // biome-ignore lint/correctness/useExhaustiveDependencies(scrollOffset): read at switch time only
   useLayoutEffect(() => {
     if (scrollOffset !== 0) setScrollOffset(0);
   }, [normalizedSessionKey, setScrollOffset]);

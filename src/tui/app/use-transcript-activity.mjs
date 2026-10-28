@@ -105,38 +105,53 @@ export function useTranscriptActivity({ state }) {
   // StatusLine only reads a small stats subset; engine clones the full stats
   // object on many updates. Memoize by field value so identical usage keeps
   // the same object reference and React.memo / effect deps stay quiet.
-  const statuslineStats = useMemo(() => {
-    const s = state.stats || {};
-    return {
-      currentContextSource: s.currentContextSource ?? null,
-      currentEstimatedContextTokens: s.currentEstimatedContextTokens ?? 0,
-      currentContextTokens: s.currentContextTokens ?? null,
-      contextTokens: s.contextTokens ?? 0,
-      latestPromptTokens: s.latestPromptTokens ?? 0,
-      latestInputTokens: s.latestInputTokens ?? 0,
-      latestCachedTokens: s.latestCachedTokens ?? 0,
-      latestCacheWriteTokens: s.latestCacheWriteTokens ?? 0,
-      inputTokens: s.inputTokens ?? 0,
-      cachedTokens: s.cachedTokens ?? 0,
-      cacheWriteTokens: s.cacheWriteTokens ?? 0,
-      promptTokens: s.promptTokens ?? 0,
-      turns: s.turns ?? 0,
-    };
-  }, [
-    state.stats?.currentContextSource,
-    state.stats?.currentEstimatedContextTokens,
-    state.stats?.currentContextTokens,
-    state.stats?.contextTokens,
-    state.stats?.latestPromptTokens,
-    state.stats?.latestInputTokens,
-    state.stats?.latestCachedTokens,
-    state.stats?.latestCacheWriteTokens,
-    state.stats?.inputTokens,
-    state.stats?.cachedTokens,
-    state.stats?.cacheWriteTokens,
-    state.stats?.promptTokens,
-    state.stats?.turns,
-  ]);
+  const {
+    currentContextSource,
+    currentEstimatedContextTokens,
+    currentContextTokens,
+    contextTokens,
+    latestPromptTokens,
+    latestInputTokens,
+    latestCachedTokens,
+    latestCacheWriteTokens,
+    inputTokens,
+    cachedTokens,
+    cacheWriteTokens,
+    promptTokens,
+    turns,
+  } = state.stats || {};
+  const statuslineStats = useMemo(
+    () => ({
+      currentContextSource: currentContextSource ?? null,
+      currentEstimatedContextTokens: currentEstimatedContextTokens ?? 0,
+      currentContextTokens: currentContextTokens ?? null,
+      contextTokens: contextTokens ?? 0,
+      latestPromptTokens: latestPromptTokens ?? 0,
+      latestInputTokens: latestInputTokens ?? 0,
+      latestCachedTokens: latestCachedTokens ?? 0,
+      latestCacheWriteTokens: latestCacheWriteTokens ?? 0,
+      inputTokens: inputTokens ?? 0,
+      cachedTokens: cachedTokens ?? 0,
+      cacheWriteTokens: cacheWriteTokens ?? 0,
+      promptTokens: promptTokens ?? 0,
+      turns: turns ?? 0,
+    }),
+    [
+      currentContextSource,
+      currentEstimatedContextTokens,
+      currentContextTokens,
+      contextTokens,
+      latestPromptTokens,
+      latestInputTokens,
+      latestCachedTokens,
+      latestCacheWriteTokens,
+      inputTokens,
+      cachedTokens,
+      cacheWriteTokens,
+      promptTokens,
+      turns,
+    ]
+  );
 
   return { agentRevision, activeTools, statuslineStats };
 }

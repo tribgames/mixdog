@@ -20,10 +20,12 @@ export function useWorkflowTabCycle({
   // async switch and pushes a toast, producing a rapid bottom-layout repaint
   // storm that can visually tear the prompt box in Windows Terminal.
   const workflowTabCycleRef = useRef({ pending: false, lastAt: 0 });
+  // The cycle reads only these two state fields.
+  const { commandBusy, workflow } = state;
   return useCallback(() => {
     if (slashPaletteOpen || toolApproval || picker || settingsPrompt || providerPrompt || contextPanel || usagePanel)
       return true;
-    return cycleWorkflow({ store, state, cycleGuard: workflowTabCycleRef.current });
+    return cycleWorkflow({ store, state: { commandBusy, workflow }, cycleGuard: workflowTabCycleRef.current });
   }, [
     slashPaletteOpen,
     toolApproval,
@@ -32,8 +34,8 @@ export function useWorkflowTabCycle({
     providerPrompt,
     contextPanel,
     usagePanel,
-    state.commandBusy,
-    state.workflow,
+    commandBusy,
+    workflow,
     store,
   ]);
 }

@@ -53,7 +53,7 @@ export function usePromptQueueHistory({
         exit();
       });
     }, 60);
-  }, [store, exit]);
+  }, [store, exit, exitRequestedRef, setExiting]);
 
   const restoreQueuedToPrompt = useCallback(
     (options = {}) =>
@@ -74,6 +74,7 @@ export function usePromptQueueHistory({
       store,
       state?.queued,
       promptDraft,
+      promptValueRef,
       showPromptHint,
       clearPromptHint,
       installPastedImages,
@@ -94,7 +95,7 @@ export function usePromptQueueHistory({
 
   const resetPromptHistoryNav = useCallback(() => {
     promptHistoryNavRef.current = { active: false, index: -1, seed: '', lastValue: '' };
-  }, []);
+  }, [promptHistoryNavRef]);
 
   return { requestExit, restoreQueuedToPrompt, recentPromptHistory, resetPromptHistoryNav };
 }

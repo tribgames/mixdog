@@ -21,11 +21,11 @@ export function usePromptLayoutRows({
       const nextRows = promptContentRows(text, promptContentColumns);
       setPromptLayoutRows((prev) => (prev === nextRows ? prev : nextRows));
     },
-    [promptContentColumns]
+    [promptContentColumns, promptLayoutValueRef, setPromptLayoutRows]
   );
   useEffect(() => {
     syncPromptLayoutRows(promptLayoutValueRef.current);
-  }, [syncPromptLayoutRows]);
+  }, [syncPromptLayoutRows, promptLayoutValueRef]);
   useEffect(() => {
     const kind = String(settingsPrompt?.kind || '');
     if (!CORE_MULTILINE_TEXT_ENTRY_KINDS.has(kind)) {
@@ -34,6 +34,6 @@ export function usePromptLayoutRows({
     }
     const cols = Math.max(1, frameColumns - 4 - stringWidth('Sentence > '));
     setTextEntryLayoutRows(textEntryReservedRows(settingsPrompt?.initialValue, cols, 8));
-  }, [settingsPrompt?.kind, settingsPrompt?.initialValue, frameColumns]);
+  }, [settingsPrompt?.kind, settingsPrompt?.initialValue, frameColumns, setTextEntryLayoutRows]);
   return syncPromptLayoutRows;
 }

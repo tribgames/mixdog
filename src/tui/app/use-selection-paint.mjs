@@ -54,12 +54,12 @@ export function useSelectionPaint({
       .catch(() => {
         /* best-effort capture: Ctrl+C falls back to the render-time text */
       });
-  }, [store]);
+  }, [store, selectionTextRef]);
 
   // Clip band + theming: use-selection-paint/selection-clip.mjs.
   const selectionClip = useCallback(
     () => selectionClipBand({ dragRef, frameRowsRef, transcriptViewportRef, statuslineBandRows }),
-    [statuslineBandRows]
+    [dragRef, frameRowsRef, transcriptViewportRef, statuslineBandRows]
   );
 
   const withSelectionClip = useCallback(
@@ -98,7 +98,7 @@ export function useSelectionPaint({
       cancelPendingSelectionPaint();
       paintSelectionRect(clippedRect, { rememberText: true });
     },
-    [paintSelectionRect, withSelectionClip, clearStitchBuffer, cancelPendingSelectionPaint]
+    [dragRef, selectionTextRef, paintSelectionRect, withSelectionClip, clearStitchBuffer, cancelPendingSelectionPaint]
   );
 
   const applySelectionRectThrottled = useCallback(
@@ -111,7 +111,7 @@ export function useSelectionPaint({
         cancelPending: cancelPendingSelectionPaint,
       });
     },
-    [paintSelectionRect, withSelectionClip, cancelPendingSelectionPaint]
+    [dragRef, paintSelectionRect, withSelectionClip, cancelPendingSelectionPaint]
   );
 
   return {

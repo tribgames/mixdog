@@ -31,7 +31,7 @@ export function useSelectionFocusMove({
       const shiftedRect = dragRef.current.rect;
       return { anchor: shiftedRect ? { x: shiftedRect.x1, y: shiftedRect.y1 } : null };
     },
-    [scrollTranscriptRows]
+    [dragRef, scrollTargetRef, scrollTranscriptRows]
   );
 
   const moveSelectionFocus = useCallback(
@@ -120,7 +120,16 @@ export function useSelectionFocusMove({
       dragNow.last = { x: col, y: row };
       return true;
     },
-    [applySelectionRect, statusBandRows, transcriptViewportRows, selectionMaxColAtRow, scrollFocusPastEdge]
+    [
+      dragRef,
+      scrollTargetRef,
+      transcriptBottomSlackRowsRef,
+      applySelectionRect,
+      statusBandRows,
+      transcriptViewportRows,
+      selectionMaxColAtRow,
+      scrollFocusPastEdge,
+    ]
   );
 
   return moveSelectionFocus;

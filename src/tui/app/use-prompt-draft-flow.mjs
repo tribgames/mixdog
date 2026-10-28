@@ -65,6 +65,13 @@ export function usePromptDraftFlow({
       showPromptHint,
       slashDismissedFor,
       syncPromptLayoutRows,
+      promptHistoryDraftChangeRef,
+      promptHistoryNavRef,
+      setPromptDraft,
+      setPromptDraftOverride,
+      promptHintActiveRef,
+      promptHintTimerRef,
+      setSlashDismissedFor,
     ]
   );
 

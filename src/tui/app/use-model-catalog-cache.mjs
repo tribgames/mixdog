@@ -20,16 +20,19 @@ export function useModelCatalogCache({ store, onboardingRef }) {
   // provider-scope cache clear (e.g. after auth) so a stale in-flight
   // listProviderModels() cannot repopulate the ref after invalidation.
   const onboardingPrefetchSeqRef = useRef(0);
-  const clearModelCaches = useCallback((scope = 'all') => {
-    if (scope === 'all' || scope === 'provider') {
-      providerModelsCacheRef.current = { models: null, at: 0 };
-      onboardingRef.current.providerModels = [];
-      onboardingPrefetchSeqRef.current += 1;
-    }
-    if (scope === 'all' || scope === 'webSearch') {
-      webSearchModelsCacheRef.current = { models: null, at: 0 };
-    }
-  }, []);
+  const clearModelCaches = useCallback(
+    (scope = 'all') => {
+      if (scope === 'all' || scope === 'provider') {
+        providerModelsCacheRef.current = { models: null, at: 0 };
+        onboardingRef.current.providerModels = [];
+        onboardingPrefetchSeqRef.current += 1;
+      }
+      if (scope === 'all' || scope === 'webSearch') {
+        webSearchModelsCacheRef.current = { models: null, at: 0 };
+      }
+    },
+    [onboardingRef]
+  );
   // Boot-time catalog prefetch: warm the /model & /agents provider catalog and
   // the /websearch catalog once at startup so those pickers open instantly from
   // cache (openModelPicker still TTL-refreshes stale rows in the background).

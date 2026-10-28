@@ -30,7 +30,16 @@ export function usePanelTransition({
     if (!hadTransitionClearance) return undefined;
     const timer = setTimeout(() => setPanelTransitionEpoch((epoch) => epoch + 1), 0);
     return () => clearTimeout(timer);
-  }, [panelLayoutSignature, bottomClusterRows, panelTransitionClearRows, panelTransitionGuardRows]);
+  }, [
+    panelTransitionRef,
+    panelCloseInkMaskRowsRef,
+    panelLayoutSignature,
+    bottomClusterRows,
+    panelTransitionClearRows,
+    panelTransitionGuardRows,
+    setPanelInkMaskEpoch,
+    setPanelTransitionEpoch,
+  ]);
   // Record the transcript tail id AFTER every commit so the next render's
   // spinner-meta-collapse gate (doneTailAppendedThisCommit) can tell a freshly
   // appended done row from a stale one that was already at the tail.

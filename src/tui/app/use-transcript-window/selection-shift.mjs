@@ -40,12 +40,16 @@ export function useSelectionLayoutShift({
     // with only the still-visible fragment (partial Ctrl+C after scrolling).
     paintSelectionRect(clippedRect, { rememberText: false });
   }, [
+    transcriptViewportRef,
+    selectionLayoutRef,
+    dragRef,
     transcriptContentHeight,
     transcriptWindow.totalRows,
     transcriptWindow.effectiveScrollOffset,
     withSelectionClip,
     paintSelectionRect,
   ]);
+  // biome-ignore lint/correctness/useExhaustiveDependencies(themeEpoch): theme-change repaint trigger
   useEffect(() => {
     if (!dragRef.current.rect) return;
     const clippedRect = withSelectionClip(dragRef.current.rect);
@@ -53,5 +57,5 @@ export function useSelectionLayoutShift({
     // Theme repaint: same cells, same text — no need to re-harvest (and a
     // clipped rect would clobber the remembered full text with a fragment).
     paintSelectionRect(clippedRect, { rememberText: false });
-  }, [themeEpoch, withSelectionClip, paintSelectionRect]);
+  }, [themeEpoch, dragRef, withSelectionClip, paintSelectionRect]);
 }

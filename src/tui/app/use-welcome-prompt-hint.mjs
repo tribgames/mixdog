@@ -26,6 +26,11 @@ export function useWelcomePromptHint({ store, state, toastErrorSignature }) {
     setWelcomePromptHintDismissed(true);
   }, []);
 
+  // The probe re-runs when the workflow id changes; the workflow snapshot it
+  // hands to the summary probe is read, not tracked, so an identity-only
+  // workflow refresh does not re-probe.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(state.workflow): keyed by workflow id
+  // biome-ignore lint/correctness/useExhaustiveDependencies(state.workflow?.id): workflow id re-probe key
   useEffect(() => {
     let alive = true;
     const refreshConditionalWelcomeHint = async () => {

@@ -13,7 +13,7 @@
  *   use-transcript-window/visible-items.mjs   — on-screen slice, overlay hint placement
  *   use-transcript-window/selection-shift.mjs — selection rect follows geometry/theme
  */
-import { useCallback, useEffect, useLayoutEffect } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo } from 'react';
 import { harvestMeasuredRows, measureRefFor } from './transcript-measure.mjs';
 import {
   clampScrollToOverflow,
@@ -66,7 +66,10 @@ export function useTranscriptWindow({
     selectionLayoutRef,
   };
   const state = useTranscriptInstanceState({ sessionKey, scrollOffset, setScrollOffset, refs });
-  const transcriptMeasureRef = useCallback((item) => measureRefFor(state.measureStateRef.current, item), []);
+  const transcriptMeasureRef = useCallback(
+    (item) => measureRefFor(state.measureStateRef.current, item),
+    [state.measureStateRef]
+  );
   const { revision, streamingTailItem, transcriptItems, transcriptRowIndex, transcriptWindow } = useTranscriptGeometry(
     state,
     {
@@ -102,13 +105,12 @@ export function useTranscriptWindow({
     transcriptGuardRows,
     themeEpoch,
   };
-  const scrollRefs = {
-    transcriptAnchorRef,
-    transcriptAnchorDirtyRef,
-    scrollTargetRef,
-    scrollPositionRef,
-    followingRef,
-  };
+  // Memoized over the App-owned refs (stable identities), so the effects below
+  // can depend on the bundle without re-running.
+  const scrollRefs = useMemo(
+    () => ({ transcriptAnchorRef, transcriptAnchorDirtyRef, scrollTargetRef, scrollPositionRef, followingRef }),
+    [transcriptAnchorRef, transcriptAnchorDirtyRef, scrollTargetRef, scrollPositionRef, followingRef]
+  );
   // ── Measured height harvest (every commit, no deps) ─────────────────────
   useLayoutEffect(() => {
     harvestMeasuredRows(state.measureStateRef.current, {
@@ -120,6 +122,10 @@ export function useTranscriptWindow({
     });
   });
   // ── Bottom-follow / anchor post-commit sync ─────────────────────────────
+  // transcriptItems is read alongside transcriptRowIndex, which is derived
+  // from it; the sync keys on the row index so a same-geometry items swap
+  // does not re-run it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(transcriptItems): keyed on the derived row index
   useLayoutEffect(() => {
     const totalRows = Math.max(0, Number(transcriptWindow.totalRows) || 0);
     const previousTotalRows = Math.max(0, Number(state.transcriptTotalRowsRef.current) || 0);
@@ -144,10 +150,14 @@ export function useTranscriptWindow({
     transcriptContentHeight,
     scrollOffset,
     stopSmoothScroll,
+    scrollRefs,
+    state.transcriptTotalRowsRef,
+    dragRef,
+    setScrollOffset,
   ]);
   useLayoutEffect(() => {
     resetScrollWhenUnanchored(scrollRefs, { scrollOffset, setScrollOffset, stopSmoothScroll });
-  }, [scrollOffset, stopSmoothScroll]);
+  }, [scrollRefs, scrollOffset, setScrollOffset, stopSmoothScroll]);
   // ── Selection layout shift ──────────────────────────────────────────────
   useSelectionLayoutShift({
     transcriptWindow,
@@ -166,7 +176,7 @@ export function useTranscriptWindow({
       setScrollOffset,
       stopSmoothScroll,
     });
-  }, [transcriptWindow.maxScrollRows, scrollOffset, stopSmoothScroll]);
+  }, [scrollRefs, transcriptWindow.maxScrollRows, scrollOffset, setScrollOffset, stopSmoothScroll]);
 
   return {
     transcriptWindow,

@@ -1,7 +1,7 @@
 /*
  * app/use-onboarding-start.mjs — first-run onboarding gate + wizard launch.
  */
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 
 // First-run gate. The daemon-backed engine store answers any method it does
 // not implement locally with an async remote call, so a synchronous
@@ -25,10 +25,15 @@ export function useOnboardingStart({
   store,
   forceOnboarding,
   onboardingCompleted,
-  onboardingStartedRef,
   setOnboardingActive,
   openOnboardingAuthStep,
 }) {
+  // Latches the launch so the wizard opens at most once per mount.
+  const onboardingStartedRef = useRef(false);
+  // openOnboardingAuthStep is rebuilt by the picker factory every render;
+  // depending on it would re-run this launch (and cancel its deferred open)
+  // on every commit. The launch keys on the gate inputs only.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(openOnboardingAuthStep): per-render factory callback; launch keys on gate inputs
   useEffect(() => {
     if (onboardingStartedRef.current) return undefined;
     if (resolveOnboardingCompleted(store, onboardingCompleted) && !forceOnboarding) return undefined;
@@ -41,5 +46,5 @@ export function useOnboardingStart({
     return () => {
       canceled = true;
     };
-  }, [store, forceOnboarding, onboardingCompleted]);
+  }, [store, forceOnboarding, onboardingCompleted, setOnboardingActive]);
 }

@@ -44,11 +44,11 @@ export function useTranscriptFollow({
       setScrollOffset(Math.max(0, Math.round(scrollPositionRef.current)));
     }, 16);
     scrollAnimationRef.current.unref?.();
-  }, [stopSmoothScroll]);
+  }, [scrollPositionRef, scrollTargetRef, followingRef, setScrollOffset, stopSmoothScroll]);
 
   const cancelTranscriptFollow = useCallback(() => {
     followingRef.current = false;
-  }, []);
+  }, [followingRef]);
 
   const resetTranscriptScroll = useCallback(() => {
     stopSmoothScroll();
@@ -65,7 +65,15 @@ export function useTranscriptFollow({
     // and every new row piled up below the fold.
     followingRef.current = true;
     setScrollOffset(0);
-  }, [stopSmoothScroll]);
+  }, [
+    scrollPositionRef,
+    scrollTargetRef,
+    followingRef,
+    transcriptAnchorRef,
+    transcriptAnchorDirtyRef,
+    setScrollOffset,
+    stopSmoothScroll,
+  ]);
 
   const armTranscriptFollow = useCallback(() => {
     // Do not mutate scrollOffset here. During prompt submit the transcript rows
@@ -78,7 +86,7 @@ export function useTranscriptFollow({
     pendingReadbackRowsRef.current = 0;
     followingRef.current = true;
     stopSmoothScroll();
-  }, [stopSmoothScroll]);
+  }, [followingRef, transcriptAnchorRef, transcriptAnchorDirtyRef, stopSmoothScroll]);
 
   return {
     pendingReadbackRowsRef,

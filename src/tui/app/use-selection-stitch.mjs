@@ -64,7 +64,7 @@ export function useSelectionStitchBuffer({ store, dragRef, scrollTargetRef }) {
       if (!Array.isArray(rows)) return;
       storeStitchRows(stitchBufferRef.current, rows, stitchHarvestScrollRef.current);
     }, 0);
-  }, [store]);
+  }, [store, dragRef, scrollTargetRef]);
 
   // Synchronous sibling: snapshot the rows CURRENTLY under the selection
   // immediately, keyed by the given (pre-scroll) offset. Called right before
@@ -80,7 +80,7 @@ export function useSelectionStitchBuffer({ store, dragRef, scrollTargetRef }) {
       if (!Array.isArray(rows)) return;
       storeStitchRows(stitchBufferRef.current, rows, Number(scroll) || 0);
     },
-    [store]
+    [store, dragRef]
   );
 
   // Map the CURRENT rect + current scrollTarget onto the content-key range and
@@ -122,7 +122,7 @@ export function useSelectionStitchBuffer({ store, dragRef, scrollTargetRef }) {
     }
     const text = logical.map((l) => l.replace(/\s+$/u, '')).join('\n');
     return text.trim() ? { text, complete } : empty;
-  }, []);
+  }, [dragRef, scrollTargetRef]);
 
   return { clearStitchBuffer, harvestStitchRowsSoon, harvestStitchRowsNow, getStitchedSelectionText };
 }

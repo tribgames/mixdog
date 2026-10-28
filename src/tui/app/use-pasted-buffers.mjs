@@ -48,31 +48,39 @@ function usePastedBufferSlice({ toEntry, formatRef }) {
     setBuffers(next);
   }, []);
 
-  const register = useCallback((input) => {
-    const id = nextIdRef.current;
-    const entry = toEntry(input, id);
-    if (!entry) return '';
-    nextIdRef.current = id + 1;
-    buffersRef.current = { ...buffersRef.current, [id]: entry };
-    setBuffers(buffersRef.current);
-    return formatRef(entry);
-  }, []);
+  const register = useCallback(
+    (input) => {
+      const id = nextIdRef.current;
+      const entry = toEntry(input, id);
+      if (!entry) return '';
+      nextIdRef.current = id + 1;
+      buffersRef.current = { ...buffersRef.current, [id]: entry };
+      setBuffers(buffersRef.current);
+      return formatRef(entry);
+    },
+    [toEntry, formatRef]
+  );
 
   return { buffersRef, nextIdRef, install, clearSnapshot, register };
 }
 
+// Module-level slice specs keep toEntry/formatRef identities stable, so
+// `register` is created once per mount.
+const IMAGE_SLICE = {
+  toEntry: (image, id) => (image?.type === 'image' && image.content ? { ...image, id } : null),
+  formatRef: (entry) => formatImageRef(entry.id),
+};
+const TEXT_SLICE = {
+  toEntry: (text, id) => {
+    const value = String(text ?? '');
+    return value ? { id, text: value } : null;
+  },
+  formatRef: (entry) => formatPastedTextRef(entry.id, entry.text),
+};
+
 export function usePastedBuffers() {
-  const images = usePastedBufferSlice({
-    toEntry: (image, id) => (image?.type === 'image' && image.content ? { ...image, id } : null),
-    formatRef: (entry) => formatImageRef(entry.id),
-  });
-  const texts = usePastedBufferSlice({
-    toEntry: (text, id) => {
-      const value = String(text ?? '');
-      return value ? { id, text: value } : null;
-    },
-    formatRef: (entry) => formatPastedTextRef(entry.id, entry.text),
-  });
+  const images = usePastedBufferSlice(IMAGE_SLICE);
+  const texts = usePastedBufferSlice(TEXT_SLICE);
 
   return {
     pastedImagesRef: images.buffersRef,

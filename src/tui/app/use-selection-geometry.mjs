@@ -22,13 +22,16 @@ export function useSelectionGeometry({
   transcriptViewportRef,
   dragRef,
 }) {
-  const selectionPointAtCurrentScroll = useCallback((point, pointScroll = 0) => {
-    if (!point) return null;
-    return {
-      x: point.x,
-      y: point.y + (Number(scrollTargetRef.current) || 0) - (Number(pointScroll) || 0),
-    };
-  }, []);
+  const selectionPointAtCurrentScroll = useCallback(
+    (point, pointScroll = 0) => {
+      if (!point) return null;
+      return {
+        x: point.x,
+        y: point.y + (Number(scrollTargetRef.current) || 0) - (Number(pointScroll) || 0),
+      };
+    },
+    [scrollTargetRef]
+  );
 
   // Grow a word/line multi-click selection from its anchor span out to the
   // word/line under the cursor. Shared by the mouse handler (motion/release)
@@ -68,9 +71,15 @@ export function useSelectionGeometry({
     [store, frameColumns, selectionPointAtCurrentScroll]
   );
 
-  const transcriptViewportRows = useCallback(() => transcriptViewportRowRange(transcriptViewportRef.current), []);
+  const transcriptViewportRows = useCallback(
+    () => transcriptViewportRowRange(transcriptViewportRef.current),
+    [transcriptViewportRef]
+  );
 
-  const statusBandRows = useCallback(() => statusBandRowRange(frameRowsRef.current, statuslineBandRows), []);
+  const statusBandRows = useCallback(
+    () => statusBandRowRange(frameRowsRef.current, statuslineBandRows),
+    [frameRowsRef, statuslineBandRows]
+  );
 
   const selectionMaxColAtRow = useCallback(
     (row) => {

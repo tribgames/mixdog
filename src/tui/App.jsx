@@ -16,13 +16,15 @@
  * layout, which <Static> collapses. The terminal handles scrollback itself as
  * the transcript column grows past the screen height.
  */
-import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useApp, useStdin, useStdout } from 'ink';
 import { useSession } from './hooks/useSession.mjs';
 import { pickFolder } from '../standalone/folder-dialog.mjs';
-import { deriveSlashPalette } from './app/slash-palette.mjs';
-import { createBtwController } from './app/btw-controller.mjs';
-import { skillMentionQuery, useSkillMentionSkills } from './app/skill-mention-palette.mjs';
+import { useSlashPalette, useSlashPaletteState } from './app/use-slash-palette.mjs';
+import { useBtwPanel } from './app/use-btw-panel.mjs';
+import { useTuiReady } from './app/use-tui-ready.mjs';
+import { useTranscriptSwapReset } from './app/use-transcript-swap-reset.mjs';
+import { useContextPanelRefresh } from './app/use-context-panel-refresh.mjs';
 import { shouldSupersedePanelEpoch, supersedePanelEpoch } from './app/panel-epoch.mjs';
 import { createPanelSurface } from './app/panel-surface.mjs';
 import { resolvePickerState } from './app/picker-index-mode.mjs';
@@ -50,7 +52,6 @@ import { usePromptQueueHistory } from './app/use-prompt-queue-history.mjs';
 import { useMessageSelector } from './app/message-selector.mjs';
 import { useTerminalChrome } from './app/use-terminal-chrome.mjs';
 import { useTranscriptWindow } from './app/use-transcript-window.mjs';
-import { transcriptSwapReturnsToTail } from './app/transcript-window.mjs';
 import { terminalSize, projectNameFromPath } from './app/app-format.mjs';
 import { useWorkflowTabCycle } from './app/use-workflow-tab-cycle.mjs';
 import { createProjectPicker } from './app/project-picker.mjs';
@@ -59,67 +60,25 @@ import { useModelCatalogCache } from './app/use-model-catalog-cache.mjs';
 import { useDisabledSkills } from './app/use-disabled-skills.mjs';
 import { resolveOnboardingCompleted, useOnboardingStart } from './app/use-onboarding-start.mjs';
 
-export function App({ store, initialStatusLine = '', forceOnboarding = false, onboardingCompleted = undefined }) {
-  const state = useSession(store);
-  const [toolOutputExpanded, setToolOutputExpanded] = useState(false);
-  // True for the entire first-run onboarding wizard (every step + nested depth)
-  // so the welcome banner stays reserved and the layout doesn't jump when the
-  // step pickers mount. Cleared on finish/cancel.
-  const [onboardingActive, setOnboardingActive] = useState(false);
-  const { exit } = useApp();
-  // internal_eventEmitter is ink's parsed-input bus. ink 7 consumes stdin via
-  // the 'readable' event + stdin.read() (see ink's App.js), draining the buffer
-  // so a plain stdin.on('data') listener of ours never sees mouse bytes. Instead
-  // we subscribe to ink's 'input' events, which carry every parsed sequence —
-  // including raw SGR mouse sequences (\x1b[<…M/m), since ink's input-parser
-  // passes CSI sequences through untouched and emitInput forwards them verbatim.
-  const { isRawModeSupported, internal_eventEmitter: inkInput } = useStdin();
-  const { stdout } = useStdout();
-  const [exiting, setExiting] = useState(false);
-  // tuiReady stays false across the first render + commit. A setTimeout(0) in
-  // the first effect defers the flip until one event-loop poll has drained any
-  // keystrokes that the OS buffered during terminal setup / initial mount.
-  const [tuiReady, setTuiReady] = useState(false);
-  const exitRequestedRef = useRef(false);
-  const [resizeState, setResizeState] = useState(() => ({ ...terminalSize(stdout), epoch: 0 }));
-  const [panelTransitionEpoch, setPanelTransitionEpoch] = useState(0);
-  const [panelInkMaskEpoch, setPanelInkMaskEpoch] = useState(0);
-  // Keep a universal one-cell margin at the right edge: terminals may clip or
-  // wrap their final cell, including macOS terminals rendering rounded borders.
-  const rightSafetyColumns = 1;
-  const frameColumns = Math.max(1, resizeState.columns - rightSafetyColumns);
-  const {
-    scrollOffset,
-    setScrollOffset,
-    scrollPositionRef,
-    scrollTargetRef,
-    maxScrollRowsRef,
-    transcriptBottomSlackRowsRef,
-    transcriptAnchorRef,
-    transcriptAnchorDirtyRef,
-    transcriptGeomRef,
-    measuredRowsVersion,
-    setMeasuredRowsVersion,
-    followingRef,
-    lastItemsCountRef,
-    lastFirstItemIdRef,
-  } = useTranscriptScrollState();
+// Statusline band height (bottom rows); mirrors the layout reserve.
+const STATUSLINE_BAND_ROWS = 3;
+
+// OWNING LAYER for the raw panel sinks (with app/panel-surface.mjs): the picker
+// and the context/usage panel setters are handed to the surface exactly once
+// and never leave this file. Every panel factory gets `surface` instead, so
+// painting or delegating without a claim that proves ownership is not
+// expressible elsewhere. The surface is stable across renders — the usage
+// generation lives inside it.
+function usePanelOwnership() {
   // picker = null | { type, title, items, onSelect }
   // Rendered as an option panel attached directly above the bottom prompt.
   const pickerOpenedFromEnterRef = useRef(false);
   const pickerOpenedFromEnterTimerRef = useRef(null);
-  // Late-bound handle to the project-picker cluster (created after the picker
-  // and prompt setters exist, below). Referencing it via a ref lets the
-  // `useState` initializer build the first-mount picker state before the
-  // factory is instantiated: the factory's onSelect/onKey/onCancel closures
-  // resolve `projectPicker.current` at call time, not at build time.
-  const projectPickerRef = useRef(null);
-  // NOTE: the initial project-picker state CANNOT be built inside this
-  // useState initializer — it runs before projectPickerRef is populated
-  // (createProjectPicker below), so buildProjectPickerState would deref null.
-  // The first-mount build happens as a render-phase update right after the
-  // factory is instantiated (see initialPickerBuiltRef below), which React
-  // applies before the first commit — no picker-less flash frame.
+  // NOTE: the initial project-picker state is NOT built in this useState
+  // initializer — the project-picker factory does not exist yet. The
+  // first-mount build happens as a render-phase update right after the factory
+  // is instantiated (useProjectPickerBoot), which React applies before the
+  // first commit — no picker-less flash frame.
   const [picker, setPickerState] = useState(null);
   // Live handle to the current picker state so async callbacks (e.g. the MCP
   // toggle settle guard in extension-pickers) read the picker actually on
@@ -153,52 +112,41 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   livePickerRef.current = picker;
   const [contextPanel, setContextPanel] = useState(null);
   const [usagePanel, setUsagePanel] = useState(null);
-  const [btwPanel, setBtwPanel] = useState(null);
-  const btwRef = useRef(null);
-  const sessionIdRef = useRef('');
-  sessionIdRef.current = state.sessionId || '';
-  if (!btwRef.current) {
-    btwRef.current = createBtwController({
-      getStore: () => store,
-      setPanel: setBtwPanel,
-      getSessionId: () => sessionIdRef.current,
-    });
-  }
-  const btw = btwRef.current;
-  // A side answer belongs to the conversation it was asked in: drop it on a
-  // session change (new/resume/clear/switch) and cancel it on unmount.
-  useEffect(() => {
-    btw.sync();
-  }, [btw, state.sessionId]);
-  useEffect(() => () => btw.dispose(), [btw]);
-  // OWNING LAYER (app/panel-surface.mjs): the three sinks above are handed over
-  // exactly once and never leave that module. Every panel factory below gets
-  // `surface` instead, so painting or delegating without a claim that proves
-  // ownership is not expressible outside this file. Stable across renders — the
-  // usage generation lives inside it.
   const surfaceRef = useRef(null);
   if (!surfaceRef.current) {
     surfaceRef.current = createPanelSurface({ setPicker, setContextPanel, setUsagePanel });
   }
   const surface = surfaceRef.current;
-  // Cache of the last computed heavy settings-picker status objects (MCP,
-  // plugins, skills, channel provider). ←/→ cycle/toggle handlers in
-  // openSettingsPicker() pass { light: true } to reuse this cache instead of
-  // re-querying these heavy getters on every keystroke; only a full open
-  // (initial /config or Esc-return) recomputes them.
-  const settingsHeavyCacheRef = useRef(null);
-  // Settings build generation: every open/refresh takes a ticket and Esc bumps
-  // it, so a slow (daemon) snapshot from a superseded build cannot re-open the
-  // panel after it was closed.
-  const settingsRequestRef = useRef(0);
   const closeUsagePanel = useCallback(() => surface.closeUsage(), [surface]);
-  const [providerPrompt, setProviderPrompt] = useState(null);
-  const oauthSubmitRef = useRef(false);
-  const [settingsPrompt, setSettingsPrompt] = useState(null);
-  // Instantiate the project-picker cluster now that the surface + every prompt
-  // setter and the usage-panel closer exist. projectPickerRef (declared above,
-  // before the picker useState) is populated here so first-mount build and all
-  // later callers resolve the same set of builders.
+  return {
+    picker,
+    setPicker,
+    livePickerRef,
+    pickerOpenedFromEnterRef,
+    pickerOpenedFromEnterTimerRef,
+    contextPanel,
+    usagePanel,
+    surface,
+    closeUsagePanel,
+  };
+}
+
+// Project-picker cluster plus its first-mount entry. The factory's
+// onSelect/onKey/onCancel closures resolve the builders at call time; the
+// initial open goes through projectPickerRef so it reaches the latest ones.
+function useProjectPickerBoot({
+  state,
+  store,
+  surface,
+  setProviderPrompt,
+  setSettingsPrompt,
+  closeUsagePanel,
+  setPicker,
+  livePickerRef,
+  forceOnboarding,
+  onboardingCompleted,
+}) {
+  const projectPickerRef = useRef(null);
   const projectPicker = createProjectPicker({
     state,
     store,
@@ -221,11 +169,96 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
       setPicker(projectPicker.buildProjectPickerState({ initialEntry: true, loading: true }));
     }
   }
+  // biome-ignore lint/correctness/useExhaustiveDependencies(store): a new store re-runs the pending initial open
   useEffect(() => {
     if (livePickerRef.current?._projectInitialPending !== true) return;
     void projectPickerRef.current?.openProjectPicker({ initialEntry: true });
-  }, [store]);
-  const { registerProject, enterProject, openProjectPicker } = projectPicker;
+  }, [store, livePickerRef]);
+  return projectPicker;
+}
+
+export function App({ store, initialStatusLine = '', forceOnboarding = false, onboardingCompleted = undefined }) {
+  const state = useSession(store);
+  const [toolOutputExpanded, setToolOutputExpanded] = useState(false);
+  // True for the entire first-run onboarding wizard (every step + nested depth)
+  // so the welcome banner stays reserved and the layout doesn't jump when the
+  // step pickers mount. Cleared on finish/cancel.
+  const [onboardingActive, setOnboardingActive] = useState(false);
+  const { exit } = useApp();
+  // internal_eventEmitter is ink's parsed-input bus. ink 7 consumes stdin via
+  // the 'readable' event + stdin.read() (see ink's App.js), draining the buffer
+  // so a plain stdin.on('data') listener of ours never sees mouse bytes. Instead
+  // we subscribe to ink's 'input' events, which carry every parsed sequence —
+  // including raw SGR mouse sequences (\x1b[<…M/m), since ink's input-parser
+  // passes CSI sequences through untouched and emitInput forwards them verbatim.
+  const { isRawModeSupported, internal_eventEmitter: inkInput } = useStdin();
+  const { stdout } = useStdout();
+  const [exiting, setExiting] = useState(false);
+  const exitRequestedRef = useRef(false);
+  const [resizeState, setResizeState] = useState(() => ({ ...terminalSize(stdout), epoch: 0 }));
+  const [panelTransitionEpoch, setPanelTransitionEpoch] = useState(0);
+  const [panelInkMaskEpoch, setPanelInkMaskEpoch] = useState(0);
+  // Keep a universal one-cell margin at the right edge: terminals may clip or
+  // wrap their final cell, including macOS terminals rendering rounded borders.
+  const rightSafetyColumns = 1;
+  const frameColumns = Math.max(1, resizeState.columns - rightSafetyColumns);
+  const {
+    scrollOffset,
+    setScrollOffset,
+    scrollPositionRef,
+    scrollTargetRef,
+    maxScrollRowsRef,
+    transcriptBottomSlackRowsRef,
+    transcriptAnchorRef,
+    transcriptAnchorDirtyRef,
+    transcriptGeomRef,
+    measuredRowsVersion,
+    setMeasuredRowsVersion,
+    followingRef,
+    lastItemsCountRef,
+    lastFirstItemIdRef,
+  } = useTranscriptScrollState();
+  // Picker + context/usage panels and the surface that owns them (owning layer).
+  const {
+    picker,
+    setPicker,
+    livePickerRef,
+    pickerOpenedFromEnterRef,
+    pickerOpenedFromEnterTimerRef,
+    contextPanel,
+    usagePanel,
+    surface,
+    closeUsagePanel,
+  } = usePanelOwnership();
+  // /btw side-question panel + controller lifecycle: app/use-btw-panel.mjs.
+  const { btwPanel, btw } = useBtwPanel({ store, sessionId: state.sessionId });
+  // Cache of the last computed heavy settings-picker status objects (MCP,
+  // plugins, skills, channel provider). ←/→ cycle/toggle handlers in
+  // openSettingsPicker() pass { light: true } to reuse this cache instead of
+  // re-querying these heavy getters on every keystroke; only a full open
+  // (initial /config or Esc-return) recomputes them.
+  const settingsHeavyCacheRef = useRef(null);
+  // Settings build generation: every open/refresh takes a ticket and Esc bumps
+  // it, so a slow (daemon) snapshot from a superseded build cannot re-open the
+  // panel after it was closed.
+  const settingsRequestRef = useRef(0);
+  const [providerPrompt, setProviderPrompt] = useState(null);
+  const oauthSubmitRef = useRef(false);
+  const [settingsPrompt, setSettingsPrompt] = useState(null);
+  // Project-picker cluster, instantiated now that the surface + every prompt
+  // setter and the usage-panel closer exist, plus its first-mount entry.
+  const { registerProject, enterProject, openProjectPicker } = useProjectPickerBoot({
+    state,
+    store,
+    surface,
+    setProviderPrompt,
+    setSettingsPrompt,
+    closeUsagePanel,
+    setPicker,
+    livePickerRef,
+    forceOnboarding,
+    onboardingCompleted,
+  });
   // Disabled-Skill set (async load + persist on change):
   // app/use-disabled-skills.mjs.
   const { disabledSkills, setDisabledSkills } = useDisabledSkills({ store });
@@ -287,11 +320,10 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     welcomePromptHintVisibleRef,
     dismissWelcomePromptHint,
   } = useWelcomePromptHint({ store, state, toastErrorSignature });
-  const [slashIndex, setSlashIndex] = useState(0);
-  const [slashDismissedFor, setSlashDismissedFor] = useState('');
-  const slashPaletteRef = useRef({ open: false, count: 0 });
+  // Slash palette index / dismissal state: app/use-slash-palette.mjs.
+  const { slashIndex, setSlashIndex, slashDismissedFor, setSlashDismissedFor, slashPaletteRef } =
+    useSlashPaletteState();
   const scrollFocusRef = useRef({});
-  const onboardingStartedRef = useRef(false);
   const onboardingRef = useRef({
     defaultRoute: null,
     webSearchRoute: null,
@@ -365,7 +397,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     selectionTextRef,
     lastClickRef,
   } = useInteractionRefs();
-  const STATUSLINE_BAND_ROWS = 3;
   const promptContentColumns = Math.max(1, frameColumns - 4);
   // Prompt + text-entry layout rows: app/use-prompt-layout-rows.mjs.
   const syncPromptLayoutRows = usePromptLayoutRows({
@@ -377,14 +408,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     setTextEntryLayoutRows,
   });
 
-  // ── Post-mount input gate ──────────────────────────────────────────────
-  // Let one event-loop poll pass so Ink processes (and discards, because
-  // PromptInput is still disabled) any keystrokes queued during boot/first
-  // render. After the tick, enable the input — new keystrokes land normally.
-  useEffect(() => {
-    const timer = setTimeout(() => setTuiReady(true), 0);
-    return () => clearTimeout(timer);
-  }, []);
+  // Post-mount input gate: app/use-tui-ready.mjs.
+  const tuiReady = useTuiReady();
 
   // Resize debounce + extended-keyboard enable: app/use-terminal-chrome.mjs.
   useTerminalChrome({ stdout, isRawModeSupported, setResizeState });
@@ -471,23 +496,8 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     clearStitchBuffer,
   });
 
-  // Item-count changes never infer follow permission from scrollTarget=0. A
-  // first read-back input can be waiting one frame for committed row geometry;
-  // only prompt submit, session reset, or an explicit return to bottom arms
-  // follow. Pure streaming height growth is handled in the row-delta effect.
-  useLayoutEffect(() => {
-    const count = state.items.length;
-    const previousCount = lastItemsCountRef.current;
-    lastItemsCountRef.current = count;
-    const firstId = count > 0 ? (state.items[0]?.id ?? null) : null;
-    const previousFirstId = lastFirstItemIdRef.current;
-    lastFirstItemIdRef.current = firstId;
-    // A bulk swap (compaction included) is an explicit return to the tail: the
-    // rows the reader was anchored to no longer exist.
-    if (transcriptSwapReturnsToTail({ count, previousCount, firstId, previousFirstId })) {
-      resetTranscriptScroll();
-    }
-  }, [state.items, resetTranscriptScroll]);
+  // Bulk transcript swap → back to the tail: app/use-transcript-swap-reset.mjs.
+  useTranscriptSwapReset({ items: state.items, lastItemsCountRef, lastFirstItemIdRef, resetTranscriptScroll });
 
   // Exit + queued-restore + prompt history: app/use-prompt-queue-history.mjs.
   const { requestExit, restoreQueuedToPrompt, recentPromptHistory, resetPromptHistoryNav } = usePromptQueueHistory({
@@ -594,31 +604,14 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     closeUsagePanel,
   });
 
-  useEffect(() => {
-    if (contextPanel?.kind === 'context') openContextPicker();
-  }, [
-    contextPanel?.kind,
-    state.stats,
-    state.contextWindow,
-    state.rawContextWindow,
-    state.sessionId,
-    state.toolMode,
-    state.agentWorkers,
-    state.agentJobs,
-    state.provider,
-    state.model,
-    state.effort,
-    state.fast,
-    state.cwd,
-    state.clientHostPid,
-  ]);
+  // Open /context breakdown stays current: app/use-context-panel-refresh.mjs.
+  useContextPanelRefresh({ contextPanelKind: contextPanel?.kind, state, openContextPicker });
 
   // First-run onboarding wizard launch: app/use-onboarding-start.mjs.
   useOnboardingStart({
     store,
     forceOnboarding,
     onboardingCompleted,
-    onboardingStartedRef,
     setOnboardingActive,
     openOnboardingAuthStep,
   });
@@ -652,8 +645,14 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     pastedTextsRef,
   });
 
-  const mentionSkills = useSkillMentionSkills(store, skillMentionQuery(promptDraft, promptCaret) !== null);
-  const { activeSlashQuery, slashCommands, slashPaletteOpen, paletteKind } = deriveSlashPalette({
+  // Slash / `$skill` palette for this render: app/use-slash-palette.mjs.
+  const { activeSlashQuery, slashCommands, slashPaletteOpen, paletteKind } = useSlashPalette({
+    store,
+    slashPaletteRef,
+    setSlashIndex,
+    slashDismissedFor,
+    promptDraft,
+    promptCaret,
     providerPrompt,
     settingsPrompt,
     toolApproval,
@@ -662,12 +661,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     picker,
     exiting,
     commandBusy: state.commandBusy,
-    promptDraft,
-    slashDismissedFor,
-    skills: mentionSkills,
-    promptCaret,
   });
-  slashPaletteRef.current = { open: slashPaletteOpen, count: slashCommands.length };
   scrollFocusRef.current = {
     slashPaletteOpen,
     picker: !!picker,
@@ -678,10 +672,6 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     providerPrompt: !!providerPrompt,
     settingsPrompt: !!settingsPrompt,
   };
-
-  useEffect(() => {
-    setSlashIndex((index) => Math.min(index, Math.max(0, slashCommands.length - 1)));
-  }, [slashCommands.length, activeSlashQuery]);
 
   // Draft/slash flow (draft sync, prompt cancels, palette accept/cancel):
   // app/use-prompt-draft-flow.mjs.

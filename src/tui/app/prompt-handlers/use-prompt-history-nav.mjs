@@ -26,6 +26,6 @@ export function usePromptHistoryNavigation({
       if (outcome.draftChanged) promptHistoryDraftChangeRef.current = true;
       return outcome.value;
     },
-    [recentPromptHistory, resetPromptHistoryNav, clearPromptHint]
+    [promptHistoryNavRef, promptHistoryDraftChangeRef, recentPromptHistory, resetPromptHistoryNav, clearPromptHint]
   );
 }

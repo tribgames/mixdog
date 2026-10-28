@@ -141,7 +141,7 @@ export function useTranscriptScroll({
     if (!anchor) return;
     transcriptAnchorRef.current = anchor;
     transcriptAnchorDirtyRef.current = false;
-  }, []);
+  }, [transcriptGeomRef, scrollTargetRef, transcriptAnchorRef, transcriptAnchorDirtyRef]);
 
   // A manual scroll moves the reading position. Capture the new anchor
   // SYNCHRONOUSLY from the latest published geometry so the very next render
@@ -149,20 +149,23 @@ export function useTranscriptScroll({
   // streaming growth could lurch the view. Only at the true bottom drop the
   // anchor so the bottom-follow path owns the viewport again: a positive
   // wheel offset is an explicit reading position, even inside the old slack.
-  const captureReadingAnchor = useCallback((target) => {
-    if (target === 0) {
-      transcriptAnchorRef.current = null;
-      transcriptAnchorDirtyRef.current = false;
-      return;
-    }
-    const anchor = readingAnchorAt(transcriptGeomRef.current || {}, target);
-    if (anchor) {
-      transcriptAnchorRef.current = anchor;
-      transcriptAnchorDirtyRef.current = false;
-    } else {
-      transcriptAnchorDirtyRef.current = true;
-    }
-  }, []);
+  const captureReadingAnchor = useCallback(
+    (target) => {
+      if (target === 0) {
+        transcriptAnchorRef.current = null;
+        transcriptAnchorDirtyRef.current = false;
+        return;
+      }
+      const anchor = readingAnchorAt(transcriptGeomRef.current || {}, target);
+      if (anchor) {
+        transcriptAnchorRef.current = anchor;
+        transcriptAnchorDirtyRef.current = false;
+      } else {
+        transcriptAnchorDirtyRef.current = true;
+      }
+    },
+    [transcriptGeomRef, transcriptAnchorRef, transcriptAnchorDirtyRef]
+  );
 
   // Scrolling past the oldest/newest loaded edge pages transcript history
   // instead of moving the target. Returns true when the edge owned the
@@ -190,7 +193,15 @@ export function useTranscriptScroll({
       }
       return true;
     },
-    [store, captureRestoreAnchor, stopSmoothScroll, cancelTranscriptFollow]
+    [
+      store,
+      scrollTargetRef,
+      scrollPositionRef,
+      setScrollOffset,
+      captureRestoreAnchor,
+      stopSmoothScroll,
+      cancelTranscriptFollow,
+    ]
   );
 
   // Keep a live selection on its content after the viewport moved. An active
@@ -229,7 +240,14 @@ export function useTranscriptScroll({
       // (Ctrl+C after scrolling then copied just that fragment).
       paintSelectionRect(clippedRect, { rememberText: false });
     },
-    [buildSpanRect, selectionPointAtCurrentScroll, withSelectionClip, cancelPendingSelectionPaint, paintSelectionRect]
+    [
+      dragRef,
+      buildSpanRect,
+      selectionPointAtCurrentScroll,
+      withSelectionClip,
+      cancelPendingSelectionPaint,
+      paintSelectionRect,
+    ]
   );
 
   const scrollTranscriptRows = useCallback(
@@ -294,6 +312,17 @@ export function useTranscriptScroll({
       setScrollOffset(Math.round(target));
     },
     [
+      maxScrollRowsRef,
+      transcriptGeomRef,
+      scrollTargetRef,
+      scrollPositionRef,
+      pendingReadbackRowsRef,
+      dragRef,
+      transcriptAnchorRef,
+      transcriptAnchorDirtyRef,
+      followingRef,
+      selectionLayoutRef,
+      setScrollOffset,
       pageTranscriptHistory,
       captureReadingAnchor,
       rebuildSelectionAfterScroll,

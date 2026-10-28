@@ -47,7 +47,7 @@ export function useTerminalChrome({ stdout, isRawModeSupported, setResizeState }
       if (trailing) clearTimeout(trailing);
       stdout.off('resize', onResize);
     };
-  }, [stdout]);
+  }, [stdout, setResizeState]);
 
   // Enable extended keyboard reporting (kitty + xterm modifyOtherKeys)
   // SYNCHRONOUSLY, ONCE, with NO query/round-trip. ink
@@ -61,7 +61,7 @@ export function useTerminalChrome({ stdout, isRawModeSupported, setResizeState }
   // \x1b[27;5;13~ (or kitty \x1b[13;5u) instead of a bare \r — fixing the old
   // "first Ctrl+Enter submits, second works" race. Teardown lives in index.jsx's
   // restoreTerminal(). The empty dep array makes this run exactly once on mount.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+  // biome-ignore lint/correctness/useExhaustiveDependencies: one-shot mount enable; teardown is owned by restoreTerminal()
   useEffect(() => {
     if (!isRawModeSupported || !stdout?.write) return;
     if (!supportsExtendedKeys()) return;

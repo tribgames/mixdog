@@ -81,7 +81,12 @@ export function useTranscriptGeometry(state, props) {
   // settled-prefix row-index instead of re-walking all N items. Any structural
   // change misses the cache and falls back to a full rebuild, so the prefix
   // table is byte-identical to a full rebuild for the settled prefix. All those
-  // invalidators are folded into the memo deps.
+  // invalidators are folded into the memo deps: revision + tailSig stand in
+  // for the items/tail identities, and measuredRowsVersion folds in measured
+  // corrections.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(transcriptItems): keyed by revision + tailSig
+  // biome-ignore lint/correctness/useExhaustiveDependencies(streamingTailItem): keyed by tailSig
+  // biome-ignore lint/correctness/useExhaustiveDependencies(tailSig): tail id + height recompute key
   const transcriptRowIndex = useMemo(
     () =>
       buildTranscriptRowIndexIncremental(transcriptItems, {
@@ -92,9 +97,8 @@ export function useTranscriptGeometry(state, props) {
         cacheRef: state.incrementalRowIndexCacheRef,
         prefixRevision: revision,
         streamingTailItem,
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- revision/tail height capture structural geometry; measuredRowsVersion folds in measured corrections
       }),
-    [revision, tailSig, frameColumns, toolOutputExpanded, measuredRowsVersion]
+    [revision, tailSig, frameColumns, toolOutputExpanded, measuredRowsVersion, state.incrementalRowIndexCacheRef]
   );
   const renderScrollOffset = resolveRenderScrollOffset({
     scrollOffset,
@@ -109,6 +113,10 @@ export function useTranscriptGeometry(state, props) {
     geomRef: transcriptGeomRef,
     prevViewportRef: state.prevViewportGeomRef,
   });
+  // transcriptStructureSig stands in for the items identity (it also encodes
+  // frameColumns and toolOutputExpanded); scroll/viewport capture the rest.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(transcriptItems): keyed by transcriptStructureSig
+  // biome-ignore lint/correctness/useExhaustiveDependencies(transcriptStructureSig): items recompute key
   const transcriptWindow = useMemo(
     () =>
       transcriptRenderWindow(transcriptItems, {
@@ -117,9 +125,15 @@ export function useTranscriptGeometry(state, props) {
         columns: frameColumns,
         toolOutputExpanded,
         rowIndex: transcriptRowIndex,
-        // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: sig+scroll/viewport capture the relevant changes
       }),
-    [transcriptStructureSig, renderScrollOffset, transcriptContentHeight, transcriptRowIndex]
+    [
+      transcriptStructureSig,
+      renderScrollOffset,
+      transcriptContentHeight,
+      transcriptRowIndex,
+      frameColumns,
+      toolOutputExpanded,
+    ]
   );
   publishMaxScrollRows(state, transcriptWindow, { maxScrollRowsRef, frameColumns, toolOutputExpanded });
   // Publish this frame's geometry so a manual scroll can capture the reading

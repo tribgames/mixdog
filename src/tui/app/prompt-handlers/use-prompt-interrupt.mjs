@@ -47,6 +47,9 @@ export function usePromptInterrupt({
     [store, promptValueRef, restoreAttachments, clearPromptHint, syncPromptLayoutRows, setPromptDraftOverride]
   );
 
+  // `busy` is the trigger, not a read: a parked restore re-checks the store
+  // each time the turn's busy flag flips.
+  // biome-ignore lint/correctness/useExhaustiveDependencies(busy): busy-flip trigger for the parked restore
   useEffect(() => {
     const pending = pendingRestoreRef.current;
     if (!pending) return;
