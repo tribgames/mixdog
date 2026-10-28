@@ -657,6 +657,12 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
      figures made the columns of counts and sizes wobble row to row. */
   font-variant-numeric: tabular-nums;
 }
+/* Chinese and Japanese have no spaces: under keep-all a whole run is one
+   unbreakable word, so a cell holding Han or Kana (marked by
+   markdown-components) breaks between characters like normal CJK text. */
+.markdown :is(th, td)[data-cjk] {
+  word-break: normal;
+}
 /* Per-cell padding is the one width a cell cannot shed (text breaks anywhere),
    so a many-column table spends less of a narrow column on it. */
 @container (max-width: 639px) {

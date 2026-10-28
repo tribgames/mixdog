@@ -49,6 +49,27 @@ function MarkdownTable({ children }: { children?: ReactNode }) {
   );
 }
 
+// Chinese and Japanese runs carry no spaces, so the cells' `keep-all` (which
+// holds Hangul words together) made each run one unbreakable word that pushed
+// the table past its frame. A cell holding Han or Kana wraps between
+// characters instead (`[data-cjk]` in 22-markdown.css).
+const HAN_OR_KANA = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
+
+type MarkdownCellProps = React.ComponentPropsWithoutRef<'td'> & { node?: unknown };
+
+function markdownCell(Tag: 'td' | 'th') {
+  return function MarkdownTableCell({ node: _node, children, ...props }: MarkdownCellProps) {
+    return (
+      <Tag {...props} data-cjk={HAN_OR_KANA.test(childrenText(children)) ? '' : undefined}>
+        {children}
+      </Tag>
+    );
+  };
+}
+
+const MarkdownTd = markdownCell('td');
+const MarkdownTh = markdownCell('th');
+
 export type MarkdownCopyControl = ComponentType<{
   value: string;
   label: string;
@@ -76,6 +97,8 @@ function createMarkdownComponents(CopyControl: MarkdownCopyControl) {
     a: MarkdownLink,
     [LOCAL_IMAGE_TAG]: MarkdownLocalImage,
     table: MarkdownTable,
+    td: MarkdownTd,
+    th: MarkdownTh,
     pre({ children }: { children?: ReactNode }) {
       const child = React.Children.count(children) === 1 ? React.Children.only(children) : null;
       if (!React.isValidElement(child)) return <pre data-scrollable>{children}</pre>;
