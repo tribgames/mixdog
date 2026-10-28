@@ -266,7 +266,9 @@ export async function exchangeAuthorizationCode({ code, verifier, fetchFn = fetc
   });
   if (!res.ok) {
     const text = await res.text().catch(() => '');
-    throw new Error(`[antigravity-oauth] token exchange ${res.status}: ${_scrubTokens(text).slice(0, 300)}`);
+    // The authorization code is redacted by value: `code` alone is not a secret field.
+    const detail = _scrubTokens(text, [cleanCode, verifier]).slice(0, 300);
+    throw new Error(`[antigravity-oauth] token exchange ${res.status}: ${detail}`);
   }
   const json = await res.json();
   if (!json?.access_token || !json?.refresh_token) {

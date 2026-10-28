@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
+import { AUTH_CODE, MALFORMED_TOKEN_BODY, SECRET_BODIES, SECRET_RE } from './oauth-secret-fields.fixtures.mjs';
 
 const dir = makeTempDirSync('anthropic-login');
 // The login writes to the selected account in provider-accounts.json, which
@@ -13,7 +14,7 @@ process.env.MIXDOG_DATA_DIR = dir;
 process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH = join(dir, 'credentials.json');
 const { beginOAuthLogin } = await import('./anthropic-oauth-credentials.mjs');
 
-async function callbackWithTokenReply(reply) {
+async function callbackWithTokenReply(reply, code = 'abc') {
   let opened = null;
   const login = await beginOAuthLogin({ openBrowserFn: async (url) => (opened = url) });
   for (let i = 0; i < 50 && !opened; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
@@ -26,7 +27,7 @@ async function callbackWithTokenReply(reply) {
   globalThis.fetch = (input, init) =>
     String(input).includes('/oauth/token') ? Promise.resolve(reply()) : realFetch(input, init);
   try {
-    const res = await fetch(`http://localhost:54545/callback?code=abc&state=${state}`);
+    const res = await fetch(`http://localhost:54545/callback?code=${code}&state=${state}`);
     const body = await res.text();
     const outcome = await settled;
     return { res, body, outcome };
@@ -53,6 +54,21 @@ test('a failed token exchange answers with the branded failure page', async () =
   assert.match(res.headers.get('content-type'), /text\/html/);
   assert.match(body, /로그인 실패/);
   assert.ok(outcome.error);
+});
+
+test('no Claude secret field or malformed token body reaches the failure page or the error', async () => {
+  const replies = [
+    ...SECRET_BODIES.map((text) => [400, text, /token exchange 400: /]),
+    [200, MALFORMED_TOKEN_BODY, /token exchange returned a malformed response \(HTTP 200\)/],
+  ];
+  for (const [status, text, shown] of replies) {
+    const { body, outcome } = await callbackWithTokenReply(() => new Response(text, { status }), AUTH_CODE);
+    assert.match(body, /Claude could not complete the token exchange\./);
+    assert.match(body, shown, text);
+    assert.match(outcome.error.message, shown);
+    assert.doesNotMatch(body, SECRET_RE, text);
+    assert.doesNotMatch(outcome.error.message, SECRET_RE, text);
+  }
 });
 
 async function openedLogin() {

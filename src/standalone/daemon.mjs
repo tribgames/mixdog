@@ -22,6 +22,9 @@ process.env.MIXDOG_DAEMON_HOST = '1';
 await import('../runtime/shared/uv-threadpool-boot.mjs');
 // Before anything can import sharp: Electron on Linux must use its wasm build.
 await import('../runtime/shared/sharp-electron-linux.mjs');
+// Proxy variables (the user's, or the desktop's system proxy): fetch goes
+// through the proxy while local and LAN hosts stay direct.
+(await import('../runtime/shared/llm/http-agent.mjs')).adoptEnvProxy();
 
 // No V8 compile cache here, on purpose. Measured on this runtime: a cache hit
 // saves nothing (spawn→ready 316-347ms with the cache vs 318-323ms without,

@@ -231,8 +231,8 @@ export function saveTokens(tokens) {
   );
 }
 
-export function _scrubTokens(text) {
-  return scrubOAuthSecrets(text);
+export function _scrubTokens(text, secretValues = []) {
+  return scrubOAuthSecrets(text, secretValues);
 }
 
 export function hasAntigravityOAuthCredentials() {

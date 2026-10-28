@@ -14,6 +14,10 @@ import {
   decodeJwtPayload,
   expiryFromAccessToken,
   normalizeAccountIdentity,
+  OAUTH_NETWORK_HINT,
+  oauthFailureReason,
+  oauthNetworkCause,
+  oauthPublicError,
 } from './lib/oauth-token-utils.mjs';
 
 const AUTHORIZE_URL = 'https://app.devin.ai/auth/cli/continue';
@@ -46,9 +50,11 @@ export const DEVIN_OAUTH_FAILURE_CODES = Object.freeze([
   'DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED',
 ]);
 
+// Built from fixed text, statuses and error codes only, so a failure page may
+// show it; response bodies are never quoted (they may carry the login token).
 function loginFailure(code, text, props = {}) {
   const failureCode = `DEVIN_OAUTH_${code}`;
-  return Object.assign(new Error(`${failureCode}: ${text}`), { failureCode }, props);
+  return oauthPublicError(Object.assign(new Error(`${failureCode}: ${text}`), { failureCode }, props));
 }
 
 function credentialsPath() {
@@ -175,12 +181,13 @@ export async function exchangeDevinCode(code, verifier, { fetchFn = fetch, signa
     });
   } catch (error) {
     // A cancelled login keeps its own abort; any other failure to get an
-    // answer (network, timeout) is a coded exchange failure. The cause is not
-    // quoted: only its kind is.
+    // answer (network, timeout) is a coded exchange failure. Its message is
+    // not quoted: only its error code.
     if (signal?.aborted) throw error;
+    const cause = oauthNetworkCause(error) || 'network error';
     throw loginFailure(
       'TOKEN_EXCHANGE_FAILED',
-      error?.name === 'TimeoutError' ? 'Devin token exchange timed out' : 'Devin token exchange request failed'
+      `Devin token exchange request failed (${cause}). ${OAUTH_NETWORK_HINT}`
     );
   }
   // Response bodies may carry the login token itself, so none is ever quoted
@@ -341,9 +348,9 @@ async function startDevinOAuthLogin({ openBrowser = true, timeoutMs = LOGIN_TIME
     try {
       await acceptCode(code);
       reply(res, 200, oauthSuccessHtml('Devin'));
-    } catch {
-      // The shared exchange reports its error through waitForCallback.
-      reply(res, 500, oauthErrorHtml('Devin could not complete the token exchange.'));
+    } catch (error) {
+      // The shared exchange also reports its error through waitForCallback.
+      reply(res, 500, oauthErrorHtml(oauthFailureReason('Devin could not complete the token exchange.', error)));
     }
   };
 

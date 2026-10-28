@@ -6,7 +6,13 @@ import { randomBytes } from 'node:crypto';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
 import { OAUTH_PAGE_CONTENT_TYPE, oauthErrorHtml, oauthSuccessHtml } from './lib/oauth-page.mjs';
-import { emailFromJwts } from './lib/oauth-token-utils.mjs';
+import {
+  emailFromJwts,
+  oauthFailureReason,
+  oauthHttpError,
+  oauthRequestError,
+  oauthResponseJson,
+} from './lib/oauth-token-utils.mjs';
 import {
   CLIENT_ID,
   SCOPE,
@@ -65,34 +71,43 @@ export async function exchangeAuthorizationCode({ discovery, pkce, code, signal 
   signal?.throwIfAborted();
   const cleanCode = String(code || '').trim();
   if (!cleanCode) throw new Error('[grok-oauth] authorization code is required');
-  const tokenRes = await fetch(discovery.token_endpoint, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      client_id: CLIENT_ID,
-      code: cleanCode,
-      code_verifier: pkce.verifier,
-      redirect_uri: REDIRECT_URI,
-      // xAI re-validates the PKCE challenge at token exchange
-      // (not just the verifier), so echo it back. Omitting
-      // these makes the exchange fail. Matches the Grok CLI.
-      code_challenge: pkce.challenge,
-      code_challenge_method: 'S256',
-    }),
-    // Secret-bearing (authorization code + verifier): refuse
-    // redirects so they can't be replayed to an untrusted host.
-    redirect: 'error',
-    signal: signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(TOKEN_TIMEOUT_MS)])
-      : AbortSignal.timeout(TOKEN_TIMEOUT_MS),
-    dispatcher: getLlmDispatcher(),
-  });
+  let tokenRes;
+  try {
+    tokenRes = await fetch(discovery.token_endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        client_id: CLIENT_ID,
+        code: cleanCode,
+        code_verifier: pkce.verifier,
+        redirect_uri: REDIRECT_URI,
+        // xAI re-validates the PKCE challenge at token exchange
+        // (not just the verifier), so echo it back. Omitting
+        // these makes the exchange fail. Matches the Grok CLI.
+        code_challenge: pkce.challenge,
+        code_challenge_method: 'S256',
+      }),
+      // Secret-bearing (authorization code + verifier): refuse
+      // redirects so they can't be replayed to an untrusted host.
+      redirect: 'error',
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(TOKEN_TIMEOUT_MS)])
+        : AbortSignal.timeout(TOKEN_TIMEOUT_MS),
+      dispatcher: getLlmDispatcher(),
+    });
+  } catch (err) {
+    throw oauthRequestError('[grok-oauth] token exchange', err);
+  }
   if (!tokenRes.ok) {
     const text = await tokenRes.text().catch(() => '');
-    throw new Error(`[grok-oauth] token exchange ${tokenRes.status}: ${_scrubTokens(text).slice(0, 500)}`);
+    throw oauthHttpError('[grok-oauth] token exchange', tokenRes.status, text, [
+      cleanCode,
+      pkce.verifier,
+      pkce.challenge,
+    ]);
   }
-  const tokens = tokensFromGrant(await tokenRes.json(), discovery);
+  const tokens = tokensFromGrant(await oauthResponseJson(tokenRes, '[grok-oauth] token exchange'), discovery);
   // A cancelled login never stores the account it was exchanging.
   signal?.throwIfAborted();
   saveTokens(tokens);
@@ -338,14 +353,16 @@ export async function beginOAuthLogin({ openBrowser = true, sleep = defaultSleep
         res.end(oauthErrorHtml('The sign-in callback was invalid or did not match this login.'));
         return;
       }
+      // The login settles (closing its server) before this answer is sent, so
+      // the connection must not stay open to the closed login's handler.
       try {
         await acceptCode(code);
-        res.writeHead(200, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE });
+        res.writeHead(200, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE, Connection: 'close' });
         res.end(oauthSuccessHtml('Grok'));
-      } catch {
-        // The shared exchange reports its error through waitForCallback.
-        res.writeHead(500, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE });
-        res.end(oauthErrorHtml('Grok could not complete the token exchange.'));
+      } catch (err) {
+        // The shared exchange also reports its error through waitForCallback.
+        res.writeHead(500, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE, Connection: 'close' });
+        res.end(oauthErrorHtml(oauthFailureReason('Grok could not complete the token exchange.', err)));
       }
     });
     timeout = setTimeout(() => finish(null), LOGIN_TIMEOUT_MS);

@@ -22,7 +22,12 @@ import {
   expiryFromAccessToken,
   isDefinitiveOAuthFailure,
   normalizeAccountIdentity,
+  oauthBodySummary,
   oauthCredentialStatus,
+  oauthFailureReason,
+  oauthPublicError,
+  oauthRequestError,
+  oauthResponseJson,
   scrubOAuthSecrets,
 } from './lib/oauth-token-utils.mjs';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
@@ -271,7 +276,7 @@ export function _scrubTokens(text, secretValues = []) {
 }
 
 function _tokenEndpointError(operation, status, text, secretValues = []) {
-  const safeDetail = _scrubTokens(text, secretValues).replace(/\s+/g, ' ').trim().slice(0, 500);
+  const safeDetail = oauthBodySummary(text, secretValues);
   const detail = safeDetail ? `: ${safeDetail}` : '';
   const compatibility =
     status === 403
@@ -282,7 +287,7 @@ function _tokenEndpointError(operation, status, text, secretValues = []) {
         ' update Mixdog or set MIXDOG_CLI_VERSION to the installed official Claude Code version;' +
         ' then retry sign-in via /providers without an intercepting network layer if applicable.'
       : '';
-  return new Error(`${operation} ${status}${detail}.${compatibility}`);
+  return oauthPublicError(new Error(`${operation} ${status}${detail}.${compatibility}`));
 }
 
 export function isAnthropicOAuthRefreshDisabled() {
@@ -578,21 +583,26 @@ async function exchangeAuthorizationCode({ pkce, code, state, redirectUri, signa
   const cleanCode = String(code || '').trim();
   if (!cleanCode) throw new Error('[anthropic-oauth] authorization code is required');
   const timeoutSignal = AbortSignal.timeout(OAUTH_TOKEN_TIMEOUT_MS);
-  const tokenRes = await fetch(TOKEN_URL, {
-    method: 'POST',
-    headers: tokenEndpointHeaders(),
-    body: JSON.stringify({
-      grant_type: 'authorization_code',
-      code: cleanCode,
-      redirect_uri: redirectUri,
-      client_id: CLAUDE_CODE_CLIENT_ID,
-      code_verifier: pkce.verifier,
-      state,
-    }),
-    redirect: 'error',
-    signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
-    dispatcher: getLlmDispatcher(),
-  });
+  let tokenRes;
+  try {
+    tokenRes = await fetch(TOKEN_URL, {
+      method: 'POST',
+      headers: tokenEndpointHeaders(),
+      body: JSON.stringify({
+        grant_type: 'authorization_code',
+        code: cleanCode,
+        redirect_uri: redirectUri,
+        client_id: CLAUDE_CODE_CLIENT_ID,
+        code_verifier: pkce.verifier,
+        state,
+      }),
+      redirect: 'error',
+      signal: signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal,
+      dispatcher: getLlmDispatcher(),
+    });
+  } catch (err) {
+    throw oauthRequestError('[anthropic-oauth] token exchange', err);
+  }
   if (!tokenRes.ok) {
     const text = await tokenRes.text().catch(() => '');
     throw _tokenEndpointError('[anthropic-oauth] token exchange', tokenRes.status, text, [
@@ -601,7 +611,7 @@ async function exchangeAuthorizationCode({ pkce, code, state, redirectUri, signa
       state,
     ]);
   }
-  const json = await tokenRes.json();
+  const json = await oauthResponseJson(tokenRes, '[anthropic-oauth] token exchange');
   const accessToken = json?.access_token || json?.accessToken;
   const refreshToken = json?.refresh_token || json?.refreshToken;
   if (!accessToken || !refreshToken) {
@@ -727,10 +737,10 @@ export async function beginOAuthLogin({ openBrowserFn = null, openBrowser = true
         await acceptCode(code, OAUTH_REDIRECT_URI);
         res.writeHead(200, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE, Connection: 'close' });
         res.end(oauthSuccessHtml('Claude'));
-      } catch {
-        // The shared exchange reports its error through waitForCallback.
+      } catch (err) {
+        // The shared exchange also reports its error through waitForCallback.
         res.writeHead(500, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE, Connection: 'close' });
-        res.end(oauthErrorHtml('Claude could not complete the token exchange.'));
+        res.end(oauthErrorHtml(oauthFailureReason('Claude could not complete the token exchange.', err)));
       }
     });
     timeout = setTimeout(() => finish(null), OAUTH_LOGIN_TIMEOUT_MS);

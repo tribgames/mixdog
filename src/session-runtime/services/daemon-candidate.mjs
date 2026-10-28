@@ -8,6 +8,7 @@
 // and attaches to whoever won. The resolved `summary()` describes this boot as
 // observed when called, for a caller that has to give up.
 import { fork } from 'node:child_process';
+import { withEnvProxy } from '../../runtime/shared/llm/http-agent.mjs';
 import { beginDaemonSpawnCapture } from './daemon-crash-capture.mjs';
 
 export function forkDaemonCandidate({
@@ -43,7 +44,9 @@ export function forkDaemonCandidate({
         cwd,
         execArgv,
         stdio: ['ignore', 'ignore', capture.stderrStdio, 'ipc'],
-        env,
+        // Proxy variables (the user's or the desktop's system proxy) need
+        // NODE_USE_ENV_PROXY to reach the daemon's fetch.
+        env: withEnvProxy(env),
         ...spawnOptions,
       });
     } catch (error) {

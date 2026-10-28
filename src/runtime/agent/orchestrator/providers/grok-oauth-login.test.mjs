@@ -21,6 +21,7 @@ mock.module(new URL('../../../shared/open-url.mjs', import.meta.url).href, {
   namedExports: { openInBrowser: (url) => opened.push(url) },
 });
 const { beginOAuthLogin } = await import('./grok-oauth-login.mjs');
+const { MALFORMED_TOKEN_BODY, SECRET_BODIES, SECRET_RE } = await import('./oauth-secret-fields.fixtures.mjs');
 
 const CLIENT_ID = 'b1a00492-073a-47ea-816f-4c329264a828';
 const SCOPE = 'openid profile email offline_access grok-cli:access api:access';
@@ -362,6 +363,40 @@ test('an issuer without a device flow falls back to the loopback login with a pa
     assert.equal(readStored().refresh_token, 'refresh-1');
   } finally {
     login.cancel();
+  }
+});
+
+test('no Grok secret field or malformed token body reaches the failure page or the error', async () => {
+  const replies = [
+    ...SECRET_BODIES.map((text) => [400, text, /token exchange 400: /]),
+    [200, MALFORMED_TOKEN_BODY, /token exchange returned a malformed response \(HTTP 200\)/],
+  ];
+  for (const [status, text, shown] of replies) {
+    xai.tokenReply = scripted(reply(status, text));
+    const browsersOpened = opened.length;
+    const login = await beginOAuthLogin();
+    try {
+      // The browser opens once the callback server listens.
+      for (let i = 0; i < 200 && opened.length === browsersOpened; i += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      const outcome = login.waitForCallback.then(
+        () => assert.fail('the login should fail'),
+        (error) => error
+      );
+      const state = new URL(login.url).searchParams.get('state');
+      const res = await fetch(`http://127.0.0.1:56121/callback?code=SECRET-CODE&state=${state}`);
+      const body = await res.text();
+      const error = await outcome;
+      assert.equal(res.status, 500);
+      assert.match(body, /Grok could not complete the token exchange\./);
+      assert.match(body, shown, text);
+      assert.match(error.message, shown);
+      assert.doesNotMatch(body, SECRET_RE, text);
+      assert.doesNotMatch(error.message, SECRET_RE, text);
+    } finally {
+      login.cancel();
+    }
   }
 });
 

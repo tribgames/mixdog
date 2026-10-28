@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { Server } from 'node:http';
 import test from 'node:test';
 import { createOpenAIOAuthLogin } from './openai-oauth-login.mjs';
+import { MALFORMED_TOKEN_BODY, SECRET_BODIES, SECRET_RE } from './oauth-secret-fields.fixtures.mjs';
 
 const createLogin = (saveTokens = () => {}) =>
   createOpenAIOAuthLogin({
@@ -120,7 +121,7 @@ async function callback(t, tokenReply, queryFor) {
   );
   const realFetch = globalThis.fetch;
   globalThis.fetch = (input, init) =>
-    String(input).includes('/oauth/token') ? Promise.resolve(tokenReply()) : realFetch(input, init);
+    String(input).includes('/oauth/token') ? Promise.resolve().then(() => tokenReply(init)) : realFetch(input, init);
   try {
     const res = await fetch(`http://localhost:1455/auth/callback?${queryFor(state)}`);
     const body = await res.text();
@@ -154,6 +155,66 @@ test('a failed OpenAI token exchange answers with the branded failure page', asy
   assert.equal(res.status, 500);
   assert.match(body, /로그인 실패/);
   assert.ok(outcome.error);
+});
+
+test('a network failure shows its error code and a proxy hint, never the code or verifier', async (t) => {
+  let verifier = '';
+  const { res, body, outcome } = await callback(
+    t,
+    (init) => {
+      verifier = init.body.get('code_verifier');
+      const cause = Object.assign(new Error(`read ECONNRESET SECRETCODE123 ${verifier}`), { code: 'ECONNRESET' });
+      throw Object.assign(new TypeError('fetch failed'), { cause });
+    },
+    (state) => `code=SECRETCODE123&state=${state}`
+  );
+  assert.equal(res.status, 500);
+  assert.match(body, /OpenAI could not complete the token exchange\./);
+  assert.match(
+    body,
+    /request failed \(ECONNRESET\)\. Check your proxy\/VPN: Mixdog uses the system proxy, or HTTPS_PROXY\./
+  );
+  assert.match(outcome.error.message, /token exchange request failed \(ECONNRESET\)/);
+  assert.ok(verifier);
+  for (const secret of ['SECRETCODE123', verifier]) {
+    assert.ok(!body.includes(secret));
+    assert.ok(!outcome.error.message.includes(secret));
+  }
+});
+
+test('an HTTP failure shows its status and a scrubbed body summary', async (t) => {
+  let verifier = '';
+  const { body, outcome } = await callback(
+    t,
+    (init) => {
+      verifier = init.body.get('code_verifier');
+      return new Response(`{"error":"invalid_grant","detail":"SECRETCODE123 ${verifier}"}`, { status: 400 });
+    },
+    (state) => `code=SECRETCODE123&state=${state}`
+  );
+  assert.match(body, /token exchange 400: \{&quot;error&quot;:&quot;invalid_grant&quot;/);
+  for (const secret of ['SECRETCODE123', verifier]) {
+    assert.ok(!body.includes(secret));
+    assert.ok(!outcome.error.message.includes(secret));
+  }
+});
+
+test('no OpenAI secret field or malformed token body reaches the failure page or the error', async (t) => {
+  const replies = [
+    ...SECRET_BODIES.map((text) => [400, text, /token exchange 400: /]),
+    [200, MALFORMED_TOKEN_BODY, /token exchange returned a malformed response \(HTTP 200\)/],
+  ];
+  for (const [status, text, shown] of replies) {
+    const { body, outcome } = await callback(
+      t,
+      () => new Response(text, { status }),
+      (state) => `code=SECRET-CODE&state=${state}`
+    );
+    assert.match(body, shown, text);
+    assert.match(outcome.error.message, shown);
+    assert.doesNotMatch(body, SECRET_RE, text);
+    assert.doesNotMatch(outcome.error.message, SECRET_RE, text);
+  }
 });
 
 test('a mismatched OpenAI state answers with the failure page and leaves the pending login to complete', async (t) => {

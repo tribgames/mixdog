@@ -83,3 +83,64 @@ test('the session launcher records the daemon exit and mirrors boot stderr once'
   assert.ok(record.spawnedAt && record.readyAt && record.exitedAt);
   assert.match(exitLine, new RegExp(`pid=${record.pid}\\b`));
 });
+
+test('a resolved system proxy reaches the daemon env with NODE_USE_ENV_PROXY and a loopback NO_PROXY', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-session-spawn-proxy-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const keys = [
+    'HTTP_PROXY',
+    'HTTPS_PROXY',
+    'http_proxy',
+    'https_proxy',
+    'NO_PROXY',
+    'no_proxy',
+    'NODE_USE_ENV_PROXY',
+    'MIXDOG_DATA_DIR',
+    'MIXDOG_RUNTIME_ROOT',
+  ];
+  const saved = keys.map((key) => [key, process.env[key]]);
+  const execArgv = process.execArgv;
+  for (const key of keys) delete process.env[key];
+  process.env.MIXDOG_DATA_DIR = join(root, 'data');
+  process.env.MIXDOG_RUNTIME_ROOT = join(root, 'runtime');
+  mkdirSync(process.env.MIXDOG_DATA_DIR, { recursive: true });
+  mkdirSync(process.env.MIXDOG_RUNTIME_ROOT, { recursive: true });
+  process.execArgv = [];
+  t.after(() => {
+    process.execArgv = execArgv;
+    for (const [key, value] of saved) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  });
+  const out = join(root, 'env.json');
+  const entry = join(root, 'env-daemon.mjs');
+  writeFileSync(
+    entry,
+    `import { writeFileSync } from 'node:fs';
+const { HTTPS_PROXY, HTTP_PROXY, NO_PROXY, NODE_USE_ENV_PROXY } = process.env;
+writeFileSync(${JSON.stringify(out)}, JSON.stringify({ HTTPS_PROXY, HTTP_PROXY, NO_PROXY, NODE_USE_ENV_PROXY }));
+process.send?.({ type: 'ready' });
+setTimeout(() => process.exit(0), 150);
+`
+  );
+  // The stub holds its cwd and capture file until it exits.
+  const exited = Promise.withResolvers();
+  await spawnDaemonCandidate({
+    cwd: root,
+    timeoutMs: 20_000,
+    entry,
+    log: (line) => {
+      if (line.startsWith('daemon exit ')) exited.resolve();
+    },
+    spawnEnv: async () => ({ HTTPS_PROXY: 'http://127.0.0.1:7890', HTTP_PROXY: 'http://127.0.0.1:7890' }),
+  });
+  // The launcher unrefs the stub after ready: a timer keeps this test alive.
+  const timeout = new AbortController();
+  await Promise.race([exited.promise, delay(20_000, null, { signal: timeout.signal })]).finally(() => timeout.abort());
+  const env = JSON.parse(readFileSync(out, 'utf8'));
+  assert.equal(env.HTTPS_PROXY, 'http://127.0.0.1:7890');
+  assert.equal(env.HTTP_PROXY, 'http://127.0.0.1:7890');
+  assert.equal(env.NODE_USE_ENV_PROXY, '1');
+  for (const host of ['localhost', '127.0.0.1', '::1']) assert.ok(env.NO_PROXY.split(',').includes(host), host);
+});

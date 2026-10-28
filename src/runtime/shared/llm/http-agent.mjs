@@ -20,6 +20,7 @@
  */
 
 import { createRequire } from 'node:module';
+import { BlockList, isIP } from 'node:net';
 
 const require = createRequire(import.meta.url);
 let _undici = null;
@@ -57,7 +58,7 @@ function envInt(name, fallback) {
  */
 function proxyConfigured() {
   const env = process.env;
-  if (env.HTTP_PROXY || env.HTTPS_PROXY || env.http_proxy || env.https_proxy) return true;
+  if (PROXY_VARS.some((name) => env[name])) return true;
   if (env.NODE_USE_ENV_PROXY) return true;
   try {
     const g = undici().getGlobalDispatcher?.();
@@ -69,6 +70,117 @@ function proxyConfigured() {
     /* getGlobalDispatcher unavailable — treat as no proxy */
   }
   return false;
+}
+
+const PROXY_VARS = ['HTTPS_PROXY', 'https_proxy', 'HTTP_PROXY', 'http_proxy'];
+// Loopback, private (RFC 1918) and link-local IPv4.
+const LOCAL_V4_RANGES = [
+  ['127.0.0.0', '127.255.255.255'],
+  ['10.0.0.0', '10.255.255.255'],
+  ['172.16.0.0', '172.31.255.255'],
+  ['192.168.0.0', '192.168.255.255'],
+  ['169.254.0.0', '169.254.255.255'],
+];
+// Loopback, unique-local and link-local IPv6.
+const LOCAL_V6_SUBNETS = [
+  ['::1', 128],
+  ['fc00::', 7],
+  ['fe80::', 10],
+];
+
+/**
+ * NO_PROXY for processes that follow the proxy variables natively (children,
+ * Node's http module). NO_PROXY matching is by name, suffix or exact address;
+ * fetch has no address ranges at all and Node's http module takes `a-b`
+ * ranges, so this list is a fallback: in-process, isLocalHost decides.
+ */
+export const LOCAL_NO_PROXY = [
+  'localhost',
+  '127.0.0.1',
+  '::1',
+  '.local',
+  ...LOCAL_V4_RANGES.map(([start, end]) => `${start}-${end}`),
+].join(',');
+
+let _localAddresses = null;
+function localAddresses() {
+  if (!_localAddresses) {
+    _localAddresses = new BlockList();
+    for (const [start, end] of LOCAL_V4_RANGES) _localAddresses.addRange(start, end, 'ipv4');
+    for (const [network, prefix] of LOCAL_V6_SUBNETS) _localAddresses.addSubnet(network, prefix, 'ipv6');
+  }
+  return _localAddresses;
+}
+
+/**
+ * A host that never goes through the proxy: a loopback, private or
+ * link-local address, a dotless name (`localhost`, a LAN machine) or a
+ * `.local` / `.localhost` name — local providers and LAN services.
+ */
+export function isLocalHost(hostname) {
+  const host = String(hostname)
+    .replace(/^\[(.*)\]$/, '$1')
+    .replace(/\.$/, '')
+    .toLowerCase();
+  const family = isIP(host);
+  if (family) return localAddresses().check(host, family === 4 ? 'ipv4' : 'ipv6');
+  return !host.includes('.') || host.endsWith('.local') || host.endsWith('.localhost');
+}
+
+/**
+ * `env` plus what Node needs to honour its proxy variables: NODE_USE_ENV_PROXY
+ * (Node ignores HTTPS_PROXY without it) and a local NO_PROXY. Unchanged when
+ * no proxy variable is set or the user set NODE_USE_ENV_PROXY / NO_PROXY.
+ */
+export function withEnvProxy(env) {
+  if (env.NODE_USE_ENV_PROXY !== undefined || !PROXY_VARS.some((name) => env[name])) return env;
+  const noProxy = env.NO_PROXY || env.no_proxy ? {} : { NO_PROXY: LOCAL_NO_PROXY };
+  return { ...env, NODE_USE_ENV_PROXY: '1', ...noProxy };
+}
+
+/**
+ * The global dispatcher under a proxy: local and LAN hosts (isLocalHost)
+ * connect directly, every other host follows the proxy variables and
+ * NO_PROXY. `direct` and `proxied` replace the two inner dispatchers in tests.
+ */
+export function createProxyDispatcher({ direct = null, proxied = null } = {}) {
+  const { Agent, Dispatcher, EnvHttpProxyAgent } = undici();
+  class LocalBypassProxyAgent extends Dispatcher {
+    #direct = direct ?? new Agent();
+    #proxied = proxied ?? new EnvHttpProxyAgent();
+
+    dispatch(opts, handler) {
+      const target = isLocalHost(new URL(opts.origin).hostname) ? this.#direct : this.#proxied;
+      return target.dispatch(opts, handler);
+    }
+
+    async close() {
+      await Promise.all([this.#direct.close(), this.#proxied.close()]);
+    }
+
+    async destroy(error) {
+      await Promise.all([this.#direct.destroy(error), this.#proxied.destroy(error)]);
+    }
+  }
+  return new LocalBypassProxyAgent();
+}
+
+let _envProxyAdopted = false;
+
+/**
+ * Honour proxy variables in this already-running process (createProxyDispatcher
+ * as the global dispatcher) and, through the inherited env, in every child it
+ * spawns. No-op without a proxy variable, when the user set NODE_USE_ENV_PROXY
+ * to anything but 1, or once adopted.
+ */
+export function adoptEnvProxy(env = process.env) {
+  const next = withEnvProxy(env);
+  if (_envProxyAdopted || next.NODE_USE_ENV_PROXY !== '1' || !PROXY_VARS.some((name) => next[name])) return false;
+  env.NODE_USE_ENV_PROXY = '1';
+  if (next.NO_PROXY !== undefined) env.NO_PROXY = next.NO_PROXY;
+  undici().setGlobalDispatcher(createProxyDispatcher());
+  _envProxyAdopted = true;
+  return true;
 }
 
 /**

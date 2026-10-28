@@ -30,6 +30,7 @@ interface SessionClientModule {
     cwd?: string;
     log?: (line: string) => void;
     onUpgradeWait?: (info: DaemonUpgradeWait) => void;
+    spawnEnv?: () => Promise<Record<string, string>>;
   }): Promise<Record<string, unknown>>;
   forceDaemonUpgrade(options?: { log?: (line: string) => void }): Promise<boolean>;
   /** Quit only: stop a daemon this process forked into its own tree. */
@@ -131,7 +132,10 @@ export class SessionTransport implements DesktopTransport {
     private readonly environmentReady: Promise<unknown> = Promise.resolve(),
     /** Remote mode: the daemon runs on an ssh server behind a tunnel. A local
      *  daemon is never spawned or attached while this is set. */
-    private readonly remote: RemoteDaemonConnector | null = null
+    private readonly remote: RemoteDaemonConnector | null = null,
+    /** Extra variables for a local daemon fork, asked at fork time (the
+     *  system proxy). */
+    private readonly daemonSpawnEnv: ((log: (line: string) => void) => Promise<Record<string, string>>) | null = null
   ) {}
 
   on(event: string, listener: (...args: any[]) => void): unknown {
@@ -434,6 +438,8 @@ export class SessionTransport implements DesktopTransport {
         ...(toVersion ? { toVersion: String(toVersion) } : {}),
       } satisfies DesktopServiceOutbound);
     };
+    const log = (line: string): void => this.emit('diagnostic', 'session-daemon-log', { detail: line, attempt });
+    const spawnEnv = this.daemonSpawnEnv;
     for (;;) {
       try {
         discovery = await this.measureBootPhase(
@@ -441,8 +447,9 @@ export class SessionTransport implements DesktopTransport {
           () =>
             daemonModule.ensureDaemon({
               cwd: this.cwd,
-              log: (line) => this.emit('diagnostic', 'session-daemon-log', { detail: line, attempt }),
+              log,
               onUpgradeWait: (info) => emitUpgradeWait(info.state, info.fromVersion, info.toVersion),
+              ...(spawnEnv ? { spawnEnv: () => spawnEnv(log) } : {}),
             }),
           { attempt }
         );

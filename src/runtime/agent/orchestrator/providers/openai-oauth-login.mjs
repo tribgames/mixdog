@@ -12,6 +12,7 @@ import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { createOAuthPkce, parseOAuthCodeInput } from './lib/oauth-pkce.mjs';
 import { OAUTH_PAGE_CONTENT_TYPE, oauthErrorHtml, oauthSuccessHtml } from './lib/oauth-page.mjs';
+import { oauthFailureReason, oauthHttpError, oauthRequestError, oauthResponseJson } from './lib/oauth-token-utils.mjs';
 import { openLoginUrl } from './lib/open-login-url.mjs';
 import { sleepWithAbort } from './retry-backoff.mjs';
 
@@ -27,14 +28,6 @@ const TOKEN_TIMEOUT_MS = 30_000;
 // Codex device-code login: the user has 15 minutes to enter the code.
 const DEVICE_LOGIN_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_DEVICE_INTERVAL_S = 5;
-
-function _scrubOAuthLoginBody(text) {
-  return String(text || '')
-    .replace(/"access_token"\s*:\s*"[^"]+"/g, '"access_token":"[REDACTED]"')
-    .replace(/"refresh_token"\s*:\s*"[^"]+"/g, '"refresh_token":"[REDACTED]"')
-    .replace(/"id_token"\s*:\s*"[^"]+"/g, '"id_token":"[REDACTED]"')
-    .replace(/[A-Za-z0-9_-]{32,}\.[A-Za-z0-9._-]+/g, '[REDACTED]');
-}
 
 /**
  * @param {object} deps
@@ -72,26 +65,31 @@ export function createOpenAIOAuthLogin(deps) {
     signal?.throwIfAborted();
     const cleanCode = String(code || '').trim();
     if (!cleanCode) throw new Error('[openai-oauth] authorization code is required');
-    const tokenRes = await fetch(tokenUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'authorization_code',
-        code: cleanCode,
-        redirect_uri: redirectUri,
-        client_id: clientId,
-        code_verifier: pkce.verifier,
-      }),
-      redirect: 'error',
-      signal: signal
-        ? AbortSignal.any([signal, AbortSignal.timeout(TOKEN_TIMEOUT_MS)])
-        : AbortSignal.timeout(TOKEN_TIMEOUT_MS),
-    });
+    let tokenRes;
+    try {
+      tokenRes = await fetch(tokenUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          grant_type: 'authorization_code',
+          code: cleanCode,
+          redirect_uri: redirectUri,
+          client_id: clientId,
+          code_verifier: pkce.verifier,
+        }),
+        redirect: 'error',
+        signal: signal
+          ? AbortSignal.any([signal, AbortSignal.timeout(TOKEN_TIMEOUT_MS)])
+          : AbortSignal.timeout(TOKEN_TIMEOUT_MS),
+      });
+    } catch (err) {
+      throw oauthRequestError('[openai-oauth] token exchange', err);
+    }
     if (!tokenRes.ok) {
       const text = await tokenRes.text().catch(() => '');
-      throw new Error(`[openai-oauth] token exchange ${tokenRes.status}: ${_scrubOAuthLoginBody(text).slice(0, 500)}`);
+      throw oauthHttpError('[openai-oauth] token exchange', tokenRes.status, text, [cleanCode, pkce.verifier]);
     }
-    const json = await tokenRes.json();
+    const json = await oauthResponseJson(tokenRes, '[openai-oauth] token exchange');
     if (!json.access_token || !json.refresh_token) {
       throw new Error('[openai-oauth] token exchange response missing access_token or refresh_token');
     }
@@ -292,10 +290,10 @@ export function createOpenAIOAuthLogin(deps) {
           // written; do not leave a keep-alive connection bound to it.
           res.writeHead(200, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE, Connection: 'close' });
           res.end(oauthSuccessHtml('OpenAI'));
-        } catch {
-          // The shared exchange reports its error through waitForCallback.
+        } catch (err) {
+          // The shared exchange also reports its error through waitForCallback.
           res.writeHead(500, { 'Content-Type': OAUTH_PAGE_CONTENT_TYPE, Connection: 'close' });
-          res.end(oauthErrorHtml('OpenAI could not complete the token exchange.'));
+          res.end(oauthErrorHtml(oauthFailureReason('OpenAI could not complete the token exchange.', err)));
         }
       });
       timeout = setTimeout(() => finish(null), LOGIN_TIMEOUT_MS);

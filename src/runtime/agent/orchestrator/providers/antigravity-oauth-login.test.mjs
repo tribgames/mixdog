@@ -368,6 +368,26 @@ test('a cancelled login never exchanges an authorization code', async () => {
   assert.equal(requests, 0);
 });
 
+test('a failed authorization exchange redacts the code and verifier but keeps the error code', async () => {
+  const body = JSON.stringify({
+    error: { code: 400, status: 'INVALID_ARGUMENT', message: 'bad grant authorization-code-1' },
+    code: 'authorization-code-1',
+    code_verifier: 'pkce-verifier-1',
+  });
+  await assert.rejects(
+    exchangeAuthorizationCode({
+      code: 'authorization-code-1',
+      verifier: 'pkce-verifier-1',
+      fetchFn: async () => new Response(body, { status: 400 }),
+    }),
+    (error) => {
+      assert.match(error.message, /token exchange 400: .*"code":400,"status":"INVALID_ARGUMENT"/);
+      assert.doesNotMatch(error.message, /authorization-code-1|pkce-verifier-1/);
+      return true;
+    }
+  );
+});
+
 test('authorization exchange saves only the final discovered project', async (t) => {
   const tokenPath = isolateTokenStore(t);
   const project = scriptedFetch([account('old-project'), account('saved-project')]);

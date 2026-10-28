@@ -14,6 +14,7 @@ import {
   resolveDevinOAuthAccessToken,
 } from './devin-auth.mjs';
 import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
+import { MALFORMED_TOKEN_BODY, SECRET_BODIES, SECRET_RE } from './oauth-secret-fields.fixtures.mjs';
 
 const BINDINGS = Symbol.for('mixdog.providerAuthBindings');
 const CALLBACK = 'http://127.0.0.1:59653/callback';
@@ -228,6 +229,30 @@ test('a rejected token exchange fails the login without storing or leaking the c
   assert.doesNotMatch(error.message, /secret-code/);
   assert.equal(existsSync(path), false);
   await assertPortFree();
+});
+
+test('no Devin secret field or malformed token body reaches the failure page or the error', async (t) => {
+  bindCredentialFile(t);
+  const replies = [
+    ...SECRET_BODIES.map((text) => [400, text, /Devin token exchange failed \(400\)/]),
+    [200, MALFORMED_TOKEN_BODY, /Devin token exchange returned no token/],
+  ];
+  for (const [status, text, shown] of replies) {
+    const login = await startLogin(t, { fetchFn: async () => new Response(text, { status }) });
+    const outcome = login.waitForCallback.then(
+      () => assert.fail('the login should fail'),
+      (error) => error
+    );
+    const response = await callback({ code: 'SECRET-CODE', state: new URL(login.url).searchParams.get('state') });
+    const page = await response.text();
+    const error = await outcome;
+    assert.equal(response.status, 500);
+    assert.match(page, /Devin could not complete the token exchange\./);
+    assert.match(page, shown, text);
+    assert.match(error.message, shown);
+    assert.doesNotMatch(page, SECRET_RE, text);
+    assert.doesNotMatch(`${error.message} ${JSON.stringify(error)}`, SECRET_RE, text);
+  }
 });
 
 test('the token exchange refuses an empty response', async () => {
@@ -522,8 +547,11 @@ test("a pasted redirect with another login's state is rejected and the login kee
 
 test('a request that gets no answer, or times out, is a coded exchange failure', async () => {
   const failures = [
-    [Object.assign(new TypeError('fetch failed'), { cause: new Error('ECONNRESET secret-code') }), /request failed$/],
-    [new DOMException('signal timed out', 'TimeoutError'), /timed out$/],
+    [
+      Object.assign(new TypeError('fetch failed'), { cause: new Error('ECONNRESET secret-code') }),
+      /request failed \(network error\)\. Check your proxy\/VPN/,
+    ],
+    [new DOMException('signal timed out', 'TimeoutError'), /request failed \(timed out\)\. Check your proxy\/VPN/],
   ];
   for (const [thrown, wording] of failures) {
     const error = await exchangeDevinCode('secret-code', 'v', {

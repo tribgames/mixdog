@@ -69,6 +69,7 @@ import { createBackgroundWindow } from './background-window';
 import { createDesktopTray, type DesktopTray } from './desktop-tray';
 import { createDesktopQuitSequence, DESKTOP_DAEMON_STOP_TIMEOUT_MS } from './quit-sequence';
 import { loginShellOverrides, readLoginShellEnvironment, withHomebrewPath } from './login-shell-environment';
+import { systemProxyEnv } from './system-proxy';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
 import { createDesktopTurnNotifier } from './desktop-turn-notifier';
 import { isSessionOnScreen } from './screen-sessions';
@@ -524,6 +525,9 @@ async function runWithHostSettings<T>(hostId: string, run: () => Promise<T>): Pr
 const connectionDependencies: DesktopConnectionDependencies = {
   moduleUrl: desktopServiceModuleUrl,
   environmentReady: () => loginShellEnvironmentReady,
+  // The daemon's fetch follows the OS proxy the browser uses (asked per fork).
+  daemonSpawnEnv: (log) =>
+    systemProxyEnv((url) => session.defaultSession.resolveProxy(url), log, { ready: app.whenReady() }),
   sessionOptions: () => ({
     userDataPath: app.getPath('userData'),
     packaged: app.isPackaged,

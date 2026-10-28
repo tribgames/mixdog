@@ -24,6 +24,10 @@ try {
 // 2026-07-20). Default to production; an explicit NODE_ENV still wins.
 process.env.NODE_ENV ||= 'production';
 
+// HTTPS_PROXY/HTTP_PROXY work without NODE_USE_ENV_PROXY: honoured in this
+// process and in every child (the daemon included).
+(await import('./runtime/shared/llm/http-agent.mjs')).adoptEnvProxy();
+
 let swapped = false;
 const invocation = classifyCliInvocation(argv);
 const skipHostPrelude = invocation.kind === 'exec' || invocation.skipHostPrelude === true;
