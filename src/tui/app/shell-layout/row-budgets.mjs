@@ -4,8 +4,9 @@
  * welcome banner, floating panel, and the layout signature that names them.
  */
 import { isLiveSpinnerMetaVisible } from '../live-spinner-visibility.mjs';
-import { promptContentRows, wrappedDetailRows, queuedBandRows } from '../text-layout.mjs';
+import { promptContentRows, queuedBandRows } from '../text-layout.mjs';
 import { questionPanelRows, questionsOf } from '../../components/question-panel-model.mjs';
+import { signInUrlLayout } from '../../components/sign-in-url-layout.mjs';
 import { CORE_MULTILINE_TEXT_ENTRY_KINDS } from '../panel-signature.mjs';
 import { btwPanelRows } from '../btw-controller.mjs';
 
@@ -49,24 +50,25 @@ function promptBoxBudget(inputBoxHidden, promptLayoutValueRef, promptContentColu
 
 // TextEntryPanel content is one prompt line (chrome + 1) for single-line
 // prompts, or up to PANEL_MAX_VISIBLE wrapped rows for core memory add/edit.
-// PLUS an optional wrapped detail block (blank spacer + N wrapped rows — e.g.
-// the manual OAuth URL). The floating container clips from the TOP (flex-end +
+// PLUS an optional borderless sign-in URL block under the panel (the manual
+// OAuth URL). The floating container clips from the TOP (flex-end +
 // overflow hidden), so under-reserving here pushed the bordered title off
-// the top of the panel. Width matches the panel interior: frame − 2 border
-// − 2 paddingX, same wrap-ansi math ink uses for wrap="wrap".
-function textEntryBudget(textEntryPrompt, textEntryLayoutRows, frameColumns) {
+// the top of the panel. The block gets only the rows the terminal leaves
+// (maxFloatingPanelRows minus chrome and content) and TextEntryPanel degrades
+// it to fit, using the same sign-in-url-layout math.
+function textEntryBudget(textEntryPrompt, textEntryLayoutRows, frameColumns, maxFloatingPanelRows) {
   const textEntryKind = String(textEntryPrompt?.kind || '');
   const textEntryMultiline = CORE_MULTILINE_TEXT_ENTRY_KINDS.has(textEntryKind);
   const textEntryDetailText = String(textEntryPrompt?.detail || '').trim();
-  const textEntryDetailRows = textEntryDetailText
-    ? 1 + wrappedDetailRows(textEntryDetailText, Math.max(1, frameColumns - 4))
-    : 0;
   const textEntryContentRows = textEntryMultiline ? textEntryLayoutRows : 1;
+  const textEntryUrlMaxRows = Math.max(0, maxFloatingPanelRows - PANEL_CHROME_ROWS - textEntryContentRows);
+  const textEntryDetailRows = signInUrlLayout(textEntryDetailText, frameColumns, textEntryUrlMaxRows).rows;
   return {
     textEntryKind,
     textEntryMultiline,
     textEntryDetailText,
     textEntryDetailRows,
+    textEntryUrlMaxRows,
     textEntryContentRows,
     TEXT_ENTRY_ROWS: PANEL_CHROME_ROWS + textEntryContentRows + textEntryDetailRows,
   };
@@ -187,7 +189,6 @@ export function computeRowBudgets({
   const { textEntryPrompt, hasTextEntryPrompt, hasFloatingPanel, expandedOptionPanel, inputBoxHidden } = surfaces;
   const { liveSpinner, liveSpinnerIsCommand, latestTranscriptItem, inputHint } = hints;
   const prompt = promptBoxBudget(inputBoxHidden, promptLayoutValueRef, promptContentColumns);
-  const textEntry = textEntryBudget(textEntryPrompt, textEntryLayoutRows, frameColumns);
   const OPTION_PANEL_EXTRA_ROWS = expandedOptionPanel ? 3 : 0;
   const queuedVisible = !hasFloatingPanel && !inputBoxHidden && state.queued?.length > 0;
   // While the slash palette is open it owns the area above the prompt, so the
@@ -214,6 +215,7 @@ export function computeRowBudgets({
   const baseReserve =
     welcome.WELCOME_ROWS + SCROLL_HINT_ROWS + LIVE_STATUS_ROWS + INPUT_BOX_ROWS + STATUSLINE_ROWS + queued.queuedRows;
   const maxFloatingPanelRows = Math.max(0, resizeState.rows - baseReserve - 1);
+  const textEntry = textEntryBudget(textEntryPrompt, textEntryLayoutRows, frameColumns, maxFloatingPanelRows);
   const panel = floatingPanelBudget({
     toolApproval,
     picker,

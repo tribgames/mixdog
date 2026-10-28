@@ -16,11 +16,12 @@ const panelFrame = (providerItem, provider, pickerKey) => ({
   initialIndex: 0,
 });
 
-function showOAuthProgress(flow, providerItem, message, onBack) {
+function showOAuthProgress(flow, providerItem, message, onBack, detail = '') {
   const provider = providerItem._provider || {};
   flow.paint({
     ...panelFrame(providerItem, provider, `providers-oauth-progress:${providerItem.value}`),
     description: message,
+    detail,
     help: '↑/↓ Select · Enter Choose · Esc Providers',
     indexMode: 'never',
     items: [
@@ -80,10 +81,11 @@ function oauthCodeHint(manualUrl, loginUrl, providerName) {
   return `Paste the authorization code or full redirect URL for ${providerName}.`;
 }
 
+// The URL goes in the picker's wrapped `detail` block, never the one-line description.
 function pollingLoginMessage(userCode, loginUrl, opened) {
-  if (userCode) return `Enter code ${userCode} at:\n${loginUrl}${opened}`;
-  if (loginUrl) return `Open this URL to sign in:\n${loginUrl}${opened}`;
-  return 'Finish signing in for this provider.';
+  if (userCode) return { message: `Enter code ${userCode} at${opened}:`, detail: loginUrl };
+  if (loginUrl) return { message: `Open this URL to sign in${opened}:`, detail: loginUrl };
+  return { message: 'Finish signing in for this provider.', detail: '' };
 }
 
 /** Login through store.beginOAuthProviderLogin: a code-completing login hands
@@ -148,7 +150,8 @@ function beginInteractiveOAuthLogin(flow, providerItem, login) {
         // Device-code and URL-only polling logins stay in the progress panel,
         // with the code and URL, until the result panel replaces it or Back.
         const opened = openBrowser ? ' (browser opened)' : '';
-        showOAuthProgress(flow, providerItem, pollingLoginMessage(started?.userCode, loginUrl, opened), login.onBack);
+        const { message, detail } = pollingLoginMessage(started?.userCode, loginUrl, opened);
+        showOAuthProgress(flow, providerItem, message, login.onBack, detail);
       }
       started.waitForCallback
         ?.then((result) => {

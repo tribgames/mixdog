@@ -124,6 +124,7 @@ function renderPicker({
       onHighlight={picker.onHighlight}
       title={picker.title}
       description={picker.description}
+      detail={picker.detail}
       footer={picker.footer}
       footerGapRows={picker.footerGapRows}
       help={picker.help}
@@ -159,6 +160,7 @@ export function renderFloatingPanel(ctx) {
     slashCommands,
     slashIndex,
     slashPaletteOpen,
+    textEntryUrlMaxRows,
     toolApproval,
     usagePanel,
     btwPanel,
@@ -212,6 +214,7 @@ export function renderFloatingPanel(ctx) {
         title={title}
         hint={hint}
         detail={providerPrompt.detail || ''}
+        urlMaxRows={textEntryUrlMaxRows}
         mask={providerPrompt.kind === 'api-key' || providerPrompt.kind === 'openai-usage-session'}
         columns={frameColumns}
         // Restored after a REJECTED daemon save so the entered secret

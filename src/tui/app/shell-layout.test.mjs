@@ -267,3 +267,20 @@ test('prompt-row-only churn while a spinner meta band collapses onto a fresh don
   assert.equal(input.panelCloseInkMaskRowsRef.current, 0, 'the done row already backfills the vacated meta rows');
   assert.equal(layout.transcriptContentHeight, 33);
 });
+
+test('a sign-in URL in a text entry prompt only takes the rows the terminal leaves', () => {
+  const url = `https://claude.ai/oauth/authorize?${'q'.repeat(433)}`;
+  for (const rows of [24, 14, 12]) {
+    const layout = computeShellLayout(
+      layoutInput({
+        resizeState: { rows },
+        frameColumns: 40,
+        providerPrompt: { kind: 'oauth-code', label: 'OAuth code', detail: url },
+      })
+    );
+    assert.equal(layout.hasTextEntryPrompt, true, `rows ${rows}`);
+    assert.ok(layout.textEntryDetailRows <= layout.textEntryUrlMaxRows, `rows ${rows}`);
+    assert.ok(layout.floatingPanelRows <= layout.maxFloatingPanelRows, `rows ${rows}`);
+    assert.equal(layout.TEXT_ENTRY_ROWS, 6 + layout.textEntryContentRows + layout.textEntryDetailRows, `rows ${rows}`);
+  }
+});

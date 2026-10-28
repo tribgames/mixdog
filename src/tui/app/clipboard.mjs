@@ -75,7 +75,14 @@ function nativeClipboardCommand(text) {
   return { cmd: 'xclip', args: ['-selection', 'clipboard'], input: value };
 }
 
-export function copyToClipboard(text) {
+/**
+ * Resolves 'copied' once a native helper confirmed the write, or 'terminal' when
+ * only OSC 52 was emitted (the terminal may ignore it, so it is unconfirmed).
+ * Rejects when no path was available. By default a successful OSC 52 resolves
+ * at once without awaiting the helper; `confirm` waits for the helper so the
+ * caller can tell which of the two happened.
+ */
+export function copyToClipboard(text, { confirm = false } = {}) {
   const value = String(text ?? '');
   const wroteOsc52 = writeOsc52Clipboard(value);
   // When OSC 52 already wrote the clipboard, fire-and-forget the native helper
@@ -84,24 +91,25 @@ export function copyToClipboard(text) {
   // skipped (payload too large), the native helper is the ONLY writer, so we
   // must await its exit to report real success/failure instead of a false
   // "copied" hint.
+  const waitForHelper = !wroteOsc52 || confirm;
   return new Promise((resolve, reject) => {
+    // A helper failure only matters when OSC 52 did not cover us.
+    const helperFailed = (error) => (wroteOsc52 ? resolve('terminal') : reject(error));
     const { cmd, args, input } = nativeClipboardCommand(value);
     let child;
     try {
       child = spawn(cmd, args, { stdio: ['pipe', 'ignore', 'ignore'], windowsHide: true });
     } catch (e) {
-      if (wroteOsc52) resolve();
-      else reject(clipboardHelperError(cmd, e));
+      helperFailed(clipboardHelperError(cmd, e));
       return;
     }
     child.on('error', (e) => {
-      // Surface only if OSC 52 didn't cover us; otherwise the copy still landed.
-      if (!wroteOsc52) reject(clipboardHelperError(cmd, e));
+      if (waitForHelper) helperFailed(clipboardHelperError(cmd, e));
     });
-    if (!wroteOsc52) {
+    if (waitForHelper) {
       child.on('close', (code) => {
-        if (code === 0) resolve();
-        else reject(new Error(`${cmd} exited with code ${code}`));
+        if (code === 0) resolve('copied');
+        else helperFailed(new Error(`${cmd} exited with code ${code}`));
       });
     }
     child.stdin.on('error', () => {
@@ -109,9 +117,9 @@ export function copyToClipboard(text) {
     });
     child.stdin.end(input);
     // OSC 52 covered us: resolve now, don't await the child's exit.
-    if (wroteOsc52) {
+    if (!waitForHelper) {
       child.unref?.();
-      resolve();
+      resolve('terminal');
     }
   });
 }

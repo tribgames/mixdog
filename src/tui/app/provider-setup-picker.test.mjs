@@ -297,9 +297,9 @@ async function startLogin(started, kind) {
 test('headless start passes openBrowser:false, shows the URL and never claims a browser opened', () =>
   withLoginEnv('headless', async () => {
     const { h, calls, callback } = await startLogin({ url: 'https://example.test/poll' });
-    await waitUntil(() => h.current()?.description?.includes('https://example.test/poll'), { message: 'url panel' });
+    await waitUntil(() => h.current()?.detail === 'https://example.test/poll', { message: 'url panel' });
     assert.deepEqual(calls, [['anthropic-oauth', { openBrowser: false }]]);
-    assert.equal(h.current().description, 'Open this URL to sign in:\nhttps://example.test/poll');
+    assert.equal(h.current().description, 'Open this URL to sign in:');
     assert.ok(h.notices.every(([message]) => !/browser opened/.test(message)));
     callback.resolve({ ok: true });
     await panelIs(h, 'providers-oauth-result:oauth:anthropic-oauth:ok');
@@ -308,16 +308,17 @@ test('headless start passes openBrowser:false, shows the URL and never claims a 
 test('desktop URL-only polling start opens the browser and still shows the URL', () =>
   withLoginEnv('desktop', async () => {
     const { h, calls } = await startLogin({ url: 'https://example.test/poll' });
-    await waitUntil(() => h.current()?.description?.includes('https://example.test/poll'), { message: 'url panel' });
+    await waitUntil(() => h.current()?.detail === 'https://example.test/poll', { message: 'url panel' });
     assert.deepEqual(calls, [['anthropic-oauth', { openBrowser: true }]]);
-    assert.equal(h.current().description, 'Open this URL to sign in:\nhttps://example.test/poll (browser opened)');
+    assert.equal(h.current().description, 'Open this URL to sign in (browser opened):');
   }));
 
 test('device-code start keeps the code and verification URL in the panel until completion', () =>
   withLoginEnv('headless', async () => {
     const { h, callback } = await startLogin({ url: 'https://example.test/device', userCode: 'ABCD-1234' });
     await waitUntil(() => h.current()?.description?.includes('ABCD-1234'), { message: 'device panel' });
-    assert.equal(h.current().description, 'Enter code ABCD-1234 at:\nhttps://example.test/device');
+    assert.equal(h.current().description, 'Enter code ABCD-1234 at:');
+    assert.equal(h.current().detail, 'https://example.test/device');
     assert.equal(h.current().pickerKey, 'providers-oauth-progress:oauth:anthropic-oauth');
     callback.resolve({ ok: true });
     await panelIs(h, 'providers-oauth-result:oauth:anthropic-oauth:ok');
@@ -327,7 +328,7 @@ test('device-code Back leaves the panel and the late completion becomes a notice
   withLoginEnv('desktop', async () => {
     const { h, callback } = await startLogin({ url: 'https://example.test/device', userCode: 'ABCD-1234' });
     await waitUntil(() => h.current()?.description?.includes('ABCD-1234'), { message: 'device panel' });
-    assert.match(h.current().description, /\(browser opened\)$/);
+    assert.match(h.current().description, /\(browser opened\):$/);
     h.select(h.row('back'));
     callback.resolve({ ok: true });
     await waitUntil(() => h.notices.some(([message]) => /login complete/.test(message)), { message: 'notice' });

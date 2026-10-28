@@ -9,6 +9,8 @@ import { clearSelection, lineEnd, lineStart, moveCursor, replaceSelection, selec
 import { textEntryReservedRows } from '../app/text-layout.mjs';
 import { createTextEntryCursorAnchor, singleLine } from './text-entry-layout.mjs';
 import { renderTextEntryValue } from './text-entry-value.jsx';
+import { SignInUrl, signInUrlNote, useCopyUrl } from './SignInUrl.jsx';
+import { signInUrlLayout } from './sign-in-url-layout.mjs';
 import { canSubmitTextEntry } from '../app/text-entry-policy.mjs';
 import { truncatePanelText as truncateText } from './panel-cell-text.mjs';
 import { applyEditChord, createVerticalMover } from './prompt-input/edit-chords.mjs';
@@ -27,6 +29,9 @@ export function TextEntryPanel({
   title,
   hint = '',
   detail = '',
+  copyText,
+  // Rows the panel can give the detail URL block (row-budgets.mjs); unbounded when unknown.
+  urlMaxRows = Number.POSITIVE_INFINITY,
   initialValue = '',
   // Blank submit = the documented reset/clear action for some prompt kinds
   // (system shell → auto, provider auto-clear → built-in, profile title →
@@ -56,6 +61,11 @@ export function TextEntryPanel({
   const preferredColumnRef = useRef(null);
   const { isRawModeSupported } = useStdin();
   draftRef.current = draft;
+  // Optional sign-in URL (e.g. the OAuth URL), drawn complete and borderless
+  // under the panel — in the live panel only, never pushed to the transcript, so
+  // it disappears when the panel closes instead of lingering in scrollback.
+  const detailText = String(detail || '').trim();
+  const copyUrl = useCopyUrl(detailText, copyText);
 
   const flushImmediate = () => {
     let node = boxRef.current;
@@ -230,6 +240,10 @@ export function TextEntryPanel({
         updateDraft((d) => moveCursor(d, lineEnd(d.value, d.cursor), { extend: key.shift }));
         return;
       }
+      if (detailText && key.ctrl && inputKey === 'y') {
+        copyUrl.copy();
+        return;
+      }
       if (applyEditChord(key, inputKey, updateDraft)) return;
       if (rawInput && !key.ctrl && !key.meta) {
         updateDraft((d) => insertText(d, rawInput));
@@ -279,11 +293,13 @@ export function TextEntryPanel({
   // Standard panel rhythm: title row, blank, single-line hint, blank, content.
   // The hint is collapsed to one line and width-truncated so a long manual
   // OAuth URL can never wrap and push the bordered title off the top.
-  const hintText = truncateText(singleLine(hint), Math.max(0, columns - 4));
-  // Optional wrapped detail block (e.g. the manual OAuth URL). Lives INSIDE the
-  // live panel — never pushed to the transcript — so it disappears completely
-  // when the panel closes instead of lingering in terminal scrollback.
-  const detailText = String(detail || '').trim();
+  // The URL block gets the rows the panel really has (urlMaxRows) and degrades
+  // to fit; with no hint row under the URL, the hint row carries the copy note.
+  const urlLayout = signInUrlLayout(detailText, columns, urlMaxRows);
+  const hintText = truncateText(
+    !urlLayout.hint && detailText ? signInUrlNote('Ctrl+Y', copyUrl.status) : singleLine(hint),
+    Math.max(0, columns - 4)
+  );
 
   return (
     <Box flexDirection="column" flexShrink={0} width="100%">
@@ -294,14 +310,6 @@ export function TextEntryPanel({
         </Box>
         <Text> </Text>
         <Text color={theme.subtle}>{hintText || ' '}</Text>
-        {detailText ? (
-          <Box flexDirection="column" width="100%">
-            <Text> </Text>
-            <Text color={theme.subtle} wrap="wrap">
-              {detailText}
-            </Text>
-          </Box>
-        ) : null}
         <Text> </Text>
         {multiline ? (
           <Box flexDirection="row" width="100%" alignItems="flex-start" backgroundColor={surfaceBackground()}>
@@ -328,6 +336,7 @@ export function TextEntryPanel({
           </Box>
         )}
       </Box>
+      <SignInUrl url={detailText} layout={urlLayout} copyKey="Ctrl+Y" status={copyUrl.status} />
     </Box>
   );
 }

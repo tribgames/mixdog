@@ -19,6 +19,8 @@ import { theme } from '../theme.mjs';
 import { ConfirmBar, clampConfirmFocus } from './ConfirmBar.jsx';
 import { truncatePanelText as truncateText } from './panel-cell-text.mjs';
 import { PickerItemRow } from './picker/PickerItemRow.jsx';
+import { SignInUrl, signInUrlNote, useCopyUrl } from './SignInUrl.jsx';
+import { signInUrlLayout } from './sign-in-url-layout.mjs';
 import {
   ADJUST_HELP,
   CONFIRM_HELP,
@@ -43,6 +45,10 @@ export function Picker({
   onHighlight,
   title,
   description = '',
+  // Optional sign-in URL, drawn complete and borderless under the panel (never
+  // truncated like `description`); `c` copies it. `copyText` overrides the clipboard.
+  detail = '',
+  copyText,
   footer = '',
   help,
   columns = 80,
@@ -89,7 +95,21 @@ export function Picker({
   const footerGap = footerLines.length > 0 ? Math.max(0, Math.floor(Number(footerGapRows) || 0)) : 0;
   const footerReserveRows = footerLines.length > 0 ? footerLines.length + footerGap : 0;
   const confirmReserveRows = hasConfirm && footerLines.length === 0 ? 2 : 0;
-  const effectiveVisibleLimit = Math.max(1, visibleLimit - footerReserveRows - confirmReserveRows);
+  const detailText = String(detail || '').trim();
+  // The URL is drawn under the panel (no border). Its rows (wrapped URL + copy
+  // hint) come out of the list so the total height is unchanged. It gets the
+  // rows left beside up to two list rows (one, if that leaves nothing) and
+  // degrades step by step (see sign-in-url-layout.mjs) until it fits.
+  const rowsAfterChrome = visibleLimit - footerReserveRows - confirmReserveRows;
+  const keptListRows = rowsAfterChrome - Math.min(items.length, 2) >= 1 ? Math.min(items.length, 2) : 1;
+  const urlLayout = signInUrlLayout(detailText, columns, rowsAfterChrome - keptListRows);
+  const detailRows = urlLayout.rows;
+  const copyUrl = useCopyUrl(detailText, copyText);
+  const handleKey = (input, key, item, index) => {
+    if (detailText && input === 'c' && !key.ctrl && !key.meta) copyUrl.copy();
+    else onKey?.(input, key, item, index);
+  };
+  const effectiveVisibleLimit = Math.max(1, visibleLimit - footerReserveRows - confirmReserveRows - detailRows);
   let helpText = help;
   if (!helpText) {
     if (hasConfirm) helpText = CONFIRM_HELP;
@@ -112,7 +132,7 @@ export function Picker({
     onLeft,
     onRight,
     onTab,
-    onKey,
+    onKey: handleKey,
     effectiveVisibleLimit,
     hasConfirm,
     confirmButtons,
@@ -124,8 +144,9 @@ export function Picker({
   // line so a multi-line description (e.g. ToolApproval) cannot push the title
   // off the top. The slot is always reserved so panel chrome is a constant 6
   // rows (title + blank + desc + blank + 2 border), matching PICKER_CHROME_ROWS.
+  // With no hint row under the URL, the description row carries the copy note.
   const panelDescription = truncateText(
-    String(description || '')
+    String(!urlLayout.hint && detailText ? signInUrlNote('c', copyUrl.status) : description || '')
       .replace(/\s+/g, ' ')
       .trim(),
     Math.max(0, columns - 4)
@@ -277,6 +298,7 @@ export function Picker({
           </>
         ) : null}
       </Box>
+      <SignInUrl url={detailText} layout={urlLayout} copyKey="c" status={copyUrl.status} />
     </Box>
   );
 }

@@ -90,6 +90,7 @@ function mount(context, columns = 100) {
       view.rerender(React.createElement(Component, props));
       return settle();
     },
+    raw: () => frame,
     async key(input) {
       stdin.write(input);
       return settle();
@@ -195,4 +196,115 @@ test('queued commands preserve compact UTF-16 slicing and full multiline output'
     }),
     /ok/
   );
+});
+
+test('picker draws a long sign-in URL borderless with the full link and a copy key', async (context) => {
+  const url =
+    'https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&state=zzzzzzzzzzzzzzzzzzzz';
+  const copied = [];
+  const view = mount(context, 40);
+  const frame = await view.show(panels.Picker, {
+    title: 'Provider',
+    columns: 40,
+    description: 'Open this URL to sign in:',
+    detail: url,
+    copyText: (text) => copied.push(text),
+    items: [{ value: 'waiting', label: 'Waiting' }],
+    onSelect() {},
+    onCancel() {},
+  });
+  assert.doesNotMatch(frame, /…/);
+  // The complete URL is one contiguous OSC 8 link target, and the rows that show it carry no border.
+  assert.ok(view.raw().includes(`\x1b]8;;${url}\x07`));
+  const rows = frame.split('\n').filter((line) => !/[│╭╰]/.test(line));
+  assert.equal(rows.join(''), url + 'c copies the full URL');
+  assert.match(frame, /Waiting/);
+  await view.key('c');
+  assert.deepEqual(copied, [url]);
+  assert.match(await view.key(''), /URL copied/);
+});
+
+const longUrl = `https://claude.ai/oauth/authorize?code=true&client_id=9d1c250a-e61b-44d9-88ed-5944d1962f5e&response_type=code&redirect_uri=https%3A%2F%2Fconsole.anthropic.com%2Foauth%2Fcode%2Fcallback&scope=org%3Acreate_api_key+user%3Aprofile+user%3Ainference&code_challenge=${'a'.repeat(120)}&code_challenge_method=S256&state=${'z'.repeat(120)}`;
+
+test('picker URL block fits every panel budget and always keeps the full link and copy', async (context) => {
+  assert.ok(longUrl.length > 433);
+  // visibleCount 8 is the 14-row panel; smaller values are shorter terminals.
+  for (const visibleCount of [8, 6, 4, 3, 2, 1]) {
+    const copied = [];
+    const view = mount(context, 40);
+    const frame = await view.show(panels.Picker, {
+      title: 'Provider',
+      columns: 40,
+      visibleCount,
+      help: 'Esc Back',
+      description: 'Open this URL to sign in:',
+      detail: longUrl,
+      copyText: (text) => copied.push(text),
+      items: [
+        { value: 'waiting', label: 'Waiting' },
+        { value: 'back', label: 'Back' },
+      ],
+      onSelect() {},
+      onCancel() {},
+    });
+    const message = `visibleCount ${visibleCount}\n${frame}`;
+    assert.ok(frame.split('\n').length <= 6 + visibleCount, message);
+    assert.match(frame, /Waiting|Back/, message);
+    if (visibleCount === 1) assert.match(frame, /c copies the full URL/, message);
+    else assert.match(frame, /https:\/\/claude\.ai\//, message);
+    if (visibleCount > 1) assert.ok(view.raw().includes(`\x1b]8;;${longUrl}\x07`), message);
+    await view.key('c');
+    assert.deepEqual(copied, [longUrl], message);
+  }
+});
+test('picker reports what the copy actually did', async (context) => {
+  const url = 'https://example.test/auth';
+  for (const [result, expected] of [
+    [() => 'copied', /URL copied/],
+    [() => 'terminal', /Sent to terminal clipboard \(not confirmed\)/],
+    [() => Promise.reject(new Error('no clipboard')), /Copy failed.*use the link above/],
+  ]) {
+    const view = mount(context, 80);
+    await view.show(panels.Picker, {
+      title: 'Provider',
+      columns: 80,
+      detail: url,
+      copyText: result,
+      items: [{ value: 'waiting', label: 'Waiting' }],
+      onSelect() {},
+      onCancel() {},
+    });
+    assert.match(await view.key('c'), expected);
+  }
+});
+
+test('picker one-row URL mode still shows the copy note and every copy result', async (context) => {
+  for (const [result, expected] of [
+    [null, /c copies the full URL/],
+    [() => 'copied', /URL copied/],
+    [() => 'terminal', /Sent to terminal clipboard \(not confirmed\)/],
+    [() => Promise.reject(new Error('none')), /Copy failed.*use the link above/],
+  ]) {
+    const view = mount(context, 80);
+    const props = {
+      title: 'Provider',
+      columns: 80,
+      visibleCount: 2, // 2 list items leave exactly one row for the URL
+      help: 'Esc Back',
+      description: 'Open this URL to sign in:',
+      detail: longUrl,
+      copyText: result,
+      items: [
+        { value: 'waiting', label: 'Waiting' },
+        { value: 'back', label: 'Back' },
+      ],
+      onSelect() {},
+      onCancel() {},
+    };
+    let frame = await view.show(panels.Picker, props);
+    assert.ok(view.raw().includes(`\x1b]8;;${longUrl}\x07`));
+    if (result) frame = await view.key('c');
+    assert.match(frame, expected);
+    assert.ok(frame.split('\n').length <= 8, frame);
+  }
 });
