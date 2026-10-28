@@ -83,6 +83,36 @@ test('tail windows page older history from transcriptHasOlder, one page per publ
   }
 });
 
+test('a window the host restarted from a shorter tail pages again, with no item ceiling', async () => {
+  const env = installHistoryDom();
+  const { requests } = env;
+  const root = createRoot(document.getElementById('root'));
+  const Reader = ({ count, hasOlder }) =>
+    React.createElement('button', { type: 'button', onClick: useTranscriptHistory('a', count, hasOlder) }, 'Earlier');
+  const render = (count, hasOlder) =>
+    act(async () => {
+      root.render(React.createElement(Reader, { count, hasOlder }));
+    });
+  const earlier = () => act(async () => document.querySelector('button').click());
+  try {
+    await render(20_000, true);
+    await earlier();
+    assert.equal(requests[0].limit, 20_064, 'deep history keeps paging');
+    await act(async () => requests[0].resolve(true));
+    // The page never landed: the host answered a whole window as a fresh tail.
+    await render(512, true);
+    await earlier();
+    assert.equal(requests[1].limit, 576, 'the shorter tail pages again at once');
+    // Restarted while a page was in flight: its ACK does not block the next.
+    await render(300, true);
+    await act(async () => requests[1].resolve(true));
+    await earlier();
+    assert.equal(requests[2].limit, 364);
+  } finally {
+    await restoreHistoryDom(env, root);
+  }
+});
+
 test('background output reads stay held after a page ACK until the page is applied, and not past a failure or a leave', async () => {
   const env = installHistoryDom();
   const { requests } = env;
@@ -308,7 +338,7 @@ test('cold history pages load on demand, survive delayed publications and stay s
     assert.equal(requests.length, 5, 'a short returned page is complete');
     await render('a', 2048);
     await earlier();
-    assert.equal(requests.length, 5, 'history retains its upper bound');
+    assert.equal(requests[5].limit, 2560, 'history has no item ceiling: a full window pages on');
   } finally {
     await restoreHistoryDom(env, root);
   }

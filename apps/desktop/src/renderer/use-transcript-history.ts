@@ -154,6 +154,9 @@ export function useTranscriptHistory(sessionId: string, itemCount: number, hasOl
     const paging = pagingRef.current;
     const page = paging.page;
     if (page && (itemCount > page.from || hasOlder === false)) endPage(paging, page);
+    // The window restarted from a shorter tail (the host answered it whole):
+    // older rows page in again from there.
+    if (itemCount < paging.pagedFrom) paging.pagedFrom = -1;
   }, [itemCount, hasOlder]);
   // Leaving the session (or unmounting) cancels the wait.
   // biome-ignore lint/correctness/useExhaustiveDependencies: sessionId is the trigger; the paging it owns is read at setup
@@ -183,7 +186,8 @@ export function useTranscriptHistory(sessionId: string, itemCount: number, hasOl
         // A refused read brings no page.
         if (accepted !== true) endPage(paging, page);
         if (pagingRef.current !== paging || accepted !== true) return;
-        if (tail) paging.pagedFrom = count;
+        // A window that restarted shorter meanwhile pages again from its tail.
+        if (tail) paging.pagedFrom = countRef.current < count ? -1 : count;
         else paging.limit = nextLimit;
       })
       .catch(() => {

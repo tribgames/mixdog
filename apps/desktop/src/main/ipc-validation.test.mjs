@@ -15,7 +15,16 @@ import {
   requiredNotificationDeviceId,
   requiredNotificationPreferencesPatch,
   requiredNotificationTarget,
+  requiredTranscriptItemLimit,
 } from './ipc-validation.ts';
+
+test('a transcript item limit has no ceiling: the daemon bounds each answer', () => {
+  assert.equal(requiredTranscriptItemLimit(null), undefined);
+  for (const limit of [1, 8_193, 20_064, 10_000_000]) assert.equal(requiredTranscriptItemLimit(limit), limit);
+  for (const bad of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, '64', Number.POSITIVE_INFINITY]) {
+    assert.throws(() => requiredTranscriptItemLimit(bad), TypeError, String(bad));
+  }
+});
 
 test('a notification preferences patch keeps only known fields with valid values', () => {
   const patch = {

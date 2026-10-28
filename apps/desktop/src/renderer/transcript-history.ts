@@ -1,7 +1,8 @@
 export const TRANSCRIPT_HISTORY_PAGE_ITEMS = 512;
 /** Older items loaded per scroll-to-top when the host serves tail windows. */
 export const TRANSCRIPT_TAIL_PAGE_ITEMS = 64;
-const TRANSCRIPT_HISTORY_MAX_ITEMS = 2_048;
+/** History pages back to the session's first row: no item ceiling. */
+const TRANSCRIPT_HISTORY_MAX_ITEMS = Number.POSITIVE_INFINITY;
 
 /** Next window for a host that serves tail windows and says whether older
  * history exists (`transcriptHasOlder`). `pagedFrom` is the item count the
@@ -12,7 +13,7 @@ export function nextTranscriptTailLimit(
   itemCount: number,
   pagedFrom: number,
   hasOlder: boolean,
-  maxItems = TRANSCRIPT_HISTORY_MAX_ITEMS
+  maxItems: number = TRANSCRIPT_HISTORY_MAX_ITEMS
 ): number | null {
   const count = Math.max(0, Math.floor(Number(itemCount) || 0));
   if (!hasOlder || count <= pagedFrom || count >= maxItems) return null;

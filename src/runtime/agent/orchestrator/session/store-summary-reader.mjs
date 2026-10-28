@@ -31,14 +31,14 @@ import {
   projectStoredTranscriptOffThread,
   storedTranscriptWorkerRunning,
 } from './store-transcript-worker.mjs';
-import { projectStoredTranscript } from './store-transcript-projection.mjs';
+import { projectStoredTranscript, storedHistoryWindow } from './store-transcript-projection.mjs';
 import { dataDir } from './store-summary-locations.mjs';
 import { isStoredSessionId, workspaceSummary } from './store-summary-fields.mjs';
 import { readArchivedAgentResult } from './store-summary-archived-agent.mjs';
 import {
+  compactionArchivePageFromText,
   compactionArchivePath,
   compactionArchiveRange,
-  readCompactionArchivePage,
   visitCompactionArchive,
 } from './compaction-archive.mjs';
 import { attachmentHistoryRows } from './stored-attachment-history.mjs';
@@ -386,10 +386,10 @@ export function storedSessionTranscriptStamp(id) {
  *  itself). The answer is the cache's `project` contract; a worker failure
  *  rejects and the cache runs the in-process pipeline instead. */
 async function projectStoredTranscriptElsewhere(known, context) {
-  const { sessionId, recordPath, itemLimit, timing } = context;
+  const { sessionId, recordPath, timing } = context;
   timing.worker = storedTranscriptWorkerRunning(sessionId) ? 'warm' : 'cold';
   const workerStartedAt = performance.now();
-  const answer = await projectStoredTranscriptOffThread({ sessionId, recordPath, itemLimit, known });
+  const answer = await projectStoredTranscriptOffThread({ sessionId, recordPath, known });
   timing.workerMs = performance.now() - workerStartedAt;
   Object.assign(timing, answer.timing);
   context.readState = answer.state;
@@ -436,6 +436,9 @@ async function produceStoredTranscript(text, stamp, context) {
     handedOver && checkpointAbsent ? JSON.parse(text) : record.doc,
     {
       itemLimit,
+      // An item read builds the whole display history once per content;
+      // its windows are cut from it (storedHistoryWindow).
+      history: mode === 'items',
       includeMessages,
       checkpointAbsent,
     }
@@ -492,6 +495,56 @@ async function readStoredAttachmentHistory(sessionId, recordPath, archivePath) {
   return value ?? null;
 }
 
+// The last few windows cut from each cached display history (weakly: they go
+// with it), so a repeated read of one window returns the same object.
+const HISTORY_WINDOWS_PER_HISTORY = 4;
+const historyWindows = new WeakMap();
+function historyWindow(history, itemLimit) {
+  if (!history || typeof history !== 'object') return history;
+  let windows = historyWindows.get(history);
+  if (!windows) {
+    windows = new Map();
+    historyWindows.set(history, windows);
+  }
+  let window = windows.get(itemLimit);
+  if (window) windows.delete(itemLimit);
+  else window = storedHistoryWindow(history, itemLimit);
+  windows.set(itemLimit, window);
+  if (windows.size > HISTORY_WINDOWS_PER_HISTORY) windows.delete(windows.keys().next().value);
+  return window;
+}
+
+/** One page of a session's compaction archive (`{ after, before, skip,
+ *  limit }`, as readCompactionArchivePage pages it), cut from its visible rows
+ *  built once per archive content in the transcript cache: paging a live
+ *  session through a large segment slices instead of re-parsing it; `paging`
+ *  keeps it cached under pressure (the cache's `pin`). */
+async function readCachedCompactionArchivePage(sessionId, archivePath, range, paging) {
+  const after = Math.max(0, Math.floor(Number(range.after) || 0));
+  const before = Number(range.before);
+  const visible = { after, before: Number.isFinite(before) ? before : Number.POSITIVE_INFINITY };
+  const archive = probePath(archivePath);
+  if (archive.state !== PROBE_PRESENT) return { items: [], hasOlder: false };
+  const { value } = await storedTranscriptCache.read({
+    key: `${sessionId}|archive|${visible.after}:${visible.before}`,
+    group: `${sessionId}|archive`,
+    fingerprint: '',
+    fileStat: archive,
+    pin: paging,
+    loadText: () => {
+      const body = readTextFile(archivePath);
+      return body.state === PROBE_PRESENT ? body.text : null;
+    },
+    produce: async (text) => ({
+      items: (await compactionArchivePageFromText(text, { ...visible, limit: Number.POSITIVE_INFINITY })).items,
+    }),
+  });
+  const items = Array.isArray(value?.items) ? value.items : [];
+  const end = Math.max(0, items.length - Math.max(0, Math.floor(Number(range.skip) || 0)));
+  const start = Math.max(0, end - Math.max(0, Math.floor(Number(range.limit) || 0)));
+  return { items: items.slice(start, end), hasOlder: start > 0 };
+}
+
 /** Read exactly one persisted session for a visible desktop pane. This never
  * enumerates siblings. Normal reads stay independent of runtime ownership;
  * interrupted turns conditionally use the same durable reconnect recovery as
@@ -508,7 +561,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
   // One page of the display-only compaction archive (the live head loader
   // pages it once a runtime's in-memory rows are exhausted).
   if (options.compactionArchive && typeof options.compactionArchive === 'object') {
-    return readCompactionArchivePage(join(dataDir(), 'sessions'), sessionId, options.compactionArchive);
+    return readCachedCompactionArchivePage(sessionId, archivePath, options.compactionArchive, options.paging === true);
   }
   // The checkpoint sidecar shapes the projection as much as the record does,
   // so its identity joins the cache fingerprint. Only a PROVABLY absent
@@ -545,10 +598,18 @@ export async function readStoredSessionTranscript(id, options = {}) {
     // How the record read went (the worker's read or loadText below).
     readState: PROBE_PRESENT,
   };
-  const { value, hit, read } = await storedTranscriptCache.read({
-    key: `${sessionId}|${itemLimit}|${mode}`,
+  const {
+    value: built,
+    hit,
+    read,
+  } = await storedTranscriptCache.read({
+    // Item reads share the one display history of the content, so paging
+    // through it slices instead of re-projecting.
+    key: mode === 'items' ? `${sessionId}|history|items` : `${sessionId}|${itemLimit}|${mode}`,
     // Growing history windows of one session replace each other.
     group: `${sessionId}|${mode}`,
+    // A page read keeps the history it pages through cached under pressure.
+    pin: options.paging === true,
     fingerprint: [
       checkpoint.state,
       checkpoint.mtimeMs,
@@ -586,6 +647,7 @@ export async function readStoredSessionTranscript(id, options = {}) {
   });
   // The record vanished between stat and read: same answer as an absent probe.
   if (produceContext.readState === PROBE_ABSENT) return readVanishedSessionTranscript(sessionId);
+  const value = mode === 'items' ? historyWindow(built, itemLimit) : built;
   if (typeof options.trace === 'function') {
     options.trace({
       sessionId,

@@ -114,6 +114,23 @@ test('live rows append past the first page; older rows reveal only on the phone 
   assert.equal(viewIsStale(paged.items, [...latest, { id: 'new', kind: 'user', device: 'desktop' }], 'phone'), true);
 });
 
+test('a phone page reveals at most 512 rows a request, whatever limit it names, and pages on to the first row', () => {
+  const rows = Array.from({ length: 2_000 }, (_, n) => user(`d${n}`, 10));
+  const reader = phone();
+  let held = reader.deliver({ items: rows, transcriptHasOlder: false }).snapshot.items.length;
+  const counts = [];
+  while (held < rows.length) {
+    requestPhoneTranscriptPage(reader.encoder, 10_000_000);
+    const { snapshot } = reader.deliver({ items: rows, transcriptHasOlder: false });
+    assert.ok(snapshot.items.length - held <= 512, `revealed ${snapshot.items.length - held}`);
+    held = snapshot.items.length;
+    counts.push(held);
+  }
+  assert.deepEqual(counts, [532, 1_044, 1_556, 2_000]);
+  assert.equal(reader.held.items[0].id, 'd0');
+  assert.equal(reader.held.transcriptHasOlder, false);
+});
+
 test('an oversized newest tool row goes with its outputs cut to fit, readable whole through Show full output', () => {
   const members = Array.from({ length: 40 }, (_, n) => ({ id: `m${n}`, name: 'read', result: 'r'.repeat(8_000) }));
   const aggregate = { id: 'agg', kind: 'tool', aggregate: true, result: '', toolMembers: members, completedAt: 1 };

@@ -8,8 +8,8 @@
  * loop each read stretched to seconds. This worker runs exactly that pipeline
  * (stat → read → stat, digest, readTopLevelLifecycleRecord →
  * projectStoredTranscript with no turn checkpoint) and hands back the
- * digest and the same projection value; only the finished window crosses
- * back.
+ * digest and the same projection value; only the finished display history
+ * crosses back, and the caller cuts every window from it.
  *
  * Inside the worker, one projection base (recovery, prepared session and
  * whole-transcript context gauge) per session content is shared by every
@@ -60,8 +60,8 @@ function clientFor(sessionId) {
  * the full file stamp the bytes provably came from, or null. Rejects when the
  * worker cannot answer; callers then run the pipeline on their own thread.
  */
-export function projectStoredTranscriptOffThread({ sessionId, recordPath, itemLimit, known = null }) {
-  return clientFor(sessionId)({ sessionId, recordPath, itemLimit, known });
+export function projectStoredTranscriptOffThread({ sessionId, recordPath, known = null }) {
+  return clientFor(sessionId)({ sessionId, recordPath, known });
 }
 
 /** Whether the projection worker of `sessionId` is attached (a request now
@@ -321,7 +321,7 @@ async function buildBase(sessionId, text, previousMessages, timing) {
 
 const baseBuilds = createBaseBuilds({ build: buildBase });
 
-async function project({ sessionId, recordPath, itemLimit, known }) {
+async function project({ sessionId, recordPath, known }) {
   const importStartedAt = performance.now();
   const [{ statSessionStamp, sameSessionStamp }, { readTextFile, PROBE_PRESENT }, { transcriptTextHash }, projection] =
     await Promise.all([
@@ -374,8 +374,10 @@ async function project({ sessionId, recordPath, itemLimit, known }) {
       const built = await pending;
       if (built === RESTART_READ) continue;
       if (built.unreadable) return { ...digest, unreadable: true };
+      // The whole display history: every window is cut from it on the
+      // caller's thread (storedHistoryWindow).
       const value = await projection.windowStoredTranscript(sessionId, built.base, {
-        itemLimit,
+        history: true,
         includeMessages: false,
       });
       timing.projectMs = performance.now() - projectStartedAt;

@@ -58,10 +58,16 @@ function budgetedStart(
   return start;
 }
 
+/** Rows one history page request may add to a phone's window, whatever limit
+ *  it names (the daemon's per-answer bound). */
+const PHONE_PAGE_MAX_ITEMS = 512;
+
 /** The phone asked for a window of `limit` rows (a history page). */
 export function requestPhoneTranscriptPage(encoder: SnapshotDeltaEncoder | undefined, limit: number): void {
   const window = encoder ? phoneWindows.get(encoder) : undefined;
-  if (window && Number.isInteger(limit) && limit > window.limit) window.limit = limit;
+  if (window && Number.isInteger(limit) && limit > window.limit) {
+    window.limit = Math.min(limit, window.limit + PHONE_PAGE_MAX_ITEMS);
+  }
 }
 
 /** `snapshot` as this phone's encoder should send it: its window of rows,
@@ -81,7 +87,7 @@ function phoneTranscriptSnapshot(encoder: SnapshotDeltaEncoder, snapshot: unknow
     window = { tailFirstId: idOf(items[start]), limit: items.length - start };
     phoneWindows.set(encoder, window);
   } else {
-    const wanted = window.limit - (items.length - start);
+    const wanted = Math.min(window.limit - (items.length - start), PHONE_PAGE_MAX_ITEMS);
     if (wanted > 0) start = budgetedStart(items, start, wanted, DESKTOP_TRANSCRIPT_PAGE_BYTES, true);
   }
   const windowed = start === 0 ? record : { ...record, items: items.slice(start), transcriptHasOlder: true };

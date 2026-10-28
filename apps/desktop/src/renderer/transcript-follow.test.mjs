@@ -16,7 +16,8 @@ test('transcript history grows in bounded pages only at a full window', () => {
   assert.equal(nextTranscriptHistoryLimit(120, 512), null);
   assert.equal(nextTranscriptHistoryLimit(512, 512), 1024);
   assert.equal(nextTranscriptHistoryLimit(1300, 1024), 1812);
-  assert.equal(nextTranscriptHistoryLimit(8192, 8192), null);
+  // No item ceiling: a full window pages on to the first message.
+  assert.equal(nextTranscriptHistoryLimit(8192, 8192), 8704);
 });
 
 test('every active reader gesture defers corrective transcript scroll writes', () => {

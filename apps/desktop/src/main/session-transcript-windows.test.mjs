@@ -34,6 +34,21 @@ test('a session only a phone shows opens on the short remote tail and pages olde
   });
 });
 
+test('a window grows past any former ceiling, and again from a shorter tail the daemon restarted', () => {
+  const windows = new SessionTranscriptWindows(new Map([['desktop', new Set([id])]]));
+  assert.equal(windows.grow(id, 20_064, 20_000), true, 'deep history keeps paging');
+  assert.equal(windows.request(id).transcriptItemLimit, 20_064);
+  assert.equal(windows.grow(id, 20_000, 20_000), false, 'the rows held already cover it');
+  // The daemon answered a whole window as a fresh 512-row tail: the next page
+  // grows from what is held, below the last limit asked.
+  assert.equal(windows.grow(id, 576, 512), true);
+  assert.deepEqual(windows.request(id), {
+    transcriptItemLimit: 576,
+    transcriptByteBudget: DESKTOP_TRANSCRIPT_PAGE_BYTES,
+    transcriptPageBase: 512,
+  });
+});
+
 test('a session the desktop window also shows keeps the desktop tail, and a joining window re-reads it', () => {
   const sources = new Map([['remote:phone', new Set([id])]]);
   const windows = new SessionTranscriptWindows(sources);

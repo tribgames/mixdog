@@ -107,27 +107,61 @@ export async function prepareStoredTranscriptBase(sessionId, doc, options) {
   };
 }
 
-/** One transcript window (`options.itemLimit`, default whole) of a base. */
+/** The window of a whole display history (windowStoredTranscript with
+ *  `history`) a read with `itemLimit` receives: its newest `itemLimit` rows,
+ *  or — without a finite limit, the legacy whole read — every restored row
+ *  and none of the compaction archive. Slicing only: the history is built once
+ *  per content and shared read-only. The stamp names the history and the
+ *  limit, so an unchanged history keeps answering a held window unchanged. */
+export function storedHistoryWindow(history, itemLimit) {
+  if (!history || typeof history !== 'object' || !Array.isArray(history.items)) return history;
+  const { transcriptArchivedRows: archivedRows = 0, items, ...fields } = history;
+  if (!Number.isFinite(itemLimit)) {
+    return {
+      ...fields,
+      projectionStamp: `${history.projectionStamp}/whole`,
+      items: archivedRows > 0 ? items.slice(archivedRows) : items,
+      transcriptHasOlder: false,
+    };
+  }
+  const older = items.length > itemLimit;
+  return {
+    ...fields,
+    projectionStamp: `${history.projectionStamp}/${itemLimit}`,
+    items: older ? items.slice(-itemLimit) : items,
+    transcriptHasOlder: older || history.transcriptHasOlder === true,
+  };
+}
+
+/** One transcript window (`options.itemLimit`, default whole) of a base.
+ *  `options.history`: the whole display history instead — every restored row
+ *  after every row of the visible compaction archive, with
+ *  `transcriptArchivedRows` naming how many lead it. Every window is a tail
+ *  of it (storedHistoryWindow). */
 export async function windowStoredTranscript(sessionId, base, options) {
   const { session, messages, contextFields } = base;
   const { restoreTranscriptItems } = await import('./transcript-restore/restore.mjs');
+  const history = options.history === true;
   // Restoring one item past a finite limit proves whether older history exists
   // without projecting it; restore ids are message-positional, so the kept
   // tail is identical either way.
-  const itemLimit = Number.isFinite(options.itemLimit) ? options.itemLimit : Number.POSITIVE_INFINITY;
+  const itemLimit = !history && Number.isFinite(options.itemLimit) ? options.itemLimit : Number.POSITIVE_INFINITY;
   const restored = restoreTranscriptItems(messages, { sessionId, itemLimit: itemLimit + 1 });
   let transcriptHasOlder = restored.length > itemLimit;
   let items = transcriptHasOlder ? restored.slice(-itemLimit) : restored;
+  let archivedRows = 0;
   // A paged window continues past the first stored message into the
   // display-only compaction archive (newest segment first). A legacy whole
   // read never receives it.
-  const archiveRange = Number.isFinite(itemLimit) && !transcriptHasOlder ? compactionArchiveRange(session) : null;
+  const archiveRange =
+    history || (Number.isFinite(itemLimit) && !transcriptHasOlder) ? compactionArchiveRange(session) : null;
   if (archiveRange) {
     const archived = await readCompactionArchivePage(join(dataDir(), 'sessions'), sessionId, {
       ...archiveRange,
-      limit: itemLimit - restored.length,
+      limit: history ? Number.POSITIVE_INFINITY : itemLimit - restored.length,
     });
     if (archived.items.length) items = [...archived.items, ...restored];
+    archivedRows = archived.items.length;
     transcriptHasOlder = archived.hasOlder;
   }
   return {
@@ -136,6 +170,7 @@ export async function windowStoredTranscript(sessionId, base, options) {
     ...(options.includeMessages ? { messages } : {}),
     items,
     transcriptHasOlder,
+    ...(history ? { transcriptArchivedRows: archivedRows } : {}),
     provider: session.provider || '',
     model: session.model || '',
     effort: session.effort || '',

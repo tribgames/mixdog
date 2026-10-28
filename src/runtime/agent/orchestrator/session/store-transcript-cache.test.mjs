@@ -200,7 +200,14 @@ test('the cache stays within its entry and projected-byte budgets', async () => 
   const oversized = () =>
     cache.read({ ...base, key: '4', loadText: text('small'), produce: () => ({ items: ['x'.repeat(40)] }) });
   assert.equal((await oversized()).hit, false);
-  assert.equal((await oversized()).hit, false, 'a projection larger than the whole budget is never retained');
+  assert.equal((await oversized()).hit, true, 'the newest projection stays, even larger than the whole budget');
+  assert.deepEqual(
+    [cache.stats().entries, cache.stats().builds],
+    [1, 4],
+    'alone: it displaced every other entry and was built once'
+  );
+  await cache.read({ ...base, key: '5', loadText: text('dddd') });
+  assert.deepEqual([cache.stats().entries, cache.stats().retainedBytes], [1, 12], 'and goes once a newer one comes');
 });
 
 test('unchanged session rotations do not churn at the former eight-session boundary', async () => {
@@ -288,6 +295,38 @@ test('a round-robin refresh larger than the budget keeps serving the entries it 
   assert.equal(loads, before);
 });
 
+test('a history being paged is cached once and kept while other sessions alternate around it', async () => {
+  // {"items":["k"]} is 15 serialized bytes: two of them fill the budget.
+  const cache = createStoredTranscriptCache({ maxBytes: 30 });
+  const built = { a: 0, b: 0, c: 0, d: 0 };
+  const read = (key, now, pin = false) =>
+    cache.read({
+      key,
+      fingerprint: '',
+      fileStat: stat(1, 4),
+      now,
+      pin,
+      loadText: () => `body ${key}`,
+      produce: () => {
+        built[key] += 1;
+        return { items: [key] };
+      },
+    });
+  let now = 10_000;
+  // b and c are being read; a was evicted for space and is a ghost now.
+  for (const key of ['a', 'b', 'c']) await read(key, now);
+  assert.equal(cache.stats().ghosts, 1);
+  for (let page = 0; page < 20; page += 1) {
+    now += 200;
+    await read('a', now, true);
+    await read(page % 2 ? 'b' : 'c', now);
+    if (page === 10) await read('d', now);
+  }
+  assert.equal(built.a, 2, 'once before it was evicted, once for every page after');
+  assert.ok(built.b + built.c + built.d <= 22, 'the others are built at most once per read');
+  assert.ok(cache.stats().retainedBytes <= 30);
+});
+
 test('a growing history window replaces its smaller predecessor in the same group', async () => {
   const cache = createStoredTranscriptCache();
   const read = (key, group) =>
@@ -326,7 +365,7 @@ test('a stored transcript read is served from cache until the record changes', a
     const first = await readStoredSessionTranscript(id, { transcriptItemLimit: 512, trace });
     const second = await readStoredSessionTranscript(id, { transcriptItemLimit: 512, trace });
     assert.equal(second, first);
-    assert.match(String(first.projectionStamp), /^\d+:[a-z0-9]+:\d+$/);
+    assert.match(String(first.projectionStamp), /^\d+:[a-z0-9]+:\d+\/512$/);
     assert.deepEqual(
       traces.map((entry) => entry.hit),
       [false, true]
@@ -382,9 +421,13 @@ test('stored paging windows report older history, replace each other and are for
   assert.equal(whole.items.length, 50);
   assert.equal(whole.transcriptHasOlder, false);
   assert.equal(storedTranscriptCacheStats().entries, 1, 'growing windows of one session do not accumulate');
-  assert.equal(storedTranscriptCacheStats().retainedBytes, Buffer.byteLength(JSON.stringify(whole)));
+  assert.equal(storedTranscriptCacheStats().builds, 1, 'every window is cut from one projected history');
+  // The retained history is the whole window plus its archived-row count.
+  const historyBytes = Buffer.byteLength(JSON.stringify({ ...whole, transcriptArchivedRows: 0 }));
+  assert.ok(Math.abs(storedTranscriptCacheStats().retainedBytes - historyBytes) <= 8, 'stamps differ by the limit');
   forgetStoredSessionTranscript(id);
-  assert.deepEqual(storedTranscriptCacheStats(), { entries: 0, retainedBytes: 0, inFlight: 0, reading: 0, ghosts: 0 });
+  const { builds: _builds, ...left } = storedTranscriptCacheStats();
+  assert.deepEqual(left, { entries: 0, retainedBytes: 0, inFlight: 0, reading: 0, ghosts: 0 });
 });
 
 test('projection stamps are unique within a process', () => {
@@ -538,7 +581,7 @@ test('a large record is parsed and projected on a worker thread with an identica
   const { projectionStamp: gotStamp, ...gotRest } = got;
   const { projectionStamp: expectedStamp, ...expectedRest } = expected;
   assert.deepEqual(gotRest, expectedRest);
-  assert.match(String(gotStamp), /^\d+:[a-z0-9]+:\d+$/);
+  assert.match(String(gotStamp), /^\d+:[a-z0-9]+:\d+\/16$/);
   assert.notEqual(gotStamp, expectedStamp);
   assert.ok(loopTicks.length > 0, 'event loop kept running while the worker projected');
   assert.equal(await readStoredSessionTranscript(id, { transcriptItemLimit: 16 }), got);

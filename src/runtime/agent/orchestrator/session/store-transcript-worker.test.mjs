@@ -170,7 +170,11 @@ test('off-thread projections equal fresh ones across windows, appends, edits and
   clearStoredTranscriptCache();
   const first = await assertEquivalent(id, write(doc), 'initial');
   assert.equal(first[0].timing.worker !== undefined, true, 'served by the worker');
-  assert.equal(first[1].timing.base, 'shared', 'a second window of the same content reuses its base');
+  assert.deepEqual(
+    first.map((trace) => trace.hit),
+    [false, true, true],
+    'every other window of the same content is cut from the one projected history'
+  );
 
   // An appended turn: the previous version's parsed messages are reused.
   doc.messages.push(...turnMessages(60, 1_700_000_001_000));
@@ -225,8 +229,7 @@ test('concurrent reads of one session share one projection', async () => {
   assert.equal(reads[1], reads[0], 'same window: one projection object');
   assert.equal(reads[2], reads[0]);
   const misses = traces.filter((entry) => !entry.hit);
-  assert.equal(misses.length, 2, 'one read per window');
-  assert.equal(misses.filter((entry) => entry.timing.base === 'shared').length, 1, 'both windows share one base');
+  assert.equal(misses.length, 1, 'one projected history serves every window');
   const { projectionStamp, ...wide } = reads[3];
   assert.deepEqual(wide, await fresh(id, text, 64));
 });

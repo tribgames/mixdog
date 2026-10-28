@@ -63,7 +63,7 @@ test('after a live compaction the head pages the archive segments the runtime ho
   };
   requestLiveTranscriptWindow(entry, { limit: 37, byteBudget: null, pageBase: 3 });
   assert.equal(await loadLiveTranscriptHead(entry, 'sess_archive_live', readStoredSession), true);
-  assert.deepEqual(reads, [{ compactionArchive: { after: 0, before: 3, skip: 0, limit: 34 } }]);
+  assert.deepEqual(reads, [{ compactionArchive: { after: 0, before: 3, skip: 0, limit: 34 }, paging: true }]);
   let wire = windowTranscriptSnapshot(entry, state);
   assert.deepEqual(ids(wire).slice(0, 8), [
     'arch1_0_1',
@@ -131,7 +131,7 @@ test('a resumed runtime whose rows start at message 0 pages durable history that
   };
   requestLiveTranscriptWindow(entry, { limit: 10, byteBudget: null, pageBase: 2 });
   await loadLiveTranscriptHead(entry, sessionId, readStoredSession);
-  assert.deepEqual(reads, [{ transcriptItemLimit: 12 }]);
+  assert.deepEqual(reads, [{ transcriptItemLimit: 12, paging: true }]);
   const wire = windowTranscriptSnapshot(entry, state);
   assert.deepEqual(ids(wire), [...archived.map((item) => item.id), ...restored.map((item) => item.id)]);
   assert.equal(wire.transcriptHasOlder, false);

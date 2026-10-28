@@ -15,6 +15,13 @@ import { sanitizeForWire } from '../../session-wire-values.mjs';
  *  whatever their size: a window always shows something and paging always
  *  progresses. A viewport the rows do not fill pages further on its own. */
 const TRANSCRIPT_WINDOW_MIN_ITEMS = 8;
+/** The most rows one answer to a paged request (one naming the rows it holds,
+ *  `transcriptHeld`) carries, whatever window it names: a window sent whole,
+ *  or the rows one page reveals above the ones it holds. History itself has
+ *  no limit; it pages in steps of at most this many. */
+export const TRANSCRIPT_RESPONSE_MAX_ITEMS = 512;
+/** A request naming no held rows keeps its earlier contract: a window of at
+ *  most this many rows, answered whole. */
 const TRANSCRIPT_WINDOW_MAX_ITEMS = 8_192;
 // Deterministic restore ids: hist_<sessionId>_<messageIndex>_<part>.
 const RESTORED_ITEM_ID = /^hist_.+_(\d+)_\d+$/;
@@ -31,18 +38,26 @@ function itemBytes(item) {
 }
 
 /** The window a read/subscribe asked for, or null for a legacy view.
- *  `transcriptPageBase` names how many newest items the reader already holds:
- *  the byte budget then bounds only the older rows revealed above them. */
+ *  A paged request (`paged`: it names the rows it holds, `transcriptHeld`)
+ *  names how far back it wants history, without bound; what one answer
+ *  carries is bounded by TRANSCRIPT_RESPONSE_MAX_ITEMS and the byte budget.
+ *  Any other request keeps its earlier contract: at most
+ *  TRANSCRIPT_WINDOW_MAX_ITEMS rows, answered whole, and `transcriptPageBase`
+ *  names how many newest items the reader already holds — the byte budget
+ *  then bounds only the older rows revealed above them. */
 export function requestedTranscriptWindow(params) {
-  const limit = Number(params?.transcriptItemLimit);
-  if (!Number.isInteger(limit) || limit < 1) return null;
+  const requested = Number(params?.transcriptItemLimit);
+  if (!Number.isSafeInteger(requested) || requested < 1) return null;
   const budget = Number(params?.transcriptByteBudget);
+  const byteBudget = Number.isSafeInteger(budget) && budget > 0 ? budget : null;
+  if (requestedHeldTranscript(params)) return { limit: requested, byteBudget, pageBase: 0, paged: true };
+  const limit = Math.min(TRANSCRIPT_WINDOW_MAX_ITEMS, requested);
   const pageBase = Number(params?.transcriptPageBase);
-  const cappedLimit = Math.min(TRANSCRIPT_WINDOW_MAX_ITEMS, limit);
   return {
-    limit: cappedLimit,
-    byteBudget: Number.isInteger(budget) && budget > 0 ? budget : null,
-    pageBase: Number.isInteger(pageBase) && pageBase > 0 ? Math.min(pageBase, cappedLimit) : 0,
+    limit,
+    byteBudget,
+    pageBase: Number.isInteger(pageBase) && pageBase > 0 ? Math.min(pageBase, limit) : 0,
+    paged: false,
   };
 }
 
@@ -57,17 +72,40 @@ export function requestedHeldTranscript(params) {
   return { firstId: held.firstId, count, digest: held.digest };
 }
 
+/** Whether the window's newest `held.count` rows are exactly the rows the
+ *  caller holds: same first id and, unless the caller already proved them
+ *  (`proven`), the same content digest. */
+export function holdsTranscriptTail(items, held, proven = false) {
+  const start = items.length - held.count;
+  if (start < 0 || items[start]?.id !== held.firstId) return false;
+  return proven || transcriptItemsDigest(start ? items.slice(start) : items) === held.digest;
+}
+
+/** Whether rows one answer carries are within its bounds: at most
+ *  TRANSCRIPT_RESPONSE_MAX_ITEMS, and within `byteBudget` past
+ *  TRANSCRIPT_WINDOW_MIN_ITEMS. */
+function withinAnswerBounds(items, byteBudget, maxItems = TRANSCRIPT_RESPONSE_MAX_ITEMS) {
+  if (items.length > maxItems) return false;
+  return (
+    !byteBudget ||
+    items.length <= TRANSCRIPT_WINDOW_MIN_ITEMS ||
+    items.reduce((bytes, item) => bytes + itemBytes(item), 0) <= byteBudget
+  );
+}
+
 /** A FULL answer to a paged read, reduced to what the caller lacks: the rows
  *  above the ones it holds, the identity of its first held row, and every
- *  other field. Only when the window's tail is exactly those held rows (same
- *  first id, count and content digest); otherwise the full answer stands. */
-export function transcriptPageBody(result, held) {
+ *  other field. Only when the window's tail is exactly those held rows
+ *  (holdsTranscriptTail; `proven` when the reader already verified them) and
+ *  the rows above them fit one answer (withinAnswerBounds, `byteBudget`);
+ *  otherwise the full answer stands. */
+export function transcriptPageBody(result, held, { proven = false, byteBudget = null } = {}) {
   const snapshot = result?.full;
   if (!held || !snapshot || !Array.isArray(snapshot.items)) return result;
   const items = snapshot.items;
+  if (!holdsTranscriptTail(items, held, proven)) return result;
   const start = items.length - held.count;
-  if (start < 0 || items[start]?.id !== held.firstId) return result;
-  if (transcriptItemsDigest(start ? items.slice(start) : items) !== held.digest) return result;
+  if (!withinAnswerBounds(items.slice(0, start), byteBudget)) return result;
   const { full: _full, ...body } = result;
   const { items: _items, ...state } = snapshot;
   return {
@@ -91,25 +129,33 @@ function budgetedStart(items, end, maxItems, byteBudget, minItems) {
   return start;
 }
 
-/** First index of the kept tail: at most `limit` items. A first window spends
- *  `byteBudget` on the whole tail; a page keeps the `pageBase` newest items
- *  the reader holds and spends it on the rows revealed above them. Neither
- *  goes below TRANSCRIPT_WINDOW_MIN_ITEMS. */
+/** First index of the kept tail: at most `limit` items (never more than
+ *  TRANSCRIPT_WINDOW_MAX_ITEMS). A first window spends `byteBudget` on the
+ *  whole tail; a page keeps the `pageBase` newest items the reader holds and
+ *  spends it on the rows revealed above them. Neither goes below
+ *  TRANSCRIPT_WINDOW_MIN_ITEMS. */
 function tailWindowStart(items, { limit, byteBudget = null, pageBase = 0 }) {
-  const held = Math.min(pageBase || 0, limit, items.length);
-  return budgetedStart(items, items.length - held, limit - held, byteBudget, TRANSCRIPT_WINDOW_MIN_ITEMS);
+  const maxItems = Math.min(limit, TRANSCRIPT_WINDOW_MAX_ITEMS);
+  const held = Math.min(pageBase || 0, maxItems, items.length);
+  return budgetedStart(items, items.length - held, maxItems - held, byteBudget, TRANSCRIPT_WINDOW_MIN_ITEMS);
 }
 
-/** A stored projection already holds at most `window.limit` items; the byte
- *  budget may cut it further. */
-export function budgetStoredWindow(wire, window) {
-  if (!window?.byteBudget || !Array.isArray(wire?.items)) return wire;
-  const start = tailWindowStart(wire.items, {
-    limit: wire.items.length,
-    byteBudget: window.byteBudget,
-    pageBase: window.pageBase,
-  });
-  return start === 0 ? wire : { ...wire, items: wire.items.slice(start), transcriptHasOlder: true };
+/** The answer a stored window (at most `window.limit` newest rows) gives. A
+ *  paged request: the `held` newest rows the caller is proven to hold, and
+ *  above them at most TRANSCRIPT_RESPONSE_MAX_ITEMS more within the byte
+ *  budget — or, proving none, a tail within the same bounds. Any other
+ *  request: the whole window, byte-budgeted above its `pageBase`. */
+export function clampStoredWindow(wire, window, held = 0) {
+  if (!window || !Array.isArray(wire?.items)) return wire;
+  const items = wire.items;
+  let start = 0;
+  if (window.paged) {
+    const maxItems = Math.min(window.limit - held, TRANSCRIPT_RESPONSE_MAX_ITEMS);
+    start = budgetedStart(items, items.length - held, maxItems, window.byteBudget, TRANSCRIPT_WINDOW_MIN_ITEMS);
+  } else if (window.byteBudget) {
+    start = tailWindowStart(items, { limit: items.length, byteBudget: window.byteBudget, pageBase: window.pageBase });
+  }
+  return start === 0 ? wire : { ...wire, items: items.slice(start), transcriptHasOlder: true };
 }
 
 /** A restored runtime transcript that starts after message 0 may have older
@@ -202,9 +248,11 @@ export function requestLiveTranscriptWindow(entry, request) {
   if (view?.full) return;
   if (!view) {
     entry.transcriptView = {
-      limit: request.limit,
+      // Its first window goes out whole: for a paged request,
+      // TRANSCRIPT_RESPONSE_MAX_ITEMS at most.
+      limit: request.paged ? Math.min(request.limit, TRANSCRIPT_RESPONSE_MAX_ITEMS) : request.limit,
       byteBudget: request.byteBudget,
-      pageBase: request.pageBase,
+      pageBase: request.paged ? 0 : request.pageBase || 0,
       start: null,
       anchorId: undefined,
       grow: false,
@@ -221,12 +269,16 @@ export function requestLiveTranscriptWindow(entry, request) {
       spillFrom: null,
       // The spilled rows (`{ rows, epoch }`) when the window last looked.
       spilled: null,
+      // Rows the window last showed.
+      size: 0,
       cache: null,
     };
     return;
   }
   if (request.limit > view.limit) {
-    view.limit = request.limit;
+    // One paged request reveals at most TRANSCRIPT_RESPONSE_MAX_ITEMS older
+    // rows; any other names at most TRANSCRIPT_WINDOW_MAX_ITEMS.
+    view.limit = request.paged ? Math.min(request.limit, view.size + TRANSCRIPT_RESPONSE_MAX_ITEMS) : request.limit;
     // The page's own budget bounds the rows it reveals.
     view.grow = { byteBudget: request.byteBudget };
     view.paged = true;
@@ -247,6 +299,36 @@ export function inheritTranscriptWindow(entry, view) {
     entry,
     view.full ? null : { limit: view.limit, byteBudget: view.byteBudget, pageBase: view.pageBase || 0 }
   );
+}
+
+/** The most rows the answer to `window` (requestedTranscriptWindow) carries
+ *  whole, and its byte bound: a paged request's TRANSCRIPT_RESPONSE_MAX_ITEMS
+ *  within its budget, any other's TRANSCRIPT_WINDOW_MAX_ITEMS. */
+export function transcriptAnswerBounds(window) {
+  return window?.paged
+    ? { maxItems: TRANSCRIPT_RESPONSE_MAX_ITEMS, byteBudget: window.byteBudget }
+    : { maxItems: TRANSCRIPT_WINDOW_MAX_ITEMS, byteBudget: null };
+}
+
+/** Whether `snapshot`, the entry's window about to go out whole, exceeds
+ *  `bounds` (transcriptAnswerBounds). A legacy whole view has no window and
+ *  never does. */
+export function transcriptWindowOversized(entry, snapshot, bounds) {
+  const view = entry.transcriptView;
+  const items = snapshot?.items;
+  if (!view || view.full || !Array.isArray(items)) return false;
+  return !withinAnswerBounds(items, bounds.byteBudget, bounds.maxItems);
+}
+
+/** The window restarts from a fresh tail of at most `maxItems` rows at its
+ *  next snapshot, as a first window: its readers page older rows again. */
+export function restartTranscriptWindow(entry, maxItems) {
+  const view = entry.transcriptView;
+  if (!view || view.full) return;
+  view.start = null;
+  view.paged = true;
+  view.limit = Math.min(view.limit, maxItems);
+  view.pageBase = 0;
 }
 
 /** The entry's wire snapshot seen through its window. Identity-stable for an
@@ -277,6 +359,13 @@ export function windowTranscriptSnapshot(entry, wire) {
   if (start === null) {
     start = tailWindowStart(items, view);
     resetLoadedHead(view);
+    if (view.paged) {
+      // A paged window restarted from a fresh tail is a first window again:
+      // its limit is what it shows, so the reader's next page grows it.
+      view.paged = false;
+      view.grow = false;
+      view.limit = items.length - start;
+    }
   }
   // The sticky start lets appends travel as suffix patches, so an unpaged
   // tail grows past its byte budget while views stay attached (a worker
@@ -310,6 +399,7 @@ export function windowTranscriptSnapshot(entry, wire) {
   else if (start) windowed = items.slice(start);
   const value = { ...wire, items: windowed, transcriptHasOlder: older };
   view.cache = { wire, start, head: view.head, older, value };
+  view.size = windowed.length;
   return value;
 }
 
@@ -460,6 +550,7 @@ export async function loadLiveTranscriptHead(entry, sessionId, readStoredSession
   if (source === 'archive') {
     const page = await readStoredSession(sessionId, {
       compactionArchive: { ...archive, skip: view.archiveHeld || 0, limit: missing },
+      paging: true,
     });
     if (!stillCurrent()) return true;
     const rows = Array.isArray(page?.items) ? page.items : [];
@@ -471,7 +562,10 @@ export async function loadLiveTranscriptHead(entry, sessionId, readStoredSession
     view.headOlder = from > 0 || page?.hasOlder === true;
     return true;
   }
-  const stored = await readStoredSession(sessionId, { transcriptItemLimit: view.limit + runtimeItems.length });
+  const stored = await readStoredSession(sessionId, {
+    transcriptItemLimit: view.limit + runtimeItems.length,
+    paging: true,
+  });
   if (!stillCurrent()) return true;
   const history = Array.isArray(stored?.items) ? stored.items : [];
   // Only a head read from this durable history aligns by its ids; spilled
@@ -508,8 +602,14 @@ export async function readTranscriptRange(entry, sessionId, readStoredSession, {
       runtime: { getState: () => state, readSpilledTranscript: entry.runtime.readSpilledTranscript },
     };
     requestLiveTranscriptWindow(isolated, { limit: requested, byteBudget: null, pageBase: 0 });
+    // A private window answered by a slice of at most `limit` rows: it reads
+    // as far back as the range reaches, past what one view answer carries.
+    const view = isolated.transcriptView;
     snapshot = windowTranscriptSnapshot(isolated, state);
-    isolated.transcriptView.paged = true;
+    view.limit = requested;
+    view.paged = true;
+    view.grow = { byteBudget: null };
+    snapshot = windowTranscriptSnapshot(isolated, state);
     // One load reads one source (spilled rows, durable history, archive): keep
     // loading until the range is covered, history ends, or a load adds nothing.
     while (snapshot.items.length < requested && snapshot.transcriptHasOlder) {
@@ -519,7 +619,7 @@ export async function readTranscriptRange(entry, sessionId, readStoredSession, {
       if (snapshot.items.length <= held) break;
     }
   } else {
-    snapshot = await readStoredSession(sessionId, { transcriptItemLimit: requested });
+    snapshot = await readStoredSession(sessionId, { transcriptItemLimit: requested, paging: true });
   }
   if (!snapshot) throw new Error(`session ${sessionId} is not available`);
   const source = snapshot.items || [];

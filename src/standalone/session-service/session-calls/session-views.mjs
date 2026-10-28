@@ -11,7 +11,10 @@ import {
   requestedHeldTranscript,
   requestedTranscriptWindow,
   requestLiveTranscriptWindow,
+  restartTranscriptWindow,
+  transcriptAnswerBounds,
   transcriptPageBody,
+  transcriptWindowOversized,
 } from '../projection/transcript-window.mjs';
 
 export function createSessionViewCalls(ctx) {
@@ -42,14 +45,15 @@ export function createSessionViewCalls(ctx) {
   const {
     storedSessionProjection,
     storedProjectionUnchanged,
+    storedHeldProven,
     requestedMessageSlice,
-    forgetStoredSession,
     releaseStoredSession,
   } = ctx.storedReader;
 
   /** A read/subscribe names the transcript window its view wants (none: the
    *  whole transcript). A window grown past what a resumed runtime holds is
-   *  completed from durable history, which a live session never keeps cached. */
+   *  completed from durable history, sliced from the store's cached display
+   *  history of the record's content. */
   async function applyTranscriptRequest(entry, params, sessionId) {
     const request = requestedTranscriptWindow(params);
     // A model-message read (messageStart) is not a view and leaves the window.
@@ -57,8 +61,31 @@ export function createSessionViewCalls(ctx) {
     // No baseline the next step can patch: this caller receives the window
     // whole, so it goes out within its byte budget.
     if (request && params.baseRevision !== entry.revision) rebudgetTranscriptWindow(entry);
-    if (await loadLiveTranscriptHead(entry, sessionId, readStoredSession)) forgetStoredSession(sessionId);
+    await loadLiveTranscriptHead(entry, sessionId, readStoredSession);
     assertAvailable(entry);
+  }
+
+  /** The caller's answer for `step`, reduced to a page when it proves the rows
+   *  it holds and they fit one answer. A window that would go out whole past
+   *  the request's bounds (transcriptAnswerBounds) does not: a caller already
+   *  at this revision needs no body; any other gets a bounded recovery
+   *  snapshot — the window restarts from a fresh tail, which the views
+   *  attached receive as a step too. */
+  function boundedSessionResult(entry, step, params, baseRevision, extra) {
+    const prepend = params.transcriptPrepend === true;
+    const bounds = transcriptAnswerBounds(requestedTranscriptWindow(params));
+    const result = transcriptPageBody(
+      sessionResult(entry, step, baseRevision, extra, { prepend }),
+      requestedHeldTranscript(params),
+      { byteBudget: bounds.byteBudget }
+    );
+    if (!transcriptWindowOversized(entry, result.full, bounds)) return result;
+    if (baseRevision === step.revision) {
+      const { full: _full, ...bodiless } = result;
+      return bodiless;
+    }
+    restartTranscriptWindow(entry, bounds.maxItems);
+    return sessionResult(entry, advanceForCaller(entry), baseRevision, extra, { prepend });
   }
 
   async function createReservedSession(params, viewer, reservedSessionId) {
@@ -110,11 +137,7 @@ export function createSessionViewCalls(ctx) {
     retainUnwatched(entry, 'headless session read');
     const messages = await requestedMessageSlice(params, sessionId);
     assertAvailable(entry);
-    const prepend = params.transcriptPrepend === true;
-    return transcriptPageBody(
-      sessionResult(entry, step, baseRevision, messages, { prepend }),
-      requestedHeldTranscript(params)
-    );
+    return boundedSessionResult(entry, step, params, baseRevision, messages);
   }
 
   /** The live entry a view can attach to: the owner, an external view, or a
@@ -162,7 +185,8 @@ export function createSessionViewCalls(ctx) {
         const lateOwner = lateOwnerFor(id);
         return lateOwner ? liveSessionReadResult(lateOwner, params, id, baseRevision) : held;
       }
-      const projection = await storedSessionProjection(id, openHints, window);
+      const heldRows = requestedHeldTranscript(params);
+      const projection = await storedSessionProjection(id, openHints, window, heldRows, baseProjectionStamp);
       assertAvailable();
       const lateOwner = lateOwnerFor(id);
       if (lateOwner) {
@@ -179,7 +203,11 @@ export function createSessionViewCalls(ctx) {
       });
       const messages = await requestedMessageSlice(params, id);
       assertAvailable();
-      return { ...transcriptPageBody(result, requestedHeldTranscript(params)), ...messages };
+      // The stored reader already proved (or disproved) the held rows.
+      const page = storedHeldProven(projection)
+        ? transcriptPageBody(result, heldRows, { proven: true, byteBudget: window?.byteBudget })
+        : result;
+      return { ...page, ...messages };
     }
     // Embedders without a store reader keep the legacy load-on-read seam.
     const entry = await entryForSession(id, openHints || {});
@@ -190,15 +218,17 @@ export function createSessionViewCalls(ctx) {
    *  one gets the same revision once in its reply. */
   const subscribeLive = async (entry, params, viewer, baseRevision) => {
     await applyTranscriptRequest(entry, params, currentSessionId(entry) || String(params.sessionId || ''));
-    const step = advanceForCaller(entry);
+    const prepend = params.transcriptPrepend === true;
+    let step = advanceForCaller(entry);
+    // Bounded like a read (boundedSessionResult), before attaching: the new
+    // view receives the restarted tail once, in its reply.
+    const bounds = transcriptAnswerBounds(requestedTranscriptWindow(params));
+    if (transcriptWindowOversized(entry, sessionResult(entry, step, baseRevision, {}, { prepend }).full, bounds)) {
+      restartTranscriptWindow(entry, bounds.maxItems);
+      step = advanceForCaller(entry);
+    }
     addSubscriber(entry, viewer);
-    return sessionResult(
-      entry,
-      step,
-      baseRevision,
-      { subscribed: true },
-      { prepend: params.transcriptPrepend === true }
-    );
+    return sessionResult(entry, step, baseRevision, { subscribed: true }, { prepend });
   };
 
   async function subscribeSession(params = {}, viewer = null) {

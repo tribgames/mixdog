@@ -971,10 +971,11 @@ export function requiredFileSearchLimit(value: unknown): number {
 }
 
 /** Absent (JSON transports carry an omitted argument as null): re-read the
- *  session's current transcript window without growing it. */
+ *  session's current transcript window without growing it. History has no
+ *  item ceiling: the daemon bounds what each answer carries. */
 export function requiredTranscriptItemLimit(value: unknown): number | undefined {
   if (value === undefined || value === null) return undefined;
-  if (!Number.isInteger(value) || (value as number) < 1 || (value as number) > 8_192) {
+  if (!Number.isSafeInteger(value) || (value as number) < 1) {
     throw new TypeError('transcript item limit is invalid.');
   }
   return value as number;

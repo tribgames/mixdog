@@ -17,9 +17,9 @@
 
 import { createHash } from 'node:crypto';
 
-// Serialized (UTF-8 JSON) bytes of the retained PROJECTIONS. A tail-window
-// projection is ~0.1-1 MB; a legacy 512-item page of a worker transcript can
-// reach ~16 MB, so this keeps a couple of those or dozens of tail windows.
+// Serialized (UTF-8 JSON) bytes of the retained PROJECTIONS: a session's whole
+// display history (every window of it is a slice), ~1 KB per row, so a few
+// long sessions or dozens of short ones; the newest is kept even when larger.
 const STORED_TRANSCRIPT_CACHE_MAX_BYTES = 32 * 1024 * 1024;
 // Coarse filesystems stamp mtime at whole seconds (FAT: two). A write landing
 // inside that window after our read could keep the same stat, so only a file
@@ -89,6 +89,8 @@ export function createStoredTranscriptCache({
   /** Keys evicted for space (insertion order = age), bounded. */
   const ghosts = new Set();
   let retainedBytes = 0;
+  // Projections produced (here or by `project`), cached or not.
+  let builds = 0;
 
   const drop = (key) => {
     const entry = entries.get(key);
@@ -104,8 +106,21 @@ export function createStoredTranscriptCache({
   };
   const overBudget = (extraEntries = 0, extraBytes = 0) =>
     entries.size + extraEntries > maxEntries || retainedBytes + extraBytes > maxBytes;
-  const prune = () => {
-    while (entries.size > 0 && overBudget()) evict(entries.keys().next().value);
+  // A history a reader is paging through (read with `pin` within
+  // ACTIVE_ENTRY_MS) stays cached under pressure: every page would otherwise
+  // build it again.
+  const paging = (entry, now) => now - entry.pinnedAt <= ACTIVE_ENTRY_MS;
+  // The newest entry always stays: alone, it may exceed the budget (a single
+  // history larger than the budget is still built once, not once per page).
+  // For an unpinned newcomer, entries being paged are not evicted.
+  const prune = (now, keepPaging) => {
+    const listed = [...entries];
+    const newest = listed.at(-1)?.[0];
+    for (const [key, entry] of listed) {
+      if (!overBudget()) return;
+      if (key === newest || (keepPaging && paging(entry, now))) continue;
+      evict(key);
+    }
   };
   // A returning ghost may displace only idle entries (oldest first).
   const makeRoomForGhost = (bytes, now) => {
@@ -123,7 +138,7 @@ export function createStoredTranscriptCache({
     for (const other of idle) evict(other);
     return true;
   };
-  const remember = (key, group, textChars, textHash, fingerprint, fileStat, value, now) => {
+  const remember = (key, group, textChars, textHash, fingerprint, fileStat, value, now, pin) => {
     drop(key);
     // One entry per group: a growing history window replaces its smaller
     // predecessor instead of accumulating beside it.
@@ -131,17 +146,27 @@ export function createStoredTranscriptCache({
       for (const [other, entry] of [...entries]) if (entry.group === group) drop(other);
     }
     const bytes = Buffer.byteLength(JSON.stringify(value));
-    if (bytes > maxBytes) return;
-    if (ghosts.has(key)) {
-      if (!makeRoomForGhost(bytes, now)) return;
-      ghosts.delete(key);
+    if (pin) ghosts.delete(key);
+    else {
+      if (ghosts.has(key)) {
+        // One larger than the whole budget displaces everything (prune) and
+        // stays alone as the newest.
+        if (bytes <= maxBytes && !makeRoomForGhost(bytes, now)) return;
+        ghosts.delete(key);
+      }
+      // Never in place of a history being paged: served uncached instead.
+      let pagedBytes = 0;
+      for (const entry of entries.values()) if (paging(entry, now)) pagedBytes += entry.bytes;
+      if (pagedBytes > 0 && pagedBytes + bytes > maxBytes) return;
     }
-    entries.set(key, { textChars, textHash, bytes, group, fingerprint, fileStat, value, usedAt: now });
+    const pinnedAt = pin ? now : Number.NEGATIVE_INFINITY;
+    entries.set(key, { textChars, textHash, bytes, group, fingerprint, fileStat, value, usedAt: now, pinnedAt });
     retainedBytes += bytes;
-    prune();
+    prune(now, !pin);
   };
-  const touch = (key, entry, now) => {
+  const touch = (key, entry, now, pin = false) => {
     entry.usedAt = now;
+    if (pin) entry.pinnedAt = now;
     entries.delete(key);
     entries.set(key, entry);
   };
@@ -173,7 +198,7 @@ export function createStoredTranscriptCache({
   // `{ textChars, textHash, same: true }` without a projection when the
   // content is the `known` digest of the cached entry; null when the record
   // cannot be read. Undefined when it could not answer at all.
-  async function readProjected({ key, group, fingerprint, fileStat, project, now }) {
+  async function readProjected({ key, group, fingerprint, fileStat, project, now, pin }) {
     for (let attempt = 0; attempt < 2; attempt += 1) {
       const cached = entries.get(key);
       const known =
@@ -199,21 +224,22 @@ export function createStoredTranscriptCache({
         // Evicted meanwhile: project it after all.
         if (!entry) continue;
         entry.fileStat = fileStat;
-        touch(key, entry, now);
+        touch(key, entry, now, pin);
         return { value: entry.value, hit: true, read: true };
       }
       const value = answer.value ?? null;
+      if (value && typeof value === 'object') builds += 1;
       if (current && value && typeof value === 'object') {
-        remember(key, group, answer.textChars, answer.textHash, fingerprint, fileStat, value, now);
+        remember(key, group, answer.textChars, answer.textHash, fingerprint, fileStat, value, now, pin);
       }
       return { value, hit: false, read: true };
     }
     return undefined;
   }
 
-  async function readFresh({ key, group, fingerprint, fileStat, loadText, produce, project, now }) {
+  async function readFresh({ key, group, fingerprint, fileStat, loadText, produce, project, now, pin }) {
     if (typeof project === 'function') {
-      const answered = await readProjected({ key, group, fingerprint, fileStat, project, now });
+      const answered = await readProjected({ key, group, fingerprint, fileStat, project, now, pin });
       if (answered !== undefined) return answered;
       // It could not answer (worker unavailable): load and produce here.
     }
@@ -226,7 +252,7 @@ export function createStoredTranscriptCache({
     const textHash = transcriptTextHash(text);
     if (cached && entryWithContent(key, fingerprint, { textChars: text.length, textHash }) === cached) {
       cached.fileStat = fileStat;
-      touch(key, cached, now);
+      touch(key, cached, now, pin);
       return { value: cached.value, hit: true, read: true };
     }
     const pending = inFlight.get(key);
@@ -236,8 +262,9 @@ export function createStoredTranscriptCache({
     const record = { text, fingerprint, promise: null };
     const promise = (async () => {
       const value = await produce(text);
+      if (value && typeof value === 'object') builds += 1;
       if (inFlight.get(key) === record && value && typeof value === 'object') {
-        remember(key, group, text.length, textHash, fingerprint, fileStat, value, now);
+        remember(key, group, text.length, textHash, fingerprint, fileStat, value, now, pin);
       }
       return value;
     })();
@@ -256,7 +283,9 @@ export function createStoredTranscriptCache({
      *  `project` run only when stat alone cannot vouch for the entry.
      *  Concurrent callers with the same content share one parse; callers of
      *  one unchanged, settled file share one read before it is even loaded.
-     *  Entries naming the same `group` replace each other. */
+     *  Entries naming the same `group` replace each other. `pin`: a reader is
+     *  paging through this entry — it is cached however full the cache is,
+     *  and for ACTIVE_ENTRY_MS no unpinned newcomer evicts it. */
     async read({
       key,
       group = null,
@@ -266,11 +295,12 @@ export function createStoredTranscriptCache({
       produce,
       project = null,
       now = Date.now(),
+      pin = false,
     }) {
       trimIdle(now);
       const cached = entries.get(key);
       if (cached && cached.fingerprint === fingerprint && settledSameFile(cached.fileStat, fileStat, now)) {
-        touch(key, cached, now);
+        touch(key, cached, now, pin);
         return { value: cached.value, hit: true, read: false };
       }
       const joined = reading.get(key);
@@ -280,7 +310,7 @@ export function createStoredTranscriptCache({
         if (value) return { value, hit: true, read: false };
       }
       const record = { fingerprint, fileStat, promise: null };
-      record.promise = readFresh({ key, group, fingerprint, fileStat, loadText, produce, project, now });
+      record.promise = readFresh({ key, group, fingerprint, fileStat, loadText, produce, project, now, pin });
       reading.set(key, record);
       try {
         return await record.promise;
@@ -315,6 +345,7 @@ export function createStoredTranscriptCache({
       reading.clear();
       ghosts.clear();
       retainedBytes = 0;
+      builds = 0;
     },
     stats() {
       return {
@@ -323,6 +354,7 @@ export function createStoredTranscriptCache({
         inFlight: inFlight.size,
         reading: reading.size,
         ghosts: ghosts.size,
+        builds,
       };
     },
   };

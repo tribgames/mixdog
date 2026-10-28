@@ -526,11 +526,7 @@ export class SessionHostLifecycle {
     if (typeof transcriptItemLimit === 'number') {
       // The page's byte budget bounds only the rows above what this host holds.
       const held = this.owner.publication.projections.get(id)?.snapshot?.items?.length ?? 0;
-      grown = this.owner.transcriptWindows.grow(
-        id,
-        Math.max(1, Math.min(8_192, Math.floor(Number(transcriptItemLimit)))),
-        held
-      );
+      grown = this.owner.transcriptWindows.grow(id, Math.max(1, Math.floor(Number(transcriptItemLimit))), held);
     }
     try {
       // A grown window is a page: the daemon may send only the revealed rows.

@@ -14,8 +14,9 @@ const REMOTE_SOURCE_PREFIX = 'remote:';
 export interface TranscriptWindowRequest {
   transcriptItemLimit: number;
   transcriptByteBudget?: number;
-  /** Newest items the reader already holds: the byte budget bounds only the
-   *  older rows a page reveals above them. */
+  /** Newest items the reader already holds: a daemon that predates proven
+   *  held rows (`transcriptHeld`) bounds only the older rows a page reveals
+   *  above them by the byte budget; a current one ignores it. */
   transcriptPageBase?: number;
 }
 
@@ -71,10 +72,13 @@ export class SessionTranscriptWindows {
   }
 
   /** A reader holding `held` items reached the top: widen the window to
-   *  `limit`. False when it already covers `limit`. */
+   *  `limit`. False when the rows held already cover `limit` — measured by
+   *  what is held, not the last limit asked, so a window the daemon restarted
+   *  from a shorter tail pages again. */
   grow(sessionId: string, limit: number, held: number): boolean {
-    if (limit <= this.request(sessionId).transcriptItemLimit) return false;
-    this.grown.set(sessionId, { limit, held: Math.max(0, Math.min(limit, Math.floor(held) || 0)) });
+    const holding = Math.max(0, Math.floor(held) || 0);
+    if (limit <= holding) return false;
+    this.grown.set(sessionId, { limit, held: Math.min(limit, holding) });
     return true;
   }
 
