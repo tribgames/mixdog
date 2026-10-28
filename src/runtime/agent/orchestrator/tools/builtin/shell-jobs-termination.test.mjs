@@ -8,6 +8,7 @@ import test, { after, mock } from 'node:test';
 import { holdWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 import { processTable, scriptedChildTree } from '../lib/process-table-fixture.mjs';
+import { waitUntil } from '../lib/wait-until-fixture.mjs';
 
 // In-memory native runner and a scripted process table.
 const tasks = new Map();
@@ -75,15 +76,8 @@ after(cleanupTempDirs);
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
 // The record files are written through the job's async queue; wait on the
-// observable state itself, a bounded number of event-loop turns.
-async function until(read) {
-  for (let turn = 0; turn < 1_000; turn += 1) {
-    const value = await read();
-    if (value) return value;
-    await flush();
-  }
-  assert.fail('the expected record state never appeared');
-}
+// observable state itself, on a wall-clock budget.
+const until = (read) => waitUntil(read);
 const isHeld = (repo) => {
   try {
     holdWorkspaceActivity([repo])();

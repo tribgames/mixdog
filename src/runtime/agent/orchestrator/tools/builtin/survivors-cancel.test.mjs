@@ -9,6 +9,7 @@ import test, { after, mock } from 'node:test';
 import { holdWorkspaceActivity, tryAdmitWorkspaceActivity } from '../../../../shared/worktrees/activity-gate.mjs';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 import { processTable, scriptedChildTree } from '../lib/process-table-fixture.mjs';
+import { waitUntil } from '../lib/wait-until-fixture.mjs';
 
 const tasks = new Map();
 const events = new EventEmitter();
@@ -53,13 +54,7 @@ const { getBackgroundTask } = await import('../../../../shared/background-tasks.
 after(cleanupTempDirs);
 
 const flush = () => new Promise((resolve) => setImmediate(resolve));
-async function until(read) {
-  for (let turn = 0; turn < 1_000; turn += 1) {
-    if (await read()) return;
-    await flush();
-  }
-  assert.fail('the expected state never appeared');
-}
+const until = (read) => waitUntil(read);
 const isHeld = (repo) => {
   try {
     holdWorkspaceActivity([repo])();

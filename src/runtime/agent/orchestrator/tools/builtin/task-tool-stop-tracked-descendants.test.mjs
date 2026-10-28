@@ -5,6 +5,7 @@ import { EventEmitter } from 'node:events';
 import test, { after, mock } from 'node:test';
 import { cleanupTempDirs, makeRepo } from '../../../../shared/worktrees/test-support.mjs';
 import { processTable, scriptedChildTree } from '../lib/process-table-fixture.mjs';
+import { waitUntil } from '../lib/wait-until-fixture.mjs';
 
 // In-memory native runner and a scripted process table.
 const tasks = new Map();
@@ -58,13 +59,7 @@ after(cleanupTempDirs);
 const OWNER = 'sess_stop_tracked';
 const ctx = { callerSessionId: OWNER, clientHostPid: process.pid };
 const flush = () => new Promise((resolve) => setImmediate(resolve));
-async function until(read) {
-  for (let turn = 0; turn < 1_000; turn += 1) {
-    if (await read()) return;
-    await flush();
-  }
-  assert.fail('the expected state never appeared');
-}
+const until = (read) => waitUntil(read);
 
 // A promoted job whose root completed while `worker` keeps running.
 async function completedRootWithWorker(pid, { expireNative = false } = {}) {
