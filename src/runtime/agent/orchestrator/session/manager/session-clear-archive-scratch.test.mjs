@@ -278,6 +278,8 @@ for (const split of [true, false]) {
     const refs = session.messages.slice();
     assert.equal(useOwnScratchEnvironment(session), false);
     assert.equal(JSON.stringify(session), before);
-    session.messages.forEach((m, i) => assert.equal(m, refs[i]));
+    session.messages.forEach((m, i) => {
+      assert.equal(m, refs[i]);
+    });
   });
 }

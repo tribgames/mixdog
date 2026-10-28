@@ -326,10 +326,14 @@ export async function runRoomExchange({
     steps,
     messages,
   });
-  const halted = () => (stopped() ? end('stopped') : superseded() ? end('superseded') : null);
+  const halted = () => {
+    if (stopped()) return end('stopped');
+    if (superseded()) return end('superseded');
+    return null;
+  };
   const take = async (agentId, turn) => {
     const answer = await speak(agentId, turn);
-    const { result, mention: named = '' } = typeof answer === 'string' ? { result: answer } : answer;
+    const { result, mention: addressee = '' } = typeof answer === 'string' ? { result: answer } : answer;
     // A turn cut short by a stop or by a newer user message leaves no trace.
     if (result === 'stopped' || result === 'superseded') return result;
     // 'unavailable': the member left or was switched off; it counts as a pass.
@@ -337,7 +341,7 @@ export async function runRoomExchange({
     turns.push({ id: agentId, result: result === 'unavailable' ? 'pass' : result });
     const speech = result === 'speech';
     if (speech) messages += 1;
-    mention = speech && named !== agentId && members.includes(named) ? named : '';
+    mention = speech && addressee !== agentId && members.includes(addressee) ? addressee : '';
     return '';
   };
   // Every member but the newest speech's author has passed since it (no
@@ -584,12 +588,9 @@ export function roomTurnPrompt({
   let newSince = false;
   for (const row of rows) {
     // What was handed before comes first, marked as context; the new rows follow.
-    const header =
-      row.seen && !shownBefore
-        ? 'Already shown to you before (context you have seen, not a new request):'
-        : !row.seen && shownBefore && !newSince
-          ? 'New since then:'
-          : '';
+    let header = '';
+    if (row.seen && !shownBefore) header = 'Already shown to you before (context you have seen, not a new request):';
+    else if (!row.seen && shownBefore && !newSince) header = 'New since then:';
     if (header) {
       if (open) lines.push('</room-transcript>');
       open = false;
@@ -616,13 +617,11 @@ export function roomTurnPrompt({
     open = false;
     const targets = roomRowTargets(row);
     const rest = targets.filter((target) => target.id !== self.id).map((target) => label(target.name));
-    const target = !targets.length
-      ? 'to everyone'
-      : rest.length === targets.length
-        ? `to ${rest.join(', ')} only (shown for context; you were not asked)`
-        : rest.length
-          ? `to you and ${rest.join(', ')} only`
-          : 'to you only';
+    let target = 'to you only';
+    if (!targets.length) target = 'to everyone';
+    else if (rest.length === targets.length)
+      target = `to ${rest.join(', ')} only (shown for context; you were not asked)`;
+    else if (rest.length) target = `to you and ${rest.join(', ')} only`;
     // A message another session sent into the room names its real sender: a
     // bot's words carry the trust note of every bot-to-bot message.
     const who = row.fromName

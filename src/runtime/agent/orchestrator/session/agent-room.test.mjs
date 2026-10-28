@@ -198,7 +198,14 @@ test('named recipients that all turn out unavailable end the exchange; a remaini
     (id) => (id === 'a' ? 'unavailable' : 'speech'),
     () => FINISH
   );
-  await runRoomExchange({ members: ['a', 'b'], to: ['a', 'b'], waiting: true, maxRounds: 3, maxMessages: 8, ...partial });
+  await runRoomExchange({
+    members: ['a', 'b'],
+    to: ['a', 'b'],
+    waiting: true,
+    maxRounds: 3,
+    maxMessages: 8,
+    ...partial,
+  });
   assert.deepEqual(partial.spoken, ['a', 'b']);
   assert.equal(partial.steps.length, 1);
 });
