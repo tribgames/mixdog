@@ -330,7 +330,7 @@ test('a routine result preview reads in the user language, like its transcript n
     routineNoticeText({ kind: 'schedule', name: 'daily', status: 'failed', summary: 'raw English', reason, paused });
   assert.equal(
     failure('provider_unavailable'),
-    '⏱ 스케줄 · daily — 모델 또는 제공자를 사용할 수 없습니다. 모델 설정에서 다시 고르세요.'
+    '⏱ 스케줄 · daily — 모델 또는 프로바이더를 사용할 수 없습니다. 모델 설정에서 다시 고르세요.'
   );
   assert.match(failure('auth_expired'), /로그인이 만료되었습니다/);
   assert.match(failure('rate_limited'), /사용 한도에 도달했습니다/);
