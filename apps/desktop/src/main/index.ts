@@ -191,6 +191,7 @@ import {
 import { acknowledgeAnnouncement, LAUNCH_VERSION_FILE, recordLaunchVersion } from './launch-version';
 import { installWhatsNewAcknowledge } from './whats-new-acknowledge';
 import { createPaneLayoutFile, flushPaneLayoutFiles, PANE_LAYOUT_FILE } from './pane-layout-file';
+import { displayExitCode } from './desktop-service-client';
 
 const desktopProcessStartedAt = Date.now();
 // The launcher's stdio pipe can close while the app keeps running (started
@@ -2008,6 +2009,7 @@ function installRendererCrashRecovery(window: BrowserWindow, reloadRenderer: () 
     diagnostics?.write('render-process-gone', {
       reason: details.reason,
       exitCode: details.exitCode,
+      exitText: displayExitCode(details.exitCode),
       recovery: recovery.action,
       processes: currentProcessMemory(),
       systemMemory: currentSystemMemory(),
@@ -2919,6 +2921,7 @@ if (!app.requestSingleInstanceLock()) {
           type: details.type,
           reason: details.reason,
           exitCode: details.exitCode,
+          exitText: displayExitCode(details.exitCode),
           serviceName: details.serviceName,
           name: details.name,
         });

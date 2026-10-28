@@ -10,6 +10,8 @@
 // Pages are self-contained files named by the owner, so a restart continues
 // the same spill directory with nothing to hand over.
 import { randomUUID } from 'node:crypto';
+import { mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 const MAX_ATTEMPTS = 2;
 const SPILL_WRITER_IDLE_MS = 10_000;
@@ -67,6 +69,11 @@ export function createSpillWriter({ workerFactory, writeTimeoutMs = 5000, idleMs
     if (record.cancelled) return;
     record.attempts += 1;
     if (record.attempts <= MAX_ATTEMPTS) {
+      // The spill folder vanished (TEMP cleaned): the retry recreates it. Only
+      // the parent does this, synchronously right before it posts the retry
+      // and only for a live record, so a reset or cleanup (which cancels the
+      // record first) can never have its folder resurrected by a late write.
+      record.recreateDir = /ENOENT/.test(String(error));
       queue.unshift(record);
       return;
     }
@@ -158,6 +165,14 @@ export function createSpillWriter({ workerFactory, writeTimeoutMs = 5000, idleMs
       }
       queueMicrotask(pump);
       return;
+    }
+    if (active.recreateDir) {
+      active.recreateDir = false;
+      try {
+        mkdirSync(dirname(active.path), { recursive: true });
+      } catch {
+        /* the retry reports the failure */
+      }
     }
     // Pages are capped at chunkSize, so the structured-clone post cost is
     // bounded; the retry payload is identical to the first attempt.

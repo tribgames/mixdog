@@ -8,6 +8,9 @@ export const DAEMON_UNAVAILABLE_MESSAGE = 'daemon session endpoint is unavailabl
 
 function exitCodeText(code) {
   // Windows reports NTSTATUS crash codes as large unsigned values.
+  // 0xE0000008 is Chromium's kOomExceptionCode; 134 is a V8 fatal error (abort).
+  if (code === 0xe0000008 || code === -536870904) return `${code === -536870904 ? code : '0xE0000008'} (out of memory)`;
+  if (code === 134) return '134 (V8 fatal error (JavaScript heap out of memory))';
   return Number.isSafeInteger(code) && code > 0x7fffffff ? `0x${code.toString(16).toUpperCase()}` : String(code);
 }
 

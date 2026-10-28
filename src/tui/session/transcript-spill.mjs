@@ -20,6 +20,13 @@ export const tuiDebug = (msg) => {
   } catch {}
 };
 
+/** Normal-level spill warning for the daemon: its stderr is daemon.log. */
+export const spillWarningToStderr = (message) => {
+  try {
+    process.stderr.write(`[transcript-spill] ${message}\n`);
+  } catch {}
+};
+
 // Item ids outlive the process (queued-input mirror, turn change records), so
 // a restarted process never issues an id again.
 const ID_PREFIX = `it_${randomBytes(4).toString('hex')}_`;

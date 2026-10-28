@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -179,4 +179,46 @@ test('a real worker thread exits on idle, restarts for the next page and exits o
     assert.equal(record.pinned, false);
     assert.deepEqual(JSON.parse(readFileSync(record.path, 'utf8')), [{ id: `it_${record.id}`, n: record.id }]);
   }
+});
+
+test('a reset during an in-flight write leaves no folder and no page behind', async (context) => {
+  const dir = tempDir(context);
+  const gone = join(dir, 'reset');
+  mkdirSync(gone);
+  class DelayedWorker extends Worker {
+    postMessage(message) {
+      setTimeout(() => super.postMessage(message), 150);
+    }
+  }
+  const pinned = [];
+  const writer = createSpillWriter({
+    workerFactory: (source) => new DelayedWorker(source, { eval: true }),
+    onPinned: (e) => pinned.push(e),
+  });
+  context.after(() => writer.dispose());
+  const [record] = pageRecords(gone, 1, 1);
+  writer.enqueue(record);
+  // Reset/cleanup: cancel the record, then delete its folder, while the worker
+  // has not yet run the write.
+  record.cancelled = true;
+  rmSync(gone, { recursive: true, force: true });
+  await drained(writer);
+  assert.equal(existsSync(gone), false, 'the folder must not be recreated');
+  assert.equal(existsSync(record.path), false, 'the cancelled page must not be committed');
+  assert.deepEqual(pinned, []);
+});
+
+test('a spill folder that vanished is recreated and the page still commits', async (context) => {
+  const dir = tempDir(context);
+  const gone = join(dir, 'vanished');
+  const workerFactory = (source) => new Worker(source, { eval: true });
+  const pinned = [];
+  const writer = createSpillWriter({ workerFactory, onPinned: (e) => pinned.push(e) });
+  context.after(() => writer.dispose());
+  const [record] = pageRecords(gone, 1, 1);
+  writer.enqueue(record);
+  await until(() => record.pendingItems === null || record.pinned, 'page settled');
+  assert.equal(record.pinned, false);
+  assert.deepEqual(pinned, []);
+  assert.deepEqual(JSON.parse(readFileSync(record.path, 'utf8')), [{ id: 'it_1', n: 1 }]);
 });

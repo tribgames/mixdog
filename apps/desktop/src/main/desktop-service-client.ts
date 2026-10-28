@@ -92,7 +92,12 @@ function wireArgs(args: unknown[]): unknown[] {
   return end === args.length ? args : args.slice(0, end);
 }
 
-function displayExitCode(code: number): string {
+export function displayExitCode(code: number): string {
+  // 0xE0000008 is Chromium's kOomExceptionCode; 134 is a V8 fatal error (abort).
+  if (code === 0xe0000008 || code === -536870904) {
+    return `${code === -536870904 ? code : '0xE0000008'} (out of memory)`;
+  }
+  if (code === 134) return '134 (V8 fatal error (JavaScript heap out of memory))';
   if (process.platform === 'win32' && Number.isSafeInteger(code) && code >= 0x80000000 && code <= 0xffffffff) {
     return `0x${code.toString(16).padStart(8, '0').toUpperCase()}`;
   }

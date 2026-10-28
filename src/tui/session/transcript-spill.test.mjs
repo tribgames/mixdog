@@ -3,7 +3,7 @@ import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import test from 'node:test';
 import { waitUntil } from '../../runtime/shared/wait-until.test-support.mjs';
-import { createTranscriptSpillBuffer } from './transcript-spill.mjs';
+import { createTranscriptSpillBuffer, spillWarningToStderr } from './transcript-spill.mjs';
 
 // The spill buffer with an in-process fake worker: whole chunks leave the live
 // array as pages, paging restores them with overlap, a failing writer pins
@@ -106,6 +106,28 @@ test('a failing writer retries twice, then pins history in memory and disables s
   buffer.reset();
   assert.equal(buffer.disabled, false);
   assert.equal(buffer.hasOlder, false);
+});
+
+test('a pinned spill reaches stderr (daemon.log) once with the [transcript-spill] prefix', async (context) => {
+  const { factory } = fakeWorkers(() => 'fail');
+  const lines = [];
+  context.mock.method(process.stderr, 'write', (chunk) => {
+    lines.push(String(chunk));
+    return true;
+  });
+  const buffer = createTranscriptSpillBuffer({
+    cap: 4,
+    chunkSize: 4,
+    workerFactory: factory,
+    onWarning: spillWarningToStderr,
+  });
+  context.after(() => buffer.dispose());
+  buffer.capLive(items(8));
+  await drained(buffer);
+  buffer.capLive(items(12));
+  const spill = lines.filter((line) => line.startsWith('[transcript-spill] '));
+  assert.equal(spill.length, 1, 'one warning, not one per attempt');
+  assert.match(spill[0], /history pinned in memory \(disk full\)/);
 });
 
 test('a write that never completes times out onto a fresh worker and the retry lands', async (context) => {

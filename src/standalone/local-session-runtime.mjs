@@ -39,6 +39,7 @@ import {
   tuiDebug,
   nextId,
   createTranscriptSpillBuffer,
+  spillWarningToStderr,
   sweepStaleTranscriptSpillDirsOnce,
 } from '../tui/session/transcript-spill.mjs';
 import { importInStages } from './staged-import.mjs';
@@ -278,7 +279,8 @@ export async function createLocalSessionRuntime({
   const { getState, getPublishedState, set, flushEmit, flushEmitImmediate } = store;
 
   const itemIndexById = new Map();
-  const transcriptSpill = createTranscriptSpillBuffer();
+  // stderr is daemon.log in the daemon: a pinned spill must not stay silent.
+  const transcriptSpill = createTranscriptSpillBuffer({ onWarning: spillWarningToStderr });
   const { markToolCallActive, markToolCallDone, clearActiveToolSummary, resetActiveToolCalls } =
     createActiveToolTracker({ getState, set });
   const {

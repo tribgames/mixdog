@@ -639,3 +639,10 @@ test('a decision in flight when the service transport restarts is sent again, no
     await client.dispose();
   }
 });
+
+test('displayExitCode names OOM exits and keeps the number', async () => {
+  const { displayExitCode } = await import('./desktop-service-client.ts');
+  assert.equal(displayExitCode(134), '134 (V8 fatal error (JavaScript heap out of memory))');
+  assert.equal(displayExitCode(0xe0000008), '0xE0000008 (out of memory)');
+  assert.equal(displayExitCode(-536870904), '-536870904 (out of memory)');
+});
