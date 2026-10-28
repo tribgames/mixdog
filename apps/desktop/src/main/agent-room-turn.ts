@@ -72,8 +72,8 @@ export interface RoomExchangeOptions {
   to?: string[];
   waiting?: boolean;
   only?: boolean;
-  /** The request (or a request merged into it) addressed the whole room;
-   *  set by the scheduler, unset reads as "`to` is empty". */
+  /** The request (or a request merged into it) addressed the whole room,
+   *  as its sender stated it (scheduler.route). */
   everyone?: boolean;
   calls?: RoomCall[];
 }

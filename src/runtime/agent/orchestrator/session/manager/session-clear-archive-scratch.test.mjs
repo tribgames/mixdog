@@ -272,6 +272,19 @@ for (const split of [true, false]) {
     assert.equal(joined.includes('sess_other_source'), false);
   });
 
+  test(`${layout}: the prefix counts as changed only when the system block's text did`, () => {
+    const stale = collisionSession(split, scratchEnvironmentLine('sess_other_source'));
+    // The stale tail is persisted but the system block does not carry it: the
+    // request prefix is unchanged, so nothing is rebound.
+    const unrelated = stale.messages.map((message) => ({ ...message, content: 'a different system text' }));
+    stale.messages = unrelated.slice();
+    assert.equal(useOwnScratchEnvironment(stale), false);
+    assert.ok(stale.bp3EnvironmentContext.includes(scratchEnvironmentLine(stale.id)), 'the tail itself is corrected');
+    stale.messages.forEach((message, index) => {
+      assert.equal(message, unrelated[index]);
+    });
+  });
+
   test(`${layout}: a matching session with colliding lines stays byte-identical`, () => {
     const session = collisionSession(split, scratchEnvironmentLine(`sess_collide_${split ? 'split' : 'combined'}`));
     const before = JSON.stringify(session);

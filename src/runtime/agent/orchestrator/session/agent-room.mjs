@@ -186,7 +186,8 @@ const UNSPOKEN = [
 /** The one peer a member's words address: the first `@Name` (id or name of
  *  another member) that leads the text or stands apart from the words around
  *  it, outside code and quotes. '' when there is none; unknown, ambiguous and
- *  self mentions stay plain text. */
+ *  self mentions stay plain text. `@Name` is the hand-off syntax roomTurnPrompt
+ *  tells members to use, so the text is the contract here, not a guess. */
 export function roomMentionOf(text, members = [], selfId = '') {
   let value = String(text ?? '');
   for (const pattern of UNSPOKEN) value = value.replace(pattern, ' ');
@@ -303,8 +304,9 @@ export async function runRoomExchange({
   if (!members.length) return { outcome: 'done', rounds: 0, steps: 0, messages: 0 };
   const named = (Array.isArray(to) ? to : [to]).filter(Boolean);
   const targets = [...new Set(named.filter((id) => members.includes(id)))];
-  // A request that also addressed the whole room (`wholeRoom`; by default one
-  // naming nobody) keeps the room's turn after its named members.
+  // A request that also addressed the whole room (`wholeRoom`, stated by the
+  // sender) keeps the room's turn after its named members. Without it, `to: []`
+  // is the whole room: the documented meaning of `to` (parseRoomAsk).
   const open = wholeRoom ?? !named.length;
   // Every recipient the request named is gone (removed or switched off): it
   // is not a call to the whole room, so nobody is called.

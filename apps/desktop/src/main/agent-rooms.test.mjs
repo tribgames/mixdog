@@ -747,7 +747,7 @@ test('a member switched off while its turn is being prepared is not submitted', 
 
 /** A room whose /ask turn of `gh` is held inside the final switched-off read:
  *  `change(h, ids)` runs while it is pending, then the read is released. */
-async function heldSwitchedOffRead(change, { script, afterRelease, agents, decide } = {}) {
+async function heldSwitchedOffRead(change, { script, afterRelease, agents, decide, start } = {}) {
   let armed = false;
   let hit;
   const reached = new Promise((resolve) => {
@@ -773,7 +773,7 @@ async function heldSwitchedOffRead(change, { script, afterRelease, agents, decid
     },
   });
   const { sessionId, roomId } = await room(h);
-  await h.rooms.send(sessionId, '/ask gh status?');
+  await (start ?? (() => h.rooms.send(sessionId, '/ask gh status?')))(h, { sessionId, roomId });
   await reached;
   await change(h, { sessionId, roomId });
   release();
@@ -836,6 +836,15 @@ test('the only member /ask named, removed or switched off before its turn, ends 
     { agents, decide: pickRel }
   );
   assert.deepEqual(off.prompts, [], 'switched off: nobody else is asked in its place');
+});
+
+test('a request another session sent to one member never widens to the room when that member is removed', async () => {
+  const h = await heldSwitchedOffRead((host, ids) => host.rooms.update(ids.roomId, { members: ['rel', 'bench'] }), {
+    decide: () => ({ action: 'speak', agentId: 'rel' }),
+    start: (host, { sessionId }) =>
+      host.rooms.ask(sessionId, { agentId: 'gh', prompt: 'status?', from: { sessionId: 'sess_lead_1' } }),
+  });
+  assert.deepEqual(h.prompts, [], 'nobody is asked in the removed member’s place');
 });
 
 test('a whole-room message merged with an /ask whose target then went off still gets the room (not an empty exchange)', async () => {

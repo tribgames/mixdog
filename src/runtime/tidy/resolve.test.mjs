@@ -201,7 +201,9 @@ test('a slow managed-binary verification does not block the event loop', async (
   const root = workspace(t);
   const pluginData = join(root, 'data');
   const binName = process.platform === 'win32' ? 'stylua.exe' : 'stylua';
-  managedFakeBin(join(pluginData, 'tools', 'stylua', '0.20.0'), binName);
+  // An install with no digest record: the content probe (the open below) is the
+  // only check it gets; a recorded install is verified by a streamed hash.
+  fakeBin(join(pluginData, 'tools', 'stylua', '0.20.0'), binName);
   const manifest = {
     version: 1,
     engines: {

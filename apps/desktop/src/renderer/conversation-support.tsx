@@ -425,15 +425,12 @@ export function transcriptRowNode(
     onOpenSettings,
     questionCard,
     quietTools = false,
-    toolsRunning = false,
     turnCards,
   }: {
     /** Coding mode: the turn's visualize cards, seated above its changed-files card. */
     turnCards?: TurnCardsSeat;
     /** Agent mode: no tool rows; only a question that needs the user shows. */
     quietTools?: boolean;
-    /** This tool group is where the running turn adds its next call. */
-    toolsRunning?: boolean;
     disclosureScope: string;
     optimisticActivityStartedAt: number;
     readOnly: boolean;
@@ -492,7 +489,7 @@ export function transcriptRowNode(
           items={row.items}
           disclosureScope={disclosureScope}
           turnKey={row.turnKey}
-          running={toolsRunning}
+          running={row.open === true}
         />
       );
     }
@@ -503,7 +500,7 @@ export function transcriptRowNode(
             items={rest}
             disclosureScope={disclosureScope}
             turnKey={row.turnKey}
-            running={toolsRunning}
+            running={row.open === true}
           />
         )}
         {asked.map((item, index) => (

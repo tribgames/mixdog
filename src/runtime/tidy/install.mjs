@@ -81,19 +81,26 @@ function recordEngineDigest(digestFile, digest) {
   }
 }
 
+// The recorded digest decides whether a binary is intact. Only an install from
+// before the record existed has none; there alone the content probe keeps a
+// crash-torn (empty or NUL-filled) binary from becoming the digest it is
+// trusted by. A binary that cannot be statted, read or hashed cannot be
+// verified, so it is not reused.
 async function engineBinaryIntact(dir, full) {
-  if (!(await fileHasDataAsync(full))) return false;
   try {
     const stamp = statSync(full);
     const key = `${stamp.size}:${stamp.mtimeMs}`;
     if (verifiedEngineBins.get(full) === key) return true;
     const digestFile = join(dir, ENGINE_DIGEST_FILE);
-    const actual = await sha256File(full);
-    let recorded;
+    let recorded = null;
     try {
       recorded = readFileSync(digestFile, 'utf8').trim().toLowerCase();
     } catch (error) {
       if (error?.code !== 'ENOENT') return false;
+    }
+    if (recorded === null && !(await fileHasDataAsync(full))) return false;
+    const actual = await sha256File(full);
+    if (recorded === null) {
       recordEngineDigest(digestFile, actual);
       recorded = actual;
     }

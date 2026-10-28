@@ -585,6 +585,10 @@ function runGit(plan, argv, options = {}) {
 // config.lock. Commands take that lock before changing anything, so a brief
 // retry with backoff turns the collision into a short wait; a command that had
 // already done part of its work reports its own state on the retry.
+// Git reports lock contention only as text: lockfile.c's "Unable to create
+// '<path>.lock': File exists" (and config.c's "could not lock config file"),
+// stable English because runProcess pins LC_ALL=C. The delays are a bounded
+// backoff (3.1 s in all), a policy choice rather than anything git reports.
 const GIT_LOCK_CONTENTION_RE =
   /Unable to create '[^'\n]*\.lock': File exists|could not lock config file [^\n]*: File exists/;
 const GIT_LOCK_RETRY_DELAYS_MS = [100, 200, 400, 800, 1600];

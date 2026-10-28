@@ -9,12 +9,16 @@ import {
   replaceSystemMessageContent,
   replaceWorkspaceEnvironment,
 } from './prompt-utils.mjs';
-import { scratchEnvironmentLine } from './session-prompt-composition.mjs';
+import { SCRATCH_LINE_PREFIX, scratchEnvironmentLine } from './session-prompt-composition.mjs';
 
-const SCRATCH_LINE = /^- Scratch: .*$/m;
-
+// The first line the generator's own prefix starts is the scratch line.
 function withLine(text, line) {
-  return typeof text === 'string' ? text.replace(SCRATCH_LINE, () => line) : text;
+  if (typeof text !== 'string') return text;
+  const rows = text.split('\n');
+  const at = rows.findIndex((row) => row.startsWith(SCRATCH_LINE_PREFIX));
+  if (at < 0) return text;
+  rows[at] = line;
+  return rows.join('\n');
 }
 
 // Only the generated environment facts (the first part of the environment
@@ -60,5 +64,7 @@ export function useOwnScratchEnvironment(session) {
   const content = block?.content;
   const suffix = oldTail.trim();
   if (typeof content !== 'string' || !suffix || !content.endsWith(suffix)) return false;
-  return replaceSystemMessageContent(session, block, content.slice(0, -suffix.length) + newTail.trim());
+  const next = content.slice(0, -suffix.length) + newTail.trim();
+  // The prefix changed exactly when the system block's text did.
+  return replaceSystemMessageContent(session, block, next) && next !== content;
 }

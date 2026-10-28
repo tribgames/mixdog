@@ -15,6 +15,9 @@ import { copyToClipboard } from '../app/clipboard.mjs';
 
 const SAFE_URL_RE = /^https?:\/\//i;
 
+// OSC 8 needs no support probe: a terminal that does not know the hyperlink
+// sequence ignores it and shows the label (its documented fallback). Only
+// http(s) targets are linked.
 const linkedUrl = (url, label) => (SAFE_URL_RE.test(url) ? `\x1b]8;;${url}\x07${label}\x1b]8;;\x07` : label);
 
 const STATUS_TEXT = {

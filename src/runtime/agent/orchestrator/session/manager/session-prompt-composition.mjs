@@ -25,12 +25,15 @@ import { sessionScratchDir } from '../../../../shared/session-scratch.mjs';
 import { delegationDisabled } from './session-tool-surface.mjs';
 import { contextAckMessage } from '../compact/user-message-kind.mjs';
 
+/** What the generated scratch line starts with; the one place that line is recognised. */
+export const SCRATCH_LINE_PREFIX = '- Scratch: ';
+
 /** The environment line naming `sessionId`'s scratch directory, '' without one. */
 export function scratchEnvironmentLine(sessionId) {
   // Fixed per session id and data dir, so the line never changes across turns.
   const scratchDir = sessionScratchDir(sessionId);
   return scratchDir
-    ? `- Scratch: ${scratchDir} — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.`
+    ? `${SCRATCH_LINE_PREFIX}${scratchDir} — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.`
     : '';
 }
 

@@ -118,7 +118,8 @@ export function createRoomMessages(host: RoomMessagesHost) {
     // Taken up as soon as the row is in the log, before the save yields: a
     // member's older answer cannot land meanwhile, and a second message never
     // starts an exchange of its own beside this one.
-    if (!request.stopped) scheduler.route(roomId, { to: parsed.to, waiting: true });
+    // `/ask` names its recipients; a message without it addresses the whole room.
+    if (!request.stopped) scheduler.route(roomId, { to: parsed.to, everyone: !parsed.to.length, waiting: true });
     request.release();
     await persist();
     deps.republishCatalog();
@@ -212,7 +213,7 @@ export function createRoomMessages(host: RoomMessagesHost) {
       ...(follow ? { follow } : {}),
     };
     if (request.stopped) onSettled?.({ status: 'cancelled' });
-    else scheduler.route(roomId, { to: [agentId], waiting: true, only: true, calls: [call] });
+    else scheduler.route(roomId, { to: [agentId], everyone: false, waiting: true, only: true, calls: [call] });
     request.release();
     await persist();
     deps.republishCatalog();

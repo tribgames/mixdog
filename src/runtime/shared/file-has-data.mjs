@@ -4,15 +4,19 @@ import { holdsNoData } from './atomic-file.mjs';
 
 const PROBE_BYTES = 4096;
 
-// An open that failed for any reason but a missing path still counts as present.
-const presentDespite = (err) => err?.code !== 'ENOENT' && err?.code !== 'ENOTDIR';
+// Only these errno codes mean the path names no file. Every other failure
+// leaves the file present (a scanner's or the running process's lock, EIO, ...):
+// this is an install check on settings and status paths, so it never throws.
+const ABSENT_CODES = new Set(['ENOENT', 'ENOTDIR']);
+const presentDespite = (err) => !ABSENT_CODES.has(err?.code);
 
 /**
  * Install check for a downloaded binary or model: false when `path` is absent
  * or its first bytes hold no data (empty, or NUL-filled by a crash that
  * committed the size but not the bytes). Cheaper than hashing a multi-GB file
  * on every use. A file that exists but cannot be opened right now (locked by a
- * scanner or by the process running it) still counts as present.
+ * scanner or by the process running it) still counts as present, as does any
+ * other failure.
  */
 export function fileHasData(path) {
   let fd;

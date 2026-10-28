@@ -10,7 +10,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
 
-import { appendLiveTranscriptRows, projectSettledTranscriptRows, toolActivityStillOpen } from './transcript-rows.ts';
+import { appendLiveTranscriptRows, projectSettledTranscriptRows } from './transcript-rows.ts';
 import { ToolActivityGroup } from './TranscriptView.tsx';
 
 function installDom() {
@@ -119,15 +119,19 @@ const TURN = [
   ],
 ];
 
-function rowsFor(items, busy, trailing = []) {
+function rowsFor(items, busy, { thinking = busy, settled: onlySettled = false } = {}) {
   const settled = projectSettledTranscriptRows({
     sessionKey: 's',
-    items: [{ kind: 'user', id: 'u', text: 'go' }, ...items, ...trailing],
-    turnKeys: ['t', ...items.map(() => 't'), ...trailing.map(() => 't')],
+    items: [{ kind: 'user', id: 'u', text: 'go' }, ...items],
+    turnKeys: ['t', ...items.map(() => 't')],
     failedTurns: new Set(),
   });
-  return appendLiveTranscriptRows({ sessionKey: 's', settled, thinking: busy });
+  const rows = appendLiveTranscriptRows({ sessionKey: 's', settled, thinking, turnRunning: busy });
+  return onlySettled ? { rows, settled } : rows;
 }
+
+// The renderer's "this group stays open" is the row model's own `open` field.
+const stillOpen = (row) => Boolean(row.open);
 
 test('a group keeps its in-progress wording between calls and reads finished only when its turn ends', async () => {
   const dom = installDom();
@@ -135,8 +139,7 @@ test('a group keeps its in-progress wording between calls and reads finished onl
     const recorded = [];
     for (const [step, items, busy] of TURN) {
       const rows = rowsFor(items, busy);
-      const index = rows.findIndex((row) => row._tag === 'ToolActivity');
-      const running = toolActivityStillOpen(rows, index, busy);
+      const running = stillOpen(rows.find((row) => row._tag === 'ToolActivity'));
       await act(async () => {
         dom.root.render(React.createElement(ToolActivityGroup, { items, disclosureScope: 'wording', running }));
       });
@@ -165,11 +168,7 @@ test('the group readout counts on from the first call through the gaps between c
     const recorded = [];
     for (const [step, items, busy] of TURN) {
       const rows = rowsFor(items, busy);
-      const running = toolActivityStillOpen(
-        rows,
-        rows.findIndex((row) => row._tag === 'ToolActivity'),
-        busy
-      );
+      const running = stillOpen(rows.find((row) => row._tag === 'ToolActivity'));
       await act(async () => {
         dom.root.render(React.createElement(ToolActivityGroup, { items, disclosureScope: 'readout', running }));
       });
@@ -197,9 +196,24 @@ test('the group readout counts on from the first call through the gaps between c
 test('only the group the turn still ends in stays open to more calls', () => {
   const items = [sh(true), { kind: 'assistant', id: 'as', text: 'now reading' }, read(true)];
   const rows = rowsFor(items, true);
-  const groups = rows.map((row, index) => [row._tag, index]).filter(([tag]) => tag === 'ToolActivity');
+  const groups = rows.filter((row) => row._tag === 'ToolActivity');
   assert.equal(groups.length, 2, 'text between calls splits the groups');
-  assert.equal(toolActivityStillOpen(rows, groups[0][1], true), false, 'a group with a reply after it is closed');
-  assert.equal(toolActivityStillOpen(rows, groups[1][1], true), true, 'the tail group of a running turn is open');
-  assert.equal(toolActivityStillOpen(rows, groups[1][1], false), false, 'nothing is open once the turn is idle');
+  assert.equal(stillOpen(groups[0]), false, 'a group with a reply after it is closed');
+  assert.equal(stillOpen(groups[1]), true, 'the tail group of a running turn is open');
+  const idle = rowsFor(items, false).filter((row) => row._tag === 'ToolActivity');
+  assert.equal(stillOpen(idle[1]), false, 'nothing is open once the turn is idle');
+});
+
+test('the open mark rests on the running state, not on a working row, and never edits a settled row', () => {
+  const items = [sh(true)];
+  const { rows, settled } = rowsFor(items, true, { thinking: false, settled: true });
+  assert.equal(rows.at(-1)._tag, 'ToolActivity');
+  assert.equal(stillOpen(rows.at(-1)), true, 'a running turn keeps its tail group open without a working row');
+  assert.equal(
+    settled.rows.some((row) => row.open !== undefined),
+    false,
+    'the memoized settled rows are not mutated'
+  );
+  const { rows: idle } = rowsFor(items, false, { thinking: true, settled: true });
+  assert.equal(stillOpen(idle.find((row) => row._tag === 'ToolActivity')), false, 'a working row alone opens nothing');
 });

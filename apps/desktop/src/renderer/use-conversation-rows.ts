@@ -123,6 +123,7 @@ export function useTranscriptRows({
         thinking: Boolean(
           (busy && !turnSettled) || (commandBusy && commandActivityVisible) || liveItem || optimisticActivityStartedAt
         ),
+        turnRunning: Boolean(busy),
       }),
     [
       identity,

@@ -92,6 +92,8 @@ export const envMs = (name, fallback) => {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value > 0 ? value : fallback;
 };
+// How often the held leases are checked against both copies: a retry period
+// for repair, never a lease decision (liveness is the pid probe, aliveLease).
 const healIntervalMs = () => envMs('MIXDOG_ADMISSION_HEAL_MS', 2_000);
 
 // The leases this process holds, put back into a ledger that lost them, and

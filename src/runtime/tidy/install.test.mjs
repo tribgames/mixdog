@@ -278,6 +278,29 @@ test('a legacy install with no digest record is accepted under never and ask, an
   }
 });
 
+test('a legacy install a crash left NUL-filled is not reused and never records its digest', async (t) => {
+  const root = workspace(t);
+  const manifest = manifestFor('shfmt', { sha: sha256(Buffer.from('x')), archive: 'none', binPath: 'shfmt' });
+  const dir = legacyInstall(root, Buffer.alloc(8192));
+  assert.equal(await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), null);
+  assert.equal(existsSync(join(dir, ENGINE_DIGEST_FILE)), false, 'a torn binary is not trusted on first use');
+});
+
+test('with a recorded digest the digest alone decides, not the content probe', async (t) => {
+  const root = workspace(t);
+  const payload = Buffer.concat([Buffer.alloc(5000), Buffer.from('tail')]);
+  const manifest = manifestFor('shfmt', { sha: sha256(payload), archive: 'none', binPath: 'shfmt' });
+  const dir = legacyInstall(root, payload);
+  writeFileSync(join(dir, ENGINE_DIGEST_FILE), sha256(payload));
+  assert.ok(await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }), 'a matching record is intact');
+  writeFileSync(join(dir, 'shfmt'), Buffer.alloc(payload.length + 1));
+  assert.equal(
+    await managedEngineBinary({ id: 'shfmt', manifest, pluginData: root }),
+    null,
+    'a NUL-filled copy differs'
+  );
+});
+
 test('a tampered legacy-style install with a mismatching record stays rejected under never', async (t) => {
   const root = workspace(t);
   const payload = Buffer.from('#!/bin/sh\necho shfmt\n');

@@ -155,7 +155,7 @@ export function createRoomScheduler(host: RoomSchedulerHost) {
     if (!queued?.length || running.has(roomId)) return;
     relayQueue.delete(roomId);
     const to = [...new Set(queued.map((call) => call.agentId))];
-    route(roomId, { to, waiting: false, only: true, calls: queued });
+    route(roomId, { to, everyone: false, waiting: false, only: true, calls: queued });
   }
 
   /** The stop button, or a save the room's talk needed failed: the relays held
@@ -170,8 +170,13 @@ export function createRoomScheduler(host: RoomSchedulerHost) {
    *  one runs, is merged into the one that runs next (every member any of
    *  them called keeps its turn, in the order named; `only` holds when every
    *  merged request is `only`), and the member speaking is cut off: its
-   *  answer would respond to older rows. Each call settles once. */
-  function route(roomId: string, options: Required<Pick<RoomExchangeOptions, 'to' | 'waiting'>> & RoomExchangeOptions) {
+   *  answer would respond to older rows. Each call settles once. The caller
+   *  states whether the request addressed the whole room (`everyone`); it is
+   *  never read off an empty `to`. */
+  function route(
+    roomId: string,
+    options: Required<Pick<RoomExchangeOptions, 'to' | 'waiting' | 'everyone'>> & RoomExchangeOptions
+  ) {
     const calls = (options.calls ?? []).map(settlesOnce);
     const active = running.get(roomId);
     if (!active) return start(roomId, { ...options, calls });
@@ -186,7 +191,7 @@ export function createRoomScheduler(host: RoomSchedulerHost) {
       waiting: prior?.waiting === true || options.waiting,
       only: (prior ? prior.only === true : true) && options.only === true,
       // A whole-room request merged with a named one stays a whole-room request.
-      everyone: prior?.everyone === true || (options.everyone ?? !options.to.length),
+      everyone: prior?.everyone === true || options.everyone,
       calls: [...(prior?.calls ?? []), ...calls],
     };
     if (active.speaking && active.memberSession) void deps.abort(active.memberSession).catch(() => undefined);
@@ -198,7 +203,7 @@ export function createRoomScheduler(host: RoomSchedulerHost) {
   function relayWhenIdle(roomId: string, call: RoomCall): void {
     if (running.get(roomId)?.stop) call.onSettled?.({ status: 'cancelled' });
     else if (running.has(roomId)) relayQueue.set(roomId, [...(relayQueue.get(roomId) ?? []), call]);
-    else route(roomId, { to: [call.agentId], waiting: false, only: true, calls: [call] });
+    else route(roomId, { to: [call.agentId], everyone: false, waiting: false, only: true, calls: [call] });
   }
 
   /** `gone` left room `roomId`: what is owed to them ends. Their calls waiting

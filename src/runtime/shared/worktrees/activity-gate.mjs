@@ -28,7 +28,10 @@ export { isExternalCheckout } from './activity-ledger.mjs';
 
 // The longest a synchronous caller (or the exit) waits for the admission
 // thread, the requests queued ahead of it included: each is bounded by the
-// ledger lock timeout and the atomic writes' rename retries.
+// ledger lock timeout (file-lock.mjs, MIXDOG_LOCK_TIMEOUT_MS) and the atomic
+// writes' rename retries. A chosen ceiling, not a measurement: reaching it is
+// the typed `outcome: 'unknown'` refusal, and MIXDOG_ADMISSION_SYNC_TIMEOUT_MS
+// sets it.
 const syncTimeoutMs = () => envMs('MIXDOG_ADMISSION_SYNC_TIMEOUT_MS', 60_000);
 
 // `outcome: 'unknown'`: the request was posted and may have landed.
@@ -156,7 +159,9 @@ function callSync(op, args) {
     let left = deadline - Date.now();
     if (left <= 0) {
       if (Atomics.compareExchange(slots, SLOT.SYNC, id, 0) === id) throw unknownOutcome();
-      // Answered just now: the answer is on its way.
+      // The admission thread already claimed the slot (SYNC is -id): the
+      // answer is on its way and its notify wakes this wait; 1 s only bounds
+      // a missed wake.
       left = 1_000;
     }
     Atomics.wait(slots, SLOT.ANSWERED, seen, left);

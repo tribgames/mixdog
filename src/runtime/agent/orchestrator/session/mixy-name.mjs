@@ -23,10 +23,11 @@ export function mixyNameOf(manifest) {
 export function mixyDisplayName() {
   try {
     // bots/mixy once Mixy is its own bot, agents/lead before (agent-store.mjs).
-    // A missing, empty or malformed agent.json falls back to Mixy below.
     const dir = mixyIdentityDir(resolvePluginData());
     return mixyNameOf(JSON.parse(readFileSync(join(dir, 'agent.json'), 'utf8')));
   } catch {
+    // Never throws: prompt composition calls this unguarded, and the name only labels Mixy.
+    // A missing, empty, unreadable or malformed agent.json is the unrenamed default.
     return DEFAULT_MIXY_NAME;
   }
 }

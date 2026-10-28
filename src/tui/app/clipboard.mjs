@@ -71,6 +71,9 @@ function nativeClipboardCommand(text) {
     };
   }
   if (process.platform === 'darwin') return { cmd: 'pbcopy', args: [], input: value };
+  // WAYLAND_DISPLAY is the variable a Wayland client connects by; set means a
+  // Wayland session. A helper that is not installed fails with ENOENT, which
+  // clipboardHelperError turns into the install hint.
   if (process.env.WAYLAND_DISPLAY) return { cmd: 'wl-copy', args: [], input: value };
   return { cmd: 'xclip', args: ['-selection', 'clipboard'], input: value };
 }

@@ -147,7 +147,7 @@ export function runRoomExchange(options: {
   waiting?: boolean;
   /** The called members (`to`) answer and nobody else follows. */
   only?: boolean;
-  /** The request also addressed the whole room (default: `to` is empty). */
+  /** The sender stated that the request also addressed the whole room; unset, only an empty `to` does. */
   wholeRoom?: boolean;
 }): Promise<RoomExchangeResult>;
 export function roomDataLabel(value: unknown): string;

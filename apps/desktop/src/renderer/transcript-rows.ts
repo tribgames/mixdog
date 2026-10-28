@@ -43,6 +43,9 @@ export type TranscriptRowModel =
       key: string;
       turnKey: string;
       items: readonly TranscriptItem[];
+      /** A running turn ends in this group: its next call lands here, so the
+       *  group does not read finished between two calls (appendLiveTranscriptRows). */
+      open?: boolean;
     }
   | {
       _tag: 'Thinking';
@@ -522,6 +525,7 @@ export function appendLiveTranscriptRows({
   steerItems = [],
   liveItem,
   thinking = false,
+  turnRunning = false,
 }: {
   sessionKey: string;
   settled: SettledTranscriptProjection;
@@ -531,6 +535,8 @@ export function appendLiveTranscriptRows({
   steerItems?: readonly TranscriptItem[];
   liveItem?: TranscriptItem | null;
   thinking?: boolean;
+  /** The session reports a running turn: the tool group it ends in stays open. */
+  turnRunning?: boolean;
 }): TranscriptRowModel[] {
   const builder: TranscriptRowBuilder = {
     rows: [...settled.rows],
@@ -591,18 +597,19 @@ export function appendLiveTranscriptRows({
     });
     builder.previousRowWasUser = false;
   }
+  if (turnRunning) openTailToolActivity(builder.rows);
   return builder.rows;
 }
 
-/** Whether the tool group at `index` is where a running turn will add its next
- *  call: nothing but the working row follows it. Between two calls every call
- *  of such a group is finished for a moment, yet the group is not. */
-export function toolActivityStillOpen(rows: readonly TranscriptRowModel[], index: number, busy: boolean): boolean {
-  if (!busy || rows[index]?._tag !== 'ToolActivity') return false;
-  for (let next = index + 1; next < rows.length; next += 1) {
-    if (rows[next]?._tag !== 'Thinking') return false;
-  }
-  return true;
+/** Marks the tool group a running turn ends in (only the working row follows
+ *  it): the turn adds its next call there, so between two calls every call of
+ *  the group is finished for a moment, yet the group is not. Replaces the row;
+ *  the memoized settled rows are never mutated. */
+function openTailToolActivity(rows: TranscriptRowModel[]): void {
+  let tail = rows.length - 1;
+  while (tail >= 0 && rows[tail]?._tag === 'Thinking') tail -= 1;
+  const row = rows[tail];
+  if (row?._tag === 'ToolActivity') rows[tail] = { ...row, open: true };
 }
 
 const TURN_CHROME_KINDS = new Set(['user', 'turndone', 'statusdone', 'notice']);
