@@ -47,6 +47,7 @@ import {
   cacheWarmSend,
   IDLE_RETURN_LOOKBACK_MS,
   IDLE_RETURN_MEASURED_WINDOW_MS,
+  noteCacheWarmingEnabled,
   cacheWarmTurnKind,
   endCacheWarmTurn,
   forgetCacheWarm,
@@ -466,7 +467,7 @@ function harness({
   gate = null,
 } = {}) {
   const touches = memoryTouches();
-  const state = { clock: Date.now(), timers: [], usage: [], logs: [], touches, enabled, inFlight };
+  const state = { clock: Date.now(), timers: [], usage: [], logs: [], touches, enabled, inFlight, configReads: 0 };
   state.gaps = gapStore({ sessionId, minutes, now: () => state.clock });
   _setCacheWarmDepsForTest({
     ...(realRegistry ? {} : { registeredProvider: async () => state.prov }),
@@ -482,6 +483,11 @@ function harness({
       },
     },
     enabled: async () => state.enabled,
+    // The one synchronous config read that initializes the warming state.
+    readConfigEnabled: () => {
+      state.configReads += 1;
+      return state.enabled;
+    },
     turnInFlight: () => state.inFlight,
     // `gate`: a promise the planning price lookup waits on.
     prices: async () => {
@@ -1091,8 +1097,9 @@ test('gap store: censored at the window, short gaps dropped, persisted across a 
 });
 
 test('the switch off: no warm; sub-agent sessions are captured for the warmer but not for /btw', async () => {
-  let h = harness({ enabled: false });
+  let h = harness();
   h.settle();
+  h.enabled = false;
   await h.fire();
   assert.equal(h.prov.calls.length, 0);
   assert.match(h.logs.at(-1), /cache warming off/);
@@ -1102,6 +1109,85 @@ test('the switch off: no warm; sub-agent sessions are captured for the warmer bu
   assert.ok(h.capture(), 'a sub-agent request reaches the warmer');
   h.capture().settle(HIT);
   assert.ok(cacheWarmChain('sess_sub'), 'and arms like any session');
+});
+
+test('opted in on disk: the first request initializes from one config read, arms and keeps its touch', () => {
+  const h = harness({ enabled: true });
+  const id = h.session.id;
+  assert.equal(h.configReads, 0, 'nothing read before the first use');
+  h.settle();
+  h.settle();
+  assert.equal(h.configReads, 1, 'read once, then cached');
+  assert.ok(cacheWarmChain(id));
+  assert.equal(h.timers.length, 1);
+  assert.equal(h.touches.get(id).touchAt, cacheWarmChain(id).touchAt, 'touch kept');
+});
+
+test('a stale off read at a refresh point stops only its own chain and leaves the flag on', async () => {
+  const h = harness({ enabled: false });
+  noteCacheWarmingEnabled(true);
+  const other = homeSession('sess_task');
+  other.messages = [...PREFIX];
+  other.lastUsedAt = 0;
+  h.settle();
+  h.capture(other).settle(HIT);
+  assert.ok(cacheWarmChain(h.session.id) && cacheWarmChain(other.id));
+  await h.fire();
+  assert.equal(cacheWarmChain(h.session.id), null, 'its own chain stopped');
+  assert.ok(cacheWarmChain(other.id), 'the other chain stays');
+  h.settle();
+  assert.ok(cacheWarmChain(h.session.id), 'the flag is still on');
+});
+
+test('turning warming off during a restart re-arm leaves no chain and no timer', async () => {
+  const now = Date.UTC(2026, 9, 26, 0, 30);
+  const touches = memoryTouches();
+  const timers = [];
+  for (const id of ['sess_task', 'sess_home_lead']) {
+    touches.record(id, { touchAt: now - 20 * MINUTE, ttlMs: HOUR, promptTokens: 70_000, accountId: ACCOUNT });
+  }
+  _setCacheWarmDepsForTest({
+    now: () => now,
+    timers: {
+      setTimeout: () => timers.push(1),
+      clearTimeout: () => timers.pop(),
+    },
+    readConfigEnabled: () => true,
+    // The first rebuild is in flight when the setter turns warming off.
+    lastSentRequest: async (id) => {
+      noteCacheWarmingEnabled(false);
+      return { ...request({ session: homeSession(id) }), sentAt: now - 50 * MINUTE };
+    },
+    providersReady: async () => {},
+    touches: () => touches,
+    log() {},
+  });
+  assert.equal(await rearmCacheWarmsAfterRestart(), 0);
+  assert.equal(cacheWarmChain('sess_task'), null);
+  assert.equal(cacheWarmChain('sess_home_lead'), null);
+  assert.equal(timers.length, 0);
+});
+
+test('warming off: a real request arms no chain, no timer and no touch, yet the idle gap is learned; on, it arms', () => {
+  const h = harness({ enabled: false });
+  const id = h.session.id;
+  h.touches.record(id, { touchAt: 1, ttlMs: HOUR, promptTokens: 5 });
+  h.settle();
+  assert.equal(cacheWarmChain(id), null, 'no chain');
+  assert.equal(h.timers.length, 0, 'no timer');
+  assert.equal(h.touches.get(id), null, 'no durable touch');
+  assert.ok(h.gaps.openAt(id) > 0, 'the idle clock still runs for the learning');
+
+  noteCacheWarmingEnabled(true);
+  h.settle();
+  assert.ok(cacheWarmChain(id), 'on: armed as before');
+  assert.equal(h.timers.length, 1);
+  assert.equal(h.touches.get(id).touchAt, cacheWarmChain(id).touchAt);
+
+  // An off reading cancels the armed chain and its timer.
+  noteCacheWarmingEnabled(false);
+  assert.equal(cacheWarmChain(id), null);
+  assert.equal(h.timers.length, 0);
 });
 
 test('a warm adds nothing to the transcript and is no session activity, and re-arms on a hit', async () => {
@@ -1503,7 +1589,7 @@ test('after a restart, re-arm uses the durable touch and drops one inside the le
   _setCacheWarmDepsForTest({
     now: () => h.clock,
     timers: { setTimeout: () => ({}), clearTimeout() {} },
-    enabled: async () => true,
+    readConfigEnabled: () => true,
     lastSentRequest: async (id) => records[id] || null,
     providersReady: async () => {
       providersReady += 1;
@@ -1527,18 +1613,17 @@ test('after a restart, nothing is re-armed while warming is off', async () => {
   const now = Date.UTC(2026, 9, 26, 0, 30);
   const touches = memoryTouches();
   touches.record('sess_task', { touchAt: now - 20 * MINUTE, ttlMs: HOUR, promptTokens: 70_000, accountId: ACCOUNT });
-  let enabled = false;
   _setCacheWarmDepsForTest({
     now: () => now,
     timers: { setTimeout: () => ({}), clearTimeout() {} },
-    enabled: async () => enabled,
+    readConfigEnabled: () => false,
     lastSentRequest: async () => ({ ...request({ session: homeSession('sess_task') }), sentAt: now - 50 * MINUTE }),
     providersReady: async () => {},
     touches: () => touches,
     log() {},
   });
   assert.equal(await rearmCacheWarmsAfterRestart(), 0);
-  enabled = true;
+  noteCacheWarmingEnabled(true);
   assert.equal(await rearmCacheWarmsAfterRestart(), 1);
   assert.equal(cacheWarmChain('sess_task').touchAt, now - 20 * MINUTE);
 });
@@ -1556,7 +1641,7 @@ test('restart re-arm waits for the owning runtime’s provider init and never in
   _setCacheWarmDepsForTest({
     now: () => now,
     timers: { setTimeout: () => ({}), clearTimeout() {} },
-    enabled: async () => true,
+    readConfigEnabled: () => true,
     lastSentRequest: async () => {
       rebuilt += 1;
       return { ...request(), sentAt: now - 50 * MINUTE };

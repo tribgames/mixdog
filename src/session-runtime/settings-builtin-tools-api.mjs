@@ -8,6 +8,7 @@ import {
   setBuiltinInstalledInConfig,
 } from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { featureEnvOverride, moduleEnabled } from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
+import { noteCacheWarmingEnabled } from '../runtime/agent/orchestrator/session/cache-warm.mjs';
 import { normalizeAgentAvatar } from '../runtime/shared/agent-avatar.mjs';
 import { LOCAL_PROVIDER_ID } from '../runtime/local-provider/managed-runtime.mjs';
 import { INSTRUCTION_FILES_MODES, normalizeInstructionFilesMode } from '../runtime/shared/instruction-files-mode.mjs';
@@ -105,6 +106,8 @@ export function createBuiltinToolSettings(
     setCacheWarmingEnabled(enabled) {
       if (typeof enabled !== 'boolean') throw new TypeError('cache warming must be on or off (a boolean)');
       saveConfigAndAdopt({ ...getConfig(), promptCacheWarming: enabled });
+      // The warmer's synchronous state follows at once (off cancels chains).
+      noteCacheWarmingEnabled(enabled);
       return this.getCacheWarmingSettings();
     },
     // The one pixel face every Lead row on the bot page wears, shared by every

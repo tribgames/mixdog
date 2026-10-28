@@ -41,7 +41,7 @@ test('the settings page reads the heartbeat section with the getter, which is re
     /not read-only/
   );
   // The screenshot host answers the section too, in the shape the panel reads.
-  assert.deepEqual(CAPTURE_SETTINGS_VALUES.getHeartbeatSettings, { heartbeat: true, intervalMinutes: 60 });
+  assert.deepEqual(CAPTURE_SETTINGS_VALUES.getHeartbeatSettings, { heartbeat: false, intervalMinutes: 60 });
 });
 
 test('getHeartbeatSettings takes no argument; setHeartbeatEnabled takes exactly one boolean', () => {
@@ -89,7 +89,7 @@ test('setHeartbeatInterval is a configure capability taking exactly one of the f
     () => requiredDesktopCapabilityReadRequests([{ capability: 'setHeartbeatInterval', args: [60] }]),
     /not read-only/
   );
-  assert.deepEqual(CAPTURE_SETTINGS_VALUES.getHeartbeatSettings, { heartbeat: true, intervalMinutes: 60 });
+  assert.deepEqual(CAPTURE_SETTINGS_VALUES.getHeartbeatSettings, { heartbeat: false, intervalMinutes: 60 });
   for (const minutes of [30, 60, 120, 240]) {
     assert.deepEqual(requiredDesktopCapabilityRequest({ capability: 'setHeartbeatInterval', args: [minutes] }).args, [
       minutes,

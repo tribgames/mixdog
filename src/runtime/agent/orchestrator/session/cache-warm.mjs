@@ -58,6 +58,7 @@
 // /btw side questions, memory recap, prewarms, warms). The planner counts
 // idle time from the same anchor. Each session learns from its own gaps. A gap still open at the idle window is recorded as
 // censored there.
+import { loadConfig } from '../config.mjs';
 import { ACCOUNT_PROVIDERS } from '../../../shared/provider-accounts.mjs';
 import { setCacheWarmUseSource } from '../../../shared/idle-auto-clear-gate.mjs';
 import {
@@ -262,9 +263,33 @@ export function planCacheWarm({ now, touchAt, ttlMs, lastCallAt, gaps, promptTok
 
 // Defaults of the injectable dependencies.
 
-async function defaultEnabled() {
-  const { loadConfig } = await import('../config.mjs');
+// The synchronous on/off state `armCacheWarm` and the restart re-arm gate on.
+// It is always definite: the first call reads the config (synchronous, from
+// disk in a fresh process, where it is authoritative) and caches the value;
+// from then on only the setting call (noteCacheWarmingEnabled) writes it.
+// Refresh-point reads (`deps.enabled`) never do, so a stale read cannot
+// switch warming off globally.
+let warmingOn = null;
+
+function enabledNow() {
+  warmingOn ??= deps.readConfigEnabled();
+  return warmingOn;
+}
+
+/** The setting changed (settings-builtin-tools-api.mjs
+ *  setCacheWarmingEnabled): authoritative; off cancels every armed chain. */
+export function noteCacheWarmingEnabled(enabled) {
+  warmingOn = enabled === true;
+  if (warmingOn) return;
+  for (const sessionId of [...chains.keys()]) cancelCacheWarm(sessionId);
+}
+
+function defaultReadConfigEnabled() {
   return cacheWarmingEnabled(loadConfig({ secrets: false }));
+}
+
+async function defaultEnabled() {
+  return defaultReadConfigEnabled();
 }
 
 // Per-token dollars of a cache read, a cache write of `ttlMs`'s tier and an
@@ -375,6 +400,7 @@ const DEFAULT_DEPS = Object.freeze({
   now: () => Date.now(),
   timers: globalThis,
   enabled: defaultEnabled,
+  readConfigEnabled: defaultReadConfigEnabled,
   turnInFlight: (sessionId) => isTurnInFlight(runtimeState.get(sessionId)),
   lastSentRequest: defaultLastSentRequest,
   providersReady: defaultProvidersReady,
@@ -439,6 +465,7 @@ async function planFor(sessionId, chain, at) {
 export function _setCacheWarmDepsForTest(overrides = null) {
   for (const sessionId of [...chains.keys()]) cancelCacheWarm(sessionId);
   missedSessions.clear();
+  warmingOn = null;
   deps = overrides ? { ...DEFAULT_DEPS, ...overrides } : DEFAULT_DEPS;
 }
 
@@ -684,7 +711,8 @@ function warmTarget(chain) {
 /**
  * Arm the session's warm chain from a real request that settled with
  * `response`, and record the confirmed touch durably; replaces any chain.
- * Nothing is armed — and the durable touch is dropped — for an ineligible
+ * Nothing is armed while warming is off (enabledNow). Nothing is armed
+ * — and the durable touch is dropped — for an ineligible
  * request, one without a send time, or a response that does not prove the
  * tier it wrote or the prompt size.
  */
@@ -698,6 +726,12 @@ export function armCacheWarm(sessionId, request, response) {
   // system-caused request leaves it alone.
   if (sessionId && request && realActivity(sessionId, request)) {
     deps.gaps().open(sessionId, Number(request.sentAt));
+  }
+  // Warming off: no chain, no timer and no durable touch (the idle gap above
+  // is still learned); the touch of an earlier cache use no longer holds.
+  if (!enabledNow()) {
+    if (sessionId) deps.touches().forget(sessionId);
+    return;
   }
   if (!sessionId || !request || cacheWarmIneligibility(request)) return;
   if (missedSessions.has(sessionId)) {
@@ -735,7 +769,7 @@ export function armCacheWarm(sessionId, request, response) {
  * many chains were armed.
  */
 export async function rearmCacheWarmsAfterRestart() {
-  if (!(await deps.enabled())) return 0;
+  if (!enabledNow()) return 0;
   const candidates = [];
   for (const sessionId of deps.touches().ids()) {
     if (chains.has(sessionId)) continue;
@@ -751,12 +785,16 @@ export async function rearmCacheWarmsAfterRestart() {
   await deps.providersReady();
   let armed = 0;
   for (const [sessionId, touch] of candidates) {
+    // Re-checked after every await: a setter that turned warming off since
+    // has cancelled the chains and nothing more may start.
+    if (!enabledNow()) return armed;
     let request = null;
     try {
       request = await deps.lastSentRequest(sessionId);
     } catch (error) {
       deps.log(`${sessionId}: restart re-arm skipped (${error?.message || error})`);
     }
+    if (!enabledNow()) return armed;
     if (!request || cacheWarmIneligibility(request) || chains.has(sessionId)) continue;
     startChain(sessionId, {
       request,

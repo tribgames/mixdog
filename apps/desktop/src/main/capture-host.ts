@@ -53,8 +53,8 @@ export const CAPTURE_SETTINGS_VALUES: Record<string, unknown> = {
   getCompactionSettings: { auto: true },
   getRecapSettings: { enabled: true },
   getSessionTitleSettings: { aiSessionTitles: true },
-  getCacheWarmingSettings: { enabled: true },
-  getHeartbeatSettings: { heartbeat: true, intervalMinutes: 60 },
+  getCacheWarmingSettings: { enabled: false },
+  getHeartbeatSettings: { heartbeat: false, intervalMinutes: 60 },
   getReactionSettings: { reactions: true },
   getChannelSetup: {
     webhook: { status: 'Not configured' },
