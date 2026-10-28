@@ -1094,23 +1094,392 @@ function startedGate() {
   return { ready, started };
 }
 
+/** The report delivery of send `id` of `origin` to task session `sessionId`.
+ *  `turn` (`{ runtime, sendIds }`) is what its turn knows when a report goes
+ *  out: the live runtime and the sends its end closes. A report that cannot
+ *  be queued is retried in this process; when every try fails the durable
+ *  watch stays and restart recovery delivers it (the queue dedupes by runId,
+ *  so a retry never posts twice). `answerId`: the turn whose answer a
+ *  progress update or the end carries. `deliverReport` rejects once every
+ *  try failed (a progress update is tried again at the follow's next check);
+ *  `report` logs it instead. */
+function sendReporter({ deliver, retryDelaysMs, artifactFields, log }, { sessionId, id, origin, beforeReport, turn }) {
+  const target = origin.target === 'session' ? { target: 'session' } : {};
+  const deliverReport = (status, text = '', { approvalId = '', answerId = '' } = {}) =>
+    Promise.resolve(beforeReport).then(async () =>
+      deliverWithRetries({ deliver, retryDelaysMs, log }, origin.agentId, sessionId, {
+        runId: turnReportRunId(sessionId, id, status, { approvalId, answerId }),
+        taskSessionId: sessionId,
+        title: origin.title,
+        status,
+        text,
+        ...target,
+        ...(origin.hop > 0 ? { hop: origin.hop } : {}),
+        ...roomFrom(origin.sessionId),
+        // A progress update moves this send's durable mark to its turn
+        // (agent-home-delivery.mjs enqueueTask), in the same write.
+        ...(status === 'working' ? { progressWatchId: id, answerId } : {}),
+        // A turn's end brings back the files it produced, when the agent
+        // may receive them (reportOrigin `textOnly`).
+        ...(status === 'blocked' || status === 'working'
+          ? {}
+          : {
+              watchId: id,
+              ...(turn.sendIds.length > 1 ? { watchIds: turn.sendIds } : {}),
+              ...progressOf(id, answerId),
+              ...(origin.textOnly ? {} : await artifactFields(sessionId, id, turn.runtime)),
+            }),
+      })
+    );
+  const report = (status, text = '', options = {}) =>
+    deliverReport(status, text, options).catch((error) =>
+      log(`report of ${sessionId} failed: ${error?.message || error}`)
+    );
+  return { deliverReport, report };
+}
+
+/** The agent's work in `sessionId` for send `id`: owned from the send's
+ *  acceptance until it settles or is cancelled, whether or not it reports. A
+ *  send that holds no report watch keeps a durable record of the work instead
+ *  (`watches.own`), so a restart re-attaches it (recover); the writes of one
+ *  send go in order, so a record never outlives its work. */
+function sendWork({ watches, owner, log }, { sessionId, id, agentId }) {
+  let owning = true;
+  let recorded = false;
+  let recording = Promise.resolve();
+  const record = (write) => {
+    recording = recording
+      .then(write)
+      .catch((error) => log(`recording the work of ${sessionId} failed: ${error?.message || error}`));
+    return recording;
+  };
+  return {
+    /** The work of every send `ids` this turn answered ends together: one
+     *  write drops all their records (a send standing down for the turn's
+     *  first leaves its record to that one write). */
+    disown(ids = [id]) {
+      owning = false;
+      for (const done of ids) endBotWork(done);
+      if (recorded || ids.length > 1) void record(() => watches.disown?.(ids));
+    },
+    /** Standing down for the turn's first send, which owns the same work. */
+    standDown() {
+      owning = false;
+      endBotWork(id);
+    },
+    /** The send was accepted: unless it already settled (nothing then is left
+     *  to end the work), the work is the agent's, recorded when `notify` is off.
+     *  Returns the recording to await, or nothing when there is none. */
+    claim(notify) {
+      if (!owning) return undefined;
+      noteBotWork({ runId: id, sessionId, agentId });
+      if (notify) return undefined;
+      recorded = true;
+      return record(() => watches.own?.({ runId: id, agentId, taskSessionId: sessionId, owner, at: Date.now() }));
+    },
+  };
+}
+
+/** Submit `prompt` as the origin agent's turn; its end (and a wait for the
+ *  user in it) reports to the agent's home. Resolves on intake. `submit`
+ *  takes the turn in another way than a prompt to `sessionId` (a message
+ *  into a group room, whose member answers in `sessionId`): given `{ id,
+ *  onSettled }`, it resolves `{ accepted }`. */
+async function runAgentTurn(
+  deps,
+  sessionId,
+  prompt,
+  origin,
+  id = `atask_${randomUUID()}`,
+  beforeReport = null,
+  submit = null
+) {
+  const { watches, followToFinal, settlement, processToken, log } = deps;
+  const sessions = deps.service();
+  const { notify, noReport } = await watchTurn({ watches, owner: processToken, log }, sessionId, origin, id);
+  const dropWatch = () =>
+    watches.remove(id).catch((error) => log(`dropping the watch of ${sessionId} failed: ${error?.message || error}`));
+  // `sendIds`: the sends this turn's end closes: this one, plus any that its
+  // turn answered too (createSendSettlement).
+  const turn = { runtime: null, sendIds: [id] };
+  const { deliverReport, report } = sendReporter(deps, { sessionId, id, origin, beforeReport, turn });
+  let unwatch = () => {};
+  const work = sendWork({ watches, owner: processToken, log }, { sessionId, id, agentId: origin.agentId });
+  // Set once the turn ended completed: the work and any report wait for the
+  // final answer.
+  let follow = null;
+  let result;
+  /** This send ends the turn `detail` for the sends `answered` (createSendSettlement). */
+  const settleTurn = (detail, answered) => {
+    turn.sendIds = answered;
+    const status = turnStatus(detail);
+    const text = detail?.result?.content || detail?.error || '';
+    // A failed or cancelled turn ends at once; a completed one ends with
+    // the task's final answer (followToFinal).
+    if (status !== 'completed') {
+      unwatch();
+      work.disown(turn.sendIds);
+      if (notify) void report(status, text);
+      return;
+    }
+    follow = followToFinal({
+      sessionId,
+      runId: id,
+      runtime: turn.runtime,
+      immediate: { status, text },
+      finish: async (endStatus, endText, answerId) => {
+        unwatch();
+        work.disown(turn.sendIds);
+        if (notify) await report(endStatus, endText, { answerId });
+      },
+      // Each other answer of its chain: a progress update that wakes nobody
+      // (only a send that reports gives them).
+      ...(notify ? { interim: (answer) => deliverReport('working', answer.text, { answerId: answer.id }) } : {}),
+    });
+    follow.check();
+  };
+  try {
+    const runtime = await sessions.materializeSession(sessionId);
+    turn.runtime = runtime;
+    const onState = notify ? approvalWaitReporter(id, report) : null;
+    unwatch =
+      runtime?.subscribe?.(() => {
+        follow?.check();
+        onState?.(runtime.getState?.() || {});
+      }) || unwatch;
+    // A bot's send to a session that is not its own task session reaches the
+    // model inside the sender envelope (`envelopeName`, set by reportOrigin).
+    const sent = origin.envelopeName
+      ? wrapAgentMessage(prompt, { name: origin.envelopeName, agentId: origin.agentId })
+      : prompt;
+    const take = submit ?? ((options) => sessions.submitSession({ sessionId, prompt: sent, options }));
+    const seq = settlement.nextSeq();
+    result = await take({
+      id,
+      mode: 'prompt',
+      transcriptMeta: sendTranscriptMeta(origin),
+      // A room answers this send in a turn under another submission id (one
+      // turn for several sends, or a fresh turn for one cut short): the
+      // watch follows that turn, recorded before it runs.
+      ...(notify ? { follow: (submissionId) => watches.follow?.(id, submissionId) } : {}),
+      onSettled: (detail) =>
+        settlement.join(detail, origin, {
+          seq,
+          id,
+          notify,
+          unwatch: () => {
+            unwatch();
+            work.standDown();
+          },
+          settle: (answered) => settleTurn(detail, answered),
+        }),
+    });
+  } catch (error) {
+    unwatch();
+    work.disown();
+    if (notify) await dropWatch();
+    throw error;
+  }
+  const accepted = result?.accepted === true;
+  if (!accepted) {
+    unwatch();
+    work.disown();
+    if (notify) await dropWatch();
+  } else {
+    const recording = work.claim(notify);
+    if (recording) await recording;
+  }
+  return sendResult(accepted, notify, id, noReport);
+}
+
+/** Daemon start: re-attach every reporting turn an earlier process watched,
+ *  and every turn of a bot's that reported nothing but whose work it owned
+ *  (nothing is reported for those, they are only the bot's work again).
+ *  Resolves once each is reported or watched. */
+async function recoverTaskWatches({ watches, settleAgentResults, rearm, processToken, log }) {
+  const earlier = (list) => list.filter((entry) => entry?.owner !== processToken);
+  const pending = earlier(await watches.list());
+  // A store without records of quiet work (`owned` is optional) has none; a
+  // failed read of them never keeps the reporting turns from re-attaching.
+  const quiet = earlier(
+    await Promise.resolve(watches.owned?.() ?? []).catch((error) => {
+      log(`reading the records of bot work failed: ${error?.message || error}`);
+      return [];
+    })
+  );
+  // The agents the restart killed become queued failure results first, so
+  // each re-attached task session has them to take (followToFinal wakeOwed).
+  if (pending.length) {
+    await Promise.resolve()
+      .then(settleAgentResults)
+      .catch((error) => log(`settling the agents of the previous process failed: ${error?.message || error}`));
+  }
+  const reattach = (work, options) =>
+    rearm(work, options).catch((error) =>
+      log(`re-attaching ${work?.taskSessionId} failed: ${error?.message || error}`)
+    );
+  await Promise.all([
+    ...pending.map((watch) => reattach(watch)),
+    ...quiet.map((work) => reattach(work, { quiet: true })),
+  ]);
+  return pending.length + quiet.length;
+}
+
+/** The route a task session starts on: it runs in coding mode under Lead: an
+ *  explicit model wins, else the Lead route, else the last-used model. Never a
+ *  model-less session — the composer would show no model and its first turn
+ *  would fail. The catalog is read only when a display name or an effort
+ *  needs it. */
+async function taskRoute({ modelRoute, modelCatalog, leadRoute, lastUsedRoute, service }, args, callerSessionId) {
+  let catalog = null;
+  const catalogRows = async () => (catalog ??= await modelCatalog(callerSessionId));
+  let route = clean(args.model)
+    ? await modelRoute(clean(args.model), async (text) =>
+        routeByDisplayName(text, await catalogRows(), args.effort !== undefined)
+      )
+    : (await leadRoute()) || (await lastUsedRoute(service()));
+  if (!route) throw new Error('session: no model to start the task session on. Choose a Lead model first.');
+  // An explicit effort is the setting the menu's effort pick makes (session.effort,
+  // Auto effort off); it wins over one a model ref or name carried.
+  if (args.effort !== undefined) route = withEffort(route, args.effort, await catalogRows());
+  return route;
+}
+
+/** Nothing was sent after the worktree failure `error`: drop the empty task
+ *  session `sessionId` so a retry starts clean, then throw `error` (an
+ *  orphanSessionError when the session could not be dropped). */
+async function dropEmptyTaskSession(sessions, sessionId, error, log) {
+  let dropFailure = null;
+  try {
+    const dropped = await sessions.configureSession(
+      { sessionId, action: 'deleteSession', args: [sessionId] },
+      { revision: 1 }
+    );
+    // A resolved `false` is a refusal, not a deletion.
+    if (dropped?.value === false) dropFailure = new Error('the session service refused the deletion');
+  } catch (deleteError) {
+    dropFailure = deleteError;
+  }
+  if (dropFailure) log(`dropping ${sessionId} failed: ${dropFailure?.message || dropFailure}`);
+  if (!dropFailure) throw error;
+  throw orphanSessionError(error, sessionId, dropFailure);
+}
+
+/** Create the task session for `brief` and start it; returns at once.
+ *  `callerScope` is the caller's trusted worktree scope (worktree-access.mjs
+ *  worktreeCallerScope): provisioning a worktree is a mutation only an
+ *  attended conversation may make, so an explicit worktree from any other
+ *  caller is refused and the New task default keeps it in the Project folder. */
+async function createTaskSession(
+  deps,
+  args = {},
+  {
+    callerSessionId,
+    callerAgentId,
+    callerCwd,
+    callerHop = 0,
+    callerBotChain = [],
+    callerScope,
+    attachmentParts = [],
+  } = {}
+) {
+  const { service, listProjects, newTaskDefault, deliver, agentTurn, log } = deps;
+  const { brief, location } = createRequest(args, callerAgentId, callerScope);
+  const where = createWhere(args, await listProjects(), callerCwd, location);
+  const requestId = `atask_${randomUUID()}`;
+  const title = (clean(args.title) || clean(brief.split('\n')[0])).slice(0, TITLE_LIMIT);
+  const taskOrigin = {
+    agentId: callerAgentId,
+    sessionId: callerSessionId,
+    requestId,
+    title,
+    notify: args.notify !== false,
+  };
+  const route = await taskRoute(deps, args, callerSessionId);
+  const sessions = service();
+  // Where it starts: the `worktree` option, else the user's New task default
+  // for a caller that may provision one. Decided before the session exists,
+  // so a failure here leaves nothing behind.
+  const explicit = location.mode === 'worktree';
+  const inWorktree =
+    explicit ||
+    (location.mode === 'default' &&
+      where.project &&
+      callerScope?.attended === true &&
+      (await newTaskDefault()) === 'worktree');
+  const created = await sessions.createSession({
+    ...route,
+    cwd: where.cwd,
+    desktopSession: where.desktopSession,
+    sessionProfile: { taskOrigin },
+  });
+  const sessionId = String(created?.sessionId || '');
+  if (!sessionId) throw new Error('session: task session creation returned no session id');
+  if (inWorktree) {
+    try {
+      await requestTaskWorktree(sessions, sessionId, {
+        title,
+        requestId,
+        name: location.name,
+        confirmLarge: args.confirm_large === true,
+        explicit,
+      });
+    } catch (error) {
+      await dropEmptyTaskSession(sessions, sessionId, error, log);
+    }
+  }
+  const { ready, started } = startedGate();
+  // The brief carries the files the agent forwarded (workspace-tools.mjs).
+  const prompt = handoffContent(brief, attachmentParts);
+  const botChain = botChainOf(callerBotChain);
+  const { accepted, reportsBack, reportsBackReason } = await agentTurn(
+    sessionId,
+    prompt,
+    { ...taskOrigin, ...(callerHop > 0 ? { hop: callerHop } : {}), ...(botChain.length ? { botChain } : {}) },
+    requestId,
+    ready
+  );
+  if (!accepted) throw new Error(`session: task session ${sessionId} did not accept the brief`);
+  if (reportsBack) {
+    await deliver(callerAgentId, {
+      runId: `${requestId}_started`,
+      taskSessionId: sessionId,
+      title,
+      status: 'started',
+      ...roomFrom(callerSessionId),
+    }).catch((error) => log(`start line of ${sessionId} failed: ${error?.message || error}`));
+  }
+  started();
+  // Started, not done: the final answer is reported later.
+  return {
+    session_id: sessionId,
+    status: 'started',
+    title,
+    project: where.project?.path ?? null,
+    ...(taskOrigin.notify && !reportsBack ? { reportsBack: false, reportsBackReason } : {}),
+  };
+}
+
+const homeDelivery = () => import('./agent-home-delivery.mjs');
+
+// The durable watch of each reporting turn until its end is queued. A bot's
+// turn that reports nothing (reports off, or a watch that could not be
+// stored) keeps a record of its work instead (`own`, `owned`, `disown`),
+// which no report and no hand-off follows: a restart re-attaches both.
+const HOME_DELIVERY_WATCHES = {
+  add: async (watch) => (await homeDelivery()).watchAgentTask(watch),
+  list: async () => (await homeDelivery()).agentTaskWatches(),
+  remove: async (runId) => (await homeDelivery()).unwatchAgentTask(runId),
+  follow: async (runId, submissionId) => (await homeDelivery()).followAgentTask(runId, submissionId),
+  own: async (work) => (await homeDelivery()).ownAgentTask(work),
+  owned: async () => (await homeDelivery()).agentOwnedTasks(),
+  disown: async (runId) => (await homeDelivery()).disownAgentTask(runId),
+};
+
 export function createAgentTaskSessions({
   getSessionService,
-  deliver = async (agentId, report) => (await import('./agent-home-delivery.mjs')).deliverAgentTask(agentId, report),
-  // The durable watch of each reporting turn until its end is queued. A bot's
-  // turn that reports nothing (reports off, or a watch that could not be
-  // stored) keeps a record of its work instead (`own`, `owned`, `disown`),
-  // which no report and no hand-off follows: a restart re-attaches both.
-  watches = {
-    add: async (watch) => (await import('./agent-home-delivery.mjs')).watchAgentTask(watch),
-    list: async () => (await import('./agent-home-delivery.mjs')).agentTaskWatches(),
-    remove: async (runId) => (await import('./agent-home-delivery.mjs')).unwatchAgentTask(runId),
-    follow: async (runId, submissionId) =>
-      (await import('./agent-home-delivery.mjs')).followAgentTask(runId, submissionId),
-    own: async (work) => (await import('./agent-home-delivery.mjs')).ownAgentTask(work),
-    owned: async () => (await import('./agent-home-delivery.mjs')).agentOwnedTasks(),
-    disown: async (runId) => (await import('./agent-home-delivery.mjs')).disownAgentTask(runId),
-  },
+  deliver = async (agentId, report) => (await homeDelivery()).deliverAgentTask(agentId, report),
+  watches = HOME_DELIVERY_WATCHES,
   // Submissions still queued (durably) for a session after a restart.
   queuedSubmissionIds = async (sessionId) =>
     (await (await import('../tui/session/tui-steering-persist.mjs')).readTuiSteeringPersist(sessionId))
@@ -1177,189 +1546,18 @@ export function createAgentTaskSessions({
   const followToFinal = (follow) =>
     followTaskToFinal({ loadSession, owedResults, deliverCompletion, pendingWork, settleMs, pollMs, log }, follow);
 
-  const settlement = createSendSettlement(log);
-
-  /** Submit `prompt` as the origin agent's turn; its end (and a wait for the
-   *  user in it) reports to the agent's home. Resolves on intake. `submit`
-   *  takes the turn in another way than a prompt to `sessionId` (a message
-   *  into a group room, whose member answers in `sessionId`): given `{ id,
-   *  onSettled }`, it resolves `{ accepted }`. */
-  async function agentTurn(
-    sessionId,
-    prompt,
-    origin,
-    id = `atask_${randomUUID()}`,
-    beforeReport = null,
-    submit = null
-  ) {
-    const sessions = service();
-    const target = origin.target === 'session' ? { target: 'session' } : {};
-    const { notify, noReport } = await watchTurn({ watches, owner: processToken, log }, sessionId, origin, id);
-    const dropWatch = () =>
-      watches.remove(id).catch((error) => log(`dropping the watch of ${sessionId} failed: ${error?.message || error}`));
-    let runtime = null;
-    // The sends this turn's end closes: this one, plus any that its turn
-    // answered too (createSendSettlement).
-    let sendIds = [id];
-    // A report that cannot be queued is retried in this process; when every try
-    // fails the durable watch stays and restart recovery delivers it (the queue
-    // dedupes by runId, so a retry never posts twice).
-    // `answerId`: the turn whose answer a progress update or the end carries.
-    // `deliverReport` rejects once every try failed (a progress update is
-    // tried again at the follow's next check); `report` logs it instead.
-    const deliverReport = (status, text = '', { approvalId = '', answerId = '' } = {}) =>
-      Promise.resolve(beforeReport).then(async () =>
-        deliverWithRetries({ deliver, retryDelaysMs, log }, origin.agentId, sessionId, {
-          runId: turnReportRunId(sessionId, id, status, { approvalId, answerId }),
-          taskSessionId: sessionId,
-          title: origin.title,
-          status,
-          text,
-          ...target,
-          ...(origin.hop > 0 ? { hop: origin.hop } : {}),
-          ...roomFrom(origin.sessionId),
-          // A progress update moves this send's durable mark to its turn
-          // (agent-home-delivery.mjs enqueueTask), in the same write.
-          ...(status === 'working' ? { progressWatchId: id, answerId } : {}),
-          // A turn's end brings back the files it produced, when the agent
-          // may receive them (reportOrigin `textOnly`).
-          ...(status === 'blocked' || status === 'working'
-            ? {}
-            : {
-                watchId: id,
-                ...(sendIds.length > 1 ? { watchIds: sendIds } : {}),
-                ...progressOf(id, answerId),
-                ...(origin.textOnly ? {} : await artifactFields(sessionId, id, runtime)),
-              }),
-        })
-      );
-    const report = (status, text = '', options = {}) =>
-      deliverReport(status, text, options).catch((error) =>
-        log(`report of ${sessionId} failed: ${error?.message || error}`)
-      );
-    let unwatch = () => {};
-    // The agent's work in `sessionId`: owned from the send's acceptance until
-    // it settles or is cancelled, whether or not it reports (`notify`). A send
-    // that holds no report watch keeps a durable record of the work instead
-    // (`watches.own`), so a restart re-attaches it (recover); the writes of
-    // one send go in order, so a record never outlives its work.
-    let owning = true;
-    let recorded = false;
-    let recording = Promise.resolve();
-    const record = (write) => {
-      recording = recording
-        .then(write)
-        .catch((error) => log(`recording the work of ${sessionId} failed: ${error?.message || error}`));
-      return recording;
-    };
-    // The work of every send `ids` this turn answered ends together: one
-    // write drops all their records (a send standing down for the turn's
-    // first leaves its record to that one write).
-    const disown = (ids = [id]) => {
-      owning = false;
-      for (const done of ids) endBotWork(done);
-      if (recorded || ids.length > 1) void record(() => watches.disown?.(ids));
-    };
-    const standDown = () => {
-      unwatch();
-      owning = false;
-      endBotWork(id);
-    };
-    // Set once the turn ended completed: the work and any report wait for the
-    // final answer.
-    let follow = null;
-    let result;
-    /** This send ends the turn `detail` for the sends `answered` (createSendSettlement). */
-    const settleTurn = (detail, answered) => {
-      sendIds = answered;
-      const status = turnStatus(detail);
-      const text = detail?.result?.content || detail?.error || '';
-      // A failed or cancelled turn ends at once; a completed one ends with
-      // the task's final answer (followToFinal).
-      if (status !== 'completed') {
-        unwatch();
-        disown(sendIds);
-        if (notify) void report(status, text);
-        return;
-      }
-      follow = followToFinal({
-        sessionId,
-        runId: id,
-        runtime,
-        immediate: { status, text },
-        finish: async (endStatus, endText, answerId) => {
-          unwatch();
-          disown(sendIds);
-          if (notify) await report(endStatus, endText, { answerId });
-        },
-        // Each other answer of its chain: a progress update that wakes nobody
-        // (only a send that reports gives them).
-        ...(notify ? { interim: (answer) => deliverReport('working', answer.text, { answerId: answer.id }) } : {}),
-      });
-      follow.check();
-    };
-    try {
-      runtime = await sessions.materializeSession(sessionId);
-      const onState = notify ? approvalWaitReporter(id, report) : null;
-      unwatch =
-        runtime?.subscribe?.(() => {
-          follow?.check();
-          onState?.(runtime.getState?.() || {});
-        }) || unwatch;
-      // A bot's send to a session that is not its own task session reaches the
-      // model inside the sender envelope (`envelopeName`, set by reportOrigin).
-      const sent = origin.envelopeName
-        ? wrapAgentMessage(prompt, { name: origin.envelopeName, agentId: origin.agentId })
-        : prompt;
-      const take = submit ?? ((options) => sessions.submitSession({ sessionId, prompt: sent, options }));
-      const seq = settlement.nextSeq();
-      result = await take({
-        id,
-        mode: 'prompt',
-        transcriptMeta: sendTranscriptMeta(origin),
-        // A room answers this send in a turn under another submission id (one
-        // turn for several sends, or a fresh turn for one cut short): the
-        // watch follows that turn, recorded before it runs.
-        ...(notify ? { follow: (submissionId) => watches.follow?.(id, submissionId) } : {}),
-        onSettled: (detail) =>
-          settlement.join(detail, origin, {
-            seq,
-            id,
-            notify,
-            // Standing down for the turn's first send, which owns the same work.
-            unwatch: standDown,
-            settle: (answered) => settleTurn(detail, answered),
-          }),
-      });
-    } catch (error) {
-      unwatch();
-      disown();
-      if (notify) await dropWatch();
-      throw error;
-    }
-    const accepted = result?.accepted === true;
-    if (!accepted) {
-      unwatch();
-      disown();
-      if (notify) await dropWatch();
-    } else if (owning) {
-      // Unless it already settled: nothing then is left to end the work.
-      noteBotWork({ runId: id, sessionId, agentId: origin.agentId });
-      if (!notify) {
-        recorded = true;
-        await record(() =>
-          watches.own?.({
-            runId: id,
-            agentId: origin.agentId,
-            taskSessionId: sessionId,
-            owner: processToken,
-            at: Date.now(),
-          })
-        );
-      }
-    }
-    return sendResult(accepted, notify, id, noReport);
-  }
+  const turnDeps = {
+    service,
+    watches,
+    deliver,
+    retryDelaysMs,
+    artifactFields,
+    followToFinal,
+    settlement: createSendSettlement(log),
+    processToken,
+    log,
+  };
+  const agentTurn = (...turnArgs) => runAgentTurn(turnDeps, ...turnArgs);
 
   const rearm = (watch, options) =>
     rearmTaskWatch(
@@ -1377,167 +1575,26 @@ export function createAgentTaskSessions({
       options
     );
 
-  /** Daemon start: re-attach every reporting turn an earlier process watched,
-   *  and every turn of a bot's that reported nothing but whose work it owned
-   *  (nothing is reported for those, they are only the bot's work again).
-   *  Resolves once each is reported or watched. */
-  async function recover() {
-    const earlier = (list) => list.filter((entry) => entry?.owner !== processToken);
-    const pending = earlier(await watches.list());
-    const quiet = earlier(
-      await Promise.resolve(watches.owned?.() ?? [])
-        .then((list) => (Array.isArray(list) ? list : []))
-        .catch((error) => {
-          log(`reading the records of bot work failed: ${error?.message || error}`);
-          return [];
-        })
-    );
-    // The agents the restart killed become queued failure results first, so
-    // each re-attached task session has them to take (followToFinal wakeOwed).
-    if (pending.length) {
-      await Promise.resolve()
-        .then(settleAgentResults)
-        .catch((error) => log(`settling the agents of the previous process failed: ${error?.message || error}`));
-    }
-    const reattach = (work, options) =>
-      rearm(work, options).catch((error) =>
-        log(`re-attaching ${work?.taskSessionId} failed: ${error?.message || error}`)
-      );
-    await Promise.all([
-      ...pending.map((watch) => reattach(watch)),
-      ...quiet.map((work) => reattach(work, { quiet: true })),
-    ]);
-    return pending.length + quiet.length;
-  }
-
-  /** Create the task session for `brief` and start it; returns at once.
-   *  `callerScope` is the caller's trusted worktree scope (worktree-access.mjs
-   *  worktreeCallerScope): provisioning a worktree is a mutation only an
-   *  attended conversation may make, so an explicit worktree from any other
-   *  caller is refused and the New task default keeps it in the Project folder. */
-  async function create(
-    args = {},
-    {
-      callerSessionId,
-      callerAgentId,
-      callerCwd,
-      callerHop = 0,
-      callerBotChain = [],
-      callerScope,
-      attachmentParts = [],
-    } = {}
-  ) {
-    const { brief, location } = createRequest(args, callerAgentId, callerScope);
-    const where = createWhere(args, await listProjects(), callerCwd, location);
-    const requestId = `atask_${randomUUID()}`;
-    const title = (clean(args.title) || clean(brief.split('\n')[0])).slice(0, TITLE_LIMIT);
-    const taskOrigin = {
-      agentId: callerAgentId,
-      sessionId: callerSessionId,
-      requestId,
-      title,
-      notify: args.notify !== false,
-    };
-    // A task session runs in coding mode under Lead: an explicit model wins,
-    // else the Lead route, else the last-used model. Never a model-less
-    // session — the composer would show no model and its first turn would fail.
-    // The catalog is read only when a display name or an effort needs it.
-    let catalog = null;
-    const catalogRows = async () => (catalog ??= await modelCatalog(callerSessionId));
-    let route = clean(args.model)
-      ? await modelRoute(clean(args.model), async (text) =>
-          routeByDisplayName(text, await catalogRows(), args.effort !== undefined)
-        )
-      : (await leadRoute()) || (await lastUsedRoute(service()));
-    if (!route) throw new Error('session: no model to start the task session on. Choose a Lead model first.');
-    // An explicit effort is the setting the menu's effort pick makes (session.effort,
-    // Auto effort off); it wins over one a model ref or name carried.
-    if (args.effort !== undefined) route = withEffort(route, args.effort, await catalogRows());
-    const sessions = service();
-    // Where it starts: the `worktree` option, else the user's New task default
-    // for a caller that may provision one. Decided before the session exists,
-    // so a failure here leaves nothing behind.
-    const explicit = location.mode === 'worktree';
-    const inWorktree =
-      explicit ||
-      (location.mode === 'default' &&
-        where.project &&
-        callerScope?.attended === true &&
-        (await newTaskDefault()) === 'worktree');
-    const created = await sessions.createSession({
-      ...route,
-      cwd: where.cwd,
-      desktopSession: where.desktopSession,
-      sessionProfile: { taskOrigin },
-    });
-    const sessionId = String(created?.sessionId || '');
-    if (!sessionId) throw new Error('session: task session creation returned no session id');
-    if (inWorktree) {
-      try {
-        await requestTaskWorktree(sessions, sessionId, {
-          title,
-          requestId,
-          name: location.name,
-          confirmLarge: args.confirm_large === true,
-          explicit,
-        });
-      } catch (error) {
-        // Nothing was sent: drop the empty session so a retry starts clean.
-        let dropFailure = null;
-        try {
-          const dropped = await sessions.configureSession(
-            { sessionId, action: 'deleteSession', args: [sessionId] },
-            { revision: 1 }
-          );
-          // A resolved `false` is a refusal, not a deletion.
-          if (dropped?.value === false) dropFailure = new Error('the session service refused the deletion');
-        } catch (deleteError) {
-          dropFailure = deleteError;
-        }
-        if (dropFailure) log(`dropping ${sessionId} failed: ${dropFailure?.message || dropFailure}`);
-        if (!dropFailure) throw error;
-        throw orphanSessionError(error, sessionId, dropFailure);
-      }
-    }
-    const { ready, started } = startedGate();
-    // The brief carries the files the agent forwarded (workspace-tools.mjs).
-    const prompt = handoffContent(brief, attachmentParts);
-    const botChain = botChainOf(callerBotChain);
-    const { accepted, reportsBack, reportsBackReason } = await agentTurn(
-      sessionId,
-      prompt,
-      { ...taskOrigin, ...(callerHop > 0 ? { hop: callerHop } : {}), ...(botChain.length ? { botChain } : {}) },
-      requestId,
-      ready
-    );
-    if (!accepted) throw new Error(`session: task session ${sessionId} did not accept the brief`);
-    if (reportsBack) {
-      await deliver(callerAgentId, {
-        runId: `${requestId}_started`,
-        taskSessionId: sessionId,
-        title,
-        status: 'started',
-        ...roomFrom(callerSessionId),
-      }).catch((error) => log(`start line of ${sessionId} failed: ${error?.message || error}`));
-    }
-    started();
-    // Started, not done: the final answer is reported later.
-    return {
-      session_id: sessionId,
-      status: 'started',
-      title,
-      project: where.project?.path ?? null,
-      ...(taskOrigin.notify && !reportsBack ? { reportsBack: false, reportsBackReason } : {}),
-    };
-  }
+  const createDeps = {
+    service,
+    listProjects,
+    newTaskDefault,
+    modelRoute,
+    modelCatalog,
+    leadRoute,
+    lastUsedRoute,
+    deliver,
+    agentTurn,
+    log,
+  };
 
   const reportOrigin = (sessionId, agentId, callerSessionId) =>
     sendReportOrigin({ loadSession, agentName }, sessionId, agentId, callerSessionId);
 
   return {
-    create,
+    create: (args, caller) => createTaskSession(createDeps, args, caller),
     reportOrigin,
-    recover,
+    recover: () => recoverTaskWatches({ watches, settleAgentResults, rearm, processToken, log }),
     send: (sessionId, prompt, origin, submit = null) => agentTurn(sessionId, prompt, origin, undefined, null, submit),
   };
 }
