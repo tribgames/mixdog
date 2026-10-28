@@ -1,4 +1,4 @@
-import { CHROME_SETUP_SESSION_ID, USER_WAIT_SESSION_ID } from '../shared/common';
+import { CHROME_SETUP_SESSION_ID, USER_WAIT_SESSION_ID, WINDOW_ARRIVALS_SESSION_ID } from '../shared/common';
 import { AUTO_CAPTURE_ACTIONS, READ_ACTIONS, HOST_WARMUP_SESSION_ID, isComputerLifecycleControl } from './action-sets';
 import type { ComputerCommand } from '../shared/types';
 
@@ -12,6 +12,7 @@ export function assertPublicComputerRequest(value: unknown): asserts value is Co
     command.session_id === CHROME_SETUP_SESSION_ID ||
     command.session_id === HOST_WARMUP_SESSION_ID ||
     command.session_id === USER_WAIT_SESSION_ID ||
+    command.session_id === WINDOW_ARRIVALS_SESSION_ID ||
     [
       'known_injection_tick',
       'authorization_expires_at',

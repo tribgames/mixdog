@@ -18,6 +18,7 @@ import { createPointerHold } from './pointer-hold';
 import { claimComputerTargets } from './lifecycle-target-leases';
 import { isComputerRecoveryRead } from './recovery-reads';
 import { createWorkerReclaim } from './lifecycle-worker-reclaim';
+import type { WindowArrivals } from './window-arrivals';
 
 type WorkerPool = ReturnType<typeof createWorkerPool>;
 type SessionState = ReturnType<typeof createSessionState>;
@@ -54,6 +55,7 @@ export interface SessionLifecycleHost
   releaseUnconfirmedElevated?: WorkerPool['releaseUnconfirmedElevated'];
   recordDiagnostic?: (sessionId: string, record: Record<string, unknown>) => void;
   pauseWaitMs?: number;
+  windowArrivals?: Pick<WindowArrivals, 'read' | 'report' | 'watch'>;
 }
 
 /** What every lifecycle stage shares: the host, the coordinator that owns
@@ -80,6 +82,7 @@ export function createSessionLifecycle(host: SessionLifecycleHost) {
     takeOver: (reason?: string) => stop.takeOverComputer(reason),
     recordDiagnostic: host.recordDiagnostic,
     pauseWaitMs: host.pauseWaitMs,
+    windowArrivals: host.windowArrivals,
   });
   const abort = createSessionAbort(context, queue);
   const reclaim = createWorkerReclaim(context, queue, abort.abortComputerSession);

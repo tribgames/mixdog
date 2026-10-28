@@ -15,6 +15,7 @@ import type { ExecutionState } from './execution-state';
 import { PausedComputerWork, pausedWorkReply } from './pending-work';
 import type { PointerHold } from './pointer-hold';
 import { isComputerRecoveryRead } from './recovery-reads';
+import type { WindowArrivals } from './window-arrivals';
 
 /** Longest a request waits while the queue is paused before it is refused,
  *  so a stuck pause cannot hold a tool call open. */
@@ -31,6 +32,7 @@ export function createComputerCommandQueue(options: {
   /** Internal/test seam; never changes the user's idle-resume setting. */
   pauseWaitMs?: number;
   pointerHold?: Pick<PointerHold, 'claim' | 'arm'>;
+  windowArrivals?: Pick<WindowArrivals, 'read' | 'report' | 'watch'>;
 }) {
   const { coordinator, execution, sessionIdFor, runCommand } = options;
   const { commandChainsBySession, sessionAbortEpochs } = execution;
@@ -52,6 +54,7 @@ export function createComputerCommandQueue(options: {
     assertEpoch: gate.assertEpoch,
     runForegroundExclusive: lane.runForegroundExclusive,
     pointerHold: options.pointerHold,
+    windowArrivals: options.windowArrivals,
   });
   const active = new Set<Promise<void>>();
 

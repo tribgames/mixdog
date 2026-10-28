@@ -6,6 +6,9 @@ import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 
 export function createResidentWorkers() {
   const workers = new Set<ChildProcessWithoutNullStreams>();
+  /** Killed optional workers that gave their slot to a session: still awaited
+   *  at shutdown, no longer counted against capacity. */
+  const yielded = new WeakSet<ChildProcessWithoutNullStreams>();
 
   /** An exited worker keeps its slot until its `exit` event arrives, and a
    * confirmed session release can outrun that event. Dead children are pruned
@@ -14,7 +17,7 @@ export function createResidentWorkers() {
     for (const child of workers) {
       if (child.exitCode !== null || child.signalCode !== null) workers.delete(child);
     }
-    return workers.size;
+    return [...workers].filter((child) => !yielded.has(child)).length;
   }
 
   function pids(): number[] {
@@ -46,6 +49,7 @@ export function createResidentWorkers() {
   return {
     add: (child: ChildProcessWithoutNullStreams) => void workers.add(child),
     delete: (child: ChildProcessWithoutNullStreams) => void workers.delete(child),
+    yieldSlot: (child: ChildProcessWithoutNullStreams) => void yielded.add(child),
     liveCount,
     pids,
     waitForExit,

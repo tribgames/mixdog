@@ -15,11 +15,15 @@ import { createWorkerLedgers } from './worker-ledgers';
 import { COMMAND_TIMEOUT_MS, createWorkerRequests, type PendingWorkerRequest } from './worker-requests';
 import { recordCursorDiagnostic } from '../overlay/cursor-diagnostics';
 import { assertComputerWorkerCapacity, MAX_COMPUTER_WORKERS } from './worker-capacity';
+import { WINDOW_ARRIVALS_SESSION_ID } from '../shared/common';
 import type { PowerShellResponse } from '../shared/types';
 import { computerActionHas } from '../../../../../../src/runtime/computer-bridge/actions.mjs';
 import { MAX_COMPUTER_INTERNAL_REQUEST_BYTES } from '../../../../../../src/runtime/computer-bridge/limits.mjs';
 
 export { settleElevatedLedger } from './elevated-requests';
+
+/** Worker slots the optional window-arrivals reader always leaves to sessions. */
+const READER_HEADROOM = 1;
 
 /** Actions whose worker streams pointer progress back while they run. */
 const POINTER_FEEDBACK_ACTIONS = [
@@ -148,7 +152,12 @@ export function createWorkerPool(host: WorkerPoolHost) {
     dataDirectory,
     hostScriptPath: hostScript.path,
     ensureWorker: ensurePowerShell,
-    liveWorkerCount: residents.liveCount,
+    // An elevated run keeps `live + slots + 2` below the cap, so it needs three
+    // free slots; the reader gives way.
+    liveWorkerCount: () => {
+      makeRoom(3);
+      return residents.liveCount();
+    },
     maxWorkers,
     ledgers,
     inputMarker,
@@ -185,14 +194,34 @@ export function createWorkerPool(host: WorkerPoolHost) {
   function ensurePowerShell(sessionId: string): ChildProcessWithoutNullStreams {
     elevated.assertClear();
     const existing = powerShellBySession.get(sessionId);
+    if (sessionId === WINDOW_ARRIVALS_SESSION_ID) assertReaderHeadroom(existing);
     if (existing && !existing.killed) {
       workerLastUsedAt.set(sessionId, Date.now());
       return existing;
     }
+    makeRoom(1);
     const child = spawnHostWorker();
     powerShellBySession.set(sessionId, child);
     workerLastUsedAt.set(sessionId, Date.now());
     return child;
+  }
+
+  /** The window-arrivals reader is optional: it runs only while it leaves
+   *  `READER_HEADROOM` slots free for sessions, counting itself. */
+  function assertReaderHeadroom(existing: ChildProcessWithoutNullStreams | undefined): void {
+    const others = residents.liveCount() - (existing && !existing.killed ? 1 : 0);
+    if (others + elevated.slots() + 1 + READER_HEADROOM > maxWorkers) {
+      throw new Error('computer_reader_deferred: worker slots are kept for sessions');
+    }
+  }
+
+  /** A session that needs a slot the reader holds takes it: the reader is
+   *  killed and stops counting at once instead of when its exit arrives. */
+  function makeRoom(needed: number): void {
+    const reader = powerShellBySession.get(WINDOW_ARRIVALS_SESSION_ID);
+    if (!reader || residents.liveCount() + elevated.slots() + needed <= maxWorkers) return;
+    residents.yieldSlot(reader);
+    requests.retire(reader, new Error('computer_reader_yielded: a session needed the worker slot'));
   }
 
   function callPowerShell(

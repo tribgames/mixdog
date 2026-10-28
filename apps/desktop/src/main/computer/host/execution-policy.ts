@@ -136,3 +136,21 @@ export function loadComputerExecutionPolicy(path = process.env.MIXDOG_COMPUTER_P
 }
 
 export type ComputerExecutionPolicy = ReturnType<typeof createComputerExecutionPolicy>;
+
+/** The window records a restricted session may see, judged as a capture of
+ *  each; the rest, titles included, never reach its replies. */
+export function visibleWindowRecords(
+  policy: Pick<ComputerExecutionPolicy, 'restricted' | 'assertWindow'>,
+  command: ComputerCommand,
+  records: ComputerWindowRecord[]
+): ComputerWindowRecord[] {
+  if (!policy.restricted) return records;
+  return records.filter((record) => {
+    try {
+      policy.assertWindow({ ...command, action: 'capture', window_id: record.id }, [record]);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+}

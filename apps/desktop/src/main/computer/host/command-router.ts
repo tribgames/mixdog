@@ -25,6 +25,7 @@ import { settleInputRun } from './input-run-settle';
 import { assertSavedLoginAvailable, type SavedLogins } from './saved-login';
 import { isSequenceStep, isTrustedSequenceContinuation, retainsSequenceRefs } from './sequence-runner';
 import type { SessionLifecycle } from './session-lifecycle';
+import type { WindowArrivals } from './window-arrivals';
 import type { WindowReads } from './window-reads';
 
 const POINTER_ACTIONS = [
@@ -91,6 +92,7 @@ export interface CommandRouterHost
   runBoundedSequence(command: ComputerCommand): Promise<ComputerCommandResult>;
   /** Saved-login typing (saved-login.ts); absent, fill_saved_login is refused. */
   savedLogins?: SavedLogins;
+  windowArrivals?: Pick<WindowArrivals, 'noteSettled'>;
 }
 
 export function createCommandRouter(host: CommandRouterHost) {

@@ -44,6 +44,7 @@ import {
 } from '../session/chrome-setup';
 import { computerUseCoordinator } from '../session/coordinator';
 import { createExecutionState } from './execution-state';
+import { createWindowArrivals } from './window-arrivals';
 import { createWindowReads } from './window-reads';
 import { readDisplays } from './display-reads';
 import { readComputerPermissions } from './permission-reads';
@@ -164,6 +165,11 @@ export function createPowerShellComputerHost(
 
   const windowReads = createWindowReads({ callPowerShell, sessionIdFor });
   const { readComputerWindows, readInstalledApps } = windowReads;
+  const windowArrivals = createWindowArrivals({
+    policy,
+    sessionIdFor,
+    peekComputerWindows: windowReads.peekComputerWindows,
+  });
   const targeting = createWindowTargeting({ readComputerWindows, readInstalledApps });
   const inspection = createInspection({
     callPowerShell,
@@ -193,8 +199,13 @@ export function createPowerShellComputerHost(
   const lifecycle = createSessionLifecycle({
     ...workerPool,
     ...sessionState,
+    releaseSessionState: (sessionId, releaseCaptureSession) => {
+      sessionState.releaseSessionState(sessionId, releaseCaptureSession);
+      windowArrivals.forget(sessionId);
+    },
     releaseCaptureSession: captureEngine.releaseCaptureSession,
     execution,
+    windowArrivals,
     recordDiagnostic: failureDiagnostics.record,
     runCommand: (command) => router.runCommand(command),
     recaptureRequiredReply: (command, error) => router.recaptureRequiredReply(command, error),
@@ -226,6 +237,7 @@ export function createPowerShellComputerHost(
   });
   const router = createCommandRouter({
     policy,
+    windowArrivals,
     recordDiagnostic: failureDiagnostics.record,
     ...workerPool,
     ...sessionState,

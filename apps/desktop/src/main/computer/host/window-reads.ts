@@ -5,6 +5,7 @@
 import type { ComputerCommand, PowerShellResponse } from '../shared/types';
 import { normalizeComputerWindowRecords, type ComputerWindowRecord } from '../shared/window-transition';
 import { filterComputerUseInternalWindows } from '../overlay/internal-windows';
+import { WINDOW_ARRIVALS_SESSION_ID } from '../shared/common';
 
 export interface WindowReadsHost {
   callPowerShell(request: Record<string, unknown>, timeoutMs?: number): Promise<PowerShellResponse>;
@@ -60,12 +61,13 @@ export function createWindowReads(host: WindowReadsHost) {
 
   async function readComputerWindows(
     command: ComputerCommand,
-    includeApp = false
+    includeApp = false,
+    sessionId = sessionIdFor(command)
   ): Promise<ComputerWindowRecord[] | null> {
     try {
       const response = await callPowerShell({
         action: includeApp ? 'list_windows' : 'window_snapshot',
-        session_id: sessionIdFor(command),
+        session_id: sessionId,
         read_only: true,
       });
       if (!response.ok) return null;
@@ -100,7 +102,14 @@ export function createWindowReads(host: WindowReadsHost) {
     }
   }
 
-  return { readWindowIntegrity, readComputerWindows, readInstalledApps };
+  /** A window list nothing waits on, read by the host's own window-arrivals
+   *  worker. No command ever queues there, so a slow or stuck read delays no
+   *  session's input, and a timeout retires only that worker: no session
+   *  loses its worker or refs. */
+  const peekComputerWindows = (command: ComputerCommand, includeApp = false) =>
+    readComputerWindows(command, includeApp, WINDOW_ARRIVALS_SESSION_ID);
+
+  return { readWindowIntegrity, readComputerWindows, peekComputerWindows, readInstalledApps };
 }
 
 export type WindowReads = ReturnType<typeof createWindowReads>;

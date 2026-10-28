@@ -58,6 +58,10 @@ export const CHROME_SETUP_SESSION_ID = '__mixdog_browser_chrome_setup__';
 /** The session idle-resume observation runs under; bridge callers cannot use it. */
 export const USER_WAIT_SESSION_ID = '__computer_user_wait__';
 
+/** The session optional window-arrivals reads run under, on a worker of their
+ *  own that no command queues on; bridge callers cannot use it. */
+export const WINDOW_ARRIVALS_SESSION_ID = '__computer_window_arrivals__';
+
 /** Drop the least recently inserted entries until the map fits `maxEntries`. */
 export function evictOldest(entries: Map<string, unknown>, maxEntries: number): void {
   while (entries.size > maxEntries) {

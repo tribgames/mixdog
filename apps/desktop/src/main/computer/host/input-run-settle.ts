@@ -11,7 +11,7 @@ import type { ComputerCommandResult, PowerShellResponse } from '../shared/types'
 import type { ComputerWindowRecord, ComputerWindowTransition } from '../shared/window-transition';
 import { buildActionReply } from './action-reply';
 import type { CommandRouterHost } from './command-router';
-import type { ComputerExecutionPolicy } from './execution-policy';
+import { type ComputerExecutionPolicy, visibleWindowRecords } from './execution-policy';
 import type { InputRecoveryState, SessionDesktopAnchor } from './execution-state';
 import type { InputRunContext, PreparedInputRun } from './input-run-prepare';
 import { readSequenceStep } from './sequence-dispatch';
@@ -84,6 +84,7 @@ export type InputRunSettleHost = Pick<
   | 'rememberObservedWindowScope'
   | 'takeOverComputer'
   | 'recordDiagnostic'
+  | 'windowArrivals'
 >;
 
 export interface InputRunSettleInput {
@@ -265,13 +266,31 @@ export async function settleInputRun(
       host.rememberObservedWindowScope(command, observedWindowId);
     }
   }
-  const { transition: windowTransition, settleDelayMs } = await resolveWindowTransition(
+  const { transition: observedTransition, settleDelayMs } = await resolveWindowTransition(
     host,
     run,
     logicalTargetWindowId,
     nativeStep,
     result,
     windowsBefore
+  );
+  // A restricted session's reply carries only the window records it may
+  // capture; the successor is authorized on its own below.
+  const restrictedReply = policy.restricted && host.sessionIdFor(command) !== CHROME_SETUP_SESSION_ID;
+  const windowTransition =
+    observedTransition && restrictedReply
+      ? {
+          ...observedTransition,
+          opened_windows: visibleWindowRecords(policy, command, observedTransition.opened_windows),
+          closed_windows: visibleWindowRecords(policy, command, observedTransition.closed_windows),
+          changed_windows: visibleWindowRecords(policy, command, observedTransition.changed_windows),
+        }
+      : observedTransition;
+  // The reply names these, so the session's next command does not again.
+  host.windowArrivals?.noteSettled(
+    command,
+    windowsBefore,
+    (windowTransition?.opened_windows || []).map((window) => window.id)
   );
   if (isMutation && windowTransition?.next_target?.id) {
     if (policy.restricted && host.sessionIdFor(command) !== CHROME_SETUP_SESSION_ID) {

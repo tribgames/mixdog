@@ -182,13 +182,21 @@ GNOME with Mixdog's own shell extension, which the app sets up); prefer accessib
    the turn, like any session exit, releases what the session pressed, and a
    failed release is reported rather than assumed.
    Execution stops at the first failure or when the target transitions
-   (popup, dialog, window change) and returns one fresh observation. An act
+   (a popup, dialog, or window change present at the settle check, about
+   150 ms after the input) and returns one fresh observation. An act
    whose first action uses a `ref` returns accessibility only (`ax`) unless
    that tree is unusable; pass `observe: "state"` when the next step needs
    pixels, a `frame_id`, or visual confirmation.
 4. Read the returned observation, including any successor target. It replaces
    the pre-action state: continue from it without another capture when usable.
    Recapture only when evidence is missing, failed, expired, or invalidated.
+   That observation shows one window, never the others on screen. Windows the
+   settle check saw are in `window_transition.opened_windows`; a window that
+   opened later is named by the next command's
+   `windows_opened_since_last_action` (since, not necessarily caused by, your
+   last action). After a click that may open a popup (sign-in, OAuth,
+   connect, continue, authorize), run `list` (kind windows, `query` with the
+   app or expected title) before concluding nothing opened.
 
 Prefer semantic `ref` > SOM/OCR `element` > coordinates. When pixels are
 reported `pixel_unavailable`, coordinate input fails closed but fresh semantic
@@ -253,7 +261,9 @@ and a trailing short `wait`; verify with `verify` rather than another capture.
 `alt+f4` is blocked in every delivery mode. To close a window, obtain the
 user's go-ahead and use `window` with the `close` operation.
 
-**Dialog appears mid-sequence** — `act` halts automatically. Use its successful
+**Dialog appears mid-sequence** — `act` halts when the settle check sees it; a
+dialog that opens later arrives in the next command's
+`windows_opened_since_last_action`. Use its successful
 successor observation to handle the dialog; capture only if it is unusable.
 Returning to the original window also requires a fresh observation, whether
 returned by the action or obtained through `capture`.

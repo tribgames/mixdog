@@ -22,6 +22,7 @@ import type { PointerHold } from './pointer-hold';
 import { isComputerRecoveryRead } from './recovery-reads';
 import { userInputRefusalPayload } from './user-input-refusal';
 import { TAKEOVER_CODES } from '../shared/takeover-codes';
+import type { WindowArrivals } from './window-arrivals';
 
 export interface CommandAttemptDeps {
   coordinator: ComputerUseCoordinator;
@@ -34,6 +35,7 @@ export interface CommandAttemptDeps {
   assertEpoch: PauseGate['assertEpoch'];
   runForegroundExclusive: ForegroundLane['runForegroundExclusive'];
   pointerHold?: Pick<PointerHold, 'claim' | 'arm'>;
+  windowArrivals?: Pick<WindowArrivals, 'read' | 'report' | 'watch'>;
 }
 
 interface Attempt {
@@ -210,18 +212,24 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
       assertRunnable: assertRunnableFor(state, epoch),
     };
     try {
+      // Outside the shared foreground lane and bounded, so the arrivals check
+      // never holds another session's input or this command for long.
+      const arrived = (await deps.windowArrivals?.read(command)) ?? [];
       const operation = async () => {
         // One physical pointer: another session's blanked cursor ends first.
         if (foreground) await deps.pointerHold?.claim(sessionId);
         return runAttempt(attempt);
       };
       const requireFreshAfterWait = pending || observesOnly(command) ? false : undefined;
-      const outcome = foreground
+      const result = foreground
         ? await deps.runForegroundExclusive(sessionId, operation, {
             assertRunnable: attempt.assertRunnable,
             requireFreshAfterWait,
           })
         : await operation();
+      // Before the final checks: a stop or takeover while the report reads
+      // app names must still refuse this reply.
+      const outcome = deps.windowArrivals ? await deps.windowArrivals.report(command, arrived, result) : result;
       attempt.assertRunnable();
       coordinator.assertAutomationAllowed();
       if (foreground) {
@@ -231,6 +239,8 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
       const record = computerRunRecord(command, attempt.startedAt, outcome);
       appendComputerRunRecord(sessionId, record);
       deps.recordDiagnostic?.(sessionId, { ...record, stage: 'completed' });
+      // Its first look comes after this reply is returned, on timers.
+      deps.windowArrivals?.watch(command);
       return outcome;
     } catch (error) {
       if (error instanceof PausedBeforeDispatch) throw error;

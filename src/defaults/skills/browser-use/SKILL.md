@@ -320,7 +320,10 @@ file-reading tool instead of clicking around the page.
 **Multi-page task** — keep one snapshot per page; `list_tabs` when targets or
 ownership are unknown, then act on the intended tab. Use `back` instead of
 re-navigating when history suffices; forward is a `navigate` to the URL the
-earlier snapshot showed.
+earlier snapshot showed. A popup the page opens (`window.open`, an OAuth or
+sign-in window) becomes a background page the reply names ("Opened
+"popup-N" as a new page"), and the visible page does not switch: act on it
+by that name, and check `list_tabs` before concluding no popup opened.
 
 **Downloads / uploads** — `downloads` lists and can `wait` for and `attach`
 the newest file (≤ 8 MiB). A wait pins the newest download, or the next one to
