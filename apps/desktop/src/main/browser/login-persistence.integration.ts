@@ -51,15 +51,23 @@ function startSite(): Promise<{ origin: string; close(): void }> {
   });
 }
 
+// This check covers Mixdog's persistence and sign-out logic, not the OS keychain.
+// A Linux runner without a usable keychain opts in (scripts/suite-health.mjs) to
+// Electron's in-memory-password fallback, here in the harness only: the app
+// never enables it. It is a no-op on Windows and macOS.
+if (process.platform === 'linux' && process.env.MIXDOG_TEST_PLAINTEXT_SAFE_STORAGE === '1') {
+  safeStorage.setUsePlainTextEncryption(true);
+}
+
 async function run() {
   await app.whenReady();
-  // Session cookies are kept only sealed by the OS keychain; without one nothing
+  // Session cookies are kept only sealed by safeStorage; without it nothing
   // survives a restart, which is the environment's fault, not a sign-in bug.
   if (!safeStorage.isEncryptionAvailable()) {
     const backend = process.platform === 'linux' ? safeStorage.getSelectedStorageBackend() : process.platform;
     throw new Error(
       `safeStorage encryption is unavailable (backend: ${backend}); the login persistence check needs an OS keychain ` +
-        '(on Linux, an unlocked gnome-keyring in a D-Bus session).'
+        '(on Linux, an unlocked gnome-keyring in a D-Bus session) or MIXDOG_TEST_PLAINTEXT_SAFE_STORAGE=1.'
     );
   }
   const partition = session.fromPartition(BROWSER_PARTITION);

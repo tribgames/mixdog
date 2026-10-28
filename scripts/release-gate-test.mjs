@@ -686,12 +686,9 @@ test('the weekly suite-health sweep runs the opt-out catalog and reports failure
   assert.match(sweep, /node scripts\/suite-health\.mjs/, 'the sweep must execute the opt-out suite enumeration');
   assert.match(sweep, /electron\/install\.js/, 'the sweep must fetch the lazily downloaded Electron binary');
   assert.match(sweep, /packages:\s*xvfb/, 'the sweep must provide the X server its Electron entries run under');
-  assert.match(
-    sweep,
-    /packages:\s*xvfb\b[^\n]*\bdbus-x11\b[^\n]*\bgnome-keyring\b/,
-    'the sweep must provide a D-Bus session and a keyring so safeStorage can seal data'
-  );
-  for (const step of ['Fetch the Electron binary', 'Install a virtual X server and a keyring']) {
+  assert.match(sweep, /packages:\s*xvfb\s*\n/, 'the X server is the only package the Electron entries need');
+  assert.doesNotMatch(sweep, /dbus|gnome-keyring/, 'the sweep must not depend on a keyring session');
+  for (const step of ['Fetch the Electron binary', 'Install a virtual X server']) {
     assert.match(
       sweep,
       new RegExp(`- name: ${step}\\n\\s+continue-on-error: true`),

@@ -47,13 +47,12 @@ jobs:
         continue-on-error: true
         run: node apps/desktop/node_modules/electron/install.js
 
-      # The Electron integration entries run under xvfb-run inside a D-Bus session
-      # with an unlocked gnome-keyring, so safeStorage can seal data (scripts/suite-health.mjs).
-      - name: Install a virtual X server and a keyring
+      # The Electron integration entries run under xvfb-run (scripts/suite-health.mjs).
+      - name: Install a virtual X server
         continue-on-error: true
         uses: ./.github/actions/apt-packages
         with:
-          packages: xvfb dbus-x11 gnome-keyring
+          packages: xvfb
 
       # smoke and boot-smoke import the gitignored TUI bundle.
       - name: Build TUI

@@ -48,29 +48,31 @@ export const WORKSPACES = [
 
 // Swept scripts that launch a real Electron window. The headless Linux runner
 // has no X server, so they run inside a virtual one (xvfb-run, as
-// linux-desktop-verify.yml does). The runner also has no keyring, which leaves
-// Electron's safeStorage on the unencrypted basic_text backend (no sealed
-// session cookies), so the entry runs in a D-Bus session with an unlocked
-// gnome-keyring, where Chromium selects gnome_libsecret.
+// linux-desktop-verify.yml does). The runner also has no usable keyring (a
+// keyring daemon there prompts for an unlock on a display it cannot open and
+// stalls the entry), and these entries check Mixdog's own persistence and
+// sign-out logic, not the OS keychain. So on Linux the sweep sets
+// TEST_PLAINTEXT_SAFE_STORAGE_ENV and the test harness alone (never the app)
+// switches Electron's safeStorage to its in-memory-password fallback.
 export const DISPLAY_SUITES = [
   'test:browser-login-persistence:integration',
   'test:browser-login-popup:integration',
 ];
+export const TEST_PLAINTEXT_SAFE_STORAGE_ENV = 'MIXDOG_TEST_PLAINTEXT_SAFE_STORAGE';
 
-// The entry's own arguments follow as positional parameters ("$@"), so none needs shell quoting.
-export const KEYRING_SESSION_SCRIPT =
-  'printf "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null; ' +
-  'XDG_CURRENT_DESKTOP=GNOME exec xvfb-run -a "$@"';
+const runsUnderDisplay = (ws, name, platform) =>
+  platform === 'linux' && ws.dir !== '.' && DISPLAY_SUITES.includes(name);
 
 export function sweepCommand(ws, name, platform = process.platform) {
   const args = ['run', name, ...(ws.dir === '.' ? [] : ['--prefix', ws.dir])];
-  if (platform === 'linux' && ws.dir !== '.' && DISPLAY_SUITES.includes(name)) {
-    return [
-      'dbus-run-session',
-      ['--', 'sh', '-c', KEYRING_SESSION_SCRIPT, 'sh', '--server-args=-screen 0 1440x900x24', 'npm', ...args],
-    ];
+  if (runsUnderDisplay(ws, name, platform)) {
+    return ['xvfb-run', ['-a', '--server-args=-screen 0 1440x900x24', 'npm', ...args]];
   }
   return [platform === 'win32' ? 'npm.cmd' : 'npm', args];
+}
+
+export function sweepEnv(ws, name, platform = process.platform, base = process.env) {
+  return runsUnderDisplay(ws, name, platform) ? { ...base, [TEST_PLAINTEXT_SAFE_STORAGE_ENV]: '1' } : base;
 }
 
 export function selectSuiteScripts(scripts, exclusions) {
@@ -166,6 +168,7 @@ function runSweep() {
       const started = Date.now();
       const [command, args] = sweepCommand(ws, name);
       const child = spawnSync(command, args, {
+        env: sweepEnv(ws, name),
         encoding: 'utf8',
         shell: process.platform === 'win32',
         maxBuffer: 64 * 1024 * 1024,
