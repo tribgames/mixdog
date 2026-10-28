@@ -17,6 +17,9 @@ import { fileURLToPath } from 'node:url';
 
 import { CdpClient, evaluateStable as evaluateUntilStable, stopApp, waitForTarget } from './cdp-client.mjs';
 import { optionValue } from './cli-args.mjs';
+import { electronBinary } from './electron-binary.mjs';
+
+const electron = electronBinary();
 
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const argumentsList = process.argv.slice(2);
@@ -28,13 +31,6 @@ const port = Number(optionValue('port', argumentsList) || 9351);
 const fakeModelPort = Number(optionValue('fake-model-port', argumentsList) || 0);
 const recordMs = Number(optionValue('record', argumentsList) || (fakeModelPort ? 9_000 : 3_000));
 const keepProfile = argumentsList.includes('--keep-profile');
-const electron = join(
-  desktopDir,
-  'node_modules',
-  'electron',
-  'dist',
-  process.platform === 'win32' ? 'electron.exe' : 'electron'
-);
 const profilePath = join(desktopDir, 'artifacts', 'submit-shift-profile');
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));

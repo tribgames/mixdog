@@ -5,7 +5,6 @@ import { browserScreenshotBytesFitBudget } from './screenshot-policy';
 
 const compress = promisify(deflate);
 const signature = Buffer.from('89504e470d0a1a0a', 'hex');
-const colorChunks = new Set(['iCCP', 'sRGB', 'gAMA', 'cHRM', 'cICP', 'mDCV', 'cLLI']);
 
 function chunk(type: string, data: Buffer): Buffer {
   const result = Buffer.allocUnsafe(data.length + 12);
@@ -16,10 +15,11 @@ function chunk(type: string, data: Buffer): Buffer {
   return result;
 }
 
-/** Electron's desktop bitmap is premultiplied BGRA. Keep every pixel, alpha,
- * HiDPI representation and native colour profile, but spend compression CPU
- * in libuv's pool rather than blocking the main input/IPC thread. Only the
- * tiny profile sample uses NativeImage's synchronous PNG encoder. */
+/** Electron's desktop bitmap is premultiplied BGRA, normalised to sRGB since
+ * Electron 43 whatever the source's colour profile; the PNG is tagged sRGB to
+ * match. Keep every pixel, alpha and HiDPI representation, but spend
+ * compression CPU in libuv's pool rather than blocking the main input/IPC
+ * thread. */
 export async function encodeBrowserDisplayPng(image: NativeImage): Promise<Buffer> {
   const scaleFactor = Math.max(1, ...image.getScaleFactors());
   const { width, height } = image.getSize(scaleFactor);
@@ -50,18 +50,6 @@ export async function encodeBrowserDisplayPng(image: NativeImage): Promise<Buffe
       rows[target + 3] = alpha;
     }
   }
-  // Copy the encoder's colour metadata rather than silently treating a
-  // wide-gamut bitmap as sRGB. No pixel or geometry comes from this sample.
-  const profile = image.crop({ x: 0, y: 0, width: 1, height: 1 }).toPNG({ scaleFactor });
-  const metadata: Buffer[] = [];
-  for (let offset = 8; offset + 12 <= profile.length; ) {
-    const end = offset + 12 + profile.readUInt32BE(offset);
-    if (end > profile.length) throw new Error('Browser display colour profile is invalid.');
-    if (colorChunks.has(profile.toString('ascii', offset + 4, offset + 8))) {
-      metadata.push(profile.subarray(offset, end));
-    }
-    offset = end;
-  }
   const header = Buffer.alloc(13);
   header.writeUInt32BE(width);
   header.writeUInt32BE(height, 4);
@@ -71,7 +59,7 @@ export async function encodeBrowserDisplayPng(image: NativeImage): Promise<Buffe
   return Buffer.concat([
     signature,
     chunk('IHDR', header),
-    ...metadata,
+    chunk('sRGB', Buffer.from([0])), // Perceptual rendering intent.
     chunk('IDAT', pixels),
     chunk('IEND', Buffer.alloc(0)),
   ]);

@@ -78,9 +78,11 @@
 }
 .titlebar-caption-space {
   /* WCO shells resolve env() to the real caption edge; plain browsers fall
-     back to 100vw → a 0px reserve, so no phantom 138px strip off-Electron. */
-  width: max(0px, calc(100vw - env(titlebar-area-width, 100vw)));
-  flex: 0 0 max(0px, calc(100vw - env(titlebar-area-width, 100vw)));
+     back to 100vw → a 0px reserve, so no phantom 138px strip off-Electron.
+     Only the area right of the title bar area is reserved here: controls on
+     the left (Linux) are cleared by the band's leading padding instead. */
+  width: max(0px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
+  flex: 0 0 max(0px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw)));
 }
 .workspace-tab {
   --workspace-tab-surface: var(--mx-window-band);

@@ -77,8 +77,10 @@ if ($LASTEXITCODE -ne 0) { throw "Isolated profile helper failed (exit $LASTEXIT
 $isolatedEnv = ($helperOutput -join "`n") | ConvertFrom-Json
 $profilePath = [string]$isolatedEnv.MIXDOG_DESKTOP_USER_DATA
 
-$electron = Join-Path $desktopDir 'node_modules\electron\dist\electron.exe'
-if (-not (Test-Path -LiteralPath $electron)) { throw "Electron is missing: $electron" }
+# Electron 42+ downloads its binary on first use; the helper keeps that
+# download's stdout out of the path captured here.
+$electron = & node.exe (Join-Path $PSScriptRoot 'electron-binary.mjs')
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path -LiteralPath $electron)) { throw "Electron is missing: $electron" }
 $electronVite = Join-Path $desktopDir 'node_modules\electron-vite\bin\electron-vite.js'
 if ($SourceMode -and -not (Test-Path -LiteralPath $electronVite)) {
     throw "electron-vite is missing: $electronVite"

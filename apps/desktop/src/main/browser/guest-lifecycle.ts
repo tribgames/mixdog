@@ -4,7 +4,7 @@
  * bounded, session-scoped lifetimes.
  */
 import type { BrowserWindow, WebContents } from 'electron';
-import { app } from 'electron';
+import { app, screen } from 'electron';
 
 import type { DesktopBrowserOpenRequest } from '../../shared/contract';
 import type { BrowserGuestCdp } from './cdp';
@@ -60,9 +60,12 @@ export function browserSharedTextureRendering(): boolean {
  *  fixed: hidden, unfocusable, offscreen-composited (unless natively presented)
  *  and throttled unless displayed or driven (see page-power). */
 export function offscreenWindowOptions(nativeView = false): Electron.BrowserWindowConstructorOptions {
-  let offscreen: boolean | { useSharedTexture: true } = true;
+  // Electron 42+ renders an offscreen view at scale 1 unless told otherwise;
+  // keep the primary display's scale it took before (see frame-pixels).
+  const deviceScaleFactor = screen.getPrimaryDisplay().scaleFactor;
+  let offscreen: boolean | Electron.Offscreen = { deviceScaleFactor };
   if (nativeView) offscreen = false;
-  else if (browserSharedTextureRendering()) offscreen = { useSharedTexture: true };
+  else if (browserSharedTextureRendering()) offscreen = { useSharedTexture: true, deviceScaleFactor };
   const toolWindowType = process.platform === 'win32' ? { type: 'toolbar' as const } : {};
   return {
     show: false,

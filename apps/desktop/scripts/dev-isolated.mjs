@@ -25,6 +25,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { refreshStaleLocalBinaries } from '../../../scripts/native-release-status.mjs';
+import { electronBinary } from './electron-binary.mjs';
 import {
   expiryFromAccessToken,
   normalizeExpiresAtMs,
@@ -719,6 +720,9 @@ export async function startInstance({
     // Source checkouts prefer native/*/target/release over the pinned download;
     // never launch against a binary older than its sources.
     await refreshStaleLocalBinaries();
+    // Electron 42+ has no install script; electron-vite only reads path.txt, so
+    // download the binary on first use and hand it over.
+    env.ELECTRON_EXEC_PATH = electronBinary();
     const logPath = join(instanceDir, 'launcher.log');
     const log = openSync(logPath, 'a');
     const launcher = spawn(

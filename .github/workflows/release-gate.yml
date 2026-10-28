@@ -470,7 +470,8 @@ jobs:
               'src/runtime/shared/**',
               '!src/runtime/shared/**/*.test.mjs'
             ) }}
-      # The electron postinstall downloads its zip into this cache.
+      # The electron package downloads its zip into this cache on first use
+      # (Electron 42+ has no install script).
       - name: Cache the Electron download
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
@@ -579,7 +580,7 @@ jobs:
           node scripts/test-direct.mjs \
             src/runtime/agent/orchestrator/tools/builtin/advisory-lock.test.mjs \
             src/runtime/agent/orchestrator/tools/builtin/advisory-lock.slow.test.mjs
-      # The electron postinstall downloads its zip into this cache (the
+      # The install step downloads the Electron zip into this cache (the
       # Windows leg's lives under AppData).
       - name: Cache the Electron download
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -609,7 +610,9 @@ jobs:
             done
             return 1
           }
-          npm_ci --prefix apps/desktop &
+          # Electron 42+ has no install script: fetch its binary once here so
+          # parallel test files never race to download it on first use.
+          { npm_ci --prefix apps/desktop && node apps/desktop/node_modules/electron/install.js; } &
           desktop_pid=$!
           root_pid=
           if [[ "$LANE" != computer ]]; then

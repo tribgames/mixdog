@@ -7,6 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { parseArgs } from 'node:util';
 
 import { refreshStaleLocalBinaries } from '../../../scripts/native-release-status.mjs';
+import { electronBinary } from './electron-binary.mjs';
 
 export const DEV_DEBUG_PORT = 9342;
 const desktopDir = fileURLToPath(new URL('..', import.meta.url));
@@ -145,6 +146,9 @@ async function main() {
   if (!values.preview) console.log(`Renderer dev server port: ${env.MIXDOG_DEV_RENDERER_PORT}`);
   await buildComputerBackend();
   await refreshStaleLocalBinaries();
+  // Electron 42+ has no install script; electron-vite only reads path.txt, so
+  // download the binary on first use and hand it over.
+  env.ELECTRON_EXEC_PATH = electronBinary();
   // Never remove a profile here: a kept profile is the user's dev workspace,
   // and a fresh one is retained for diagnosis while Electron or an isolated
   // daemon may still be shutting down.

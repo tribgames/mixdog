@@ -7,6 +7,7 @@ import { pipeline } from 'node:stream/promises';
 import { dirname, join, isAbsolute as pathIsAbsolute, resolve as resolvePath } from 'node:path';
 import { DESKTOP_IPC, type DesktopWorkspace } from '../shared/contract';
 import type { DesktopService } from './desktop-service-contract';
+import { createDialogFolderMemory } from './dialog-folder-memory';
 import { absoluteLocalPath, readLocalFileAbs } from './local-files';
 import type { IpcHandle as Handle } from './ipc';
 import { requiredSaveSource, requiredString, requiredWorkspaceFolders, sanitizedFileName } from './ipc-validation';
@@ -90,8 +91,9 @@ export function registerFileDialogIpc({
   nativeT,
   describeLocalPaths,
 }: FileDialogIpcOptions): void {
+  const { startIn, remember } = createDialogFolderMemory();
   const defaultPathOption = (defaultPath: unknown) =>
-    typeof defaultPath === 'string' && pathIsAbsolute(defaultPath) ? { defaultPath } : {};
+    typeof defaultPath === 'string' && pathIsAbsolute(defaultPath) ? { defaultPath } : startIn();
 
   const watchedDirectory = connectionKind === 'ssh' ? absoluteServerPath : absoluteLocalPath;
 
@@ -100,18 +102,19 @@ export function registerFileDialogIpc({
     if (connectionKind === 'ssh') throw remotePickerRequired();
     const result = await dialog.showOpenDialog(window, {
       title: nativeT('Choose a Mixdog project folder'),
+      ...startIn(),
       properties: ['openDirectory', 'createDirectory'],
     });
-    return result.canceled ? null : (result.filePaths[0] ?? null);
+    return result.canceled ? null : (remember(result.filePaths[0]) ?? null);
   });
   handle(DESKTOP_IPC.saveFileAs, async (_event, source, suggestedName) => {
     const target = requiredSaveSource(source);
     if (typeof dialog.showSaveDialog !== 'function') throw new Error('The save dialog is unavailable.');
     const result = await dialog.showSaveDialog(window, {
       title: target.kind === 'data' ? nativeT('Save as') : nativeT('Save link as'),
-      defaultPath: sanitizedFileName(suggestedName),
+      ...startIn(sanitizedFileName(suggestedName)),
     });
-    if (result.canceled || !result.filePath) return false;
+    if (result.canceled || !remember(result.filePath)) return false;
     if (target.kind === 'data') {
       await writeUserFile(result.filePath, target.bytes);
       return true;
@@ -147,7 +150,7 @@ export function registerFileDialogIpc({
       ...defaultPathOption(defaultPath),
       properties: ['openFile'],
     });
-    const file = result.canceled ? '' : resolvePath(result.filePaths[0] || '');
+    const file = result.canceled ? '' : remember(resolvePath(result.filePaths[0] || ''));
     if (!file) return null;
     return (await describeLocalPaths([file]))[0] ?? null;
   });
@@ -156,10 +159,11 @@ export function registerFileDialogIpc({
     if (connectionKind === 'ssh') throw new Error(nativeT('Importing conversations is available only on this PC.'));
     const result = await dialog.showOpenDialog(window, {
       title: nativeT('Choose a conversation file'),
+      ...startIn(),
       properties: ['openFile'],
       filters: [{ name: nativeT('Conversation file'), extensions: ['jsonl', 'zst'] }],
     });
-    return result.canceled ? null : resolvePath(result.filePaths[0] || '') || null;
+    return result.canceled ? null : remember(resolvePath(result.filePaths[0] || '')) || null;
   });
   handle(DESKTOP_IPC.chooseFiles, async (_event, defaultPath) => {
     const result = await dialog.showOpenDialog(window, {
@@ -168,6 +172,7 @@ export function registerFileDialogIpc({
       properties: ['openFile', 'multiSelections'],
     });
     if (result.canceled || !result.filePaths.length) return null;
+    remember(result.filePaths[0]);
     return describeLocalPaths(result.filePaths.map((file) => resolvePath(file)));
   });
   handle(DESKTOP_IPC.chooseWorkspace, async () => {
@@ -175,10 +180,11 @@ export function registerFileDialogIpc({
       // User-facing product noun is Project; `.code-workspace` stays as the
       // on-disk format name only.
       title: nativeT('Open Project File'),
+      ...startIn(),
       properties: ['openFile'],
       filters: [{ name: nativeT('Project file'), extensions: ['code-workspace'] }],
     });
-    const file = result.canceled ? '' : result.filePaths[0] || '';
+    const file = result.canceled ? '' : remember(result.filePaths[0] || '');
     if (!file) return null;
     const workspace = await invokeDesktopOperation<DesktopWorkspace>('readWorkspaceFile', [file]);
     for (const folder of workspace.folders) await host.addProject(folder.path);
@@ -193,10 +199,10 @@ export function registerFileDialogIpc({
       }
       const result = await dialog.showSaveDialog(window, {
         title: nativeT('Save Project File As'),
-        defaultPath: 'project.code-workspace',
+        ...startIn('project.code-workspace'),
         filters: [{ name: nativeT('Project file'), extensions: ['code-workspace'] }],
       });
-      if (result.canceled || !result.filePath) return null;
+      if (result.canceled || !remember(result.filePath)) return null;
       file = result.filePath;
     }
     return invokeDesktopOperation('writeWorkspaceFile', [file, folders]);

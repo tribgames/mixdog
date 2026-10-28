@@ -81,7 +81,8 @@ export function createPartitionSignIns(
     clearOriginStorage: (origin) =>
       partition.clearStorageData({
         origin,
-        storages: ['filesystem', 'indexdb', 'localstorage', 'shadercache', 'websql', 'serviceworkers', 'cachestorage'],
+        // Electron 43 dropped 'websql' along with Chromium's WebSQL.
+        storages: ['filesystem', 'indexdb', 'localstorage', 'shadercache', 'serviceworkers', 'cachestorage'],
       }),
     clearAllStorage: async () => {
       await partition.clearStorageData();

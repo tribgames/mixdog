@@ -68,6 +68,8 @@ export async function runBrowserPageReportScenarios(
   assert.match(longText.text, /the page holds more, so scroll or search it for the rest/);
   assert.doesNotMatch((await run({ action: 'read', tab: 'download' })).text, /the page holds more/);
   await run({ action: 'close_tab', tab: 'long-text' });
+  // Done with it; free its background slot (6 per session) for the pages below.
+  await run({ action: 'close_tab', tab: 'download' });
   progress('clipped page text is reported as clipped complete');
 
   // Twelve failures must not arrive looking like three: the capped list says

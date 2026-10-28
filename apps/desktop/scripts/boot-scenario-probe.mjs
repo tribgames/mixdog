@@ -10,7 +10,9 @@ import {
   waitForTarget,
 } from './cdp-client.mjs';
 import { optionValue } from './cli-args.mjs';
+import { electronBinary } from './electron-binary.mjs';
 
+const electron = electronBinary();
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const projectPath = resolve(optionValue('project') || join(desktopDir, '..', '..'));
 const relPath = optionValue('file') || 'apps/desktop/package.json';
@@ -19,13 +21,6 @@ const iterations = Math.max(1, Number(iterationsInput));
 // A non-numeric value used to become NaN, skip the measurement loop entirely
 // and still write an empty report with exit code 0.
 if (!Number.isFinite(iterations)) throw new Error(`Invalid --iterations: ${String(iterationsInput)}`);
-const electron = join(
-  desktopDir,
-  'node_modules',
-  'electron',
-  'dist',
-  process.platform === 'win32' ? 'electron.exe' : 'electron'
-);
 const artifactDir = join(desktopDir, 'artifacts');
 const profileRoot = join(artifactDir, 'boot-scenario-profiles');
 const stamp = new Date().toISOString().replace(/[-:.]/g, '');

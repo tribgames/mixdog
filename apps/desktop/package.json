@@ -109,7 +109,7 @@
     "d3-shape": "^3.2.0",
     "dompurify": "^3.4.12",
     "echarts": "6.1.0",
-    "electron": "^41.10.3",
+    "electron": "^43.8.4",
     "electron-builder": "^26.8.1",
     "electron-vite": "^5.0.0",
     "esbuild": "^0.28.2",

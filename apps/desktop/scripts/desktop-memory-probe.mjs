@@ -12,6 +12,9 @@ import { promisify } from 'node:util';
 
 import { CdpClient, evaluateStable as evaluateRendererStable, stopApp, waitForTarget } from './cdp-client.mjs';
 import { optionValue } from './cli-args.mjs';
+import { electronBinary } from './electron-binary.mjs';
+
+const electron = electronBinary();
 
 const execFileAsync = promisify(execFile);
 const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -20,13 +23,6 @@ const desktopDir = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 for (const key of Object.keys(process.env)) {
   if (key.startsWith('MIXDOG_')) delete process.env[key];
 }
-const electron = join(
-  desktopDir,
-  'node_modules',
-  'electron',
-  'dist',
-  process.platform === 'win32' ? 'electron.exe' : 'electron'
-);
 const profileRoot = join(desktopDir, 'artifacts', 'memory-probe-profiles');
 const SPLIT_SESSIONS = Math.max(2, Number(optionValue('sessions') || 4));
 

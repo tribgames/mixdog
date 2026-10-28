@@ -54,6 +54,41 @@ test('the conversation import picker offers compressed Codex rollouts as well as
   assert.deepEqual(options.filters[0].extensions, ['jsonl', 'zst']);
 });
 
+test('dialogs start in the folder used last instead of the Electron 43+ Downloads default', async () => {
+  const handlers = new Map();
+  const seen = [];
+  const project = join(tmpdir(), 'mixdog-projects', 'alpha');
+  const saved = join(tmpdir(), 'mixdog-saves', 'notes.txt');
+  registerFileDialogIpc({
+    window: {},
+    app: {},
+    connectionKind: 'local',
+    dialog: {
+      showOpenDialog: async (_window, given) => {
+        seen.push(given.defaultPath);
+        return { canceled: false, filePaths: [project] };
+      },
+      showSaveDialog: async (_window, given) => {
+        seen.push(given.defaultPath);
+        return { canceled: false, filePath: saved };
+      },
+    },
+    host: {},
+    handle: (channel, fn) => handlers.set(channel, fn),
+    invokeDesktopOperation: async () => undefined,
+    nativeT: (key) => key,
+    describeLocalPaths: async () => [],
+  });
+  await handlers.get(DESKTOP_IPC.chooseProject)({});
+  await handlers.get(DESKTOP_IPC.saveWorkspace)({}, '', [{ path: project }]);
+  await handlers.get(DESKTOP_IPC.chooseProject)({});
+  assert.deepEqual(seen, [
+    undefined,
+    join(tmpdir(), 'mixdog-projects', 'project.code-workspace'),
+    join(tmpdir(), 'mixdog-saves'),
+  ]);
+});
+
 async function withServer(handler, run) {
   const dir = await mkdtemp(join(tmpdir(), 'save-as-'));
   const server = createServer(handler);

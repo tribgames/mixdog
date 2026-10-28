@@ -8,6 +8,7 @@ import type { BrowserWindow, WebContents } from 'electron';
 import { dialog, screen } from 'electron';
 
 import { DESKTOP_IPC, type DesktopRemoteBrowserStreamFrame, type DesktopRemoteBrowserTab } from '../../shared/contract';
+import { createDialogFolderMemory } from '../dialog-folder-memory';
 import type { createBrowserGuestCdp } from './cdp';
 import type { createBrowserCommandToolkit } from './command-toolkit';
 import { createBrowserDisplayCapture } from './display-capture';
@@ -196,16 +197,21 @@ export function createBrowserHostPresentation(options: {
     options.onTabCreated
   );
   // The prompts a person answers, at the pane and on a paired client alike.
+  const uploadFolder = createDialogFolderMemory();
   const prompts = createBrowserLocalPrompts({
     state,
     dialogs: tools.dialogs,
     uploads: tools.refActions,
     chooseFiles:
       options.chooseBrowserFiles ??
-      ((multiple) =>
-        dialog.showOpenDialog(window, {
+      (async (multiple) => {
+        const result = await dialog.showOpenDialog(window, {
+          ...uploadFolder.startIn(),
           properties: multiple ? ['openFile', 'multiSelections'] : ['openFile'],
-        })),
+        });
+        if (!result.canceled) uploadFolder.remember(result.filePaths[0]);
+        return result;
+      }),
     controller: (guest) => sessions.sessionIdForGuest(guest),
     leave,
     permissions: options.base.partition.permissions,

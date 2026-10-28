@@ -127,8 +127,10 @@ html[data-mixdog-remote] body {
   align-items: center;
   column-gap: 6px;
   /* The draggable run expands first; the updater docks immediately before
-     the Windows caption reserve on the right. */
-  padding: env(safe-area-inset-top, 0px) 0 0 5px;
+     the Windows caption reserve on the right. Native caption controls a
+     Linux desktop puts on the left (titlebar-area-x) are cleared here; it is
+     0 on Windows and falls back to 0 without an overlay (macOS, browsers). */
+  padding: env(safe-area-inset-top, 0px) 0 0 calc(5px + env(titlebar-area-x, 0px));
   overflow: visible;
   border: 0;
   background: var(--mx-window-band);

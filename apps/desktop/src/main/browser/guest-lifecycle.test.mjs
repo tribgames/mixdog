@@ -116,6 +116,7 @@ registerHooks({
           url:
             'data:text/javascript,const e=globalThis.__guestLifecycleElectron;' +
             'export const app={getPath:()=>"",getAppPath:()=>"",isPackaged:false,isHardwareAccelerationEnabled:()=>false};' +
+            'export const screen={getPrimaryDisplay:()=>({scaleFactor:1.5})};' +
             'export const BrowserWindow=e.FakeWindow;export const BaseWindow=e.FakeWindow;export class WebContentsView{};',
           shortCircuit: true,
         }
@@ -123,7 +124,12 @@ registerHooks({
   },
 });
 
-const { createBrowserGuestLifecycle } = await import('./guest-lifecycle.ts');
+const { createBrowserGuestLifecycle, offscreenWindowOptions } = await import('./guest-lifecycle.ts');
+
+test('offscreen pages render at the primary display scale, not the Electron 42+ default of 1', () => {
+  assert.deepEqual(offscreenWindowOptions().webPreferences.offscreen, { deviceScaleFactor: 1.5 });
+  assert.equal(offscreenWindowOptions(true).webPreferences.offscreen, false);
+});
 const { BrowserGuestStateStore } = await import('./guest-state.ts');
 const { BrowserSessionRegistry } = await import('./session-registry.ts');
 const { DESKTOP_IPC } = await import('../../shared/contract.ts');

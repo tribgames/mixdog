@@ -24,7 +24,8 @@ export async function runLiveBrowserRegressions(
         document.body.style.cssText='margin:0;background:white';
         document.body.innerHTML='<div style="height:100px;background:linear-gradient(90deg,red 80%,lime 80%)"></div>'
           + '<div style="height:1700px"><p id="out">READY</p>'
-          + '<input aria-label="City"><div id="option" role="option">Busan</div>'
+          // Chromium 150+ (Electron 43) exposes an option only inside its listbox.
+          + '<input aria-label="City"><div role="listbox"><div id="option" role="option">Busan</div></div>'
           + '<div id="list" style="height:100px;overflow:auto"><div style="height:1000px">Rows</div></div>'
           + '<div id="shadow"></div></div>'
           + '<button id="bottom" style="display:block;box-sizing:border-box;border:0;width:100%;height:200px;background:blue">Bottom probe</button>';
@@ -129,6 +130,8 @@ export async function runLiveBrowserRegressions(
 
     const secret = 'SYNTHETIC_CREDENTIAL_FIXTURE_1234';
     await command({ action: 'fill', tab, target: { selector: '#private-input' }, text: secret });
+    // A focused password field withholds every capture; this one is masked and blurred.
+    await command({ action: 'evaluate', tab, script: "document.querySelector('#private-input').blur(); true" });
     const masked = await command({ action: 'snapshot', tab, mode: 'visual' });
     assert.ok(masked.image?.data, 'a masked password field does not disable ordinary screenshots');
     await command({

@@ -281,6 +281,8 @@ async function run(): Promise<void> {
     assert.match(initialDialog.text, /dialog is blocking the page/i);
     assert.ok(Date.now() - initialDialogStartedAt < 6_000);
     await command({ action: 'handle_dialog', accept: false, tab: 'initial-dialog' });
+    // Free its background slot (6 per session): the page reports need one.
+    await command({ action: 'close_tab', tab: 'initial-dialog' });
     progress('initial navigation dialog interception complete');
 
     let alpha = await command({
@@ -299,10 +301,22 @@ async function run(): Promise<void> {
     alpha = await command({ action: 'snapshot', tab: 'alpha' });
     assert.doesNotMatch(alpha.text, /Extended snapshot tail/);
     progress('root navigation complete');
+    // Background work above asked for no panel; each explicit foreground
+    // open asks for it, naming the page it shows.
     await command({ action: 'open' });
     await command({ action: 'open' });
-    assert.deepEqual(browserSurfaceRequests.splice(0), [], 'agent work never opens the panel by itself');
-    progress('existing foreground guest open keeps the panel closed');
+    const openedPage = {
+      sessionId: 'browser-integration-session',
+      reveal: true,
+      tabId: 'p1', // Page ids are per session; the shown page was its first.
+      title: await visibleGuest.executeJavaScript('document.title'),
+    };
+    assert.deepEqual(
+      browserSurfaceRequests.splice(0),
+      [openedPage, openedPage],
+      'only an explicit foreground open asks for the panel'
+    );
+    progress('explicit foreground open requests the panel');
     await visibleGuest.executeJavaScript(`
       const draft = document.createElement('textarea');
       draft.id = 'completion-draft';

@@ -89,7 +89,10 @@ function Get-Sha256 {
 
 function Invoke-OptionalWindowEvidence {
     param([int]$TimeoutSeconds = 15)
-    $electron = Join-Path $desktopDir 'node_modules\electron\dist\electron.exe'
+    # Electron 42+ downloads its binary on first use; the helper keeps that
+    # download's stdout out of the path captured here.
+    $electron = & node.exe (Join-Path $PSScriptRoot 'electron-binary.mjs')
+    if ($LASTEXITCODE -ne 0) { throw 'Electron binary could not be resolved.' }
     $png = Join-Path $distDir 'acceptance-window.png'
     $captureId = [Guid]::NewGuid().ToString()
     $process = Start-Process -FilePath $electron -ArgumentList @(
