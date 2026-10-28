@@ -12,13 +12,21 @@ export const CUSTOM_REASONING_LEVELS = CUSTOM_EFFORT_LEVELS;
 export const CUSTOM_REASONING_WIRE_FORMATS = Object.freeze(['standard', 'deepseek', 'together', 'vllm']);
 export const CUSTOM_PROVIDER_AUTH_MODES = Object.freeze(['key', 'none']);
 export const CUSTOM_MODEL_OVERRIDE_LIMIT = 500;
+export const CUSTOM_HEADER_LIMIT = 64;
 
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const MAX_MODEL_ID = 256;
 const MAX_NAME = 200;
 const MAX_WIRE_VALUE = 64;
+const MAX_HEADER_TEXT = 4096;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: rejecting control characters is the point.
 const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+// RFC 9110 field-name token, and a field value of visible ASCII, space, tab and
+// obs-text (what a fetch Headers value can carry).
+const HEADER_NAME = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/;
+const HEADER_VALUE = /^[\t\x20-\x7e\x80-\xff]*$/;
+// The API key field owns authentication; a header may not carry a credential.
+const AUTH_HEADERS = new Set(['authorization', 'x-api-key', 'api-key']);
 
 function fail(message) {
   throw new Error(`[custom-provider] ${message}`);
@@ -84,6 +92,7 @@ const V2_TOP_LEVEL_KEYS = new Set([
   'modelOverrides',
   'wires',
   'modelWires',
+  'headers',
   'id',
   'apiKey',
   'apiKeyEnv',
@@ -295,6 +304,34 @@ function normalizeModelWires(raw, protocol, wires) {
   return out;
 }
 
+// `headers`: extra HTTP headers sent with every request to the endpoint
+// (inference, model discovery, connection test). Names are case-insensitive
+// tokens; the credential headers belong to the API key field.
+function normalizeHeaders(raw) {
+  if (raw === undefined) return {};
+  if (!isPlainObject(raw)) fail('headers must be an object of header names to string values');
+  const names = Object.keys(raw);
+  if (names.length > CUSTOM_HEADER_LIMIT) fail(`at most ${CUSTOM_HEADER_LIMIT} headers are allowed`);
+  const seen = new Set();
+  const entries = [];
+  for (const name of names) {
+    if (name.length > MAX_HEADER_TEXT || !HEADER_NAME.test(name))
+      fail(`headers has an invalid header name: ${JSON.stringify(name.slice(0, 64))}`);
+    const lower = name.toLowerCase();
+    if (AUTH_HEADERS.has(lower)) fail(`headers must not set ${name}: authentication belongs to the API key field`);
+    if (seen.has(lower)) fail(`headers has duplicate header: ${name}`);
+    seen.add(lower);
+    if (typeof raw[name] !== 'string') fail(`headers.${name} must be a string`);
+    // Validate before trimming, and trim only HTTP whitespace (space, tab), so
+    // CR/LF is refused rather than stripped and other characters are kept.
+    if (!HEADER_VALUE.test(raw[name])) fail(`headers.${name} has an invalid value`);
+    const value = raw[name].replace(/^[ \t]+|[ \t]+$/g, '');
+    if (value.length > MAX_HEADER_TEXT) fail(`headers.${name} has an invalid value`);
+    entries.push([name, value]);
+  }
+  return Object.fromEntries(entries);
+}
+
 // Legacy (pre-v2) `models: [{ id, name?, contextWindow?, maxOutputTokens? }]`
 // become manual, visible overrides; their presence hides newly discovered ids.
 function migrateLegacy(input) {
@@ -336,6 +373,7 @@ export function normalizeCustomProviderConfig(input) {
       fail('modelOverrides and discovery require schemaVersion 2');
     if (input.wires !== undefined || input.modelWires !== undefined)
       fail('wires and modelWires require schemaVersion 2');
+    if (input.headers !== undefined) fail('headers require schemaVersion 2');
     source = migrateLegacy(input);
   } else if (Number.isInteger(version) && version > CUSTOM_PROVIDER_SCHEMA_VERSION)
     fail(`unsupported schemaVersion ${version}; update mixdog to use this provider`);
@@ -368,6 +406,7 @@ export function normalizeCustomProviderConfig(input) {
   const newModelsHidden = optionalBoolean(discovery.newModelsHidden, 'discovery.newModelsHidden') ?? false;
   const wires = normalizeWires(source.wires, protocol);
   const modelWires = normalizeModelWires(source.modelWires, protocol, wires);
+  const headers = normalizeHeaders(source.headers);
   return {
     type: 'custom',
     schemaVersion: CUSTOM_PROVIDER_SCHEMA_VERSION,
@@ -377,6 +416,7 @@ export function normalizeCustomProviderConfig(input) {
     enabled: source.enabled !== false,
     auth,
     ...(apiKeyEnv && auth === 'key' ? { apiKeyEnv } : {}),
+    ...(Object.keys(headers).length ? { headers } : {}),
     discovery: { newModelsHidden },
     modelOverrides: normalizeOverrides(source.modelOverrides, protocol, legacy),
     ...(wires ? { wires } : {}),

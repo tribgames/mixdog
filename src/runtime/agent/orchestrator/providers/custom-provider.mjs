@@ -120,6 +120,7 @@ async function discoverAnthropicModels(provider, signal, timeoutMs = DISCOVERY_T
     headers: {
       ...(provider._customKeyless ? {} : { 'x-api-key': provider._customKey() }),
       'anthropic-version': ANTHROPIC_VERSION,
+      ...(provider.config.extraHeaders || {}),
     },
   });
   if (!res.ok) throw Object.assign(new Error(`${provider.name} models ${res.status}`), { status: res.status });
@@ -153,6 +154,8 @@ export async function createCustomProvider(id, config) {
     apiKey: apiKey || undefined,
     ...(cfg.apiKeyEnv ? { apiKeyEnv: cfg.apiKeyEnv } : {}),
     ...(keyless ? { keyless: true } : {}),
+    // User-defined headers ride the engines' existing `extraHeaders` path.
+    ...(cfg.headers ? { extraHeaders: cfg.headers } : {}),
     ...(config.preconnect === false ? { preconnect: false } : {}),
   };
   let provider;

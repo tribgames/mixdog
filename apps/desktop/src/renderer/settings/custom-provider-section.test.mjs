@@ -1041,3 +1041,155 @@ test('a refresh HTTP failure shows a generic status message without internal ids
   assert.doesNotMatch(alerts(), /custom-6223/);
   assert.match(alerts(), /500/);
 });
+
+const headersSection = () => document.querySelector('.settings-custom-headers');
+const headerRows = () => [...headersSection().querySelectorAll('.extensions-mcp-pair-row')];
+const headerValues = () => headerRows().map((row) => [...row.querySelectorAll('input')].map((input) => input.value));
+const lastSave = (calls) => calls.filter((c) => c.capability === 'saveCustomProvider').at(-1).args[0];
+
+test('HTTP headers: a folded section below the models list; added headers go with test, refresh and save', async (t) => {
+  const calls = [];
+  const { render } = mount(t, {
+    calls,
+    handlers: {
+      testCustomProvider: () => ({ ok: true }),
+      discoverCustomProviderModels: () => ({ models: [{ id: 'found' }] }),
+      saveCustomProvider: (i) => i,
+    },
+  });
+  await render();
+  await fillNew();
+  const sections = [...customForm().querySelectorAll('details')];
+  assert.equal(sections.length, 2);
+  assert.equal(sections[1], headersSection());
+  assert.equal(sections[0].querySelector('summary').textContent, 'Add models manually');
+  assert.equal(headersSection().open, false);
+  const summary = headersSection().querySelector('summary');
+  assert.equal(summary.textContent, 'HTTP headers');
+  assert.equal(
+    headersSection().querySelector(':scope > p').textContent,
+    'Optional. Sent with chat, model discovery and connection test requests.'
+  );
+  // Without headers nothing is sent.
+  await click(button('Test connection'));
+  assert.equal('headers' in calls.at(-1).args[0], false);
+  // The first (empty) row takes the first header.
+  const [name, value] = headerRows()[0].querySelectorAll('input');
+  await type(name, 'originator');
+  await type(value, 'codex_cli_rs');
+  assert.equal(summary.textContent, 'HTTP headers · 1');
+  await click(button('+ Add'));
+  assert.equal(headerRows().length, 2);
+  await type(headerRows()[1].querySelectorAll('input')[0], 'X-Team');
+  await type(headerRows()[1].querySelectorAll('input')[1], 'blue');
+  assert.equal(summary.textContent, 'HTTP headers · 2');
+  const expected = { originator: 'codex_cli_rs', 'X-Team': 'blue' };
+  await click(button('Test connection'));
+  assert.deepEqual(calls.at(-1).args[0].headers, expected);
+  await submit();
+  const discover = calls.find((c) => c.capability === 'discoverCustomProviderModels');
+  assert.deepEqual(discover.args[0].headers, expected);
+  assert.deepEqual(lastSave(calls).headers, expected);
+  assert.equal(customForm(), null);
+});
+
+test('HTTP headers: editing shows the stored headers open and saves changed, added and removed ones', async (t) => {
+  const calls = [];
+  const stored = { originator: 'codex_cli_rs', 'X-Team': 'blue' };
+  const { render } = mount(t, {
+    calls,
+    api: [{ ...CUSTOM, headers: stored }],
+    handlers: { saveCustomProvider: (i) => i },
+  });
+  await render();
+  const edit = async () => {
+    await click(button('Edit'));
+    assert.equal(headersSection().open, true);
+    assert.equal(headersSection().querySelector('summary').textContent, 'HTTP headers · 2');
+    assert.deepEqual(headerValues(), [
+      ['originator', 'codex_cli_rs'],
+      ['X-Team', 'blue'],
+    ]);
+  };
+  // An untouched dialog saves the stored headers back.
+  await edit();
+  await submit();
+  assert.deepEqual(lastSave(calls).headers, stored);
+  assert.equal(lastSave(calls).id, CUSTOM.id);
+  // Change one value, add one header, remove another.
+  await edit();
+  await type(headerRows()[1].querySelectorAll('input')[1], 'green');
+  await click(button('+ Add'));
+  await type(headerRows()[2].querySelectorAll('input')[0], 'X-Extra');
+  await type(headerRows()[2].querySelectorAll('input')[1], '1');
+  await click(button('Remove originator'));
+  assert.deepEqual(headerValues(), [
+    ['X-Team', 'green'],
+    ['X-Extra', '1'],
+  ]);
+  assert.equal(headersSection().querySelector('summary').textContent, 'HTTP headers · 2');
+  await submit();
+  assert.deepEqual(lastSave(calls).headers, { 'X-Team': 'green', 'X-Extra': '1' });
+  // Removing every header sends an empty object, which clears the stored ones.
+  await edit();
+  await click(button('Remove originator'));
+  await click(button('Remove X-Team'));
+  assert.equal(headersSection().querySelector('summary').textContent, 'HTTP headers');
+  await submit();
+  assert.deepEqual(lastSave(calls).headers, {});
+});
+
+test('HTTP headers: a provider without headers saves none and a nameless value is refused', async (t) => {
+  const calls = [];
+  const { render } = mount(t, { calls, handlers: { saveCustomProvider: (i) => i } });
+  await render();
+  await click(button('Edit'));
+  assert.equal(headersSection().open, false);
+  await submit();
+  assert.equal('headers' in lastSave(calls), false);
+  await click(button('Edit'));
+  await type(headerRows()[0].querySelectorAll('input')[1], 'orphan');
+  calls.length = 0;
+  await submit();
+  assert.equal(calls.length, 0);
+  assert.match(alerts(), /HTTP headers contains a value without a key/);
+});
+
+test('HTTP headers: a credential header is flagged inline and blocks save, test and refresh', async (t) => {
+  const calls = [];
+  const { render } = mount(t, {
+    calls,
+    handlers: {
+      testCustomProvider: () => ({ ok: true }),
+      discoverCustomProviderModels: () => ({ models: [{ id: 'found' }] }),
+      saveCustomProvider: (i) => i,
+    },
+  });
+  await render();
+  await fillNew();
+  const [name, value] = headerRows()[0].querySelectorAll('input');
+  await type(value, 'Bearer sk-other');
+  for (const blocked of ['Authorization', 'x-api-key', 'API-KEY']) {
+    await type(name, blocked);
+    const inline = headersSection().querySelector('[role=alert]');
+    assert.equal(
+      inline.textContent,
+      `The ${blocked} header cannot be set here. Enter the API key in the API key field instead.`
+    );
+    assert.equal(name.getAttribute('aria-invalid'), 'true');
+    // The message sits between the rows and the add button.
+    assert.equal(inline.nextElementSibling, button('+ Add'));
+  }
+  calls.length = 0;
+  await submit();
+  assert.equal(calls.length, 0);
+  assert.equal(headersSection().open, true);
+  await click(button('Test connection'));
+  assert.equal(calls.length, 0);
+  // A permitted name clears the message and unblocks save.
+  await type(name, 'originator');
+  assert.equal(headersSection().querySelector('[role=alert]'), null);
+  assert.equal(name.getAttribute('aria-invalid'), null);
+  await submit();
+  assert.deepEqual(lastSave(calls).headers, { originator: 'Bearer sk-other' });
+});

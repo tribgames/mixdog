@@ -655,6 +655,7 @@ function customProviderRow(id, entry, checkSecrets = true) {
   row.auth = keyless ? 'none' : 'key';
   row.discovery = structuredClone(config?.discovery ?? entry.discovery ?? { newModelsHidden: false });
   row.modelOverrides = structuredClone(config?.modelOverrides ?? entry.modelOverrides ?? {});
+  if (config?.headers) row.headers = { ...config.headers };
   if (config?.wires) row.wires = [...config.wires];
   if (config?.modelWires) row.modelWires = { ...config.modelWires };
   // A stored config that does not normalize cannot run (the registry skips
@@ -1226,7 +1227,7 @@ function inputObject(input) {
 }
 
 // An edit that omits a stored setting keeps it: `auth` for every input shape,
-// and `discovery` / `modelOverrides` for a v2 input (a legacy `models` input
+// and `discovery` / `modelOverrides` / `headers` for a v2 input (a legacy `models` input
 // states the whole manual model list itself).
 function withStoredSettings(input, entry) {
   const stored = storedCustomConfig(entry);
@@ -1241,6 +1242,8 @@ function withStoredSettings(input, entry) {
   if (out.schemaVersion === stored.schemaVersion) {
     if (out.discovery === undefined) out.discovery = stored.discovery;
     if (out.modelOverrides === undefined) out.modelOverrides = stored.modelOverrides;
+    // `headers: {}` clears them; an omitted field keeps the stored ones.
+    if (out.headers === undefined && stored.headers) out.headers = stored.headers;
     // Served wires and per-model wires have no setup field yet: an edit on
     // the same protocol keeps them (another protocol serves other wires).
     if ((out.protocol ?? stored.protocol) === stored.protocol) {

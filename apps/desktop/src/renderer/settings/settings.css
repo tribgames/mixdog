@@ -191,6 +191,9 @@
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .settings-custom-headers .extensions-mcp-list-add {
+    margin-top: 6px;
+  }
   .settings-custom-provider-dialog > form {
     min-height: 0;
     overflow-y: auto;

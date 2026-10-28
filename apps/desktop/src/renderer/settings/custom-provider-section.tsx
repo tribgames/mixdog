@@ -10,8 +10,10 @@ import { record, rows } from '../record-utils';
 import { useMobileBack } from '../mobile-back';
 import { acquireTitleBarDim } from '../titlebar-dim';
 import { CustomModelEditor } from './custom-model-editor';
+import { blockedAuthHeader, blockedHeaderMessage, CustomProviderHeaders } from './custom-provider-headers';
 import { CustomProviderKeyFields, useKeyEnvPresence } from './custom-provider-key-fields';
 import { type CustomModel, CustomProviderModelsList } from './custom-provider-models-list';
+import { pairRecord, pairRows, type PairRow } from './pair-list-rows';
 import { errorMessageText } from '../ErrorNotice';
 
 export const CUSTOM_PROTOCOLS = [
@@ -132,6 +134,7 @@ function customProviderInput({
   overrides,
   models,
   modelDraft,
+  headers,
   envMode,
   envValid,
   envName,
@@ -146,6 +149,7 @@ function customProviderInput({
   overrides: RecordValue;
   models: CustomModel[];
   modelDraft: string;
+  headers: PairRow[];
   envMode: boolean;
   envValid: boolean;
   envName: string;
@@ -162,6 +166,9 @@ function customProviderInput({
   if (!url || (url.protocol !== 'https:' && !(url.protocol === 'http:' && loopback))) {
     throw new Error(t('Base URL must use HTTPS (HTTP is allowed only for localhost).'));
   }
+  const blockedHeader = blockedAuthHeader(headers);
+  if (blockedHeader) throw new Error(blockedHeaderMessage(blockedHeader));
+  const headerValues = pairRecord(headers, t('HTTP headers'));
   // Every visible manual model is submitted as a v2 manual override (the
   // user can remove any); none means automatic discovery.
   const draft = modelDraft.trim();
@@ -175,6 +182,10 @@ function customProviderInput({
     modelOverrides: overridesWithManual(overrides, withDraft),
   };
   if (provider) input.id = provider.id;
+  // Headers are sent when set, and as {} when the provider had some: that clears them.
+  if (Object.keys(headerValues).length || Object.keys(record(provider?.headers)).length) {
+    input.headers = headerValues;
+  }
   if (!keyless && envMode) {
     if (!envValid) {
       throw new Error(
@@ -466,6 +477,8 @@ function CustomProviderForm({
   const [models, setModels] = useState<CustomModel[]>(existing);
   const [manualOpen, setManualOpen] = useState(existing.length > 0);
   const [modelDraft, setModelDraft] = useState('');
+  const [headers, setHeaders] = useState<PairRow[]>(() => pairRows(provider?.headers));
+  const [headersOpen, setHeadersOpen] = useState(headers.length > 0);
 
   const checkedName = envMode && !keyless && envValid ? envName.trim() : '';
   const envFound = useKeyEnvPresence(run, uid, checkedName);
@@ -480,6 +493,7 @@ function CustomProviderForm({
       overrides,
       models,
       modelDraft,
+      headers,
       envMode,
       envValid,
       envName,
@@ -518,6 +532,11 @@ function CustomProviderForm({
     const problem = nameError(name);
     setNameProblem(problem);
     if (problem) return;
+    // A credential header blocks the save; its message is shown in the opened section.
+    if (blockedAuthHeader(headers)) {
+      setHeadersOpen(true);
+      return;
+    }
     await connection.save(() => {
       if (!keyless && !envMode && !apiKey.trim() && needsKey) throw new Error(t('No API key'));
     });
@@ -657,6 +676,16 @@ function CustomProviderForm({
               changed();
             }}
             onRefresh={() => void refreshModels()}
+          />
+          <CustomProviderHeaders
+            open={headersOpen}
+            rows={headers}
+            disabled={disabled}
+            onToggle={setHeadersOpen}
+            onChange={(next) => {
+              setHeaders(next);
+              changed();
+            }}
           />
           <CustomProviderOutcome
             working={working !== ''}

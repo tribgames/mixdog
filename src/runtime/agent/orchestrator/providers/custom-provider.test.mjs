@@ -1192,3 +1192,120 @@ test('config merge injects keychain key only for stored custom providers and sta
     delete process.env[`MIXDOG_AGENT_${id.toUpperCase().replace(/[.\s]+/g, '_')}_APIKEY`];
   }
 });
+
+test('headers: normalized, validated and schemaVersion 2 only', () => {
+  const v2 = { ...base, schemaVersion: 2, protocol: 'openai-chat' };
+  const ok = normalizeCustomProviderConfig({ ...v2, headers: { originator: ' codex_cli_rs ', 'X-Team': 'blue' } });
+  assert.deepEqual(ok.headers, { originator: 'codex_cli_rs', 'X-Team': 'blue' });
+  assert.deepEqual(normalizeCustomProviderConfig(ok), ok);
+  // Only space and tab are trimmed; other legal octets such as NBSP are kept.
+  assert.deepEqual(
+    normalizeCustomProviderConfig({ ...v2, headers: { a: '\t\u00a0token\u00a0 ' } }).headers,
+    { a: '\u00a0token\u00a0' }
+  );
+  // An empty object is the same as no headers.
+  assert.equal(Object.hasOwn(normalizeCustomProviderConfig({ ...v2, headers: {} }), 'headers'), false);
+  assert.equal(Object.hasOwn(normalizeCustomProviderConfig(v2), 'headers'), false);
+  // The API key field owns authentication, whatever the case.
+  for (const name of ['Authorization', 'authorization', 'AUTHORIZATION', 'X-Api-Key', 'x-api-key', 'API-KEY']) {
+    assert.throws(
+      () => normalizeCustomProviderConfig({ ...v2, headers: { originator: 'a', [name]: 'secret' } }),
+      /headers must not set .*: authentication belongs to the API key field/,
+      name
+    );
+  }
+  for (const [headers, pattern] of [
+    [[], /headers must be an object/],
+    [null, /headers must be an object/],
+    ['originator: x', /headers must be an object/],
+    [{ 'bad name': 'x' }, /invalid header name/],
+    [{ '': 'x' }, /invalid header name/],
+    [{ 'X:Y': 'x' }, /invalid header name/],
+    [{ 'X-Ü': 'x' }, /invalid header name/],
+    [{ a: 1 }, /headers\.a must be a string/],
+    [{ a: null }, /headers\.a must be a string/],
+    [{ a: 'x\r\nInjected: 1' }, /headers\.a has an invalid value/],
+    // Surrounding CR/LF is refused, never stripped into a valid value.
+    [{ a: '\r\ntoken\r\n' }, /headers\.a has an invalid value/],
+    [{ a: 'x\u0000' }, /headers\.a has an invalid value/],
+    [{ a: '日本' }, /headers\.a has an invalid value/],
+    [{ 'X-A': '1', 'x-a': '2' }, /duplicate header/],
+    [Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`x-h${i}`, 'v'])), /at most 64 headers/],
+  ]) {
+    const label = JSON.stringify(headers).slice(0, 40);
+    assert.throws(() => normalizeCustomProviderConfig({ ...v2, headers }), pattern, label);
+  }
+  assert.doesNotThrow(() =>
+    normalizeCustomProviderConfig({
+      ...v2,
+      headers: Object.fromEntries(Array.from({ length: 64 }, (_, i) => [`x-h${i}`, 'v'])),
+    })
+  );
+  assert.throws(
+    () => normalizeCustomProviderConfig({ ...base, protocol: 'openai-chat', headers: { originator: 'x' } }),
+    /headers require schemaVersion 2/
+  );
+});
+
+test('headers: sent on inference and model discovery for every protocol; without headers nothing changes', async () => {
+  const headers = { originator: 'codex_cli_rs', 'X-Team': 'blue' };
+  const v2 = {
+    ...base,
+    schemaVersion: 2,
+    apiKey: 'sk-h',
+    preconnect: false,
+    modelOverrides: { m1: { manual: true } },
+  };
+  for (const [protocol, events, authHeader, auth] of [
+    ['openai-chat', CHAT, 'authorization', 'Bearer sk-h'],
+    ['openai-responses', RESPONSES, 'authorization', 'Bearer sk-h'],
+    ['anthropic', ANTHROPIC, 'x-api-key', 'sk-h'],
+  ]) {
+    const plain = await createCustomProvider(`custom-hdr-plain-${protocol}`, { ...v2, protocol });
+    const p = await createCustomProvider(`custom-hdr-${protocol}`, { ...v2, protocol, headers });
+    assert.equal(plain.config.extraHeaders, undefined, protocol);
+    const plainRequests = mock(plain, () => sse(events));
+    const requests = mock(p, () => sse(events));
+    await plain.send(prompt, 'm1', tools, {});
+    await p.send(prompt, 'm1', tools, {});
+    assert.equal(plainRequests[0].headers.has('originator'), false, protocol);
+    assert.equal(requests[0].headers.get('originator'), 'codex_cli_rs', protocol);
+    assert.equal(requests[0].headers.get('x-team'), 'blue', protocol);
+    assert.equal(requests[0].headers.get(authHeader), auth, protocol);
+    // Only the stated headers are added to the request.
+    const added = [...requests[0].headers.keys()].filter((name) => !plainRequests[0].headers.has(name));
+    assert.deepEqual(added.sort(), ['originator', 'x-team'], protocol);
+
+    // Model discovery carries them too, next to the key.
+    const seen = [];
+    await withFetch(
+      (url, init) => {
+        seen.push({ url, headers: new Headers(init.headers) });
+        return Response.json({ data: [{ id: 'found' }] });
+      },
+      async () => {
+        await p.listModels();
+        await plain.listModels();
+      }
+    );
+    assert.equal(seen[0].url, 'https://llm.example.com/v1/models', protocol);
+    assert.equal(seen[0].headers.get('originator'), 'codex_cli_rs', protocol);
+    assert.equal(seen[0].headers.get('x-team'), 'blue', protocol);
+    assert.equal(seen[0].headers.get(authHeader), auth, protocol);
+    assert.equal(seen[1].headers.has('originator'), false, protocol);
+  }
+  // A declared Messages wire reaches the same headers through its bound engine.
+  const routed = await createCustomProvider('custom-hdr-routed', {
+    ...v2,
+    protocol: 'openai-chat',
+    headers,
+    wires: ['chat', 'messages'],
+    modelWires: { ant: 'messages' },
+    modelOverrides: { m1: { manual: true }, ant: { manual: true } },
+  });
+  const messagesRequests = mock(routed.messagesEngine, () => sse(ANTHROPIC));
+  await routed.send(prompt, 'ant', tools, {});
+  assert.equal(messagesRequests[0].url.pathname, '/v1/messages');
+  assert.equal(messagesRequests[0].headers.get('originator'), 'codex_cli_rs');
+  assert.equal(messagesRequests[0].headers.get('x-api-key'), 'sk-h');
+});

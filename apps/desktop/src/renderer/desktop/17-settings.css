@@ -468,6 +468,22 @@
   font-family: var(--mx-font-mono);
   font-size: 12px;
 }
+.settings-custom-headers-count {
+  color: var(--mx-text-muted);
+}
+.settings-custom-provider-form .settings-custom-headers input {
+  font-family: var(--mx-font-mono);
+  font-size: 13px;
+}
+.settings-custom-provider-form .settings-custom-headers input[aria-invalid="true"] {
+  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-danger);
+}
+.settings-custom-headers .settings-custom-headers-error {
+  margin: 6px 0 0;
+  color: var(--mx-danger);
+  font-size: 13px;
+  line-height: 18px;
+}
 .settings-oauth-dialog.settings-custom-provider-dialog {
   width: min(520px, calc(100vw - 32px));
 }

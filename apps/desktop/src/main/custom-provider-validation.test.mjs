@@ -42,6 +42,27 @@ test('custom provider wires and modelWires are shape-checked and v2 only', () =>
   assert.throws(() => requiredCustomProviderInput({ ...valid, wires: ['chat'] }), /schemaVersion/);
 });
 
+test('custom provider headers are shape-checked and v2 only', () => {
+  const v2 = { name: 'Local', protocol: 'openai-chat', baseURL: 'http://localhost:1234/v1', schemaVersion: 2 };
+  assert.deepEqual(
+    requiredCustomProviderInput({ ...v2, headers: { originator: 'codex_cli_rs', 'X-Team': 'blue' } }).headers,
+    { originator: 'codex_cli_rs', 'X-Team': 'blue' }
+  );
+  // {} is how an edit clears the stored headers.
+  assert.doesNotThrow(() => requiredCustomProviderInput({ ...v2, headers: {} }));
+  for (const bad of [
+    { headers: [] },
+    { headers: null },
+    { headers: 'originator: x' },
+    { headers: { a: 1 } },
+    { headers: { a: null } },
+    { headers: Object.fromEntries(Array.from({ length: 65 }, (_, i) => [`x-h${i}`, 'v'])) },
+  ]) {
+    assert.throws(() => requiredCustomProviderInput({ ...v2, ...bad }), TypeError, JSON.stringify(bad).slice(0, 40));
+  }
+  assert.throws(() => requiredCustomProviderInput({ ...valid, headers: { a: 'b' } }), /schemaVersion/);
+});
+
 test('custom provider apiKeyEnv is validated and exclusive with apiKey', () => {
   const env = { ...valid, auth: 'key' };
   assert.doesNotThrow(() => requiredCustomProviderInput({ ...env, apiKeyEnv: 'GROQ_API_KEY' }));
@@ -128,6 +149,7 @@ test('IPC custom-provider vocabulary and limits match the runtime normalizer', a
   const runtime = await import('../../../../src/runtime/agent/orchestrator/providers/custom-provider-config.mjs');
   assert.deepEqual([...ipc.CUSTOM_REASONING_LEVELS], [...runtime.CUSTOM_REASONING_LEVELS]);
   assert.equal(ipc.CUSTOM_MAX_OVERRIDES, runtime.CUSTOM_MODEL_OVERRIDE_LIMIT);
+  assert.equal(ipc.CUSTOM_MAX_HEADERS, runtime.CUSTOM_HEADER_LIMIT);
   // Every boundary value the IPC accepts, the runtime accepts too.
   const atLimit = {
     ...v2,
@@ -165,6 +187,11 @@ const PARITY_CASES = [
   ['deepseek on chat', { modelOverrides: { m: { reasoning: { wireFormat: 'deepseek' } } } }, true],
   ['max safe integer', { modelOverrides: { m: { contextWindow: Number.MAX_SAFE_INTEGER } } }, true],
   ['discovery empty', { discovery: {} }, true],
+  ['headers', { headers: { originator: 'codex_cli_rs' } }, true],
+  ['headers empty', { headers: {} }, true],
+  ['headers array', { headers: [] }, false],
+  ['headers null', { headers: null }, false],
+  ['headers non-string value', { headers: { a: 1 } }, false],
   ['ultra + max duplicate', { modelOverrides: { m: { reasoning: { levels: ['max', 'ultra'] } } } }, false],
   ['duplicate level', { modelOverrides: { m: { reasoning: { levels: ['low', 'low'] } } } }, false],
   ['unknown level', { modelOverrides: { m: { reasoning: { levels: ['turbo'] } } } }, false],

@@ -17,6 +17,7 @@ import {
   ExtensionItemRow,
   ExtensionNote,
 } from './extension-detail';
+import { PairRows, pairRecord, pairRows, type PairRow } from './pair-list-rows';
 
 function mcpTransport(config: RecordValue): string {
   const explicit = String(config.type || config.transport || '').toLowerCase();
@@ -37,8 +38,6 @@ export function mcpRowDescription(server: RecordValue): string {
   }
   return ['STDIO', String(config.command || '').trim()].filter(Boolean).join(' · ');
 }
-
-type McpPair = { key: string; value: string };
 
 /** True when the config already carries its own credentials (a bearer
  *  variable or headers), so explicit OAuth sign-in does not apply. */
@@ -65,25 +64,6 @@ const PROBE_TYPING_DELAY_MS = 500;
 
 function mcpStringValues(value: unknown): string[] {
   return Array.isArray(value) ? value.map(String) : [];
-}
-
-function mcpPairValues(value: unknown): McpPair[] {
-  return Object.entries(record(value)).map(([key, entry]) => ({ key, value: String(entry ?? '') }));
-}
-
-function mcpPairRecord(values: McpPair[], field: string): Record<string, string> {
-  const result: Record<string, string> = {};
-  for (const row of values) {
-    const key = row.key.trim();
-    const value = row.value;
-    if (!key && !value.trim()) continue;
-    if (!key) throw new Error(t('{{field}} contains a value without a key.', { field }));
-    if (Object.hasOwn(result, key)) {
-      throw new Error(t('{{field}} contains duplicate key "{{key}}".', { field, key }));
-    }
-    result[key] = value;
-  }
-  return result;
 }
 
 function McpStringListEditor({
@@ -155,67 +135,23 @@ function McpPairListEditor({
 }: {
   label: string;
   description: string;
-  values: McpPair[];
+  values: PairRow[];
   keyPlaceholder: string;
   valuePlaceholder: string;
   busy: boolean;
-  onChange(values: McpPair[]): void;
+  onChange(values: PairRow[]): void;
 }) {
-  const visible = values.length ? values : [{ key: '', value: '' }];
   return (
     <fieldset className="extensions-mcp-list">
       <legend>{label}</legend>
       <small>{description}</small>
-      <div className="extensions-mcp-list-rows">
-        {visible.map((row, index) => (
-          // biome-ignore lint/suspicious/noArrayIndexKey: rows are key/value pairs edited by position and never reorder.
-          <div className="extensions-mcp-list-row extensions-mcp-pair-row" key={`${label}-${index}`}>
-            <input
-              value={row.key}
-              placeholder={keyPlaceholder}
-              disabled={busy}
-              spellCheck={false}
-              onChange={(event) => {
-                const next = visible.map((entry) => ({ ...entry }));
-                next[index].key = event.currentTarget.value;
-                onChange(next);
-              }}
-            />
-            <input
-              value={row.value}
-              placeholder={valuePlaceholder}
-              disabled={busy}
-              spellCheck={false}
-              onChange={(event) => {
-                const next = visible.map((entry) => ({ ...entry }));
-                next[index].value = event.currentTarget.value;
-                onChange(next);
-              }}
-            />
-            <button
-              type="button"
-              aria-label={t('Remove')}
-              disabled={busy || (!row.key && !row.value && values.length === 0)}
-              onClick={() => onChange(visible.filter((_, rowIndex) => rowIndex !== index))}
-            >
-              <X size={14} aria-hidden="true" />
-            </button>
-          </div>
-        ))}
-      </div>
-      <button
-        type="button"
-        className="extensions-mcp-list-add"
-        disabled={busy}
-        onClick={() =>
-          onChange([
-            ...visible.filter((row, index) => row.key || row.value || index < values.length),
-            { key: '', value: '' },
-          ])
-        }
-      >
-        + {t('Add')}
-      </button>
+      <PairRows
+        values={values}
+        keyPlaceholder={keyPlaceholder}
+        valuePlaceholder={valuePlaceholder}
+        busy={busy}
+        onChange={onChange}
+      />
     </fieldset>
   );
 }
@@ -263,10 +199,10 @@ export function McpEditorDialog({
   const initialTransport = mcpTransport(config);
   const [transport, setTransport] = useState(initialTransport);
   const [args, setArgs] = useState(() => mcpStringValues(config.args));
-  const [env, setEnv] = useState(() => mcpPairValues(config.env));
+  const [env, setEnv] = useState(() => pairRows(config.env));
   const [envVars, setEnvVars] = useState(() => mcpStringValues(config.env_vars));
-  const [headers, setHeaders] = useState(() => mcpPairValues(config.headers));
-  const [envHeaders, setEnvHeaders] = useState(() => mcpPairValues(config.env_http_headers));
+  const [headers, setHeaders] = useState(() => pairRows(config.headers));
+  const [envHeaders, setEnvHeaders] = useState(() => pairRows(config.env_http_headers));
   const [formError, setFormError] = useState('');
   const [url, setUrl] = useState(String(config.url || ''));
   const [bearer, setBearer] = useState(String(config.bearer_token_env_var || ''));
@@ -356,14 +292,14 @@ export function McpEditorDialog({
       if (transport === 'stdio') {
         payload.command = String(data.get('mcp-command') || '').trim();
         payload.args = args.map((value) => value.trim()).filter(Boolean);
-        payload.env = mcpPairRecord(env, t('Environment'));
+        payload.env = pairRecord(env, t('Environment'));
         payload.env_vars = envVars.map((value) => value.trim()).filter(Boolean);
         payload.cwd = String(data.get('mcp-cwd') || '').trim();
       } else {
         payload.url = String(data.get('mcp-url') || '').trim();
-        payload.headers = mcpPairRecord(headers, t('Headers'));
+        payload.headers = pairRecord(headers, t('Headers'));
         payload.bearer_token_env_var = String(data.get('mcp-bearer-token-env') || '').trim();
-        payload.env_http_headers = mcpPairRecord(envHeaders, t('Environment-backed headers'));
+        payload.env_http_headers = pairRecord(envHeaders, t('Environment-backed headers'));
         payload.oauthClientId = String(data.get('mcp-oauth-client-id') || '').trim();
         // Sent only when typed: the host keeps it in the keychain, never here.
         const secret = String(data.get('mcp-oauth-client-secret') || '').trim();

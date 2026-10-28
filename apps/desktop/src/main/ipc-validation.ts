@@ -662,6 +662,7 @@ const CUSTOM_PROVIDER_KEYS = new Set([
   'modelOverrides',
   'wires',
   'modelWires',
+  'headers',
   'type',
 ]);
 // Wires a custom OpenAI-compatible endpoint can serve (custom-provider-config.mjs).
@@ -685,6 +686,7 @@ const CUSTOM_REASONING_KEYS = new Set(['levels', 'wireFormat', 'wireValues', 're
 export const CUSTOM_REASONING_LEVELS = ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const;
 const CUSTOM_WIRE_FORMATS = new Set(['standard', 'deepseek']);
 export const CUSTOM_MAX_OVERRIDES = 500;
+export const CUSTOM_MAX_HEADERS = 64;
 export const CUSTOM_MAX_MODEL_ID = 256;
 export const CUSTOM_MAX_NAME = 200;
 export const CUSTOM_MAX_WIRE_VALUE = 64;
@@ -754,10 +756,20 @@ export function requiredCustomProviderInput(value: unknown, modelsOptional = fal
     (input.discovery !== undefined ||
       input.modelOverrides !== undefined ||
       input.wires !== undefined ||
-      input.modelWires !== undefined) &&
+      input.modelWires !== undefined ||
+      input.headers !== undefined) &&
     input.schemaVersion !== 2
   ) {
     throw new TypeError('custom provider schemaVersion is invalid.');
+  }
+  // Shape only; the runtime validates the names and values and refuses credential headers.
+  if (input.headers !== undefined) {
+    const headers = plainRecord(input.headers, 'custom provider headers');
+    const names = Object.keys(headers);
+    if (names.length > CUSTOM_MAX_HEADERS) throw new TypeError('custom provider headers are too large.');
+    if (names.some((name) => typeof headers[name] !== 'string')) {
+      throw new TypeError('custom provider headers are invalid.');
+    }
   }
   // Shape only; the runtime ties them to the protocol and to each other.
   if (input.wires !== undefined) {
