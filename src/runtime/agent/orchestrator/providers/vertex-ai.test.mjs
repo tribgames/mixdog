@@ -5,7 +5,7 @@ import test from 'node:test';
 import { VertexAccessTokenManager, VERTEX_SCOPE, VERTEX_TOKEN_URI } from './vertex-ai-auth.mjs';
 import { VertexAIProvider } from './vertex-ai.mjs';
 
-function serviceAccount() {
+function serviceAccount(overrides = {}) {
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
   return {
     type: 'service_account',
@@ -13,6 +13,7 @@ function serviceAccount() {
     client_email: 'mixdog@test-project.iam.gserviceaccount.com',
     private_key: privateKey.export({ type: 'pkcs8', format: 'pem' }),
     token_uri: VERTEX_TOKEN_URI,
+    ...overrides,
   };
 }
 
@@ -69,6 +70,165 @@ test('Vertex access tokens use an RS256 service-account JWT, cache, and refresh 
 
   now += 56 * 60_000;
   assert.equal(await manager.getAccessToken(), 'token-2');
+  assert.equal(tokenRequests.length, 2);
+});
+
+test('Vertex access tokens are bound to the account that minted them', async () => {
+  const accountA = serviceAccount({ client_email: 'a@project-a.iam.gserviceaccount.com', project_id: 'project-a' });
+  const accountB = serviceAccount({ client_email: 'b@project-b.iam.gserviceaccount.com', project_id: 'project-b' });
+  let current = JSON.stringify(accountA);
+  let releaseA;
+  const gateA = new Promise((resolve) => {
+    releaseA = resolve;
+  });
+  const minted = [];
+  const manager = new VertexAccessTokenManager({
+    credentialResolver: () => current,
+    fetchFn: async (_url, init) => {
+      const claims = decodeJwtPart(new URLSearchParams(init.body).get('assertion').split('.')[1]);
+      minted.push(claims.iss);
+      if (claims.iss === accountA.client_email) await gateA;
+      return Response.json({ access_token: `token-for-${claims.iss}`, expires_in: 3600 });
+    },
+  });
+
+  // Account A's token request is still in flight when the credential switches to B.
+  const inFlight = manager.getAccessToken();
+  current = JSON.stringify(accountB);
+  assert.equal(manager.projectId(), 'project-b');
+  releaseA();
+  assert.equal(await inFlight, `token-for-${accountA.client_email}`);
+
+  // A's late token must not be served for account B.
+  assert.equal(await manager.getAccessToken(), `token-for-${accountB.client_email}`);
+  assert.deepEqual(minted, [accountA.client_email, accountB.client_email]);
+});
+
+test('Vertex credential changes record nothing until the service-account JSON is valid', async () => {
+  const account = serviceAccount();
+  let current = JSON.stringify(account);
+  let tokenRequests = 0;
+  const manager = new VertexAccessTokenManager({
+    credentialResolver: () => current,
+    fetchFn: async () => {
+      tokenRequests += 1;
+      return Response.json({ access_token: `token-${tokenRequests}`, expires_in: 3600 });
+    },
+  });
+  assert.equal(await manager.getAccessToken(), 'token-1');
+
+  current = JSON.stringify({ type: 'service_account', client_email: 'other@test.iam.gserviceaccount.com' });
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await assert.rejects(manager.getAccessToken(), /must include client_email, private_key, and project_id/);
+    assert.throws(() => manager.projectId(), /must include client_email, private_key, and project_id/);
+  }
+  current = '{not json';
+  await assert.rejects(manager.getAccessToken(), /service-account JSON is invalid/);
+  await assert.rejects(manager.getAccessToken(), /service-account JSON is invalid/);
+  assert.equal(tokenRequests, 1);
+});
+
+test('Vertex cached tokens are not served after the private key is replaced', async () => {
+  const account = serviceAccount({ private_key_id: 'key-1' });
+  let current = JSON.stringify(account);
+  let tokenRequests = 0;
+  const manager = new VertexAccessTokenManager({
+    credentialResolver: () => current,
+    fetchFn: async () => {
+      tokenRequests += 1;
+      return Response.json({ access_token: `token-${tokenRequests}`, expires_in: 3600 });
+    },
+  });
+  assert.equal(await manager.getAccessToken(), 'token-1');
+
+  // Same email, project and private_key_id, different key material.
+  current = JSON.stringify({ ...account, private_key: 'not a pem' });
+  await assert.rejects(manager.getAccessToken(), (error) => error?.code === 'EVERTEXAUTH');
+  assert.equal(tokenRequests, 1);
+  current = JSON.stringify({ ...account, private_key: serviceAccount().private_key });
+  assert.equal(await manager.getAccessToken(), 'token-2');
+});
+
+function claudeRequest(provider) {
+  return provider.send([{ role: 'user', content: 'hello' }], 'claude-sonnet-5-5', [], {});
+}
+
+test('Vertex 401 retry aborts when the credential changed instead of pairing it with the old URL', async () => {
+  const accountA = serviceAccount({ client_email: 'a@project-a.iam.gserviceaccount.com', project_id: 'project-a' });
+  const accountB = serviceAccount({ client_email: 'b@project-b.iam.gserviceaccount.com', project_id: 'project-b' });
+  const changedAuth = (error) =>
+    error?.code === 'EVERTEXAUTH' && /credential changed during the request/.test(error.message);
+
+  // Swap before the retry: the rejected request returns 401 as the credential switches.
+  {
+    const requests = [];
+    const provider = new VertexAIProvider({
+      apiKey: JSON.stringify(accountA),
+      location: 'global',
+      fetchFn: async (url, init = {}) => {
+        if (url === VERTEX_TOKEN_URI) {
+          const iss = decodeJwtPart(new URLSearchParams(init.body).get('assertion').split('.')[1]).iss;
+          return Response.json({ access_token: `token-for-${iss}`, expires_in: 3600 });
+        }
+        requests.push({ url, authorization: new Headers(init.headers).get('authorization') });
+        provider.config.apiKey = JSON.stringify(accountB);
+        return new Response('unauthorized', { status: 401 });
+      },
+    });
+    await assert.rejects(claudeRequest(provider), changedAuth);
+    assert.equal(requests.length, 1);
+    assert.match(requests[0].url, /\/projects\/project-a\//);
+    assert.equal(requests[0].authorization, `Bearer token-for-${accountA.client_email}`);
+  }
+
+  // Swap while the retry's token is being acquired.
+  {
+    let tokenRequests = 0;
+    let apiRequests = 0;
+    const provider = new VertexAIProvider({
+      apiKey: JSON.stringify(accountA),
+      location: 'global',
+      fetchFn: async (url) => {
+        if (url === VERTEX_TOKEN_URI) {
+          tokenRequests += 1;
+          if (tokenRequests === 2) provider.config.apiKey = JSON.stringify(accountB);
+          return Response.json({ access_token: `token-${tokenRequests}`, expires_in: 3600 });
+        }
+        apiRequests += 1;
+        return apiRequests === 1 ? new Response('unauthorized', { status: 401 }) : claudeSse('wrong-account');
+      },
+    });
+    await assert.rejects(claudeRequest(provider), changedAuth);
+    assert.equal(apiRequests, 1);
+  }
+});
+
+test('Vertex 401 handling drops only the rejected token and reuses a fresher cached one', async () => {
+  let now = 1_800_000_000_000;
+  const tokenRequests = [];
+  const authorizations = [];
+  const provider = new VertexAIProvider({
+    apiKey: JSON.stringify(serviceAccount()),
+    location: 'global',
+    now: () => now,
+    fetchFn: async (url, init = {}) => {
+      if (url === VERTEX_TOKEN_URI) {
+        tokenRequests.push(url);
+        return Response.json({ access_token: `token-${tokenRequests.length}`, expires_in: 3600 });
+      }
+      authorizations.push(new Headers(init.headers).get('authorization'));
+      if (authorizations.length === 1) {
+        // A concurrent request refreshes the token while this one is rejected.
+        now += 56 * 60_000;
+        await provider._auth.getAccessToken();
+        return new Response('expired', { status: 401 });
+      }
+      return claudeSse('retry-ok');
+    },
+  });
+  const result = await claudeRequest(provider);
+  assert.equal(result.content, 'retry-ok');
+  assert.deepEqual(authorizations, ['Bearer token-1', 'Bearer token-2']);
   assert.equal(tokenRequests.length, 2);
 });
 

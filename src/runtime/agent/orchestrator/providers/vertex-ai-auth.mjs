@@ -1,4 +1,4 @@
-import { createSign } from 'node:crypto';
+import { createHash, createSign } from 'node:crypto';
 
 export const VERTEX_TOKEN_URI = 'https://oauth2.googleapis.com/token';
 export const VERTEX_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
@@ -25,10 +25,15 @@ export function parseVertexServiceAccount(raw) {
   const clientEmail = String(value.client_email || '').trim();
   const privateKey = String(value.private_key || '').trim();
   const projectId = String(value.project_id || '').trim();
+  const privateKeyId = String(value.private_key_id || '').trim();
   if (!clientEmail || !privateKey || !projectId) {
     throw new Error('Vertex AI service-account JSON must include client_email, private_key, and project_id.');
   }
-  return { clientEmail, privateKey, projectId, tokenUri: VERTEX_TOKEN_URI };
+  // The identity every minted access token is bound to and checked against.
+  // The key fingerprint does not depend on the optional private_key_id.
+  const keyFingerprint = createHash('sha256').update(privateKey).digest('hex');
+  const identity = JSON.stringify([clientEmail, privateKeyId, projectId, keyFingerprint]);
+  return { clientEmail, privateKey, privateKeyId, projectId, identity, tokenUri: VERTEX_TOKEN_URI };
 }
 
 export function createVertexJwtAssertion(account, nowMs = Date.now()) {
@@ -62,17 +67,18 @@ export class VertexAccessTokenManager {
     this.refreshSkewMs = refreshSkewMs;
     this.credentialRaw = '';
     this.account = null;
-    this.token = '';
-    this.expiresAt = 0;
+    // { identity, token, expiresAt }: served only to the account that minted it.
+    this.cached = null;
   }
 
   _account() {
     const raw = String(this.credentialResolver?.() || '').trim();
     if (!raw) throw new Error('Vertex AI service-account JSON is not configured.');
     if (raw !== this.credentialRaw) {
-      this.credentialRaw = raw;
+      // Parse first: a malformed key must leave the previous state untouched
+      // and keep failing, never be remembered as the current credential.
       this.account = parseVertexServiceAccount(raw);
-      this.invalidate();
+      this.credentialRaw = raw;
     }
     return this.account;
   }
@@ -81,15 +87,33 @@ export class VertexAccessTokenManager {
     return this._account().projectId;
   }
 
-  invalidate() {
-    this.token = '';
-    this.expiresAt = 0;
+  identity() {
+    return this._account().identity;
   }
 
-  async getAccessToken({ force = false } = {}) {
+  // A request built for one account must not run under another's credentials.
+  assertIdentity(identity) {
+    if (this._account().identity !== identity) {
+      throw Object.assign(
+        new Error('Vertex AI authentication failed: the service-account credential changed during the request.'),
+        { code: 'EVERTEXAUTH' }
+      );
+    }
+  }
+
+  // Drops only the token the server rejected; a fresher one stays cached.
+  invalidate(rejectedToken) {
+    if (rejectedToken && this.cached?.token === rejectedToken) this.cached = null;
+  }
+
+  async getAccessToken({ identity } = {}) {
+    if (identity !== undefined) this.assertIdentity(identity);
     const account = this._account();
     const now = this.now();
-    if (!force && this.token && now + this.refreshSkewMs < this.expiresAt) return this.token;
+    const cached = this.cached;
+    if (cached?.identity === account.identity && now + this.refreshSkewMs < cached.expiresAt) {
+      return cached.token;
+    }
 
     let assertion;
     try {
@@ -130,8 +154,8 @@ export class VertexAccessTokenManager {
       });
     }
     const expiresIn = Math.max(1, Number(payload.expires_in) || 3600);
-    this.token = String(payload.access_token);
-    this.expiresAt = now + expiresIn * 1000;
-    return this.token;
+    const token = String(payload.access_token);
+    this.cached = { identity: account.identity, token, expiresAt: now + expiresIn * 1000 };
+    return token;
   }
 }

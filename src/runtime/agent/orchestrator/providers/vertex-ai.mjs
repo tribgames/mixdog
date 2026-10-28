@@ -183,16 +183,21 @@ export class VertexAIProvider {
   }
 
   async _authorizedFetch(url, init) {
-    const run = async (force) => {
-      const token = await this._auth.getAccessToken({ force });
+    // Callers build `url` from the current credential in the same tick, so this
+    // is the account the request targets; every attempt must still be that one.
+    const identity = this._auth.identity();
+    let token = '';
+    const run = async () => {
+      token = await this._auth.getAccessToken({ identity });
+      this._auth.assertIdentity(identity);
       const headers = new Headers(init?.headers || {});
       headers.set('Authorization', `Bearer ${token}`);
       return await this._fetch(url, { ...init, headers, dispatcher: getLlmDispatcher() });
     };
-    let response = await run(false);
+    let response = await run();
     if (response.status === 401) {
-      this._auth.invalidate();
-      response = await run(true);
+      this._auth.invalidate(token);
+      response = await run();
     }
     return response;
   }
