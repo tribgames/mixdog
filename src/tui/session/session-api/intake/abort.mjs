@@ -172,7 +172,8 @@ export function createAbortAction(bag) {
       runtime,
       flags,
       hasPendingSteering,
-      keepsPrompt ? USER_CANCEL_KEEP_PROMPT_REASON : reason
+      keepsPrompt ? USER_CANCEL_KEEP_PROMPT_REASON : reason,
+      { timeout: options?.timeout === true }
     );
     if (restoreState) {
       // A user Stop consumes this input even when no draft is requested.

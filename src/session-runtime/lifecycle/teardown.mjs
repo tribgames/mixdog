@@ -281,6 +281,6 @@ export function createTeardown(deps, { ingestSessionIntoMemory, closeSurfaceSess
   return {
     closeCanonicalSession: (reason, options) => closeCanonicalSession(deps, reason, options),
     close,
-    abort: (reason) => abortRuntime(deps, reason),
+    abort: (reason, options) => abortRuntime(deps, reason, options),
   };
 }

@@ -214,7 +214,7 @@ test('a watchdog stop surfaces as its stall error with the turn partial output, 
     () => h.tree.runAgentTurn({ session, prompt: 'measure' }),
     (error) => error === stall && error.partialHandoff === 'measured half'
   );
-  assert.deepEqual(aborts, [{ restorePrompt: false, reason: 'agent-watchdog' }]);
+  assert.deepEqual(aborts, [{ restorePrompt: false, reason: 'agent-watchdog', timeout: true }]);
   assert.equal(h.tree.agentDescriptor(session.id).status, 'error');
   runtime.reply = async () => ({ status: 'cancelled' });
   await assert.rejects(() => h.tree.runAgentTurn({ session, prompt: 'again' }), /agent session turn cancelled/);

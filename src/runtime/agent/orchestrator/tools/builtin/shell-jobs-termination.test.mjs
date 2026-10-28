@@ -254,7 +254,10 @@ test('stopping a job whose native entry expired still terminates its tracked des
   setTask('job_bg_7000', 'completed');
   await flush();
   tasks.delete('job_bg_7000');
-  assert.ok(killShellJob('job_bg_7000'), 'the tracker alone keeps the job stoppable');
+  const stopped = killShellJob('job_bg_7000');
+  assert.ok(stopped, 'the tracker alone keeps the job stoppable');
+  assert.equal(stopped.killed, true);
+  assert.equal('status' in stopped, false, 'an expired native entry is not reported as completed');
   await until(() => tree.state.kills.includes(7001));
   tree.state.next = () => processTable([]);
   t.mock.timers.tick(5_000);

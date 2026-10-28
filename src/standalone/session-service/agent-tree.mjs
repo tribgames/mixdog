@@ -174,9 +174,11 @@ export function createAgentTree({
       if (typeof runtime?.abort !== 'function') throw new Error(`agent runtime cannot abort session ${sessionId}`);
       const abort = () => {
         watchdogStops.set(sessionId, signal.reason);
-        Promise.resolve(runtime.abort({ restorePrompt: false, reason: 'agent-watchdog' })).catch((error) => {
-          log(`agent watchdog abort failed session=${sessionId}: ${error?.message || error}`);
-        });
+        Promise.resolve(runtime.abort({ restorePrompt: false, reason: 'agent-watchdog', timeout: true })).catch(
+          (error) => {
+            log(`agent watchdog abort failed session=${sessionId}: ${error?.message || error}`);
+          }
+        );
       };
       if (signal.aborted) abort();
       else signal.addEventListener('abort', abort, { once: true });

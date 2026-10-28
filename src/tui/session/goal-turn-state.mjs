@@ -1,11 +1,15 @@
 // A steering handoff cancels a turn, not its durable Goal. Record the explicit
 // abort path against its turn epoch instead of guessing intent from error text.
-export function abortGoalTurn(runtime, flags, hasPendingSteering, reason = 'user-cancel') {
+export function abortGoalTurn(runtime, flags, hasPendingSteering, reason = 'user-cancel', { timeout = false } = {}) {
   const previous = flags.goalSteeringAbortEpoch;
   const epoch = flags.leadTurnEpoch;
   flags.goalSteeringAbortEpoch = hasPendingSteering ? epoch : null;
   try {
-    const result = runtime.abort(hasPendingSteering ? 'interrupt' : reason);
+    // A steering interrupt outranks a timeout: the turn was redirected, not abandoned.
+    const result =
+      timeout && !hasPendingSteering
+        ? runtime.abort(reason, { timeout: true })
+        : runtime.abort(hasPendingSteering ? 'interrupt' : reason);
     if (result === false) flags.goalSteeringAbortEpoch = previous;
     return result;
   } catch (error) {

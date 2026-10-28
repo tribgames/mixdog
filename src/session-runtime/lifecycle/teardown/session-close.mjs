@@ -4,6 +4,7 @@
  * tombstone barrier and the turn abort.
  */
 import { SessionClosedError } from '../../../runtime/agent/orchestrator/session/manager/session-errors.mjs';
+import { armTurnTimeout } from '../../../runtime/agent/orchestrator/session/manager/turn-reap.mjs';
 import { isScratchSession } from '../shared.mjs';
 
 // SessionEnd reason mapped to standard values ('clear'/'exit' where
@@ -88,11 +89,15 @@ export function closeCanonicalSession(deps, reason = 'canonical-session-close', 
   return true;
 }
 
-export function abortRuntime(deps, reason = 'cli-abort') {
+/** `options.timeout` is the progress watchdog's explicit "this abort is a
+ *  timeout": the reap is armed before either abort runs, while the turn is
+ *  still un-aborted (the outer abort cascades into the manager's controller). */
+export function abortRuntime(deps, reason = 'cli-abort', { timeout = false } = {}) {
   const { getSession, getReservedSessionId, abortActiveTurns, mgr } = deps;
   const session = getSession();
   const sessionId = session?.id || getReservedSessionId?.() || 'pending';
   const abortError = new SessionClosedError(sessionId, `runtime abort (reason=${reason})`, reason);
+  if (timeout && session?.id) armTurnTimeout(session.id);
   let outerAborted = false;
   try {
     outerAborted = abortActiveTurns?.(abortError) === true;

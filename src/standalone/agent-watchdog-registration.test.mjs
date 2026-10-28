@@ -26,7 +26,7 @@ test('canonical agent manager exposes actual progress and an unlinkable abort br
   const parent = new AbortController();
   const unlink = tree.agentManager.linkParentSignalToSession('worker', parent.signal);
   parent.abort();
-  assert.deepEqual(aborts, [{ restorePrompt: false, reason: 'agent-watchdog' }]);
+  assert.deepEqual(aborts, [{ restorePrompt: false, reason: 'agent-watchdog', timeout: true }]);
   unlink();
   const detached = new AbortController();
   tree.agentManager.linkParentSignalToSession('worker', detached.signal)();

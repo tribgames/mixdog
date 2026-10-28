@@ -8,56 +8,31 @@
 import { cancelBackgroundTasks, getBackgroundTask } from '../../../../shared/background-tasks.mjs';
 import { runtimeState } from './runtime-state.mjs';
 
-// Abort reasons / terminal errors that mean "the turn timed out / stalled": the
-// canonical runtime's watchdog abort reason, the in-process watchdog's typed
-// error, and the provider stall/timeout errors (by type or code, never text).
-const TIMEOUT_ERROR_NAMES = new Set([
-  'AgentStallAbortError',
-  'StreamStalledError',
-  'StreamStalledAbortError',
-  'ProviderTimeoutError',
-  'GeminiTimeoutError',
-]);
-const TIMEOUT_ERROR_CODES = new Set(['ESTREAMSTALL', 'EPROVIDERTIMEOUT', 'EGEMINITIMEOUT']);
+// Timeout ownership is explicit and turn-scoped: the code that makes a timeout
+// WIN (the watchdog's own abort, the provider's terminal error) arms the reap
+// itself, and only while nothing else has stopped the turn. An abort that
+// arrives first stays a cancel; an error chain is never read afterwards.
 
-const CHAIN_DEPTH = 4;
-const isTimeoutNode = (e) => TIMEOUT_ERROR_NAMES.has(e.name) || TIMEOUT_ERROR_CODES.has(e.code);
+// Codes of the runtime's own timeout/stall errors (stall-policy's
+// streamStalledError / providerTimeoutError, the Gemini stream timeout).
+const PROVIDER_TIMEOUT_CODES = new Set(['ESTREAMSTALL', 'EPROVIDERTIMEOUT', 'EGEMINITIMEOUT']);
 
-/** Order-independent: scans the whole bounded chain (error, cause, reason,
- *  signal.reason). Any explicit non-timeout reason string (user-cancel,
- *  interrupt, close, ...) anywhere means NOT a timeout; otherwise it is one
- *  only if some level is a timeout/stall by name or code, or `agent-watchdog`. */
-export function isTurnTimeoutAbort(reason) {
-  let timeout = false;
-  const seen = new Set();
-  let level = [reason];
-  for (let depth = 0; depth <= CHAIN_DEPTH && level.length > 0; depth += 1) {
-    const next = [];
-    for (const e of level) {
-      if (typeof e === 'string') {
-        if (e === 'agent-watchdog') timeout = true;
-        else if (e) return false;
-      } else if (e && typeof e === 'object' && !seen.has(e)) {
-        seen.add(e);
-        const node = isTimeoutNode(e);
-        timeout ||= node;
-        // A timeout error's own `reason` is not a cancel reason.
-        next.push(e.cause, e.error, e.signal?.reason);
-        if (!node) next.push(e.reason);
-      }
-    }
-    level = next;
-  }
-  return timeout;
+/** A timeout is the first thing to stop this session's turn: arm its reap now,
+ *  before the abort propagates. No-op when the turn's controller is already
+ *  aborted (a cancel, interrupt or close won) or no turn runs. */
+export function armTurnTimeout(id) {
+  const entry = runtimeState.get(id);
+  if (!entry || entry.controller?.signal.aborted) return;
+  armTurnShellReap(id, entry);
 }
 
-/** Why this turn ended, as the runtime recorded it: when the turn's own
- *  controller was aborted, its signal reason (set by abortSessionTurn, user
- *  cancel, interrupt, close or a linked parent) decides whatever the error
- *  says; otherwise the terminal error does. The controller is fresh per turn,
- *  unlike `entry.closedReason`, which outlives it. */
-export function turnEndedByTimeout(signal, err) {
-  return isTurnTimeoutAbort(signal?.aborted ? signal.reason : err);
+/** The turn ended with a provider timeout/stall error that no retry recovered
+ *  from: arm only while the turn's own signal is un-aborted and the error
+ *  itself carries a timeout code or the producer's own `streamStalled` flag. */
+export function armTurnTimeoutOnProviderError(id, entry, turnSignal, err) {
+  if (turnSignal?.aborted) return;
+  if (!PROVIDER_TIMEOUT_CODES.has(err?.code) && err?.streamStalled !== true) return;
+  armTurnShellReap(id, entry);
 }
 
 // session id -> jobs stopped by a timeout reap, until the owner's handoff
@@ -95,6 +70,10 @@ function loadShellJobProbe() {
   return shellJobProbe;
 }
 
+// Confirmed by the runtime's own state, never assumed: a task whose cancel hook
+// kills is confirmed by that kill's `terminated`; a promoted job once neither
+// its native task nor its process-tree tracker is live. Without the probe
+// (shell-jobs not loaded) nothing is confirmed.
 function isConfirmedGone(job, isRunning) {
   if (job.outcome) return job.terminated;
   return Boolean(isRunning) && !isRunning(job.taskId);

@@ -19,7 +19,7 @@ import { armTurnDurability, claimTurnRuntime } from './ask-turn-open.mjs';
 import { prepareAskTurn, runAskAgentLoop } from './ask-turn-execute.mjs';
 import { commitAskTurn, publishAskTurn } from './ask-turn-settle.mjs';
 import { finalizeAskTurnFailure } from './ask-turn-failure.mjs';
-import { armTurnShellReap, reapTurnShellJobs, turnEndedByTimeout } from './turn-reap.mjs';
+import { armTurnTimeoutOnProviderError, reapTurnShellJobs } from './turn-reap.mjs';
 import { cacheWarmTurnKind, endCacheWarmTurn, failedTurnProvenance, noteCacheWarmTurn } from '../cache-warm.mjs';
 
 export { _api_call_with_interrupt } from './ask-call-interrupt.mjs';
@@ -128,7 +128,7 @@ async function runAskTurn({ sessionId, opened, input, askOpts, onToolCall, cwdOv
   } catch (err) {
     // The turn's terminal error: a provider timeout/stall that ended it (a
     // retry the turn recovered from never reaches here) stops its shell work.
-    if (turnEndedByTimeout(opened.turnSignal, err)) armTurnShellReap(sessionId, opened.runtime);
+    armTurnTimeoutOnProviderError(sessionId, opened.runtime, opened.turnSignal, err);
     await finalizeAskTurnFailure({
       sessionId,
       err,

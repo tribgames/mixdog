@@ -235,6 +235,7 @@ test('an inter-chunk stall after output rejects as a continuation carrying the p
   });
   await assert.rejects(pending, (err) => {
     assert.equal(err.streamStalled, true);
+    assert.equal(err.code, 'ESTREAMSTALL', 'the authoritative stall code, not only the flag');
     assert.equal(err.partialContent, 'kept');
     assert.equal(err.pendingToolUse, false);
     assert.equal(err.partialModel, 'gpt-fixture');

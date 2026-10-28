@@ -709,6 +709,10 @@ test('abort reports whether the outer turn or the manager turn was aborted', () 
   assert.equal(f.teardown.abort('cli-abort'), true);
   assert.deepEqual(f.named('abortActiveTurns'), [['abortActiveTurns', 'cli-abort']]);
   assert.deepEqual(f.named('mgr.abortSessionTurn'), [['mgr.abortSessionTurn', 's1', 'cli-abort']]);
+  const watchdog = fixture();
+  assert.equal(watchdog.teardown.abort('agent-watchdog', { timeout: true }), true);
+  assert.deepEqual(watchdog.named('mgr.abortSessionTurn'), [['mgr.abortSessionTurn', 's1', 'agent-watchdog']]);
+  watchdog.cleanup();
   const empty = fixture({ session: null });
   assert.equal(empty.teardown.abort(), false);
   empty.cleanup();

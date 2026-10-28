@@ -76,6 +76,15 @@ test('a named abort reason reaches the runtime unless a steering prompt is pendi
   assert.deepEqual(reasons, ['agent-watchdog', 'interrupt']);
 });
 
+test('the explicit timeout option reaches the runtime abort, and a pending steering prompt outranks it', () => {
+  const calls = [];
+  const runtime = { abort: (...args) => calls.push(args) };
+  abortGoalTurn(runtime, { leadTurnEpoch: 1 }, false, 'agent-watchdog', { timeout: true });
+  abortGoalTurn(runtime, { leadTurnEpoch: 1 }, true, 'agent-watchdog', { timeout: true });
+  abortGoalTurn(runtime, { leadTurnEpoch: 1 }, false, 'user-cancel');
+  assert.deepEqual(calls, [['agent-watchdog', { timeout: true }], ['interrupt'], ['user-cancel']]);
+});
+
 test('rejected or failed abort requests cannot authorize a steering handoff', () => {
   for (const shouldThrow of [false, true]) {
     const flags = { leadTurnEpoch: 2, goalSteeringAbortEpoch: 1 };

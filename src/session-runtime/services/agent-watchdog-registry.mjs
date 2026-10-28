@@ -2,6 +2,7 @@
 // One shared 1s timer sweeps every watched session, so a burst
 // of agents costs a single interval; the timer stops as soon as the last
 // watchdog is released. Abort policy itself lives in the runtime module.
+import { armTurnTimeout } from '../../runtime/agent/orchestrator/session/manager/turn-reap.mjs';
 import {
   abortAgentProgressWatchdog,
   agentWatchdogPolicyActive,
@@ -21,6 +22,13 @@ export function getProgressWatchdogState(mgr, sessionId) {
     // The policy this session's watchdog actually enforces.
     policy: state?.watchdogPolicy || null,
   };
+}
+
+// This watchdog owns its timeout: arm the session's shell reap before the
+// abort propagates, unless the turn is already stopped (the guard skips it).
+function abortOnTimeout(controller, ctx) {
+  if (!controller?.signal?.aborted && ctx?.error) armTurnTimeout(ctx.sessionId);
+  abortAgentProgressWatchdog(controller, ctx);
 }
 
 export function createProgressWatchdogRegistry({ mgr }) {
@@ -114,7 +122,7 @@ export function createProgressWatchdogRegistry({ mgr }) {
       }
       const last = reported || anchorTs;
       if (watchdogPolicy.idleStaleMs > 0 && now - last > watchdogPolicy.idleStaleMs) {
-        abortAgentProgressWatchdog(controller, {
+        abortOnTimeout(controller, {
           sessionId,
           agent,
           error: new AgentStallAbortError(`agent task stale (${watchdogPolicy.idleStaleMs}ms without progress)`),
@@ -128,7 +136,7 @@ export function createProgressWatchdogRegistry({ mgr }) {
       return;
     }
     if (abortErr) {
-      abortAgentProgressWatchdog(controller, {
+      abortOnTimeout(controller, {
         sessionId,
         agent,
         error: abortErr,
@@ -153,7 +161,7 @@ export function createProgressWatchdogRegistry({ mgr }) {
           state.error = String(error?.message || error);
           const elapsed = Date.now() - (state.lastSuccessfulCheckAt || state.anchorTs);
           if (state.watchdogPolicy.idleStaleMs > 0 && elapsed > state.watchdogPolicy.idleStaleMs) {
-            abortAgentProgressWatchdog(state.controller, {
+            abortOnTimeout(state.controller, {
               sessionId: state.sessionId,
               agent: state.agent,
               error: new AgentStallAbortError(`agent progress checks failed: ${state.error}`),

@@ -444,8 +444,9 @@ export function killShellJob(jobId) {
       .observe({ rootExited: true })
       .then(() => sweepLiveIdentities(tracked.tracker))
       .catch(() => {});
-    const detail = current ?? { jobId, status: 'completed' };
-    return { ...attachJobInsights(normalizeShellJobDetail(detail)), killed: true };
+    // An expired native entry says nothing about the root, so none is claimed.
+    if (!current) return { jobId, killed: true };
+    return { ...attachJobInsights(normalizeShellJobDetail(current)), killed: true };
   }
   const detail = cancelNativeTask(jobId);
   if (!detail) return null;

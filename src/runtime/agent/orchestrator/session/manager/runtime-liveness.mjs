@@ -35,7 +35,7 @@ import { registerSessionPurgeHook } from '../store.mjs';
 import { finishComputerTurn } from '../../../../computer-bridge/client.mjs';
 import { configureUsageMetricsRuntime, dropMetricSeenState, bumpUsageMetricsTurnId } from './usage-metrics.mjs';
 import { runtimeState as _runtimeState, isTurnInFlight } from './runtime-state.mjs';
-import { armTurnShellReap, isTurnTimeoutAbort, resetTurnShellReap } from './turn-reap.mjs';
+import { resetTurnShellReap } from './turn-reap.mjs';
 
 export { IN_FLIGHT_STAGES, inFlightSessionActivity } from './runtime-state.mjs';
 
@@ -634,7 +634,6 @@ export function linkParentSignalToSession(sessionId, parentSignal) {
     } catch {
       /* ignore */
     }
-    if (isTurnTimeoutAbort(parentSignal.reason)) armTurnShellReap(sessionId, entry);
   };
   parentSignal.addEventListener('abort', onParentAbort, { once: true });
   entry.parentAbortLink = { signal: parentSignal, listener: onParentAbort };

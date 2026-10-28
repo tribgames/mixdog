@@ -93,6 +93,7 @@ export function createWsStreamWatchdogs({
       // synthesized completion. Attach the streamed partial state so
       // the loop's partial/tool recovery can finalize it explicitly.
       err.streamStalled = true;
+      err.code = 'ESTREAMSTALL';
       attachPartialState(err);
       fail(err, 'inter_chunk_timeout');
     }, interChunkMs);

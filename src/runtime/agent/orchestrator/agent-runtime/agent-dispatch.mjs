@@ -34,6 +34,7 @@ import {
   getSession,
   linkParentSignalToSession,
 } from '../session/manager.mjs';
+import { armTurnTimeout } from '../session/manager/turn-reap.mjs';
 import { resolveAgentWatchdogPolicy } from './agent-progress-watchdog.mjs';
 import { resourceAdmission } from '../../../shared/resource-admission.mjs';
 import { composeAgentDispatchAbortSignal } from './agent-dispatch/abort-link.mjs';
@@ -160,7 +161,15 @@ async function dispatchAdmitted(agent, opts, callArgs, { prepare, ask, updateSta
   // each link replaces the previous listener in runtime-liveness. One
   // composite survives askSession's controller swap and makes every source
   // reach the provider call.
-  const abortLink = composeAgentDispatchAbortSignal([opts.parentSignal, callParentSignal, watchdog.signal]);
+  // The watchdog arms this session's own timeout reap only when it is the
+  // source that stops the turn; an inherited parent abort that won first is a
+  // cancel for this child and never arms it.
+  const abortLink = composeAgentDispatchAbortSignal(
+    [opts.parentSignal, callParentSignal, watchdog.signal],
+    (source) => {
+      if (source === watchdog.signal) armTurnTimeout(session.id);
+    }
+  );
   if (abortLink.signal) {
     try {
       linkParentSignalToSession(session.id, abortLink.signal);
