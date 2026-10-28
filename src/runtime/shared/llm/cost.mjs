@@ -136,7 +136,9 @@ export function priceUsage(args) {
   // A request the server reports as served on Flex (Vertex Flex PayGo can be
   // served by Provisioned Throughput first) bills the catalog's flex columns.
   const flex = args.serviceTier === 'flex';
-  const rateMeta = flex ? meta.flexPricing || {} : premium && !anthropicFast ? premiumPricing || {} : meta;
+  let rateMeta = meta;
+  if (flex) rateMeta = meta.flexPricing || {};
+  else if (premium && !anthropicFast) rateMeta = premiumPricing || {};
   if (args.historicalAggregate && rateMeta.pricingTiers?.some((tier) => promptTokens > tier.aboveInputTokens)) {
     // A daily sum cannot establish which individual requests crossed a
     // context boundary. Do not price the whole day as one huge prompt.

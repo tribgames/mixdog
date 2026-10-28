@@ -71,7 +71,7 @@ function queryRegistryKey(key) {
  * (strings as `reg query` prints them, null when absent), or null when the
  * Internet Settings key cannot be read.
  */
-export function readWindowsProxyRegistry() {
+function readWindowsProxyRegistry() {
   const settings = queryRegistryKey(INTERNET_SETTINGS_KEY);
   if (!settings) return null;
   return {

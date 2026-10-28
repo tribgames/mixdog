@@ -40,6 +40,7 @@ import {
 } from './file-recovery.mjs';
 import { lstat, mkdir, readdir, readFile, rm, rmdir, stat } from 'node:fs/promises';
 import { dirname, join, relative, resolve, sep } from 'node:path';
+import { isPidAlive } from '../pid-liveness.mjs';
 import {
   managedWorktreePath,
   managedWorktreeRoot,
@@ -124,17 +125,7 @@ function sessionRootOf(record) {
 // ---------------------------------------------------------------------------
 // Host configuration (settings source, free-space probe); tests override it.
 
-/** pid probe (signal 0); EPERM means the process exists. */
-function processAlive(pid) {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return error?.code === 'EPERM';
-  }
-}
-
-const DEFAULT_CONFIG = Object.freeze({ settings: null, freeBytes: freeBytesAt, processAlive });
+const DEFAULT_CONFIG = Object.freeze({ settings: null, freeBytes: freeBytesAt, processAlive: isPidAlive });
 let config = { ...DEFAULT_CONFIG };
 
 /**
@@ -979,6 +970,174 @@ async function snapshotHolderLive(record, live) {
   return !!lease && lease.pid !== process.pid && leaseProcessAlive(lease);
 }
 
+/** The project folder's uncommitted changes under the requested `carryChanges` mode; `ask` refuses while there are any. */
+async function judgePendingChanges(repo, projectSubdir, carryChanges) {
+  // A carry is judged by the same status read that counts the changes.
+  let pendingChanges = [];
+  if (carryChanges === 'carry') pendingChanges = await assertCarryable(repo.topLevel, projectSubdir);
+  else if (carryChanges) pendingChanges = await uncommittedChanges(repo.topLevel, projectSubdir);
+  if (pendingChanges.length && carryChanges === 'ask') {
+    throw worktreeError('WORKTREE_DIRTY_CHOICE', undefined, {
+      count: pendingChanges.length,
+      paths: pendingChanges.slice(0, DIRTY_CHOICE_PREVIEW),
+    });
+  }
+  return pendingChanges;
+}
+
+/** The commit a new worktree starts from and the branch a merge targets by default. */
+async function resolveStartPoint(repo, { baseBranch, startCommit, signal }) {
+  let baseCommit = repo.headCommit;
+  let mergeTarget = repo.currentBranch;
+  if (baseBranch) {
+    baseCommit = await branchCommit(repo.projectPath, baseBranch, { signal });
+    if (!baseCommit) {
+      throw worktreeError('WORKTREE_UNSUPPORTED_REPO', `Base branch ${baseBranch} does not exist.`, { baseBranch });
+    }
+    mergeTarget = baseBranch;
+  }
+  // A new branch at an explicit start point (`git worktree add -b <b> <path> <commit-ish>`).
+  if (startCommit) baseCommit = await resolveCommit(repo.projectPath, startCommit, signal);
+  return { baseCommit, mergeTarget };
+}
+
+/** The record a creation reserves before git is asked to add the checkout. */
+function newCreationRecord({
+  slug,
+  branch,
+  repo,
+  owner,
+  txId,
+  baseCommit,
+  mergeTarget,
+  existingBranch,
+  exactBranch,
+  tracked,
+  includePlan,
+}) {
+  return {
+    id: slug,
+    txId,
+    repoCommonDir: repo.repoCommonDir,
+    projectPath: repo.projectPath,
+    projectSubdir: projectSubdirOf(repo.topLevel, repo.projectPath),
+    path: managedWorktreePath(repo.repoCommonDir, slug),
+    branch,
+    baseCommit,
+    // An existing branch has no base it branched from: it merges where a
+    // merge first takes it (recorded then), and until that its own work is
+    // what it gained here since baseCommit.
+    mergeTarget: existingBranch ? null : mergeTarget,
+    createdAt: Date.now(),
+    ownerSessionId: owner.sessionId,
+    existingBranch,
+    exactBranch,
+    state: 'creating',
+    disposable: false,
+    warnings: [...(tracked.submodules ? ['submodules'] : []), ...includePlan.warnings],
+    resources: { worktree: null, lock: null, owner: null, includes: [] },
+    deleting: null,
+    recovery: null,
+  };
+}
+
+/**
+ * Locks the fresh checkout, binds its owner lease, moves or leaves the
+ * project folder's changes, applies the includes and links dependencies.
+ * `carry.moved` is set as soon as changes were carried, so a later failure
+ * can put them back.
+ */
+async function populateCheckout({
+  record,
+  owner,
+  repo,
+  projectSubdir,
+  signal,
+  pendingChanges,
+  carryChanges,
+  baseCommit,
+  includePlan,
+  carry,
+}) {
+  await setResource(record, 'worktree', 'created');
+  throwIfAborted(signal);
+  await setResource(record, 'lock', 'pending');
+  await runGit(repo.projectPath, ['worktree', 'lock', '--reason', `mixdog session=${owner.sessionId}`, record.path]);
+  await setResource(record, 'lock', 'created');
+  await setResource(record, 'owner', 'pending');
+  await writeOwnerLease(record, owner);
+  await setResource(record, 'owner', 'created');
+  // Carried before the include entries are copied, so an include never
+  // stands in the way of a carried file; the status is read again here,
+  // right before acting.
+  let changes = pendingChanges.length ? { mode: 'left', count: pendingChanges.length } : null;
+  if (carryChanges === 'carry') {
+    carry.moved = await carryUncommittedChanges({
+      topLevel: repo.topLevel,
+      projectSubdir,
+      worktreePath: record.path,
+      baseCommit,
+      label: record.id,
+    });
+    // The recovery ref stays until the caller has committed the move
+    // (dropCarryRecoveryRef) or put the changes back (restoreCarriedChanges).
+    changes = carry.moved.count
+      ? { mode: 'carried', count: carry.moved.count, recoveryRef: carry.moved.recoveryRef }
+      : null;
+  }
+  const applied = await applyIncludes(includePlan, record.path, (ledger) => recordInclude(record, ledger));
+  throwIfAborted(signal);
+  // After the includes: one that already brought a node_modules wins.
+  const linkedDependencies = await linkWorktreeDependencies({
+    mainDir: repo.projectPath,
+    worktreeDir: projectSubdir ? join(record.path, ...projectSubdir.split('/')) : record.path,
+    worktreeRel: projectSubdir,
+    signal,
+    record: (ledger) => recordInclude(record, ledger),
+  });
+  throwIfAborted(signal);
+  record.warnings = [...record.warnings, ...applied.warnings];
+  const made = (record.resources.includes || []).filter((item) => item.status === 'created');
+  const rels = (predicate) => made.filter(predicate).map((item) => item.rel);
+  // What creation did, for the agent's note at the first turn there (transitions.mjs).
+  const prepared = {
+    root: repo.topLevel,
+    copied: rels((item) => item.mode === 'copy'),
+    linked: rels((item) => item.mode === 'link' && !item.dependency),
+    dependencies: linkedDependencies,
+    skipped: [...includePlan.warnings, ...applied.warnings],
+  };
+  // Whichever path made it (a worktree task, a branch selection, `git
+  // worktree add`), the first turn a session runs here prepares its
+  // dependencies (claimWorktreeSetup).
+  record.setup = { pending: true, prepared };
+  record.state = 'ready';
+  await putRecord(record);
+  return { ...entryView(record), prepared, ...(changes ? { changes } : {}) };
+}
+
+/** The error a failed creation throws, after its carried changes and partial checkout are undone. */
+async function failCreation(error, { record, carried, repo, projectSubdir, needed, root }) {
+  // Carried already: the changes go back to the project folder before the
+  // worktree that holds them is rolled back (the recovery ref keeps them
+  // either way).
+  let carryRestore = null;
+  if (carried?.recoveryRef) {
+    carryRestore = await restoreFromRecoveryRef(repo.topLevel, projectSubdir, carried.recoveryRef)
+      .then(() => ({ restored: true, recoveryRef: carried.recoveryRef }))
+      .catch((restoreError) => ({
+        restored: false,
+        recoveryRef: carried.recoveryRef,
+        error: String(restoreError?.message || restoreError),
+      }));
+  }
+  const rollback = await rollbackCreation(record, error);
+  const failure = isDiskFullError(error) ? await diskFullFailure(error, { needed, root }) : error;
+  if (!rollback.complete) failure.rollback = rollback;
+  if (carryRestore) failure.carryRestore = carryRestore;
+  return failure;
+}
+
 /**
  * `carryChanges` decides the project folder's uncommitted changes (tracked
  * and untracked, ignored excluded), judged under the repository lock:
@@ -1034,29 +1193,10 @@ export async function createManagedWorktree({
     throwIfAborted(signal);
 
     const projectSubdir = projectSubdirOf(repo.topLevel, repo.projectPath);
-    // A carry is judged by the same status read that counts the changes.
-    let pendingChanges = [];
-    if (carryChanges === 'carry') pendingChanges = await assertCarryable(repo.topLevel, projectSubdir);
-    else if (carryChanges) pendingChanges = await uncommittedChanges(repo.topLevel, projectSubdir);
-    if (pendingChanges.length && carryChanges === 'ask') {
-      throw worktreeError('WORKTREE_DIRTY_CHOICE', undefined, {
-        count: pendingChanges.length,
-        paths: pendingChanges.slice(0, DIRTY_CHOICE_PREVIEW),
-      });
-    }
+    const pendingChanges = await judgePendingChanges(repo, projectSubdir, carryChanges);
 
     const settings = await currentWorktreeSettings();
-    let baseCommit = repo.headCommit;
-    let mergeTarget = repo.currentBranch;
-    if (baseBranch) {
-      baseCommit = await branchCommit(repo.projectPath, baseBranch, { signal });
-      if (!baseCommit) {
-        throw worktreeError('WORKTREE_UNSUPPORTED_REPO', `Base branch ${baseBranch} does not exist.`, { baseBranch });
-      }
-      mergeTarget = baseBranch;
-    }
-    // A new branch at an explicit start point (`git worktree add -b <b> <path> <commit-ish>`).
-    if (startCommit) baseCommit = await resolveCommit(repo.projectPath, startCommit, signal);
+    const { baseCommit, mergeTarget } = await resolveStartPoint(repo, { baseBranch, startCommit, signal });
 
     // The main checkout's local env files come along on their own;
     // `.worktreeinclude` applies on top.
@@ -1099,7 +1239,7 @@ export async function createManagedWorktree({
         }
       );
     let record = await reserve();
-    let carried = null;
+    const carry = { moved: null };
 
     try {
       await mkdir(root, { recursive: true });
@@ -1120,84 +1260,20 @@ export async function createManagedWorktree({
         await setResource(record, 'worktree', 'pending');
         await addCheckout(record);
       }
-      await setResource(record, 'worktree', 'created');
-      throwIfAborted(signal);
-      await setResource(record, 'lock', 'pending');
-      await runGit(repo.projectPath, [
-        'worktree',
-        'lock',
-        '--reason',
-        `mixdog session=${owner.sessionId}`,
-        record.path,
-      ]);
-      await setResource(record, 'lock', 'created');
-      await setResource(record, 'owner', 'pending');
-      await writeOwnerLease(record, owner);
-      await setResource(record, 'owner', 'created');
-      // Carried before the include entries are copied, so an include never
-      // stands in the way of a carried file; the status is read again here,
-      // right before acting.
-      let changes = pendingChanges.length ? { mode: 'left', count: pendingChanges.length } : null;
-      if (carryChanges === 'carry') {
-        carried = await carryUncommittedChanges({
-          topLevel: repo.topLevel,
-          projectSubdir,
-          worktreePath: record.path,
-          baseCommit,
-          label: record.id,
-        });
-        // The recovery ref stays until the caller has committed the move
-        // (dropCarryRecoveryRef) or put the changes back (restoreCarriedChanges).
-        changes = carried.count ? { mode: 'carried', count: carried.count, recoveryRef: carried.recoveryRef } : null;
-      }
-      const applied = await applyIncludes(includePlan, record.path, (ledger) => recordInclude(record, ledger));
-      throwIfAborted(signal);
-      // After the includes: one that already brought a node_modules wins.
-      const linkedDependencies = await linkWorktreeDependencies({
-        mainDir: repo.projectPath,
-        worktreeDir: projectSubdir ? join(record.path, ...projectSubdir.split('/')) : record.path,
-        worktreeRel: projectSubdir,
+      return await populateCheckout({
+        record,
+        owner,
+        repo,
+        projectSubdir,
         signal,
-        record: (ledger) => recordInclude(record, ledger),
+        pendingChanges,
+        carryChanges,
+        baseCommit,
+        includePlan,
+        carry,
       });
-      throwIfAborted(signal);
-      record.warnings = [...record.warnings, ...applied.warnings];
-      const made = (record.resources.includes || []).filter((item) => item.status === 'created');
-      const rels = (predicate) => made.filter(predicate).map((item) => item.rel);
-      // What creation did, for the agent's note at the first turn there (transitions.mjs).
-      const prepared = {
-        root: repo.topLevel,
-        copied: rels((item) => item.mode === 'copy'),
-        linked: rels((item) => item.mode === 'link' && !item.dependency),
-        dependencies: linkedDependencies,
-        skipped: [...includePlan.warnings, ...applied.warnings],
-      };
-      // Whichever path made it (a worktree task, a branch selection, `git
-      // worktree add`), the first turn a session runs here prepares its
-      // dependencies (claimWorktreeSetup).
-      record.setup = { pending: true, prepared };
-      record.state = 'ready';
-      await putRecord(record);
-      return { ...entryView(record), prepared, ...(changes ? { changes } : {}) };
     } catch (error) {
-      // Carried already: the changes go back to the project folder before the
-      // worktree that holds them is rolled back (the recovery ref keeps them
-      // either way).
-      let carryRestore = null;
-      if (carried?.recoveryRef) {
-        carryRestore = await restoreFromRecoveryRef(repo.topLevel, projectSubdir, carried.recoveryRef)
-          .then(() => ({ restored: true, recoveryRef: carried.recoveryRef }))
-          .catch((restoreError) => ({
-            restored: false,
-            recoveryRef: carried.recoveryRef,
-            error: String(restoreError?.message || restoreError),
-          }));
-      }
-      const rollback = await rollbackCreation(record, error);
-      const failure = isDiskFullError(error) ? await diskFullFailure(error, { needed, root }) : error;
-      if (!rollback.complete) failure.rollback = rollback;
-      if (carryRestore) failure.carryRestore = carryRestore;
-      throw failure;
+      throw await failCreation(error, { record, carried: carry.moved, repo, projectSubdir, needed, root });
     }
 
     async function reserveName() {
@@ -1213,30 +1289,19 @@ export async function createManagedWorktree({
       if (!(await validBranchName(repo.projectPath, branch))) {
         throw worktreeError('WORKTREE_UNSUPPORTED_REPO', `Branch name ${branch} is not valid.`, { branch });
       }
-      const candidate = {
-        id: slug,
-        txId,
-        repoCommonDir: repo.repoCommonDir,
-        projectPath: repo.projectPath,
-        projectSubdir: projectSubdirOf(repo.topLevel, repo.projectPath),
-        path: managedWorktreePath(repo.repoCommonDir, slug),
+      const candidate = newCreationRecord({
+        slug,
         branch,
+        repo,
+        owner,
+        txId,
         baseCommit,
-        // An existing branch has no base it branched from: it merges where a
-        // merge first takes it (recorded then), and until that its own work is
-        // what it gained here since baseCommit.
-        mergeTarget: existingBranch ? null : mergeTarget,
-        createdAt: Date.now(),
-        ownerSessionId: owner.sessionId,
+        mergeTarget,
         existingBranch,
         exactBranch: requestedBranch !== null,
-        state: 'creating',
-        disposable: false,
-        warnings: [...(tracked.submodules ? ['submodules'] : []), ...includePlan.warnings],
-        resources: { worktree: null, lock: null, owner: null, includes: [] },
-        deleting: null,
-        recovery: null,
-      };
+        tracked,
+        includePlan,
+      });
       return (await insertRecord(candidate)) ? candidate : null;
     }
   });

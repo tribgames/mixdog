@@ -54,10 +54,7 @@ export const WORKSPACES = [
 // sign-out logic, not the OS keychain. So on Linux the sweep sets
 // TEST_PLAINTEXT_SAFE_STORAGE_ENV and the test harness alone (never the app)
 // switches Electron's safeStorage to its in-memory-password fallback.
-export const DISPLAY_SUITES = [
-  'test:browser-login-persistence:integration',
-  'test:browser-login-popup:integration',
-];
+export const DISPLAY_SUITES = ['test:browser-login-persistence:integration', 'test:browser-login-popup:integration'];
 export const TEST_PLAINTEXT_SAFE_STORAGE_ENV = 'MIXDOG_TEST_PLAINTEXT_SAFE_STORAGE';
 
 const runsUnderDisplay = (ws, name, platform) =>
@@ -100,7 +97,9 @@ export function failureParts({ stdout, stderr, status, signal, error }) {
   const failedLines = `${stdout || ''}\n${stderr || ''}`
     .split('\n')
     .filter((line) => /^\[failure-summary\]|^\s*✖ /.test(line));
-  const ended = error ? `spawn error: ${error.message}` : `exit ${status ?? 'none'}${signal ? `, signal ${signal}` : ''}`;
+  const ended = error
+    ? `spawn error: ${error.message}`
+    : `exit ${status ?? 'none'}${signal ? `, signal ${signal}` : ''}`;
   const tails = [lastLines(stdout, 'stdout'), lastLines(stderr, 'stderr')].filter(Boolean).join('\n');
   return { ended, failedLines, tails };
 }
@@ -113,7 +112,7 @@ export const failureTail = (child) => failureText(failureParts(child));
 // GitHub rejects an issue body over 65,536 characters (HTTP 422). Past the
 // limit the tails go first, then failure lines from the end; the omission is
 // always stated, and the full diagnostics stay in the workflow log.
-export const ISSUE_BODY_LIMIT = 60_000;
+const ISSUE_BODY_LIMIT = 60_000;
 
 export function buildReport({ checked, runUrl, reportLines, failures, limit = ISSUE_BODY_LIMIT }) {
   const render = (withTails, keep) => {

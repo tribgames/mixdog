@@ -82,7 +82,8 @@ const concurrencyFlag = (arg) => arg === '--test-concurrency' || arg.startsWith(
 function concurrencyOf(runArgs, fileArgs) {
   const args = [...runArgs, ...fileArgs];
   const index = args.findIndex(concurrencyFlag);
-  const value = index < 0 ? null : positiveInt(args[index].includes('=') ? args[index].split('=')[1] : args[index + 1]);
+  let value = null;
+  if (index >= 0) value = positiveInt(args[index].includes('=') ? args[index].split('=')[1] : args[index + 1]);
   return value ?? Math.max(1, availableParallelism() - 1);
 }
 

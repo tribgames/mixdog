@@ -83,7 +83,7 @@ export function isTaskWaitToolCall(name, args = {}) {
   );
 }
 
-export function displayToolName(name, args = {}) {
+function displayToolName(name, args = {}) {
   if (isExternalMcpToolName(name)) {
     const mcp = parseMcpToolName(name);
     return `MCP ${titleCaseMcpServer(mcp.server)}`;
@@ -213,18 +213,14 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
   }
   switch (normalized) {
     case 'read':
-      if (!a.path && !a.file_path) return '';
-      if (Array.isArray(a.path) || Array.isArray(a.file_path)) {
-        return formatCountedUnit(collectionCount(a.path, a.file_path), 'file');
-      }
-      return compactParts([
-        displayToolPath(a.path ?? a.file_path),
-        a.pages ? `pages ${a.pages}` : summarizeLineWindow(a),
-      ]);
     case 'view_image':
-      return displayToolPath(a.path || a.file_path || '');
     case 'apply_patch':
-      return summarizePatch(a.patch, a.base_path);
+    case 'list':
+    case 'ls':
+    case 'grep':
+    case 'glob':
+    case 'find':
+      return summarizeFileToolArgs(normalized, a, max);
     case 'shell':
     case 'bash':
     case 'bash_session':
@@ -250,6 +246,79 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
           .join(', '),
         max
       );
+    case 'search_query':
+    case 'image_query':
+    case 'web_search':
+    case 'web_search_call':
+    case 'load_tool':
+    case 'web_fetch':
+    case 'fetch':
+      return summarizeWebToolArgs(normalized, a, max);
+    case 'browser':
+    case 'browser_devtools':
+    case 'computer':
+    case 'terminal':
+    case 'visualize':
+    case 'office':
+    case 'media':
+    case 'tidy':
+      return summarizeInterfaceToolArgs(normalized, a, args, max);
+    case 'read_mcp_resource':
+      return truncateToolText(a.uri || '', max);
+    case 'list_mcp_resources':
+    case 'list_mcp_resource_templates':
+      return a.server ? `server "${truncateToolText(a.server, max)}"` : 'all servers';
+    case 'cwd':
+    case 'session':
+    case 'setup':
+    case 'memory':
+    case 'remember':
+    case 'save_memory':
+    case 'update_memory':
+    case 'recall_memory':
+    case 'recall':
+    case 'search_memories':
+      return summarizeStateToolArgs(normalized, a, max);
+    case 'bridge':
+    case 'agent': {
+      const agentModel = bridgeAgentModelSummary(a);
+      if (agentModel) return agentModel;
+      const bridgeAction = a.type || a.action || a.mode || '';
+      const showTarget = !/^(status|read)$/i.test(String(bridgeAction || ''));
+      return compactParts([bridgeAction, showTarget ? a.tag || a.sessionId || a.task_id || '' : '']);
+    }
+    case 'code_graph':
+      return codeGraphSummary(a, max);
+    case 'skill':
+    case 'skill_execute':
+    case 'skill_view':
+    case 'skills_list':
+    case 'use_skill':
+      return truncateToolText(
+        firstText(a.name, a.skill, a.skill_name, a.query, a.q, normalized === 'skills_list' ? 'all skills' : ''),
+        max
+      );
+    default:
+      return genericArgsSummary(a, max);
+  }
+}
+
+// Files, directories and patches.
+function summarizeFileToolArgs(normalized, a, max) {
+  switch (normalized) {
+    case 'read':
+      if (!a.path && !a.file_path) return '';
+      if (Array.isArray(a.path) || Array.isArray(a.file_path)) {
+        return formatCountedUnit(collectionCount(a.path, a.file_path), 'file');
+      }
+      return compactParts([
+        displayToolPath(a.path ?? a.file_path),
+        a.pages ? `pages ${a.pages}` : summarizeLineWindow(a),
+      ]);
+    case 'view_image':
+      return displayToolPath(a.path || a.file_path || '');
+    case 'apply_patch':
+      return summarizePatch(a.patch, a.base_path);
     case 'list':
     case 'ls':
       if (Array.isArray(a.path) || Array.isArray(a.dir) || Array.isArray(a.cwd)) {
@@ -284,6 +353,14 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         return formatCountedUnit(collectionCount(a.query, a.fuzzy), 'query', 'queries');
       }
       return compactParts([quoted(a.query ?? a.fuzzy, max), a.path ? `path: ${displayToolPath(a.path)}` : '']);
+    default:
+      return '';
+  }
+}
+
+// Search, fetch and tool-search loading.
+function summarizeWebToolArgs(normalized, a, max) {
+  switch (normalized) {
     case 'search_query':
     case 'image_query':
     case 'web_search':
@@ -303,6 +380,14 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         return formatCountedUnit(collectionCount(a.url, a.uri), 'URL', 'URLs');
       }
       return truncateToolText(a.url || a.uri || '', max);
+    default:
+      return '';
+  }
+}
+
+// Bridge and interface tools: browser, computer, terminal, visualize, office, media, tidy.
+function summarizeInterfaceToolArgs(normalized, a, args, max) {
+  switch (normalized) {
     case 'browser':
     case 'browser_devtools': {
       const call = bridgeToolCall(args);
@@ -342,11 +427,14 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         Array.isArray(a.paths) && a.paths.length ? truncateToolText(a.paths.join(' '), max) : '',
         a.apply === true ? 'apply' : '',
       ]);
-    case 'read_mcp_resource':
-      return truncateToolText(a.uri || '', max);
-    case 'list_mcp_resources':
-    case 'list_mcp_resource_templates':
-      return a.server ? `server "${truncateToolText(a.server, max)}"` : 'all servers';
+    default:
+      return '';
+  }
+}
+
+// Sessions, setup and memory.
+function summarizeStateToolArgs(normalized, a, max) {
+  switch (normalized) {
     case 'cwd': // legacy: old transcripts
     case 'session':
       return compactParts([
@@ -396,27 +484,8 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
         a.limit || a.topK ? `top ${a.limit ?? a.topK}` : '',
       ]);
     }
-    case 'bridge':
-    case 'agent': {
-      const agentModel = bridgeAgentModelSummary(a);
-      if (agentModel) return agentModel;
-      const bridgeAction = a.type || a.action || a.mode || '';
-      const showTarget = !/^(status|read)$/i.test(String(bridgeAction || ''));
-      return compactParts([bridgeAction, showTarget ? a.tag || a.sessionId || a.task_id || '' : '']);
-    }
-    case 'code_graph':
-      return codeGraphSummary(a, max);
-    case 'skill':
-    case 'skill_execute':
-    case 'skill_view':
-    case 'skills_list':
-    case 'use_skill':
-      return truncateToolText(
-        firstText(a.name, a.skill, a.skill_name, a.query, a.q, normalized === 'skills_list' ? 'all skills' : ''),
-        max
-      );
     default:
-      return genericArgsSummary(a, max);
+      return '';
   }
 }
 

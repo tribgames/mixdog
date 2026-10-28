@@ -14,7 +14,12 @@ import {
 } from './suite-health.mjs';
 
 test('a failed entry keeps its failure-summary lines even under a long stderr', () => {
-  const stdout = ['noise', '✖ broken test (3ms)', '[failure-summary] 1 failed, 0 flaky', '[failure-summary] FAILED a.test.mjs > t'];
+  const stdout = [
+    'noise',
+    '✖ broken test (3ms)',
+    '[failure-summary] 1 failed, 0 flaky',
+    '[failure-summary] FAILED a.test.mjs > t',
+  ];
   const stderr = Array.from({ length: 60 }, (_, i) => `cargo line ${i}`);
   const tail = failureTail({ stdout: stdout.join('\n'), stderr: stderr.join('\n'), status: 1 });
   assert.match(tail, /^exit 1\n/);
@@ -36,12 +41,20 @@ test('an oversized report fits the issue limit: tails go first, then failure lin
   const runUrl = 'https://github.com/o/r/actions/runs/1';
   const make = (count, tailLines) =>
     failureParts({
-      stdout: Array.from({ length: count }, (_, i) => `[failure-summary] FAILED big${i}.test.mjs > ${'x'.repeat(80)}`).join('\n'),
+      stdout: Array.from(
+        { length: count },
+        (_, i) => `[failure-summary] FAILED big${i}.test.mjs > ${'x'.repeat(80)}`
+      ).join('\n'),
       stderr: Array.from({ length: tailLines }, (_, i) => `${'y'.repeat(4000)}${i}`).join('\n'),
       status: 1,
     });
   const build = (parts) =>
-    buildReport({ checked: 'now', runUrl, reportLines: ['- big: FAILED (1s)'], failures: [{ title: '- big: FAILED (1s)', parts }] });
+    buildReport({
+      checked: 'now',
+      runUrl,
+      reportLines: ['- big: FAILED (1s)'],
+      failures: [{ title: '- big: FAILED (1s)', parts }],
+    });
 
   // Tails alone overflow: every failure name stays, the tails are dropped and said so.
   const tailsOver = build(make(40, 40));
@@ -54,7 +67,10 @@ test('an oversized report fits the issue limit: tails go first, then failure lin
   const namesOver = build(make(2000, 5));
   assert.ok(namesOver.length <= 65_536);
   assert.ok(namesOver.includes('big0.test.mjs'));
-  assert.match(namesOver, /\d+ more failure lines omitted — see the workflow log: https:\/\/github\.com\/o\/r\/actions\/runs\/1/);
+  assert.match(
+    namesOver,
+    /\d+ more failure lines omitted — see the workflow log: https:\/\/github\.com\/o\/r\/actions\/runs\/1/
+  );
 
   // A small report is untouched.
   assert.doesNotMatch(build(make(3, 2)), /omitted/);
@@ -68,7 +84,15 @@ test('Electron suites run under a virtual display on Linux only, and stay in the
     assert.ok(swept.includes(name), `${name} must be swept`);
     const [command, args] = sweepCommand(desktop, name, 'linux');
     assert.equal(command, 'xvfb-run');
-    assert.deepEqual(args, ['-a', '--server-args=-screen 0 1440x900x24', 'npm', 'run', name, '--prefix', 'apps/desktop']);
+    assert.deepEqual(args, [
+      '-a',
+      '--server-args=-screen 0 1440x900x24',
+      'npm',
+      'run',
+      name,
+      '--prefix',
+      'apps/desktop',
+    ]);
     assert.equal(sweepCommand(desktop, name, 'win32')[0], 'npm.cmd');
     // Only the Linux sweep of these entries opts the test harness into plaintext safeStorage.
     assert.equal(sweepEnv(desktop, name, 'linux', { PATH: 'p' })[TEST_PLAINTEXT_SAFE_STORAGE_ENV], '1');

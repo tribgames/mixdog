@@ -235,7 +235,7 @@ function shortTableSplitIssues(tables, issues) {
 }
 
 // A total row is a total by its label; it reads as one only when it is set apart from the rows it sums.
-export const TOTAL_LABEL = /^(?:(?:grand\s+total|sub\s*total|total)\b|(?:합계|총계|소계|계)(?:\s|$))/i;
+const TOTAL_LABEL = /^(?:(?:grand\s+total|sub\s*total|total)\b|(?:합계|총계|소계|계)(?:\s|$))/i;
 const FIGURE_TEXT = /^[\s+\-−₩$€¥]*[\d,.]+\s*(?:%|%p|[가-힣A-Za-z]{0,3})?\s*$/;
 const DISPLAY_SIZE = 18;
 

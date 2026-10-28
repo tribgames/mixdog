@@ -906,6 +906,15 @@ function assertReleaseWorkflowContract(release) {
 // The per-platform packaging workflow: what it restores, what it saves before
 // packaging can fail, and how verified assets reach the hidden draft.
 function assertDesktopPackageContract(desktopPackage) {
+  assertDesktopRuntimeCacheContract(desktopPackage);
+  assertSecureDesktopCacheContract(desktopPackage);
+  assertDesktopDependencyCacheContract(desktopPackage);
+  assertDesktopUploadContract(desktopPackage);
+}
+
+// The prepared runtime and the browser importer: restored first, saved before
+// packaging can fail.
+function assertDesktopRuntimeCacheContract(desktopPackage) {
   assert.match(desktopPackage, /manifest-cache-key\.mjs/);
   assert.match(
     desktopPackage,
@@ -953,6 +962,10 @@ function assertDesktopPackageContract(desktopPackage) {
         desktopPackage.indexOf('name: Build Windows installer'),
     'the browser importer cache must bracket runtime preparation'
   );
+}
+
+// The secure-desktop helper's cache, signer pin and signature check.
+function assertSecureDesktopCacheContract(desktopPackage) {
   // The secure-desktop helper follows the same restore/prepare/save bracket,
   // its crate reaches the prepared runtime key, and its signature is verified.
   assert.match(
@@ -1017,6 +1030,10 @@ function assertDesktopPackageContract(desktopPackage) {
     /hashFiles\([^)]*package(?:-lock)?\.json/,
     'the manifests reach this key only through the version-neutral digest'
   );
+}
+
+// The dependency caches and the steps the workflow no longer has.
+function assertDesktopDependencyCacheContract(desktopPackage) {
   assert.match(desktopPackage, /name:\s*Restore stable desktop npm downloads/);
   assert.match(desktopPackage, /dependency-lock-cache-key\.mjs/);
   assert.match(
@@ -1029,6 +1046,10 @@ function assertDesktopPackageContract(desktopPackage) {
   assert.doesNotMatch(desktopPackage, /name:\s*Verify platform embedding runtime/);
   assert.doesNotMatch(desktopPackage, /name:\s*Install runtime dependencies/);
   assert.doesNotMatch(desktopPackage, /name:\s*Stage (?:Windows|macOS|Linux)/);
+}
+
+// How verified assets reach the hidden draft.
+function assertDesktopUploadContract(desktopPackage) {
   // Every platform uploads through the bounded script: `gh release upload
   // --clobber` stalled past its step timeout on linux-arm64 once the draft
   // already held the earlier attempt's AppImage.

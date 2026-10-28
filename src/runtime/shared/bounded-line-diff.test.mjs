@@ -26,7 +26,10 @@ test('within budget the hunks are jsdiff’s own', () => {
 test('a spent budget gives one replacement hunk that applies exactly', () => {
   _resetLineDiffCacheForTest();
   let seed = 7;
-  const random = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) % 6;
+  const random = () => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % 6;
+  };
   const text = (count) =>
     Array.from({ length: count }, () => ['a', 'b', 'c', 'a\r', '', 'd'][random()]).join('\n') +
     (random() > 2 ? '\n' : '');

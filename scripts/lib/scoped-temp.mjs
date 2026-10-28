@@ -71,6 +71,7 @@ export function registerOwnedTempDir(dir) {
   installExitHook();
   return resolved;
 }
+
 /**
  * For code under test that makes its own mixdog-* directories in the system
  * temp dir: points TEMP/TMP/TMPDIR at one scoped directory for the rest of the

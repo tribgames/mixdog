@@ -125,7 +125,9 @@ fn read_logins(conn: &Connection, out: &mut Vec<RawLogin>) -> Result<()> {
         Ok(RawLogin {
             url: row.get(0)?,
             username: row.get(1)?,
-            encrypted_password: Zeroizing::new(row.get::<_, Option<Vec<u8>>>(2)?.unwrap_or_default()),
+            encrypted_password: Zeroizing::new(
+                row.get::<_, Option<Vec<u8>>>(2)?.unwrap_or_default(),
+            ),
             encrypted_note: Zeroizing::new(row.get::<_, Option<Vec<u8>>>(3)?.unwrap_or_default()),
             last_used_at: first_valid_recency(
                 (0..recency.len())
@@ -375,7 +377,10 @@ mod tests {
     #[test]
     fn chrome_microseconds_since_1601_become_unix_milliseconds() {
         // 13_300_000_000_000_000 us after 1601-01-01 is 1_655_526_400_000 ms after 1970-01-01.
-        assert_eq!(chrome_micros_to_unix_ms(13_300_000_000_000_000), Some(1_655_526_400_000));
+        assert_eq!(
+            chrome_micros_to_unix_ms(13_300_000_000_000_000),
+            Some(1_655_526_400_000)
+        );
         assert_eq!(chrome_micros_to_unix_ms(0), None);
         assert_eq!(chrome_micros_to_unix_ms(-5), None);
     }
@@ -420,7 +425,10 @@ mod tests {
         );
         // The best valid column wins; a zero last-used falls back to the modified date.
         assert_eq!(
-            recency_of(all, ", 13400000000000000, 13300000000000000, 13300000000000000"),
+            recency_of(
+                all,
+                ", 13400000000000000, 13300000000000000, 13300000000000000"
+            ),
             Some(1_755_526_400_000)
         );
         assert_eq!(

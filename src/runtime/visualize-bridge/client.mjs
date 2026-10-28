@@ -117,7 +117,7 @@ export function validateVisualizeArgs(args) {
   if (args.action === 'export') {
     if (input.format !== 'png' && input.format !== 'pdf')
       return { ok: false, error: 'export requires input.format png or pdf' };
-    if (typeof input.output !== 'string' || !new RegExp('\\.' + input.format + '$', 'i').test(input.output.trim())) {
+    if (typeof input.output !== 'string' || !new RegExp(`\\.${input.format}$`, 'i').test(input.output.trim())) {
       return { ok: false, error: `export requires input.output ending in .${input.format}` };
     }
     if (input.version != null && !(Number.isInteger(input.version) && input.version >= 1)) {

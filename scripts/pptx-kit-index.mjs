@@ -21,12 +21,11 @@ const SOURCES = [
 // A statement this short says its whole meaning (a constant, a one-line arrow); a longer one gives its first line.
 const WHOLE_STATEMENT = 240;
 
-const propertyName = (property) =>
-  property.type === 'Property'
-    ? String(property.key.name ?? property.key.value ?? '')
-    : property.type === 'SpreadElement'
-      ? '…'
-      : '';
+function propertyName(property) {
+  if (property.type === 'Property') return String(property.key.name ?? property.key.value ?? '');
+  if (property.type === 'SpreadElement') return '…';
+  return '';
+}
 
 // The keys an object literal offers a script, one level into object-valued keys ("body: { x, y, w, h }"). A table of
 // like entries (STYLES: an id per style, each with the same fields) reads as its ids and the fields each carries.
