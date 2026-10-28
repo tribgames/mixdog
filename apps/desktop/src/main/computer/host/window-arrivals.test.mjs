@@ -326,7 +326,10 @@ test('a stop while the report reads app names refuses the reply instead of publi
   await assert.rejects(pending, /computer_session_aborted/);
 });
 
-test('a slow arrivals read never sits in front of the next command request', async (t) => {
+// The pool's PowerShell workers exist on Windows only; elsewhere it drives the native backend.
+test('a slow arrivals read never sits in front of the next command request', {
+  skip: process.platform !== 'win32' && 'Windows only',
+}, async (t) => {
   const directory = await mkdtemp(join(tmpdir(), 'mixdog-window-arrivals-'));
   const workers = new Map();
   const pool = createWorkerPool({
