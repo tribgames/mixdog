@@ -77,7 +77,7 @@ export interface DesktopService {
   continueSessionInModel(sessionId: string, route: DesktopModelSelection): Promise<boolean>;
   scheduleQuotaResume(sessionId: string): Promise<boolean>;
   cancelQuotaResume(sessionId: string): Promise<boolean>;
-  stopShellJob(sessionId: string, taskId: string): Promise<{ stopped: boolean; error?: string }>;
+  stopShellJob(sessionId: string, taskId: string): Promise<{ stopped: boolean; unconfirmed?: boolean; error?: string }>;
   releaseShellJob(sessionId: string, taskId: string): Promise<{ released: boolean; error?: string }>;
   getQuotaAutoResume(): Promise<boolean>;
   /** The exact path of the app's "no project" working folder. */

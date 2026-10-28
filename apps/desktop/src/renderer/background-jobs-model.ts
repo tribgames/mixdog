@@ -26,8 +26,10 @@ export type JobRow = {
   terminationUnconfirmed?: boolean;
 };
 
-/** Where a Stop (or Release) request stands; absent before the user acted. */
-export type ShellStopState = 'stopping' | 'failed' | undefined;
+/** Where a Stop (or Release) request stands; absent before the user acted.
+ *  'unconfirmed': the kill was delivered but the processes are not yet
+ *  confirmed gone; they keep being terminated. */
+export type ShellStopState = 'stopping' | 'unconfirmed' | 'failed' | undefined;
 export type ShellRowAction = 'stop' | 'stopping' | 'retry' | 'dismiss' | 'release';
 
 /** The one button a shell row offers: a finished row can only be dismissed;
@@ -38,7 +40,7 @@ export function shellRowAction(
   stop: ShellStopState
 ): ShellRowAction {
   if (row.finished) return 'dismiss';
-  if (stop === 'stopping') return 'stopping';
+  if (stop === 'stopping' || stop === 'unconfirmed') return 'stopping';
   if (stop === 'failed') return 'retry';
   return row.terminationUnconfirmed ? 'release' : 'stop';
 }

@@ -5,7 +5,7 @@
 // finish, and jobs from earlier turns keep their jobs. Only the entry's own
 // turn start is armed, and a new turn clears it, so a reap that runs late
 // never touches a newer turn's work.
-import { cancelBackgroundTasks } from '../../../../shared/background-tasks.mjs';
+import { cancelBackgroundTasks, getBackgroundTask } from '../../../../shared/background-tasks.mjs';
 import { runtimeState } from './runtime-state.mjs';
 
 // Abort reasons / terminal errors that mean "the turn timed out / stalled": the
@@ -60,11 +60,45 @@ export function turnEndedByTimeout(signal, err) {
   return isTurnTimeoutAbort(signal?.aborted ? signal.reason : err);
 }
 
-// session id -> task ids stopped by a timeout reap, until the owner's handoff
+// session id -> jobs stopped by a timeout reap, until the owner's handoff
 // reports them (or the session's next turn starts).
 const stoppedJobs = new Map();
 
+// What the cancel path already produces, read without waiting: a task whose
+// own cancel hook kills (survivors of a finished command) answers with its
+// kill outcome; a promoted job is over once its process tree is no longer
+// tracked.
+function trackStoppedJob(taskId) {
+  const job = { taskId, outcome: null, terminated: false };
+  const kill = getBackgroundTask(taskId)?.cancelOutcome;
+  if (kill) {
+    job.outcome = kill;
+    Promise.resolve(kill).then(
+      (result) => {
+        job.terminated = result?.terminated === true;
+      },
+      () => {}
+    );
+  }
+  return job;
+}
+
+// shell-jobs depends on the session manager, which loads this module, so it is
+// loaded at the first reap. The classification awaits only this module load,
+// never a process; a probe that cannot be loaded leaves a job "still stopping".
+let shellJobProbe = null;
+function loadShellJobProbe() {
+  shellJobProbe ??= import('../../tools/builtin/shell-jobs.mjs').then(
+    (shellJobs) => shellJobs.isShellJobRunning,
+    () => null
+  );
+  return shellJobProbe;
+}
+
+const isConfirmedGone = (job, isRunning) => (job.outcome ? job.terminated : isRunning ? !isRunning(job.taskId) : false);
+
 function reap(id, entry) {
+  loadShellJobProbe();
   const { taskIds } = cancelBackgroundTasks({
     surface: 'shell',
     executionSessionId: id,
@@ -72,7 +106,7 @@ function reap(id, entry) {
     reason: 'turn-timeout',
     notify: false,
   });
-  if (taskIds.length > 0) stoppedJobs.set(id, [...(stoppedJobs.get(id) || []), ...taskIds]);
+  if (taskIds.length > 0) stoppedJobs.set(id, [...(stoppedJobs.get(id) || []), ...taskIds.map(trackStoppedJob)]);
 }
 
 /** The turn is being abandoned by a timeout: remember when it started and stop
@@ -95,8 +129,15 @@ export function resetTurnShellReap(id, entry) {
   stoppedJobs.delete(id);
 }
 
-export function takeStoppedShellJobs(id) {
-  const ids = stoppedJobs.get(id) || [];
+/** The jobs the reap stopped, split by what is known now: `stopped` are
+ *  confirmed gone, `stopping` were killed but their processes are not yet
+ *  confirmed gone (they keep being terminated). */
+export async function takeStoppedShellJobs(id) {
+  const jobs = stoppedJobs.get(id) || [];
   stoppedJobs.delete(id);
-  return ids;
+  if (jobs.length === 0) return { stopped: [], stopping: [] };
+  const isRunning = await loadShellJobProbe();
+  const taskIds = (confirmed) =>
+    jobs.filter((job) => isConfirmedGone(job, isRunning) === confirmed).map((job) => job.taskId);
+  return { stopped: taskIds(true), stopping: taskIds(false) };
 }

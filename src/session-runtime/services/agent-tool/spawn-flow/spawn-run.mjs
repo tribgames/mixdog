@@ -211,7 +211,7 @@ export function createSpawnRunner({
           tag,
           sessionId: session.id,
           ...presetDescriptor(agent, preset, presetName),
-          content: watchdogStoppedHandoff(error, partial, takeStoppedShellJobs(session.id)),
+          content: watchdogStoppedHandoff(error, partial, await takeStoppedShellJobs(session.id)),
           stallAbort: true,
         };
         if (job) job._terminalResultValue = value;
@@ -219,7 +219,7 @@ export function createSpawnRunner({
         return value;
       }
       finalStatus = 'error';
-      noteStoppedShellJobsOnError(error, takeStoppedShellJobs(session.id));
+      noteStoppedShellJobsOnError(error, await takeStoppedShellJobs(session.id));
       reconcileJobStreamStalled(job, error);
       throw error;
     } finally {

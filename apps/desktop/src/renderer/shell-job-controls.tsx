@@ -47,15 +47,20 @@ export function useShellStops(sessionId: string) {
       const kind: ShellRequest['kind'] = row.terminationUnconfirmed ? 'release' : 'stop';
       setStops((current) => ({ ...current, [row.key]: { kind, state: 'stopping' } }));
       let done = false;
+      let unconfirmed = false;
       try {
-        done =
-          kind === 'release'
-            ? (await window.mixdogDesktop.releaseShellJob?.(sessionId, row.taskId))?.released === true
-            : (await window.mixdogDesktop.stopShellJob?.(sessionId, row.taskId))?.stopped === true;
+        if (kind === 'release') {
+          done = (await window.mixdogDesktop.releaseShellJob?.(sessionId, row.taskId))?.released === true;
+        } else {
+          const result = await window.mixdogDesktop.stopShellJob?.(sessionId, row.taskId);
+          done = result?.stopped === true;
+          unconfirmed = result?.unconfirmed === true;
+        }
       } catch {
         done = false;
       }
-      if (!done) setStops((current) => ({ ...current, [row.key]: { kind, state: 'failed' } }));
+      if (unconfirmed) setStops((current) => ({ ...current, [row.key]: { kind, state: 'unconfirmed' } }));
+      else if (!done) setStops((current) => ({ ...current, [row.key]: { kind, state: 'failed' } }));
     },
     [sessionId]
   );
@@ -100,7 +105,7 @@ export function ShellJobContent({ row, clock, stop }: { row: JobRow; clock: numb
           <span className="agent-activity-elapsed" data-state={finishedState(row)}>
             {shellFinishedLabel(row)}
           </span>
-        ) : row.terminationUnconfirmed ? (
+        ) : row.terminationUnconfirmed || stop === 'unconfirmed' ? (
           <span
             className="agent-activity-elapsed"
             data-state="unconfirmed"

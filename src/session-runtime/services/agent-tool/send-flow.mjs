@@ -148,7 +148,7 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
         finalStatus = 'idle';
         const value = {
           ...workerResultIdentity({ session, tag, sessionId }),
-          content: watchdogStoppedHandoff(error, partial, takeStoppedShellJobs(sessionId)),
+          content: watchdogStoppedHandoff(error, partial, await takeStoppedShellJobs(sessionId)),
           stallAbort: true,
         };
         if (job) job._terminalResultValue = value;
@@ -156,7 +156,7 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
         return value;
       }
       finalStatus = 'error';
-      noteStoppedShellJobsOnError(error, takeStoppedShellJobs(sessionId));
+      noteStoppedShellJobsOnError(error, await takeStoppedShellJobs(sessionId));
       reconcileJobStreamStalled(job, error);
       throw error;
     } finally {

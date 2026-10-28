@@ -70,6 +70,12 @@ test('the host routes the stop to the session runtime and reports only a real st
     stopped: false,
     error: 'task already completed: job_1',
   });
+  answer = { stopped: false, unconfirmed: true, error: 'cancellation not confirmed: job_1' };
+  assert.deepEqual(await lifecycle.stopShellJob(SESSION, 'job_1'), {
+    stopped: false,
+    unconfirmed: true,
+    error: 'cancellation not confirmed: job_1',
+  });
   answer = { stopped: 'yes' };
   assert.equal((await lifecycle.stopShellJob(SESSION, 'job_1')).stopped, false);
   answer = null;

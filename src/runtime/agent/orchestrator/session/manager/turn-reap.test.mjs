@@ -36,8 +36,9 @@ process.on('exit', () => {
   }
 });
 
-function shellJob(sessionId, taskId, startedAtMs, stopped) {
-  return registerBackgroundTask({
+// `killOutcome`: what a task whose own cancel hook kills reports (survivors).
+function shellJob(sessionId, taskId, startedAtMs, stopped, killOutcome = null) {
+  const task = registerBackgroundTask({
     taskId,
     startedAtMs,
     surface: 'shell',
@@ -46,8 +47,12 @@ function shellJob(sessionId, taskId, startedAtMs, stopped) {
     input: { command: taskId, cwd: root },
     context: { callerSessionId: sessionId, routingSessionId: sessionId },
     resultType: 'shell_task_result',
-    cancel: () => stopped.push(taskId),
+    cancel: () => {
+      stopped.push(taskId);
+      if (killOutcome) task.cancelOutcome = killOutcome;
+    },
   });
+  return task;
 }
 
 let seq = 0;
@@ -125,7 +130,7 @@ for (const [name, abortWith] of [
       const handoff = watchdogStoppedHandoff(
         new Error('agent task stale (1ms)'),
         'partial',
-        takeStoppedShellJobs(session.id)
+        await takeStoppedShellJobs(session.id)
       );
       assert.match(handoff, new RegExp(`Stopped its background shell jobs: .*${promoted}`));
       assert.match(handoff, new RegExp(survivor));
@@ -148,7 +153,7 @@ for (const reason of ['user-cancel', 'interrupt']) {
         },
       });
       assert.deepEqual(stopped, []);
-      assert.deepEqual(takeStoppedShellJobs(session.id), []);
+      assert.deepEqual(await takeStoppedShellJobs(session.id), { stopped: [], stopping: [] });
       cancelBackgroundTasks({ surface: 'shell', executionSessionId: session.id, notify: false });
     });
   });
@@ -192,7 +197,7 @@ for (const [name, makeError] of [
       async (session) => {
         await assert.rejects(askSession(session.id, 'go', null, null, null, null, {}));
         assert.deepEqual(stopped, [started]);
-        assert.deepEqual(takeStoppedShellJobs(session.id), [started]);
+        assert.deepEqual(await takeStoppedShellJobs(session.id), { stopped: [started], stopping: [] });
         cancelBackgroundTasks({ surface: 'shell', executionSessionId: session.id, notify: false });
       },
       async () => {
@@ -203,6 +208,30 @@ for (const [name, makeError] of [
     );
   });
 }
+
+test('a job whose processes are not confirmed gone is reported as still stopping, not stopped', async (t) => {
+  const [gone, confirmed, stuck] = ['gone', 'confirmed', 'stuck'].map(uniqueId);
+  await withTurns(
+    t,
+    async (session) => {
+      await assert.rejects(askSession(session.id, 'go', null, null, null, null, {}));
+      const jobs = await takeStoppedShellJobs(session.id);
+      assert.deepEqual(jobs.stopped.sort(), [confirmed, gone].sort());
+      assert.deepEqual(jobs.stopping, [stuck]);
+      const handoff = watchdogStoppedHandoff(new Error('stale'), 'partial', jobs);
+      assert.match(handoff, new RegExp(`\\[Stopped its background shell jobs: [^\\]]*${gone}`));
+      assert.doesNotMatch(handoff, new RegExp(`Stopped its background shell jobs: [^\\]]*${stuck}`));
+      assert.match(handoff, new RegExp(`\\[Still stopping its background shell jobs: ${stuck}\\.\\]`));
+      cancelBackgroundTasks({ surface: 'shell', executionSessionId: session.id, notify: false });
+    },
+    async () => {
+      shellJob(currentSessionId(), gone, Date.now(), []);
+      shellJob(currentSessionId(), confirmed, Date.now(), [], Promise.resolve({ terminated: true }));
+      shellJob(currentSessionId(), stuck, Date.now(), [], Promise.resolve({ terminated: false }));
+      throw Object.assign(providerTimeoutError('test', 1), { unsafeToRetry: true });
+    }
+  );
+});
 
 test('a stall the turn retries and recovers from stops no background shell job', async (t) => {
   const stopped = [];

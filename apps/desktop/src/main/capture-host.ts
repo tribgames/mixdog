@@ -280,7 +280,7 @@ export class CaptureService implements DesktopService {
   async cancelQuotaResume(): Promise<boolean> {
     return true;
   }
-  async stopShellJob(): Promise<{ stopped: boolean; error?: string }> {
+  async stopShellJob(): Promise<{ stopped: boolean; unconfirmed?: boolean; error?: string }> {
     return { stopped: false, error: 'unavailable' };
   }
   async releaseShellJob(): Promise<{ released: boolean; error?: string }> {

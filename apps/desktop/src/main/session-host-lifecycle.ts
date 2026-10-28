@@ -245,14 +245,22 @@ export class SessionHostLifecycle {
 
   /** Stop one background shell job through the runtime that owns the session
    *  (the task tool's cancel path); never a direct pid kill from the app. */
-  async stopShellJob(sessionId: string, taskId: string): Promise<{ stopped: boolean; error?: string }> {
+  async stopShellJob(
+    sessionId: string,
+    taskId: string
+  ): Promise<{ stopped: boolean; unconfirmed?: boolean; error?: string }> {
     const id = sessionIdOf(sessionId);
     try {
       const { value } = await this.owner.invokeSession(id, 'stopShellJob', [taskId]);
-      const result = (value && typeof value === 'object' ? value : {}) as { stopped?: unknown; error?: unknown };
+      const result = (value && typeof value === 'object' ? value : {}) as {
+        stopped?: unknown;
+        unconfirmed?: unknown;
+        error?: unknown;
+      };
       if (result.stopped === true) return { stopped: true };
       return {
         stopped: false,
+        ...(result.unconfirmed === true ? { unconfirmed: true } : {}),
         error: typeof result.error === 'string' && result.error ? result.error : 'The job was not stopped.',
       };
     } catch (error) {

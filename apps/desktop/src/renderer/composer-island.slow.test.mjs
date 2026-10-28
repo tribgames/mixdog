@@ -633,6 +633,32 @@ test('Stop calls stopShellJob once; a refused stop keeps the row running with a 
   assert.equal(document.querySelector('.composer-island-row button').textContent, translate('Dismiss'));
 });
 
+test('a stop the runtime could not confirm shows the unconfirmed state at once, not a failure', async (t) => {
+  const { root, document, window } = mount(t);
+  const calls = [];
+  window.mixdogDesktop.stopShellJob = async (...args) => {
+    calls.push(args);
+    return { stopped: false, unconfirmed: true, error: 'cancellation not confirmed: j1' };
+  };
+  await publish({
+    shellJobs: {
+      count: 1,
+      jobs: [{ taskId: 'j1', command: 'npm test', cwd: '/work/cart-service', startedAt: Date.now() - 5_000 }],
+    },
+  });
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await act(async () => document.querySelector('.composer-island-seg-shell').click());
+  await act(async () => document.querySelector('.composer-island-row button').click());
+  assert.equal(calls.length, 1);
+  assert.equal(document.querySelector('.composer-island-row-error'), null);
+  const status = document.querySelector('.composer-island-row .agent-activity-elapsed');
+  assert.equal(status.dataset.state, 'unconfirmed');
+  assert.equal(status.textContent, translate('Termination unconfirmed'));
+  const button = document.querySelector('.composer-island-row button');
+  assert.equal(button.textContent, translate('Island: Stopping…'));
+  assert.equal(button.disabled, true);
+});
+
 test('a stop that ends termination-unconfirmed offers release, and the release works', async (t) => {
   const { root, document, window } = mount(t);
   const stops = [];

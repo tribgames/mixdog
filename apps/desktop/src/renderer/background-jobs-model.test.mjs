@@ -66,6 +66,7 @@ test('shell row action follows the stop state; finished rows only dismiss', () =
   assert.equal(shellRowAction(running, undefined), 'stop');
   assert.equal(shellRowAction(running, 'stopping'), 'stopping');
   assert.equal(shellRowAction(running, 'failed'), 'retry');
+  assert.equal(shellRowAction(running, 'unconfirmed'), 'stopping');
   assert.equal(shellRowAction({ finished: true }, 'stopping'), 'dismiss');
 });
 

@@ -51,7 +51,9 @@ const { renderCompletedResult } = await import('./bash-tool/completed-result.mjs
 const { adoptShellWorkspaceAdmission } = await import('./lib/shell-job-records.mjs');
 const { listStoppableShellJobs, stopBackgroundShellJobs } = await import('./task-tool.mjs');
 const { createAgentOps } = await import('../../../../../session-runtime/turn/agent-ops.mjs');
-const { getBackgroundTask, registerBackgroundTask } = await import('../../../../shared/background-tasks.mjs');
+const { cancelBackgroundTasks, getBackgroundTask, registerBackgroundTask } = await import(
+  '../../../../shared/background-tasks.mjs'
+);
 
 after(cleanupTempDirs);
 
@@ -190,4 +192,31 @@ test('a survivor that ignores the kill ends as still stopping and keeps being sw
   tree.state.next = () => processTable([]);
   t.mock.timers.tick(5_000);
   await until(() => !isHeld(repo));
+});
+
+test('/stop and the close/reap sweep select the same jobs, for a lead and for an agent sub-session', () => {
+  // A tool call's context names the executing session as caller and routing
+  // session, whether that is the lead or an agent sub-session.
+  const sessions = ['lead_scope_a', 'agent_scope_b'];
+  for (const sessionId of sessions) {
+    for (const n of [1, 2]) {
+      registerBackgroundTask({
+        taskId: `${sessionId}_job_${n}`,
+        surface: 'shell',
+        operation: 'shell',
+        label: 'sleep',
+        input: { command: 'sleep' },
+        context: { callerSessionId: sessionId, routingSessionId: sessionId, clientHostPid: process.pid },
+        cancel: noop,
+      });
+    }
+  }
+  for (const sessionId of sessions) {
+    const listed = listStoppableShellJobs(ctx(sessionId))
+      .map((job) => job.taskId)
+      .sort();
+    assert.deepEqual(listed, [`${sessionId}_job_1`, `${sessionId}_job_2`]);
+    const swept = cancelBackgroundTasks({ surface: 'shell', executionSessionId: sessionId, notify: false });
+    assert.deepEqual(swept.taskIds.sort(), listed);
+  }
 });

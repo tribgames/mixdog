@@ -563,7 +563,7 @@ test('/stop confirms once with the commands, and stopping happens only after Sto
   h.runSlashCommand('stop', '');
   await flush();
   const prompt = h.current();
-  assert.equal(prompt.title, 'Stop 2 background shells?');
+  assert.equal(prompt.title, 'Stop background shells (2)?');
   assert.deepEqual(
     prompt.footer.map((row) => row.text),
     ['npm run dev', 'tail -f log']
@@ -572,7 +572,7 @@ test('/stop confirms once with the commands, and stopping happens only after Sto
   prompt.onSelect('stop');
   await flush();
   assert.deepEqual(h.calls, [['stopShellJobs']]);
-  assert.deepEqual(h.notices, [['Stopped 2', 'info']]);
+  assert.deepEqual(h.notices, [['Stopped background shells: 2', 'info']]);
   assert.equal(h.current(), null);
 });
 
@@ -598,5 +598,31 @@ test('/stop reports shells that are still stopping', async () => {
   await flush();
   h.current().onSelect('stop');
   await flush();
-  assert.deepEqual(h.notices, [['Stopped 1 · 1 still stopping', 'warn']]);
+  assert.deepEqual(h.notices, [['Stopped background shells: 1 · still stopping: 1', 'warn']]);
+});
+
+test('/stop shows a failed listing or stop as the plain error message', async () => {
+  const listing = createHarness({
+    store: {
+      listStoppableShellJobs: async () => {
+        throw new Error('list failed');
+      },
+    },
+  });
+  listing.runSlashCommand('stop', '');
+  await flush();
+  assert.deepEqual(listing.notices, [['list failed', 'error']]);
+  const stopping = createHarness({
+    store: {
+      listStoppableShellJobs: async () => ({ jobs: STOP_JOBS }),
+      stopShellJobs: async () => {
+        throw new Error('stop failed');
+      },
+    },
+  });
+  stopping.runSlashCommand('stop', '');
+  await flush();
+  stopping.current().onSelect('stop');
+  await flush();
+  assert.deepEqual(stopping.notices, [['stop failed', 'error']]);
 });

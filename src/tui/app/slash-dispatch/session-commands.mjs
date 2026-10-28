@@ -179,11 +179,13 @@ export const sessionCommands = {
           const stopped = result?.stopped || 0;
           const stopping = result?.stopping || 0;
           store.pushNotice(
-            stopping ? `Stopped ${stopped} · ${stopping} still stopping` : `Stopped ${stopped}`,
+            stopping
+              ? `Stopped background shells: ${stopped} · still stopping: ${stopping}`
+              : `Stopped background shells: ${stopped}`,
             stopping ? 'warn' : 'info'
           );
         })
-        .catch((error) => store.pushNotice(`Couldn’t stop shells: ${error?.message || error}`, 'error'));
+        .catch((error) => store.pushNotice(String(error?.message || error), 'error'));
     void Promise.resolve(store.listStoppableShellJobs?.())
       .then((result) => {
         const jobs = Array.isArray(result?.jobs) ? result.jobs : [];
@@ -193,7 +195,7 @@ export const sessionCommands = {
         }
         const own = surface.claim();
         own.paint({
-          title: `Stop ${jobs.length} background shell${jobs.length === 1 ? '' : 's'}?`,
+          title: `Stop background shells (${jobs.length})?`,
           indexMode: 'always',
           labelWidth: 12,
           items: [
@@ -208,7 +210,7 @@ export const sessionCommands = {
           onCancel: () => own.close(),
         });
       })
-      .catch((error) => store.pushNotice(`Couldn’t list shells: ${error?.message || error}`, 'error'));
+      .catch((error) => store.pushNotice(String(error?.message || error), 'error'));
     return true;
   },
 

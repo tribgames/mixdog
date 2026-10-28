@@ -3,6 +3,7 @@ import test from 'node:test';
 import {
   AgentStallAbortError,
   evaluateAgentWatchdogAbort,
+  noteStoppedShellJobsOnError,
   partialHandoffTextFromSession,
   resolveAgentWatchdogPolicy,
   resolveHandoffMessageStartIndex,
@@ -115,6 +116,25 @@ test('a stall error that carries its own partial handoff is reported as a stop w
   const handoff = watchdogStoppedHandoff(error, partial);
   assert.match(handoff, /^\[Agent stopped by the progress watchdog: agent task stale \(100ms/);
   assert.ok(handoff.endsWith('\n\ncarried'));
+});
+
+test('stopped shell jobs are named stopped only when confirmed gone, the rest as still stopping', () => {
+  const jobs = { stopped: ['a'], stopping: ['b', 'c'] };
+  const error = new AgentStallAbortError('agent task stale (1ms)');
+  noteStoppedShellJobsOnError(error, jobs);
+  assert.match(
+    error.message,
+    /\[Stopped its background shell jobs: a\.\] \[Still stopping its background shell jobs: b, c\.\]$/
+  );
+  const only = new AgentStallAbortError('agent task stale (1ms)');
+  noteStoppedShellJobsOnError(only, { stopped: [], stopping: ['b'] });
+  assert.doesNotMatch(only.message, /Stopped its/);
+  assert.match(only.message, /\[Still stopping its background shell jobs: b\.\]$/);
+  assert.match(
+    watchdogStoppedHandoff(error, 'p', jobs),
+    /partial\.\]\n\[Stopped its background shell jobs: a\.\] \[Still/
+  );
+  assert.ok(!watchdogStoppedHandoff(error, 'p').includes('background shell jobs: ]'));
 });
 
 test('partial handoff collects only assistant text appended in the current turn', () => {

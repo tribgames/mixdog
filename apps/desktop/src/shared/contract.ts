@@ -466,7 +466,10 @@ export interface DesktopApi {
   /** Stops one running background shell job of the session through its
    *  runtime (the task tool's cancel). `stopped` is true only when the job was
    *  actually cancelled; unknown, finished or failed cancels carry `error`. */
-  stopShellJob?(sessionId: string, taskId: string): Promise<{ stopped: boolean; error?: string }>;
+  stopShellJob?(
+    sessionId: string,
+    taskId: string
+  ): Promise<{ stopped: boolean; unconfirmed?: boolean; error?: string }>;
   /** Explicit "Release anyway" for a shell job whose termination is
    *  unconfirmed: drops its workspace hold in the owning runtime. The caller
    *  confirms with the user first. */
