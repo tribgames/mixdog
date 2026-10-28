@@ -1399,12 +1399,21 @@ function validateCredentialCapabilityArgs(capability: DesktopCapability, args: r
     if (args[0] !== 'vertex-ai') throw new TypeError('Provider settings are only supported for Vertex AI.');
     const options = optionalPlainRecord(args[2]);
     if (!options) throw new TypeError('Vertex AI settings are invalid.');
-    if (options.authMode !== undefined && options.authMode !== 'service-account' && !vertexAdc) {
+    // service-account: the JSON key; api-key: an express-mode API key.
+    if (
+      options.authMode !== undefined &&
+      options.authMode !== 'service-account' &&
+      options.authMode !== 'api-key' &&
+      !vertexAdc
+    ) {
       throw new TypeError('Vertex AI authentication mode is invalid.');
     }
     if (vertexAdc && args[1] !== '') throw new TypeError('Vertex AI gcloud login takes no key.');
-    requiredString(options.location, 'Vertex AI location', 63);
-    if (!/^[a-z0-9-]+$/.test(String(options.location))) throw new TypeError('Vertex AI location is invalid.');
+    // No location (or an empty one) leaves it unset: the environment's region, then global.
+    if (options.location !== undefined && options.location !== '') {
+      requiredString(options.location, 'Vertex AI location', 63);
+      if (!/^[a-z0-9-]+$/.test(String(options.location))) throw new TypeError('Vertex AI location is invalid.');
+    }
     if (options.projectId !== undefined && options.projectId !== '') {
       requiredString(options.projectId, 'Vertex AI project ID', 128);
       if (!/^[a-zA-Z0-9._:-]+$/.test(String(options.projectId))) throw new TypeError('Vertex AI project ID is invalid.');

@@ -163,6 +163,13 @@ test('a Vertex AI gcloud login save carries no secret and a known authentication
   assert.throws(() => cap('saveProviderApiKey', 'openai', '', adc), TypeError);
   assert.throws(() => cap('saveProviderApiKey', 'vertex-ai', '', { location: 'global' }), TypeError);
   assert.throws(() => cap('saveProviderApiKey', 'vertex-ai', 'key', { authMode: 'metadata', location: 'global' }), TypeError);
+  // An express-mode API key carries its secret like a service-account key.
+  assert.doesNotThrow(() => cap('saveProviderApiKey', 'vertex-ai', 'AQ.key', { authMode: 'api-key', location: 'global' }));
+  // No location, or an empty one, leaves it unset (the environment's region, then global).
+  assert.doesNotThrow(() => cap('saveProviderApiKey', 'vertex-ai', 'AQ.key', { authMode: 'api-key' }));
+  assert.doesNotThrow(() => cap('saveProviderApiKey', 'vertex-ai', '', { authMode: 'adc', location: '' }));
+  assert.throws(() => cap('saveProviderApiKey', 'vertex-ai', '', { authMode: 'adc', location: 7 }), TypeError);
+  assert.throws(() => cap('saveProviderApiKey', 'vertex-ai', '', { authMode: 'api-key', location: 'global' }), TypeError);
   assert.doesNotThrow(() =>
     cap('saveProviderApiKey', 'vertex-ai', '{"type":"service_account"}', { authMode: 'service-account', location: 'global' })
   );

@@ -31,7 +31,7 @@ import { parseSSEStream } from './anthropic-sse.mjs';
 import { buildAnthropicTurnResult } from './anthropic-turn-result.mjs';
 import { streamCallbacks } from './lib/send-callbacks.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
-import { VertexAccessTokenManager } from './vertex-ai-auth.mjs';
+import { VERTEX_API_KEY_MODE, VertexAccessTokenManager } from './vertex-ai-auth.mjs';
 import { VertexMaasRoute, toVertexExclusiveUsage, vertexErrorBody } from './vertex-ai-maas.mjs';
 import {
   VERTEX_FLEX_TIER,
@@ -40,6 +40,7 @@ import {
   VERTEX_MULTI_REGIONS,
   VERTEX_PRIORITY_TIER,
   assertVertexServing,
+  vertexEnvLocation,
   vertexModelAccessError,
   vertexPricingModel,
   vertexRequestedTier,
@@ -108,15 +109,33 @@ function vertexHost(location) {
   return `${location}-aiplatform.googleapis.com`;
 }
 
-function vertexLocation(config) {
-  const location = String(config?.location || 'global')
-    .trim()
-    .toLowerCase();
+// Express mode: an API key on the global endpoint, with no project or location in the path.
+const EXPRESS_BASE = 'https://aiplatform.googleapis.com/v1';
+
+/**
+ * The request's location, and whether the user configured it (`pinned`):
+ * without one, the environment's region (for a Claude model, its own first),
+ * else global.
+ */
+function vertexLocation(config, claudeId = '') {
+  const configured = String(config?.location || '').trim();
+  const location = (configured || vertexEnvLocation(process.env, claudeId) || 'global').trim().toLowerCase();
   // The location names the host the bearer token is sent to: only a region
   // label (or global / a multi-region) may reach the host template.
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(location)) throw new Error('[vertex-ai] location is invalid');
-  return location;
+  return { location, pinned: Boolean(configured) };
 }
+
+function servesAt(route, location, tier) {
+  try {
+    assertVertexServing(route, location, tier);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+const isNotFound = (error) => [error?.status, error?.httpStatus, error?.response?.status].map(Number).includes(404);
 
 function vertexProjectOverride(config) {
   const projectId = String(config?.projectId || '').trim();
@@ -197,24 +216,40 @@ export class VertexAIProvider {
     return vertexProjectOverride(this.config) || this._auth.projectId();
   }
 
-  _locationBase() {
-    const location = vertexLocation(this.config);
-    const project = encodeURIComponent(this._projectId());
-    return `https://${vertexHost(location)}/v1/projects/${project}/locations/${location}`;
+  _express() {
+    return this.config.authMode === VERTEX_API_KEY_MODE;
   }
 
-  _url(publisher, model, method) {
+  _expressKey() {
+    const key = String(resolveProviderApiKey('vertex-ai', this.config) || '').trim();
+    if (!key) throw new Error('[vertex-ai] the Vertex AI API key is not configured');
+    return key;
+  }
+
+  /** `target`: the send's { identity, project } and the location it goes to. */
+  _locationBase({ location, project }) {
+    if (this._express()) return EXPRESS_BASE;
+    return `https://${vertexHost(location)}/v1/projects/${encodeURIComponent(project)}/locations/${location}`;
+  }
+
+  _url(publisher, model, method, target) {
     // A version suffix (claude-…@default, @YYYYMMDD) stays a literal `@` in the path.
     const id = encodeURIComponent(model).replace(/%40/g, '@');
-    return `${this._locationBase()}/publishers/${publisher}/models/${id}:${method}`;
+    return `${this._locationBase(target)}/publishers/${publisher}/models/${id}:${method}`;
   }
 
   /**
    * `identity` is the account `url` was built for, read in the same tick as
    * the URL before the first attempt; every attempt (retries included) must
    * still run as that account, so a switch in between aborts the request.
+   * Express mode sends its API key instead (its URL names no project).
    */
   async _authorizedFetch(url, init, identity) {
+    if (this._express()) {
+      const headers = new Headers(init?.headers || {});
+      headers.set('x-goog-api-key', this._expressKey());
+      return await this._fetch(url, { ...init, headers, dispatcher: getLlmDispatcher() });
+    }
     let token = '';
     const run = async () => {
       token = await this._auth.getAccessToken({ identity });
@@ -233,14 +268,51 @@ export class VertexAIProvider {
 
   async send(messages, model, tools, sendOpts = {}) {
     const route = vertexRoute(model);
-    const location = vertexLocation(this.config);
     const tier = vertexRequestedTier(sendOpts);
+    const express = this._express();
+    if (express && route.wire !== 'gemini') {
+      throw new Error(
+        `[vertex-ai] ${route.publisher}/${route.id} needs a service-account key or the gcloud login: ` +
+          'a Vertex AI express mode API key serves Gemini models only'
+      );
+    }
+    const requested = vertexLocation(this.config, route.wire === 'claude' ? route.id : '');
+    const { pinned } = requested;
+    if (express && pinned && requested.location !== 'global') {
+      throw new Error(
+        '[vertex-ai] a Vertex AI express mode API key serves only the global location; set the location to global'
+      );
+    }
+    // A configured location is never moved. A region from the environment
+    // gives way to global when it cannot serve the request (or for express mode).
+    let location = express ? 'global' : requested.location;
+    if (!pinned && location !== 'global' && !servesAt(route, location, tier) && servesAt(route, 'global', tier)) {
+      location = 'global';
+    }
     assertVertexServing(route, location, tier);
+    await this._auth.ready();
     let result;
     try {
-      if (route.wire === 'gemini') result = await this._sendGemini(messages, route.id, tools, sendOpts, tier);
-      else if (route.wire === 'claude') result = await this._sendClaude(messages, route.id, tools, sendOpts);
-      else result = await this._sendMaas(messages, route, tools, sendOpts);
+      // One account for the whole send, the region fallback included: its
+      // identity and project are read in one tick, and every attempt (on any
+      // location) must still run as it.
+      const account = express
+        ? { identity: null, project: '' }
+        : { identity: this._auth.identity(), project: this._projectId() };
+      const sendAt = (at) => {
+        const target = { ...account, location: at };
+        if (route.wire === 'gemini') return this._sendGemini(messages, route.id, tools, sendOpts, tier, target);
+        if (route.wire === 'claude') return this._sendClaude(messages, route.id, tools, sendOpts, target);
+        return this._sendMaas(messages, route, tools, sendOpts, target);
+      };
+      try {
+        result = await sendAt(location);
+      } catch (error) {
+        // A region from the environment that does not have the model (404) is retried once on global.
+        if (pinned || location === 'global' || !isNotFound(error) || !servesAt(route, 'global', tier)) throw error;
+        location = 'global';
+        result = await sendAt(location);
+      }
     } catch (error) {
       let project = '(unknown project)';
       try {
@@ -253,14 +325,16 @@ export class VertexAIProvider {
     return result;
   }
 
-  async _sendMaas(messages, route, tools, opts) {
-    // Built in the same tick as the identity it is sent with.
-    const identity = this._auth.identity();
-    const baseURL = `${this._locationBase()}/endpoints/openapi`;
-    return await this._maas.send(messages, `${route.publisher}/${route.id}`, tools, opts, { baseURL, identity });
+  async _sendMaas(messages, route, tools, opts, target) {
+    // Built for the account it is sent with.
+    const baseURL = `${this._locationBase(target)}/endpoints/openapi`;
+    return await this._maas.send(messages, `${route.publisher}/${route.id}`, tools, opts, {
+      baseURL,
+      identity: target.identity,
+    });
   }
 
-  async _sendGemini(messages, model, tools, opts, tier) {
+  async _sendGemini(messages, model, tools, opts, tier, target) {
     const signal = opts.signal || null;
     const headers = {
       'Content-Type': 'application/json',
@@ -274,10 +348,10 @@ export class VertexAIProvider {
     const callbacks = geminiCallbacks(opts);
     const request = buildGeminiRequest(messages, model, tools, opts, null);
     const body = geminiVertexBody(request);
-    // One account for every attempt and the unary fallback: identity and URLs are read in one tick.
-    const identity = this._auth.identity();
-    const streamUrl = `${this._url('google', model, 'streamGenerateContent')}?alt=sse`;
-    const unaryUrl = this._url('google', model, 'generateContent');
+    // One account for every attempt and the unary fallback: the send's.
+    const { identity } = target;
+    const streamUrl = `${this._url('google', model, 'streamGenerateContent', target)}?alt=sse`;
+    const unaryUrl = this._url('google', model, 'generateContent', target);
     const stream = { ...request, opts, signal, useModel: model, tools, callbacks, cachedContent: null };
     try {
       opts.onStageChange?.('requesting');
@@ -349,7 +423,7 @@ export class VertexAIProvider {
     return result;
   }
 
-  async _sendClaude(messages, model, tools, opts) {
+  async _sendClaude(messages, model, tools, opts, target) {
     messages = sanitizeToolPairs(messages);
     messages = await preparePdfTextForProvider(messages, this);
     const requestOpts = { ...opts, fast: false, serverFallback: false };
@@ -371,9 +445,9 @@ export class VertexAIProvider {
     try {
       callbacks.onStageChange?.('requesting');
     } catch {}
-    // One account for every attempt: identity and URL are read in one tick.
-    const identity = this._auth.identity();
-    const url = this._url('anthropic', model, 'streamRawPredict');
+    // One account for every attempt: the send's.
+    const { identity } = target;
+    const url = this._url('anthropic', model, 'streamRawPredict', target);
     const payload = JSON.stringify(body);
     // The initial response retries like the first-party Anthropic route: 429
     // and 529 (and 5xx) on its backoff, Retry-After honored.
@@ -450,6 +524,8 @@ export class VertexAIProvider {
 
   async isAvailable() {
     try {
+      if (this._express()) return Boolean(this._expressKey());
+      await this._auth.ready();
       return Boolean(this._projectId());
     } catch {
       return false;

@@ -120,9 +120,12 @@ import {
 } from '../../runtime/agent/orchestrator/providers/custom-provider-config.mjs';
 import {
   VERTEX_ADC_MODE,
+  VERTEX_API_KEY_MODE,
   describeVertexAdc,
   parseVertexServiceAccount,
+  probeVertexMetadata,
 } from '../../runtime/agent/orchestrator/providers/vertex-ai-auth.mjs';
+import { vertexEnvLocation } from '../../runtime/agent/orchestrator/providers/vertex-ai-models.mjs';
 
 const API_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'openrouter', name: 'OpenRouter', env: 'OPENROUTER_API_KEY', url: 'https://openrouter.ai/keys' }),
@@ -384,7 +387,17 @@ function storedSecretDetail(account) {
 function vertexAdcDetail(adc, location) {
   if (!adc) return `gcloud login · ${location}`;
   if (adc.state !== 'ready') return adc.message;
-  return [adc.account || 'gcloud user login', adc.projectId || 'no project', location].join(' · ');
+  const account = adc.account || (adc.type === 'metadata' ? 'metadata server' : 'gcloud user login');
+  return [account, adc.projectId || 'no project', location].join(' · ');
+}
+
+// The Vertex AI location a row shows and where it comes from: the saved one
+// ('config'), else what the runtime would use unset ('environment' or
+// 'default'), which the connect form offers as a hint without saving it.
+function vertexRowLocation(configured) {
+  if (configured.location) return { location: String(configured.location), locationSource: 'config' };
+  const env = vertexEnvLocation();
+  return env ? { location: env, locationSource: 'environment' } : { location: 'global', locationSource: 'default' };
 }
 
 // `keychainIssue`: the setup response's one keyring check (never asked per row).
@@ -417,8 +430,11 @@ function apiProviderSetup(p, providers, checkSecrets, keychainIssue) {
   if (rowIssue) detail = rowIssue.message;
   if (p.id === 'vertex-ai' && configured.authMode === VERTEX_ADC_MODE) {
     // gcloud login: nothing is stored; connected while enabled and the login is readable.
-    const location = String(configured.location || 'global');
+    const { location, locationSource } = vertexRowLocation(configured);
     const adc = checkSecrets ? describeVertexAdc({ projectId: configured.projectId }) : null;
+    // Without a login file a metadata server may stand in: probed once, in the
+    // background, for the next refresh to report.
+    if (adc?.state === 'missing') void probeVertexMetadata();
     const ready = configuredEnabled && (!adc || adc.state === 'ready');
     let adcStatus = configuredEnabled ? 'Not connected' : 'Off';
     if (ready) adcStatus = 'Set';
@@ -436,28 +452,34 @@ function apiProviderSetup(p, providers, checkSecrets, keychainIssue) {
       status: adcStatus,
       detail: vertexAdcDetail(adc, location),
       location,
+      locationSource,
       projectId: adc?.projectId || String(configured.projectId || '') || null,
       ...(adc ? { adc } : {}),
     };
   }
   if (p.id === 'vertex-ai') {
-    const location = String(configured.location || 'global');
+    const { location, locationSource } = vertexRowLocation(configured);
+    // An express-mode API key, or the service-account key.
+    const express = configured.authMode === VERTEX_API_KEY_MODE;
     // The connect form offers the gcloud login too; its status line reads this.
     const adc = checkSecrets && !authenticated ? describeVertexAdc({ projectId: configured.projectId }) : null;
     let projectId = String(configured.projectId || '');
-    if (!projectId && authenticated && checkSecrets) {
+    if (!projectId && authenticated && checkSecrets && !express) {
       try {
         projectId = parseVertexServiceAccount(getAgentApiKey(p.id)).projectId;
       } catch {}
     }
-    if (!rowIssue) detail = projectId ? `${projectId} · ${location}` : `Location: ${location}`;
+    if (!rowIssue) {
+      if (express) detail = `API key (express mode) · ${location}`;
+      else detail = projectId ? `${projectId} · ${location}` : `Location: ${location}`;
+    }
     return {
       ...p,
       ...(rowIssue ? { keychainIssue: rowIssue } : {}),
       group: 'api',
       type: 'api-key',
-      authKind: 'service-account',
-      authMode: 'service-account',
+      authKind: express ? 'api-key' : 'service-account',
+      authMode: express ? VERTEX_API_KEY_MODE : 'service-account',
       ...(adc ? { adc } : {}),
       enabled: configuredEnabled || authenticated,
       authenticated,
@@ -467,6 +489,7 @@ function apiProviderSetup(p, providers, checkSecrets, keychainIssue) {
       status,
       detail,
       location,
+      locationSource,
       projectId: projectId || null,
       ...(credentialSource ? { credentialSource } : {}),
     };
@@ -740,7 +763,7 @@ function apiProviderStatusRow(p, config) {
       env: false,
       envName: null,
       label: p.name,
-      detail: vertexAdcDetail(adc, String(configured.location || 'global')),
+      detail: vertexAdcDetail(adc, vertexRowLocation(configured).location),
     };
   }
   const envName = AGENT_PROVIDER_ENV[p.id] || p.env;
@@ -1074,22 +1097,35 @@ export async function saveProviderApiKey(cfgMod, provider, secret, options = und
   if (!API_PROVIDER_IDS.has(id)) throw new Error(`unknown API-key provider "${id}"`);
   const value = String(secret || '').trim();
   const adc = id === 'vertex-ai' && options?.authMode === VERTEX_ADC_MODE;
+  const express = id === 'vertex-ai' && options?.authMode === VERTEX_API_KEY_MODE;
   if (!value && !adc) throw new Error(`API key is required for ${id}`);
   let patch = { enabled: true };
   if (id === 'vertex-ai') {
     if (adc && value) throw new Error('Vertex AI gcloud login takes no key');
-    if (!adc) parseVertexServiceAccount(value);
-    const location = String(options?.location || 'global')
+    if (express && /[\s{]/.test(value)) throw new Error('Vertex AI express mode takes an API key, not a JSON key file');
+    if (!adc && !express) parseVertexServiceAccount(value);
+    // Only a location the user chose is saved: an empty one is unset (the
+    // runtime then follows the environment's region, then global). None given
+    // at all (the terminal setup) keeps a saved one; express mode never keeps
+    // one, as it serves global only.
+    const location = String(options?.location ?? '')
       .trim()
       .toLowerCase();
     const projectId = String(options?.projectId || '').trim();
-    if (!/^[a-z0-9-]{1,63}$/.test(location)) throw new Error('Vertex AI location is invalid');
+    if (location && !/^[a-z0-9-]{1,63}$/.test(location)) throw new Error('Vertex AI location is invalid');
+    if (express && location && location !== 'global') {
+      throw new Error('Vertex AI express mode serves only the global location');
+    }
+    const locationPatch =
+      location || express || options?.location !== undefined ? { location: location || undefined } : {};
     if (projectId && (!/^[a-zA-Z0-9._:-]{1,128}$/.test(projectId) || projectId.includes('/'))) {
       throw new Error('Vertex AI project ID override is invalid');
     }
     if (adc) {
       // gcloud login: nothing secret is stored, and the login must already be usable.
-      const login = describeVertexAdc({ projectId });
+      let login = describeVertexAdc({ projectId });
+      // No login file: a GCE / Cloud Run / GKE host's metadata server.
+      if (login.state === 'missing' && (await probeVertexMetadata())) login = describeVertexAdc({ projectId });
       if (login.state !== 'ready') throw new Error(login.message);
       if (!login.projectId) {
         throw new Error(
@@ -1101,17 +1137,22 @@ export async function saveProviderApiKey(cfgMod, provider, secret, options = und
       if (hasStoredSecret(account)) await deleteSecretAsync(account);
       updateConfigProvider(cfgMod, id, {
         enabled: true,
-        location,
+        ...locationPatch,
         projectId: projectId || undefined,
         authMode: VERTEX_ADC_MODE,
       });
       return { provider: id, type: 'adc', authenticated: true };
     }
-    patch = { enabled: true, location, projectId: projectId || undefined, authMode: 'service-account' };
+    patch = {
+      enabled: true,
+      ...locationPatch,
+      projectId: projectId || undefined,
+      authMode: express ? VERTEX_API_KEY_MODE : 'service-account',
+    };
   }
   await saveSecretAsync(SECRET_ACCOUNTS.agentApiKey(id), value);
   updateConfigProvider(cfgMod, id, patch);
-  return { provider: id, type: id === 'vertex-ai' ? 'service-account' : 'api-key', authenticated: true };
+  return { provider: id, type: id === 'vertex-ai' && !express ? 'service-account' : 'api-key', authenticated: true };
 }
 
 function sanitizeCustomError(error, secrets = []) {

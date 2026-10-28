@@ -202,6 +202,9 @@ test('Vertex ADC project resolution: explicit, environment, quota project, key p
     GOOGLE_CLOUD_PROJECT: 'cloud-env',
     GCP_PROJECT: 'gcp-env',
     GCLOUD_PROJECT: 'gcloud-env',
+    // Vendor names, after the Google ones.
+    VERTEXAI_PROJECT: 'vertexai-env',
+    ANTHROPIC_VERTEX_PROJECT_ID: 'anthropic-vertex-env',
   };
   const project = (extra, explicit) =>
     auth.describeVertexAdc({ env: { ...env, ...extra }, projectId: explicit }).projectId;
@@ -225,6 +228,79 @@ test('Vertex ADC project resolution: explicit, environment, quota project, key p
     () => adcManager(env, null).projectId(),
     /could not find a Google Cloud project.*gcloud config set project/
   );
+});
+
+// A fake metadata server: `project` (null: none answers) and the token it mints.
+function metadataServer({ project = 'meta-project', flavor = 'Google' } = {}) {
+  const calls = [];
+  const fetchFn = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    if (project === null) throw new TypeError('fetch failed: getaddrinfo ENOTFOUND metadata.google.internal');
+    const headers = flavor ? { 'Metadata-Flavor': flavor } : {};
+    if (String(url).endsWith('/computeMetadata/v1/project/project-id')) return new Response(project, { headers });
+    if (String(url).endsWith('/computeMetadata/v1/instance/service-accounts/default/token')) {
+      return Response.json({ access_token: `meta-token-${calls.length}`, expires_in: 3599 }, { headers });
+    }
+    if (url === auth.VERTEX_TOKEN_URI) return Response.json({ access_token: 'file-token', expires_in: 3600 });
+    throw new Error(`unexpected request ${url}`);
+  };
+  return { calls, fetchFn };
+}
+
+test('Vertex ADC falls back to the metadata server without a credentials file, and keeps a miss', async (t) => {
+  const { write, env } = sandbox(t);
+  const { calls, fetchFn } = metadataServer();
+  const manager = adcManager(env, fetchFn);
+
+  // Nothing has probed yet: the synchronous reads report the missing login.
+  assert.throws(() => manager.identity(), /No gcloud login found/);
+  await manager.ready();
+  await manager.ready();
+  assert.equal(calls.length, 1, 'one probe');
+  assert.equal(calls[0].url, 'http://metadata.google.internal/computeMetadata/v1/project/project-id');
+  assert.equal(new Headers(calls[0].init.headers).get('metadata-flavor'), 'Google');
+  assert.ok(calls[0].init.signal instanceof AbortSignal, 'the probe has a deadline');
+
+  // The metadata server's project, unless one is named in the environment.
+  assert.equal(manager.projectId(), 'meta-project');
+  assert.equal(adcManager({ ...env, GOOGLE_CLOUD_PROJECT: 'env-project' }, fetchFn).projectId(), 'env-project');
+  assert.deepEqual(auth.describeVertexAdc({ env, fetchFn }), {
+    state: 'ready',
+    type: 'metadata',
+    account: null,
+    projectId: 'meta-project',
+  });
+
+  // Its token, cached and bound to the metadata identity like any other.
+  const identity = manager.identity();
+  assert.equal(await manager.getAccessToken({ identity }), 'meta-token-2');
+  assert.equal(await manager.getAccessToken({ identity }), 'meta-token-2');
+  assert.equal(calls[1].url, 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token');
+  assert.equal(calls[1].init.method, 'GET');
+  assert.equal(new Headers(calls[1].init.headers).get('metadata-flavor'), 'Google');
+  manager.invalidate('meta-token-2');
+  assert.equal(await manager.getAccessToken({ identity }), 'meta-token-3');
+
+  // A gcloud login written later takes over.
+  write(ADC_FILE, userLogin());
+  assert.notEqual(manager.identity(), identity);
+  assert.equal(await manager.getAccessToken(), 'file-token');
+
+  // No metadata server (or something else answering): the miss is kept, and the login hint stays.
+  for (const server of [metadataServer({ project: null }), metadataServer({ flavor: '' })]) {
+    const { env: bare } = sandbox(t);
+    const missing = adcManager(bare, server.fetchFn);
+    await missing.ready();
+    await missing.ready();
+    assert.equal(server.calls.length, 1);
+    await assert.rejects(missing.getAccessToken(), /No gcloud login found/);
+    assert.equal(auth.describeVertexAdc({ env: bare, fetchFn: server.fetchFn }).state, 'missing');
+  }
+  // GOOGLE_APPLICATION_CREDENTIALS naming a missing file is never replaced by the metadata server.
+  const { dir: other } = sandbox(t);
+  const named = adcManager({ ...env, GOOGLE_APPLICATION_CREDENTIALS: join(other, 'missing.json') }, fetchFn);
+  await named.ready();
+  assert.throws(() => named.identity(), /GOOGLE_APPLICATION_CREDENTIALS points to/);
 });
 
 test('Vertex ADC re-reads a rewritten login file: a new identity and a new token without a restart', async (t) => {

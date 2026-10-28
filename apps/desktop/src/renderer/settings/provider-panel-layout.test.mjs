@@ -185,6 +185,7 @@ test('Vertex AI switches to gcloud login, shows the detected login and saves wit
     [
       ['Service account key', 'true'],
       ['gcloud login (ADC)', 'false'],
+      ['API key (express mode)', 'false'],
     ]
   );
   assert.ok(row.querySelector('input[aria-label="Vertex AI service-account JSON key"]'));
@@ -208,6 +209,102 @@ test('Vertex AI switches to gcloud login, shows the detected login and saves wit
         'provider-key-vertex-ai',
       ],
     ]
+  );
+});
+
+test('Vertex AI saves an express-mode API key for the global location, without location or project fields', async (t) => {
+  const { runs } = await mountPanel(t, {
+    oauth: [],
+    api: [{ id: 'vertex-ai', name: 'Vertex AI', authenticated: false, location: 'us-east5' }],
+  });
+  const row = [...document.querySelectorAll('.settings-resource')].find((r) => r.textContent.includes('Vertex AI'));
+  await click(buttonIn(row, 'Connect'));
+  await click(buttonIn(row, 'API key (express mode)'));
+  assert.equal(buttonIn(row, 'API key (express mode)').getAttribute('aria-pressed'), 'true');
+  assert.equal(row.querySelector('input[aria-label="Vertex AI service-account JSON key"]'), null);
+  assert.equal(row.querySelector('input[aria-label="Vertex AI location"]'), null);
+  assert.equal(row.querySelector('input[aria-label="Vertex AI project ID override"]'), null);
+  assert.equal(
+    row.querySelector('.settings-resource-meta')?.textContent,
+    'Express mode API keys serve Gemini models on the global location only.'
+  );
+  const input = row.querySelector('input[aria-label="Vertex AI express mode API key"]');
+  assert.equal(input.type, 'password');
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, ' AQ.express-key ');
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+  });
+  await act(async () => input.form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+  assert.deepEqual(
+    runs.filter(([capability]) => capability === 'saveProviderApiKey'),
+    [
+      [
+        'saveProviderApiKey',
+        ['vertex-ai', 'AQ.express-key', { authMode: 'api-key' }],
+        'provider-key-vertex-ai',
+      ],
+    ]
+  );
+});
+
+test('Vertex AI shows the environment region only as a hint and saves a location only when entered', async (t) => {
+  const { runs } = await mountPanel(t, {
+    oauth: [],
+    api: [
+      {
+        id: 'vertex-ai',
+        name: 'Vertex AI',
+        authenticated: false,
+        location: 'asia-northeast3',
+        locationSource: 'environment',
+        adc: { state: 'ready', type: 'authorized_user', account: 'me@example.com', projectId: 'p' },
+      },
+    ],
+  });
+  const row = [...document.querySelectorAll('.settings-resource')].find((r) => r.textContent.includes('Vertex AI'));
+  await click(buttonIn(row, 'Connect'));
+  await click(buttonIn(row, 'gcloud login (ADC)'));
+  const location = row.querySelector('input[aria-label="Vertex AI location"]');
+  assert.equal(location.value, '');
+  assert.equal(location.placeholder, 'asia-northeast3');
+  assert.equal(location.required, false);
+  const submit = () =>
+    act(async () => location.form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+  await submit();
+  await act(async () => {
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(location, 'europe-west4');
+    location.dispatchEvent(new window.Event('input', { bubbles: true }));
+  });
+  await submit();
+  assert.deepEqual(
+    runs.filter(([capability]) => capability === 'saveProviderApiKey').map(([, args]) => args[2]),
+    [
+      { authMode: 'adc', location: '', projectId: '' },
+      { authMode: 'adc', location: 'europe-west4', projectId: '' },
+    ]
+  );
+});
+
+test('a Vertex AI login from the metadata server shows its project and location', async (t) => {
+  await mountPanel(t, {
+    oauth: [],
+    api: [
+      {
+        id: 'vertex-ai',
+        name: 'Vertex AI',
+        authenticated: true,
+        enabled: true,
+        authMode: 'adc',
+        location: 'us-east5',
+        projectId: 'meta-project',
+        adc: { state: 'ready', type: 'metadata', account: null, projectId: 'meta-project' },
+      },
+    ],
+  });
+  const row = [...document.querySelectorAll('.settings-resource')].find((r) => r.textContent.includes('Vertex AI'));
+  assert.equal(
+    row.querySelector('.settings-resource-meta')?.textContent,
+    'Metadata server credentials found: project meta-project · us-east5'
   );
 });
 

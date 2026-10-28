@@ -16,6 +16,18 @@ export const VERTEX_PRIORITY_TIER = 'priority';
 export const VERTEX_MULTI_REGIONS = new Set(['us', 'eu']);
 const PRIORITY_LOCATIONS = new Set(['global', 'us', 'eu']);
 
+// Claude on the global endpoint: 4.5 and later, and these earlier models.
+const GLOBAL_EARLIER_CLAUDE = new Set(['claude-3-7-sonnet', 'claude-3-5-sonnet-v2']);
+
+// The environment's region when no location is configured, in precedence order.
+const LOCATION_ENV = Object.freeze([
+  'GOOGLE_VERTEX_LOCATION',
+  'GOOGLE_CLOUD_LOCATION',
+  'CLOUD_ML_REGION',
+  'VERTEX_LOCATION',
+  'VERTEXAI_LOCATION',
+]);
+
 // Flex PayGo: global endpoint only.
 const FLEX_MODELS = new Set([
   'gemini-3.8-flash-cyber',
@@ -188,6 +200,27 @@ export function claudeVersion(id) {
   return match ? [Number(match[1]), Number(match[2] || 0)] : null;
 }
 
+// A Claude model's own region variables: VERTEX_REGION_CLAUDE_4_5_SONNET, VERTEX_REGION_CLAUDE_HAIKU_4_5.
+function claudeRegionEnv(id) {
+  const version = claudeVersion(id);
+  const family = /^claude-(?:\d+-(?:\d{1,2}-)?)?([a-z]+)/.exec(String(id))?.[1]?.toUpperCase();
+  if (!version || !family) return [];
+  const [major, minor] = version;
+  return [`VERTEX_REGION_CLAUDE_${major}_${minor}_${family}`, `VERTEX_REGION_CLAUDE_${family}_${major}_${minor}`];
+}
+
+/**
+ * The region the environment names ('' when none), for use only when no
+ * location is configured: a Claude model's own VERTEX_REGION_CLAUDE_* first.
+ */
+export function vertexEnvLocation(env = process.env, claudeId = '') {
+  for (const name of [...(claudeId ? claudeRegionEnv(claudeId) : []), ...LOCATION_ENV]) {
+    const value = String(env[name] || '').trim();
+    if (value) return value;
+  }
+  return '';
+}
+
 /** The PayGo tier a send asks for: 'flex', 'priority' or '' (standard). */
 export function vertexRequestedTier(opts) {
   const tier = String(opts?.modelParameters?.[VERTEX_SERVICE_TIER_PARAMETER] || '').toLowerCase();
@@ -221,6 +254,16 @@ export function assertVertexServing(route, location, tier) {
     if (version && (version[0] < 4 || (version[0] === 4 && version[1] < 7))) {
       throw new Error(
         `[vertex-ai] ${route.id} is not served on the ${location} multi-region endpoint (Claude 4.7 and later only); use the global location or a region`
+      );
+    }
+  }
+  if (route.wire === 'claude' && location === 'global') {
+    const bare = route.id.replace(/@.*$/, '');
+    const version = claudeVersion(bare);
+    if (version && (version[0] < 4 || (version[0] === 4 && version[1] < 5)) && !GLOBAL_EARLIER_CLAUDE.has(bare)) {
+      throw new Error(
+        `[vertex-ai] ${route.id} is not served on the global endpoint; set the location to a region that serves it ` +
+          `(for example us-east5), or with no location set, ${claudeRegionEnv(bare)[0]}`
       );
     }
   }
@@ -266,6 +309,7 @@ export function vertexTierOption(id) {
 }
 
 const MODEL_GARDEN = 'https://console.cloud.google.com/agent-platform/publishers';
+const LOCATIONS_DOC = 'https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations';
 
 /**
  * A 404, or a 403 that names the model's enablement, means the model is not
@@ -298,10 +342,14 @@ export function vertexModelAccessError(error, route, { project, location }) {
           text
         )));
   if (!notEnabled || error.code === 'VERTEX_MODEL_NOT_ENABLED') return error;
+  // NOT_FOUND is also what a location that does not serve the model answers.
+  const elsewhere = location === 'global' ? 'a region' : 'the global location or a region';
+  const region =
+    status === 404 ? `If ${location} does not serve it, use ${elsewhere} that does: ${LOCATIONS_DOC} ` : '';
   error.message =
     `[vertex-ai] ${route.publisher}/${route.id} was not found or is not enabled for project ${project} in ${location}. ` +
-    `Check the model id and enable the model in Model Garden: ${MODEL_GARDEN}/${route.publisher}/model-garden/${route.id} ` +
-    `(HTTP ${status}: ${detail.slice(0, 200)})`;
+    `Check the model id and enable the model in Model Garden: ${MODEL_GARDEN}/${route.publisher}/model-garden/${route.id}. ` +
+    `${region}(HTTP ${status}: ${detail.slice(0, 200)})`;
   error.code = 'VERTEX_MODEL_NOT_ENABLED';
   return error;
 }

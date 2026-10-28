@@ -7,13 +7,27 @@ export const VERTEX_TOKEN_URI = 'https://oauth2.googleapis.com/token';
 export const VERTEX_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
 /** The `authMode` that authenticates with the gcloud login (Application Default Credentials). */
 export const VERTEX_ADC_MODE = 'adc';
+/** The `authMode` that sends a stored express-mode API key (Gemini models on the global endpoint only). */
+export const VERTEX_API_KEY_MODE = 'api-key';
 const IAM_CREDENTIALS_URI = 'https://iamcredentials.googleapis.com/v1';
+// The GCE / Cloud Run / GKE metadata server: ADC's source when there is no credentials file.
+const METADATA_URL = 'http://metadata.google.internal/computeMetadata/v1';
+const METADATA_HEADERS = Object.freeze({ 'Metadata-Flavor': 'Google' });
+// Short, so a desktop without one is barely delayed; the outcome is kept either way.
+const METADATA_PROBE_MS = 1000;
 const JWT_BEARER_GRANT = 'urn:ietf:params:oauth:grant-type:jwt-bearer';
 const TOKEN_REFRESH_SKEW_MS = 5 * 60_000;
 const ADC_FILE = 'application_default_credentials.json';
 const ADC_LOGIN_HINT = 'Run `gcloud auth application-default login`.';
 // Project sources ahead of the credential's own, in precedence order.
-const PROJECT_ENV = Object.freeze(['GOOGLE_VERTEX_PROJECT', 'GOOGLE_CLOUD_PROJECT', 'GCP_PROJECT', 'GCLOUD_PROJECT']);
+const PROJECT_ENV = Object.freeze([
+  'GOOGLE_VERTEX_PROJECT',
+  'GOOGLE_CLOUD_PROJECT',
+  'GCP_PROJECT',
+  'GCLOUD_PROJECT',
+  'VERTEXAI_PROJECT',
+  'ANTHROPIC_VERTEX_PROJECT_ID',
+]);
 // A 403 asking for a quota project: user credentials on gcloud's own OAuth
 // client, whose projects (764086051850, 32555940559) are named as the consumer.
 const QUOTA_PROJECT_ERROR =
@@ -233,6 +247,54 @@ export function readVertexAdc(env = process.env) {
   return parseVertexAdc(readAdcFile(location), location);
 }
 
+// fetch function -> { promise, found }: one probe each, its outcome (null when absent) kept.
+const metadataProbes = new WeakMap();
+
+/**
+ * Whether a metadata server answers, and its project ({ projectId } or null).
+ * Probed once per fetch function; a negative outcome is kept too.
+ */
+export function probeVertexMetadata(fetchFn = fetch) {
+  let probe = metadataProbes.get(fetchFn);
+  if (!probe) {
+    probe = { found: undefined };
+    probe.promise = (async () => {
+      try {
+        const response = await fetchFn(`${METADATA_URL}/project/project-id`, {
+          headers: METADATA_HEADERS,
+          signal: AbortSignal.timeout(METADATA_PROBE_MS),
+        });
+        // Only the metadata server itself answers with this header.
+        if (!response.ok || response.headers.get('metadata-flavor') !== 'Google') return null;
+        const projectId = text(await response.text());
+        return projectId ? { projectId } : null;
+      } catch {
+        return null;
+      }
+    })().then((found) => {
+      probe.found = found;
+      return found;
+    });
+    metadataProbes.set(fetchFn, probe);
+  }
+  return probe.promise;
+}
+
+// The metadata server's default service account, once a probe found one.
+function metadataCredential(fetchFn) {
+  const found = metadataProbes.get(fetchFn)?.found;
+  if (!found) return null;
+  return {
+    kind: 'metadata',
+    account: '',
+    projectId: found.projectId,
+    quotaProjectId: '',
+    path: METADATA_URL,
+    source: 'metadata',
+    identity: JSON.stringify(['adc', 'metadata', found.projectId]),
+  };
+}
+
 // The `project =` of the [core] section of gcloud's active configuration.
 function gcloudConfigProject(env) {
   const dir = gcloudConfigDir(env);
@@ -272,9 +334,10 @@ export function vertexAdcProject(credential, env = process.env) {
 
 /**
  * The gcloud login the settings show: its type, account and project, or why it
- * cannot be used. Never carries a token or key.
+ * cannot be used. Without a login file, a metadata server a probe has found.
+ * Never carries a token or key.
  */
-export function describeVertexAdc({ env = process.env, projectId = '' } = {}) {
+export function describeVertexAdc({ env = process.env, projectId = '', fetchFn = fetch } = {}) {
   try {
     const credential = readVertexAdc(env);
     return {
@@ -284,6 +347,15 @@ export function describeVertexAdc({ env = process.env, projectId = '' } = {}) {
       projectId: text(projectId) || vertexAdcProject(credential, env) || null,
     };
   } catch (error) {
+    const metadata = error?.reason === 'missing' ? metadataCredential(fetchFn) : null;
+    if (metadata) {
+      return {
+        state: 'ready',
+        type: metadata.kind,
+        account: null,
+        projectId: text(projectId) || vertexAdcProject(metadata, env),
+      };
+    }
     return {
       state: error?.reason || 'invalid',
       ...(error?.credentialType ? { type: error.credentialType } : {}),
@@ -293,6 +365,7 @@ export function describeVertexAdc({ env = process.env, projectId = '' } = {}) {
 }
 
 function principalOf(credential) {
+  if (credential.kind === 'metadata') return "The metadata server's service account";
   if (credential.kind !== 'authorized_user') return `The service account ${credential.account}`;
   return credential.account ? `The gcloud account ${credential.account}` : 'The gcloud account';
 }
@@ -334,7 +407,11 @@ export class VertexAccessTokenManager {
       try {
         stat = statSync(location.path);
       } catch (error) {
-        throw adcFileError(location, error);
+        // No gcloud login: the metadata server's account, once ready() found one.
+        const failure = adcFileError(location, error);
+        const metadata = failure.reason === 'missing' ? metadataCredential(this.fetchFn) : null;
+        if (!metadata) throw failure;
+        return this._remember(`metadata\0${metadata.identity}`, () => metadata);
       }
       // A rewritten file (another `gcloud auth application-default login`) is read again.
       return this._remember(`adc\0${location.path}\0${stat.size}\0${stat.mtimeMs}`, () =>
@@ -354,6 +431,16 @@ export class VertexAccessTokenManager {
       this.credentialKey = key;
     }
     return this.credential;
+  }
+
+  /** Probes the metadata server (once) when ADC has no credentials file, so the synchronous reads can use it. */
+  async ready() {
+    if (!this._adc()) return;
+    try {
+      this._credential();
+    } catch (error) {
+      if (error?.reason === 'missing') await probeVertexMetadata(this.fetchFn);
+    }
   }
 
   projectId() {
@@ -417,28 +504,36 @@ export class VertexAccessTokenManager {
     return minted.token;
   }
 
-  // A token from Google's OAuth endpoint: a signed service-account JWT, or a
-  // gcloud user login's refresh token.
+  // A token from Google's OAuth endpoint (a signed service-account JWT, or a
+  // gcloud user login's refresh token), or the metadata server's.
   async _grant(credential, now) {
-    let form;
-    if (credential.kind === 'authorized_user') {
-      form = {
-        grant_type: 'refresh_token',
-        client_id: credential.clientId,
-        client_secret: credential.clientSecret,
-        refresh_token: credential.refreshToken,
-      };
+    let url = VERTEX_TOKEN_URI;
+    let init;
+    if (credential.kind === 'metadata') {
+      url = `${METADATA_URL}/instance/service-accounts/default/token`;
+      init = { method: 'GET', headers: METADATA_HEADERS };
     } else {
-      try {
-        form = { grant_type: JWT_BEARER_GRANT, assertion: createVertexJwtAssertion(credential, now) };
-      } catch (error) {
-        throw authError('could not sign the service-account JWT.', { cause: error });
+      let form;
+      if (credential.kind === 'authorized_user') {
+        form = {
+          grant_type: 'refresh_token',
+          client_id: credential.clientId,
+          client_secret: credential.clientSecret,
+          refresh_token: credential.refreshToken,
+        };
+      } else {
+        try {
+          form = { grant_type: JWT_BEARER_GRANT, assertion: createVertexJwtAssertion(credential, now) };
+        } catch (error) {
+          throw authError('could not sign the service-account JWT.', { cause: error });
+        }
       }
+      init = {
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams(form).toString(),
+      };
     }
-    const { response, payload } = await this._post(VERTEX_TOKEN_URI, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams(form).toString(),
-    });
+    const { response, payload } = await this._post(url, init);
     if (!response.ok || !payload?.access_token) {
       const detail = errorDetail(payload, response);
       const message =
@@ -475,6 +570,7 @@ export class VertexAccessTokenManager {
     return { token: String(payload.accessToken), expiresAt: Number.isFinite(expiresAt) ? expiresAt : now + 3600_000 };
   }
 
+  // A POST unless `init` names another method.
   async _post(url, init) {
     let response;
     try {

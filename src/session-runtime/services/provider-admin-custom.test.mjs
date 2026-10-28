@@ -149,6 +149,10 @@ test('Vertex AI gcloud login stores no secret and reports the detected account a
   });
   const cfg = makeCfg();
   const adc = { authMode: 'adc', location: 'us-east5', projectId: '' };
+  // Not a GCP host: no metadata server answers.
+  t.mock.method(globalThis, 'fetch', async () => {
+    throw new TypeError('fetch failed');
+  });
 
   // No login yet: the save says what to run and records nothing.
   await assert.rejects(admin.saveProviderApiKey(cfg, 'vertex-ai', '', adc), /gcloud auth application-default login/);
@@ -199,6 +203,131 @@ test('Vertex AI gcloud login stores no secret and reports the detected account a
   for (const view of [setup, status, cfg.peek(), [...secrets.values()]]) {
     assert.equal(JSON.stringify(view).includes('refresh-secret-value'), false);
   }
+});
+
+// Clears the Vertex region, project and gcloud variables for the rest of the test, then sets `vars`.
+function vertexEnv(t, vars = {}) {
+  const names = [
+    'CLOUDSDK_CONFIG',
+    'GOOGLE_APPLICATION_CREDENTIALS',
+    'GOOGLE_VERTEX_PROJECT',
+    'GOOGLE_CLOUD_PROJECT',
+    'GCP_PROJECT',
+    'GCLOUD_PROJECT',
+    'VERTEXAI_PROJECT',
+    'ANTHROPIC_VERTEX_PROJECT_ID',
+    'GOOGLE_VERTEX_LOCATION',
+    'GOOGLE_CLOUD_LOCATION',
+    'CLOUD_ML_REGION',
+    'VERTEX_LOCATION',
+    'VERTEXAI_LOCATION',
+  ];
+  const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  for (const name of names) delete process.env[name];
+  Object.assign(process.env, vars);
+  t.after(() => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+}
+
+test('Vertex AI shows the environment region as a hint and saves only a location the user chose', async (t) => {
+  vertexEnv(t, { CLOUD_ML_REGION: 'asia-northeast3' });
+  secrets.delete('agent.vertex-ai.apiKey');
+  const cfg = makeCfg();
+  const vertexRow = async () =>
+    (await admin.providerSetup(cfg.peek())).api.find((provider) => provider.id === 'vertex-ai');
+  assert.deepEqual(
+    [(await vertexRow()).location, (await vertexRow()).locationSource],
+    ['asia-northeast3', 'environment']
+  );
+  process.env.GOOGLE_CLOUD_LOCATION = 'europe-west4';
+  assert.equal((await vertexRow()).location, 'europe-west4');
+
+  // The terminal setup sends the key alone, the settings form an empty field: neither saves the environment's region.
+  const secret = JSON.stringify({
+    type: 'service_account',
+    project_id: 'key-project',
+    client_email: 'mixdog@key-project.iam.gserviceaccount.com',
+    private_key: 'private-key-material',
+  });
+  await admin.saveProviderApiKey(cfg, 'vertex-ai', secret);
+  assert.equal(cfg.peek().providers['vertex-ai'].location, undefined);
+  await admin.saveProviderApiKey(cfg, 'vertex-ai', secret, { location: '', projectId: '' });
+  assert.equal(cfg.peek().providers['vertex-ai'].location, undefined);
+  process.env.GOOGLE_CLOUD_LOCATION = 'us-central1';
+  assert.deepEqual([(await vertexRow()).location, (await vertexRow()).locationSource], ['us-central1', 'environment']);
+
+  // A location the user enters is saved, wins over the environment, and survives a key-only save.
+  await admin.saveProviderApiKey(cfg, 'vertex-ai', secret, { location: 'europe-west4', projectId: '' });
+  await admin.saveProviderApiKey(cfg, 'vertex-ai', secret);
+  assert.equal(cfg.peek().providers['vertex-ai'].location, 'europe-west4');
+  assert.deepEqual([(await vertexRow()).location, (await vertexRow()).locationSource], ['europe-west4', 'config']);
+  // Clearing the field unsets it again.
+  await admin.saveProviderApiKey(cfg, 'vertex-ai', secret, { location: '', projectId: '' });
+  assert.equal(cfg.peek().providers['vertex-ai'].location, undefined);
+});
+
+test('Vertex AI saves an express-mode API key in the provider key slot for the global location only', async (t) => {
+  vertexEnv(t);
+  const cfg = makeCfg();
+  const express = { authMode: 'api-key', location: 'global' };
+  assert.deepEqual(await admin.saveProviderApiKey(cfg, 'vertex-ai', 'AQ.express-key', express), {
+    provider: 'vertex-ai',
+    type: 'api-key',
+    authenticated: true,
+  });
+  assert.equal(secrets.get('agent.vertex-ai.apiKey'), 'AQ.express-key');
+  const entry = cfg.peek().providers['vertex-ai'];
+  assert.equal(entry.enabled, true);
+  assert.equal(entry.location, 'global');
+  assert.equal(entry.authMode, 'api-key');
+  // Sent without a location (the settings form), express mode keeps none.
+  await admin.saveProviderApiKey(cfg, 'vertex-ai', 'AQ.express-key', { authMode: 'api-key' });
+  assert.equal(cfg.peek().providers['vertex-ai'].location, undefined);
+  assert.equal(entry.projectId, undefined);
+  const setup = await admin.providerSetup(cfg.peek());
+  const row = setup.api.find((provider) => provider.id === 'vertex-ai');
+  assert.equal(row.authKind, 'api-key');
+  assert.equal(row.authMode, 'api-key');
+  assert.equal(row.authenticated, true);
+  assert.equal(row.detail, 'API key (express mode) · global');
+  assert.equal(JSON.stringify(setup).includes('AQ.express-key'), false);
+
+  await assert.rejects(
+    admin.saveProviderApiKey(cfg, 'vertex-ai', '{"type":"service_account"}', express),
+    /takes an API key, not a JSON key file/
+  );
+  await assert.rejects(
+    admin.saveProviderApiKey(cfg, 'vertex-ai', 'AQ.express-key', { ...express, location: 'us-east5' }),
+    /serves only the global location/
+  );
+});
+
+test('Vertex AI gcloud login mode accepts a metadata server when there is no login file', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'vx-admin-meta-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  vertexEnv(t, { CLOUDSDK_CONFIG: dir });
+  const probes = [];
+  t.mock.method(globalThis, 'fetch', async (url, init = {}) => {
+    probes.push(String(url));
+    assert.equal(new Headers(init.headers).get('metadata-flavor'), 'Google');
+    return new Response('meta-project', { headers: { 'Metadata-Flavor': 'Google' } });
+  });
+  const cfg = makeCfg();
+  assert.deepEqual(
+    await admin.saveProviderApiKey(cfg, 'vertex-ai', '', { authMode: 'adc', location: 'us-east5', projectId: '' }),
+    { provider: 'vertex-ai', type: 'adc', authenticated: true }
+  );
+  assert.deepEqual(probes, ['http://metadata.google.internal/computeMetadata/v1/project/project-id']);
+  const row = (await admin.providerSetup(cfg.peek())).api.find((provider) => provider.id === 'vertex-ai');
+  assert.equal(row.authenticated, true);
+  assert.equal(row.adc.type, 'metadata');
+  assert.equal(row.projectId, 'meta-project');
+  assert.equal(row.detail, 'metadata server · meta-project · us-east5');
+  assert.equal(probes.length, 1, 'the probe outcome is kept');
 });
 
 test('save generates id, stores key only as secret, and appears in setup without a key', async () => {

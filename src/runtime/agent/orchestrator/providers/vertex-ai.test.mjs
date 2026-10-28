@@ -274,7 +274,7 @@ function recordingProvider(config, respond) {
     fetchFn: async (url, init = {}) => {
       if (url === VERTEX_TOKEN_URI) return Response.json({ access_token: 'gcp-token', expires_in: 3600 });
       requests.push({ url, init });
-      return respond();
+      return respond(url);
     },
   });
   return { provider, requests };
@@ -1020,6 +1020,237 @@ test('Vertex Claude routing sends Anthropic Messages body without model', async 
   assert.equal(body.anthropic_version, 'vertex-2023-10-16');
   assert.equal(Object.hasOwn(body, 'model'), false);
   assert.equal(body.stream, true);
+});
+
+// Sets only `vars` among the region variables for the rest of the test.
+const REGION_ENV = [
+  'GOOGLE_VERTEX_LOCATION',
+  'GOOGLE_CLOUD_LOCATION',
+  'CLOUD_ML_REGION',
+  'VERTEX_LOCATION',
+  'VERTEXAI_LOCATION',
+  'VERTEX_REGION_CLAUDE_4_5_SONNET',
+  'VERTEX_REGION_CLAUDE_HAIKU_4_5',
+  'VERTEX_REGION_CLAUDE_3_5_HAIKU',
+];
+function regionEnv(t, vars = {}) {
+  const saved = Object.fromEntries(REGION_ENV.map((name) => [name, process.env[name]]));
+  const apply = (next) => {
+    for (const name of REGION_ENV) delete process.env[name];
+    Object.assign(process.env, next);
+  };
+  apply(vars);
+  t.after(() => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+  return apply;
+}
+
+const hostOf = (request) => new URL(request.url).host;
+
+test('Vertex takes its region from the environment only when no location is configured', async (t) => {
+  const setEnv = regionEnv(t);
+  const hi = [{ role: 'user', content: 'hi' }];
+  const chain = [
+    ['GOOGLE_VERTEX_LOCATION', 'europe-west1'],
+    ['GOOGLE_CLOUD_LOCATION', 'europe-west2'],
+    ['CLOUD_ML_REGION', 'europe-west3'],
+    ['VERTEX_LOCATION', 'europe-west4'],
+    ['VERTEXAI_LOCATION', 'europe-west6'],
+  ];
+  // Each name wins over the ones after it.
+  for (let index = 0; index < chain.length; index += 1) {
+    setEnv(Object.fromEntries(chain.slice(index)));
+    const { provider, requests } = recordingProvider({}, () => geminiSse());
+    await provider.send(hi, 'gemini-3.8-flash', [], {});
+    const region = chain[index][1];
+    assert.equal(hostOf(requests[0]), `${region}-aiplatform.googleapis.com`, chain[index][0]);
+    assert.match(requests[0].url, new RegExp(`/locations/${region}/`));
+  }
+  // Nothing set: global. A configured location ignores the environment.
+  setEnv({});
+  const unset = recordingProvider({}, () => geminiSse());
+  await unset.provider.send(hi, 'gemini-3.8-flash', [], {});
+  assert.equal(hostOf(unset.requests[0]), 'aiplatform.googleapis.com');
+  setEnv({ GOOGLE_CLOUD_LOCATION: 'europe-west2' });
+  const pinned = recordingProvider({ location: 'us-central1' }, () => geminiSse());
+  await pinned.provider.send(hi, 'gemini-3.8-flash', [], {});
+  assert.equal(hostOf(pinned.requests[0]), 'us-central1-aiplatform.googleapis.com');
+
+  // A Claude model's own region comes first, in both naming orders, and never over a configured location.
+  setEnv({
+    CLOUD_ML_REGION: 'us-east5',
+    VERTEX_REGION_CLAUDE_4_5_SONNET: 'europe-west1',
+    VERTEX_REGION_CLAUDE_HAIKU_4_5: 'asia-southeast1',
+  });
+  for (const [model, config, host] of [
+    ['claude-sonnet-4-5@20250929', {}, 'europe-west1-aiplatform.googleapis.com'],
+    ['claude-haiku-4-5', {}, 'asia-southeast1-aiplatform.googleapis.com'],
+    ['claude-opus-4-8', {}, 'us-east5-aiplatform.googleapis.com'],
+    ['claude-sonnet-4-5', { location: 'global' }, 'aiplatform.googleapis.com'],
+  ]) {
+    const { provider, requests } = recordingProvider(config, () => claudeSse());
+    await provider.send(hi, model, [], {});
+    assert.equal(hostOf(requests[0]), host, model);
+  }
+
+  // An environment region is validated like a configured one before any host is built.
+  setEnv({ GOOGLE_CLOUD_LOCATION: 'evil.example.com#' });
+  const invalid = recordingProvider({}, () => geminiSse());
+  await assert.rejects(invalid.provider.send(hi, 'gemini-3.8-flash', [], {}), /location is invalid/);
+  assert.equal(invalid.requests.length, 0);
+});
+
+test('Vertex moves an environment region to global when it lacks the model, never a configured one', async (t) => {
+  const setEnv = regionEnv(t, { CLOUD_ML_REGION: 'us-east5' });
+  const hi = [{ role: 'user', content: 'hi' }];
+  const notFound = () =>
+    Response.json(
+      { error: { code: 404, message: 'Publisher Model `gemini-3.6-flash` was not found.', status: 'NOT_FOUND' } },
+      { status: 404 }
+    );
+  // 404 in the environment's region: retried once on global.
+  for (const [model, ok] of [
+    ['gemini-3.6-flash', () => geminiSse('global-ok')],
+    ['claude-sonnet-5-5', () => claudeSse('global-ok')],
+  ]) {
+    const { provider, requests } = recordingProvider({}, (url) =>
+      new URL(url).host === 'aiplatform.googleapis.com' ? ok() : notFound()
+    );
+    const result = await provider.send(hi, model, [], {});
+    assert.equal(result.content, 'global-ok', model);
+    assert.equal(hostOf(requests[0]), 'us-east5-aiplatform.googleapis.com', model);
+    assert.equal(hostOf(requests.at(-1)), 'aiplatform.googleapis.com', model);
+    assert.match(requests.at(-1).url, /\/locations\/global\//, model);
+  }
+  // Served only on global (a listed open model, a Flex request): the environment's region is not tried.
+  const chunk = {
+    id: 'r1',
+    object: 'chat.completion.chunk',
+    model: 'm',
+    choices: [{ index: 0, delta: { role: 'assistant', content: 'open-ok' }, finish_reason: 'stop' }],
+  };
+  const openModel = recordingProvider(
+    {},
+    () =>
+      new Response(`data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`, {
+        headers: { 'content-type': 'text/event-stream' },
+      })
+  );
+  assert.equal((await openModel.provider.send(hi, 'deepseek-ai/deepseek-v3.2-maas', [], {})).content, 'open-ok');
+  assert.equal(hostOf(openModel.requests[0]), 'aiplatform.googleapis.com');
+  setEnv({ CLOUD_ML_REGION: 'us-central1' });
+  const flex = recordingProvider({}, () => geminiSse());
+  await flex.provider.send(hi, 'gemini-3.8-flash', [], { modelParameters: { serviceTier: 'flex' } });
+  assert.equal(hostOf(flex.requests[0]), 'aiplatform.googleapis.com');
+
+  // A configured region stays: no retry elsewhere, and the error says where else to look.
+  const pinned = recordingProvider({ location: 'us-east5' }, notFound);
+  await assert.rejects(pinned.provider.send(hi, 'gemini-3.6-flash', [], {}), (error) => {
+    assert.equal(error.code, 'VERTEX_MODEL_NOT_ENABLED');
+    assert.match(error.message, /If us-east5 does not serve it, use the global location or a region that does/);
+    return true;
+  });
+  assert.ok(pinned.requests.every((request) => hostOf(request) === 'us-east5-aiplatform.googleapis.com'));
+  const onGlobal = recordingProvider({ location: 'global' }, notFound);
+  await assert.rejects(onGlobal.provider.send(hi, 'gemini-3.6-flash', [], {}), /use a region that does/);
+});
+
+test('Vertex keeps the region fallback on the account the send started with', async (t) => {
+  regionEnv(t, { CLOUD_ML_REGION: 'us-east5' });
+  const accountA = serviceAccount({ client_email: 'a@project-a.iam.gserviceaccount.com', project_id: 'project-a' });
+  const accountB = serviceAccount({ client_email: 'b@project-b.iam.gserviceaccount.com', project_id: 'project-b' });
+  const requests = [];
+  const provider = new VertexAIProvider({
+    apiKey: JSON.stringify(accountA),
+    fetchFn: async (url, init = {}) => {
+      if (url === VERTEX_TOKEN_URI) {
+        const iss = decodeJwtPart(new URLSearchParams(init.body).get('assertion').split('.')[1]).iss;
+        return Response.json({ access_token: `token-for-${iss}`, expires_in: 3600 });
+      }
+      requests.push({ url: String(url), authorization: new Headers(init.headers).get('authorization') });
+      if (new URL(url).host === 'aiplatform.googleapis.com') return claudeSse('as-the-other-account');
+      // The credential switches while the environment's region answers 404.
+      provider.config.apiKey = JSON.stringify(accountB);
+      return Response.json({ error: { code: 404, message: 'not found', status: 'NOT_FOUND' } }, { status: 404 });
+    },
+  });
+  await assert.rejects(
+    claudeRequest(provider),
+    (error) => error?.code === 'EVERTEXAUTH' && /credential changed during the request/.test(error.message)
+  );
+  assert.equal(requests.length, 1, 'the global retry never runs as the new account');
+  assert.match(requests[0].url, /^https:\/\/us-east5-aiplatform\.googleapis\.com\/v1\/projects\/project-a\//);
+  assert.equal(requests[0].authorization, `Bearer token-for-${accountA.client_email}`);
+});
+
+test('Vertex refuses a Claude model on the global endpoint that is not served there', async () => {
+  const hi = [{ role: 'user', content: 'hi' }];
+  for (const [model, variable] of [
+    ['claude-3-5-haiku', 'VERTEX_REGION_CLAUDE_3_5_HAIKU'],
+    ['claude-3-5-sonnet', 'VERTEX_REGION_CLAUDE_3_5_SONNET'],
+    ['claude-opus-4-1@20250805', 'VERTEX_REGION_CLAUDE_4_1_OPUS'],
+    ['claude-sonnet-4', 'VERTEX_REGION_CLAUDE_4_0_SONNET'],
+  ]) {
+    const { provider, requests } = recordingProvider({ location: 'global' }, () => claudeSse());
+    await assert.rejects(
+      provider.send(hi, model, [], {}),
+      new RegExp(`not served on the global endpoint.*us-east5.*${variable}`),
+      model
+    );
+    assert.equal(requests.length, 0, model);
+  }
+  for (const model of ['claude-3-7-sonnet', 'claude-3-5-sonnet-v2', 'claude-sonnet-4-5', 'claude-haiku-4-5']) {
+    const { provider, requests } = recordingProvider({ location: 'global' }, () => claudeSse());
+    await provider.send(hi, model, [], {});
+    assert.equal(requests.length, 1, model);
+  }
+});
+
+test('Vertex express mode sends Gemini with the API key on the global endpoint, and refuses other models', async (t) => {
+  regionEnv(t, { CLOUD_ML_REGION: 'us-east5' });
+  const hi = [{ role: 'user', content: 'hi' }];
+  const express = (config = {}) => {
+    const requests = [];
+    const provider = new VertexAIProvider({
+      authMode: 'api-key',
+      apiKey: 'AQ.express-key',
+      ...config,
+      fetchFn: async (url, init = {}) => {
+        requests.push({ url: String(url), headers: new Headers(init.headers) });
+        return geminiSse('express-ok');
+      },
+    });
+    return { provider, requests };
+  };
+  const { provider, requests } = express();
+  assert.equal(await provider.isAvailable(), true);
+  assert.equal((await provider.send(hi, 'gemini-3.8-flash', [], {})).content, 'express-ok');
+  assert.equal(requests.length, 1, 'no token request');
+  assert.equal(
+    requests[0].url,
+    'https://aiplatform.googleapis.com/v1/publishers/google/models/gemini-3.8-flash:streamGenerateContent?alt=sse'
+  );
+  assert.equal(requests[0].headers.get('x-goog-api-key'), 'AQ.express-key');
+  assert.equal(requests[0].headers.get('authorization'), null);
+
+  for (const model of ['claude-sonnet-5-5', 'zai-org/glm-5-maas']) {
+    const refused = express();
+    await assert.rejects(
+      refused.provider.send(hi, model, [], {}),
+      /needs a service-account key or the gcloud login: a Vertex AI express mode API key serves Gemini models only/,
+      model
+    );
+    assert.equal(refused.requests.length, 0, model);
+  }
+  const regional = express({ location: 'europe-west4' });
+  await assert.rejects(regional.provider.send(hi, 'gemini-3.8-flash', [], {}), /serves only the global location/);
+  assert.equal(regional.requests.length, 0);
+  const keyless = express({ apiKey: undefined, apiKeyEnv: 'MIXDOG_TEST_UNSET_VERTEX_KEY' });
+  assert.equal(await keyless.provider.isAvailable(), false);
 });
 
 test('Vertex authentication failures surface a clear provider error', async () => {
