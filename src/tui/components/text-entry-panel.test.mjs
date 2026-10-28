@@ -104,7 +104,7 @@ test('a sign-in URL is drawn borderless with the full link, and Ctrl+Y copies it
     .split('\n')
     .filter((line) => !/[│╭╰]/.test(line))
     .map((line) => line.trimEnd());
-  assert.equal(rows.join(''), url + 'Ctrl+Y copies the full URL');
+  assert.equal(rows.join(''), `${url}Ctrl+Y copies the full URL`);
   assert.ok(panel.frame().includes(`\x1b]8;;${url}\x07`));
   await panel.type('\x19');
   assert.deepEqual(copied, [url]);
@@ -153,7 +153,13 @@ test('one-row URL mode still shows the copy note and every copy result', async (
     [() => 'terminal', /Sent to terminal clipboard \(not confirmed\)/],
     [() => Promise.reject(new Error('none')), /Copy failed.*use the link above/],
   ]) {
-    const panel = mountPanel(context, { columns: 80, detail: url, urlMaxRows: 1, hint: 'Open the URL below.', copyText: result });
+    const panel = mountPanel(context, {
+      columns: 80,
+      detail: url,
+      urlMaxRows: 1,
+      hint: 'Open the URL below.',
+      copyText: result,
+    });
     await settle();
     assert.ok(panel.frame().includes(`\x1b]8;;${url}\x07`));
     if (result) await panel.type('\x19');

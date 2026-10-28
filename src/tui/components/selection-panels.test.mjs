@@ -217,7 +217,7 @@ test('picker draws a long sign-in URL borderless with the full link and a copy k
   // The complete URL is one contiguous OSC 8 link target, and the rows that show it carry no border.
   assert.ok(view.raw().includes(`\x1b]8;;${url}\x07`));
   const rows = frame.split('\n').filter((line) => !/[│╭╰]/.test(line));
-  assert.equal(rows.join(''), url + 'Ctrl+Y copies the full URL');
+  assert.equal(rows.join(''), `${url}Ctrl+Y copies the full URL`);
   assert.match(frame, /Waiting/);
   await view.key('c');
   assert.deepEqual(copied, [], 'a bare c is not the copy key');

@@ -91,6 +91,7 @@ export function TextEntryPanel({
 
   const moveDraftVertically = createVerticalMover({ draftRef, contentWidthRef, preferredColumnRef, commitDraft });
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset only when the prompt (title/initialValue) changes; commitDraft is recreated every render and only touches refs/setState
   useEffect(() => {
     const value = String(initialValue || '');
     commitDraft({ value, cursor: value.length, selectionAnchor: null });
@@ -143,6 +144,7 @@ export function TextEntryPanel({
     (input, key) => {
       const rawSource = String(input ?? '');
       const rawInput = normalizePastedText(input);
+      // biome-ignore lint/suspicious/noControlCharactersInRegex: matches the ESC byte of SGR mouse reports
       if (/(?:\x1b)?\[<\d+;\d+;\d+[Mm]/.test(rawSource)) return;
       // Safety net: drop CSI-private replies/fragments (\x1b[?<n>u / \x1b[?...c);
       // a volunteered report must never type into the field.
@@ -270,12 +272,14 @@ export function TextEntryPanel({
   cursorEnabledRef.current = isRawModeSupported;
   installCursorAnchor();
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only anchor install; the helpers are per-render closures over refs
   useLayoutEffect(() => {
     if (!installCursorAnchor()) return;
     bumpCursorAnchorEpoch((epoch) => epoch + 1);
     queueMicrotask(flushImmediate);
   }, []);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: title/multiline/draft are deliberate triggers to re-flush after content changes; flushImmediate is a per-render ref closure
   useLayoutEffect(() => {
     if (!isRawModeSupported) return;
     queueMicrotask(flushImmediate);

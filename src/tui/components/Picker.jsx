@@ -155,6 +155,7 @@ export function Picker({
   if (items.length === 0) {
     const loadingRows = loading
       ? Array.from({ length: visibleLimit }, (_, index) => (
+          // biome-ignore lint/suspicious/noArrayIndexKey: identical blank placeholder rows have no identity besides position
           <Text key={`loading-${index}`} color={theme.inactive}>
             {' '}
           </Text>
@@ -274,6 +275,7 @@ export function Picker({
               const attachConfirm = hasConfirm && index === footerLines.length - 1;
               return (
                 <Box
+                  // biome-ignore lint/suspicious/noArrayIndexKey: footer lines are positional and may repeat text
                   key={`footer-${index}`}
                   flexDirection="row"
                   width="100%"
