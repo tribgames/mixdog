@@ -25,6 +25,46 @@ import {
 } from './prompt-input/edit-helpers.mjs';
 import { isCsiPrivateReply } from './prompt-input/key-signals.mjs';
 
+/** The bordered panel: title row, hint row and the editable value. `boxRef`
+ *  is the value box the cursor anchor is installed on. */
+function TextEntryFrame({ title, helpText, hintText, multiline, promptLabel, boxRef, contentHeight, renderedValue }) {
+  return (
+    <Box borderStyle="round" borderColor={theme.promptBorder} paddingX={1} width="100%" flexDirection="column">
+      <Box flexDirection="row" justifyContent="space-between">
+        <Text color={theme.panelTitle}>{title}</Text>
+        <Text color={theme.subtle}>{helpText}</Text>
+      </Box>
+      <Text> </Text>
+      <Text color={theme.subtle}>{hintText || ' '}</Text>
+      <Text> </Text>
+      {multiline ? (
+        <Box flexDirection="row" width="100%" alignItems="flex-start" backgroundColor={surfaceBackground()}>
+          <Text color={theme.inactive}>{promptLabel}</Text>
+          <Box
+            ref={boxRef}
+            flexGrow={1}
+            flexDirection="column"
+            height={contentHeight}
+            overflow="hidden"
+            backgroundColor={surfaceBackground()}
+          >
+            <Text color={theme.text} wrap="hard">
+              {renderedValue}
+            </Text>
+          </Box>
+        </Box>
+      ) : (
+        <Box ref={boxRef} flexDirection="row" width="100%" backgroundColor={surfaceBackground()}>
+          <Text color={theme.inactive}>{promptLabel}</Text>
+          <Text color={theme.text} wrap="truncate">
+            {renderedValue}
+          </Text>
+        </Box>
+      )}
+    </Box>
+  );
+}
+
 export function TextEntryPanel({
   title,
   hint = '',
@@ -307,39 +347,16 @@ export function TextEntryPanel({
 
   return (
     <Box flexDirection="column" flexShrink={0} width="100%">
-      <Box borderStyle="round" borderColor={theme.promptBorder} paddingX={1} width="100%" flexDirection="column">
-        <Box flexDirection="row" justifyContent="space-between">
-          <Text color={theme.panelTitle}>{title}</Text>
-          <Text color={theme.subtle}>{helpText}</Text>
-        </Box>
-        <Text> </Text>
-        <Text color={theme.subtle}>{hintText || ' '}</Text>
-        <Text> </Text>
-        {multiline ? (
-          <Box flexDirection="row" width="100%" alignItems="flex-start" backgroundColor={surfaceBackground()}>
-            <Text color={theme.inactive}>{promptLabel}</Text>
-            <Box
-              ref={boxRef}
-              flexGrow={1}
-              flexDirection="column"
-              height={contentHeight}
-              overflow="hidden"
-              backgroundColor={surfaceBackground()}
-            >
-              <Text color={theme.text} wrap="hard">
-                {renderedValue}
-              </Text>
-            </Box>
-          </Box>
-        ) : (
-          <Box ref={boxRef} flexDirection="row" width="100%" backgroundColor={surfaceBackground()}>
-            <Text color={theme.inactive}>{promptLabel}</Text>
-            <Text color={theme.text} wrap="truncate">
-              {renderedValue}
-            </Text>
-          </Box>
-        )}
-      </Box>
+      <TextEntryFrame
+        title={title}
+        helpText={helpText}
+        hintText={hintText}
+        multiline={multiline}
+        promptLabel={promptLabel}
+        boxRef={boxRef}
+        contentHeight={contentHeight}
+        renderedValue={renderedValue}
+      />
       <SignInUrl url={detailText} layout={urlLayout} status={copyUrl.status} />
     </Box>
   );

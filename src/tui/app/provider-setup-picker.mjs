@@ -18,6 +18,25 @@ import {
 
 const providerFooter = (item) => providerStatusFooter(item?._provider);
 
+/** The rows of the main provider list: the continue row, one row per provider,
+ *  and the client refresh row. */
+function mainListItems(setup, options, canContinue) {
+  const items = [];
+  if (canContinue && !options.confirmBar) {
+    items.push({
+      value: 'continue-setup',
+      label: options.continueLabel || 'Continue setup',
+      description: options.continueDescription || 'return to setup',
+      _type: 'continue',
+    });
+  }
+  items.push(...buildProviderItems(setup));
+  if (setup.managedByClient === true) {
+    items.push({ value: 'refresh-client-providers', label: 'Refresh', _type: 'refresh-client-providers' });
+  }
+  return items;
+}
+
 export function createProviderSetupPicker({
   store,
   surface,
@@ -87,19 +106,7 @@ export function createProviderSetupPicker({
       if (!setup) return;
     }
 
-    const items = [];
-    if ((returnTo || onContinue) && !options.confirmBar) {
-      items.push({
-        value: 'continue-setup',
-        label: options.continueLabel || 'Continue setup',
-        description: options.continueDescription || 'return to setup',
-        _type: 'continue',
-      });
-    }
-    items.push(...buildProviderItems(setup));
-    if (setup.managedByClient === true) {
-      items.push({ value: 'refresh-client-providers', label: 'Refresh', _type: 'refresh-client-providers' });
-    }
+    const items = mainListItems(setup, options, Boolean(returnTo || onContinue));
 
     const flow = {
       store,

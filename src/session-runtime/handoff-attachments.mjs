@@ -523,7 +523,7 @@ export function turnSlice(messages, { runId = '', since = 0 } = {}) {
  *  what its final reply names, then media/office/visualize outputs, then the
  *  files it edited. `written`: only the files it created or modified (no
  *  reply paths, no visualize open targets). */
-export function turnArtifactCandidates(messages, { written = false } = {}) {
+function turnArtifactCandidates(messages, { written = false } = {}) {
   const list = Array.isArray(messages) ? messages : [];
   const reply = list.findLast((message) => message?.role === 'assistant' && textOf(message.content).trim());
   const produced = [];

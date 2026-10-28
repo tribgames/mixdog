@@ -4,6 +4,76 @@ import { clampStoredWindow, holdsTranscriptTail } from './projection/transcript-
 const SLOW_STORED_PROJECTION_MS = 250;
 const PROJECTED_FILE_LIMIT = 256;
 
+// Every window of a stored session is a slice of the store's one cached
+// display history, so its rows are the same objects page after page: each
+// is sanitized once (keyed weakly — dropping the store's cache entry
+// releases the clones) and a page costs a slice, not a whole-window clone.
+const wireItems = new WeakMap();
+function wireItem(item) {
+  if (!item || typeof item !== 'object') return sanitizeForWire(item, 2) ?? null;
+  let wire = wireItems.get(item);
+  if (wire === undefined) {
+    wire = sanitizeForWire(item, 2) ?? null;
+    wireItems.set(item, wire);
+  }
+  return wire;
+}
+// The store returns one object per unchanged window, so a repeated read
+// reuses its wire clone (the 1s cold-view refresh would re-clone it).
+const wireSnapshots = new WeakMap();
+function wireSnapshot(snapshot) {
+  let wire = wireSnapshots.get(snapshot);
+  if (!wire) {
+    const { items, ...fields } = snapshot;
+    wire = sanitizeForWire(fields);
+    if (Array.isArray(items)) wire = { ...wire, items: items.map(wireItem) };
+    wireSnapshots.set(snapshot, wire);
+  }
+  return wire;
+}
+
+/** How many newest rows of `items` the caller is proven to hold (0: none):
+ *  its first held row sits where its count says, and either its rows were
+ *  served from this same display history (every window of one history is a
+ *  tail of it, and its `baseProjectionStamp` names that history), or they
+ *  match by digest. */
+function provenHeldRows(items, held, projectionStamp, baseProjectionStamp) {
+  if (!held) return 0;
+  const sameHistory =
+    typeof baseProjectionStamp === 'string' &&
+    typeof projectionStamp === 'string' &&
+    historyOf(baseProjectionStamp) === historyOf(projectionStamp);
+  return holdsTranscriptTail(items, held, sameHistory) ? held.count : 0;
+}
+// A window's stamp is `<history stamp>/<limit>` (storedHistoryWindow); an
+// answer cut from it is served as `<window stamp>#<rows delivered>`.
+const historyOf = (stamp) => {
+  const window = stamp.includes('#') ? stamp.slice(0, stamp.lastIndexOf('#')) : stamp;
+  return window.includes('/') ? window.slice(0, window.lastIndexOf('/')) : window;
+};
+const deliveredOf = (stamp) => (stamp.includes('#') ? Number(stamp.slice(stamp.lastIndexOf('#') + 1)) : -1);
+/** The stamp an answer of `delivered` rows is served under. Every answer cut
+ *  from one display history is a tail of it, so the rows a caller received
+ *  are named by that history and their count, byte-budget cuts included.
+ *  A request that pages nothing is answered under the caller's own stamp
+ *  (unchanged) when the tail it received already covers this whole answer —
+ *  a host that paged deeper than this window keeps its rows on a refresh;
+ *  any answer that would reveal more is served. */
+function servedStamp(stamp, window, baseProjectionStamp, delivered) {
+  if (typeof stamp !== 'string' || !stamp.includes('/')) return stamp;
+  const own = `${stamp}#${delivered}`;
+  if (window?.paged || typeof baseProjectionStamp !== 'string') return own;
+  const covers = historyOf(baseProjectionStamp) === historyOf(own) && deliveredOf(baseProjectionStamp) >= delivered;
+  return covers ? baseProjectionStamp : own;
+}
+
+const itemLimitFor = (hints, window) => {
+  const requested = window ? window.limit : Number(hints?.resumeOptions?.transcriptItemLimit);
+  return Number.isFinite(requested) && requested > 0 ? requested : 512;
+};
+const projectedKey = (sessionId, hints, window) =>
+  `${sessionId}|${itemLimitFor(hints, window)}:${window?.byteBudget ?? ''}:${window?.pageBase ?? ''}:${window?.paged ? 'p' : ''}`;
+
 export function createStoredSessionReader({
   readStoredSession,
   readStoredGoal,
@@ -38,68 +108,6 @@ export function createStoredSessionReader({
   // that guarantee once several 512-item views exceed its byte budget: it
   // evicts each one just before its next refresh.
   const projectedFiles = new Map();
-  // Every window of a stored session is a slice of the store's one cached
-  // display history, so its rows are the same objects page after page: each
-  // is sanitized once (keyed weakly — dropping the store's cache entry
-  // releases the clones) and a page costs a slice, not a whole-window clone.
-  const wireItems = new WeakMap();
-  function wireItem(item) {
-    if (!item || typeof item !== 'object') return sanitizeForWire(item, 2) ?? null;
-    let wire = wireItems.get(item);
-    if (wire === undefined) {
-      wire = sanitizeForWire(item, 2) ?? null;
-      wireItems.set(item, wire);
-    }
-    return wire;
-  }
-  // The store returns one object per unchanged window, so a repeated read
-  // reuses its wire clone (the 1s cold-view refresh would re-clone it).
-  const wireSnapshots = new WeakMap();
-  function wireSnapshot(snapshot) {
-    let wire = wireSnapshots.get(snapshot);
-    if (!wire) {
-      const { items, ...fields } = snapshot;
-      wire = sanitizeForWire(fields);
-      if (Array.isArray(items)) wire = { ...wire, items: items.map(wireItem) };
-      wireSnapshots.set(snapshot, wire);
-    }
-    return wire;
-  }
-
-  /** How many newest rows of `items` the caller is proven to hold (0: none):
-   *  its first held row sits where its count says, and either its rows were
-   *  served from this same display history (every window of one history is a
-   *  tail of it, and its `baseProjectionStamp` names that history), or they
-   *  match by digest. */
-  function provenHeldRows(items, held, projectionStamp, baseProjectionStamp) {
-    if (!held) return 0;
-    const sameHistory =
-      typeof baseProjectionStamp === 'string' &&
-      typeof projectionStamp === 'string' &&
-      historyOf(baseProjectionStamp) === historyOf(projectionStamp);
-    return holdsTranscriptTail(items, held, sameHistory) ? held.count : 0;
-  }
-  // A window's stamp is `<history stamp>/<limit>` (storedHistoryWindow); an
-  // answer cut from it is served as `<window stamp>#<rows delivered>`.
-  const historyOf = (stamp) => {
-    const window = stamp.includes('#') ? stamp.slice(0, stamp.lastIndexOf('#')) : stamp;
-    return window.includes('/') ? window.slice(0, window.lastIndexOf('/')) : window;
-  };
-  const deliveredOf = (stamp) => (stamp.includes('#') ? Number(stamp.slice(stamp.lastIndexOf('#') + 1)) : -1);
-  /** The stamp an answer of `delivered` rows is served under. Every answer cut
-   *  from one display history is a tail of it, so the rows a caller received
-   *  are named by that history and their count, byte-budget cuts included.
-   *  A request that pages nothing is answered under the caller's own stamp
-   *  (unchanged) when the tail it received already covers this whole answer —
-   *  a host that paged deeper than this window keeps its rows on a refresh;
-   *  any answer that would reveal more is served. */
-  function servedStamp(stamp, window, baseProjectionStamp, delivered) {
-    if (typeof stamp !== 'string' || !stamp.includes('/')) return stamp;
-    const own = `${stamp}#${delivered}`;
-    if (window?.paged || typeof baseProjectionStamp !== 'string') return own;
-    const covers = historyOf(baseProjectionStamp) === historyOf(own) && deliveredOf(baseProjectionStamp) >= delivered;
-    return covers ? baseProjectionStamp : own;
-  }
   /** Projections whose window holds the caller's proven rows (provenHeldRows). */
   const heldProven = new WeakSet();
 
@@ -135,13 +143,6 @@ export function createStoredSessionReader({
         ` chars=${chars} items=${items}${phases ? ` ${phases}` : ''}`
     );
   }
-
-  const itemLimitFor = (hints, window) => {
-    const requested = window ? window.limit : Number(hints?.resumeOptions?.transcriptItemLimit);
-    return Number.isFinite(requested) && requested > 0 ? requested : 512;
-  };
-  const projectedKey = (sessionId, hints, window) =>
-    `${sessionId}|${itemLimitFor(hints, window)}:${window?.byteBudget ?? ''}:${window?.pageBase ?? ''}:${window?.paged ? 'p' : ''}`;
 
   async function fileStampOf(sessionId) {
     if (typeof statStoredSession !== 'function') return null;

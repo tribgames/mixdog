@@ -1093,7 +1093,7 @@ export async function updateProviderAccounts(provider, change) {
   return listProviderAccounts(provider);
 }
 
-export async function saveProviderApiKey(cfgMod, provider, secret, options = undefined) {
+export async function saveProviderApiKey(cfgMod, provider, secret, options) {
   requireLocalProviderManagement();
   const id = String(provider || '').trim();
   if (!API_PROVIDER_IDS.has(id)) throw new Error(`unknown API-key provider "${id}"`);

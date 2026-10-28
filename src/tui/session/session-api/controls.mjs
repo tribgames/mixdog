@@ -69,12 +69,8 @@ export function createSessionControlsApi(bag) {
     },
     // `/stop`: this session's background shells, and stopping all of them:
     // { jobs } and { stopped, stopping }.
-    listStoppableShellJobs: async () => {
-      return (await runtime.listStoppableShellJobs?.()) ?? { jobs: [] };
-    },
-    stopShellJobs: async () => {
-      return (await runtime.stopShellJobs?.()) ?? { stopped: 0, stopping: 0 };
-    },
+    listStoppableShellJobs: async () => (await runtime.listStoppableShellJobs?.()) ?? { jobs: [] },
+    stopShellJobs: async () => (await runtime.stopShellJobs?.()) ?? { stopped: 0, stopping: 0 },
     // Explicit force-release of a shell whose termination is unconfirmed:
     // { released, error? }. Surfaces confirm with the user before calling.
     releaseShellJob: async (taskId) => {

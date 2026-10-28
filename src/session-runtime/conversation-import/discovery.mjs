@@ -796,7 +796,7 @@ function rowFor(candidate, meta, cwdInfo, imported, titles) {
   };
 }
 
-export async function buildRow(candidate, imported, cwdCache = new Map(), titles = null) {
+async function buildRow(candidate, imported, cwdCache = new Map(), titles = null) {
   const meta = cachedMeta(candidate);
   const cwdInfo = meta?.cwd ? await resolveSourceCwd(meta.cwd, cwdCache) : null;
   return rowFor(candidate, meta, cwdInfo, imported, titles);

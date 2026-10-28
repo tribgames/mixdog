@@ -333,7 +333,13 @@ test('post-major-GC heap: min per interval is reported on the line and reset on 
   const { createPostGcHeapTracker, createDaemonTelemetry } = await import('./daemon-telemetry.mjs');
   let onGc;
   let used = 0;
-  const tracker = createPostGcHeapTracker({ heapUsed: () => used, observe: (cb) => ((onGc = cb), () => {}) });
+  const tracker = createPostGcHeapTracker({
+    heapUsed: () => used,
+    observe: (cb) => {
+      onGc = cb;
+      return () => {};
+    },
+  });
   used = 300;
   onGc({ detail: { kind: 4 } });
   used = 200;

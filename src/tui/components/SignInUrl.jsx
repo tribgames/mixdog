@@ -27,7 +27,7 @@ const STATUS_TEXT = {
 };
 
 /** The one key that copies a sign-in URL in every panel, with or without a focused text input. */
-export const SIGN_IN_COPY_KEY = 'Ctrl+Y';
+const SIGN_IN_COPY_KEY = 'Ctrl+Y';
 export const isSignInCopyKey = (input, key) => Boolean(key?.ctrl) && String(input || '').toLowerCase() === 'y';
 
 /** The copy-key note, or what the last copy did. */

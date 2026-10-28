@@ -204,6 +204,109 @@ function routineDetail(routine, now) {
   return cut(`${routine.kind} ${quotedText(routine.name, 64)}: ${parts.join(', ')}`, 240);
 }
 
+/** Everything known about one bot, from the gathered state. */
+function botState(bot, ctx) {
+  const homeId = agentHomeSessionId(bot.id);
+  const owned = ctx.owned.get(bot.id) || [];
+  const home = ctx.rows.get(homeId) || null;
+  // Work this bot sent that is running now: a session working with the bot's
+  // send in flight (`handedBy`, bot-owned-work.mjs). A turn the user typed
+  // in the bot's task session is the user's, not the bot working.
+  const sentWork = (row) => isWorking(row) && row.handedBy?.includes(bot.id);
+  // Running task sessions: a turn whose report is still owed, or the bot's
+  // work running now.
+  const tasks = new Map();
+  const addTask = (id, title, at) => {
+    const known = tasks.get(id);
+    if (!known) tasks.set(id, { id, title, at });
+    else if (at && (!known.at || at < known.at)) known.at = at;
+  };
+  for (const watch of ctx.watches) {
+    if (watch.agentId !== bot.id || watch.target === 'session' || !watch.taskSessionId) continue;
+    addTask(watch.taskSessionId, watch.title, Number(watch.at) || 0);
+  }
+  for (const row of owned) {
+    if (row.id === homeId || roomMemberOfSession(row.id) || !sentWork(row)) continue;
+    addTask(row.id, row.title, Number(row.createdAt) || 0);
+  }
+  const running = [...tasks.values()].sort((left, right) => left.at - right.at || (left.id < right.id ? -1 : 1));
+  const held = ctx.held.filter((entry) => entry.agentId === bot.id);
+  const approvals = held.length + [homeId, ...running.map((task) => task.id)].filter(ctx.awaitingApproval).length;
+  const routines = ctx.routines.rows
+    .filter((routine) => (routine.owner || MIXY_AGENT_ID) === bot.id)
+    .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
+  const flags = [];
+  if (approvals) flags.push(`${plural(approvals, 'approval')} waiting`);
+  for (const routine of routines) {
+    const trouble = routineTrouble(routine);
+    if (trouble.length) flags.push(`${quotedText(routine.name, 20)} ${trouble.join(', ')}`);
+  }
+  if (bot.disabled) flags.push('disabled');
+  return {
+    bot,
+    homeId,
+    home,
+    owned,
+    running,
+    held,
+    approvals,
+    routines,
+    flags,
+    working: isWorking(home) || running.some((task) => sentWork(ctx.rows.get(task.id))),
+    lastAt: activityOf(home),
+  };
+}
+
+function botLine(state, now) {
+  const { bot } = state;
+  const parts = [`${quotedText(bot.name, 40)} (${bot.id})`, `chat ${state.homeId}`];
+  if (bot.self) parts.push('you');
+  parts.push(state.working ? 'working' : 'idle');
+  if (state.flags.length) parts.push(`attention: ${state.flags.join('; ')}`);
+  parts.push(state.lastAt ? `last ${ago(state.lastAt, now)}` : 'no chat yet');
+  if (state.running.length) {
+    const [first] = state.running;
+    const more = state.running.length > 1 ? ` +${state.running.length - 1}` : '';
+    const count = state.running.length > 1 ? `${state.running.length} tasks:` : 'task';
+    parts.push(`${count} "${quotedText(first.title, 24)}"${first.at ? ` ${span(now - first.at)}` : ''}${more}`);
+  }
+  if (state.routines.length) {
+    const next = state.routines
+      .filter((routine) => routine.enabled !== false && epoch(routine.nextFireAt))
+      .sort((left, right) => epoch(left.nextFireAt) - epoch(right.nextFireAt))[0];
+    parts.push(
+      `${plural(state.routines.length, 'routine')}${next ? `, next ${quotedText(next.name, 20)} ${until(epoch(next.nextFireAt), now)}` : ''}`
+    );
+  }
+  const fixed = parts.join(' · ');
+  const preview = oneLine(state.home?.lastMessagePreview || state.home?.preview);
+  const room = BOT_LINE_LIMIT - fixed.length - 5;
+  return cut(preview && room >= MIN_PREVIEW ? `${fixed} · "${quotedText(preview, room)}"` : fixed, BOT_LINE_LIMIT);
+}
+
+const mixyBot = (ctx) => ({ id: MIXY_AGENT_ID, name: ctx.mixy, self: true });
+
+/** The bots the caller sees: every bot then Mixy when she has something to
+ *  show, or just the caller's own bot. */
+function visibleStates(ctx) {
+  if (ctx.own) {
+    const bot = ctx.own === MIXY_AGENT_ID ? mixyBot(ctx) : ctx.bots[0];
+    return bot ? [botState(bot, ctx)] : [];
+  }
+  const states = ctx.bots
+    .map((bot) => botState(bot, ctx))
+    .sort(
+      (left, right) =>
+        Number(right.flags.length > 0) - Number(left.flags.length > 0) ||
+        Number(right.working) - Number(left.working) ||
+        right.lastAt - left.lastAt ||
+        (left.bot.id < right.bot.id ? -1 : 1)
+    );
+  const mixy = botState(mixyBot(ctx), ctx);
+  if (mixy.routines.length || mixy.running.length || mixy.approvals) states.push(mixy);
+  return states;
+}
+
 export function createBotStatus({
   getSessionService,
   listBots = defaultListBots,
@@ -258,109 +361,6 @@ export function createBotStatus({
       awaitingApproval: (sessionId) => service.liveSessionAwaitingApproval?.(sessionId) === true,
       at: now(),
     };
-  }
-
-  /** Everything known about one bot, from the gathered state. */
-  function botState(bot, ctx) {
-    const homeId = agentHomeSessionId(bot.id);
-    const owned = ctx.owned.get(bot.id) || [];
-    const home = ctx.rows.get(homeId) || null;
-    // Work this bot sent that is running now: a session working with the bot's
-    // send in flight (`handedBy`, bot-owned-work.mjs). A turn the user typed
-    // in the bot's task session is the user's, not the bot working.
-    const sentWork = (row) => isWorking(row) && row.handedBy?.includes(bot.id) === true;
-    // Running task sessions: a turn whose report is still owed, or the bot's
-    // work running now.
-    const tasks = new Map();
-    const addTask = (id, title, at) => {
-      const known = tasks.get(id);
-      if (!known) tasks.set(id, { id, title, at });
-      else if (at && (!known.at || at < known.at)) known.at = at;
-    };
-    for (const watch of ctx.watches) {
-      if (watch.agentId !== bot.id || watch.target === 'session' || !watch.taskSessionId) continue;
-      addTask(watch.taskSessionId, watch.title, Number(watch.at) || 0);
-    }
-    for (const row of owned) {
-      if (row.id === homeId || roomMemberOfSession(row.id) || !sentWork(row)) continue;
-      addTask(row.id, row.title, Number(row.createdAt) || 0);
-    }
-    const running = [...tasks.values()].sort((left, right) => left.at - right.at || (left.id < right.id ? -1 : 1));
-    const held = ctx.held.filter((entry) => entry.agentId === bot.id);
-    const approvals = held.length + [homeId, ...running.map((task) => task.id)].filter(ctx.awaitingApproval).length;
-    const routines = ctx.routines.rows
-      .filter((routine) => (routine.owner || MIXY_AGENT_ID) === bot.id)
-      .sort((left, right) => (left.name < right.name ? -1 : left.name > right.name ? 1 : 0));
-    const flags = [];
-    if (approvals) flags.push(`${plural(approvals, 'approval')} waiting`);
-    for (const routine of routines) {
-      const trouble = routineTrouble(routine);
-      if (trouble.length) flags.push(`${quotedText(routine.name, 20)} ${trouble.join(', ')}`);
-    }
-    if (bot.disabled) flags.push('disabled');
-    return {
-      bot,
-      homeId,
-      home,
-      owned,
-      running,
-      held,
-      approvals,
-      routines,
-      flags,
-      working: isWorking(home) || running.some((task) => sentWork(ctx.rows.get(task.id))),
-      lastAt: activityOf(home),
-    };
-  }
-
-  function botLine(state, now) {
-    const { bot } = state;
-    const parts = [`${quotedText(bot.name, 40)} (${bot.id})`, `chat ${state.homeId}`];
-    if (bot.self) parts.push('you');
-    parts.push(state.working ? 'working' : 'idle');
-    if (state.flags.length) parts.push(`attention: ${state.flags.join('; ')}`);
-    parts.push(state.lastAt ? `last ${ago(state.lastAt, now)}` : 'no chat yet');
-    if (state.running.length) {
-      const [first] = state.running;
-      const more = state.running.length > 1 ? ` +${state.running.length - 1}` : '';
-      const count = state.running.length > 1 ? `${state.running.length} tasks:` : 'task';
-      parts.push(`${count} "${quotedText(first.title, 24)}"${first.at ? ` ${span(now - first.at)}` : ''}${more}`);
-    }
-    if (state.routines.length) {
-      const next = state.routines
-        .filter((routine) => routine.enabled !== false && epoch(routine.nextFireAt))
-        .sort((left, right) => epoch(left.nextFireAt) - epoch(right.nextFireAt))[0];
-      parts.push(
-        `${plural(state.routines.length, 'routine')}${next ? `, next ${quotedText(next.name, 20)} ${until(epoch(next.nextFireAt), now)}` : ''}`
-      );
-    }
-    const fixed = parts.join(' · ');
-    const preview = oneLine(state.home?.lastMessagePreview || state.home?.preview);
-    const room = BOT_LINE_LIMIT - fixed.length - 5;
-    return cut(preview && room >= MIN_PREVIEW ? `${fixed} · "${quotedText(preview, room)}"` : fixed, BOT_LINE_LIMIT);
-  }
-
-  const mixyBot = (ctx) => ({ id: MIXY_AGENT_ID, name: ctx.mixy, self: true });
-
-  /** The bots the caller sees: every bot then Mixy when she has something to
-   *  show, or just the caller's own bot. */
-  function visibleStates(ctx) {
-    if (ctx.own) {
-      const bot = ctx.own === MIXY_AGENT_ID ? mixyBot(ctx) : ctx.bots[0];
-      return bot ? [botState(bot, ctx)] : [];
-    }
-    const states = ctx.bots
-      .map((bot) => botState(bot, ctx))
-      .sort(
-        (left, right) =>
-          Number(right.flags.length > 0) - Number(left.flags.length > 0) ||
-          Number(right.working) - Number(left.working) ||
-          right.lastAt - left.lastAt ||
-          (left.bot.id < right.bot.id ? -1 : 1)
-      );
-    const mixy = botState(mixyBot(ctx), ctx);
-    if (mixy.routines.length || mixy.running.length || mixy.approvals) states.push(mixy);
-    return states;
   }
 
   async function overview(own) {

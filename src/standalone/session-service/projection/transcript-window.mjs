@@ -605,7 +605,7 @@ export async function readTranscriptRange(entry, sessionId, readStoredSession, {
     // A private window answered by a slice of at most `limit` rows: it reads
     // as far back as the range reaches, past what one view answer carries.
     const view = isolated.transcriptView;
-    snapshot = windowTranscriptSnapshot(isolated, state);
+    windowTranscriptSnapshot(isolated, state);
     view.limit = requested;
     view.paged = true;
     view.grow = { byteBudget: null };

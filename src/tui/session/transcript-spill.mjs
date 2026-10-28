@@ -41,6 +41,38 @@ export function sweepStaleTranscriptSpillDirsOnce() {
   cleanupStaleTranscriptSpillDirs();
 }
 
+const decodePage = (record) => record.pendingItems || JSON.parse(readFileSync(record.path, 'utf8'));
+
+/** Spilled rows `[stop - limit, stop)` of `pages` (`spilledRows` rows in all),
+ *  `stop` being `end` clamped to the spilled rows, read newest page first;
+ *  `broken` when a page cannot be read whole. */
+function readSpilledRows(pages, spilledRows, end, limit) {
+  const stop = Math.max(0, Math.min(Number(end) || 0, spilledRows));
+  const begin = Math.max(0, stop - Math.max(0, Number(limit) || 0));
+  const parts = [];
+  let pageEnd = spilledRows;
+  const result = (broken) => {
+    const items = parts.reverse().flat();
+    return { items, start: stop - items.length, broken };
+  };
+  for (let index = pages.length - 1; index >= 0 && pageEnd > begin; index -= 1) {
+    const record = pages[index];
+    const pageStart = pageEnd - record.count;
+    if (pageStart < stop) {
+      let items = null;
+      try {
+        items = decodePage(record);
+      } catch {
+        items = null;
+      }
+      if (!Array.isArray(items) || items.length !== record.count) return result(true);
+      parts.push(items.slice(Math.max(begin, pageStart) - pageStart, Math.min(stop, pageEnd) - pageStart));
+    }
+    pageEnd = pageStart;
+  }
+  return result(false);
+}
+
 // Serialized pages deliberately release the old item object graph while
 // keeping every byte restorable. Only `items` is render-live and walkable.
 // This buffer owns the page list, the reading cursor and snapshots; the spill
@@ -115,11 +147,10 @@ export function createTranscriptSpillBuffer({
     writer.enqueue(record);
     return record;
   };
-  const decode = (record) => record.pendingItems || JSON.parse(readFileSync(record.path, 'utf8'));
   const restoredWithOverlap = (liveItems) => {
-    const restored = decode(pages[cursor]);
+    const restored = decodePage(pages[cursor]);
     let following = Array.isArray(liveItems) ? liveItems : [];
-    if (cursor + 1 < pages.length) following = decode(pages[cursor + 1]);
+    if (cursor + 1 < pages.length) following = decodePage(pages[cursor + 1]);
     return [...restored, ...following.slice(0, TRANSCRIPT_RESTORE_OVERLAP_ITEMS)];
   };
   return {
@@ -227,30 +258,7 @@ export function createTranscriptSpillBuffer({
      *  history there: `broken`, with only the rows below it. */
     readSpilled({ epoch: wanted, end = spilledRows, limit = 0 } = {}) {
       if (wanted !== epoch) return null;
-      const stop = Math.max(0, Math.min(Number(end) || 0, spilledRows));
-      const begin = Math.max(0, stop - Math.max(0, Number(limit) || 0));
-      const parts = [];
-      let pageEnd = spilledRows;
-      const result = (broken) => {
-        const items = parts.reverse().flat();
-        return { items, start: stop - items.length, broken };
-      };
-      for (let index = pages.length - 1; index >= 0 && pageEnd > begin; index -= 1) {
-        const record = pages[index];
-        const pageStart = pageEnd - record.count;
-        if (pageStart < stop) {
-          let items = null;
-          try {
-            items = decode(record);
-          } catch {
-            items = null;
-          }
-          if (!Array.isArray(items) || items.length !== record.count) return result(true);
-          parts.push(items.slice(Math.max(begin, pageStart) - pageStart, Math.min(stop, pageEnd) - pageStart));
-        }
-        pageEnd = pageStart;
-      }
-      return result(false);
+      return readSpilledRows(pages, spilledRows, end, limit);
     },
     restoreOlder(liveItems) {
       const nextCursor = cursor == null ? pages.length - 1 : cursor - 1;

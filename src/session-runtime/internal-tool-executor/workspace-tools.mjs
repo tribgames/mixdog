@@ -42,6 +42,140 @@ function callerAttachmentParts(rt, args, callerCwd, surface) {
   }).parts;
 }
 
+/** `session` actions that act on another session through session control
+ *  (list, bots, read, send, cancel, delete, create, status of a target). */
+async function runSessionControl(
+  { rt, executeSessionControl, listBots, getSessionManager },
+  args,
+  { action, target, callerSessionId, callerCwd }
+) {
+  // `callerAgentId`: the bot whose conversation gets results reported
+  // back; `callerBotId`: the bot the caller acts as, attended or not,
+  // for what only a bot's own sessions allow (an effort change).
+  const callerAgentId = attendedAgentOf(rt.session);
+  const acting = resolveSessionMode({ session: rt.session });
+  const callerBotId = acting.mode === AGENT_MODE ? acting.agentId : '';
+  if (action === 'create' && !callerAgentId) {
+    throw new Error(
+      'session: create belongs to a bot conversation; delegated workers, agent task sessions and schedule/webhook runs cannot create agent task sessions'
+    );
+  }
+  // A bot id names that bot's home chat; every check below and in the
+  // control runs on the chat it resolves to.
+  const sessionTarget = BOT_TARGET_ACTIONS.has(action) && target ? await resolveBotTarget(target, listBots) : target;
+  // A task session reaches its agent only through its reported result.
+  const origin = rt.session?.taskOrigin;
+  if (
+    action === 'send' &&
+    origin &&
+    (sessionTarget === origin.sessionId || agentIdOfHomeSession(sessionTarget) === origin.agentId)
+  ) {
+    throw new Error('session: a task session reports to its agent only through its result');
+  }
+  if (typeof executeSessionControl !== 'function') {
+    throw new Error('session: cross-session control is unavailable in this runtime');
+  }
+  const { attachments, ...rest } = args || {};
+  if (attachments !== undefined && action !== 'send' && action !== 'create') {
+    throw new Error(`session: attachments apply to send and create, not action=${action}`);
+  }
+  const attachmentParts = callerAttachmentParts(rt, args, callerCwd, 'session');
+  return JSON.stringify(
+    await executeSessionControl(
+      { ...rest, action, ...(sessionTarget !== target ? { session_id: sessionTarget } : {}) },
+      {
+        callerSessionId,
+        callerAgentId,
+        callerBotId,
+        callerCwd,
+        ...(action === 'send' || action === 'create'
+          ? {
+              callerHop: turnHopOf(rt.session),
+              // The bot chain this turn acts in (bot-chain.mjs), checked
+              // against the target and carried to the turn it starts —
+              // only when the sender is a bot conversation (a bot's chat,
+              // room seat or run); any other session hands work to any
+              // bot as before, whatever started its turn (the hop limit
+              // still bounds a loop).
+              callerBotChain: callerBotId
+                ? delegationChainOf(callerSessionId, (id) =>
+                    id === rt.session?.id ? rt.session : getSessionManager()?.getSession?.(id) || null
+                  )
+                : [],
+            }
+          : {}),
+        // Whether a create may provision a worktree (worktree-access.mjs).
+        ...(action === 'create' ? { callerScope: worktreeCallerScope(rt.session) } : {}),
+        // Which bots and sessions it may see (bot-status.mjs).
+        ...(action === 'bots' || action === 'list' ? { callerScope: scheduleCallerScope(rt.session) } : {}),
+        ...(attachmentParts.length ? { attachmentParts } : {}),
+      }
+    )
+  );
+}
+
+/** `session action=rename`: the AI title of the Lead session, mirrored onto the live session. */
+async function renameSession({ rt, getSessionManager }, action, sessionId, args) {
+  if (rt.config?.aiSessionTitles === false) throw new Error('session: AI session titles are disabled in settings');
+  const title = clean(args?.title);
+  if (!title) throw new Error('session: title is required for action=rename');
+  const result = await getSessionManager()?.updateSessionAiTitle(sessionId, title);
+  if (!result?.ok) {
+    throw new Error(
+      result?.reason === 'user-title' ? USER_TITLE_ERROR : `session: rename failed (${result?.reason || 'unavailable'})`
+    );
+  }
+  // Mirror the store's truth onto the live session, never the AI title
+  // itself: a manual rename that landed while the save was awaited wins.
+  const stored = getSessionManager()?.getSession?.(sessionId);
+  if (stored && rt.session?.id === sessionId && stored !== rt.session) {
+    rt.session.title = stored.title;
+    rt.session.titleLocked = stored.titleLocked;
+    rt.session.titleSource = stored.titleSource;
+    rt.session.titleUpdatedAt = stored.titleUpdatedAt;
+  }
+  if (stored && stored.titleSource === 'user') throw new Error(USER_TITLE_ERROR);
+  return JSON.stringify({ action, sessionId, title: result.title }, null, 2);
+}
+
+/** `session action=fork`: inherit the Lead session into a new one. */
+async function forkSession(getLifecycleApi, action, sessionId, args) {
+  const lifecycle = getLifecycleApi();
+  if (typeof lifecycle?.inheritToNewSession !== 'function') {
+    throw new Error('session: fork is unavailable in this runtime');
+  }
+  const result = await lifecycle.inheritToNewSession(sessionId, {
+    compact: args?.compact === true,
+    titleSuffix: ' (Fork)',
+  });
+  return JSON.stringify(
+    { action, sourceSessionId: sessionId, sessionId: result.sessionId, compacted: result.compacted === true },
+    null,
+    2
+  );
+}
+
+/** `session action=status`: the current session's identity, folder and route. */
+function sessionStatusJson(rt, callerCtx, currentCwd) {
+  const current = rt.session;
+  return JSON.stringify(
+    {
+      sessionId: callerCtx?.callerSessionId || current?.id || null,
+      title: current?.title || null,
+      titleSource: current?.titleSource || null,
+      cwd: currentCwd,
+      project: current?.workspace?.projectPath || current?.desktopSession?.projectPath || currentCwd,
+      provider: current?.provider || null,
+      model: current?.model || null,
+      effort: current?.effort || null,
+      autoEffort: current?.autoEffort !== false,
+      fast: current?.fast === true,
+    },
+    null,
+    2
+  );
+}
+
 export function createWorkspaceToolHandlers({
   rt,
   goalRuntime,
@@ -101,70 +235,12 @@ export function createWorkspaceToolHandlers({
       (action === 'status' && target)
     ) {
       const callerSessionId = assertLead(action, callerCtx);
-      // `callerAgentId`: the bot whose conversation gets results reported
-      // back; `callerBotId`: the bot the caller acts as, attended or not,
-      // for what only a bot's own sessions allow (an effort change).
-      const callerAgentId = attendedAgentOf(rt.session);
-      const acting = resolveSessionMode({ session: rt.session });
-      const callerBotId = acting.mode === AGENT_MODE ? acting.agentId : '';
-      if (action === 'create' && !callerAgentId) {
-        throw new Error(
-          'session: create belongs to a bot conversation; delegated workers, agent task sessions and schedule/webhook runs cannot create agent task sessions'
-        );
-      }
-      // A bot id names that bot's home chat; every check below and in the
-      // control runs on the chat it resolves to.
-      const sessionTarget =
-        BOT_TARGET_ACTIONS.has(action) && target ? await resolveBotTarget(target, listBots) : target;
-      // A task session reaches its agent only through its reported result.
-      const origin = rt.session?.taskOrigin;
-      if (
-        action === 'send' &&
-        origin &&
-        (sessionTarget === origin.sessionId || agentIdOfHomeSession(sessionTarget) === origin.agentId)
-      ) {
-        throw new Error('session: a task session reports to its agent only through its result');
-      }
-      if (typeof executeSessionControl !== 'function') {
-        throw new Error('session: cross-session control is unavailable in this runtime');
-      }
-      const { attachments, ...rest } = args || {};
-      if (attachments !== undefined && action !== 'send' && action !== 'create') {
-        throw new Error(`session: attachments apply to send and create, not action=${action}`);
-      }
-      const attachmentParts = callerAttachmentParts(rt, args, callerCwd, 'session');
-      return JSON.stringify(
-        await executeSessionControl(
-          { ...rest, action, ...(sessionTarget !== target ? { session_id: sessionTarget } : {}) },
-          {
-            callerSessionId,
-            callerAgentId,
-            callerBotId,
-            callerCwd,
-            ...(action === 'send' || action === 'create'
-              ? {
-                  callerHop: turnHopOf(rt.session),
-                  // The bot chain this turn acts in (bot-chain.mjs), checked
-                  // against the target and carried to the turn it starts —
-                  // only when the sender is a bot conversation (a bot's chat,
-                  // room seat or run); any other session hands work to any
-                  // bot as before, whatever started its turn (the hop limit
-                  // still bounds a loop).
-                  callerBotChain: callerBotId
-                    ? delegationChainOf(callerSessionId, (id) =>
-                        id === rt.session?.id ? rt.session : getSessionManager()?.getSession?.(id) || null
-                      )
-                    : [],
-                }
-              : {}),
-            // Whether a create may provision a worktree (worktree-access.mjs).
-            ...(action === 'create' ? { callerScope: worktreeCallerScope(rt.session) } : {}),
-            // Which bots and sessions it may see (bot-status.mjs).
-            ...(action === 'bots' || action === 'list' ? { callerScope: scheduleCallerScope(rt.session) } : {}),
-            ...(attachmentParts.length ? { attachmentParts } : {}),
-          }
-        )
-      );
+      return runSessionControl({ rt, executeSessionControl, listBots, getSessionManager }, args, {
+        action,
+        target,
+        callerSessionId,
+        callerCwd,
+      });
     }
     // Mixy's proposals to the user (mixy-heartbeat.mjs): kept so none repeats.
     if (action === 'suggest') {
@@ -184,28 +260,7 @@ export function createWorkspaceToolHandlers({
     if (action === 'status' || action === 'list-projects' || action === 'set-project') assertLead(action, callerCtx);
     if (action === 'rename') {
       const sessionId = assertLead(action, callerCtx);
-      if (rt.config?.aiSessionTitles === false) throw new Error('session: AI session titles are disabled in settings');
-      const title = clean(args?.title);
-      if (!title) throw new Error('session: title is required for action=rename');
-      const result = await getSessionManager()?.updateSessionAiTitle(sessionId, title);
-      if (!result?.ok) {
-        throw new Error(
-          result?.reason === 'user-title'
-            ? USER_TITLE_ERROR
-            : `session: rename failed (${result?.reason || 'unavailable'})`
-        );
-      }
-      // Mirror the store's truth onto the live session, never the AI title
-      // itself: a manual rename that landed while the save was awaited wins.
-      const stored = getSessionManager()?.getSession?.(sessionId);
-      if (stored && rt.session?.id === sessionId && stored !== rt.session) {
-        rt.session.title = stored.title;
-        rt.session.titleLocked = stored.titleLocked;
-        rt.session.titleSource = stored.titleSource;
-        rt.session.titleUpdatedAt = stored.titleUpdatedAt;
-      }
-      if (stored && stored.titleSource === 'user') throw new Error(USER_TITLE_ERROR);
-      return JSON.stringify({ action, sessionId, title: result.title }, null, 2);
+      return renameSession({ rt, getSessionManager }, action, sessionId, args);
     }
     if (action === 'compact') {
       const sessionId = assertLead(action, callerCtx);
@@ -219,38 +274,10 @@ export function createWorkspaceToolHandlers({
     }
     if (action === 'fork') {
       const sessionId = assertLead(action, callerCtx);
-      const lifecycle = getLifecycleApi();
-      if (typeof lifecycle?.inheritToNewSession !== 'function') {
-        throw new Error('session: fork is unavailable in this runtime');
-      }
-      const result = await lifecycle.inheritToNewSession(sessionId, {
-        compact: args?.compact === true,
-        titleSuffix: ' (Fork)',
-      });
-      return JSON.stringify(
-        { action, sourceSessionId: sessionId, sessionId: result.sessionId, compacted: result.compacted === true },
-        null,
-        2
-      );
+      return forkSession(getLifecycleApi, action, sessionId, args);
     }
     if (action === 'status') {
-      const current = rt.session;
-      return JSON.stringify(
-        {
-          sessionId: callerCtx?.callerSessionId || current?.id || null,
-          title: current?.title || null,
-          titleSource: current?.titleSource || null,
-          cwd: currentCwd,
-          project: current?.workspace?.projectPath || current?.desktopSession?.projectPath || currentCwd,
-          provider: current?.provider || null,
-          model: current?.model || null,
-          effort: current?.effort || null,
-          autoEffort: current?.autoEffort !== false,
-          fast: current?.fast === true,
-        },
-        null,
-        2
-      );
+      return sessionStatusJson(rt, callerCtx, currentCwd);
     }
     if (action === 'list-projects') {
       return JSON.stringify(

@@ -20,6 +20,60 @@ import { assertWorktreeMutationAllowed, worktreeCallerScope } from '../services/
 
 const loadManager = () => import('../../runtime/shared/worktrees/manager.mjs');
 
+async function enter(lane, request) {
+  if (request.branch) {
+    return lane.call('selectBranch', {
+      branch: request.branch,
+      create: request.create === true,
+      confirmLarge: request.confirmLarge === true,
+      txId: request.txId,
+    });
+  }
+  // A valid slug names the worktree; any other text is a hint the slug is made from.
+  const name = typeof request.name === 'string' ? request.name.trim() : '';
+  const slug = name && !worktreeNameError(name) ? name : null;
+  return lane.call('requestWorktree', {
+    provision: true,
+    name: slug,
+    prompt: slug ? '' : name,
+    ...(request.carry ? { carryChanges: request.carry } : {}),
+    confirmLarge: request.confirmLarge === true,
+    txId: request.txId,
+  });
+}
+
+/** Back to the project folder (the branch checked out there); the worktree stays retained. */
+async function back(lane, request) {
+  const menu = await lane.menu();
+  const workspace = menu.workspace;
+  if (!workspace.worktreeId && samePath(workspace.cwd, workspace.projectPath)) {
+    return { revision: workspace.revision, workspace, unchanged: true };
+  }
+  const projectBranch = menu.occupancy.find((row) => row.kind === 'current')?.branch ?? null;
+  if (!projectBranch) {
+    throw worktreeError(
+      'WORKTREE_UNSUPPORTED_REPO',
+      'The project folder has no checked-out branch to return to (detached HEAD).'
+    );
+  }
+  return lane.call('selectBranch', {
+    branch: projectBranch,
+    expectedRevision: workspace.revision,
+    txId: request.txId,
+  });
+}
+
+/** The desktop's "merge": into the confirmed merge target, then the cleanup autoCleanup allows. */
+async function merge(lane) {
+  const { workspace } = await lane.menu();
+  return lane.call('mergeWorkspace', {
+    confirmed: true,
+    target: workspace.mergeTarget ?? null,
+    expectedRevision: workspace.revision,
+    cleanup: true,
+  });
+}
+
 /**
  * @param {object} deps
  * @param {() => any} deps.getSession The Lead session this runtime hosts (its trusted caller scope).
@@ -59,60 +113,6 @@ export function createWorktreeToolHost({ getSession, getWorkspaceApi, executeSes
         { callerSessionId, callerScope: scope }
       );
     return { own: false, menu: () => control('getBranchMenu'), call: control };
-  }
-
-  async function enter(lane, request) {
-    if (request.branch) {
-      return lane.call('selectBranch', {
-        branch: request.branch,
-        create: request.create === true,
-        confirmLarge: request.confirmLarge === true,
-        txId: request.txId,
-      });
-    }
-    // A valid slug names the worktree; any other text is a hint the slug is made from.
-    const name = typeof request.name === 'string' ? request.name.trim() : '';
-    const slug = name && !worktreeNameError(name) ? name : null;
-    return lane.call('requestWorktree', {
-      provision: true,
-      name: slug,
-      prompt: slug ? '' : name,
-      ...(request.carry ? { carryChanges: request.carry } : {}),
-      confirmLarge: request.confirmLarge === true,
-      txId: request.txId,
-    });
-  }
-
-  /** Back to the project folder (the branch checked out there); the worktree stays retained. */
-  async function back(lane, request) {
-    const menu = await lane.menu();
-    const workspace = menu.workspace;
-    if (!workspace.worktreeId && samePath(workspace.cwd, workspace.projectPath)) {
-      return { revision: workspace.revision, workspace, unchanged: true };
-    }
-    const projectBranch = menu.occupancy.find((row) => row.kind === 'current')?.branch ?? null;
-    if (!projectBranch) {
-      throw worktreeError(
-        'WORKTREE_UNSUPPORTED_REPO',
-        'The project folder has no checked-out branch to return to (detached HEAD).'
-      );
-    }
-    return lane.call('selectBranch', {
-      branch: projectBranch,
-      expectedRevision: workspace.revision,
-      txId: request.txId,
-    });
-  }
-
-  /** The desktop's "merge": into the confirmed merge target, then the cleanup autoCleanup allows. */
-  async function merge(lane) {
-    const { workspace } = await lane.menu();
-    return lane.call('mergeWorkspace', {
-      confirmed: true,
-      target: workspace.mergeTarget ?? null,
-      expectedRevision: workspace.revision,
-      cleanup: true,
-    });
   }
 
   /**

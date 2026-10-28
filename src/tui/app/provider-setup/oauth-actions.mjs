@@ -23,12 +23,12 @@ const DEVICE_CODE_WARNING = [
   { glyph: '!', text: 'Continue only if you started this. Never enter a code someone sent you.' },
 ];
 
-function showOAuthProgress(flow, providerItem, message, onBack, detail = '', deviceCode = false) {
+function showOAuthProgress(flow, providerItem, message, onBack, detail = '', footer = null) {
   const provider = providerItem._provider || {};
   const frame = panelFrame(providerItem, provider, `providers-oauth-progress:${providerItem.value}`);
   flow.paint({
     ...frame,
-    ...(deviceCode ? { footer: () => DEVICE_CODE_WARNING } : {}),
+    ...(footer ? { footer } : {}),
     description: message,
     detail,
     help: '↑/↓ Select · Enter Choose · Esc Providers',
@@ -160,7 +160,14 @@ function beginInteractiveOAuthLogin(flow, providerItem, login) {
         // with the code and URL, until the result panel replaces it or Back.
         const opened = openBrowser ? ' (browser opened)' : '';
         const { message, detail } = pollingLoginMessage(started?.userCode, loginUrl, opened);
-        showOAuthProgress(flow, providerItem, message, login.onBack, detail, Boolean(started?.userCode));
+        showOAuthProgress(
+          flow,
+          providerItem,
+          message,
+          login.onBack,
+          detail,
+          started?.userCode ? () => DEVICE_CODE_WARNING : null
+        );
       }
       started.waitForCallback
         ?.then((result) => {
