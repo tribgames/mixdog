@@ -41,6 +41,7 @@ export const SLASH_COMMANDS = [
     params: '[release <task_id> [--confirm]]',
     description: 'List shells; release one whose termination is unconfirmed',
   },
+  { name: 'stop', usage: '/stop', description: 'Stop every background shell of this session' },
   {
     name: 'fork',
     usage: '/fork',

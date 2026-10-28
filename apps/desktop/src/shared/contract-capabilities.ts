@@ -66,6 +66,10 @@ export const DESKTOP_CAPABILITIES = [
   'completeSetupRequest',
   'agentControl',
   'taskControl',
+  // /stop: `listStoppableShellJobs()` → `{ jobs: [{ taskId, command }] }` of this
+  // session's background shells; `stopShellJobs()` → `{ stopped, stopping }`.
+  'listStoppableShellJobs',
+  'stopShellJobs',
   'goalControl',
   'toolsStatus',
   'selectTools',

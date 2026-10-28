@@ -531,3 +531,72 @@ test('/shells lists held shells and releases one only with --confirm', async () 
   assert.deepEqual(h.calls, [['releaseShellJob', 'job_b']]);
   assert.deepEqual(h.notices[2], ['Released job_b.', 'info']);
 });
+
+const STOP_JOBS = [
+  { taskId: 'job_a', command: 'npm run dev' },
+  { taskId: 'job_b', command: 'tail -f log' },
+];
+const stopHarness = (stopResult = { stopped: 2, stopping: 0 }, jobs = STOP_JOBS) => {
+  const h = createHarness({
+    store: {
+      listStoppableShellJobs: async () => ({ jobs }),
+      stopShellJobs: async () => {
+        h.calls.push(['stopShellJobs']);
+        return stopResult;
+      },
+    },
+  });
+  return h;
+};
+
+test('/stop says so when no background shell is running and opens no prompt', async () => {
+  const h = stopHarness(undefined, []);
+  h.runSlashCommand('stop', '');
+  await flush();
+  assert.deepEqual(h.notices, [['No background shells are running.', 'info']]);
+  assert.equal(h.current(), null);
+  assert.deepEqual(h.calls, []);
+});
+
+test('/stop confirms once with the commands, and stopping happens only after Stop', async () => {
+  const h = stopHarness();
+  h.runSlashCommand('stop', '');
+  await flush();
+  const prompt = h.current();
+  assert.equal(prompt.title, 'Stop 2 background shells?');
+  assert.deepEqual(
+    prompt.footer.map((row) => row.text),
+    ['npm run dev', 'tail -f log']
+  );
+  assert.deepEqual(h.calls, [], 'nothing is stopped before the confirmation');
+  prompt.onSelect('stop');
+  await flush();
+  assert.deepEqual(h.calls, [['stopShellJobs']]);
+  assert.deepEqual(h.notices, [['Stopped 2', 'info']]);
+  assert.equal(h.current(), null);
+});
+
+test('cancelling the /stop prompt stops nothing', async () => {
+  const h = stopHarness();
+  h.runSlashCommand('stop', '');
+  await flush();
+  h.current().onSelect('cancel');
+  await flush();
+  assert.deepEqual(h.calls, []);
+  assert.deepEqual(h.notices, []);
+  assert.equal(h.current(), null);
+  h.runSlashCommand('stop', '');
+  await flush();
+  h.current().onCancel();
+  await flush();
+  assert.deepEqual(h.calls, []);
+});
+
+test('/stop reports shells that are still stopping', async () => {
+  const h = stopHarness({ stopped: 1, stopping: 1 });
+  h.runSlashCommand('stop', '');
+  await flush();
+  h.current().onSelect('stop');
+  await flush();
+  assert.deepEqual(h.notices, [['Stopped 1 · 1 still stopping', 'warn']]);
+});

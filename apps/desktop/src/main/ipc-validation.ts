@@ -441,6 +441,8 @@ const CAPABILITY_ARITY = {
   completeSetupRequest: [3, 3],
   agentControl: [0, 2],
   taskControl: [0, 1],
+  listStoppableShellJobs: [0, 0],
+  stopShellJobs: [0, 0],
   goalControl: [0, 1],
   toolsStatus: [0, 1],
   selectTools: [1, 1],

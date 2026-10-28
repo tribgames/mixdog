@@ -17,7 +17,7 @@ import { createSlashPanelOpener } from './slash-dispatch/slash-panel.mjs';
 const commands = { ...routeCommands, ...sessionCommands, ...panelCommands };
 
 export function createSlashDispatch({ state, store, normalizeSlashCommandName, surface, closeUsagePanel, ...deps }) {
-  const ctx = { state, store, deps, openSlashPanel: createSlashPanelOpener({ surface, store }) };
+  const ctx = { state, store, deps, surface, openSlashPanel: createSlashPanelOpener({ surface, store }) };
   const runSlashCommand = (cmd, arg = '') => {
     const rawName = String(cmd || '').toLowerCase();
     cmd = normalizeSlashCommandName(cmd);

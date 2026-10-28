@@ -4,6 +4,7 @@
 // while a turn or session command is running.
 import { presentErrorText } from '../../../runtime/shared/err-text.mjs';
 import { BTW_USAGE_HINT } from '../btw-controller.mjs';
+import { theme } from '../../theme.mjs';
 
 function compactFailureNotice(error) {
   if (error == null || String(error).trim() === '') return 'Compact failed.';
@@ -165,6 +166,49 @@ export const sessionCommands = {
           : store.pushNotice(`Couldn’t release ${taskId}: ${result?.error || 'unavailable'}`, 'warn')
       )
       .catch((error) => store.pushNotice(`Couldn’t release ${taskId}: ${error?.message || error}`, 'error'));
+    return true;
+  },
+
+  // /stop — stop every background shell of this session (never the running
+  // foreground command, agents or other sessions) after one confirmation.
+  stop(ctx) {
+    const { store, surface } = ctx;
+    const stopAll = () =>
+      Promise.resolve(store.stopShellJobs?.())
+        .then((result) => {
+          const stopped = result?.stopped || 0;
+          const stopping = result?.stopping || 0;
+          store.pushNotice(
+            stopping ? `Stopped ${stopped} · ${stopping} still stopping` : `Stopped ${stopped}`,
+            stopping ? 'warn' : 'info'
+          );
+        })
+        .catch((error) => store.pushNotice(`Couldn’t stop shells: ${error?.message || error}`, 'error'));
+    void Promise.resolve(store.listStoppableShellJobs?.())
+      .then((result) => {
+        const jobs = Array.isArray(result?.jobs) ? result.jobs : [];
+        if (!jobs.length) {
+          store.pushNotice('No background shells are running.', 'info');
+          return;
+        }
+        const own = surface.claim();
+        own.paint({
+          title: `Stop ${jobs.length} background shell${jobs.length === 1 ? '' : 's'}?`,
+          indexMode: 'always',
+          labelWidth: 12,
+          items: [
+            { value: 'cancel', label: 'Cancel' },
+            { value: 'stop', label: 'Stop' },
+          ],
+          footer: jobs.map((job) => ({ glyph: '·', color: theme.warning, text: job.command })),
+          onSelect: (value) => {
+            own.close();
+            if (value === 'stop') void stopAll();
+          },
+          onCancel: () => own.close(),
+        });
+      })
+      .catch((error) => store.pushNotice(`Couldn’t list shells: ${error?.message || error}`, 'error'));
     return true;
   },
 

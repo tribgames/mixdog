@@ -72,6 +72,27 @@ export function createAgentOps(deps) {
     });
   }
 
+  // `/stop`: the background shells this session would stop, then stopping all
+  // of them through the same per-task cancel.
+  async function listStoppableShellJobs() {
+    const session = getSession();
+    const { listStoppableShellJobs: list } = await import(
+      '../../runtime/agent/orchestrator/tools/builtin/task-tool.mjs'
+    );
+    return {
+      jobs: list({ callerSessionId: session?.id || null, clientHostPid: session?.clientHostPid || process.pid }),
+    };
+  }
+
+  async function stopShellJobs() {
+    const session = getSession();
+    const { stopBackgroundShellJobs } = await import('../../runtime/agent/orchestrator/tools/builtin/task-tool.mjs');
+    return stopBackgroundShellJobs({
+      callerSessionId: session?.id || null,
+      clientHostPid: session?.clientHostPid || process.pid,
+    });
+  }
+
   // Explicit user force-release ("Release anyway") of a shell job whose
   // termination is unconfirmed: drops its workspace hold. The surface has
   // already asked the user to confirm. The caller session's own holds, and
@@ -147,6 +168,8 @@ export function createAgentOps(deps) {
     agentControl,
     taskControl,
     stopShellJob,
+    listStoppableShellJobs,
+    stopShellJobs,
     releaseShellJob,
     listShellJobs,
     onNotification,

@@ -22,6 +22,7 @@ import {
   cancelBackgroundTask,
   completeBackgroundTask,
   getBackgroundTask,
+  listBackgroundTasks,
   registerBackgroundTask,
   renderBackgroundTask,
   renderBackgroundTaskList,
@@ -305,18 +306,55 @@ export async function stopBackgroundShellJob(taskId, options = {}) {
   if (!task || task.surface !== 'shell') return { stopped: false, error: `task not found: ${id}` };
   const job = peekShellJob(id);
   const status = job ? job.status : task.status;
-  // A root that exited while tracked descendants run is still stoppable.
-  if (status !== 'running' && !isShellJobRunning(id)) return { stopped: false, error: `task already ${status}: ${id}` };
+  // A root that exited while tracked descendants run is still stoppable, and
+  // so is the survivors task of a finished command (`detached`): its own
+  // registry status, not the finished command's cached native entry, says
+  // whether anything still runs.
+  const survivors = task.detached === true && task.status === 'running';
+  if (status !== 'running' && !isShellJobRunning(id) && !survivors) return { stopped: false, error: `task already ${status}: ${id}` };
   try {
     const { outcome, text } = await cancelShellTaskOutcome(task, id, options);
     if (outcome === 'cancelled') return { stopped: true };
-    return {
-      stopped: false,
-      error: outcome === 'unconfirmed' ? `cancellation not confirmed: ${id}` : text.replace(/^Error:\s*/, ''),
-    };
+    if (outcome === 'unconfirmed') return { stopped: false, unconfirmed: true, error: `cancellation not confirmed: ${id}` };
+    return { stopped: false, error: text.replace(/^Error:\s*/, '') };
   } catch (error) {
     return { stopped: false, error: error instanceof Error ? error.message : String(error) };
   }
+}
+
+// The running shell tasks the caller's session owns (promoted jobs and the
+// survivors a finished command left). A foreground command holds no
+// background task, so it never appears here.
+function sessionShellTasks(options) {
+  const sessionId = String(options.callerSessionId || '').trim();
+  if (!sessionId) return [];
+  return listBackgroundTasks({ ...options, surface: 'shell' })
+    .filter((row) => row.status === 'running')
+    .map((row) => getBackgroundTask(row.task_id))
+    .filter((task) => task?.ownerSessionId === sessionId);
+}
+
+/** What `/stop` would stop: this session's running background shells. */
+export function listStoppableShellJobs(options = {}) {
+  return sessionShellTasks(options).map((task) => ({
+    taskId: task.taskId,
+    command: String(task.input?.command || task.label || ''),
+  }));
+}
+
+/**
+ * Stop every background shell of the caller's session, each through the same
+ * confirmed cancel as a single stop. `stopping` counts the ones whose
+ * processes are not yet confirmed gone (they keep being terminated).
+ */
+export async function stopBackgroundShellJobs(options = {}) {
+  const results = await Promise.all(
+    sessionShellTasks(options).map((task) => stopBackgroundShellJob(task.taskId, options))
+  );
+  return {
+    stopped: results.filter((result) => result.stopped).length,
+    stopping: results.filter((result) => result.unconfirmed).length,
+  };
 }
 
 export async function executeTaskTool(args, options = {}) {

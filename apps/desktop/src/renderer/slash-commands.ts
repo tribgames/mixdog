@@ -36,7 +36,7 @@ export interface DesktopSlashCommand {
   desktopDescription?: string;
   settingsRow?: SettingsSection;
   surface?: CommandSurface;
-  action?: 'clear' | 'compact' | 'btw' | 'goal' | 'resume' | 'remote' | 'project' | 'fast' | 'settings' | 'close-task';
+  action?: 'clear' | 'compact' | 'btw' | 'goal' | 'resume' | 'remote' | 'project' | 'fast' | 'settings' | 'close-task' | 'stop-shells';
 }
 
 // Public fields mirror src/tui/app/slash-commands.mjs exactly. Desktop routing
@@ -84,6 +84,12 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   },
   { name: 'resume', usage: '/resume', params: '[id]', description: 'Resume a saved chat', action: 'resume' },
   { name: 'context', usage: '/context', description: 'Show current context surface', surface: 'context' },
+  {
+    name: 'stop',
+    usage: '/stop',
+    description: 'Stop every background shell of this session',
+    action: 'stop-shells',
+  },
   {
     name: 'fork',
     usage: '/fork',
@@ -247,6 +253,7 @@ const COMPOSER_SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   'skills',
   'goal',
   'fork',
+  'stop',
   'doctor',
   'fast',
 ].map((name) => ({ ...resolveDesktopSlashCommand(name)!, usage: `/${name}` }));

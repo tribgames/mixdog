@@ -36,6 +36,8 @@ export function createSessionTurnApi(deps) {
     agentControl: agent.agentControl,
     taskControl: agent.taskControl,
     stopShellJob: agent.stopShellJob,
+    listStoppableShellJobs: agent.listStoppableShellJobs,
+    stopShellJobs: agent.stopShellJobs,
     releaseShellJob: agent.releaseShellJob,
     listShellJobs: agent.listShellJobs,
     onNotification: agent.onNotification,

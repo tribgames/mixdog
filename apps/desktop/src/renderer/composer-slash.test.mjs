@@ -36,6 +36,7 @@ test('the composer offers only frequent commands and preserves direct command ex
     '/skills',
     '/goal',
     '/fork',
+    '/stop',
     '/doctor',
     '/fast',
   ];

@@ -17,6 +17,8 @@ import {
   type CommandSurface as CommandSurfaceName,
   type SettingsSection,
 } from './slash-commands';
+import { confirmAction } from './app-confirm';
+import { confirmText } from './confirm-text';
 import { t } from './i18n';
 import { TURN_LOCKED_SLASH_COMMANDS, asRecord } from './text-format';
 
@@ -106,6 +108,7 @@ async function runSlashCommand(
   if (name === 'btw') return runBtw(run, argument);
   if (name === 'goal') return runGoal(run, argument);
   if (name === 'fast') return runFast(run, argument);
+  if (name === 'stop') return runStopShells(run);
   if (name === 'model' && argument) return runModel(run, argument);
   if (name === 'fork' && deps.onInherit) return runInherit(run, deps.onInherit);
   if (name === 'project') deps.onOpenProjects();
@@ -135,6 +138,34 @@ async function runCompact(run: SlashRun, rawName: string) {
   const busy = run.deps.turnBusy;
   await commandCapability(run, 'compact');
   if (busy && !run.failed) run.deps.onSlashHeld?.(`/${rawName}`);
+}
+
+// /stop: every background shell of this session, after one confirmation. The
+// stop itself is the same confirmed cancel as a shell row's Stop button.
+async function runStopShells(run: SlashRun): Promise<undefined> {
+  const listed = asRecord(await commandCapability<unknown>(run, 'listStoppableShellJobs'));
+  if (run.failed) return undefined;
+  const jobs = (Array.isArray(listed?.jobs) ? listed.jobs : []).map(asRecord);
+  if (!jobs.length) {
+    run.deps.showNotice(t('No background shells are running.'));
+    return undefined;
+  }
+  const commands = jobs.map((job) => `• ${confirmText(String(job?.command || job?.taskId || ''))}`).join('\n');
+  const confirmed = await confirmAction(`${t('Stop background shells ({{total}})?', { total: jobs.length })}\n${commands}`, {
+    danger: true,
+    confirmLabel: t('Stop'),
+  });
+  if (!confirmed) return undefined;
+  const result = asRecord(await commandCapability<unknown>(run, 'stopShellJobs'));
+  if (run.failed) return undefined;
+  const stopped = Number(result?.stopped) || 0;
+  const stopping = Number(result?.stopping) || 0;
+  run.deps.showNotice(
+    stopping
+      ? t('Stopped background shells: {{stopped}} · still stopping: {{stopping}}', { stopped, stopping })
+      : t('Stopped background shells: {{stopped}}', { stopped })
+  );
+  return undefined;
 }
 
 // A draft pane only answers the read-only commands and the effort change
