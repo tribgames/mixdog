@@ -93,6 +93,36 @@ const input = {
   models: [{ id: 'm1', contextWindow: 8000 }],
 };
 
+test('Vertex AI stores the service-account JSON as a secret and keeps only routing settings in config', async () => {
+  const cfg = makeCfg();
+  const secret = JSON.stringify({
+    type: 'service_account',
+    project_id: 'key-project',
+    client_email: 'mixdog@key-project.iam.gserviceaccount.com',
+    private_key: 'private-key-material',
+    token_uri: 'https://oauth2.googleapis.com/token',
+  });
+  assert.deepEqual(
+    await admin.saveProviderApiKey(cfg, 'vertex-ai', secret, {
+      location: 'us-east5',
+      projectId: 'override-project',
+    }),
+    { provider: 'vertex-ai', type: 'service-account', authenticated: true }
+  );
+  assert.equal(secrets.get('agent.vertex-ai.apiKey'), secret);
+  assert.deepEqual(cfg.peek().providers['vertex-ai'], {
+    enabled: true,
+    location: 'us-east5',
+    projectId: 'override-project',
+  });
+  const setup = await admin.providerSetup(cfg.peek());
+  const row = setup.api.find((provider) => provider.id === 'vertex-ai');
+  assert.equal(row.authKind, 'service-account');
+  assert.equal(row.projectId, 'override-project');
+  assert.equal(row.location, 'us-east5');
+  assert.equal(JSON.stringify(setup).includes(secret), false);
+});
+
 test('save generates id, stores key only as secret, and appears in setup without a key', async () => {
   const cfg = makeCfg();
   const row = await admin.saveCustomProvider(cfg, input);

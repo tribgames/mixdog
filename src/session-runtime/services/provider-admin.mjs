@@ -118,6 +118,7 @@ import {
   effectiveCustomModelRows,
   normalizeCustomProviderConfig as normalizeStoredCustomConfig,
 } from '../../runtime/agent/orchestrator/providers/custom-provider-config.mjs';
+import { parseVertexServiceAccount } from '../../runtime/agent/orchestrator/providers/vertex-ai-auth.mjs';
 
 const API_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'openrouter', name: 'OpenRouter', env: 'OPENROUTER_API_KEY', url: 'https://openrouter.ai/keys' }),
@@ -134,6 +135,7 @@ const API_PROVIDERS = Object.freeze([
     url: 'https://console.anthropic.com/settings/keys',
   }),
   Object.freeze({ id: 'gemini', name: 'Gemini API', env: 'GEMINI_API_KEY', url: 'https://aistudio.google.com/apikey' }),
+  Object.freeze({ id: 'vertex-ai', name: 'Vertex AI', env: null, url: null }),
   Object.freeze({
     id: 'deepseek',
     name: 'DeepSeek API',
@@ -402,6 +404,33 @@ function apiProviderSetup(p, providers, checkSecrets, keychainIssue) {
   }
   const rowIssue = authenticated ? null : keychainIssue;
   if (rowIssue) detail = rowIssue.message;
+  if (p.id === 'vertex-ai') {
+    const location = String(configured.location || 'global');
+    let projectId = String(configured.projectId || '');
+    if (!projectId && authenticated && checkSecrets) {
+      try {
+        projectId = parseVertexServiceAccount(getAgentApiKey(p.id)).projectId;
+      } catch {}
+    }
+    if (!rowIssue) detail = projectId ? `${projectId} · ${location}` : `Location: ${location}`;
+    return {
+      ...p,
+      ...(rowIssue ? { keychainIssue: rowIssue } : {}),
+      group: 'api',
+      type: 'api-key',
+      authKind: 'service-account',
+      enabled: configuredEnabled || authenticated,
+      authenticated,
+      stored,
+      env: false,
+      envName: null,
+      status,
+      detail,
+      location,
+      projectId: projectId || null,
+      ...(credentialSource ? { credentialSource } : {}),
+    };
+  }
   return {
     ...p,
     ...(rowIssue ? { keychainIssue: rowIssue } : {}),
@@ -984,15 +1013,26 @@ export async function updateProviderAccounts(provider, change) {
   return listProviderAccounts(provider);
 }
 
-export async function saveProviderApiKey(cfgMod, provider, secret) {
+export async function saveProviderApiKey(cfgMod, provider, secret, options = undefined) {
   requireLocalProviderManagement();
   const id = String(provider || '').trim();
   if (!API_PROVIDER_IDS.has(id)) throw new Error(`unknown API-key provider "${id}"`);
   const value = String(secret || '').trim();
   if (!value) throw new Error(`API key is required for ${id}`);
+  let patch = { enabled: true };
+  if (id === 'vertex-ai') {
+    parseVertexServiceAccount(value);
+    const location = String(options?.location || 'global').trim().toLowerCase();
+    const projectId = String(options?.projectId || '').trim();
+    if (!/^[a-z0-9-]{1,63}$/.test(location)) throw new Error('Vertex AI location is invalid');
+    if (projectId && (!/^[a-zA-Z0-9._:-]{1,128}$/.test(projectId) || projectId.includes('/'))) {
+      throw new Error('Vertex AI project ID override is invalid');
+    }
+    patch = { enabled: true, location, projectId: projectId || undefined };
+  }
   await saveSecretAsync(SECRET_ACCOUNTS.agentApiKey(id), value);
-  updateConfigProvider(cfgMod, id, { enabled: true });
-  return { provider: id, type: 'api-key', authenticated: true };
+  updateConfigProvider(cfgMod, id, patch);
+  return { provider: id, type: id === 'vertex-ai' ? 'service-account' : 'api-key', authenticated: true };
 }
 
 function sanitizeCustomError(error, secrets = []) {

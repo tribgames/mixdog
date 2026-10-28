@@ -179,6 +179,15 @@ test('capability argument groups keep their accept/reject behavior', () => {
   assert.doesNotThrow(() => cap('setLocalProviderIdleTtl', 0));
   assert.throws(() => cap('saveProviderApiKey', 'p', '  '), TypeError);
   assert.doesNotThrow(() => cap('saveProviderApiKey', 'p', 'key'));
+  assert.throws(() => cap('saveProviderApiKey', 'openai', 'key', { location: 'global' }), TypeError);
+  assert.doesNotThrow(() =>
+    cap('saveProviderApiKey', 'vertex-ai', '{"type":"service_account"}', {
+      location: 'us-east5',
+      projectId: 'override-project',
+    })
+  );
+  assert.throws(() => cap('saveProviderApiKey', 'vertex-ai', 'key', { location: '../bad' }), TypeError);
+  assert.throws(() => cap('saveProviderApiKey', 'vertex-ai', 'key', { location: 'global', projectId: 'bad/project' }), TypeError);
   assert.throws(() => cap('saveOpenAIUsageSessionKey', ''), TypeError);
   assert.throws(() => cap('getTurnReviewDiff', { poll: 'foreground' }), TypeError);
   assert.throws(() => cap('getTurnReviewDiff', { known: 'xyz' }), TypeError);

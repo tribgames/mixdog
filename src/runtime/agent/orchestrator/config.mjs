@@ -78,6 +78,7 @@ export function buildDefaultConfig(options = {}) {
       apiKey: apiKey || undefined,
     };
   }
+  providers['vertex-ai'] = { enabled: false, location: 'global' };
   // OAuth provider detection uses lightweight credential probes so config
   // load does not import provider runtimes or SDKs.
   //

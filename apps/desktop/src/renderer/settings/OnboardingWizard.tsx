@@ -360,7 +360,7 @@ function ProviderStep({
   onReload(): void;
 }) {
   if (setup.managedByClient === true) return <ClientManagedProviders setup={setup} />;
-  const apiProviders = rows(setup.api);
+  const apiProviders = rows(setup.api).filter((provider) => provider.id !== 'vertex-ai');
   const oauthProviders = rows(setup.oauth);
   return (
     <>

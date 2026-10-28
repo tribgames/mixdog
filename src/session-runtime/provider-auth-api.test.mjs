@@ -21,7 +21,9 @@ const admin = {
   loginOAuthProvider: async (_cfg, providerId) => calls.push(['loginOAuth', providerId]) && 'logged-in',
   renderProviderStatus: (config) => ['status', config],
   saveOpenAIUsageSessionKey: (_cfg, secret) => calls.push(['saveUsageKey', secret]) && 'saved-usage',
-  saveProviderApiKey: (_cfg, providerId, secret) => calls.push(['saveKey', providerId, secret]) && 'saved-key',
+  saveProviderApiKey: (_cfg, providerId, secret, options) =>
+    calls.push(options === undefined ? ['saveKey', providerId, secret] : ['saveKey', providerId, secret, options]) &&
+    'saved-key',
   saveCustomProvider: async (_cfg, input) => calls.push(['saveCustom', input]) && { id: 'custom-1' },
   saveCustomProviderKey: async (_cfg, id, secret) => calls.push(['saveCustomKey', id, secret]) && { id },
   removeCustomProvider: (_cfg, id) => calls.push(['removeCustom', id]) && { provider: id },
@@ -110,6 +112,13 @@ test('saving an API key reloads config, releases cooldowns and refreshes catalog
   assert.equal(await api.saveProviderApiKey('oauth', 'sk-1'), 'saved-key');
   await setImmediate();
   assert.deepEqual(calls, [['saveKey', 'oauth', 'sk-1'], ...CREDENTIAL_CHANGE, ...AFTER_CATALOGS]);
+});
+
+test('saving Vertex AI credentials forwards location and project override metadata', async () => {
+  const api = fixture();
+  const options = { location: 'us-east5', projectId: 'override-project' };
+  assert.equal(await api.saveProviderApiKey('vertex-ai', '{"type":"service_account"}', options), 'saved-key');
+  assert.deepEqual(calls[0], ['saveKey', 'vertex-ai', '{"type":"service_account"}', options]);
 });
 
 test('authenticateProvider saves a secret when given one and otherwise runs the OAuth login', async () => {

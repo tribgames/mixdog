@@ -115,7 +115,7 @@ export function geminiFailureUsage(opts, cachedContent, useModel) {
   };
 }
 
-export function resolveGeminiUsage(response, opts, cachedContent, useModel) {
+export function resolveGeminiUsage(response, opts, cachedContent, useModel, provider = 'gemini') {
   const um = response.usageMetadata || null;
   if (!um) return null;
   const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
@@ -143,7 +143,7 @@ export function resolveGeminiUsage(response, opts, cachedContent, useModel) {
     model: useModel,
     modelDisplay: useModel,
     rawUsage: um,
-    provider: 'gemini',
+    provider,
   });
   return resolvedUsage;
 }

@@ -105,6 +105,7 @@ const _CATALOG_SIMPLE_PREFIXES = [
   'deepseek/',
   'openrouter/anthropic/',
   'openrouter/openai/',
+  'vertex_ai/',
 ];
 // Bedrock-style variants: catalog key = <prefix><id>-v1:0
 const _CATALOG_BEDROCK_PREFIXES = ['anthropic.', 'bedrock/anthropic.'];
@@ -123,6 +124,7 @@ const _PROVIDER_CATALOG_PREFIXES = {
   xai: ['xai/'],
   deepseek: ['deepseek/'],
   azure: ['azure_ai/'],
+  'google-vertex': ['vertex_ai/'],
 };
 function _prefixesForProvider(mappedProvider, allPrefixes) {
   if (!mappedProvider) return allPrefixes;
@@ -438,6 +440,19 @@ const PRICED_VARIANTS = Object.freeze({
   }),
 });
 
+// Vertex AI bills Claude on regional and multi-region endpoints 10% above the
+// global list price; the provider marks those requests' SKU `<id>@regional`.
+// https://docs.anthropic.com/en/docs/about-claude/pricing (verified 2026-10-27)
+const VERTEX_REGIONAL_SUFFIX = '@regional';
+function pricedVariant(provider, id) {
+  const listed = PRICED_VARIANTS[provider]?.[id];
+  if (listed) return listed;
+  if (provider === 'vertex-ai' && id.endsWith(VERTEX_REGIONAL_SUFFIX)) {
+    return { base: id.slice(0, -VERTEX_REGIONAL_SUFFIX.length), rateMultiplier: 1.1 };
+  }
+  return null;
+}
+
 // Cursor-billed rates no catalog publishes: Cursor's first-party SKUs and Fast
 // rates Cursor sells beyond the vendor's own catalog. `fast` is the rate of a
 // request Cursor ran in Fast mode. Other Cursor Fast requests bill at the
@@ -486,6 +501,7 @@ const PRICING_FIELDS = Object.freeze([
   'pricingTiers',
   'fastPricing',
   'ultrafastPricing',
+  'flexPricing',
   'offPeakMultiplier',
   'outputImageCostPerM',
   'outputVideoCostPerM',
@@ -649,7 +665,7 @@ function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog, li
   if (source?.relay && !hasRates(meta) && hasRates(guess)) {
     meta = meta ? { ...meta, ...pricingFields(guess) } : pricingOnly(guess);
   }
-  const variant = PRICED_VARIANTS[source?.provider || '']?.[id];
+  const variant = pricedVariant(source?.provider || '', id);
   if (variant && !hasRates(meta)) {
     const base = lookupModelMetadata(variant.base, provider, catalog, modelsDevCatalog);
     if (base && PRICING_RATE_KEYS.some((key) => base[key] != null)) {
@@ -740,6 +756,8 @@ function _normalize(entry) {
   // OpenAI's Priority processing (since renamed Fast mode) columns.
   const fastPricing = litellmPricing(entry, '_priority');
   const ultrafastPricing = litellmPricing(entry, '_ultrafast');
+  // Flex processing (Vertex Flex PayGo, OpenAI flex) columns.
+  const flexPricing = litellmPricing(entry, '_flex');
   return {
     contextWindow: entry.max_input_tokens || entry.max_tokens || null,
     outputTokens: entry.max_output_tokens || null,
@@ -747,6 +765,7 @@ function _normalize(entry) {
     ...litellmMediaPricing(entry),
     ...(PRICING_RATE_KEYS.some((key) => fastPricing[key] != null) ? { fastPricing } : {}),
     ...(PRICING_RATE_KEYS.some((key) => ultrafastPricing[key] != null) ? { ultrafastPricing } : {}),
+    ...(PRICING_RATE_KEYS.some((key) => flexPricing[key] != null) ? { flexPricing } : {}),
     ...(entry.off_peak_multiplier ? { offPeakMultiplier: entry.off_peak_multiplier } : {}),
     // Tri-state: true/false as declared, undefined when the row is silent.
     supportsVision: capabilityFlag(entry.supports_vision),

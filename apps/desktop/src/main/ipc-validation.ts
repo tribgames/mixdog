@@ -563,7 +563,7 @@ const CAPABILITY_ARITY = {
   getOAuthProviderLoginStatus: [1, 1],
   completeOAuthProviderLogin: [2, 2],
   cancelOAuthProviderLogin: [1, 1],
-  saveProviderApiKey: [2, 2],
+  saveProviderApiKey: [2, 3],
   saveCustomProvider: [1, 1],
   saveCustomProviderKey: [2, 2],
   removeCustomProvider: [1, 1],
@@ -1390,6 +1390,17 @@ function validateSecret(secret: unknown, name: string): void {
 function validateCredentialCapabilityArgs(capability: DesktopCapability, args: readonly unknown[]): void {
   if (capability === 'saveProviderApiKey' || capability === 'authenticateProvider') {
     validateSecret(args[1], 'provider secret');
+  }
+  if (capability === 'saveProviderApiKey' && args[2] !== undefined) {
+    if (args[0] !== 'vertex-ai') throw new TypeError('Provider settings are only supported for Vertex AI.');
+    const options = optionalPlainRecord(args[2]);
+    if (!options) throw new TypeError('Vertex AI settings are invalid.');
+    requiredString(options.location, 'Vertex AI location', 63);
+    if (!/^[a-z0-9-]+$/.test(String(options.location))) throw new TypeError('Vertex AI location is invalid.');
+    if (options.projectId !== undefined && options.projectId !== '') {
+      requiredString(options.projectId, 'Vertex AI project ID', 128);
+      if (!/^[a-zA-Z0-9._:-]+$/.test(String(options.projectId))) throw new TypeError('Vertex AI project ID is invalid.');
+    }
   }
   if (
     capability === 'saveCustomProvider' ||

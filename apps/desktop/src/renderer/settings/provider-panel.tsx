@@ -41,6 +41,9 @@ export function preloadProviderPanel(api: PanelContext['api']): Promise<unknown>
   );
 }
 
+// A Vertex AI location id, shown as-is (never translated).
+const VERTEX_DEFAULT_LOCATION = 'global';
+
 /** The storage note of an API-key row, from the setup's structured credential source. */
 export function credentialNote(provider: RecordValue): string | undefined {
   if (provider.credentialSource === 'private-file') return t('Stored in a private file');
@@ -260,7 +263,62 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
                 {provider.authenticated ? `${t('API keys')} ↗` : t('Get API key ↗')}
               </ActionButton>
             )}
-          {!provider.authenticated && openKeyId === String(provider.id) && (
+          {!provider.authenticated && openKeyId === String(provider.id) && provider.id === 'vertex-ai' && (
+            <>
+              <form
+                className="settings-provider-secret"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  const form = event.currentTarget;
+                  const fields = new FormData(form);
+                  const file = fields.get('secretFile');
+                  if (!(file instanceof File)) return;
+                  const location = String(fields.get('location') || VERTEX_DEFAULT_LOCATION).trim();
+                  const projectId = String(fields.get('projectId') || '').trim();
+                  void file.text().then(async (secret) => {
+                    const result = await run(
+                      'saveProviderApiKey',
+                      [provider.id, secret, { location, projectId }],
+                      'provider-key-vertex-ai'
+                    );
+                    if (result !== undefined) {
+                      form.reset();
+                      closeKeyForm(String(provider.id));
+                    }
+                  });
+                }}
+              >
+                <input
+                  name="secretFile"
+                  data-provider-key={String(provider.id)}
+                  type="file"
+                  accept="application/json,.json"
+                  aria-label={t('Vertex AI service-account JSON key')}
+                  required
+                />
+                <input
+                  name="location"
+                  type="text"
+                  defaultValue={String(provider.location || VERTEX_DEFAULT_LOCATION)}
+                  placeholder={VERTEX_DEFAULT_LOCATION}
+                  aria-label={t('Vertex AI location')}
+                  required
+                />
+                <input
+                  name="projectId"
+                  type="text"
+                  defaultValue={String(provider.projectId || '')}
+                  placeholder={t('Project ID override (optional)')}
+                  aria-label={t('Vertex AI project ID override')}
+                />
+                <button type="submit" disabled={busy}>
+                  {t('Save')}
+                </button>
+              </form>
+              <ActionButton onClick={() => closeKeyForm(String(provider.id))}>{t('Cancel')}</ActionButton>
+            </>
+          )}
+          {!provider.authenticated && openKeyId === String(provider.id) && provider.id !== 'vertex-ai' && (
             <>
               <form
                 className="settings-provider-secret"

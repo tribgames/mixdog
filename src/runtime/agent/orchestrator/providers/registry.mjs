@@ -182,6 +182,7 @@ async function loadProviderExport(cacheKey, spec, exportName, signal = null) {
 const PROVIDER_MODULES = {
   anthropic: ['./anthropic.mjs', 'AnthropicProvider'],
   gemini: ['./gemini.mjs', 'GeminiProvider'],
+  'vertex-ai': ['./vertex-ai.mjs', 'VertexAIProvider'],
   'openai-oauth': ['./openai-oauth.mjs', 'OpenAIOAuthProvider'],
   'anthropic-oauth': ['./anthropic-oauth.mjs', 'AnthropicOAuthProvider'],
   'grok-oauth': ['./grok-oauth.mjs', 'GrokOAuthProvider'],

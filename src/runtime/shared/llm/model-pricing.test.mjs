@@ -39,6 +39,18 @@ const litellm = {
     cache_read_input_token_cost: 0.3e-6,
     max_input_tokens: 200000,
   },
+  'vertex_ai/gemini-vertex-flex-test': {
+    litellm_provider: 'vertex_ai-language-models',
+    input_cost_per_token: 0.75e-6,
+    output_cost_per_token: 3.75e-6,
+    input_cost_per_token_flex: 0.375e-6,
+    output_cost_per_token_flex: 1.875e-6,
+  },
+  'vertex_ai/claude-vertex-price-test': {
+    litellm_provider: 'vertex_ai-anthropic_models',
+    input_cost_per_token: 3e-6,
+    output_cost_per_token: 15e-6,
+  },
   'openai/gpt-6-sol': {
     litellm_provider: 'openai',
     input_cost_per_token: 2e-6,
@@ -259,6 +271,18 @@ test('GPT-6 Sol and Luna price on both OpenAI routes, doubling input above 272K'
   assert.equal(sol.supportsWebSearch, true);
   assert.equal(sol.supportsVision, true);
   assert.equal(sol.inputCostPerM, api.inputCostPerM);
+});
+
+test('Vertex AI prices its vertex_ai rows, served Flex requests and the regional Claude premium', () => {
+  const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
+  const gemini = { provider: 'vertex-ai', model: 'gemini-vertex-flex-test', inputTokens: 1_000_000, outputTokens: 100_000 };
+  near(priceUsage(gemini).costUsd, 1.125);
+  // Flex PayGo bills the catalog's flex columns only when the server served Flex.
+  near(priceUsage({ ...gemini, serviceTier: 'flex' }).costUsd, 0.5625);
+  const claude = { provider: 'vertex-ai', model: 'claude-vertex-price-test', inputTokens: 1_000_000, outputTokens: 100_000 };
+  near(priceUsage(claude).costUsd, 4.5);
+  // Regional and multi-region endpoints bill 10% above the global list price.
+  near(priceUsage({ ...claude, pricingModel: 'claude-vertex-price-test@regional' }).costUsd, 4.95);
 });
 
 test('a sent Priority tier prices at the published Priority rates; only an API downgrade bills Standard', () => {

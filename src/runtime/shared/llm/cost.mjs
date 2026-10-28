@@ -133,7 +133,10 @@ export function priceUsage(args) {
   // premium request needs the model's published Fast/Priority rates.
   const anthropicFast = premium && sentTier === 'fast' && supportsAnthropicFastMode(identity.pricingModel);
   const premiumPricing = sentTier === 'ultrafast' ? meta.ultrafastPricing : meta.fastPricing;
-  const rateMeta = premium && !anthropicFast ? premiumPricing || {} : meta;
+  // A request the server reports as served on Flex (Vertex Flex PayGo can be
+  // served by Provisioned Throughput first) bills the catalog's flex columns.
+  const flex = args.serviceTier === 'flex';
+  const rateMeta = flex ? meta.flexPricing || {} : premium && !anthropicFast ? premiumPricing || {} : meta;
   if (args.historicalAggregate && rateMeta.pricingTiers?.some((tier) => promptTokens > tier.aboveInputTokens)) {
     // A daily sum cannot establish which individual requests crossed a
     // context boundary. Do not price the whole day as one huge prompt.

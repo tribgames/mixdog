@@ -61,8 +61,8 @@ export function createLoginApi({ cfgMod, awaitKeychainPrewarm, reloadFullConfig,
       reloadFullConfig();
       return completeOAuthLogin(result);
     },
-    async saveProviderApiKey(providerId, secret) {
-      const result = await saveProviderApiKey(cfgMod, providerId, secret);
+    async saveProviderApiKey(providerId, secret, options = undefined) {
+      const result = await saveProviderApiKey(cfgMod, providerId, secret, options);
       refresh.afterCredentialChange();
       return result;
     },
