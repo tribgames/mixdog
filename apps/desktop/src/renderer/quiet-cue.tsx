@@ -49,7 +49,7 @@ function quietWaitText(parts: QuietProgressParts): string {
 
 /** "Quiet for 2 min · waiting on provider". */
 export function quietCueText(parts: QuietProgressParts): string {
-  const quiet = t('Quiet for {{duration}}', { duration: uiTimeUnit(parts.minutes, 'minute') });
+  const quiet = t('No updates for {{duration}}', { duration: uiTimeUnit(parts.minutes, 'minute') });
   const wait = quietWaitText(parts);
   return wait ? `${quiet} · ${wait}` : quiet;
 }

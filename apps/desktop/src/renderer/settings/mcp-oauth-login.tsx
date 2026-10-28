@@ -76,7 +76,7 @@ export function useMcpOAuthLogin({ run, refreshExtensions }: Pick<PanelContext, 
                   .then((next) => {
                     form.reset();
                     if (next) mergeFlow(record(next));
-                    else setPasteError(t('The authorization code could not be completed.'));
+                    else setPasteError(t('Sign-in could not be completed with this authorization code.'));
                   })
                   .catch((reason) => setPasteError(pasteErrorText(reason)));
               },

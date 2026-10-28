@@ -77,11 +77,11 @@ test('hover and focus preview only inside the preview, then revert', async (t) =
 
 test('the detail rows explain themselves, and plate / accent / toggles apply live', async (t) => {
   const { document, card, html, skin, root } = await mountPanel(t);
-  assert.equal(document.querySelector('[aria-label="Plate color"]'), null, 'no detail rows without a skin');
+  assert.equal(document.querySelector('[aria-label="Panel color"]'), null, 'no detail rows without a skin');
   await act(async () => card('glass-flow').click());
-  const plate = document.querySelector('.skin-seg[aria-label="Plate color"]');
+  const plate = document.querySelector('.skin-seg[aria-label="Panel color"]');
   assert.ok(plate, 'plate is a segmented control');
-  assert.match(document.body.textContent, /Color of the sidebar and message plates/);
+  assert.match(document.body.textContent, /Color of the sidebar and message panels/);
   assert.equal(plate.querySelector('[aria-pressed="true"]').dataset.value, 'light');
   await act(async () => plate.querySelector('[data-value="dark"]').click());
   assert.equal(html.dataset.mixdogSkinPlate, 'dark');
@@ -324,13 +324,13 @@ test('System / Dark / Light tiles turn the skin off and set the theme; one tile 
   const checked = () => [...document.querySelectorAll('.skin-radios [aria-checked="true"]')].map((r) => r.dataset.skin);
   await act(async () => card('night-city').click());
   assert.deepEqual(checked(), ['night-city']);
-  assert.ok(document.querySelector('.skin-seg[aria-label="Plate color"]'), 'fine tuning shows with a skin');
+  assert.ok(document.querySelector('.skin-seg[aria-label="Panel color"]'), 'fine tuning shows with a skin');
   await act(async () => card('white').click());
   assert.equal(skin.getSkinId(), 'none');
   assert.equal(theme.getDesktopThemePreference(), 'white');
   assert.equal(html.dataset.mixdogTheme, 'light');
   assert.deepEqual(checked(), ['white']);
-  assert.equal(document.querySelector('.skin-seg[aria-label="Plate color"]'), null, 'no fine tuning without a skin');
+  assert.equal(document.querySelector('.skin-seg[aria-label="Panel color"]'), null, 'no fine tuning without a skin');
   await act(async () => card('system').click());
   assert.equal(theme.getDesktopThemePreference(), 'system');
   assert.deepEqual(checked(), ['system']);

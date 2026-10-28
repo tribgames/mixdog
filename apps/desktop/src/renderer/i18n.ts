@@ -143,6 +143,7 @@ void i18next.init({
 // surface in translation; English shows the plain wording, not the key.
 i18next.addResourceBundle('en', 'translation', {
   'Goal state: In progress': 'In progress',
+  'State: Open': 'Open',
   'Island: {{waiting}} waiting': '{{waiting}} waiting',
   'Island: {{count}} agents': '{{count}} agents',
   'Island: {{count}} agents_other': '{{count}} agents',

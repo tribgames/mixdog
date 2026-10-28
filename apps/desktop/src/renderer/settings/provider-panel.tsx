@@ -668,7 +668,7 @@ export function OAuthControl({
                     )
                       .then((next) => {
                         if (next) setFlow(record(next));
-                        else setPasteError(t('The authorization code could not be completed.'));
+                        else setPasteError(t('Sign-in could not be completed with this authorization code.'));
                       })
                       .catch((reason) => setPasteError(pasteErrorText(reason)));
                   },

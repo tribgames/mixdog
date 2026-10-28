@@ -1173,7 +1173,7 @@ test('C2: a hop that is read only after the earlier one is trusted says so; conf
       ),
   });
   await startConnect(document, 'inner');
-  assert.match(dialogText(document), /Checked after the server before it is trusted/);
+  assert.match(dialogText(document), /Checked after the previous server is trusted/);
   assert.match(dialogText(document), /SHA256:bastion/);
   await click(buttonNamed(document, 'Connect'));
   await settle();

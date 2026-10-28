@@ -196,11 +196,11 @@ export function SkinPanel(_props: Partial<PanelContext>) {
       {active && (
         <Group title={t('Fine tuning')}>
           <SkinRow
-            title={t('Plate color')}
-            description={t('Color of the sidebar and message plates. Light glass suits bright pictures.')}
+            title={t('Panel color')}
+            description={t('Color of the sidebar and message panels. Light glass suits bright pictures.')}
           >
             <Segmented<SkinPlate>
-              label={t('Plate color')}
+              label={t('Panel color')}
               value={state.plate}
               options={[
                 { value: 'light', label: t('Light glass') },

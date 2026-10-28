@@ -39,7 +39,7 @@ export const SETTINGS_ITEMS = [
   {
     value: 'autoclear',
     label: 'Auto-clear',
-    description: 'Idle auto-clear disabled. Enter for options.',
+    description: 'Idle auto-clear is off. Press Enter for options.',
     kind: 'toggle',
   },
   { value: 'providers', label: 'Providers', description: 'Auth, API keys, OAuth, local.', kind: 'open' },

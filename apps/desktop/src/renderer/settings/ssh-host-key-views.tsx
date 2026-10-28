@@ -10,7 +10,7 @@ import type { View } from './ssh-connect-view';
 
 function hopStatusText(status: DesktopSshHopKey['status']): string {
   if (status === 'trusted') return t('Already trusted');
-  if (status === 'pending') return t('Checked after the server before it is trusted');
+  if (status === 'pending') return t('Checked after the previous server is trusted');
   return t('Key not readable');
 }
 

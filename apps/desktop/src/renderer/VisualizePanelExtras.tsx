@@ -87,7 +87,7 @@ function HistoryList({ items, onPick }: { items: VisualizeHistoryItem[]; onPick(
             <time className="visualize-history-time" dateTime={new Date(item.at).toISOString()}>
               {visualizeHistoryTime(item.at)}
             </time>
-            <span className="visualize-history-state">{item.open ? t('Open') : t('Closed')}</span>
+            <span className="visualize-history-state">{item.open ? t('State: Open') : t('Closed')}</span>
           </button>
         </li>
       ))}

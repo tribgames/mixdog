@@ -280,7 +280,7 @@ export function GithubPanel({
                 setDetail(null);
               }}
             >
-              <option value="open">{t('Open')}</option>
+              <option value="open">{t('State: Open')}</option>
               <option value="closed">{t('Closed')}</option>
               <option value="all">{t('All')}</option>
             </select>

@@ -20,7 +20,7 @@ export function checksState(checks: { failing: number; pending: number }): 'fail
 
 export function pullRequestStateLabel(pr: { isDraft: boolean; state: string }): string {
   if (pr.isDraft) return t('Draft');
-  if (pr.state === 'OPEN') return t('Open');
+  if (pr.state === 'OPEN') return t('State: Open');
   if (pr.state === 'MERGED') return t('Merged');
   return t('Closed');
 }

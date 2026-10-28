@@ -238,7 +238,7 @@ export function PullRequestsPane({
   const headerPortal = headerSlot ? createPortal(renderHeaderActions(), headerSlot) : null;
   const inlineHeader = !headerSlot && <div className="dock-pr-toolbar">{renderHeaderActions()}</div>;
   const viewLabels: Record<PullRequestListView, string> = {
-    open: t('Open'),
+    open: t('State: Open'),
     mine: t('Mine'),
     review: t('Review'),
   };

@@ -78,7 +78,7 @@ export function turnReviewHead({
         {agentSources.length > 0 && (
           <span className="turn-review-attribution">
             {authoritativeWorktreeSnapshot
-              ? t('Agents {{agents}} attributed', { agents: agentSummary.files.size })
+              ? t('Files changed by agents: {{agents}}', { agents: agentSummary.files.size })
               : t('Lead {{lead}} · Agents {{agents}}', {
                   lead: transcriptSummary.files.size,
                   agents: agentSummary.files.size,

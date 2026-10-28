@@ -128,7 +128,7 @@ export function ThemeFilesGroup() {
     <Group
       title={t('Color theme')}
       description={t(
-        'A theme file colors the app and follows your light or dark setting. A skin keeps its picture and plates on top.'
+        'A theme file colors the app and follows your light or dark setting. When a skin is active, its background image and panels stay on top.'
       )}
     >
       <SelectRow
