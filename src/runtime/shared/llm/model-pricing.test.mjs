@@ -51,6 +51,24 @@ const litellm = {
     input_cost_per_token: 3e-6,
     output_cost_per_token: 15e-6,
   },
+  'vertex_ai/gemini-vertex-priority-test': {
+    litellm_provider: 'vertex_ai-language-models',
+    input_cost_per_token: 2e-6,
+    output_cost_per_token: 10e-6,
+    input_cost_per_token_priority: 3.6e-6,
+    output_cost_per_token_priority: 18e-6,
+  },
+  'vertex_ai/gemini-vertex-uplift-test': {
+    litellm_provider: 'vertex_ai-language-models',
+    input_cost_per_token: 1e-6,
+    output_cost_per_token: 10e-6,
+    regional_endpoint_uplift_multiplier: 1.25,
+  },
+  'vertex_ai/maas-publisher/open-vertex-test-maas': {
+    litellm_provider: 'vertex_ai-openai_models',
+    input_cost_per_token: 1e-6,
+    output_cost_per_token: 4e-6,
+  },
   'openai/gpt-6-sol': {
     litellm_provider: 'openai',
     input_cost_per_token: 2e-6,
@@ -283,6 +301,41 @@ test('Vertex AI prices its vertex_ai rows, served Flex requests and the regional
   near(priceUsage(claude).costUsd, 4.5);
   // Regional and multi-region endpoints bill 10% above the global list price.
   near(priceUsage({ ...claude, pricingModel: 'claude-vertex-price-test@regional' }).costUsd, 4.95);
+});
+
+test('Vertex AI prices served Priority, a downgrade at Standard, the regional Gemini premium and open models', () => {
+  const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
+  const gemini = {
+    provider: 'vertex-ai',
+    model: 'gemini-vertex-priority-test',
+    kind: 'api',
+    inputTokens: 1_000_000,
+    outputTokens: 100_000,
+  };
+  near(priceUsage(gemini).costUsd, 3);
+  const priority = { ...gemini, requestServiceTier: 'priority' };
+  near(priceUsage({ ...priority, serviceTier: 'priority' }).costUsd, 5.4);
+  // trafficType ON_DEMAND: the Priority request was downgraded and bills Standard.
+  near(priceUsage({ ...priority, serviceTier: 'default' }).costUsd, 3);
+  // Non-global endpoints: 10% above global, for Standard and Priority alike.
+  const regional = { pricingModel: 'gemini-vertex-priority-test@regional' };
+  near(priceUsage({ ...gemini, ...regional }).costUsd, 3.3);
+  near(priceUsage({ ...priority, ...regional, serviceTier: 'priority' }).costUsd, 5.94);
+  // A row's own regional uplift wins over the documented 10%.
+  const uplift = { provider: 'vertex-ai', model: 'gemini-vertex-uplift-test', inputTokens: 1_000_000, outputTokens: 100_000 };
+  near(priceUsage({ ...uplift, pricingModel: 'gemini-vertex-uplift-test@regional' }).costUsd, 2.5);
+  // Open models are priced by their `publisher/model` row.
+  const open = priceUsage({
+    provider: 'vertex-ai',
+    model: 'maas-publisher/open-vertex-test-maas',
+    pricingModel: 'maas-publisher/open-vertex-test-maas',
+    inputTokens: 1_000_000,
+    outputTokens: 100_000,
+  });
+  near(open.costUsd, 1.4);
+  // No catalog row: unknown, never a guess.
+  const unknown = priceUsage({ provider: 'vertex-ai', model: 'nobody/unlisted-maas', inputTokens: 10, outputTokens: 1 });
+  assert.equal(unknown.costUsd, null);
 });
 
 test('a sent Priority tier prices at the published Priority rates; only an API downgrade bills Standard', () => {

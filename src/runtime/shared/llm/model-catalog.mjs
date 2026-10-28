@@ -440,15 +440,18 @@ const PRICED_VARIANTS = Object.freeze({
   }),
 });
 
-// Vertex AI bills Claude on regional and multi-region endpoints 10% above the
-// global list price; the provider marks those requests' SKU `<id>@regional`.
+// Vertex AI bills Claude and generally available Gemini 3+ models on regional
+// and multi-region endpoints 10% above the global list price (Standard and
+// Priority alike); the provider marks those requests' SKU `<id>@regional`.
 // https://docs.anthropic.com/en/docs/about-claude/pricing (verified 2026-10-27)
+// https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing (verified 2026-10-28)
 const VERTEX_REGIONAL_SUFFIX = '@regional';
 function pricedVariant(provider, id) {
   const listed = PRICED_VARIANTS[provider]?.[id];
   if (listed) return listed;
   if (provider === 'vertex-ai' && id.endsWith(VERTEX_REGIONAL_SUFFIX)) {
-    return { base: id.slice(0, -VERTEX_REGIONAL_SUFFIX.length), rateMultiplier: 1.1 };
+    // The base row's own uplift wins; the documented 10% applies where the row has none.
+    return { base: id.slice(0, -VERTEX_REGIONAL_SUFFIX.length), rateMultiplier: 1.1, rowMultiplier: 'regionalUplift' };
   }
   return null;
 }
@@ -669,13 +672,23 @@ function lookupModelMetadata(originalId, provider, catalog, modelsDevCatalog, li
   if (variant && !hasRates(meta)) {
     const base = lookupModelMetadata(variant.base, provider, catalog, modelsDevCatalog);
     if (base && PRICING_RATE_KEYS.some((key) => base[key] != null)) {
+      const factor = (variant.rowMultiplier && base[variant.rowMultiplier]) || variant.rateMultiplier;
+      const scaled = (rateSet) => ({
+        ...scaledRates(rateSet, factor),
+        pricingTiers: (rateSet.pricingTiers || []).map((tier) => ({
+          ...tier,
+          ...scaledRates(tier, factor),
+        })),
+      });
       meta = {
         ...meta,
-        ...scaledRates(base, variant.rateMultiplier),
-        pricingTiers: (base.pricingTiers || []).map((tier) => ({
-          ...tier,
-          ...scaledRates(tier, variant.rateMultiplier),
-        })),
+        ...scaled(base),
+        // The variant's premium applies to every service tier the base publishes.
+        ...Object.fromEntries(
+          ['fastPricing', 'ultrafastPricing', 'flexPricing']
+            .filter((key) => base[key])
+            .map((key) => [key, scaled(base[key])])
+        ),
         pricingSource: base.pricingSource,
         supportsPromptCaching: base.supportsPromptCaching,
       };
@@ -767,6 +780,10 @@ function _normalize(entry) {
     ...(PRICING_RATE_KEYS.some((key) => ultrafastPricing[key] != null) ? { ultrafastPricing } : {}),
     ...(PRICING_RATE_KEYS.some((key) => flexPricing[key] != null) ? { flexPricing } : {}),
     ...(entry.off_peak_multiplier ? { offPeakMultiplier: entry.off_peak_multiplier } : {}),
+    // Vertex AI regional / multi-region endpoint premium over the global rate.
+    ...(entry.regional_endpoint_uplift_multiplier > 0
+      ? { regionalUplift: entry.regional_endpoint_uplift_multiplier }
+      : {}),
     // Tri-state: true/false as declared, undefined when the row is silent.
     supportsVision: capabilityFlag(entry.supports_vision),
     supportsFunctionCalling: capabilityFlag(entry.supports_function_calling),

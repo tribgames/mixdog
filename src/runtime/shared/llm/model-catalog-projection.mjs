@@ -158,7 +158,8 @@ function projectLitellmRow(row) {
       (/^(?:input_cost_per_token|output_cost_per_token|cache_read_input_token_cost|cache_creation_input_token_cost)(?:_above_\d+k_tokens)?(?:_priority|_ultrafast|_flex)?$/.test(
         field
       ) ||
-        /^output_cost_per_second_\w+$/.test(field)) &&
+        /^output_cost_per_second_\w+$/.test(field) ||
+        field === 'regional_endpoint_uplift_multiplier') &&
       typeof value === 'number' &&
       Number.isFinite(value)
     )

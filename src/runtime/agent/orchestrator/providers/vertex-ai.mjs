@@ -1,8 +1,8 @@
 import { resolveProviderApiKey } from '../../../shared/provider-api-key.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { sanitizeToolPairs } from '../session/context-utils.mjs';
+import { noteRequestServiceTier } from '../../../shared/llm/usage-context.mjs';
 import { buildGeminiRequest } from './gemini-request-body.mjs';
-import { geminiBareModelId } from './gemini-cache-policy.mjs';
 import { geminiEndsWithFunctionResponse, runGeminiStreamAttempts } from './gemini-retry-policy.mjs';
 import { consumeGeminiRestStreamResponse } from './gemini-stream.mjs';
 import { geminiTextLeakGuardFor } from './gemini-sdk-request.mjs';
@@ -25,103 +25,56 @@ import { buildAnthropicTurnResult } from './anthropic-turn-result.mjs';
 import { streamCallbacks } from './lib/send-callbacks.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
 import { VertexAccessTokenManager } from './vertex-ai-auth.mjs';
+import { VertexMaasRoute, toVertexExclusiveUsage } from './vertex-ai-maas.mjs';
+import {
+  VERTEX_FLEX_TIER,
+  VERTEX_MODELS,
+  VERTEX_MULTI_REGIONS,
+  VERTEX_PRIORITY_TIER,
+  assertVertexServing,
+  vertexModelAccessError,
+  vertexPricingModel,
+  vertexRequestedTier,
+  vertexRoute,
+  vertexTierOption,
+} from './vertex-ai-models.mjs';
+
+export {
+  VERTEX_FLEX_TIER,
+  VERTEX_MODELS,
+  VERTEX_PRIORITY_TIER,
+  VERTEX_REGIONAL_PRICING_SUFFIX,
+  VERTEX_SERVICE_TIER_PARAMETER,
+} from './vertex-ai-models.mjs';
 
 const VERTEX_ANTHROPIC_VERSION = 'vertex-2023-10-16';
 
-// Flex PayGo: Gemini only, on the global endpoint only, selected per request
-// with X-Vertex-AI-LLM-Shared-Request-Type: flex (Provisioned Throughput is
-// still used first when the project has it). A served Flex request reports
-// usageMetadata.trafficType ON_DEMAND_FLEX.
-// https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/flex-paygo (verified 2026-10-27)
-export const VERTEX_SERVICE_TIER_PARAMETER = 'serviceTier';
-export const VERTEX_FLEX_TIER = 'flex';
-const VERTEX_FLEX_TRAFFIC_TYPE = 'ON_DEMAND_FLEX';
-const VERTEX_FLEX_PARAMETER_OPTION = Object.freeze({
-  id: VERTEX_SERVICE_TIER_PARAMETER,
-  label: 'Service tier',
-  kind: 'enum',
-  options: Object.freeze([
-    Object.freeze({ value: 'standard', label: 'Standard' }),
-    Object.freeze({ value: VERTEX_FLEX_TIER, label: 'Flex (50% off, slower)' }),
-  ]),
+// Flex and Priority PayGo are selected per request with
+// X-Vertex-AI-LLM-Shared-Request-Type (Provisioned Throughput is still used
+// first when the project has it). The served tier is usageMetadata.trafficType:
+// ON_DEMAND_FLEX, ON_DEMAND_PRIORITY, or ON_DEMAND for a Priority request
+// downgraded to Standard PayGo (billed at Standard rates).
+const SERVED_TIER = Object.freeze({
+  ON_DEMAND_FLEX: VERTEX_FLEX_TIER,
+  FLEX: VERTEX_FLEX_TIER,
+  BATCH: VERTEX_FLEX_TIER,
+  ON_DEMAND_PRIORITY: VERTEX_PRIORITY_TIER,
+  ON_DEMAND: 'default',
 });
-
-// The Gemini models the Flex PayGo page lists (global endpoint only).
-const VERTEX_FLEX_MODELS = new Set([
-  'gemini-3.8-flash-cyber',
-  'gemini-3.8-flash',
-  'gemini-3.7-flash',
-  'gemini-3.6-flash',
-  'gemini-3.5-flash-lite',
-  'gemini-3.1-flash-lite-image',
-  'gemini-3-pro-image',
-  'gemini-3.1-flash-image',
-  'gemini-3.5-flash',
-  'gemini-3.1-flash-lite',
-  'gemini-3.1-pro-preview',
-  'gemini-3-flash-preview',
-]);
-
-// Default roster: Vertex publisher model ids, checked 2026-10-28 against the
-// Gemini 4 Argon model card
-// (https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/4-argon:
-// Standard and Priority PayGo only, no Flex), the Claude on Google Cloud model list
-// (https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude)
-// and the Flex PayGo Gemini list above. Prices come from the LiteLLM
-// `vertex_ai/` rows (see provider-catalog-registry.mjs).
-export const VERTEX_MODELS = Object.freeze([
-  { id: 'gemini-4-argon', name: 'Gemini 4 Argon', contextWindow: 1048576 },
-  { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash', contextWindow: 1048576 },
-  { id: 'gemini-3.1-pro-preview', name: 'Gemini 3.1 Pro Preview', contextWindow: 1048576 },
-  { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash Lite', contextWindow: 1048576 },
-  { id: 'claude-opus-5-5', name: 'Claude Opus 5.5', family: 'opus', contextWindow: 1000000 },
-  { id: 'claude-fable-5-1', name: 'Claude Fable 5.1', family: 'fable', contextWindow: 1000000 },
-  { id: 'claude-sonnet-5-5', name: 'Claude Sonnet 5.5', family: 'sonnet', contextWindow: 1000000 },
-]);
-
-// Vertex bills Claude on regional and multi-region endpoints 10% above the
-// global list price; such requests carry this pricing SKU suffix
-// (model-catalog.mjs prices it from the base SKU).
-export const VERTEX_REGIONAL_PRICING_SUFFIX = '@regional';
 
 // Multi-region locations are served by representative endpoints, not by
 // <location>-aiplatform.googleapis.com.
-const VERTEX_MULTI_REGIONS = new Set(['us', 'eu']);
-
-function vertexModel(model) {
-  const raw = String(model || '').trim();
-  if (!raw) throw new Error('[vertex-ai] model is required');
-  const publisherPath = /^publishers\/(google|anthropic)\/models\/(.+)$/.exec(raw);
-  if (publisherPath) return { publisher: publisherPath[1], id: publisherPath[2] };
-  const shortPath = /^(google|anthropic)\/(.+)$/.exec(raw);
-  if (shortPath) return { publisher: shortPath[1], id: shortPath[2] };
-  if (/^gemini-/i.test(raw)) return { publisher: 'google', id: geminiBareModelId(raw) };
-  if (/^claude-/i.test(raw)) return { publisher: 'anthropic', id: raw };
-  throw new Error(`[vertex-ai] cannot determine publisher for model "${raw}"`);
-}
-
 function vertexHost(location) {
   if (location === 'global') return 'aiplatform.googleapis.com';
   if (VERTEX_MULTI_REGIONS.has(location)) return `aiplatform.${location}.rep.googleapis.com`;
   return `${location}-aiplatform.googleapis.com`;
 }
 
-function vertexFlexRequested(opts) {
-  return String(opts?.modelParameters?.[VERTEX_SERVICE_TIER_PARAMETER] || '').toLowerCase() === VERTEX_FLEX_TIER;
-}
-
-// Gemini's promptTokenCount includes the cached prefix. This provider's usage
-// is cache-exclusive (inputExcludesCache) because its Claude route reports it
-// that way, so the Gemini route reports the uncached remainder.
-function vertexGeminiUsage(usage) {
-  if (!usage) return usage;
-  const input = Number(usage.inputTokens) || 0;
-  return { ...usage, inputTokens: Math.max(0, input - (Number(usage.cachedTokens) || 0)) };
-}
-
 function vertexLocation(config) {
   const location = String(config?.location || 'global').trim().toLowerCase();
-  if (!/^[a-z0-9-]{1,63}$/.test(location)) throw new Error('[vertex-ai] location is invalid');
+  // The location names the host the bearer token is sent to: only a region
+  // label (or global / a multi-region) may reach the host template.
+  if (!/^[a-z][a-z0-9-]{0,62}$/.test(location)) throw new Error('[vertex-ai] location is invalid');
   return location;
 }
 
@@ -144,9 +97,30 @@ function geminiCallbacks(opts) {
   };
 }
 
+// Vertex rejects (400) functionCall.id / functionResponse.id, which the
+// Gemini API request builder carries; calls pair by name and order here.
+function withoutFunctionIds(contents) {
+  const strip = (key, part) => {
+    const { id: _id, ...rest } = part[key];
+    return { ...part, [key]: rest };
+  };
+  return (contents || []).map((content) =>
+    Array.isArray(content?.parts)
+      ? {
+          ...content,
+          parts: content.parts.map((part) => {
+            if (part?.functionCall && 'id' in part.functionCall) return strip('functionCall', part);
+            if (part?.functionResponse && 'id' in part.functionResponse) return strip('functionResponse', part);
+            return part;
+          }),
+        }
+      : content
+  );
+}
+
 function geminiVertexBody(request) {
   return {
-    contents: request.contents,
+    contents: withoutFunctionIds(request.contents),
     // Vertex accepts only a Content object here, never a bare string.
     ...(request.systemInstruction ? { systemInstruction: { parts: [{ text: request.systemInstruction }] } } : {}),
     ...(request.generationConfig ? { generationConfig: request.generationConfig } : {}),
@@ -169,17 +143,28 @@ export class VertexAIProvider {
       fetchFn: this._fetch,
       now: typeof config.now === 'function' ? config.now : () => Date.now(),
     });
+    this._maas = new VertexMaasRoute({
+      name: this.name,
+      config,
+      auth: this._auth,
+      fetchFn: typeof config.fetchFn === 'function' ? config.fetchFn : null,
+    });
   }
 
   _projectId() {
     return vertexProjectOverride(this.config) || this._auth.projectId();
   }
 
-  _url(publisher, model, method) {
+  _locationBase() {
     const location = vertexLocation(this.config);
     const project = encodeURIComponent(this._projectId());
-    const id = encodeURIComponent(model);
-    return `https://${vertexHost(location)}/v1/projects/${project}/locations/${location}/publishers/${publisher}/models/${id}:${method}`;
+    return `https://${vertexHost(location)}/v1/projects/${project}/locations/${location}`;
+  }
+
+  _url(publisher, model, method) {
+    // A version suffix (claude-…@default, @YYYYMMDD) stays a literal `@` in the path.
+    const id = encodeURIComponent(model).replace(/%40/g, '@');
+    return `${this._locationBase()}/publishers/${publisher}/models/${id}:${method}`;
   }
 
   async _authorizedFetch(url, init) {
@@ -203,26 +188,45 @@ export class VertexAIProvider {
   }
 
   async send(messages, model, tools, sendOpts = {}) {
-    const route = vertexModel(model);
-    if (route.publisher === 'google') return await this._sendGemini(messages, route.id, tools, sendOpts);
-    return await this._sendClaude(messages, route.id, tools, sendOpts);
+    const route = vertexRoute(model);
+    const location = vertexLocation(this.config);
+    const tier = vertexRequestedTier(sendOpts);
+    assertVertexServing(route, location, tier);
+    let result;
+    try {
+      if (route.wire === 'gemini') result = await this._sendGemini(messages, route.id, tools, sendOpts, tier);
+      else if (route.wire === 'claude') result = await this._sendClaude(messages, route.id, tools, sendOpts);
+      else result = await this._sendMaas(messages, route, tools, sendOpts);
+    } catch (error) {
+      let project = '(unknown project)';
+      try {
+        project = this._projectId();
+      } catch {}
+      throw vertexModelAccessError(error, route, { project, location });
+    }
+    const pricingModel = vertexPricingModel(route, location);
+    if (pricingModel && result && typeof result === 'object') result.pricingModel = pricingModel;
+    return result;
   }
 
-  async _sendGemini(messages, model, tools, opts) {
+  async _sendMaas(messages, route, tools, opts) {
+    // Built in the same tick as the identity it is sent with.
+    const identity = this._auth.identity();
+    const baseURL = `${this._locationBase()}/endpoints/openapi`;
+    return await this._maas.send(messages, `${route.publisher}/${route.id}`, tools, opts, { baseURL, identity });
+  }
+
+  async _sendGemini(messages, model, tools, opts, tier) {
     const signal = opts.signal || null;
-    const flex = vertexFlexRequested(opts);
-    if (flex && !VERTEX_FLEX_MODELS.has(model)) {
-      throw new Error(`[vertex-ai] Flex PayGo is not available for ${model}`);
-    }
-    if (flex && vertexLocation(this.config) !== 'global') {
-      throw new Error('[vertex-ai] Flex PayGo is only available with the global location');
-    }
     const headers = {
       'Content-Type': 'application/json',
-      ...(flex ? { 'X-Vertex-AI-LLM-Shared-Request-Type': VERTEX_FLEX_TIER } : {}),
+      ...(tier ? { 'X-Vertex-AI-LLM-Shared-Request-Type': tier } : {}),
     };
     const failureUsage = geminiFailureUsage(opts, null, model);
-    const vertexFailureUsage = { ...failureUsage, normalize: (um) => vertexGeminiUsage(failureUsage.normalize(um)) };
+    const vertexFailureUsage = {
+      ...failureUsage,
+      normalize: (um) => toVertexExclusiveUsage(failureUsage.normalize(um)),
+    };
     const callbacks = geminiCallbacks(opts);
     const request = buildGeminiRequest(messages, model, tools, opts, null);
     const body = geminiVertexBody(request);
@@ -230,6 +234,8 @@ export class VertexAIProvider {
     try {
       opts.onStageChange?.('requesting');
     } catch {}
+    // Every attempt sends the same tier; the served trafficType settles the price.
+    noteRequestServiceTier(tier === VERTEX_PRIORITY_TIER ? tier : '');
 
     let outcome;
     try {
@@ -290,10 +296,11 @@ export class VertexAIProvider {
     if (incomplete) throw incomplete;
     outcome.textLeakGuard?.releaseDeferredToolCalls?.();
     emitGeminiToolCalls(parsed.nativeToolCalls, callbacks.onToolCall);
-    const result = geminiSendResult(parsed, model, opts, vertexGeminiUsage(usage));
-    // The served tier decides the price: a Flex request can be served by
-    // Provisioned Throughput first.
-    if (usage?.raw?.trafficType === VERTEX_FLEX_TRAFFIC_TYPE) result.serviceTier = VERTEX_FLEX_TIER;
+    const result = geminiSendResult(parsed, model, opts, toVertexExclusiveUsage(usage));
+    // The served tier decides the price: a Flex or Priority request can be
+    // served by Provisioned Throughput first, and a Priority one downgraded.
+    const served = SERVED_TIER[usage?.raw?.trafficType];
+    if (served) result.serviceTier = served;
     return result;
   }
 
@@ -361,20 +368,17 @@ export class VertexAIProvider {
         { onStreamItemStart: callbacks.onStreamItemStart }
       );
       assertAnthropicStreamNotEmpty(midState, parsed, 'Vertex AI Claude');
-      const result = buildAnthropicTurnResult(parsed, { provider: this.name, useModel: model, opts });
-      if (vertexLocation(this.config) !== 'global') result.pricingModel = `${model}${VERTEX_REGIONAL_PRICING_SUFFIX}`;
-      return result;
+      return buildAnthropicTurnResult(parsed, { provider: this.name, useModel: model, opts });
     } finally {
       externalSignal?.removeEventListener?.('abort', abort);
     }
   }
 
   async listModels() {
-    return VERTEX_MODELS.map((model) => ({
-      ...model,
-      provider: this.name,
-      ...(VERTEX_FLEX_MODELS.has(model.id) ? { modelParameterOptions: [VERTEX_FLEX_PARAMETER_OPTION] } : {}),
-    }));
+    return VERTEX_MODELS.map((model) => {
+      const tierOption = vertexTierOption(model.id);
+      return { ...model, provider: this.name, ...(tierOption ? { modelParameterOptions: [tierOption] } : {}) };
+    });
   }
 
   async isAvailable() {

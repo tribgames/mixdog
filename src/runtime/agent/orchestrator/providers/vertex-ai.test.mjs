@@ -365,26 +365,241 @@ test('Vertex Claude on a regional location is priced as the regional SKU', async
   assert.equal(listed.pricingModel, undefined);
 });
 
-test('Vertex lists its publisher models and offers Flex only on Flex-capable Gemini models', async () => {
+test('Vertex lists the current Gemini, Claude and open-model roster with its service tiers', async () => {
   const { provider } = recordingProvider({}, () => geminiSse());
   const models = await provider.listModels();
-  assert.deepEqual(
-    models.map((model) => model.id),
-    [
-      'gemini-4-argon',
-      'gemini-3.8-flash',
-      'gemini-3.1-pro-preview',
-      'gemini-3.5-flash-lite',
-      'claude-opus-5-5',
-      'claude-fable-5-1',
-      'claude-sonnet-5-5',
-    ]
+  const ids = models.map((model) => model.id);
+  for (const id of [
+    'gemini-4-argon',
+    'gemini-3.8-flash',
+    'gemini-3.7-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash',
+    'gemini-3.1-flash-lite',
+    'claude-opus-4-8',
+    'claude-haiku-5-5',
+    'claude-sonnet-4-6',
+    'deepseek-ai/deepseek-v3.2-maas',
+    'qwen/qwen3-coder-480b-a35b-instruct-maas',
+    'qwen/qwen3-next-80b-a3b-instruct-maas',
+    'zai-org/glm-5-maas',
+    'moonshotai/kimi-k2-thinking-maas',
+    'minimaxai/minimax-m2-maas',
+    'openai/gpt-oss-120b-maas',
+    'meta/llama-4-maverick-17b-128e-instruct-maas',
+    'google/gemma-4-26b-a4b-it-maas',
+    'xai/grok-4.7',
+  ]) {
+    assert.ok(ids.includes(id), id);
+  }
+  // Retired models are not listed.
+  for (const id of ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash']) assert.equal(ids.includes(id), false, id);
+  assert.equal(new Set(ids).size, ids.length);
+  const tiers = (id) =>
+    models
+      .find((model) => model.id === id)
+      ?.modelParameterOptions?.find((option) => option.id === 'serviceTier')
+      ?.options.map((option) => option.value) || null;
+  assert.deepEqual(tiers('gemini-3.8-flash'), ['standard', 'flex', 'priority']);
+  assert.deepEqual(tiers('gemini-4-argon'), ['standard', 'priority']);
+  assert.equal(tiers('claude-opus-5-5'), null);
+  assert.equal(tiers('xai/grok-4.7'), null);
+  assert.deepEqual(models.find((model) => model.id === 'minimaxai/minimax-m2-maas').locations, ['global']);
+  for (const model of models) assert.equal(model.provider, 'vertex-ai');
+});
+
+test('Vertex accepts free-form publisher/model ids and routes each publisher to its wire', async () => {
+  const gemini = recordingProvider({ location: 'global' }, () => geminiSse());
+  await gemini.provider.send([{ role: 'user', content: 'hi' }], 'google/gemini-9-unlisted', [], {});
+  assert.match(gemini.requests[0].url, /\/publishers\/google\/models\/gemini-9-unlisted:streamGenerateContent/);
+  const claude = recordingProvider({ location: 'global' }, () => claudeSse());
+  await claude.provider.send([{ role: 'user', content: 'hi' }], 'publishers/anthropic/models/claude-next-9', [], {});
+  assert.match(claude.requests[0].url, /\/publishers\/anthropic\/models\/claude-next-9:streamRawPredict$/);
+  const { provider } = recordingProvider({}, () => geminiSse());
+  await assert.rejects(provider.send([{ role: 'user', content: 'hi' }], 'mystery-model', [], {}), /use "publisher\/model"/);
+});
+
+test('Vertex rejects tier and location combinations it does not serve before sending', async () => {
+  const hi = [{ role: 'user', content: 'hi' }];
+  const cases = [
+    ['us-central1', 'gemini-3.8-flash', 'priority', /Priority PayGo is only available with the global, us or eu location/],
+    ['eu', 'gemini-3.8-flash', 'flex', /Flex PayGo is only available with the global location/],
+    ['global', 'claude-opus-5-5', 'priority', /Priority PayGo is not available for claude-opus-5-5/],
+    ['global', 'xai/grok-4.7', 'flex', /Flex PayGo is not available for grok-4.7/],
+    ['us', 'claude-sonnet-4-6', '', /claude-sonnet-4-6 is not served on the us multi-region endpoint/],
+    ['eu', 'claude-3-7-sonnet', '', /not served on the eu multi-region endpoint/],
+  ];
+  for (const [location, model, serviceTier, message] of cases) {
+    const { provider, requests } = recordingProvider({ location }, () => claudeSse());
+    await assert.rejects(provider.send(hi, model, [], { modelParameters: { serviceTier } }), message);
+    assert.equal(requests.length, 0, `${location} ${model}`);
+  }
+  // Claude 4.7 and later, and Priority on a multi-region, are served.
+  for (const model of ['claude-opus-4-7', 'claude-sonnet-5', 'claude-opus-5-5']) {
+    const { provider, requests } = recordingProvider({ location: 'eu' }, () => claudeSse());
+    await provider.send(hi, model, [], {});
+    assert.equal(requests.length, 1, model);
+  }
+  const priority = recordingProvider({ location: 'us' }, () => geminiSse());
+  await priority.provider.send(hi, 'gemini-4-argon', [], { modelParameters: { serviceTier: 'priority' } });
+  assert.equal(priority.requests.length, 1);
+});
+
+test('Vertex prices non-global requests as the regional SKU for Claude and GA Gemini 3+, not previews', async () => {
+  const hi = [{ role: 'user', content: 'hi' }];
+  const priced = async (location, model, respond) =>
+    (await recordingProvider({ location }, respond).provider.send(hi, model, [], {})).pricingModel;
+  assert.equal(await priced('us-central1', 'gemini-3.8-flash', () => geminiSse()), 'gemini-3.8-flash@regional');
+  assert.equal(await priced('eu', 'gemini-4-argon', () => geminiSse()), 'gemini-4-argon@regional');
+  assert.equal(await priced('us-central1', 'gemini-3.1-pro-preview', () => geminiSse()), undefined);
+  assert.equal(await priced('global', 'gemini-3.8-flash', () => geminiSse()), undefined);
+  assert.equal(await priced('us', 'claude-opus-4-8', () => claudeSse()), 'claude-opus-4-8@regional');
+});
+
+test('Vertex Priority PayGo sends the priority header and reports the served tier', async () => {
+  const { withUsageContext } = await import('../../../shared/llm/usage-context.mjs');
+  const hi = [{ role: 'user', content: 'hi' }];
+  const usage = (trafficType) => ({ promptTokenCount: 7, candidatesTokenCount: 2, totalTokenCount: 9, trafficType });
+  const run = async (trafficType) => {
+    const { provider, requests } = recordingProvider({ location: 'global' }, () => geminiSse('p', usage(trafficType)));
+    const identity = {};
+    const result = await withUsageContext(identity, () =>
+      provider.send(hi, 'gemini-3.8-flash', [], { modelParameters: { serviceTier: 'priority' } })
+    );
+    return { result, identity, header: new Headers(requests[0].init.headers).get('x-vertex-ai-llm-shared-request-type') };
+  };
+  const served = await run('ON_DEMAND_PRIORITY');
+  assert.equal(served.header, 'priority');
+  assert.equal(served.identity.requestServiceTier, 'priority');
+  assert.equal(served.result.serviceTier, 'priority');
+  // Downgraded to Standard PayGo: billed at Standard rates (cost.mjs: served "default").
+  const downgraded = await run('ON_DEMAND');
+  assert.equal(downgraded.identity.requestServiceTier, 'priority');
+  assert.equal(downgraded.result.serviceTier, 'default');
+});
+
+test('Vertex refuses a location that is not a plain region label before any host is built', async () => {
+  for (const location of ['evil.example.com#', 'x.attacker.net/', '-us', '1us', 'us central', 'us@evil']) {
+    const { provider, requests } = recordingProvider({ location }, () => geminiSse());
+    await assert.rejects(provider.send([{ role: 'user', content: 'hi' }], 'gemini-3.8-flash', [], {}), /location is invalid/);
+    assert.equal(requests.length, 0, location);
+  }
+});
+
+test('Vertex Claude keeps a version suffix literal and old Claude bills no regional premium', async () => {
+  const hi = [{ role: 'user', content: 'hi' }];
+  const { provider, requests } = recordingProvider({ location: 'us-east5' }, () => claudeSse());
+  const result = await provider.send(hi, 'claude-haiku-4-5@20251001', [], {});
+  assert.match(requests[0].url, /\/models\/claude-haiku-4-5@20251001:streamRawPredict$/);
+  assert.equal(result.pricingModel, 'claude-haiku-4-5@20251001@regional');
+  const old = recordingProvider({ location: 'us-east5' }, () => claudeSse());
+  assert.equal((await old.provider.send(hi, 'claude-3-5-haiku', [], {})).pricingModel, undefined);
+});
+
+test('Vertex Gemini requests carry no functionCall / functionResponse ids', async () => {
+  const { provider, requests } = recordingProvider({ location: 'global' }, () => geminiSse('done'));
+  const history = [
+    { role: 'user', content: 'read it' },
+    { role: 'assistant', content: '', toolCalls: [{ id: 'call_1', name: 'read', arguments: { path: 'a' } }] },
+    { role: 'tool', toolCallId: 'call_1', content: 'file text' },
+  ];
+  const tools = [{ name: 'read', description: 'Read', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } }];
+  await provider.send(history, 'gemini-3.8-flash', tools, {});
+  const parts = JSON.parse(requests[0].init.body).contents.flatMap((content) => content.parts || []);
+  const call = parts.find((part) => part.functionCall);
+  const response = parts.find((part) => part.functionResponse);
+  assert.equal(call.functionCall.name, 'read');
+  assert.equal(response.functionResponse.name, 'read');
+  assert.equal('id' in call.functionCall, false);
+  assert.equal('id' in response.functionResponse, false);
+});
+
+test('Vertex sends a listed open model only to the locations it is served in', async () => {
+  const { provider, requests } = recordingProvider({ location: 'global' }, () => geminiSse());
+  await assert.rejects(
+    provider.send([{ role: 'user', content: 'hi' }], 'deepseek-ai/deepseek-v3.1-maas', [], {}),
+    /deepseek-ai\/deepseek-v3\.1-maas is served only in: us-central1/
   );
-  for (const model of models) {
-    assert.equal(model.provider, 'vertex-ai');
-    const flex = model.modelParameterOptions?.find((option) => option.id === 'serviceTier');
-    assert.equal(Boolean(flex), model.id.startsWith('gemini-') && model.id !== 'gemini-4-argon', model.id);
-    if (flex) assert.deepEqual(flex.options.map((option) => option.value), ['standard', 'flex']);
+  assert.equal(requests.length, 0);
+});
+
+test('Vertex maps a not-enabled model to a Model Garden error on every wire', async () => {
+  const hi = [{ role: 'user', content: 'hi' }];
+  const notFound = () =>
+    Response.json(
+      { error: { code: 404, message: 'Publisher Model `projects/key-project/locations/global/publishers/google/models/gemini-3.6-flash` was not found or your project does not have access to it.', status: 'NOT_FOUND' } },
+      { status: 404 }
+    );
+  const gemini = recordingProvider({ location: 'global' }, notFound);
+  await assert.rejects(gemini.provider.send(hi, 'gemini-3.6-flash', [], {}), (error) => {
+    assert.equal(error.code, 'VERTEX_MODEL_NOT_ENABLED');
+    assert.equal(error.status, 404);
+    assert.match(error.message, /enable the model in Model Garden/);
+    assert.match(error.message, /publishers\/google\/model-garden\/gemini-3\.6-flash/);
+    assert.match(error.message, /project key-project in global/);
+    return true;
+  });
+  const claude = recordingProvider({ location: 'us-east5' }, () =>
+    Response.json(
+      { error: { code: 403, message: 'Anthropic model claude-opus-4-6 has not been enabled for this project. Enable it in Model Garden.' } },
+      { status: 403 }
+    )
+  );
+  await assert.rejects(claude.provider.send(hi, 'claude-opus-4-6', [], {}), (error) => {
+    assert.equal(error.code, 'VERTEX_MODEL_NOT_ENABLED');
+    assert.match(error.message, /publishers\/anthropic\/model-garden\/claude-opus-4-6/);
+    return true;
+  });
+  // FAILED_PRECONDITION: the project may not use the publisher model.
+  const precondition = recordingProvider({ location: 'us-east5' }, () =>
+    Response.json(
+      {
+        error: {
+          code: 400,
+          message:
+            'Project `key-project` is not allowed to use Publisher Model `projects/key-project/locations/us-east5/publishers/anthropic/models/claude-opus-4-5`',
+          status: 'FAILED_PRECONDITION',
+        },
+      },
+      { status: 400 }
+    )
+  );
+  await assert.rejects(
+    precondition.provider.send(hi, 'claude-opus-4-5', [], {}),
+    (error) => error.code === 'VERTEX_MODEL_NOT_ENABLED' && error.status === 400
+  );
+  // An IAM denial stays IAM, even when it names the publisher model.
+  const iamText =
+    "Permission 'aiplatform.endpoints.predict' denied on resource '//aiplatform.googleapis.com/projects/key-project/locations/global/publishers/anthropic/models/claude-opus-4-6' (or it may not exist). Publisher Model access requires the Agent Platform User role.";
+  for (const route of [
+    ['claude-opus-4-6', () => Response.json({ error: { code: 403, message: iamText, status: 'PERMISSION_DENIED' } }, { status: 403 })],
+    ['gemini-3.8-flash', () => Response.json({ error: { code: 403, message: iamText, status: 'PERMISSION_DENIED' } }, { status: 403 })],
+  ]) {
+    const iam = recordingProvider({ location: 'global' }, route[1]);
+    await assert.rejects(iam.provider.send(hi, route[0], [], {}), (error) => {
+      assert.notEqual(error.code, 'VERTEX_MODEL_NOT_ENABLED', route[0]);
+      assert.doesNotMatch(error.message, /Model Garden/);
+      assert.match(error.message, /aiplatform\.endpoints\.predict/);
+      return true;
+    });
+  }
+});
+
+test('Vertex lists open models only with documented locations and enforces them', async () => {
+  const { provider } = recordingProvider({}, () => geminiSse());
+  const open = (await provider.listModels()).filter((model) => model.id.includes('/'));
+  assert.ok(open.length > 0);
+  for (const model of open) assert.ok(Array.isArray(model.locations) && model.locations.length > 0, model.id);
+  const hi = [{ role: 'user', content: 'hi' }];
+  for (const [model, location, served] of [
+    ['meta/llama-4-scout-17b-16e-instruct-maas', 'global', /served only in: us-east5/],
+    ['openai/gpt-oss-20b-maas', 'global', /served only in: us-central1/],
+    ['xai/grok-4.20-reasoning', 'us', /served only in: global/],
+    ['xai/grok-4.3', 'us-central1', /served only in: global/],
+  ]) {
+    const { provider: regional, requests } = recordingProvider({ location }, () => geminiSse());
+    await assert.rejects(regional.send(hi, model, [], {}), served, model);
+    assert.equal(requests.length, 0, model);
   }
 });
 
