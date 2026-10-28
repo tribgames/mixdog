@@ -2,7 +2,7 @@ import { createHash, createSign } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { googleErrorInfo } from './vertex-ai-models.mjs';
+import { googleErrorInfo, PERMISSION_TEXT, vertexHttpStatus } from './vertex-ai-models.mjs';
 
 export const VERTEX_TOKEN_URI = 'https://oauth2.googleapis.com/token';
 export const VERTEX_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
@@ -35,15 +35,9 @@ const PROJECT_ENV = Object.freeze([
 const GCLOUD_CLIENT_CONSUMER = /^projects\/(?:764086051850|32555940559)$/;
 // Google's message when ADC has no quota project; it has no ErrorInfo reason of its own.
 const QUOTA_PROJECT_TEXT = 'requires a quota project';
-// A 403 naming a missing IAM permission: the ErrorInfo reason, or Google's own IAM message.
-const PERMISSION_TEXT = /Permission '[^']+' denied/;
 
 function base64url(value) {
-  return Buffer.from(typeof value === 'string' ? value : JSON.stringify(value))
-    .toString('base64')
-    .replace(/=/g, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_');
+  return Buffer.from(typeof value === 'string' ? value : JSON.stringify(value)).toString('base64url');
 }
 
 export function parseVertexServiceAccount(raw) {
@@ -92,13 +86,7 @@ export function createVertexJwtAssertion(account, nowMs = Date.now()) {
   const signer = createSign('RSA-SHA256');
   signer.update(input);
   signer.end();
-  const signature = signer
-    .sign(account.privateKey)
-    .toString('base64')
-    .replace(/=/g, '')
-    .replace(/\+/g, '-')
-    .replace(/\//g, '_');
-  return `${input}.${signature}`;
+  return `${input}.${signer.sign(account.privateKey).toString('base64url')}`;
 }
 
 const text = (value) => (typeof value === 'string' ? value.trim() : '');
@@ -598,10 +586,7 @@ export class VertexAccessTokenManager {
    */
   accessError(error, { project = '' } = {}) {
     if (!error || typeof error !== 'object' || error.vertexAccess || !this._adc()) return error;
-    const status = [error.status, error.httpStatus, error.response?.status]
-      .map(Number)
-      .find((value) => Number.isFinite(value) && value > 0);
-    if (status !== 403 || error.code === 'VERTEX_MODEL_NOT_ENABLED') return error;
+    if (vertexHttpStatus(error) !== 403 || error.code === 'VERTEX_MODEL_NOT_ENABLED') return error;
     const detail = String(error.message || '');
     const info = googleErrorInfo(error);
     const evidence = `${detail} ${info.message}`;

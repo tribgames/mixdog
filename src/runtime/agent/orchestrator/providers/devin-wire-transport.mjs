@@ -190,10 +190,11 @@ function connectError(
   const finalCode = tooLarge ? 'request_too_large' : mixdogCode;
   const head = `Devin ${operation} ${code || 'error'}${status ? ` (HTTP ${status})` : ''}`;
   const text = [head, detail].filter(Boolean).join(': ') + (detailsSummary ? ` [details: ${detailsSummary}]` : '');
+  // A reworded throttle reports its throttle status, not the carrier's.
+  const carrierStatus = reworded ? mappedStatus : status || mappedStatus;
   const error = new DevinWireError(text, {
     code: finalCode,
-    // A reworded throttle reports its throttle status, not the carrier's.
-    status: tooLarge ? 413 : reworded ? mappedStatus : status || mappedStatus,
+    status: tooLarge ? 413 : carrierStatus,
     retryable: tooLarge ? false : retryable,
     connectCode: code,
     detail: [detail, detailsSummary].filter(Boolean).join(' '),

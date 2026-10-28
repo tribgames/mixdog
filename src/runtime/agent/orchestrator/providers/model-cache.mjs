@@ -87,7 +87,7 @@ export function makeModelCache({ fileName, ttlMs, version = null, onSave = null 
       } catch {
         /* best-effort */
       } finally {
-        if (text !== undefined && unsettledSaves.get(p) === text) unsettledSaves.delete(p);
+        if (unsettledSaves.get(p) === text) unsettledSaves.delete(p);
       }
     });
   }

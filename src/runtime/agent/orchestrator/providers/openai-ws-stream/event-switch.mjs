@@ -40,7 +40,9 @@ export function createWsEventSwitch({
   // progress only once the model has produced output; before that the silent
   // thinking follows it.
   function onItemAdded() {
-    const kind = response.toolInFlight ? 'tool' : watchdogs.semanticSeen() ? 'semantic' : null;
+    let kind = null;
+    if (response.toolInFlight) kind = 'tool';
+    else if (watchdogs.semanticSeen()) kind = 'semantic';
     if (kind) watchdogs.bumpSemantic();
     progress(kind ?? 'transport');
   }

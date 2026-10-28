@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { currentUsageContext } from '../../../shared/llm/usage-context.mjs';
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { OpenAICompatProvider } from './openai-compat.mjs';
+import { vertexHttpStatus } from './vertex-ai-models.mjs';
 
 // Gives an OpenAI-compatible engine the current access token of one account
 // (from the Vertex token manager) as its API key. The engine never resolves a
@@ -54,10 +55,6 @@ function exclusiveError(error) {
   return error;
 }
 
-const httpStatus = (error) =>
-  [error?.status, error?.httpStatus, error?.response?.status]
-    .map(Number)
-    .find((value) => Number.isFinite(value) && value > 0) || 0;
 const emittedOutput = (error) =>
   error?.liveTextEmitted === true || error?.emittedToolCall === true || error?.unsafeToRetry === true;
 
@@ -177,7 +174,7 @@ export class VertexMaasRoute {
       }
     };
     let outcome = await attempt();
-    if (outcome.error && httpStatus(outcome.error) === 401 && !emittedOutput(outcome.error)) {
+    if (outcome.error && vertexHttpStatus(outcome.error) === 401 && !emittedOutput(outcome.error)) {
       this.auth.invalidate(outcome.token);
       outcome = await attempt();
     }

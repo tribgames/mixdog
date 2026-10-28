@@ -391,6 +391,18 @@ export function googleErrorInfo(error) {
   };
 }
 
+/** The HTTP status an error carries (0 when none). */
+export function vertexHttpStatus(error) {
+  return (
+    [error?.status, error?.httpStatus, error?.response?.status]
+      .map(Number)
+      .find((value) => Number.isFinite(value) && value > 0) || 0
+  );
+}
+
+// Google's own IAM message for a missing permission (an IAM decision, not a model-enablement one).
+export const PERMISSION_TEXT = /Permission '[^']+' denied/;
+
 const MODEL_GARDEN = 'https://console.cloud.google.com/agent-platform/publishers';
 const LOCATIONS_DOC = 'https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations';
 
@@ -401,16 +413,14 @@ const LOCATIONS_DOC = 'https://docs.cloud.google.com/gemini-enterprise-agent-pla
  */
 export function vertexModelAccessError(error, route, { project, location }) {
   if (!error || typeof error !== 'object') return error;
-  const status = [error.status, error.httpStatus, error.response?.status]
-    .map(Number)
-    .find((value) => Number.isFinite(value) && value > 0);
+  const status = vertexHttpStatus(error);
   const detail = String(error.message || '');
   const info = googleErrorInfo(error);
   const text = `${detail} ${info.message}`;
   // An IAM decision (the caller lacks a permission such as
   // aiplatform.endpoints.predict) stays as it is, whatever resource it names:
   // the ErrorInfo reason, else Google's own IAM message.
-  const iamDenied = info.reasons.has('IAM_PERMISSION_DENIED') || /Permission '[^']+' denied/.test(text);
+  const iamDenied = info.reasons.has('IAM_PERMISSION_DENIED') || PERMISSION_TEXT.test(text);
   // The API gives no structured reason for a project that may not use a
   // model, only this FAILED_PRECONDITION / PERMISSION_DENIED message.
   const enablementText = (text) => text.includes('is not allowed to use Publisher Model');
