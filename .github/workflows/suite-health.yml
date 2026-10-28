@@ -39,6 +39,21 @@ jobs:
       - name: Install desktop dependencies
         run: npm ci --prefix apps/desktop --prefer-offline --no-audit --no-fund
 
+      # Electron 42+ has no install script: fetch its binary once, as the
+      # release gate does, so the Electron entries never race to download it.
+      # Provisioning is non-fatal: if it fails, only the Electron entries fail
+      # in the sweep, and every other suite and the issue report still run.
+      - name: Fetch the Electron binary
+        continue-on-error: true
+        run: node apps/desktop/node_modules/electron/install.js
+
+      # The Electron integration entries run under xvfb-run (scripts/suite-health.mjs).
+      - name: Install a virtual X server
+        continue-on-error: true
+        uses: ./.github/actions/apt-packages
+        with:
+          packages: xvfb
+
       # smoke and boot-smoke import the gitignored TUI bundle.
       - name: Build TUI
         run: npm run build:tui

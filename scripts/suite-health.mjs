@@ -36,19 +36,31 @@ export const WORKSPACES = [
       'test:daemon:e2e': 'needs the built daemon; the release gate desktop job owns it',
       'test:spec-advisory': 'advisory by design (MIXDOG_TEST_ADVISORY)',
       'test:browser-host:integration': 'live desktop integration harness',
-      'test:browser-login-persistence:integration':
-        'live desktop integration harness; launches real Electron, which needs a display the Linux sweep runner lacks',
-      'test:browser-login-popup:integration':
-        'live desktop integration harness; launches real Electron, which needs a display the Linux sweep runner lacks',
       'test:browser-profile-import:integration': 'live desktop integration harness',
       'test:remote-webrtc-sender:integration':
-        'live desktop integration harness; launches real Electron, which needs a display the Linux sweep runner lacks',
+        'live desktop integration harness; launches real Electron and has never run in the sweep, so it stays out until verified under Xvfb',
       'test:computer-host:integration': 'live desktop integration harness',
       'test:computer-host:scenarios': 'live desktop scenario harness',
       'test:computer-host:repeats': 'live desktop scenario harness',
     },
   },
 ];
+
+// Swept scripts that launch a real Electron window. The headless Linux runner
+// has no X server, so they run inside a virtual one (xvfb-run, as
+// linux-desktop-verify.yml does).
+export const DISPLAY_SUITES = [
+  'test:browser-login-persistence:integration',
+  'test:browser-login-popup:integration',
+];
+
+export function sweepCommand(ws, name, platform = process.platform) {
+  const args = ['run', name, ...(ws.dir === '.' ? [] : ['--prefix', ws.dir])];
+  if (platform === 'linux' && ws.dir !== '.' && DISPLAY_SUITES.includes(name)) {
+    return ['xvfb-run', ['-a', '--server-args=-screen 0 1440x900x24', 'npm', ...args]];
+  }
+  return [platform === 'win32' ? 'npm.cmd' : 'npm', args];
+}
 
 export function selectSuiteScripts(scripts, exclusions) {
   const names = Object.keys(scripts).filter((name) => /^(test|smoke)(:|$)/.test(name));
@@ -59,12 +71,78 @@ export function selectSuiteScripts(scripts, exclusions) {
   return names.filter((name) => !(name in exclusions));
 }
 
-const lastLines = (text) =>
-  String(text || '')
+const TAIL_LINES = 25;
+const lastLines = (text, name) => {
+  const lines = String(text || '')
     .trim()
+    .split('\n');
+  if (lines.length <= TAIL_LINES) return lines.join('\n');
+  return [`[${name} truncated: last ${TAIL_LINES} of ${lines.length} lines]`, ...lines.slice(-TAIL_LINES)].join('\n');
+};
+
+// What a failed entry shows in the report: how it ended, every failure-summary
+// and failed-test line from either stream (a long stderr must not hide them),
+// then each stream's tail.
+export function failureParts({ stdout, stderr, status, signal, error }) {
+  const failedLines = `${stdout || ''}\n${stderr || ''}`
     .split('\n')
-    .slice(-25)
-    .join('\n');
+    .filter((line) => /^\[failure-summary\]|^\s*✖ /.test(line));
+  const ended = error ? `spawn error: ${error.message}` : `exit ${status ?? 'none'}${signal ? `, signal ${signal}` : ''}`;
+  const tails = [lastLines(stdout, 'stdout'), lastLines(stderr, 'stderr')].filter(Boolean).join('\n');
+  return { ended, failedLines, tails };
+}
+
+const failureText = ({ ended, failedLines, tails }) =>
+  [ended, failedLines.join('\n'), tails].filter(Boolean).join('\n').trim();
+
+export const failureTail = (child) => failureText(failureParts(child));
+
+// GitHub rejects an issue body over 65,536 characters (HTTP 422). Past the
+// limit the tails go first, then failure lines from the end; the omission is
+// always stated, and the full diagnostics stay in the workflow log.
+export const ISSUE_BODY_LIMIT = 60_000;
+
+export function buildReport({ checked, runUrl, reportLines, failures, limit = ISSUE_BODY_LIMIT }) {
+  const render = (withTails, keep) => {
+    let left = keep;
+    let omitted = 0;
+    const blocks = failures.map(({ title, parts }) => {
+      const shown = parts.failedLines.slice(0, left);
+      left -= shown.length;
+      omitted += parts.failedLines.length - shown.length;
+      const text = failureText({ ...parts, failedLines: shown, tails: withTails ? parts.tails : '' });
+      return `${title}\n\n\`\`\`\n${text}\n\`\`\``;
+    });
+    const notes = [];
+    if (!withTails) notes.push('Stdout/stderr tails omitted to fit the issue size limit; see the workflow log.');
+    if (omitted) notes.push(`${omitted} more failure lines omitted — see the workflow log: ${runUrl}`);
+    return [
+      '# Weekly suite health sweep failed',
+      '',
+      `Checked: ${checked}`,
+      `Workflow run: ${runUrl}`,
+      '',
+      ...reportLines,
+      '',
+      ...blocks,
+      '',
+      ...notes,
+    ]
+      .join('\n')
+      .trimEnd()
+      .concat('\n');
+  };
+  const total = failures.reduce((sum, { parts }) => sum + parts.failedLines.length, 0);
+  if (render(true, total).length <= limit) return render(true, total);
+  let low = 0;
+  let high = total;
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (render(false, mid).length <= limit) low = mid;
+    else high = mid - 1;
+  }
+  return render(false, low);
+}
 
 function runSweep() {
   const failures = [];
@@ -75,8 +153,8 @@ function runSweep() {
     for (const name of names) {
       const label = ws.dir === '.' ? name : `${ws.dir} ${name}`;
       const started = Date.now();
-      const args = ['run', name, ...(ws.dir === '.' ? [] : ['--prefix', ws.dir])];
-      const child = spawnSync(process.platform === 'win32' ? 'npm.cmd' : 'npm', args, {
+      const [command, args] = sweepCommand(ws, name);
+      const child = spawnSync(command, args, {
         encoding: 'utf8',
         shell: process.platform === 'win32',
         maxBuffer: 64 * 1024 * 1024,
@@ -88,10 +166,10 @@ function runSweep() {
       } else {
         // Tail each stream on its own: a long stderr (cargo build chatter) must
         // not push the test failure summary on stdout out of the report.
-        const tail = `${lastLines(child.stdout)}\n${lastLines(child.stderr)}`.trim();
-        failures.push(`- ${label}: FAILED (${seconds}s)\n\n\`\`\`\n${tail}\n\`\`\``);
+        const parts = failureParts(child);
+        failures.push({ title: `- ${label}: FAILED (${seconds}s)`, parts });
         reportLines.push(`- ${label}: FAILED (${seconds}s)`);
-        console.error(`${label}: FAILED (${seconds}s)\n${tail}`);
+        console.error(`${label}: FAILED (${seconds}s)\n${failureText(parts)}`);
       }
     }
   }
@@ -100,18 +178,10 @@ function runSweep() {
     const runUrl = process.env.GITHUB_RUN_ID
       ? `${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID}`
       : '(local run)';
-    const report = [
-      '# Weekly suite health sweep failed',
-      '',
-      `Checked: ${new Date().toISOString()}`,
-      `Workflow run: ${runUrl}`,
-      '',
-      ...reportLines,
-      '',
-      ...failures,
-      '',
-    ].join('\n');
-    writeFileSync('suite-health-report.md', report);
+    writeFileSync(
+      'suite-health-report.md',
+      buildReport({ checked: new Date().toISOString(), runUrl, reportLines, failures })
+    );
     process.exitCode = 1;
   }
 }
