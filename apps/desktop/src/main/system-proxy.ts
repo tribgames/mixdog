@@ -69,7 +69,7 @@ function proxyOrigin(url: string): string {
 /**
  * Resolve the system proxy now (each daemon fork asks again, so a changed
  * setting applies to the next daemon) and turn it into the daemon's proxy
- * handoff. A failed or slow resolution hands over DIRECT, as before. Empty
+ * handoff. A failed or slow resolution hands over DIRECT. Empty
  * when the user's own proxy variables or MIXDOG_SYSTEM_PROXY=0 decide.
  */
 export async function systemProxyEnv(

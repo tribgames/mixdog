@@ -2,7 +2,11 @@
 // its damage handling is testable; the caller supplies the unsealing.
 import { readFile, rm } from 'node:fs/promises';
 
-import { readJsonState, writeFileAtomicAsync, writeJsonAtomicAsync } from '../../../../../src/runtime/shared/atomic-file.mjs';
+import {
+  readJsonState,
+  writeFileAtomicAsync,
+  writeJsonAtomicAsync,
+} from '../../../../../src/runtime/shared/atomic-file.mjs';
 
 type Unseal = (sealed: Buffer) => string;
 
@@ -58,7 +62,11 @@ export async function readPendingPauses(vaultFile: string): Promise<string[] | n
 export async function addPendingPause(vaultFile: string, origin: string): Promise<void> {
   const origins = await readPendingPauses(vaultFile);
   if (!origins || origins.includes(origin)) return;
-  await writeJsonAtomicAsync(pendingPausesFile(vaultFile), { version: 1, origins: [...origins, origin] }, { secret: true });
+  await writeJsonAtomicAsync(
+    pendingPausesFile(vaultFile),
+    { version: 1, origins: [...origins, origin] },
+    { secret: true }
+  );
 }
 
 export async function clearPendingPauses(vaultFile: string): Promise<void> {

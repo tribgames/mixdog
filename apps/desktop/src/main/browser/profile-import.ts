@@ -445,8 +445,7 @@ export class BrowserProfileImportService {
     const cookieSupport = Boolean(cookieImporter);
     let passwordSupportReason: string | undefined;
     if (!passwordImporter) passwordSupportReason = 'The native password importer is not installed in this build.';
-    else if (!safeStorage.isEncryptionAvailable())
-      passwordSupportReason = 'Credential encryption is unavailable.';
+    else if (!safeStorage.isEncryptionAvailable()) passwordSupportReason = 'Credential encryption is unavailable.';
     const cookieSupportReason = !cookieImporter
       ? 'The native cookie importer is not installed in this build.'
       : undefined;
