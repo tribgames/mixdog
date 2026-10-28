@@ -102,7 +102,7 @@ function normalizeUrlArgs(rawArgs) {
 function invalidArgsResponse(error) {
   if (!(error instanceof z.ZodError)) return null;
   return {
-    content: [{ type: 'text', text: JSON.stringify({ error: 'Invalid arguments', details: error.errors }) }],
+    content: [{ type: 'text', text: JSON.stringify({ error: 'Invalid arguments', details: error.issues }) }],
     isError: true,
   };
 }
