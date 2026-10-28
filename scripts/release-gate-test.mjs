@@ -583,12 +583,21 @@ test('the gate shards its long lanes, installs in parallel, and adds history and
     stepRun(jobs.desktop, /npm_ci --prefix apps\/desktop &/),
     stepRun(desktopTests, /npm_ci --prefix apps\/desktop &/),
   ]) {
-    assert.match(install.run, /npm_ci --prefix apps\/desktop &\s*desktop_pid=\$!/);
+    assert.match(
+      install.run,
+      /npm_ci --prefix apps\/desktop(?: && node apps\/desktop\/node_modules\/electron\/install\.js; \})? &\s*desktop_pid=\$!/
+    );
     assert.match(install.run, /npm_ci &\s*root_pid=\$!/);
     assert.match(install.run, /wait "\$desktop_pid" \|\| status=1/);
     assert.match(install.run, /wait "\$root_pid" \|\| status=1/);
     assert.match(install.run, /exit "\$status"/);
   }
+  // Electron downloads its binary on first use: the test job fetches it once
+  // after install so parallel test files never race to download it.
+  assert.match(
+    stepRun(desktopTests, /npm_ci --prefix apps\/desktop &/).run,
+    /\{ npm_ci --prefix apps\/desktop && node apps\/desktop\/node_modules\/electron\/install\.js; \} &/
+  );
 
   // The selection step diffs two commits' trees: shallow checkout, base by SHA.
   const checkout = jobs.changes.steps[0];
