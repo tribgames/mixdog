@@ -1,3 +1,4 @@
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { currentUsageContext } from '../../../shared/llm/usage-context.mjs';
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { OpenAICompatProvider } from './openai-compat.mjs';
@@ -60,22 +61,60 @@ const httpStatus = (error) =>
 const emittedOutput = (error) =>
   error?.liveTextEmitted === true || error?.emittedToolCall === true || error?.unsafeToRetry === true;
 
-// Vertex may answer an error with a JSON array of error objects
-// (`[{"error":{…}}]`), which the OpenAI SDK reads as "no body"; the first
-// entry is handed on as the usual `{"error":{…}}` object.
-function unwrapErrorList(fetchFn) {
+/**
+ * Vertex may answer an error with a JSON array of error objects
+ * (`[{"error":{…}}]`); the first entry is the usual `{"error":{…}}` body.
+ * Any other text is returned unchanged.
+ */
+export function vertexErrorBody(text) {
+  try {
+    const parsed = JSON.parse(text);
+    if (Array.isArray(parsed) && parsed[0]?.error) return JSON.stringify(parsed[0]);
+  } catch {}
+  return text;
+}
+
+// The account one send targets ({ identity, token }), read by its engine's
+// fetch on every HTTP attempt, the engine's own retries included.
+const sendAccount = new AsyncLocalStorage();
+
+// Each HTTP attempt carries the send's account's current token, and a
+// credential switch since the send began aborts it before anything is sent.
+// The OpenAI SDK reads an array error body as "no body", so it is unwrapped.
+function vertexEngineFetch(fetchFn, auth) {
   return async (url, init) => {
-    const response = await fetchFn(url, init);
+    const account = sendAccount.getStore();
+    let request = init;
+    if (account) {
+      account.token = await auth.getAccessToken({ identity: account.identity });
+      auth.assertIdentity(account.identity);
+      const headers = new Headers(init?.headers || {});
+      headers.set('Authorization', `Bearer ${account.token}`);
+      request = { ...init, headers };
+    }
+    const response = await fetchFn(url, request);
     if (response.ok || !/json/i.test(response.headers.get('content-type') || '')) return response;
-    const text = await response.text();
-    let body = text;
-    try {
-      const parsed = JSON.parse(text);
-      if (Array.isArray(parsed) && parsed[0]?.error) body = JSON.stringify(parsed[0]);
-    } catch {}
+    const body = vertexErrorBody(await response.text());
     return new Response(body, { status: response.status, statusText: response.statusText, headers: response.headers });
   };
 }
+
+// Open-model reasoning controls (Thinking for open models, checked
+// 2026-10-28): gpt-oss takes `reasoning_effort` low/medium/high. Grok
+// reasoning models reject it; the others document no effort parameter.
+const GPT_OSS_EFFORTS = new Set(['low', 'medium', 'high']);
+const MAAS_CHAT_PROFILE = Object.freeze({
+  applyParams(params, { opts, config }) {
+    if (!/^openai\/gpt-oss-/i.test(String(params.model || ''))) return;
+    const effort = String(opts?.effort ?? config?.reasoningEffort ?? '').trim().toLowerCase();
+    if (GPT_OSS_EFFORTS.has(effort)) params.reasoning_effort = effort;
+  },
+  // The SDK wraps a fetch failure as a (retryable) connection error; a
+  // credential switch surfaces as itself, so no attempt retries it.
+  refineError(error) {
+    return error?.cause?.code === 'EVERTEXAUTH' ? error.cause : error;
+  },
+});
 
 // The OpenAI-compatible transport on a Vertex bearer: its own key lookup and
 // 401 re-read would reach the stored service-account JSON, so the route sends
@@ -106,11 +145,12 @@ export class VertexMaasRoute {
         ...config,
         baseURL,
         apiKey: token,
+        chatProfile: MAAS_CHAT_PROFILE,
         // Explicit nulls keep OPENAI_ORG_ID / OPENAI_PROJECT_ID out of the requests.
         clientOptions: {
           organization: null,
           project: null,
-          fetch: unwrapErrorList(this.fetchFn || ((url, init) => fetch(url, init))),
+          fetch: vertexEngineFetch(this.fetchFn || ((url, init) => fetch(url, init)), this.auth),
         },
       });
       this.engines.set(baseURL, engine);
@@ -125,12 +165,13 @@ export class VertexMaasRoute {
     const token = await this.auth.getAccessToken({ identity });
     const engine = this._engine(baseURL, token);
     const attempt = async () => {
-      const sent = await this.setter.set(engine, identity);
+      const account = { identity, token: await this.setter.set(engine, identity) };
       try {
-        return { result: await engine._doSend(messages, model, tools, opts) };
+        return { result: await sendAccount.run(account, () => engine._doSend(messages, model, tools, opts)) };
       } catch (error) {
         noteErrorUsage(error);
-        return { error, token: sent };
+        // The token the last HTTP attempt actually carried.
+        return { error, token: account.token };
       }
     };
     let outcome = await attempt();

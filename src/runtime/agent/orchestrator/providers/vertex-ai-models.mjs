@@ -178,8 +178,8 @@ export function vertexRoute(model) {
   return { publisher, id, wire };
 }
 
-// [major, minor] of a Claude id (claude-opus-4-8, claude-sonnet-5, claude-3-7-sonnet), or null.
-function claudeVersion(id) {
+/** [major, minor] of a Claude id (claude-opus-4-8, claude-sonnet-5, claude-3-7-sonnet), or null. */
+export function claudeVersion(id) {
   const bare = String(id).replace(/@.*$/, '');
   const match = /^claude-[a-z]+-(\d+)(?:-(\d{1,2}))?(?:-|$)/.exec(bare) || /^claude-(\d+)(?:-(\d{1,2}))?-[a-z]/.exec(bare);
   return match ? [Number(match[1]), Number(match[2] || 0)] : null;
@@ -233,11 +233,12 @@ function claudeRegionalPremium(route) {
 export function vertexPricingModel(route, location) {
   // Open-model rates are the same on every endpoint; their catalog rows are keyed `publisher/model`.
   if (route.wire === 'maas') return `${route.publisher}/${route.id}`;
-  if (location === 'global') return undefined;
-  if (claudeRegionalPremium(route) || REGIONAL_PREMIUM_GEMINI.has(route.id)) {
-    return `${route.id}${VERTEX_REGIONAL_PRICING_SUFFIX}`;
-  }
-  return undefined;
+  const regional =
+    location !== 'global' && (claudeRegionalPremium(route) || REGIONAL_PREMIUM_GEMINI.has(route.id));
+  if (regional) return `${route.id}${VERTEX_REGIONAL_PRICING_SUFFIX}`;
+  // Claude bills as the requested publisher model: the stream reports an
+  // Anthropic-style dated id (claude-sonnet-4-5-20250929) no Vertex row prices.
+  return route.wire === 'claude' ? route.id : undefined;
 }
 
 const TIER_OPTIONS = Object.freeze({

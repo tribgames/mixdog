@@ -16,7 +16,14 @@ import {
 } from './gemini-response.mjs';
 import { emitGeminiToolCalls } from './gemini-schema.mjs';
 import { geminiRestError } from './gemini.mjs';
-import { canFallbackNonStreaming } from './retry-classifier.mjs';
+import {
+  ANTHROPIC_RETRY_BACKOFF_MS,
+  ANTHROPIC_RETRY_JITTER_RATIO,
+  anthropicMaxAttempts,
+  canFallbackNonStreaming,
+  emitProviderRetryStage,
+  withRetry,
+} from './retry-classifier.mjs';
 import { buildAnthropicApiRequest } from './anthropic-api-request.mjs';
 import { applyAnthropicErrorContract } from './anthropic-error-contract.mjs';
 import { createAnthropicMidState, assertAnthropicStreamNotEmpty } from './anthropic-midstream-recovery.mjs';
@@ -25,9 +32,10 @@ import { buildAnthropicTurnResult } from './anthropic-turn-result.mjs';
 import { streamCallbacks } from './lib/send-callbacks.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
 import { VertexAccessTokenManager } from './vertex-ai-auth.mjs';
-import { VertexMaasRoute, toVertexExclusiveUsage } from './vertex-ai-maas.mjs';
+import { VertexMaasRoute, toVertexExclusiveUsage, vertexErrorBody } from './vertex-ai-maas.mjs';
 import {
   VERTEX_FLEX_TIER,
+  claudeVersion,
   VERTEX_MODELS,
   VERTEX_MULTI_REGIONS,
   VERTEX_PRIORITY_TIER,
@@ -48,6 +56,36 @@ export {
 } from './vertex-ai-models.mjs';
 
 const VERTEX_ANTHROPIC_VERSION = 'vertex-2023-10-16';
+
+// Vertex takes Anthropic betas in the body (`anthropic_beta`), never as a
+// header, and only these (effort, fast mode, server fallback and the other
+// first-party betas are not offered); tool search has its own name there.
+const INTERLEAVED_THINKING_BETA = 'interleaved-thinking-2025-05-14';
+const VERTEX_CLAUDE_BETAS = new Map([
+  [INTERLEAVED_THINKING_BETA, INTERLEAVED_THINKING_BETA],
+  ['advanced-tool-use-2025-11-20', 'tool-search-tool-2025-10-19'],
+  ['context-1m-2025-08-07', 'context-1m-2025-08-07'],
+  ['context-management-2025-06-27', 'context-management-2025-06-27'],
+  ['compact-2026-01-12', 'compact-2026-01-12'],
+]);
+
+// Interleaved thinking needs the beta only for a manual thinking budget with
+// tools on Claude 4+ (adaptive thinking interleaves on its own; 3.x has none).
+function needsInterleavedThinking(body, model) {
+  const version = claudeVersion(model);
+  return body.thinking?.type === 'enabled' && Array.isArray(body.tools) && body.tools.length > 0 && !(version?.[0] < 4);
+}
+
+/** The Vertex names of the selected `betas` this request body needs. */
+function vertexClaudeBetas(betas, body, model) {
+  const out = new Set();
+  for (const beta of betas || []) {
+    const mapped = VERTEX_CLAUDE_BETAS.get(beta);
+    if (!mapped || (mapped === INTERLEAVED_THINKING_BETA && !needsInterleavedThinking(body, model))) continue;
+    out.add(mapped);
+  }
+  return [...out];
+}
 
 // Flex and Priority PayGo are selected per request with
 // X-Vertex-AI-LLM-Shared-Request-Type (Provisioned Throughput is still used
@@ -140,6 +178,7 @@ export class VertexAIProvider {
     this._fetch = typeof config.fetchFn === 'function' ? config.fetchFn : fetch;
     this._auth = new VertexAccessTokenManager({
       credentialResolver: () => resolveProviderApiKey('vertex-ai', this.config),
+      authMode: () => this.config.authMode,
       fetchFn: this._fetch,
       now: typeof config.now === 'function' ? config.now : () => Date.now(),
     });
@@ -167,10 +206,12 @@ export class VertexAIProvider {
     return `${this._locationBase()}/publishers/${publisher}/models/${id}:${method}`;
   }
 
-  async _authorizedFetch(url, init) {
-    // Callers build `url` from the current credential in the same tick, so this
-    // is the account the request targets; every attempt must still be that one.
-    const identity = this._auth.identity();
+  /**
+   * `identity` is the account `url` was built for, read in the same tick as
+   * the URL before the first attempt; every attempt (retries included) must
+   * still run as that account, so a switch in between aborts the request.
+   */
+  async _authorizedFetch(url, init, identity) {
     let token = '';
     const run = async () => {
       token = await this._auth.getAccessToken({ identity });
@@ -202,7 +243,7 @@ export class VertexAIProvider {
       try {
         project = this._projectId();
       } catch {}
-      throw vertexModelAccessError(error, route, { project, location });
+      throw this._auth.accessError(vertexModelAccessError(error, route, { project, location }), { project });
     }
     const pricingModel = vertexPricingModel(route, location);
     if (pricingModel && result && typeof result === 'object') result.pricingModel = pricingModel;
@@ -230,6 +271,10 @@ export class VertexAIProvider {
     const callbacks = geminiCallbacks(opts);
     const request = buildGeminiRequest(messages, model, tools, opts, null);
     const body = geminiVertexBody(request);
+    // One account for every attempt and the unary fallback: identity and URLs are read in one tick.
+    const identity = this._auth.identity();
+    const streamUrl = `${this._url('google', model, 'streamGenerateContent')}?alt=sse`;
+    const unaryUrl = this._url('google', model, 'generateContent');
     const stream = { ...request, opts, signal, useModel: model, tools, callbacks, cachedContent: null };
     try {
       opts.onStageChange?.('requesting');
@@ -246,15 +291,13 @@ export class VertexAIProvider {
         failureUsage: vertexFailureUsage,
         run: async ({ signal: attemptSignal, connected }) => {
           callbacks.retractReasoning();
-          const url = `${this._url('google', model, 'streamGenerateContent')}?alt=sse`;
-          const res = await this._authorizedFetch(url, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify(body),
-            signal: attemptSignal,
-          });
+          const res = await this._authorizedFetch(
+            streamUrl,
+            { method: 'POST', headers, body: JSON.stringify(body), signal: attemptSignal },
+            identity
+          );
           if (!res.ok) {
-            const text = await res.text().catch(() => '');
+            const text = vertexErrorBody(await res.text().catch(() => ''));
             throw geminiRestError(res, text, 'Vertex AI Gemini streamGenerateContent');
           }
           connected();
@@ -277,14 +320,13 @@ export class VertexAIProvider {
     } catch (streamError) {
       if (!canFallbackNonStreaming(streamError, { signal })) throw streamError;
       callbacks.retractReasoning();
-      const res = await this._authorizedFetch(this._url('google', model, 'generateContent'), {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-        signal,
-      });
+      const res = await this._authorizedFetch(
+        unaryUrl,
+        { method: 'POST', headers, body: JSON.stringify(body), signal },
+        identity
+      );
       if (!res.ok) {
-        const text = await res.text().catch(() => '');
+        const text = vertexErrorBody(await res.text().catch(() => ''));
         throw geminiRestError(res, text, 'Vertex AI Gemini generateContent');
       }
       outcome = { response: await res.json(), textLeakGuard: null };
@@ -308,7 +350,7 @@ export class VertexAIProvider {
     messages = sanitizeToolPairs(messages);
     messages = await preparePdfTextForProvider(messages, this);
     const requestOpts = { ...opts, fast: false, serverFallback: false };
-    const { params, knownToolNames } = await buildAnthropicApiRequest({
+    const { params, betas, knownToolNames } = await buildAnthropicApiRequest({
       name: this.name,
       config: { ...this.config, disableBetaHeaders: true },
       messages,
@@ -320,30 +362,52 @@ export class VertexAIProvider {
     });
     const { model: _model, ...body } = params;
     body.anthropic_version = VERTEX_ANTHROPIC_VERSION;
+    const vertexBetas = vertexClaudeBetas(betas, body, model);
+    if (vertexBetas.length) body.anthropic_beta = vertexBetas;
     const callbacks = streamCallbacks(opts);
     try {
       callbacks.onStageChange?.('requesting');
     } catch {}
-    const response = await this._authorizedFetch(this._url('anthropic', model, 'streamRawPredict'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
-      signal: opts.signal || null,
-    });
-    if (!response.ok) {
-      const text = await response.text().catch(() => '');
-      const error = Object.assign(
-        new Error(`Vertex AI Claude streamRawPredict ${response.status}: ${text.slice(0, 300)}`),
-        {
-          status: response.status,
-          httpStatus: response.status,
-          headers: response.headers,
-          response: { status: response.status, headers: response.headers },
-          initialResponseError: true,
-        }
-      );
-      throw applyAnthropicErrorContract(error, { status: response.status, headers: response.headers, bodyText: text });
-    }
+    // One account for every attempt: identity and URL are read in one tick.
+    const identity = this._auth.identity();
+    const url = this._url('anthropic', model, 'streamRawPredict');
+    const payload = JSON.stringify(body);
+    // The initial response retries like the first-party Anthropic route: 429
+    // and 529 (and 5xx) on its backoff, Retry-After honored.
+    const response = await withRetry(
+      async ({ signal: attemptSignal }) => {
+        const res = await this._authorizedFetch(
+          url,
+          { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: payload, signal: attemptSignal },
+          identity
+        );
+        if (res.ok) return res;
+        const text = await res.text().catch(() => '');
+        const error = Object.assign(
+          new Error(`Vertex AI Claude streamRawPredict ${res.status}: ${text.slice(0, 300)}`),
+          {
+            status: res.status,
+            httpStatus: res.status,
+            headers: res.headers,
+            response: { status: res.status, headers: res.headers },
+            initialResponseError: true,
+          }
+        );
+        throw applyAnthropicErrorContract(error, { status: res.status, headers: res.headers, bodyText: text });
+      },
+      {
+        signal: opts.signal || null,
+        maxAttempts: anthropicMaxAttempts(),
+        backoffMs: ANTHROPIC_RETRY_BACKOFF_MS,
+        retryJitterRatio: ANTHROPIC_RETRY_JITTER_RATIO,
+        retryJitterMode: 'positive',
+        recoveryOwner: 'vertex-ai-claude-initial-response',
+        retry529: opts.retry529,
+        sleepFn: this.config.sleepFn,
+        onRetry: ({ attempt, maxAttempts, lastErr, delayMs }) =>
+          emitProviderRetryStage(callbacks.onStageChange, { attempt: attempt + 1, maxAttempts, lastErr, delayMs }),
+      }
+    );
     try {
       callbacks.onStageChange?.('streaming');
     } catch {}

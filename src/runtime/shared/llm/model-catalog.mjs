@@ -453,6 +453,10 @@ function pricedVariant(provider, id) {
     // The base row's own uplift wins; the documented 10% applies where the row has none.
     return { base: id.slice(0, -VERTEX_REGIONAL_SUFFIX.length), rateMultiplier: 1.1, rowMultiplier: 'regionalUplift' };
   }
+  // A pinned Vertex version (claude-sonnet-4-5@20250929, @default) bills as its
+  // model when no row prices the version itself.
+  const version = provider === 'vertex-ai' ? id.indexOf('@') : -1;
+  if (version > 0) return { base: id.slice(0, version), rateMultiplier: 1 };
   return null;
 }
 

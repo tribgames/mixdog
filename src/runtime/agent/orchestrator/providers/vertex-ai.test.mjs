@@ -362,7 +362,8 @@ test('Vertex Claude on a regional location is priced as the regional SKU', async
   assert.equal(priced.pricingModel, 'claude-sonnet-5-5@regional');
   const global = recordingProvider({ location: 'global' }, () => claudeSse());
   const listed = await global.provider.send([{ role: 'user', content: 'hi' }], 'claude-sonnet-5-5', [], {});
-  assert.equal(listed.pricingModel, undefined);
+  // Global: the requested id, not the dated id the stream reports.
+  assert.equal(listed.pricingModel, 'claude-sonnet-5-5');
 });
 
 test('Vertex lists the current Gemini, Claude and open-model roster with its service tiers', async () => {
@@ -493,7 +494,338 @@ test('Vertex Claude keeps a version suffix literal and old Claude bills no regio
   assert.match(requests[0].url, /\/models\/claude-haiku-4-5@20251001:streamRawPredict$/);
   assert.equal(result.pricingModel, 'claude-haiku-4-5@20251001@regional');
   const old = recordingProvider({ location: 'us-east5' }, () => claudeSse());
-  assert.equal((await old.provider.send(hi, 'claude-3-5-haiku', [], {})).pricingModel, undefined);
+  assert.equal((await old.provider.send(hi, 'claude-3-5-haiku', [], {})).pricingModel, 'claude-3-5-haiku');
+});
+
+// --- Conformance: betas, retries, error shapes, pricing identity, ADC ---
+
+function claudeSseFor(model, text = 'ok') {
+  const frame = (event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
+  return new Response(
+    [
+      frame({ type: 'message_start', message: { model, usage: { input_tokens: 5 } } }),
+      frame({ type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } }),
+      frame({ type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text } }),
+      frame({ type: 'content_block_stop', index: 0 }),
+      frame({ type: 'message_delta', delta: { stop_reason: 'end_turn' }, usage: { output_tokens: 2 } }),
+      frame({ type: 'message_stop' }),
+    ].join(''),
+    { headers: { 'content-type': 'text/event-stream' } }
+  );
+}
+
+const lookupTool = {
+  name: 'lookup',
+  description: 'Look a word up',
+  inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
+};
+
+test('Vertex Claude sends the needed Vertex-supported betas in the body and no beta header', async () => {
+  const hi = [{ role: 'user', content: 'hi' }];
+  const sent = async (model, tools, opts) => {
+    const { provider, requests } = recordingProvider({ location: 'global' }, () => claudeSse());
+    await provider.send(hi, model, tools, opts);
+    const headers = new Headers(requests[0].init.headers);
+    assert.equal(headers.get('anthropic-beta'), null, model);
+    assert.equal(headers.get('anthropic-version'), null, model);
+    return JSON.parse(requests[0].init.body);
+  };
+  // Manual thinking budget with tools: interleaved thinking.
+  const manual = await sent('claude-sonnet-4-5@20250929', [lookupTool], { effort: 'high' });
+  assert.equal(manual.thinking?.type, 'enabled');
+  assert.deepEqual(manual.anthropic_beta, ['interleaved-thinking-2025-05-14']);
+  // Deferred tools: Vertex's tool-search beta name.
+  const deferred = await sent('claude-sonnet-4-5', [lookupTool, { ...lookupTool, name: 'later', deferLoading: true }], {
+    effort: 'high',
+  });
+  assert.deepEqual(deferred.anthropic_beta, ['interleaved-thinking-2025-05-14', 'tool-search-tool-2025-10-19']);
+  // Adaptive thinking on a 1M-context model: no effort beta, no 1M beta (native), nothing to send.
+  const adaptive = await sent('claude-opus-5-5', [lookupTool], { effort: 'high' });
+  assert.equal(adaptive.thinking?.type, 'adaptive');
+  assert.equal(Object.hasOwn(adaptive, 'anthropic_beta'), false);
+  // No thinking, or no tools: no interleaving to ask for.
+  assert.equal(Object.hasOwn(await sent('claude-sonnet-4-5', [lookupTool], {}), 'anthropic_beta'), false);
+  assert.equal(Object.hasOwn(await sent('claude-sonnet-4-5', [], { effort: 'high' }), 'anthropic_beta'), false);
+  // Mixdog never builds a server-side compaction body on this route.
+  assert.equal(Object.hasOwn(manual, 'context_management'), false);
+});
+
+test('Vertex Claude retries 429 and 529 like the first-party route and classifies the same shapes', async () => {
+  const { classifyError, isServerUnavailable } = await import('./retry-classification.mjs');
+  const { providerErrorKind, retryReasonClass } = await import('./provider-error-kind.mjs');
+  const { isAccountQuotaError } = await import('./account-pool.mjs');
+  const hi = [{ role: 'user', content: 'hi' }];
+  const rateLimited = () =>
+    Response.json(
+      { error: { code: 429, message: 'Quota exceeded for aiplatform.googleapis.com/online_prediction_requests_per_base_model', status: 'RESOURCE_EXHAUSTED' } },
+      { status: 429 }
+    );
+  const overloaded = () =>
+    Response.json({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }, { status: 529 });
+  const wrapped = () =>
+    Response.json([{ error: { code: 503, message: 'The service is currently unavailable.', status: 'UNAVAILABLE' } }], {
+      status: 503,
+    });
+  for (const failure of [rateLimited, overloaded, wrapped]) {
+    const waits = [];
+    let calls = 0;
+    const { provider } = recordingProvider({ location: 'global', sleepFn: async (ms) => waits.push(ms) }, () =>
+      ++calls === 1 ? failure() : claudeSse('after-retry')
+    );
+    const result = await provider.send(hi, 'claude-sonnet-5-5', [], {});
+    assert.equal(result.content, 'after-retry', failure.name);
+    assert.equal(calls, 2, failure.name);
+    assert.equal(waits.length, 1, failure.name);
+  }
+  // Retry budget spent: the classification the loop and route fallback read.
+  const previous = process.env.CLAUDE_CODE_MAX_RETRIES;
+  process.env.CLAUDE_CODE_MAX_RETRIES = '0';
+  try {
+    const failed = async (respond) => {
+      const { provider } = recordingProvider({ location: 'global' }, respond);
+      return await provider.send(hi, 'claude-sonnet-5-5', [], {}).then(
+        () => assert.fail('expected a failure'),
+        (error) => error
+      );
+    };
+    const limit = await failed(rateLimited);
+    assert.equal(limit.status, 429);
+    assert.equal(limit.code, 'rate_limit_error');
+    assert.equal(providerErrorKind(limit).kind, 'rate_limited');
+    assert.equal(classifyError(limit), 'permanent');
+    assert.equal(retryReasonClass(limit), 'rate_limited');
+    assert.equal(isAccountQuotaError(limit), false);
+    const overload = await failed(overloaded);
+    assert.equal(overload.code, 'overloaded_error');
+    assert.equal(providerErrorKind(overload).kind, 'overloaded');
+    assert.equal(classifyError(overload), 'transient');
+    assert.equal(isServerUnavailable(overload), true);
+    const unavailable = await failed(wrapped);
+    assert.equal(unavailable.status, 503);
+    assert.equal(classifyError(unavailable), 'transient');
+    assert.equal(isServerUnavailable(unavailable), true);
+  } finally {
+    if (previous === undefined) delete process.env.CLAUDE_CODE_MAX_RETRIES;
+    else process.env.CLAUDE_CODE_MAX_RETRIES = previous;
+  }
+});
+
+test('Vertex retries stay on the account the request was built for on every route', async () => {
+  const accountA = serviceAccount({ client_email: 'a@project-a.iam.gserviceaccount.com', project_id: 'project-a' });
+  const accountB = serviceAccount({ client_email: 'b@project-b.iam.gserviceaccount.com', project_id: 'project-b' });
+  const changedAuth = (error) =>
+    error?.code === 'EVERTEXAUTH' && /credential changed during the request/.test(error.message);
+  const hi = [{ role: 'user', content: 'hi' }];
+  // `failure` answers the first API request; the account switches to B either
+  // in the retry sleep or, where the engine's sleep is not injectable, as that
+  // failure is answered (before the backoff).
+  const run = async (model, failure, { switchInSleep }) => {
+    const requests = [];
+    let provider;
+    const toB = () => {
+      provider.config.apiKey = JSON.stringify(accountB);
+    };
+    provider = new VertexAIProvider({
+      apiKey: JSON.stringify(accountA),
+      location: 'global',
+      preconnect: false,
+      sleepFn: async () => (switchInSleep ? toB() : undefined),
+      fetchFn: async (url, init = {}) => {
+        if (String(url) === VERTEX_TOKEN_URI) {
+          const iss = decodeJwtPart(new URLSearchParams(init.body).get('assertion').split('.')[1]).iss;
+          return Response.json({ access_token: `token-for-${iss}`, expires_in: 3600 });
+        }
+        requests.push({ url: String(url), authorization: new Headers(init.headers).get('authorization') });
+        if (!switchInSleep) toB();
+        return failure();
+      },
+    });
+    await assert.rejects(provider.send(hi, model, [], {}), changedAuth, model);
+    assert.equal(requests.length, 1, `${model}: no request after the switch`);
+    assert.match(requests[0].url, /\/projects\/project-a\//, model);
+    assert.equal(requests[0].authorization, `Bearer token-for-${accountA.client_email}`, model);
+  };
+  await run(
+    'claude-sonnet-5-5',
+    () => Response.json({ error: { code: 429, message: 'Quota exceeded', status: 'RESOURCE_EXHAUSTED' } }, { status: 429 }),
+    { switchInSleep: true }
+  );
+  await run(
+    'gemini-3.8-flash',
+    () => Response.json({ error: { code: 503, message: 'Unavailable', status: 'UNAVAILABLE' } }, { status: 503 }),
+    { switchInSleep: true }
+  );
+  await run(
+    'zai-org/glm-5-maas',
+    () =>
+      Response.json([{ error: { code: 429, message: 'Quota exceeded', status: 'RESOURCE_EXHAUSTED' } }], {
+        status: 429,
+        headers: { 'retry-after-ms': '1' },
+      }),
+    { switchInSleep: false }
+  );
+});
+
+test('Vertex Gemini reads an array-wrapped error body like the plain one', async () => {
+  const { geminiRestError } = await import('./gemini.mjs');
+  const { providerErrorKind } = await import('./provider-error-kind.mjs');
+  const { isAccountQuotaError } = await import('./account-pool.mjs');
+  const hi = [{ role: 'user', content: 'hi' }];
+  const dayQuota = {
+    error: {
+      code: 429,
+      message: 'Quota exceeded',
+      status: 'RESOURCE_EXHAUSTED',
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+          violations: [{ quotaId: 'GenerateRequestsPerDayPerProjectPerModel' }],
+        },
+      ],
+    },
+  };
+  const plain = geminiRestError(
+    new Response(null, { status: 429 }),
+    JSON.stringify(dayQuota),
+    'Gemini REST streamGenerateContent'
+  );
+  const { provider } = recordingProvider({ location: 'global', sleepFn: async () => {} }, () =>
+    Response.json([dayQuota], { status: 429 })
+  );
+  const error = await provider.send(hi, 'gemini-3.8-flash', [], {}).then(
+    () => assert.fail('expected a failure'),
+    (caught) => caught
+  );
+  assert.equal(error.status, 429);
+  assert.equal(error.quotaScope, 'day');
+  assert.equal(providerErrorKind(error).kind, providerErrorKind(plain).kind);
+  assert.equal(providerErrorKind(error).kind, 'quota_exhausted');
+  assert.equal(isAccountQuotaError(error), true);
+
+  // A per-minute throttle with RetryInfo waits the server's delay, then retries.
+  const waits = [];
+  let calls = 0;
+  const minute = recordingProvider({ location: 'global', sleepFn: async (ms) => waits.push(ms) }, () =>
+    ++calls === 1
+      ? Response.json(
+          [
+            {
+              error: {
+                code: 429,
+                message: 'Resource exhausted',
+                status: 'RESOURCE_EXHAUSTED',
+                details: [{ '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '7s' }],
+              },
+            },
+          ],
+          { status: 429 }
+        )
+      : geminiSse('after-wait')
+  );
+  assert.equal((await minute.provider.send(hi, 'gemini-3.8-flash', [], {})).content, 'after-wait');
+  assert.ok(waits[0] >= 7000, `waited ${waits[0]}ms`);
+});
+
+test('Vertex Claude prices a dated or bare id by the requested id, regional and global', async () => {
+  const hi = [{ role: 'user', content: 'hi' }];
+  for (const [location, model, expected] of [
+    ['global', 'claude-sonnet-4-5@20250929', 'claude-sonnet-4-5@20250929'],
+    ['global', 'claude-sonnet-4-5', 'claude-sonnet-4-5'],
+    ['us-east5', 'claude-sonnet-4-5@20250929', 'claude-sonnet-4-5@20250929@regional'],
+    ['us-east5', 'claude-sonnet-4-5', 'claude-sonnet-4-5@regional'],
+  ]) {
+    // The stream names the Anthropic-style dated id.
+    const { provider } = recordingProvider({ location }, () => claudeSseFor('claude-sonnet-4-5-20250929'));
+    const result = await provider.send(hi, model, [], {});
+    assert.equal(result.model, 'claude-sonnet-4-5-20250929');
+    assert.equal(result.pricingModel, expected, `${location} ${model}`);
+  }
+});
+
+test('Vertex ADC mode authenticates through the provider and words its 403s', async (t) => {
+  const { mkdtempSync, rmSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'vx-prov-adc-'));
+  const adcPath = join(dir, 'adc.json');
+  writeFileSync(
+    adcPath,
+    JSON.stringify({
+      type: 'authorized_user',
+      client_id: 'client-1.apps.googleusercontent.com',
+      client_secret: 'client-secret-1',
+      refresh_token: 'refresh-adc',
+      account: 'me@example.com',
+    })
+  );
+  const previous = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  process.env.GOOGLE_APPLICATION_CREDENTIALS = adcPath;
+  t.after(() => {
+    if (previous === undefined) delete process.env.GOOGLE_APPLICATION_CREDENTIALS;
+    else process.env.GOOGLE_APPLICATION_CREDENTIALS = previous;
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const adcProvider = (respond) => {
+    const grants = [];
+    const requests = [];
+    const provider = new VertexAIProvider({
+      authMode: 'adc',
+      projectId: 'adc-project',
+      location: 'global',
+      preconnect: false,
+      fetchFn: async (url, init = {}) => {
+        if (String(url) === VERTEX_TOKEN_URI) {
+          grants.push(Object.fromEntries(new URLSearchParams(init.body)));
+          return Response.json({ access_token: 'adc-token', expires_in: 3600 });
+        }
+        requests.push({ url: String(url), authorization: new Headers(init.headers).get('authorization') });
+        return respond();
+      },
+    });
+    return { provider, grants, requests };
+  };
+  const hi = [{ role: 'user', content: 'hi' }];
+  const ok = adcProvider(() => claudeSse('adc-ok'));
+  assert.equal((await ok.provider.send(hi, 'claude-sonnet-5-5', [], {})).content, 'adc-ok');
+  assert.equal(ok.grants[0].grant_type, 'refresh_token');
+  assert.equal(ok.grants[0].refresh_token, 'refresh-adc');
+  assert.equal(ok.requests[0].authorization, 'Bearer adc-token');
+  assert.match(ok.requests[0].url, /\/projects\/adc-project\/locations\/global\//);
+
+  const iam = () =>
+    Response.json(
+      { error: { code: 403, message: "Permission 'aiplatform.endpoints.predict' denied on resource", status: 'PERMISSION_DENIED' } },
+      { status: 403 }
+    );
+  const rejects = async (model, respond) => {
+    const { provider } = adcProvider(respond);
+    return await provider.send(hi, model, [], {}).then(
+      () => assert.fail('expected a failure'),
+      (error) => error
+    );
+  };
+  // Claude, Gemini and the open-model route all reword the IAM 403, keeping status and code.
+  for (const model of ['claude-sonnet-5-5', 'gemini-3.8-flash', 'zai-org/glm-5-maas']) {
+    const error = await rejects(model, iam);
+    assert.equal(error.status, 403, model);
+    assert.equal(error.vertexAccess, 'permission', model);
+    assert.match(error.message, /me@example\.com does not have permission to use Vertex AI in project adc-project/, model);
+    assert.match(error.message, /roles\/aiplatform\.user/, model);
+  }
+  const claudePermission = await rejects('claude-sonnet-5-5', iam);
+  assert.equal(claudePermission.code, 'permission_error');
+  // A not-enabled model keeps the Model Garden error.
+  for (const model of ['claude-opus-4-6', 'zai-org/glm-5-maas']) {
+    const error = await rejects(model, () =>
+      Response.json(
+        { error: { code: 403, message: `Model ${model} has not been enabled for this project. Enable it in Model Garden.` } },
+        { status: 403 }
+      )
+    );
+    assert.equal(error.code, 'VERTEX_MODEL_NOT_ENABLED', model);
+    assert.equal(error.vertexAccess, undefined, model);
+    assert.match(error.message, /enable the model in Model Garden/, model);
+  }
 });
 
 test('Vertex Gemini requests carry no functionCall / functionResponse ids', async () => {

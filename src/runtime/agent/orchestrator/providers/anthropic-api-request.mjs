@@ -189,8 +189,7 @@ export async function buildAnthropicApiRequest({
   // Diagnostic: per-block prefix hashes of exactly what is sent.
   recordAnthropicPrefix(anthropicPrefixSessionId(opts), anthropicPrefixFingerprint(params));
 
-  const requestHeaders = requestHeadersFor(params, {
-    config,
+  const betas = requestBetasFor(params, {
     opts,
     isCustom,
     fastLatched,
@@ -198,8 +197,10 @@ export async function buildAnthropicApiRequest({
     capabilityModel,
     effortProjection,
   });
+  const requestHeaders = requestHeadersFor(betas, { config, opts });
 
-  return { params, requestHeaders, knownToolNames, fastModeLatched: fastLatched };
+  // `betas`: the selected beta names, whether or not this route sends them as a header.
+  return { params, requestHeaders, betas, knownToolNames, fastModeLatched: fastLatched };
 }
 
 /** The turn's thinking/effort fields on `params` (in place): a custom
@@ -247,35 +248,36 @@ function resolveRequestToolChoice(params, opts, config) {
   else delete params.tool_choice;
 }
 
-/** The per-request headers of the final body `params`: the anthropic-beta
- *  set it needs, then the caller's `opts.requestHeaders`; null when none. */
-function requestHeadersFor(
-  params,
-  { config, opts, isCustom, fastLatched, hasDeferredTools, capabilityModel, effortProjection }
-) {
+/** The anthropic-beta names the final body `params` needs. A custom endpoint
+ *  gets no first-party base betas; only those its own request body needs
+ *  (row-driven effort, deferred tools). */
+function requestBetasFor(params, { opts, isCustom, fastLatched, hasDeferredTools, capabilityModel, effortProjection }) {
+  return [
+    buildAnthropicBetaHeaders({
+      ...(isCustom ? { base: '' } : {}),
+      fastMode: fastLatched,
+      toolSearch: hasDeferredTools,
+      // Custom: the beta follows the resolver's output, not the model id.
+      effort: isCustom ? Boolean(params.output_config?.effort) : shouldIncludeEffortBeta(capabilityModel, opts),
+      serverFallback: params.fallbacks === 'default',
+      thinkingDisplayUpdates: params.thinking?.display === 'updates',
+      turnScopedSystem: hasAnthropicTurnScopedMessages(params.messages),
+    }),
+    ...(effortProjection ? [EFFORT_CONFIGURATION_BETA] : []),
+  ]
+    .join(',')
+    .split(',')
+    .filter(Boolean);
+}
+
+/** The per-request headers: the anthropic-beta header of `betas`, then the
+ *  caller's `opts.requestHeaders`; null when none. */
+function requestHeadersFor(betas, { config, opts }) {
   // Per-call headers override the client defaultHeaders, so the
   // constructor-level disableBetaHeaders opt-out must be honoured here
   // too — otherwise opencode-go's anthropic-compatible routing
   // (disableBetaHeaders:true) would still send beta strings that a
   // third-party endpoint may reject.
-  // A custom endpoint gets no first-party base betas; only those its own
-  // request body needs (row-driven effort, deferred tools).
-  let betaHeaders = null;
-  if (!config?.disableBetaHeaders) {
-    const betas = [
-      buildAnthropicBetaHeaders({
-        ...(isCustom ? { base: '' } : {}),
-        fastMode: fastLatched,
-        toolSearch: hasDeferredTools,
-        // Custom: the beta follows the resolver's output, not the model id.
-        effort: isCustom ? Boolean(params.output_config?.effort) : shouldIncludeEffortBeta(capabilityModel, opts),
-        serverFallback: params.fallbacks === 'default',
-        thinkingDisplayUpdates: params.thinking?.display === 'updates',
-        turnScopedSystem: hasAnthropicTurnScopedMessages(params.messages),
-      }),
-      ...(effortProjection ? [EFFORT_CONFIGURATION_BETA] : []),
-    ].filter(Boolean);
-    if (betas.length) betaHeaders = { 'anthropic-beta': betas.join(',') };
-  }
+  const betaHeaders = !config?.disableBetaHeaders && betas.length ? { 'anthropic-beta': betas.join(',') } : null;
   return betaHeaders || opts.requestHeaders ? { ...(betaHeaders || {}), ...(opts.requestHeaders || {}) } : null;
 }

@@ -51,6 +51,11 @@ const litellm = {
     input_cost_per_token: 3e-6,
     output_cost_per_token: 15e-6,
   },
+  'vertex_ai/claude-vertex-dated-test@20250929': {
+    litellm_provider: 'vertex_ai-anthropic_models',
+    input_cost_per_token: 2e-6,
+    output_cost_per_token: 10e-6,
+  },
   'vertex_ai/gemini-vertex-priority-test': {
     litellm_provider: 'vertex_ai-language-models',
     input_cost_per_token: 2e-6,
@@ -301,6 +306,25 @@ test('Vertex AI prices its vertex_ai rows, served Flex requests and the regional
   near(priceUsage(claude).costUsd, 4.5);
   // Regional and multi-region endpoints bill 10% above the global list price.
   near(priceUsage({ ...claude, pricingModel: 'claude-vertex-price-test@regional' }).costUsd, 4.95);
+});
+
+test('Vertex AI prices a pinned Claude version by its own row, else by its model, globally and regionally', () => {
+  const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
+  const usage = { provider: 'vertex-ai', inputTokens: 1_000_000, outputTokens: 100_000 };
+  // The stream's dated id; the provider's pricing SKU decides.
+  const priced = (pricingModel) => priceUsage({ ...usage, model: 'claude-x-20250929', pricingModel }).costUsd;
+  // A dated row of its own wins.
+  near(priced('claude-vertex-dated-test@20250929'), 3);
+  near(priced('claude-vertex-dated-test@20250929@regional'), 3.3);
+  // A version with no row bills as its model.
+  for (const version of ['@20250929', '@default']) {
+    near(priced(`claude-vertex-price-test${version}`), 4.5);
+    near(priced(`claude-vertex-price-test${version}@regional`), 4.95);
+  }
+  near(priced('claude-vertex-price-test'), 4.5);
+  near(priced('claude-vertex-price-test@regional'), 4.95);
+  // Only Vertex reads `@` as a version pin.
+  assert.equal(priceUsage({ ...usage, provider: 'anthropic', model: 'claude-price-test@default' }).costUsd, null);
 });
 
 test('Vertex AI prices served Priority, a downgrade at Standard, the regional Gemini premium and open models', () => {
