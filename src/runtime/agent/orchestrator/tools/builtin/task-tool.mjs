@@ -277,7 +277,7 @@ async function cancelShellTaskOutcome(task, taskId, options) {
   cancelBackgroundTask(taskId, 'cancelled by task control');
   // A task whose own cancel hook kills (what a finished command left running)
   // reports what that kill confirmed.
-  const hookKill = job ? null : await task.cancelOutcome;
+  const hookKill = await task.cancelOutcome;
   if (hookKill && hookKill.terminated !== true) return { outcome: 'unconfirmed', text: cancelPendingText(taskId) };
   return job || wasRunning
     ? {

@@ -210,7 +210,8 @@ export function endWatchWhenUnconfirmable(tracker, { released, stop }) {
  *  timer; nothing else (listener, timer) outlives the loop. Nothing in it ever
  *  releases on time alone.
  *
- *  `sweep` (a killed tree): a pass that finds captured identities alive
+ *  `sweep` (a killed tree; a boolean, or a predicate read on every pass so a
+ *  cancel that arrives later is retried each cadence): a pass that finds captured identities alive
  *  terminates them and observes again in the same pass, so a cancellation
  *  ends with the tree gone instead of a held folder over live processes.
  *  A missing pre-kill capture stays unknown even if the owning session
@@ -246,7 +247,7 @@ export function watchTermination({
         observation.catch(() => {});
         // A pass that has not answered by the next cadence tick is unknown.
         state = await withinBound(observation, intervalMs, 'unknown');
-        if (state === 'running' && sweep && !stopped) {
+        if (state === 'running' && !stopped && (typeof sweep === 'function' ? sweep() : sweep)) {
           await withinBound(
             sweepLiveIdentities(tracker).catch(() => {}),
             intervalMs,
@@ -364,7 +365,7 @@ const trackerFor = (handle) =>
  *  once `signal` aborts. These processes are not our children any more, so
  *  there is no exit event to subscribe to; the shared observation loop
  *  re-checks them at the termination cadence. */
-export function waitForShellDescendants(handle, { signal = null } = {}) {
+export function waitForShellDescendants(handle, { signal = null, sweep = false } = {}) {
   if (!handle) return Promise.resolve(true);
   return new Promise((resolve) => {
     if (signal?.aborted) {
@@ -377,6 +378,7 @@ export function waitForShellDescendants(handle, { signal = null } = {}) {
     };
     const stop = watchTermination({
       tracker: trackerFor(handle),
+      sweep,
       onTerminated: () => {
         signal?.removeEventListener('abort', onAbort);
         resolve(true);

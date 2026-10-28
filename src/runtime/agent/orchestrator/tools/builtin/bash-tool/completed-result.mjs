@@ -25,6 +25,9 @@ import {
  *  when the last observed survivor exits, `cancel` terminates them. */
 function trackSurvivingDescendants(handle, { command, cwd, options, startedAtMs } = {}) {
   if (!handle?.taskId) return null;
+  // Once cancelled, every observation pass terminates survivors that ignored
+  // the first kill, so a retry is not needed to finish the job.
+  let cancelled = false;
   try {
     const task = startBackgroundTask({
       taskId: handle.taskId,
@@ -36,7 +39,7 @@ function trackSurvivingDescendants(handle, { command, cwd, options, startedAtMs 
       meta: { task_id: handle.taskId, stdout: null, stderr: null, cwd, timeoutMs: 0 },
       resultType: 'shell_task_result',
       run: async () => {
-        await waitForShellDescendants(handle);
+        await waitForShellDescendants(handle, { sweep: () => cancelled });
         // The folder reservation the finished command handed to its
         // survivors ends with the last of them.
         await releaseShellJobWorkspace(handle.taskId);
@@ -48,6 +51,7 @@ function trackSurvivingDescendants(handle, { command, cwd, options, startedAtMs 
       },
       // The kill's own re-observation is what `task cancel` reports.
       cancel: () => {
+        cancelled = true;
         task.cancelOutcome = killShellDescendants(handle);
       },
     });

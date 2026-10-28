@@ -30,6 +30,7 @@ import { releaseReadSnapshotScope } from '../../tools/builtin/snapshot-store.mjs
 import { cancelOwnedShellTrees } from '../../tools/lib/owned-shell-trees.mjs';
 import { noteShellOwnerSessionClosed } from '../../tools/builtin/lib/shell-job-records.mjs';
 import { forgetSideQuestion } from '../side-question-store.mjs';
+import { cancelBackgroundTasks } from '../../../../shared/background-tasks.mjs';
 
 /**
  * Close a session. Plants a `closed=true` tombstone on disk with a bumped
@@ -211,6 +212,12 @@ function cancelOwnedShellProcesses({ id, reason, tombstone }) {
     const result = cancelOwnedShellTrees(id);
     if (typeof result?.then === 'function') result.then(record, unconfirmed);
     else record(result);
+  } catch {
+    unconfirmed();
+  }
+  // What a finished command left running is a tracked task, not an owned tree.
+  try {
+    cancelBackgroundTasks({ surface: 'shell', executionSessionId: id, reason, notify: false });
   } catch {
     unconfirmed();
   }

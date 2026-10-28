@@ -140,7 +140,13 @@ async function runAskTurn({ sessionId, opened, input, askOpts, onToolCall, cwdOv
     });
     throw err;
   } finally {
-    releaseWorkspace?.();
+    // The result is already published; this only holds the session lock until
+    // the reader lease is removed, so the next turn's admission follows it. A
+    // failed release (the admission thread stopped) never replaces the turn's
+    // own outcome.
+    try {
+      await releaseWorkspace?.();
+    } catch {}
   }
 }
 
