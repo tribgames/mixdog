@@ -2,11 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs, { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 
-import { platformAssetKey } from './install.mjs';
+import { ENGINE_DIGEST_FILE, platformAssetKey } from './install.mjs';
 import {
   DEFAULT_DOWNLOAD_POLICY,
   projectConfigFileFor,
@@ -33,6 +34,18 @@ function fakeBin(dir, name) {
   mkdirSync(dir, { recursive: true });
   const target = join(dir, name);
   writeFileSync(target, 'fake engine');
+  return target;
+}
+
+/** A managed install records the binary's sha256 beside it; resolution re-checks it on reuse. */
+function recordEngineDigest(dir, body) {
+  writeFileSync(join(dir, ENGINE_DIGEST_FILE), createHash('sha256').update(body).digest('hex'));
+}
+
+function managedFakeBin(dir, name, body = 'fake engine') {
+  const target = fakeBin(dir, name);
+  writeFileSync(target, body);
+  recordEngineDigest(dir, body);
   return target;
 }
 
@@ -127,7 +140,8 @@ test('a managed install resolves under <pluginData>/tools/<engine>/<version>', a
   const root = workspace(t);
   const pluginData = join(root, 'data');
   const binName = process.platform === 'win32' ? 'stylua.exe' : 'stylua';
-  const managedBin = fakeBin(join(pluginData, 'tools', 'stylua', '0.20.0'), binName);
+  const managedDir = join(pluginData, 'tools', 'stylua', '0.20.0');
+  const managedBin = managedFakeBin(managedDir, binName);
   const manifest = {
     version: 1,
     engines: {
@@ -171,6 +185,7 @@ test('a managed install resolves under <pluginData>/tools/<engine>/<version>', a
   assert.notEqual(damaged.engines[0].source, 'managed');
   // Replacing it with a good binary is picked up again; nothing is cached stale.
   writeFileSync(managedBin, 'fake engine again');
+  recordEngineDigest(managedDir, 'fake engine again');
   const restored = await resolveEngines({
     cwd: root,
     engineIds: ['stylua'],
@@ -186,7 +201,7 @@ test('a slow managed-binary verification does not block the event loop', async (
   const root = workspace(t);
   const pluginData = join(root, 'data');
   const binName = process.platform === 'win32' ? 'stylua.exe' : 'stylua';
-  fakeBin(join(pluginData, 'tools', 'stylua', '0.20.0'), binName);
+  managedFakeBin(join(pluginData, 'tools', 'stylua', '0.20.0'), binName);
   const manifest = {
     version: 1,
     engines: {
@@ -459,6 +474,7 @@ test('PSScriptAnalyzer prefers a host module then a managed nupkg', async (t) =>
   const managedDir = join(pluginData, 'tools', 'psscriptanalyzer', '1.25.0');
   mkdirSync(managedDir, { recursive: true });
   writeFileSync(join(managedDir, 'PSScriptAnalyzer.psd1'), '@{ ModuleVersion = "1.25.0" }\n');
+  recordEngineDigest(managedDir, '@{ ModuleVersion = "1.25.0" }\n');
   const env = { PATH: pathDir };
 
   const host = await resolveEngines({

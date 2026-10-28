@@ -13,7 +13,7 @@ import {
   tidyEngineStatus,
   tidyInstallStatus,
 } from './core-install.mjs';
-import { platformAssetKey } from './install.mjs';
+import { ENGINE_DIGEST_FILE, platformAssetKey } from './install.mjs';
 
 const NO_PATH_ENV = { PATH: '', Path: '' };
 
@@ -53,6 +53,7 @@ function managedInstall(root, id, version = '1.2.3', body = 'binary') {
   const dir = join(root, 'tools', id, version);
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, id), body);
+  writeFileSync(join(dir, ENGINE_DIGEST_FILE), createHash('sha256').update(body).digest('hex'));
   return dir;
 }
 

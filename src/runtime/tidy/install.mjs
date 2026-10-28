@@ -4,11 +4,21 @@
 // Policy gating happens BEFORE any network call: 'never' refuses, 'ask' returns
 // needsApproval unless the call carried approveDownloads:true, 'auto' proceeds.
 // Toolchain engines (rustfmt, gofmt, zig fmt, ...) are never downloadable.
-import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { MAX_NATIVE_BINARY_DOWNLOAD_BYTES, streamResponseToFile } from '../shared/bounded-download.mjs';
-import { platformEntryKey, platformKey, sha256File } from '../shared/native-asset.mjs';
+import { platformEntryKey, platformKey, sha256File, validSha256 } from '../shared/native-asset.mjs';
 import { fileHasDataAsync } from '../shared/file-has-data.mjs';
 import { readJsonSafe } from '../shared/json-file.mjs';
 import { ENGINE_CATALOG } from './engines.mjs';
@@ -45,6 +55,56 @@ export function manifestAsset(manifest, id, pkey = platformEntryKey(manifest?.en
   return { entry, asset, version: String(entry.version || '0'), pkey: entry?.assets?.[pkey] ? pkey : 'any' };
 }
 
+// The installer records the extracted binary's sha256 beside it; a reuse
+// re-hashes the binary against that record. Like the other managed binaries
+// (mixdog-spawn / patch / graph resolve their path once per process), the hash
+// runs once per process per binary, again only when its size or mtime changes.
+// An install from before the record existed has no digest file: its first use
+// records the digest (trust on first use). An existing record that is invalid
+// or does not match is never overwritten; that binary is tampered or corrupt.
+export const ENGINE_DIGEST_FILE = '.engine.sha256';
+const verifiedEngineBins = new Map();
+
+function recordEngineDigest(digestFile, digest) {
+  const tmp = `${digestFile}.tmp-${process.pid}-${Date.now()}`;
+  try {
+    writeFileSync(tmp, digest);
+    renameSync(tmp, digestFile);
+  } catch {
+    /* unrecorded: this install is trusted for this process only */
+  } finally {
+    try {
+      rmSync(tmp, { force: true });
+    } catch {
+      /* a leftover temp file never matches the digest path */
+    }
+  }
+}
+
+async function engineBinaryIntact(dir, full) {
+  if (!(await fileHasDataAsync(full))) return false;
+  try {
+    const stamp = statSync(full);
+    const key = `${stamp.size}:${stamp.mtimeMs}`;
+    if (verifiedEngineBins.get(full) === key) return true;
+    const digestFile = join(dir, ENGINE_DIGEST_FILE);
+    const actual = await sha256File(full);
+    let recorded;
+    try {
+      recorded = readFileSync(digestFile, 'utf8').trim().toLowerCase();
+    } catch (error) {
+      if (error?.code !== 'ENOENT') return false;
+      recordEngineDigest(digestFile, actual);
+      recorded = actual;
+    }
+    if (!validSha256(recorded) || actual !== recorded) return false;
+    verifiedEngineBins.set(full, key);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** An already-installed managed binary for `id`, or null. No network; the
  *  binary probe is async so a slow (scanned) open never stalls the event loop. */
 export async function managedEngineBinary({ id, manifest, pluginData }) {
@@ -52,8 +112,9 @@ export async function managedEngineBinary({ id, manifest, pluginData }) {
   if (!found || !pluginData) return null;
   const binPath = String(found.asset.binPath || '');
   if (!binPath) return null;
-  const full = join(managedEngineDir(pluginData, id, found.version), binPath);
-  return (await fileHasDataAsync(full)) ? { path: full, version: found.version } : null;
+  const dir = managedEngineDir(pluginData, id, found.version);
+  const full = join(dir, binPath);
+  return (await engineBinaryIntact(dir, full)) ? { path: full, version: found.version } : null;
 }
 
 /** Throws unless `filePath` hashes to `expected`. */
@@ -249,8 +310,9 @@ export async function installEngine(
   const engineRoot = join(managedToolsDir(pluginData), target.id);
   const finalDir = managedEngineDir(pluginData, target.id, target.version);
   const binFull = join(finalDir, target.binPath);
-  // An engine binary a crash left NUL-filled is not present: it is installed again.
-  if (await fileHasDataAsync(binFull)) {
+  // An engine binary a crash left NUL-filled, or that no longer matches its
+  // recorded digest, is not present: it is installed again.
+  if (await engineBinaryIntact(finalDir, binFull)) {
     return { id: target.id, version: target.version, path: binFull, bytes: 0, status: 'present' };
   }
   mkdirSync(engineRoot, { recursive: true });
@@ -279,13 +341,16 @@ export async function installEngine(
         /* best-effort */
       }
     }
+    writeFileSync(join(stageDir, ENGINE_DIGEST_FILE), await sha256File(stagedBin));
     try {
-      if (existsSync(finalDir) && !(await fileHasDataAsync(binFull)))
+      if (existsSync(finalDir) && !(await engineBinaryIntact(finalDir, binFull))) {
+        verifiedEngineBins.delete(binFull);
         rmSync(finalDir, { recursive: true, force: true });
+      }
       renameSync(stageDir, finalDir);
     } catch (error) {
-      // A concurrent install won the race; its verified copy is equivalent.
-      if (!existsSync(binFull)) throw error;
+      // A concurrent install won the race only if the surviving copy verifies.
+      if (!(await engineBinaryIntact(finalDir, binFull))) throw error;
     }
     return { id: target.id, version: target.version, path: binFull, bytes, status: 'installed' };
   } finally {
