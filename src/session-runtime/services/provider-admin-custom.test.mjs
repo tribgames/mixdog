@@ -151,10 +151,7 @@ test('Vertex AI gcloud login stores no secret and reports the detected account a
   const adc = { authMode: 'adc', location: 'us-east5', projectId: '' };
 
   // No login yet: the save says what to run and records nothing.
-  await assert.rejects(
-    admin.saveProviderApiKey(cfg, 'vertex-ai', '', adc),
-    /gcloud auth application-default login/
-  );
+  await assert.rejects(admin.saveProviderApiKey(cfg, 'vertex-ai', '', adc), /gcloud auth application-default login/);
   assert.equal(cfg.peek().providers['vertex-ai'], undefined);
 
   writeFileSync(
@@ -190,7 +187,12 @@ test('Vertex AI gcloud login stores no secret and reports the detected account a
   assert.equal(row.stored, false);
   assert.equal(row.projectId, 'quota-project');
   assert.equal(row.detail, 'me@example.com · quota-project · us-east5');
-  assert.deepEqual(row.adc, { state: 'ready', type: 'authorized_user', account: 'me@example.com', projectId: 'quota-project' });
+  assert.deepEqual(row.adc, {
+    state: 'ready',
+    type: 'authorized_user',
+    account: 'me@example.com',
+    projectId: 'quota-project',
+  });
   const status = admin.providerStatus(cfg.peek()).find((provider) => provider.id === 'vertex-ai');
   assert.equal(status.authenticated, true);
   assert.equal(status.detail, row.detail);

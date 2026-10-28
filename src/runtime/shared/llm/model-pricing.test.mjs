@@ -298,11 +298,21 @@ test('GPT-6 Sol and Luna price on both OpenAI routes, doubling input above 272K'
 
 test('Vertex AI prices its vertex_ai rows, served Flex requests and the regional Claude premium', () => {
   const near = (actual, expected) => assert.ok(Math.abs(actual - expected) < 1e-9, `${actual} != ${expected}`);
-  const gemini = { provider: 'vertex-ai', model: 'gemini-vertex-flex-test', inputTokens: 1_000_000, outputTokens: 100_000 };
+  const gemini = {
+    provider: 'vertex-ai',
+    model: 'gemini-vertex-flex-test',
+    inputTokens: 1_000_000,
+    outputTokens: 100_000,
+  };
   near(priceUsage(gemini).costUsd, 1.125);
   // Flex PayGo bills the catalog's flex columns only when the server served Flex.
   near(priceUsage({ ...gemini, serviceTier: 'flex' }).costUsd, 0.5625);
-  const claude = { provider: 'vertex-ai', model: 'claude-vertex-price-test', inputTokens: 1_000_000, outputTokens: 100_000 };
+  const claude = {
+    provider: 'vertex-ai',
+    model: 'claude-vertex-price-test',
+    inputTokens: 1_000_000,
+    outputTokens: 100_000,
+  };
   near(priceUsage(claude).costUsd, 4.5);
   // Regional and multi-region endpoints bill 10% above the global list price.
   near(priceUsage({ ...claude, pricingModel: 'claude-vertex-price-test@regional' }).costUsd, 4.95);
@@ -346,7 +356,12 @@ test('Vertex AI prices served Priority, a downgrade at Standard, the regional Ge
   near(priceUsage({ ...gemini, ...regional }).costUsd, 3.3);
   near(priceUsage({ ...priority, ...regional, serviceTier: 'priority' }).costUsd, 5.94);
   // A row's own regional uplift wins over the documented 10%.
-  const uplift = { provider: 'vertex-ai', model: 'gemini-vertex-uplift-test', inputTokens: 1_000_000, outputTokens: 100_000 };
+  const uplift = {
+    provider: 'vertex-ai',
+    model: 'gemini-vertex-uplift-test',
+    inputTokens: 1_000_000,
+    outputTokens: 100_000,
+  };
   near(priceUsage({ ...uplift, pricingModel: 'gemini-vertex-uplift-test@regional' }).costUsd, 2.5);
   // Open models are priced by their `publisher/model` row.
   const open = priceUsage({
@@ -358,7 +373,12 @@ test('Vertex AI prices served Priority, a downgrade at Standard, the regional Ge
   });
   near(open.costUsd, 1.4);
   // No catalog row: unknown, never a guess.
-  const unknown = priceUsage({ provider: 'vertex-ai', model: 'nobody/unlisted-maas', inputTokens: 10, outputTokens: 1 });
+  const unknown = priceUsage({
+    provider: 'vertex-ai',
+    model: 'nobody/unlisted-maas',
+    inputTokens: 10,
+    outputTokens: 1,
+  });
   assert.equal(unknown.costUsd, null);
 });
 

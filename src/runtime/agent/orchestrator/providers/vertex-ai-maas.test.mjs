@@ -62,7 +62,8 @@ const hi = [{ role: 'user', content: 'hi' }];
 
 test('Vertex open models go to the OpenAI-compatible endpoint of the configured location', async () => {
   const expected = {
-    global: 'https://aiplatform.googleapis.com/v1/projects/key-project/locations/global/endpoints/openapi/chat/completions',
+    global:
+      'https://aiplatform.googleapis.com/v1/projects/key-project/locations/global/endpoints/openapi/chat/completions',
     'us-central1':
       'https://us-central1-aiplatform.googleapis.com/v1/projects/key-project/locations/us-central1/endpoints/openapi/chat/completions',
     us: 'https://aiplatform.us.rep.googleapis.com/v1/projects/key-project/locations/us/endpoints/openapi/chat/completions',
@@ -104,7 +105,12 @@ test('Vertex open models carry only the access token, refreshed through the sett
 });
 
 test('Vertex open-model usage is cache-exclusive and priced by its publisher/model row', async () => {
-  const usage = { prompt_tokens: 1000, completion_tokens: 5, total_tokens: 1005, prompt_tokens_details: { cached_tokens: 800 } };
+  const usage = {
+    prompt_tokens: 1000,
+    completion_tokens: 5,
+    total_tokens: 1005,
+    prompt_tokens_details: { cached_tokens: 800 },
+  };
   const { provider } = maasProvider({ location: 'global' }, () => textReply('cached', usage));
   const result = await provider.send(hi, 'qwen/qwen3-coder-480b-a35b-instruct-maas', [], {});
   assert.equal(VertexAIProvider.inputExcludesCache, true);
@@ -115,7 +121,13 @@ test('Vertex open-model usage is cache-exclusive and priced by its publisher/mod
 });
 
 test('Vertex open models round-trip a tool call over chat completions', async () => {
-  const tools = [{ name: 'lookup', description: 'Look a word up', inputSchema: { type: 'object', properties: { q: { type: 'string' } } } }];
+  const tools = [
+    {
+      name: 'lookup',
+      description: 'Look a word up',
+      inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
+    },
+  ];
   const { provider, requests } = maasProvider({ location: 'global' }, (_request, n) =>
     n === 1
       ? chatSse([
@@ -128,7 +140,14 @@ test('Vertex open models round-trip a tool call over chat completions', async ()
                 index: 0,
                 delta: {
                   role: 'assistant',
-                  tool_calls: [{ index: 0, id: 'call_1', type: 'function', function: { name: 'lookup', arguments: '{"q":"vertex"}' } }],
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: 'call_1',
+                      type: 'function',
+                      function: { name: 'lookup', arguments: '{"q":"vertex"}' },
+                    },
+                  ],
                 },
               },
             ],
@@ -206,18 +225,34 @@ test('Vertex open-model streams: role-less first chunk, gpt-oss reasoning and sp
     model: 'openai/gpt-oss-120b-maas',
     choices: [{ index: 0, delta, ...extra }],
   });
-  const tools = [{ name: 'lookup', description: 'Look a word up', inputSchema: { type: 'object', properties: { q: { type: 'string' } } } }];
+  const tools = [
+    {
+      name: 'lookup',
+      description: 'Look a word up',
+      inputSchema: { type: 'object', properties: { q: { type: 'string' } } },
+    },
+  ];
   const { provider } = maasProvider({ location: 'global' }, () =>
     chatSse([
       // No role on the first chunk; reasoning arrives before the call.
       chunk({ reasoning_content: 'Need to look ' }),
       chunk({ reasoning_content: 'it up.' }),
-      chunk({ tool_calls: [{ index: 0, id: 'chatcmpl-tool-1', type: 'function', function: { name: 'lookup', arguments: '' } }] }),
+      chunk({
+        tool_calls: [
+          { index: 0, id: 'chatcmpl-tool-1', type: 'function', function: { name: 'lookup', arguments: '' } },
+        ],
+      }),
       chunk({ tool_calls: [{ index: 0, function: { arguments: '{"q":' } }] }),
       chunk({ tool_calls: [{ index: 0, function: { arguments: '"vertex"}' } }] }),
       // The role together with finish_reason, then a usage-only chunk.
       chunk({ role: 'assistant' }, { finish_reason: 'tool_calls' }),
-      { id: 'g1', object: 'chat.completion.chunk', model: 'openai/gpt-oss-120b-maas', choices: [], usage: { prompt_tokens: 30, completion_tokens: 9, total_tokens: 39 } },
+      {
+        id: 'g1',
+        object: 'chat.completion.chunk',
+        model: 'openai/gpt-oss-120b-maas',
+        choices: [],
+        usage: { prompt_tokens: 30, completion_tokens: 9, total_tokens: 39 },
+      },
     ])
   );
   const result = await provider.send(hi, 'openai/gpt-oss-120b-maas', tools, { effort: 'low' });
@@ -247,11 +282,12 @@ test('Vertex open models retry 429 and 529 (array-wrapped too) and classify like
         status: 429,
         headers: advice,
       }),
-    overloaded: () =>
-      Response.json({ error: { code: 529, message: 'Overloaded' } }, { status: 529, headers: advice }),
+    overloaded: () => Response.json({ error: { code: 529, message: 'Overloaded' } }, { status: 529, headers: advice }),
   };
   for (const [name, failure] of Object.entries(failures)) {
-    const { provider, requests } = maasProvider({ location: 'global' }, (_request, n) => (n === 1 ? failure() : textReply('again')));
+    const { provider, requests } = maasProvider({ location: 'global' }, (_request, n) =>
+      n === 1 ? failure() : textReply('again')
+    );
     assert.equal((await provider.send(hi, 'zai-org/glm-5-maas', [], {})).content, 'again', name);
     assert.equal(requests.length, 2, name);
   }
@@ -276,7 +312,10 @@ test('Vertex open models retry 429 and 529 (array-wrapped too) and classify like
 
 test('Vertex open models map a not-enabled model to the Model Garden error', async () => {
   const { provider } = maasProvider({ location: 'global' }, () =>
-    Response.json({ error: { code: 404, message: 'Model minimaxai/minimax-m2-maas not found', status: 'NOT_FOUND' } }, { status: 404 })
+    Response.json(
+      { error: { code: 404, message: 'Model minimaxai/minimax-m2-maas not found', status: 'NOT_FOUND' } },
+      { status: 404 }
+    )
   );
   await assert.rejects(provider.send(hi, 'minimaxai/minimax-m2-maas', [], {}), (error) => {
     assert.equal(error.code, 'VERTEX_MODEL_NOT_ENABLED');
@@ -285,7 +324,18 @@ test('Vertex open models map a not-enabled model to the Model Garden error', asy
   });
   // Vertex error bodies may be a JSON array of error objects.
   const listed = maasProvider({ location: 'global' }, () =>
-    Response.json([{ error: { code: 403, message: 'Model zai-org/glm-5-maas has not been enabled. Enable it in Model Garden.', status: 'PERMISSION_DENIED' } }], { status: 403 })
+    Response.json(
+      [
+        {
+          error: {
+            code: 403,
+            message: 'Model zai-org/glm-5-maas has not been enabled. Enable it in Model Garden.',
+            status: 'PERMISSION_DENIED',
+          },
+        },
+      ],
+      { status: 403 }
+    )
   );
   await assert.rejects(listed.provider.send(hi, 'zai-org/glm-5-maas', [], {}), (error) => {
     assert.equal(error.code, 'VERTEX_MODEL_NOT_ENABLED');

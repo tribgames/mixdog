@@ -57,7 +57,10 @@ function tokenEndpoint({ now = () => Date.now(), gate = null } = {}) {
       return Response.json({ access_token: `oauth-${index}-${grant}`, expires_in: 3600 });
     }
     if (url.startsWith(IMPERSONATE_URL)) {
-      return Response.json({ accessToken: `impersonated-${index}`, expireTime: new Date(now() + 3600_000).toISOString() });
+      return Response.json({
+        accessToken: `impersonated-${index}`,
+        expireTime: new Date(now() + 3600_000).toISOString(),
+      });
     }
     throw new Error(`unexpected request ${url}`);
   };
@@ -91,7 +94,10 @@ test('Vertex ADC reads GOOGLE_APPLICATION_CREDENTIALS before the gcloud login fi
   const appData = 'C:\\Users\\me\\AppData\\Roaming';
   assert.equal(auth.gcloudConfigDir({ APPDATA: appData }, 'win32', 'C:\\Users\\me'), join(appData, 'gcloud'));
   assert.equal(auth.gcloudConfigDir({ APPDATA: appData }, 'linux', '/home/me'), join('/home/me', '.config', 'gcloud'));
-  assert.equal(auth.gcloudConfigDir({ CLOUDSDK_CONFIG: '/custom/gcloud', APPDATA: appData }, 'win32', 'h'), '/custom/gcloud');
+  assert.equal(
+    auth.gcloudConfigDir({ CLOUDSDK_CONFIG: '/custom/gcloud', APPDATA: appData }, 'win32', 'h'),
+    '/custom/gcloud'
+  );
 });
 
 test('Vertex ADC exchanges a gcloud user login refresh token at the OAuth endpoint', async (t) => {
@@ -171,9 +177,15 @@ test('Vertex ADC impersonates the target service account with the source login t
   const refused = adcManager(env, async (url) =>
     url === auth.VERTEX_TOKEN_URI
       ? Response.json({ access_token: 'source', expires_in: 3600 })
-      : Response.json({ error: { code: 403, message: 'Permission iam.serviceAccounts.getAccessToken denied' } }, { status: 403 })
+      : Response.json(
+          { error: { code: 403, message: 'Permission iam.serviceAccounts.getAccessToken denied' } },
+          { status: 403 }
+        )
   );
-  await assert.rejects(refused.getAccessToken(), /impersonating target@proj\.iam\.gserviceaccount\.com .*Service Account Token Creator/);
+  await assert.rejects(
+    refused.getAccessToken(),
+    /impersonating target@proj\.iam\.gserviceaccount\.com .*Service Account Token Creator/
+  );
 });
 
 test('Vertex ADC project resolution: explicit, environment, quota project, key project, then gcloud config', async (t) => {
@@ -191,7 +203,8 @@ test('Vertex ADC project resolution: explicit, environment, quota project, key p
     GCP_PROJECT: 'gcp-env',
     GCLOUD_PROJECT: 'gcloud-env',
   };
-  const project = (extra, explicit) => auth.describeVertexAdc({ env: { ...env, ...extra }, projectId: explicit }).projectId;
+  const project = (extra, explicit) =>
+    auth.describeVertexAdc({ env: { ...env, ...extra }, projectId: explicit }).projectId;
 
   assert.equal(project(projectEnv, 'explicit-project'), 'explicit-project');
   const remaining = { ...projectEnv };
@@ -208,7 +221,10 @@ test('Vertex ADC project resolution: explicit, environment, quota project, key p
 
   write(join('gcloud', 'active_config'), 'none\n');
   assert.equal(project({}), null);
-  assert.throws(() => adcManager(env, null).projectId(), /could not find a Google Cloud project.*gcloud config set project/);
+  assert.throws(
+    () => adcManager(env, null).projectId(),
+    /could not find a Google Cloud project.*gcloud config set project/
+  );
 });
 
 test('Vertex ADC re-reads a rewritten login file: a new identity and a new token without a restart', async (t) => {
@@ -245,7 +261,8 @@ test('Vertex ADC tokens stay bound to the login that minted them', async (t) => 
   });
   const { calls, fetchFn } = tokenEndpoint({ gate });
   const manager = adcManager(env, fetchFn);
-  const changed = (error) => error?.code === 'EVERTEXAUTH' && /credential changed during the request/.test(error.message);
+  const changed = (error) =>
+    error?.code === 'EVERTEXAUTH' && /credential changed during the request/.test(error.message);
 
   // Two requests for login A share one token request.
   const identityA = manager.identity();

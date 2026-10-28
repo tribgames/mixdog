@@ -133,7 +133,8 @@ function readAdcFile(location) {
 
 function requireFields(value, type, names, path) {
   const missing = names.filter((name) => !text(value[name]));
-  if (missing.length) throw adcError(`The ${type} credentials in ${path} are missing ${missing.join(', ')}.`, 'invalid');
+  if (missing.length)
+    throw adcError(`The ${type} credentials in ${path} are missing ${missing.join(', ')}.`, 'invalid');
 }
 
 // One grant of an ADC file. `nested`: an impersonation's source, which cannot impersonate again.
@@ -175,7 +176,8 @@ function adcGrant(value, path, nested = false) {
   if (type === 'impersonated_service_account' && !nested) {
     const url = text(value.service_account_impersonation_url);
     const target = /\/serviceAccounts\/([^/\s:?#]+):generateAccessToken$/.exec(url)?.[1];
-    if (!target) throw adcError(`The ${type} credentials in ${path} have no valid service_account_impersonation_url.`, 'invalid');
+    if (!target)
+      throw adcError(`The ${type} credentials in ${path} have no valid service_account_impersonation_url.`, 'invalid');
     const sourceGrant = adcGrant(value.source_credentials, path, true);
     const delegates = (Array.isArray(value.delegates) ? value.delegates : [])
       .map(text)
@@ -213,7 +215,15 @@ export function parseVertexAdc(raw, { path, source }) {
   }
   const grant = adcGrant(value, path);
   const quotaProjectId = text(value.quota_project_id);
-  const identity = JSON.stringify(['adc', path, grant.kind, grant.account, grant.projectId, quotaProjectId, grant.fingerprint]);
+  const identity = JSON.stringify([
+    'adc',
+    path,
+    grant.kind,
+    grant.account,
+    grant.projectId,
+    quotaProjectId,
+    grant.fingerprint,
+  ]);
   return { ...grant, path, source, quotaProjectId, identity };
 }
 

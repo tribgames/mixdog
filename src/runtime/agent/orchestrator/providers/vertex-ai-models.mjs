@@ -139,7 +139,9 @@ export const VERTEX_MODELS = Object.freeze([
   open('xai/grok-4.20-non-reasoning', 'Grok 4.20 (Non-reasoning)', ['global']),
 ]);
 
-const LISTED_LOCATIONS = new Map(VERTEX_MODELS.filter((model) => model.locations).map((model) => [model.id, model.locations]));
+const LISTED_LOCATIONS = new Map(
+  VERTEX_MODELS.filter((model) => model.locations).map((model) => [model.id, model.locations])
+);
 
 const PUBLISHER = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._@:-]{0,127}$/;
@@ -181,7 +183,8 @@ export function vertexRoute(model) {
 /** [major, minor] of a Claude id (claude-opus-4-8, claude-sonnet-5, claude-3-7-sonnet), or null. */
 export function claudeVersion(id) {
   const bare = String(id).replace(/@.*$/, '');
-  const match = /^claude-[a-z]+-(\d+)(?:-(\d{1,2}))?(?:-|$)/.exec(bare) || /^claude-(\d+)(?:-(\d{1,2}))?-[a-z]/.exec(bare);
+  const match =
+    /^claude-[a-z]+-(\d+)(?:-(\d{1,2}))?(?:-|$)/.exec(bare) || /^claude-(\d+)(?:-(\d{1,2}))?-[a-z]/.exec(bare);
   return match ? [Number(match[1]), Number(match[2] || 0)] : null;
 }
 
@@ -209,7 +212,9 @@ export function assertVertexServing(route, location, tier) {
   }
   const served = route.wire === 'maas' ? LISTED_LOCATIONS.get(`${route.publisher}/${route.id}`) : null;
   if (served && !served.includes(location)) {
-    throw new Error(`[vertex-ai] ${route.publisher}/${route.id} is served only in: ${served.join(', ')} (location is ${location})`);
+    throw new Error(
+      `[vertex-ai] ${route.publisher}/${route.id} is served only in: ${served.join(', ')} (location is ${location})`
+    );
   }
   if (route.wire === 'claude' && VERTEX_MULTI_REGIONS.has(location)) {
     const version = claudeVersion(route.id);
@@ -233,8 +238,7 @@ function claudeRegionalPremium(route) {
 export function vertexPricingModel(route, location) {
   // Open-model rates are the same on every endpoint; their catalog rows are keyed `publisher/model`.
   if (route.wire === 'maas') return `${route.publisher}/${route.id}`;
-  const regional =
-    location !== 'global' && (claudeRegionalPremium(route) || REGIONAL_PREMIUM_GEMINI.has(route.id));
+  const regional = location !== 'global' && (claudeRegionalPremium(route) || REGIONAL_PREMIUM_GEMINI.has(route.id));
   if (regional) return `${route.id}${VERTEX_REGIONAL_PRICING_SUFFIX}`;
   // Claude bills as the requested publisher model: the stream reports an
   // Anthropic-style dated id (claude-sonnet-4-5-20250929) no Vertex row prices.

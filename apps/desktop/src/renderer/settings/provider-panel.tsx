@@ -64,11 +64,15 @@ export function vertexAdcNote(provider: RecordValue): string | undefined {
           { account, location }
         );
   }
-  if (adc.state === 'missing') return t('No gcloud login found. Run gcloud auth application-default login in a terminal.');
+  if (adc.state === 'missing')
+    return t('No gcloud login found. Run gcloud auth application-default login in a terminal.');
   if (adc.state === 'unsupported') {
-    return t('{{type}} credentials are not supported. Use a service-account key or gcloud auth application-default login.', {
-      type: String(adc.type || ''),
-    });
+    return t(
+      '{{type}} credentials are not supported. Use a service-account key or gcloud auth application-default login.',
+      {
+        type: String(adc.type || ''),
+      }
+    );
   }
   if (typeof adc.message === 'string' && adc.message) {
     return t('The gcloud login could not be read: {{message}}', { message: adc.message });
@@ -306,7 +310,11 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
           {!provider.authenticated && openKeyId === String(provider.id) && provider.id === 'vertex-ai' && (
             <>
               {/* biome-ignore lint/a11y/useSemanticElements: a div button group, same as the API key source picker. */}
-              <div className="mx-segmented mx-segmented-compact" role="group" aria-label={t('Vertex AI authentication')}>
+              <div
+                className="mx-segmented mx-segmented-compact"
+                role="group"
+                aria-label={t('Vertex AI authentication')}
+              >
                 {[
                   { mode: 'service-account', label: t('Service account key') },
                   { mode: VERTEX_ADC, label: t('gcloud login (ADC)') },

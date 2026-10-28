@@ -1079,7 +1079,9 @@ export async function saveProviderApiKey(cfgMod, provider, secret, options = und
   if (id === 'vertex-ai') {
     if (adc && value) throw new Error('Vertex AI gcloud login takes no key');
     if (!adc) parseVertexServiceAccount(value);
-    const location = String(options?.location || 'global').trim().toLowerCase();
+    const location = String(options?.location || 'global')
+      .trim()
+      .toLowerCase();
     const projectId = String(options?.projectId || '').trim();
     if (!/^[a-z0-9-]{1,63}$/.test(location)) throw new Error('Vertex AI location is invalid');
     if (projectId && (!/^[a-zA-Z0-9._:-]{1,128}$/.test(projectId) || projectId.includes('/'))) {
@@ -1097,7 +1099,12 @@ export async function saveProviderApiKey(cfgMod, provider, secret, options = und
       // The login replaces a key saved earlier rather than sitting beside it.
       const account = SECRET_ACCOUNTS.agentApiKey(id);
       if (hasStoredSecret(account)) await deleteSecretAsync(account);
-      updateConfigProvider(cfgMod, id, { enabled: true, location, projectId: projectId || undefined, authMode: VERTEX_ADC_MODE });
+      updateConfigProvider(cfgMod, id, {
+        enabled: true,
+        location,
+        projectId: projectId || undefined,
+        authMode: VERTEX_ADC_MODE,
+      });
       return { provider: id, type: 'adc', authenticated: true };
     }
     patch = { enabled: true, location, projectId: projectId || undefined, authMode: 'service-account' };

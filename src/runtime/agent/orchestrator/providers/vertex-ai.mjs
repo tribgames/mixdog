@@ -109,7 +109,9 @@ function vertexHost(location) {
 }
 
 function vertexLocation(config) {
-  const location = String(config?.location || 'global').trim().toLowerCase();
+  const location = String(config?.location || 'global')
+    .trim()
+    .toLowerCase();
   // The location names the host the bearer token is sent to: only a region
   // label (or global / a multi-region) may reach the host template.
   if (!/^[a-z][a-z0-9-]{0,62}$/.test(location)) throw new Error('[vertex-ai] location is invalid');
@@ -175,7 +177,8 @@ export class VertexAIProvider {
 
   constructor(config = {}) {
     this.config = config;
-    this._fetch = typeof config.fetchFn === 'function' ? config.fetchFn : fetch;
+    const customFetch = typeof config.fetchFn === 'function' ? config.fetchFn : null;
+    this._fetch = customFetch ?? fetch;
     this._auth = new VertexAccessTokenManager({
       credentialResolver: () => resolveProviderApiKey('vertex-ai', this.config),
       authMode: () => this.config.authMode,
@@ -186,7 +189,7 @@ export class VertexAIProvider {
       name: this.name,
       config,
       auth: this._auth,
-      fetchFn: typeof config.fetchFn === 'function' ? config.fetchFn : null,
+      fetchFn: customFetch,
     });
   }
 

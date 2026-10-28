@@ -347,7 +347,12 @@ test('Vertex Gemini 4 Argon routes as a Google publisher model with a documented
 });
 
 test('Vertex Gemini usage is cache-exclusive like the Claude route', async () => {
-  const usage = { promptTokenCount: 1000, cachedContentTokenCount: 800, candidatesTokenCount: 5, totalTokenCount: 1005 };
+  const usage = {
+    promptTokenCount: 1000,
+    cachedContentTokenCount: 800,
+    candidatesTokenCount: 5,
+    totalTokenCount: 1005,
+  };
   const { provider } = recordingProvider({ location: 'global' }, () => geminiSse('cached', usage));
   const result = await provider.send([{ role: 'user', content: 'hi' }], 'gemini-3.8-flash', [], {});
   assert.equal(VertexAIProvider.inputExcludesCache, true);
@@ -394,7 +399,8 @@ test('Vertex lists the current Gemini, Claude and open-model roster with its ser
     assert.ok(ids.includes(id), id);
   }
   // Retired models are not listed.
-  for (const id of ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash']) assert.equal(ids.includes(id), false, id);
+  for (const id of ['gemini-2.5-pro', 'gemini-2.5-flash', 'gemini-2.0-flash'])
+    assert.equal(ids.includes(id), false, id);
   assert.equal(new Set(ids).size, ids.length);
   const tiers = (id) =>
     models
@@ -417,13 +423,21 @@ test('Vertex accepts free-form publisher/model ids and routes each publisher to 
   await claude.provider.send([{ role: 'user', content: 'hi' }], 'publishers/anthropic/models/claude-next-9', [], {});
   assert.match(claude.requests[0].url, /\/publishers\/anthropic\/models\/claude-next-9:streamRawPredict$/);
   const { provider } = recordingProvider({}, () => geminiSse());
-  await assert.rejects(provider.send([{ role: 'user', content: 'hi' }], 'mystery-model', [], {}), /use "publisher\/model"/);
+  await assert.rejects(
+    provider.send([{ role: 'user', content: 'hi' }], 'mystery-model', [], {}),
+    /use "publisher\/model"/
+  );
 });
 
 test('Vertex rejects tier and location combinations it does not serve before sending', async () => {
   const hi = [{ role: 'user', content: 'hi' }];
   const cases = [
-    ['us-central1', 'gemini-3.8-flash', 'priority', /Priority PayGo is only available with the global, us or eu location/],
+    [
+      'us-central1',
+      'gemini-3.8-flash',
+      'priority',
+      /Priority PayGo is only available with the global, us or eu location/,
+    ],
     ['eu', 'gemini-3.8-flash', 'flex', /Flex PayGo is only available with the global location/],
     ['global', 'claude-opus-5-5', 'priority', /Priority PayGo is not available for claude-opus-5-5/],
     ['global', 'xai/grok-4.7', 'flex', /Flex PayGo is not available for grok-4.7/],
@@ -467,7 +481,11 @@ test('Vertex Priority PayGo sends the priority header and reports the served tie
     const result = await withUsageContext(identity, () =>
       provider.send(hi, 'gemini-3.8-flash', [], { modelParameters: { serviceTier: 'priority' } })
     );
-    return { result, identity, header: new Headers(requests[0].init.headers).get('x-vertex-ai-llm-shared-request-type') };
+    return {
+      result,
+      identity,
+      header: new Headers(requests[0].init.headers).get('x-vertex-ai-llm-shared-request-type'),
+    };
   };
   const served = await run('ON_DEMAND_PRIORITY');
   assert.equal(served.header, 'priority');
@@ -482,7 +500,10 @@ test('Vertex Priority PayGo sends the priority header and reports the served tie
 test('Vertex refuses a location that is not a plain region label before any host is built', async () => {
   for (const location of ['evil.example.com#', 'x.attacker.net/', '-us', '1us', 'us central', 'us@evil']) {
     const { provider, requests } = recordingProvider({ location }, () => geminiSse());
-    await assert.rejects(provider.send([{ role: 'user', content: 'hi' }], 'gemini-3.8-flash', [], {}), /location is invalid/);
+    await assert.rejects(
+      provider.send([{ role: 'user', content: 'hi' }], 'gemini-3.8-flash', [], {}),
+      /location is invalid/
+    );
     assert.equal(requests.length, 0, location);
   }
 });
@@ -557,7 +578,13 @@ test('Vertex Claude retries 429 and 529 like the first-party route and classifie
   const hi = [{ role: 'user', content: 'hi' }];
   const rateLimited = () =>
     Response.json(
-      { error: { code: 429, message: 'Quota exceeded for aiplatform.googleapis.com/online_prediction_requests_per_base_model', status: 'RESOURCE_EXHAUSTED' } },
+      {
+        error: {
+          code: 429,
+          message: 'Quota exceeded for aiplatform.googleapis.com/online_prediction_requests_per_base_model',
+          status: 'RESOURCE_EXHAUSTED',
+        },
+      },
       { status: 429 }
     );
   const overloaded = () =>
@@ -647,7 +674,8 @@ test('Vertex retries stay on the account the request was built for on every rout
   };
   await run(
     'claude-sonnet-5-5',
-    () => Response.json({ error: { code: 429, message: 'Quota exceeded', status: 'RESOURCE_EXHAUSTED' } }, { status: 429 }),
+    () =>
+      Response.json({ error: { code: 429, message: 'Quota exceeded', status: 'RESOURCE_EXHAUSTED' } }, { status: 429 }),
     { switchInSleep: true }
   );
   await run(
@@ -794,7 +822,13 @@ test('Vertex ADC mode authenticates through the provider and words its 403s', as
 
   const iam = () =>
     Response.json(
-      { error: { code: 403, message: "Permission 'aiplatform.endpoints.predict' denied on resource", status: 'PERMISSION_DENIED' } },
+      {
+        error: {
+          code: 403,
+          message: "Permission 'aiplatform.endpoints.predict' denied on resource",
+          status: 'PERMISSION_DENIED',
+        },
+      },
       { status: 403 }
     );
   const rejects = async (model, respond) => {
@@ -809,7 +843,11 @@ test('Vertex ADC mode authenticates through the provider and words its 403s', as
     const error = await rejects(model, iam);
     assert.equal(error.status, 403, model);
     assert.equal(error.vertexAccess, 'permission', model);
-    assert.match(error.message, /me@example\.com does not have permission to use Vertex AI in project adc-project/, model);
+    assert.match(
+      error.message,
+      /me@example\.com does not have permission to use Vertex AI in project adc-project/,
+      model
+    );
     assert.match(error.message, /roles\/aiplatform\.user/, model);
   }
   const claudePermission = await rejects('claude-sonnet-5-5', iam);
@@ -818,7 +856,12 @@ test('Vertex ADC mode authenticates through the provider and words its 403s', as
   for (const model of ['claude-opus-4-6', 'zai-org/glm-5-maas']) {
     const error = await rejects(model, () =>
       Response.json(
-        { error: { code: 403, message: `Model ${model} has not been enabled for this project. Enable it in Model Garden.` } },
+        {
+          error: {
+            code: 403,
+            message: `Model ${model} has not been enabled for this project. Enable it in Model Garden.`,
+          },
+        },
         { status: 403 }
       )
     );
@@ -835,7 +878,9 @@ test('Vertex Gemini requests carry no functionCall / functionResponse ids', asyn
     { role: 'assistant', content: '', toolCalls: [{ id: 'call_1', name: 'read', arguments: { path: 'a' } }] },
     { role: 'tool', toolCallId: 'call_1', content: 'file text' },
   ];
-  const tools = [{ name: 'read', description: 'Read', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } }];
+  const tools = [
+    { name: 'read', description: 'Read', inputSchema: { type: 'object', properties: { path: { type: 'string' } } } },
+  ];
   await provider.send(history, 'gemini-3.8-flash', tools, {});
   const parts = JSON.parse(requests[0].init.body).contents.flatMap((content) => content.parts || []);
   const call = parts.find((part) => part.functionCall);
@@ -859,7 +904,14 @@ test('Vertex maps a not-enabled model to a Model Garden error on every wire', as
   const hi = [{ role: 'user', content: 'hi' }];
   const notFound = () =>
     Response.json(
-      { error: { code: 404, message: 'Publisher Model `projects/key-project/locations/global/publishers/google/models/gemini-3.6-flash` was not found or your project does not have access to it.', status: 'NOT_FOUND' } },
+      {
+        error: {
+          code: 404,
+          message:
+            'Publisher Model `projects/key-project/locations/global/publishers/google/models/gemini-3.6-flash` was not found or your project does not have access to it.',
+          status: 'NOT_FOUND',
+        },
+      },
       { status: 404 }
     );
   const gemini = recordingProvider({ location: 'global' }, notFound);
@@ -873,7 +925,12 @@ test('Vertex maps a not-enabled model to a Model Garden error on every wire', as
   });
   const claude = recordingProvider({ location: 'us-east5' }, () =>
     Response.json(
-      { error: { code: 403, message: 'Anthropic model claude-opus-4-6 has not been enabled for this project. Enable it in Model Garden.' } },
+      {
+        error: {
+          code: 403,
+          message: 'Anthropic model claude-opus-4-6 has not been enabled for this project. Enable it in Model Garden.',
+        },
+      },
       { status: 403 }
     )
   );
@@ -904,8 +961,14 @@ test('Vertex maps a not-enabled model to a Model Garden error on every wire', as
   const iamText =
     "Permission 'aiplatform.endpoints.predict' denied on resource '//aiplatform.googleapis.com/projects/key-project/locations/global/publishers/anthropic/models/claude-opus-4-6' (or it may not exist). Publisher Model access requires the Agent Platform User role.";
   for (const route of [
-    ['claude-opus-4-6', () => Response.json({ error: { code: 403, message: iamText, status: 'PERMISSION_DENIED' } }, { status: 403 })],
-    ['gemini-3.8-flash', () => Response.json({ error: { code: 403, message: iamText, status: 'PERMISSION_DENIED' } }, { status: 403 })],
+    [
+      'claude-opus-4-6',
+      () => Response.json({ error: { code: 403, message: iamText, status: 'PERMISSION_DENIED' } }, { status: 403 }),
+    ],
+    [
+      'gemini-3.8-flash',
+      () => Response.json({ error: { code: 403, message: iamText, status: 'PERMISSION_DENIED' } }, { status: 403 }),
+    ],
   ]) {
     const iam = recordingProvider({ location: 'global' }, route[1]);
     await assert.rejects(iam.provider.send(hi, route[0], [], {}), (error) => {
@@ -970,6 +1033,7 @@ test('Vertex authentication failures surface a clear provider error', async () =
   });
   await assert.rejects(
     provider.send([{ role: 'user', content: 'hello' }], 'gemini-3.1-pro-preview', [], {}),
-    (error) => error?.code === 'EVERTEXAUTH' && /Vertex AI authentication failed: service account rejected/.test(error.message)
+    (error) =>
+      error?.code === 'EVERTEXAUTH' && /Vertex AI authentication failed: service account rejected/.test(error.message)
   );
 });

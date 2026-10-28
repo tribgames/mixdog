@@ -41,14 +41,20 @@ test('save is visible at once, reaches disk in the unchanged format, and leaves 
   const done = cache.save(models, { clientVersion: '1.2.3' });
   assert.deepEqual(mirrored, [models], 'the in-memory mirror updates synchronously');
   assert.deepEqual(cache.loadSync(), models, 'a fresh instance of the same file reads the unsettled save');
-  assert.equal(makeModelCache({ fileName: 'format-models.json', ttlMs: 60_000, version: 3 }).loadEntrySync().clientVersion, '1.2.3');
+  assert.equal(
+    makeModelCache({ fileName: 'format-models.json', ttlMs: 60_000, version: 3 }).loadEntrySync().clientVersion,
+    '1.2.3'
+  );
   await done;
   const record = onDisk(cache);
   assert.deepEqual(Object.keys(record).sort(), ['clientVersion', 'fetchedAt', 'models', 'version']);
   assert.equal(record.version, 3);
   assert.deepEqual(record.models, models);
   assert.deepEqual(cache.loadSync(), models);
-  assert.deepEqual(readdirSync(dir).filter((name) => name.startsWith('format-models')), ['format-models.json']);
+  assert.deepEqual(
+    readdirSync(dir).filter((name) => name.startsWith('format-models')),
+    ['format-models.json']
+  );
 });
 
 test('a burst of saves and publishes ends with the latest data, in request order', async (t) => {
@@ -167,7 +173,6 @@ test('the event loop stays responsive while another process holds the cache lock
   assert.deepEqual(onDisk(cache).models, [{ id: 'slower' }]);
   assert.equal(existsSync(lock), false);
 });
-
 
 test('a credential change while the publish waits on a held lock means nothing is published', async () => {
   const mirrored = [];

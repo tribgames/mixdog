@@ -106,7 +106,9 @@ const GPT_OSS_EFFORTS = new Set(['low', 'medium', 'high']);
 const MAAS_CHAT_PROFILE = Object.freeze({
   applyParams(params, { opts, config }) {
     if (!/^openai\/gpt-oss-/i.test(String(params.model || ''))) return;
-    const effort = String(opts?.effort ?? config?.reasoningEffort ?? '').trim().toLowerCase();
+    const effort = String(opts?.effort ?? config?.reasoningEffort ?? '')
+      .trim()
+      .toLowerCase();
     if (GPT_OSS_EFFORTS.has(effort)) params.reasoning_effort = effort;
   },
   // The SDK wraps a fetch failure as a (retryable) connection error; a
