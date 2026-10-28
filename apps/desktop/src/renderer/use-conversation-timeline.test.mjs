@@ -60,6 +60,7 @@ function mount(t, { showTimeline = true, items = ITEMS } = {}) {
       activeStreamingTail: null,
       showTranscriptTimeline: showTimeline,
       requestEarlierTranscript() {},
+      resetTranscriptToLive() {},
     },
     sessionKey: 'session-a',
     draftMode: false,
