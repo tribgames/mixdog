@@ -163,6 +163,78 @@ test('an API-key row reveals its form after Connect, one row at a time, and focu
   assert.equal(document.activeElement, buttonIn(deepseek, 'Connect'));
 });
 
+test('Vertex AI switches to gcloud login, shows the detected login and saves without a key', async (t) => {
+  const { runs } = await mountPanel(t, {
+    oauth: [],
+    api: [
+      {
+        id: 'vertex-ai',
+        name: 'Vertex AI',
+        authenticated: false,
+        location: 'us-east5',
+        projectId: 'override-project',
+        adc: { state: 'ready', type: 'authorized_user', account: 'me@example.com', projectId: 'override-project' },
+      },
+    ],
+  });
+  const row = [...document.querySelectorAll('.settings-resource')].find((r) => r.textContent.includes('Vertex AI'));
+  await click(buttonIn(row, 'Connect'));
+  const modes = [...row.querySelectorAll('[role="group"][aria-label="Vertex AI authentication"] button')];
+  assert.deepEqual(
+    modes.map((button) => [button.textContent, button.getAttribute('aria-pressed')]),
+    [
+      ['Service account key', 'true'],
+      ['gcloud login (ADC)', 'false'],
+    ]
+  );
+  assert.ok(row.querySelector('input[aria-label="Vertex AI service-account JSON key"]'));
+  assert.equal(row.querySelector('.settings-resource-meta'), null);
+
+  await click(modes[1]);
+  assert.equal(modes[1].getAttribute('aria-pressed'), 'true');
+  assert.equal(row.querySelector('input[aria-label="Vertex AI service-account JSON key"]'), null);
+  assert.equal(
+    row.querySelector('.settings-resource-meta')?.textContent,
+    'gcloud login found: me@example.com · project override-project · us-east5'
+  );
+  const location = row.querySelector('input[aria-label="Vertex AI location"]');
+  await act(async () => location.form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
+  assert.deepEqual(
+    runs.filter(([capability]) => capability === 'saveProviderApiKey'),
+    [
+      [
+        'saveProviderApiKey',
+        ['vertex-ai', '', { authMode: 'adc', location: 'us-east5', projectId: 'override-project' }],
+        'provider-key-vertex-ai',
+      ],
+    ]
+  );
+});
+
+test('a connected Vertex AI gcloud login shows its account, project and location', async (t) => {
+  await mountPanel(t, {
+    oauth: [],
+    api: [
+      {
+        id: 'vertex-ai',
+        name: 'Vertex AI',
+        authenticated: true,
+        enabled: true,
+        authMode: 'adc',
+        location: 'europe-west4',
+        projectId: 'adc-project',
+        adc: { state: 'ready', type: 'authorized_user', account: 'me@example.com', projectId: 'adc-project' },
+      },
+    ],
+  });
+  const row = [...document.querySelectorAll('.settings-resource')].find((r) => r.textContent.includes('Vertex AI'));
+  assert.equal(
+    row.querySelector('.settings-resource-meta')?.textContent,
+    'gcloud login found: me@example.com · project adc-project · europe-west4'
+  );
+  assert.equal(row.querySelector('input[aria-label="Vertex AI location"]'), null);
+});
+
 test('a provider moves between the groups when its accounts change, also across a remount', async (t) => {
   ROSTERS['layout-flip-a'] = {
     selectedId: 'x1',

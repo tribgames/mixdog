@@ -156,6 +156,19 @@ test('visualize network, history, simple actions and gesture target', () => {
 
 const cap = (capability, ...args) => requiredDesktopCapabilityRequest({ capability, args });
 
+test('a Vertex AI gcloud login save carries no secret and a known authentication mode', () => {
+  const adc = { authMode: 'adc', location: 'global' };
+  assert.doesNotThrow(() => cap('saveProviderApiKey', 'vertex-ai', '', adc));
+  assert.throws(() => cap('saveProviderApiKey', 'vertex-ai', '{"type":"service_account"}', adc), TypeError);
+  assert.throws(() => cap('saveProviderApiKey', 'openai', '', adc), TypeError);
+  assert.throws(() => cap('saveProviderApiKey', 'vertex-ai', '', { location: 'global' }), TypeError);
+  assert.throws(() => cap('saveProviderApiKey', 'vertex-ai', 'key', { authMode: 'metadata', location: 'global' }), TypeError);
+  assert.doesNotThrow(() =>
+    cap('saveProviderApiKey', 'vertex-ai', '{"type":"service_account"}', { authMode: 'service-account', location: 'global' })
+  );
+  assert.throws(() => cap('authenticateProvider', 'vertex-ai', ''), TypeError);
+});
+
 test('capability argument groups keep their accept/reject behavior', () => {
   assert.throws(() => cap('contextStatus', null), TypeError);
   assert.throws(() => cap('contextStatus', { inspect: false }), TypeError);

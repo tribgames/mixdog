@@ -43,6 +43,38 @@ export function preloadProviderPanel(api: PanelContext['api']): Promise<unknown>
 
 // A Vertex AI location id, shown as-is (never translated).
 const VERTEX_DEFAULT_LOCATION = 'global';
+// The Vertex AI authentication mode that uses the gcloud login (nothing stored).
+const VERTEX_ADC = 'adc';
+
+/** The Vertex AI gcloud-login status line, from the setup's detected login. */
+export function vertexAdcNote(provider: RecordValue): string | undefined {
+  const adc = record(provider.adc);
+  if (adc.state === 'ready') {
+    const account = typeof adc.account === 'string' && adc.account ? adc.account : t('gcloud user account');
+    // The region shows here too: once connected, the form with the location field is gone.
+    const location = String(provider.location || VERTEX_DEFAULT_LOCATION);
+    return typeof adc.projectId === 'string' && adc.projectId
+      ? t('gcloud login found: {{account}} · project {{project}} · {{location}}', {
+          account,
+          project: adc.projectId,
+          location,
+        })
+      : t(
+          'gcloud login found: {{account}} · {{location}}. No project is set: enter a project ID override or run gcloud config set project.',
+          { account, location }
+        );
+  }
+  if (adc.state === 'missing') return t('No gcloud login found. Run gcloud auth application-default login in a terminal.');
+  if (adc.state === 'unsupported') {
+    return t('{{type}} credentials are not supported. Use a service-account key or gcloud auth application-default login.', {
+      type: String(adc.type || ''),
+    });
+  }
+  if (typeof adc.message === 'string' && adc.message) {
+    return t('The gcloud login could not be read: {{message}}', { message: adc.message });
+  }
+  return undefined;
+}
 
 /** The storage note of an API-key row, from the setup's structured credential source. */
 export function credentialNote(provider: RecordValue): string | undefined {
@@ -208,13 +240,21 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   const busy = Boolean(pending);
   // The one API-key row whose key form is open.
   const [openKeyId, setOpenKeyId] = useState<string | null>(null);
+  // The open Vertex AI form's authentication mode; null follows the saved one.
+  const [vertexMode, setVertexMode] = useState<string | null>(null);
   // Where focus goes once the row has re-rendered: the revealed key input, or
   // the row's Connect button after the form closes.
   const pendingFocus = useRef<{ id: string; target: 'key' | 'connect' } | null>(null);
   const openKeyForm = (id: string) => {
     pendingFocus.current = { id, target: 'key' };
+    setVertexMode(null);
     setOpenKeyId(id);
   };
+  // Vertex AI on the gcloud login: the open form's chosen mode, else the saved one.
+  const vertexAdcFor = (provider: RecordValue) =>
+    provider.id === 'vertex-ai' &&
+    ((!provider.authenticated && openKeyId === String(provider.id) ? vertexMode : null) ?? provider.authMode) ===
+      VERTEX_ADC;
   const closeKeyForm = (id: string) => {
     pendingFocus.current = { id, target: 'connect' };
     setOpenKeyId(null);
@@ -241,7 +281,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
       title={providerLabel(provider)}
       // Where the effective key comes from (a private file when there is no OS
       // keychain, or an environment variable) is shown as the row's secondary text.
-      meta={credentialNote(provider)}
+      meta={vertexAdcFor(provider) ? vertexAdcNote(provider) : credentialNote(provider)}
       status={providerStatus(provider)}
       actions={
         <>
@@ -265,39 +305,65 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
             )}
           {!provider.authenticated && openKeyId === String(provider.id) && provider.id === 'vertex-ai' && (
             <>
+              {/* biome-ignore lint/a11y/useSemanticElements: a div button group, same as the API key source picker. */}
+              <div className="mx-segmented mx-segmented-compact" role="group" aria-label={t('Vertex AI authentication')}>
+                {[
+                  { mode: 'service-account', label: t('Service account key') },
+                  { mode: VERTEX_ADC, label: t('gcloud login (ADC)') },
+                ].map((option) => (
+                  <button
+                    key={option.mode}
+                    type="button"
+                    aria-pressed={(option.mode === VERTEX_ADC) === vertexAdcFor(provider)}
+                    disabled={busy}
+                    onClick={() => setVertexMode(option.mode)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
               <form
                 className="settings-provider-secret"
                 onSubmit={(event) => {
                   event.preventDefault();
                   const form = event.currentTarget;
                   const fields = new FormData(form);
-                  const file = fields.get('secretFile');
-                  if (!(file instanceof File)) return;
                   const location = String(fields.get('location') || VERTEX_DEFAULT_LOCATION).trim();
                   const projectId = String(fields.get('projectId') || '').trim();
-                  void file.text().then(async (secret) => {
+                  const save = async (secret: string, options: Record<string, string>) => {
                     const result = await run(
                       'saveProviderApiKey',
-                      [provider.id, secret, { location, projectId }],
+                      [provider.id, secret, options],
                       'provider-key-vertex-ai'
                     );
                     if (result !== undefined) {
                       form.reset();
                       closeKeyForm(String(provider.id));
                     }
-                  });
+                  };
+                  // The gcloud login sends no secret.
+                  if (vertexAdcFor(provider)) {
+                    void save('', { authMode: VERTEX_ADC, location, projectId });
+                    return;
+                  }
+                  const file = fields.get('secretFile');
+                  if (!(file instanceof File)) return;
+                  void file.text().then((secret) => save(secret, { location, projectId }));
                 }}
               >
-                <input
-                  name="secretFile"
-                  data-provider-key={String(provider.id)}
-                  type="file"
-                  accept="application/json,.json"
-                  aria-label={t('Vertex AI service-account JSON key')}
-                  required
-                />
+                {!vertexAdcFor(provider) && (
+                  <input
+                    name="secretFile"
+                    data-provider-key={String(provider.id)}
+                    type="file"
+                    accept="application/json,.json"
+                    aria-label={t('Vertex AI service-account JSON key')}
+                    required
+                  />
+                )}
                 <input
                   name="location"
+                  data-provider-key={vertexAdcFor(provider) ? String(provider.id) : undefined}
                   type="text"
                   defaultValue={String(provider.location || VERTEX_DEFAULT_LOCATION)}
                   placeholder={VERTEX_DEFAULT_LOCATION}
@@ -347,7 +413,12 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
               <ActionButton onClick={() => closeKeyForm(String(provider.id))}>{t('Cancel')}</ActionButton>
             </>
           )}
-          {Boolean(provider.stored || (!provider.env && provider.authenticated)) && (
+          {/* A gcloud login that stopped working can still be switched off. */}
+          {Boolean(
+            provider.stored ||
+              (!provider.env && provider.authenticated) ||
+              (provider.authMode === VERTEX_ADC && provider.enabled === true)
+          ) && (
             <ActionButton
               danger
               disabled={busy}

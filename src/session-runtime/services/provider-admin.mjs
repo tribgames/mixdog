@@ -118,7 +118,11 @@ import {
   effectiveCustomModelRows,
   normalizeCustomProviderConfig as normalizeStoredCustomConfig,
 } from '../../runtime/agent/orchestrator/providers/custom-provider-config.mjs';
-import { parseVertexServiceAccount } from '../../runtime/agent/orchestrator/providers/vertex-ai-auth.mjs';
+import {
+  VERTEX_ADC_MODE,
+  describeVertexAdc,
+  parseVertexServiceAccount,
+} from '../../runtime/agent/orchestrator/providers/vertex-ai-auth.mjs';
 
 const API_PROVIDERS = Object.freeze([
   Object.freeze({ id: 'openrouter', name: 'OpenRouter', env: 'OPENROUTER_API_KEY', url: 'https://openrouter.ai/keys' }),
@@ -376,6 +380,13 @@ function storedSecretDetail(account) {
   return isFallbackSecret(account) ? 'stored in private file' : 'stored in keychain';
 }
 
+// The Vertex AI gcloud-login row's detail: who is signed in and where, or what to fix.
+function vertexAdcDetail(adc, location) {
+  if (!adc) return `gcloud login · ${location}`;
+  if (adc.state !== 'ready') return adc.message;
+  return [adc.account || 'gcloud user login', adc.projectId || 'no project', location].join(' · ');
+}
+
 // `keychainIssue`: the setup response's one keyring check (never asked per row).
 function apiProviderSetup(p, providers, checkSecrets, keychainIssue) {
   const configured = providers[p.id] || {};
@@ -404,8 +415,35 @@ function apiProviderSetup(p, providers, checkSecrets, keychainIssue) {
   }
   const rowIssue = authenticated ? null : keychainIssue;
   if (rowIssue) detail = rowIssue.message;
+  if (p.id === 'vertex-ai' && configured.authMode === VERTEX_ADC_MODE) {
+    // gcloud login: nothing is stored; connected while enabled and the login is readable.
+    const location = String(configured.location || 'global');
+    const adc = checkSecrets ? describeVertexAdc({ projectId: configured.projectId }) : null;
+    const ready = configuredEnabled && (!adc || adc.state === 'ready');
+    let adcStatus = configuredEnabled ? 'Not connected' : 'Off';
+    if (ready) adcStatus = 'Set';
+    return {
+      ...p,
+      group: 'api',
+      type: 'api-key',
+      authKind: 'adc',
+      authMode: VERTEX_ADC_MODE,
+      enabled: configuredEnabled,
+      authenticated: ready,
+      stored: false,
+      env: false,
+      envName: null,
+      status: adcStatus,
+      detail: vertexAdcDetail(adc, location),
+      location,
+      projectId: adc?.projectId || String(configured.projectId || '') || null,
+      ...(adc ? { adc } : {}),
+    };
+  }
   if (p.id === 'vertex-ai') {
     const location = String(configured.location || 'global');
+    // The connect form offers the gcloud login too; its status line reads this.
+    const adc = checkSecrets && !authenticated ? describeVertexAdc({ projectId: configured.projectId }) : null;
     let projectId = String(configured.projectId || '');
     if (!projectId && authenticated && checkSecrets) {
       try {
@@ -419,6 +457,8 @@ function apiProviderSetup(p, providers, checkSecrets, keychainIssue) {
       group: 'api',
       type: 'api-key',
       authKind: 'service-account',
+      authMode: 'service-account',
+      ...(adc ? { adc } : {}),
       enabled: configuredEnabled || authenticated,
       authenticated,
       stored,
@@ -689,6 +729,20 @@ async function modelProxyProviderSetup(options) {
 
 function apiProviderStatusRow(p, config) {
   const configured = config.providers?.[p.id] || {};
+  if (p.id === 'vertex-ai' && configured.authMode === VERTEX_ADC_MODE) {
+    const adc = describeVertexAdc({ projectId: configured.projectId });
+    return {
+      id: p.id,
+      type: 'api-key',
+      enabled: configured.enabled === true,
+      authenticated: configured.enabled === true && adc.state === 'ready',
+      stored: false,
+      env: false,
+      envName: null,
+      label: p.name,
+      detail: vertexAdcDetail(adc, String(configured.location || 'global')),
+    };
+  }
   const envName = AGENT_PROVIDER_ENV[p.id] || p.env;
   const env = Boolean(envName && process.env[envName]);
   const stored = hasStoredSecret(SECRET_ACCOUNTS.agentApiKey(p.id));
@@ -749,6 +803,7 @@ export function renderProviderStatus(config = {}) {
       if (row.type === 'oauth') source = row.detail || 'oauth';
       else if (row.env) source = `env:${row.envName}`;
       else if (row.stored) source = 'keychain';
+      else if (row.detail) source = row.detail;
       const enabled = row.enabled ? 'enabled' : 'disabled';
       return `${row.id.padEnd(width)}  ${row.type.padEnd(7)}  ${auth.padEnd(8)}  ${enabled.padEnd(8)}  ${source}`;
     })
@@ -1018,17 +1073,34 @@ export async function saveProviderApiKey(cfgMod, provider, secret, options = und
   const id = String(provider || '').trim();
   if (!API_PROVIDER_IDS.has(id)) throw new Error(`unknown API-key provider "${id}"`);
   const value = String(secret || '').trim();
-  if (!value) throw new Error(`API key is required for ${id}`);
+  const adc = id === 'vertex-ai' && options?.authMode === VERTEX_ADC_MODE;
+  if (!value && !adc) throw new Error(`API key is required for ${id}`);
   let patch = { enabled: true };
   if (id === 'vertex-ai') {
-    parseVertexServiceAccount(value);
+    if (adc && value) throw new Error('Vertex AI gcloud login takes no key');
+    if (!adc) parseVertexServiceAccount(value);
     const location = String(options?.location || 'global').trim().toLowerCase();
     const projectId = String(options?.projectId || '').trim();
     if (!/^[a-z0-9-]{1,63}$/.test(location)) throw new Error('Vertex AI location is invalid');
     if (projectId && (!/^[a-zA-Z0-9._:-]{1,128}$/.test(projectId) || projectId.includes('/'))) {
       throw new Error('Vertex AI project ID override is invalid');
     }
-    patch = { enabled: true, location, projectId: projectId || undefined };
+    if (adc) {
+      // gcloud login: nothing secret is stored, and the login must already be usable.
+      const login = describeVertexAdc({ projectId });
+      if (login.state !== 'ready') throw new Error(login.message);
+      if (!login.projectId) {
+        throw new Error(
+          'No Google Cloud project found for the gcloud login. Enter a project ID override, or run `gcloud config set project PROJECT_ID`.'
+        );
+      }
+      // The login replaces a key saved earlier rather than sitting beside it.
+      const account = SECRET_ACCOUNTS.agentApiKey(id);
+      if (hasStoredSecret(account)) await deleteSecretAsync(account);
+      updateConfigProvider(cfgMod, id, { enabled: true, location, projectId: projectId || undefined, authMode: VERTEX_ADC_MODE });
+      return { provider: id, type: 'adc', authenticated: true };
+    }
+    patch = { enabled: true, location, projectId: projectId || undefined, authMode: 'service-account' };
   }
   await saveSecretAsync(SECRET_ACCOUNTS.agentApiKey(id), value);
   updateConfigProvider(cfgMod, id, patch);

@@ -78,7 +78,8 @@ export function buildDefaultConfig(options = {}) {
       apiKey: apiKey || undefined,
     };
   }
-  providers['vertex-ai'] = { enabled: false, location: 'global' };
+  // authMode: 'service-account' (the stored key) or 'adc' (the gcloud login, nothing stored).
+  providers['vertex-ai'] = { enabled: false, location: 'global', authMode: 'service-account' };
   // OAuth provider detection uses lightweight credential probes so config
   // load does not import provider runtimes or SDKs.
   //

@@ -1388,13 +1388,19 @@ function validateSecret(secret: unknown, name: string): void {
 }
 
 function validateCredentialCapabilityArgs(capability: DesktopCapability, args: readonly unknown[]): void {
-  if (capability === 'saveProviderApiKey' || capability === 'authenticateProvider') {
+  // A Vertex AI gcloud login (ADC) save sends no secret at all.
+  const vertexAdc = capability === 'saveProviderApiKey' && optionalPlainRecord(args[2])?.authMode === 'adc';
+  if ((capability === 'saveProviderApiKey' || capability === 'authenticateProvider') && !vertexAdc) {
     validateSecret(args[1], 'provider secret');
   }
   if (capability === 'saveProviderApiKey' && args[2] !== undefined) {
     if (args[0] !== 'vertex-ai') throw new TypeError('Provider settings are only supported for Vertex AI.');
     const options = optionalPlainRecord(args[2]);
     if (!options) throw new TypeError('Vertex AI settings are invalid.');
+    if (options.authMode !== undefined && options.authMode !== 'service-account' && !vertexAdc) {
+      throw new TypeError('Vertex AI authentication mode is invalid.');
+    }
+    if (vertexAdc && args[1] !== '') throw new TypeError('Vertex AI gcloud login takes no key.');
     requiredString(options.location, 'Vertex AI location', 63);
     if (!/^[a-z0-9-]+$/.test(String(options.location))) throw new TypeError('Vertex AI location is invalid.');
     if (options.projectId !== undefined && options.projectId !== '') {

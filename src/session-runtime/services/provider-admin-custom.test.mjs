@@ -1,4 +1,7 @@
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test, { mock } from 'node:test';
 
 const secrets = new Map();
@@ -114,6 +117,7 @@ test('Vertex AI stores the service-account JSON as a secret and keeps only routi
     enabled: true,
     location: 'us-east5',
     projectId: 'override-project',
+    authMode: 'service-account',
   });
   const setup = await admin.providerSetup(cfg.peek());
   const row = setup.api.find((provider) => provider.id === 'vertex-ai');
@@ -121,6 +125,78 @@ test('Vertex AI stores the service-account JSON as a secret and keeps only routi
   assert.equal(row.projectId, 'override-project');
   assert.equal(row.location, 'us-east5');
   assert.equal(JSON.stringify(setup).includes(secret), false);
+});
+
+test('Vertex AI gcloud login stores no secret and reports the detected account and project', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'vx-admin-'));
+  const names = [
+    'CLOUDSDK_CONFIG',
+    'GOOGLE_APPLICATION_CREDENTIALS',
+    'GOOGLE_VERTEX_PROJECT',
+    'GOOGLE_CLOUD_PROJECT',
+    'GCP_PROJECT',
+    'GCLOUD_PROJECT',
+  ];
+  const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  for (const name of names) delete process.env[name];
+  process.env.CLOUDSDK_CONFIG = dir;
+  t.after(() => {
+    for (const [name, value] of Object.entries(saved)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const cfg = makeCfg();
+  const adc = { authMode: 'adc', location: 'us-east5', projectId: '' };
+
+  // No login yet: the save says what to run and records nothing.
+  await assert.rejects(
+    admin.saveProviderApiKey(cfg, 'vertex-ai', '', adc),
+    /gcloud auth application-default login/
+  );
+  assert.equal(cfg.peek().providers['vertex-ai'], undefined);
+
+  writeFileSync(
+    join(dir, 'application_default_credentials.json'),
+    JSON.stringify({
+      type: 'authorized_user',
+      client_id: 'client.apps.googleusercontent.com',
+      client_secret: 'client-secret',
+      refresh_token: 'refresh-secret-value',
+      account: 'me@example.com',
+      quota_project_id: 'quota-project',
+    })
+  );
+  // A key saved earlier is replaced by the login, not kept beside it.
+  secrets.set('agent.vertex-ai.apiKey', '{"type":"service_account"}');
+  assert.deepEqual(await admin.saveProviderApiKey(cfg, 'vertex-ai', '', adc), {
+    provider: 'vertex-ai',
+    type: 'adc',
+    authenticated: true,
+  });
+  assert.equal(secrets.has('agent.vertex-ai.apiKey'), false);
+  const entry = cfg.peek().providers['vertex-ai'];
+  assert.equal(entry.enabled, true);
+  assert.equal(entry.authMode, 'adc');
+  assert.equal(entry.location, 'us-east5');
+  assert.equal(entry.projectId, undefined);
+  await assert.rejects(admin.saveProviderApiKey(cfg, 'vertex-ai', '{"type":"x"}', adc), /takes no key/);
+
+  const setup = await admin.providerSetup(cfg.peek());
+  const row = setup.api.find((provider) => provider.id === 'vertex-ai');
+  assert.equal(row.authKind, 'adc');
+  assert.equal(row.authenticated, true);
+  assert.equal(row.stored, false);
+  assert.equal(row.projectId, 'quota-project');
+  assert.equal(row.detail, 'me@example.com · quota-project · us-east5');
+  assert.deepEqual(row.adc, { state: 'ready', type: 'authorized_user', account: 'me@example.com', projectId: 'quota-project' });
+  const status = admin.providerStatus(cfg.peek()).find((provider) => provider.id === 'vertex-ai');
+  assert.equal(status.authenticated, true);
+  assert.equal(status.detail, row.detail);
+  for (const view of [setup, status, cfg.peek(), [...secrets.values()]]) {
+    assert.equal(JSON.stringify(view).includes('refresh-secret-value'), false);
+  }
 });
 
 test('save generates id, stores key only as secret, and appears in setup without a key', async () => {
