@@ -97,12 +97,15 @@ function rememberScopes(value) {
   return ['once', ...new Set(listed.filter((scope) => scope !== 'once'))];
 }
 
-/** The kind-specific fields of a request, whitelisted. Spread onto the
- *  presented request; `args` is replaced for a secret so no value rides it. */
+/** The kind-specific fields of a request, whitelisted, plus the connector
+ *  `account` a tool call is bound to (any kind; the card names it). Spread
+ *  onto the presented request; `args` is replaced for a secret so no value
+ *  rides it. */
 export function humanRequestFields(input = {}) {
+  const bound = text(input?.account) ? { account: text(input.account) } : {};
   const kind = input?.kind;
-  if (!HUMAN_REQUEST_KINDS.includes(kind)) return {};
-  const fields = { remember: rememberScopes(input.remember) };
+  if (!HUMAN_REQUEST_KINDS.includes(kind)) return bound;
+  const fields = { ...bound, remember: rememberScopes(input.remember) };
   // The agent the request acts for (its name on the card and the remembered grant).
   if (text(input.agentId)) fields.agentId = text(input.agentId);
   if (kind === 'outbound' && isRecord(input.outbound)) {

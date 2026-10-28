@@ -13,12 +13,15 @@ import test from 'node:test';
 import {
   CONNECTOR_CATALOG,
   GMAIL_APP_PASSWORD,
+  connectorAccountServers,
   connectorAccountsUrl,
   connectorLiveAccountServers,
   connectorServerInput,
   gmailAppPasswordServerInput,
   mergeConnectorAccountServers,
 } from '../runtime/shared/connector-catalog.mjs';
+import { resolveMcpOAuthCredentialKey } from '../runtime/agent/orchestrator/mcp/client-config.mjs';
+import { CONVERSATION_META, withConnectorAccountsMcp } from '../runtime/connectors/connector-accounts-mcp.mjs';
 import { PENDING_MERGE_FILE, migrateMergedConnectorServers } from './connector-merge-migration.mjs';
 import { createMcpGlue } from './mcp-glue.mjs';
 import { createResourceApi } from './resource-api.mjs';
@@ -53,6 +56,7 @@ function harness(
       throw new Error('no browser sign-in expected');
     },
     commitSwitch = async () => async () => {},
+    saveFails = () => false,
   } = {}
 ) {
   let config = { ...extra, mcpServers: { ...initial } };
@@ -72,6 +76,7 @@ function harness(
     mgr: {},
     hooks: {},
     saveConfigAndAdopt: (next) => {
+      if (saveFails(next)) throw new Error('disk full');
       seen.saves += 1;
       config = structuredClone(next);
     },
@@ -129,7 +134,7 @@ test('a verified app password goes to the keychain only; the config keeps the ac
   assert.doesNotMatch(JSON.stringify(h.config()), new RegExp(PASSWORD));
   const row = h.glue.mcpStatus().servers.find((server) => server.name === 'gmail');
   assert.deepEqual(row.appPassword, { account: EMAIL }, 'one account reads like the server it was');
-  assert.deepEqual(row.accounts, [{ name: 'gmail', email: EMAIL, appPassword: { account: EMAIL } }]);
+  assert.deepEqual(row.accounts, [{ name: 'gmail', inUse: true, email: EMAIL, appPassword: { account: EMAIL } }]);
   assert.equal(row.connector, 'gmail');
   assert.equal(row.oauth, undefined, 'never an OAuth sign-in');
   assert.doesNotMatch(JSON.stringify(row), new RegExp(PASSWORD));
@@ -299,16 +304,16 @@ test('another account joins the one server; the same address again only takes it
   );
 });
 
-test('a second Google sign-in account gets its own URL, so its tokens never mix with the first', async (t) => {
+test('a second Google sign-in account gets its own sign-in key, so its tokens never mix with the first', async (t) => {
   const h = harness(t);
   await h.api.addMcpServer(connectorServerInput(CALENDAR, 'google-calendar'));
-  // Even when asked for a taken name and the shared URL, it gets its own of both.
+  // Even when asked for a taken name and the shared URL, it gets its own name and sign-in.
   const added = await h.api.addMcpServer(connectorServerInput(CALENDAR, 'google-calendar'));
   assert.deepEqual([added.name, added.account], ['google-calendar', 'google-calendar-2']);
-  assert.deepEqual(h.config().mcpServers['google-calendar'].accounts, [
-    { name: 'google-calendar', url: CALENDAR.backend.url },
-    { name: 'google-calendar-2', url: `${CALENDAR.backend.url}?account=google-calendar-2` },
-  ]);
+  const [first, second] = h.config().mcpServers['google-calendar'].accounts;
+  assert.deepEqual(first, { name: 'google-calendar', url: CALENDAR.backend.url });
+  assert.deepEqual(second, { name: 'google-calendar-2', url: CALENDAR.backend.url, oauthKey: second.oauthKey });
+  assert.match(second.oauthKey, /^[0-9a-f-]{36}$/);
 });
 
 test('removing an account removes only its credentials; the last one takes the server with it', async (t) => {
@@ -637,8 +642,9 @@ test('migration maps per-agent, per-project and hook settings of merged-away ser
   });
   h.api.migrateConnectorAccounts();
 
-  // Off only when every merged server was off for the agent; the key is gone otherwise.
-  assert.deepEqual(read('agents', 'one-off', 'agent.json'), { name: 'One off' });
+  // On or off as the topmost server the setting names: a switched-off -N server
+  // the setting names alone keeps the connector off, never reachable through the merge.
+  assert.deepEqual(read('agents', 'one-off', 'agent.json'), { name: 'One off', connectors: { off: ['gmail'] } });
   assert.deepEqual(read('agents', 'all-off', 'agent.json').connectors, { off: ['gmail', 'notes'] });
   // Per-tool entries move to the surviving name; on a conflict the surviving server's own
   // entry wins, else the first merged server's; other servers keep theirs.
@@ -666,9 +672,12 @@ test('migration maps per-agent, per-project and hook settings of merged-away ser
     { id: 'gmail', enabled: true, tools: { send_email: 'auto' } },
     { id: 'notes', enabled: true },
   ]);
-  assert.deepEqual(read('bots', 'robot', 'agent.json'), { route: { provider: 'p', model: 'm' } });
+  assert.deepEqual(read('bots', 'robot', 'agent.json'), {
+    route: { provider: 'p', model: 'm' },
+    connectors: { off: ['gmail'] },
+  });
   assert.deepEqual(read('project-connectors.json'), {
-    projects: { 'C:/b': { off: ['gmail'] }, 'C:/c': { off: ['notes'] } },
+    projects: { 'C:/a': { off: ['gmail'] }, 'C:/b': { off: ['gmail'] }, 'C:/c': { off: ['notes'] } },
   });
   const hooks = read('hooks.json').hooks.PreToolUse;
   assert.equal(hooks[0].matcher, 'mcp__gmail__send_email|Bash');
@@ -771,7 +780,7 @@ test('a store that fails to migrate stays pending and is retried on the next sta
   }
   // The config is merged for good, but the failed stores are remembered.
   assert.deepEqual(Object.keys(h.config().mcpServers), ['gmail']);
-  assert.deepEqual(read('agents', 'ok', 'agent.json'), {}, 'an independent store migrated');
+  assert.deepEqual(read('agents', 'ok', 'agent.json'), { connectors: { off: ['gmail'] } }, 'an independent store migrated');
   assert.equal(read('hooks.json').hooks.PreToolUse[0].matcher, 'mcp__gmail__send');
   assert.deepEqual(read('agents', 'blocked', 'agent.json').connectors.off, ['gmail-2'], 'not migrated yet');
   assert.deepEqual(read(PENDING_MERGE_FILE), {
@@ -785,7 +794,11 @@ test('a store that fails to migrate stays pending and is retried on the next sta
     json({ connectors: { off: ['gmail', 'gmail-2', 'gmail-3'] } })
   );
   assert.deepEqual(h.api.migrateConnectorAccounts(), []);
-  assert.deepEqual(read('agents', 'blocked', 'agent.json'), {}, 'the retried write landed');
+  assert.deepEqual(
+    read('agents', 'blocked', 'agent.json'),
+    { connectors: { off: ['gmail'], tools: { gmail: { send: 'auto' } } } },
+    'the retried write landed'
+  );
   assert.deepEqual(read('agents', 'broken', 'agent.json').connectors, { off: ['gmail'] });
   assert.equal(exists(pending), false, 'the record is cleared once everything migrated');
   const saves = h.seen.saves;
@@ -1029,4 +1042,275 @@ test('hook migration renames tool identifiers only, never argument conditions or
   assert.deepEqual(JSON.parse(readFileSync(join(dataDir, 'hooks', 'hooks.json'), 'utf8')), [
     { tool: 'mcp__gmail__send_email', action: 'deny', match: 'mcp__gmail-2__', reason: 'mcp__gmail-2__' },
   ]);
+});
+
+const NOTION_URL = 'https://mcp.notion.com/mcp';
+
+test('accounts added to one connector at once each get their own name and keep their own secret', async (t) => {
+  const h = harness(t);
+  const notion = await Promise.all([
+    h.api.addConnectorAccount({ connector: 'notion' }),
+    h.api.addConnectorAccount({ connector: 'notion' }),
+  ]);
+  assert.deepEqual(
+    notion.map((added) => added.account),
+    ['notion', 'notion-2']
+  );
+  const keys = connectorAccountServers(h.config().mcpServers.notion).map(resolveMcpOAuthCredentialKey);
+  assert.equal(keys.length, 2);
+  assert.notEqual(keys[0], keys[1], 'each signs in under its own key');
+  const stripe = await Promise.all([
+    h.api.addConnectorAccount({ connector: 'stripe', key: 'rk_one' }),
+    h.api.addConnectorAccount({ connector: 'stripe', key: 'rk_two' }),
+  ]);
+  assert.deepEqual(
+    stripe.map((added) => added.account),
+    ['stripe', 'stripe-2']
+  );
+  assert.deepEqual(
+    h.config().mcpServers.stripe.accounts.map((account) => account.headers.Authorization),
+    ['Bearer rk_one', 'Bearer rk_two']
+  );
+});
+
+test('an account whose config cannot be saved leaves no secret behind', async (t) => {
+  let failing = true;
+  const h = harness(t, { saveFails: () => failing });
+  await assert.rejects(
+    h.api.addConnectorAccount({
+      connector: 'notion',
+      oauthClientId: 'own-client',
+      oauthClientSecret: 'own-secret',
+    }),
+    /disk full/
+  );
+  await assert.rejects(
+    h.api.addConnectorAccount({ connector: 'gmail', email: EMAIL, appPassword: PASSWORD }),
+    /disk full/
+  );
+  assert.deepEqual(h.config().mcpServers, {});
+  assert.equal(h.keychain.has(EMAIL), false, 'the app password is taken back');
+  assert.deepEqual(h.seen.clientSecrets, [
+    [NOTION_URL, 'own-secret'],
+    [NOTION_URL, ''],
+  ]);
+  failing = false;
+  assert.equal((await h.api.addConnectorAccount({ connector: 'gmail', email: EMAIL, appPassword: PASSWORD })).account, 'gmail');
+  assert.equal(h.keychain.get(EMAIL), PASSWORD);
+});
+
+test('every catalog connector holds several accounts in its one server; a second sign-in at one URL gets its own key', async (t) => {
+  const h = harness(t);
+  const notionAdds = [
+    await h.api.addConnectorAccount({ connector: 'notion' }),
+    await h.api.addConnectorAccount({ connector: 'notion' }),
+  ];
+  assert.deepEqual(
+    notionAdds.map((added) => [added.name, added.account]),
+    [
+      ['notion', 'notion'],
+      ['notion', 'notion-2'],
+    ]
+  );
+  const notion = h.config().mcpServers.notion;
+  assert.equal(notion.url, connectorAccountsUrl('notion'));
+  const [first, second] = notion.accounts;
+  assert.deepEqual(first, { name: 'notion', url: NOTION_URL });
+  assert.deepEqual(
+    second,
+    { name: 'notion-2', url: NOTION_URL, oauthKey: second.oauthKey },
+    'the real URL, its own key'
+  );
+  const [firstKey, secondKey] = connectorAccountServers(notion).map(resolveMcpOAuthCredentialKey);
+  assert.equal(firstKey, NOTION_URL);
+  assert.notEqual(secondKey, firstKey);
+
+  await h.api.addConnectorAccount({ connector: 'stripe', key: 'rk_one' });
+  await h.api.addConnectorAccount({ connector: 'stripe', key: 'rk_two' });
+  assert.deepEqual(h.config().mcpServers.stripe.accounts, [
+    { name: 'stripe', url: 'https://mcp.stripe.com', headers: { Authorization: 'Bearer rk_one' } },
+    { name: 'stripe-2', url: 'https://mcp.stripe.com', headers: { Authorization: 'Bearer rk_two' } },
+  ]);
+  await h.api.addConnectorAccount({ connector: 'postgres', key: 'postgresql://a' });
+  await h.api.addConnectorAccount({ connector: 'postgres', key: 'postgresql://b' });
+  const postgres = h.config().mcpServers.postgres;
+  assert.deepEqual(Object.keys(postgres).sort(), ['accounts', 'connector', 'type', 'url'], 'no key on the server');
+  assert.deepEqual(
+    postgres.accounts.map((account) => [account.name, account.type, account.env.POSTGRES_MCP_CONNECTION_STRING]),
+    [
+      ['postgres', 'stdio', 'postgresql://a'],
+      ['postgres-2', 'stdio', 'postgresql://b'],
+    ]
+  );
+  await h.api.addConnectorAccount({ connector: 'gmail', email: EMAIL, appPassword: PASSWORD });
+  await h.api.addConnectorAccount({ connector: 'gmail', email: OTHER, appPassword: OTHER_PASSWORD });
+  assert.deepEqual(h.config().mcpServers.gmail.accounts, [
+    appPasswordAccount('gmail', EMAIL),
+    appPasswordAccount('gmail-2', OTHER),
+  ]);
+  await assert.rejects(h.api.addConnectorAccount({ connector: 'gmail' }), /GMAIL_APP_PASSWORD_ADDRESS/);
+  await assert.rejects(h.api.addConnectorAccount({ connector: 'stripe' }), /needs a key/);
+  await assert.rejects(h.api.addConnectorAccount({ connector: 'nope' }), /Unknown connector/);
+  assert.deepEqual(Object.keys(h.config().mcpServers).sort(), ['gmail', 'notion', 'postgres', 'stripe']);
+
+  // The connector's last-used account is the row's `inUse` one, else its topmost.
+  const rows = () =>
+    h.glue
+      .mcpStatus()
+      .servers.find((row) => row.name === 'notion')
+      .accounts.map((account) => [account.name, account.inUse === true]);
+  assert.deepEqual(rows(), [
+    ['notion', true],
+    ['notion-2', false],
+  ]);
+  const used = withConnectorAccountsMcp({
+    connector: 'notion',
+    accounts: ['notion', 'notion-2'].map((name) => ({
+      name,
+      email: '',
+      connect: async () => ({ instructions: '', tools: [] }),
+      callTool: async () => ({ content: [] }),
+      close() {},
+    })),
+  });
+  await used(connectorAccountsUrl('notion'), {
+    method: 'POST',
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: 1,
+      method: 'tools/call',
+      params: { name: 'search', arguments: { account: 'notion-2' }, _meta: { [CONVERSATION_META]: 'conv-rows' } },
+    }),
+  });
+  assert.deepEqual(rows(), [
+    ['notion', false],
+    ['notion-2', true],
+  ]);
+
+  // Removing one account takes only its own sign-in.
+  const removed = await h.api.removeMcpServer('notion-2');
+  assert.equal(removed.signIn, 'removed');
+  assert.deepEqual(h.config().mcpServers.notion.accounts, [first]);
+  // The removed account stays the last used: nothing is in use, and a call that
+  // would default to it fails closed, even once a new account takes its name.
+  assert.deepEqual(rows(), [['notion', false]]);
+  const added = await h.api.addConnectorAccount({ connector: 'notion' });
+  assert.equal(added.account, 'notion-2');
+  for (const conversation of ['conv-rows', 'conv-new']) {
+    assert.throws(
+      () => used.connectorAccounts.choose({ tool: 'search', wanted: '', conversation }),
+      /The Notion account used last \(notion-2 \(removed\)\) is not connected now/
+    );
+  }
+});
+
+test('migration merges the -N servers of every catalog connector without widening; a lone one converts in place', async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'connector-merge-all-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const put = (path, value) => {
+    mkdirSync(join(dataDir, ...path.slice(0, -1)), { recursive: true });
+    writeFileSync(join(dataDir, ...path), `${JSON.stringify(value, null, 2)}\n`);
+  };
+  const read = (...path) => JSON.parse(readFileSync(join(dataDir, ...path), 'utf8'));
+  const raw = (...path) => readFileSync(join(dataDir, ...path), 'utf8');
+  put(['bots', 'payer', 'agent.json'], {
+    connectors: {
+      off: [],
+      tools: {
+        stripe: { create_payment_link: 'needs_approval' },
+        'stripe-2': { create_payment_link: 'auto', create_refund: 'disabled' },
+      },
+    },
+  });
+  put(['agents', 'quiet', 'agent.json'], { connectors: { off: ['notion', 'notion-2', 'custom-2'] } });
+  put(['agents', 'second-off', 'agent.json'], { connectors: { off: ['stripe-2'] } });
+  put(['agents', 'base-on', 'agent.json'], {
+    connectors: {
+      off: ['stripe-2'],
+      tools: { stripe: { create_refund: 'needs_approval' }, 'stripe-2': { create_refund: 'auto' } },
+    },
+  });
+  put(['hooks.json'], {
+    hooks: { PreToolUse: [{ matcher: 'mcp__stripe-2__create_refund|mcp__custom-2__x', hooks: [] }] },
+  });
+  const stripeKey = (key) => ({
+    type: 'http',
+    url: 'https://mcp.stripe.com',
+    headers: { Authorization: `Bearer ${key}` },
+    connector: 'stripe',
+  });
+  const custom = { type: 'http', url: 'https://example.com/mcp' };
+  const postgres = {
+    type: 'stdio',
+    command: 'npx',
+    args: ['-y', '@microsoft/postgres-mcp@0.2.0', 'run'],
+    env: { POSTGRES_MCP_CONNECTION_STRING: 'postgresql://a' },
+    connector: 'postgres',
+    timeoutMs: 30_000,
+  };
+  const h = harness(t, {
+    dataDir,
+    initial: {
+      'stripe-2': stripeKey('rk_two'),
+      stripe: stripeKey('rk_one'),
+      notion: { type: 'http', url: NOTION_URL, connector: 'notion' },
+      'notion-2': { type: 'http', url: NOTION_URL, connector: 'notion' },
+      postgres,
+      custom,
+      'custom-2': custom,
+    },
+  });
+  assert.deepEqual(h.api.migrateConnectorAccounts(), [
+    { connector: 'notion', name: 'notion', from: ['notion', 'notion-2'] },
+    { connector: 'postgres', name: 'postgres', from: ['postgres'] },
+    { connector: 'stripe', name: 'stripe', from: ['stripe', 'stripe-2'] },
+  ]);
+  const { mcpServers } = h.config();
+  assert.deepEqual(Object.keys(mcpServers).sort(), ['custom', 'custom-2', 'notion', 'postgres', 'stripe']);
+  // Two servers on one sign-in were one account all along.
+  assert.deepEqual(mcpServers.notion.accounts, [{ name: 'notion', url: NOTION_URL }]);
+  assert.deepEqual(mcpServers.stripe.accounts, [
+    { name: 'stripe', url: 'https://mcp.stripe.com', headers: { Authorization: 'Bearer rk_one' } },
+    { name: 'stripe-2', url: 'https://mcp.stripe.com', headers: { Authorization: 'Bearer rk_two' } },
+  ]);
+  // A lone server keeps its name, its settings and its connection, now as its one account.
+  const { connector: _connector, timeoutMs: _timeout, ...connection } = postgres;
+  assert.deepEqual(mcpServers.postgres, {
+    timeoutMs: 30_000,
+    type: 'http',
+    url: connectorAccountsUrl('postgres'),
+    connector: 'postgres',
+    accounts: [{ name: 'postgres', ...connection }],
+  });
+  assert.deepEqual(mcpServers['custom-2'], custom, 'a numeric suffix never merges a custom server');
+
+  // The topmost entry wins per tool; nothing gets more authority.
+  assert.deepEqual(read('bots', 'payer', 'agent.json').connectors, {
+    off: [],
+    tools: { stripe: { create_payment_link: 'needs_approval', create_refund: 'disabled' } },
+  });
+  assert.deepEqual(read('agents', 'quiet', 'agent.json').connectors, { off: ['custom-2', 'notion'] });
+  // On or off follows the topmost server named: a switched-off stripe-2 alone keeps
+  // Stripe off; with stripe itself named on, Stripe is on and stripe-2's entries stay dormant.
+  assert.deepEqual(read('agents', 'second-off', 'agent.json').connectors, { off: ['stripe'] });
+  assert.deepEqual(read('agents', 'base-on', 'agent.json').connectors, {
+    off: [],
+    tools: { stripe: { create_refund: 'needs_approval' } },
+  });
+  assert.equal(read('hooks.json').hooks.PreToolUse[0].matcher, 'mcp__stripe__create_refund|mcp__custom-2__x');
+
+  // Idempotent.
+  const snapshot = () =>
+    [
+      ['bots', 'payer', 'agent.json'],
+      ['agents', 'quiet', 'agent.json'],
+      ['agents', 'second-off', 'agent.json'],
+      ['agents', 'base-on', 'agent.json'],
+      ['hooks.json'],
+    ].map((path) => raw(...path));
+  const files = snapshot();
+  const saved = structuredClone(h.config());
+  assert.deepEqual(h.api.migrateConnectorAccounts(), []);
+  assert.deepEqual(h.config(), saved);
+  assert.deepEqual(snapshot(), files);
 });

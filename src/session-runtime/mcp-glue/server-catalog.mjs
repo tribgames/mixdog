@@ -9,7 +9,7 @@ import {
   connectorOfServer,
   gmailAppPasswordAccount,
 } from '../../runtime/shared/connector-catalog.mjs';
-import { connectorAccountHealth } from '../../runtime/connectors/connector-accounts-mcp.mjs';
+import { connectorAccountHealth, connectorAccountInUse } from '../../runtime/connectors/connector-accounts-mcp.mjs';
 import { googleOAuthClient } from '../../runtime/shared/google-oauth-client.mjs';
 import { envFlag } from '../../runtime/shared/env.mjs';
 import { resolveMcpServerCatalog } from './plugin-servers.mjs';
@@ -119,10 +119,12 @@ export function createMcpServerCatalog({
     };
   }
 
-  /** One account of a multi-account connector server, as its row lists it:
-   *  `{ name, email, enabled?, appPassword?, oauth?, ownClient?, error?, authRequired? }`
-   *  (`enabled: false` only for an account that is switched off). */
-  function accountRow(accountCfg, enabled) {
+  /** One account of a connector server, as its row lists it:
+   *  `{ name, email, enabled?, inUse?, appPassword?, oauth?, ownClient?, error?, authRequired? }`
+   *  (`enabled: false` only for an account that is switched off; `inUse:
+   *  true` only for the connector's last-used account, the one a call
+   *  without a conversation history uses). */
+  function accountRow(accountCfg, enabled, inUse) {
     const address = gmailAppPasswordAccount(accountCfg);
     const oauth = address ? null : mcpClient.getMcpServerOAuthState?.(accountCfg);
     const state = connectorAccountHealth(accountCfg.name);
@@ -130,6 +132,7 @@ export function createMcpServerCatalog({
     return {
       name: accountCfg.name,
       ...(enabled ? {} : { enabled: false }),
+      ...(inUse ? { inUse: true } : {}),
       email: address || oauth?.account || state?.email || '',
       ...(address ? { appPassword: { account: address } } : {}),
       ...(oauth ? { oauth } : {}),
@@ -152,11 +155,14 @@ export function createMcpServerCatalog({
         failures.get(name) || (dead ? { msg: live.error || live.lastError || 'MCP server is not alive' } : undefined);
       const entry = entries[name] || {};
       const loginPending = !(live && !dead) && mcpClient.isMcpLoginPending?.(name, getMcpScopeId()) === true;
-      const accounts = entry.owner
-        ? []
-        : connectorAccountsOf(cfg).map((account) =>
-            accountRow(connectorAccountServer(cfg, account), connectorAccountEnabled(account))
-          );
+      const stored = entry.owner ? [] : connectorAccountsOf(cfg);
+      // The connector's last-used account (none when that one was removed),
+      // else its topmost switched-on one.
+      const recorded = stored.length ? connectorAccountInUse(connectorOfServer(cfg)) : '';
+      const inUse = recorded || stored.find(connectorAccountEnabled)?.name;
+      const accounts = stored.map((account) =>
+        accountRow(connectorAccountServer(cfg, account), connectorAccountEnabled(account), account.name === inUse)
+      );
       // A connector server none of whose accounts is signed in needs a sign-in, not a repair.
       const accountsSignIn = accounts.length > 0 && accounts.every((account) => account.authRequired === true);
       const status = mcpServerStatus(

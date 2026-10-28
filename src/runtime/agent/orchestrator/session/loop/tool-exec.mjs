@@ -5,7 +5,7 @@
 //   tool-exec/dispatch.mjs           — executor per tool family
 //   tool-exec/after-hook.mjs         — PostToolUse result override
 //   tool-exec/read-only-deadline.mjs — bounded read-only I/O with partial-output grace
-import { isMcpTool } from '../../mcp/client.mjs';
+import { isMcpTool, resolveMcpToolAccount } from '../../mcp/client.mjs';
 import { connectorPolicyAgentOf } from '../../mcp/agent-connectors.mjs';
 import { prepareDeferredToolCallThrough } from './deferred-call-through.mjs';
 import { refreshDeferredMcpToolCatalog } from '../../runtime-core/tool-catalog.mjs';
@@ -58,6 +58,24 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
     callArgs = guarded.args;
     completionToolOpts.shellGuardNotes = guarded.notes;
   }
+  // A connector call is bound to its account before any hook or card sees it,
+  // so an approval approves that account, whatever is used last meanwhile.
+  // It is bound by its unique name; `account` is its label, for display.
+  let bound = '';
+  let account = '';
+  if (isMcpTool(name)) {
+    try {
+      const chosen = resolveMcpToolAccount(name, callArgs, {
+        scopeId: sessionRef?.mcpScopeId || null,
+        conversation: callerSessionId,
+      });
+      bound = chosen?.name || '';
+      account = chosen?.label || '';
+    } catch (error) {
+      return `Error: ${error?.message || String(error)}`;
+    }
+    if (bound) callArgs = { ...callArgs, account: bound };
+  }
   const hooked = await applyBeforeToolHook({
     name,
     args: callArgs,
@@ -67,6 +85,7 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
     beforeToolHook: hookFrom(executeOpts, sessionRef, 'beforeToolHook'),
     toolApprovalHook,
     mcpScopeId: sessionRef?.mcpScopeId || null,
+    account,
   });
   if (hooked.denial) return hooked.denial;
   const connectorDenied = await applyConnectorApproval(hooked, {
@@ -74,8 +93,11 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
     callerSessionId,
     executeOpts,
     toolApprovalHook,
+    account: hooked.name === name ? account : '',
   });
   if (connectorDenied) return connectorDenied.denial;
+  // A hook's rewrite of the same tool keeps the bound account.
+  if (bound && hooked.name === name) hooked.args = { ...hooked.args, account: bound };
   // A decision can settle after its turn was cancelled. It must never
   // authorize a new mutation, even if the hook ignores the abort signal.
   throwIfAborted(executeOpts.signal);

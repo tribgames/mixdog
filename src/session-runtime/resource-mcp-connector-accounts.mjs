@@ -1,6 +1,7 @@
-// The accounts of a multi-account connector server as the MCP server API
-// edits them: adding one more account (into its server, or a new server
-// holding it) and editing one account's transport, app password or client.
+// The accounts of a connector server as the MCP server API edits them: adding
+// one more account (into its server, or a new server holding it) and editing
+// one account's transport, app password or client.
+import { randomUUID } from 'node:crypto';
 import { clean } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import {
   mergeMcpServerConfig,
@@ -13,15 +14,16 @@ import {
   connectorAccountServers,
   connectorAccountsOf,
   connectorAccountsUrl,
-  connectorById,
   connectorOfServer,
+  connectorServerSettings,
   gmailAppPasswordAccount,
   withConnectorAccountEnabled,
 } from '../runtime/shared/connector-catalog.mjs';
 import { forgetConnectorAccountHealth } from '../runtime/connectors/connector-accounts-mcp.mjs';
-import { accountTarget, mergedServerInput, nameTakenError, oauthUrlOf } from './resource-mcp-servers.mjs';
+import { hasConfiguredMcpAuth } from '../runtime/agent/orchestrator/mcp/client-transport.mjs';
+import { accountTarget, mergedServerInput, nameTakenError, oauthCredentialOf } from './resource-mcp-servers.mjs';
 
-/** The server of multi-account connector `connector` in `servers`, or ''. */
+/** The server of connector `connector` in `servers`, or ''. */
 function connectorServerName(servers, connector) {
   return (
     Object.keys(servers).find(
@@ -36,7 +38,7 @@ function connectorServerName(servers, connector) {
 export const editsServerItself = (target, input) => {
   if (target.serverName !== target.account.name || !clean(input.url)) return false;
   try {
-    return oauthUrlOf({ type: input.type || 'http', url: input.url }) === oauthUrlOf(target.cfg);
+    return oauthCredentialOf({ type: input.type || 'http', url: input.url }) === oauthCredentialOf(target.cfg);
   } catch {
     return false;
   }
@@ -51,12 +53,14 @@ export function createConnectorAccountEdits({
   storeOAuthClientSecret,
   storeGmailAppPassword,
   forgetUnusedGmailAppPassword,
+  forgetStoredSecrets,
   releaseOAuth,
 }) {
-  /** One more account of multi-account connector `connector` (one-account
-   *  config `accountCfg` as normalized from `input`): into its server, or a
-   *  new server named `name` holding it. The same Gmail address again takes
-   *  the new app password. Resolves `{ name, account, status }`. */
+  /** One more account of connector `connector` (one-account config
+   *  `accountCfg` as normalized from `input`): into its server, or a new
+   *  server named `name` holding it. The same Gmail address again takes the
+   *  new app password. `servers` is read under the caller's per-connector
+   *  serialization (resource-mcp-api.mjs). Resolves `{ name, account, status }`. */
   async function addConnectorAccount(servers, connector, name, accountCfg, input) {
     const serverName = connectorServerName(servers, connector);
     const address = gmailAppPasswordAccount(accountCfg);
@@ -77,29 +81,38 @@ export function createConnectorAccountEdits({
     }
     const accountName = serverName ? freeName(servers, name) : name;
     const account = connectorAccountEntry(accountName, accountCfg);
-    // Sign-in tokens are stored per exact URL: another account needs its own.
-    const backendUrl = connectorById(connector)?.backend?.url;
-    if (
-      !address &&
-      cfg &&
-      connectorAccountServers(cfg).some((other) => oauthUrlOf(other) === oauthUrlOf({ type: 'http', url: account.url }))
-    ) {
-      account.url = `${backendUrl}?account=${encodeURIComponent(accountName)}`;
+    // A sign-in is stored per exact URL: another account signing in at the
+    // same URL gets its own key, so the two never share tokens.
+    const asServer = connectorAccountServer({ connector }, account);
+    const signIn = hasConfiguredMcpAuth(asServer) ? null : oauthCredentialOf(asServer);
+    if (signIn && cfg && connectorAccountServers(cfg).some((other) => oauthCredentialOf(other) === signIn)) {
+      account.oauthKey = randomUUID();
     }
     const storedCfg = connectorAccountServer({ connector }, account);
-    await storeOAuthClientSecret(input, storedCfg);
-    await storeGmailAppPassword(input, storedCfg, true);
-    forgetConnectorAccountHealth(accountName);
     let target = serverName;
-    if (cfg) {
-      servers[serverName] = { ...cfg, accounts: [...connectorAccountsOf(cfg), account] };
-    } else {
-      // The server's own settings (timeouts, enabled) ride on the input.
-      const { type: _type, url: _url, headers: _headers, oauthClientId: _client, ...rest } = accountCfg;
-      target = name;
-      servers[name] = { ...rest, type: 'http', url: connectorAccountsUrl(connector), connector, accounts: [account] };
+    // Its secrets and its config land together: a failed step takes back the secrets.
+    try {
+      await storeOAuthClientSecret(input, storedCfg);
+      await storeGmailAppPassword(input, storedCfg, true);
+      if (cfg) {
+        servers[serverName] = { ...cfg, accounts: [...connectorAccountsOf(cfg), account] };
+      } else {
+        // The server's own settings (timeouts, enabled) ride on the input.
+        target = name;
+        servers[name] = {
+          ...connectorServerSettings(accountCfg),
+          type: 'http',
+          url: connectorAccountsUrl(connector),
+          connector,
+          accounts: [account],
+        };
+      }
+      saveServers(servers);
+    } catch (error) {
+      await forgetStoredSecrets(storedCfg);
+      throw error;
     }
-    saveServers(servers);
+    forgetConnectorAccountHealth(accountName);
     const status = await sync.reconnectMcpAndAnnounce({ only: target, enabled: servers[target].enabled !== false });
     return { name: target, account: accountName, status };
   }
@@ -116,7 +129,7 @@ export function createConnectorAccountEdits({
     await storeOAuthClientSecret(input, next, accountCfg);
     await storeGmailAppPassword(input, next, false);
     // Settings that are not the account's transport (timeouts) are the server's.
-    const { type: _type, url: _url, headers: _headers, oauthClientId: _client, ...serverFields } = config;
+    const serverFields = connectorServerSettings(config);
     const server = { ...cfg };
     for (const group of MCP_TIMEOUT_FIELD_GROUPS) {
       if (group.some((field) => Object.hasOwn(serverFields, field))) for (const field of group) delete server[field];

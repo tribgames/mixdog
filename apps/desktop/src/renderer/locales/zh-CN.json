@@ -172,7 +172,6 @@
   "{{name}} finished a command": "{{name}} 完成命令",
   "{{name}} has a failure": "{{name}} 出现故障",
   "{{name}} has new activity": "{{name}} 有新活动",
-  "{{name}} has no documented way to ask for another account. To switch, sign out or change accounts on the {{name}} website first, then use Switch account.": "{{name}} 没有官方提供的选择其他账号的方式。如需切换，请先在 {{name}} 网站退出或切换账号，然后使用“切换账号”。",
   "{{name}} is running": "{{name}} 运行中",
   "{{name}} is running a command": "{{name}} 正在运行命令",
   "{{name}} is turned off. Its sign-in is kept.": "已关闭 {{name}}。登录信息会保留。",

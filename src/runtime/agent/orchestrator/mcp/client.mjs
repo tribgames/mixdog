@@ -25,6 +25,7 @@ import { currentToolExecutionOwner } from '../../../shared/tool-execution-owner.
 import { positiveInt } from '../../../shared/numbers.mjs';
 import {
   providerSafeMcpToolName,
+  resolveMcpOAuthCredentialKey,
   resolveMcpOAuthUrl,
   resolveMcpRequestTimeouts,
   resolveMcpTransportKind,
@@ -39,6 +40,7 @@ import { mcpOAuthClientFor, mcpOAuthDisplayName } from './oauth-client.mjs';
 import { googleMcpService, withGoogleMcp } from '../../../connectors/google-mcp.mjs';
 import { gmailAppPasswordService } from '../../../connectors/gmail-app-password.mjs';
 import { connectorLiveAccountServers } from '../../../shared/connector-catalog.mjs';
+import { CONVERSATION_META } from '../../../connectors/connector-accounts-mcp.mjs';
 import {
   clearMcpOAuth,
   commitMcpOAuthSwitch,
@@ -503,10 +505,15 @@ export async function executeMcpTool(name, args, options = {}) {
   const serverName = server.name;
   const toolName = definition?.mcpToolName || match[2];
   const callSignal = options?.signal || null;
+  // A connector server's call names the conversation it is made in: its
+  // account default, and the account it makes the last used.
+  const conversation = String(options?.conversation || '').trim();
+  const metaFor = (target) =>
+    conversation && target.transport?.connectorAccounts ? { [CONVERSATION_META]: conversation } : undefined;
   const dispatch = (target) =>
     definition?.mcpOperation
       ? _callMcpFeatureWithTimeout(target, definition.mcpOperation, args, callSignal)
-      : _callToolWithTimeout(target, toolName, args, callSignal);
+      : _callToolWithTimeout(target, toolName, args, callSignal, metaFor(target));
   let retryServer = null;
   const secrets = () => oauthSecrets(server.transport, retryServer?.transport);
   const gate = callAdmissionFor(server);
@@ -999,7 +1006,7 @@ export function raceMcpAbort(promise, signal, message) {
   });
 }
 
-async function _callToolWithTimeout(server, toolName, args, signal = null) {
+async function _callToolWithTimeout(server, toolName, args, signal = null, meta = undefined) {
   // The request's signal goes INTO the SDK: an aborted caller (or our own
   // timeout) cancels the live JSON-RPC request (notifications/cancelled)
   // instead of merely walking away from it. The abort race additionally frees
@@ -1008,7 +1015,8 @@ async function _callToolWithTimeout(server, toolName, args, signal = null) {
   return runMcpRequest(
     server,
     signal,
-    (options) => server.client.callTool({ name: toolName, arguments: args }, undefined, options),
+    (options) =>
+      server.client.callTool({ name: toolName, arguments: args, ...(meta ? { _meta: meta } : {}) }, undefined, options),
     {
       abortMessage: `MCP tool call aborted (server="${server?.name}", tool="${toolName}")`,
       timeoutMessage: (ms) =>
@@ -1118,6 +1126,24 @@ export function isMcpTool(name) {
 /** True when the prefixed name exists on a connected MCP server. */
 export function isRegisteredMcpTool(name, scopeId = DEFAULT_MCP_SCOPE_ID) {
   return Boolean(resolveMcpToolTarget(scopeId, name)?.definition);
+}
+/**
+ * The account (`{ name, label }`: its unique name, which binds a call to it,
+ * and what it is shown as) a call of the prefixed tool `name` with `args`
+ * would use on its connector server, made in `conversation`
+ * (connectors/connector-accounts-mcp.mjs): the one `args.account` names, else
+ * the one used last. Null when the tool's server holds no accounts. Throws the
+ * refusal (usable accounts listed) when that account cannot be used.
+ */
+export function resolveMcpToolAccount(name, args, { scopeId = DEFAULT_MCP_SCOPE_ID, conversation = '' } = {}) {
+  const target = resolveMcpToolTarget(normalizeMcpScopeId(scopeId), name);
+  const accounts = target?.server?.transport?.connectorAccounts;
+  if (!accounts || target.definition?.mcpOperation) return null;
+  return accounts.choose({
+    tool: target.definition?.mcpToolName || MCP_TOOL_NAME_RE.exec(name)?.[2],
+    wanted: args?.account,
+    conversation: String(conversation || '').trim(),
+  });
 }
 /** True when the prefixed name is `read_email` of a server whose every
  *  endpoint Mixdog answers in-process (the Gmail app-password connector,
@@ -1272,18 +1298,19 @@ export function isMcpLoginPending(name, options = {}) {
  * for servers that never use MCP OAuth.
  */
 export function getMcpServerOAuthState(cfg) {
-  let url;
+  let key;
   try {
-    url = resolveMcpOAuthUrl(cfg);
+    key = resolveMcpOAuthCredentialKey(cfg);
   } catch {
     return null;
   }
-  if (!url || hasConfiguredMcpAuth(cfg)) return null;
-  const signedIn = hasStoredMcpOAuthTokens(url);
+  if (!key || hasConfiguredMcpAuth(cfg)) return null;
+  const url = resolveMcpOAuthUrl(cfg);
+  const signedIn = hasStoredMcpOAuthTokens(url, key);
   if (!signedIn) return { signedIn };
   // Who it is signed in as (never guessed: empty when the server named nobody)
   // and whether 계정 바꾸기 can make the provider show its account choice.
-  const who = storedMcpOAuthIdentity(url);
+  const who = storedMcpOAuthIdentity(url, key);
   return {
     signedIn,
     account: typeof who?.account === 'string' ? who.account : '',
@@ -1298,32 +1325,38 @@ export function startMcpServerOAuthSwitch(cfg, launch, serverName) {
   if (!url) throw new Error(`MCP server "${serverName}" does not use OAuth sign-in`);
   return startMcpOAuthSwitch({
     url,
+    credentialKey: resolveMcpOAuthCredentialKey(cfg),
     launch,
     serverName: mcpOAuthDisplayName(cfg, serverName),
     oauthClient: mcpOAuthClientFor(cfg, url),
     ...(googleMcpService(url) ? { fetchImpl: withGoogleMcp() } : {}),
   });
 }
-/** Store a switch's sign-in for the server's URL; resolves its rollback. */
+/** Store a switch's sign-in as the server's (its URL's, or its own key's);
+ *  resolves its rollback. */
 export function commitMcpServerOAuthSwitch(cfg, signIn) {
-  return commitMcpOAuthSwitch({ url: resolveMcpOAuthUrl(cfg), signIn });
+  return commitMcpOAuthSwitch({
+    url: resolveMcpOAuthUrl(cfg),
+    credentialKey: resolveMcpOAuthCredentialKey(cfg),
+    signIn,
+  });
 }
 /**
- * Log out of an HTTP/SSE server URL: delete the OAuth tokens and client
- * registration stored for it, shared by every server configured with that
- * exact URL, and drop them from live connections. `options.revoke` also
- * revokes the grant where the authorization server documents how; resolves
- * `{ revoked }`.
+ * Log out of an HTTP/SSE server: delete the OAuth tokens and client
+ * registration stored for it (shared by every server configured with that
+ * exact URL, unless it has its own credential key), and drop them from live
+ * connections. `options.revoke` also revokes the grant where the
+ * authorization server documents how; resolves `{ revoked }`.
  */
 export async function clearMcpServerOAuth(cfg, options = {}) {
-  let url;
+  let key;
   try {
-    url = resolveMcpOAuthUrl(cfg);
+    key = resolveMcpOAuthCredentialKey(cfg);
   } catch {
     // A config without a valid remote URL never connected, so never logged in.
     return { revoked: false };
   }
-  if (url) return clearMcpOAuth({ url, revoke: options.revoke === true });
+  if (key) return clearMcpOAuth({ url: resolveMcpOAuthUrl(cfg), credentialKey: key, revoke: options.revoke === true });
   return { revoked: false };
 }
 /**

@@ -6,8 +6,8 @@ import {
   gmailAppPasswordValue,
   connectorAccountServers,
 } from '../runtime/shared/connector-catalog.mjs';
-import { forgetConnectorAccountHealth } from '../runtime/connectors/connector-accounts-mcp.mjs';
-import { oauthUrlOf } from './resource-mcp-servers.mjs';
+import { forgetConnectorAccountHealth, retireConnectorAccount } from '../runtime/connectors/connector-accounts-mcp.mjs';
+import { oauthCredentialOf } from './resource-mcp-servers.mjs';
 
 /** Every config `servers` connects with, a multi-account server's accounts
  *  as the one-account configs they are. */
@@ -44,15 +44,16 @@ export function createMcpServerSecrets({
     }
   };
   // A server's OAuth tokens and client registration go with it, unless another
-  // configured server (plugin or disabled ones included, even with MCP
-  // disabled for this runtime) still uses them through the same exact URL.
-  // `signIn` tells the caller what happened to the sign-in: `removed` (local
-  // secrets deleted, `revoked` when the provider confirmed the revocation
-  // too), `shared` (another server still uses it), or none (null).
+  // configured server or account (plugin or disabled ones included, even with
+  // MCP disabled for this runtime) still uses them through the same exact URL
+  // (or the same account key). `signIn` tells the caller what happened to the
+  // sign-in: `removed` (local secrets deleted, `revoked` when the provider
+  // confirmed the revocation too), `shared` (another server still uses it),
+  // or none (null).
   const releaseOAuth = async (cfg) => {
-    const url = oauthUrlOf(cfg);
-    if (!url) return null;
-    if (expandedConfigs(resolveConfiguredMcpCatalog().servers).some((other) => oauthUrlOf(other) === url)) {
+    const key = oauthCredentialOf(cfg);
+    if (!key) return null;
+    if (expandedConfigs(resolveConfiguredMcpCatalog().servers).some((other) => oauthCredentialOf(other) === key)) {
       return { signIn: 'shared', revoked: false };
     }
     const { revoked = false } = (await clearMcpServerOAuth(cfg, { revoke: true })) || {};
@@ -66,10 +67,19 @@ export function createMcpServerSecrets({
     await gmailAppPassword.forget(account);
     return true;
   };
+  // What storeOAuthClientSecret / storeGmailAppPassword stored for `cfg`, gone
+  // again unless a configured server uses it (an add that was not saved).
+  const forgetStoredSecrets = async (cfg) => {
+    await forgetUnusedGmailAppPassword(gmailAppPasswordAccount(cfg));
+    if (!cfg?.url || !cfg.oauthClientId) return;
+    const servers = expandedConfigs(resolveConfiguredMcpCatalog().servers);
+    if (!servers.some((other) => other.url === cfg.url && other.oauthClientId)) await saveOAuthClientSecret(cfg.url, '');
+  };
   // A removed account keeps no sign-in another configured server or account
   // does not share: `{ signIn, revoked }` as removeMcpServer reports it.
   const releaseAccount = async (accountCfg) => {
     forgetConnectorAccountHealth(accountCfg.name);
+    retireConnectorAccount(accountCfg.connector, accountCfg.name);
     const address = gmailAppPasswordAccount(accountCfg);
     if (address) {
       const forgotten = await forgetUnusedGmailAppPassword(address);
@@ -78,5 +88,12 @@ export function createMcpServerSecrets({
     return releaseOAuth(accountCfg);
   };
 
-  return { storeOAuthClientSecret, storeGmailAppPassword, releaseOAuth, forgetUnusedGmailAppPassword, releaseAccount };
+  return {
+    storeOAuthClientSecret,
+    storeGmailAppPassword,
+    releaseOAuth,
+    forgetUnusedGmailAppPassword,
+    forgetStoredSecrets,
+    releaseAccount,
+  };
 }

@@ -139,11 +139,13 @@ export function createHeldRequests({
       tool: request.name,
       target: request.outbound?.target || '',
       reason: request.reason || '',
+      // The connector account the call is bound to (tool-exec.mjs).
+      account: request.account,
       ...(request.kind === 'outbound'
         ? {
             payload: request.outbound?.payload || '',
             action: request.outbound?.category,
-            account: request.outbound?.account,
+            account: request.outbound?.account || request.account,
             editable: request.outbound?.editable,
             details: request.outbound?.details,
           }

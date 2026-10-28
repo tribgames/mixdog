@@ -66,6 +66,29 @@ test('a held request is delivered to the owner, pushed without any text, and ans
   assert.equal(h.audits[0][1].device, 'Pixel');
 });
 
+test('a held connector call names the account it is bound to', async () => {
+  const h = harness();
+  const answer = h.held.hold({
+    name: 'mcp__notion__search',
+    args: { query: 'x', account: 'work@example.com' },
+    account: 'work@example.com',
+    sessionId: 'sess_run',
+    reason: 'This connector tool is set to ask before it runs for this agent.',
+  });
+  await Promise.resolve();
+  const [[, row]] = h.delivered;
+  assert.equal(row.kind, 'approval');
+  assert.equal(row.account, 'work@example.com');
+  h.held.resolve(row.id, { approved: false });
+  await answer;
+  // An outbound card's own account (what the gate read) comes first.
+  const outbound = h.held.hold({ ...outboundRequest, account: 'bound' });
+  await Promise.resolve();
+  assert.equal(h.delivered.at(-1)[1].account, 'github.com');
+  h.held.resolve(h.delivered.at(-1)[1].id, { approved: false });
+  await outbound;
+});
+
 test('a held row offers exactly the scopes the gate offered, and a scope it did not offer counts as once', async () => {
   const h = harness();
   const answer = h.held.hold(outboundRequest);

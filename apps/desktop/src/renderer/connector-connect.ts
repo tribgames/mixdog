@@ -24,7 +24,6 @@ import {
   type ConnectorLoginPhase,
   PENDING_LOGIN_PHASES,
   connectorAccountRows,
-  uniqueServerName,
 } from './connectors-model';
 import { isScopeNotGrantedError, mcpErrorSummary } from './settings/mcp-editor-dialog';
 import { friendlyCapabilityError } from './settings/remote-capability-guard';
@@ -486,13 +485,7 @@ export async function connectCatalogConnector(
           ? ofConnector.find((server) => appPasswordAccount(server) === address)
           : undefined
         : ofConnector[0];
-    const extraAccount = add && !existing && ofConnector.length > 0;
-    name = existing
-      ? String(existing.name)
-      : uniqueServerName(
-          entry.id,
-          servers.map((server) => String(server.name))
-        );
+    name = existing ? String(existing.name) : '';
     if (!states.get(placeholder)) return;
     // A Gmail already on an app password reconnects as it is; the Google
     // sign-in replaces it only after 연결 해제.
@@ -506,14 +499,18 @@ export async function connectCatalogConnector(
     if (viaOAuth && needsOwnGoogleClient(entry, existing, googleClient)) {
       throw new Error(ownGoogleClientNote());
     }
-    const input = appPassword
-      ? gmailAppPasswordServerInput(name, appPassword.email, appPassword.password)
-      : !existing
-        ? connectorServerInput(entry, name, key, { extraAccount })
-        : null;
     if (!existing) {
-      await invoke('addMcpServer', [input]);
+      // The host picks a free account name; that account is what signs in.
+      const added = await invoke<Row>('addConnectorAccount', [
+        {
+          connector: entry.id,
+          ...(key ? { key } : {}),
+          ...(appPassword ? { email: appPassword.email, appPassword: appPassword.password } : {}),
+        },
+      ]);
+      name = String(added?.account ?? '');
     } else {
+      const input = appPassword ? gmailAppPasswordServerInput(name, appPassword.email, appPassword.password) : null;
       if (input) {
         // From the Google sign-in to an app password: the host drops the old
         // sign-in once the new connection is saved.

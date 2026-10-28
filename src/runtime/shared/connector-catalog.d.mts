@@ -40,8 +40,7 @@ export function connectorToolDefault(connectorId: string, tool: string): 'auto' 
 export function connectorServerInput(
   entry: ConnectorCatalogEntry,
   name: string,
-  key?: string,
-  options?: { extraAccount?: boolean }
+  key?: string
 ): Record<string, unknown>;
 export function connectorAppPasswordOnly(entry: ConnectorCatalogEntry | null | undefined): boolean;
 export function connectorUsesGoogleClient(entry: ConnectorCatalogEntry | null | undefined): boolean;
@@ -52,12 +51,19 @@ export function gmailAppPasswordValue(value: unknown): string;
 export function gmailAppPasswordAccount(cfg: unknown): string;
 export function gmailAppPasswordServerInput(name: string, email: string, password: string): Record<string, unknown>;
 
-/** One stored account of a multi-account connector server. */
+/** One stored account of a connector server. */
 export interface ConnectorAccountEntry {
   name: string;
-  url: string;
+  /** Absent: http. */
+  type?: string;
+  url?: string;
   headers?: Record<string, string>;
   oauthClientId?: string;
+  /** The account's own sign-in key, when another account signs in at its URL. */
+  oauthKey?: string;
+  command?: string;
+  args?: string[];
+  env?: Record<string, string>;
   /** `false`: the account is kept but neither connected nor called. */
   enabled?: boolean;
 }
@@ -76,6 +82,7 @@ export function withConnectorAccountEnabled(
   enabled: boolean
 ): Record<string, unknown>;
 export function connectorAccountEntry(name: string, cfg: Record<string, unknown>): ConnectorAccountEntry;
+export function connectorServerSettings(cfg: Record<string, unknown>): Record<string, unknown>;
 export function mergeConnectorAccountServers(servers: Record<string, unknown>): {
   servers: Record<string, unknown>;
   merged: { connector: string; name: string; from: string[] }[];

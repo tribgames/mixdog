@@ -231,9 +231,10 @@ test('the catalog OAuth row goes 연결 → browser sign-in → 연결됨, and a
   calls.length = 0;
   handlers = {
     mcpStatus: () => ({ servers: live }),
-    addMcpServer: (input) => {
-      live = [...live, { name: input.name, connector: input.connector, enabled: true, authRequired: true }];
-      return { name: input.name };
+    // The host picks the free account name, whatever the custom servers hold.
+    addConnectorAccount: (input) => {
+      live = [...live, { name: 'notion-2', connector: input.connector, enabled: true, authRequired: true }];
+      return { name: 'notion', account: 'notion-2' };
     },
     beginMcpOAuthLogin: () => ({ flowId: 'f1', state: 'pending', url: 'https://mcp.notion.com/authorize' }),
     getMcpOAuthLoginStatus: () => ({
@@ -245,9 +246,10 @@ test('the catalog OAuth row goes 연결 → browser sign-in → 연결됨, and a
   };
   const notion = connectorById('notion');
   await connectCatalogConnector(notion);
-  const added = calls.find(([capability]) => capability === 'addMcpServer')[1][0];
-  assert.equal(added.name, 'notion-2', 'the custom "notion" server keeps its name');
+  const added = calls.find(([capability]) => capability === 'addConnectorAccount')[1][0];
   assert.equal(added.connector, 'notion');
+  assert.ok(!calls.some(([capability]) => capability === 'addMcpServer'));
+  assert.deepEqual(calls.find(([capability]) => capability === 'beginMcpOAuthLogin')[1], ['notion-2']);
   assert.equal(connectorLoginState('notion-2').phase, 'browser');
 
   // The row shows the inline sign-in with 취소.
@@ -275,7 +277,7 @@ test('the catalog OAuth row goes 연결 → browser sign-in → 연결됨, and a
   flowState = 'complete';
   live = live.map((server) => (server.name === 'notion-2' ? { ...server, connected: true } : server));
   await connectCatalogConnector(notion);
-  assert.ok(!calls.some(([capability]) => capability === 'addMcpServer'));
+  assert.ok(!calls.some(([capability]) => capability === 'addConnectorAccount'));
   assert.deepEqual(calls.find(([capability]) => capability === 'beginMcpOAuthLogin')[1], ['notion-2']);
   await new Promise((resolve) => setTimeout(resolve, 700));
   assert.equal(connectorLoginState('notion-2').phase, 'connected');
@@ -468,7 +470,7 @@ test('a catalog 연결 changes the row on the click itself, before the host made
   let addServer;
   handlers = {
     mcpStatus: () => ({ servers: [] }),
-    addMcpServer: () =>
+    addConnectorAccount: () =>
       new Promise((resolve) => {
         addServer = resolve;
       }),
@@ -487,7 +489,7 @@ test('a catalog 연결 changes the row on the click itself, before the host made
   assert.equal(row.querySelector('.extensions-action').textContent, 'Cancel');
   // 취소 before the server exists: nothing more happens.
   await act(async () => row.querySelector('.extensions-action').click());
-  addServer({ name: 'sentry' });
+  addServer({ name: 'sentry', account: 'sentry' });
   await settle();
   assert.equal(connectorLoginState('', 'sentry'), null);
   assert.ok(!calls.some(([capability]) => capability === 'beginMcpOAuthLogin'), 'no browser sign-in starts');
@@ -685,15 +687,21 @@ test('one Gmail server holding several accounts: one row per account, each added
     { add: true }
   );
   assert.equal(calls.find(([capability]) => capability === 'saveMcpServer')[1][0].originalName, 'gmail-2');
-  // A new address is one more account, under a name no account has.
+  // A new address is one more account; the host names it.
   calls.length = 0;
+  handlers.addConnectorAccount = () => ({ name: 'gmail', account: 'gmail-4' });
   await connectCatalogConnector(
     connectorById('gmail'),
     '',
     { email: 'new@gmail.com', password: 'abcdwxyzabcdwxyz' },
     { add: true }
   );
-  assert.equal(calls.find(([capability]) => capability === 'addMcpServer')[1][0].name, 'gmail-4');
+  assert.deepEqual(calls.find(([capability]) => capability === 'addConnectorAccount')[1][0], {
+    connector: 'gmail',
+    email: 'new@gmail.com',
+    appPassword: 'abcdwxyzabcdwxyz',
+  });
+  assert.ok(!calls.some(([capability]) => capability === 'addMcpServer'));
 
   calls.length = 0;
   const pane = await render(
@@ -726,7 +734,7 @@ test('a sign-in connector: clicking its unconnected row starts the sign-in at on
   calls.length = 0;
   handlers = {
     mcpStatus: () => ({ servers: [] }),
-    addMcpServer: () => ({}),
+    addConnectorAccount: () => ({ name: 'linear', account: 'linear' }),
     beginMcpOAuthLogin: () => ({ flowId: 'f9', state: 'pending', url: 'https://mcp.linear.app/authorize' }),
     getMcpOAuthLoginStatus: () => ({ flowId: 'f9', state: 'pending' }),
     cancelMcpOAuthLogin: () => ({ state: 'cancelled' }),
@@ -809,9 +817,9 @@ test('Google Calendar and Drive sign-ins tell the user to check every box; other
     calls.length = 0;
     handlers = {
       mcpStatus: () => ({ servers: live, googleClient: true }),
-      addMcpServer: (input) => {
-        live = [...live, { name: input.name, connector: input.connector, enabled: true, authRequired: true }];
-        return { name: input.name };
+      addConnectorAccount: (input) => {
+        live = [...live, { name: input.connector, connector: input.connector, enabled: true, authRequired: true }];
+        return { name: input.connector, account: input.connector };
       },
       beginMcpOAuthLogin: () => ({ flowId: `f-${id}`, state: 'pending', url: 'https://accounts.google.com/auth' }),
       getMcpOAuthLoginStatus: () => ({ flowId: `f-${id}`, state: 'pending', step: 'browser' }),
@@ -849,9 +857,9 @@ test('a scopeNotGranted failure row shows the short instruction whole, with the 
   let live = [];
   handlers = {
     mcpStatus: () => ({ servers: live, googleClient: true }),
-    addMcpServer: (input) => {
-      live = [{ name: input.name, connector: input.connector, enabled: true, authRequired: true }];
-      return { name: input.name };
+    addConnectorAccount: (input) => {
+      live = [{ name: input.connector, connector: input.connector, enabled: true, authRequired: true }];
+      return { name: input.connector, account: input.connector };
     },
     beginMcpOAuthLogin: () => ({ flowId: 'g1', state: 'pending', url: 'https://accounts.google.com/o/oauth2/auth' }),
     getMcpOAuthLoginStatus: () => ({
@@ -976,9 +984,15 @@ test('without the built-in Google client a second account asks for a key first a
     getMcpServerConfig: () => ({ oauthClientId: 'mine.apps.googleusercontent.com' }),
     signOutMcpServer: () => ({}),
     saveMcpServer: () => ({}),
-    addMcpServer: (input) => {
-      live.push({ name: input.name, connector: input.connector, enabled: true, authRequired: true, ownClient: true });
-      return { name: input.name };
+    addConnectorAccount: (input) => {
+      live.push({
+        name: 'google-calendar-2',
+        connector: input.connector,
+        enabled: true,
+        authRequired: true,
+        ownClient: true,
+      });
+      return { name: 'google-calendar', account: 'google-calendar-2' };
     },
     beginMcpOAuthLogin: () => ({ flowId: 'k1', state: 'pending', url: 'https://accounts.google.com/x' }),
     getMcpOAuthLoginStatus: () => ({ flowId: 'k1', state: 'pending' }),
@@ -999,17 +1013,15 @@ test('without the built-in Google client a second account asks for a key first a
   await settle();
   const keyDialog = document.body.querySelector('.connectors-key-dialog');
   assert.ok(keyDialog, 'the own-key dialog opens instead of a doomed sign-in');
-  assert.ok(!calls.some(([capability]) => ['addMcpServer', 'beginMcpOAuthLogin'].includes(capability)));
+  assert.ok(!calls.some(([capability]) => ['addConnectorAccount', 'beginMcpOAuthLogin'].includes(capability)));
 
   // The downloaded client file is picked: the dialog applies it at once.
   const picker = keyDialog.querySelector('input[type="file"]');
   Object.defineProperty(picker, 'files', { configurable: true, value: [{ text: async () => CLIENT_FILE }] });
   await act(async () => picker.dispatchEvent(new window.Event('change', { bubbles: true })));
   await settle(30);
-  const added = calls.filter(([capability]) => capability === 'addMcpServer').map(([, args]) => args[0]);
+  const added = calls.filter(([capability]) => capability === 'addConnectorAccount').map(([, args]) => args[0]);
   const second = added.find((input) => input.connector === 'google-calendar');
-  assert.equal(second.name, 'google-calendar-2');
-  assert.equal(second.url, 'https://calendar.mixdog.invalid/mcp?account=google-calendar-2');
   assert.equal(second.oauthClientId, 'mine.apps.googleusercontent.com');
   assert.ok(
     !calls.some(([capability]) => ['signOutMcpServer', 'saveMcpServer'].includes(capability)),
@@ -1119,4 +1131,113 @@ test('a custom MCP server cannot take a connector account name; the refusal name
   assert.match(document.body.textContent, /The name "gmail-2" is used by a Gmail account\. Choose another name\./);
   assert.doesNotMatch(document.body.textContent, /already exists/);
   await create.unmount();
+});
+
+test('every catalog connector shows + Add account; "In use" marks only the inUse account; no single-account hint', async () => {
+  const live = [
+    {
+      name: 'notion',
+      connector: 'notion',
+      enabled: true,
+      connected: true,
+      status: 'connected',
+      source: 'config',
+      accounts: [
+        { name: 'notion', oauth: { signedIn: true, account: 'me@work.com' } },
+        { name: 'notion-2', oauth: { signedIn: true, account: 'me@personal.com' }, inUse: true },
+      ],
+    },
+    {
+      name: 'linear',
+      connector: 'linear',
+      enabled: true,
+      connected: true,
+      status: 'connected',
+      source: 'config',
+      accounts: [{ name: 'linear', oauth: { signedIn: true, account: 'a@b.com' } }],
+    },
+  ];
+  calls.length = 0;
+  handlers = {
+    mcpStatus: () => ({ servers: live }),
+    addConnectorAccount: () => ({ name: 'linear', account: 'linear-2' }),
+    beginMcpOAuthLogin: () => ({ flowId: 'ia', state: 'pending', url: 'https://mcp.linear.app/authorize' }),
+    getMcpOAuthLoginStatus: () => ({ flowId: 'ia', state: 'pending' }),
+    cancelMcpOAuthLogin: () => ({ state: 'cancelled' }),
+  };
+  const pane = await render(
+    React.createElement(CategoryPanel, {
+      category: 'connectors',
+      context: panelContext({ data: { mcp: { servers: live }, plugins: { plugins: [] }, __loadedSections: ['mcp'] } }),
+    })
+  );
+  await click(rowOf(pane.host, 'notion').querySelector('.extensions-row-open'));
+  const dialog = document.body.querySelector('.connectors-detail-dialog');
+  const items = [...dialog.querySelectorAll('.extensions-item')];
+  assert.equal(items.length, 2);
+  assert.equal(items[0].querySelector('.connectors-in-use'), null);
+  assert.equal(items[1].querySelector('.connectors-in-use').textContent, 'In use');
+  assert.doesNotMatch(dialog.textContent, /no documented way to ask for another account/);
+  await click(button(dialog, 'Close'));
+
+  await click(rowOf(pane.host, 'linear').querySelector('.extensions-row-open'));
+  const single = document.body.querySelector('.connectors-detail-dialog');
+  assert.doesNotMatch(single.textContent, /no documented way to ask for another account/);
+  await click(button(single, '+ Add account'));
+  await settle();
+  assert.deepEqual(calls.find(([capability]) => capability === 'addConnectorAccount')[1], [{ connector: 'linear' }]);
+  assert.deepEqual(calls.find(([capability]) => capability === 'beginMcpOAuthLogin')[1], ['linear-2']);
+  cancelConnectorLogin('linear-2');
+  await pane.unmount();
+});
+
+test('an API-key or connection-string connector adds an account through its credential dialog', async () => {
+  const mk = (id) => ({
+    name: id,
+    connector: id,
+    enabled: true,
+    connected: true,
+    status: 'connected',
+    source: 'config',
+    accounts: [{ name: id }],
+  });
+  const live = [mk('stripe'), mk('postgres')];
+  handlers = {
+    mcpStatus: () => ({ servers: live }),
+    addConnectorAccount: (input) => ({ name: input.connector, account: `${input.connector}-2` }),
+  };
+  const pane = await render(
+    React.createElement(CategoryPanel, {
+      category: 'connectors',
+      context: panelContext({ data: { mcp: { servers: live }, plugins: { plugins: [] }, __loadedSections: ['mcp'] } }),
+    })
+  );
+  for (const [id, secret] of [
+    ['stripe', 'rk_test_123'],
+    ['postgres', 'postgres://u:p@h/db'],
+  ]) {
+    calls.length = 0;
+    await click(rowOf(pane.host, id).querySelector('.extensions-row-open'));
+    await click(button(document.body.querySelector('.connectors-detail-dialog'), '+ Add account'));
+    await settle();
+    assert.ok(!calls.some(([capability]) => capability === 'addConnectorAccount'), 'nothing is sent before the key');
+    const sheet = document.body.querySelector('.connectors-key-dialog');
+    assert.ok(sheet, `${id} opens its credential dialog`);
+    const input = sheet.querySelector('[name="connector-key"]');
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    await act(async () => {
+      setter.call(input, secret);
+      input.dispatchEvent(new window.Event('input', { bubbles: true }));
+    });
+    globalThis.FormData = window.FormData;
+    await act(async () => {
+      sheet.querySelector('form').dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await settle(30);
+    assert.deepEqual(calls.find(([capability]) => capability === 'addConnectorAccount')[1], [
+      { connector: id, key: secret },
+    ]);
+    assert.equal(document.body.querySelector('.connectors-key-dialog'), null, 'the dialog closes');
+  }
+  await pane.unmount();
 });

@@ -286,7 +286,6 @@
   "{{name}} finished a command": "{{name}} завершил команду",
   "{{name}} has a failure": "{{name}} произошел сбой",
   "{{name}} has new activity": "У {{name}} новая активность",
-  "{{name}} has no documented way to ask for another account. To switch, sign out or change accounts on the {{name}} website first, then use Switch account.": "У {{name}} нет документированного способа выбрать другой аккаунт. Чтобы сменить его, сначала выйдите или смените аккаунт на сайте {{name}}, затем нажмите «Сменить аккаунт».",
   "{{name}} is running": "{{name}} выполняется",
   "{{name}} is running a command": "{{name}} выполняет команду",
   "{{name}} is turned off. Its sign-in is kept.": "{{name}} выключен. Данные входа сохранены.",

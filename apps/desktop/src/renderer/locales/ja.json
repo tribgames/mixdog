@@ -172,7 +172,6 @@
   "{{name}} finished a command": "{{name}} がコマンドを終了しました",
   "{{name}} has a failure": "{{name}} に障害があります",
   "{{name}} has new activity": "{{name}}に新しいアクティビティ",
-  "{{name}} has no documented way to ask for another account. To switch, sign out or change accounts on the {{name}} website first, then use Switch account.": "{{name}} には別のアカウントを選ばせる公式の方法がありません。切り替えるには、先に {{name}} の Web サイトでサインアウトするかアカウントを切り替えてから、「アカウントを切り替え」を使ってください。",
   "{{name}} is running": "{{name}}は実行中",
   "{{name}} is running a command": "{{name}} はコマンドを実行しています",
   "{{name}} is turned off. Its sign-in is kept.": "{{name}} をオフにしました。サインイン情報は保持されます。",

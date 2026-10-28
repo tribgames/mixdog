@@ -172,7 +172,6 @@
   "{{name}} finished a command": "{{name}}에서 명령을 완료했습니다.",
   "{{name}} has a failure": "{{name}}에서 오류가 발생했습니다.",
   "{{name}} has new activity": "{{name}}에 새 활동이 있음",
-  "{{name}} has no documented way to ask for another account. To switch, sign out or change accounts on the {{name}} website first, then use Switch account.": "{{name}}은(는) 다른 계정을 고르게 하는 공식 방법이 없습니다. 바꾸려면 먼저 {{name}} 웹사이트에서 로그아웃하거나 계정을 바꾼 뒤 계정 바꾸기를 누르세요.",
   "{{name}} is running": "{{name}} 실행 중",
   "{{name}} is running a command": "{{name}}에서 명령을 실행 중입니다.",
   "{{name}} is turned off. Its sign-in is kept.": "{{name}}을(를) 껐습니다. 로그인 정보는 유지됩니다.",

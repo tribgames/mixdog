@@ -83,6 +83,11 @@ export const DESKTOP_CAPABILITIES = [
   'getMcpServerConfig',
   'reconnectMcp',
   'addMcpServer',
+  // addConnectorAccount({ connector, key?, email?, appPassword?, oauthClientId?,
+  // oauthClientSecret? }) → `{ name, account, status }`: one more account of any
+  // catalog connector, inside its one server (a sign-in service's account then
+  // signs in with beginMcpOAuthLogin(account)).
+  'addConnectorAccount',
   'saveMcpServer',
   'removeMcpServer',
   'setMcpServerEnabled',

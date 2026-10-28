@@ -5,6 +5,7 @@ import test from 'node:test';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { SSEClientTransport } from '@modelcontextprotocol/sdk/client/sse.js';
+import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import keychain from '../../../../lib/keychain-cjs.cjs';
 import { connectorAccountHealth } from '../../../connectors/connector-accounts-mcp.mjs';
 import { gmailAppPasswordSecretAccount } from '../../../connectors/gmail-app-password.mjs';
@@ -12,6 +13,7 @@ import { GMAIL_APP_PASSWORD, withConnectorAccountEnabled } from '../../../shared
 import { createMcpTransport } from './client-transport.mjs';
 import { mcpOAuthClientSecretAccount } from './oauth-client.mjs';
 
+const SDK = { Client, StreamableHTTPClientTransport, SSEClientTransport, StdioClientTransport };
 const APP_PASSWORD = 'abcdwxyzabcdwxyz';
 const CLIENT_SECRET = 'client-secret-do-not-leak';
 const ADDRESS = 'me@example.com';
@@ -82,7 +84,7 @@ test('a multi-account server lists tools, flags the signed-out account, and leak
         { name: 'gmail-2', url: oauthUrl, oauthClientId: 'client-id' },
       ],
     },
-    sdk: { StreamableHTTPClientTransport, SSEClientTransport },
+    sdk: SDK,
     log: () => {},
     oauthOptions: {
       credentialStore: {
@@ -97,9 +99,11 @@ test('a multi-account server lists tools, flags the signed-out account, and leak
   t.after(() => client.close());
   await client.connect(transport);
 
+  // The tools the app-password account's own server lists.
   const listed = await client.listTools();
-  assert.ok(listed.tools.length > 0);
+  assert.ok(listed.tools.some((tool) => tool.name === 'search_emails'));
   assert.ok(listed.tools.every((tool) => tool.inputSchema.properties.account));
+  assert.ok(!listed.tools.some((tool) => tool.name === 'describe_emails'), 'the approval-only tool stays unlisted');
 
   const failing = connectorAccountHealth('gmail-2');
   assert.equal(failing.authRequired, true);
@@ -107,10 +111,13 @@ test('a multi-account server lists tools, flags the signed-out account, and leak
   assert.equal(connectorAccountHealth('gmail').authRequired, false);
   assert.equal(connectorAccountHealth('gmail').error, '');
 
-  // The signed-out account answers a call with a sign-in notice, not a throw.
+  // The signed-out account is refused with the usable ones, never replaced by one.
   const call = await client.callTool({ name: listed.tools[0].name, arguments: { account: 'gmail-2' } });
   assert.equal(call.isError, true);
-  assert.match(call.content[0].text, /Sign-in required/);
+  assert.match(
+    call.content[0].text,
+    new RegExp(`gmail-2 needs a sign-in in Connectors\\. Usable Gmail accounts: ${ADDRESS}\\.`)
+  );
 
   const everything = JSON.stringify({
     listed,
@@ -122,26 +129,48 @@ test('a multi-account server lists tools, flags the signed-out account, and leak
   for (const secret of [APP_PASSWORD, CLIENT_SECRET]) assert.equal(everything.includes(secret), false);
 });
 
-// A configured-auth account whose server answers initialize and then holds
-// every tools/call open; `aborted` resolves when the server sees that call's
-// connection drop.
-async function hangingAccountServer(t) {
+// A configured-auth account's own MCP server: it lists one tool and records
+// every request's method. With `hang`, it holds every tools/call open:
+// `calling` resolves when one arrives, `aborted` when it is cancelled
+// (notifications/cancelled) or its connection drops.
+async function accountServer(t, { hang = false } = {}) {
+  const requests = [];
   let drop;
   const aborted = new Promise((resolve) => (drop = resolve));
   let started;
   const calling = new Promise((resolve) => (started = resolve));
   const server = createServer((req, res) => {
+    if (req.method !== 'POST') {
+      res.writeHead(405).end();
+      return;
+    }
     let body = '';
     req.on('data', (chunk) => (body += chunk));
     req.on('end', () => {
       const message = JSON.parse(body);
-      if (message.method === 'initialize') {
-        res.setHeader('Content-Type', 'application/json');
-        res.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: {} }));
+      requests.push(message.method);
+      if (message.method === 'notifications/cancelled') drop();
+      if (message.id === undefined) {
+        res.writeHead(202).end();
         return;
       }
-      res.on('close', drop);
-      started();
+      if (hang && message.method === 'tools/call') {
+        res.on('close', drop);
+        started();
+        return;
+      }
+      const result =
+        message.method === 'initialize'
+          ? {
+              protocolVersion: message.params.protocolVersion,
+              capabilities: { tools: {} },
+              serverInfo: { name: 'account', version: '1' },
+            }
+          : message.method === 'tools/list'
+            ? { tools: [{ name: 'do_it', inputSchema: { type: 'object', properties: {} } }] }
+            : { content: [{ type: 'text', text: 'ok' }] };
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result }));
     });
   });
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -149,11 +178,13 @@ async function hangingAccountServer(t) {
     server.closeAllConnections();
     server.close();
   });
-  return { url: `http://127.0.0.1:${server.address().port}/mcp`, aborted, calling };
+  return { url: `http://127.0.0.1:${server.address().port}/mcp`, requests, aborted, calling };
 }
 
+const calls = (requests) => requests.filter((method) => method === 'tools/call').length;
+
 async function connectHangingAccount(t) {
-  const account = await hangingAccountServer(t);
+  const account = await accountServer(t, { hang: true });
   const { transport } = createMcpTransport({
     name: 'gmail',
     cfg: {
@@ -162,7 +193,7 @@ async function connectHangingAccount(t) {
       url: 'https://connectors.mixdog.invalid/gmail/mcp',
       accounts: [{ name: 'gmail', url: account.url, headers: { 'x-api-key': 'k' } }],
     },
-    sdk: { StreamableHTTPClientTransport, SSEClientTransport },
+    sdk: SDK,
     log: () => {},
   });
   const client = new Client({ name: 'test', version: '1' });
@@ -170,27 +201,6 @@ async function connectHangingAccount(t) {
   await client.connect(transport);
   const { tools } = await client.listTools();
   return { ...account, client, transport, tool: tools[0].name };
-}
-
-// A configured-auth account server that answers every request and records them.
-async function recordingAccountServer(t) {
-  const requests = [];
-  const server = createServer((req, res) => {
-    let body = '';
-    req.on('data', (chunk) => (body += chunk));
-    req.on('end', () => {
-      const message = JSON.parse(body);
-      requests.push(message.method);
-      res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ jsonrpc: '2.0', id: message.id, result: { content: [{ type: 'text', text: 'ok' }] } }));
-    });
-  });
-  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-  t.after(() => {
-    server.closeAllConnections();
-    server.close();
-  });
-  return { url: `http://127.0.0.1:${server.address().port}/mcp`, requests };
 }
 
 const accountsCfg = (accounts) => ({
@@ -201,15 +211,15 @@ const accountsCfg = (accounts) => ({
 });
 
 test('a disabled account is neither connected nor called', async (t) => {
-  const live = await recordingAccountServer(t);
-  const off = await recordingAccountServer(t);
+  const live = await accountServer(t);
+  const off = await accountServer(t);
   const { transport } = createMcpTransport({
     name: 'gmail',
     cfg: accountsCfg([
       { name: 'gmail', url: live.url, headers: { 'x-api-key': 'k' } },
       { name: 'gmail-2', url: off.url, headers: { 'x-api-key': 'k' }, enabled: false },
     ]),
-    sdk: { StreamableHTTPClientTransport, SSEClientTransport },
+    sdk: SDK,
     log: () => {},
   });
   const client = new Client({ name: 'test', version: '1' });
@@ -220,17 +230,17 @@ test('a disabled account is neither connected nor called', async (t) => {
   // Naming the disabled account is refused, listing only the live one.
   const refused = await client.callTool({ name: tools[0].name, arguments: { account: 'gmail-2' } });
   assert.equal(refused.isError, true);
-  assert.match(refused.content[0].text, /Unknown .* account "gmail-2"\. Accounts: gmail\./);
+  assert.match(refused.content[0].text, /No connected Gmail account is "gmail-2"\. Usable Gmail accounts: gmail\./);
   // With one live account the call needs no `account` and goes to it alone.
   const call = await client.callTool({ name: tools[0].name, arguments: {} });
   assert.equal(call.isError, undefined);
-  assert.deepEqual(live.requests, ['initialize', 'tools/call']);
+  assert.equal(calls(live.requests), 1);
   assert.deepEqual(off.requests, []);
 });
 
 test('an account turned back on is connected again and receives calls', async (t) => {
-  const live = await recordingAccountServer(t);
-  const back = await recordingAccountServer(t);
+  const live = await accountServer(t);
+  const back = await accountServer(t);
   const disabled = accountsCfg([
     { name: 'gmail', url: live.url, headers: { 'x-api-key': 'k' } },
     { name: 'gmail-2', url: back.url, headers: { 'x-api-key': 'k' }, enabled: false },
@@ -238,7 +248,7 @@ test('an account turned back on is connected again and receives calls', async (t
   const { transport } = createMcpTransport({
     name: 'gmail',
     cfg: withConnectorAccountEnabled(disabled, 'gmail-2', true),
-    sdk: { StreamableHTTPClientTransport, SSEClientTransport },
+    sdk: SDK,
     log: () => {},
   });
   const client = new Client({ name: 'test', version: '1' });
@@ -248,8 +258,9 @@ test('an account turned back on is connected again and receives calls', async (t
 
   const call = await client.callTool({ name: tools[0].name, arguments: { account: 'gmail-2' } });
   assert.equal(call.isError, undefined);
-  assert.deepEqual(back.requests, ['initialize', 'tools/call']);
-  assert.deepEqual(live.requests, ['initialize']);
+  assert.equal(calls(back.requests), 1);
+  assert.equal(calls(live.requests), 0);
+  assert.ok(live.requests.includes('initialize'));
 });
 
 test('a connector whose every account is disabled does not connect', (t) => {
@@ -260,14 +271,60 @@ test('a connector whose every account is disabled does not connect', (t) => {
         cfg: accountsCfg([
           { name: 'gmail', url: 'http://127.0.0.1:1/mcp', headers: { 'x-api-key': 'k' }, enabled: false },
         ]),
-        sdk: { StreamableHTTPClientTransport, SSEClientTransport },
+        sdk: SDK,
         log: () => {},
       }),
     /Every account of "gmail" is disabled/
   );
 });
 
-test('aborting a multi-account tool call aborts the downstream request', async (t) => {
+// A local (stdio) account's server: answers with its pid and its connection string.
+const STDIO_ACCOUNT = `
+require('node:readline').createInterface({ input: process.stdin }).on('line', (line) => {
+  const m = JSON.parse(line);
+  if (m.id === undefined) return;
+  const result = m.method === 'initialize'
+    ? { protocolVersion: m.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'pg', version: '1' } }
+    : m.method === 'tools/list'
+      ? { tools: [{ name: 'query', inputSchema: { type: 'object', properties: {} } }] }
+      : { content: [{ type: 'text', text: process.pid + ':' + process.env.PG_URL }] };
+  process.stdout.write(JSON.stringify({ jsonrpc: '2.0', id: m.id, result }) + '\\n');
+});`;
+
+test('a local account runs one process per account, shared by the connector server of every scope', async (t) => {
+  const account = (name, value) => ({
+    name,
+    type: 'stdio',
+    command: process.execPath,
+    args: ['-e', STDIO_ACCOUNT],
+    env: { PG_URL: value },
+  });
+  const cfg = {
+    type: 'http',
+    connector: 'postgres',
+    url: 'https://connectors.mixdog.invalid/postgres/mcp',
+    accounts: [account('postgres', 'one'), account('postgres-2', 'two')],
+  };
+  const answer = async (client, name) =>
+    (await client.callTool({ name: 'query', arguments: { account: name } })).content[0].text.split(':');
+  const scopes = [];
+  for (let index = 0; index < 2; index += 1) {
+    const { transport } = createMcpTransport({ name: 'postgres', cfg, sdk: SDK, log: () => {} });
+    const client = new Client({ name: 'test', version: '1' });
+    t.after(() => client.close());
+    await client.connect(transport);
+    scopes.push(client);
+  }
+  const [first, second] = scopes;
+  const [pidOne, valueOne] = await answer(first, 'postgres');
+  const [pidTwo, valueTwo] = await answer(first, 'postgres-2');
+  assert.deepEqual([valueOne, valueTwo], ['one', 'two'], 'each account runs with its own connection string');
+  assert.notEqual(pidOne, pidTwo);
+  assert.deepEqual(await answer(second, 'postgres'), [pidOne, 'one'], 'the other scope uses the same process');
+  assert.deepEqual(await answer(second, 'postgres-2'), [pidTwo, 'two']);
+});
+
+test('aborting a multi-account tool call cancels the downstream request', async (t) => {
   const { client, tool, aborted, calling } = await connectHangingAccount(t);
   const controller = new AbortController();
   const call = client.callTool({ name: tool, arguments: {} }, undefined, { signal: controller.signal });

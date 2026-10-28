@@ -21,9 +21,20 @@ const isArgsObject = (value) => value && typeof value === 'object' && !Array.isA
 
 async function askApproval(
   call,
-  { callerSessionId, executeOpts, toolApprovalHook, decision, request = null, gate = null, onApproved = null }
+  {
+    callerSessionId,
+    executeOpts,
+    toolApprovalHook,
+    decision,
+    request = null,
+    gate = null,
+    onApproved = null,
+    account = '',
+  }
 ) {
   const askReason = String(decision?.reason || 'approval requested by hook').trim();
+  // The connector account the call is bound to rides on the card.
+  if (account) request = { ...(request || {}), account };
   // While the user decides, the session is waiting on them, not working.
   const releaseApprovalWait = beginSessionApprovalWait(callerSessionId);
   let askOutcome;
@@ -72,9 +83,13 @@ export const CONNECTOR_APPROVAL_REASON = 'This connector tool is set to ask befo
  * remembered outbound grant answered it) is not asked a second time. With the
  * "Allow all actions" developer option on, `needs_approval` is not asked
  * either (a payment or permanent delete was asked by the outbound gate above).
+ * `account` is the connector account the call is bound to, for the card.
  * @returns {Promise<{ denial: string } | null>} the denial, or null to run
  */
-export function applyConnectorApproval(call, { agentId, callerSessionId, executeOpts, toolApprovalHook }) {
+export function applyConnectorApproval(
+  call,
+  { agentId, callerSessionId, executeOpts, toolApprovalHook, account = '' }
+) {
   if (call.outboundApproved) return null;
   if (!actingBotId(callerSessionId)) return null;
   if (agentMcpToolPermission(agentId, call.name) !== 'needs_approval') return null;
@@ -89,6 +104,7 @@ export function applyConnectorApproval(call, { agentId, callerSessionId, execute
     toolApprovalHook,
     decision: { reason: CONNECTOR_APPROVAL_REASON },
     request: rememberable ? { kind: 'approval', agentId: botId, remember: ['once', 'agent'] } : null,
+    account,
     onApproved: async (approval) => {
       if (!rememberable || approval?.remember !== 'agent') return;
       try {
@@ -130,6 +146,7 @@ export async function applyBeforeToolHook({
   beforeToolHook,
   toolApprovalHook,
   mcpScopeId = null,
+  account = '',
 }) {
   const call = { name, args, cwd };
   // ask_user and handoff_user are themselves the user prompt; they never go through the ordinary approval gate.
@@ -183,6 +200,8 @@ export async function applyBeforeToolHook({
         decision,
         request,
         gate,
+        // Only while the call is still the one bound to it.
+        account: call.name === name ? account : '',
       });
       if (denied) return denied;
     }

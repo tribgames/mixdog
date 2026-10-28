@@ -723,9 +723,9 @@ const TOOLS = [
 ];
 
 /** The tool definitions (name, description, schema, annotations) the server
- *  lists; with `hidden`, also the ones only the approval gate calls. */
-export function gmailAppPasswordTools({ hidden = false } = {}) {
-  return TOOLS.filter((tool) => hidden || !tool.hidden).map(({ run, hidden: _hidden, ...tool }) => tool);
+ *  lists: never the ones only the approval gate calls. */
+export function gmailAppPasswordTools() {
+  return TOOLS.filter((tool) => !tool.hidden).map(({ run, hidden: _hidden, ...tool }) => tool);
 }
 
 // ── The MCP server at the reserved address ──────────────────────────────────

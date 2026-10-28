@@ -172,7 +172,6 @@
   "{{name}} finished a command": "{{name}} đã hoàn thành lệnh",
   "{{name}} has a failure": "{{name}} bị lỗi",
   "{{name}} has new activity": "{{name}} có hoạt động mới",
-  "{{name}} has no documented way to ask for another account. To switch, sign out or change accounts on the {{name}} website first, then use Switch account.": "{{name}} không có cách chính thức để chọn tài khoản khác. Để đổi, hãy đăng xuất hoặc đổi tài khoản trên trang {{name}} trước, rồi dùng Đổi tài khoản.",
   "{{name}} is running": "{{name}} đang chạy",
   "{{name}} is running a command": "{{name}} đang chạy lệnh",
   "{{name}} is turned off. Its sign-in is kept.": "Đã tắt {{name}}. Thông tin đăng nhập vẫn được giữ.",

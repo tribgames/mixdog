@@ -184,6 +184,13 @@
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
+.connectors-in-use {
+  padding: 1px 8px;
+  border-radius: 6px;
+  color: var(--mx-text);
+  background: var(--mx-hover);
+  font-size: var(--mx-font-meta);
+}
 .connectors-link {
   padding: 0;
   display: inline-flex;

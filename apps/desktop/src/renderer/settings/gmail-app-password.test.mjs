@@ -82,18 +82,18 @@ test('the app-password dialog verifies on the host, explains a refusal, then con
   let refuse = true;
   handlers = {
     mcpStatus: () => ({ servers: live }),
-    addMcpServer: (input) => {
+    addConnectorAccount: () => {
       if (refuse) throw new Error('GMAIL_APP_PASSWORD_REJECTED: Google did not accept this address and app password.');
       live = [
         {
-          name: input.name,
+          name: 'gmail',
           connector: 'gmail',
           enabled: true,
           connected: true,
           appPassword: { account: 'me@gmail.com' },
         },
       ];
-      return { name: input.name };
+      return { name: 'gmail', account: 'gmail' };
     },
   };
   const host = document.createElement('main');
@@ -121,10 +121,10 @@ test('the app-password dialog verifies on the host, explains a refusal, then con
   type(password, 'abcd wxyz abcd wxyz');
   await click(button(dialog, 'Connect'));
   await settle();
-  const sent = calls.find(([capability]) => capability === 'addMcpServer')[1][0];
-  assert.equal(sent.appPassword, PASSWORD, 'spaces are stripped');
-  assert.deepEqual(sent.headers, { 'X-Mixdog-Gmail-Account': 'me@gmail.com' });
+  const sent = calls.find(([capability]) => capability === 'addConnectorAccount')[1][0];
   assert.equal(sent.connector, 'gmail');
+  assert.equal(sent.email.trim(), 'Me@Gmail.com', 'the host normalizes the address and the password');
+  assert.equal(sent.appPassword, 'abcd wxyz abcd wxyz');
   assert.match(
     document.body.textContent,
     /Google did not accept this address and app password\. Check both and try again\./

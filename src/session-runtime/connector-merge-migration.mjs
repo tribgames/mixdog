@@ -1,6 +1,6 @@
-// After the multi-account connector merge (connector-catalog.mjs
-// mergeConnectorAccountServers) `gmail-2`, `google-calendar-2`… are accounts of
-// one server, no longer servers. Every store of ours that keys a setting by
+// After the connector merge (connector-catalog.mjs mergeConnectorAccountServers)
+// `gmail-2`, `notion-2`, `postgres-2`… are accounts of their connector's one
+// server, no longer servers. Every store of ours that keys a setting by
 // MCP server name must name the surviving server instead:
 //   agents/<id>/agent.json, bots/<id>/agent.json   connectors.off / connectors.tools
 //                                                  (a legacy allow list too)
@@ -11,14 +11,15 @@
 // name models, not servers.) Project and plugin hook files are the user's or
 // the plugin's own and are never rewritten here.
 //
-// Rule: the merged connector is OFF for an agent/project only when EVERY
-// merged server was off (the same rule as the merged server's `enabled`: one
-// working account keeps the connector usable). Per-tool permissions move to
-// the surviving name; where merged servers disagree on a tool the surviving
-// server's own entry wins, else the first merged server's. Entries of a server
-// that was off are dormant and dropped when the connector stays on. A setting
-// that names no merged-away server is never touched, so every run after the
-// first is a no-op.
+// Rule: differences are ignored and the topmost server decides. The merged
+// connector is on or off for an agent/project as the surviving server was
+// there when the setting names it, else as the lowest-numbered merged server
+// it names (so a switched-off `-N` server never becomes reachable through the
+// merge). Per-tool permissions move to the surviving name; where merged
+// servers disagree on a tool the surviving server's own entry wins, else the
+// first merged server's. Entries of a server that was off are dormant and
+// dropped when the connector stays on. A setting that names no merged-away
+// server is never touched, so every run after the first is a no-op.
 //
 // The merge is saved to the config once, so the rename mapping outlives it:
 // `<data>/connector-merge-pending.json` ({ merged: [{ name, from }] }) is
@@ -55,7 +56,8 @@ function mapMergedConnectorPolicy(policy, merged) {
       current.off.includes(server) || current.allow?.includes(server) || Object.hasOwn(current.tools, server);
     if (!gone.some(named)) continue;
     const live = from.filter((server) => connectorEnabled(current, server));
-    const on = live.length > 0;
+    // `from` lists the surviving server first, then the others lowest-numbered first.
+    const on = connectorEnabled(current, from.find(named));
     const off = current.off.filter((server) => !from.includes(server));
     const allow = current.allow?.filter((server) => !from.includes(server));
     if (allow && on) allow.push(name);

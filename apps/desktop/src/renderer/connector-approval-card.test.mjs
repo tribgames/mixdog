@@ -39,3 +39,14 @@ test('it is allowed only by a click on the card: no Enter, no notification Allow
   assert.equal(approvalAllowIsPointerOnly(approval), true);
   assert.equal(approvalAllowOnceDecision(approval), null);
 });
+test('the card model carries the request account only when the request has one', () => {
+  assert.equal(approvalCardModel({ ...card('disabled', ['auto']), account: 'me@work.com' }).requestAccount, 'me@work.com');
+  assert.equal(approvalCardModel(card('disabled', ['auto'])).requestAccount, '');
+});
+
+test('an outbound card that already names its account gets no second account line', () => {
+  const mail = { id: 'a2', kind: 'outbound', name: 'gmail', account: 'me@work.com', outbound: { category: 'email', target: 'x@y.com', account: 'me@work.com' } };
+  assert.equal(approvalCardModel(mail).account, 'me@work.com');
+  assert.equal(approvalCardModel(mail).requestAccount, '');
+  assert.equal(approvalCardModel({ ...mail, outbound: { category: 'email', target: 'x@y.com' } }).requestAccount, 'me@work.com');
+});

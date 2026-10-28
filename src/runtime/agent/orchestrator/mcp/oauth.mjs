@@ -50,28 +50,33 @@ export function isMcpOAuthScopeNotGranted(error) {
   return false;
 }
 
-// One keychain entry per exact server URL. Windows stores each account as a
-// file name, so the account is a hash of the URL and nothing else.
-export function mcpOAuthAccount(url) {
-  return `mcp-oauth.${createHash('sha256').update(url).digest('hex')}`;
+// One keychain entry per credential key: the exact server URL, or a connector
+// account's own key (client-config.mjs resolveMcpOAuthCredentialKey). Windows
+// stores each account as a file name, so the account is a hash of the key and
+// nothing else.
+export function mcpOAuthAccount(key) {
+  return `mcp-oauth.${createHash('sha256').update(key).digest('hex')}`;
 }
 
-/** Whether OAuth tokens are stored for one server URL, read from the
- *  non-secret revision marker without touching the keychain. */
-export function hasStoredMcpOAuthTokens(url) {
+/** What one sign-in is stored under: `credentialKey`, else the normalized URL. */
+const credentialIdOf = (url, credentialKey) => credentialKey || normalizeMcpTransportUrl(url);
+
+/** Whether OAuth tokens are stored for one server URL (or `credentialKey`),
+ *  read from the non-secret revision marker without touching the keychain. */
+export function hasStoredMcpOAuthTokens(url, credentialKey) {
   try {
-    const marker = readFileSync(credentialFile(mcpOAuthAccount(normalizeMcpTransportUrl(url)), 'rev'), 'utf8');
+    const marker = readFileSync(credentialFile(mcpOAuthAccount(credentialIdOf(url, credentialKey)), 'rev'), 'utf8');
     return marker.endsWith(TOKENS_FLAG);
   } catch {
     return false;
   }
 }
 
-/** Who the stored sign-in of one MCP server URL belongs to, without a keychain
- *  read: `{ account, workspace, forcedChoice }` (empty strings when the server
- *  named nobody), or null when signed out. */
-export function storedMcpOAuthIdentity(url) {
-  return readIdentityFile(mcpOAuthAccount(normalizeMcpTransportUrl(url)));
+/** Who the stored sign-in of one MCP server URL (or `credentialKey`) belongs
+ *  to, without a keychain read: `{ account, workspace, forcedChoice }` (empty
+ *  strings when the server named nobody), or null when signed out. */
+export function storedMcpOAuthIdentity(url, credentialKey) {
+  return readIdentityFile(mcpOAuthAccount(credentialIdOf(url, credentialKey)));
 }
 
 // RFC 7009 revocation of the stored grant, only where the authorization server
@@ -114,9 +119,15 @@ async function revokeStoredGrant(saved, fetchImpl) {
  *  explicit reconnect to log in again. With `revoke`, the grant is first
  *  revoked at the authorization server where it documents a revocation
  *  endpoint. Resolves `{ revoked }`. */
-export async function clearMcpOAuth({ url, credentialStore = keychain, revoke = false, fetchImpl = fetch }) {
-  url = normalizeMcpTransportUrl(url);
-  const account = mcpOAuthAccount(url);
+export async function clearMcpOAuth({
+  url,
+  credentialKey,
+  credentialStore = keychain,
+  revoke = false,
+  fetchImpl = fetch,
+}) {
+  const id = credentialIdOf(url, credentialKey);
+  const account = mcpOAuthAccount(id);
   let revoked = false;
   await withCredentialLock(account, async () => {
     const saved = await readStoredCredentials(credentialStore, account);
@@ -125,7 +136,7 @@ export async function clearMcpOAuth({ url, credentialStore = keychain, revoke = 
     if (saved != null) await credentialStore.deleteSecretAsync(account);
     await writeIdentityFile(account, null);
   });
-  scopes.get(credentialStore)?.get(url)?.oauth.clear();
+  scopes.get(credentialStore)?.get(id)?.oauth.clear();
   return { revoked };
 }
 
@@ -151,6 +162,7 @@ async function storeEntry(account, url, value, credentialStore) {
  */
 export function startMcpOAuthSwitch({
   url,
+  credentialKey,
   launch,
   serverName,
   credentialStore = keychain,
@@ -209,7 +221,7 @@ export function startMcpOAuthSwitch({
     timeoutMs,
   });
   const done = (async () => {
-    const saved = await readStoredCredentials(credentialStore, mcpOAuthAccount(url));
+    const saved = await readStoredCredentials(credentialStore, mcpOAuthAccount(credentialIdOf(url, credentialKey)));
     if (saved) {
       const value = JSON.parse(saved);
       if (value.url === url) {
@@ -244,9 +256,9 @@ export function startMcpOAuthSwitch({
 /** Store the sign-in a switch returned as the URL's sign-in; resolves a
  *  `rollback()` that restores the previous one (or none). Live connections
  *  adopt either through the revision marker on their next request. */
-export async function commitMcpOAuthSwitch({ url, signIn, credentialStore = keychain }) {
+export async function commitMcpOAuthSwitch({ url, credentialKey, signIn, credentialStore = keychain }) {
   url = normalizeMcpTransportUrl(url);
-  const account = mcpOAuthAccount(url);
+  const account = mcpOAuthAccount(credentialIdOf(url, credentialKey));
   let previous = null;
   await withCredentialLock(account, async () => {
     previous = await readStoredCredentials(credentialStore, account);
@@ -262,9 +274,11 @@ export async function commitMcpOAuthSwitch({ url, signIn, credentialStore = keyc
 }
 
 // The keychain is the only durable store. Exact URLs, including query strings,
-// partition clients and tokens even when servers share an authorization issuer.
+// partition clients and tokens even when servers share an authorization issuer;
+// a `credentialKey` (a connector account's own) partitions them at one URL.
 export function createMcpOAuth({
   url,
+  credentialKey,
   credentialStore = keychain,
   interactive = false,
   isTransportEndpoint = () => false,
@@ -272,15 +286,16 @@ export function createMcpOAuth({
   ...options
 }) {
   url = normalizeMcpTransportUrl(url);
+  const id = credentialIdOf(url, credentialKey);
   let entries = scopes.get(credentialStore);
   if (!entries) {
     entries = new Map();
     scopes.set(credentialStore, entries);
   }
-  let entry = entries.get(url);
+  let entry = entries.get(id);
   if (!entry) {
-    entry = { oauth: createSharedOAuth({ url, credentialStore, ...options }), users: 0 };
-    entries.set(url, entry);
+    entry = { oauth: createSharedOAuth({ url, account: mcpOAuthAccount(id), credentialStore, ...options }), users: 0 };
+    entries.set(id, entry);
   }
   entry.users++;
   const lifetime = new AbortController();
@@ -346,7 +361,7 @@ export function createMcpOAuth({
       lifetime.abort();
       if (--entry.users === 0) {
         entry.oauth.close();
-        entries.delete(url);
+        entries.delete(id);
       }
     },
   };
@@ -354,6 +369,7 @@ export function createMcpOAuth({
 
 function createSharedOAuth({
   url,
+  account,
   credentialStore,
   openBrowser = openInBrowser,
   fetchImpl = fetch,
@@ -361,7 +377,7 @@ function createSharedOAuth({
   oauthClient = null,
 }) {
   const lifetime = new AbortController();
-  const cache = createCredentialCache({ url, credentialStore, account: mcpOAuthAccount(url) });
+  const cache = createCredentialCache({ url, credentialStore, account });
   const { creds } = cache;
   const flow = {
     listener: undefined,

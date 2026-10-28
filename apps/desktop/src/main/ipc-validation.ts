@@ -456,6 +456,7 @@ const CAPABILITY_ARITY = {
   getMcpServerConfig: [1, 1],
   reconnectMcp: [0, 0],
   addMcpServer: [1, 1],
+  addConnectorAccount: [1, 1],
   saveMcpServer: [1, 1],
   removeMcpServer: [1, 1],
   setMcpServerEnabled: [2, 2],

@@ -307,12 +307,23 @@ export function resolveMcpTransportKind(cfg) {
   throw new Error(`Invalid config: need autoDetect, type (stdio/http/sse/ws), url (http), or command (stdio)`);
 }
 
-/** The exact URL OAuth credentials of an HTTP/SSE server config are stored
- *  under; null for other transports. */
+/** The exact URL an HTTP/SSE server config signs in at with OAuth; null for
+ *  other transports. */
 export function resolveMcpOAuthUrl(cfg) {
   const kind = resolveMcpTransportKind(cfg);
   if (kind !== 'http' && kind !== 'sse') return null;
   return normalizeMcpTransportUrl(expandEnvVars(String(cfg.url ?? '')), kind);
+}
+
+/** What the OAuth credentials of an HTTP/SSE server config are stored under:
+ *  its exact URL, or a connector account's own `oauthKey` (another account
+ *  of the connector signs in at the same URL), whatever the URL. Null for
+ *  other transports. */
+export function resolveMcpOAuthCredentialKey(cfg) {
+  const url = resolveMcpOAuthUrl(cfg);
+  if (!url) return null;
+  const own = typeof cfg.oauthKey === 'string' ? cfg.oauthKey.trim() : '';
+  return own ? `mcp-account:${own}` : url;
 }
 
 // MCP per-tool-call timeout. Default 2min: a hung/unresponsive MCP server

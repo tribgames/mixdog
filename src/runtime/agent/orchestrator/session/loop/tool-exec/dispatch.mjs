@@ -67,6 +67,8 @@ function dispatchMcp(name, args, { cwd, callerSessionId, sessionRef, executeOpts
     signal: executeOpts.signal || null,
     ownerKey: callerSessionId,
     scopeId: mcpScopeId,
+    // A connector account defaults to (and becomes) this conversation's last used.
+    conversation: callerSessionId,
   });
   if (!isBuiltinMailRead(name, mcpScopeId)) return call;
   // The runtime's own record of the links in a mail it read for this session:

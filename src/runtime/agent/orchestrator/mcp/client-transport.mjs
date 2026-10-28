@@ -8,24 +8,30 @@ import { createMcpOAuth } from './oauth.mjs';
 import { mcpOAuthClientFor, mcpOAuthDisplayName } from './oauth-client.mjs';
 import { googleMcpService, withGoogleMcp } from '../../../connectors/google-mcp.mjs';
 import { gmailAppPasswordService, withGmailAppPasswordMcp } from '../../../connectors/gmail-app-password.mjs';
-import { connectorAccountRequest, withConnectorAccountsMcp } from '../../../connectors/connector-accounts-mcp.mjs';
+import { withConnectorAccountsMcp } from '../../../connectors/connector-accounts-mcp.mjs';
 import {
   connectorAccountsOf,
   connectorLiveAccountServers,
   gmailAppPasswordAccount,
 } from '../../../shared/connector-catalog.mjs';
-import { isMcpOAuthReauthenticationRequired } from './oauth.mjs';
+import { runAbortable } from '../../../shared/abort-race.mjs';
+import { isMcpOAuthReauthenticationRequired, storedMcpOAuthIdentity } from './oauth.mjs';
+import { shutdownStdioChild } from './child-tree.mjs';
+import { listAllMcpTools } from './client-handshake.mjs';
 import {
   AUTO_DETECT_PORTS,
+  MCP_MAX_TIMER_MS,
   expandEnvVars,
   findMissingMcpEnvVars,
   mcpUrlForLog,
   normalizeMcpTransportUrl,
   resolveMcpHttpHeaders,
+  resolveMcpOAuthCredentialKey,
   resolveMcpOAuthUrl,
   resolveMcpStdioEnvironment,
   resolveMcpTransportKind,
   scrubMcpConnectionMessage,
+  scrubMcpSecrets,
 } from './client-config.mjs';
 
 /**
@@ -76,57 +82,142 @@ export function hasConfiguredMcpAuth(cfg) {
   );
 }
 
-/** One account of a multi-account connector server (connector-catalog.mjs
- *  connectorAccountServer) as connector-accounts-mcp.mjs calls it: through
- *  the transport the account had as a server of its own — its app-password
- *  header, or its own non-interactive OAuth sign-in (refreshed as needed; a
- *  new sign-in goes through 계정 바꾸기, never through a tool call). */
-function connectorAccountClient(serverName, accountCfg, oauthOptions) {
-  const base = { name: accountCfg.name, email: '', appPassword: false, close() {} };
-  let url;
+// A stdio account (Postgres) runs one process per account config, shared by
+// the connector server of every scope like any stdio server (client.mjs):
+// account config → its connection, which closes with its last holder.
+const sharedAccountConnections = new Map();
+
+/** Close one account connection: a stdio child with its whole process tree. */
+async function closeAccountConnection(connection) {
+  connection.dead = true;
+  if (connection.transport?._process) await shutdownStdioChild(connection.transport).catch(() => {});
+  await connection.client.close().catch(() => {});
+}
+
+/** Whether a call failure is the account server's own JSON-RPC answer: its
+ *  connection stays. */
+const answeredError = (error) => error?.name === 'McpError' && error.code !== -32000;
+
+/** The address a remote account is signed in as, '' when none is known. */
+function signedInAs(accountCfg) {
   try {
-    url = resolveMcpOAuthUrl(accountCfg);
-    if (hasConfiguredMcpAuth(accountCfg)) {
-      const email = gmailAppPasswordAccount(accountCfg);
-      const fetchImpl = gmailAppPasswordService(url) ? withGmailAppPasswordMcp() : fetch;
-      return {
-        ...base,
-        email,
-        appPassword: Boolean(email),
-        request: connectorAccountRequest(url, fetchImpl, resolveMcpHttpHeaders(accountCfg)),
-      };
-    }
-    const oauth = createMcpOAuth({
-      url,
-      serverName: mcpOAuthDisplayName(accountCfg, serverName),
-      oauthClient: mcpOAuthClientFor(accountCfg, url),
-      ...(oauthOptions?.fetchImpl ? { fetchImpl: oauthOptions.fetchImpl } : {}),
-      ...(googleMcpService(url) ? { fetchImpl: withGoogleMcp(oauthOptions?.fetchImpl) } : {}),
-    });
-    const send = connectorAccountRequest(url, (input, init) => oauth.fetch(input, init));
-    return {
-      ...base,
-      async request(message, options) {
-        try {
-          return await send(message, options);
-        } catch (error) {
-          const reason = scrubMcpConnectionMessage(error?.message || String(error), accountCfg);
-          const scrubbed = new Error(
-            isMcpOAuthReauthenticationRequired(error)
-              ? 'Sign-in required; sign this account in again in Connectors.'
-              : reason
-          );
-          if (isMcpOAuthReauthenticationRequired(error)) scrubbed.authRequired = true;
-          throw scrubbed;
-        }
-      },
-      close: () => oauth.close(),
-    };
-  } catch (error) {
-    // A broken account (no sign-in client, an invalid address) stays listed with why.
-    const failed = new Error(error?.message || String(error));
-    return { ...base, request: async () => Promise.reject(failed) };
+    const url = resolveMcpOAuthUrl(accountCfg);
+    if (!url || hasConfiguredMcpAuth(accountCfg)) return '';
+    return storedMcpOAuthIdentity(url, resolveMcpOAuthCredentialKey(accountCfg))?.account || '';
+  } catch {
+    return '';
   }
+}
+
+/** One account of a connector server (connector-catalog.mjs
+ *  connectorAccountServer) as connector-accounts-mcp.mjs calls it: its own
+ *  MCP connection through the transport it had as a server of its own — its
+ *  key header, its app password, its local command, or its own
+ *  non-interactive OAuth sign-in (refreshed as needed; a new sign-in goes
+ *  through 계정 바꾸기, never through a tool call). Connected on first use and
+ *  again after its connection failed. */
+function connectorAccountClient(serverName, accountCfg, { sdk, log, oauthOptions }) {
+  const { interactive: _interactive, ...ownOAuth } = oauthOptions || {};
+  const address = gmailAppPasswordAccount(accountCfg);
+  const shareKey = resolveMcpTransportKind(accountCfg) === 'stdio' ? JSON.stringify(accountCfg) : null;
+  const secretsOf = (connection) => connection?.transport?.oauth?.secrets() || [];
+  const accountError = (error, connection) => {
+    if (isMcpOAuthReauthenticationRequired(error)) {
+      return Object.assign(new Error('Sign-in required; sign this account in again in Connectors.'), {
+        authRequired: true,
+      });
+    }
+    const reason = scrubMcpConnectionMessage(error?.message || String(error), accountCfg, secretsOf(connection));
+    return new Error(appendMcpStderrTail(reason, connection?.stderrTail?.() || ''));
+  };
+  const open = () => {
+    const connection = { users: 0, dead: false };
+    try {
+      const made = createMcpTransport({ name: accountCfg.name, cfg: accountCfg, sdk, log, oauthOptions: ownOAuth });
+      connection.transport = made.transport;
+      connection.stderrTail = made.stderrTail;
+    } catch (error) {
+      // A broken account (no sign-in client, an invalid address) stays listed with why.
+      connection.dead = true;
+      connection.client = { close: async () => {} };
+      connection.ready = Promise.reject(error);
+      connection.ready.catch(() => {});
+      return connection;
+    }
+    const client = new sdk.Client({ name: `mixdog-agent/${serverName}`, version: '1.0.0' });
+    connection.client = client;
+    const retire = () => {
+      connection.dead = true;
+      if (shareKey && sharedAccountConnections.get(shareKey) === connection) sharedAccountConnections.delete(shareKey);
+    };
+    client.onclose = retire;
+    connection.retire = retire;
+    connection.ready = (async () => {
+      await client.connect(connection.transport, { timeout: MCP_MAX_TIMER_MS });
+      const tools = client.getServerCapabilities()?.tools
+        ? (await listAllMcpTools(client, { timeout: MCP_MAX_TIMER_MS }))?.tools
+        : [];
+      if (!Array.isArray(tools)) throw new Error('The account listed its tools in an invalid shape');
+      return { instructions: client.getInstructions() || '', tools };
+    })();
+    connection.ready.catch(() => {
+      retire();
+      void closeAccountConnection(connection);
+    });
+    return connection;
+  };
+  let held = null;
+  const release = () => {
+    const connection = held;
+    held = null;
+    if (!connection || --connection.users > 0) return;
+    connection.retire?.();
+    void closeAccountConnection(connection);
+  };
+  const acquire = () => {
+    if (held && !held.dead) return held;
+    release();
+    let connection = shareKey ? sharedAccountConnections.get(shareKey) : null;
+    if (!connection || connection.dead) {
+      connection = open();
+      if (shareKey && !connection.dead) sharedAccountConnections.set(shareKey, connection);
+    }
+    connection.users += 1;
+    held = connection;
+    return connection;
+  };
+  return {
+    name: accountCfg.name,
+    email: address || signedInAs(accountCfg),
+    async connect(signal) {
+      const connection = acquire();
+      try {
+        return await runAbortable(signal, () => connection.ready);
+      } catch (error) {
+        throw accountError(error, connection);
+      }
+    },
+    async callTool(params, { signal, onprogress } = {}) {
+      const connection = acquire();
+      try {
+        await runAbortable(signal, () => connection.ready);
+        // The caller's deadline governs (it resets on the progress passed up).
+        const result = await connection.client.callTool(params, undefined, {
+          signal,
+          timeout: MCP_MAX_TIMER_MS,
+          ...(onprogress ? { onprogress } : {}),
+        });
+        return scrubMcpSecrets(result, secretsOf(connection));
+      } catch (error) {
+        const failed = accountError(error, connection);
+        if (answeredError(error)) return { content: [{ type: 'text', text: failed.message }], isError: true };
+        // A connection a call failed on is opened again for the next call.
+        if (!signal?.aborted) connection.retire?.();
+        throw failed;
+      }
+    },
+    close: release,
+  };
 }
 
 // The SDK's WebSocket transport opens its socket without a way to set request
@@ -177,13 +268,15 @@ function missingEnvWarnings(name, cfg, strictEnv, log) {
   return warnings;
 }
 
-// A multi-account connector: one server, every account behind it; closing the
-// transport closes every account client.
-function connectorAccountsTransport({ name, cfg, Transport, url, accountServers, oauthOptions, log }) {
-  const accounts = accountServers.map((accountCfg) => connectorAccountClient(name, accountCfg, oauthOptions));
-  const transport = new Transport(new URL(url), {
-    fetch: withConnectorAccountsMcp({ connector: cfg.connector, accounts }),
-  });
+// A connector server: one server, every account behind it (its account choice
+// on `connectorAccounts`); closing the transport closes every account client.
+function connectorAccountsTransport({ name, cfg, Transport, url, accountServers, sdk, oauthOptions, log }) {
+  const accounts = accountServers.map((accountCfg) =>
+    connectorAccountClient(name, accountCfg, { sdk, log, oauthOptions })
+  );
+  const fetchImpl = withConnectorAccountsMcp({ connector: cfg.connector, accounts });
+  const transport = new Transport(new URL(url), { fetch: fetchImpl });
+  transport.connectorAccounts = fetchImpl.connectorAccounts;
   const close = transport.close.bind(transport);
   transport.close = async () => {
     for (const account of accounts) account.close();
@@ -204,6 +297,7 @@ function remoteHttpTransport({ name, cfg, kind, Transport, url, oauthOptions, lo
   if (!hasConfiguredMcpAuth(cfg)) {
     oauth = createMcpOAuth({
       url,
+      credentialKey: resolveMcpOAuthCredentialKey(cfg),
       serverName: mcpOAuthDisplayName(cfg, name),
       oauthClient: mcpOAuthClientFor(cfg, url),
       ...oauthOptions,
@@ -291,7 +385,7 @@ export function createMcpTransport({ name, cfg, sdk, log, strictEnv, oauthOption
       throw new Error(`Every account of "${name}" is disabled`);
     }
     const transport = accountServers.length
-      ? connectorAccountsTransport({ name, cfg, Transport, url, accountServers, oauthOptions, log })
+      ? connectorAccountsTransport({ name, cfg, Transport, url, accountServers, sdk, oauthOptions, log })
       : remoteHttpTransport({ name, cfg, kind, Transport, url, oauthOptions, log });
     return { transport, autoDetectAdvert: null, stderrTail: noStderrTail, warnings };
   }

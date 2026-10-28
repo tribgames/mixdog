@@ -184,25 +184,27 @@ export function gmailAppPasswordServerInput(name, email, password) {
 }
 
 /** Whether several accounts of catalog connector `entry` can be connected at
- *  once: Gmail (also by app password), Calendar and Drive with the Google
- *  sign-in. Other remote servers keep one (their tokens and URL are shared). */
+ *  once: every catalog connector holds its accounts in one server. */
 export function connectorMultiAccount(entry) {
-  return entry?.backend?.kind === 'oauth' && entry.backend.oauthClient === 'google';
+  return Boolean(entry?.id) && connectorById(entry.id) === entry;
 }
 
-// ── One server per multi-account connector ──────────────────────────────────
-// A multi-account connector is ONE MCP server (`gmail`, `google-calendar`,
-// `google-drive`) holding its accounts:
+// ── One server per connector ────────────────────────────────────────────────
+// A catalog connector is ONE MCP server (`gmail`, `notion`, `postgres`…)
+// holding its accounts:
 //   { type: 'http', url: connectorAccountsUrl(id), connector: id,
-//     accounts: [{ name, url, headers?, oauthClientId? }, …] }
-// Each account keeps the transport it had as a server of its own (the Google
-// sign-in URL its tokens are stored under, or the app-password address and
-// account header), so its keychain entries are untouched. Account names share
-// the server-name space (`gmail`, `gmail-2`…): a name-based call (remove, sign
-// in, sign out) that names an account acts on that account. The server is
-// answered in-process (connectors/connector-accounts-mcp.mjs): one tool set
-// with an `account` argument.
-const ACCOUNT_FIELDS = ['url', 'headers', 'oauthClientId'];
+//     accounts: [{ name, type?, url?, headers?, oauthClientId?, oauthKey?,
+//                  command?, args?, env? }, …] }
+// Each account keeps the transport it had as a server of its own (its remote
+// URL and sign-in, its key header, its app-password address, or its local
+// command and environment), so its keychain entries are untouched. A remote
+// sign-in is stored under the account's URL, or under its own `oauthKey` when
+// another account of the connector already signs in at that URL. Account names
+// share the server-name space (`notion`, `notion-2`…): a name-based call
+// (remove, sign in, sign out) that names an account acts on that account. The
+// server is answered in-process (connectors/connector-accounts-mcp.mjs): one
+// tool set with an `account` argument.
+const ACCOUNT_FIELDS = ['type', 'url', 'headers', 'oauthClientId', 'oauthKey', 'command', 'args', 'env'];
 
 /** The reserved (never resolvable) address of connector `id`'s accounts server. */
 export function connectorAccountsUrl(id) {
@@ -211,14 +213,16 @@ export function connectorAccountsUrl(id) {
 
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
-/** The stored accounts of a multi-account connector server, [] for any other
- *  config (a legacy one-account server included). */
+/** The stored accounts of a connector server, [] for any other config (a
+ *  legacy one-account server included). */
 export function connectorAccountsOf(cfg) {
-  if (!isRecord(cfg) || !Array.isArray(cfg.accounts)) return [];
-  if (!connectorMultiAccount(connectorById(connectorOfServer(cfg)))) return [];
+  if (!isRecord(cfg) || !Array.isArray(cfg.accounts) || !connectorOfServer(cfg)) return [];
   return cfg.accounts.filter(
     (account) =>
-      isRecord(account) && typeof account.name === 'string' && account.name && typeof account.url === 'string'
+      isRecord(account) &&
+      typeof account.name === 'string' &&
+      account.name &&
+      (typeof account.url === 'string' || typeof account.command === 'string')
   );
 }
 
@@ -229,6 +233,12 @@ export function connectorAccountServer(cfg, account) {
   for (const field of ACCOUNT_FIELDS) if (account[field] !== undefined) out[field] = account[field];
   out.connector = cfg.connector;
   return out;
+}
+
+/** `cfg` without what is an account's own connection: the settings of the
+ *  server holding its accounts (timeouts, enabled…). */
+export function connectorServerSettings(cfg) {
+  return Object.fromEntries(Object.entries(cfg).filter(([key]) => key !== 'accounts' && !ACCOUNT_FIELDS.includes(key)));
 }
 
 /** Every account of `cfg` as its one-account server config. */
@@ -264,33 +274,39 @@ export function withConnectorAccountEnabled(cfg, name, enabled) {
   return connectorAccountsOf(next).some(connectorAccountEnabled) ? next : { ...next, enabled: false };
 }
 
-/** The stored account entry of one-account config `cfg` under `name`. */
+/** The stored account entry of one-account config `cfg` under `name` (an
+ *  http transport is the default and is not stored). */
 export function connectorAccountEntry(name, cfg) {
   const out = { name };
   for (const field of ACCOUNT_FIELDS) if (cfg?.[field] !== undefined) out[field] = cfg[field];
+  if (out.type === 'http') delete out.type;
   return out;
 }
 
 const naturalOrder = (a, b) => a.localeCompare(b, 'en', { numeric: true });
 
+/** What makes an account the same connection as another: its transport
+ *  (URL, sign-in key, headers, command and environment), whatever its name. */
+const connectionOf = (cfg, account) => JSON.stringify({ ...connectorAccountServer(cfg, account), name: '' });
+
 /**
- * Merges every multi-account connector's servers into one server holding the
- * accounts: legacy one-account servers (`gmail`, `gmail-2`…, Calendar and
- * Drive alike) and any second accounts server. The server keeps the name of
- * an existing accounts server, else the connector id when a server has it,
+ * Merges every catalog connector's servers into one server holding the
+ * accounts: legacy one-account servers (`notion`, `notion-2`…, Gmail, Calendar
+ * and Drive alike) and any second accounts server. The server keeps the name
+ * of an existing accounts server, else the connector id when a server has it,
  * else the first name; its other fields come from that server. Accounts keep
  * their names, transports and order (that server's first); a second entry
- * for the same name or app-password address is dropped. The merged server is
- * off only when every merged one was; otherwise the accounts of a merged
- * server that was off stay off (`enabled: false` on the account), and an
- * account's own `enabled: false` is kept. A server left with no switched-on
- * account is off. Idempotent: `merged` is empty when
- * nothing changed. Returns `{ servers, merged: [{ connector, name, from }] }`.
+ * for the same name, app-password address or connection is dropped. The
+ * merged server is off only when every merged one was; otherwise the accounts
+ * of a merged server that was off stay off (`enabled: false` on the account),
+ * and an account's own `enabled: false` is kept. A server left with no
+ * switched-on account is off. Idempotent: `merged` is empty when nothing
+ * changed. Returns `{ servers, merged: [{ connector, name, from }] }`.
  */
 export function mergeConnectorAccountServers(input) {
   const servers = isRecord(input) ? { ...input } : {};
   const merged = [];
-  for (const entry of CONNECTOR_CATALOG.filter(connectorMultiAccount)) {
+  for (const entry of CONNECTOR_CATALOG) {
     const names = Object.keys(servers)
       .filter((name) => isRecord(servers[name]) && connectorOfServer(servers[name]) === entry.id)
       .sort(naturalOrder);
@@ -303,6 +319,7 @@ export function mergeConnectorAccountServers(input) {
     const accounts = [];
     const seenNames = new Set();
     const seenAddresses = new Set();
+    const seenConnections = new Set();
     for (const name of order) {
       const cfg = servers[name];
       const own = Array.isArray(cfg.accounts) ? connectorAccountsOf(cfg) : [connectorAccountEntry(name, cfg)];
@@ -311,21 +328,17 @@ export function mergeConnectorAccountServers(input) {
       const serverOff = !off && cfg.enabled === false;
       for (const account of own) {
         const address = gmailAppPasswordAccount(connectorAccountServer(cfg, account));
-        if (seenNames.has(account.name) || (address && seenAddresses.has(address))) continue;
+        const connection = connectionOf(cfg, account);
+        if (seenNames.has(account.name) || (address && seenAddresses.has(address)) || seenConnections.has(connection)) {
+          continue;
+        }
         seenNames.add(account.name);
         if (address) seenAddresses.add(address);
+        seenConnections.add(connection);
         accounts.push(serverOff ? { ...account, enabled: false } : account);
       }
     }
-    const {
-      type: _type,
-      url: _url,
-      headers: _headers,
-      oauthClientId: _client,
-      accounts: _accounts,
-      enabled: _enabled,
-      ...rest
-    } = servers[target];
+    const { enabled: _enabled, ...rest } = connectorServerSettings(servers[target]);
     for (const name of order) delete servers[name];
     servers[target] = {
       ...rest,
@@ -352,17 +365,12 @@ export function connectorUsesGoogleClient(entry) {
 }
 
 /** The MCP server input that connects catalog entry `entry` under `name`
- *  (oauth / apiKey); `key` fills an apiKey backend; `extraAccount`
- *  makes it one more account of a multi-account connector. */
-export function connectorServerInput(entry, name, key = '', { extraAccount = false } = {}) {
+ *  (oauth / apiKey); `key` fills an apiKey backend. Every account keeps the
+ *  service's real URL; another account at that URL gets its own sign-in key
+ *  (resource-mcp-connector-accounts.mjs). */
+export function connectorServerInput(entry, name, key = '') {
   const { backend } = entry;
-  if (backend.kind === 'oauth') {
-    // Tokens are stored per exact server URL, so another account of the same
-    // connector needs its own URL; the in-process Google servers ignore the query.
-    const url =
-      extraAccount && connectorMultiAccount(entry) ? `${backend.url}?account=${encodeURIComponent(name)}` : backend.url;
-    return { name, type: 'http', url, connector: entry.id };
-  }
+  if (backend.kind === 'oauth') return { name, type: 'http', url: backend.url, connector: entry.id };
   if (backend.kind !== 'apiKey') throw new Error(`${entry.name} is not an MCP connector`);
   const value = String(key || '').trim();
   if (!value) throw new Error(`${entry.name} needs a key`);

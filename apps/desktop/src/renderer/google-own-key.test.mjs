@@ -36,6 +36,7 @@ function host(servers) {
   const calls = [];
   const invoke = async (capability, args = []) => {
     calls.push([capability, args]);
+    if (capability === 'addConnectorAccount') return { name: args[0].connector, account: 'google-calendar-3' };
     return capability === 'mcpStatus' ? { servers } : undefined;
   };
   return { calls, invoke };
@@ -51,12 +52,12 @@ test('apply sets the key on Calendar and Drive only; revert clears it and drops 
   assert.deepEqual(
     writes.map(([c, a]) => [c, a[0].connector ?? a[0].name ?? a[0]]),
     [
-      ['addMcpServer', 'google-calendar'],
+      ['addConnectorAccount', 'google-calendar'],
       ['signOutMcpServer', 'google-drive'],
       ['saveMcpServer', 'google-drive'],
     ]
   );
-  for (const [c, a] of writes.filter(([c]) => c === 'saveMcpServer' || c === 'addMcpServer')) {
+  for (const [c, a] of writes.filter(([c]) => c === 'saveMcpServer' || c === 'addConnectorAccount')) {
     assert.equal(a[0].oauthClientId, ID, c);
     assert.equal(a[0].oauthClientSecret, 'sec', c);
   }
@@ -72,11 +73,10 @@ test('apply sets the key on Calendar and Drive only; revert clears it and drops 
   const moreWrites = more.calls.filter(([c]) => c !== 'mcpStatus');
   assert.deepEqual(
     moreWrites.map(([c]) => c),
-    ['addMcpServer'],
+    ['addConnectorAccount'],
     'existing accounts get no signOutMcpServer / saveMcpServer'
   );
-  assert.equal(moreWrites[0][1][0].name, 'google-calendar-3');
-  assert.equal(moreWrites[0][1][0].url, 'https://calendar.mixdog.invalid/mcp?account=google-calendar-3');
+  assert.equal(moreWrites[0][1][0].connector, 'google-calendar');
   assert.equal(moreWrites[0][1][0].oauthClientId, ID);
   assert.equal(moreWrites[0][1][0].oauthClientSecret, 'sec');
 
@@ -111,9 +111,9 @@ test('one Calendar server holding accounts: a new account and the key reach acco
   };
   const more = host([calendar]);
   const added = await applyGoogleOwnKey(more.invoke, { clientId: ID, clientSecret: 'sec' }, 'google-calendar');
-  assert.equal(added, 'google-calendar-3', 'no account name is reused');
+  assert.equal(added, 'google-calendar-3', 'the host-chosen account is returned');
   const [write] = more.calls.filter(([c]) => c !== 'mcpStatus');
-  assert.equal(write[1][0].url, 'https://calendar.mixdog.invalid/mcp?account=google-calendar-3');
+  assert.equal(write[0], 'addConnectorAccount');
 
   const back = host([
     { ...calendar, accounts: [calendar.accounts[0], { ...calendar.accounts[1], authRequired: true }] },

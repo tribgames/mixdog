@@ -2,8 +2,8 @@
 // and Drive, as a fallback when Mixdog's shared client is full. The downloaded
 // client_secret_*.json is parsed here; the secret goes to the host only in the
 // apply call (saveMcpServer → keychain), never into config or renderer state.
-import { CONNECTOR_CATALOG, connectorServerInput } from '../../../../src/runtime/shared/connector-catalog.mjs';
-import { connectorAccountRows, uniqueServerName } from './connectors-model';
+import { CONNECTOR_CATALOG } from '../../../../src/runtime/shared/connector-catalog.mjs';
+import { connectorAccountRows } from './connectors-model';
 
 export interface GoogleOwnKey {
   clientId: string;
@@ -50,23 +50,17 @@ async function googleServers(invoke: Invoke) {
  *  With `newAccountOf` (a catalog id) it instead adds ONE more account of that
  *  connector on `key` and touches no existing server; resolves its name. */
 export async function applyGoogleOwnKey(invoke: Invoke, key: GoogleOwnKey, newAccountOf = ''): Promise<string> {
-  const { servers, byId } = await googleServers(invoke);
-  const taken = servers.map((s) => String(s.name));
+  const { byId } = await googleServers(invoke);
   const own = { oauthClientId: key.clientId, oauthClientSecret: key.clientSecret };
   const extra = GOOGLE_ENTRIES.find((entry: { id: string }) => entry.id === newAccountOf);
   if (extra) {
-    const name = uniqueServerName(extra.id, taken);
-    await invoke('addMcpServer', [
-      { ...connectorServerInput(extra, name, '', { extraAccount: Boolean(byId(extra.id)) }), ...own },
-    ]);
-    return name;
+    const added = (await invoke('addConnectorAccount', [{ connector: extra.id, ...own }])) as Row | undefined;
+    return String(added?.account ?? '');
   }
   for (const entry of GOOGLE_ENTRIES) {
     const existing = byId(entry.id);
     if (!existing) {
-      const name = uniqueServerName(entry.id, taken);
-      taken.push(name);
-      await invoke('addMcpServer', [{ ...connectorServerInput(entry, name), ...own }]);
+      await invoke('addConnectorAccount', [{ connector: entry.id, ...own }]);
       continue;
     }
     const name = String(existing.name);

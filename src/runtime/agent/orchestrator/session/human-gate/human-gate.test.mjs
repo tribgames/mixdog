@@ -106,6 +106,15 @@ test('every request kind round-trips through the approval queue with its own res
   }
 });
 
+test('a presented request names the connector account its call is bound to, whatever its kind', () => {
+  assert.deepEqual(humanRequestFields({ account: ' work@example.com ' }), { account: 'work@example.com' });
+  assert.deepEqual(humanRequestFields({ kind: 'approval', account: 'work@example.com', remember: ['once', 'agent'] }), {
+    account: 'work@example.com',
+    remember: ['once', 'agent'],
+  });
+  assert.deepEqual(humanRequestFields({}), {});
+});
+
 test('a request never carries a secret value and a contradicting response falls back', () => {
   const fields = humanRequestFields({
     kind: 'secret',

@@ -54,6 +54,10 @@ export function createSessionExtensionsApi(bag) {
       (input) => runtime.addMcpServer?.(input),
       (result, input) => [`mcp added: ${result?.name || input?.name || 'server'}`]
     ),
+    addConnectorAccount: lockedChange(
+      (input) => runtime.addConnectorAccount?.(input),
+      (result, input) => [`mcp account added: ${result?.account || input?.connector || 'connector'}`]
+    ),
     saveMcpServer: lockedChange(
       (input) => runtime.saveMcpServer?.(input),
       (result, input) => [`mcp saved: ${result?.name || input?.name || 'server'}`]

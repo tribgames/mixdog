@@ -417,6 +417,8 @@ export function approvalCardModel(approval: Approval) {
     // A secret's site is its title; its target is never repeated under it.
     target: String(outbound?.target || ''),
     account: String(outbound?.account || ''),
+    /** The connector account a connector tool call runs as (top-level `account`). */
+    requestAccount: outbound?.account ? '' : String(approval.account || ''),
     payload: String(outbound?.payload || ''),
     editable: Array.isArray(outbound?.editable) ? outbound.editable.map(String) : [],
     details,
@@ -1483,7 +1485,7 @@ function ToolApprovalCard({
   const cardText = model.connector ? connectorChangeText(agentName, model.connector) : model.text;
   const ownText = model.kind !== 'outbound' && !(model.kind === 'secret' && !secretEntry) && cardText;
   const previewNode =
-    body || editor || office || ownText || model.detail || (model.kind === 'secret' && secretEntry) ? (
+    body || editor || office || ownText || model.requestAccount || model.detail || (model.kind === 'secret' && secretEntry) ? (
       <>
         {ownText && (
           <p className="approval-text" data-centered={model.kind === 'permission' || undefined}>
@@ -1505,6 +1507,11 @@ function ToolApprovalCard({
           })}
         {body}
         {editor}
+        {model.requestAccount && (
+          <p className="approval-text">
+            {t('Account')}: {model.requestAccount}
+          </p>
+        )}
         {model.detail && <pre className="approval-detail">{model.detail}</pre>}
         {office}
         {model.kind === 'secret' && secretEntry && (
@@ -1593,6 +1600,7 @@ function heldApproval(held: Record<string, unknown>): Approval {
     name: String(held.tool || ''),
     kind: held.kind === 'outbound' ? 'outbound' : 'approval',
     reason: String(held.reason || ''),
+    ...(held.account ? { account: String(held.account) } : {}),
     agentId: String(held.agentId || ''),
     remember: Array.isArray(held.remember) ? held.remember : ['once'],
     ...(held.kind === 'outbound'

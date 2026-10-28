@@ -247,7 +247,6 @@
   "{{name}} finished a command": "{{name}} ha terminato un comando",
   "{{name}} has a failure": "{{name}} ha un errore",
   "{{name}} has new activity": "{{name}} ha nuove attività",
-  "{{name}} has no documented way to ask for another account. To switch, sign out or change accounts on the {{name}} website first, then use Switch account.": "{{name}} non offre un modo documentato per scegliere un altro account. Per cambiarlo, esci o cambia account prima sul sito di {{name}}, poi usa Cambia account.",
   "{{name}} is running": "{{name}} è in esecuzione",
   "{{name}} is running a command": "{{name}} sta eseguendo un comando",
   "{{name}} is turned off. Its sign-in is kept.": "{{name}} è disattivato. L'accesso viene mantenuto.",

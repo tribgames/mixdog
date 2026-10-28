@@ -109,6 +109,7 @@ export const SESSION_READ_ACTIONS = Object.freeze([
 export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'addHookRule',
   'addMcpServer',
+  'addConnectorAccount',
   'addPlugin',
   'addSkill',
   'agentControl',

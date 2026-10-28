@@ -6,7 +6,6 @@ import { Blocks, ChevronDown, ChevronRight, Plug, Plus } from 'lucide-react';
 import { type ReactNode, useEffect, useRef, useState } from 'react';
 import {
   type ConnectorCatalogEntry,
-  connectorMultiAccount,
   GMAIL_APP_PASSWORD,
 } from '../../../../../src/runtime/shared/connector-catalog.mjs';
 import {
@@ -488,6 +487,7 @@ function AccountRow({
                     : t('Try again')}
             </ExtensionAction>
           )}
+          {server.inUse === true && <span className="connectors-in-use">{t('In use')}</span>}
           <RowOverflowMenu label={identity} items={items} />
         </>
       }
@@ -707,14 +707,6 @@ function ConnectorDetail({
               );
             })}
           </ExtensionItemList>
-          {signedIn && !several && oauth.forcedAccountChoice !== true && (
-            <p className="connectors-hint">
-              {t(
-                '{{name}} has no documented way to ask for another account. To switch, sign out or change accounts on the {{name}} website first, then use Switch account.',
-                { name: title }
-              )}
-            </p>
-          )}
         </ExtensionSection>
       )}
       {canDo.length > 0 && (
@@ -881,7 +873,16 @@ function GoogleOwnKeyDialog({
 }
 
 /** API-key services: one field and where to get the key. */
-function ConnectorKeySheet({ entry, onClose }: { entry: ConnectorCatalogEntry; onClose(): void }) {
+function ConnectorKeySheet({
+  entry,
+  add = false,
+  onClose,
+}: {
+  entry: ConnectorCatalogEntry;
+  /** One more account of the connector, not a reconnect of its first. */
+  add?: boolean;
+  onClose(): void;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const backend = entry.backend.kind === 'apiKey' ? entry.backend : null;
@@ -900,7 +901,7 @@ function ConnectorKeySheet({ entry, onClose }: { entry: ConnectorCatalogEntry; o
         if (!key) return;
         setBusy(true);
         setError('');
-        connectCatalogConnector(entry, key)
+        connectCatalogConnector(entry, key, null, add ? { add: true } : {})
           .then(onClose)
           .catch((reason) => setError(errorMessage(reason)))
           .finally(() => setBusy(false));
@@ -1347,7 +1348,7 @@ export function ConnectorsPanel(context: PanelContext) {
   // Server and account names share one space (an account's name addresses it).
   const takenNames = connectorAccountRows(servers).map((server) => String(server.name));
   const [detail, setDetail] = useState<DetailTarget | null>(null);
-  const [keyEntry, setKeyEntry] = useState<ConnectorCatalogEntry | null>(null);
+  const [keyEntry, setKeyEntry] = useState<{ entry: ConnectorCatalogEntry; add: boolean } | null>(null);
   // "내 Google 키 사용": `null` closed, else whether a Google server already runs on the user's key.
   const [googleKey, setGoogleKey] = useState<boolean | null>(null);
   // The connector whose extra account the open key dialog also adds, if any.
@@ -1406,6 +1407,11 @@ export function ConnectorsPanel(context: PanelContext) {
   };
   const addAccount = (entry: ConnectorCatalogEntry) => {
     if (connectLocked) return lockedToast();
+    // An API-key or connection-string account is entered in the same dialog as the first.
+    if (entry.backend.kind === 'apiKey') {
+      setDetail(null);
+      return setKeyEntry({ entry, add: true });
+    }
     // A new account has no client of its own yet.
     if (ownClientNeeded(entry, null)) return askOwnClient(entry);
     connectCatalogConnector(entry, '', null, { add: true }).catch((reason) =>
@@ -1414,7 +1420,7 @@ export function ConnectorsPanel(context: PanelContext) {
   };
   const connectCatalog = (entry: ConnectorCatalogEntry, server: Row | null = null) => {
     if (connectLocked) return lockedToast();
-    if (entry.backend.kind === 'apiKey') return setKeyEntry(entry);
+    if (entry.backend.kind === 'apiKey') return setKeyEntry({ entry, add: false });
     // Gmail is app-password only: an app-password server is reconnected, else a new account is added.
     if (entry.id === 'gmail') return openAppPassword(entry, appPasswordAccount(server) ? server : null);
     if (ownClientNeeded(entry, server)) return askOwnClient();
@@ -1476,9 +1482,7 @@ export function ConnectorsPanel(context: PanelContext) {
           onAdvanced={row.server ? () => openEditor(serverNameOf(row.server)) : null}
           onRemovePlugin={null}
           accounts={row.servers}
-          onAddAccount={
-            connectorMultiAccount(row.entry) && row.entry.id !== 'gmail' ? () => addAccount(row.entry) : null
-          }
+          onAddAccount={row.entry.id !== 'gmail' ? () => addAccount(row.entry) : null}
           onDisconnectAccount={(account) => disconnect(account, true, row.entry.name)}
           onAppPassword={row.entry.id === 'gmail' ? (account) => openAppPassword(row.entry, account) : null}
           ownClientNote={
@@ -1538,7 +1542,7 @@ export function ConnectorsPanel(context: PanelContext) {
             key={entry.id}
             entry={entry}
             server={server}
-            hasAccounts={connectorMultiAccount(entry) && accounts.length > 0}
+            hasAccounts={accounts.length > 0}
             locked={connectLocked}
             onConnect={() => connectCatalog(entry, server)}
             onOpen={() => setDetail({ kind: 'catalog', id: entry.id })}
@@ -1608,7 +1612,7 @@ export function ConnectorsPanel(context: PanelContext) {
         />
       </Group>
       {dialog}
-      {keyEntry && <ConnectorKeySheet entry={keyEntry} onClose={() => setKeyEntry(null)} />}
+      {keyEntry && <ConnectorKeySheet entry={keyEntry.entry} add={keyEntry.add} onClose={() => setKeyEntry(null)} />}
       {appPassword && (
         <GmailAppPasswordDialog
           entry={appPassword.entry}

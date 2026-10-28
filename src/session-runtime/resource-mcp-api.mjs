@@ -14,9 +14,11 @@ import { migrateMergedConnectorServers } from './connector-merge-migration.mjs';
 import {
   connectorAccountServers,
   connectorAccountsOf,
+  connectorAppPasswordOnly,
   connectorById,
-  connectorMultiAccount,
+  connectorServerInput,
   gmailAppPasswordAccount,
+  gmailAppPasswordServerInput,
   mergeConnectorAccountServers,
 } from '../runtime/shared/connector-catalog.mjs';
 import { saveMcpOAuthClientSecret } from '../runtime/agent/orchestrator/mcp/oauth-client.mjs';
@@ -75,14 +77,24 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     resolveMcpCatalog,
     pluginMcpServer,
   });
-  const { storeOAuthClientSecret, storeGmailAppPassword, releaseOAuth, forgetUnusedGmailAppPassword, releaseAccount } =
-    createMcpServerSecrets({
-      gmailAppPassword,
-      saveOAuthClientSecret,
-      clearMcpServerOAuth,
-      resolveConfiguredMcpCatalog,
-    });
-  const { addConnectorAccount, saveConnectorAccount, setConnectorAccountEnabled } = createConnectorAccountEdits({
+  const {
+    storeOAuthClientSecret,
+    storeGmailAppPassword,
+    releaseOAuth,
+    forgetUnusedGmailAppPassword,
+    forgetStoredSecrets,
+    releaseAccount,
+  } = createMcpServerSecrets({
+    gmailAppPassword,
+    saveOAuthClientSecret,
+    clearMcpServerOAuth,
+    resolveConfiguredMcpCatalog,
+  });
+  const {
+    addConnectorAccount: joinConnectorAccount,
+    saveConnectorAccount,
+    setConnectorAccountEnabled,
+  } = createConnectorAccountEdits({
     normalizeMcpServerInput,
     pluginMcpServer,
     sync,
@@ -91,16 +103,65 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     storeOAuthClientSecret,
     storeGmailAppPassword,
     forgetUnusedGmailAppPassword,
+    forgetStoredSecrets,
     releaseOAuth,
   });
   // Peers reload config from disk on receipt: land the write before publishing.
   const persisted = async () => {
     await flushSkillsSave?.();
   };
+  // One account addition of a connector at a time, each reading the servers
+  // the one before it saved: two at once never take the same name, nor does
+  // one's save drop the other's account.
+  const connectorAdds = new Map();
+  const oneAddAtATime = (connector, run) => {
+    const next = (connectorAdds.get(connector) || Promise.resolve()).then(run, run);
+    const settled = next.then(
+      () => {},
+      () => {}
+    );
+    connectorAdds.set(connector, settled);
+    void settled.then(() => {
+      if (connectorAdds.get(connector) === settled) connectorAdds.delete(connector);
+    });
+    return next;
+  };
+
+  async function addMcpServer(input = {}) {
+    // A catalog connector's account (as its own server config) joins that
+    // connector's one server.
+    const connector = clean(input.connector);
+    if (connector && !Array.isArray(input.accounts)) return oneAddAtATime(connector, () => addServerNow(input));
+    return addServerNow(input);
+  }
+
+  async function addServerNow(input) {
+    const { name, config: serverConfig } = normalizeMcpServerInput(input);
+    // A catalog connector's server keeps its catalog id (connector-catalog.mjs).
+    const connector = clean(input.connector);
+    if (connector) {
+      if (!connectorById(connector)) throw new Error(`Unknown connector: ${connector}`);
+      serverConfig.connector = connector;
+    }
+    const servers = userServers();
+    if (connector && !Array.isArray(input.accounts)) {
+      return joinConnectorAccount(servers, connector, name, serverConfig, input);
+    }
+    if (Object.hasOwn(servers, name) || accountTarget(servers, name)) {
+      throw nameTakenError(servers, name);
+    }
+    const owned = pluginMcpServer(name);
+    if (owned) throw new Error(`MCP server already exists: ${name} (provided by plugin "${owned.owner.id}")`);
+    await storeOAuthClientSecret(input, serverConfig);
+    await storeGmailAppPassword(input, serverConfig, true);
+    saveServers({ ...servers, [name]: serverConfig });
+    const status = await sync.reconnectMcpAndAnnounce({ only: name, enabled: serverConfig.enabled !== false });
+    return { name, status };
+  }
 
   return {
-    /** One-time, idempotent: merge the one-account servers of a multi-account
-     *  connector (`gmail`, `gmail-2`…) into one server holding the accounts
+    /** One-time, idempotent: merge the one-account servers of a catalog
+     *  connector (`notion`, `notion-2`…) into one server holding the accounts
      *  (connector-catalog.mjs mergeConnectorAccountServers). Every account
      *  keeps its address, so its stored sign-in and app password stay as
      *  they are. Settings keyed by a merged-away server name go with it:
@@ -155,30 +216,32 @@ export function createMcpResourceApi({ deps, sync, decorate }) {
     },
     // Sign-in / sign-out (resource-mcp-oauth-api.mjs), in this key position.
     ...oauthApi,
-    async addMcpServer(input = {}) {
-      const { name, config: serverConfig } = normalizeMcpServerInput(input);
-      // A catalog connector's server keeps its catalog id (connector-catalog.mjs).
-      const connector = clean(input.connector);
-      if (connector) {
-        if (!connectorById(connector)) throw new Error(`Unknown connector: ${connector}`);
-        serverConfig.connector = connector;
-      }
-      const servers = userServers();
-      // A multi-account connector's account (as its own server config) joins
-      // that connector's one server.
-      if (connector && connectorMultiAccount(connectorById(connector)) && !Array.isArray(input.accounts)) {
-        return addConnectorAccount(servers, connector, name, serverConfig, input);
-      }
-      if (Object.hasOwn(servers, name) || accountTarget(servers, name)) {
-        throw nameTakenError(servers, name);
-      }
-      const owned = pluginMcpServer(name);
-      if (owned) throw new Error(`MCP server already exists: ${name} (provided by plugin "${owned.owner.id}")`);
-      await storeOAuthClientSecret(input, serverConfig);
-      await storeGmailAppPassword(input, serverConfig, true);
-      saveServers({ ...servers, [name]: serverConfig });
-      const status = await sync.reconnectMcpAndAnnounce({ only: name, enabled: serverConfig.enabled !== false });
-      return { name, status };
+    addMcpServer,
+    /** One more account of catalog connector `input.connector`, connected as
+     *  its catalog entry says: `key` for an API-key service (Hugging Face,
+     *  Stripe; Postgres takes its connection string), `email` and
+     *  `appPassword` for Gmail, nothing more for a sign-in service (the
+     *  account then signs in with beginMcpOAuthLogin(account)); the user's own
+     *  OAuth client rides on `oauthClientId` / `oauthClientSecret`. The account
+     *  gets a free name (`notion`, `notion-2`…) and joins the connector's one
+     *  server, which is made when there is none. Resolves `{ name, account,
+     *  status }`: the server's name and the new account's (for a Gmail
+     *  address already connected, that account, which took the new password). */
+    async addConnectorAccount(input = {}) {
+      const entry = connectorById(clean(input.connector));
+      if (!entry) throw new Error(`Unknown connector: ${clean(input.connector)}`);
+      // Its name is picked from the servers the additions before it saved.
+      return oneAddAtATime(entry.id, () => {
+        const name = freeName(userServers(), entry.id);
+        const account = connectorAppPasswordOnly(entry)
+          ? gmailAppPasswordServerInput(name, input.email, input.appPassword)
+          : connectorServerInput(entry, name, input.key);
+        const ownClient = clean(input.oauthClientId);
+        return addServerNow({
+          ...account,
+          ...(ownClient ? { oauthClientId: ownClient, oauthClientSecret: input.oauthClientSecret } : {}),
+        });
+      });
     },
     async saveMcpServer(input = {}) {
       const servers = userServers();

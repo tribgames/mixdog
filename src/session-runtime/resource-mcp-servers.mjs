@@ -3,7 +3,7 @@
 // name refusals and the merge of a partial server edit.
 import { clean } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import { MCP_TIMEOUT_FIELD_GROUPS } from '../runtime/agent/orchestrator/runtime-core/plugin-mcp.mjs';
-import { resolveMcpOAuthUrl } from '../runtime/agent/orchestrator/mcp/client-config.mjs';
+import { resolveMcpOAuthCredentialKey } from '../runtime/agent/orchestrator/mcp/client-config.mjs';
 import {
   connectorAccountServer,
   connectorAccountsOf,
@@ -11,10 +11,11 @@ import {
   connectorOfServer,
 } from '../runtime/shared/connector-catalog.mjs';
 
-/** The URL a server's OAuth credentials are stored under, or null. */
-export function oauthUrlOf(cfg) {
+/** What a server's OAuth credentials are stored under (its URL, or a
+ *  connector account's own key), or null. */
+export function oauthCredentialOf(cfg) {
   try {
-    return resolveMcpOAuthUrl(cfg);
+    return resolveMcpOAuthCredentialKey(cfg);
   } catch {
     // No valid remote URL: such a server never logged in.
     return null;

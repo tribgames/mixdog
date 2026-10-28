@@ -72,6 +72,7 @@ export function connectorAccountRows(servers: readonly Row[]): Row[] {
         ...(accountOff ? { enabled: false } : {}),
         name: text(account.name),
         server: server.name,
+        ...(account.inUse === true ? { inUse: true } : {}),
         ...(account.oauth ? { oauth: account.oauth } : {}),
         ...(account.appPassword ? { appPassword: account.appPassword } : {}),
         ...(account.ownClient === true ? { ownClient: true } : {}),

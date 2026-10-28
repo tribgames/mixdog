@@ -1191,6 +1191,8 @@ const SECRET_CAPABILITY_NAMES: ReadonlySet<string> = new Set([
   'discoverCustomProviderModels',
   'getMcpServerConfig',
   'addMcpServer',
+  // A connector account's key, connection string or app password.
+  'addConnectorAccount',
   'saveMcpServer',
   'setDeveloperOption',
   'forgetProviderAuth',

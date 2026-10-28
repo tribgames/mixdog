@@ -1,7 +1,7 @@
-// What a multi-account connector server tells the model about itself (MCP
+// What a connector server tells the model about its accounts (MCP
 // `instructions`), in one line: the connected accounts, and that each tool
-// takes `account` (asked of the user when several are connected and none was
-// named). An account that cannot be used right now is listed with why.
+// takes `account` (left out, the account used last). An account that cannot
+// be used right now is listed with why.
 
 /** The MCP instructions naming `accounts` (`{ email, note? }`, `note` a short
  *  reason it is unusable such as "needs sign-in"; one without an address is
@@ -12,12 +12,12 @@ export function connectorAccountsInstructions(accounts) {
   const list = named.map(({ email, note }) => (note ? `${email} (${note})` : email)).join(', ');
   return named.length === 1
     ? `Accounts: ${list}. \`account\` may be left out.`
-    : `Accounts: ${list}. Pass \`account\`; if the user named none and there are several, ask which.`;
+    : `Accounts: ${list}. \`account\` picks one; left out, a call uses the account used last, and its result names it.`;
 }
 
 /** The account addresses instructions from connectorAccountsInstructions name. */
 export function accountsOfInstructions(instructions) {
-  const list = /^Accounts: (.+?)\. (?:`account`|Pass `account`)/.exec(String(instructions || ''))?.[1] || '';
+  const list = /^Accounts: (.+?)\. `account`/.exec(String(instructions || ''))?.[1] || '';
   return list
     .split(', ')
     .map((part) => part.replace(/ \(.*\)$/, '').trim())
