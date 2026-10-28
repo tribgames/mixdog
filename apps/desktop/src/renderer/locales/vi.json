@@ -5737,5 +5737,10 @@
   "Zoom options": "Tùy chọn thu phóng",
   "Zoom out": "Thu nhỏ",
   "Zoom Out": "Thu nhỏ",
-  "Zoom to {{value0}}%": "Thu phóng về {{value0}}%"
+  "Zoom to {{value0}}%": "Thu phóng về {{value0}}%",
+  "Additional keys": "Khóa bổ sung",
+  "Additional keys are used in order when one hits its usage limit.": "Các khóa bổ sung được dùng theo thứ tự khi một khóa chạm giới hạn sử dụng.",
+  "Additional key {{number}}": "Khóa bổ sung {{number}}",
+  "Remove additional key {{number}}": "Xóa khóa bổ sung {{number}}",
+  "Add key": "Thêm khóa"
 }

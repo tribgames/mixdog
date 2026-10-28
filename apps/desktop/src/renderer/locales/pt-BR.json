@@ -5869,5 +5869,10 @@
   "Zoom options": "Opções de zoom",
   "Zoom out": "Reduzir",
   "Zoom Out": "Reduzir",
-  "Zoom to {{value0}}%": "Zoom para {{value0}}%"
+  "Zoom to {{value0}}%": "Zoom para {{value0}}%",
+  "Additional keys": "Chaves adicionais",
+  "Additional keys are used in order when one hits its usage limit.": "As chaves adicionais são usadas em ordem quando uma atinge o limite de uso.",
+  "Additional key {{number}}": "Chave adicional {{number}}",
+  "Remove additional key {{number}}": "Remover chave adicional {{number}}",
+  "Add key": "Adicionar chave"
 }

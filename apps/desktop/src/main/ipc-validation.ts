@@ -654,6 +654,7 @@ const CUSTOM_PROVIDER_KEYS = new Set([
   'baseURL',
   'apiKey',
   'apiKeyEnv',
+  'extraApiKeys',
   'models',
   'schemaVersion',
   'enabled',
@@ -716,6 +717,33 @@ function plainRecord(value: unknown, name: string): Record<string, unknown> {
   return value as Record<string, unknown>;
 }
 
+// Additional API keys beside the primary one (provider-accounts.mjs
+// MAX_ACCOUNTS keys in all), the same rules as provider-admin.mjs
+// (validateExtraApiKeys): `{ id }` keeps a saved key, `{ apiKey }` adds one.
+export const CUSTOM_MAX_EXTRA_API_KEYS = 19;
+const CUSTOM_KEY_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+function requiredCustomExtraApiKeys(value: unknown): void {
+  if (!Array.isArray(value) || value.length > CUSTOM_MAX_EXTRA_API_KEYS) {
+    throw new TypeError('custom provider extraApiKeys are invalid.');
+  }
+  const ids = new Set<unknown>();
+  for (const item of value) {
+    const row = plainRecord(item, 'custom provider extraApiKeys');
+    requireAllowedKeys(row, new Set(['id', 'apiKey']), 'custom provider extraApiKeys');
+    if (row.id !== undefined && (typeof row.id !== 'string' || !CUSTOM_KEY_ID.test(row.id) || ids.has(row.id))) {
+      throw new TypeError('custom provider extraApiKeys id is invalid.');
+    }
+    if (row.apiKey !== undefined && (typeof row.apiKey !== 'string' || row.apiKey.length > CUSTOM_MAX_API_KEY)) {
+      throw new TypeError('custom provider extraApiKeys apiKey is invalid.');
+    }
+    if (row.id === undefined && !(typeof row.apiKey === 'string' && row.apiKey.trim())) {
+      throw new TypeError('custom provider additional API key is empty.');
+    }
+    if (row.id !== undefined) ids.add(row.id);
+  }
+}
+
 /** Shape check only; semantic validation (URL, model rules) is the runtime's. */
 export function requiredCustomProviderInput(value: unknown, modelsOptional = false): Record<string, unknown> {
   const input = plainRecord(value, 'custom provider');
@@ -740,6 +768,7 @@ export function requiredCustomProviderInput(value: unknown, modelsOptional = fal
       throw new TypeError('custom provider apiKey and apiKeyEnv are mutually exclusive.');
     }
   }
+  if (input.extraApiKeys !== undefined) requiredCustomExtraApiKeys(input.extraApiKeys);
   if (input.schemaVersion !== undefined && input.schemaVersion !== 2) {
     throw new TypeError('custom provider schemaVersion is invalid.');
   }

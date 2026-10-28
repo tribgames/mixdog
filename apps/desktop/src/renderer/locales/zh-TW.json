@@ -5737,5 +5737,10 @@
   "Zoom options": "縮放選項",
   "Zoom out": "縮小",
   "Zoom Out": "縮小",
-  "Zoom to {{value0}}%": "縮放至 {{value0}}%"
+  "Zoom to {{value0}}%": "縮放至 {{value0}}%",
+  "Additional keys": "附加金鑰",
+  "Additional keys are used in order when one hits its usage limit.": "當某個金鑰達到用量上限時，會依序使用附加金鑰。",
+  "Additional key {{number}}": "附加金鑰 {{number}}",
+  "Remove additional key {{number}}": "移除附加金鑰 {{number}}",
+  "Add key": "新增金鑰"
 }

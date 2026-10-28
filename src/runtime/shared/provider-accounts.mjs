@@ -20,8 +20,17 @@ export const MAX_ACCOUNTS = 20;
 // the host's dir explicitly while its own MIXDOG_DATA_DIR points elsewhere.
 const file = (dataDir = resolvePluginData()) => join(dataDir, 'provider-accounts.json');
 
+// A custom provider (`custom-<id>`) pools its API keys in the same roster: its
+// primary key is the `default` account and each additional key one more
+// account (`setCustomProviderKeyIds`). A single-key provider has no roster.
+export function isCustomKeyProvider(provider) {
+  return typeof provider === 'string' && /^custom-./.test(provider);
+}
+
+const isAccountProvider = (provider) => ACCOUNT_PROVIDERS.includes(provider) || isCustomKeyProvider(provider);
+
 function requireAccountProvider(provider) {
-  if (!ACCOUNT_PROVIDERS.includes(provider)) throw new TypeError('Unknown OAuth provider.');
+  if (!isAccountProvider(provider)) throw new TypeError('Unknown OAuth provider.');
   return provider;
 }
 
@@ -45,7 +54,7 @@ function validate(raw) {
   for (const [provider, pool] of Object.entries(raw.providers)) {
     // A provider a newer build added is carried as is: this build never reads
     // or writes its pool, and treating it as damage would discard it.
-    if (!ACCOUNT_PROVIDERS.includes(provider)) continue;
+    if (!isAccountProvider(provider)) continue;
     if (!Array.isArray(pool?.accounts) || pool.accounts.length > MAX_ACCOUNTS) {
       throw new Error('Invalid provider account list.');
     }
@@ -257,6 +266,47 @@ export async function selectProviderAccountIf(provider, expectedSelectedId, id, 
     moved = true;
   });
   return moved ? pool : null;
+}
+
+/** The additional API key ids of custom provider `provider`, in use order. */
+export function customProviderKeyIds(provider, dataDir = resolvePluginData()) {
+  if (!isCustomKeyProvider(provider)) throw new TypeError('Unknown custom provider.');
+  return readProviderAccountPool(provider, dataDir)
+    .accounts.map((row) => row.id)
+    .filter((id) => id !== 'default');
+}
+
+// Sets custom provider `provider`'s additional API keys to `ids`, in use
+// order after its primary key (`default`). A kept key keeps its cooldown and a
+// selection still listed stays. Switching is always automatic and API keys
+// have no plan windows to respect, so the roster switches on limits with
+// credit use on. Without an additional key the roster is removed, so a
+// single-key provider stores nothing here.
+export async function setCustomProviderKeyIds(provider, ids) {
+  if (!isCustomKeyProvider(provider)) throw new TypeError('Unknown custom provider.');
+  if (!Array.isArray(ids) || ids.length >= MAX_ACCOUNTS || new Set(ids).size !== ids.length) {
+    throw new TypeError(`At most ${MAX_ACCOUNTS} API keys can be used.`);
+  }
+  for (const id of ids) if (requireAccountId(id) === 'default') throw new TypeError('Invalid provider account id.');
+  read();
+  await updateJsonAtomic(
+    file(),
+    (raw) => {
+      const state = validate(raw);
+      const pool = state.providers[provider];
+      if (!ids.length) {
+        delete state.providers[provider];
+        return validate(state);
+      }
+      const rows = pool?.accounts || [];
+      const accounts = ['default', ...ids].map((id) => rows.find((row) => row.id === id) || { id });
+      const selectedId = accounts.some((row) => row.id === pool?.selectedId) ? pool.selectedId : 'default';
+      state.providers[provider] = { accounts, selectedId, auto: true, policy: 'limit', useCredits: true };
+      return validate(state);
+    },
+    { mode: 0o600, secret: true, fsyncDir: true, backup: true }
+  );
+  return customProviderKeyIds(provider);
 }
 
 export async function removeProviderAccount(provider, id) {

@@ -452,7 +452,8 @@
 .settings-custom-provider-form > input.settings-custom-provider-env[aria-invalid="true"] {
   box-shadow: 0 0 0 var(--mx-hairline) var(--mx-danger);
 }
-.settings-custom-provider-hint {
+.settings-custom-provider-hint,
+.settings-custom-provider-note {
   margin: 0;
   color: var(--mx-text-muted);
   font-size: 13px;

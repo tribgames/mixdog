@@ -5737,5 +5737,10 @@
   "Zoom options": "缩放选项",
   "Zoom out": "缩小",
   "Zoom Out": "缩小",
-  "Zoom to {{value0}}%": "缩放到 {{value0}}%"
+  "Zoom to {{value0}}%": "缩放到 {{value0}}%",
+  "Additional keys": "附加密钥",
+  "Additional keys are used in order when one hits its usage limit.": "当某个密钥达到用量上限时，将按顺序使用附加密钥。",
+  "Additional key {{number}}": "附加密钥 {{number}}",
+  "Remove additional key {{number}}": "删除附加密钥 {{number}}",
+  "Add key": "添加密钥"
 }

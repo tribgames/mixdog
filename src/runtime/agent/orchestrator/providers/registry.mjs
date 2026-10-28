@@ -3,7 +3,9 @@ import { oauthCredentialProbeState } from './oauth-credential-probes.mjs';
 import { providerAvailable } from './provider-availability.mjs';
 import { refreshCatalog as refreshMetadataCatalog } from './model-catalog.mjs';
 import { wrapProviderAdmission } from './admission-scheduler.mjs';
-import { createAccountPoolProvider } from './account-pool.mjs';
+import { createAccountPoolProvider, createCustomKeyPoolProvider } from './account-pool.mjs';
+import { customKeyEngine } from './custom-provider-keys.mjs';
+import { customProviderKeyIds } from '../../../shared/provider-accounts.mjs';
 import { isInclusiveProvider } from '../../../shared/llm/cost.mjs';
 import { noEnabledProvidersError } from './registry-errors.mjs';
 import { providerTakesNativePdf } from '../../../attachments/store.mjs';
@@ -228,11 +230,37 @@ async function instantiateProvider(name, Ctor, cfg, proxyChannel = null) {
     const { createModelProxyProvider } = await import('./model-proxy-provider.mjs');
     return wrapProviderAdmission(createModelProxyProvider(name, cfg, proxyChannel ?? getModelProxyChannel()), name);
   }
-  if (isCustomProviderConfig(name, cfg)) return wrapProviderAdmission(await Ctor(name, cfg), name);
+  if (isCustomProviderConfig(name, cfg)) {
+    const { [CUSTOM_KEY_IDS]: keyIds, ...settings } = cfg;
+    const primary = wrapProviderAdmission(await Ctor(name, settings), name);
+    // Only a provider with additional keys sends through the key roster.
+    if (!keyIds?.length) return primary;
+    return createCustomKeyPoolProvider(name, primary, (id) => customKeyEngine(primary, name, id));
+  }
   if (Object.hasOwn(OPENAI_COMPAT_PRESETS, name) && !Object.hasOwn(PROVIDER_MODULES, name)) {
     return wrapProviderAdmission(new Ctor(name, cfg), name);
   }
   return createAccountPoolProvider(name, () => wrapProviderAdmission(new Ctor(cfg), name));
+}
+
+// A custom provider's additional keys live in its key roster, not the config.
+// Their ids are read once per init and join its entry (and so its reuse
+// signature): a save that changes them rebuilds the provider, which is wrapped
+// in the key pool only while it has some. A single-key provider's entry and
+// sends stay as they were, with no roster read per send.
+const CUSTOM_KEY_IDS = 'customKeyIds';
+
+function withCustomKeyIds(config) {
+  if (!config || typeof config !== 'object') return config;
+  let out = config;
+  for (const [name, cfg] of Object.entries(config)) {
+    if (!isCustomProviderConfig(name, cfg) || cfg.auth === 'none') continue;
+    const ids = customProviderKeyIds(name);
+    if (!ids.length) continue;
+    if (out === config) out = { ...config };
+    out[name] = { ...cfg, [CUSTOM_KEY_IDS]: ids };
+  }
+  return out;
 }
 
 let _initProvidersCalls = 0;
@@ -250,6 +278,8 @@ export async function initProviders(config, { signal = null } = {}) {
   if (proxyChannel) {
     const { loadModelProxyProviderConfig } = await import('./model-proxy-provider.mjs');
     config = await awaitWithAbort(loadModelProxyProviderConfig({ channel: proxyChannel }), signal);
+  } else {
+    config = withCustomKeyIds(config);
   }
   const sig = reuseSignature(config, proxyChannel);
   // Coalesce: an identical config is already mid-init — attach to it.

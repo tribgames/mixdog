@@ -5935,5 +5935,10 @@
   "Zoom options": "Параметры масштаба",
   "Zoom out": "Уменьшить",
   "Zoom Out": "Уменьшить масштаб",
-  "Zoom to {{value0}}%": "Масштаб {{value0}}%"
+  "Zoom to {{value0}}%": "Масштаб {{value0}}%",
+  "Additional keys": "Дополнительные ключи",
+  "Additional keys are used in order when one hits its usage limit.": "Дополнительные ключи используются по порядку, когда ключ достигает лимита использования.",
+  "Additional key {{number}}": "Дополнительный ключ {{number}}",
+  "Remove additional key {{number}}": "Удалить дополнительный ключ {{number}}",
+  "Add key": "Добавить ключ"
 }

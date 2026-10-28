@@ -5737,5 +5737,10 @@
   "Zoom options": "ズームオプション",
   "Zoom out": "縮小",
   "Zoom Out": "ズームアウト",
-  "Zoom to {{value0}}%": "{{value0}}%にする"
+  "Zoom to {{value0}}%": "{{value0}}%にする",
+  "Additional keys": "追加キー",
+  "Additional keys are used in order when one hits its usage limit.": "キーが使用上限に達すると、追加キーを順番に使用します。",
+  "Additional key {{number}}": "追加キー {{number}}",
+  "Remove additional key {{number}}": "追加キー {{number}} を削除",
+  "Add key": "キーを追加"
 }

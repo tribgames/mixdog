@@ -13,6 +13,7 @@ import {
   providerAccountWithBlocks,
   providerAccountBlockedUntil,
   staleQuotaWindows,
+  isCustomKeyProvider,
 } from '../../../shared/provider-accounts.mjs';
 import { withProviderAccount, hasExplicitProviderAuthBinding } from '../../../shared/provider-auth-binding.mjs';
 import { isExplicitUserAbortError, markProviderRecoveryExhausted } from './retry-classifier.mjs';
@@ -161,8 +162,11 @@ function quotaExhausted(error, providerName, model, rows, options = {}) {
 // caller does not subscribe, and account-bound connection/delta state stays
 // apart without changing the visible Mixdog session, so no stale server state
 // crosses an account switch. `emitted()` reports whether output reached the
-// caller.
-function boundAccountSend(providerName, row, messages, options) {
+// caller. `servedBy` names the account a history message or provider state
+// came from; only that account's replay and state are passed on.
+const replayAccount = (entry) => entry?.providerReplay?.accountId ?? entry?.providerAccountId;
+
+function boundAccountSend(providerName, row, messages, options, servedBy = replayAccount) {
   let emitted = false;
   const opts = { ...options };
   for (const key of ['onStreamDelta', 'onTextDelta', 'onToolCall', 'onThinkingDelta']) {
@@ -178,9 +182,9 @@ function boundAccountSend(providerName, row, messages, options) {
     // The spend still belongs to the visible session (usage-accounting.mjs).
     opts.usageSessionId = options.usageSessionId || options.sessionId;
   }
-  opts.providerState = options.providerState?.providerAccountId === row.id ? options.providerState : undefined;
+  opts.providerState = servedBy(options.providerState) === row.id ? options.providerState : undefined;
   const history = messages.map((message) => {
-    if (message.providerReplay?.accountId === row.id) return message;
+    if (servedBy(message) === row.id) return message;
     const { providerReplay, reasoning, thinkingBlocks, ...plain } = message;
     return plain;
   });
@@ -520,7 +524,7 @@ function rotationReason(evidence, accountBlocked) {
 
 // The pool's send: walks the eligible accounts until one answers, blocking
 // the ones whose quota window is exhausted along the way.
-function poolSend(providerName, account) {
+function poolSend(providerName, account, servedBy) {
   return async function send(messages, model, tools, options = {}) {
     const request = { providerName, model, account, options };
     // This send's record of the roster: the accounts it tried, those it found
@@ -541,7 +545,8 @@ function poolSend(providerName, account) {
       options.signal?.throwIfAborted();
       const pool = readProviderAccountPool(providerName);
       if (!pool.accounts.length) {
-        throwIfPlanQuotaSpent(providerName, pool, model);
+        // A custom provider's key has no plan meter to consult.
+        if (!isCustomKeyProvider(providerName)) throwIfPlanQuotaSpent(providerName, pool, model);
         return account('default').send(messages, model, tools, options);
       }
       const policy = providerAccountPolicy(pool);
@@ -559,7 +564,7 @@ function poolSend(providerName, account) {
       }
       ledger.attempted.add(row.id);
       sends += 1;
-      const bound = boundAccountSend(providerName, row, messages, options);
+      const bound = boundAccountSend(providerName, row, messages, options, servedBy);
       try {
         const result = await account(row.id).send(bound.history, model, tools, bound.opts);
         quotaStrikes.delete(`${providerName}:${row.id}`);
@@ -659,4 +664,34 @@ export function createAccountPoolProvider(providerName, create) {
       },
     }
   );
+}
+
+// Every key of a custom provider reaches one endpoint, so its answers carry
+// no key-bound server state but what an answer's routing names: history from
+// before the key pool (or from no pooled send) is the primary key's.
+function customKeyServedBy(providerName) {
+  return (entry) => {
+    const routing = entry?.providerMetadata?.[ROUTING_METADATA_KEY];
+    if (routing?.provider === providerName && routing.accountId) return routing.accountId;
+    return replayAccount(entry) || 'default';
+  };
+}
+
+/**
+ * A custom provider's API keys as one roster (provider-accounts.mjs
+ * `setCustomProviderKeyIds`): `primary` is the `default` account and answers
+ * everything but `send`; `keyEngine(id)` is the engine sending with
+ * additional key `id`. Without additional keys the roster is empty and every
+ * send is the primary's own, unchanged.
+ */
+export function createCustomKeyPoolProvider(providerName, primary, keyEngine) {
+  const engines = new Map([['default', primary]]);
+  const account = (id) => {
+    if (!engines.has(id)) engines.set(id, keyEngine(id));
+    return engines.get(id);
+  };
+  const send = poolSend(providerName, account, customKeyServedBy(providerName));
+  return new Proxy(primary, {
+    get: (target, key, receiver) => (key === 'send' ? send : Reflect.get(target, key, receiver)),
+  });
 }

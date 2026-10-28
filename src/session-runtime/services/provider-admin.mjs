@@ -111,7 +111,11 @@ import {
   providerAccountLimit,
   providerAccountBlockedUntil,
   ACCOUNT_PROVIDERS,
+  MAX_ACCOUNTS,
+  customProviderKeyIds,
+  setCustomProviderKeyIds,
 } from '../../runtime/shared/provider-accounts.mjs';
+import { customProviderKeyAccount } from '../../runtime/shared/custom-provider-keys.mjs';
 import { currentProviderAccountId, withProviderAccount } from '../../runtime/shared/provider-auth-binding.mjs';
 import {
   CUSTOM_API_KEY_ENV_RE,
@@ -658,6 +662,9 @@ function customProviderRow(id, entry, checkSecrets = true) {
   if (config?.headers) row.headers = { ...config.headers };
   if (config?.wires) row.wires = [...config.wires];
   if (config?.modelWires) row.modelWires = { ...config.modelWires };
+  // Additional API keys by id only; their values never leave the keychain.
+  const extraKeyIds = keyless ? [] : customProviderKeyIds(id);
+  if (extraKeyIds.length) row.extraApiKeys = extraKeyIds.map((keyId) => ({ id: keyId }));
   // A stored config that does not normalize cannot run (the registry skips
   // it): say so explicitly instead of listing it as connected.
   // Every readiness flag consumers read says "not ready" (`stored` stays the
@@ -1212,6 +1219,63 @@ function validateCustomTransportFields(input) {
     if (typeof input.apiKey === 'string' && input.apiKey !== '')
       throw new TypeError('custom provider apiKey and apiKeyEnv are mutually exclusive');
   }
+  if (input.extraApiKeys !== undefined) validateExtraApiKeys(input.extraApiKeys);
+}
+
+const CUSTOM_KEY_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+// Additional API keys in use order, beside the primary key (MAX_ACCOUNTS in
+// all): `{ id }` keeps a saved key, `{ apiKey }` adds one and `{ id, apiKey }`
+// replaces a saved key's value; a blank `apiKey` keeps the saved key.
+function validateExtraApiKeys(rows) {
+  const invalid = () => new TypeError('custom provider extraApiKeys are invalid');
+  if (!Array.isArray(rows) || rows.length >= MAX_ACCOUNTS) throw invalid();
+  const ids = new Set();
+  for (const row of rows) {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) throw invalid();
+    if (Object.keys(row).some((key) => key !== 'id' && key !== 'apiKey')) throw invalid();
+    if (row.id !== undefined && (typeof row.id !== 'string' || !CUSTOM_KEY_ID_RE.test(row.id) || ids.has(row.id)))
+      throw new TypeError('custom provider extraApiKeys id is invalid');
+    if (row.apiKey !== undefined && (typeof row.apiKey !== 'string' || row.apiKey.length > CUSTOM_API_KEY_MAX))
+      throw new TypeError('custom provider extraApiKeys apiKey is invalid');
+    if (row.id === undefined && !row.apiKey?.trim()) throw new TypeError('custom provider additional API key is empty');
+    if (row.id !== undefined) ids.add(row.id);
+  }
+}
+
+// The additional-key change a save makes over the `saved` key ids: `rows`
+// absent keeps them; a typed key is stored under a new id, so a replaced key
+// starts without the old one's cooldown. A keyless provider keeps none.
+function extraKeyPlan(saved, rows, keyless) {
+  if (keyless) return { saved, ids: [], added: [], removed: saved };
+  if (rows === undefined) return { saved, ids: saved, added: [], removed: [] };
+  const ids = [];
+  const added = [];
+  for (const row of rows) {
+    if (row.id !== undefined && !saved.includes(row.id)) throw new Error('An additional API key is no longer saved.');
+    const typed = typeof row.apiKey === 'string' ? row.apiKey.trim() : '';
+    if (!typed) {
+      ids.push(row.id);
+      continue;
+    }
+    const keyId = randomUUID();
+    ids.push(keyId);
+    added.push({ keyId, key: typed });
+  }
+  return { saved, ids, added, removed: saved.filter((keyId) => !ids.includes(keyId)) };
+}
+
+const extraKeysChanged = (plan) => plan.ids.join() !== plan.saved.join();
+
+async function applyExtraKeys(id, plan) {
+  for (const { keyId, key } of plan.added) await saveSecretAsync(customProviderKeyAccount(id, keyId), key);
+  if (extraKeysChanged(plan)) await setCustomProviderKeyIds(id, plan.ids);
+}
+
+// A failed save puts the saved roster back and drops the keys it added.
+async function revertExtraKeys(id, plan) {
+  if (extraKeysChanged(plan)) await setCustomProviderKeyIds(id, plan.saved);
+  for (const { keyId } of plan.added) await deleteSecretAsync(customProviderKeyAccount(id, keyId));
 }
 
 /** Whether the named environment variable is set to a non-empty value. */
@@ -1260,7 +1324,9 @@ function withStoredSettings(input, entry) {
 // the config. Synchronous, so a caller can merge and commit one snapshot.
 function customInputAt(snapshot, input, normalizeCustomProviderConfig, options) {
   const id = input.id === undefined ? null : input.id;
-  const merged = id ? withStoredSettings(input, existingCustomEntry(snapshot, id)) : input;
+  // Additional keys are secrets, applied by the save itself (extraKeyPlan).
+  const { extraApiKeys: _extraKeys, ...settings } = input;
+  const merged = id ? withStoredSettings(settings, existingCustomEntry(snapshot, id)) : settings;
   const config = normalizeCustomProviderConfig(merged, options);
   const typed = typeof merged.apiKey === 'string' ? merged.apiKey.trim() : '';
   const keyless = config.auth === 'none';
@@ -1312,9 +1378,16 @@ export async function saveCustomProvider(cfgMod, rawInput) {
   const commit = async () => {
     const account = SECRET_ACCOUNTS.agentApiKey(id);
     const previousKey = typed && existingId ? getAgentApiKey(id) : null;
+    // Auth as of this save's turn in the key queue: a no-auth save queued
+    // earlier may have landed since the input was resolved.
+    const keyless = existingId
+      ? customInputAt(cfgMod.loadConfig(), rawInput, normalizeCustomProviderConfig, { requireModels: false }).keyless
+      : resolved.keyless;
+    const extra = extraKeyPlan(existingId ? customProviderKeyIds(id) : [], rawInput.extraApiKeys, keyless);
     if (typed) await saveSecretAsync(account, typed);
     let entry;
     try {
+      await applyExtraKeys(id, extra);
       // Synchronous from here: omitted settings come from the config this
       // save commits over, so an edit that landed during the awaits above (a
       // model's visibility, a peer save, a removal) is never reverted.
@@ -1327,15 +1400,29 @@ export async function saveCustomProvider(cfgMod, rawInput) {
         { baseConfig: current }
       );
     } catch (error) {
+      await revertExtraKeys(id, extra);
       if (typed) {
         if (previousKey) await saveSecretAsync(account, previousKey);
         else await deleteSecretAsync(account);
       }
       throw error;
     }
+    // A removed key is dropped once the save holds; a keychain refusal then
+    // leaves an unused secret behind (reported), never a failed save that did commit.
+    for (const keyId of extra.removed) {
+      await deleteSecretAsync(customProviderKeyAccount(id, keyId)).catch((error) => {
+        process.stderr.write(
+          `[provider-admin] could not delete additional API key ${keyId} of ${id}: ${error?.message || error}\n`
+        );
+      });
+    }
     return customProviderRow(id, entry);
   };
-  return typed ? serializeCustomKeySave(id, commit) : commit();
+  // Every save that may change the keys runs in the provider's key queue: a
+  // typed key, an additional-key list, or a no-auth save (which drops them),
+  // decided from the input alone, never from a roster read outside the queue.
+  const keysChange = typed || rawInput.extraApiKeys !== undefined || (existingId && resolved.keyless);
+  return keysChange ? serializeCustomKeySave(id, commit) : commit();
 }
 
 // Replaces only the stored key of an existing custom provider. The provider's
@@ -1564,6 +1651,9 @@ export async function removeCustomProvider(cfgMod, rawId) {
     // provider registered so the removal can be retried. A missing secret
     // (keyless provider) is not an error.
     await deleteSecretAsync(SECRET_ACCOUNTS.agentApiKey(id));
+    const extraKeyIds = customProviderKeyIds(id);
+    for (const keyId of extraKeyIds) await deleteSecretAsync(customProviderKeyAccount(id, keyId));
+    if (extraKeyIds.length) await setCustomProviderKeyIds(id, []);
     const current = cfgMod.loadConfig();
     const { [id]: _removed, ...providers } = current.providers || {};
     cfgMod.saveConfig(withoutProviderReferences({ ...current, providers }, id), { baseConfig: current });

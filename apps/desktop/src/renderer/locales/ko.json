@@ -5737,5 +5737,10 @@
   "Zoom options": "확대/축소 옵션",
   "Zoom out": "축소",
   "Zoom Out": "축소",
-  "Zoom to {{value0}}%": "{{value0}}%로 확대/축소"
+  "Zoom to {{value0}}%": "{{value0}}%로 확대/축소",
+  "Additional keys": "추가 키",
+  "Additional keys are used in order when one hits its usage limit.": "사용 한도에 도달하면 추가 키를 순서대로 사용합니다.",
+  "Additional key {{number}}": "추가 키 {{number}}",
+  "Remove additional key {{number}}": "추가 키 {{number}} 삭제",
+  "Add key": "키 추가"
 }

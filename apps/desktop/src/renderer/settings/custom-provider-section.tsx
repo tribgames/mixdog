@@ -11,7 +11,14 @@ import { useMobileBack } from '../mobile-back';
 import { acquireTitleBarDim } from '../titlebar-dim';
 import { CustomModelEditor } from './custom-model-editor';
 import { blockedAuthHeader, blockedHeaderMessage, CustomProviderHeaders } from './custom-provider-headers';
-import { CustomProviderKeyFields, useKeyEnvPresence } from './custom-provider-key-fields';
+import {
+  CustomProviderExtraKeys,
+  CustomProviderKeyFields,
+  type ExtraKeyRow,
+  extraKeyRows,
+  extraKeysInput,
+  useKeyEnvPresence,
+} from './custom-provider-key-fields';
 import { type CustomModel, CustomProviderModelsList } from './custom-provider-models-list';
 import { pairRecord, pairRows, type PairRow } from './pair-list-rows';
 import { errorMessageText } from '../ErrorNotice';
@@ -140,6 +147,7 @@ function customProviderInput({
   envName,
   apiKey,
   savedEnv,
+  extraKeys,
 }: {
   provider?: RecordValue;
   name: string;
@@ -155,6 +163,7 @@ function customProviderInput({
   envName: string;
   apiKey: string;
   savedEnv: string;
+  extraKeys: ExtraKeyRow[];
 }): RecordValue {
   let url: URL | null = null;
   try {
@@ -196,6 +205,10 @@ function customProviderInput({
   } else {
     if (!keyless && apiKey.trim()) input.apiKey = apiKey;
     if (savedEnv) input.apiKeyEnv = null;
+  }
+  // Sent when set, and as [] when the provider had some: that removes them.
+  if (!keyless && (extraKeys.length || rows(provider?.extraApiKeys).length)) {
+    input.extraApiKeys = extraKeysInput(extraKeys);
   }
   return input;
 }
@@ -479,6 +492,7 @@ function CustomProviderForm({
   const [modelDraft, setModelDraft] = useState('');
   const [headers, setHeaders] = useState<PairRow[]>(() => pairRows(provider?.headers));
   const [headersOpen, setHeadersOpen] = useState(headers.length > 0);
+  const [extraKeys, setExtraKeys] = useState<ExtraKeyRow[]>(() => extraKeyRows(provider));
 
   const checkedName = envMode && !keyless && envValid ? envName.trim() : '';
   const envFound = useKeyEnvPresence(run, uid, checkedName);
@@ -499,6 +513,7 @@ function CustomProviderForm({
       envName,
       apiKey,
       savedEnv,
+      extraKeys,
     });
   const connection = useCustomProviderConnection({
     run,
@@ -644,6 +659,16 @@ function CustomProviderForm({
               changed();
             }}
           />
+          {!keyless && (
+            <CustomProviderExtraKeys
+              values={extraKeys}
+              disabled={disabled}
+              onChange={(next) => {
+                setExtraKeys(next);
+                changed();
+              }}
+            />
+          )}
           <div className="settings-model-check">
             <CompactSwitch
               label={t('No authentication (local server)')}
