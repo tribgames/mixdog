@@ -278,7 +278,6 @@ test('the arcs cross the loop seam with an ordinary step, as drawn', async (t) =
       'body { background: #000 !important; } .live-activity-icon svg { display: none; } [data-context]:not([data-context="visible"]) { display: none; }',
   });
   const icon = await page.$('[data-context="visible"] .live-activity-icon');
-  const FRAME_MS = 1000 / 24;
   const measured = [];
   // The strip's mask is an SVG image: hold the first frame until it is decoded.
   await page.evaluate(async () => {

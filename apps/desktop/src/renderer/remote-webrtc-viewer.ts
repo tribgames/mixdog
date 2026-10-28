@@ -35,6 +35,7 @@ import {
   type RemoteWebrtcVideoLimit,
 } from '../shared/remote-webrtc';
 import { browserTypingInput } from '../shared/browser-input-policy';
+import { addIceCandidate, iceCandidateSignal } from './remote-ice-candidate';
 import type { ScreenHelperClientMessage } from './remote-screen-helper';
 import { readRemoteWebrtcReceiverStats, remoteWebrtcPeerCertificate } from './remote-webrtc-stats';
 import { remoteVideoBelowLimit, remoteVideoLimit } from './remote-view-zoom';
@@ -126,6 +127,113 @@ const defaultTimers: Timers = {
 const mean = (values: number[]): number | undefined =>
   values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : undefined;
 
+type ReceiverStats = NonNullable<ReturnType<typeof readRemoteWebrtcReceiverStats>>;
+
+const receiverStatsLine = (stats: ReceiverStats): string => {
+  const pair = stats.candidatePair;
+  return (
+    `[mixdog-remote-webrtc] connection=${stats.connectionId} generation=${stats.generation}` +
+    ` codec=${stats.codec ?? '?'} decoder=${stats.decoderImplementation ?? '?'}` +
+    ` decoded=${stats.frameWidth ?? '?'}x${stats.frameHeight ?? '?'}` +
+    ` frames=${stats.framesDecoded}/${stats.framesReceived} dropped=${stats.framesDropped}` +
+    ` jitterBufferMs=${stats.jitterBufferDelayMs?.toFixed(1) ?? '?'} freezes=${stats.freezeCount ?? '?'}` +
+    ` path=${pair ? remoteWebrtcCandidatePath(pair) : '?'}` +
+    ` pair=${pair ? `${pair.localType}/${pair.remoteType}/${pair.protocol}` : '?'}` +
+    ` pairRttMs=${pair?.currentRoundTripTimeMs?.toFixed(1) ?? '?'}` +
+    ` inputRttMs=${stats.inputRoundTripMs?.toFixed(1) ?? '-'} inputVisibleMs=${stats.inputToVisibleMs?.toFixed(1) ?? '-'}`
+  );
+};
+
+/** The channel text of a helper message, or null when it is malformed (not a
+ *  controller key, not a canonical grant, an over-long password or account
+ *  name): such a message is never sent. */
+const encodeHelperMessage = (message: ScreenHelperClientMessage): string | null => {
+  try {
+    if (message.kind === 'screen-helper-install') {
+      return encodeRemoteWebrtcScreenHelperInstall(message.publicKey, { credential: message.credential });
+    }
+    if (message.kind === 'screen-helper-enroll') {
+      return encodeRemoteWebrtcScreenHelperEnroll(message.publicKey, { credential: message.credential });
+    }
+    return encodeRemoteWebrtcScreenHelperGrant(message);
+  } catch {
+    return null;
+  }
+};
+
+/** Channel input in flight and the latencies measured from it: the round trip
+ *  to the desktop's ack, and from the input to a frame showing its effect. */
+const createInputLedger = () => {
+  /** Channel input sent and not yet acknowledged: seq → its kind. */
+  const unacked = new Map<number, string>();
+  let roundTrips: number[] = [];
+  /** Applied input waiting for a frame captured after it was dispatched. */
+  let awaitingVisible: Array<{ sentAt: number; dispatchedAt: number }> = [];
+  let visibleSamples: number[] = [];
+  return {
+    sent(seq: number, kind: string): void {
+      unacked.set(seq, kind);
+    },
+    clearUnacked(): void {
+      unacked.clear();
+    },
+    clearAwaiting(): void {
+      awaitingVisible = [];
+    },
+    /** Settles the input an ack answers: its kind and whether the desktop
+     *  rejected it, or null for an ack of nothing in flight. */
+    acknowledge(
+      ack: { seq: number; sentAt: number; outcome: string; queuedMs: number; dispatchMs: number },
+      clock: () => number
+    ): { kind: string; rejected: boolean } | null {
+      const kind = unacked.get(ack.seq);
+      if (kind === undefined) return null;
+      unacked.delete(ack.seq);
+      const receivedAt = clock();
+      const roundTrip = receivedAt - ack.sentAt;
+      roundTrips.push(roundTrip);
+      if (ack.outcome === 'rejected') return { kind, rejected: true };
+      // The desktop finished dispatching about one return trip before the ack
+      // arrived: half the round trip the desktop did not spend.
+      const returnTrip = Math.max(0, roundTrip - ack.queuedMs - ack.dispatchMs) / 2;
+      awaitingVisible.push({ sentAt: ack.sentAt, dispatchedAt: receivedAt - returnTrip });
+      return { kind, rejected: false };
+    },
+    /** A frame captured at `captured` shows every input dispatched before it. */
+    shown(captured: number | undefined, shownAt: () => number): void {
+      if (captured === undefined || !awaitingVisible.length) return;
+      const at = shownAt();
+      awaitingVisible = awaitingVisible.filter((input) => {
+        if (input.dispatchedAt > captured) return true;
+        visibleSamples.push(at - input.sentAt);
+        return false;
+      });
+    },
+    means: () => ({ inputRoundTripMs: mean(roundTrips), inputToVisibleMs: mean(visibleSamples) }),
+    resetSamples(): void {
+      roundTrips = [];
+      visibleSamples = [];
+    },
+  };
+};
+
+const newAttempt = (
+  offer: Extract<RemoteWebrtcDesktopSignal, { type: 'offer' }>,
+  peer: RTCPeerConnection
+): Attempt => ({
+  connectionId: offer.connectionId,
+  generation: offer.generation,
+  fingerprints: offer.fingerprints,
+  peer,
+  channel: null,
+  remoteSet: false,
+  candidates: [],
+  verified: false,
+  mediaReadyKey: '',
+  mediaReadyAt: 0,
+  closed: false,
+});
+
 export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
   const now = options.now ?? (() => performance.now());
   const timers = options.timers ?? defaultTimers;
@@ -155,12 +263,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
   let disposed = false;
   let retryTimer: unknown = null;
   let statsTimer: unknown = null;
-  /** Channel input sent and not yet acknowledged: seq → its kind. */
-  const unacked = new Map<number, string>();
-  let roundTrips: number[] = [];
-  /** Applied input waiting for a frame captured after it was dispatched. */
-  let awaitingVisible: Array<{ sentAt: number; dispatchedAt: number }> = [];
-  let visibleSamples: number[] = [];
+  const ledger = createInputLedger();
 
   const ref = (attempt: Pick<Attempt, 'connectionId' | 'generation'>): RemoteWebrtcConnectionRef => ({
     v: REMOTE_WEBRTC_VERSION,
@@ -203,8 +306,8 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     if (current === attempt) {
       current = null;
       stopStats();
-      unacked.clear();
-      awaitingVisible = [];
+      ledger.clearUnacked();
+      ledger.clearAwaiting();
       videoRun = null;
       // The desktop session this attempt spoke for is over; a replacement may
       // reuse the geometry generation, so what it reported is not carried over.
@@ -350,32 +453,17 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
   const sampleStats = async (attempt: Attempt): Promise<void> => {
     const report = await attempt.peer.getStats();
     if (current !== attempt) return;
-    const stats = readRemoteWebrtcReceiverStats(report, attempt, Date.now(), {
-      inputRoundTripMs: mean(roundTrips),
-      inputToVisibleMs: mean(visibleSamples),
-    });
-    roundTrips = [];
-    visibleSamples = [];
+    const stats = readRemoteWebrtcReceiverStats(report, attempt, Date.now(), ledger.means());
+    ledger.resetSamples();
     // Input no frame showed within the window made no visible change.
-    awaitingVisible = [];
+    ledger.clearAwaiting();
     if (!stats) return;
     const channel = attempt.channel;
     if (channel?.readyState === 'open') {
       const message: RemoteWebrtcChannelFromClient = { v: REMOTE_WEBRTC_VERSION, kind: 'stats', stats };
       channel.send(JSON.stringify(message));
     }
-    const pair = stats.candidatePair;
-    options.log(
-      `[mixdog-remote-webrtc] connection=${stats.connectionId} generation=${stats.generation}` +
-        ` codec=${stats.codec ?? '?'} decoder=${stats.decoderImplementation ?? '?'}` +
-        ` decoded=${stats.frameWidth ?? '?'}x${stats.frameHeight ?? '?'}` +
-        ` frames=${stats.framesDecoded}/${stats.framesReceived} dropped=${stats.framesDropped}` +
-        ` jitterBufferMs=${stats.jitterBufferDelayMs?.toFixed(1) ?? '?'} freezes=${stats.freezeCount ?? '?'}` +
-        ` path=${pair ? remoteWebrtcCandidatePath(pair) : '?'}` +
-        ` pair=${pair ? `${pair.localType}/${pair.remoteType}/${pair.protocol}` : '?'}` +
-        ` pairRttMs=${pair?.currentRoundTripTimeMs?.toFixed(1) ?? '?'}` +
-        ` inputRttMs=${stats.inputRoundTripMs?.toFixed(1) ?? '-'} inputVisibleMs=${stats.inputToVisibleMs?.toFixed(1) ?? '-'}`
-    );
+    options.log(receiverStatsLine(stats));
   };
 
   const verify = async (attempt: Attempt): Promise<void> => {
@@ -434,24 +522,14 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     }
     const ack = readRemoteWebrtcChannelFromDesktop(data);
     if (!ack || ack.epoch !== epoch) return;
-    const kind = unacked.get(ack.seq);
-    if (kind === undefined) return;
-    unacked.delete(ack.seq);
-    const receivedAt = now();
-    const roundTrip = receivedAt - ack.sentAt;
-    roundTrips.push(roundTrip);
-    if (ack.outcome === 'rejected') {
-      // A refused click or scroll is dropped quietly, as on the relay; text
-      // the page did not take is said. A screen key, combo or text refused
-      // after it was queued is said by the screen pane, not the browser's.
-      if (kind === 'screen-key' || kind === 'screen-keys' || kind === 'screen-text') options.screenInputRejected?.();
-      else if (browserTypingInput({ type: kind })) options.failure(REMOTE_WEBRTC_REJECTED_MESSAGE);
-      return;
-    }
-    // The desktop finished dispatching about one return trip before the ack
-    // arrived: half the round trip the desktop did not spend.
-    const returnTrip = Math.max(0, roundTrip - ack.queuedMs - ack.dispatchMs) / 2;
-    awaitingVisible.push({ sentAt: ack.sentAt, dispatchedAt: receivedAt - returnTrip });
+    const settled = ledger.acknowledge(ack, now);
+    if (!settled?.rejected) return;
+    // A refused click or scroll is dropped quietly, as on the relay; text
+    // the page did not take is said. A screen key, combo or text refused
+    // after it was queued is said by the screen pane, not the browser's.
+    const { kind } = settled;
+    if (kind === 'screen-key' || kind === 'screen-keys' || kind === 'screen-text') options.screenInputRejected?.();
+    else if (browserTypingInput({ type: kind })) options.failure(REMOTE_WEBRTC_REJECTED_MESSAGE);
   };
 
   const bindChannel = (attempt: Attempt, channel: RTCDataChannel): void => {
@@ -465,12 +543,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
   };
 
   const addCandidate = (attempt: Attempt, candidate: RTCIceCandidateInit | null): void => {
-    if (!attempt.remoteSet) {
-      attempt.candidates.push(candidate);
-      return;
-    }
-    // One bad candidate is not the connection's failure; ICE decides that.
-    attempt.peer.addIceCandidate(candidate).catch((error: unknown) => {
+    addIceCandidate(attempt.peer, attempt, candidate, (error) => {
       options.log(`[mixdog-remote-webrtc] candidate refused: ${String(error)}`);
     });
   };
@@ -507,36 +580,12 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     // The offer's policy: `all` (direct pairs first, the deployment's TURN as
     // the fallback), or `relay` from a host before direct-first.
     const peer = options.createPeer({ iceServers: offer.iceServers, iceTransportPolicy: offer.iceTransportPolicy });
-    const attempt: Attempt = {
-      connectionId: offer.connectionId,
-      generation: offer.generation,
-      fingerprints: offer.fingerprints,
-      peer,
-      channel: null,
-      remoteSet: false,
-      candidates: [],
-      verified: false,
-      mediaReadyKey: '',
-      mediaReadyAt: 0,
-      closed: false,
-    };
+    const attempt = newAttempt(offer, peer);
     current = attempt;
     setState('negotiating');
     peer.onicecandidate = (event) => {
       if (current !== attempt) return;
-      const found = event.candidate;
-      void send({
-        ...ref(attempt),
-        type: 'candidate',
-        candidate: found
-          ? {
-              candidate: found.candidate,
-              sdpMid: found.sdpMid,
-              sdpMLineIndex: found.sdpMLineIndex,
-              usernameFragment: found.usernameFragment,
-            }
-          : null,
-      });
+      void send({ ...ref(attempt), type: 'candidate', candidate: iceCandidateSignal(event.candidate) });
     };
     peer.ontrack = (event) => {
       if (current !== attempt) return;
@@ -592,7 +641,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     // the desktop holds it until the ack is decoded.
     epoch = signal.inputEpoch;
     seq = 0;
-    unacked.clear();
+    ledger.clearUnacked();
     owner = 'channel';
     showsVideo = true;
     setState('promoting');
@@ -622,7 +671,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
     owner = 'held';
     options.dropInput();
     epoch = signal.inputEpoch;
-    unacked.clear();
+    ledger.clearUnacked();
     // The ack leaves after every earlier relay call; relay input after it
     // waits for it, so the desktop sees none of it before the ack.
     // The desktop answers the ack with this connection's `close`, which says
@@ -782,7 +831,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
         fail(attempt, 'channel-failed', String(error));
         return false;
       }
-      unacked.set(seq, control.type);
+      ledger.sent(seq, control.type);
       return true;
     },
     /** The video element presented a frame. */
@@ -815,15 +864,7 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
           fail(attempt, 'channel-failed', String(error));
         }
       }
-      const captured = frame.captureTime;
-      if (captured !== undefined && awaitingVisible.length) {
-        const shownAt = frame.expectedDisplayTime ?? now();
-        awaitingVisible = awaitingVisible.filter((input) => {
-          if (input.dispatchedAt > captured) return true;
-          visibleSamples.push(shownAt - input.sentAt);
-          return false;
-        });
-      }
+      ledger.shown(frame.captureTime, () => frame.expectedDisplayTime ?? now());
       maybeMediaReady();
     },
     /** The newest relay frame names another document. */
@@ -847,18 +888,8 @@ export function createRemoteWebrtcViewer(options: RemoteWebrtcViewerOptions) {
       const attempt = current;
       const channel = attempt?.channel;
       if (options.source.kind !== 'screen' || !attempt?.verified || channel?.readyState !== 'open') return false;
-      let text: string;
-      try {
-        if (message.kind === 'screen-helper-install') {
-          text = encodeRemoteWebrtcScreenHelperInstall(message.publicKey, { credential: message.credential });
-        } else if (message.kind === 'screen-helper-enroll') {
-          text = encodeRemoteWebrtcScreenHelperEnroll(message.publicKey, { credential: message.credential });
-        } else text = encodeRemoteWebrtcScreenHelperGrant(message);
-      } catch {
-        // Malformed (not a controller key, not a canonical grant, an over-long
-        // password or account name): never sent.
-        return false;
-      }
+      const text = encodeHelperMessage(message);
+      if (text === null) return false;
       try {
         channel.send(text);
         return true;

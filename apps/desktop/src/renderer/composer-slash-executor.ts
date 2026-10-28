@@ -144,12 +144,15 @@ async function runCompact(run: SlashRun, rawName: string) {
   if (busy && !run.failed) run.deps.onSlashHeld?.(`/${rawName}`);
 }
 
+const shellJobsOf = (listed: ReturnType<typeof asRecord>) =>
+  (Array.isArray(listed?.jobs) ? listed.jobs : []).map(asRecord);
+
 // /stop: every background shell of this session, after one confirmation. The
 // stop itself is the same confirmed cancel as a shell row's Stop button.
 async function runStopShells(run: SlashRun): Promise<undefined> {
   const listed = asRecord(await commandCapability<unknown>(run, 'listStoppableShellJobs'));
   if (run.failed) return undefined;
-  const jobs = (Array.isArray(listed?.jobs) ? listed.jobs : []).map(asRecord);
+  const jobs = shellJobsOf(listed);
   if (!jobs.length) {
     run.deps.showNotice(t('No background shells are running.'));
     return undefined;
@@ -239,7 +242,7 @@ async function runShells(run: SlashRun, argument: string): Promise<undefined> {
   }
   const listed = asRecord(await commandCapability<unknown>(run, 'listShellJobs'));
   if (run.failed) return undefined;
-  const jobs = (Array.isArray(listed?.jobs) ? listed.jobs : []).map(asRecord);
+  const jobs = shellJobsOf(listed);
   if (!jobs.length) {
     deps.showNotice(t('No shells are running.'));
     return undefined;

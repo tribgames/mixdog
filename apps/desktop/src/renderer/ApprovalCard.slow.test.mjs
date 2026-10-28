@@ -673,7 +673,7 @@ test('a browser takeover offers "Open", which shows the exact handed-over page a
   const previous = dom.window.mixdogDesktop;
   const takeover = { surface: 'browser', instructions: 'Sign in', tab: 'p14' };
   const approval = { id: 't-open', name: 'ask_user', kind: 'takeover', sessionId: 'sess-t', takeover };
-  const mountCard = (value) =>
+  const mountCard = () =>
     mount(React.createElement(MarkdownSessionContext.Provider, { value: 'sess-t' }, card(approval).element));
 
   // No browser panel can open here: no button.

@@ -55,6 +55,7 @@ import {
   remoteWebrtcSdpFingerprints,
   type RemoteWebrtcFingerprint,
 } from '../shared/remote-webrtc';
+import { addIceCandidate, iceCandidateSignal } from './remote-ice-candidate';
 import { remoteWebrtcPeerCertificate, remoteWebrtcSelectedPair } from './remote-webrtc-stats';
 
 /** The phone's gate (docs/remote-transport.md §6): whether this page opts
@@ -209,6 +210,94 @@ function bytesOf(value: unknown): Uint8Array | null {
   return null;
 }
 
+/** Both channels' send buffers of a direct carrier. */
+const channelsBuffered = (d: Direct): number => (d.app?.bufferedAmount ?? 0) + (d.control?.bufferedAmount ?? 0);
+
+const PATH_REASONS: Partial<Record<RemoteTransportCloseReason, RemoteTransportPathReason>> = {
+  'fingerprint-mismatch': 'fingerprint-mismatch',
+  'ice-failed': 'ice-failed',
+  'negotiation-timeout': 'negotiation-timeout',
+  stall: 'stall',
+  suspended: 'suspended',
+  'peer-host-unavailable': 'peer-host-unavailable',
+  'session-ended': 'session-ended',
+};
+
+/** The state of a direct carrier the PC's offer opens, before any channel. */
+const newDirect = (
+  offer: Extract<RemoteTransportSignal, { t: 'offer' }>,
+  pc: RTCPeerConnection,
+  now: number
+): Direct => ({
+  carrier: `direct:${offer.connectionId}`,
+  monitor: new RemoteTransportPathMonitor(now),
+  epoch: 0,
+  lane: { kind: 'direct', epoch: offer.generation, connectionId: offer.connectionId },
+  laneActive: false,
+  connectionId: offer.connectionId,
+  generation: offer.generation,
+  pc,
+  fingerprints: offer.fingerprints,
+  app: null,
+  control: null,
+  remoteSet: false,
+  candidates: [],
+  verified: false,
+  turn: false,
+  offeredAt: now,
+  validating: null,
+  validatingAt: 0,
+  lastPingAt: now,
+  heldControl: [],
+  heldBytes: 0,
+  reservedBytes: 0,
+  coalesced: new Map(),
+});
+
+/** Unhooks and closes a direct carrier's connection and channels. */
+const closeDirectConnection = (d: Direct): void => {
+  const { pc } = d;
+  pc.onicecandidate = null;
+  pc.ondatachannel = null;
+  pc.onconnectionstatechange = null;
+  for (const ch of [d.app, d.control]) {
+    if (!ch) continue;
+    ch.onopen = null;
+    ch.onmessage = null;
+    ch.onclose = null;
+    ch.onerror = null;
+    ch.onbufferedamountlow = null;
+    ch.close();
+  }
+  pc.close();
+};
+
+/** The pings in flight, for RTT matching. */
+const createPingBook = () => {
+  const pings = new Map<number, PingEntry>();
+  let lastId = 0;
+  return {
+    add(entry: PingEntry): number {
+      lastId += 1;
+      pings.set(lastId, entry);
+      for (const old of pings.keys()) {
+        if (pings.size <= MAX_PINGS) break;
+        pings.delete(old);
+      }
+      return lastId;
+    },
+    /** Consumed once, whatever follows. */
+    take(id: number): PingEntry | undefined {
+      const entry = pings.get(id);
+      pings.delete(id);
+      return entry;
+    },
+    dropCarrier(carrier: RemoteTransportCarrierId): void {
+      for (const [id, entry] of pings) if (entry.carrier === carrier) pings.delete(id);
+    },
+  };
+};
+
 export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): RemoteTransportPeer {
   const { channel, sessionId, timers } = options;
   const clock = options.now ?? (() => Date.now());
@@ -226,8 +315,7 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
   let sending: Promise<unknown> = Promise.resolve();
   const early: Array<[Uint8Array, RemoteTransportCarrierId]> = [];
   const roomWaiters: Array<() => void> = [];
-  const pings = new Map<number, PingEntry>();
-  let pingId = 0;
+  const pings = createPingBook();
   let fragmentId = 0;
   /** An opened payload the process pool could not take yet (`wait`). */
   let held: { value: unknown } | null = null;
@@ -255,8 +343,6 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
 
   const pathOf = (carrier: RemoteTransportCarrierId): Path | null =>
     carrier === RELAY ? relayPath : direct?.carrier === carrier ? direct : null;
-  /** Both channels' send buffers of a direct carrier. */
-  const channelsBuffered = (d: Direct): number => (d.app?.bufferedAmount ?? 0) + (d.control?.bufferedAmount ?? 0);
   /** What a carrier holds queued: the relay socket's buffer, or a direct
    *  carrier's aggregate (both channels plus the control held or being
    *  sealed here). */
@@ -409,8 +495,6 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
   });
 
   const ping = (path: Path, kind: { validation?: boolean; wake?: boolean } = {}): number => {
-    pingId += 1;
-    const id = pingId;
     const now = clock();
     // Every ping carries `sent`: what has certainly left this carrier's queue.
     const sent = sender.probeThrough(path.carrier, appQueued(path));
@@ -421,11 +505,7 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
       validation: kind.validation === true,
       wake: kind.wake === true,
     };
-    pings.set(id, entry);
-    for (const old of pings.keys()) {
-      if (pings.size <= MAX_PINGS) break;
-      pings.delete(old);
-    }
+    const id = pings.add(entry);
     if (path !== relayPath) (path as Direct).lastPingAt = now;
     void sendControl(remoteTransportPing(id, sent), path, () => {
       entry.sentAt = clock();
@@ -541,31 +621,8 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
     d.heldBytes = 0;
     d.coalesced.clear();
     channel.retireControlLane(d.lane);
-    for (const [id, entry] of pings) if (entry.carrier === d.carrier) pings.delete(id);
-    const { pc } = d;
-    pc.onicecandidate = null;
-    pc.ondatachannel = null;
-    pc.onconnectionstatechange = null;
-    for (const ch of [d.app, d.control]) {
-      if (!ch) continue;
-      ch.onopen = null;
-      ch.onmessage = null;
-      ch.onclose = null;
-      ch.onerror = null;
-      ch.onbufferedamountlow = null;
-      ch.close();
-    }
-    pc.close();
-  };
-
-  const PATH_REASONS: Partial<Record<RemoteTransportCloseReason, RemoteTransportPathReason>> = {
-    'fingerprint-mismatch': 'fingerprint-mismatch',
-    'ice-failed': 'ice-failed',
-    'negotiation-timeout': 'negotiation-timeout',
-    stall: 'stall',
-    suspended: 'suspended',
-    'peer-host-unavailable': 'peer-host-unavailable',
-    'session-ended': 'session-ended',
+    pings.dropCarrier(d.carrier);
+    closeDirectConnection(d);
   };
 
   /** A failure this side saw: the PC hears why (on the relay), the peer closes. */
@@ -633,12 +690,7 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
   };
 
   const addCandidate = (d: Direct, candidate: RTCIceCandidateInit | null): void => {
-    if (!d.remoteSet) {
-      d.candidates.push(candidate);
-      return;
-    }
-    // One bad candidate is not the connection's failure; ICE decides that.
-    d.pc.addIceCandidate(candidate).catch((error: unknown) => {
+    addIceCandidate(d.pc, d, candidate, (error) => {
       options.log(`[mixdog-remote-transport] candidate refused: ${String(error)}`);
     });
   };
@@ -678,53 +730,14 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
       iceServers: offer.iceServers,
       iceTransportPolicy: REMOTE_WEBRTC_ICE_TRANSPORT_POLICY,
     });
-    const d: Direct = {
-      carrier: `direct:${offer.connectionId}`,
-      monitor: new RemoteTransportPathMonitor(now),
-      epoch: 0,
-      lane: { kind: 'direct', epoch: offer.generation, connectionId: offer.connectionId },
-      laneActive: false,
-      connectionId: offer.connectionId,
-      generation: offer.generation,
-      pc,
-      fingerprints: offer.fingerprints,
-      app: null,
-      control: null,
-      remoteSet: false,
-      candidates: [],
-      verified: false,
-      turn: false,
-      offeredAt: now,
-      validating: null,
-      validatingAt: 0,
-      lastPingAt: now,
-      heldControl: [],
-      heldBytes: 0,
-      reservedBytes: 0,
-      coalesced: new Map(),
-    };
+    const d = newDirect(offer, pc, now);
     direct = d;
     lastRef = ref(d);
     // Pending until promotion (a previous pending lane is retired by it).
     channel.registerControlLane(d.lane);
     pc.onicecandidate = (event: RTCPeerConnectionIceEvent) => {
       if (direct !== d) return;
-      const found = event.candidate;
-      control(
-        {
-          ...ref(d),
-          t: 'candidate',
-          candidate: found
-            ? {
-                candidate: found.candidate,
-                sdpMid: found.sdpMid,
-                sdpMLineIndex: found.sdpMLineIndex,
-                usernameFragment: found.usernameFragment,
-              }
-            : null,
-        },
-        relayPath
-      );
+      control({ ...ref(d), t: 'candidate', candidate: iceCandidateSignal(event.candidate) }, relayPath);
     };
     pc.ondatachannel = (event: RTCDataChannelEvent) => {
       if (direct === d) bindChannel(d, event.channel);
@@ -756,10 +769,8 @@ export function createRemoteTransportPeer(options: RemoteTransportPeerOptions): 
   };
 
   const pong = (id: number, carrier: RemoteTransportCarrierId, now: number): void => {
-    const entry = pings.get(id);
+    const entry = pings.take(id);
     if (!entry) return;
-    // Consumed once, whatever follows.
-    pings.delete(id);
     const path = pathOf(carrier);
     // Only a ping timed locally on this carrier since its last reset matches.
     if (!path || entry.carrier !== carrier || entry.epoch !== path.epoch) return;

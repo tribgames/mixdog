@@ -173,6 +173,7 @@ export function importFailureSummary(
   }
   return [...groups].map(([code, group]) => ({ code, ...group }));
 }
+
 /** Distinct warning codes across a finished job's results. */
 export function importWarningCodes(job: ConversationImportJob): string[] {
   return [...new Set(job.results.flatMap((result) => result.warnings))];

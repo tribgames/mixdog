@@ -95,6 +95,123 @@ export function vertexAdcNote(provider: RecordValue): string | undefined {
   return undefined;
 }
 
+/** The open Vertex AI key form: the authentication mode picker and the fields of the chosen mode. */
+function VertexKeyForm({
+  provider,
+  mode,
+  busy,
+  run,
+  onMode,
+  onClose,
+}: {
+  provider: RecordValue;
+  mode: string;
+  busy: boolean;
+  run: PanelContext['run'];
+  onMode(mode: string): void;
+  onClose(): void;
+}) {
+  return (
+    <>
+      {/* biome-ignore lint/a11y/useSemanticElements: a div button group, same as the API key source picker. */}
+      <div className="mx-segmented mx-segmented-compact" role="group" aria-label={t('Vertex AI authentication')}>
+        {[
+          { mode: VERTEX_SERVICE_ACCOUNT, label: t('Service account key') },
+          { mode: VERTEX_ADC, label: t('gcloud login (ADC)') },
+          { mode: VERTEX_API_KEY, label: t('API key (express mode)') },
+        ].map((option) => (
+          <button
+            key={option.mode}
+            type="button"
+            aria-pressed={option.mode === mode}
+            disabled={busy}
+            onClick={() => onMode(option.mode)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+      <form
+        className="settings-provider-secret"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          const fields = new FormData(form);
+          // Empty: unset, so the runtime follows the environment's region (then global).
+          const location = String(fields.get('location') || '').trim();
+          const projectId = String(fields.get('projectId') || '').trim();
+          const save = async (secret: string, options: Record<string, string>) => {
+            const result = await run('saveProviderApiKey', [provider.id, secret, options], 'provider-key-vertex-ai');
+            if (result !== undefined) {
+              form.reset();
+              onClose();
+            }
+          };
+          // The gcloud login sends no secret.
+          if (mode === VERTEX_ADC) {
+            void save('', { authMode: VERTEX_ADC, location, projectId });
+            return;
+          }
+          // Express mode: the key alone (it serves the global location only).
+          if (mode === VERTEX_API_KEY) {
+            void save(String(fields.get('secret') || '').trim(), { authMode: VERTEX_API_KEY });
+            return;
+          }
+          const file = fields.get('secretFile');
+          if (!(file instanceof File)) return;
+          void file.text().then((secret) => save(secret, { location, projectId }));
+        }}
+      >
+        {mode === VERTEX_SERVICE_ACCOUNT && (
+          <input
+            name="secretFile"
+            data-provider-key={String(provider.id)}
+            type="file"
+            accept="application/json,.json"
+            aria-label={t('Vertex AI service-account JSON key')}
+            required
+          />
+        )}
+        {mode === VERTEX_API_KEY ? (
+          <input
+            name="secret"
+            data-provider-key={String(provider.id)}
+            type="password"
+            autoComplete="off"
+            placeholder={t('API key')}
+            aria-label={t('Vertex AI express mode API key')}
+            required
+          />
+        ) : (
+          <>
+            {/* A saved location fills the field; the environment's region
+                (or global) is only a hint, saved when the user enters it. */}
+            <input
+              name="location"
+              data-provider-key={mode === VERTEX_ADC ? String(provider.id) : undefined}
+              type="text"
+              defaultValue={vertexSavedLocation(provider)}
+              placeholder={String(provider.location || VERTEX_DEFAULT_LOCATION)}
+              aria-label={t('Vertex AI location')}
+            />
+            <input
+              name="projectId"
+              type="text"
+              defaultValue={String(provider.projectId || '')}
+              placeholder={t('Project ID override (optional)')}
+              aria-label={t('Vertex AI project ID override')}
+            />
+          </>
+        )}
+        <button type="submit" disabled={busy}>
+          {t('Save')}
+        </button>
+      </form>
+      <ActionButton onClick={onClose}>{t('Cancel')}</ActionButton>
+    </>
+  );
+}
+
 /** The storage note of an API-key row, from the setup's structured credential source. */
 export function credentialNote(provider: RecordValue): string | undefined {
   if (provider.credentialSource === 'private-file') return t('Stored in a private file');
@@ -276,7 +393,6 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
     return mode === VERTEX_ADC || mode === VERTEX_API_KEY ? mode : VERTEX_SERVICE_ACCOUNT;
   };
   const vertexAdcFor = (provider: RecordValue) => provider.id === 'vertex-ai' && vertexModeFor(provider) === VERTEX_ADC;
-  const vertexAdcKey = (provider: RecordValue) => (vertexAdcFor(provider) ? String(provider.id) : undefined);
   const rowMeta = (provider: RecordValue) => {
     if (vertexAdcFor(provider)) return vertexAdcNote(provider);
     if (provider.id === 'vertex-ai' && !provider.authenticated && vertexModeFor(provider) === VERTEX_API_KEY) {
@@ -333,111 +449,14 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
               </ActionButton>
             )}
           {!provider.authenticated && openKeyId === String(provider.id) && provider.id === 'vertex-ai' && (
-            <>
-              {/* biome-ignore lint/a11y/useSemanticElements: a div button group, same as the API key source picker. */}
-              <div
-                className="mx-segmented mx-segmented-compact"
-                role="group"
-                aria-label={t('Vertex AI authentication')}
-              >
-                {[
-                  { mode: VERTEX_SERVICE_ACCOUNT, label: t('Service account key') },
-                  { mode: VERTEX_ADC, label: t('gcloud login (ADC)') },
-                  { mode: VERTEX_API_KEY, label: t('API key (express mode)') },
-                ].map((option) => (
-                  <button
-                    key={option.mode}
-                    type="button"
-                    aria-pressed={option.mode === vertexModeFor(provider)}
-                    disabled={busy}
-                    onClick={() => setVertexMode(option.mode)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
-              </div>
-              <form
-                className="settings-provider-secret"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  const form = event.currentTarget;
-                  const fields = new FormData(form);
-                  // Empty: unset, so the runtime follows the environment's region (then global).
-                  const location = String(fields.get('location') || '').trim();
-                  const projectId = String(fields.get('projectId') || '').trim();
-                  const save = async (secret: string, options: Record<string, string>) => {
-                    const result = await run(
-                      'saveProviderApiKey',
-                      [provider.id, secret, options],
-                      'provider-key-vertex-ai'
-                    );
-                    if (result !== undefined) {
-                      form.reset();
-                      closeKeyForm(String(provider.id));
-                    }
-                  };
-                  // The gcloud login sends no secret.
-                  if (vertexAdcFor(provider)) {
-                    void save('', { authMode: VERTEX_ADC, location, projectId });
-                    return;
-                  }
-                  // Express mode: the key alone (it serves the global location only).
-                  if (vertexModeFor(provider) === VERTEX_API_KEY) {
-                    void save(String(fields.get('secret') || '').trim(), { authMode: VERTEX_API_KEY });
-                    return;
-                  }
-                  const file = fields.get('secretFile');
-                  if (!(file instanceof File)) return;
-                  void file.text().then((secret) => save(secret, { location, projectId }));
-                }}
-              >
-                {vertexModeFor(provider) === VERTEX_SERVICE_ACCOUNT && (
-                  <input
-                    name="secretFile"
-                    data-provider-key={String(provider.id)}
-                    type="file"
-                    accept="application/json,.json"
-                    aria-label={t('Vertex AI service-account JSON key')}
-                    required
-                  />
-                )}
-                {vertexModeFor(provider) === VERTEX_API_KEY ? (
-                  <input
-                    name="secret"
-                    data-provider-key={String(provider.id)}
-                    type="password"
-                    autoComplete="off"
-                    placeholder={t('API key')}
-                    aria-label={t('Vertex AI express mode API key')}
-                    required
-                  />
-                ) : (
-                  <>
-                    {/* A saved location fills the field; the environment's region
-                        (or global) is only a hint, saved when the user enters it. */}
-                    <input
-                      name="location"
-                      data-provider-key={vertexAdcKey(provider)}
-                      type="text"
-                      defaultValue={vertexSavedLocation(provider)}
-                      placeholder={String(provider.location || VERTEX_DEFAULT_LOCATION)}
-                      aria-label={t('Vertex AI location')}
-                    />
-                    <input
-                      name="projectId"
-                      type="text"
-                      defaultValue={String(provider.projectId || '')}
-                      placeholder={t('Project ID override (optional)')}
-                      aria-label={t('Vertex AI project ID override')}
-                    />
-                  </>
-                )}
-                <button type="submit" disabled={busy}>
-                  {t('Save')}
-                </button>
-              </form>
-              <ActionButton onClick={() => closeKeyForm(String(provider.id))}>{t('Cancel')}</ActionButton>
-            </>
+            <VertexKeyForm
+              provider={provider}
+              mode={vertexModeFor(provider)}
+              busy={busy}
+              run={run}
+              onMode={setVertexMode}
+              onClose={() => closeKeyForm(String(provider.id))}
+            />
           )}
           {!provider.authenticated && openKeyId === String(provider.id) && provider.id !== 'vertex-ai' && (
             <>
