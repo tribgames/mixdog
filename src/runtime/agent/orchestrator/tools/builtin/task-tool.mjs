@@ -1,6 +1,7 @@
 // Generic background-task tool (status/wait/cancel).
 import {
   buildJobNotFoundMessage,
+  isShellJobRunning,
   peekShellJob,
   killShellJob,
   otherSessionBackgroundShellJobCount,
@@ -227,6 +228,9 @@ async function cancelShellTaskOutcome(task, taskId, options) {
   // their shell). Remember that it WAS live so the outcome is
   // reported as a cancellation rather than "task not found".
   const wasRunning = task.status === 'running';
+  // A tracked tree outlives the native task's cache entry: its own
+  // termination watch, not the native task, confirms the stop.
+  const trackedTree = isShellJobRunning(taskId);
   const job = killShellJob(taskId);
   if (job) {
     // Confirm the process actually terminated before reporting a
@@ -248,10 +252,10 @@ async function cancelShellTaskOutcome(task, taskId, options) {
     }
     // The root exited; what it started outside its process group is swept
     // by the job's termination watch. Cancelled means all of it is gone.
-    if (confirmed && !(await waitShellJobTerminated(taskId, TASK_CANCEL_TREE_CONFIRM_MS))) {
+    if ((confirmed || trackedTree) && !(await waitShellJobTerminated(taskId, TASK_CANCEL_TREE_CONFIRM_MS))) {
       return { outcome: 'unconfirmed', text: cancelPendingText(taskId) };
     }
-    if (!confirmed) {
+    if (!confirmed && !trackedTree) {
       // No terminal event and no observable task: absence of
       // state is not proof of termination. Stop tracking it so it
       // cannot hang as 'running' forever, but never claim it died.
@@ -301,7 +305,8 @@ export async function stopBackgroundShellJob(taskId, options = {}) {
   if (!task || task.surface !== 'shell') return { stopped: false, error: `task not found: ${id}` };
   const job = peekShellJob(id);
   const status = job ? job.status : task.status;
-  if (status !== 'running') return { stopped: false, error: `task already ${status}: ${id}` };
+  // A root that exited while tracked descendants run is still stoppable.
+  if (status !== 'running' && !isShellJobRunning(id)) return { stopped: false, error: `task already ${status}: ${id}` };
   try {
     const { outcome, text } = await cancelShellTaskOutcome(task, id, options);
     if (outcome === 'cancelled') return { stopped: true };

@@ -41,6 +41,7 @@ import {
   createProcessTreeTracker,
   killAfterSnapshot,
   PROCESS_TABLE_READ_BOUND_MS,
+  sweepLiveIdentities,
   watchTermination,
   withinBound,
 } from '../lib/shell-descendants.mjs';
@@ -184,28 +185,40 @@ async function trackShellJobRecord(task, options) {
     // The completion notice is already on its way (watchBackgroundShellJob);
     // the record — and with it the workspace admission — completes only once
     // every process is confirmed gone, or the user releases it explicitly.
+    // A force-release only drops the workspace hold (the record completes);
+    // the job stays tracked and observed until its processes are confirmed
+    // gone, and only that confirmation reports it terminated.
+    let released = null;
+    const releaseHold = () => {
+      clearTerminationHold(jobId);
+      released ??= completeShellJobRecord(jobId, normalized);
+      return released;
+    };
     let finished = false;
     const finish = () => {
       if (finished) return;
       finished = true;
       stop();
-      clearTerminationHold(jobId);
       if (backgroundTrackers.get(jobId) === entry) backgroundTrackers.delete(jobId);
       resolveTerminated(true);
-      return completeShellJobRecord(jobId, normalized);
+      return releaseHold();
     };
     const stop = watchTermination({
       tracker,
       // A killed job is not over while processes it started still run.
       sweep: killed,
       onTerminated: finish,
-      releaseRequested: () => takeReleaseRequest(jobId),
+      // A release requested from another process is the same force-release.
+      releaseRequested: () => {
+        if (takeReleaseRequest(jobId)) void releaseHold();
+        return false;
+      },
       onUnconfirmed: () => {
         void markShellJobTerminationUnconfirmed(jobId);
         registerTerminationHold(jobId, {
           ownerSessionId: options?.ownerSessionId || null,
           cwd: task.cwd,
-          release: finish,
+          release: releaseHold,
         });
       },
     });
@@ -421,6 +434,17 @@ export function killShellJob(jobId) {
     // the folder stays held under the observation loop.
     void killAfterSnapshot(prepareTrackedKill(tracked), () => cancelNativeTask(jobId));
     return { ...attachJobInsights(normalizeShellJobDetail(current)), killed: true };
+  }
+  if (tracked) {
+    // The root already exited but its tracked descendants run on: the stop
+    // reaches them through the tracker alone, whether or not the native task
+    // is still cached; the termination watch then releases the folder.
+    void tracked.tracker
+      .observe({ rootExited: true })
+      .then(() => sweepLiveIdentities(tracked.tracker))
+      .catch(() => {});
+    const detail = current ?? { jobId, status: 'completed' };
+    return { ...attachJobInsights(normalizeShellJobDetail(detail)), killed: true };
   }
   const detail = cancelNativeTask(jobId);
   if (!detail) return null;

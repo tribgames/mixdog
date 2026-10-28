@@ -179,7 +179,7 @@ export function createProcessTreeTracker({ pid, members = [], exitObserved = fal
  *  double fork that kept its parent link) or outlived the root on Windows —
  *  so the kill is not finished while they run. Windows: taskkill /T /F;
  *  POSIX: SIGTERM, then SIGKILL after a short grace. */
-function sweepLiveIdentities(tracker) {
+export function sweepLiveIdentities(tracker) {
   const targets = tracker.live
     .filter((entry) => entry.token != null && !CONSOLE_HOST.test(entry.name))
     .map((entry) => entry.pid);

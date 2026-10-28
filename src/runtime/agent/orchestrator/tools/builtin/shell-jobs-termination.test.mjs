@@ -58,7 +58,9 @@ mock.module('../lib/native-spawn-client.mjs', {
 const tree = scriptedChildTree();
 mock.module('../../mcp/child-tree.mjs', { namedExports: tree.namedExports });
 
-const { isShellJobRunning, killShellJob, promoteForegroundShellJob } = await import('./shell-jobs.mjs');
+const { isShellJobRunning, killShellJob, promoteForegroundShellJob, subscribeShellJobSettled } = await import(
+  './shell-jobs.mjs'
+);
 const { cleanupArtifactOnTaskSettled } = await import('./bash-tool/transport-artifacts.mjs');
 const {
   _shellJobRecordWritesSettledForTest,
@@ -227,6 +229,72 @@ test('closing a job owner without a snapshot keeps its hold visible until explic
     (released.orphaned || []).some((job) => job.taskId === 'job_bg_6400'),
     false
   );
+});
+
+test('stopping a completed root terminates the tracked descendants that outlived it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const repo = makeRepo();
+  tree.state.next = () => processTable([{ pid: 6800 }, { pid: 6801, ppid: 6800, token: 'worker' }]);
+  await promote(repo, 6800);
+  await flush();
+  tree.state.next = () => processTable([{ pid: 6801, ppid: 6800, token: 'worker' }]);
+  setTask('job_bg_6800', 'completed');
+  await flush();
+  assert.equal(tree.state.kills.includes(6801), false);
+  const stopped = killShellJob('job_bg_6800');
+  assert.equal(stopped.killed, true);
+  await until(() => tree.state.kills.includes(6801));
+  assert.equal(isHeld(repo), true, 'the folder is released by the termination watch, not by the stop');
+  tree.state.next = () => processTable([]);
+  t.mock.timers.tick(5_000);
+  await until(() => !isHeld(repo));
+});
+
+test('stopping a job whose native entry expired still terminates its tracked descendants', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const repo = makeRepo();
+  tree.state.next = () => processTable([{ pid: 7000 }, { pid: 7001, ppid: 7000, token: 'worker' }]);
+  await promote(repo, 7000);
+  await flush();
+  tree.state.next = () => processTable([{ pid: 7001, ppid: 7000, token: 'worker' }]);
+  setTask('job_bg_7000', 'completed');
+  await flush();
+  tasks.delete('job_bg_7000');
+  assert.ok(killShellJob('job_bg_7000'), 'the tracker alone keeps the job stoppable');
+  await until(() => tree.state.kills.includes(7001));
+  tree.state.next = () => processTable([]);
+  t.mock.timers.tick(5_000);
+  await until(() => !isHeld(repo));
+});
+
+test('a force-release drops the folder hold without reporting a live job terminated', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const repo = makeRepo();
+  tree.state.next = () => processTable([{ pid: 6900 }, { pid: 6901, ppid: 6900, token: 'worker' }]);
+  await promote(repo, 6900);
+  await flush();
+  tree.state.next = () => processTable([{ pid: 6901, ppid: 6900, token: 'worker' }]);
+  setTask('job_bg_6900', 'completed');
+  let settledCallbacks = 0;
+  subscribeShellJobSettled('job_bg_6900', () => {
+    settledCallbacks += 1;
+  });
+  await until(async () => {
+    await _shellJobRecordWritesSettledForTest('job_bg_6900');
+    return (await readShellJobRecord('job_bg_6900'))?.terminationUnconfirmed;
+  });
+  assert.deepEqual(await forceReleaseTerminationHold('job_bg_6900', { callerSessionId: 'sess_bg' }), {
+    released: true,
+  });
+  assert.equal(isHeld(repo), false);
+  t.mock.timers.tick(5_000);
+  await flush();
+  assert.equal(isShellJobRunning('job_bg_6900'), true, 'the worker still runs');
+  assert.equal(settledCallbacks, 0);
+  tree.state.next = () => processTable([]);
+  t.mock.timers.tick(5_000);
+  await until(() => !isShellJobRunning('job_bg_6900'));
+  await until(() => settledCallbacks === 1);
 });
 
 // The root ends on its own or by a cancel; a worker it started keeps running.
