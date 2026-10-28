@@ -144,6 +144,10 @@ export function CustomProviderKeyFields({
   onEnvName(name: string): void;
   onApiKey(key: string): void;
 }) {
+  const keyPlaceholder = keepsSavedKey ? t('Leave blank to keep the saved key') : t('API key');
+  const envHint = envFound
+    ? t('Environment variable found. The key is read each time and is not stored.')
+    : t('{{name}} was not found yet. If you just set it, restart Mixdog to apply it.', { name: envName.trim() });
   return (
     <>
       <div className="settings-custom-provider-key-row">
@@ -188,17 +192,13 @@ export function CustomProviderKeyFields({
           disabled={disabled || keyless}
           required={!keyless && needsKey}
           autoComplete="new-password"
-          placeholder={keepsSavedKey ? t('Leave blank to keep the saved key') : t('API key')}
+          placeholder={keyPlaceholder}
           onChange={(event) => onApiKey(event.target.value)}
         />
       )}
       {envMode && !keyless && envFound !== null && (
         <p className={`settings-custom-provider-hint ${envFound ? 'ok' : 'warn'}`} role="status">
-          {envFound
-            ? t('Environment variable found. The key is read each time and is not stored.')
-            : t('{{name}} was not found yet. If you just set it, restart Mixdog to apply it.', {
-                name: envName.trim(),
-              })}
+          {envHint}
         </p>
       )}
     </>

@@ -70,7 +70,10 @@ test('additional keys are saved as secrets in order, listed by id only, and kept
   });
   const ids = customProviderKeyIds(saved.id);
   assert.equal(ids.length, 2);
-  assert.deepEqual(saved.extraApiKeys, ids.map((id) => ({ id })));
+  assert.deepEqual(
+    saved.extraApiKeys,
+    ids.map((id) => ({ id }))
+  );
   assert.deepEqual(
     ids.map((keyId) => extraValue(saved.id, keyId)),
     ['sk-extra-2', 'sk-extra-3']
@@ -99,10 +102,7 @@ test('additional keys are saved as secrets in order, listed by id only, and kept
   assert.deepEqual(extraSecrets(saved.id), [`agent.${saved.id}.apiKey.${replaced}`]);
   assert.equal(extraValue(saved.id, replaced), 'sk-extra-2b');
   // A key removed meanwhile is not silently kept.
-  await assert.rejects(
-    admin.saveCustomProvider(cfg, { ...edit, extraApiKeys: [{ id: ids[1] }] }),
-    /no longer saved/
-  );
+  await assert.rejects(admin.saveCustomProvider(cfg, { ...edit, extraApiKeys: [{ id: ids[1] }] }), /no longer saved/);
 
   // An empty list drops every additional key and the roster with it.
   const single = await admin.saveCustomProvider(cfg, { ...edit, extraApiKeys: [] });

@@ -794,9 +794,9 @@ export function requiredCustomProviderInput(value: unknown, modelsOptional = fal
   // Shape only; the runtime validates the names and values and refuses credential headers.
   if (input.headers !== undefined) {
     const headers = plainRecord(input.headers, 'custom provider headers');
-    const names = Object.keys(headers);
-    if (names.length > CUSTOM_MAX_HEADERS) throw new TypeError('custom provider headers are too large.');
-    if (names.some((name) => typeof headers[name] !== 'string')) {
+    const values = Object.values(headers);
+    if (values.length > CUSTOM_MAX_HEADERS) throw new TypeError('custom provider headers are too large.');
+    if (values.some((value) => typeof value !== 'string')) {
       throw new TypeError('custom provider headers are invalid.');
     }
   }

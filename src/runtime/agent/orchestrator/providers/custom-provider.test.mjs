@@ -1199,10 +1199,9 @@ test('headers: normalized, validated and schemaVersion 2 only', () => {
   assert.deepEqual(ok.headers, { originator: 'codex_cli_rs', 'X-Team': 'blue' });
   assert.deepEqual(normalizeCustomProviderConfig(ok), ok);
   // Only space and tab are trimmed; other legal octets such as NBSP are kept.
-  assert.deepEqual(
-    normalizeCustomProviderConfig({ ...v2, headers: { a: '\t\u00a0token\u00a0 ' } }).headers,
-    { a: '\u00a0token\u00a0' }
-  );
+  assert.deepEqual(normalizeCustomProviderConfig({ ...v2, headers: { a: '\t\u00a0token\u00a0 ' } }).headers, {
+    a: '\u00a0token\u00a0',
+  });
   // An empty object is the same as no headers.
   assert.equal(Object.hasOwn(normalizeCustomProviderConfig({ ...v2, headers: {} }), 'headers'), false);
   assert.equal(Object.hasOwn(normalizeCustomProviderConfig(v2), 'headers'), false);

@@ -49,10 +49,8 @@ function MarkdownTable({ children }: { children?: ReactNode }) {
   );
 }
 
-// Chinese and Japanese runs carry no spaces, so the cells' `keep-all` (which
-// holds Hangul words together) made each run one unbreakable word that pushed
-// the table past its frame. A cell holding Han or Kana wraps between
-// characters instead (`[data-cjk]` in 22-markdown.css).
+// A cell holding Han or Kana is marked `data-cjk` so it wraps between
+// characters (22-markdown.css); under `keep-all` such a run is one unbreakable word.
 const HAN_OR_KANA = /[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uf900-\ufaff]/;
 
 type MarkdownCellProps = React.ComponentPropsWithoutRef<'td'> & { node?: unknown };

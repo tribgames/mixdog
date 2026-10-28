@@ -296,7 +296,8 @@ test('markdown component types are created once per copy control', () => {
 });
 
 test('table cells holding Han or Kana are marked to wrap between characters', () => {
-  const text = '| 언어 | 제목 |\n|---|---|\n| 한국어 | 지표 분석 |\n| 일본어 | 指標分析を見る |\n| 중국어 | **继续**查看 |';
+  const text =
+    '| 언어 | 제목 |\n|---|---|\n| 한국어 | 지표 분석 |\n| 일본어 | 指標分析を見る |\n| 중국어 | **继续**查看 |';
   const html = renderToStaticMarkup(
     React.createElement(MarkdownAstBody, { root: parseMarkdownToHast(text), copyControl: () => null })
   );
