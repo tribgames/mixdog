@@ -188,7 +188,9 @@ export function vertexRoute(model) {
     );
   }
   if (!PUBLISHER.test(publisher) || !MODEL_ID.test(id)) throw new Error(`[vertex-ai] model "${raw}" is invalid`);
-  const wire = publisher === 'anthropic' ? 'claude' : publisher === 'google' && !/-maas$/i.test(id) ? 'gemini' : 'maas';
+  let wire = 'maas';
+  if (publisher === 'anthropic') wire = 'claude';
+  else if (publisher === 'google' && !/-maas$/i.test(id)) wire = 'gemini';
   return { publisher, id, wire };
 }
 
@@ -325,7 +327,9 @@ export function vertexModelAccessError(error, route, { project, location }) {
   let body = '';
   try {
     body = error.error && typeof error.error === 'object' ? JSON.stringify(error.error) : '';
-  } catch {}
+  } catch {
+    // An unserializable error body adds no evidence; classify on the message alone.
+  }
   const text = `${detail} ${body}`;
   // An IAM decision (the caller lacks a permission such as
   // aiplatform.endpoints.predict) stays as it is, whatever resource it names.

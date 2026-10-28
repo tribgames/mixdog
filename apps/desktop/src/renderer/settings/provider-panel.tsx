@@ -271,10 +271,12 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
   };
   // Vertex AI's authentication mode: the open form's chosen one, else the saved one.
   const vertexModeFor = (provider: RecordValue) => {
-    const mode = (!provider.authenticated && openKeyId === String(provider.id) ? vertexMode : null) ?? provider.authMode;
+    const mode =
+      (!provider.authenticated && openKeyId === String(provider.id) ? vertexMode : null) ?? provider.authMode;
     return mode === VERTEX_ADC || mode === VERTEX_API_KEY ? mode : VERTEX_SERVICE_ACCOUNT;
   };
   const vertexAdcFor = (provider: RecordValue) => provider.id === 'vertex-ai' && vertexModeFor(provider) === VERTEX_ADC;
+  const vertexAdcKey = (provider: RecordValue) => (vertexAdcFor(provider) ? String(provider.id) : undefined);
   const rowMeta = (provider: RecordValue) => {
     if (vertexAdcFor(provider)) return vertexAdcNote(provider);
     if (provider.id === 'vertex-ai' && !provider.authenticated && vertexModeFor(provider) === VERTEX_API_KEY) {
@@ -415,7 +417,7 @@ export function ProvidersPanel({ api, data, pending, run, confirm }: PanelContex
                         (or global) is only a hint, saved when the user enters it. */}
                     <input
                       name="location"
-                      data-provider-key={vertexAdcFor(provider) ? String(provider.id) : undefined}
+                      data-provider-key={vertexAdcKey(provider)}
                       type="text"
                       defaultValue={vertexSavedLocation(provider)}
                       placeholder={String(provider.location || VERTEX_DEFAULT_LOCATION)}
@@ -599,6 +601,15 @@ export function OAuthControl({
   // take the final redirect (or code) back gets a paste step.
   const manualCodeFlow =
     providerId === 'anthropic-oauth' || providerId === 'mimo-oauth' || providerId === 'command-code-oauth' || remote;
+  const pasteLabels = remote
+    ? {
+        title: t('Sign-in redirect URL or code'),
+        placeholder: t('Paste the final redirect URL or code'),
+      }
+    : {
+        title: t('Anthropic authorization code'),
+        placeholder: t('Authorization code or code#state'),
+      };
   const start = () =>
     beginFlow((isRemote) => {
       // The host must not open a browser nobody is sitting at for a remote client.
@@ -640,11 +651,9 @@ export function OAuthControl({
           paste={
             manualCodeFlow && flow.manualCodeSupported
               ? {
-                  title: remote ? t('Sign-in redirect URL or code') : t('Anthropic authorization code'),
-                  placeholder: remote
-                    ? t('Paste the final redirect URL or code')
-                    : t('Authorization code or code#state'),
-                  ariaLabel: remote ? t('Sign-in redirect URL or code') : t('Anthropic authorization code'),
+                  title: pasteLabels.title,
+                  placeholder: pasteLabels.placeholder,
+                  ariaLabel: pasteLabels.title,
                   error: pasteError,
                   onSubmit: (code, form) => {
                     form.reset();

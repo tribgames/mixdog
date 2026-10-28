@@ -317,7 +317,9 @@ export class VertexAIProvider {
       let project = '(unknown project)';
       try {
         project = this._projectId();
-      } catch {}
+      } catch {
+        // No resolvable project: keep the placeholder; the original error is rethrown below.
+      }
       throw this._auth.accessError(vertexModelAccessError(error, route, { project, location }), { project });
     }
     const pricingModel = vertexPricingModel(route, location);
@@ -355,7 +357,9 @@ export class VertexAIProvider {
     const stream = { ...request, opts, signal, useModel: model, tools, callbacks, cachedContent: null };
     try {
       opts.onStageChange?.('requesting');
-    } catch {}
+    } catch {
+      // A throwing progress callback must not fail the request.
+    }
     // Every attempt sends the same tier; the served trafficType settles the price.
     noteRequestServiceTier(tier === VERTEX_PRIORITY_TIER ? tier : '');
 
@@ -380,7 +384,9 @@ export class VertexAIProvider {
           connected();
           try {
             opts.onStageChange?.('streaming');
-          } catch {}
+          } catch {
+            // A throwing progress callback must not fail the request.
+          }
           const textLeakGuard = geminiTextLeakGuardFor(stream);
           const response = await consumeGeminiRestStreamResponse(res, {
             signal: attemptSignal,
@@ -444,7 +450,9 @@ export class VertexAIProvider {
     const callbacks = streamCallbacks(opts);
     try {
       callbacks.onStageChange?.('requesting');
-    } catch {}
+    } catch {
+      // A throwing progress callback must not fail the request.
+    }
     // One account for every attempt: the send's.
     const { identity } = target;
     const url = this._url('anthropic', model, 'streamRawPredict', target);
@@ -487,7 +495,9 @@ export class VertexAIProvider {
     );
     try {
       callbacks.onStageChange?.('streaming');
-    } catch {}
+    } catch {
+      // A throwing progress callback must not fail the request.
+    }
     const controller = new AbortController();
     const externalSignal = opts.signal || null;
     const abort = () => controller.abort(externalSignal?.reason);

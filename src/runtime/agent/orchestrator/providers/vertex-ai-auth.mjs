@@ -301,7 +301,9 @@ function gcloudConfigProject(env) {
   let name = text(env.CLOUDSDK_ACTIVE_CONFIG_NAME);
   try {
     name ||= readFileSync(join(dir, 'active_config'), 'utf8').trim();
-  } catch {}
+  } catch {
+    // No active_config file: fall back to the default configuration below.
+  }
   if (!/^[\w.-]+$/.test(name)) name = 'default';
   let lines;
   try {
@@ -581,7 +583,9 @@ export class VertexAccessTokenManager {
     let payload = null;
     try {
       payload = await response.json();
-    } catch {}
+    } catch {
+      // A non-JSON body leaves the payload null; callers read the status.
+    }
     return { response, payload };
   }
 
@@ -609,7 +613,9 @@ export class VertexAccessTokenManager {
       let principal = 'The gcloud login';
       try {
         principal = principalOf(this._credential());
-      } catch {}
+      } catch {
+        // No readable credential: keep the generic principal name.
+      }
       error.vertexAccess = 'permission';
       error.message =
         `[vertex-ai] ${principal} does not have permission to use Vertex AI${where}. ` +

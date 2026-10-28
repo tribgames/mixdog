@@ -467,7 +467,9 @@ function apiProviderSetup(p, providers, checkSecrets, keychainIssue) {
     if (!projectId && authenticated && checkSecrets && !express) {
       try {
         projectId = parseVertexServiceAccount(getAgentApiKey(p.id)).projectId;
-      } catch {}
+      } catch {
+        // An unreadable key leaves the project id empty; the status line then shows the location only.
+      }
     }
     if (!rowIssue) {
       if (express) detail = `API key (express mode) · ${location}`;

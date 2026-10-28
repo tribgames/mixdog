@@ -237,13 +237,7 @@ test('Vertex AI saves an express-mode API key for the global location, without l
   await act(async () => input.form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true })));
   assert.deepEqual(
     runs.filter(([capability]) => capability === 'saveProviderApiKey'),
-    [
-      [
-        'saveProviderApiKey',
-        ['vertex-ai', 'AQ.express-key', { authMode: 'api-key' }],
-        'provider-key-vertex-ai',
-      ],
-    ]
+    [['saveProviderApiKey', ['vertex-ai', 'AQ.express-key', { authMode: 'api-key' }], 'provider-key-vertex-ai']]
   );
 });
 

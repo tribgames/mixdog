@@ -275,7 +275,10 @@ test('Vertex ADC falls back to the metadata server without a credentials file, a
   const identity = manager.identity();
   assert.equal(await manager.getAccessToken({ identity }), 'meta-token-2');
   assert.equal(await manager.getAccessToken({ identity }), 'meta-token-2');
-  assert.equal(calls[1].url, 'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token');
+  assert.equal(
+    calls[1].url,
+    'http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token'
+  );
   assert.equal(calls[1].init.method, 'GET');
   assert.equal(new Headers(calls[1].init.headers).get('metadata-flavor'), 'Google');
   manager.invalidate('meta-token-2');
