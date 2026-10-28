@@ -347,6 +347,7 @@ test('a failed turn-end step still publishes the final state, then reports the f
     holds,
     sessions,
     publish: (sessionId, reveal) => published.push([sessionId, reveal]),
+    tabs: { closeVerify() {} },
     reloads: { reload: async () => {} },
     thumbnails: {
       async takeAtTurnEnd() {

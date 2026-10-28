@@ -24,7 +24,7 @@ import {
 } from './tab-state';
 import { noVersion } from './tab-versions';
 import type { VisualizeRequest } from './targets';
-import { heldTurn, offscreenTabPng } from './turn-hold';
+import { offscreen, offscreenTabPng } from './turn-hold';
 import { keptTargets } from './versions';
 
 type ExportRequest = Extract<VisualizeRequest, { action: 'export' }>;
@@ -85,10 +85,11 @@ export function createExportActions(
         signal,
       }));
       how = 'rendered off screen: the tab did not need to be on screen';
-    } else if (heldTurn(ctx, request.sessionId)) {
-      // An agent turn leaves the panel alone: drawn off screen instead.
+    } else if (offscreen(ctx, request.sessionId, tab)) {
+      // An agent turn leaves the panel alone (a verify-only tab is never
+      // shown): drawn off screen instead.
       data = await offscreenTabPng(ctx, request.sessionId, tab);
-      how = 'drawn off screen: the side panel shows the tab when this turn ends';
+      how = tab.verify ? 'drawn off screen' : 'drawn off screen: the side panel shows the tab when this turn ends';
     } else {
       await ctx.tabs.display(request.sessionId, tab);
       data = await deps.capture(request.sessionId, view(tab));

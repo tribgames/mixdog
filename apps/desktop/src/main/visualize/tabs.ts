@@ -39,13 +39,28 @@ export function createTabs(
     throw new Error(`no visualize tab "${id}"; ${open.length ? `open tabs: ${open.join(', ')}` : 'no tabs are open'}`);
   };
 
+  /** The oldest tabs go once the session holds more than the limit; verify-only
+   *  tabs are never shown, so they neither count nor get evicted. */
+  const enforceLimit = (sessionId: string): void => {
+    const state = sessionOf(sessionId);
+    while (state.tabs.filter((tab) => !tab.verify).length > MAX_TABS_PER_SESSION) {
+      const evicted = state.tabs.splice(
+        state.tabs.findIndex((tab) => !tab.verify),
+        1
+      )[0];
+      retire(sessionId, evicted);
+    }
+  };
+
   const closeTab = (sessionId: string, tabId: string): void => {
     const state = sessions.get(sessionId);
     const tab = state?.tabs.find((candidate) => candidate.id === tabId);
     if (!state || !tab) return;
     retire(sessionId, tab);
     state.tabs.splice(state.tabs.indexOf(tab), 1);
-    if (state.active === tab.id) state.active = state.tabs.filter((candidate) => !candidate.url).at(-1)?.id ?? null;
+    if (state.active === tab.id) {
+      state.active = state.tabs.filter((candidate) => !candidate.url && !candidate.verify).at(-1)?.id ?? null;
+    }
     ctx.publish(sessionId);
     const shown = state.tabs.find((candidate) => candidate.id === state.active);
     if (shown) ctx.thumbnails.whenMissing(sessionId, shown);
@@ -55,13 +70,19 @@ export function createTabs(
     dispose,
     findTab,
     closeTab,
+    enforceLimit,
+    /** Close the verify-only tabs of the session (all, or only those in `only`);
+     *  they are never shown, so nothing is published. */
+    closeVerify(sessionId: string, only?: ReadonlySet<string>): void {
+      const state = sessions.get(sessionId);
+      if (!state) return;
+      const closing = (tab: TabState): boolean => tab.verify === true && (!only || only.has(tab.id));
+      for (const tab of state.tabs.filter(closing)) retire(sessionId, tab);
+      state.tabs = state.tabs.filter((tab) => !closing(tab));
+    },
     addTab(sessionId: string, tab: TabState): void {
-      const state = sessionOf(sessionId);
-      state.tabs.push(tab);
-      while (state.tabs.length > MAX_TABS_PER_SESSION) {
-        const evicted = state.tabs.shift();
-        if (evicted) retire(sessionId, evicted);
-      }
+      sessionOf(sessionId).tabs.push(tab);
+      enforceLimit(sessionId);
     },
     /** Make `tab` the displayed one; resolves once a newly shown tab had time
      *  to mount and load. */

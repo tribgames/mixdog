@@ -124,6 +124,9 @@ export function createReloads(
 
   const scheduleReload = (sessionId: string, tab: TabState): void => {
     cancelScheduledReload(tab);
+    // A verify-only tab is read off screen from the files as they are; it
+    // keeps no live state to refresh (open it again to keep a version).
+    if (tab.verify) return;
     // An agent turn is editing: the tab is marked now and reloads once
     // when the turn ends (turn-hold.ts), not after every write.
     const hold = heldTurn(ctx, sessionId);

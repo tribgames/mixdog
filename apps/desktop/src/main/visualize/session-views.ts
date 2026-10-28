@@ -110,14 +110,16 @@ export function createSessionViews(
   const historyOf = (sessionId: string, remote: boolean): VisualizeHistoryItem[] => {
     const state = sessions.get(sessionId);
     if (!state) return [];
-    const open = new Map(state.tabs.filter((tab) => !tab.url).map((tab) => [tab.key, tab.versions?.length ?? 1]));
+    const open = new Map(
+      state.tabs.filter((tab) => !tab.url && !tab.verify).map((tab) => [tab.key, tab.versions?.length ?? 1])
+    );
     return historyItems(state.history, open, remote);
   };
 
   /** Remember `tab` in its session's history (moved to the front when
    *  `touch`: it was just opened). Web pages are not visuals. */
   const rememberTab = (sessionId: string, tab: TabState, touch: boolean) => {
-    if (tab.url) return;
+    if (tab.url || tab.verify) return;
     const state = sessionOf(sessionId);
     const previous = state.history.find((entry) => entry.key === tab.key);
     const live = tab.inline
@@ -145,7 +147,9 @@ export function createSessionViews(
     const state = sessions.get(sessionId);
     // Only the desktop window gets render ids (remote states are built from
     // the host state, which carries none).
-    const tabs = (state?.tabs ?? []).filter((tab) => !tab.url).map((tab) => withRenderIds(sessionId, tab, view(tab)));
+    const tabs = (state?.tabs ?? [])
+      .filter((tab) => !tab.url && !tab.verify)
+      .map((tab) => withRenderIds(sessionId, tab, view(tab)));
     const active =
       state?.active && tabs.some((tab) => tab.id === state.active) ? state.active : (tabs.at(-1)?.id ?? null);
     const history = historyOf(sessionId, false);
@@ -161,7 +165,7 @@ export function createSessionViews(
 
   const hostStateOf = (sessionId: string): VisualizeHostState => {
     const { tabs: views, active, goneOpens } = stateOf(sessionId);
-    const tabs = (sessions.get(sessionId)?.tabs ?? []).filter((tab) => !tab.url);
+    const tabs = (sessions.get(sessionId)?.tabs ?? []).filter((tab) => !tab.url && !tab.verify);
     const history = historyOf(sessionId, true);
     return {
       sessionId,

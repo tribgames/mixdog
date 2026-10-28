@@ -115,6 +115,10 @@ or radius are one option.
 - Open a result once, when it is ready to look at, not at every intermediate
   write. Long multi-step work shows the first reviewable state, then lets
   reloads carry the rest.
+- `open` shows the user a deliverable. To check your own work (`check`,
+  `inspect`, `capture`, `export`, before/after screenshots), `open` with
+  `verify: true`: the tab stays off the user's panel and chat and closes when
+  the turn ends. Opening the same target without it shows it.
 - Decks and documents: the panel shows the converted pages; still run the
   owning skill's own render review — the panel is for the user, not your QC.
 - Close tabs that no longer match the conversation (a resolved choice, a

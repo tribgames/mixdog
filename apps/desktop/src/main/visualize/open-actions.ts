@@ -30,7 +30,7 @@ import {
   type VisualizeTarget,
 } from './targets';
 import { checkTabOffscreen } from './read-actions';
-import { heldTurn } from './turn-hold';
+import { heldTurn, offscreen } from './turn-hold';
 import { shownVersionOf } from './version-thumbnails';
 
 type OpenRequest = Extract<VisualizeRequest, { action: 'open' }>;
@@ -132,6 +132,25 @@ async function heldPlacement(
   return `${ends} (it is left alone until then, so open again freely after edits). ${offscreen}`;
 }
 
+/** A verify open (`input.verify`): the agent's own check, never shown to the
+ *  user. Never "as tab vN" (chat cards read that wording) and no tab list in
+ *  the result, so no card is drawn. */
+function verifyPlacement(ctx: Pick<OpenContext, 'holds'>, sessionId: string, tab: TabState, what: string): string {
+  const ends = tab.verify ? 'it closes when the turn ends' : 'it was already open and stays as it is';
+  const off = offscreen(ctx, sessionId, tab) ? ' check, inspect and capture work on the tab now, off screen.' : '';
+  return `Opened ${what} for checking only (tab ${tabRef(tab)}); the user is not shown it, ${ends}.${off}`;
+}
+
+/** A verify open creates its tab verify-only (set before `addTab`, so the
+ *  tab limit already sees it) and leaves an open tab as it was (a shown tab
+ *  never turns verify-only). A plain open of a verify-only tab shows it: it
+ *  now counts toward the tab limit. */
+function promoteVerify(ctx: Pick<OpenContext, 'tabs'>, sessionId: string, tab: TabState, verify: boolean): void {
+  if (verify || !tab.verify) return;
+  tab.verify = undefined;
+  ctx.tabs.enforceLimit(sessionId);
+}
+
 /** A held open's load check (nothing renders the tab until the turn ends):
  *  the problems its pages or inline content show off screen, as a section of
  *  the result; '' when there are none or nothing here can check them. */
@@ -185,6 +204,7 @@ async function openInline(
   const { sessionOf, sessionCwds } = ctx;
   const { sessionId, cwd } = request;
   const held = heldTurn(ctx, sessionId) !== null;
+  const verify = request.verify === true;
   const state = sessionOf(sessionId);
   const key = inlineKey(content);
   const pane = await ctx.panes.inlinePaneFor(content);
@@ -214,9 +234,11 @@ async function openInline(
       problems: [],
       problemSeq: 0,
       allowNetwork: true,
+      ...(verify ? { verify: true } : {}),
     };
     ctx.tabs.addTab(sessionId, tab);
   }
+  promoteVerify(ctx, sessionId, tab, verify);
   tab.rendered = new Set();
   tab.shown = null;
   tab.compare = false;
@@ -230,30 +252,32 @@ async function openInline(
   tab.versions = history.map(({ n, at, turns }) => ({ n, at, ...(turns?.length ? { turns } : {}) }));
   const versionError =
     request.version === undefined ? null : await selectRequested(ctx, sessionId, tab, request.version);
-  // A held open activates nothing: the turn's end shows its last tab.
-  if (!held) state.active = tab.id;
-  ctx.views.rememberTab(sessionId, tab, true);
-  ctx.publish(sessionId, tab.id, undefined, request.callId);
+  // A held open activates nothing: the turn's end shows its last tab. A
+  // verify open never does.
+  if (!held && !verify) state.active = tab.id;
+  if (!verify) ctx.views.rememberTab(sessionId, tab, true);
+  ctx.publish(sessionId, verify ? undefined : tab.id, undefined, verify ? undefined : request.callId);
   const what = `inline ${content.kind}${content.title ? ` "${content.title}"` : ''}`;
-  const placed = held
-    ? await heldPlacement(ctx.deps, sessionId, tab, what)
-    : await placement(ctx.deps, sessionId, tab, what);
+  let placed: string;
+  if (verify) placed = verifyPlacement(ctx, sessionId, tab, what);
+  else if (held) placed = await heldPlacement(ctx.deps, sessionId, tab, what);
+  else placed = await placement(ctx.deps, sessionId, tab, what);
   // Nothing renders a held tab: it is checked off screen instead.
   let loaded = '';
-  if (held) loaded = await heldLoadCheck(ctx, sessionId, cwd, tab);
+  if (held || verify) loaded = await heldLoadCheck(ctx, sessionId, cwd, tab);
   else {
     await ctx.problems.awaitInlineRender(tab);
     // A scripted page gets a moment to load, so its first errors ride this result.
     if (displayedPanes(tab).some((candidate) => candidate.kind === 'html')) await ctx.problems.settle(tab, 1);
   }
   sessionCwds.set(sessionId, cwd);
-  ctx.thumbnails.refresh(sessionId, tab);
+  if (!verify) ctx.thumbnails.refresh(sessionId, tab);
   return {
     text: withProblems(
       tab,
       `${placed} Open again with the same title to add a version.${versionNote(tab)}${versionErrorNote(versionError, tab, 'live content')}${loaded}`
     ),
-    tabs: [summary(tab)],
+    ...(verify ? {} : { tabs: [summary(tab)] }),
     ...problemsOf(tab),
   };
 }
@@ -328,6 +352,8 @@ export function createOpenActions(ctx: OpenContext) {
       }
       if (request.version !== undefined)
         throw new Error('input.version applies to file tabs; a web URL keeps no versions');
+      if (request.verify)
+        throw new Error('input.verify applies to file and inline tabs; a web URL opens in the browser panel');
       return openUrl(ctx, request, web[0]);
     }
     const files = targets as FileTarget[];
@@ -335,6 +361,7 @@ export function createOpenActions(ctx: OpenContext) {
     const panes = await ctx.panes.preparePanes(files);
     const state = sessionOf(sessionId);
     let tab = state.tabs.find((candidate) => candidate.key === key);
+    const verify = request.verify === true;
     const label = request.label ?? files.map((target) => target.label).join(' · ');
     // A reload or reopen started after this open already committed newer
     // files and cwd: this open's resolution is stale and is dropped.
@@ -370,9 +397,11 @@ export function createOpenActions(ctx: OpenContext) {
         problems: [],
         problemSeq: 0,
         allowNetwork: true,
+        ...(verify ? { verify: true } : {}),
       };
       ctx.tabs.addTab(sessionId, tab);
     }
+    promoteVerify(ctx, sessionId, tab, verify);
     if (!stale) {
       ctx.leases.claimLeases(tab, panes);
       ctx.reloads.watchTab(sessionId, tab);
@@ -386,10 +415,11 @@ export function createOpenActions(ctx: OpenContext) {
     const versionError =
       request.version === undefined ? null : await selectRequested(ctx, sessionId, tab, request.version);
     const held = heldTurn(ctx, sessionId) !== null;
-    // A held open activates nothing: the turn's end shows its last tab.
-    if (!held) state.active = tab.id;
-    ctx.views.rememberTab(sessionId, tab, true);
-    ctx.publish(sessionId, tab.id, undefined, request.callId);
+    // A held open activates nothing: the turn's end shows its last tab. A
+    // verify open never does.
+    if (!held && !verify) state.active = tab.id;
+    if (!verify) ctx.views.rememberTab(sessionId, tab, true);
+    ctx.publish(sessionId, verify ? undefined : tab.id, undefined, verify ? undefined : request.callId);
     const shown = files
       .map((target) => {
         // A file outside the working directory is named by its full path.
@@ -397,25 +427,30 @@ export function createOpenActions(ctx: OpenContext) {
         return `${shown || target.label} (${target.kind})`;
       })
       .join(', ');
-    const placed = held
-      ? await heldPlacement(deps, sessionId, tab, shown)
-      : await placement(deps, sessionId, tab, shown);
+    let placed: string;
+    if (verify) placed = verifyPlacement(ctx, sessionId, tab, shown);
+    else if (held) placed = await heldPlacement(deps, sessionId, tab, shown);
+    else placed = await placement(deps, sessionId, tab, shown);
     // Give a fresh page a moment to load, so its first errors ride this result
     // (a held tab loads nowhere yet: it is checked off screen instead).
     let loaded = '';
-    if (held) loaded = await heldLoadCheck(ctx, sessionId, cwd, tab);
+    if (held || verify) loaded = await heldLoadCheck(ctx, sessionId, cwd, tab);
     else if (panes.some((pane) => pane.kind === 'html')) await ctx.problems.settle(tab, 1);
     // A dropped open's cwd is as stale as its files: the session keeps the
     // cwd of the load that committed. A later open that overtook this one
     // during settle owns the tab's cwd now, and records its own.
     if (!stale && tab.cwd === cwd) sessionCwds.set(sessionId, cwd);
-    ctx.thumbnails.refresh(sessionId, tab);
+    if (!verify) ctx.thumbnails.refresh(sessionId, tab);
+    // A verify-only tab is not watched for reloads.
+    let reloadNote = '';
+    if (!tab.verify)
+      reloadNote = ` The tab reloads when ${files.length > 1 ? 'these files change' : 'the file changes'}.`;
     return {
       text: withProblems(
         tab,
-        `${placed} The tab reloads when ${files.length > 1 ? 'these files change' : 'the file changes'}.${versionNote(tab)}${versionErrorNote(versionError, tab, 'live files')}${loaded}`
+        `${placed}${reloadNote}${versionNote(tab)}${versionErrorNote(versionError, tab, 'live files')}${loaded}`
       ),
-      tabs: [summary(tab)],
+      ...(verify ? {} : { tabs: [summary(tab)] }),
       ...problemsOf(tab),
     };
   }

@@ -51,6 +51,9 @@ export type VisualizeRequest =
       content?: VisualizeInlineContent;
       label?: string;
       version?: number;
+      /** The open only checks the agent's own work: the tab is never shown to
+       *  the user and closes when the turn ends. */
+      verify?: boolean;
       /** The agent's tool call id for this open (absent from a runtime that
        *  does not send it): what the turn-end record names. */
       callId?: string;
@@ -232,6 +235,8 @@ export function parseVisualizeRequest(raw: unknown): VisualizeRequest {
       }
       const label = optionalText(input.label, 'label', MAX_LABEL_CHARS);
       const version = parseVersion(input.version);
+      if (input.verify !== undefined && input.verify !== null && typeof input.verify !== 'boolean')
+        throw new Error('verify must be a boolean');
       const callId = typeof raw.callId === 'string' && CALL_ID.test(raw.callId) ? raw.callId : '';
       return {
         ...base,
@@ -241,6 +246,7 @@ export function parseVisualizeRequest(raw: unknown): VisualizeRequest {
         ...(content ? { content } : {}),
         ...(label ? { label } : {}),
         ...(typeof version === 'number' ? { version } : {}),
+        ...(input.verify === true ? { verify: true } : {}),
       };
     }
     case 'close': {

@@ -115,6 +115,18 @@ test('open takes an optional kept version number', () => {
   }
 });
 
+test('open takes an optional verify flag, and the schema describes it', () => {
+  const props = TOOL_DEFS[0].inputSchema.properties.input.properties;
+  assert.equal(props.verify.type, 'boolean');
+  assert.match(TOOL_DEFS[0].description, /verify/);
+  assert.equal(validateVisualizeArgs({ action: 'open', input: { targets: ['a.html'], verify: true } }).ok, true);
+  assert.equal(
+    validateVisualizeArgs({ action: 'open', input: { content: { kind: 'svg', source: 'x' }, verify: false } }).ok,
+    true
+  );
+  assert.equal(validateVisualizeArgs({ action: 'open', input: { targets: ['a.html'], verify: 'yes' } }).ok, false);
+});
+
 test('validateVisualizeArgs checks per-action input', () => {
   assert.equal(validateVisualizeArgs({ action: 'nope' }).ok, false);
   assert.equal(validateVisualizeArgs({ action: 'open', input: { targets: [] } }).ok, false);

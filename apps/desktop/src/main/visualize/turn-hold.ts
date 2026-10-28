@@ -59,6 +59,12 @@ export function noteReveal(hold: TurnHold, tabId: string, callId?: string): void
   if (callId) hold.opens.push({ tab: tabId, call: callId });
 }
 
+/** Whether `tab` is drawn and read off screen: a turn holds the panel, or the
+ *  tab is verify-only (never shown, so never put on screen). */
+export function offscreen(ctx: Pick<VisualizeServiceContext, 'holds'>, sessionId: string, tab: TabState): boolean {
+  return tab.verify === true || heldTurn(ctx, sessionId) !== null;
+}
+
 /** Longest the turn end waits for the disk checks of `recordGoneOpens`. */
 const GONE_CHECK_BUDGET_MS = 1500;
 
@@ -142,7 +148,10 @@ export async function offscreenTabPng(
 }
 
 export function createTurnHolds(
-  ctx: Pick<VisualizeServiceContext, 'holds' | 'sessions' | 'publish' | 'reloads' | 'thumbnails' | 'versions'> &
+  ctx: Pick<
+    VisualizeServiceContext,
+    'holds' | 'sessions' | 'publish' | 'reloads' | 'thumbnails' | 'versions' | 'tabs'
+  > &
     Partial<Pick<VisualizeServiceContext, 'deps'>>
 ) {
   const { holds } = ctx;
@@ -162,6 +171,11 @@ export function createTurnHolds(
 
   const flush = async (sessionId: string, hold: TurnHold): Promise<void> => {
     hold.flushing = true;
+    // The verify-only tabs open now are this turn's (or older); a successor
+    // turn's come later.
+    const verifyAtStart = new Set(
+      (ctx.sessions.get(sessionId)?.tabs ?? []).filter((tab) => tab.verify).map((tab) => tab.id)
+    );
     // This turn's own span, fixed now: a turn starting while the flush runs
     // is another turn, and its versions get its own span.
     const turn = { since: hold.spanSince, end: Date.now() };
@@ -203,6 +217,11 @@ export function createTurnHolds(
         const { statFile, goneCheckBudgetMs } = ctx.deps ?? {};
         await recordGoneOpens(final, hold, { statFile, budgetMs: goneCheckBudgetMs });
       }
+      // Every verify-only tab of the session goes, those opened while this
+      // flush ran included, unless a newer turn is still running: then only
+      // this turn's own (its end closes the rest). Nothing awaits between
+      // here and the release.
+      ctx.tabs.closeVerify(sessionId, hold.again ? verifyAtStart : undefined);
       if (holds.get(sessionId) === hold) holds.delete(sessionId);
     }
     // A turn that started meanwhile holds this one's result until it ends too.
@@ -260,6 +279,8 @@ export function createTurnHolds(
       for (const sessionId of [...holds.keys()]) {
         if (!present.has(sessionId)) changes.push(setTurnActive(sessionId, false));
       }
+      // A session that left the roster is closed: its verify-only tabs go.
+      for (const sessionId of ctx.sessions.keys()) if (!present.has(sessionId)) ctx.tabs.closeVerify(sessionId);
       return Promise.all(changes).then(() => undefined);
     },
   };

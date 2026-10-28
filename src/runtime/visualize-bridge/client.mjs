@@ -43,6 +43,9 @@ export function validateVisualizeArgs(args) {
     return { ok: false, error: 'action must be open, close, annotate, capture, export, check, or inspect' };
   const input = args.input ?? {};
   if (typeof input !== 'object' || Array.isArray(input)) return { ok: false, error: 'input must be an object' };
+  if (args.action === 'open' && input.verify != null && typeof input.verify !== 'boolean') {
+    return { ok: false, error: 'open input.verify must be a boolean' };
+  }
   if (args.action === 'open' && input.content != null) {
     const content = input.content;
     if (input.targets != null)

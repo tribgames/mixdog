@@ -64,6 +64,10 @@ export interface TabState {
   revision: number;
   /** Web URL tabs live in the browser panel and carry no panes. */
   url?: string;
+  /** Opened only to check the agent's own work (`input.verify`): never
+   *  published, shown, activated or kept in history; read off screen; closed
+   *  at the session's next turn end. A plain open of it clears this. */
+  verify?: boolean;
   /** Each with the root (resolved when the target was) its page assets,
    *  versions, restores and remote reads are contained in: the display-only
    *  path math of a publish never touches the file system. */

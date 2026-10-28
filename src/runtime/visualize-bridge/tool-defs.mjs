@@ -11,7 +11,7 @@ export const TOOL_DEFS = [
     title: 'Mixdog Visualize',
     description:
       'Show the user any artifact you produced or changed (mockups, docs, decks, sheets, PDFs, images, video, local dev pages) in the desktop side panel beside the chat. Panel tabs auto-reload when a file changes, so re-opening after edits is unnecessary. ' +
-      'open: input.targets (1-3 file paths, relative to the working directory or absolute anywhere on this machine; 2-3 = side-by-side comparison; or a single http(s) URL alone, never mixed with files or other URLs), optional label, optional version (show that kept version of a file tab read-only; each open/reload that changes the files keeps a version). close: optional tab (omit = all). ' +
+      'open: input.targets (1-3 file paths, relative to the working directory or absolute anywhere on this machine; 2-3 = side-by-side comparison; or a single http(s) URL alone, never mixed with files or other URLs), optional label, optional version (show that kept version of a file tab read-only; each open/reload that changes the files keeps a version), optional verify (true = you open only to check your own work with check/inspect/capture/export: the user is not shown the tab and it closes when the turn ends; leave it off for anything the user should see). close: optional tab (omit = all). ' +
       'annotate: tab + add [{selector,label?}] | remove [selector] | clear; HTML pages only, never edits the file. capture: tab + output (.png path). ' +
       'export: tab + format (png|pdf) + output (project-relative path ending .png/.pdf) + optional version (a kept version of the tab) + optional overwrite (true replaces an existing file, only under design/; otherwise an existing file is refused). Writes a record of the approved page inside the project and returns its project-relative path, size/dimensions and the page problems seen while rendering. A single HTML page (file, or inline html/chart) is rendered whole in a hidden window, so the tab need not be on screen (PDF: HTML pages only; PNG has a pixel cap, over it export pdf or shorten the page); any other tab exports as capture does (the displayed tab, PNG only). Same project containment as capture: links and paths outside the working directory are refused. ' +
       'check: tab; HTML pages only; waits briefly for the page to settle and returns only its runtime problems (uncaught errors, unhandled rejections, CSP violations, console errors/warnings, missing local assets). ' +
@@ -60,6 +60,11 @@ export const TOOL_DEFS = [
               minimum: 1,
               description:
                 'open (file tabs): kept version number to show read-only instead of the live files. export: kept version number to render instead of the live page.',
+            },
+            verify: {
+              type: 'boolean',
+              description:
+                'open (files or content): true to check your own work only; the user is not shown the tab and it closes when the turn ends.',
             },
             tab: { type: 'string', description: 'Tab id from open (close: omit for all).' },
             add: {
