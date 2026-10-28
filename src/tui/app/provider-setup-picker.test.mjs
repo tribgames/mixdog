@@ -347,6 +347,20 @@ test('device-code start keeps the code and verification URL in the panel until c
     assert.equal(h.current().description, 'Enter code ABCD-1234 at:');
     assert.equal(h.current().detail, 'https://example.test/device');
     assert.equal(h.current().pickerKey, 'providers-oauth-progress:oauth:anthropic-oauth');
+    const footer = h.current().footer();
+    assert.equal(footer.length, 1, 'one footer row, like the status footer it replaces');
+    assert.match(footer[0].text, /Continue only if you started this/);
+    assert.match(footer[0].text, /Never enter a code someone sent you/);
+    assert.ok(footer[0].text.length + 7 <= 80, 'fits 80 columns untruncated');
+    callback.resolve({ ok: true });
+    await panelIs(h, 'providers-oauth-result:oauth:anthropic-oauth:ok');
+  }));
+
+test('a URL-only sign-in has no device-code warning', () =>
+  withLoginEnv('headless', async () => {
+    const { h, callback } = await startLogin({ url: 'https://example.test/poll' });
+    await waitUntil(() => h.current()?.detail === 'https://example.test/poll', { message: 'url panel' });
+    assert.doesNotMatch(JSON.stringify(h.current().footer()), /someone sent you/);
     callback.resolve({ ok: true });
     await panelIs(h, 'providers-oauth-result:oauth:anthropic-oauth:ok');
   }));

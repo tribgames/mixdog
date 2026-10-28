@@ -4,8 +4,8 @@
  * Inside a bordered panel a wrapped URL carries the `│` border and padding on
  * every row, so a terminal selection copies junk. Here the rows are plain text
  * with no border, the URL is an OSC 8 hyperlink whose target is the complete
- * URL (click it, or "Copy link" in the terminal), and `copyKey` copies the exact
- * URL through the clipboard helper. `layout` (sign-in-url-layout.mjs) may shorten
+ * URL (click it, or "Copy link" in the terminal), and SIGN_IN_COPY_KEY copies the
+ * exact URL through the clipboard helper. `layout` (sign-in-url-layout.mjs) may shorten
  * the visible label to fit the panel; the link target and the copy stay complete.
  */
 import { useState } from 'react';
@@ -23,8 +23,12 @@ const STATUS_TEXT = {
   failed: 'Copy failed: no clipboard available, use the link above',
 };
 
+/** The one key that copies a sign-in URL in every panel, with or without a focused text input. */
+export const SIGN_IN_COPY_KEY = 'Ctrl+Y';
+export const isSignInCopyKey = (input, key) => Boolean(key?.ctrl) && String(input || '').toLowerCase() === 'y';
+
 /** The copy-key note, or what the last copy did. */
-export const signInUrlNote = (copyKey, status) => STATUS_TEXT[status] || `${copyKey} copies the full URL`;
+export const signInUrlNote = (status) => STATUS_TEXT[status] || `${SIGN_IN_COPY_KEY} copies the full URL`;
 
 /** { copy, status } — status is '', 'copied', 'sent' (OSC 52 only) or 'failed'. */
 export function useCopyUrl(url, copyText = (text) => copyToClipboard(text, { confirm: true })) {
@@ -39,7 +43,7 @@ export function useCopyUrl(url, copyText = (text) => copyToClipboard(text, { con
   return { copy, status };
 }
 
-export function SignInUrl({ url, layout, copyKey, status = '' }) {
+export function SignInUrl({ url, layout, status = '' }) {
   const text = String(url || '').trim();
   if (!text || layout.rows === 0) return null;
   return (
@@ -49,7 +53,7 @@ export function SignInUrl({ url, layout, copyKey, status = '' }) {
       </Text>
       {layout.hint ? (
         <Text color={theme.subtle} wrap="truncate-end">
-          {signInUrlNote(copyKey, status)}
+          {signInUrlNote(status)}
         </Text>
       ) : null}
     </Box>

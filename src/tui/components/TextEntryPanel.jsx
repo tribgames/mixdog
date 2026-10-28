@@ -9,7 +9,7 @@ import { clearSelection, lineEnd, lineStart, moveCursor, replaceSelection, selec
 import { textEntryReservedRows } from '../app/text-layout.mjs';
 import { createTextEntryCursorAnchor, singleLine } from './text-entry-layout.mjs';
 import { renderTextEntryValue } from './text-entry-value.jsx';
-import { SignInUrl, signInUrlNote, useCopyUrl } from './SignInUrl.jsx';
+import { SignInUrl, isSignInCopyKey, signInUrlNote, useCopyUrl } from './SignInUrl.jsx';
 import { signInUrlLayout } from './sign-in-url-layout.mjs';
 import { canSubmitTextEntry } from '../app/text-entry-policy.mjs';
 import { truncatePanelText as truncateText } from './panel-cell-text.mjs';
@@ -240,7 +240,7 @@ export function TextEntryPanel({
         updateDraft((d) => moveCursor(d, lineEnd(d.value, d.cursor), { extend: key.shift }));
         return;
       }
-      if (detailText && key.ctrl && inputKey === 'y') {
+      if (detailText && isSignInCopyKey(input, key)) {
         copyUrl.copy();
         return;
       }
@@ -297,7 +297,7 @@ export function TextEntryPanel({
   // to fit; with no hint row under the URL, the hint row carries the copy note.
   const urlLayout = signInUrlLayout(detailText, columns, urlMaxRows);
   const hintText = truncateText(
-    !urlLayout.hint && detailText ? signInUrlNote('Ctrl+Y', copyUrl.status) : singleLine(hint),
+    !urlLayout.hint && detailText ? signInUrlNote(copyUrl.status) : singleLine(hint),
     Math.max(0, columns - 4)
   );
 
@@ -336,7 +336,7 @@ export function TextEntryPanel({
           </Box>
         )}
       </Box>
-      <SignInUrl url={detailText} layout={urlLayout} copyKey="Ctrl+Y" status={copyUrl.status} />
+      <SignInUrl url={detailText} layout={urlLayout} status={copyUrl.status} />
     </Box>
   );
 }

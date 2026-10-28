@@ -19,7 +19,7 @@ import { theme } from '../theme.mjs';
 import { ConfirmBar, clampConfirmFocus } from './ConfirmBar.jsx';
 import { truncatePanelText as truncateText } from './panel-cell-text.mjs';
 import { PickerItemRow } from './picker/PickerItemRow.jsx';
-import { SignInUrl, signInUrlNote, useCopyUrl } from './SignInUrl.jsx';
+import { SignInUrl, isSignInCopyKey, signInUrlNote, useCopyUrl } from './SignInUrl.jsx';
 import { signInUrlLayout } from './sign-in-url-layout.mjs';
 import {
   ADJUST_HELP,
@@ -46,7 +46,7 @@ export function Picker({
   title,
   description = '',
   // Optional sign-in URL, drawn complete and borderless under the panel (never
-  // truncated like `description`); `c` copies it. `copyText` overrides the clipboard.
+  // truncated like `description`); Ctrl+Y copies it. `copyText` overrides the clipboard.
   detail = '',
   copyText,
   footer = '',
@@ -106,7 +106,7 @@ export function Picker({
   const detailRows = urlLayout.rows;
   const copyUrl = useCopyUrl(detailText, copyText);
   const handleKey = (input, key, item, index) => {
-    if (detailText && input === 'c' && !key.ctrl && !key.meta) copyUrl.copy();
+    if (detailText && isSignInCopyKey(input, key)) copyUrl.copy();
     else onKey?.(input, key, item, index);
   };
   const effectiveVisibleLimit = Math.max(1, visibleLimit - footerReserveRows - confirmReserveRows - detailRows);
@@ -146,7 +146,7 @@ export function Picker({
   // rows (title + blank + desc + blank + 2 border), matching PICKER_CHROME_ROWS.
   // With no hint row under the URL, the description row carries the copy note.
   const panelDescription = truncateText(
-    String(!urlLayout.hint && detailText ? signInUrlNote('c', copyUrl.status) : description || '')
+    String(!urlLayout.hint && detailText ? signInUrlNote(copyUrl.status) : description || '')
       .replace(/\s+/g, ' ')
       .trim(),
     Math.max(0, columns - 4)
@@ -298,7 +298,7 @@ export function Picker({
           </>
         ) : null}
       </Box>
-      <SignInUrl url={detailText} layout={urlLayout} copyKey="c" status={copyUrl.status} />
+      <SignInUrl url={detailText} layout={urlLayout} status={copyUrl.status} />
     </Box>
   );
 }

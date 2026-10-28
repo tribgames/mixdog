@@ -16,10 +16,19 @@ const panelFrame = (providerItem, provider, pickerKey) => ({
   initialIndex: 0,
 });
 
-function showOAuthProgress(flow, providerItem, message, onBack, detail = '') {
+// Shown with every device code: a code someone else hands you signs THEM in to your account.
+// One row that fits 80 columns: it takes the row the status footer did, so the URL
+// keeps its copy-hint row and the "Enter code" line is never replaced by the copy note.
+const DEVICE_CODE_WARNING = [
+  { glyph: '!', text: 'Continue only if you started this. Never enter a code someone sent you.' },
+];
+
+function showOAuthProgress(flow, providerItem, message, onBack, detail = '', deviceCode = false) {
   const provider = providerItem._provider || {};
+  const frame = panelFrame(providerItem, provider, `providers-oauth-progress:${providerItem.value}`);
   flow.paint({
-    ...panelFrame(providerItem, provider, `providers-oauth-progress:${providerItem.value}`),
+    ...frame,
+    ...(deviceCode ? { footer: () => DEVICE_CODE_WARNING } : {}),
     description: message,
     detail,
     help: '↑/↓ Select · Enter Choose · Esc Providers',
@@ -151,7 +160,7 @@ function beginInteractiveOAuthLogin(flow, providerItem, login) {
         // with the code and URL, until the result panel replaces it or Back.
         const opened = openBrowser ? ' (browser opened)' : '';
         const { message, detail } = pollingLoginMessage(started?.userCode, loginUrl, opened);
-        showOAuthProgress(flow, providerItem, message, login.onBack, detail);
+        showOAuthProgress(flow, providerItem, message, login.onBack, detail, Boolean(started?.userCode));
       }
       started.waitForCallback
         ?.then((result) => {

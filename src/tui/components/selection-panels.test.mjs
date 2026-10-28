@@ -217,9 +217,11 @@ test('picker draws a long sign-in URL borderless with the full link and a copy k
   // The complete URL is one contiguous OSC 8 link target, and the rows that show it carry no border.
   assert.ok(view.raw().includes(`\x1b]8;;${url}\x07`));
   const rows = frame.split('\n').filter((line) => !/[│╭╰]/.test(line));
-  assert.equal(rows.join(''), url + 'c copies the full URL');
+  assert.equal(rows.join(''), url + 'Ctrl+Y copies the full URL');
   assert.match(frame, /Waiting/);
   await view.key('c');
+  assert.deepEqual(copied, [], 'a bare c is not the copy key');
+  await view.key('\x19');
   assert.deepEqual(copied, [url]);
   assert.match(await view.key(''), /URL copied/);
 });
@@ -250,13 +252,34 @@ test('picker URL block fits every panel budget and always keeps the full link an
     const message = `visibleCount ${visibleCount}\n${frame}`;
     assert.ok(frame.split('\n').length <= 6 + visibleCount, message);
     assert.match(frame, /Waiting|Back/, message);
-    if (visibleCount === 1) assert.match(frame, /c copies the full URL/, message);
+    if (visibleCount === 1) assert.match(frame, /Ctrl\+Y copies the full URL/, message);
     else assert.match(frame, /https:\/\/claude\.ai\//, message);
     if (visibleCount > 1) assert.ok(view.raw().includes(`\x1b]8;;${longUrl}\x07`), message);
-    await view.key('c');
+    await view.key('\x19');
     assert.deepEqual(copied, [longUrl], message);
   }
 });
+test('a device-code panel with a one-row warning footer keeps the code line at visibleCount 6', async (context) => {
+  const view = mount(context, 80);
+  const frame = await view.show(panels.Picker, {
+    title: 'Provider',
+    columns: 80,
+    visibleCount: 6,
+    description: 'Enter code ABCD-1234 at:',
+    detail: 'https://example.test/device',
+    footer: () => [{ glyph: '!', text: 'Continue only if you started this. Never enter a code someone sent you.' }],
+    items: [
+      { value: 'waiting', label: 'Waiting' },
+      { value: 'back', label: 'Back' },
+    ],
+    onSelect() {},
+    onCancel() {},
+  });
+  assert.match(frame, /Enter code ABCD-1234 at:/);
+  assert.match(frame, /Never enter a code someone sent you\./);
+  assert.match(frame, /Ctrl\+Y copies the full URL/);
+});
+
 test('picker reports what the copy actually did', async (context) => {
   const url = 'https://example.test/auth';
   for (const [result, expected] of [
@@ -274,13 +297,13 @@ test('picker reports what the copy actually did', async (context) => {
       onSelect() {},
       onCancel() {},
     });
-    assert.match(await view.key('c'), expected);
+    assert.match(await view.key('\x19'), expected);
   }
 });
 
 test('picker one-row URL mode still shows the copy note and every copy result', async (context) => {
   for (const [result, expected] of [
-    [null, /c copies the full URL/],
+    [null, /Ctrl\+Y copies the full URL/],
     [() => 'copied', /URL copied/],
     [() => 'terminal', /Sent to terminal clipboard \(not confirmed\)/],
     [() => Promise.reject(new Error('none')), /Copy failed.*use the link above/],
@@ -303,7 +326,7 @@ test('picker one-row URL mode still shows the copy note and every copy result', 
     };
     let frame = await view.show(panels.Picker, props);
     assert.ok(view.raw().includes(`\x1b]8;;${longUrl}\x07`));
-    if (result) frame = await view.key('c');
+    if (result) frame = await view.key('\x19');
     assert.match(frame, expected);
     assert.ok(frame.split('\n').length <= 8, frame);
   }
