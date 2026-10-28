@@ -70,6 +70,10 @@ export const DESKTOP_CAPABILITIES = [
   // session's background shells; `stopShellJobs()` → `{ stopped, stopping }`.
   'listStoppableShellJobs',
   'stopShellJobs',
+  // /shells: `listShellJobs()` → `{ jobs: [{ taskId, command, terminationUnconfirmed? }] }`;
+  // `releaseShellJob(taskId)` → `{ released, error? }`.
+  'listShellJobs',
+  'releaseShellJob',
   'goalControl',
   'toolsStatus',
   'selectTools',

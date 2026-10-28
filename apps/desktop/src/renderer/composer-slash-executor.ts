@@ -18,6 +18,8 @@ import {
   type SettingsSection,
 } from './slash-commands';
 import { confirmAction } from './app-confirm';
+import { announceConnectorsChanged, openConnectorsTab, startConnectorLogin } from './connector-connect';
+import { connectorAccountRows } from './connectors-model';
 import { confirmText } from './confirm-text';
 import { t } from './i18n';
 import { TURN_LOCKED_SLASH_COMMANDS, asRecord } from './text-format';
@@ -109,6 +111,8 @@ async function runSlashCommand(
   if (name === 'goal') return runGoal(run, argument);
   if (name === 'fast') return runFast(run, argument);
   if (name === 'stop') return runStopShells(run);
+  if (name === 'shells') return runShells(run, argument);
+  if (name === 'mcp' && /^(login|logout)(\s|$)/i.test(argument)) return runMcpAuth(run, argument);
   if (name === 'model' && argument) return runModel(run, argument);
   if (name === 'fork' && deps.onInherit) return runInherit(run, deps.onInherit);
   if (name === 'project') deps.onOpenProjects();
@@ -168,6 +172,85 @@ async function runStopShells(run: SlashRun): Promise<undefined> {
       ? t('Stopped background shells: {{stopped}} · still stopping: {{stopping}}', { stopped, stopping })
       : t('Stopped background shells: {{stopped}}', { stopped })
   );
+  return undefined;
+}
+
+// /mcp login|logout <name>: the connector sign-in and sign-out of the 커넥터
+// tab. Login opens that tab, where the flow (and any paste-back) is shown.
+async function runMcpAuth(run: SlashRun, argument: string): Promise<undefined> {
+  const { deps } = run;
+  const [rawAction, ...rest] = argument.split(/\s+/);
+  const action = rawAction.toLowerCase();
+  const serverName = rest.join(' ');
+  if (!serverName) {
+    deps.setAttachmentError(`usage: /mcp ${action} <name>`);
+    run.failed = true;
+    return undefined;
+  }
+  const status = asRecord(await commandCapability<unknown>(run, 'mcpStatus'));
+  if (run.failed) return undefined;
+  const listed = (Array.isArray(status?.servers) ? status.servers : []).flatMap((server) => {
+    const row = asRecord(server);
+    return row ? [row] : [];
+  });
+  if (!connectorAccountRows(listed).some((server) => server.name === serverName)) {
+    deps.setAttachmentError(t('Unknown MCP server: {{name}}', { name: serverName }));
+    run.failed = true;
+    return undefined;
+  }
+  if (action === 'login') {
+    openConnectorsTab();
+    await startConnectorLogin(serverName, serverName);
+    return undefined;
+  }
+  await commandCapability(run, 'signOutMcpServer', [serverName]);
+  if (run.failed) return undefined;
+  announceConnectorsChanged();
+  deps.showNotice(t('MCP signed out of {{name}}', { name: serverName }));
+  return undefined;
+}
+
+// /shells: this session's shells; `release <task_id>` force-releases one whose
+// termination is unconfirmed, after the same confirmation a shell row asks.
+async function runShells(run: SlashRun, argument: string): Promise<undefined> {
+  const { deps } = run;
+  const [action, taskId] = argument.split(/\s+/).filter(Boolean);
+  if (action) {
+    if (action !== 'release' || !taskId) {
+      deps.setAttachmentError('usage: /shells [release <task_id> [--confirm]]');
+      run.failed = true;
+      return undefined;
+    }
+    const confirmed = await confirmAction(
+      t('Releasing {{id}} unlocks its folder although its processes may still be running. Release it?', {
+        id: confirmText(taskId),
+      }),
+      { danger: true, confirmLabel: t('Release') }
+    );
+    if (!confirmed) return undefined;
+    const result = asRecord(await commandCapability<unknown>(run, 'releaseShellJob', [taskId]));
+    if (run.failed) return undefined;
+    deps.showNotice(
+      result?.released === true
+        ? t('Released {{id}}.', { id: taskId })
+        : t('Couldn’t release {{id}}: {{error}}', { id: taskId, error: String(result?.error || 'unavailable') })
+    );
+    return undefined;
+  }
+  const listed = asRecord(await commandCapability<unknown>(run, 'listShellJobs'));
+  if (run.failed) return undefined;
+  const jobs = (Array.isArray(listed?.jobs) ? listed.jobs : []).map(asRecord);
+  if (!jobs.length) {
+    deps.showNotice(t('No shells are running.'));
+    return undefined;
+  }
+  const lines = jobs.map(
+    (job) =>
+      `${job?.taskId}  ${job?.terminationUnconfirmed ? t('termination unconfirmed') : t('running')}  ${job?.command}`
+  );
+  if (jobs.some((job) => job?.terminationUnconfirmed))
+    lines.push(t('Release a held shell with /shells release <task_id>.'));
+  deps.showNotice(lines.join('\n'));
   return undefined;
 }
 

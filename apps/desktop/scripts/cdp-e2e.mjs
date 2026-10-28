@@ -15,23 +15,14 @@ import {
 } from '../src/renderer/settings/settings-items.ts';
 import { SLASH_COMMANDS as tuiSlashCommands } from '../../../src/tui/app/slash-commands.mjs';
 import { CdpClient } from './cdp-client.mjs';
+import { assertSlashInventoryMatches } from './slash-inventory.mjs';
 
 const [webSocketUrl, projectPath] = process.argv.slice(2);
 if (!webSocketUrl || !projectPath) {
   throw new Error('Usage: node --import tsx scripts/cdp-e2e.mjs <webSocketUrl> <projectPath>');
 }
 
-const publicFields = (command) =>
-  Object.fromEntries(
-    ['name', 'usage', 'aliases', 'aliasUsage', 'showAliasUsage', 'params', 'description']
-      .filter((field) => Object.hasOwn(command, field))
-      .map((field) => [field, command[field]])
-  );
-assert.deepEqual(
-  desktopSlashCommands.map(publicFields),
-  tuiSlashCommands.map(publicFields),
-  'Desktop command inventory drifted from the TUI registry.'
-);
+assertSlashInventoryMatches(desktopSlashCommands, tuiSlashCommands);
 
 async function largestStoredSessionId(sessionIds) {
   const known = new Set(sessionIds.map(String));

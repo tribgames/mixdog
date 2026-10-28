@@ -47,7 +47,8 @@ export interface DesktopSlashCommand {
     | 'fast'
     | 'settings'
     | 'close-task'
-    | 'stop-shells';
+    | 'stop-shells'
+    | 'shells';
 }
 
 // Public fields mirror src/tui/app/slash-commands.mjs exactly. Desktop routing
@@ -95,6 +96,13 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   },
   { name: 'resume', usage: '/resume', params: '[id]', description: 'Resume a saved chat', action: 'resume' },
   { name: 'context', usage: '/context', description: 'Show current context surface', surface: 'context' },
+  {
+    name: 'shells',
+    usage: '/shells',
+    params: '[release <task_id> [--confirm]]',
+    description: 'List shells; release one whose termination is unconfirmed',
+    action: 'shells',
+  },
   {
     name: 'stop',
     usage: '/stop',
@@ -174,10 +182,16 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
     name: 'fast',
     usage: '/fast',
     params: '[on|off|ultra]',
-    description: 'Toggle Fast mode for the current model',
+    description: 'Set Fast or Ultrafast mode for the current model',
     action: 'fast',
   },
-  { name: 'mcp', usage: '/mcp', description: 'Manage MCP servers and tools', settingsRow: 'mcp' },
+  {
+    name: 'mcp',
+    usage: '/mcp',
+    params: '[login|logout <name>]',
+    description: 'Manage MCP servers and tools',
+    settingsRow: 'mcp',
+  },
   { name: 'skills', usage: '/skills', description: 'Choose a skill for the next request', settingsRow: 'skills' },
   {
     name: 'memory',
