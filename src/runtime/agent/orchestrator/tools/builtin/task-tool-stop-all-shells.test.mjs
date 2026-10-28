@@ -140,8 +140,14 @@ test('two background jobs and a survivors task are listed, then all stopped; oth
 
   const listed = listStoppableShellJobs(ctx(owner));
   assert.deepEqual(listed.map((job) => job.taskId).sort(), ['job_stopall_a', 'job_stopall_b', 'job_stopall_survivors']);
-  assert.deepEqual(listed.find((job) => job.taskId === 'job_stopall_a'), { taskId: 'job_stopall_a', command: 'npm run dev' });
-  assert.deepEqual(listStoppableShellJobs(ctx(other)).map((job) => job.taskId), ['job_stopall_foreign']);
+  assert.deepEqual(
+    listed.find((job) => job.taskId === 'job_stopall_a'),
+    { taskId: 'job_stopall_a', command: 'npm run dev' }
+  );
+  assert.deepEqual(
+    listStoppableShellJobs(ctx(other)).map((job) => job.taskId),
+    ['job_stopall_foreign']
+  );
   assert.equal(isHeld(repo), true);
 
   // The survivor exits once killed.

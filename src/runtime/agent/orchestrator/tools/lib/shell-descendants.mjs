@@ -211,8 +211,8 @@ export function endWatchWhenUnconfirmable(tracker, { released, stop }) {
  *  releases on time alone.
  *
  *  `sweep` (a killed tree; a boolean, or a predicate read on every pass so a
- *  cancel that arrives later is retried each cadence): a pass that finds captured identities alive
- *  terminates them and observes again in the same pass, so a cancellation
+ *  cancel that arrives later is retried each cadence): a pass that finds
+ *  captured identities alive terminates them and observes again in the same pass, so a cancellation
  *  ends with the tree gone instead of a held folder over live processes.
  *  A missing pre-kill capture stays unknown even if the owning session
  *  closes: its lifetime is not evidence that every descendant has exited. */

@@ -16,7 +16,9 @@ const { createSession } = await import('./session-lifecycle.mjs');
 const { askSession } = await import('./ask-session.mjs');
 const { abortSessionTurn } = await import('./session-close.mjs');
 const { _getRuntimeEntry } = await import('./runtime-liveness.mjs');
-const { reapTurnShellJobs, takeStoppedShellJobs, isTurnTimeoutAbort, turnEndedByTimeout } = await import('./turn-reap.mjs');
+const { reapTurnShellJobs, takeStoppedShellJobs, isTurnTimeoutAbort, turnEndedByTimeout } = await import(
+  './turn-reap.mjs'
+);
 const { SessionClosedError } = await import('./session-errors.mjs');
 const { streamStalledError, providerTimeoutError } = await import('../../stall-policy.mjs');
 const { deleteSession } = await import('../store.mjs');
@@ -49,7 +51,10 @@ function shellJob(sessionId, taskId, startedAtMs, stopped) {
 }
 
 let seq = 0;
-const uniqueId = (name) => `${name}_${process.pid}_${(seq += 1)}`;
+const uniqueId = (name) => {
+  seq += 1;
+  return `${name}_${process.pid}_${seq}`;
+};
 
 let liveSessionId;
 const currentSessionId = () => liveSessionId;
@@ -117,7 +122,11 @@ for (const [name, abortWith] of [
         },
       });
       assert.deepEqual(stopped.sort(), [promoted, survivor].sort());
-      const handoff = watchdogStoppedHandoff(new Error('agent task stale (1ms)'), 'partial', takeStoppedShellJobs(session.id));
+      const handoff = watchdogStoppedHandoff(
+        new Error('agent task stale (1ms)'),
+        'partial',
+        takeStoppedShellJobs(session.id)
+      );
       assert.match(handoff, new RegExp(`Stopped its background shell jobs: .*${promoted}`));
       assert.match(handoff, new RegExp(survivor));
       assert.doesNotMatch(handoff, new RegExp(earlier));
@@ -145,7 +154,7 @@ for (const reason of ['user-cancel', 'interrupt']) {
   });
 }
 
-test('a reap that runs after a newer turn took the session leaves that turn\'s job alone', async (t) => {
+test("a reap that runs after a newer turn took the session leaves that turn's job alone", async (t) => {
   await withTurns(t, async (session) => {
     const stopped = [];
     const [first, newer] = ['first', 'newer'].map(uniqueId);
@@ -243,9 +252,17 @@ test('classification scans the whole chain: any explicit cancel wins, whatever t
   const abortError = Object.assign(new Error('aborted'), { name: 'AbortError', reason: 'user-cancel', cause: stall() });
   assert.equal(isTurnTimeoutAbort(abortError), false, 'AbortError with a user-cancel reason and a stall cause');
   assert.equal(isTurnTimeoutAbort({ reason: 'interrupt', cause: stall() }), false, 'plain object interrupt');
-  assert.equal(isTurnTimeoutAbort({ cause: stall(), signal: { reason: 'user-cancel' } }), false, 'signal.reason cancel');
+  assert.equal(
+    isTurnTimeoutAbort({ cause: stall(), signal: { reason: 'user-cancel' } }),
+    false,
+    'signal.reason cancel'
+  );
   const deeper = new SessionClosedError('s', 'x', 'user-cancel');
-  assert.equal(isTurnTimeoutAbort(Object.assign(stall(), { cause: deeper })), false, 'timeout wrapping a deeper cancel');
+  assert.equal(
+    isTurnTimeoutAbort(Object.assign(stall(), { cause: deeper })),
+    false,
+    'timeout wrapping a deeper cancel'
+  );
   assert.equal(isTurnTimeoutAbort(Object.assign(new Error('w'), { error: stall(), reason: 'cli-abort' })), false);
   // Timeout cases still reap, including a timeout error carrying its own text reason.
   assert.equal(isTurnTimeoutAbort(stall()), true);
@@ -271,7 +288,11 @@ test("the turn's recorded abort reason decides over the terminal error", () => {
   const linkedStall = new AbortController();
   linkedStall.abort(new AgentStallAbortError('agent task stale (1ms)'));
   assert.equal(turnEndedByTimeout(linkedStall.signal, new Error('boom')), true);
-  assert.equal(turnEndedByTimeout(new AbortController().signal, stall), true, 'not aborted: the terminal error decides');
+  assert.equal(
+    turnEndedByTimeout(new AbortController().signal, stall),
+    true,
+    'not aborted: the terminal error decides'
+  );
 });
 
 test('cancelBackgroundTasks startedSinceMs only selects tasks started at or after it; without it all are cancelled', () => {
@@ -280,7 +301,12 @@ test('cancelBackgroundTasks startedSinceMs only selects tasks started at or afte
   const [old, recent] = ['old', 'recent'].map(uniqueId);
   shellJob(owner, old, Date.now() - 60_000, stopped);
   shellJob(owner, recent, Date.now(), stopped);
-  const since = cancelBackgroundTasks({ surface: 'shell', executionSessionId: owner, startedSinceMs: Date.now() - 1_000, notify: false });
+  const since = cancelBackgroundTasks({
+    surface: 'shell',
+    executionSessionId: owner,
+    startedSinceMs: Date.now() - 1_000,
+    notify: false,
+  });
   assert.deepEqual(since.taskIds, [recent]);
   assert.deepEqual(stopped, [recent]);
   const rest = cancelBackgroundTasks({ surface: 'shell', executionSessionId: owner, notify: false });

@@ -303,7 +303,7 @@ export async function stopBackgroundShellJob(taskId, options = {}) {
   const id = typeof taskId === 'string' ? taskId.trim() : '';
   if (!id) return { stopped: false, error: 'task_id is required' };
   const task = getBackgroundTask(id, { context: options });
-  if (!task || task.surface !== 'shell') return { stopped: false, error: `task not found: ${id}` };
+  if (task?.surface !== 'shell') return { stopped: false, error: `task not found: ${id}` };
   const job = peekShellJob(id);
   const status = job ? job.status : task.status;
   // A root that exited while tracked descendants run is still stoppable, and
@@ -311,11 +311,13 @@ export async function stopBackgroundShellJob(taskId, options = {}) {
   // registry status, not the finished command's cached native entry, says
   // whether anything still runs.
   const survivors = task.detached === true && task.status === 'running';
-  if (status !== 'running' && !isShellJobRunning(id) && !survivors) return { stopped: false, error: `task already ${status}: ${id}` };
+  if (status !== 'running' && !isShellJobRunning(id) && !survivors)
+    return { stopped: false, error: `task already ${status}: ${id}` };
   try {
     const { outcome, text } = await cancelShellTaskOutcome(task, id, options);
     if (outcome === 'cancelled') return { stopped: true };
-    if (outcome === 'unconfirmed') return { stopped: false, unconfirmed: true, error: `cancellation not confirmed: ${id}` };
+    if (outcome === 'unconfirmed')
+      return { stopped: false, unconfirmed: true, error: `cancellation not confirmed: ${id}` };
     return { stopped: false, error: text.replace(/^Error:\s*/, '') };
   } catch (error) {
     return { stopped: false, error: error instanceof Error ? error.message : String(error) };

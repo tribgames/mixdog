@@ -115,7 +115,10 @@ test('a send stalled with no partial output names the stopped background shell j
     },
   });
   await api.dispatchToExistingSession({ session, sessionId: session.id, prompt: 'p', args: {} });
-  await assert.rejects(run({}, null), /agent task stale.*\[Stopped its background shell jobs: task_stalled_send_job\.\]/);
+  await assert.rejects(
+    run({}, null),
+    /agent task stale.*\[Stopped its background shell jobs: task_stalled_send_job\.\]/
+  );
 });
 
 test('a spawn stalled with no partial output names the stopped background shell jobs in its error', async () => {

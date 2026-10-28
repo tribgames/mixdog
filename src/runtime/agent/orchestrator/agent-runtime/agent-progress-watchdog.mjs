@@ -138,7 +138,8 @@ function stoppedShellJobsNote(ids) {
 /** A stall with no partial output is rethrown as the error: name the stopped
  *  jobs in its text so the caller still learns them. */
 export function noteStoppedShellJobsOnError(error, ids) {
-  if (ids.length > 0 && error && typeof error === 'object') error.message = `${error.message} ${stoppedShellJobsNote(ids)}`;
+  if (ids.length > 0 && error && typeof error === 'object')
+    error.message = `${error.message} ${stoppedShellJobsNote(ids)}`;
 }
 
 function resolveWatchdogAbortElapsedMs({ snapshot, policy, now, anchorTs, lastProgressAt }) {

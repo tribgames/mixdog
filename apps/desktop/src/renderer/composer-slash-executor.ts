@@ -151,10 +151,13 @@ async function runStopShells(run: SlashRun): Promise<undefined> {
     return undefined;
   }
   const commands = jobs.map((job) => `• ${confirmText(String(job?.command || job?.taskId || ''))}`).join('\n');
-  const confirmed = await confirmAction(`${t('Stop background shells ({{total}})?', { total: jobs.length })}\n${commands}`, {
-    danger: true,
-    confirmLabel: t('Stop'),
-  });
+  const confirmed = await confirmAction(
+    `${t('Stop background shells ({{total}})?', { total: jobs.length })}\n${commands}`,
+    {
+      danger: true,
+      confirmLabel: t('Stop'),
+    }
+  );
   if (!confirmed) return undefined;
   const result = asRecord(await commandCapability<unknown>(run, 'stopShellJobs'));
   if (run.failed) return undefined;

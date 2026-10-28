@@ -12,7 +12,10 @@ const tick = () => new Promise((resolve) => realSetTimeout(resolve, POLL_MS));
 
 /** Resolves with the first truthy `read()` (sync or async); fails with `what`
  *  once `timeoutMs` has passed without one. */
-export async function waitUntil(read, { timeoutMs = 10_000, what = String(read).replace(/\s+/g, ' ').slice(0, 160) } = {}) {
+export async function waitUntil(
+  read,
+  { timeoutMs = 10_000, what = String(read).replace(/\s+/g, ' ').slice(0, 160) } = {}
+) {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     const value = await read();

@@ -6,7 +6,12 @@ const JOBS = [
   { taskId: 'job_b', command: 'tail -f log' },
 ];
 
-async function runStop({ jobs = JOBS, answer = true, stopResult = { stopped: 2, stopping: 0 }, draftMode = false } = {}) {
+async function runStop({
+  jobs = JOBS,
+  answer = true,
+  stopResult = { stopped: 2, stopping: 0 },
+  draftMode = false,
+} = {}) {
   const { createSlashExecutor } = await import('./composer-slash-executor.ts');
   const { overrideConfirmAction } = await import('./app-confirm.tsx');
   const calls = [];

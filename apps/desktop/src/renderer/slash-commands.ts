@@ -36,7 +36,18 @@ export interface DesktopSlashCommand {
   desktopDescription?: string;
   settingsRow?: SettingsSection;
   surface?: CommandSurface;
-  action?: 'clear' | 'compact' | 'btw' | 'goal' | 'resume' | 'remote' | 'project' | 'fast' | 'settings' | 'close-task' | 'stop-shells';
+  action?:
+    | 'clear'
+    | 'compact'
+    | 'btw'
+    | 'goal'
+    | 'resume'
+    | 'remote'
+    | 'project'
+    | 'fast'
+    | 'settings'
+    | 'close-task'
+    | 'stop-shells';
 }
 
 // Public fields mirror src/tui/app/slash-commands.mjs exactly. Desktop routing
