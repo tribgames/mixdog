@@ -51,10 +51,13 @@ function installDom() {
   };
 }
 
-const START = Date.now() - 1_000;
+// The render clock the readout test pins (`Date.now()` is what the group reads),
+// so the start times below are exact offsets from it, not from a moving clock.
+const NOW = 1_800_000_000_000;
+const START = NOW - 1_000;
 // Each call starts later than the one before it, as they do in a real turn;
 // the group's readout counts from the first (the 'sh' call).
-const STARTED = { sh: Date.now() - 40_500, rd: Date.now() - 30_500, gr: Date.now() - 20_500, ed: Date.now() - 20_500 };
+const STARTED = { sh: NOW - 40_500, rd: NOW - 30_500, gr: NOW - 20_500, ed: NOW - 20_500 };
 const call = (id, name, args, done) => ({
   kind: 'tool',
   id,
@@ -155,7 +158,8 @@ test('a group keeps its in-progress wording between calls and reads finished onl
   }
 });
 
-test('the group readout counts on from the first call through the gaps between calls', async () => {
+test('the group readout counts on from the first call through the gaps between calls', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: NOW });
   const dom = installDom();
   try {
     const recorded = [];
@@ -176,7 +180,7 @@ test('the group readout counts on from the first call through the gaps between c
     assert.deepEqual(turnEnd, ['the turn ends', null], 'a finished group shows no readout, as before');
     for (const [step, seconds] of recorded) {
       assert.ok(seconds !== null, `${step}: the readout stays visible`);
-      assert.ok(seconds >= 40 && seconds <= 41, `${step}: counts from the first call (${seconds}s)`);
+      assert.equal(seconds, 40, `${step}: counts from the first call, not the latest (${seconds}s)`);
     }
     const seconds = recorded.map(([, value]) => value);
     assert.deepEqual(

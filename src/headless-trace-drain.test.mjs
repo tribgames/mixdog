@@ -80,6 +80,9 @@ for (const failure of ['none', 'ask', 'close']) {
           encoding: 'utf8',
           env: {
             ...process.env,
+            // Sessions, backups and indexes the runtime writes stay in the scratch root.
+            MIXDOG_DATA_DIR: join(root, 'data'),
+            MIXDOG_HOME: join(root, 'home'),
             MIXDOG_RUNTIME_ROOT: join(root, 'runtime'),
             MIXDOG_AGENT_TRACE_PATH: tracePath,
             MIXDOG_AGENT_TRACE_DISABLE: '',
