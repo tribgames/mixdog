@@ -431,6 +431,22 @@ test('Vertex ADC explains a 403 for a login without Vertex AI access or a quota 
   );
   assert.match(quota.message, /requires a quota project.*impersonate-service-account/);
 
+  // Structured reasons classify with no message text: ErrorInfo USER_PROJECT_DENIED
+  // and a gcloud-client consumer mean a quota project, IAM_PERMISSION_DENIED means IAM.
+  const info = (reason, metadata = {}) => ({
+    details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason, metadata }],
+  });
+  const structured = (reason, metadata) =>
+    manager.accessError(Object.assign(new Error('403'), { status: 403, error: info(reason, metadata) }), {
+      project: 'my-project',
+    });
+  assert.equal(structured('USER_PROJECT_DENIED').vertexAccess, 'quota-project');
+  assert.equal(structured('SERVICE_DISABLED', { consumer: 'projects/764086051850' }).vertexAccess, 'quota-project');
+  assert.equal(structured('IAM_PERMISSION_DENIED').vertexAccess, 'permission');
+  // Loose wording alone is no evidence.
+  const vague = manager.accessError(Object.assign(new Error('Vertex AI 403: user project is denied'), { status: 403 }));
+  assert.equal(vague.vertexAccess, undefined);
+
   // Other statuses and service-account keys keep the server's message.
   const notFound = Object.assign(new Error('Vertex AI 404: not found'), { status: 404 });
   assert.equal(manager.accessError(notFound).message, 'Vertex AI 404: not found');

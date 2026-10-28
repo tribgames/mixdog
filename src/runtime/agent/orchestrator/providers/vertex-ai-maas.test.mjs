@@ -328,13 +328,14 @@ test('Vertex open models map a not-enabled model to the Model Garden error', asy
       [
         {
           error: {
-            code: 403,
-            message: 'Model zai-org/glm-5-maas has not been enabled. Enable it in Model Garden.',
-            status: 'PERMISSION_DENIED',
+            code: 404,
+            message:
+              'Publisher Model `projects/p/locations/global/publishers/zai-org/models/glm-5-maas` was not found or your project does not have access to it.',
+            status: 'NOT_FOUND',
           },
         },
       ],
-      { status: 403 }
+      { status: 404 }
     )
   );
   await assert.rejects(listed.provider.send(hi, 'zai-org/glm-5-maas', [], {}), (error) => {

@@ -858,11 +858,12 @@ test('Vertex ADC mode authenticates through the provider and words its 403s', as
       Response.json(
         {
           error: {
-            code: 403,
-            message: `Model ${model} has not been enabled for this project. Enable it in Model Garden.`,
+            code: 404,
+            message: `Publisher Model \`projects/p/locations/global/publishers/x/models/${model}\` was not found or your project does not have access to it.`,
+            status: 'NOT_FOUND',
           },
         },
-        { status: 403 }
+        { status: 404 }
       )
     );
     assert.equal(error.code, 'VERTEX_MODEL_NOT_ENABLED', model);
@@ -928,7 +929,9 @@ test('Vertex maps a not-enabled model to a Model Garden error on every wire', as
       {
         error: {
           code: 403,
-          message: 'Anthropic model claude-opus-4-6 has not been enabled for this project. Enable it in Model Garden.',
+          message:
+            'Project `key-project` is not allowed to use Publisher Model `projects/key-project/locations/us-east5/publishers/anthropic/models/claude-opus-4-6`',
+          status: 'PERMISSION_DENIED',
         },
       },
       { status: 403 }
@@ -975,6 +978,217 @@ test('Vertex maps a not-enabled model to a Model Garden error on every wire', as
       assert.notEqual(error.code, 'VERTEX_MODEL_NOT_ENABLED', route[0]);
       assert.doesNotMatch(error.message, /Model Garden/);
       assert.match(error.message, /aiplatform\.endpoints\.predict/);
+      return true;
+    });
+  }
+});
+
+test('Vertex classifies access errors by google.rpc ErrorInfo, not by loose wording', async () => {
+  const hi = [{ role: 'user', content: 'hi' }];
+  const status403 = (error) => () => Response.json({ error: { code: 403, ...error } }, { status: 403 });
+  // The IAM_PERMISSION_DENIED reason wins over enablement wording in the message.
+  const iam = recordingProvider(
+    { location: 'global' },
+    status403({
+      message: 'Project `p` is not allowed to use Publisher Model `m`',
+      status: 'PERMISSION_DENIED',
+      details: [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'IAM_PERMISSION_DENIED' }],
+    })
+  );
+  await assert.rejects(iam.provider.send(hi, 'gemini-3.8-flash', [], {}), (error) => {
+    assert.notEqual(error.code, 'VERTEX_MODEL_NOT_ENABLED');
+    return true;
+  });
+  // Wording that is not Google's documented enablement message is not an enablement error.
+  for (const message of ['Claude is not enabled here', 'You must accept the terms of service']) {
+    const loose = recordingProvider({ location: 'global' }, status403({ message, status: 'PERMISSION_DENIED' }));
+    await assert.rejects(loose.provider.send(hi, 'claude-opus-4-6', [], {}), (error) => {
+      assert.notEqual(error.code, 'VERTEX_MODEL_NOT_ENABLED', message);
+      return true;
+    });
+  }
+  // A FAILED_PRECONDITION message needs the status too.
+  const wrongStatus = recordingProvider({ location: 'global' }, () =>
+    Response.json(
+      {
+        error: {
+          code: 400,
+          message: 'Project `p` is not allowed to use Publisher Model `m`',
+          status: 'INVALID_ARGUMENT',
+        },
+      },
+      { status: 400 }
+    )
+  );
+  await assert.rejects(wrongStatus.provider.send(hi, 'claude-opus-4-6', [], {}), (error) => {
+    assert.notEqual(error.code, 'VERTEX_MODEL_NOT_ENABLED');
+    return true;
+  });
+});
+
+test('Vertex Claude rules enumerate the older models; an unknown id is a newer model', async () => {
+  const { vertexRoute, vertexPricingModel, vertexServingProblem, claudeNeedsInterleavedBeta } = await import(
+    './vertex-ai-models.mjs'
+  );
+  // Google's MaaS ids carry the `-maas` suffix; Gemini ids go to generateContent.
+  assert.equal(vertexRoute('google/gemma-4-26b-a4b-it-maas').wire, 'maas');
+  assert.equal(vertexRoute('google/some-unlisted-maas').wire, 'maas');
+  assert.equal(vertexRoute('google/gemini-9-unlisted').wire, 'gemini');
+  assert.equal(vertexRoute('claude-opus-4-8').wire, 'claude');
+  const refused = (id, location) => vertexServingProblem(vertexRoute(id), location, '');
+  // Every documented model before 4.5: refused on multi-region; on global unless documented there.
+  const globalEarlier = new Set(['claude-3-7-sonnet', 'claude-3-5-sonnet-v2']);
+  for (const id of [
+    'claude-3-sonnet',
+    'claude-3-opus',
+    'claude-3-haiku',
+    'claude-3-5-sonnet',
+    'claude-3-5-sonnet-v2',
+    'claude-3-5-haiku',
+    'claude-3-7-sonnet',
+    'claude-sonnet-4',
+    'claude-opus-4',
+    'claude-opus-4-1',
+  ]) {
+    for (const spelling of [id, `${id}@20250101`, `${id}-20250101`]) {
+      assert.match(refused(spelling, 'eu'), /multi-region/, spelling);
+      if (globalEarlier.has(id)) assert.equal(refused(spelling, 'global'), '', spelling);
+      else assert.match(refused(spelling, 'global'), /not served on the global endpoint/, spelling);
+    }
+  }
+  // 4.5 and 4.6 are on global but not multi-region; 4.7 and later, and unknown ids, are served.
+  for (const id of [
+    'claude-opus-4-5',
+    'claude-sonnet-4-5',
+    'claude-haiku-4-5',
+    'claude-opus-4-6',
+    'claude-sonnet-4-6',
+  ]) {
+    assert.match(refused(id, 'us'), /multi-region/, id);
+    assert.equal(refused(id, 'global'), '', id);
+  }
+  for (const id of ['claude-opus-4-7', 'claude-opus-4-8', 'claude-sonnet-5', 'claude-sonnet-9-9']) {
+    assert.equal(refused(id, 'eu'), '', id);
+    assert.equal(refused(id, 'global'), '', id);
+  }
+  // The regional premium covers every model that is not an enumerated earlier one, unknown ids included.
+  const priced = (id) => vertexPricingModel(vertexRoute(id), 'us-east5');
+  assert.equal(priced('claude-sonnet-4-5@20250929'), 'claude-sonnet-4-5@20250929@regional');
+  assert.equal(priced('claude-sonnet-9-9'), 'claude-sonnet-9-9@regional');
+  for (const id of ['claude-3-sonnet', 'claude-3-7-sonnet', 'claude-3-5-haiku', 'claude-opus-4-1', 'claude-sonnet-4']) {
+    assert.equal(priced(id), id, id);
+  }
+  // Interleaved thinking beta: everything but the documented exclusions (Haiku 4.5, Opus 4.6,
+  // 4.7+ adaptive models, 3.x); unknown ids get it, since Vertex ignores it where unsupported.
+  for (const id of [
+    'claude-opus-4-5',
+    'claude-sonnet-4-5@20250929',
+    'claude-sonnet-4-6',
+    'claude-sonnet-4',
+    'claude-opus-4-1',
+    'claude-sonnet-4-5-custom',
+    'claude-next-9',
+  ]) {
+    assert.equal(claudeNeedsInterleavedBeta(id), true, id);
+  }
+  for (const id of ['claude-haiku-4-5', 'claude-opus-4-6', 'claude-opus-4-7', 'claude-opus-5-5', 'claude-3-7-sonnet']) {
+    assert.equal(claudeNeedsInterleavedBeta(id), false, id);
+  }
+});
+
+test('Vertex Claude sends the interleaved-thinking beta to an unknown id that builds manual thinking', async () => {
+  const { provider, requests } = recordingProvider({ location: 'global' }, () => claudeSse());
+  await provider.send([{ role: 'user', content: 'hi' }], 'claude-sonnet-4-5-custom', [lookupTool], {
+    effort: 'high',
+  });
+  const body = JSON.parse(requests[0].init.body);
+  assert.equal(body.thinking?.type, 'enabled');
+  assert.deepEqual(body.anthropic_beta, ['interleaved-thinking-2025-05-14']);
+});
+
+test('Vertex classifies realistic error bodies of every wire the same way', async () => {
+  const hi = [{ role: 'user', content: 'hi' }];
+  const publisher = (name, model) => `projects/p/locations/global/publishers/${name}/models/${model}`;
+  const rpc = (code, status, message, details) => ({
+    error: { code, message, status, ...(details ? { details } : {}) },
+  });
+  const anthropic = (type, message) => ({ type: 'error', error: { type, message } });
+  const openai = (code, type, message) => ({ error: { message, type, param: null, code } });
+  const iamInfo = [{ '@type': 'type.googleapis.com/google.rpc.ErrorInfo', reason: 'IAM_PERMISSION_DENIED' }];
+  const iam = "Permission 'aiplatform.endpoints.predict' denied on resource '//aiplatform.googleapis.com/projects/p'";
+  // [model, status, body, enablement guidance expected]
+  const cases = [
+    // Vertex generateContent: google.rpc.Status.
+    [
+      'gemini-3.6-flash',
+      404,
+      rpc(
+        404,
+        'NOT_FOUND',
+        `Publisher Model \`${publisher('google', 'gemini-3.6-flash')}\` was not found or your project does not have access to it.`
+      ),
+      true,
+    ],
+    ['gemini-3.6-flash', 403, rpc(403, 'PERMISSION_DENIED', iam, iamInfo), false],
+    // Anthropic-on-Vertex: google.rpc when the gateway rejects first.
+    [
+      'claude-opus-4-6',
+      404,
+      rpc(
+        404,
+        'NOT_FOUND',
+        `Publisher Model \`${publisher('anthropic', 'claude-opus-4-6')}\` was not found or your project does not have access to it.`
+      ),
+      true,
+    ],
+    [
+      'claude-opus-4-6',
+      400,
+      rpc(
+        400,
+        'FAILED_PRECONDITION',
+        `Project \`p\` is not allowed to use Publisher Model \`${publisher('anthropic', 'claude-opus-4-6')}\``
+      ),
+      true,
+    ],
+    ['claude-opus-4-6', 403, rpc(403, 'PERMISSION_DENIED', iam, iamInfo), false],
+    // Anthropic-on-Vertex: Anthropic-shaped {type:'error', error:{type,message}}.
+    ['claude-opus-4-6', 404, anthropic('not_found_error', 'model: claude-opus-4-6'), true],
+    [
+      'claude-opus-4-6',
+      403,
+      anthropic('permission_error', 'Model claude-opus-4-6 has not been enabled for this project.'),
+      false,
+    ],
+    ['claude-opus-4-6', 403, anthropic('permission_error', iam), false],
+    ['claude-opus-4-6', 400, anthropic('invalid_request_error', 'max_tokens: required'), false],
+    // MaaS openapi: OpenAI-shaped, and the google.rpc shape Vertex also answers there.
+    [
+      'zai-org/glm-5-maas',
+      404,
+      openai('model_not_found', 'invalid_request_error', 'The model `glm-5-maas` does not exist'),
+      true,
+    ],
+    [
+      'zai-org/glm-5-maas',
+      403,
+      openai('403', 'permission_denied', 'Model zai-org/glm-5-maas has not been enabled for this project.'),
+      false,
+    ],
+    ['zai-org/glm-5-maas', 403, openai('403', 'permission_denied', iam), false],
+    [
+      'zai-org/glm-5-maas',
+      404,
+      rpc(404, 'NOT_FOUND', `Publisher Model \`${publisher('zai-org', 'glm-5-maas')}\` was not found`),
+      true,
+    ],
+  ];
+  for (const [model, status, body, enablement] of cases) {
+    const { provider } = recordingProvider({ location: 'global' }, () => Response.json(body, { status }));
+    await assert.rejects(provider.send(hi, model, [], {}), (error) => {
+      assert.equal(error.code === 'VERTEX_MODEL_NOT_ENABLED', enablement, `${model} ${status} ${JSON.stringify(body)}`);
+      assert.equal(error.status, status);
+      if (enablement) assert.match(error.message, /Model Garden/);
       return true;
     });
   }

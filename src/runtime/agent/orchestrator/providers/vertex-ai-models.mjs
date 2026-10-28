@@ -16,8 +16,60 @@ export const VERTEX_PRIORITY_TIER = 'priority';
 export const VERTEX_MULTI_REGIONS = new Set(['us', 'eu']);
 const PRIORITY_LOCATIONS = new Set(['global', 'us', 'eu']);
 
-// Claude on the global endpoint: 4.5 and later, and these earlier models.
+// Claude serving rules are enumerated over the finite set of OLDER models
+// (use-partner-models and use-claude docs, Anthropic's model list); an id in
+// no set is a newer model and gets the newer-model rules, never a guess from
+// its text.
+// Every Claude model before 4.5.
+const EARLIER_CLAUDE = new Set([
+  'claude-3-sonnet',
+  'claude-3-opus',
+  'claude-3-haiku',
+  'claude-3-5-sonnet',
+  'claude-3-5-sonnet-v2',
+  'claude-3-5-haiku',
+  'claude-3-7-sonnet',
+  'claude-sonnet-4',
+  'claude-opus-4',
+  'claude-opus-4-1',
+]);
+// Of those, the ones the global endpoint serves (use-partner-models: global list).
 const GLOBAL_EARLIER_CLAUDE = new Set(['claude-3-7-sonnet', 'claude-3-5-sonnet-v2']);
+// 4.5 and 4.6: served on global, not on the multi-region endpoints (4.7 and later only).
+const CLAUDE_4_5_TO_4_6 = new Set([
+  'claude-opus-4-5',
+  'claude-sonnet-4-5',
+  'claude-haiku-4-5',
+  'claude-opus-4-6',
+  'claude-sonnet-4-6',
+]);
+// Models that gain nothing from the interleaved-thinking beta (Anthropic
+// extended-thinking doc): Haiku 4.5 does not support it and Opus 4.6 has no
+// manual-mode interleaving; 4.7 and later reject manual thinking and
+// interleave adaptively. Vertex accepts the header and ignores it wherever it
+// is unsupported, so every other model, unknown ids included, is sent it when
+// the request itself uses manual thinking with tools.
+const NO_INTERLEAVED_BETA_CLAUDE = new Set([
+  // The beta is documented for Claude 4 models; the 3.x models never got it.
+  'claude-3-sonnet',
+  'claude-3-opus',
+  'claude-3-haiku',
+  'claude-3-5-sonnet',
+  'claude-3-5-sonnet-v2',
+  'claude-3-5-haiku',
+  'claude-3-7-sonnet',
+  'claude-haiku-4-5',
+  'claude-opus-4-6',
+  'claude-opus-4-7',
+  'claude-opus-4-8',
+  'claude-opus-5',
+  'claude-opus-5-5',
+  'claude-fable-5',
+  'claude-fable-5-1',
+  'claude-sonnet-5',
+  'claude-sonnet-5-5',
+  'claude-haiku-5-5',
+]);
 
 // The environment's region when no location is configured, in precedence order.
 const LOCATION_ENV = Object.freeze([
@@ -155,6 +207,18 @@ const LISTED_LOCATIONS = new Map(
   VERTEX_MODELS.filter((model) => model.locations).map((model) => [model.id, model.locations])
 );
 
+// A Claude model id without its `@version` (or `@default`) and Anthropic's `-YYYYMMDD` snapshot suffix.
+function claudeBase(id) {
+  return String(id)
+    .replace(/@.*$/, '')
+    .replace(/-\d{8}$/, '');
+}
+
+/** Whether a manual-thinking request with tools needs the interleaved-thinking beta on this Claude model. */
+export function claudeNeedsInterleavedBeta(id) {
+  return !NO_INTERLEAVED_BETA_CLAUDE.has(claudeBase(id));
+}
+
 const PUBLISHER = /^[a-z0-9][a-z0-9-]{0,62}$/;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._@:-]{0,127}$/;
 
@@ -188,9 +252,13 @@ export function vertexRoute(model) {
     );
   }
   if (!PUBLISHER.test(publisher) || !MODEL_ID.test(id)) throw new Error(`[vertex-ai] model "${raw}" is invalid`);
+  // Anthropic answers rawPredict; Google answers generateContent except its
+  // open models, whose ids carry the `-maas` suffix (Google's MaaS naming rule)
+  // or are listed in the catalog; every other publisher is MaaS.
   let wire = 'maas';
   if (publisher === 'anthropic') wire = 'claude';
-  else if (publisher === 'google' && !/-maas$/i.test(id)) wire = 'gemini';
+  else if (publisher === 'google' && !/-maas$/i.test(id) && !LISTED_LOCATIONS.has(`${publisher}/${id}`))
+    wire = 'gemini';
   return { publisher, id, wire };
 }
 
@@ -229,54 +297,49 @@ export function vertexRequestedTier(opts) {
   return tier === VERTEX_FLEX_TIER || tier === VERTEX_PRIORITY_TIER ? tier : '';
 }
 
-/** Rejects a model / location / tier combination Vertex does not serve, before any request. */
-export function assertVertexServing(route, location, tier) {
+/** Why Vertex does not serve a model / location / tier combination (an error message), or '' when it does. */
+export function vertexServingProblem(route, location, tier) {
   if (tier === VERTEX_FLEX_TIER) {
     if (route.wire !== 'gemini' || !FLEX_MODELS.has(route.id)) {
-      throw new Error(`[vertex-ai] Flex PayGo is not available for ${route.id}`);
+      return `[vertex-ai] Flex PayGo is not available for ${route.id}`;
     }
-    if (location !== 'global') throw new Error('[vertex-ai] Flex PayGo is only available with the global location');
+    if (location !== 'global') return '[vertex-ai] Flex PayGo is only available with the global location';
   }
   if (tier === VERTEX_PRIORITY_TIER) {
     if (route.wire !== 'gemini' || !PRIORITY_MODELS.has(route.id)) {
-      throw new Error(`[vertex-ai] Priority PayGo is not available for ${route.id}`);
+      return `[vertex-ai] Priority PayGo is not available for ${route.id}`;
     }
     if (!PRIORITY_LOCATIONS.has(location)) {
-      throw new Error('[vertex-ai] Priority PayGo is only available with the global, us or eu location');
+      return '[vertex-ai] Priority PayGo is only available with the global, us or eu location';
     }
   }
   const served = route.wire === 'maas' ? LISTED_LOCATIONS.get(`${route.publisher}/${route.id}`) : null;
   if (served && !served.includes(location)) {
-    throw new Error(
-      `[vertex-ai] ${route.publisher}/${route.id} is served only in: ${served.join(', ')} (location is ${location})`
+    return `[vertex-ai] ${route.publisher}/${route.id} is served only in: ${served.join(', ')} (location is ${location})`;
+  }
+  const claudeId = route.wire === 'claude' ? claudeBase(route.id) : '';
+  if (VERTEX_MULTI_REGIONS.has(location) && (EARLIER_CLAUDE.has(claudeId) || CLAUDE_4_5_TO_4_6.has(claudeId))) {
+    return `[vertex-ai] ${route.id} is not served on the ${location} multi-region endpoint (Claude 4.7 and later only); use the global location or a region`;
+  }
+  if (location === 'global' && EARLIER_CLAUDE.has(claudeId) && !GLOBAL_EARLIER_CLAUDE.has(claudeId)) {
+    return (
+      `[vertex-ai] ${route.id} is not served on the global endpoint; set the location to a region that serves it ` +
+      `(for example us-east5), or with no location set, ${claudeRegionEnv(claudeId)[0]}`
     );
   }
-  if (route.wire === 'claude' && VERTEX_MULTI_REGIONS.has(location)) {
-    const version = claudeVersion(route.id);
-    if (version && (version[0] < 4 || (version[0] === 4 && version[1] < 7))) {
-      throw new Error(
-        `[vertex-ai] ${route.id} is not served on the ${location} multi-region endpoint (Claude 4.7 and later only); use the global location or a region`
-      );
-    }
-  }
-  if (route.wire === 'claude' && location === 'global') {
-    const bare = route.id.replace(/@.*$/, '');
-    const version = claudeVersion(bare);
-    if (version && (version[0] < 4 || (version[0] === 4 && version[1] < 5)) && !GLOBAL_EARLIER_CLAUDE.has(bare)) {
-      throw new Error(
-        `[vertex-ai] ${route.id} is not served on the global endpoint; set the location to a region that serves it ` +
-          `(for example us-east5), or with no location set, ${claudeRegionEnv(bare)[0]}`
-      );
-    }
-  }
+  return '';
 }
 
-// Anthropic's regional premium covers Claude Sonnet 4.5, Haiku 4.5, Opus 4.5
-// and later models; an id whose version cannot be read is taken as a later one.
+/** Rejects a model / location / tier combination Vertex does not serve, before any request. */
+export function assertVertexServing(route, location, tier) {
+  const problem = vertexServingProblem(route, location, tier);
+  if (problem) throw new Error(problem);
+}
+
+// The premium covers Sonnet 4.5, Haiku 4.5, Opus 4.5 and later: every Claude
+// model that is not one of the enumerated earlier ones.
 function claudeRegionalPremium(route) {
-  if (route.wire !== 'claude') return false;
-  const version = claudeVersion(route.id);
-  return !version || version[0] > 4 || (version[0] === 4 && version[1] >= 5);
+  return route.wire === 'claude' && !EARLIER_CLAUDE.has(claudeBase(route.id));
 }
 
 /** The pricing SKU of a request, when it differs from the served model id. */
@@ -310,6 +373,24 @@ export function vertexTierOption(id) {
   };
 }
 
+/**
+ * The structured part of a Google API error (`google.rpc.Status`): the body's
+ * `status`, `message`, and every `google.rpc.ErrorInfo` `reason` / `metadata`
+ * in its `details`. Read from the parsed body an error carries (`error.error`,
+ * or `error.data.error`) and its `details`.
+ */
+export function googleErrorInfo(error) {
+  const body = [error?.error, error?.data?.error].find((value) => value && typeof value === 'object');
+  const details = [body?.details, body?.errorDetails, error?.details].find(Array.isArray) || [];
+  const infos = details.filter((entry) => String(entry?.['@type'] || '').endsWith('google.rpc.ErrorInfo'));
+  return {
+    status: typeof body?.status === 'string' ? body.status : '',
+    message: typeof body?.message === 'string' ? body.message : '',
+    reasons: new Set(infos.map((entry) => entry.reason).filter(Boolean)),
+    metadata: Object.assign({}, ...infos.map((entry) => entry.metadata)),
+  };
+}
+
 const MODEL_GARDEN = 'https://console.cloud.google.com/agent-platform/publishers';
 const LOCATIONS_DOC = 'https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations';
 
@@ -324,27 +405,22 @@ export function vertexModelAccessError(error, route, { project, location }) {
     .map(Number)
     .find((value) => Number.isFinite(value) && value > 0);
   const detail = String(error.message || '');
-  let body = '';
-  try {
-    body = error.error && typeof error.error === 'object' ? JSON.stringify(error.error) : '';
-  } catch {
-    // An unserializable error body adds no evidence; classify on the message alone.
-  }
-  const text = `${detail} ${body}`;
+  const info = googleErrorInfo(error);
+  const text = `${detail} ${info.message}`;
   // An IAM decision (the caller lacks a permission such as
-  // aiplatform.endpoints.predict) stays as it is, whatever resource it names.
-  const iamDenied = /Permission '[^']+' denied|IAM_PERMISSION_DENIED/i.test(text);
+  // aiplatform.endpoints.predict) stays as it is, whatever resource it names:
+  // the ErrorInfo reason, else Google's own IAM message.
+  const iamDenied = info.reasons.has('IAM_PERMISSION_DENIED') || /Permission '[^']+' denied/.test(text);
+  // The API gives no structured reason for a project that may not use a
+  // model, only this FAILED_PRECONDITION / PERMISSION_DENIED message.
+  const enablementText = (text) => text.includes('is not allowed to use Publisher Model');
   const notEnabled =
     !iamDenied &&
     // NOT_FOUND: "Publisher Model `…` was not found or your project does not have access to it".
     (status === 404 ||
       // FAILED_PRECONDITION: "Project `…` is not allowed to use Publisher Model `…`".
-      (status === 400 && /is not allowed to use Publisher Model/i.test(text)) ||
-      // Partner-model enablement: the model, or its terms, not enabled for the project.
-      (status === 403 &&
-        /is not allowed to use Publisher Model|(?:has not been|is not|not yet) enabled|enable (?:it|the model|this model) in Model Garden|accept the terms of service/i.test(
-          text
-        )));
+      (status === 400 && info.status === 'FAILED_PRECONDITION' && enablementText(text)) ||
+      (status === 403 && enablementText(text)));
   if (!notEnabled || error.code === 'VERTEX_MODEL_NOT_ENABLED') return error;
   // NOT_FOUND is also what a location that does not serve the model answers.
   const elsewhere = location === 'global' ? 'a region' : 'the global location or a region';

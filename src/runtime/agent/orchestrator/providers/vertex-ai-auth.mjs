@@ -2,6 +2,7 @@ import { createHash, createSign } from 'node:crypto';
 import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { googleErrorInfo } from './vertex-ai-models.mjs';
 
 export const VERTEX_TOKEN_URI = 'https://oauth2.googleapis.com/token';
 export const VERTEX_SCOPE = 'https://www.googleapis.com/auth/cloud-platform';
@@ -28,13 +29,14 @@ const PROJECT_ENV = Object.freeze([
   'VERTEXAI_PROJECT',
   'ANTHROPIC_VERTEX_PROJECT_ID',
 ]);
-// A 403 asking for a quota project: user credentials on gcloud's own OAuth
-// client, whose projects (764086051850, 32555940559) are named as the consumer.
-const QUOTA_PROJECT_ERROR =
-  /quota[ _]project|x-goog-user-project|user_project_denied|end user credentials from the google cloud sdk|\b(?:764086051850|32555940559)\b/i;
-// A 403 naming a missing IAM permission (not a disabled API or billing).
-const PERMISSION_ERROR =
-  /iam_permission_denied|permission ['"][^'"]+['"] denied|does not have (?:required )?permission|caller does not have permission/i;
+// A 403 asking for a quota project: the ErrorInfo reason USER_PROJECT_DENIED,
+// or user credentials on gcloud's own OAuth client, whose projects
+// (764086051850, 32555940559) are named as the ErrorInfo consumer.
+const GCLOUD_CLIENT_CONSUMER = /^projects\/(?:764086051850|32555940559)$/;
+// Google's message when ADC has no quota project; it has no ErrorInfo reason of its own.
+const QUOTA_PROJECT_TEXT = 'requires a quota project';
+// A 403 naming a missing IAM permission: the ErrorInfo reason, or Google's own IAM message.
+const PERMISSION_TEXT = /Permission '[^']+' denied/;
 
 function base64url(value) {
   return Buffer.from(typeof value === 'string' ? value : JSON.stringify(value))
@@ -601,15 +603,24 @@ export class VertexAccessTokenManager {
       .find((value) => Number.isFinite(value) && value > 0);
     if (status !== 403 || error.code === 'VERTEX_MODEL_NOT_ENABLED') return error;
     const detail = String(error.message || '');
-    const evidence = `${error.code || ''} ${detail}`;
+    const info = googleErrorInfo(error);
+    const evidence = `${detail} ${info.message}`;
     const where = project ? ` in project ${project}` : '';
-    if (QUOTA_PROJECT_ERROR.test(evidence)) {
+    if (
+      info.reasons.has('USER_PROJECT_DENIED') ||
+      GCLOUD_CLIENT_CONSUMER.test(info.metadata.consumer || '') ||
+      evidence.includes(QUOTA_PROJECT_TEXT)
+    ) {
       error.vertexAccess = 'quota-project';
       error.message =
         `[vertex-ai] Vertex AI requires a quota project for gcloud user credentials${where}. Use a service-account key, ` +
         'or sign in as a service account: gcloud auth application-default login --impersonate-service-account=SERVICE_ACCOUNT_EMAIL ' +
         `(HTTP 403: ${detail.slice(0, 200)})`;
-    } else if (PERMISSION_ERROR.test(evidence)) {
+    } else if (
+      error.code === 'iam_permission_denied' ||
+      info.reasons.has('IAM_PERMISSION_DENIED') ||
+      PERMISSION_TEXT.test(evidence)
+    ) {
       let principal = 'The gcloud login';
       try {
         principal = principalOf(this._credential());

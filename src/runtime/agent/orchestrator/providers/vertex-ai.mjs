@@ -35,7 +35,7 @@ import { VERTEX_API_KEY_MODE, VertexAccessTokenManager } from './vertex-ai-auth.
 import { VertexMaasRoute, toVertexExclusiveUsage, vertexErrorBody } from './vertex-ai-maas.mjs';
 import {
   VERTEX_FLEX_TIER,
-  claudeVersion,
+  claudeNeedsInterleavedBeta,
   VERTEX_MODELS,
   VERTEX_MULTI_REGIONS,
   VERTEX_PRIORITY_TIER,
@@ -45,6 +45,7 @@ import {
   vertexPricingModel,
   vertexRequestedTier,
   vertexRoute,
+  vertexServingProblem,
   vertexTierOption,
 } from './vertex-ai-models.mjs';
 
@@ -71,10 +72,14 @@ const VERTEX_CLAUDE_BETAS = new Map([
 ]);
 
 // Interleaved thinking needs the beta only for a manual thinking budget with
-// tools on Claude 4+ (adaptive thinking interleaves on its own; 3.x has none).
+// tools on the models that document it (adaptive thinking interleaves on its own).
 function needsInterleavedThinking(body, model) {
-  const version = claudeVersion(model);
-  return body.thinking?.type === 'enabled' && Array.isArray(body.tools) && body.tools.length > 0 && !(version?.[0] < 4);
+  return (
+    body.thinking?.type === 'enabled' &&
+    Array.isArray(body.tools) &&
+    body.tools.length > 0 &&
+    claudeNeedsInterleavedBeta(model)
+  );
 }
 
 /** The Vertex names of the selected `betas` this request body needs. */
@@ -126,14 +131,7 @@ function vertexLocation(config, claudeId = '') {
   return { location, pinned: Boolean(configured) };
 }
 
-function servesAt(route, location, tier) {
-  try {
-    assertVertexServing(route, location, tier);
-    return true;
-  } catch {
-    return false;
-  }
-}
+const servesAt = (route, location, tier) => !vertexServingProblem(route, location, tier);
 
 const isNotFound = (error) => [error?.status, error?.httpStatus, error?.response?.status].map(Number).includes(404);
 
@@ -468,9 +466,16 @@ export class VertexAIProvider {
         );
         if (res.ok) return res;
         const text = await res.text().catch(() => '');
+        let data = null;
+        try {
+          data = JSON.parse(vertexErrorBody(text));
+        } catch {
+          // A non-JSON body carries no google.rpc.Status; the status code stands alone.
+        }
         const error = Object.assign(
           new Error(`Vertex AI Claude streamRawPredict ${res.status}: ${text.slice(0, 300)}`),
           {
+            ...(data ? { data } : {}),
             status: res.status,
             httpStatus: res.status,
             headers: res.headers,
