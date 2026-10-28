@@ -747,7 +747,7 @@ test('a member switched off while its turn is being prepared is not submitted', 
 
 /** A room whose /ask turn of `gh` is held inside the final switched-off read:
  *  `change(h, ids)` runs while it is pending, then the read is released. */
-async function heldSwitchedOffRead(change, { script, afterRelease } = {}) {
+async function heldSwitchedOffRead(change, { script, afterRelease, agents, decide } = {}) {
   let armed = false;
   let hit;
   const reached = new Promise((resolve) => {
@@ -759,7 +759,8 @@ async function heldSwitchedOffRead(change, { script, afterRelease } = {}) {
   });
   const h = harness({
     ...(script ? { script } : {}),
-    decide: () => ({ action: 'finish' }),
+    ...(agents ? { agents } : {}),
+    decide: decide ?? (() => ({ action: 'finish' })),
     // The member session is created right before the final check.
     createGate: (id) => {
       if (id.endsWith('_gh')) armed = true;
@@ -817,6 +818,40 @@ test('a member removed while the final switched-off read is pending never gets i
   assert.equal(
     h.prompts.some((p) => p.agentId === 'gh'),
     false
+  );
+});
+
+test('the only member /ask named, removed or switched off before its turn, ends the exchange: no other bot is called', async () => {
+  const pickRel = () => ({ action: 'speak', agentId: 'rel' });
+  const removed = await heldSwitchedOffRead(
+    (host, ids) => host.rooms.update(ids.roomId, { members: ['rel', 'bench'] }),
+    { decide: pickRel }
+  );
+  assert.deepEqual(removed.prompts, [], 'removed: nobody else is asked in its place');
+  const agents = AGENTS.map((row) => ({ ...row }));
+  const off = await heldSwitchedOffRead(
+    () => {
+      agents[0].disabled = true;
+    },
+    { agents, decide: pickRel }
+  );
+  assert.deepEqual(off.prompts, [], 'switched off: nobody else is asked in its place');
+});
+
+test('a whole-room message merged with an /ask whose target then went off still gets the room (not an empty exchange)', async () => {
+  const agents = AGENTS.map((row) => ({ ...row }));
+  const h = await heldSwitchedOffRead(
+    async (host, ids) => {
+      await host.rooms.send(ids.sessionId, '/ask rel and you?');
+      await host.rooms.send(ids.sessionId, 'everyone, status?');
+      agents[1].disabled = true;
+    },
+    { agents, decide: () => ({ action: 'speak', agentId: 'bench' }) }
+  );
+  assert.equal(
+    h.prompts.some((p) => p.agentId === 'bench'),
+    true,
+    'the whole-room part of the merged request is still answered'
   );
 });
 

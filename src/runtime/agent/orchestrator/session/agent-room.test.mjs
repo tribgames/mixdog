@@ -119,6 +119,90 @@ test('a room with no members finishes done with zero rounds, steps and messages'
   assert.deepEqual(run.spoken, []);
 });
 
+test('named recipients that are all gone end the exchange; nobody else is called in their place', async () => {
+  for (const only of [false, true]) {
+    const run = scripted(
+      () => 'speech',
+      () => SPEAK('b')
+    );
+    const result = await runRoomExchange({
+      members: ['a', 'b'],
+      to: ['gone'],
+      only,
+      waiting: true,
+      maxRounds: 3,
+      maxMessages: 8,
+      ...run,
+    });
+    assert.deepEqual(result, { outcome: 'done', rounds: 0, steps: 0, messages: 0 });
+    assert.deepEqual(run.spoken, []);
+    assert.deepEqual(run.steps, []);
+  }
+  const whole = scripted(
+    () => 'speech',
+    () => FINISH
+  );
+  await runRoomExchange({ members: ['a', 'b'], to: [], waiting: true, maxRounds: 3, maxMessages: 8, ...whole });
+  assert.ok(whole.steps.length > 0 && whole.spoken.length > 0, 'a request naming nobody is still a whole-room request');
+});
+
+test('a request that also addressed the whole room is still served when its named recipients are gone', async () => {
+  const run = scripted(
+    () => 'speech',
+    (_step, n) => [SPEAK('b'), FINISH][n - 1]
+  );
+  const result = await runRoomExchange({
+    members: ['a', 'b'],
+    to: ['gone'],
+    wholeRoom: true,
+    waiting: true,
+    maxRounds: 3,
+    maxMessages: 8,
+    ...run,
+  });
+  assert.deepEqual(run.spoken, ['b']);
+  assert.equal(result.outcome, 'done');
+  const unavailable = scripted(
+    (id) => (id === 'a' ? 'unavailable' : 'speech'),
+    (_step, n) => [SPEAK('b'), FINISH][n - 1]
+  );
+  await runRoomExchange({
+    members: ['a', 'b'],
+    to: ['a'],
+    wholeRoom: true,
+    waiting: true,
+    maxRounds: 3,
+    maxMessages: 8,
+    ...unavailable,
+  });
+  assert.deepEqual(unavailable.spoken, ['a', 'b']);
+});
+
+test('named recipients that all turn out unavailable end the exchange; a remaining one still goes on', async () => {
+  const gone = scripted(
+    (id) => (id === 'a' ? 'unavailable' : 'speech'),
+    () => SPEAK('b')
+  );
+  const result = await runRoomExchange({
+    members: ['a', 'b'],
+    to: ['a'],
+    waiting: true,
+    maxRounds: 3,
+    maxMessages: 8,
+    ...gone,
+  });
+  assert.equal(result.outcome, 'done');
+  assert.deepEqual(gone.spoken, ['a'], 'the supervisor never picks another bot');
+  assert.deepEqual(gone.steps, []);
+  const partial = scripted(
+    (id) => (id === 'a' ? 'unavailable' : 'speech'),
+    () => FINISH
+  );
+  await runRoomExchange({ members: ['a', 'b'], to: ['a', 'b'], waiting: true, maxRounds: 3, maxMessages: 8, ...partial });
+  assert.deepEqual(partial.spoken, ['a', 'b']);
+  assert.equal(partial.steps.length, 1);
+});
+
 test('the supervisor picks each speaker, may brief it, and finishes once the user is served', async () => {
   const run = scripted(
     () => 'speech',

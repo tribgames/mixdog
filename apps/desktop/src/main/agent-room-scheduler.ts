@@ -185,6 +185,8 @@ export function createRoomScheduler(host: RoomSchedulerHost) {
       to: [...new Set([...(prior?.to ?? []), ...options.to])],
       waiting: prior?.waiting === true || options.waiting,
       only: (prior ? prior.only === true : true) && options.only === true,
+      // A whole-room request merged with a named one stays a whole-room request.
+      everyone: prior?.everyone === true || (options.everyone ?? !options.to.length),
       calls: [...(prior?.calls ?? []), ...calls],
     };
     if (active.speaking && active.memberSession) void deps.abort(active.memberSession).catch(() => undefined);

@@ -297,14 +297,24 @@ export async function runRoomExchange({
   superseded = () => false,
   waiting = true,
   only = false,
+  wholeRoom,
 }) {
   // A room whose last member was removed has nobody to hear it: finished, no turns.
   if (!members.length) return { outcome: 'done', rounds: 0, steps: 0, messages: 0 };
-  const targets = [...new Set((Array.isArray(to) ? to : [to]).filter((id) => members.includes(id)))];
+  const named = (Array.isArray(to) ? to : [to]).filter(Boolean);
+  const targets = [...new Set(named.filter((id) => members.includes(id)))];
+  // A request that also addressed the whole room (`wholeRoom`; by default one
+  // naming nobody) keeps the room's turn after its named members.
+  const open = wholeRoom ?? !named.length;
+  // Every recipient the request named is gone (removed or switched off): it
+  // is not a call to the whole room, so nobody is called.
+  if (!open && !targets.length) return { outcome: 'done', rounds: 0, steps: 0, messages: 0 };
   const maxSteps = maxRounds * members.length;
   const turns = [];
   let messages = 0;
   let steps = 0;
+  // Whether any member took a turn (was not 'unavailable').
+  let heard = false;
   // The peer the newest turn's speech addressed by @Name ('' after a pass).
   let mention = '';
   // The kind of talk the newest usable decision saw.
@@ -322,7 +332,9 @@ export async function runRoomExchange({
     const { result, mention: named = '' } = typeof answer === 'string' ? { result: answer } : answer;
     // A turn cut short by a stop or by a newer user message leaves no trace.
     if (result === 'stopped' || result === 'superseded') return result;
-    turns.push({ id: agentId, result });
+    // 'unavailable': the member left or was switched off; it counts as a pass.
+    if (result !== 'unavailable') heard = true;
+    turns.push({ id: agentId, result: result === 'unavailable' ? 'pass' : result });
     const speech = result === 'speech';
     if (speech) messages += 1;
     mention = speech && named !== agentId && members.includes(named) ? named : '';
@@ -353,6 +365,8 @@ export async function runRoomExchange({
   };
   const answered = await callEach(targets);
   if (answered) return answered;
+  // Every named member turned out unavailable: no other member is called instead.
+  if (!open && targets.length && !heard) return end('done');
   // `only`: the called members answer and nobody else follows (a message
   // from another session, a member relaying its own work).
   if (only && targets.length) return end('done');

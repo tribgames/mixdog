@@ -72,6 +72,9 @@ export interface RoomExchangeOptions {
   to?: string[];
   waiting?: boolean;
   only?: boolean;
+  /** The request (or a request merged into it) addressed the whole room;
+   *  set by the scheduler, unset reads as "`to` is empty". */
+  everyone?: boolean;
   calls?: RoomCall[];
 }
 
@@ -236,19 +239,19 @@ async function memberTurn(
   // cancelled (speakInRoom).
   let sessionId = '';
   const gone = () => !room.members.includes(agentId);
-  const left = async (): Promise<'pass'> => {
+  const left = async (): Promise<'unavailable'> => {
     outcome.removed = true;
     delete room.cursors[agentId];
     if (room.seen) delete room.seen[agentId];
     if (sessionId) await host.abort(sessionId).catch(() => undefined);
-    return 'pass';
+    return 'unavailable';
   };
   if (gone()) return await left();
   // A bot switched off since the exchange began stays a member (cursors,
   // session, history) but takes no turn; the calls waiting on it end cancelled.
   if (await host.switchedOff(agentId)) {
     outcome.removed = true;
-    return 'pass';
+    return 'unavailable';
   }
   // Whether the user's newest message still has no answer in the room.
   const waiting = state.waiting;
@@ -335,7 +338,7 @@ async function memberTurn(
       if (cursorBefore === undefined) delete room.cursors[agentId];
       else room.cursors[agentId] = cursorBefore;
       outcome.removed = true;
-      return 'pass';
+      return 'unavailable';
     }
     // Stop, removal or a newer message may have landed during that read.
     // Nothing may yield between this check and the submit below.

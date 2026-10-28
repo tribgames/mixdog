@@ -113,7 +113,7 @@ async function settleExchange(host: RoomExchangeHost, state: RunState): Promise<
  *  is handed to the next exchange, or ends cancelled when none follows. */
 export async function runRoomExchangeIn(
   host: RoomExchangeHost,
-  { to = [], waiting, only = false, calls: given = [] }: RoomExchangeOptions
+  { to = [], waiting, only = false, everyone, calls: given = [] }: RoomExchangeOptions
 ): Promise<void> {
   const calls = [...given];
   const room = host.room();
@@ -136,7 +136,7 @@ export async function runRoomExchangeIn(
     await host.persist();
     host.republishCatalog();
     host.republish();
-    await exchangeTurns(host, state, room, { to, only, waiting }, calls);
+    await exchangeTurns(host, state, room, { to, only, waiting, everyone }, calls);
     await settleExchange(host, state);
   } catch (error) {
     abandonExchange(host, state, calls, error);
@@ -172,7 +172,12 @@ async function exchangeTurns(
   host: RoomExchangeHost,
   state: RunState,
   room: AgentRoomRecord,
-  { to, only, waiting }: { to: string[]; only: boolean; waiting: boolean | undefined },
+  {
+    to,
+    only,
+    waiting,
+    everyone,
+  }: { to: string[]; only: boolean; waiting: boolean | undefined; everyone: boolean | undefined },
   calls: RoomCall[]
 ): Promise<void> {
   try {
@@ -204,6 +209,7 @@ async function exchangeTurns(
       // talk was answered may end at once when nothing is open.
       waiting: state.waiting,
       only,
+      wholeRoom: everyone,
     });
     if (result.outcome === 'capped') {
       const { limit, rounds, messages, remaining } = result;

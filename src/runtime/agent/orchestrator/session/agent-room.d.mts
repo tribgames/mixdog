@@ -67,7 +67,10 @@ export interface RoomMemberLabel {
 }
 export type RoomTurnResult = 'speech' | 'pass' | 'stopped' | 'superseded';
 /** A turn's answer; a speech may name the one peer it addressed. */
-export type RoomTurnAnswer = RoomTurnResult | { result: RoomTurnResult; mention?: string };
+export type RoomTurnAnswer =
+  | RoomTurnResult
+  | 'unavailable'
+  | { result: RoomTurnResult | 'unavailable'; mention?: string };
 export interface RoomExchangeResult {
   outcome: 'done' | 'capped' | 'stopped' | 'superseded';
   limit?: 'rounds' | 'messages';
@@ -144,6 +147,8 @@ export function runRoomExchange(options: {
   waiting?: boolean;
   /** The called members (`to`) answer and nobody else follows. */
   only?: boolean;
+  /** The request also addressed the whole room (default: `to` is empty). */
+  wholeRoom?: boolean;
 }): Promise<RoomExchangeResult>;
 export function roomDataLabel(value: unknown): string;
 export function roomDataLines(text: unknown): string[];
