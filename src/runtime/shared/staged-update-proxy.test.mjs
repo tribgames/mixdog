@@ -29,6 +29,10 @@ const { runStagedInstall, spawnStagedInstall } = await import('./staged-update.m
 const { buildShellSpawnEnv } = await import('../agent/orchestrator/tools/builtin/bash-tool/spawn-env.mjs');
 
 const PROXY_VARS = ['HTTPS_PROXY', 'HTTP_PROXY', 'https_proxy', 'http_proxy', 'NO_PROXY', 'NODE_USE_ENV_PROXY'];
+// `npm test` exports its own config (npm_config_noproxy='' among it) to the
+// runner; clear it so only what the update path adds is observed.
+const NPM_PROXY_VARS = ['npm_config_https_proxy', 'npm_config_proxy', 'npm_config_noproxy'];
+for (const name of NPM_PROXY_VARS) delete process.env[name];
 
 test('update children get the system proxy privately and agent shells still do not', async (t) => {
   t.after(() => adoptSystemProxy({}, { platform: 'linux' }));
@@ -64,7 +68,7 @@ test('update children get the system proxy privately and agent shells still do n
   // This process's env, and so an agent shell's, stays untouched.
   assert.equal(JSON.stringify(process.env), envBefore);
   const shellEnv = buildShellSpawnEnv(process.cwd());
-  for (const name of [...PROXY_VARS, HANDOFF_VAR, 'npm_config_https_proxy', 'npm_config_proxy', 'npm_config_noproxy']) {
+  for (const name of [...PROXY_VARS, HANDOFF_VAR, ...NPM_PROXY_VARS]) {
     assert.equal(shellEnv[name], undefined, name);
   }
 });
