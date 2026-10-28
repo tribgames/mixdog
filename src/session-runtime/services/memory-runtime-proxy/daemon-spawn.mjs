@@ -4,6 +4,7 @@ import { dirname } from 'node:path';
 import { detachedSpawnOpts } from '../../../runtime/shared/spawn-flags.mjs';
 import { withHeapCap } from '../../../runtime/shared/heap-cap.mjs';
 import { resolveRuntimeRoot } from '../../../runtime/shared/runtime-root.mjs';
+import { systemProxyHandoffEnv } from '../../../runtime/shared/llm/system-proxy.mjs';
 import { scrubLoaderVars } from '../../../runtime/agent/orchestrator/tools/env-scrub.mjs';
 
 // Once a spawn crashes deterministically, short-circuit re-forks for this
@@ -33,6 +34,9 @@ function daemonEnv({ dataDir, idleTtlMs }) {
   scrubLoaderVars(env);
   return {
     ...env,
+    // The runtime and model downloads follow the system proxy this process
+    // settled; the memory process consumes the handoff at startup.
+    ...systemProxyHandoffEnv(),
     MIXDOG_DATA_DIR: dataDir,
     MIXDOG_RUNTIME_ROOT: resolveRuntimeRoot(),
     MIXDOG_WORKER_MODE: '1',

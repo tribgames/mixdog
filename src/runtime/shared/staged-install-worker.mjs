@@ -6,7 +6,12 @@
  * quitting mid-install. Does its work and exits; the swap happens on a later
  * clean launch via performPendingSwap().
  */
+import { adoptSystemProxy } from './llm/system-proxy.mjs';
 import { runStagedInstall } from './staged-update.mjs';
+
+// Consume the system proxy handed over by the launcher (removing it from this
+// env); only the npm install below receives it, as npm settings.
+adoptSystemProxy();
 
 const version = process.argv[2] || process.env.MIXDOG_STAGE_VERSION || '';
 runStagedInstall(version)

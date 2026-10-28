@@ -12,6 +12,7 @@ import { writeProfilePoint } from './model-profile.mjs';
 import { createCompactVectorCache } from './compact-vector-cache.mjs';
 import { EMBED_KEEP_WARM_MS } from './embedding-idle-lease.mjs';
 import { workerExecArgv } from '../../shared/worker-exec-argv.mjs';
+import { systemProxyHandoffEnv } from '../../shared/llm/system-proxy.mjs';
 import {
   getConfiguredEmbeddingModelId,
   getDefaultEmbeddingDtype,
@@ -69,7 +70,9 @@ function ensureWorker() {
   _lastRestartMs = now;
   const execArgv = embeddingWorkerExecArgv();
   const created = new Worker(WORKER_PATH, {
-    env: { ...process.env },
+    // The model download runs in this worker: it gets the system proxy
+    // decision explicitly (and removes it from its own env on start).
+    env: { ...process.env, ...systemProxyHandoffEnv() },
     execArgv,
     workerData: { dtype: _configuredDtype },
   });

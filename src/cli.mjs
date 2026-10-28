@@ -25,7 +25,10 @@ try {
 process.env.NODE_ENV ||= 'production';
 
 // HTTPS_PROXY/HTTP_PROXY work without NODE_USE_ENV_PROXY: honoured in this
-// process and in every child (the daemon included).
+// process and in every child (the daemon included). On Windows without any
+// proxy variable, the static system proxy routes this process's own fetch and
+// is handed to the daemon this CLI starts, never exported as environment.
+(await import('./runtime/shared/llm/system-proxy.mjs')).adoptSystemProxy();
 (await import('./runtime/shared/llm/http-agent.mjs')).adoptEnvProxy();
 
 let swapped = false;

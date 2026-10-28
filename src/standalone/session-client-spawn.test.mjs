@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
+import { adoptSystemProxy, HANDOFF_VAR } from '../runtime/shared/llm/system-proxy.mjs';
 import { spawnDaemonCandidate } from './session-client.mjs';
 
 // A stand-in daemon: boot diagnostics on fd 2, the same ready handshake the
@@ -84,7 +85,8 @@ test('the session launcher records the daemon exit and mirrors boot stderr once'
   assert.match(exitLine, new RegExp(`pid=${record.pid}\\b`));
 });
 
-test('a resolved system proxy reaches the daemon env with NODE_USE_ENV_PROXY and a loopback NO_PROXY', async (t) => {
+/** Fork the stub daemon from a launcher with `env`; the proxy-related env it saw. */
+async function probeDaemonEnv(t, { env: launcherEnv = {}, spawnEnv = null } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-session-spawn-proxy-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const keys = [
@@ -95,12 +97,15 @@ test('a resolved system proxy reaches the daemon env with NODE_USE_ENV_PROXY and
     'NO_PROXY',
     'no_proxy',
     'NODE_USE_ENV_PROXY',
+    'MIXDOG_SYSTEM_PROXY',
+    HANDOFF_VAR,
     'MIXDOG_DATA_DIR',
     'MIXDOG_RUNTIME_ROOT',
   ];
   const saved = keys.map((key) => [key, process.env[key]]);
   const execArgv = process.execArgv;
   for (const key of keys) delete process.env[key];
+  Object.assign(process.env, launcherEnv);
   process.env.MIXDOG_DATA_DIR = join(root, 'data');
   process.env.MIXDOG_RUNTIME_ROOT = join(root, 'runtime');
   mkdirSync(process.env.MIXDOG_DATA_DIR, { recursive: true });
@@ -118,8 +123,9 @@ test('a resolved system proxy reaches the daemon env with NODE_USE_ENV_PROXY and
   writeFileSync(
     entry,
     `import { writeFileSync } from 'node:fs';
-const { HTTPS_PROXY, HTTP_PROXY, NO_PROXY, NODE_USE_ENV_PROXY } = process.env;
-writeFileSync(${JSON.stringify(out)}, JSON.stringify({ HTTPS_PROXY, HTTP_PROXY, NO_PROXY, NODE_USE_ENV_PROXY }));
+const seen = {};
+for (const key of ${JSON.stringify(['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'NODE_USE_ENV_PROXY', 'MIXDOG_SYSTEM_PROXY', HANDOFF_VAR])}) seen[key] = process.env[key];
+writeFileSync(${JSON.stringify(out)}, JSON.stringify(seen));
 process.send?.({ type: 'ready' });
 setTimeout(() => process.exit(0), 150);
 `
@@ -133,14 +139,48 @@ setTimeout(() => process.exit(0), 150);
     log: (line) => {
       if (line.startsWith('daemon exit ')) exited.resolve();
     },
-    spawnEnv: async () => ({ HTTPS_PROXY: 'http://127.0.0.1:7890', HTTP_PROXY: 'http://127.0.0.1:7890' }),
+    spawnEnv,
   });
   // The launcher unrefs the stub after ready: a timer keeps this test alive.
   const timeout = new AbortController();
   await Promise.race([exited.promise, delay(20_000, null, { signal: timeout.signal })]).finally(() => timeout.abort());
-  const env = JSON.parse(readFileSync(out, 'utf8'));
-  assert.equal(env.HTTPS_PROXY, 'http://127.0.0.1:7890');
-  assert.equal(env.HTTP_PROXY, 'http://127.0.0.1:7890');
+  return JSON.parse(readFileSync(out, 'utf8'));
+}
+
+const DESKTOP_HANDOFF = JSON.stringify({ proxy: { https: 'http://127.0.0.1:7890', http: 'http://127.0.0.1:7890' } });
+
+test('a system proxy resolved for a desktop fork reaches the daemon only as the private handoff', async (t) => {
+  const env = await probeDaemonEnv(t, { spawnEnv: async () => ({ [HANDOFF_VAR]: DESKTOP_HANDOFF }) });
+  assert.equal(env[HANDOFF_VAR], DESKTOP_HANDOFF);
+  for (const name of ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'NODE_USE_ENV_PROXY', 'MIXDOG_SYSTEM_PROXY']) {
+    assert.equal(env[name], undefined, name);
+  }
+});
+
+test('the system proxy a CLI settled reaches the daemon it starts as the private handoff', async (t) => {
+  adoptSystemProxy(
+    {},
+    {
+      platform: 'win32',
+      reader: () => ({ proxyEnable: '0x1', proxyServer: '127.0.0.1:7890', proxyOverride: '<local>;*.corp.test' }),
+      apply: () => {},
+    }
+  );
+  t.after(() => adoptSystemProxy({}, { platform: 'linux' }));
+  const env = await probeDaemonEnv(t);
+  assert.deepEqual(JSON.parse(env[HANDOFF_VAR]), {
+    proxy: { https: 'http://127.0.0.1:7890', http: 'http://127.0.0.1:7890' },
+    bypass: { hosts: [], suffixes: ['corp.test'] },
+  });
+  for (const name of ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'NODE_USE_ENV_PROXY']) {
+    assert.equal(env[name], undefined, name);
+  }
+});
+
+test('the user’s own proxy variables still reach the daemon as before, with no handoff', async (t) => {
+  const env = await probeDaemonEnv(t, { env: { HTTPS_PROXY: 'http://mine.test:1', NO_PROXY: 'corp.test' } });
+  assert.equal(env.HTTPS_PROXY, 'http://mine.test:1');
+  assert.equal(env.NO_PROXY, 'corp.test');
   assert.equal(env.NODE_USE_ENV_PROXY, '1');
-  for (const host of ['localhost', '127.0.0.1', '::1']) assert.ok(env.NO_PROXY.split(',').includes(host), host);
+  assert.equal(env[HANDOFF_VAR], undefined);
 });

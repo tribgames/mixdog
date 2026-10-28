@@ -71,6 +71,7 @@ import {
 } from './lib/trace-store.mjs';
 import { writeJsonAtomicSync } from '../shared/atomic-file.mjs';
 import { safeIpcSend } from '../shared/safe-ipc-send.mjs';
+import { adoptSystemProxy } from '../shared/llm/system-proxy.mjs';
 import { resolvePluginData, mixdogHome } from '../shared/plugin-paths.mjs';
 import { scheduledCycle1Signature } from './lib/cycle-signatures.mjs';
 import { createTranscriptIngest } from './lib/transcript-ingest.mjs';
@@ -96,6 +97,9 @@ import {
 } from './lib/memory-config-flags.mjs';
 const IS_MEMORY_ENTRY = !!process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href;
 if (IS_MEMORY_ENTRY) {
+  // Runtime and model downloads follow the system proxy the launching daemon
+  // handed over (removed from this env so child processes never see it).
+  adoptSystemProxy();
   // Node's own warning printer stays off in this runtime, but a listener leak
   // is still logged, with the stack that names its source.
   process.removeAllListeners('warning');

@@ -112,16 +112,20 @@ function localAddresses() {
   return _localAddresses;
 }
 
+function normalizeHost(hostname) {
+  return String(hostname)
+    .replace(/^\[(.*)\]$/, '$1')
+    .replace(/\.$/, '')
+    .toLowerCase();
+}
+
 /**
  * A host that never goes through the proxy: a loopback, private or
  * link-local address, a dotless name (`localhost`, a LAN machine) or a
  * `.local` / `.localhost` name — local providers and LAN services.
  */
 export function isLocalHost(hostname) {
-  const host = String(hostname)
-    .replace(/^\[(.*)\]$/, '$1')
-    .replace(/\.$/, '')
-    .toLowerCase();
+  const host = normalizeHost(hostname);
   const family = isIP(host);
   if (family) return localAddresses().check(host, family === 4 ? 'ipv4' : 'ipv6');
   return !host.includes('.') || host.endsWith('.local') || host.endsWith('.localhost');
@@ -139,18 +143,25 @@ export function withEnvProxy(env) {
 }
 
 /**
- * The global dispatcher under a proxy: local and LAN hosts (isLocalHost)
- * connect directly, every other host follows the proxy variables and
- * NO_PROXY. `direct` and `proxied` replace the two inner dispatchers in tests.
+ * The global dispatcher under a proxy: local and LAN hosts (isLocalHost, which
+ * includes every dotless name) connect directly, every other host follows the
+ * proxy variables and NO_PROXY. `bypass` ({ hosts, suffixes }: exact hosts and
+ * `*.suffix` domains) adds hosts that also connect directly. `direct` and
+ * `proxied` replace the two inner dispatchers (tests, and the private proxy of
+ * adoptPrivateProxy).
  */
-export function createProxyDispatcher({ direct = null, proxied = null } = {}) {
+export function createProxyDispatcher({ direct = null, proxied = null, bypass = null } = {}) {
   const { Agent, Dispatcher, EnvHttpProxyAgent } = undici();
+  const bypassHosts = new Set(bypass?.hosts ?? []);
+  const bypassSuffixes = bypass?.suffixes ?? [];
+  const bypassed = (host) => bypassHosts.has(host) || bypassSuffixes.some((suffix) => host.endsWith(`.${suffix}`));
   class LocalBypassProxyAgent extends Dispatcher {
     #direct = direct ?? new Agent();
     #proxied = proxied ?? new EnvHttpProxyAgent();
 
     dispatch(opts, handler) {
-      const target = isLocalHost(new URL(opts.origin).hostname) ? this.#direct : this.#proxied;
+      const { hostname } = new URL(opts.origin);
+      const target = isLocalHost(hostname) || bypassed(normalizeHost(hostname)) ? this.#direct : this.#proxied;
       return target.dispatch(opts, handler);
     }
 
@@ -179,6 +190,21 @@ export function adoptEnvProxy(env = process.env) {
   env.NODE_USE_ENV_PROXY = '1';
   if (next.NO_PROXY !== undefined) env.NO_PROXY = next.NO_PROXY;
   undici().setGlobalDispatcher(createProxyDispatcher());
+  _envProxyAdopted = true;
+  return true;
+}
+
+/**
+ * Route this process's fetch through a proxy that came from the OS rather than
+ * from the user's environment (system-proxy.mjs). It lives in the dispatcher
+ * only: no proxy variable is written, so shells, tools and other CLIs this
+ * process spawns see none. `proxy` is `{ https, http? }` (a missing scheme goes
+ * direct), `bypass` as in createProxyDispatcher. No-op once a proxy is adopted.
+ */
+export function adoptPrivateProxy({ https, http = '' }, bypass = null) {
+  if (_envProxyAdopted) return false;
+  const proxied = new (undici().EnvHttpProxyAgent)({ httpProxy: http, httpsProxy: https, noProxy: '' });
+  undici().setGlobalDispatcher(createProxyDispatcher({ proxied, bypass }));
   _envProxyAdopted = true;
   return true;
 }

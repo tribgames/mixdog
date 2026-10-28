@@ -23,7 +23,11 @@ await import('../runtime/shared/uv-threadpool-boot.mjs');
 // Before anything can import sharp: Electron on Linux must use its wasm build.
 await import('../runtime/shared/sharp-electron-linux.mjs');
 // Proxy variables (the user's, or the desktop's system proxy): fetch goes
-// through the proxy while local and LAN hosts stay direct.
+// through the proxy while local and LAN hosts stay direct. The system proxy
+// (handed over by the CLI or desktop that started this daemon, or read on
+// Windows when started alone) is applied to this process's fetch only; its
+// handoff variable is removed here so no child inherits it.
+(await import('../runtime/shared/llm/system-proxy.mjs')).adoptSystemProxy();
 (await import('../runtime/shared/llm/http-agent.mjs')).adoptEnvProxy();
 
 // No V8 compile cache here, on purpose. Measured on this runtime: a cache hit

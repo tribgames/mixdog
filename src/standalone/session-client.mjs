@@ -18,6 +18,7 @@ import { readSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
 import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
 import { resolveRuntimeRoot } from '../runtime/shared/runtime-root.mjs';
 import { withHeapCap } from '../runtime/shared/heap-cap.mjs';
+import { systemProxyHandoffEnv } from '../runtime/shared/llm/system-proxy.mjs';
 import { daemonCrashCaptureDir, daemonDataDir } from '../session-runtime/services/daemon-crash-capture.mjs';
 import { forkDaemonCandidate } from '../session-runtime/services/daemon-candidate.mjs';
 import { daemonOwnerIsStale, proveDaemonOwnerRecord } from './daemon-owner.mjs';
@@ -356,6 +357,9 @@ export async function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000, entry
     detached,
     env: {
       ...process.env,
+      // The system proxy this launcher settled (the CLI), then the one the
+      // desktop passes for this fork; neither is standard proxy env.
+      ...systemProxyHandoffEnv(),
       ...extraEnv,
       ELECTRON_RUN_AS_NODE: '1',
       MIXDOG_DAEMON_HOST: '1',

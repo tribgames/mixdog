@@ -46,6 +46,7 @@ import { dirname, basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawn } from 'node:child_process';
 import { resolvePluginData } from './plugin-paths.mjs';
+import { systemProxyHandoffEnv, systemProxyNpmEnv } from './llm/system-proxy.mjs';
 // Same probe every discovery/lock reader uses; `process.pid` is trivially alive.
 import { isPidAlive as pidAlive } from './pid-liveness.mjs';
 import { sleepSync } from './sleep.mjs';
@@ -262,7 +263,13 @@ export async function runStagedInstall(version) {
     const code = await new Promise((res) => {
       let child;
       try {
-        child = spawn(process.execPath, [cliJs, ...installArgs], { stdio: 'ignore', shell: false, ...hiddenSpawnOpts });
+        child = spawn(process.execPath, [cliJs, ...installArgs], {
+          stdio: 'ignore',
+          shell: false,
+          // The system proxy, as npm's own settings for this one install.
+          env: { ...process.env, ...systemProxyNpmEnv() },
+          ...hiddenSpawnOpts,
+        });
       } catch {
         res(-1);
         return;
@@ -319,7 +326,12 @@ export function spawnStagedInstall(version) {
   if (isStagedComplete(v)) return false;
   try {
     const worker = join(_MODULE_DIR, 'staged-install-worker.mjs');
-    const child = spawn(process.execPath, [worker, v], { stdio: 'ignore', ...detachedSpawnOpts });
+    // The worker gets the system proxy decision privately (it consumes it).
+    const child = spawn(process.execPath, [worker, v], {
+      stdio: 'ignore',
+      env: { ...process.env, ...systemProxyHandoffEnv() },
+      ...detachedSpawnOpts,
+    });
     child.once?.('error', () => {});
     child.unref?.();
     return true;

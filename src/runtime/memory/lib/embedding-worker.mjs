@@ -8,6 +8,7 @@ import os from 'node:os';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { resolvePluginData } from '../../shared/plugin-paths.mjs';
+import { adoptSystemProxy } from '../../shared/llm/system-proxy.mjs';
 import { compressEmbeddingModelCache } from './embedding-model-cache-compression.mjs';
 import { createIdleLease } from './embedding-idle-lease.mjs';
 import { ensureModelFile, ensureModelGraph } from './embedding-model-files.mjs';
@@ -23,6 +24,9 @@ import {
   normalizeEmbeddingInputType,
   prepareEmbeddingInput,
 } from './embedding-model-config.mjs';
+
+// The model download goes through the system proxy the parent handed over.
+adoptSystemProxy();
 
 const MODEL_ID = getConfiguredEmbeddingModelId();
 

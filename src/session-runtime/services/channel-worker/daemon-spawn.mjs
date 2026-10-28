@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { scrubLoaderVars } from '../../../runtime/agent/orchestrator/tools/env-scrub.mjs';
 import { withHeapCap } from '../../../runtime/shared/heap-cap.mjs';
+import { systemProxyHandoffEnv } from '../../../runtime/shared/llm/system-proxy.mjs';
 import { detachedSpawnOpts } from '../../../runtime/shared/spawn-flags.mjs';
 import { forkDaemonCandidate } from '../daemon-candidate.mjs';
 
@@ -24,6 +25,7 @@ export function daemonEnv({ rootDir, dataDir, runtimeDir, leadPid }) {
   scrubLoaderVars(env);
   return {
     ...env,
+    ...systemProxyHandoffEnv(),
     MIXDOG_ROOT: rootDir,
     MIXDOG_DATA_DIR: dataDir,
     MIXDOG_RUNTIME_ROOT: runtimeDir,
