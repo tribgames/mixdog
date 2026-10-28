@@ -126,7 +126,7 @@ test('open on a login page still opens it when the saved-login vault cannot be r
 test('navigate to a login page keeps the new tab and its snapshot when the vault cannot be read', async () => {
   for (const vaultError of [
     new Error('The stored browser credential vault could not be opened.'),
-    new Error('Windows credential encryption is unavailable.'),
+    new Error('Credential encryption is unavailable.'),
   ]) {
     const f = fixture({ vaultError });
     const result = await f.run({

@@ -6,7 +6,7 @@ import { execFile, spawn } from 'node:child_process';
 import { promisify } from 'node:util';
 import { app, safeStorage, type Session } from 'electron';
 import type { BrowserCookieJar } from './cookie-jar';
-import { readVaultFile } from './credential-vault-file';
+import { clearPendingPauses, readVaultFile } from './credential-vault-file';
 import { CredentialVault, maskedCredentialLabel, secureOrigin } from './credential-vault';
 import {
   nativeBrowserImporterPath,
@@ -387,6 +387,7 @@ export class BrowserProfileImportService {
     );
     await Promise.all([
       rm(join(root, 'browser-password-vault.bin'), { force: true }),
+      clearPendingPauses(join(root, 'browser-password-vault.bin')),
       ...vaultCopies.map((name) => rm(join(root, name), { force: true })),
       rm(this.historyFile, { force: true }),
       rm(join(root, 'browser-import-backups'), { recursive: true, force: true }),
@@ -445,7 +446,7 @@ export class BrowserProfileImportService {
     let passwordSupportReason: string | undefined;
     if (!passwordImporter) passwordSupportReason = 'The native password importer is not installed in this build.';
     else if (!safeStorage.isEncryptionAvailable())
-      passwordSupportReason = 'Windows credential encryption is unavailable.';
+      passwordSupportReason = 'Credential encryption is unavailable.';
     const cookieSupportReason = !cookieImporter
       ? 'The native cookie importer is not installed in this build.'
       : undefined;
@@ -566,7 +567,7 @@ export class BrowserProfileImportService {
     const vaultPath = join(this.options.userDataDirectory, 'browser-password-vault.bin');
     if (!existsSync(vaultPath)) return [];
     if (!safeStorage.isEncryptionAvailable()) {
-      throw new Error('Windows credential encryption is unavailable.');
+      throw new Error('Credential encryption is unavailable.');
     }
     let parsed: unknown;
     try {
@@ -664,7 +665,7 @@ export class BrowserProfileImportService {
       report.cookies,
       async (existing) => {
         if (!safeStorage.isEncryptionAvailable()) {
-          throw new Error('Windows credential encryption is unavailable; cookie import was not started.');
+          throw new Error('Credential encryption is unavailable; cookie import was not started.');
         }
         const backupDirectory = join(this.options.userDataDirectory, 'browser-import-backups');
         await mkdir(backupDirectory, { recursive: true });
@@ -704,7 +705,7 @@ export class BrowserProfileImportService {
       throw new Error('The packaged native password importer is not installed.');
     }
     if (!safeStorage.isEncryptionAvailable()) {
-      throw new Error('Windows credential encryption is unavailable.');
+      throw new Error('Credential encryption is unavailable.');
     }
     const output = this.options.readNativeCredentials
       ? await this.options.readNativeCredentials(profileId)

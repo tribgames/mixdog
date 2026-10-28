@@ -45,6 +45,8 @@ for (const ending of ['login-clean', 'login-crash']) {
         }).catch((error) => (phase === 'login-crash' ? 0 : Promise.reject(error)));
         if (phase !== 'login-crash' && code !== 0) {
           failures.push(`${ending}: ${phase} failed (exit ${code})`);
+          // Later phases build on this one; their failures would only read as a sign-out bug.
+          break;
         }
       }
     },

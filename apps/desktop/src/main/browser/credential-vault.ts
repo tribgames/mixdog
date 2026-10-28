@@ -28,7 +28,13 @@ import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { app, safeStorage } from 'electron';
 
-import { readVaultFile, writeVaultFile } from './credential-vault-file';
+import {
+  addPendingPause,
+  clearPendingPauses,
+  readPendingPauses,
+  readVaultFile,
+  writeVaultFile,
+} from './credential-vault-file';
 import { parseTotpSecret, totpCode } from './totp';
 
 export const VAULT_FILE_NAME = 'browser-password-vault.bin';
@@ -214,7 +220,7 @@ export class CredentialVault {
   private async load(): Promise<StoredVaultLogin[]> {
     if (!existsSync(this.file)) return [];
     if (this.usesSafeStorage && !safeStorage.isEncryptionAvailable()) {
-      throw new Error('Windows credential encryption is unavailable.');
+      throw new Error('Credential encryption is unavailable.');
     }
     let parsed: unknown;
     try {
@@ -231,7 +237,7 @@ export class CredentialVault {
       throw new Error('The stored browser credential vault could not be opened.');
     }
     const entries = parsed ? (parsed as { credentials: unknown[] }).credentials : [];
-    return entries.flatMap((entry) => {
+    const logins = entries.flatMap((entry) => {
       if (!entry || typeof entry !== 'object') return [];
       const value = entry as Record<string, unknown>;
       const url = field(value.url);
@@ -254,6 +260,28 @@ export class CredentialVault {
         },
       ];
     });
+    return this.foldPendingPauses(logins);
+  }
+
+  /** Applies the pauses recorded while the vault could not be opened to the
+   *  logins just read, seals them into the vault and drops the record. */
+  private async foldPendingPauses(logins: StoredVaultLogin[]): Promise<StoredVaultLogin[]> {
+    const recorded = await readPendingPauses(this.file);
+    // Which sites were signed out cannot be told: refuse, as for a damaged vault.
+    // Clearing the imported data (the vault and this record) is the way out.
+    if (!recorded) throw new Error('The stored browser credential vault could not be opened.');
+    const pending = new Set(recorded);
+    if (!pending.size) return logins;
+    let changed = false;
+    for (const login of logins) {
+      if (login.autoSignIn && pending.has(secureOrigin(login.url))) {
+        login.autoSignIn = false;
+        changed = true;
+      }
+    }
+    if (changed) await this.save(logins);
+    await clearPendingPauses(this.file);
+    return logins;
   }
 
   private async save(logins: StoredVaultLogin[]): Promise<void> {
@@ -559,6 +587,13 @@ export class CredentialVault {
   private async pauseOriginCore(origin: string): Promise<void> {
     const wanted = secureOrigin(origin) || secureOrigin(`https://${String(origin).trim()}`);
     if (!wanted) return;
+    // Without OS encryption the vault cannot be opened (so auto sign-in cannot
+    // use it now), but it may be later: record the pause, origin only, and fold
+    // it in when the vault next opens. A missing vault has nothing to pause.
+    if (this.usesSafeStorage && !safeStorage.isEncryptionAvailable()) {
+      if (existsSync(this.file)) await addPendingPause(this.file, wanted);
+      return;
+    }
     const logins = await this.load();
     let changed = false;
     for (const login of logins) {

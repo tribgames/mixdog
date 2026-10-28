@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { buildReport, DISPLAY_SUITES, failureParts, failureTail, selectSuiteScripts, sweepCommand, WORKSPACES } from './suite-health.mjs';
+import { buildReport, DISPLAY_SUITES, failureParts, KEYRING_SESSION_SCRIPT, failureTail, selectSuiteScripts, sweepCommand, WORKSPACES } from './suite-health.mjs';
 
 test('a failed entry keeps its failure-summary lines even under a long stderr', () => {
   const stdout = ['noise', '✖ broken test (3ms)', '[failure-summary] 1 failed, 0 flaky', '[failure-summary] FAILED a.test.mjs > t'];
@@ -57,7 +57,12 @@ test('Electron suites run under a virtual display on Linux only, and stay in the
   for (const name of DISPLAY_SUITES) {
     assert.ok(swept.includes(name), `${name} must be swept`);
     const [command, args] = sweepCommand(desktop, name, 'linux');
-    assert.equal(command, 'xvfb-run');
+    assert.equal(command, 'dbus-run-session');
+    assert.deepEqual(args.slice(0, 3), ['--', 'sh', '-c']);
+    assert.equal(args[3], KEYRING_SESSION_SCRIPT);
+    assert.match(args[3], /gnome-keyring-daemon --unlock --components=secrets/);
+    assert.match(args[3], /XDG_CURRENT_DESKTOP=GNOME exec xvfb-run -a "\$@"$/);
+    assert.deepEqual(args.slice(4, 6), ['sh', '--server-args=-screen 0 1440x900x24']);
     assert.deepEqual(args.slice(-5), ['npm', 'run', name, '--prefix', 'apps/desktop']);
     assert.equal(sweepCommand(desktop, name, 'win32')[0], 'npm.cmd');
   }

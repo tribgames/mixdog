@@ -12,7 +12,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { join } from 'node:path';
-import { app, BrowserWindow, session } from 'electron';
+import { app, BrowserWindow, safeStorage, session } from 'electron';
 
 import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 
@@ -53,6 +53,15 @@ function startSite(): Promise<{ origin: string; close(): void }> {
 
 async function run() {
   await app.whenReady();
+  // Session cookies are kept only sealed by the OS keychain; without one nothing
+  // survives a restart, which is the environment's fault, not a sign-in bug.
+  if (!safeStorage.isEncryptionAvailable()) {
+    const backend = process.platform === 'linux' ? safeStorage.getSelectedStorageBackend() : process.platform;
+    throw new Error(
+      `safeStorage encryption is unavailable (backend: ${backend}); the login persistence check needs an OS keychain ` +
+        '(on Linux, an unlocked gnome-keyring in a D-Bus session).'
+    );
+  }
   const partition = session.fromPartition(BROWSER_PARTITION);
   const jar = createBrowserCookieJar(partition);
   // The host's wiring (host-foundation.ts createBrowserRestartState).

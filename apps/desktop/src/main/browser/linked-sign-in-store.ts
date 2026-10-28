@@ -93,7 +93,7 @@ export class LinkedSignInStore {
       return this.cache;
     }
     if (this.usesSafeStorage && !safeStorage.isEncryptionAvailable()) {
-      throw new Error('Windows credential encryption is unavailable.');
+      throw new Error('Credential encryption is unavailable.');
     }
     let parsed: unknown;
     try {

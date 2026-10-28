@@ -48,16 +48,27 @@ export const WORKSPACES = [
 
 // Swept scripts that launch a real Electron window. The headless Linux runner
 // has no X server, so they run inside a virtual one (xvfb-run, as
-// linux-desktop-verify.yml does).
+// linux-desktop-verify.yml does). The runner also has no keyring, which leaves
+// Electron's safeStorage on the unencrypted basic_text backend (no sealed
+// session cookies), so the entry runs in a D-Bus session with an unlocked
+// gnome-keyring, where Chromium selects gnome_libsecret.
 export const DISPLAY_SUITES = [
   'test:browser-login-persistence:integration',
   'test:browser-login-popup:integration',
 ];
 
+// The entry's own arguments follow as positional parameters ("$@"), so none needs shell quoting.
+export const KEYRING_SESSION_SCRIPT =
+  'printf "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null; ' +
+  'XDG_CURRENT_DESKTOP=GNOME exec xvfb-run -a "$@"';
+
 export function sweepCommand(ws, name, platform = process.platform) {
   const args = ['run', name, ...(ws.dir === '.' ? [] : ['--prefix', ws.dir])];
   if (platform === 'linux' && ws.dir !== '.' && DISPLAY_SUITES.includes(name)) {
-    return ['xvfb-run', ['-a', '--server-args=-screen 0 1440x900x24', 'npm', ...args]];
+    return [
+      'dbus-run-session',
+      ['--', 'sh', '-c', KEYRING_SESSION_SCRIPT, 'sh', '--server-args=-screen 0 1440x900x24', 'npm', ...args],
+    ];
   }
   return [platform === 'win32' ? 'npm.cmd' : 'npm', args];
 }
