@@ -370,9 +370,12 @@ export function cancelBackgroundTasks(options = {}) {
   const wanted = clean(options.surface);
   const executionSessionId = clean(options.executionSessionId);
   const scope = normalizeTaskScope(options);
-  let cancelled = 0;
+  // Optional: only tasks started at/after this time (a turn's own work).
+  const startedSinceMs = Number(options.startedSinceMs) || 0;
+  const taskIds = [];
   for (const task of [...tasks.values()]) {
     if (wanted && task.surface !== wanted) continue;
+    if (startedSinceMs > 0 && !(task.startedAtMs >= startedSinceMs)) continue;
     // Scoped teardown must be exact. Legacy tasks without ownership stay
     // visible/recoverable, but may not be claimed by whichever session happens
     // to close first.
@@ -386,9 +389,9 @@ export function cancelBackgroundTasks(options = {}) {
       continue;
     }
     cancelRunningTask(task, reason, options.notify, terminalReason);
-    cancelled += 1;
+    taskIds.push(task.taskId);
   }
-  return { cancelled };
+  return { cancelled: taskIds.length, taskIds };
 }
 
 export function acknowledgeBackgroundTaskCompletion(taskId, options = {}) {

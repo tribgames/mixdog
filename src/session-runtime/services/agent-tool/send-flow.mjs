@@ -1,5 +1,6 @@
 import {
   isAgentProgressWatchdogAbortError,
+  noteStoppedShellJobsOnError,
   resolveAgentWatchdogPolicy,
   resolveHandoffMessageStartIndex,
   turnPartialHandoff,
@@ -20,6 +21,7 @@ import { handoffContent } from '../../handoff-attachments.mjs';
 import { rebindDelegation } from '../../../runtime/agent/orchestrator/session/human-gate/delegation.mjs';
 import { settledWorkerStatus } from './worker-index/row-liveness.mjs';
 import { whileTurnDispatched } from '../../../runtime/agent/orchestrator/session/manager/runtime-state.mjs';
+import { takeStoppedShellJobs } from '../../../runtime/agent/orchestrator/session/manager/turn-reap.mjs';
 
 function workerResultIdentity({ session, tag, sessionId }) {
   return { tag, sessionId, agent: session.agent || null, provider: session.provider, model: session.model };
@@ -146,7 +148,7 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
         finalStatus = 'idle';
         const value = {
           ...workerResultIdentity({ session, tag, sessionId }),
-          content: watchdogStoppedHandoff(error, partial),
+          content: watchdogStoppedHandoff(error, partial, takeStoppedShellJobs(sessionId)),
           stallAbort: true,
         };
         if (job) job._terminalResultValue = value;
@@ -154,6 +156,7 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
         return value;
       }
       finalStatus = 'error';
+      noteStoppedShellJobsOnError(error, takeStoppedShellJobs(sessionId));
       reconcileJobStreamStalled(job, error);
       throw error;
     } finally {

@@ -16,6 +16,7 @@ import { abnormalEmptyFinishError } from '../render.mjs';
 import { createProgressWatchdogRegistry } from '../../agent-watchdog-registry.mjs';
 import {
   isAgentProgressWatchdogAbortError,
+  noteStoppedShellJobsOnError,
   resolveHandoffMessageStartIndex,
   turnPartialHandoff,
   watchdogPartialHandoffFromError,
@@ -27,6 +28,7 @@ import { presetDescriptor } from './spawn-prep.mjs';
 import { workerStageForStatus } from '../worker-rows.mjs';
 import { handoffContent } from '../../../handoff-attachments.mjs';
 import { whileTurnDispatched } from '../../../../runtime/agent/orchestrator/session/manager/runtime-state.mjs';
+import { takeStoppedShellJobs } from '../../../../runtime/agent/orchestrator/session/manager/turn-reap.mjs';
 
 // Mid-turn worker persistence cadence. The watchdog sweep runs every second;
 // a transcript save is far more expensive than a bookkeeping stamp, so the
@@ -209,7 +211,7 @@ export function createSpawnRunner({
           tag,
           sessionId: session.id,
           ...presetDescriptor(agent, preset, presetName),
-          content: watchdogStoppedHandoff(error, partial),
+          content: watchdogStoppedHandoff(error, partial, takeStoppedShellJobs(session.id)),
           stallAbort: true,
         };
         if (job) job._terminalResultValue = value;
@@ -217,6 +219,7 @@ export function createSpawnRunner({
         return value;
       }
       finalStatus = 'error';
+      noteStoppedShellJobsOnError(error, takeStoppedShellJobs(session.id));
       reconcileJobStreamStalled(job, error);
       throw error;
     } finally {

@@ -23,6 +23,7 @@ import {
   _clearSessionRuntime,
 } from './runtime-liveness.mjs';
 import { clearTurnCheckpoint } from './turn-checkpoint.mjs';
+import { armTurnShellReap, isTurnTimeoutAbort } from './turn-reap.mjs';
 import { forgetSessionSaveBaseline } from '../store/save-worker.mjs';
 import { publishSessionPersistence } from '../store/session-persistence-events.mjs';
 import { forgetSessionLoadCache } from '../store/load-cache.mjs';
@@ -331,6 +332,7 @@ export function abortSessionTurn(id, reason = 'turn-abort') {
     /* ignore */
   }
   closeProviderConnections(id, `turn-abort:${reason}`);
+  if (isTurnTimeoutAbort(reason)) armTurnShellReap(id, entry);
   return true;
 }
 

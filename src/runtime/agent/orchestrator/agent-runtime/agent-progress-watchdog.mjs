@@ -126,8 +126,19 @@ export function partialHandoffTextFromSession(session, messageStartIndex = 0) {
 /** Owner-facing handoff for a watchdog-stopped agent: the stop and its reason
  *  come first, so the owner never mistakes the partial text for a finished
  *  result or a user cancel. */
-export function watchdogStoppedHandoff(error, partial) {
-  return `[Agent stopped by the progress watchdog: ${error.message}. The output below is partial.]\n\n${partial}`;
+export function watchdogStoppedHandoff(error, partial, stoppedShellJobs = []) {
+  const stopped = stoppedShellJobs.length ? `\n${stoppedShellJobsNote(stoppedShellJobs)}` : '';
+  return `[Agent stopped by the progress watchdog: ${error.message}. The output below is partial.]${stopped}\n\n${partial}`;
+}
+
+function stoppedShellJobsNote(ids) {
+  return `[Stopped its background shell jobs: ${ids.join(', ')}.]`;
+}
+
+/** A stall with no partial output is rethrown as the error: name the stopped
+ *  jobs in its text so the caller still learns them. */
+export function noteStoppedShellJobsOnError(error, ids) {
+  if (ids.length > 0 && error && typeof error === 'object') error.message = `${error.message} ${stoppedShellJobsNote(ids)}`;
 }
 
 function resolveWatchdogAbortElapsedMs({ snapshot, policy, now, anchorTs, lastProgressAt }) {
