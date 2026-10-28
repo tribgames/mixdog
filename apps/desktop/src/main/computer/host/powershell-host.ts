@@ -56,7 +56,7 @@ import { createSequenceRunner, suppressCaptureAfter } from './sequence-runner';
 import { createInputPreflight } from './input-preflight';
 import { createCommandRouter } from './command-router';
 import { createBridgeServer } from './bridge-server';
-import { loadComputerExecutionPolicy } from './execution-policy';
+import { type ComputerExecutionPolicy, loadComputerExecutionPolicy } from './execution-policy';
 import { createUserWaitService } from './user-wait-service';
 import { createSavedLoginVault } from './saved-login-vault';
 import { configureCursorDiagnostics } from '../overlay/cursor-diagnostics';
@@ -116,6 +116,104 @@ function advisoryDiagnostics(
   };
 }
 
+/** The host's read side: windows and their arrivals, targeting, inspection and capture. */
+function createObservationLayer({
+  policy,
+  callPowerShell,
+  sessionState,
+  execution,
+  isObserveOnly,
+}: {
+  policy: ComputerExecutionPolicy;
+  callPowerShell: ReturnType<typeof createWorkerPool>['callPowerShell'];
+  sessionState: ReturnType<typeof createSessionState>;
+  execution: ReturnType<typeof createExecutionState>;
+  isObserveOnly: () => boolean;
+}) {
+  const { sessionIdFor } = sessionState;
+  const { assertExecutionNotAborted } = execution;
+  const windowReads = createWindowReads({ callPowerShell, sessionIdFor });
+  const { readComputerWindows, readInstalledApps } = windowReads;
+  const windowArrivals = createWindowArrivals({
+    policy,
+    sessionIdFor,
+    peekComputerWindows: windowReads.peekComputerWindows,
+  });
+  const targeting = createWindowTargeting({ readComputerWindows, readInstalledApps });
+  const inspection = createInspection({
+    callPowerShell,
+    sessionIdFor,
+    assertExecutionNotAborted,
+    readComputerWindows,
+    readInputState: () => computerUseCoordinator.snapshot(),
+    readDisplays,
+    readPermissions: readComputerPermissions,
+    isObserveOnly,
+  });
+  const processFate = createProcessFateReader(callPowerShell);
+  const captureEngine = createCaptureEngine({
+    ...sessionState,
+    callPowerShell,
+    assertExecutionNotAborted,
+    nativeSurfaceBackends: process.platform === 'win32' ? WINDOWS_NATIVE_SURFACE_BACKENDS : [],
+    readPermissions: readComputerPermissions,
+    beginObservation: execution.beginObservation,
+    resolveAppWindowId: targeting.resolveAppWindowId,
+    resolveForegroundWindowId: targeting.resolveForegroundWindowId,
+    authorizeCapture: createCaptureAuthorizer({ policy, readComputerWindows, sessionIdFor, processFate }),
+  });
+  return { windowReads, windowArrivals, targeting, inspection, processFate, captureEngine };
+}
+
+/** The host's input side: target resolution and the bounded sequence runner. */
+function createInputLayer({
+  workerPool,
+  sessionState,
+  execution,
+  windowReads,
+  captureEngine,
+  recordDiagnostic,
+  runCommand,
+}: {
+  workerPool: ReturnType<typeof createWorkerPool>;
+  sessionState: ReturnType<typeof createSessionState>;
+  execution: ReturnType<typeof createExecutionState>;
+  windowReads: ReturnType<typeof createWindowReads>;
+  captureEngine: ReturnType<typeof createCaptureEngine>;
+  recordDiagnostic: Parameters<typeof createSequenceRunner>[0]['recordDiagnostic'];
+  runCommand: Parameters<typeof createSequenceRunner>[0]['runCommand'];
+}) {
+  const { callPowerShell, powerShellBySession } = workerPool;
+  const { sessionIdFor } = sessionState;
+  const { assertExecutionNotAborted } = execution;
+  const inputResolution = createInputResolution({
+    ...sessionState,
+    ...windowReads,
+    callPowerShell,
+    assertExecutionNotAborted,
+  });
+  const sequenceRunner = createSequenceRunner({
+    preflightSteps: createInputPreflight({
+      callPowerShell,
+      sessionIdFor,
+      assertExecutionNotAborted,
+      resolveElementAliases: sessionState.resolveElementAliases,
+      isAppOwnedWindow: (windowId) => Boolean(electronWindowForNativeId(windowId)),
+    }),
+    sessionIdFor,
+    recordDiagnostic,
+    recordProgress: (completed, inFlight) => {
+      const state = execution.executionContext.getStore();
+      if (state) state.progress = { completed, inFlight };
+    },
+    freshObservedWindowScope: sessionState.freshObservedWindowScope,
+    captureAfterAction: captureEngine.captureAfterAction,
+    runCommand,
+    releaseSequenceHolds: createSequenceHoldRelease({ powerShellBySession, callPowerShell }),
+  });
+  return { inputResolution, sequenceRunner };
+}
+
 export function createPowerShellComputerHost(
   options: {
     bridgeEnabled?: boolean;
@@ -161,38 +259,15 @@ export function createPowerShellComputerHost(
   const sessionState = createSessionState({ callPowerShell });
   const { sessionIdFor } = sessionState;
   const execution = createExecutionState();
-  const { assertExecutionNotAborted } = execution;
 
-  const windowReads = createWindowReads({ callPowerShell, sessionIdFor });
-  const { readComputerWindows, readInstalledApps } = windowReads;
-  const windowArrivals = createWindowArrivals({
+  const { windowReads, windowArrivals, targeting, inspection, processFate, captureEngine } = createObservationLayer({
     policy,
-    sessionIdFor,
-    peekComputerWindows: windowReads.peekComputerWindows,
-  });
-  const targeting = createWindowTargeting({ readComputerWindows, readInstalledApps });
-  const inspection = createInspection({
     callPowerShell,
-    sessionIdFor,
-    assertExecutionNotAborted,
-    readComputerWindows,
-    readInputState: () => computerUseCoordinator.snapshot(),
-    readDisplays,
-    readPermissions: readComputerPermissions,
+    sessionState,
+    execution,
     isObserveOnly: () => observeOnly,
   });
-  const processFate = createProcessFateReader(callPowerShell);
-  const captureEngine = createCaptureEngine({
-    ...sessionState,
-    callPowerShell,
-    assertExecutionNotAborted,
-    nativeSurfaceBackends: process.platform === 'win32' ? WINDOWS_NATIVE_SURFACE_BACKENDS : [],
-    readPermissions: readComputerPermissions,
-    beginObservation: execution.beginObservation,
-    resolveAppWindowId: targeting.resolveAppWindowId,
-    resolveForegroundWindowId: targeting.resolveForegroundWindowId,
-    authorizeCapture: createCaptureAuthorizer({ policy, readComputerWindows, sessionIdFor, processFate }),
-  });
+  const { readComputerWindows } = windowReads;
 
   // The lifecycle owns the command chain, so the router it dispatches through
   // is bound late; the router itself needs the lifecycle's target claims.
@@ -210,30 +285,14 @@ export function createPowerShellComputerHost(
     runCommand: (command) => router.runCommand(command),
     recaptureRequiredReply: (command, error) => router.recaptureRequiredReply(command, error),
   });
-  const inputResolution = createInputResolution({
-    ...sessionState,
-    ...windowReads,
-    callPowerShell,
-    assertExecutionNotAborted,
-  });
-  const sequenceRunner = createSequenceRunner({
-    preflightSteps: createInputPreflight({
-      callPowerShell,
-      sessionIdFor,
-      assertExecutionNotAborted,
-      resolveElementAliases: sessionState.resolveElementAliases,
-      isAppOwnedWindow: (windowId) => Boolean(electronWindowForNativeId(windowId)),
-    }),
-    sessionIdFor,
+  const { inputResolution, sequenceRunner } = createInputLayer({
+    workerPool,
+    sessionState,
+    execution,
+    windowReads,
+    captureEngine,
     recordDiagnostic: failureDiagnostics.record,
-    recordProgress: (completed, inFlight) => {
-      const state = execution.executionContext.getStore();
-      if (state) state.progress = { completed, inFlight };
-    },
-    freshObservedWindowScope: sessionState.freshObservedWindowScope,
-    captureAfterAction: captureEngine.captureAfterAction,
     runCommand: (command) => router.runCommand(command),
-    releaseSequenceHolds: createSequenceHoldRelease({ powerShellBySession, callPowerShell }),
   });
   const router = createCommandRouter({
     policy,

@@ -298,6 +298,59 @@ const STILL_RUNNING = Symbol('still-running');
 const AWAITING_PROMPT =
   'an administrator (UAC) prompt is already open on the PC: answer it there; no new prompt is shown until it is answered';
 
+/** One explicit key op through the port: the result for what it ended in. */
+async function performKeyChange(
+  port: SecureDesktopInstallerPort,
+  verb: SecureDesktopKeyOp['verb'],
+  keys: readonly string[],
+  revoke: readonly string[],
+  options?: SecureDesktopKeyChangeOptions
+): Promise<SecureDesktopKeyChangeResult> {
+  if (verb === 'install') {
+    const image = await port.verifyImage();
+    if (!image.ok) return { outcome: 'failed', state: await port.check(), detail: image.detail };
+  }
+  const before = await port.check(keys[0]);
+  let exitCode: number;
+  try {
+    exitCode = await port.runKeyOp({
+      verb,
+      keys,
+      revoke,
+      credential: options?.credential,
+      delegated: options?.delegated,
+    });
+  } catch (error) {
+    return {
+      outcome: 'failed',
+      state: await port.check(),
+      detail: error instanceof Error ? error.message : String(error),
+    };
+  }
+  return keyChangeFromExit(verb, exitCode, before, await port.check(keys[0]));
+}
+
+/** The request's result for the elevated install's exit code. */
+async function fromExitCode(
+  port: SecureDesktopInstallerPort,
+  exitCode: number,
+  before: SecureDesktopInstallState,
+  controllerKey: string
+): Promise<SecureDesktopInstallResult> {
+  const after = await port.check(controllerKey);
+  if (exitCode === ELEVATION_DECLINED_EXIT) return { outcome: 'declined', state: after };
+  // Another elevated install held the machine-wide lock: it is doing the work.
+  if (exitCode === SECURE_DESKTOP_BUSY_EXIT) {
+    return { outcome: 'in-progress', state: after, detail: 'another install is already running' };
+  }
+  // Ownership is re-checked under the elevated lock; nothing was changed.
+  if (exitCode === SECURE_DESKTOP_OTHER_USER_EXIT) return { outcome: 'other-user', state: after };
+  if (exitCode === 0 && after === 'installed') {
+    return { outcome: before === 'outdated' ? 'updated' : 'installed', state: after };
+  }
+  return { outcome: 'failed', state: after, detail: failureDetail(exitCode, after) };
+}
+
 export function createSecureDesktopInstaller(
   port: SecureDesktopInstallerPort,
   options: SecureDesktopInstallerOptions = {}
@@ -330,30 +383,7 @@ export function createSecureDesktopInstaller(
         return { outcome: 'failed', state: await port.check(), detail: 'a controller key is invalid' };
       }
     }
-    const op = (async (): Promise<SecureDesktopKeyChangeResult> => {
-      if (verb === 'install') {
-        const image = await port.verifyImage();
-        if (!image.ok) return { outcome: 'failed', state: await port.check(), detail: image.detail };
-      }
-      const before = await port.check(keys[0]);
-      let exitCode: number;
-      try {
-        exitCode = await port.runKeyOp({
-          verb,
-          keys,
-          revoke,
-          credential: options?.credential,
-          delegated: options?.delegated,
-        });
-      } catch (error) {
-        return {
-          outcome: 'failed',
-          state: await port.check(),
-          detail: error instanceof Error ? error.message : String(error),
-        };
-      }
-      return keyChangeFromExit(verb, exitCode, before, await port.check(keys[0]));
-    })();
+    const op = performKeyChange(port, verb, keys, revoke, options);
     keyOpInFlight = op.finally(() => {
       keyOpInFlight = null;
     });
@@ -366,25 +396,6 @@ export function createSecureDesktopInstaller(
       if (outstanding === launched) outstanding = null;
     };
     launched.then(release, release);
-  }
-
-  async function fromExitCode(
-    exitCode: number,
-    before: SecureDesktopInstallState,
-    controllerKey: string
-  ): Promise<SecureDesktopInstallResult> {
-    const after = await port.check(controllerKey);
-    if (exitCode === ELEVATION_DECLINED_EXIT) return { outcome: 'declined', state: after };
-    // Another elevated install held the machine-wide lock: it is doing the work.
-    if (exitCode === SECURE_DESKTOP_BUSY_EXIT) {
-      return { outcome: 'in-progress', state: after, detail: 'another install is already running' };
-    }
-    // Ownership is re-checked under the elevated lock; nothing was changed.
-    if (exitCode === SECURE_DESKTOP_OTHER_USER_EXIT) return { outcome: 'other-user', state: after };
-    if (exitCode === 0 && after === 'installed') {
-      return { outcome: before === 'outdated' ? 'updated' : 'installed', state: after };
-    }
-    return { outcome: 'failed', state: after, detail: failureDetail(exitCode, after) };
   }
 
   async function run(controllerKey: string): Promise<SecureDesktopInstallResult> {
@@ -440,7 +451,7 @@ export function createSecureDesktopInstaller(
     if (settled === STILL_RUNNING) {
       return { outcome: 'in-progress', state: await port.check(controllerKey), detail: AWAITING_PROMPT };
     }
-    return fromExitCode(settled, before, controllerKey);
+    return fromExitCode(port, settled, before, controllerKey);
   }
 
   return {

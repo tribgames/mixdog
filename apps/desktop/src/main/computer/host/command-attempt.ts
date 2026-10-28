@@ -74,6 +74,86 @@ function takeoverCodeIn(result: ComputerCommandResult): { code: string; message:
   return { code, message: typeof message === 'string' ? message : 'reported by the native result' };
 }
 
+/** The recovery capture is an active operation too, so Stop and Resume
+ *  cannot race a late observation into the next generation. A cancelled or
+ *  failed recovery must not disguise a dispatched mutation as "cancelled
+ *  before execution", or publish a stale result. */
+async function recoveryCapture(
+  deps: CommandAttemptDeps,
+  attempt: Attempt,
+  error: unknown,
+  record: Record<string, unknown>
+): Promise<ComputerCommandResult | null> {
+  const { coordinator, recaptureRequiredReply } = deps;
+  const { activeExecutionsBySession, executionContext } = deps.execution;
+  const { command, state } = attempt;
+  let recapture: ComputerCommandResult | null = null;
+  try {
+    if (!coordinator.snapshot().userControlActive && !state.aborted) {
+      attempt.assertRunnable();
+      activeExecutionsBySession.set(state.sessionId, state);
+      recapture = await executionContext.run(state, () => recaptureRequiredReply(command, error));
+      attempt.assertRunnable();
+      coordinator.assertAutomationAllowed();
+    }
+  } catch (recoveryError) {
+    recapture = null;
+    deps.recordDiagnostic?.(state.sessionId, {
+      action: command.action,
+      stage: 'recovery',
+      ok: false,
+      error: computerLogError(recoveryError),
+    });
+  } finally {
+    deps.recordDiagnostic?.(state.sessionId, {
+      ...record,
+      stage: 'execution',
+      input_recovery: { recapture_available: recapture !== null },
+    });
+  }
+  return recapture;
+}
+
+/** The reply (or the rethrow) for an attempt that failed. */
+async function failedAttempt(
+  deps: CommandAttemptDeps,
+  attempt: Attempt,
+  failure: unknown
+): Promise<ComputerCommandResult> {
+  const { command, state, startedAt } = attempt;
+  const captureAttempts = captureAttemptsFromError(failure);
+  const error = state.aborted && state.failureCode ? recoveryFailure(state.failureCode) : failure;
+  const code = computerLogError(error);
+  // A broken or replaced read observer alone is not evidence that the
+  // user has the desktop.
+  if (TAKEOVER_CODES.includes(code) && !observesOnly(command)) deps.takeOver(code);
+  if (pausedForUserInput(deps.coordinator.snapshot()) && !observesOnly(command)) {
+    // Throw out of the active lane before waiting: cleanup and resume
+    // must be able to drain it. Only progress survives, never stale refs.
+    throw attempt.pending || new PausedComputerWork(state.progress || { completed: 0 });
+  }
+  const record = {
+    ...computerRunRecord(command, startedAt),
+    ok: false,
+    error: code,
+    ...(captureAttempts.length ? { capture_attempts: captureAttempts } : {}),
+  };
+  appendComputerRunRecord(state.sessionId, record);
+  if (code === 'user_input_active') {
+    // The user's input refuses this action alone. They own the desktop, so
+    // there is no recovery capture; the session and its queue go on.
+    deps.recordDiagnostic?.(state.sessionId, { ...record, stage: 'execution' });
+    return {
+      text: JSON.stringify(
+        userInputRefusalPayload(String(command.action || ''), command.window_id, !observesOnly(command))
+      ),
+    };
+  }
+  const recapture = await recoveryCapture(deps, attempt, error, record);
+  if (recapture) return recapture;
+  throw error;
+}
+
 export function createCommandAttempt(deps: CommandAttemptDeps) {
   const { coordinator, execution, sessionIdFor, runCommand, recaptureRequiredReply, assertEpoch } = deps;
   const { activeExecutionsBySession, executionContext } = execution;
@@ -118,78 +198,6 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
         throw new Error(`${returned.code}: ${returned.message}`);
       return result;
     });
-  }
-
-  /** The recovery capture is an active operation too, so Stop and Resume
-   *  cannot race a late observation into the next generation. A cancelled or
-   *  failed recovery must not disguise a dispatched mutation as "cancelled
-   *  before execution", or publish a stale result. */
-  async function recoveryCapture(
-    attempt: Attempt,
-    error: unknown,
-    record: Record<string, unknown>
-  ): Promise<ComputerCommandResult | null> {
-    const { command, state } = attempt;
-    let recapture: ComputerCommandResult | null = null;
-    try {
-      if (!coordinator.snapshot().userControlActive && !state.aborted) {
-        attempt.assertRunnable();
-        activeExecutionsBySession.set(state.sessionId, state);
-        recapture = await executionContext.run(state, () => recaptureRequiredReply(command, error));
-        attempt.assertRunnable();
-        coordinator.assertAutomationAllowed();
-      }
-    } catch (recoveryError) {
-      recapture = null;
-      deps.recordDiagnostic?.(state.sessionId, {
-        action: command.action,
-        stage: 'recovery',
-        ok: false,
-        error: computerLogError(recoveryError),
-      });
-    } finally {
-      deps.recordDiagnostic?.(state.sessionId, {
-        ...record,
-        stage: 'execution',
-        input_recovery: { recapture_available: recapture !== null },
-      });
-    }
-    return recapture;
-  }
-
-  async function failedAttempt(attempt: Attempt, failure: unknown): Promise<ComputerCommandResult> {
-    const { command, state, startedAt } = attempt;
-    const captureAttempts = captureAttemptsFromError(failure);
-    const error = state.aborted && state.failureCode ? recoveryFailure(state.failureCode) : failure;
-    const code = computerLogError(error);
-    // A broken or replaced read observer alone is not evidence that the
-    // user has the desktop.
-    if (TAKEOVER_CODES.includes(code) && !observesOnly(command)) deps.takeOver(code);
-    if (pausedForUserInput(coordinator.snapshot()) && !observesOnly(command)) {
-      // Throw out of the active lane before waiting: cleanup and resume
-      // must be able to drain it. Only progress survives, never stale refs.
-      throw attempt.pending || new PausedComputerWork(state.progress || { completed: 0 });
-    }
-    const record = {
-      ...computerRunRecord(command, startedAt),
-      ok: false,
-      error: code,
-      ...(captureAttempts.length ? { capture_attempts: captureAttempts } : {}),
-    };
-    appendComputerRunRecord(state.sessionId, record);
-    if (code === 'user_input_active') {
-      // The user's input refuses this action alone. They own the desktop, so
-      // there is no recovery capture; the session and its queue go on.
-      deps.recordDiagnostic?.(state.sessionId, { ...record, stage: 'execution' });
-      return {
-        text: JSON.stringify(
-          userInputRefusalPayload(String(command.action || ''), command.window_id, !observesOnly(command))
-        ),
-      };
-    }
-    const recapture = await recoveryCapture(attempt, error, record);
-    if (recapture) return recapture;
-    throw error;
   }
 
   async function executeAttempt(
@@ -244,7 +252,7 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
       return outcome;
     } catch (error) {
       if (error instanceof PausedBeforeDispatch) throw error;
-      return await failedAttempt(attempt, error);
+      return await failedAttempt(deps, attempt, error);
     } finally {
       if (activeExecutionsBySession.get(sessionId) === state) activeExecutionsBySession.delete(sessionId);
       if (foreground) deps.pointerHold?.arm(sessionId);

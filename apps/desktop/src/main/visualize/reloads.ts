@@ -18,6 +18,21 @@ const MISSING_RETRY_MS = 2000;
  *  later already did: `loadedStamp` only ever grows. */
 export const loadIsCurrent = (tab: TabState, stamp: number): boolean => stamp > (tab.loadedStamp ?? 0);
 
+/** What a restore of the version on screen would overwrite may have changed
+ *  with the files: re-read it and publish when it did. */
+async function refreshRestoreAssets(
+  ctx: Pick<VisualizeServiceContext, 'tabVersions' | 'publish'>,
+  sessionId: string,
+  tab: TabState,
+  shown: NonNullable<TabState['shown']>
+): Promise<void> {
+  const restoreAssets = await ctx.tabVersions.restoreAssetsOf(sessionId, tab, shown.n);
+  if (tab.shown === shown && restoreAssets.join('\0') !== shown.restoreAssets.join('\0')) {
+    shown.restoreAssets = restoreAssets;
+    ctx.publish(sessionId);
+  }
+}
+
 export function createReloads(
   ctx: Pick<
     VisualizeServiceContext,
@@ -52,13 +67,7 @@ export function createReloads(
     // A kept version is on screen: live reloads wait for "Back to live".
     if (tab.shown) {
       tab.pendingReload = true;
-      // What a restore would overwrite may have changed with the files.
-      const shown = tab.shown;
-      const restoreAssets = await ctx.tabVersions.restoreAssetsOf(sessionId, tab, shown.n);
-      if (tab.shown === shown && restoreAssets.join('\0') !== shown.restoreAssets.join('\0')) {
-        shown.restoreAssets = restoreAssets;
-        ctx.publish(sessionId);
-      }
+      await refreshRestoreAssets(ctx, sessionId, tab, tab.shown);
       return;
     }
     // Everything below is resolved against this cwd; a reopen in another cwd,

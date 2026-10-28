@@ -119,6 +119,43 @@ function secureDesktopInputEvent(command: ScreenHostCommand, lastPointer: { x: n
   }
 }
 
+/** Adds `listener` to `set`; the returned function removes it. */
+const listen = <T>(set: Set<T>, listener: T): (() => void) => {
+  set.add(listener);
+  return () => set.delete(listener);
+};
+
+/** Sends a host command to the helper, following the pointer (`pointer`, the
+ *  last position the helper was given) and the keys it holds (`heldKeys`). */
+function sendHelperInput(
+  service: SecureDesktopServicePort,
+  command: ScreenHostCommand,
+  pointer: { x: number; y: number },
+  heldKeys: Set<number>
+): Promise<void> {
+  const event = secureDesktopInputEvent(command, pointer);
+  if (!event) return Promise.reject(new Error('secure desktop helper has no such input'));
+  if (event.kind === 'pointer-move' || event.kind === 'pointer-button' || event.kind === 'pointer-wheel') {
+    pointer.x = event.x;
+    pointer.y = event.y;
+  }
+  if (event.kind === 'key') {
+    if (
+      event.down &&
+      event.vk === VK_DELETE &&
+      VK_CONTROL.some((vk) => heldKeys.has(vk)) &&
+      VK_MENU.some((vk) => heldKeys.has(vk))
+    ) {
+      // The helper releases everything it holds before raising SAS.
+      heldKeys.clear();
+      return service.sas();
+    }
+    if (event.down) heldKeys.add(event.vk);
+    else heldKeys.delete(event.vk);
+  }
+  return service.sendInput(event);
+}
+
 export function createSecureDesktopAdapter(
   service: SecureDesktopServicePort,
   timers: { setTimeout: typeof setTimeout; clearTimeout: typeof clearTimeout } = { setTimeout, clearTimeout }
@@ -134,7 +171,7 @@ export function createSecureDesktopAdapter(
   let retryMs = RECONNECT_FIRST_MS;
   let retry: ReturnType<typeof setTimeout> | null = null;
   let latest: ScreenBgraFrame | null = null;
-  let lastPointer = { x: 0, y: 0 };
+  const pointer = { x: 0, y: 0 };
   let videoRun: number | null = null;
   /** Keys this adapter has pressed through the helper and the helper still
    *  holds, by virtual key. Cleared whenever the helper releases everything. */
@@ -229,33 +266,9 @@ export function createSecureDesktopAdapter(
       if (service.session()) service.setActive(true);
       else dial();
     },
-    sendInput(command) {
-      const event = secureDesktopInputEvent(command, lastPointer);
-      if (!event) return Promise.reject(new Error('secure desktop helper has no such input'));
-      if (event.kind === 'pointer-move' || event.kind === 'pointer-button' || event.kind === 'pointer-wheel') {
-        lastPointer = { x: event.x, y: event.y };
-      }
-      if (event.kind === 'key') {
-        if (
-          event.down &&
-          event.vk === VK_DELETE &&
-          VK_CONTROL.some((vk) => heldKeys.has(vk)) &&
-          VK_MENU.some((vk) => heldKeys.has(vk))
-        ) {
-          // The helper releases everything it holds before raising SAS.
-          heldKeys.clear();
-          return service.sas();
-        }
-        if (event.down) heldKeys.add(event.vk);
-        else heldKeys.delete(event.vk);
-      }
-      return service.sendInput(event);
-    },
+    sendInput: (command) => sendHelperInput(service, command, pointer, heldKeys),
     locked: () => service.session()?.locked ?? null,
-    onGrantChallenge(listener) {
-      challengeListeners.add(listener);
-      return () => challengeListeners.delete(listener);
-    },
+    onGrantChallenge: (listener) => listen(challengeListeners, listener),
     sendGrant: (grant) => service.sendGrant(grant),
     setVideoRun(epoch) {
       // A new run releases everything the helper held.
@@ -263,19 +276,10 @@ export function createSecureDesktopAdapter(
       videoRun = epoch;
       if (!disposed && service.session()) service.setVideoRun(epoch);
     },
-    onHelperIssue(listener) {
-      issueListeners.add(listener);
-      return () => issueListeners.delete(listener);
-    },
+    onHelperIssue: (listener) => listen(issueListeners, listener),
     latestFrame: () => latest,
-    onFrame(listener) {
-      frameListeners.add(listener);
-      return () => frameListeners.delete(listener);
-    },
-    onDesktopChanged(listener) {
-      changeListeners.add(listener);
-      return () => changeListeners.delete(listener);
-    },
+    onFrame: (listener) => listen(frameListeners, listener),
+    onDesktopChanged: (listener) => listen(changeListeners, listener),
     dispose() {
       if (disposed) return;
       disposed = true;

@@ -603,16 +603,17 @@ async function runCaptureDictationSmoke(window: BrowserWindow): Promise<{
  *  bundled chunk for import statements and splices the chunk mid-string,
  *  corrupting the build. */
 async function runCaptureToolShowcase(window: BrowserWindow, host: CaptureService) {
-  const showcasePatch = [
-    '--- a/src/app.ts',
-    '+++ b/src/app.ts',
-    '@@ -1,4 +1,4 @@',
-    ' const config = loadConfig();',
-    '-const retries = 1;',
-    '+const retries = 3;',
-    ' boot({ config, retries });',
-    '',
-  ].join('\n');
+  const showcaseBase = await submitShowcaseTask(window, host);
+  publishShowcaseTranscript(host, showcaseBase);
+  const toolShowcase = await readToolShowcase(window);
+  const { toolsPng, toolsTopPng, toolShowcaseDimensions } = await captureShowcaseFrames(window);
+  await restoreShowcase(window, host, showcaseBase);
+  return { toolShowcase, toolsPng, toolsTopPng, toolShowcaseDimensions };
+}
+
+/** Submits the showcase task through the real composer; the snapshot of the
+ *  session the host opened for it is what the showcase publishes over. */
+async function submitShowcaseTask(window: BrowserWindow, host: CaptureService): Promise<Record<string, unknown>> {
   await withCaptureTimeout(
     window.webContents.executeJavaScript(`(async () => {
       const link = document.querySelector('button[aria-label="New task"]');
@@ -643,7 +644,22 @@ async function runCaptureToolShowcase(window: BrowserWindow, host: CaptureServic
     "(document.querySelector('.pane-cell.is-focused .workspace-tab.active')?.textContent || '').includes('Run the test')",
     'showcase session tab'
   );
-  const showcaseBase = (host.getSnapshot() || {}) as Record<string, unknown>;
+  return (host.getSnapshot() || {}) as Record<string, unknown>;
+}
+
+/** Publishes the synthetic rich transcript: shell successes and failures, an
+ *  edit with a diff, prose and a running call. */
+function publishShowcaseTranscript(host: CaptureService, showcaseBase: Record<string, unknown>): void {
+  const showcasePatch = [
+    '--- a/src/app.ts',
+    '+++ b/src/app.ts',
+    '@@ -1,4 +1,4 @@',
+    ' const config = loadConfig();',
+    '-const retries = 1;',
+    '+const retries = 3;',
+    ' boot({ config, retries });',
+    '',
+  ].join('\n');
   host.publishProbeSnapshot({
     ...showcaseBase,
     toasts: [],
@@ -690,7 +706,11 @@ async function runCaptureToolShowcase(window: BrowserWindow, host: CaptureServic
       },
     ],
   } as unknown as SessionSnapshot);
-  const toolShowcase = (await withCaptureTimeout(
+}
+
+/** Counts the rendered tool activity groups once the transcript has them. */
+async function readToolShowcase(window: BrowserWindow) {
+  return (await withCaptureTimeout(
     window.webContents.executeJavaScript(`(async () => {
       // Desktop transcripts fold the tool calls on each side of prose into one
       // activity group (transcript-tool-ui.tsx): collapsed by default, titled
@@ -722,6 +742,10 @@ async function runCaptureToolShowcase(window: BrowserWindow, host: CaptureServic
     runningStatuses: string[];
     reviewBar: boolean;
   };
+}
+
+/** Captures the transcript's top and bottom frames. */
+async function captureShowcaseFrames(window: BrowserWindow) {
   // Flush a real presented frame before reading the compositor: DOM commit
   // alone is not a paint, and an occluded window may still hold the frame
   // from the previous capture pass.
@@ -756,6 +780,14 @@ async function runCaptureToolShowcase(window: BrowserWindow, host: CaptureServic
   );
   const toolsPng = toolsImage.toPNG();
   const toolShowcaseDimensions = toolsImage.getSize();
+  return { toolsPng, toolsTopPng, toolShowcaseDimensions };
+}
+
+async function restoreShowcase(
+  window: BrowserWindow,
+  host: CaptureService,
+  showcaseBase: Record<string, unknown>
+): Promise<void> {
   // Restore the empty-session state so the trailing renderer validation
   // (inline errors, welcome view) still checks the shipped default screen.
   host.publishProbeSnapshot({ ...showcaseBase, toasts: [], busy: false, items: [] } as unknown as SessionSnapshot);
@@ -771,7 +803,48 @@ async function runCaptureToolShowcase(window: BrowserWindow, host: CaptureServic
     'Tool showcase restore',
     8_000
   );
-  return { toolShowcase, toolsPng, toolsTopPng, toolShowcaseDimensions };
+}
+
+/** Sidebar geometry in the artifact is reported from the live DOM rects the
+ *  renderer measured, and the sampled colors come from the captured image.
+ *  There is no second, pixel-scanned measurement to cross-check it against:
+ *  that scan belonged to the removed desktopCapturer path. */
+function measureSidebar(
+  liveDesktop: Awaited<ReturnType<typeof runCaptureDesktopPass>>['liveDesktop'],
+  pixel: ReturnType<typeof imageReader>
+) {
+  const domSidebarGeometry = {
+    left: liveDesktop.rects.sidebar.left,
+    top: liveDesktop.rects.sidebar.top,
+    right: liveDesktop.rects.sidebar.right,
+    bottom: liveDesktop.rects.sidebar.bottom,
+    width: liveDesktop.rects.sidebar.width,
+    bottomInset: liveDesktop.viewport.height - liveDesktop.rects.sidebar.bottom,
+    mainLeft: liveDesktop.rects.main.left,
+    gap: liveDesktop.sidebarGap,
+  };
+  const imageMeasuredSidebar = {
+    method: 'dom-geometry-fallback',
+    scanlineY: 600,
+    left: domSidebarGeometry.left,
+    right: domSidebarGeometry.right - 1,
+    width: domSidebarGeometry.width,
+    leftInset: domSidebarGeometry.left,
+    rightGap: {
+      left: domSidebarGeometry.right,
+      right: domSidebarGeometry.mainLeft - 1,
+      width: domSidebarGeometry.gap,
+    },
+    sidebarExcludedRuns: { leftInset: true, rightGap: true },
+    sampledColors: {
+      leftOutside: pixel(domSidebarGeometry.left, 600),
+      leftBorder: pixel(domSidebarGeometry.left, 600),
+      interior: pixel(domSidebarGeometry.left + 1, 600),
+      rightBorder: pixel(domSidebarGeometry.right - 1, 600),
+      rightGap: pixel(domSidebarGeometry.mainLeft, 600),
+    },
+  };
+  return { domSidebarGeometry, imageMeasuredSidebar };
 }
 
 async function captureWindow(): Promise<void> {
@@ -850,41 +923,7 @@ async function captureWindow(): Promise<void> {
     }))()`)) as { bridgePresent: boolean; inlineErrors: string[] };
     const rendererValidation = validateAndDestroyRenderer(window, rendererState, rendererConsoleErrors);
     const pixel = imageReader(image);
-    const domSidebarGeometry = {
-      left: liveDesktop.rects.sidebar.left,
-      top: liveDesktop.rects.sidebar.top,
-      right: liveDesktop.rects.sidebar.right,
-      bottom: liveDesktop.rects.sidebar.bottom,
-      width: liveDesktop.rects.sidebar.width,
-      bottomInset: liveDesktop.viewport.height - liveDesktop.rects.sidebar.bottom,
-      mainLeft: liveDesktop.rects.main.left,
-      gap: liveDesktop.sidebarGap,
-    };
-    // Sidebar geometry in the artifact is reported from the live DOM rects the
-    // renderer measured, and the sampled colors come from the captured image.
-    // There is no second, pixel-scanned measurement to cross-check it against:
-    // that scan belonged to the removed desktopCapturer path.
-    const imageMeasuredSidebar = {
-      method: 'dom-geometry-fallback',
-      scanlineY: 600,
-      left: domSidebarGeometry.left,
-      right: domSidebarGeometry.right - 1,
-      width: domSidebarGeometry.width,
-      leftInset: domSidebarGeometry.left,
-      rightGap: {
-        left: domSidebarGeometry.right,
-        right: domSidebarGeometry.mainLeft - 1,
-        width: domSidebarGeometry.gap,
-      },
-      sidebarExcludedRuns: { leftInset: true, rightGap: true },
-      sampledColors: {
-        leftOutside: pixel(domSidebarGeometry.left, 600),
-        leftBorder: pixel(domSidebarGeometry.left, 600),
-        interior: pixel(domSidebarGeometry.left + 1, 600),
-        rightBorder: pixel(domSidebarGeometry.right - 1, 600),
-        rightGap: pixel(domSidebarGeometry.mainLeft, 600),
-      },
-    };
+    const { domSidebarGeometry, imageMeasuredSidebar } = measureSidebar(liveDesktop, pixel);
     const png = image.toPNG();
     const metadata = {
       schemaVersion,

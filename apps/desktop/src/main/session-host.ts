@@ -211,7 +211,14 @@ export class SessionHost implements DesktopService {
     });
     this.sessionMetadata = new DesktopSessionMetadata(() => options.userDataPath);
     this.newTaskRequests = new NewTaskRequests(options.userDataPath);
-    this.lifecycle = new SessionHostLifecycle({
+    this.lifecycle = this.createLifecycle(options);
+    this.agentRooms = this.createAgentRooms(options);
+  }
+
+  /** The session lifecycle, wired to this host's publication, transport,
+   *  catalog and project registry. */
+  private createLifecycle(options: SerializableDesktopServiceOptions): SessionHostLifecycle {
+    return new SessionHostLifecycle({
       client: this.sessionClient,
       publication: this.publication,
       sessionViews: this.sessionViews,
@@ -265,7 +272,11 @@ export class SessionHost implements DesktopService {
       publishSessionCatalog: (sessions) => this.publishSessionCatalog(sessions),
       publishCatalogs: () => this.catalog.publishCatalogs(),
     });
-    this.agentRooms = createAgentRooms({
+  }
+
+  /** The group rooms, backed by the daemon's sessions and this host's lifecycle. */
+  private createAgentRooms(options: SerializableDesktopServiceOptions): AgentRooms {
+    return createAgentRooms({
       store: createAgentRoomFileStore(join(options.userDataPath, 'agent-rooms.json')),
       listAgents: () => this.transport.invokeControl('listAgents', []),
       agentPresence: (agentIds) => this.transport.invokeControl('agentDefinitionPresence', [agentIds]),

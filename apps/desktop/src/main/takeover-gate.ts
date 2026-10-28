@@ -73,6 +73,47 @@ const browserRefusal = (entry: HeldTakeover): Error =>
       'Wait for the handoff_user result ("done", "denied" or "expired"); do not retry or work around it meanwhile.'
   );
 
+/** The in-flight Browser Use commands, each with its session: a takeover
+ *  aborts and drains its own session's. */
+function createOperationTracker() {
+  const operations = new Map<AbortController, string>();
+  // Every drain in flight waits here (two sessions can take over together).
+  const drainWaiters = new Set<() => void>();
+  const operationsOf = (sessionId: string): AbortController[] =>
+    [...operations].filter(([, owner]) => owner === sessionId).map(([operation]) => operation);
+  return {
+    /** One command of `sessionId`, counted until `release`; its `signal` aborts when a takeover drains the session. */
+    begin(sessionId: string): { signal: AbortSignal; release: () => void } {
+      const controller = new AbortController();
+      operations.set(controller, sessionId);
+      return {
+        signal: controller.signal,
+        release: () => {
+          if (!operations.delete(controller)) return;
+          for (const waiter of [...drainWaiters]) waiter();
+        },
+      };
+    },
+    /** Waits until the session's commands drained, or until `cancel` aborts. */
+    async drain(sessionId: string, cancel: AbortSignal): Promise<void> {
+      for (const operation of operationsOf(sessionId)) {
+        operation.abort(new Error('Browser Use stopped: the user took over this session'));
+      }
+      while (!cancel.aborted && operationsOf(sessionId).length > 0) {
+        await new Promise<void>((resolve) => {
+          const wake = () => {
+            drainWaiters.delete(wake);
+            cancel.removeEventListener('abort', wake);
+            resolve();
+          };
+          drainWaiters.add(wake);
+          cancel.addEventListener('abort', wake, { once: true });
+        });
+      }
+    },
+  };
+}
+
 export function createTakeoverGate(
   hold: typeof withHumanOnlyApproval = withHumanOnlyApproval,
   expiryMs = TAKEOVER_EXPIRY_MS
@@ -93,30 +134,7 @@ export function createTakeoverGate(
     }
     return entry;
   };
-  /** In-flight Browser Use commands → their session: a takeover suppresses
-   *  (aborts) and drains its own session's. */
-  const operations = new Map<AbortController, string>();
-  // Every drain in flight waits here (two sessions can take over together).
-  const drainWaiters = new Set<() => void>();
-  const operationsOf = (sessionId: string): AbortController[] =>
-    [...operations].filter(([, owner]) => owner === sessionId).map(([operation]) => operation);
-  /** Waits until the session's commands drained, or until `cancel` aborts. */
-  const drainOperations = async (sessionId: string, cancel: AbortSignal): Promise<void> => {
-    for (const operation of operationsOf(sessionId)) {
-      operation.abort(new Error('Browser Use stopped: the user took over this session'));
-    }
-    while (!cancel.aborted && operationsOf(sessionId).length > 0) {
-      await new Promise<void>((resolve) => {
-        const wake = () => {
-          drainWaiters.delete(wake);
-          cancel.removeEventListener('abort', wake);
-          resolve();
-        };
-        drainWaiters.add(wake);
-        cancel.addEventListener('abort', wake, { once: true });
-      });
-    }
-  };
+  const { begin: beginOperation, drain: drainOperations } = createOperationTracker();
   const release = (sessionId: string): void => {
     const entry = held.get(sessionId);
     if (!entry) return;
@@ -226,15 +244,7 @@ export function createTakeoverGate(
     beginOperation(sessionId: string): { signal: AbortSignal; release: () => void } {
       const entry = held.get(sessionId);
       if (entry) throw browserRefusal(entry);
-      const controller = new AbortController();
-      operations.set(controller, sessionId);
-      return {
-        signal: controller.signal,
-        release: () => {
-          if (!operations.delete(controller)) return;
-          for (const waiter of [...drainWaiters]) waiter();
-        },
-      };
+      return beginOperation(sessionId);
     },
     dispose(): void {
       for (const sessionId of [...held.keys()]) release(sessionId);

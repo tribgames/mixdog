@@ -74,6 +74,58 @@ const toIceServers = (servers: RTCIceServer[]): RemoteWebrtcIceServer[] =>
     ...(typeof server.credential === 'string' ? { credential: server.credential } : {}),
   }));
 
+/** The window promoted its connection: the epoch the phone's ack must carry. */
+function promoteOwnership(entry: Ownership | undefined, signal: { connectionId: string; inputEpoch: number }): void {
+  if (entry?.connectionId === signal.connectionId && entry.owner === 'relay') {
+    entry.promoteEpoch = signal.inputEpoch;
+  }
+}
+
+/** The window demoted its connection: relay input and JPEG return, the phone's ack settles it. */
+function demoteOwnership(
+  deps: Pick<RemoteWebrtcRelayDeps, 'setImages'>,
+  entry: Ownership | undefined,
+  signal: { connectionId: string; inputEpoch: number },
+  clientId: string,
+  sessionId: string | null
+): void {
+  if (entry?.connectionId !== signal.connectionId) return;
+  // JPEG comes back at once; no page input until the phone's ack.
+  if (entry.owner === 'channel' && sessionId) deps.setImages(clientId, sessionId, true);
+  entry.owner = 'none';
+  entry.promoteEpoch = null;
+  entry.demoteEpoch = signal.inputEpoch;
+}
+
+/** A phone's ack settles the hand-over it answers: a promote-ack gives the
+ *  page to the channel (JPEG stops), a demote-ack ends the entry. */
+function settleAck(
+  deps: Pick<RemoteWebrtcRelayDeps, 'setImages'>,
+  ownership: Map<string, Ownership>,
+  ownerKey: string,
+  signal: RemoteWebrtcClientSignal,
+  clientId: string,
+  sessionId: string
+): void {
+  const entry = ownership.get(ownerKey);
+  if (
+    signal.type === 'promote-ack' &&
+    entry?.owner === 'relay' &&
+    entry.connectionId === signal.connectionId &&
+    entry.promoteEpoch === signal.inputEpoch
+  ) {
+    entry.owner = 'channel';
+    deps.setImages(clientId, sessionId, false);
+  } else if (
+    signal.type === 'demote-ack' &&
+    entry?.owner === 'none' &&
+    entry.connectionId === signal.connectionId &&
+    entry.demoteEpoch === signal.inputEpoch
+  ) {
+    ownership.delete(ownerKey);
+  }
+}
+
 export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
   const ownership = new Map<string, Ownership>();
   /** The `ready` per client × source still resolving its ICE servers; a newer
@@ -102,23 +154,7 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
       if (!deps.subscribed(clientId, sessionId)) {
         throw new TypeError('remote webrtc source is not streamed by this client.');
       }
-      const entry = ownership.get(key(clientId, remoteWebrtcSourceKey(signal.source)));
-      if (
-        signal.type === 'promote-ack' &&
-        entry?.owner === 'relay' &&
-        entry.connectionId === signal.connectionId &&
-        entry.promoteEpoch === signal.inputEpoch
-      ) {
-        entry.owner = 'channel';
-        deps.setImages(clientId, sessionId, false);
-      } else if (
-        signal.type === 'demote-ack' &&
-        entry?.owner === 'none' &&
-        entry.connectionId === signal.connectionId &&
-        entry.demoteEpoch === signal.inputEpoch
-      ) {
-        ownership.delete(key(clientId, remoteWebrtcSourceKey(signal.source)));
-      }
+      settleAck(deps, ownership, key(clientId, remoteWebrtcSourceKey(signal.source)), signal, clientId, sessionId);
       return signal;
     },
 
@@ -189,19 +225,9 @@ export function createRemoteWebrtcRelay(deps: RemoteWebrtcRelayDeps) {
         release(clientId, sourceKey, sessionId);
         ownership.set(k, { connectionId: signal.connectionId, promoteEpoch: null, owner: 'relay', demoteEpoch: 0 });
       } else if (signal.type === 'promote') {
-        const entry = ownership.get(k);
-        if (entry?.connectionId === signal.connectionId && entry.owner === 'relay') {
-          entry.promoteEpoch = signal.inputEpoch;
-        }
+        promoteOwnership(ownership.get(k), signal);
       } else if (signal.type === 'demote') {
-        const entry = ownership.get(k);
-        if (entry?.connectionId === signal.connectionId) {
-          // JPEG comes back at once; no page input until the phone's ack.
-          if (entry.owner === 'channel' && sessionId) deps.setImages(clientId, sessionId, true);
-          entry.owner = 'none';
-          entry.promoteEpoch = null;
-          entry.demoteEpoch = signal.inputEpoch;
-        }
+        demoteOwnership(deps, ownership.get(k), signal, clientId, sessionId);
       } else if (signal.type === 'close') {
         if (ownership.get(k)?.connectionId === signal.connectionId) release(clientId, sourceKey, sessionId);
       }

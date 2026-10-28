@@ -144,6 +144,69 @@ const NOT_GRANTED = 'no grant for this hold and run was relayed';
 const NO_CHALLENGE = 'the grant names no challenge of this hold and run';
 const WRONG_RUN = 'the grant is for another run than this hold declared';
 
+interface InstallFlowHost {
+  installer: SecureDesktopInstallPort;
+  /** The current adapter; a rebuild replaces it. */
+  adapter(): SecureDesktopAdapter;
+  isDisposed(): boolean;
+  /** The count of rebuilds so far. */
+  adapterSerial(): number;
+  rebuild(): void;
+}
+
+/** The install state, the phone's install request and the service start, with
+ *  the latched decline and the shared start attempt they keep. */
+function createInstallFlow(host: InstallFlowHost) {
+  const { installer } = host;
+  /** A phone request was declined on the PC: no prompt until restart. */
+  let declined = false;
+  /** The `ensureRunning` attempt under way, shared by its callers. */
+  let starting: Promise<SecureDesktopStatus> | null = null;
+
+  const installState = async (controllerKey?: string): Promise<SecureDesktopInstallState> => {
+    const state = await installer.state(controllerKey);
+    if (!host.isDisposed() && state === 'installed' && !host.adapter().installed()) host.rebuild();
+    return state;
+  };
+
+  const refused = async (controllerKey: string): Promise<SecureDesktopInstallResult> => ({
+    outcome: 'declined',
+    state: await installer.state(controllerKey),
+    detail: DECLINED_ON_PC,
+  });
+
+  const requestInstall = async (controllerKey: string): Promise<SecureDesktopInstallResult> => {
+    if (declined) return refused(controllerKey);
+    const serial = host.adapterSerial();
+    // Relative to this phone's key: `installed` is current and enrolls it.
+    const before = await installer.state(controllerKey);
+    if (declined) return refused(controllerKey);
+    // A request already prompting (this phone's) is joined by the installer.
+    const result = await installer.request(controllerKey);
+    if (result.outcome === 'declined') declined = true;
+    const changed = before !== 'installed' || !host.adapter().installed();
+    if (
+      !host.isDisposed() &&
+      changed &&
+      serial === host.adapterSerial() &&
+      (result.outcome === 'installed' || result.outcome === 'updated')
+    ) {
+      host.rebuild();
+    }
+    return result;
+  };
+
+  const ensureRunning = (): Promise<SecureDesktopStatus> => {
+    if (host.adapter().connected()) return Promise.resolve({ installed: true, running: true });
+    starting ??= installer.ensureRunning().finally(() => {
+      starting = null;
+    });
+    return starting;
+  };
+
+  return { installState, requestInstall, ensureRunning };
+}
+
 export function createSecureDesktopHelper(deps: SecureDesktopHelperDeps): SecureDesktopHelper {
   const leases = new Set<Lease>();
   /** The session the helper serves, null when none activated it. */
@@ -151,13 +214,9 @@ export function createSecureDesktopHelper(deps: SecureDesktopHelperDeps): Secure
   /** Sessions that want the helper while another holds it, in asking order. */
   const waiting = new Set<Lease>();
   let disposed = false;
-  /** A phone request was declined on the PC: no prompt until restart. */
-  let declined = false;
   /** Bumped by every rebuild: a request that ends after one rebuilt nothing
    *  of its own (that adapter already read the install). */
   let adapterSerial = 0;
-  /** The `ensureRunning` attempt under way, shared by its callers. */
-  let starting: Promise<SecureDesktopStatus> | null = null;
   /** The helper-wide video-run counter (`mintVideoRun`). */
   let runs = 0;
   /** The epoch the holder declared in its hold; null until it did. */
@@ -286,46 +345,13 @@ export function createSecureDesktopHelper(deps: SecureDesktopHelperDeps): Secure
     });
   };
 
-  const installState = async (controllerKey?: string): Promise<SecureDesktopInstallState> => {
-    const state = await deps.installer.state(controllerKey);
-    if (!disposed && state === 'installed' && !current.installed()) rebuild();
-    return state;
-  };
-
-  const refused = async (controllerKey: string): Promise<SecureDesktopInstallResult> => ({
-    outcome: 'declined',
-    state: await deps.installer.state(controllerKey),
-    detail: DECLINED_ON_PC,
+  const { installState, requestInstall, ensureRunning } = createInstallFlow({
+    installer: deps.installer,
+    adapter: () => current,
+    isDisposed: () => disposed,
+    adapterSerial: () => adapterSerial,
+    rebuild,
   });
-
-  const requestInstall = async (controllerKey: string): Promise<SecureDesktopInstallResult> => {
-    if (declined) return refused(controllerKey);
-    const serial = adapterSerial;
-    // Relative to this phone's key: `installed` is current and enrolls it.
-    const before = await deps.installer.state(controllerKey);
-    if (declined) return refused(controllerKey);
-    // A request already prompting (this phone's) is joined by the installer.
-    const result = await deps.installer.request(controllerKey);
-    if (result.outcome === 'declined') declined = true;
-    const changed = before !== 'installed' || !current.installed();
-    if (
-      !disposed &&
-      changed &&
-      serial === adapterSerial &&
-      (result.outcome === 'installed' || result.outcome === 'updated')
-    ) {
-      rebuild();
-    }
-    return result;
-  };
-
-  const ensureRunning = (): Promise<SecureDesktopStatus> => {
-    if (current.connected()) return Promise.resolve({ installed: true, running: true });
-    starting ??= deps.installer.ensureRunning().finally(() => {
-      starting = null;
-    });
-    return starting;
-  };
 
   const listen = <T>(set: Set<T>, listener: T): (() => void) => {
     set.add(listener);

@@ -49,22 +49,21 @@ interface DesktopTurnNotifierOptions {
   waitingText?(wait: SessionWait): string;
 }
 
-/** Completion detection and native delivery share one app-lifetime owner.
- * A native "show" event means OS acceptance, NOT proof that a banner was
- * visible. Keep that distinction in diagnostics and in the live probe. */
-export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
-  const live = new Set<NativeNotification>();
-  let disposed = false;
-  const report = (event: string, sessionId: string, details: Record<string, unknown> = {}) =>
-    options.diagnostic(event, { sessionId, ...details });
-  let preferencesFailing = false;
-  const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+type DiagnosticReport = (event: string, sessionId: string, details?: Record<string, unknown>) => void;
 
-  /** This PC's preferences, mutes, quiet hours and what is on screen decide;
-   *  a refusal is reported with its reason. `undefined`: the preferences could
-   *  not be read, which is reported and decides nothing — the caller keeps the
-   *  item undelivered and asks again on its next event. */
-  const allowed = (
+const messageOf = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/** Whether a notification may be shown: this PC's preferences, mutes, quiet
+ *  hours and what is on screen decide; a refusal is reported with its reason.
+ *  `undefined`: the preferences could not be read, which is reported and
+ *  decides nothing — the caller keeps the item undelivered and asks again on
+ *  its next event. */
+function createNotificationGate(
+  options: Pick<DesktopTurnNotifierOptions, 'isSupported' | 'preferences' | 'isSessionOnScreen'>,
+  report: DiagnosticReport
+) {
+  let preferencesFailing = false;
+  return (
     sessionId: string,
     event: NotificationEvent,
     conversation: NotificationConversation,
@@ -98,6 +97,14 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
     });
     return false;
   };
+}
+
+/** Native notifications and the ones still showing; a click opens the session. */
+function createNativePresenter(
+  options: Pick<DesktopTurnNotifierOptions, 'createNotification' | 'playSound' | 'openSession'>,
+  report: DiagnosticReport
+) {
+  const live = new Set<NativeNotification>();
 
   /** One native notification; a click opens `sessionId`. */
   const present = (
@@ -143,6 +150,24 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
       report('failed', sessionId, { ...details, error: messageOf(error) });
     }
   };
+
+  const closeAll = (): void => {
+    for (const notification of live) notification.close();
+    live.clear();
+  };
+
+  return { present, closeAll };
+}
+
+/** Completion detection and native delivery share one app-lifetime owner.
+ * A native "show" event means OS acceptance, NOT proof that a banner was
+ * visible. Keep that distinction in diagnostics and in the live probe. */
+export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
+  let disposed = false;
+  const report: DiagnosticReport = (event, sessionId, details = {}) =>
+    options.diagnostic(event, { sessionId, ...details });
+  const allowed = createNotificationGate(options, report);
+  const { present, closeAll } = createNativePresenter(options, report);
 
   /** 'undecided': the preferences were unreadable, so the watcher holds the
    *  completion and offers it again on the next roster event. */
@@ -231,8 +256,7 @@ export function createDesktopTurnNotifier(options: DesktopTurnNotifierOptions) {
     dispose() {
       disposed = true;
       watcher.dispose();
-      for (const notification of live) notification.close();
-      live.clear();
+      closeAll();
     },
   };
 }

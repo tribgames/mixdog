@@ -44,8 +44,19 @@ type StreamEngineHost = Pick<
 
 const NO_PICTURE: PictureView = { size: { width: 0, height: 0 }, viewport: { width: 0, height: 0 } };
 
-export function createRemoteStreamEngine(host: StreamEngineHost, streams: ReadonlyMap<string, RemoteStream>) {
-  const { state, cdp, ensureGuest } = host;
+/** Whether the viewport fit asked for (if any) was applied to this very page and document. */
+function fitApplied(stream: RemoteStream, guest: WebContents, documentId: string): boolean {
+  return (
+    !stream.viewport ||
+    (stream.driven?.guest === guest &&
+      stream.driven.documentId === documentId &&
+      stream.driven.key === viewportKey(stream.viewport))
+  );
+}
+
+/** The geometry lock of a session's streams, shared by their screencast runs. */
+function createGeometryLock(host: StreamEngineHost) {
+  const { cdp } = host;
   /** Geometry generations per session, monotonic across that session's streams. */
   const generations = new Map<string, number>();
   /** Streams re-reading their pixel ratio after the page re-laid out. */
@@ -91,6 +102,17 @@ export function createRemoteStreamEngine(host: StreamEngineHost, streams: Readon
       relocking.delete(stream);
     }
   }
+
+  return { lock, relock };
+}
+
+/** Turns a stream's screencast images and its page's facts into queued frames. */
+function createStreamFeed(
+  host: StreamEngineHost,
+  streams: ReadonlyMap<string, RemoteStream>,
+  { lock, relock }: ReturnType<typeof createGeometryLock>
+) {
+  const { state, cdp } = host;
 
   /** Screenshot capture of the run's page: one in flight, newest only. */
   async function shoot(
@@ -163,12 +185,8 @@ export function createRemoteStreamEngine(host: StreamEngineHost, streams: Readon
     } else {
       // Settled: the layout was decided and, if it is a fit, the fit applied
       // to this very page and document (`driven`), pictured by the current run.
-      const fitApplied =
-        !stream.viewport ||
-        (stream.driven?.guest === guest &&
-          stream.driven.documentId === documentId &&
-          stream.driven.key === viewportKey(stream.viewport));
-      const settled = stream.layout !== 'undecided' && fitApplied && current && view.size.width > 0;
+      const settled =
+        stream.layout !== 'undecided' && fitApplied(stream, guest, documentId) && current && view.size.width > 0;
       stream.pending = settled ? { ...frame, fitSettled: true } : frame;
     }
     schedulePublish(stream, host.publishFrame);
@@ -220,6 +238,15 @@ export function createRemoteStreamEngine(host: StreamEngineHost, streams: Readon
     composeFrame(sessionId, stream, guest, documentId, view, waiting, live);
   }
 
+  return { shoot, onScreencastImage, publishFacts };
+}
+
+export function createRemoteStreamEngine(host: StreamEngineHost, streams: ReadonlyMap<string, RemoteStream>) {
+  const { state, cdp, ensureGuest } = host;
+  const geometry = createGeometryLock(host);
+  const { lock } = geometry;
+  const { shoot, onScreencastImage, publishFacts } = createStreamFeed(host, streams, geometry);
+
   /** Push the page's facts, then reconcile the screencast and push what that changed. */
   async function check(sessionId: string, stream: RemoteStream): Promise<void> {
     publishFacts(sessionId, stream);
@@ -261,17 +288,7 @@ export function createRemoteStreamEngine(host: StreamEngineHost, streams: Readon
     // The fit changed while this one was applied: the reconcile queued by that
     // change applies it and starts the capture; none starts at a size whose
     // fit this page does not hold.
-    const fit = stream.viewport;
-    if (
-      fit &&
-      !(
-        stream.driven?.guest === guest &&
-        stream.driven.documentId === documentId &&
-        stream.driven.key === viewportKey(fit)
-      )
-    ) {
-      return;
-    }
+    if (!fitApplied(stream, guest, documentId)) return;
     // A fit that failed was given up: the run captures the page as it is.
     target.size = sizeKey(stream);
     // The device pixel ratio the capture size honours; a ratio change of the

@@ -148,7 +148,33 @@ const messageOf = (error: unknown): string => (error instanceof Error ? error.me
 /** An install of the bundled service (a keyed check may add "lacks this key"). */
 const isInstalled = (state: string): boolean => state === 'installed' || state === 'not-enrolled';
 
-export function createPcAccess(deps: {
+/** Records the removed phone's key as owed before the unpair runs (an
+ *  unreadable key marks revocations unknown). A failed record rejects the
+ *  unpair with `reject` and answers false. */
+async function recordOwedKey(
+  { keys, pending }: Pick<PcAccessDeps, 'keys' | 'pending'>,
+  clientId: string,
+  reject: (reason: Error) => void
+): Promise<boolean> {
+  try {
+    let key: string | null = null;
+    try {
+      key = (await keys()).find((record) => record.clientId === clientId)?.publicKey ?? null;
+    } catch (error) {
+      console.error(`[mixdog-pc-access] the unpaired phone's key could not be read: ${messageOf(error)}`);
+      await pending.markUnknown();
+    }
+    if (key) await pending.add(key);
+    return true;
+  } catch (error) {
+    reject(
+      new Error(`The phone was not removed: its PC access revocation could not be recorded (${messageOf(error)}).`)
+    );
+    return false;
+  }
+}
+
+interface PcAccessDeps {
   installer: PcAccessInstaller;
   pending: PcAccessPendingRevokes;
   /** The paired phones' delivered keys (the service's paired-device records). */
@@ -157,23 +183,12 @@ export function createPcAccess(deps: {
   owed(): Promise<RemoteControllerKeysOwed>;
   /** Those this app now holds durably. */
   settleOwed(keys: readonly string[], unknown: number): Promise<void>;
-}): PcAccess {
-  const { installer, pending } = deps;
-  // One step at a time: an Approve, a delivery, an unpair and a revoke never overlap.
-  let queue: Promise<unknown> = Promise.resolve();
-  const serial = <T>(work: () => Promise<T>): Promise<T> => {
-    const run = queue.then(work, work);
-    queue = run.catch(() => undefined);
-    return run;
-  };
-  /** Missing keys whose last delegated attempt was refused in a way only
-   *  elevation fixes: what the row's Approve new phone is for. */
-  const needsElevation = new Set<string>();
-  /** Keys with a delegated enroll queued or running (the row waits for it). */
-  const inFlight = new Map<string, number>();
-  /** A phone's password request is queued or running (`approveWithCredential`). */
-  let credentialBusy = false;
+}
 
+/** The paired keys and the revocations owed for removed pairings: reading
+ *  them, taking over the service's, and draining them through delegation. */
+function createRevocationLedger(deps: PcAccessDeps) {
+  const { installer, pending } = deps;
   /** Keys of the phones paired now: not unpaired, not waiting to be revoked. */
   const pairedKeys = async (revoking: readonly string[]): Promise<string[]> => {
     const records = await deps.keys();
@@ -221,65 +236,105 @@ export function createPcAccess(deps: {
     if (state === 'not-installed' || state === 'unavailable' || state === 'other-user') return 'pending';
     return (await drainDelegated(owed.keys)) ? 'pending' : 'revoked';
   };
-  /**
-   * The one authorized install-or-enroll, for Approve (UAC, no `credential`)
-   * and for a phone's Windows password (`credential`, with the `phone` that
-   * sent it): the same state decisions and the same revocation rules, so the
-   * credential path bypasses none of them. Every recorded revoke (and any an
-   * unknown record lost) is applied in the same call, and the pending record
-   * is cleared only once that call succeeded. Call inside `serial`.
-   */
-  const authorize = async (
+  return { pairedKeys, missingKeys, drainDelegated, absorb, revokeOwedNow };
+}
+
+/**
+ * The one authorized install-or-enroll, for Approve (UAC, no `credential`)
+ * and for a phone's Windows password (`credential`, with the `phone` that
+ * sent it): the same state decisions and the same revocation rules, so the
+ * credential path bypasses none of them. Every recorded revoke (and any an
+ * unknown record lost) is applied in the same call, and the pending record
+ * is cleared only once that call succeeded. Call inside the access queue.
+ * `needsElevation` is cleared of the keys a successful call enrolled.
+ */
+async function authorizeInstall(
+  {
+    deps,
+    ledger,
+    needsElevation,
+  }: {
+    deps: PcAccessDeps;
+    ledger: ReturnType<typeof createRevocationLedger>;
+    needsElevation: Set<string>;
+  },
+  credential?: SecureDesktopCredential,
+  phone?: { clientId: string; publicKey: string },
+  signal?: AbortSignal
+): Promise<SecureDesktopKeyChangeResult | 'nothing-to-do'> {
+  const { installer, pending } = deps;
+  const { pairedKeys, missingKeys, absorb } = ledger;
+  const state = await installer.state();
+  if (state === 'unavailable' || state === 'other-user') return { outcome: state, state };
+  // The request's session ended while it waited in the queue: nothing runs.
+  const cancelled = (): SecureDesktopKeyChangeResult | null =>
+    signal?.aborted ? { outcome: 'failed', state, detail: CANCELLED } : null;
+  const early = cancelled();
+  if (early) return early;
+  await absorb();
+  const owed = await pending.read();
+  // Only the phone this connection is, still paired, under the key it delivered.
+  if (
+    phone &&
+    (owed.keys.includes(phone.publicKey) ||
+      !(await deps.keys()).some(
+        (record) => record.clientId === phone.clientId && record.publicKey === phone.publicKey && !record.unpaired
+      ))
+  ) {
+    return { outcome: 'failed', state, detail: 'this phone is not paired on this PC under that access key' };
+  }
+  const options = (revoke: readonly string[]) => ({ revoke, ...(credential ? { credential } : {}) });
+  if (!isInstalled(state) || owed.unknown !== null) {
+    // The install writes exactly these keys: every recorded revoke, and
+    // any an unknown record lost, is applied.
+    const keys = await pairedKeys(owed.keys);
+    const late = cancelled();
+    if (late) return late;
+    const result = await installer.install(keys, options(owed.keys));
+    if (APPROVED.has(result.outcome)) {
+      await pending.settle(owed.keys, owed.unknown);
+      needsElevation.clear();
+    }
+    return result;
+  }
+  const missing = await missingKeys(owed.keys);
+  if (!missing.length) return 'nothing-to-do';
+  const late = cancelled();
+  if (late) return late;
+  // One authorized call for every missing phone: the bridge applies the
+  // revokes and the enrolls in one key-set write, both or neither.
+  const result = await installer.enroll(missing, options(owed.keys));
+  if (APPROVED.has(result.outcome)) {
+    await pending.settle(owed.keys);
+    for (const key of missing) needsElevation.delete(key);
+  }
+  return result;
+}
+
+export function createPcAccess(deps: PcAccessDeps): PcAccess {
+  const { installer, pending } = deps;
+  // One step at a time: an Approve, a delivery, an unpair and a revoke never overlap.
+  let queue: Promise<unknown> = Promise.resolve();
+  const serial = <T>(work: () => Promise<T>): Promise<T> => {
+    const run = queue.then(work, work);
+    queue = run.catch(() => undefined);
+    return run;
+  };
+  /** Missing keys whose last delegated attempt was refused in a way only
+   *  elevation fixes: what the row's Approve new phone is for. */
+  const needsElevation = new Set<string>();
+  /** Keys with a delegated enroll queued or running (the row waits for it). */
+  const inFlight = new Map<string, number>();
+  /** A phone's password request is queued or running (`approveWithCredential`). */
+  let credentialBusy = false;
+
+  const ledger = createRevocationLedger(deps);
+  const { pairedKeys, missingKeys, drainDelegated, absorb, revokeOwedNow } = ledger;
+  const authorize = (
     credential?: SecureDesktopCredential,
     phone?: { clientId: string; publicKey: string },
     signal?: AbortSignal
-  ): Promise<SecureDesktopKeyChangeResult | 'nothing-to-do'> => {
-    const state = await installer.state();
-    if (state === 'unavailable' || state === 'other-user') return { outcome: state, state };
-    // The request's session ended while it waited in the queue: nothing runs.
-    const cancelled = (): SecureDesktopKeyChangeResult | null =>
-      signal?.aborted ? { outcome: 'failed', state, detail: CANCELLED } : null;
-    const early = cancelled();
-    if (early) return early;
-    await absorb();
-    const owed = await pending.read();
-    // Only the phone this connection is, still paired, under the key it delivered.
-    if (
-      phone &&
-      (owed.keys.includes(phone.publicKey) ||
-        !(await deps.keys()).some(
-          (record) => record.clientId === phone.clientId && record.publicKey === phone.publicKey && !record.unpaired
-        ))
-    ) {
-      return { outcome: 'failed', state, detail: 'this phone is not paired on this PC under that access key' };
-    }
-    const options = (revoke: readonly string[]) => ({ revoke, ...(credential ? { credential } : {}) });
-    if (!isInstalled(state) || owed.unknown !== null) {
-      // The install writes exactly these keys: every recorded revoke, and
-      // any an unknown record lost, is applied.
-      const keys = await pairedKeys(owed.keys);
-      const late = cancelled();
-      if (late) return late;
-      const result = await installer.install(keys, options(owed.keys));
-      if (APPROVED.has(result.outcome)) {
-        await pending.settle(owed.keys, owed.unknown);
-        needsElevation.clear();
-      }
-      return result;
-    }
-    const missing = await missingKeys(owed.keys);
-    if (!missing.length) return 'nothing-to-do';
-    const late = cancelled();
-    if (late) return late;
-    // One authorized call for every missing phone: the bridge applies the
-    // revokes and the enrolls in one key-set write, both or neither.
-    const result = await installer.enroll(missing, options(owed.keys));
-    if (APPROVED.has(result.outcome)) {
-      await pending.settle(owed.keys);
-      for (const key of missing) needsElevation.delete(key);
-    }
-    return result;
-  };
+  ) => authorizeInstall({ deps, ledger, needsElevation }, credential, phone, signal);
   const deliver = async (publicKey: string) => {
     await absorb();
     const owed = await pending.read();
@@ -349,23 +404,7 @@ export function createPcAccess(deps: {
     unpair: <T>(clientId: string, unpair: () => Promise<T>) =>
       new Promise<T>((resolve, reject) => {
         void serial(async () => {
-          try {
-            let key: string | null = null;
-            try {
-              key = (await deps.keys()).find((record) => record.clientId === clientId)?.publicKey ?? null;
-            } catch (error) {
-              console.error(`[mixdog-pc-access] the unpaired phone's key could not be read: ${messageOf(error)}`);
-              await pending.markUnknown();
-            }
-            if (key) await pending.add(key);
-          } catch (error) {
-            reject(
-              new Error(
-                `The phone was not removed: its PC access revocation could not be recorded (${messageOf(error)}).`
-              )
-            );
-            return;
-          }
+          if (!(await recordOwedKey(deps, clientId, reject))) return;
           let result: T;
           try {
             result = await unpair();

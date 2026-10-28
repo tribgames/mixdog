@@ -19,7 +19,8 @@ interface SwitchProbeDeps {
   outPath: string;
 }
 
-export async function runSwitchProbe({ window, outPath }: SwitchProbeDeps): Promise<{ reversals: number }> {
+/** A→B→C switching: the frames that painted a title and a transcript of different sessions. */
+async function measureRapidSwitch(window: BrowserWindow) {
   const clickSession = (id: string, waitMs: number) => clickProbeSession(window, id, waitMs);
   // Warm B into the renderer snapshot cache, leave for A, then start a
   // delayed B resume and choose C before it settles. The old defect painted
@@ -69,12 +70,15 @@ export async function runSwitchProbe({ window, outPath }: SwitchProbeDeps): Prom
     return Boolean(title && transcript && title !== transcript);
   });
   const finalSwitchFrame = switchFrames.at(-1);
+  return { switchFrames, wrongSessionFrames, finalSwitchFrame };
+}
 
-  // Foreground session tabs share one viewport. Each session is first placed
-  // at a different off-bottom anchor, then A↔B is repeated while counting
-  // actual scroll writes. A route commit must expose its saved section in
-  // one write and one frame — no index pre-scroll or pending retry.
-  const foregroundScroll = (await window.webContents.executeJavaScript(`(async () => {
+/** Foreground session tabs share one viewport. Each session is first placed
+ *  at a different off-bottom anchor, then A↔B is repeated while counting
+ *  actual scroll writes. A route commit must expose its saved section in
+ *  one write and one frame — no index pre-scroll or pending retry. */
+async function measureForegroundScroll(window: BrowserWindow) {
+  return (await window.webContents.executeJavaScript(`(async () => {
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
     const transcriptFor = (id) => [...document.querySelectorAll('.transcript')]
       .find((node) => node.getAttribute('data-session-key') === id
@@ -204,13 +208,38 @@ export async function runSwitchProbe({ window, outPath }: SwitchProbeDeps): Prom
     missingAnchorFrames: number;
     anchorMismatchCount: number;
   };
+}
 
-  // Warm New Task → long session re-entry is the path that used to pass DOM
-  // identity/geometry tests while still flashing during compositor raster
-  // upload. Measure both the DOM frame sequence and the actual presented
-  // pixels from the click, without the streaming probe's entry exclusion.
-  await clickSession('probe_switch_b', 900);
-  const warmSetup = (await window.webContents.executeJavaScript(`(async () => {
+/** Warm New Task → long session re-entry is the path that used to pass DOM
+ *  identity/geometry tests while still flashing during compositor raster
+ *  upload. Measure both the DOM frame sequence and the actual presented
+ *  pixels from the click, without the streaming probe's entry exclusion. */
+async function measureWarmReentry(window: BrowserWindow) {
+  await clickProbeSession(window, 'probe_switch_b', 900);
+  const warmSetup = await installWarmReentryProbe(window);
+  const paintProbe = beginPaintFrameProbe(window, warmSetup.paintBounds);
+  await sleep(80);
+  paintProbe.mark('new-task');
+  const parked = await parkOnNewTask(window);
+  paintProbe.mark('reentry');
+  let warmResult: WarmReturn;
+  let paintFrames: PaintFrameSample[];
+  try {
+    warmResult = await returnToLongSession(window);
+  } finally {
+    paintFrames = paintProbe.stop();
+  }
+  return {
+    ...warmResult!,
+    preflight: warmSetup.preflight,
+    parked,
+    paint: summarizeWarmPaint(paintFrames!),
+  };
+}
+
+/** Scrolls the long session off its bottom and starts sampling one script row. */
+async function installWarmReentryProbe(window: BrowserWindow) {
+  return (await window.webContents.executeJavaScript(`(async () => {
     const visibleTranscript = () => [...document.querySelectorAll('.transcript')]
       .find((node) => node.getBoundingClientRect().height > 0);
     const transcript = visibleTranscript();
@@ -311,10 +340,11 @@ export async function runSwitchProbe({ window, outPath }: SwitchProbeDeps): Prom
     preflight: Record<string, unknown>;
     paintBounds: PaintProbeBounds;
   };
-  const paintProbe = beginPaintFrameProbe(window, warmSetup.paintBounds);
-  await sleep(80);
-  paintProbe.mark('new-task');
-  const parked = (await window.webContents.executeJavaScript(`(async () => {
+}
+
+/** Leaves the long session for the New Task tab. */
+async function parkOnNewTask(window: BrowserWindow) {
+  return (await window.webContents.executeJavaScript(`(async () => {
     const probe = window.__warmReentryProbe;
     const tabByText = (text) => [...document.querySelectorAll('.workspace-tab')]
       .find((tab) => (tab.textContent || '').toLowerCase().includes(text.toLowerCase()));
@@ -329,24 +359,26 @@ export async function runSwitchProbe({ window, outPath }: SwitchProbeDeps): Prom
       rowConnected: probe.scriptRow.isConnected,
     };
   })()`)) as Record<string, unknown>;
-  paintProbe.mark('reentry');
-  let warmResult: {
-    frames: number;
-    conversationSame: boolean;
-    rowSame: boolean;
-    replacementScriptFrames: number;
-    scriptSame: boolean;
-    maxScrollDrift: number;
-    maxSpaceDrift: number;
-    missingScriptFrames: number;
-    layoutShift: number;
-    handoffFrames: number;
-    firstStableMs: number | null;
-    samples: unknown[];
-  };
-  let paintFrames: PaintFrameSample[];
-  try {
-    warmResult = (await window.webContents.executeJavaScript(`(async () => {
+}
+
+interface WarmReturn {
+  frames: number;
+  conversationSame: boolean;
+  rowSame: boolean;
+  replacementScriptFrames: number;
+  scriptSame: boolean;
+  maxScrollDrift: number;
+  maxSpaceDrift: number;
+  missingScriptFrames: number;
+  layoutShift: number;
+  handoffFrames: number;
+  firstStableMs: number | null;
+  samples: unknown[];
+}
+
+/** Returns to the long session and reads what the sampler saw of the re-entry. */
+async function returnToLongSession(window: BrowserWindow): Promise<WarmReturn> {
+  return (await window.webContents.executeJavaScript(`(async () => {
     const probe = window.__warmReentryProbe;
     const visibleTranscript = () => [...document.querySelectorAll('.transcript')]
       .find((node) => node.getBoundingClientRect().height > 0);
@@ -393,21 +425,14 @@ export async function runSwitchProbe({ window, outPath }: SwitchProbeDeps): Prom
       firstStableMs: firstStable ? firstStable.t - probe.returnAt : null,
       samples: probe.samples,
     };
-    })()`)) as typeof warmResult;
-  } finally {
-    paintFrames = paintProbe.stop();
-  }
-  const warmReentry = {
-    ...warmResult!,
-    preflight: warmSetup.preflight,
-    parked,
-    paint: summarizeWarmPaint(paintFrames!),
-  };
+    })()`)) as WarmReturn;
+}
 
-  // Studio → long task must return to the exact same virtual section. Unlike
-  // New Task, Studio is an opaque utility surface in the same pane; measure
-  // the script row itself so a stable outer slot cannot hide row/cache drift.
-  const studioReentry = (await window.webContents.executeJavaScript(`(async () => {
+/** Studio → long task must return to the exact same virtual section. Unlike
+ *  New Task, Studio is an opaque utility surface in the same pane; measure
+ *  the script row itself so a stable outer slot cannot hide row/cache drift. */
+async function measureStudioReentry(window: BrowserWindow) {
+  return (await window.webContents.executeJavaScript(`(async () => {
     const visibleTranscript = () => [...document.querySelectorAll('.transcript')]
       .find((node) => node.getBoundingClientRect().height > 0);
     const transcript = visibleTranscript();
@@ -530,7 +555,10 @@ export async function runSwitchProbe({ window, outPath }: SwitchProbeDeps): Prom
     maxSpaceDrift: number;
     samples: unknown[];
   };
+}
 
+/** Both side panels' named View Transition handover: Sessions, then the utility panel. */
+async function measureSidePanels(window: BrowserWindow) {
   const probePanelToggle = async (selector: string) =>
     window.webContents.executeJavaScript(`(async () => {
       const selector = ${JSON.stringify(selector)};
@@ -602,6 +630,15 @@ export async function runSwitchProbe({ window, outPath }: SwitchProbeDeps): Prom
   ]) {
     panels.push(summarizePanel(await probePanelToggle(selector)));
   }
+  return panels;
+}
+
+export async function runSwitchProbe({ window, outPath }: SwitchProbeDeps): Promise<{ reversals: number }> {
+  const { switchFrames, wrongSessionFrames, finalSwitchFrame } = await measureRapidSwitch(window);
+  const foregroundScroll = await measureForegroundScroll(window);
+  const warmReentry = await measureWarmReentry(window);
+  const studioReentry = await measureStudioReentry(window);
+  const panels = await measureSidePanels(window);
   const switchSummary = {
     frames: switchFrames.length,
     wrongSessionFrames: wrongSessionFrames.length,
@@ -615,6 +652,32 @@ export async function runSwitchProbe({ window, outPath }: SwitchProbeDeps): Prom
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, JSON.stringify({ summary: switchSummary, switchFrames }, null, 1));
   console.log(`[jitter-probe] ${JSON.stringify(switchSummary)}`);
+  if (
+    switchProbeFailed({ wrongSessionFrames, finalSwitchFrame, foregroundScroll, warmReentry, studioReentry, panels })
+  ) {
+    throw new Error(`Switch/panel jitter probe failed: ${JSON.stringify(switchSummary)}`);
+  }
+  return { reversals: 0, ...switchSummary } as unknown as { reversals: number };
+}
+
+interface SwitchMeasurements {
+  wrongSessionFrames: unknown[];
+  finalSwitchFrame: { title: string; transcript: string } | undefined;
+  foregroundScroll: Awaited<ReturnType<typeof measureForegroundScroll>>;
+  warmReentry: Awaited<ReturnType<typeof measureWarmReentry>>;
+  studioReentry: Awaited<ReturnType<typeof measureStudioReentry>>;
+  panels: Awaited<ReturnType<typeof measureSidePanels>>;
+}
+
+/** Whether any measurement is outside the probe's thresholds. */
+function switchProbeFailed({
+  wrongSessionFrames,
+  finalSwitchFrame,
+  foregroundScroll,
+  warmReentry,
+  studioReentry,
+  panels,
+}: SwitchMeasurements): boolean {
   const panelsPass = panels.every((panel) => panel.geometryDelta >= 20 && panel.postHandoverShift <= 1);
   if (
     wrongSessionFrames.length > 0 ||
@@ -655,7 +718,7 @@ export async function runSwitchProbe({ window, outPath }: SwitchProbeDeps): Prom
     studioReentry.maxSpaceDrift > 1 ||
     !panelsPass
   ) {
-    throw new Error(`Switch/panel jitter probe failed: ${JSON.stringify(switchSummary)}`);
+    return true;
   }
-  return { reversals: 0, ...switchSummary } as unknown as { reversals: number };
+  return false;
 }

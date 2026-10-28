@@ -19,13 +19,13 @@ interface WidthProbeDeps {
   outPath: string;
 }
 
-export async function runWidthProbe({
+/** Opens the cold long session at a wide window and waits for its transcript to render. */
+async function enterWidthSession({
   window,
   baseSnapshot,
   prepareColdResume,
   send,
-  outPath,
-}: WidthProbeDeps): Promise<{ reversals: number }> {
+}: Omit<WidthProbeDeps, 'outPath'>): Promise<void> {
   // Enter through the real resume path: a snapshot pushed for a session the
   // visible route does not own is suppressed as a foreign frame.
   const widthSnapshot = {
@@ -87,6 +87,10 @@ export async function runWidthProbe({
     }))()`);
     throw new Error(`width probe: transcript never rendered ${JSON.stringify(ready)} dom=${JSON.stringify(dom)}`);
   }
+}
+
+/** Real window-width drags down to the narrow range and back, reading and following. */
+async function measureWidthSweeps(window: BrowserWindow) {
   const install = WIDTH_TRACE_INSTALL_SCRIPT;
   const sweep = async (label: string, prepare: string) => {
     await window.webContents.executeJavaScript(prepare);
@@ -136,14 +140,18 @@ export async function runWidthProbe({
     return true;
   })()`
   );
-  // Create a real row split through the product shortcut, then drive its
-  // physical resize handle with Electron input events. This crosses the
-  // md frame/inset boundary in both directions without changing the
-  // window, so window media queries cannot hide pane-owned width defects.
-  // The split needs enough physical range for one pane to cross both 768px
-  // and the 800px centered-frame cap while preserving the sibling's 320px
-  // floor. The normal 1280px capture window leaves only ~284px of sash
-  // travel, so widen the probe host before creating the split.
+  return { reading, following };
+}
+
+/** Create a real row split through the product shortcut, then drive its
+ *  physical resize handle with Electron input events. This crosses the
+ *  md frame/inset boundary in both directions without changing the
+ *  window, so window media queries cannot hide pane-owned width defects.
+ *  The split needs enough physical range for one pane to cross both 768px
+ *  and the 800px centered-frame cap while preserving the sibling's 320px
+ *  floor. The normal 1280px capture window leaves only ~284px of sash
+ *  travel, so widen the probe host before creating the split. */
+async function measureSashSweeps(window: BrowserWindow) {
   window.setBounds({ ...window.getBounds(), width: 1_920, height: 900 });
   await sleep(600);
   window.webContents.sendInputEvent({
@@ -165,7 +173,7 @@ export async function runWidthProbe({
   const sashSweep = async (label: string, prepare: string) => {
     await window.webContents.executeJavaScript(prepare);
     await sleep(400);
-    const setup = await window.webContents.executeJavaScript(install);
+    const setup = await window.webContents.executeJavaScript(WIDTH_TRACE_INSTALL_SCRIPT);
     await dragSash();
     const report = await window.webContents.executeJavaScript(WIDTH_TRACE_COLLECT_SCRIPT);
     return { label, setup, ...(report as Record<string, unknown>) };
@@ -195,6 +203,14 @@ export async function runWidthProbe({
     return true;
   })()`
   );
+  return { sashReading, sashFollowing };
+}
+
+export async function runWidthProbe(deps: WidthProbeDeps): Promise<{ reversals: number }> {
+  const { window, outPath } = deps;
+  await enterWidthSession(deps);
+  const { reading, following } = await measureWidthSweeps(window);
+  const { sashReading, sashFollowing } = await measureSashSweeps(window);
   const summary = {
     widthSweeps: [reading, following],
     sashSweeps: [sashReading, sashFollowing],

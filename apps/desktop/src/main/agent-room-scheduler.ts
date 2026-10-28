@@ -63,32 +63,10 @@ function cancelCallsTo(calls: RoomCall[], gone: ReadonlySet<string>): void {
   calls.splice(0, calls.length, ...kept);
 }
 
-export function createRoomScheduler(host: RoomSchedulerHost) {
-  const { deps, roomOf, rows: roomRows, post, memberLabels, persist, now, newId, sleep, random, pollMs, log } = host;
-  const running = new Map<string, RunState>();
-  const intakes = new Map<string, Set<IntakeRequest>>();
-
-  /** Runs one send/ask with its own cancellation latch, registered before the
-   *  first await; it is released when the request reaches route() or fails. */
-  async function intake<T>(roomId: string, run: (request: IntakeRequest) => Promise<T>): Promise<T> {
-    const pending = intakes.get(roomId) ?? new Set<IntakeRequest>();
-    const request: IntakeRequest = {
-      stopped: false,
-      release() {
-        if (pending.delete(request) && !pending.size) intakes.delete(roomId);
-      },
-    };
-    pending.add(request);
-    intakes.set(roomId, pending);
-    try {
-      return await run(request);
-    } finally {
-      request.release();
-    }
-  }
-
-  /** What a member's turn in this room needs from the host. */
-  const turnHost = (roomId: string): RoomTurnHost => ({
+/** What a member's turn in room `roomId` needs from the host. */
+function turnHostOf(host: RoomSchedulerHost, roomId: string): RoomTurnHost {
+  const { deps, roomOf, rows: roomRows, post, memberLabels, persist, now, newId, sleep, pollMs, log } = host;
+  return {
     roomId,
     room: () => roomOf(roomId),
     rows: () => roomRows(roomId),
@@ -105,20 +83,28 @@ export function createRoomScheduler(host: RoomSchedulerHost) {
     sleep: (ms) => sleep(ms),
     pollMs,
     log,
-  });
+  };
+}
 
-  /** What an exchange in this room needs from the host. */
-  const exchangeHost = (roomId: string): RoomExchangeHost => ({
+/** What an exchange in room `roomId` needs from the host; the scheduler
+ *  supplies its tracking of the exchange and the hand-off of held relays. */
+function exchangeHostOf(
+  host: RoomSchedulerHost,
+  roomId: string,
+  { track, untrack, failRelays }: Pick<RoomExchangeHost, 'track' | 'untrack' | 'failRelays'>
+): RoomExchangeHost {
+  const { deps, roomOf, rows: roomRows, post, memberLabels, persist, now, newId, random, log } = host;
+  return {
     roomId,
     room: () => roomOf(roomId),
     exists: () => Boolean(host.rooms()[roomId]),
-    track: (state) => running.set(roomId, state),
-    untrack: (state) => running.get(roomId) === state && running.delete(roomId),
-    failRelays: (error) => dropRelays(roomId, { status: 'failed', error }),
+    track,
+    untrack,
+    failRelays,
     rows: () => roomRows(roomId),
     post: (rows) => post(roomId, rows),
     labels: memberLabels,
-    turn: turnHost(roomId),
+    turn: turnHostOf(host, roomId),
     decideTurn: (input) => deps.decideTurn(input),
     persist,
     republish: () => deps.republish(roomSessionId(roomId)),
@@ -127,8 +113,66 @@ export function createRoomScheduler(host: RoomSchedulerHost) {
     newId: () => newId(),
     random,
     log,
-  });
-  const exchange = (roomId: string, options: RoomExchangeOptions) => runRoomExchangeIn(exchangeHost(roomId), options);
+  };
+}
+
+/** Runs one send/ask with its own cancellation latch, registered in `intakes`
+ *  before the first await; it is released when the request reaches route() or
+ *  fails. */
+async function intakeIn<T>(
+  intakes: Map<string, Set<IntakeRequest>>,
+  roomId: string,
+  run: (request: IntakeRequest) => Promise<T>
+): Promise<T> {
+  const pending = intakes.get(roomId) ?? new Set<IntakeRequest>();
+  const request: IntakeRequest = {
+    stopped: false,
+    release() {
+      if (pending.delete(request) && !pending.size) intakes.delete(roomId);
+    },
+  };
+  pending.add(request);
+  intakes.set(roomId, pending);
+  try {
+    return await run(request);
+  } finally {
+    request.release();
+  }
+}
+
+/** The exchange's next request with `options` and `calls` merged into the one
+ *  already waiting (`prior`). */
+function mergedPending(
+  prior: RunState['pending'],
+  options: Required<Pick<RoomExchangeOptions, 'to' | 'waiting' | 'everyone'>> & RoomExchangeOptions,
+  calls: RoomCall[]
+): NonNullable<RunState['pending']> {
+  return {
+    to: [...new Set([...(prior?.to ?? []), ...options.to])],
+    waiting: prior?.waiting === true || options.waiting,
+    only: (prior ? prior.only === true : true) && options.only === true,
+    // A whole-room request merged with a named one stays a whole-room request.
+    everyone: prior?.everyone === true || options.everyone,
+    calls: [...(prior?.calls ?? []), ...calls],
+  };
+}
+
+export function createRoomScheduler(host: RoomSchedulerHost) {
+  const { deps, log } = host;
+  const running = new Map<string, RunState>();
+  const intakes = new Map<string, Set<IntakeRequest>>();
+  const intake = <T>(roomId: string, run: (request: IntakeRequest) => Promise<T>): Promise<T> =>
+    intakeIn(intakes, roomId, run);
+
+  const exchange = (roomId: string, options: RoomExchangeOptions) =>
+    runRoomExchangeIn(
+      exchangeHostOf(host, roomId, {
+        track: (state) => running.set(roomId, state),
+        untrack: (state) => running.get(roomId) === state && running.delete(roomId),
+        failRelays: (error) => dropRelays(roomId, { status: 'failed', error }),
+      }),
+      options
+    );
 
   const start = (roomId: string, options: RoomExchangeOptions) => {
     // A save that fails outside the exchange's own try (before it, or in its
@@ -185,15 +229,7 @@ export function createRoomScheduler(host: RoomSchedulerHost) {
       for (const call of calls) call.onSettled?.({ status: 'cancelled' });
       calls.length = 0;
     }
-    const prior = active.pending;
-    active.pending = {
-      to: [...new Set([...(prior?.to ?? []), ...options.to])],
-      waiting: prior?.waiting === true || options.waiting,
-      only: (prior ? prior.only === true : true) && options.only === true,
-      // A whole-room request merged with a named one stays a whole-room request.
-      everyone: prior?.everyone === true || options.everyone,
-      calls: [...(prior?.calls ?? []), ...calls],
-    };
+    active.pending = mergedPending(active.pending, options, calls);
     if (active.speaking && active.memberSession) void deps.abort(active.memberSession).catch(() => undefined);
   }
 

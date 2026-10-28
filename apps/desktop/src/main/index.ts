@@ -2232,6 +2232,55 @@ function createDesktopPetController(): DesktopPet {
   });
 }
 
+/** The whole-PC screen source of the WebRTC live view (Windows: its injector
+ *  is the Windows input host). The secure-desktop helper plugs in through its
+ *  client; when it is not installed the adapter reports so and the secure
+ *  desktop stays blocked until the paired phone asks for it to be installed,
+ *  after which a fresh client is built. */
+function windowsRemoteScreens() {
+  const environment = {
+    isPackaged: app.isPackaged,
+    platform: process.platform,
+    resourcesPath: process.resourcesPath,
+    cwd: process.cwd(),
+    programData: process.env.ProgramData,
+  };
+  return {
+    displays: createElectronScreenDisplays(),
+    createInputHost: createElectronScreenInputHost,
+    secureDesktop: createSecureDesktopHelper({
+      adapter: () => createSecureDesktopAdapter(createSecureDesktopClient({ environment })),
+      installer: secureDesktopInstaller(),
+    }),
+    // The phone's Windows-password fallback goes through the same
+    // PC access queue as Approve (revocation rules included).
+    pcAccess: {
+      accountIsAdmin,
+      approveWithCredential: (
+        request: Parameters<NonNullable<ReturnType<typeof windowsPcAccess>>['approveWithCredential']>[0]
+      ) => windowsPcAccess()!.approveWithCredential(request),
+    },
+    indicator: createPillScreenIndicator,
+  };
+}
+
+/** Hands a heavy renderer's memory back and reports the working set once it settles. */
+async function reclaimRendererMemory(window: BrowserWindow): Promise<void> {
+  if (window.isDestroyed()) return;
+  const startedAt = Date.now();
+  const beforeKb = rendererWorkingSetKb();
+  await purgeRendererMemory(window.webContents);
+  const totalMs = Date.now() - startedAt;
+  setTimeout(() => {
+    diagnostics?.write('renderer-idle-reclaim', {
+      beforeKb,
+      afterKb: rendererWorkingSetKb(),
+      totalMs,
+      settleMs: RENDERER_RECLAIM_SETTLE_MS,
+    });
+  }, RENDERER_RECLAIM_SETTLE_MS).unref();
+}
+
 /** This PC's window carries the machine's single instances: Computer Use and
  *  its overlay, the Browser Use pane host, taskbar attention, idle reclaim and
  *  the close-to-background behavior. Returns its Browser Use host. */
@@ -2312,33 +2361,7 @@ function installLocalWindowFeatures(
       // is not installed the adapter reports so and the secure desktop stays
       // blocked until the paired phone asks for it to be installed, after
       // which a fresh client is built.
-      screens:
-        process.platform === 'win32'
-          ? (() => {
-              const environment = {
-                isPackaged: app.isPackaged,
-                platform: process.platform,
-                resourcesPath: process.resourcesPath,
-                cwd: process.cwd(),
-                programData: process.env.ProgramData,
-              };
-              return {
-                displays: createElectronScreenDisplays(),
-                createInputHost: createElectronScreenInputHost,
-                secureDesktop: createSecureDesktopHelper({
-                  adapter: () => createSecureDesktopAdapter(createSecureDesktopClient({ environment })),
-                  installer: secureDesktopInstaller(),
-                }),
-                // The phone's Windows-password fallback goes through the same
-                // PC access queue as Approve (revocation rules included).
-                pcAccess: {
-                  accountIsAdmin,
-                  approveWithCredential: (request) => windowsPcAccess()!.approveWithCredential(request),
-                },
-                indicator: createPillScreenIndicator,
-              };
-            })()
-          : undefined,
+      screens: process.platform === 'win32' ? windowsRemoteScreens() : undefined,
     },
     onSurfaceRequest: (request) => {
       void localService.invokeDesktopOperation('browserRemoteOpen', [request]).catch(() => {});
@@ -2366,21 +2389,7 @@ function installLocalWindowFeatures(
   // above 1 GB and nothing hands that back while the desktop sits untouched.
   idleReclaim = createIdleReclaim({
     isFocused: () => !window.isDestroyed() && window.isFocused(),
-    reclaim: async () => {
-      if (window.isDestroyed()) return;
-      const startedAt = Date.now();
-      const beforeKb = rendererWorkingSetKb();
-      await purgeRendererMemory(window.webContents);
-      const totalMs = Date.now() - startedAt;
-      setTimeout(() => {
-        diagnostics?.write('renderer-idle-reclaim', {
-          beforeKb,
-          afterKb: rendererWorkingSetKb(),
-          totalMs,
-          settleMs: RENDERER_RECLAIM_SETTLE_MS,
-        });
-      }, RENDERER_RECLAIM_SETTLE_MS).unref();
-    },
+    reclaim: () => reclaimRendererMemory(window),
   });
   window.on('focus', () => {
     turnAttention?.onFocus();
@@ -2693,6 +2702,164 @@ function installWindowCloseCleanup(
   });
 }
 
+/** Opens the desktop's diagnostics log and writes the boot timeline into it. */
+function startDesktopDiagnostics(appReadyAt: number): void {
+  const log = createDesktopDiagnostics(join(app.getPath('userData'), 'logs', 'desktop-diagnostics.jsonl'), {
+    appVersion: app.getVersion(),
+    packaged: app.isPackaged,
+    bootId: desktopBootId,
+    ...(desktopBootScenario ? { scenario: desktopBootScenario } : {}),
+  });
+  diagnostics = log;
+  setTranscriptReadDiagnosticSink((entry) => {
+    diagnostics?.write('transcript-read', { ...entry });
+  });
+  setPageFaultDiagnosticSink((entry) => diagnostics?.write('browser-page-fault', { ...entry }));
+  log.write('process-entry', {
+    occurredAt: new Date(desktopProcessStartedAt).toISOString(),
+    totalMs: 0,
+  });
+  log.write('app-ready', {
+    totalMs: appReadyAt - desktopProcessStartedAt,
+  });
+  // The daemon handshake is already running (started before whenReady);
+  // stamp its start into the timeline now that the sink exists.
+  reportDaemonServiceStart();
+  void settingsStore.separateDefaults(mixdogDataDirectory()).catch((error: unknown) => {
+    diagnostics?.write('defaults-separation-failed', {
+      message: error instanceof Error ? error.message : String(error),
+    });
+  });
+  for (const { event, entry, at } of earlyDiagnostics.splice(0)) {
+    log.write(event, { ...entry, occurredAt: at });
+  }
+  log.write('desktop-start', {
+    totalMs: Date.now() - desktopProcessStartedAt,
+    electronVersion: process.versions.electron,
+    chromeVersion: process.versions.chrome,
+    nodeVersion: process.versions.node,
+    sessionProcess: 'daemon',
+    gpuRendering: softwareRenderingThisLaunch ? 'software-fallback' : 'hardware',
+    crashReporterStatus,
+    ...(crashReporterErrorName ? { crashReporterErrorName } : {}),
+    ...(gpuFallbackMarker ? { gpuFallbackCrashes: gpuFallbackMarker.crashesInWindow } : {}),
+  });
+  startCrashHandlerWatch();
+  startDiagnosticsEventLoopMonitor();
+}
+
+/** Keep-awake, taskbar attention, idle reclaim and the turn notifier feed on
+ *  the session state, roster and agent pool lanes. */
+function subscribeSessionLanes(): void {
+  // Keep-awake + taskbar attention feed on the same session state lane.
+  unsubscribeAwake = localService.subscribe((snapshot) => {
+    awakeService.onSnapshot(snapshot);
+    turnAttention?.onSnapshot(snapshot);
+    idleReclaim?.onSnapshot(snapshot);
+  });
+  // Every session's roster and the agent pool, not just the active pane:
+  // the final-answer rule needs background work as well as turn state.
+  const unsubscribeTurnSessions = localService.subscribeSessions((sessions) => {
+    latestSessions = sessions;
+    turnNotifier.onSessions(sessions);
+    // Visualize holds the panel while a session's agent turn runs.
+    void visualize.observeTurns(sessions);
+  });
+  const unsubscribeTurnAgents = localService.subscribeAgentPool((agents) => {
+    latestAgentPool = agents;
+    turnNotifier.onAgentPool(agents);
+  });
+  // A session starting to wait on a tool approval or a question, while it
+  // is not on screen, is told like a finished turn.
+  const unsubscribeTurnWaits = localService.subscribeSessionStates((update) => turnNotifier.onSessionState(update));
+  unsubscribeTurnNotifier = () => {
+    unsubscribeTurnSessions();
+    unsubscribeTurnAgents();
+    unsubscribeTurnWaits();
+  };
+}
+
+/** Sleep, shutdown and network changes keep the relay and server links honest;
+ *  a timer samples process memory into the diagnostics log. */
+function watchPowerAndNetwork(): void {
+  // macOS/Linux shutdown or logoff: the OS ends the session, nobody is asked.
+  powerMonitor.on('shutdown', () => {
+    quitApproved = true;
+  });
+  powerMonitor.on('resume', () => {
+    // The blocker may have been dropped across sleep; re-assert it, and
+    // redial the relay leg instead of waiting for the ping cycle.
+    awakeService.reevaluate();
+    void localService.invokeDesktopOperation('remoteAccessResume', []).catch(() => {});
+    // Server links probe before touching their tunnel: a live one stays.
+    for (const connection of connectionPool.list()) void connection.link?.resume();
+  });
+  // Sleep pauses the server links: no attempts, no failure shown.
+  powerMonitor.on('suspend', () => {
+    void localService.invokeDesktopOperation('remoteAccessSuspend', []).catch(() => {});
+    for (const connection of connectionPool.list()) connection.link?.suspend();
+  });
+  // A dead network is otherwise noticed only by the ping cycle: redial the
+  // relay leg the moment the machine is back online or its network changes.
+  createNetworkWatcher({
+    isOnline: () => net.isOnline(),
+    signature: () => networkSignature(),
+    onChange: () => {
+      void localService.invokeDesktopOperation('remoteAccessResume', []).catch(() => {});
+    },
+  });
+  diagnosticsMemoryTimer = setInterval(
+    () => {
+      diagnostics?.write('process-memory', {
+        processes: currentProcessMemory(),
+        systemMemory: currentSystemMemory(),
+      });
+    },
+    5 * 60 * 1000
+  );
+  diagnosticsMemoryTimer.unref();
+}
+
+/** The SSH host IPC, with the server-login bridge to the connection pool. */
+function registerLocalSshHostIpc(): void {
+  registerSshHostIpc({
+    ipcMain,
+    routes: windowRoutes,
+    userDataPath: desktopUserData,
+    connections: sshConnections,
+    serverLogins: {
+      connection: (id) => {
+        const connection = id === LOCAL_CONNECTION_ID ? undefined : connectionPool.get(id);
+        if (connection?.kind !== 'ssh') return null;
+        const modelLogin = connection.modelLogin;
+        return {
+          modelLogin,
+          invoke: async (capability, args) => (await connection.client.invokeCapability(capability, args)).value,
+          busySessions: async () => (await connection.remote?.busySessions(3_000)) ?? null,
+          onEnd: (listener) => connection.onModelLoginEnd(modelLogin, listener),
+        };
+      },
+      onAttach: (listener) =>
+        connectionPool.onAdd((connection) => {
+          if (connection.kind === 'ssh') listener(connection.id);
+        }),
+      openExternal: (url) => shell.openExternal(url),
+      // The provider's callback port, the same on both ends, while one
+      // server login is pending: this PC's own bind of it is the check,
+      // so a port taken here is never forwarded. Its ssh runs under the
+      // server's saved settings (its key file).
+      forwardCallback: (host, port) =>
+        runWithHostSettings(host.id, () =>
+          openCallbackForward({
+            target: parseSshTarget(host.target),
+            port,
+            log: (line) => diagnostics?.write('ssh-login-forward', { connection: 'ssh', detail: line.slice(0, 300) }),
+          })
+        ),
+    },
+  });
+}
+
 if (!app.requestSingleInstanceLock()) {
   // The dev shell now shares the installed app's profile, so a running
   // Mixdog holds the lock. Say so instead of exiting silently.
@@ -2734,119 +2901,19 @@ if (!app.requestSingleInstanceLock()) {
       if (process.platform === 'win32') {
         app.setAppUserModelId(desktopBrand.appId);
       }
-      diagnostics = createDesktopDiagnostics(join(app.getPath('userData'), 'logs', 'desktop-diagnostics.jsonl'), {
-        appVersion: app.getVersion(),
-        packaged: app.isPackaged,
-        bootId: desktopBootId,
-        ...(desktopBootScenario ? { scenario: desktopBootScenario } : {}),
-      });
-      setTranscriptReadDiagnosticSink((entry) => {
-        diagnostics?.write('transcript-read', { ...entry });
-      });
-      setPageFaultDiagnosticSink((entry) => diagnostics?.write('browser-page-fault', { ...entry }));
-      diagnostics.write('process-entry', {
-        occurredAt: new Date(desktopProcessStartedAt).toISOString(),
-        totalMs: 0,
-      });
-      diagnostics.write('app-ready', {
-        totalMs: appReadyAt - desktopProcessStartedAt,
-      });
-      // The daemon handshake is already running (started before whenReady);
-      // stamp its start into the timeline now that the sink exists.
-      reportDaemonServiceStart();
-      void settingsStore.separateDefaults(mixdogDataDirectory()).catch((error: unknown) => {
-        diagnostics?.write('defaults-separation-failed', {
-          message: error instanceof Error ? error.message : String(error),
-        });
-      });
-      for (const { event, entry, at } of earlyDiagnostics.splice(0)) {
-        diagnostics.write(event, { ...entry, occurredAt: at });
-      }
-      diagnostics.write('desktop-start', {
-        totalMs: Date.now() - desktopProcessStartedAt,
-        electronVersion: process.versions.electron,
-        chromeVersion: process.versions.chrome,
-        nodeVersion: process.versions.node,
-        sessionProcess: 'daemon',
-        gpuRendering: softwareRenderingThisLaunch ? 'software-fallback' : 'hardware',
-        crashReporterStatus,
-        ...(crashReporterErrorName ? { crashReporterErrorName } : {}),
-        ...(gpuFallbackMarker ? { gpuFallbackCrashes: gpuFallbackMarker.crashesInWindow } : {}),
-      });
-      startCrashHandlerWatch();
-      startDiagnosticsEventLoopMonitor();
+      startDesktopDiagnostics(appReadyAt);
       // The desktop pet window, when its setting is on (desktop-pet-window.ts).
       desktopPet = createDesktopPetController();
       if (mainWindow) desktopPet.attachAppWindow(mainWindow);
       desktopPet.start();
-      // Keep-awake + taskbar attention feed on the same session state lane.
-      unsubscribeAwake = localService.subscribe((snapshot) => {
-        awakeService.onSnapshot(snapshot);
-        turnAttention?.onSnapshot(snapshot);
-        idleReclaim?.onSnapshot(snapshot);
-      });
-      // Every session's roster and the agent pool, not just the active pane:
-      // the final-answer rule needs background work as well as turn state.
-      const unsubscribeTurnSessions = localService.subscribeSessions((sessions) => {
-        latestSessions = sessions;
-        turnNotifier.onSessions(sessions);
-        // Visualize holds the panel while a session's agent turn runs.
-        void visualize.observeTurns(sessions);
-      });
-      const unsubscribeTurnAgents = localService.subscribeAgentPool((agents) => {
-        latestAgentPool = agents;
-        turnNotifier.onAgentPool(agents);
-      });
-      // A session starting to wait on a tool approval or a question, while it
-      // is not on screen, is told like a finished turn.
-      const unsubscribeTurnWaits = localService.subscribeSessionStates((update) => turnNotifier.onSessionState(update));
-      unsubscribeTurnNotifier = () => {
-        unsubscribeTurnSessions();
-        unsubscribeTurnAgents();
-        unsubscribeTurnWaits();
-      };
+      subscribeSessionLanes();
       void settingsStore
         .read()
         .then(applyDesktopSettings)
         .catch(() => {
           /* default stays enabled */
         });
-      // macOS/Linux shutdown or logoff: the OS ends the session, nobody is asked.
-      powerMonitor.on('shutdown', () => {
-        quitApproved = true;
-      });
-      powerMonitor.on('resume', () => {
-        // The blocker may have been dropped across sleep; re-assert it, and
-        // redial the relay leg instead of waiting for the ping cycle.
-        awakeService.reevaluate();
-        void localService.invokeDesktopOperation('remoteAccessResume', []).catch(() => {});
-        // Server links probe before touching their tunnel: a live one stays.
-        for (const connection of connectionPool.list()) void connection.link?.resume();
-      });
-      // Sleep pauses the server links: no attempts, no failure shown.
-      powerMonitor.on('suspend', () => {
-        void localService.invokeDesktopOperation('remoteAccessSuspend', []).catch(() => {});
-        for (const connection of connectionPool.list()) connection.link?.suspend();
-      });
-      // A dead network is otherwise noticed only by the ping cycle: redial the
-      // relay leg the moment the machine is back online or its network changes.
-      createNetworkWatcher({
-        isOnline: () => net.isOnline(),
-        signature: () => networkSignature(),
-        onChange: () => {
-          void localService.invokeDesktopOperation('remoteAccessResume', []).catch(() => {});
-        },
-      });
-      diagnosticsMemoryTimer = setInterval(
-        () => {
-          diagnostics?.write('process-memory', {
-            processes: currentProcessMemory(),
-            systemMemory: currentSystemMemory(),
-          });
-        },
-        5 * 60 * 1000
-      );
-      diagnosticsMemoryTimer.unref();
+      watchPowerAndNetwork();
       app.on('child-process-gone', (_event, details) => {
         diagnostics?.write('child-process-gone', {
           type: details.type,
@@ -2867,43 +2934,7 @@ if (!app.requestSingleInstanceLock()) {
       // cacheable, range-able resources fetched straight by the DOM. The lane
       // reads this PC's files, so only this PC's window session has it.
       registerMediaProtocol(localService);
-      registerSshHostIpc({
-        ipcMain,
-        routes: windowRoutes,
-        userDataPath: desktopUserData,
-        connections: sshConnections,
-        serverLogins: {
-          connection: (id) => {
-            const connection = id === LOCAL_CONNECTION_ID ? undefined : connectionPool.get(id);
-            if (connection?.kind !== 'ssh') return null;
-            const modelLogin = connection.modelLogin;
-            return {
-              modelLogin,
-              invoke: async (capability, args) => (await connection.client.invokeCapability(capability, args)).value,
-              busySessions: async () => (await connection.remote?.busySessions(3_000)) ?? null,
-              onEnd: (listener) => connection.onModelLoginEnd(modelLogin, listener),
-            };
-          },
-          onAttach: (listener) =>
-            connectionPool.onAdd((connection) => {
-              if (connection.kind === 'ssh') listener(connection.id);
-            }),
-          openExternal: (url) => shell.openExternal(url),
-          // The provider's callback port, the same on both ends, while one
-          // server login is pending: this PC's own bind of it is the check,
-          // so a port taken here is never forwarded. Its ssh runs under the
-          // server's saved settings (its key file).
-          forwardCallback: (host, port) =>
-            runWithHostSettings(host.id, () =>
-              openCallbackForward({
-                target: parseSshTarget(host.target),
-                port,
-                log: (line) =>
-                  diagnostics?.write('ssh-login-forward', { connection: 'ssh', detail: line.slice(0, 300) }),
-              })
-            ),
-        },
-      });
+      registerLocalSshHostIpc();
       registerServerPortsIpc({
         ipcMain,
         routes: windowRoutes,

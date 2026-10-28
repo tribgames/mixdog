@@ -20,14 +20,11 @@ interface KeysProbeDeps {
   outPath: string;
 }
 
-export async function runKeysProbe({
-  window,
-  baseSnapshot,
-  prepareColdResume,
-  send,
-  outPath,
-}: KeysProbeDeps): Promise<{ reversals: number }> {
-  const keysStamp = Date.now() % 100_000;
+/** Opens the cold long session; the snapshot is what the pass keeps re-sending. */
+async function enterColdTranscript(
+  { window, baseSnapshot, prepareColdResume, send }: Omit<KeysProbeDeps, 'outPath'>,
+  keysStamp: number
+) {
   const keysSnapshot = {
     ...baseSnapshot,
     toasts: [],
@@ -46,14 +43,24 @@ export async function runKeysProbe({
   })()`);
   send(keysSnapshot);
   await sleep(2_500);
-  const pickKeysTranscript = `(() => {
+  return keysSnapshot;
+}
+
+/** The on-screen transcript with the most content, as a page expression. */
+const pickKeysTranscript = `(() => {
     const nodes = [...document.querySelectorAll('.transcript')]
       .filter((node) => node.getBoundingClientRect().height > 0);
     if (nodes.length === 0) return null;
     return nodes.sort((a, b) => b.scrollHeight - a.scrollHeight)[0];
   })()`;
-  const press = async (label: string, key: string, focusExpression = `${pickKeysTranscript}`) => {
-    const before = (await window.webContents.executeJavaScript(`(() => {
+/** Presses a key with `focusExpression` focused and samples the transcript's scroll offset after it. */
+const pressKey = async (
+  window: BrowserWindow,
+  label: string,
+  key: string,
+  focusExpression = `${pickKeysTranscript}`
+) => {
+  const before = (await window.webContents.executeJavaScript(`(() => {
       const el = ${pickKeysTranscript};
       if (!el) return null;
       const focusTarget = ${focusExpression};
@@ -74,42 +81,48 @@ export async function runKeysProbe({
         activeElement: String(document.activeElement?.className || document.activeElement?.tagName || ''),
       };
     })()`)) as {
-      scrollTop: number;
-      scrollHeight: number;
-      clientHeight: number;
-      focused: boolean;
-      activeElement: string;
-    } | null;
-    window.webContents.sendInputEvent({ type: 'keyDown', keyCode: key });
-    // Blink triggers the space-bar page scroll from the CHAR (keypress)
-    // event, not keydown — a keyDown/keyUp-only pair scrolls nothing.
-    if (key === 'Space') window.webContents.sendInputEvent({ type: 'char', keyCode: ' ' });
-    window.webContents.sendInputEvent({ type: 'keyUp', keyCode: key });
-    await sleep(1_200);
-    const samples = (await window.webContents.executeJavaScript(`(() => {
+    scrollTop: number;
+    scrollHeight: number;
+    clientHeight: number;
+    focused: boolean;
+    activeElement: string;
+  } | null;
+  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: key });
+  // Blink triggers the space-bar page scroll from the CHAR (keypress)
+  // event, not keydown — a keyDown/keyUp-only pair scrolls nothing.
+  if (key === 'Space') window.webContents.sendInputEvent({ type: 'char', keyCode: ' ' });
+  window.webContents.sendInputEvent({ type: 'keyUp', keyCode: key });
+  await sleep(1_200);
+  const samples = (await window.webContents.executeJavaScript(`(() => {
       const w = window;
       cancelAnimationFrame(w.__keys.raf);
       w.__keys.raf = 0;
       return w.__keys.samples;
     })()`)) as Array<{ t: number; st: number }>;
-    const tops = samples.map((sample) => sample.st);
-    const peak = tops.length ? Math.max(...tops) : 0;
-    const settled = tops.length ? tops[tops.length - 1] : 0;
-    return {
-      label,
-      key,
-      before: before?.scrollTop ?? null,
-      focused: before?.focused ?? false,
-      activeElement: before?.activeElement ?? '',
-      clientHeight: before?.clientHeight ?? 0,
-      peak,
-      settled,
-      moved: settled - (before?.scrollTop ?? 0),
-      // The reported signature: the view paged down and then returned.
-      snapBack: peak - settled,
-      samples,
-    };
+  const tops = samples.map((sample) => sample.st);
+  const peak = tops.length ? Math.max(...tops) : 0;
+  const settled = tops.length ? tops[tops.length - 1] : 0;
+  return {
+    label,
+    key,
+    before: before?.scrollTop ?? null,
+    focused: before?.focused ?? false,
+    activeElement: before?.activeElement ?? '',
+    clientHeight: before?.clientHeight ?? 0,
+    peak,
+    settled,
+    moved: settled - (before?.scrollTop ?? 0),
+    // The reported signature: the view paged down and then returned.
+    snapBack: peak - settled,
+    samples,
   };
+};
+
+export async function runKeysProbe(deps: KeysProbeDeps): Promise<{ reversals: number }> {
+  const { window, send, outPath } = deps;
+  const keysStamp = Date.now() % 100_000;
+  const keysSnapshot = await enterColdTranscript(deps, keysStamp);
+  const press = (label: string, key: string, focusExpression?: string) => pressKey(window, label, key, focusExpression);
   // Precondition: parked at the very top with follow disarmed.
   await window.webContents.executeJavaScript(`(async () => {
     const el = ${pickKeysTranscript};

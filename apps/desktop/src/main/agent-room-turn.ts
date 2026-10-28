@@ -222,6 +222,43 @@ function combinedCall(host: RoomTurnHost, agentId: string, calls: RoomCall[]): R
   return { agentId, ...(id ? { id } : {}), ...(hop > 0 ? { hop } : {}), askedBy, relay, relayOnly, follow };
 }
 
+type HaltOutcome = 'stopped' | 'unavailable' | 'superseded';
+
+/** Reads the member's session until it has answered: the answer and the
+ *  snapshot it came from, or how the turn was halted (`halted`: null while it
+ *  may go on). Six reads in a row that fail end the wait with the error. */
+async function pollForAnswer(
+  host: RoomTurnHost,
+  state: RunState,
+  sessionId: string,
+  startedAt: number,
+  halted: () => Promise<HaltOutcome> | null
+): Promise<{ answer: NonNullable<ReturnType<typeof sessionFinalAnswer>>; snapshot: SessionSnapshot } | HaltOutcome> {
+  let snapshot: SessionSnapshot = null;
+  let misses = 0;
+  for (;;) {
+    const halt = halted();
+    if (halt) return await halt;
+    await host.sleep(host.pollMs);
+    try {
+      snapshot = await host.readSnapshot(sessionId);
+      misses = 0;
+    } catch (error) {
+      misses += 1;
+      if (misses >= 6) throw error;
+      continue;
+    }
+    if (state.stop) return 'stopped';
+    const approval = (snapshot?.toolApproval as Record<string, unknown> | null | undefined) ?? null;
+    if (String(approval?.id ?? '') !== String(state.approval?.id ?? '')) {
+      state.approval = approval;
+      host.republish();
+    }
+    const answer = sessionFinalAnswer(snapshot, startedAt) ?? emptyFinishedTurn(snapshot, startedAt);
+    if (answer) return { answer, snapshot };
+  }
+}
+
 async function memberTurn(
   host: RoomTurnHost,
   state: RunState,
@@ -369,28 +406,9 @@ async function memberTurn(
       await host.abort(sessionId).catch(() => undefined);
       return 'stopped';
     }
-    let misses = 0;
-    while (!answer) {
-      if (state.stop) return 'stopped';
-      if (gone()) return await left();
-      if (interrupted()) return await cutShort();
-      await host.sleep(host.pollMs);
-      try {
-        snapshot = await host.readSnapshot(sessionId);
-        misses = 0;
-      } catch (error) {
-        misses += 1;
-        if (misses >= 6) throw error;
-        continue;
-      }
-      if (state.stop) return 'stopped';
-      const approval = (snapshot?.toolApproval as Record<string, unknown> | null | undefined) ?? null;
-      if (String(approval?.id ?? '') !== String(state.approval?.id ?? '')) {
-        state.approval = approval;
-        host.republish();
-      }
-      answer = sessionFinalAnswer(snapshot, startedAt) ?? emptyFinishedTurn(snapshot, startedAt);
-    }
+    const polled = await pollForAnswer(host, state, sessionId, startedAt, halted);
+    if (typeof polled === 'string') return polled;
+    ({ answer, snapshot } = polled);
   } catch (error) {
     host.log(
       `${agentId} could not speak in room ${host.roomId}: ${error instanceof Error ? error.message : String(error)}`
@@ -425,12 +443,28 @@ async function memberTurn(
     return 'pass';
   }
   outcome.text = text;
+  return await postSpeech(host, state, room, labels, agentId, member, text, snapshot, startedAt);
+}
+
+/** The member's answer `text` as a speech row in the room's log, with the
+ *  files and tools of the turn that began at `startedAt`. */
+async function postSpeech(
+  host: RoomTurnHost,
+  state: RunState,
+  room: ReturnType<RoomTurnHost['room']>,
+  labels: Map<string, MemberLabel>,
+  agentId: string,
+  member: MemberLabel,
+  text: string,
+  snapshot: SessionSnapshot,
+  startedAt: number
+): Promise<RoomTurnAnswer> {
   const row: RoomRow = {
-    id: `row_${newId()}`,
+    id: `row_${host.newId()}`,
     kind: 'speech',
     speaker: agentId,
     name: member.name,
-    at: now(),
+    at: host.now(),
     text,
     // The log takes in the files this turn produced (agent-room-delivery.mjs).
     ...(state.memberSession ? { artifactsFrom: { sessionId: state.memberSession, since: startedAt } } : {}),
