@@ -5,11 +5,18 @@ import { createRoot } from 'react-dom/client';
 import { installTestDom } from '../test-support/test-dom.mjs';
 import { useAppWorkbenchViews } from './use-app-workbench-views.tsx';
 
-test('useAppWorkbenchViews resolves pane project path and renders workbench side views correctly', async () => {
-  const { dom } = installTestDom(null, {
+const IPHONE_UA = 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15';
+
+/** Mounts the hook with stub options; `overrides` replace stubs, `userAgent` picks the surface. */
+async function mountViews(overrides = {}, userAgent) {
+  const { dom, restore } = installTestDom(null, {
     jsdom: { url: 'about:blank' },
     expose: ['navigator', 'HTMLElement', 'Event', 'CustomEvent'],
   });
+  if (userAgent) {
+    Object.defineProperty(dom.window.navigator, 'userAgent', { configurable: true, value: userAgent });
+    Object.defineProperty(dom.window.navigator, 'maxTouchPoints', { configurable: true, value: 5 });
+  }
 
   let hookResult = null;
 
@@ -98,6 +105,7 @@ test('useAppWorkbenchViews resolves pane project path and renders workbench side
       problemsCollapseNonce: 0,
       setProblemsCollapseNonce: () => {},
       openProblemQuickFix: () => {},
+      ...overrides,
     });
     return null;
   }
@@ -106,8 +114,41 @@ test('useAppWorkbenchViews resolves pane project path and renders workbench side
   await act(async () => {
     root.render(React.createElement(TestHarness));
   });
-
   assert.notEqual(hookResult, null);
+  return {
+    views: hookResult,
+    async unmount() {
+      await act(async () => {
+        root.unmount();
+      });
+      restore?.();
+    },
+  };
+}
+
+test('opening a bot from the Sessions drawer on the phone keeps Sessions, closes the drawer, opens the chat', async () => {
+  const calls = [];
+  const mounted = await mountViews(
+    {
+      selectWorkbenchSideView: (viewId) => calls.push(['select', viewId]),
+      closeSidebarForNavigation: () => calls.push(['closeDrawer']),
+      dockOpenAgentSession: (...args) => calls.push(['openChat', ...args]),
+    },
+    IPHONE_UA
+  );
+  const { isMobileRemoteSurface } = await import('../mobile-surface.ts');
+  assert.equal(isMobileRemoteSurface(), true);
+
+  const sidebar = mounted.views.renderWorkbenchSideView('left', 'sessions', true, {});
+  sidebar.props.onOpenAgent('bot-home-1', 'Mixy');
+
+  assert.deepEqual(calls, [['closeDrawer'], ['openChat', 'bot-home-1', 'Mixy', 'bot-home-1']]);
+  await mounted.unmount();
+});
+
+test('useAppWorkbenchViews resolves pane project path and renders workbench side views correctly', async () => {
+  const mounted = await mountViews();
+  const hookResult = mounted.views;
 
   // Test paneProjectPathFor
   const sessionLeaf = {
@@ -151,7 +192,5 @@ test('useAppWorkbenchViews resolves pane project path and renders workbench side
   assert.equal(visualizeOf('s1').key, 's1');
   assert.notEqual(visualizeOf('s1').key, visualizeOf('s2').key);
 
-  await act(async () => {
-    root.unmount();
-  });
+  await mounted.unmount();
 });

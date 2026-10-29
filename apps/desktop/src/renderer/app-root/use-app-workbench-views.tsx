@@ -55,7 +55,6 @@ import { resolveLocalLink } from '../local-link-resolver';
 import { isAbsolutePath } from '../session-diff-model';
 import { sideFileKey } from '../side-file-tabs';
 import { closingDrawerFirst } from './drawer-navigation';
-import { isMobileRemoteSurface } from '../mobile-surface';
 
 // The Visualize panel is never part of the first screen, and its source view
 // statically pulls the whole highlight.js core and language set: kept out of
@@ -266,12 +265,12 @@ export function useAppWorkbenchViews({
   setProblemsCollapseNonce,
   openProblemQuickFix,
 }: UseAppWorkbenchViewsOptions) {
-  // A bot row in the Sessions sidebar opens its chat as a tab and the
-  // Sessions view stays; the phone keeps its full-screen Bots page.
-  const sidebarOpenAgent = useStableEvent((sessionId: string, title: string) => {
-    if (isMobileRemoteSurface()) selectWorkbenchSideView('agents');
-    dockOpenAgentSession(sessionId, title, sessionId);
-  });
+  // A bot or room row in the Sessions sidebar opens its chat as a tab and the
+  // Sessions view stays, on the phone too; there the drawer closes first so
+  // the chat is visible, and reopening it shows Sessions as it was left.
+  const sidebarOpenAgent = useStableEvent((sessionId: string, title: string) =>
+    closingDrawerFirst(closeSidebarForNavigation, dockOpenAgentSession)(sessionId, title, sessionId)
+  );
   const renderWorkbenchSideView = (
     side: WorkbenchSide,
     id: WorkbenchSideViewId,
