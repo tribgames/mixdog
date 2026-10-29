@@ -15,7 +15,24 @@ const { default: React, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { useConversationFollowEffects } = await import('./use-conversation-follow-effects.ts');
 
-const nextFrame = () => new Promise((resolve) => window.requestAnimationFrame(() => resolve()));
+// Frames run only when the test advances them: jsdom's visual mode fires
+// requestAnimationFrame on a real 16ms timer, so a slow runner ran a frame
+// between commits this test holds inside one frame.
+const frames = new Map();
+let lastFrameId = 0;
+window.requestAnimationFrame = (callback) => {
+  lastFrameId += 1;
+  frames.set(lastFrameId, callback);
+  return lastFrameId;
+};
+window.cancelAnimationFrame = (id) => {
+  frames.delete(id);
+};
+const nextFrame = async () => {
+  const due = [...frames.values()];
+  frames.clear();
+  for (const callback of due) callback(window.performance.now());
+};
 
 function mount(geometry) {
   const element = document.getElementById('viewport');
