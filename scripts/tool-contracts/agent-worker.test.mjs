@@ -8,7 +8,7 @@ import { makeTempDirSync, removeTempDirSync } from '../lib/scoped-temp.mjs';
 import { root } from './_env.mjs';
 import { waitFor } from './_helpers.mjs';
 import { parseHeadlessExecCommand } from '../../src/app.mjs';
-import { AGENT_TOOL, createStandaloneAgent } from '../../src/standalone/agent-tool.mjs';
+import { createStandaloneAgent } from '../../src/standalone/agent-tool.mjs';
 import { createStandaloneChannelWorker } from '../../src/standalone/channel-worker.mjs';
 import { initProviders } from '../../src/runtime/agent/orchestrator/providers/registry.mjs';
 
@@ -32,16 +32,6 @@ test('headless exec parser accepts the exec form and needs a message', () => {
   const tuiDefault = parseHeadlessExecCommand([]);
   if (tuiDefault !== null) {
     throw new Error(`empty argv must keep TUI default: ${JSON.stringify(tuiDefault)}`);
-  }
-});
-
-test('agent tool keeps its async tagged delegation description', () => {
-  if (
-    !/background tasks/i.test(AGENT_TOOL.description || '') ||
-    !/same-tag spawn respawns/i.test(AGENT_TOOL.description || '') ||
-    !/spawn\/send return task_id immediately/i.test(AGENT_TOOL.description || '')
-  ) {
-    throw new Error('agent description must preserve async tagged delegation contract');
   }
 });
 

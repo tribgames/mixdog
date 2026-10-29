@@ -108,7 +108,7 @@ const LANGS = {
 // A reason naming a missing capability of the host (platform, privilege,
 // tool, build) is a capability skip; anything else reads as a defect skip.
 const CAPABILITY =
-  /\bonly\b|unavailable|unsupported|not (available|permitted|enforced|built|supported|configured|granted|installed)|requires?\b|needs?\b|missing|denied|refused|does not (support|grant|allow)|insensitive|not found|has no|not run on|\bno local\b|\bno display\b|\bposix\b|\bno [\w ]+ (available|configured|is configured|installed)/i;
+  /\bonly\b|unavailable|unsupported|not (available|permitted|enforced|built|supported|configured|granted|installed)|requires?\b|needs?\b|missing|denied|refused|does not (support|grant|allow)|insensitive|not found|has no|not run on|\bno local\b|\bno display\b|\bposix\b|\bno [\w ]+ (available|configured|is configured|installed)|\bnot on (the )?path\b|\bno [\w-]+ on this (host|machine|platform|runner)|\(\s*(?:e\.g\.|i\.e\.),?\s*running as (?:root|administrator|an? \w+ user)\s*\)|\bskip(?:ped)? (?:when|if|as|under) running as (?:root|administrator|an? \w+ user)\b|\b(?:is|are) an? (?:windows|posix|linux|macos|unix)[- ](?:behaviou?r|feature|semantics)\b/i;
 const TRACKED = /#\d+/;
 const UNTIL = /until (\d{4}-\d{2}-\d{2})/;
 

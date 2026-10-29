@@ -51,6 +51,8 @@ const checkMac = (text, overrides = {}) =>
     ...overrides,
   });
 
+// Source-text on purpose: the verifying script is inline in workflow YAML that
+// only runs on GitHub, so its checked-in text is the only surface to compare.
 test('the asset contract matches the exact set release.yml verifies', () => {
   const release = readFileSync(new URL('../.github/workflows/release.yml', import.meta.url), 'utf8');
   const block = /const requirements = \{([\s\S]*?)\s*\};\s*const expected/.exec(release)[1];

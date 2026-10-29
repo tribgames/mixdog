@@ -74,6 +74,28 @@ test('naming a platform alone does not make a skip a capability skip', () => {
   ]);
 });
 
+test('a reason naming a missing platform, tool, build or privilege is a capability skip', () => {
+  const capability = [
+    'no bash on this host',
+    'dotnet SDK is not on PATH',
+    'mandatory file locks are a Windows behavior',
+    'the file is still readable here (e.g. running as root)',
+    'a mixdog-graph build with the --langs/--scan modes is not available on this machine',
+  ];
+  const defects = [
+    'fixture skip',
+    'fails when the disk is busy',
+    'Windows behavior is broken',
+    'crashes when running as root',
+    'flaky on Windows',
+  ];
+  const text = [...capability, ...defects].map((reason) => `t.skip('${reason}');`);
+  assert.deepEqual(
+    kinds(text.join('\n'), 'js').map(([, kind]) => kind),
+    [...capability.map(() => 'capability'), ...defects.map(() => 'untracked')]
+  );
+});
+
 test('Python skips cover pytest and unittest forms, including multi-line decorators', () => {
   const text = [
     '@pytest.mark.skip(reason="#5 until 2027-02-02: race")',

@@ -6,10 +6,7 @@ import { TOOL_DEFS as browser } from '../../src/runtime/browser-bridge/tool-defs
 import { validateBrowserToolArgs } from '../../src/runtime/browser-bridge/action-schema.mjs';
 import { COMPUTER_INPUT_SCHEMA, validateComputerToolArgs } from '../../src/runtime/computer-bridge/action-schema.mjs';
 import { normalizeGoalTasks, patchGoalTasks } from '../../src/session-runtime/goal-tasks.mjs';
-import { SETUP_TOOL_DEFS } from '../../src/session-runtime/setup-tool/tool-defs.mjs';
-import { createSetupToolExecutor } from '../../src/session-runtime/setup-tool/executor.mjs';
 import { schemaStringLength, schemaValueError } from '../../src/runtime/shared/schema-value-error.mjs';
-import { classifyToolFailure } from '../../src/runtime/agent/orchestrator/agent-trace-format.mjs';
 
 const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false });
 const browserSchema = browser.find((tool) => tool.name === 'browser').inputSchema;
@@ -19,89 +16,6 @@ const browserAccepts = (args) => {
   const result = validateBrowserToolArgs(args);
   assert.equal(result.ok, true, result.error);
 };
-
-test('setup refuses malformed or misspelled fields before reaching the settings facade', async () => {
-  let facadeReads = 0;
-  const executor = createSetupToolExecutor({
-    getApi: () => {
-      facadeReads++;
-      return {};
-    },
-  });
-  for (const args of [
-    { action: 'set_route', route: { model: 'model-id', fast: 'true' } },
-    { action: 'set_route', route: { model: 'model-id', effrot: 'high' } },
-    { action: 'set_route', route: { model: 123 } },
-    { action: 'set_route', route: { model: 'model-id' }, extra: true },
-    { action: 'set_profile', profile: { title: 'User', experiencelevel: 'advanced' } },
-    JSON.parse('{"action":"set_route","route":{"model":"model-id","constructor":"unexpected"}}'),
-    JSON.parse('{"action":"set_route","route":{"model":"model-id","__proto__":{"polluted":true}}}'),
-  ]) {
-    assert.equal(ajv.validate(SETUP_TOOL_DEFS[0].inputSchema, args), false);
-    await assert.rejects(executor.execute(args), (error) => {
-      assert.match(error.message, /\[tool-input-validation\] setup/);
-      assert.equal(classifyToolFailure(error.message, 'setup'), 'schema/args');
-      return true;
-    });
-  }
-  assert.equal(facadeReads, 0);
-  assert.equal({}.polluted, undefined);
-});
-
-test('setup forwards valid false values, inheritance and open MCP configuration unchanged', async () => {
-  const calls = [];
-  const executor = createSetupToolExecutor({
-    getApi: () => ({
-      async setRoute(route) {
-        calls.push(['route', route]);
-        return route;
-      },
-      async setAgentRoute(agent, route) {
-        calls.push(['agent', agent, route]);
-        return route;
-      },
-      async addMcpServer(server) {
-        calls.push(['mcp', server]);
-        return { name: server.name };
-      },
-    }),
-  });
-  await executor.execute({ action: 'set_route', route: { model: 'model-id', fast: false } });
-  await executor.execute({ action: 'set_agent_route', agent: 'worker', route: { provider: '' } });
-  const server = { name: 'fixture', type: 'stdio', command: 'fixture', args: [], env: { CUSTOM_FIELD: 'value' } };
-  await executor.execute({ action: 'add_mcp_server', server });
-  assert.deepEqual(calls, [
-    ['route', { model: 'model-id', fast: false }],
-    ['agent', 'worker', { provider: '' }],
-    ['mcp', server],
-  ]);
-});
-
-test('setup names distinguish built-in toggles from Memory installation and toggling', async () => {
-  const calls = [];
-  const executor = createSetupToolExecutor({
-    getApi: () => ({
-      async setMemoryToolsEnabled(enabled) {
-        calls.push(['memory', enabled]);
-        return {};
-      },
-      async installBuiltinFeature(name) {
-        calls.push(['install', name]);
-        return {};
-      },
-    }),
-  });
-  await executor.execute({ action: 'set_memory_enabled', enabled: false });
-  await executor.execute({ action: 'install_builtin', name: 'memory' });
-  await assert.rejects(
-    executor.execute({ action: 'set_builtin_enabled', name: 'memory', enabled: false }),
-    /name must be one of/
-  );
-  assert.deepEqual(calls, [
-    ['memory', false],
-    ['install', 'memory'],
-  ]);
-});
 
 test('computer action ordering is visible before composing a multi-action call', () => {
   const args = {

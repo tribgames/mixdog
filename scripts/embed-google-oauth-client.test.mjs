@@ -76,6 +76,7 @@ test('the generated file is gitignored so it can never be committed', async () =
 
 // Every shipped artifact must write the client before it packs: the npm package
 // (release.yml validate) and each desktop runtime.asar (desktop-package.yml).
+// Source-text on purpose: workflow YAML runs only on GitHub runners.
 async function workflow(name) {
   return parse(await readFile(join(ROOT, '.github', 'workflows', name), 'utf8'));
 }

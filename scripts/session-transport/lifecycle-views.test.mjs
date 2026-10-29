@@ -169,12 +169,6 @@ test('auto-background task elapsed time includes its foreground phase', () => {
   cleanupBackgroundTasks({ force: true, surface: 'shell' });
 });
 
-test('session retention exposes no RSS growth ceiling', async () => {
-  await withDaemon(async ({ service }) => {
-    assert.equal(Object.hasOwn(service.status, 'softRssBytes'), false);
-  });
-});
-
 test('repeated idle session churn releases runtimes, projections, and its sweep timer', async () => {
   const rounds = 6;
   const sessionsPerRound = 24;

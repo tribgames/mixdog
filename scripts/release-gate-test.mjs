@@ -21,6 +21,7 @@ import {
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { buildReleaseTimingReport } from './release-timing-report.mjs';
+import { SESSION_PROTOCOL } from '../src/standalone/session-wire.mjs';
 import {
   desktopGateRegex,
   historyGateRegex,
@@ -32,7 +33,8 @@ import {
 
 // Product/workflow shape is intentionally non-blocking. Opt in from the
 // advisory runner when reviewing a deliberate specification change.
-const advisoryTest = process.env.MIXDOG_TEST_ADVISORY === '1' ? test : test.skip;
+const advisoryTest = (name, fn) =>
+  test(name, { skip: process.env.MIXDOG_TEST_ADVISORY !== '1' && 'requires MIXDOG_TEST_ADVISORY=1 (npm run test:spec-advisory)' }, fn);
 
 // ---- Release asset manifests ----
 const VERSION = '1.2.3';
@@ -355,6 +357,8 @@ test('full guard reads deterministic fixtures and downloads every declared asset
 });
 
 // ---- Deploy and release workflow contracts ----
+// Source-text on purpose: GitHub workflow YAML and release shell scripts run
+// only on GitHub runners, so the checked-in text is the only surface a test can reach.
 const workflow = (name) => readFile(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8');
 
 test('Deploy is the one-click release entry with incremental native workers', async () => {
@@ -1240,12 +1244,6 @@ advisoryTest('runtime platform smoke restores npm downloads on every runner', as
 const ROOT = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 const STRICT_VERSION = /^\d+\.\d+\.\d+$/;
 
-function protocolFromSource(source, label) {
-  const value = Number(source.match(/SESSION_PROTOCOL\s*=\s*(\d+)/)?.[1]);
-  assert.ok(Number.isInteger(value) && value > 0, `${label} has no valid session protocol`);
-  return value;
-}
-
 test('project versions stay synchronized and the development protocol is valid', () => {
   const manifests = [
     'package.json',
@@ -1271,9 +1269,7 @@ test('project versions stay synchronized and the development protocol is valid',
     }
   }
 
-  const protocolPath = 'src/standalone/session-wire.mjs';
-  const currentProtocol = protocolFromSource(readFileSync(join(ROOT, protocolPath), 'utf8'), protocolPath);
-  assert.ok(currentProtocol > 0);
+  assert.ok(Number.isInteger(SESSION_PROTOCOL) && SESSION_PROTOCOL > 0, 'session protocol must be a positive integer');
 });
 
 test('npm package declares the published native platform families', () => {

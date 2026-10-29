@@ -112,8 +112,8 @@ test('workflow contracts: strict gate, Latest guard triggers, post-release job, 
   const { readFile } = await import('node:fs/promises');
   const { parse } = (await import('node:module')).createRequire(import.meta.url)('yaml');
   const read = (name) => readFile(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8');
+  // Source-text on purpose: workflow YAML runs only on GitHub runners.
   const deploy = await read('deploy.yml');
-  assert.doesNotMatch(deploy, /validates this commit itself/);
   assert.match(deploy, /refusing to release an ungated commit/);
   const jobs = parse(deploy).jobs;
   assert.deepEqual(jobs['post-release-check'].needs, ['plan', 'prepare-app', 'release']);

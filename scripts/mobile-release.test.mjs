@@ -165,6 +165,7 @@ test('the relay links the newest release whose APK downloads, else the releases 
   }
 });
 
+// Source-text on purpose: workflow YAML runs only on GitHub runners.
 const workflow = (name) => parseYaml(readFileSync(new URL(`../.github/workflows/${name}`, import.meta.url), 'utf8'));
 
 test('Deploy ships mobile with the release and the relay waits for the Android release', () => {

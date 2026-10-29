@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
@@ -17,7 +17,6 @@ import {
   parseJsonl,
   parseKindMap,
   parseLangsStdout,
-  runProcess,
 } from './graph-parity.mjs';
 
 const SCRIPT = resolve('scripts/graph-parity.mjs');
@@ -59,29 +58,9 @@ function writeJsonl(dir, name, records) {
 
 function runCli(args, { timeoutMs = 30_000 } = {}) {
   return new Promise((resolvePromise, reject) => {
-    const proc = spawn(process.execPath, [SCRIPT, ...args], { windowsHide: true });
-    let stdout = '';
-    let stderr = '';
-    const timer = setTimeout(() => {
-      try {
-        proc.kill();
-      } catch {
-        /* ignore */
-      }
-      if (process.platform === 'win32' && proc.pid) {
-        spawn('taskkill', ['/pid', String(proc.pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
-      }
-      reject(new Error(`CLI timed out after ${timeoutMs}ms\n${stderr}${stdout}`));
-    }, timeoutMs);
-    proc.stdout.on('data', (c) => {
-      stdout += c;
-    });
-    proc.stderr.on('data', (c) => {
-      stderr += c;
-    });
-    proc.on('close', (code) => {
-      clearTimeout(timer);
-      resolvePromise({ code, stdout, stderr });
+    execFile(process.execPath, [SCRIPT, ...args], { windowsHide: true, timeout: timeoutMs }, (error, stdout, stderr) => {
+      if (error?.killed) reject(new Error(`CLI timed out after ${timeoutMs}ms\n${stderr}${stdout}`));
+      else resolvePromise({ code: error ? error.code : 0, stdout, stderr });
     });
   });
 }
@@ -818,11 +797,4 @@ test('same-name LOSS+ADDITION on one file is a likely line move and still fails'
   const md = formatMarkdown({ ...report, manifestIdentical: true, reasons });
   assert.match(md, /likely line move/i);
   assert.match(md, /\*\*FAIL\*\*/);
-});
-
-test('runProcess times out and kills a hung child', async () => {
-  await assert.rejects(
-    () => runProcess(process.execPath, ['-e', 'setInterval(() => {}, 1e9)'], { timeoutMs: 400 }),
-    /timed out after 400ms/
-  );
 });

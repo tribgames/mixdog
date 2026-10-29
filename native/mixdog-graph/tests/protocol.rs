@@ -1201,6 +1201,48 @@ fn serve_search_watcher_invalidates_the_shared_inventory() {
         .unwrap();
     let mut stdout = std::io::BufReader::new(child.stdout.take().unwrap());
     let mut stdin = child.stdin.take().unwrap();
+    // A failure bound, not a delay: the watchdog covers the whole test,
+    // including shutdown. If the server stalls, it kills the server so the
+    // blocked read ends and the test fails with a message.
+    struct ServerGuard {
+        child: std::sync::Arc<std::sync::Mutex<std::process::Child>>,
+        done: Option<std::sync::mpsc::Sender<()>>,
+        watchdog: Option<std::thread::JoinHandle<()>>,
+    }
+    impl Drop for ServerGuard {
+        // Runs on success and on panic: disarm, kill, reap, join.
+        fn drop(&mut self) {
+            // Disarm and join first so nothing else contends for the lock;
+            // the wait below is then only for a process that was just killed.
+            drop(self.done.take());
+            if let Some(watchdog) = self.watchdog.take() {
+                let _ = watchdog.join();
+            }
+            let mut child = self.child.lock().unwrap_or_else(|e| e.into_inner());
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+    let child = std::sync::Arc::new(std::sync::Mutex::new(child));
+    let timed_out = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (done, deadline) = std::sync::mpsc::channel::<()>();
+    let watchdog = {
+        let child = std::sync::Arc::clone(&child);
+        let timed_out = std::sync::Arc::clone(&timed_out);
+        std::thread::spawn(move || {
+            if deadline.recv_timeout(std::time::Duration::from_secs(10))
+                == Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+            {
+                timed_out.store(true, std::sync::atomic::Ordering::SeqCst);
+                let _ = child.lock().unwrap_or_else(|e| e.into_inner()).kill();
+            }
+        })
+    };
+    let _guard = ServerGuard {
+        child: std::sync::Arc::clone(&child),
+        done: Some(done),
+        watchdog: Some(watchdog),
+    };
     let mut ready = String::new();
     stdout.read_line(&mut ready).unwrap();
     let request = |id: u64| {
@@ -1218,24 +1260,66 @@ fn serve_search_watcher_invalidates_the_shared_inventory() {
     assert!(first["matches"].as_array().unwrap().is_empty());
 
     fs::write(root.join("src/watcher-created.rs"), "fn watched() {}\n").unwrap();
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
-    let mut found = false;
-    let mut id = 2;
-    while std::time::Instant::now() < deadline && !found {
-        writeln!(stdin, "{}", request(id)).unwrap();
-        let response = read_search_message(&mut stdout);
-        assert_eq!(response["id"], id);
-        found = response["matches"].as_array().unwrap().iter().any(|path| {
-            path.as_str()
-                .is_some_and(|path| path.ends_with("watcher-created.rs"))
-        });
-        id += 1;
-        if !found {
-            std::thread::sleep(std::time::Duration::from_millis(40));
+    // The server announces an invalidation once it has applied the change, so
+    // wait for that event instead of polling on a timer.
+    loop {
+        let mut line = String::new();
+        assert!(
+            stdout.read_line(&mut line).unwrap() > 0,
+            "{}",
+            if timed_out.load(std::sync::atomic::Ordering::SeqCst) {
+                "no invalidate event announced the created file within 10s"
+            } else {
+                "server closed before announcing the change"
+            }
+        );
+        let message: serde_json::Value = serde_json::from_str(line.trim()).unwrap();
+        assert_eq!(message["event"], "invalidate", "{message}");
+        // A path is announced itself or under an announced root; Windows
+        // paths are native and compare case-insensitively.
+        let normal = |path: &str| {
+            let slashed = path.replace('\\', "/").trim_end_matches('/').to_string();
+            if cfg!(windows) { slashed.to_lowercase() } else { slashed }
+        };
+        let created = normal(&root.join("src/watcher-created.rs").to_string_lossy());
+        if message["paths"].as_array().unwrap().iter().any(|path| {
+            path.as_str().is_some_and(|path| {
+                let announced = normal(path);
+                created == announced || created.starts_with(&format!("{announced}/"))
+            })
+        }) {
+            break;
         }
     }
+    writeln!(stdin, "{}", request(2)).unwrap();
+    let second = read_search_response(&mut stdout, 2);
+    let found = second["matches"].as_array().unwrap().iter().any(|path| {
+        path.as_str()
+            .is_some_and(|path| path.ends_with("watcher-created.rs"))
+    });
+    // Shutdown stays bounded: closing stdin must end the server, which closes
+    // its stdout (the watchdog ends this read if it does not). The exit is
+    // then polled with the lock released between polls, so the watchdog and
+    // the guard can always kill the server; on the bound the test fails and
+    // the guard reaps it.
     drop(stdin);
-    let status = child.wait().unwrap();
+    std::io::Read::read_to_end(&mut stdout, &mut Vec::new()).unwrap();
+    let shutdown_deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let status = loop {
+        let exited = child.lock().unwrap().try_wait().unwrap();
+        if let Some(status) = exited {
+            break status;
+        }
+        assert!(
+            std::time::Instant::now() < shutdown_deadline,
+            "server did not exit within 10s of stdin closing"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    };
+    assert!(
+        !timed_out.load(std::sync::atomic::Ordering::SeqCst),
+        "server did not shut down within 10s of stdin closing"
+    );
     assert!(status.success());
     assert!(found, "watcher did not invalidate the native inventory");
     fs::remove_dir_all(root).unwrap();

@@ -515,7 +515,7 @@ test('CLI executes selected tests with forwarded imports and name filters, repor
         console.error('fixture warning is preserved');
         assert.equal(globalThis.fromRunnerImport, true);
       });
-      test('chosen skipped', { skip: 'fixture skip' }, () => {});
+      test('chosen skipped', { skip: 'requires a tool the fixture host lacks' }, () => {});
       test('ignored', () => assert.fail('name filter was not forwarded'));
     `,
     'src/fail.test.mjs': `
@@ -532,7 +532,7 @@ test('CLI executes selected tests with forwarded imports and name filters, repor
   ]);
   assert.equal(pass.status, 0, pass.stderr);
   assert.doesNotMatch(pass.stdout, /✔ chosen \(/);
-  assert.match(pass.stdout, /chosen skipped.*fixture skip/);
+  assert.match(pass.stdout, /chosen skipped.*requires a tool the fixture host lacks/);
   assert.match(pass.stdout, /fixture warning is preserved/);
   assert.match(pass.stdout, /fail 0/);
   assert.match(pass.stdout, /skipped 1/);

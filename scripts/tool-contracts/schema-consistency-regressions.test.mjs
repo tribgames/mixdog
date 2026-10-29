@@ -2,8 +2,6 @@ import './_env.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import Ajv from 'ajv';
-import { createSetupToolExecutor } from '../../src/session-runtime/setup-tool/executor.mjs';
-import { SETUP_TOOL_DEFS } from '../../src/session-runtime/setup-tool/tool-defs.mjs';
 import { toGeminiTools } from '../../src/runtime/agent/orchestrator/providers/gemini-schema.mjs';
 import { sanitizeAnthropicInputSchema } from '../../src/runtime/agent/orchestrator/providers/lib/anthropic-request-utils.mjs';
 import { normalizeGrokToolSchemas } from '../../src/runtime/agent/orchestrator/providers/lib/grok-tool-schema.mjs';
@@ -41,75 +39,6 @@ test('invalid find queries stay errors and explain discovery without silently ch
     assert.match(result, /known filename\/path fragment/);
     assert.deepEqual(args, original);
   }
-});
-
-test('setup rejects missing reset values and unrelated action fields before accessing the runtime', async () => {
-  const executor = createSetupToolExecutor({
-    getApi() {
-      assert.fail('invalid input must not access the runtime');
-    },
-  });
-  const cases = [
-    [{ action: 'set_system_shell' }, /command is required/],
-    [{ action: 'set_extension_scope', kind: 'skills', name: 'pdf' }, /projects is required/],
-    [{ action: 'set_extension_scope', kind: 'skills', name: 'pdf', projects: [' '] }, /projects\[0\]/],
-    [{ action: 'set_agent_route', agent: 'worker' }, /route is required/],
-    [{ action: 'set_web_search_route' }, /route is required/],
-    [{ action: 'set_auto_update', enabled: false, route: { model: 'ignored' } }, /does not accept field\(s\): route/],
-    [{ action: 'set_route', route: { model: 'valid' }, enabled: false }, /does not accept field\(s\): enabled/],
-    [{ action: 'status', name: 'unused' }, /does not accept field\(s\): name/],
-    [{ action: 'reconnect_mcp', enabled: true }, /does not accept field\(s\): enabled/],
-  ];
-  for (const [args, error] of cases) await assert.rejects(executor.execute(args), error);
-});
-
-test('setup preserves explicit resets, scopes and documented optional fields on the first call', async () => {
-  const calls = [];
-  const facade = {
-    setSystemShell(value) {
-      calls.push(['shell', value]);
-      return value;
-    },
-    setExtensionScope(...args) {
-      calls.push(['scope', ...args]);
-      return {};
-    },
-    setAutoUpdate(enabled) {
-      calls.push(['update', enabled]);
-      return { enabled };
-    },
-    inspectHuggingFaceModel(value) {
-      calls.push(['inspect', value]);
-      return {};
-    },
-    reconnectMcp() {
-      calls.push(['reconnect']);
-      return {};
-    },
-  };
-  const executor = createSetupToolExecutor({ getApi: () => facade });
-  const cases = [
-    { action: 'set_system_shell', command: '' },
-    { action: 'set_system_shell', command: ' pwsh ' },
-    { action: 'set_extension_scope', kind: 'skills', name: 'pdf', projects: [] },
-    { action: 'set_extension_scope', kind: 'skills', name: 'pdf', projects: [' C:\\Project\\mixdog '] },
-    { action: 'set_auto_update', enabled: false },
-    { action: 'inspect_hf_model', repository: 'owner/model' },
-    { action: 'reconnect_mcp' },
-  ];
-  for (const args of cases) {
-    assert.equal(ajv.validate(SETUP_TOOL_DEFS[0].inputSchema, args), true, JSON.stringify(ajv.errors));
-    await executor.execute(args);
-  }
-  assert.deepEqual(calls, [
-    ['shell', { command: '' }],
-    ['shell', { command: 'pwsh' }],
-    ['scope', 'skills', 'pdf', []],
-    ['scope', 'skills', 'pdf', ['C:\\Project\\mixdog']],
-    ['update', false],
-    ['inspect', { repository: 'owner/model', filename: undefined, contextWindow: undefined }],
-    ['reconnect'],
-  ]);
 });
 
 test('Gemini preserves MCP reference definitions and rejects values outside their constraints', () => {

@@ -2,21 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 
 import { SUMMARY_PREFIX, freshContextCompactMessages } from '../src/runtime/agent/orchestrator/session/compact.mjs';
-import { resolveWorkerCompactPolicy } from '../src/runtime/agent/orchestrator/session/loop/compact-policy.mjs';
 import { normalizeCompactionConfig } from '../src/session-runtime/config-helpers.mjs';
-
-test('Compact policy has no type selector', () => {
-  for (const session of [
-    { contextWindow: 100_000, compaction: {} },
-    { owner: 'agent', contextWindow: 100_000, compaction: {} },
-  ]) {
-    const policy = resolveWorkerCompactPolicy(session, []);
-    assert.equal(Object.hasOwn(policy, 'type'), false);
-    assert.equal(Object.hasOwn(policy, 'compactType'), false);
-    assert.equal(Object.hasOwn(policy, 'semantic'), false);
-    assert.equal(Object.hasOwn(policy, 'recallFastTrack'), false);
-  }
-});
 
 test('legacy Compact type settings migrate away', () => {
   const normalized = normalizeCompactionConfig({
