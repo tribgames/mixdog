@@ -54,10 +54,14 @@ export function createSessionExtensionsApi(bag) {
       (input) => runtime.addMcpServer?.(input),
       (result, input) => [`mcp added: ${result?.name || input?.name || 'server'}`]
     ),
-    addConnectorAccount: lockedChange(
-      (input) => runtime.addConnectorAccount?.(input),
-      (result, input) => [`mcp account added: ${result?.account || input?.connector || 'connector'}`]
-    ),
+    // No command lock: the runtime serializes adds per connector
+    // (oneAddAtATime), so concurrent adds each succeed with their own key.
+    addConnectorAccount: async (input) => {
+      const result = await runtime.addConnectorAccount?.(input);
+      refreshRouteStats();
+      pushNotice(`mcp account added: ${result?.account || input?.connector || 'connector'}`);
+      return result;
+    },
     saveMcpServer: lockedChange(
       (input) => runtime.saveMcpServer?.(input),
       (result, input) => [`mcp saved: ${result?.name || input?.name || 'server'}`]

@@ -1680,13 +1680,29 @@ export async function testCustomProvider(cfgMod, rawInput) {
         error: { kind: 'empty', message: 'No models were found for this provider' },
       };
     const { createCustomProvider } = await loadCustomProviderModule();
-    const provider = await createCustomProvider(id || 'custom-test', { ...config, apiKey });
-    await withTimeout(
+    const primary = await createCustomProvider(id || 'custom-test', { ...config, apiKey });
+    // A provider with additional keys tests through the same key pool as a
+    // real request: an explicit quota refusal moves on to the next key.
+    const keyIds = id && !config.apiKeyEnv && config.auth !== 'none' ? customProviderKeyIds(id) : [];
+    let provider = primary;
+    let routingKey;
+    if (keyIds.length) {
+      const [pool, keys] = await Promise.all([
+        import('../../runtime/agent/orchestrator/providers/account-pool.mjs'),
+        import('../../runtime/agent/orchestrator/providers/custom-provider-keys.mjs'),
+      ]);
+      routingKey = pool.ROUTING_METADATA_KEY;
+      provider = pool.createCustomKeyPoolProvider(id, primary, (keyId) => keys.customKeyEngine(primary, id, keyId));
+    }
+    const answer = await withTimeout(
       (signal) => provider.send([{ role: 'user', content: 'Reply with OK.' }], model, [], { signal, maxTokens: 16 }),
       CUSTOM_TEST_TIMEOUT_MS,
       'connection test'
     );
-    return { ok: true };
+    // Key numbers count the primary key as 1.
+    const served = routingKey ? answer?.providerMetadata?.[routingKey]?.accountId : undefined;
+    const index = keyIds.indexOf(served);
+    return index < 0 ? { ok: true } : { ok: true, key: { id: served, number: index + 2 } };
   } catch (error) {
     throw sanitizeCustomError(error, customSecrets(apiKey, config));
   }

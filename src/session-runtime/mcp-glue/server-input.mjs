@@ -79,8 +79,11 @@ export function createMcpServerInput({ mcpClient, getCurrentCwd }) {
     const type = clean(input.type).toLowerCase();
     if (url) {
       const kind = URL_TRANSPORT_TYPES.get(type) || (/^wss?:\/\//i.test(url) ? 'ws' : 'http');
-      const secureUrl =
+      const normalizedUrl =
         typeof mcpClient.normalizeMcpTransportUrl === 'function' ? mcpClient.normalizeMcpTransportUrl(url, kind) : url;
+      // URL parsing adds a "/" to a bare origin (`https://mcp.stripe.com`):
+      // keep the address as it was given, as the catalog and legacy entries do.
+      const secureUrl = normalizedUrl === `${url}/` ? url : normalizedUrl;
       return { name, config: withOptionalHeaders({ type: kind, url: secureUrl }) };
     }
     const command = clean(input.command);

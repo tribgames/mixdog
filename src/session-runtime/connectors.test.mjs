@@ -241,3 +241,18 @@ test('setup connect_connector reports state and never connects', async () => {
   );
   assert.deepEqual(calls, []);
 });
+
+test('a bare-origin connector URL keeps the catalog form (no trailing slash) when a server is normalized', async () => {
+  const { normalizeMcpTransportUrl } = await import('../runtime/agent/orchestrator/mcp/client-config.mjs');
+  const { createMcpServerInput } = await import('./mcp-glue/server-input.mjs');
+  const { normalizeMcpServerInput } = createMcpServerInput({
+    mcpClient: { normalizeMcpTransportUrl },
+    getCurrentCwd: () => process.cwd(),
+  });
+  for (const entry of CONNECTOR_CATALOG.filter(
+    (one) => one.backend.url?.startsWith('https://') && !one.backend.url.includes('.invalid')
+  )) {
+    const input = connectorServerInput(entry, entry.id, 'k');
+    assert.equal(normalizeMcpServerInput(input).config.url, entry.backend.url, entry.id);
+  }
+});

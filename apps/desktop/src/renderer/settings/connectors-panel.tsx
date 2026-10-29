@@ -8,6 +8,7 @@ import {
   type ConnectorCatalogEntry,
   GMAIL_APP_PASSWORD,
 } from '../../../../../src/runtime/shared/connector-catalog.mjs';
+import { subscribeSetupChanges } from '../setup-change-refresh';
 import {
   announceConnectorsChanged,
   appPasswordAccount,
@@ -1381,7 +1382,13 @@ export function ConnectorsPanel(context: PanelContext) {
   useEffect(() => {
     const refresh = () => void refreshExtensions();
     window.addEventListener(CONNECTORS_CHANGED_EVENT, refresh);
-    return () => window.removeEventListener(CONNECTORS_CHANGED_EVENT, refresh);
+    // A bot switching accounts moves `inUse` on the host; the open detail
+    // dialog reads the same list, so it follows the setup-change broadcast too.
+    const unsubscribe = subscribeSetupChanges(refresh);
+    return () => {
+      window.removeEventListener(CONNECTORS_CHANGED_EVENT, refresh);
+      unsubscribe();
+    };
   }, []);
   const lockedToast = () => showDesktopToast(manageOnHostNote(), 'info');
   const openAppPassword = (entry: ConnectorCatalogEntry, server: Row | null) => {

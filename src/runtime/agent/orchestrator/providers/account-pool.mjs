@@ -208,7 +208,7 @@ async function commitFallbackAccount(providerName, pool, row, model, refusalScop
 // the binding survives a restart and eviction from this map, which only
 // spares the history walk. Bounded, oldest binding first out.
 const SESSION_ACCOUNT_LIMIT = 1000;
-const ROUTING_METADATA_KEY = 'accountRouting';
+export const ROUTING_METADATA_KEY = 'accountRouting';
 const sessionAccounts = new Map();
 
 // Forget every in-memory binding, as a restart does (tests).

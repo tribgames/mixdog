@@ -338,11 +338,15 @@ function useCustomProviderConnection({
         setTestResult({ ok: false, message: discoveryFailure(error) });
         return;
       }
-      setTestResult(
-        result.ok === true
-          ? { ok: true, message: t('Connection successful.') }
-          : { ok: false, message: t('Connection test failed.') }
-      );
+      if (result.ok !== true) {
+        setTestResult({ ok: false, message: t('Connection test failed.') });
+        return;
+      }
+      const { number } = record(result.key);
+      setTestResult({
+        ok: true,
+        message: number ? t('Connection successful with key {{number}}.', { number }) : t('Connection successful.'),
+      });
     } catch (reason) {
       if (attempt.current === mine) setTestResult({ ok: false, message: failure(reason) });
     } finally {

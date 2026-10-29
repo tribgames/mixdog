@@ -111,6 +111,7 @@ function VertexKeyForm({
   onMode(mode: string): void;
   onClose(): void;
 }) {
+  const [keyError, setKeyError] = useState('');
   return (
     <>
       {/* biome-ignore lint/a11y/useSemanticElements: a div button group, same as the API key source picker. */}
@@ -125,7 +126,10 @@ function VertexKeyForm({
             type="button"
             aria-pressed={option.mode === mode}
             disabled={busy}
-            onClick={() => onMode(option.mode)}
+            onClick={() => {
+              setKeyError('');
+              onMode(option.mode);
+            }}
           >
             {option.label}
           </button>
@@ -154,7 +158,13 @@ function VertexKeyForm({
           }
           // Express mode: the key alone (it serves the global location only).
           if (mode === VERTEX_API_KEY) {
-            void save(String(fields.get('secret') || '').trim(), { authMode: VERTEX_API_KEY });
+            const secret = String(fields.get('secret') || '').trim();
+            if (!secret) {
+              setKeyError(t('API key required'));
+              return;
+            }
+            setKeyError('');
+            void save(secret, { authMode: VERTEX_API_KEY });
             return;
           }
           const file = fields.get('secretFile');
@@ -180,7 +190,7 @@ function VertexKeyForm({
             autoComplete="off"
             placeholder={t('API key')}
             aria-label={t('Vertex AI express mode API key')}
-            required
+            aria-invalid={keyError ? true : undefined}
           />
         ) : (
           <>
@@ -207,6 +217,11 @@ function VertexKeyForm({
           {t('Save')}
         </button>
       </form>
+      {keyError && (
+        <p className="settings-error" role="alert">
+          {keyError}
+        </p>
+      )}
       <ActionButton onClick={onClose}>{t('Cancel')}</ActionButton>
     </>
   );

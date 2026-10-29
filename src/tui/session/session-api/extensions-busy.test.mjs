@@ -98,3 +98,30 @@ test('an extension change refused by a running command rejects instead of report
   assert.deepEqual(h.calls, []);
   assert.equal(h.getState().commandBusy, true, 'the running command keeps its lock');
 });
+
+test('concurrent connector account adds both succeed: no command lock, each notice posted', async () => {
+  const calls = [];
+  const state = { commandBusy: false, stats: {} };
+  const api = createSessionExtensionsApi({
+    runtime: {
+      addConnectorAccount: async (input) => {
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return { account: input.key };
+      },
+    },
+    getState: () => state,
+    set: () => {},
+    pushNotice: (text) => calls.push(text),
+    resetStatsAndSyncContext: () => {},
+    routeState: () => ({}),
+  });
+  const added = await Promise.all([
+    api.addConnectorAccount({ connector: 'hugging-face', key: 'hf_ONE' }),
+    api.addConnectorAccount({ connector: 'hugging-face', key: 'hf_TWO' }),
+  ]);
+  assert.deepEqual(
+    added.map((one) => one.account),
+    ['hf_ONE', 'hf_TWO']
+  );
+  assert.deepEqual(calls.sort(), ['mcp account added: hf_ONE', 'mcp account added: hf_TWO']);
+});
