@@ -156,8 +156,8 @@ const firstSentence = (text) => {
 };
 
 // A catalog connector's curated when-to-use trigger; else the first sentence
-// of the server's MCP instructions; else its tools' leading descriptions (name
-// order); else its name. Never the account: that is part of the instruction
+// of the server's MCP instructions; else the leading description of its first
+// described tool (name order); else its name. Never the account: that is part of the instruction
 // text delivered when the server's tools are loaded. Derived lines are
 // compacted to at most 98 characters, ellipsis included.
 function mcpServerTrigger(server, tools, instructions) {
@@ -168,11 +168,11 @@ function mcpServerTrigger(server, tools, instructions) {
   const instruction = String(instructions?.[server] || '')
     .replace(/[<>]/g, '')
     .replace(/^\s*Account: \S+?\.\s+/, '');
-  const described = [...tools]
-    .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')))
-    .map((tool) => firstSentence(String(tool?.description || '').replace(/[<>]/g, '')))
-    .filter(Boolean)
-    .join('; ');
+  const described =
+    [...tools]
+      .sort((a, b) => String(a?.name || '').localeCompare(String(b?.name || '')))
+      .map((tool) => firstSentence(String(tool?.description || '').replace(/[<>]/g, '')))
+      .find(Boolean) || '';
   const derived = firstSentence(instruction) || described;
   return derived ? compactPromptManifestText(derived, 98) : `${titleCaseMcpServer(server)} MCP server tools.`;
 }

@@ -173,6 +173,25 @@ test('MCP tools are listed once per server: curated, instruction, description an
   assert.match(block, /^- web_search: Unfamiliar names; search first\.$/m);
 });
 
+test('a server without instructions is described by one tool, not a joined list', () => {
+  const catalog = [
+    mcpDef('unity', 'run_batch', 'Executes several commands.'),
+    mcpDef('unity', 'edit_script', 'Edits a C# script.'),
+  ];
+  const session = {
+    messages: [
+      { role: 'system', content: 'BP1' },
+      { role: 'system', content: 'BP2' },
+    ],
+    deferredToolCatalog: catalog,
+  };
+  applyInitialDeferredToolManifestToBp2(
+    session,
+    catalog.map((tool) => tool.name)
+  );
+  assert.match(session.messages[1].content, /^- mcp__unity: Edits a C# script$/m);
+});
+
 test('the deferred manifest is byte-identical across sessions and pool orders', () => {
   const catalog = [
     mcpDef('notion', 'search', 'Search pages.'),
