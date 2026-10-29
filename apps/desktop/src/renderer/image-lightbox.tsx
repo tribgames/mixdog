@@ -21,6 +21,8 @@ import { isRemoteHostRenderer } from './remote-ui-projection';
 import type { ResolvedLocalLink } from './local-link-resolver';
 import { MarkdownOpenFileContext, MarkdownSessionContext } from './MarkdownLink';
 import { useMobileBack } from './mobile-back';
+import { watchTouchZoom } from './touch-zoom';
+import type { ZoomPoint } from './zoom-target';
 
 export interface LightboxItem {
   id: string;
@@ -115,6 +117,45 @@ const MAX_SCALE = 16;
 const ZOOM_STEP = 1.25;
 const clampScale = (value: number) => Math.min(MAX_SCALE, Math.max(MIN_SCALE, value));
 const RESET_VIEW = { scale: 1, x: 0, y: 0 };
+type LightboxView = typeof RESET_VIEW;
+
+/** The viewer's stage as touch sees it: its centre (where the fitted image
+ *  is centred) in window px, its size, the fitted image's size, and the scale
+ *  that shows the image at its original resolution. */
+export interface LightboxStage {
+  center: ZoomPoint;
+  width: number;
+  height: number;
+  imageWidth: number;
+  imageHeight: number;
+  actual: number;
+}
+
+/** `view` zoomed by `ratio` about window point `at`, then moved by (dx, dy).
+ *  Touch keeps the scale between fit (1) and the original resolution, and the
+ *  image over the stage: an axis it does not overflow stays centred. */
+export function touchLightboxView(
+  view: LightboxView,
+  stage: LightboxStage,
+  ratio: number,
+  at: ZoomPoint,
+  dx = 0,
+  dy = 0
+): LightboxView {
+  const scale = Math.min(Math.max(1, stage.actual), Math.max(1, view.scale * ratio));
+  const applied = scale / view.scale;
+  // Translation is applied about the image's centre: keep the image point
+  // under `at` there.
+  const x = (at.x - stage.center.x) * (1 - applied) + applied * view.x + dx;
+  const y = (at.y - stage.center.y) * (1 - applied) + applied * view.y + dy;
+  const limitX = Math.max(0, (stage.imageWidth * scale - stage.width) / 2);
+  const limitY = Math.max(0, (stage.imageHeight * scale - stage.height) / 2);
+  return {
+    scale,
+    x: Math.min(limitX, Math.max(-limitX, x)),
+    y: Math.min(limitY, Math.max(-limitY, y)),
+  };
+}
 
 /** Modal image viewer: zoom, pan, previous/next, and open actions. */
 export function ImageLightbox({
@@ -169,12 +210,45 @@ export function ImageLightbox({
     element.addEventListener('wheel', onWheel, { passive: false });
     return () => element.removeEventListener('wheel', onWheel);
   }, []);
-  const toggleActualSize = () =>
-    setView(
-      zoomed
-        ? RESET_VIEW
-        : { scale: clampScale((image.current?.naturalWidth ?? 0) / (image.current?.offsetWidth || 1) || 1), x: 0, y: 0 }
-    );
+  /** The scale that shows the image at its original resolution: touch's
+   *  maximum, however large; the toolbar's 1:1 keeps the desktop range. */
+  const naturalScale = () => (image.current?.naturalWidth ?? 0) / (image.current?.offsetWidth || 1) || 1;
+  const actualScale = () => clampScale(naturalScale());
+  // Touch (touch-zoom.ts): two fingers pinch and pan, one finger pans a
+  // zoomed image, a double tap goes between fit and the original resolution.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: naturalScale reads refs only; one watcher serves the dialog's life.
+  useEffect(() => {
+    const element = stage.current;
+    if (!element) return undefined;
+    const measure = (): LightboxStage => {
+      const box = element.getBoundingClientRect();
+      return {
+        center: { x: box.left + box.width / 2, y: box.top + box.height / 2 },
+        width: element.clientWidth,
+        height: element.clientHeight,
+        imageWidth: image.current?.offsetWidth ?? 0,
+        imageHeight: image.current?.offsetHeight ?? 0,
+        actual: naturalScale(),
+      };
+    };
+    return watchTouchZoom(element, {
+      pinch: (ratio, at) => {
+        const geometry = measure();
+        setView((current) => touchLightboxView(current, geometry, ratio, at));
+      },
+      pan: (dx, dy) => {
+        const geometry = measure();
+        setView((current) => touchLightboxView(current, geometry, 1, geometry.center, dx, dy));
+      },
+      doubleTap: (at) => {
+        const geometry = measure();
+        setView((current) =>
+          current.scale === 1 ? touchLightboxView(RESET_VIEW, geometry, geometry.actual, at) : RESET_VIEW
+        );
+      },
+    });
+  }, []);
+  const toggleActualSize = () => setView(zoomed ? RESET_VIEW : { scale: actualScale(), x: 0, y: 0 });
   const close = () => dialog.current?.close();
   useMobileBack(true, close);
   const button = (label: string, icon: ReactNode, onClick: () => void, extra: { disabled?: boolean } = {}) => (
@@ -188,6 +262,8 @@ export function ImageLightbox({
       ref={dialog}
       className="transcript-artifact-preview image-lightbox"
       aria-label={item.name}
+      // Its drags pan the image; the phone's drawers stay put behind it.
+      data-no-edge-swipe=""
       onClose={onClose}
       onClick={(event) => {
         event.stopPropagation();
@@ -240,7 +316,8 @@ export function ImageLightbox({
         data-zoomed={zoomed ? 'true' : undefined}
         onDoubleClick={() => setView(RESET_VIEW)}
         onPointerDown={(event) => {
-          if (!zoomed) return;
+          // A finger's drag is touch-zoom's.
+          if (!zoomed || event.pointerType === 'touch') return;
           drag.current = { x: event.clientX, y: event.clientY, originX: view.x, originY: view.y };
           event.currentTarget.setPointerCapture?.(event.pointerId);
         }}

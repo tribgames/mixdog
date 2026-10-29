@@ -251,8 +251,21 @@ html[data-mixdog-mobile-tabs] .visualize-pane-enlarge > svg {
   justify-content: flex-start;
   overflow: auto;
   /* One finger pans the (possibly zoomed) content both ways; a two-finger
-     pinch is the panel's zoom (visualize-zoom.ts watchPinch), never the page's. */
+     pinch is the panel's zoom (visualize-zoom.ts, touch-zoom.ts), never the page's. */
   touch-action: pan-x pan-y;
+}
+/* An image pane takes every touch itself (VisualizePane, touch-zoom.ts): one
+   finger pans, two pinch and pan, a double tap zooms. A browser scroll
+   started by the first finger kept running under a pinch and could no
+   longer be cancelled, so the picture slid away from the fingers. */
+.visualize-pane-content[data-touch-zoom] {
+  touch-action: none;
+}
+/* Phone: the zoom pill floats over the bottom of the panel (zoom-pill.css:
+   36px tall, 12px above the edge). The panes end above it, so a fitted
+   picture's bottom and the end of a zoomed one's scroll are never under it. */
+html[data-mixdog-mobile-tabs] .visualize-pane:has(> .browser-zoom-pill) > .visualize-bodies {
+  margin-bottom: calc(36px + 2 * 12px);
 }
 /* Holds a pane's content; the zoom bar scales it (transform + 1/scale size),
    so it always fills the pane. It takes the pane's height by stretching, not

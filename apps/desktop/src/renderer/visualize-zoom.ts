@@ -18,7 +18,15 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProp
 import { flushSync } from 'react-dom';
 
 import type { VisualizeZoomInput } from '../shared/visualize';
-import { PREVIEW_ZOOM_RANGE, anchoredScroll, clampZoom, stepSnapped, wheelZoomScale } from './zoom-range';
+import { watchTouchZoom } from './touch-zoom';
+import {
+  PREVIEW_ZOOM_RANGE,
+  anchoredScroll,
+  clampZoom,
+  clickZoomTarget,
+  stepSnapped,
+  wheelZoomScale,
+} from './zoom-range';
 import { dispatchZoomAt, dispatchZoomKey, registerZoomTarget, type ZoomPoint } from './zoom-target';
 
 export const VISUALIZE_ZOOM_RANGE = PREVIEW_ZOOM_RANGE;
@@ -36,64 +44,6 @@ export function emitVisualizeZoomInput(input: VisualizeZoomInput, point?: ZoomPo
  *  document gets no key event then). */
 export function emitVisualizeZoomModifier(held: boolean): void {
   for (const listener of [...modifierListeners]) listener(held);
-}
-
-type TouchPoint = { clientX: number; clientY: number };
-type TouchList = { length: number; [index: number]: TouchPoint };
-
-/** Two fingers' spread and midpoint, both in window CSS px. */
-export function pinchGeometry(
-  toWindow: (point: ZoomPoint) => ZoomPoint,
-  first: TouchPoint,
-  second: TouchPoint
-): { spread: number; at: ZoomPoint } {
-  const a = toWindow({ x: first.clientX, y: first.clientY });
-  const b = toWindow({ x: second.clientX, y: second.clientY });
-  return { spread: Math.hypot(a.x - b.x, a.y - b.y), at: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 } };
-}
-
-/** Two-finger pinches on `target` (a panel, or a pane frame's document): each
- *  move reports how much the spread grew since the last one (`ratio`) and its
- *  midpoint (mapped to window CSS px by `toWindow`). One finger is left alone,
- *  so it keeps scrolling at any scale; a pinch move is taken (preventDefault),
- *  so the second finger does not also pan. Returns the cleanup. */
-export function watchPinch(
-  target: EventTarget,
-  toWindow: (point: ZoomPoint) => ZoomPoint,
-  onPinch: (ratio: number, at: ZoomPoint) => void
-): () => void {
-  let spread = 0;
-  // Measured in window px: a frame drawn scaled by the zoom itself would
-  // otherwise shrink the spread as the zoom grows, cancelling the pinch.
-  const measure = (touches: TouchList) => pinchGeometry(toWindow, touches[0], touches[1]);
-  const onStart = (event: Event) => {
-    const touches = (event as TouchEvent).touches as unknown as TouchList;
-    spread = touches.length === 2 ? measure(touches).spread : 0;
-  };
-  const onMove = (event: Event) => {
-    const touches = (event as TouchEvent).touches as unknown as TouchList;
-    if (touches.length !== 2 || spread <= 0) return;
-    event.preventDefault();
-    const next = measure(touches);
-    if (next.spread <= 0) return;
-    const ratio = next.spread / spread;
-    spread = next.spread;
-    if (Math.abs(ratio - 1) > 0.002) onPinch(ratio, next.at);
-  };
-  const onEnd = (event: Event) => {
-    const touches = (event as TouchEvent).touches as unknown as TouchList;
-    spread = touches.length === 2 ? measure(touches).spread : 0;
-  };
-  target.addEventListener('touchstart', onStart, { passive: true });
-  target.addEventListener('touchmove', onMove, { passive: false });
-  target.addEventListener('touchend', onEnd, { passive: true });
-  target.addEventListener('touchcancel', onEnd, { passive: true });
-  return () => {
-    target.removeEventListener('touchstart', onStart);
-    target.removeEventListener('touchmove', onMove);
-    target.removeEventListener('touchend', onEnd);
-    target.removeEventListener('touchcancel', onEnd);
-  };
 }
 
 /** Where a point in `frame`'s own document lands in this window (the panel
@@ -177,6 +127,23 @@ export function useVisualizeZoom({
     [panel]
   );
 
+  // The scale is kept on the 1% grid; a pinch arrives in steps far finer than
+  // that (a finger moves a pixel or two per event), each of which rounded
+  // back to where it started, so a slow pinch never zoomed. The unrounded
+  // product carries from step to step while the shown scale is its rounding.
+  const exact = useRef(1);
+  /** Multiplies the scale by a pinch step's `ratio` about `at`. */
+  const pinchBy = useCallback(
+    (ratio: number, at?: ZoomPoint) => {
+      const from =
+        clampZoom(exact.current, VISUALIZE_ZOOM_RANGE) === live.current.scale ? exact.current : live.current.scale;
+      const next = Math.min(VISUALIZE_ZOOM_RANGE.max, Math.max(VISUALIZE_ZOOM_RANGE.min, from * ratio));
+      setScale(next, at);
+      exact.current = next;
+    },
+    [setScale]
+  );
+
   // Once the new scale has laid out, put the anchored point back under the pointer.
   // biome-ignore lint/correctness/useExhaustiveDependencies: the scale is the trigger; the anchors ride in a ref
   useLayoutEffect(() => {
@@ -196,7 +163,7 @@ export function useVisualizeZoom({
       hovered: () => over || panel.matches(':hover'),
       command(input, point, wheel, pinch) {
         if (input === 'reset') setScale(1, point);
-        else if (pinch) setScale(live.current.scale * pinch, point);
+        else if (pinch) pinchBy(pinch, point);
         else if (wheel)
           setScale(wheelZoomScale(live.current.scale, wheel.deltaY, wheel.deltaMode, panel.clientHeight), point);
         else setScale(stepSnapped(live.current.scale, input === 'in' ? 1 : -1, VISUALIZE_ZOOM_RANGE), point);
@@ -250,13 +217,10 @@ export function useVisualizeZoom({
       over = false;
     };
     modifierListeners.add(hold);
-    // A pinch over the panel itself (an image, a remote document's pages);
-    // one inside a pane frame arrives through dispatchZoomAt instead.
-    const unpinch = watchPinch(
-      panel,
-      (point) => point,
-      (ratio, at) => setScale(live.current.scale * ratio, at)
-    );
+    // A pinch over the panel itself (a remote document's pages, an inline
+    // render); an image pane takes its own touches (VisualizePane), and one
+    // inside a pane frame arrives through dispatchZoomAt instead.
+    const unpinch = watchTouchZoom(panel, { pinch: pinchBy });
     listen();
     panel.addEventListener('pointerover', onOver);
     panel.addEventListener('pointerenter', enter);
@@ -277,7 +241,43 @@ export function useVisualizeZoom({
       document.removeEventListener('keyup', onKey, true);
       window.removeEventListener('blur', onBlur);
     };
-  }, [panel, enabled, setScale]);
+  }, [panel, enabled, setScale, pinchBy]);
 
-  return { scale, setScale };
+  return { scale, setScale, pinchBy };
+}
+
+/** An image pane's own touch gestures (touch-zoom.ts) while `enabled`; the
+ *  pane carries `data-touch-zoom` then (visualize.css). A pinch zooms the
+ *  panel, one finger (and the pinching fingers' midpoint) scrolls the pane,
+ *  and a double tap goes from fit to the image's 100% (200% when 100% already
+ *  is fit, as an editor preview's click) and from any other scale back. */
+export function useImagePaneTouch(
+  content: HTMLElement | null,
+  enabled: boolean,
+  zoom: Pick<ReturnType<typeof useVisualizeZoom>, 'scale' | 'setScale' | 'pinchBy'>
+): void {
+  const latest = useRef(zoom);
+  latest.current = zoom;
+  useEffect(() => {
+    if (!content || !enabled) return undefined;
+    return watchTouchZoom(content, {
+      pinch: (ratio, at) => latest.current.pinchBy(ratio, at),
+      pan: (dx, dy) => {
+        content.scrollLeft -= dx;
+        content.scrollTop -= dy;
+      },
+      doubleTap: (at) => {
+        const { scale, setScale } = latest.current;
+        const image = content.querySelector('img');
+        if (scale !== 1 || !image?.naturalWidth) {
+          setScale(1, at);
+          return;
+        }
+        // Drawn CSS px per natural image px, at fit.
+        const fit = image.getBoundingClientRect().width / image.naturalWidth;
+        const target = clickZoomTarget(true, fit);
+        if (target.mode === 'fixed' && fit > 0) setScale(target.scale / fit, at);
+      },
+    });
+  }, [content, enabled]);
 }
