@@ -19,6 +19,7 @@ const {
   _resetTurnWorktreeSnapshotsForTest,
   createTurnWorktreeSnapshot,
   noteTurnWorktreeChange,
+  recordTurnWorktreeFileChange,
   refreshTurnWorktreeSnapshot,
   resumeTurnWorktreeFilePatch,
 } = await import('./turn-worktree-snapshot.mjs');
@@ -330,6 +331,70 @@ test('a directory outside any repository yields no snapshot', {
   const plain = join(root, 'plain');
   mkdirSync(plain, { recursive: true });
   assert.equal(await createTurnWorktreeSnapshot(plain), null);
+});
+
+test('tool first states fill the baseline without disturbing the shadow index', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async () => {
+  const repo = seedRepo('tool-baseline-repo');
+  writeFileSync(join(repo, '.gitignore'), 'dist/\n');
+  git(repo, 'add', '-A');
+  git(repo, 'commit', '-qm', 'ignore dist');
+  mkdirSync(join(repo, 'dist'));
+  writeFileSync(join(repo, 'dist', 'out.js'), 'before\n');
+  const snapshot = await createTurnWorktreeSnapshot(repo);
+  const original = snapshot.baselineTree;
+  // An ignored file the baseline never saw, a tracked edit and a new file, each
+  // reported with its first state by the tool that wrote it.
+  const edit = (path, after) => {
+    const full = join(repo, path);
+    recordTurnWorktreeFileChange(snapshot, full, fs.existsSync(full) ? fs.readFileSync(full) : null);
+    writeFileSync(full, after);
+  };
+  edit('dist/out.js', 'after\n');
+  edit('a.txt', 'changed a\n');
+  edit('new.txt', 'new\n');
+  noteTurnWorktreeChange(null);
+  await refreshTurnWorktreeSnapshot(snapshot, { force: true });
+  const shape = (files) => files.map(({ path, status, additions, deletions }) => [path, status, additions, deletions]);
+  assert.deepEqual(shape(snapshot.files), [
+    ['a.txt', 'M', 1, 1],
+    ['dist/out.js', 'M', 1, 1],
+    ['new.txt', 'A', 1, 0],
+  ]);
+  assert.match(snapshot.patch, /^-before\n\+after$/m);
+  const recorded = [...snapshot.baselineFiles.values()].sort((left, right) => left.path.localeCompare(right.path));
+  assert.deepEqual(
+    recorded.map(({ path, oid }) => [path, /^[0-9a-f]{40,64}$/.test(oid || '') ? 'blob' : oid]),
+    [
+      ['dist/out.js', 'blob'],
+      ['new.txt', null],
+    ]
+  );
+  // Resumed from the unfilled baseline plus the recorded first states.
+  for (const [path, pattern] of [
+    ['dist/out.js', /^-before\n\+after$/m],
+    ['new.txt', /^new file mode 100644$[\s\S]*^\+new$/m],
+  ]) {
+    const reply = await resumeTurnWorktreeFilePatch(repo, original, {
+      baselineFiles: recorded,
+      path,
+      maxBytes: 64 * 1024,
+    });
+    assert.match(reply.patch, pattern);
+  }
+  // The baseline was built in an index of its own, removed afterwards; the
+  // shadow index still answers an unchanged worktree with no change.
+  assert.deepEqual(
+    fs.readdirSync(snapshot.state.gitDir).filter((name) => name.startsWith('index.baseline')),
+    []
+  );
+  await refreshTurnWorktreeSnapshot(snapshot, { force: true });
+  assert.deepEqual(shape(snapshot.files), [
+    ['a.txt', 'M', 1, 1],
+    ['dist/out.js', 'M', 1, 1],
+    ['new.txt', 'A', 1, 0],
+  ]);
 });
 
 // HEAD's canonicalPath, kept as the oracle for which states a note must dirty.

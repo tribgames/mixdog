@@ -104,9 +104,10 @@ async function runGit(
     maxBytes = COMMAND_MAX_BYTES,
     allowFailure = false,
     stdoutEncoding = 'utf8',
+    env = null,
   } = {}
 ) {
-  const result = await runGitOffThread(args, { cwd, input, timeoutMs, maxBytes, stdoutEncoding });
+  const result = await runGitOffThread(args, { cwd, input, env, timeoutMs, maxBytes, stdoutEncoding });
   if (result.code !== 0 && !allowFailure) throw commandError(args, result.stderr, result.code);
   return result;
 }
@@ -591,7 +592,9 @@ function withOmittedBaselines(snapshot, review) {
   return { ...review, files, patch, diffTooLarge: reviewDiffTooLarge(files, patch) };
 }
 
-async function applyBaselineFilesUnlocked(state, tree, allEntries) {
+/** `tree` with `allEntries` (recorded first states) applied. `absent`: keys of
+ *  paths known not to be in `tree`, whose removal is a no-op and runs no git. */
+async function applyBaselineFilesUnlocked(state, tree, allEntries, { absent = null } = {}) {
   // Omitted baselines change no tree: they are carried as metadata only.
   const files = allEntries
     .filter((entry) => entry?.omitted === true)
@@ -601,20 +604,55 @@ async function applyBaselineFilesUnlocked(state, tree, allEntries) {
       omitted: true,
       size: Number(entry.size) || 0,
     }));
-  const entries = allEntries.filter((entry) => entry?.omitted !== true);
-  if (entries.length === 0) return { tree, files };
-  const saved = clean((await runGit(shadowArgs(state, ['write-tree']), { cwd: state.root })).stdout);
-  try {
-    await runGit(shadowArgs(state, ['read-tree', tree]), { cwd: state.root });
-    for (const entry of entries) {
+  const entries = allEntries
+    .filter((entry) => entry?.omitted !== true)
+    .map((entry) => {
       const path = safeRelativePath(state.root, entry.path);
-      let oid = entry.oid || null;
-      if (entry.content !== undefined && entry.content !== null) {
+      const content = entry.content !== undefined && entry.content !== null ? entry.content : null;
+      const noop = content === null && !entry.oid && Boolean(absent?.has(pathKey(path)));
+      return { path, content, oid: entry.oid || null, noop };
+    });
+  if (entries.every((entry) => entry.noop)) {
+    return { tree, files: [...files, ...entries.map(({ path }) => ({ path, oid: null }))] };
+  }
+  try {
+    return await applyInIndex(state, tree, entries, files, temporaryIndexEnv(state));
+  } catch {
+    // The original sequence in the shadow index: it fails, if at all, as before.
+    return await applyInShadowIndex(state, tree, entries, files);
+  }
+}
+
+let temporaryIndexSeq = 0;
+
+/** An environment whose git index is a fresh file in the shadow repository. */
+function temporaryIndexEnv(state) {
+  const index = join(state.gitDir, `index.baseline-${process.pid}-${++temporaryIndexSeq}`);
+  return { ...process.env, GIT_INDEX_FILE: index };
+}
+
+/** The entries applied on top of `tree` in an index of their own, removed
+ *  afterwards: the shadow index is never touched, so it needs no save and
+ *  restore. Every command (hash-object's attribute lookup included) sees the
+ *  same index content the original sequence does: `tree` plus the entries so
+ *  far. Null `env`: the shadow index itself (the caller saves and restores). */
+async function applyInIndex(state, tree, entries, baseFiles, env) {
+  const files = [...baseFiles];
+  try {
+    await runGit(shadowArgs(state, ['read-tree', tree]), { cwd: state.root, env });
+    for (const { path, content, oid: recorded, noop } of entries) {
+      if (noop) {
+        files.push({ path, oid: null });
+        continue;
+      }
+      let oid = recorded;
+      if (content !== null) {
         oid = clean(
           (
             await runGit(shadowArgs(state, ['hash-object', '-w', '--stdin', '--path', path]), {
               cwd: state.root,
-              input: entry.content,
+              input: content,
+              env,
             })
           ).stdout
         );
@@ -622,16 +660,30 @@ async function applyBaselineFilesUnlocked(state, tree, allEntries) {
       if (oid) {
         await runGit(shadowArgs(state, ['update-index', '--add', '--cacheinfo', '100644', oid, path]), {
           cwd: state.root,
+          env,
         });
       } else {
-        await runGit(shadowArgs(state, ['update-index', '--force-remove', '--', path]), { cwd: state.root });
+        await runGit(shadowArgs(state, ['update-index', '--force-remove', '--', path]), { cwd: state.root, env });
       }
       files.push({ path, oid });
     }
     return {
-      tree: clean((await runGit(shadowArgs(state, ['write-tree']), { cwd: state.root })).stdout),
+      tree: clean((await runGit(shadowArgs(state, ['write-tree']), { cwd: state.root, env })).stdout),
       files,
     };
+  } finally {
+    if (env) {
+      await rm(env.GIT_INDEX_FILE, { force: true }).catch(() => {});
+      await rm(`${env.GIT_INDEX_FILE}.lock`, { force: true }).catch(() => {});
+    }
+  }
+}
+
+/** The original sequence: the shadow index saved as a tree, used, restored. */
+async function applyInShadowIndex(state, tree, entries, files) {
+  const saved = clean((await runGit(shadowArgs(state, ['write-tree']), { cwd: state.root })).stdout);
+  try {
+    return await applyInIndex(state, tree, entries, files, null);
   } finally {
     await runGit(shadowArgs(state, ['read-tree', saved]), { cwd: state.root });
   }
@@ -649,13 +701,26 @@ async function materializeToolBaselines(snapshot) {
     }
   );
   const present = new Set(splitNulList(listed.stdout).map(pathKey));
-  const ignoredResult = await runGit(['check-ignore', '--no-index', '-z', '--stdin'], {
-    cwd: state.root,
-    input: `${paths.join('\0')}\0`,
-    allowFailure: true,
-  });
-  if (ignoredResult.code > 1) throw commandError(['check-ignore'], ignoredResult.stderr, ignoredResult.code);
-  const ignored = new Set(splitNulList(ignoredResult.stdout).map(pathKey));
+  // A leading ':' is pathspec magic to ls-tree and check-ignore: such a path
+  // may not have been read literally, so every read below runs as before.
+  const literal = paths.every((path) => !path.startsWith(':'));
+  // The ignore answer is only consulted for bytes kept for a path that is
+  // neither in the baseline tree nor tracked, and small enough to keep.
+  const asksIgnored = ([path, content]) =>
+    Buffer.isBuffer(content) &&
+    !present.has(pathKey(path)) &&
+    !state.sourceTracked.has(pathKey(path)) &&
+    content.length <= MAX_UNTRACKED_FILE_BYTES;
+  let ignored = new Set();
+  if (!literal || pending.some(asksIgnored)) {
+    const ignoredResult = await runGit(['check-ignore', '--no-index', '-z', '--stdin'], {
+      cwd: state.root,
+      input: `${paths.join('\0')}\0`,
+      allowFailure: true,
+    });
+    if (ignoredResult.code > 1) throw commandError(['check-ignore'], ignoredResult.stderr, ignoredResult.code);
+    ignored = new Set(splitNulList(ignoredResult.stdout).map(pathKey));
+  }
   const missing = pending
     .filter(
       ([path, content]) =>
@@ -670,7 +735,9 @@ async function materializeToolBaselines(snapshot) {
     .map(([path, content]) =>
       isOmittedBaseline(content) ? { path, omitted: true, size: content.size } : { path, content }
     );
-  const applied = await applyBaselineFilesUnlocked(state, snapshot.baselineTree, missing);
+  // A path ls-tree read literally and did not list is not in the tree.
+  const absent = literal ? new Set(paths.map(pathKey).filter((key) => !present.has(key))) : null;
+  const applied = await applyBaselineFilesUnlocked(state, snapshot.baselineTree, missing, { absent });
   snapshot.baselineTree = applied.tree;
   for (const entry of applied.files) snapshot.baselineFiles.set(pathKey(entry.path), entry);
   for (const [path] of pending) snapshot.pendingBaselines.delete(path);
