@@ -4,9 +4,12 @@ import test, { mock } from 'node:test';
 
 // The real helpers the mocked watch is built from: loaded before the mock so
 // shell-jobs.mjs (imported by the settle) finds every export it names.
-const { endWatchWhenUnconfirmable, sweepLiveIdentities } = await import('./lib/shell-descendants.mjs');
+const { createContainedTreeTracker, endWatchWhenUnconfirmable, sweepLiveIdentities } = await import(
+  './lib/shell-descendants.mjs'
+);
 mock.module('./lib/shell-descendants.mjs', {
   namedExports: {
+    createContainedTreeTracker,
     endWatchWhenUnconfirmable,
     sweepLiveIdentities,
     probeShellDescendants: async () => {
