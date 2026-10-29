@@ -63,6 +63,14 @@ import { rotateRelayE2EEIdentity } from './remote-e2ee';
 import type { RemoteHostRequestMethod } from './remote-methods';
 import type { BrowserRemoteMethod } from './remote-browser-methods';
 import {
+  createSystemProxyLease,
+  SYSTEM_PROXY_ATTACH_OPERATION,
+  SYSTEM_PROXY_REQUEST_EVENT,
+  SYSTEM_PROXY_RESOLVE_TIMEOUT_MS,
+  SYSTEM_PROXY_RESOLVED_OPERATION,
+  type SystemProxyModule,
+} from './system-proxy';
+import {
   getModelProxyChannel,
   MODEL_PROXY_REQUEST_EVENT,
 } from '../../../../src/runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
@@ -122,6 +130,8 @@ interface DesktopServiceRuntime {
   /** The daemon's off-thread child runner. Optional: with an older daemon
    *  git children are spawned on the service's own thread. */
   loadProcessRunner?(): Promise<{ runProcessOffThread: GitProcessRunner }>;
+  /** The daemon's per-origin system proxy. Optional: an older daemon has none. */
+  loadSystemProxy?(): Promise<SystemProxyModule>;
   executeCodeGraphTool(name: string, args: Record<string, unknown>, cwd: string): Promise<unknown>;
 }
 
@@ -224,7 +234,7 @@ export async function registerWorktreeTerminalReleaser(
   };
 }
 
-type WindowRequestMethod = BrowserRemoteMethod | RemoteHostRequestMethod;
+type WindowRequestMethod = BrowserRemoteMethod | RemoteHostRequestMethod | 'resolveProxy';
 
 /** Desktop Browser Use, the OS trash and the updater run in the window process:
  *  a remote request travels out as an event and its answer returns as an
@@ -844,6 +854,8 @@ function createServiceOperationRouter({
   windowRequests,
   publishDesktopEvent,
   transportPeers,
+  systemProxy,
+  systemProxyRequests,
 }: {
   remote: RemoteAccess;
   modelProxy: ReturnType<typeof getModelProxyChannel> | null;
@@ -853,6 +865,8 @@ function createServiceOperationRouter({
   windowRequests: WindowRequests;
   publishDesktopEvent(name: string, value: unknown): void;
   transportPeers: RemoteTransportPeerService;
+  systemProxy: ReturnType<typeof createSystemProxyLease>;
+  systemProxyRequests: WindowRequests;
 }) {
   return async (operation: string, operationArgs: unknown[]): Promise<unknown> => {
     if (modelProxy?.handlesOperation(operation)) return modelProxy.handleOperation(operation, operationArgs);
@@ -960,6 +974,17 @@ function createServiceOperationRouter({
           operationArgs[2],
           operationArgs[3]
         );
+      // This PC's app (the local connection only) answers the daemon's proxy
+      // lookups; the session service adds the caller's client epoch.
+      case SYSTEM_PROXY_ATTACH_OPERATION:
+        return systemProxy.attach(Number(operationArgs[0]));
+      case SYSTEM_PROXY_RESOLVED_OPERATION:
+        return systemProxyRequests.settle(
+          String(operationArgs[0] || ''),
+          operationArgs[1] === true,
+          operationArgs[2],
+          operationArgs[3]
+        );
       default:
         return operations.invoke(operation, operationArgs);
     }
@@ -1036,6 +1061,13 @@ export async function createDesktopService({
   const browserRemoteRequests = createBrowserRemoteRequests((request) =>
     publishDesktopEvent('browser-remote-request', request)
   );
+  const systemProxyRequests = createBrowserRemoteRequests((request) =>
+    publishDesktopEvent(SYSTEM_PROXY_REQUEST_EVENT, request)
+  );
+  const systemProxy = createSystemProxyLease(
+    () => runtime.loadSystemProxy?.(),
+    (origin) => systemProxyRequests.request('resolveProxy', [origin], SYSTEM_PROXY_RESOLVE_TIMEOUT_MS)
+  );
   // The window's agent `visualize` tabs, mirrored for paired remote clients.
   const visualizeMirror = createRemoteVisualizeMirror();
   // Remote mode only: this daemon's model calls run on the connected PC. The
@@ -1093,6 +1125,8 @@ export async function createDesktopService({
     windowRequests: browserRemoteRequests,
     publishDesktopEvent,
     transportPeers,
+    systemProxy,
+    systemProxyRequests,
   });
   return {
     get clientCount() {
@@ -1136,6 +1170,7 @@ export async function createDesktopService({
       // A client left: if it was the app hosting the peer window, its
       // unanswered probe fails the direct carriers back to the relay.
       transportPeers.standIn.clientReleased();
+      systemProxy.release(epoch);
       return stateSync.releaseClient(epoch);
     },
     async dispose(): Promise<void> {
@@ -1145,6 +1180,8 @@ export async function createDesktopService({
       stateSync.dispose();
       desktopEvents.clear();
       browserRemoteRequests.rejectAll('Desktop service is closing.');
+      systemProxy.dispose();
+      systemProxyRequests.rejectAll('Desktop service is closing.');
       transportPeers.standIn.dispose();
       detachModelProxy?.();
       stopUploadSweeps();

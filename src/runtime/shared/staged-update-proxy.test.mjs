@@ -16,7 +16,10 @@ mock.module('node:child_process', {
     spawn: (command, args, options) => {
       spawned.push({ command, args, options });
       const child = new FakeChild();
-      queueMicrotask(() => child.emit('exit', 1));
+      queueMicrotask(() => {
+        child.emit('exit', 1);
+        child.emit('close', 1);
+      });
       return child;
     },
   },
@@ -24,7 +27,7 @@ mock.module('node:child_process', {
 
 const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-staged-proxy-'));
 process.env.MIXDOG_DATA_DIR = dataDir;
-const { adoptSystemProxy, HANDOFF_VAR } = await import('./llm/system-proxy.mjs');
+const { adoptSystemProxy, attachSystemProxyResolver, HANDOFF_VAR } = await import('./llm/system-proxy.mjs');
 const { runStagedInstall, spawnStagedInstall } = await import('./staged-update.mjs');
 const { buildShellSpawnEnv } = await import('../agent/orchestrator/tools/builtin/bash-tool/spawn-env.mjs');
 
@@ -56,13 +59,15 @@ test('update children get the system proxy privately and agent shells still do n
   });
   for (const name of PROXY_VARS) assert.equal(worker.options.env[name], undefined, name);
 
-  // npm: its own settings, scoped to that one spawn, and no handoff.
+  // npm: its registry's route as its own settings, scoped to that one spawn,
+  // and no handoff. npm is asked for its registry (here it cannot say).
   await runStagedInstall('9.9.8');
+  assert.ok(spawned.some((call) => call.args.slice(1).join(' ') === 'config get registry'));
   const npm = spawned.find((call) => call.args.includes('install'));
   assert.equal(npm.options.env.npm_config_https_proxy, 'http://127.0.0.1:7890');
   assert.equal(npm.options.env.npm_config_proxy, 'http://127.0.0.1:7890');
   const noproxy = npm.options.env.npm_config_noproxy.split(',');
-  for (const entry of ['localhost', '127.0.0.1', 'exact.test', '.corp.test']) assert.ok(noproxy.includes(entry), entry);
+  for (const entry of ['localhost', '127.0.0.1', '::1', '.local']) assert.ok(noproxy.includes(entry), entry);
   for (const name of [...PROXY_VARS, HANDOFF_VAR]) assert.equal(npm.options.env[name], undefined, name);
 
   // This process's env, and so an agent shell's, stays untouched.
@@ -71,6 +76,23 @@ test('update children get the system proxy privately and agent shells still do n
   for (const name of [...PROXY_VARS, HANDOFF_VAR, ...NPM_PROXY_VARS]) {
     assert.equal(shellEnv[name], undefined, name);
   }
+});
+
+test('with the desktop attached, npm follows Chromium’s answer for its registry, asked once', async (t) => {
+  t.after(() => adoptSystemProxy({}, { platform: 'linux' }));
+  adoptSystemProxy({}, { platform: 'darwin', apply: () => {} });
+  const asked = [];
+  attachSystemProxyResolver(async (origin) => {
+    asked.push(origin);
+    return origin === 'https://registry.npmjs.org' ? 'PROXY npm-proxy.corp:8080' : 'DIRECT';
+  });
+  spawned.length = 0;
+  await runStagedInstall('9.9.6');
+  await runStagedInstall('9.9.5');
+  const installs = spawned.filter((call) => call.args.includes('install'));
+  assert.equal(installs.length, 2);
+  for (const npm of installs) assert.equal(npm.options.env.npm_config_https_proxy, 'http://npm-proxy.corp:8080');
+  assert.deepEqual(asked, ['https://registry.npmjs.org']);
 });
 
 test('with no system proxy decision the update children get nothing extra', async () => {

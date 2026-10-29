@@ -69,7 +69,12 @@ import { createBackgroundWindow } from './background-window';
 import { createDesktopTray, type DesktopTray } from './desktop-tray';
 import { createDesktopQuitSequence, DESKTOP_DAEMON_STOP_TIMEOUT_MS } from './quit-sequence';
 import { loginShellOverrides, readLoginShellEnvironment, withHomebrewPath } from './login-shell-environment';
-import { systemProxyEnv } from './system-proxy';
+import {
+  answerSystemProxyRequest,
+  SYSTEM_PROXY_ATTACH_OPERATION,
+  SYSTEM_PROXY_REQUEST_EVENT,
+  SYSTEM_PROXY_RESOLVED_OPERATION,
+} from './system-proxy';
 import { createTurnAttention, type TurnAttention } from './turn-attention';
 import { createDesktopTurnNotifier } from './desktop-turn-notifier';
 import { isSessionOnScreen } from './screen-sessions';
@@ -526,9 +531,6 @@ async function runWithHostSettings<T>(hostId: string, run: () => Promise<T>): Pr
 const connectionDependencies: DesktopConnectionDependencies = {
   moduleUrl: desktopServiceModuleUrl,
   environmentReady: () => loginShellEnvironmentReady,
-  // The daemon's fetch follows the OS proxy the browser uses (asked per fork).
-  daemonSpawnEnv: (log) =>
-    systemProxyEnv((url) => session.defaultSession.resolveProxy(url), log, { ready: app.whenReady() }),
   sessionOptions: () => ({
     userDataPath: app.getPath('userData'),
     packaged: app.isPackaged,
@@ -603,6 +605,12 @@ const connectionDependencies: DesktopConnectionDependencies = {
           message: error instanceof Error ? error.message : String(error),
         });
       });
+      // This PC's daemon routes each origin by the OS proxy the browser uses;
+      // a server's daemon never asks this PC (its network is not this one).
+      void app
+        .whenReady()
+        .then(() => localService.invokeDesktopOperation(SYSTEM_PROXY_ATTACH_OPERATION, []))
+        .catch(() => undefined);
     }
     // The FIRST attachment belongs to the deferred scheduler, so no early
     // interaction pays for relay startup. Every later one follows a daemon
@@ -1174,6 +1182,14 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
       // A session's secrets are redacted for its lifetime, then forgotten.
       if (event.restore !== true) secretInputs.forget(event.sessionId);
     }
+    return;
+  }
+  if (name === SYSTEM_PROXY_REQUEST_EVENT) {
+    void answerSystemProxyRequest(
+      value,
+      (url) => session.defaultSession.resolveProxy(url),
+      (args) => localService.invokeDesktopOperation(SYSTEM_PROXY_RESOLVED_OPERATION, args)
+    );
     return;
   }
   if (name === 'browser-remote-request') {

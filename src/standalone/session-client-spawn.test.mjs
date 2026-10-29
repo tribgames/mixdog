@@ -86,7 +86,7 @@ test('the session launcher records the daemon exit and mirrors boot stderr once'
 });
 
 /** Fork the stub daemon from a launcher with `env`; the proxy-related env it saw. */
-async function probeDaemonEnv(t, { env: launcherEnv = {}, spawnEnv = null } = {}) {
+async function probeDaemonEnv(t, { env: launcherEnv = {} } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-session-spawn-proxy-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const keys = [
@@ -139,23 +139,12 @@ setTimeout(() => process.exit(0), 150);
     log: (line) => {
       if (line.startsWith('daemon exit ')) exited.resolve();
     },
-    spawnEnv,
   });
   // The launcher unrefs the stub after ready: a timer keeps this test alive.
   const timeout = new AbortController();
   await Promise.race([exited.promise, delay(20_000, null, { signal: timeout.signal })]).finally(() => timeout.abort());
   return JSON.parse(readFileSync(out, 'utf8'));
 }
-
-const DESKTOP_HANDOFF = JSON.stringify({ proxy: { https: 'http://127.0.0.1:7890', http: 'http://127.0.0.1:7890' } });
-
-test('a system proxy resolved for a desktop fork reaches the daemon only as the private handoff', async (t) => {
-  const env = await probeDaemonEnv(t, { spawnEnv: async () => ({ [HANDOFF_VAR]: DESKTOP_HANDOFF }) });
-  assert.equal(env[HANDOFF_VAR], DESKTOP_HANDOFF);
-  for (const name of ['HTTPS_PROXY', 'HTTP_PROXY', 'NO_PROXY', 'NODE_USE_ENV_PROXY', 'MIXDOG_SYSTEM_PROXY']) {
-    assert.equal(env[name], undefined, name);
-  }
-});
 
 test('the system proxy a CLI settled reaches the daemon it starts as the private handoff', async (t) => {
   adoptSystemProxy(

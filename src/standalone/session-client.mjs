@@ -332,17 +332,14 @@ async function replaceLowerDaemon(discovery, initialHealth, { log, onUpgradeWait
  *  global) and resolve when it reports ready OR exits (race loss/crash); the
  *  caller then re-reads discovery and attaches to whoever won. The shared fork
  *  and crash capture live in ./daemon-candidate.mjs.
- *  `entry` is a test seam; production always forks the real daemon.
- *  `spawnEnv` (optional, async) supplies variables for this fork only, read
- *  at fork time: the desktop's system proxy. */
+ *  `entry` is a test seam; production always forks the real daemon. */
 // Daemons this process forked into its own process tree (daemonShouldDetach
 // false: the packaged Windows Desktop). Such a child is killed with its
 // launcher (libuv's kill-on-close job), which skips its whole teardown —
 // PostgreSQL stop included — so the launcher's quit stops it first.
 const inTreeDaemons = new Map();
 
-export async function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000, entry = daemonEntry(), spawnEnv = null }) {
-  const extraEnv = spawnEnv ? await spawnEnv() : null;
+export async function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000, entry = daemonEntry() }) {
   const t0 = performance.now();
   const at = () => Math.round(performance.now() - t0);
   const detached = daemonShouldDetach();
@@ -357,10 +354,9 @@ export async function spawnDaemonCandidate({ cwd, log, timeoutMs = 30_000, entry
     detached,
     env: {
       ...process.env,
-      // The system proxy this launcher settled (the CLI), then the one the
-      // desktop passes for this fork; neither is standard proxy env.
+      // The fallback system proxy this launcher settled (the CLI), not as
+      // standard proxy env; a desktop is asked per origin once attached.
       ...systemProxyHandoffEnv(),
-      ...extraEnv,
       ELECTRON_RUN_AS_NODE: '1',
       MIXDOG_DAEMON_HOST: '1',
       MIXDOG_RUNTIME_ROOT: resolveRuntimeRoot(),
@@ -396,7 +392,6 @@ export async function ensureDaemon({
   onUpgradeWait = null,
   entry = daemonEntry(),
   proveOwner = proveDaemonOwnerRecord,
-  spawnEnv = null,
 } = {}) {
   const configuredTimeoutMs = Number(process.env.MIXDOG_DAEMON_READY_TIMEOUT_MS);
   let requestedTimeoutMs = DEFAULT_DAEMON_READY_TIMEOUT_MS;
@@ -507,7 +502,6 @@ export async function ensureDaemon({
       log,
       timeoutMs: Math.max(1, deadline - Date.now()),
       entry,
-      spawnEnv,
     });
   }
   throw daemonUnavailableError({

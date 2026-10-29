@@ -4,6 +4,7 @@ import { sanitizeForWire } from './session-wire-values.mjs';
 import { annotateSpan } from '../runtime/shared/slow-span.mjs';
 import { modelProxyClientMode } from '../runtime/shared/model-proxy-mode.mjs';
 import { getModelProxyChannel } from '../runtime/agent/orchestrator/providers/model-proxy-channel.mjs';
+import { SYSTEM_PROXY_REQUEST_EVENT } from '../runtime/shared/llm/system-proxy.mjs';
 
 const requireDesktopModule = createRequire(import.meta.url);
 
@@ -40,6 +41,8 @@ function desktopEventKey(desktopId, message) {
     let terminalId = '';
     if (name === 'terminal-data') terminalId = String(message?.value?.id || '');
     else if (name === 'session-runtime-released') terminalId = String(message?.value?.sessionId || '');
+    // Each lookup waits for its own answer: a backed-up stream must not drop one.
+    else if (name === SYSTEM_PROXY_REQUEST_EVENT) terminalId = String(message?.value?.id || '');
     return `desktop-event:${desktopId}:${kind}:${name}${terminalId ? `:${terminalId}` : ''}`;
   }
   return `desktop-event:${desktopId}:${kind}`;
@@ -235,6 +238,12 @@ export class DesktopServiceRegistry {
         throw new Error('desktop service client is not initialized');
       }
       callArgs = [callArgs[0], callArgs[1], epoch];
+    }
+    // The resolver stays attached while this client is: its epoch is released with it.
+    if (name === 'invokeDesktopOperation' && callArgs[0] === 'systemProxyAttach') {
+      const epoch = token ? service.visibilityEpochs.get(token) : undefined;
+      if (epoch === undefined) throw new Error('desktop service client is not initialized');
+      callArgs = ['systemProxyAttach', [epoch]];
     }
     // `[slow-op] desktop.invoke` names the call it timed: a desktop operation
     // (Git reads) or a session capability, not only the generic route.

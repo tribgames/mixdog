@@ -85,8 +85,6 @@ export interface DesktopConnectionDependencies {
   moduleUrl(): string;
   /** Settles once this process's environment is final (local daemon spawn). */
   environmentReady(): Promise<unknown>;
-  /** Extra variables for a local daemon fork (the system proxy). */
-  daemonSpawnEnv?(log: (line: string) => void): Promise<Record<string, string>>;
   sessionOptions(): SerializableDesktopServiceOptions;
   loadModelProxyRuntime(): Promise<ModelProxyRuntime>;
   appVersion: string;
@@ -318,8 +316,7 @@ function createServiceClient({
         process.cwd(),
         null,
         deps.environmentReady(),
-        binding?.connector ?? null,
-        deps.daemonSpawnEnv?.bind(deps) ?? null
+        binding?.connector ?? null
       );
       return live.transport;
     },

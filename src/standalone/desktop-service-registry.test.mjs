@@ -173,6 +173,36 @@ test('concurrent registry disposal calls wait for the same adapter cleanup', asy
   }
 });
 
+test('a proxy resolver attach carries its client’s epoch, released with that client', async (t) => {
+  const invoked = [];
+  const released = [];
+  let emit;
+  const f = fixture(t, (params) => {
+    emit = params.emit;
+    return {
+      invoke: async (method, args) => invoked.push([method, args]),
+      control: async () => {},
+      dispose: async () => {},
+      releaseClient: async (epoch) => released.push(epoch),
+    };
+  });
+  const call = { desktopId: 'desktop_proxy', method: 'invokeDesktopOperation', args: ['systemProxyAttach', []] };
+  await f.registry.init({ desktopId: 'desktop_proxy', moduleUrl }, { clientToken: 'first' });
+  await f.registry.init({ desktopId: 'desktop_proxy', moduleUrl }, { clientToken: 'second' });
+  await f.registry.invoke(call, { clientToken: 'second' });
+  assert.deepEqual(invoked, [['invokeDesktopOperation', ['systemProxyAttach', [2]]]]);
+  await assert.rejects(f.registry.invoke(call, { clientToken: 'stranger' }), /not initialized/);
+  f.registry.releaseClient('second');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(released, [2]);
+
+  // Each lookup has its own lane: a backed-up stream keeps every one.
+  for (const id of ['browser_remote_1', 'browser_remote_2']) {
+    emit({ kind: 'desktop-event', name: 'system-proxy-request', value: { id, args: ['https://a.test'] } });
+  }
+  assert.equal(new Set(f.frames.map((frame) => frame.key)).size, 2);
+});
+
 test('the registered adapter keeps publishing its own events and client-count changes', async (t) => {
   let emit;
   let clientChanged;

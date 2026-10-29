@@ -223,6 +223,38 @@ function releaseStagingLock(verDir) {
   }
 }
 
+const DEFAULT_NPM_REGISTRY = 'https://registry.npmjs.org/';
+
+/** The registry npm installs from (its .npmrc files included); npm's default when npm cannot say. */
+function npmRegistry(cliJs) {
+  return new Promise((resolve) => {
+    let out = '';
+    let child;
+    try {
+      child = spawn(process.execPath, [cliJs, 'config', 'get', 'registry'], {
+        stdio: ['ignore', 'pipe', 'ignore'],
+        shell: false,
+        timeout: 10_000,
+        ...hiddenSpawnOpts,
+      });
+    } catch {
+      resolve(DEFAULT_NPM_REGISTRY);
+      return;
+    }
+    child.stdout?.on('data', (chunk) => {
+      out += chunk;
+    });
+    child.once('error', () => resolve(DEFAULT_NPM_REGISTRY));
+    child.once('close', (code) => {
+      try {
+        resolve(code === 0 ? new URL(out.trim()).href : DEFAULT_NPM_REGISTRY);
+      } catch {
+        resolve(DEFAULT_NPM_REGISTRY);
+      }
+    });
+  });
+}
+
 /**
  * runStagedInstall(version) — perform the full staging install for one version
  * into ~/.mixdog/data/staging/<version>. Runs to completion (awaits the npm
@@ -260,14 +292,15 @@ export async function runStagedInstall(version) {
     // shell spawn (AV constraint — no shell spawns).
     const cliJs = npmCliJsPath();
     if (!cliJs) return { ok: false, error: 'npm-cli.js unresolved — staging skipped' };
+    // The system proxy of npm's registry, as npm's own settings for this one install.
+    const npmProxyEnv = await systemProxyNpmEnv(() => npmRegistry(cliJs));
     const code = await new Promise((res) => {
       let child;
       try {
         child = spawn(process.execPath, [cliJs, ...installArgs], {
           stdio: 'ignore',
           shell: false,
-          // The system proxy, as npm's own settings for this one install.
-          env: { ...process.env, ...systemProxyNpmEnv() },
+          env: { ...process.env, ...npmProxyEnv },
           ...hiddenSpawnOpts,
         });
       } catch {

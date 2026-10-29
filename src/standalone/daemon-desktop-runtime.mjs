@@ -66,6 +66,8 @@ export function createDesktopRuntime({ getLocalSessionBridge }) {
     loadDocumentPreview: () => import('../runtime/office/pdf/document-preview.mjs'),
     // The desktop service's git children start on this worker, off the loop.
     loadProcessRunner: () => import('../runtime/shared/process-runner.mjs'),
+    // The desktop app on this PC answers this daemon's per-origin proxy lookups.
+    loadSystemProxy: () => import('../runtime/shared/llm/system-proxy.mjs'),
     async executeCodeGraphTool(name, args, cwd) {
       const graph = await import('../runtime/agent/orchestrator/tools/code-graph/dispatch.mjs');
       return graph.executeCodeGraphTool(name, args, cwd);

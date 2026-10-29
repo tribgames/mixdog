@@ -31,6 +31,8 @@ function undici() {
 
 let _agent = null;
 let _globalInstalled = false;
+/** The system-proxy router (adoptPrivateProxy), installed as the global dispatcher. */
+let _router = null;
 
 function envInt(name, fallback) {
   const raw = process.env[name];
@@ -62,6 +64,8 @@ function proxyConfigured() {
   if (env.NODE_USE_ENV_PROXY) return true;
   try {
     const g = undici().getGlobalDispatcher?.();
+    // Our own router sends its direct origins to the shared pool below.
+    if (_router && g === _router) return false;
     // Any non-default global dispatcher (constructor name other than the plain
     // `Agent` undici installs by default) is treated as custom — ProxyAgent,
     // EnvHttpProxyAgent, MockAgent, or a user subclass — and we step aside.
@@ -112,7 +116,7 @@ function localAddresses() {
   return _localAddresses;
 }
 
-function normalizeHost(hostname) {
+export function normalizeHost(hostname) {
   return String(hostname)
     .replace(/^\[(.*)\]$/, '$1')
     .replace(/\.$/, '')
@@ -145,24 +149,18 @@ export function withEnvProxy(env) {
 /**
  * The global dispatcher under a proxy: local and LAN hosts (isLocalHost, which
  * includes every dotless name) connect directly, every other host follows the
- * proxy variables and NO_PROXY. `bypass` ({ hosts, suffixes }: exact hosts and
- * `*.suffix` domains) adds hosts that also connect directly. `direct` and
- * `proxied` replace the two inner dispatchers (tests, and the private proxy of
- * adoptPrivateProxy).
+ * proxy variables and NO_PROXY. `direct` and `proxied` replace the two inner
+ * dispatchers (tests).
  */
-export function createProxyDispatcher({ direct = null, proxied = null, bypass = null } = {}) {
+export function createProxyDispatcher({ direct = null, proxied = null } = {}) {
   const { Agent, Dispatcher, EnvHttpProxyAgent } = undici();
-  const bypassHosts = new Set(bypass?.hosts ?? []);
-  const bypassSuffixes = bypass?.suffixes ?? [];
-  const bypassed = (host) => bypassHosts.has(host) || bypassSuffixes.some((suffix) => host.endsWith(`.${suffix}`));
   class LocalBypassProxyAgent extends Dispatcher {
     #direct = direct ?? new Agent();
     #proxied = proxied ?? new EnvHttpProxyAgent();
 
     dispatch(opts, handler) {
       const { hostname } = new URL(opts.origin);
-      const target = isLocalHost(hostname) || bypassed(normalizeHost(hostname)) ? this.#direct : this.#proxied;
-      return target.dispatch(opts, handler);
+      return (isLocalHost(hostname) ? this.#direct : this.#proxied).dispatch(opts, handler);
     }
 
     async close() {
@@ -194,19 +192,184 @@ export function adoptEnvProxy(env = process.env) {
   return true;
 }
 
+/** A request the router could not hand to a leg fails through its handler. */
+function failDispatch(handler, error) {
+  if (typeof handler.onResponseError === 'function') handler.onResponseError(null, error);
+  else handler.onError?.(error);
+}
+
+const RESPONSE_CALLBACKS = ['onRequestUpgrade', 'onResponseStart', 'onResponseData', 'onResponseEnd', 'onResponseError'];
+
 /**
- * Route this process's fetch through a proxy that came from the OS rather than
- * from the user's environment (system-proxy.mjs). It lives in the dispatcher
- * only: no proxy variable is written, so shells, tools and other CLIs this
- * process spawns see none. `proxy` is `{ https, http? }` (a missing scheme goes
- * direct), `bypass` as in createProxyDispatcher. No-op once a proxy is adopted.
+ * Start a request whose leg is not known yet: its handler gets a controller at
+ * once, so an abort while the route is looked up settles it right away instead
+ * of when the lookup answers. Returns the handler to give the leg (which binds
+ * the controller to the real request), or null once aborted. Legacy handlers
+ * (no onRequestStart) start with the leg as before.
  */
-export function adoptPrivateProxy({ https, http = '' }, bypass = null) {
+function startDeferred(handler) {
+  if (typeof handler.onRequestStart !== 'function') return () => handler;
+  let inner = null;
+  let reason = null;
+  const controller = {
+    get aborted() {
+      return inner ? inner.aborted : reason !== null;
+    },
+    get paused() {
+      return inner?.paused ?? false;
+    },
+    get reason() {
+      return inner ? inner.reason : reason;
+    },
+    get rawHeaders() {
+      return inner?.rawHeaders;
+    },
+    get rawTrailers() {
+      return inner?.rawTrailers;
+    },
+    abort(cause) {
+      if (inner) return inner.abort(cause);
+      if (reason !== null) return;
+      reason = cause ?? new (undici().errors.RequestAbortedError)();
+      handler.onResponseError?.(controller, reason);
+    },
+    pause() {
+      inner?.pause();
+    },
+    resume() {
+      inner?.resume();
+    },
+  };
+  handler.onRequestStart(controller, {});
+  const forwarded = {
+    onRequestStart(real) {
+      inner = real;
+    },
+  };
+  for (const name of RESPONSE_CALLBACKS) {
+    if (typeof handler[name] === 'function') forwarded[name] = (...args) => handler[name](...args);
+  }
+  return () => (reason === null ? forwarded : null);
+}
+
+/**
+ * A dispatcher that routes each origin on its own: local and LAN hosts connect
+ * directly without asking, every other origin by `route(origin)` — `{ proxy }`
+ * (a proxy URL, or null for direct), or a promise of one, which the request
+ * waits for. A request aborted meanwhile settles at once and is never sent.
+ * `direct()` gives the direct leg (read per request: the pool can be replaced),
+ * `proxied(uri)` builds the leg of one proxy, kept for reuse.
+ */
+export function createRoutedProxyDispatcher({
+  route,
+  direct = null,
+  proxied = (uri) => new (undici().ProxyAgent)({ uri }),
+}) {
+  const { Agent, Dispatcher } = undici();
+  let ownDirect = null;
+  const directLeg = direct ?? (() => (ownDirect ??= new Agent()));
+  class SystemProxyRouter extends Dispatcher {
+    #proxied = new Map();
+
+    #leg(decision) {
+      const uri = decision?.proxy;
+      if (!uri) return directLeg();
+      let leg = this.#proxied.get(uri);
+      if (!leg) {
+        leg = proxied(uri);
+        this.#proxied.set(uri, leg);
+      }
+      return leg;
+    }
+
+    dispatch(opts, handler) {
+      const url = new URL(opts.origin);
+      const decided = isLocalHost(url.hostname) ? null : route(url.origin);
+      if (typeof decided?.then !== 'function') return this.#leg(decided).dispatch(opts, handler);
+      const started = startDeferred(handler);
+      decided
+        .then(
+          (decision) => decision,
+          () => null
+        )
+        .then((decision) => {
+          const legHandler = started();
+          if (!legHandler) return;
+          try {
+            this.#leg(decision).dispatch(opts, legHandler);
+          } catch (error) {
+            failDispatch(legHandler, error);
+          }
+        });
+      return true;
+    }
+
+    async close() {
+      await Promise.all([directLeg().close(), ...[...this.#proxied.values()].map((leg) => leg.close())]);
+    }
+
+    async destroy(error) {
+      await Promise.all([
+        directLeg().destroy(error),
+        ...[...this.#proxied.values()].map((leg) => leg.destroy(error)),
+      ]);
+    }
+  }
+  return new SystemProxyRouter();
+}
+
+/**
+ * Route this process's fetch per origin by a proxy decision that came from the
+ * OS rather than from the user's environment (system-proxy.mjs): `route` as in
+ * createRoutedProxyDispatcher. It lives in the dispatcher only: no proxy
+ * variable is written, so shells, tools and other CLIs this process spawns see
+ * none. Direct origins use the shared LLM pool and every proxy leg its
+ * settings. No-op once a proxy is adopted.
+ */
+export function adoptPrivateProxy(route) {
   if (_envProxyAdopted) return false;
-  const proxied = new (undici().EnvHttpProxyAgent)({ httpProxy: http, httpsProxy: https, noProxy: '' });
-  undici().setGlobalDispatcher(createProxyDispatcher({ proxied, bypass }));
+  const router = createRoutedProxyDispatcher({
+    route,
+    direct: llmAgent,
+    proxied: (uri) => new (undici().ProxyAgent)({ ...llmAgentOptions(), uri }),
+  });
+  undici().setGlobalDispatcher(router);
+  _router = router;
   _envProxyAdopted = true;
   return true;
+}
+
+function llmAgentOptions() {
+  return {
+    keepAliveTimeout: envInt('MIXDOG_LLM_KEEPALIVE_MS', 60_000),
+    keepAliveMaxTimeout: envInt('MIXDOG_LLM_KEEPALIVE_MAX_MS', 90_000),
+    // No per-origin socket cap by default: each streaming (SSE) response
+    // holds its HTTP/1.1 socket for the whole generation, so a cap of N
+    // queued the (N+1)th concurrent agent until another finished. Rate
+    // limiting is the server's call (429 → admission cooldown).
+    connections: envInt('MIXDOG_LLM_CONNECTIONS', null),
+    // undici defaults both of these to 300s, which beheaded the Anthropic
+    // NON-STREAMING stall fallback (2026-08-03 regex-chess probe:
+    // UND_ERR_HEADERS_TIMEOUT at exactly 300s) — a non-streaming completion
+    // sends NO response headers until generation finishes, so a long silent
+    // generation legitimately exceeds 300s of header wait. Raise both to
+    // 600s: first-byte/idle protection is owned by the app-level watchdogs
+    // (provider first-byte + semantic idle + agent stall abort), which all
+    // fire below this transport ceiling; this layer is only the last-resort
+    // dead-socket bound.
+    headersTimeout: envInt('MIXDOG_LLM_HEADERS_TIMEOUT_MS', 600_000),
+    bodyTimeout: envInt('MIXDOG_LLM_BODY_TIMEOUT_MS', 600_000),
+  };
+}
+
+/** The shared LLM pool, created again once closed or destroyed. */
+function llmAgent() {
+  if (_agent?.destroyed || _agent?.closed) {
+    _agent = null;
+    _globalInstalled = false;
+  }
+  _agent ??= new (undici().Agent)(llmAgentOptions());
+  return _agent;
 }
 
 /**
@@ -219,36 +382,12 @@ export function adoptPrivateProxy({ https, http = '' }, bypass = null) {
  * Returns `undefined` when a proxy / any custom (non-default) global dispatcher
  * is configured, so `fetch({ dispatcher: undefined })` falls back to that
  * global dispatcher instead of bypassing it. `dispatcher: undefined` is a
- * harmless fetch option, so call sites need no change.
+ * harmless fetch option, so call sites need no change. Under the system-proxy
+ * router (the global dispatcher) the pool is its direct leg.
  */
 export function getLlmDispatcher() {
-  if (proxyConfigured()) return undefined;
-  if (_agent?.destroyed || _agent?.closed) {
-    _agent = null;
-    _globalInstalled = false;
-  }
-  if (!_agent) {
-    _agent = new (undici().Agent)({
-      keepAliveTimeout: envInt('MIXDOG_LLM_KEEPALIVE_MS', 60_000),
-      keepAliveMaxTimeout: envInt('MIXDOG_LLM_KEEPALIVE_MAX_MS', 90_000),
-      // No per-origin socket cap by default: each streaming (SSE) response
-      // holds its HTTP/1.1 socket for the whole generation, so a cap of N
-      // queued the (N+1)th concurrent agent until another finished. Rate
-      // limiting is the server's call (429 → admission cooldown).
-      connections: envInt('MIXDOG_LLM_CONNECTIONS', null),
-      // undici defaults both of these to 300s, which beheaded the Anthropic
-      // NON-STREAMING stall fallback (2026-08-03 regex-chess probe:
-      // UND_ERR_HEADERS_TIMEOUT at exactly 300s) — a non-streaming completion
-      // sends NO response headers until generation finishes, so a long silent
-      // generation legitimately exceeds 300s of header wait. Raise both to
-      // 600s: first-byte/idle protection is owned by the app-level watchdogs
-      // (provider first-byte + semantic idle + agent stall abort), which all
-      // fire below this transport ceiling; this layer is only the last-resort
-      // dead-socket bound.
-      headersTimeout: envInt('MIXDOG_LLM_HEADERS_TIMEOUT_MS', 600_000),
-      bodyTimeout: envInt('MIXDOG_LLM_BODY_TIMEOUT_MS', 600_000),
-    });
-  }
+  if (proxyConfigured() || _router) return undefined;
+  llmAgent();
   // mixdog standalone: separate undici instance from Node's fetch undici, so
   // a per-request dispatcher throws UND_ERR_INVALID_ARG. Install globally once
   // and omit the per-request dispatcher. See port-plan D7.
@@ -276,6 +415,13 @@ export function recycleLlmDispatcher() {
   _agent = null;
   _globalInstalled = false;
   _preconnectedAt.clear();
+  // The router asks for the pool per request, so the next one gets a new pool.
+  if (_router) {
+    try {
+      old.close().catch(() => {});
+    } catch {}
+    return true;
+  }
   getLlmDispatcher();
   if (undici().getGlobalDispatcher() !== _agent) {
     const unused = _agent;

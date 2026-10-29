@@ -1,14 +1,21 @@
 /**
- * The OS static proxy (the one Clash or Windows Settings writes) for Mixdog's
- * own network stack, which Node does not make follow it by itself.
+ * The OS proxy for Mixdog's own network stack, which Node does not make follow
+ * it by itself, decided per origin.
+ *
+ * While a desktop app is attached (attachSystemProxyResolver, from the desktop
+ * service this daemon hosts), each origin is routed by Chromium's answer for
+ * it — PAC, WPAD, OS exceptions and DIRECT alike — asked once per origin,
+ * cached, and bounded: a lookup that fails or is slow goes DIRECT. Without one
+ * the fallback decision applies: the OS static proxy (the one Clash or Windows
+ * Settings writes) with its exact bypass rules, or DIRECT.
  *
  * A proxy that came from the OS is Mixdog's private state, never environment:
  * no HTTPS_PROXY / HTTP_PROXY / NO_PROXY / NODE_USE_ENV_PROXY is written, so the
  * shells, tools and CLIs Mixdog spawns do not inherit it. It is applied to the
- * global fetch dispatcher (http-agent.mjs adoptPrivateProxy) together with its
- * exact bypass rules, and reaches Mixdog's own daemon and workers through one
- * explicit handoff variable that the receiver reads and removes at startup.
- * Proxy variables the user set keep their usual behaviour and win outright.
+ * global fetch dispatcher (http-agent.mjs adoptPrivateProxy), and the fallback
+ * decision reaches Mixdog's own daemon and workers through one explicit
+ * handoff variable that the receiver reads and removes at startup. Proxy
+ * variables the user set keep their usual behaviour and win outright.
  *
  * Windows discovery reads the registry once at startup. The proxy is used only
  * when the registry answer is exactly representable: a PAC script
@@ -21,7 +28,7 @@
 import { execFileSync } from 'node:child_process';
 import { isIP } from 'node:net';
 import { join } from 'node:path';
-import { adoptPrivateProxy, isLocalHost } from './http-agent.mjs';
+import { adoptPrivateProxy, isLocalHost, normalizeHost } from './http-agent.mjs';
 
 const INTERNET_SETTINGS_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
 const USER_PROXY_VARS = [
@@ -39,9 +46,28 @@ const USER_PROXY_VARS = [
  * adoptSystemProxy, so nothing downstream of that process ever sees it.
  */
 export const HANDOFF_VAR = 'MIXDOG_SYSTEM_PROXY_HANDOFF';
+/** Must match SYSTEM_PROXY_REQUEST_EVENT in apps/desktop/src/main/system-proxy.ts. */
+export const SYSTEM_PROXY_REQUEST_EVENT = 'system-proxy-request';
+const RESOLVE_TIMEOUT_MS = 3_000;
+const ROUTE_TTL_MS = 5 * 60_000;
+// A failed lookup is asked again sooner, but not on every request of a burst.
+const FAILED_ROUTE_TTL_MS = 30_000;
+const DIRECT = Object.freeze({ proxy: null });
 
-/** The decision this process acted on, or null when it made none. */
+/** The fallback decision this process holds, or null when it made none. */
 let active = null;
+/** Installs this process's router; null when the user's variables or MIXDOG_SYSTEM_PROXY=0 decide. */
+let installRouting = null;
+let routingInstalled = false;
+let log = (line) => process.stderr.write(`${line}\n`);
+/** Attached resolvers, newest last; the newest answers. */
+const resolvers = [];
+/** origin → { route, expiresAt } */
+const routes = new Map();
+/** origin → the in-flight lookup */
+const lookups = new Map();
+let socksReported = false;
+let failureReported = false;
 
 /** The rows of `reg query <key>` output as a name → data map; null when the query failed. */
 function queryRegistryKey(key) {
@@ -238,26 +264,138 @@ function discover(reader, log) {
 }
 
 /**
- * Settle this process's system-proxy decision and apply it to its own fetch.
- * A handoff from the launching Mixdog process (always removed from `env`) is
- * the decision; without one, Windows reads the registry. Nothing happens, and
- * nothing is handed on, when the user set a proxy variable or
- * MIXDOG_SYSTEM_PROXY=0 (which also disables discovery). Returns true when a
- * proxy was applied.
+ * Chromium's proxy answer for one URL, such as
+ * `PROXY 127.0.0.1:7890; SOCKS5 127.0.0.1:7891; DIRECT`, read in fallback
+ * order: the first HTTP(S) proxy wins and DIRECT ends the list. `{ proxy }`
+ * with a proxy URL or null; `socks` when only SOCKS entries were skipped
+ * (fetch here cannot use them, so that origin goes direct).
+ */
+export function routeFromChromium(answer) {
+  let socks = false;
+  for (const entry of String(answer ?? '').split(';')) {
+    const [scheme = '', hostPort = ''] = entry.trim().split(/\s+/);
+    const kind = scheme.toUpperCase();
+    if (kind === 'DIRECT') break;
+    if (kind.startsWith('SOCKS')) {
+      socks = true;
+      continue;
+    }
+    const url = (kind === 'PROXY' || kind === 'HTTPS') && proxyUrl(`${kind === 'HTTPS' ? 'https' : 'http'}://${hostPort}`);
+    if (url) return { proxy: url, socks: false };
+  }
+  return { proxy: null, socks };
+}
+
+/** The fallback decision's route for `origin`: its proxy for the scheme unless the host is excepted. */
+function fallbackRoute(origin) {
+  const proxy = active?.proxy;
+  if (!proxy) return DIRECT;
+  const { protocol, hostname } = new URL(origin);
+  const host = normalizeHost(hostname);
+  const { hosts, suffixes } = active.bypass;
+  if (hosts.includes(host) || suffixes.some((suffix) => host.endsWith(`.${suffix}`))) return DIRECT;
+  return { proxy: (protocol === 'https:' ? proxy.https : proxy.http) ?? null };
+}
+
+function resetRoutes() {
+  routes.clear();
+  lookups.clear();
+}
+
+/** Logs never quote the answer, a URL or an error: any of them may carry credentials. */
+function reportLookup(found) {
+  if (!found && !failureReported) {
+    failureReported = true;
+    log('[mixdog] system proxy lookup failed or timed out; connecting directly');
+  } else if (found?.socks && !found.proxy && !socksReported) {
+    socksReported = true;
+    log('[mixdog] system proxy is SOCKS only for a host; connecting to it directly');
+  }
+}
+
+function lookup(origin, entry) {
+  let timer;
+  const pending = Promise.race([
+    Promise.resolve()
+      .then(() => entry.resolve(origin))
+      .then(routeFromChromium),
+    new Promise((resolve) => {
+      timer = setTimeout(() => resolve(null), RESOLVE_TIMEOUT_MS);
+      timer.unref?.();
+    }),
+  ])
+    .catch(() => null)
+    .then((found) => {
+      clearTimeout(timer);
+      const route = found ? { proxy: found.proxy } : DIRECT;
+      // Not ours any more when the resolver changed meanwhile: not cached.
+      if (lookups.get(origin) === pending) {
+        lookups.delete(origin);
+        routes.set(origin, { route, expiresAt: Date.now() + (found ? ROUTE_TTL_MS : FAILED_ROUTE_TTL_MS) });
+      }
+      reportLookup(found);
+      return route;
+    });
+  lookups.set(origin, pending);
+  return pending;
+}
+
+/**
+ * The route for `origin` (`scheme://host[:port]`): `{ proxy }`, a proxy URL or
+ * null for DIRECT. From the attached resolver's cached answer, or a promise
+ * while it is asked (one lookup per origin at a time); from the fallback
+ * decision when none is attached.
+ */
+export function systemProxyRoute(origin) {
+  const entry = resolvers.at(-1);
+  if (!entry) return fallbackRoute(origin);
+  const cached = routes.get(origin);
+  if (cached && cached.expiresAt > Date.now()) return cached.route;
+  return lookups.get(origin) ?? lookup(origin, entry);
+}
+
+function ensureRouting() {
+  if (routingInstalled) return true;
+  try {
+    installRouting();
+  } catch {
+    // The dispatcher is built before anything is installed, so nothing is half-applied.
+    log('[mixdog] system proxy not used: could not be applied');
+    active = { proxy: null };
+    installRouting = null;
+    return false;
+  }
+  routingInstalled = true;
+  return true;
+}
+
+/**
+ * Settle this process's fallback system-proxy decision and route its own fetch
+ * by it. A handoff from the launching Mixdog process (always removed from
+ * `env`) is the decision; without one, Windows reads the registry. Nothing
+ * happens, nothing is handed on and no resolver is ever used when the user set
+ * a proxy variable or MIXDOG_SYSTEM_PROXY=0 (which also disables discovery).
+ * Returns true when a proxy was applied.
  */
 export function adoptSystemProxy(
   env = process.env,
   {
     platform = process.platform,
     reader = readWindowsProxyRegistry,
-    log = (line) => process.stderr.write(`${line}\n`),
+    log: logLine = (line) => process.stderr.write(`${line}\n`),
     apply = adoptPrivateProxy,
   } = {}
 ) {
   const handoff = parseHandoff(env[HANDOFF_VAR]);
   delete env[HANDOFF_VAR];
   active = null;
+  installRouting = null;
+  routingInstalled = false;
+  log = logLine;
+  resolvers.length = 0;
+  resetRoutes();
   if (env.MIXDOG_SYSTEM_PROXY === '0' || USER_PROXY_VARS.some((name) => env[name] !== undefined)) return false;
+  installRouting = () => apply(systemProxyRoute);
   if (handoff?.invalid) {
     log('[mixdog] system proxy not used: invalid handoff');
     active = { proxy: null };
@@ -265,31 +403,46 @@ export function adoptSystemProxy(
   }
   active = handoff ?? (platform === 'win32' ? discover(reader, log) : null);
   if (!active?.proxy) return false;
-  try {
-    apply(active.proxy, active.bypass);
-  } catch {
-    // The dispatcher is built before anything is installed, so nothing is half-applied.
-    log('[mixdog] system proxy not used: could not be applied');
-    active = { proxy: null };
-    return false;
-  }
-  return true;
+  return ensureRouting();
+}
+
+/**
+ * Route this process by `resolve(origin)` — a promise of Chromium's proxy
+ * answer for that origin — until the returned detach is called. The newest
+ * attached resolver answers; every attach and detach drops the cached routes.
+ * A no-op when this process routes nothing (the user's variables or
+ * MIXDOG_SYSTEM_PROXY=0 decide).
+ */
+export function attachSystemProxyResolver(resolve) {
+  if (!installRouting || !ensureRouting()) return () => {};
+  const entry = { resolve };
+  resolvers.push(entry);
+  failureReported = false;
+  resetRoutes();
+  return () => {
+    const index = resolvers.indexOf(entry);
+    if (index < 0) return;
+    resolvers.splice(index, 1);
+    resetRoutes();
+  };
 }
 
 /**
  * npm's own proxy settings for the one Mixdog-owned npm spawn (the self-update
- * install), from the decision this process holds; empty without one. Meant for
- * that spawn's env only, never for the process env. npm's noproxy matches a
- * host and its subdomains.
+ * install): the route of the registry npm uses (`registry()`, asked only when
+ * this process routes at all); empty for DIRECT or without a decision. Meant
+ * for that spawn's env only, never for the process env.
  */
-export function systemProxyNpmEnv() {
-  if (!active?.proxy) return {};
-  const { hosts, suffixes } = active.bypass;
-  const noproxy = ['localhost', '127.0.0.1', '::1', '.local', ...hosts, ...suffixes.map((suffix) => `.${suffix}`)];
+export async function systemProxyNpmEnv(registry) {
+  if (!installRouting) return {};
+  const { origin, hostname } = new URL(await registry());
+  if (isLocalHost(hostname)) return {};
+  const { proxy } = await systemProxyRoute(origin);
+  if (!proxy) return {};
   return {
-    npm_config_proxy: active.proxy.http ?? active.proxy.https,
-    npm_config_https_proxy: active.proxy.https,
-    npm_config_noproxy: noproxy.join(','),
+    npm_config_proxy: proxy,
+    npm_config_https_proxy: proxy,
+    npm_config_noproxy: 'localhost,127.0.0.1,::1,.local',
   };
 }
 
