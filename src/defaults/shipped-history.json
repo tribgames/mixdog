@@ -9,6 +9,7 @@
       "88c946270760ecbae86df65b9ce262f1"
     ],
     "explore": [
+      "baf26f0b3bd3abb0fb5a276febc8c4bc",
       "d4fa3ff93ace1dfac0b92792f42b9cbf"
     ],
     "front-worker": [
@@ -217,6 +218,7 @@
       "8a5a68ec13a7414b35e7f3b0089e2208",
       "9728f28dc5b23eb1bb1924213d3ffddd",
       "9a8789b3b4f5f6b3ba02f407cdfb92f7",
+      "ab5cce4a2fccad63e006cf22aa6cc6b0",
       "b50e9c0ba5e8228583eab4f0e0573838",
       "c03f4d0e008467497c0152639953b166",
       "cd1a47197762135462037ea6555ea721",
@@ -270,6 +272,7 @@
       "07604666cb32a7df8b1d4f0d1e137890",
       "189bca949decd5bccbbdeb49a18426b2",
       "1db9f3e81c714e7e4aa8db8c8004cca0",
+      "290d7620499a4134fdf511aa4902043d",
       "6d922fc351d6519c3d92cc5807fe0615",
       "95c83d23f3625c35cc346477a470c769",
       "a47d07ea3402854dc03e655afd5a3a6d",
@@ -416,17 +419,22 @@
       "633e15b84dbe22f2b578b67cc35853d4",
       "72e474711ecd18cfcae6c8365e08286e",
       "920d5b29ccfe6c88f623cf0892b29285",
-      "ec88a82ab5e511c0afb1738162150648"
+      "ec88a82ab5e511c0afb1738162150648",
+      "fa355d4ea5f1823e4b75219ab842c34a"
     ],
     "skill-creator": [
       "020817866da73a69544ba35086bdcd5f",
       "2f3f44805618783fbcca9a56652a5e91",
       "50e365910692a803732f68f82fc1ed1f",
       "77a4ca1c08f684780eeeebec50a3f1e6",
+      "92b2ed0b18a9c14470e434ec946a843f",
       "bd9bf738a5b3f443450c86230f3299fd",
       "bec7e5abbcae88a6781d23bcdd35e259",
       "d65265972caa7cbefc39baacc9e78157",
       "f450e6d58a7f1f06c71aa2dd557ce09c"
+    ],
+    "test-suite": [
+      "f5c8ee5331a9b8279f997f609b10c380"
     ],
     "video": [
       "6aad64b16521d324e355d125692a0cec",
@@ -441,6 +449,7 @@
       "9c9fba19647b67d75a600137e38c02b8",
       "aa3531bfc4fd6ec3820493d0c190cc75",
       "d9ba9f5f998bf42990eed838a3d1b774",
+      "df699ca05260ce37813a7fe6666927da",
       "f24ff77670e5aa43ce901dec1e0055ac",
       "f65924f0691284ad31000469a9855b62"
     ],
