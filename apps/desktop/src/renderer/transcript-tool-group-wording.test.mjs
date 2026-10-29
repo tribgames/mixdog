@@ -161,7 +161,7 @@ test('a group keeps its in-progress wording between calls and reads finished onl
   }
 });
 
-test('the group readout counts on from the first call through the gaps between calls', async (t) => {
+test('the group readout shows only while a call runs, timed from the earliest running call', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: NOW });
   const dom = installDom();
   try {
@@ -175,18 +175,16 @@ test('the group readout counts on from the first call through the gaps between c
       const shown = document.querySelector('.tool-activity-header .tool-working-elapsed')?.textContent ?? null;
       recorded.push([step, shown === null ? null : Number.parseInt(shown, 10)]);
     }
-    const turnEnd = recorded.pop();
-    assert.deepEqual(turnEnd, ['the turn ends', null], 'a finished group shows no readout, as before');
-    for (const [step, seconds] of recorded) {
-      assert.ok(seconds !== null, `${step}: the readout stays visible`);
-      assert.equal(seconds, 40, `${step}: counts from the first call, not the latest (${seconds}s)`);
-    }
-    const seconds = recorded.map(([, value]) => value);
-    assert.deepEqual(
-      seconds,
-      [...seconds].sort((a, b) => a - b),
-      'never counts back'
-    );
+    assert.deepEqual(recorded, [
+      ['call A starts', 40],
+      ['A finishes; the model is choosing the next call', null],
+      ['call B starts', 30],
+      ['B finishes; the model is choosing again', null],
+      ['C and D run in parallel', 20],
+      ['D finishes before C', 20],
+      ['C finishes; nothing else started yet', null],
+      ['the turn ends', null],
+    ]);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();

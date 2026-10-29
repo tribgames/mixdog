@@ -796,7 +796,7 @@ html[data-mixdog-mobile-tabs]
   padding: 2px 0 4px;
 }
 /* Level 1 is one quiet line of words, no glyph in front: "파일 2개 수정,
-   명령어 2회 실행", the lines it changed as a pill, then the chevron. */
+   커맨드 2회 실행", the lines it changed as a pill, then the chevron. */
 .tool-activity[data-surface="desktop"] > .tool-activity-header {
   min-height: 24px;
   gap: 6px;

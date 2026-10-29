@@ -197,6 +197,7 @@ function localizedToolActivityCategory(category: string): string {
   if (category === 'Skill') return t('Skills');
   if (category === 'Web Research') return t('Web research');
   if (category === 'Memory') return t('Memory');
+  if (category === 'Explore') return t('Code exploration');
   if (category === 'Patch') return t('File editing');
   if (category === 'Git') return t('Git');
   if (category === 'Shell') return t('Command execution');
@@ -545,6 +546,8 @@ function toolActivityRowVerb(category: string, done: string, noun: string): stri
     case 'Web Research|Fetched|URL':
     case 'Web Research|Fetched|message':
       return t('Fetch');
+    case 'Explore|Explored|query':
+      return t('Explore');
     case 'Shell|Ran|command':
       return t('Run');
     case 'Git|Ran|Git command':
@@ -777,6 +780,9 @@ function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, cou
     case 'Web Research|Fetched|message':
       if (count === 1) return past ? t('Fetched message') : t('Fetch message');
       return past ? t('Fetched {{count}} messages', { count }) : t('Fetch {{count}} messages', { count });
+    case 'Explore|Explored|query':
+      if (count === 1) return past ? t('Explored code') : t('Explore code');
+      return past ? t('Explored {{count}} questions', { count }) : t('Explore {{count}} questions', { count });
     case 'Shell|Ran|command':
       return past ? t('Ran {{count}} commands', { count }) : t('Run {{count}} commands', { count });
     case 'Git|Ran|Git command':

@@ -322,16 +322,15 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
   // rests nearby, so opening a call shows its whole output at once.
   const groupRef = useRef<HTMLElement | null>(null);
   useToolOutputPrefetch(groupRef, disclosureScope, calls);
-  // The readout counts from the earliest call still pending; while the turn
-  // can still add calls to the group, from its first call, so it neither
-  // vanishes nor restarts in the gap between two calls.
+  // The readout times only work that is running now, so it is absent while
+  // the model thinks between calls.
   const pendingStartedAt = useMemo(() => {
     const starts = calls
-      .filter((item) => running || !toolItemDone(item))
+      .filter((item) => !toolItemDone(item))
       .map(toolItemStartedAt)
       .filter((value) => value > 0);
     return starts.length ? Math.min(...starts) : 0;
-  }, [calls, running]);
+  }, [calls]);
 
   return (
     <article ref={groupRef} className="tool-activity" data-surface="desktop" data-open={open ? 'true' : 'false'}>
@@ -352,7 +351,7 @@ export const ToolActivityGroup = React.memo(function ToolActivityGroup({
             {t('Running')}
           </span>
         )}
-        {(pending || running) && <ToolWorkingStatus startedAt={pendingStartedAt} />}
+        {pending && <ToolWorkingStatus startedAt={pendingStartedAt} />}
         <span className="tool-chevron" aria-hidden="true">
           <ChevronRight size={16} />
         </span>
