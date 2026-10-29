@@ -381,7 +381,8 @@ function buildRouteRulesContent({
 // - `identity`: the coding identity sentence ("You are Mixdog, …").
 const LEAD_IDENTITY_LINE = /^- (You are Mixdog, a coding agent\.)\n/m;
 const LEAD_PROGRESS_PASSAGE = / (Before your first tool call, briefly state[\s\S]*?narration or plan repeats\.)/;
-const LEAD_REPORT_PASSAGE = / (On an agent report[\s\S]*?not a completed request\.)/;
+// Word gaps are \s+ so rewrapping LEAD.md cannot silently unmatch a passage.
+const LEAD_REPORT_PASSAGE = / (On\s+an\s+agent\s+report[\s\S]*?not\s+a\s+completed\s+request\.)/;
 const AGENT_MODE_PROGRESS =
   '- Just answer conversation. Quick tool use (checking memory, a lookup,\n' +
   '  leaving a reaction) needs no announcement. When starting longer work\n' +
