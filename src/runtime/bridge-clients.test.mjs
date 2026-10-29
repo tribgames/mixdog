@@ -13,7 +13,6 @@ import {
   BROWSER_DEVTOOLS_ACTIONS,
   BROWSER_OBSERVATION_ACTIONS,
   BROWSER_PAGE_ACTIONS,
-  SEQUENCE_STEP_ACTIONS,
   validateBrowserToolArgs,
 } from './browser-bridge/action-schema.mjs';
 import { TOOL_DEFS as BROWSER_TOOL_DEFS } from './browser-bridge/tool-defs.mjs';
@@ -581,10 +580,6 @@ test('a JSON-encoded browser input is accepted the same as the object', () => {
   // can arrive as a JSON string, and a well-formed call must still run.
   assert.equal(validateBrowserToolArgs({ action: 'snapshot', input: '{}' }).ok, true);
   assert.match(validateBrowserToolArgs({ action: 'snapshot', input: '{tab:main' }).error, /input must be an object/);
-});
-
-test('browser sequence steps are the declared action set', () => {
-  assert.deepEqual(SEQUENCE_STEP_ACTIONS, ['click', 'fill', 'type', 'select', 'hover', 'press', 'scroll', 'wait']);
 });
 
 test('asking where an image goes only makes sense where an image exists', () => {

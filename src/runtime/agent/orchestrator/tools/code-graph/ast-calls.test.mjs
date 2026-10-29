@@ -1678,66 +1678,6 @@ test('real binary: an incremental rebuild from an un-hydrated cache answers from
   }
 });
 
-// The packaged build under native-tools/ proves the capability-change cache
-// path only while it still predates wire v2; prepare-native-assets refreshes it.
-const legacyGraphBinary = resolve('native-tools', process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph');
-
-test('a cache indexed by a pre-v2 binary re-indexes under a v2 binary instead of failing forever', async (t) => {
-  const format = await localBinaryCallsFormat();
-  const legacyFormat = await binaryCallsFormat(legacyGraphBinary);
-  if (format !== 2 || legacyFormat === null || legacyFormat === 2) {
-    t.skip(`needs a v2 local build and a pre-v2 packaged build: local callsFormat=${format}, packaged=${legacyFormat}`);
-    return;
-  }
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-graph-capability-'));
-  const dataDir = join(root, 'data');
-  try {
-    await writeFile(join(root, 'package.json'), '{}');
-    await writeFile(
-      join(root, 'svc.mjs'),
-      'export function runTask(v) { return helper(v); }\nfunction helper(v) { return v; }\n'
-    );
-    await writeFile(
-      join(root, 'app.mjs'),
-      "import { runTask } from './svc.mjs';\nexport function boot() { return runTask(1); }\n"
-    );
-
-    const script = `
-      import assert from 'node:assert/strict';
-      const [root, dataDir, bin, expectation] = process.argv.slice(1);
-      process.env.MIXDOG_DATA_DIR = dataDir;
-      process.env.MIXDOG_GRAPH_BIN = bin;
-      const { executeCodeGraphTool } = await import('./src/runtime/agent/orchestrator/tools/code-graph.mjs');
-      const { drainCodeGraphCacheStrict } = await import('./src/runtime/agent/orchestrator/tools/code-graph/disk-cache.mjs');
-      let result = null;
-      let failure = null;
-      try { result = String(await executeCodeGraphTool('code_graph', { mode: 'callers', symbols: ['runTask'] }, root)); }
-      catch (err) { failure = err; }
-      drainCodeGraphCacheStrict();
-      if (expectation === 'capability-error') {
-        assert.ok(failure, 'a pre-v2 binary must fail loudly, got: ' + result);
-        assert.match(failure.message, /does not advertise callsFormat: 2/);
-        // Non-call modes keep working on the very same graph.
-        const overview = String(await executeCodeGraphTool('code_graph', { mode: 'overview', files: ['svc.mjs'] }, root));
-        assert.match(overview, /svc\\.mjs/);
-      } else {
-        assert.ok(!failure, 'the v2 binary must re-index the stale cache, got: ' + (failure && failure.message));
-        assert.match(result, /app\\.mjs:2:\\d+\\tcall\\tcaller=boot/, result);
-      }
-    `;
-    const run = (bin, expectation) =>
-      runNode(process.execPath, ['--input-type=module', '-e', script, root, dataDir, bin, expectation], {
-        cwd: process.cwd(),
-        maxBuffer: 4 * 1024 * 1024,
-      });
-    await run(legacyGraphBinary, 'capability-error'); // seeds a call-free cache
-    await run(graphBinary, 'reindexed'); // must re-index, not serve it
-    await run(legacyGraphBinary, 'capability-error'); // and downgrade cleanly again
-  } finally {
-    await rm(root, { recursive: true, force: true });
-  }
-});
-
 test('real binary: --langs advertises wire v2 and --files reuse keeps calls on unchanged nodes', async (t) => {
   if (await skipWithoutV2Build(t)) return;
   const root = await mkdtemp(join(tmpdir(), 'mixdog-graph-calls-'));

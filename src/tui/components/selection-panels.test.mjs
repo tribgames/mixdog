@@ -280,27 +280,6 @@ test('a device-code panel with a one-row warning footer keeps the code line at v
   assert.match(frame, /Ctrl\+Y copies the full URL/);
 });
 
-test('picker reports what the copy actually did', async (context) => {
-  const url = 'https://example.test/auth';
-  for (const [result, expected] of [
-    [() => 'copied', /URL copied/],
-    [() => 'terminal', /Sent to terminal clipboard \(not confirmed\)/],
-    [() => Promise.reject(new Error('no clipboard')), /Copy failed.*use the link above/],
-  ]) {
-    const view = mount(context, 80);
-    await view.show(panels.Picker, {
-      title: 'Provider',
-      columns: 80,
-      detail: url,
-      copyText: result,
-      items: [{ value: 'waiting', label: 'Waiting' }],
-      onSelect() {},
-      onCancel() {},
-    });
-    assert.match(await view.key('\x19'), expected);
-  }
-});
-
 test('picker one-row URL mode still shows the copy note and every copy result', async (context) => {
   for (const [result, expected] of [
     [null, /Ctrl\+Y copies the full URL/],

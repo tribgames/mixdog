@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { COMPUTER_CORE_ACTION_SCHEMA } from '../../../../../../src/runtime/computer-bridge/core-actions.mjs';
 
-// PROPOSED SOURCE-TEXT EXCEPTION (whole file): the action lists live in TypeScript modules and
+// Source-text on purpose (whole file): the action lists live in TypeScript modules and
 // PowerShell programs that only run on a real desktop; the cross-layer coverage is the invariant.
 // Pointer actions are enumerated again in every layer that has to recognise them.
 // A tool-surface action missing from one of those lists does not fail loudly: the

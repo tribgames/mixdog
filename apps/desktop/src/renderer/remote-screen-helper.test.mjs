@@ -133,7 +133,7 @@ test('the lines say how the request ended, then what the helper reported', () =>
   ]);
 });
 
-// PROPOSED SOURCE-TEXT EXCEPTION: the id -> t() copy table is private to RemoteScreenPane.tsx, which needs the whole
+// Source-text on purpose: the id -> t() copy table is private to RemoteScreenPane.tsx, which needs the whole
 // remote-screen stack to mount; the test reads its literal keys to check each has a Korean catalog entry.
 test('every line the panel can show has Korean copy', () => {
   const ko = JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'));

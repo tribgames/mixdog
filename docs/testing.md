@@ -65,12 +65,91 @@ fails.
 
 ## Deliberate exceptions
 
-Source-text assertions are accepted only for Electron main modules a renderer
-test cannot import, where they pin ordering invariants:
+A test reads product source text only when the code has no surface a test can
+run. Each such file carries a why-comment at its source read. A new one needs a
+reason below, or a different test.
+
+**Original four** (Electron main modules a renderer test cannot import, where
+they pin ordering invariants):
 `apps/desktop/src/renderer/remote-payload-limit.test.mjs`,
 `apps/desktop/src/renderer/side-surface-background-errors.test.mjs`,
 `apps/desktop/src/main/packaging.test.mjs` and
 `src/runtime/office/office-live-runtime.test.mjs`.
+
+**GitHub workflow YAML and release shell scripts** (run only on GitHub runners
+or a release host):
+`scripts/release-gate-test.mjs`, `scripts/post-release-check.test.mjs`,
+`scripts/embed-google-oauth-client.test.mjs`, `scripts/mobile-release.test.mjs`,
+`scripts/release-guard.test.mjs` and `scripts/linux-verify-graph.test.mjs`.
+
+**Native code a test cannot run** (PowerShell host, C#, Rust; needs a real
+desktop or the native toolchain):
+`apps/desktop/src/main/computer/host/host-source-pins.test.mjs`,
+`apps/desktop/src/main/computer/host/action-coverage.test.mjs`,
+`apps/desktop/src/main/computer/overlay/cursor-glide.test.mjs`,
+`apps/desktop/src/main/computer/backend/shared-input-observation.slow.test.mjs`
+(asserts the C# declarations it patches before compiling the source),
+`src/runtime/bridge-clients.test.mjs` (the "host handler" test matches the
+action names against the TypeScript and PowerShell host sources) and
+`apps/desktop/src/shared/secure-desktop-grant.test.mjs`.
+
+**Electron main, entry or build modules that cannot be imported** (`index.ts`,
+`build-daemon.mjs`, `electron.vite.config.ts`, `src/cli.mjs`, an injected script
+string):
+`apps/desktop/src/main/remote-access-window.test.mjs`,
+`apps/desktop/src/main/desktop-pet-window.test.mjs`,
+`apps/desktop/src/main/jitter-probe-switch.test.mjs`,
+`apps/desktop/src/main/ssh/remote-bootstrap.test.mjs`,
+`apps/desktop/src/renderer/monaco-setup.test.mjs` (the Vite config lines),
+`apps/desktop/src/main/packaging-artifact.live.test.mjs` (the built `daemon.cjs`
+is checked for an `electron` import before it is loaded) and
+`scripts/shellhardening/guardians-background.slow.test.mjs` (`windowsHide` on
+spawned children keeps console windows from flashing; no seam injects a
+spawner).
+
+**Built documents stamped at build time:**
+`apps/desktop/src/main/remote-webrtc/sender-session.test.mjs` (the sender HTML
+source carries the CSP placeholder the build stamps).
+
+**Renderer surfaces that need Monaco, xterm or bundler-only modules:**
+`apps/desktop/src/renderer/editor-format-document.test.mjs`,
+`apps/desktop/src/renderer/editor-top-row.test.mjs`,
+`apps/desktop/src/renderer/monaco-setup.test.mjs` (the `?worker` switch),
+`apps/desktop/src/renderer/terminal-local-echo.test.mjs` and
+`apps/desktop/src/renderer/remote-screen-helper.test.mjs` (a private copy table
+inside a pane that needs the whole remote-screen stack to mount).
+
+**TUI JSX, module-graph and document-to-source audits:**
+`src/tui/app/panel-epoch.test.mjs` (`App.jsx`, and the raw-sink-name audit),
+`src/session-runtime/lead-route-writers.test.mjs` (a tripwire over every module
+that writes the Lead preset) and `src/runtime/office/pptx-skill-kit.slow.test.mjs`
+(every hard rule in the skill documents names a review code that appears in the
+runtime sources).
+
+**TypeScript tables and private literals Node cannot import:**
+`src/session-runtime/setup-tool/setup-tool.test.mjs` (Desktop slash and section
+tables) and `apps/desktop/src/renderer/transcript-tool-row-pairs.test.mjs`
+(guidance sentences private to runtime tool modules).
+
+**Office COM:** `src/runtime/office/office-runtime-com.test.mjs` (the
+PowerShell COM host runs only against installed Microsoft Office).
+
+**Cross-stylesheet invariants and rules jsdom cannot cascade** (the sheets are
+parsed, not rendered):
+`apps/desktop/src/renderer/appearance/theme-file.test.mjs`,
+`apps/desktop/src/renderer/pane-cover-mark.test.mjs`,
+`apps/desktop/src/renderer/pane-dock-chrome.test.mjs`,
+`apps/desktop/src/renderer/side-panel-position.test.mjs`,
+`apps/desktop/src/renderer/skin-transparency.slow.test.mjs`,
+`apps/desktop/src/renderer/skin-companion.slow.test.mjs`,
+`apps/desktop/src/renderer/mobile-surface.test.mjs` (the phone pill height is a
+custom property that jsdom leaves as an unresolved `var()`),
+`apps/desktop/src/renderer/connect-copy.test.mjs` (one rule text shared by
+three surfaces), `apps/desktop/src/renderer/edge-swipe.test.mjs` (jsdom does
+not expose `touch-action`, so the absence of a blanket rule is read from the
+sheet) and `apps/desktop/src/renderer/mobile-chrome-layout.test.mjs` (the
+address-field `min-width` sits inside `@media (max-width: 640px)`, which jsdom's
+`getComputedStyle` does not evaluate).
 
 `session-save-fault-store.slow.test.mjs` stays one file on purpose: one
 stateful fixture chain over one store.

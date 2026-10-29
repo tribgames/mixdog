@@ -134,17 +134,6 @@ test('the URL block fits every panel budget and always keeps the full link and c
     assert.deepEqual(copied, [url], message);
   }
 });
-test('a terminal-only copy does not claim success and a failed copy points to the link', async (context) => {
-  const url = 'https://example.test/auth';
-  const sent = mountPanel(context, { columns: 80, detail: url, copyText: () => 'terminal' });
-  await settle();
-  await sent.type('\x19');
-  assert.match(stripVTControlCharacters(sent.frame()), /Sent to terminal clipboard \(not confirmed\)/);
-  const failed = mountPanel(context, { columns: 80, detail: url, copyText: () => Promise.reject(new Error('none')) });
-  await settle();
-  await failed.type('\x19');
-  assert.match(stripVTControlCharacters(failed.frame()), /Copy failed.*use the link above/);
-});
 test('one-row URL mode still shows the copy note and every copy result', async (context) => {
   const url = `https://claude.ai/oauth/authorize?${'q'.repeat(433)}`;
   for (const [result, expected] of [

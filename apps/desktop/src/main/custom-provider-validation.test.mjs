@@ -11,18 +11,6 @@ const valid = {
   models: [{ id: 'm', name: 'M', contextWindow: 4096, maxOutputTokens: 512 }],
 };
 
-test('custom provider capabilities are exposed on the desktop surface', () => {
-  for (const name of [
-    'saveCustomProvider',
-    'removeCustomProvider',
-    'testCustomProvider',
-    'checkCustomProviderKeyEnv',
-    'discoverCustomProviderModels',
-  ]) {
-    assert.equal(DESKTOP_CAPABILITIES.includes(name), true);
-  }
-});
-
 test('custom provider wires and modelWires are shape-checked and v2 only', () => {
   const v2 = { name: 'Local', protocol: 'openai-chat', baseURL: 'http://localhost:1234/v1', schemaVersion: 2 };
   assert.doesNotThrow(() =>

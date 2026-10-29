@@ -152,7 +152,7 @@ test('server layout lives in an immutable version dir and options are remapped t
 
 const desktopDir = fileURLToPath(new URL('../../../', import.meta.url));
 
-// PROPOSED SOURCE-TEXT EXCEPTION: build-daemon.mjs runs the esbuild build on import, so its
+// Source-text on purpose: build-daemon.mjs runs the esbuild build on import, so its
 // DAEMON_EXTERNALS list cannot be imported and is read as text.
 test('server-installed bundle externals are exactly the build externals, pinned to the lockfile', () => {
   const build = readFileSync(join(desktopDir, 'scripts', 'build-daemon.mjs'), 'utf8');

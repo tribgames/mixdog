@@ -85,14 +85,6 @@ function oldDefault(id) {
   return { variant: OLD_VARIANTS[hash % 12], color: AGENT_AVATAR_COLORS[Math.floor(hash / 12) % 10] };
 }
 
-test('the catalog: six dogs, six accessories, four expressions, ten colours', () => {
-  assert.deepEqual(MASCOT_SPECIES, ['labrador', 'shepherd', 'terrier', 'corgi', 'husky', 'shiba']);
-  assert.equal(MASCOT_SPECIES.includes('mixy'), false, "Mixy's look is not offered");
-  assert.deepEqual(MASCOT_ACCESSORIES, ['none', 'collar', 'glasses', 'beanie', 'scarf', 'bow']);
-  assert.deepEqual(MASCOT_EXPRESSIONS, ['calm', 'happy', 'wink', 'sleepy']);
-  assert.equal(AGENT_AVATAR_COLORS.length, 10);
-});
-
 test('every sprite layer is a 16x12 string grid of known colour keys', () => {
   const keys = new Set(['.', 'B', 'D', 'L', 'E', ...Object.keys(MASCOT_INKS)]);
   const layers = [

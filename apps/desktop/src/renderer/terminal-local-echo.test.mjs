@@ -120,7 +120,7 @@ test('the shim announces a completed reconnection to mounted terminal panes, nev
   });
 });
 
-// PROPOSED SOURCE-TEXT EXCEPTION: TerminalPane mounts xterm and a PTY, which a renderer test cannot run; the shim
+// Source-text on purpose: TerminalPane mounts xterm and a PTY, which a renderer test cannot run; the shim
 // event above and terminal-connect-gate.test.mjs own the behaviour, this pins the pane's subscription wiring.
 test('a mounted terminal pane re-ensures on reconnect through its connect gate and cleans up on unmount', async () => {
   const pane = await readFile(new URL('./TerminalPane.tsx', import.meta.url), 'utf8');

@@ -160,7 +160,7 @@ test('another account is judged on its own client, not on a sibling that has one
   cancelConnectorLogin('google-calendar');
 });
 
-test('the chat card keeps failure text whole: the status is one <small> the CSS lets wrap', async () => {
+test('the chat card keeps failure text whole: the status is one <small> the CSS lets wrap', async (t) => {
   const long =
     'The connection failed because the server answered with a very long explanation that must stay readable.';
   calls.length = 0;
@@ -174,12 +174,15 @@ test('the chat card keeps failure text whole: the status is one <small> the CSS 
   };
   await startConnectorLogin('notion', 'Notion', { connector: 'notion' });
   const pane = await render(React.createElement(ConnectorChatCard, { id: 'notion' }));
+  t.after(() => pane.unmount());
   const small = pane.host.querySelector('.connector-chat-copy > small');
   assert.ok(small.textContent.includes('very long explanation'));
-  await pane.unmount();
-
-  const css = readFileSync(new URL('./connectors.css', import.meta.url), 'utf8');
-  const rule = /\.connector-chat-copy > small \{([^}]*)\}/.exec(css)[1];
-  assert.doesNotMatch(rule, /text-overflow|white-space:\s*nowrap/);
-  assert.match(rule, /white-space:\s*normal/);
+  // Rendered: the real stylesheet is injected and jsdom's cascade decides how the status text wraps.
+  const style = document.createElement('style');
+  t.after(() => style.remove());
+  style.textContent = readFileSync(new URL('./connectors.css', import.meta.url), 'utf8');
+  document.head.append(style);
+  const computed = window.getComputedStyle(small);
+  assert.equal(computed.whiteSpace, 'normal');
+  assert.notEqual(computed.textOverflow, 'ellipsis');
 });

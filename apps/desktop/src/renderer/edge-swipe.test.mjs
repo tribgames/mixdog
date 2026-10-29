@@ -382,6 +382,8 @@ test('a fast drag held still before release does not fling the drawer open', () 
   env.dispose();
 });
 
+// Source-text on purpose: jsdom's getComputedStyle does not expose `touch-action` at all (even a rule that sets it
+// reads back empty), so the absence of a blanket rule can only be read from the stylesheet text.
 test('the open session drawer does not force pan-y on its contents', () => {
   const css = readFileSync(new URL('./desktop/07-mobile-chrome.css', import.meta.url), 'utf8');
   const blanket = /sidebar-drawer-frame\[data-state="open"\]\s*\*[^{}]*\{[^}]*touch-action/;

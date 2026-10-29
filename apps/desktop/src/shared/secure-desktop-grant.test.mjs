@@ -54,7 +54,7 @@ test('a generated key signs grants the enrolled public key verifies; the private
   assert.equal(await verify(key.publicKey, signature, secureDesktopGrantPayload(CHALLENGE, NONCE, 3)), false);
 });
 
-// PROPOSED SOURCE-TEXT EXCEPTION: the helper's constants are Rust source; no runnable surface in node.
+// Source-text on purpose: the helper's constants are Rust source; no runnable surface in node.
 test("the helper's grant cadence and lifetime are the relay's liveness probe and silent-leg bound", () => {
   const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
   const security = read('../../../../native/mixdog-secure-desktop/src/security.rs');

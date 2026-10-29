@@ -14,7 +14,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const setupSource = readFileSync(resolve(here, 'monaco-setup.ts'), 'utf8');
 const viteConfig = readFileSync(resolve(here, '../../electron.vite.config.ts'), 'utf8');
 
-// PROPOSED SOURCE-TEXT EXCEPTION (routeLabel): monaco-setup.ts imports bundler-only ?worker modules, so its getWorker
+// Source-text on purpose (routeLabel): monaco-setup.ts imports bundler-only ?worker modules, so its getWorker
 // switch cannot be imported; it is extracted and evaluated with tagged stubs.
 /** Evaluate the real getWorker switch from monaco-setup.ts with tagged stubs. */
 function routeLabel(label) {
@@ -45,7 +45,7 @@ test('typescript/javascript labels get the plain editor worker, never a language
 
 test('Monaco built-in TypeScript service is stubbed in both build and dev optimizer', async () => {
   assert.match('../language/typescript/monaco.contribution.js', MONACO_TYPESCRIPT_CONTRIBUTION);
-  // PROPOSED SOURCE-TEXT EXCEPTION: electron.vite.config.ts is a build config no test can import; these two lines
+  // Source-text on purpose: electron.vite.config.ts is a build config no test can import; these two lines
   // pin that it wires the stub that the esbuild build below proves effective.
   assert.match(viteConfig, /find: MONACO_TYPESCRIPT_CONTRIBUTION/);
   assert.match(viteConfig, /esbuildOptions: \{ plugins: \[monacoTypescriptExternalEsbuildPlugin\(\)\] \}/);

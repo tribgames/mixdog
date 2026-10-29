@@ -31,6 +31,10 @@ import {
   runShellCase,
 } from './_shared.mjs';
 
+// Source-text on purpose: `windowsHide: true` on a spawned child is what keeps a console window from flashing on
+// Windows, and a test cannot see a window flash. The `spawnSync` calls sit in `src/cli.mjs` and `jit-rebuild.mjs`
+// with no seam to inject a spawner, so the options can only be read from the checked-in text. A missing flag puts a
+// visible console window in front of the user on every re-exec.
 test('Windows-sensitive Node re-execs keep their windows hidden', () => {
   const cli = source('src/cli.mjs');
   const jitRebuild = source('src/tui/dev/jit-rebuild.mjs');

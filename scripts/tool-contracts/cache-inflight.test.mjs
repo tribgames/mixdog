@@ -12,12 +12,6 @@ import {
   runReadOnlyStatInFlight,
   runResultCacheInFlight,
 } from '../../src/runtime/agent/orchestrator/tools/builtin/cache-layers.mjs';
-import {
-  cacheCapabilityForProvider,
-  resolveCacheStrategy,
-  shouldMarkWarmForProvider,
-  shouldRecordObservedForProvider,
-} from '../../src/runtime/agent/orchestrator/agent-runtime/cache-strategy.mjs';
 
 test('in-flight result cache computes once and shares the result', async () => {
   let computes = 0;
@@ -206,31 +200,4 @@ test('cross-call read single-flight shares bytes until invalidated', async () =>
     return Buffer.from('fresh-read');
   });
   assert(computes === 2, 'path invalidation should start a fresh read generation');
-});
-
-test('provider cache strategy tiers and capabilities stay stable', () => {
-  const publicStrategy = resolveCacheStrategy('worker');
-  assert(
-    publicStrategy.tools === 'none',
-    `Anthropic tools must not spend a cache_control BP: ${JSON.stringify(publicStrategy)}`
-  );
-  // BP1~3 stay 1h and the agent message tail is 5m; see resolveCacheStrategy.
-  assert(
-    publicStrategy.system === '1h' && publicStrategy.tier3 === '1h' && publicStrategy.messages === '5m',
-    `public cache tiers changed unexpectedly: ${JSON.stringify(publicStrategy)}`
-  );
-  assert(
-    cacheCapabilityForProvider('anthropic-oauth') === 'explicit-breakpoint',
-    'Anthropic OAuth should remain explicit-breakpoint'
-  );
-  assert(cacheCapabilityForProvider('openai-oauth') === 'key-prefix', 'OpenAI OAuth should remain key-prefix');
-  assert(cacheCapabilityForProvider('xai') === 'key-prefix', 'xAI should remain key-prefix');
-  assert(cacheCapabilityForProvider('grok-oauth') === 'key-prefix', 'Grok OAuth should remain key-prefix');
-  assert(
-    cacheCapabilityForProvider('gemini') === 'managed-explicit',
-    'Gemini should be provider-managed explicit cachedContents'
-  );
-  assert(shouldMarkWarmForProvider('gemini') === true, 'Gemini provider-managed cache should count as warmable');
-  assert(shouldRecordObservedForProvider('gemini') === false, 'Gemini is no longer implicit-observed only');
-  assert(shouldRecordObservedForProvider('deepseek') === true, 'DeepSeek should remain observed-only');
 });

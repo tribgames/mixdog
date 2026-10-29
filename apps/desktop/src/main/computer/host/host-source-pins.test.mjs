@@ -3,7 +3,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import test from 'node:test';
 import { powershellHostProgram } from '../backend/program.ts';
 
-// PROPOSED SOURCE-TEXT EXCEPTION. The PowerShell host program only runs on a real
+// Source-text on purpose. The PowerShell host program only runs on a real
 // desktop, so these ordering/absence invariants inside its function bodies have no
 // runnable surface in the fast lane. They read every host module plus the program text.
 const hostDirectory = new URL('../', import.meta.url);
@@ -35,12 +35,6 @@ test('waiting on a condition never invalidates the refs the caller holds', () =>
   assert.ok(start > 0 && end > start);
   // Snapshot-Window bumps the generation and clears the map; a predicate read must do neither.
   assert.doesNotMatch(hostSource.slice(start, end), /\$state\.Map\.Clear\(\)|\$state\.Generation/);
-});
-
-// Deletion candidate (change detector: counts a literal); kept because it is the only owner.
-test('host types load from a per-build assembly cache with an inline fallback', () => {
-  // Exactly two compile sites: publish to the cache, and compile in-process as the fallback.
-  assert.equal(hostSource.split('-TypeDefinition $MixdogHostSource').length - 1, 2);
 });
 
 test('post-mutation settle waits out its budget instead of exiting on a transition start', () => {

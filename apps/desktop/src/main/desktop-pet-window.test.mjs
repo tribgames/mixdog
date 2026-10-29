@@ -1451,7 +1451,7 @@ test('the pet window is created hidden and shows only after its renderer drew th
 
 // The real BrowserWindow options live in index.ts next to Electron's imports, so
 // the factory cannot run under test; these are the options with no other check.
-// PROPOSED SOURCE-TEXT EXCEPTION for that reason.
+// Source-text on purpose for that reason.
 test('the pet BrowserWindow is created hidden, transparent and IME-activatable', async () => {
   const { readFile } = await import('node:fs/promises');
   const index = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
