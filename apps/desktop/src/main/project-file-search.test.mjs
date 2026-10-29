@@ -445,7 +445,9 @@ test('a finished walk past the cap answers the queries that extend it without wa
   const opened = t.mock.method(fsPromises, 'opendir');
   syncBuiltinESMExports();
   try {
-    const options = { maxScannedEntries: 1 };
+    // The walk must finish for there to be anything to reuse, so this cannot ride on
+    // the default 400 ms budget: 40 nested reads on a busy machine overrun it.
+    const options = { maxScannedEntries: 1, beyondBudgetMs: 10_000 };
     // A cached index is what carries the finished walk from one query to the next.
     const first = await searchProjectDirectory(root, 'needle', 10, options);
     assert.equal(first.length, 1);
