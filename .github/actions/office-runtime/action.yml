@@ -65,8 +65,13 @@ runs:
         fi
         echo "LibreOffice cask failed; installing from a TDF mirror" >&2
         dmg=LibreOffice_26.8.0_MacOS_aarch64.dmg
-        for base in https://mirrors.dotsrc.org/tdf https://ftp.kaist.ac.kr/tdf; do
-          curl -fL --retry 3 --max-time 600 -o "$dmg" "$base/libreoffice/stable/26.8.0/mac/aarch64/$dmg" && break
+        # The stable/ tree drops a release once a newer one ships; TDF's archive
+        # keeps the same image (same sha256) under its build number for good.
+        for url in \
+          "https://mirrors.dotsrc.org/tdf/libreoffice/stable/26.8.0/mac/aarch64/$dmg" \
+          "https://ftp.kaist.ac.kr/tdf/libreoffice/stable/26.8.0/mac/aarch64/$dmg" \
+          "https://downloadarchive.documentfoundation.org/libreoffice/old/26.8.0.3/mac/aarch64/LibreOffice_26.8.0.3_MacOS_aarch64.dmg"; do
+          curl -fL --retry 3 --max-time 600 -o "$dmg" "$url" && break
         done
         echo "8858d8058da4f862f47559486814e65efc27294da67c5e4bb56b006b1ee59f89  $dmg" | shasum -a 256 -c -
         mount=$(hdiutil attach -nobrowse -readonly "$dmg" | awk -F'\t' '/\/Volumes\//{print $NF}')

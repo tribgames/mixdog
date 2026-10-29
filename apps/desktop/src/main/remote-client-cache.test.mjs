@@ -169,6 +169,18 @@ test('an acknowledgement clears only the revocation instance it was sent for', a
   assert.equal(typeof (await loadRemoteClientCache(dir)).revocation('c1'), 'number');
 });
 
+test('a confirmation that was already applied resolves only once the cleared record is on disk', async (t) => {
+  const dir = tempDir(t);
+  const cache = await loadRemoteClientCache(dir);
+  await cache.queueRevoke('c1');
+  const revocation = cache.revocation('c1');
+  // The relay drain and an explicit unpair were both answered for one instance.
+  const first = cache.applied('c1', revocation);
+  await cache.applied('c1', revocation);
+  assert.deepEqual(stored(dir).pendingRevokes, []);
+  await first;
+});
+
 test('writes land in order and leave no temporary file', async (t) => {
   const dir = tempDir(t);
   const cache = await loadRemoteClientCache(dir);

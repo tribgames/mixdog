@@ -52,7 +52,8 @@ export interface RemoteClientCache {
   /** Queues the revocation for the next relay leg; the client stays listed as pending. */
   queueRevoke(clientId: string): Promise<void>;
   /** The relay confirmed the revocation sent for `revocation`. A newer one
-   *  queued for the client meanwhile stays (nothing changes). */
+   *  queued for the client meanwhile stays (nothing changes). Resolves once
+   *  the file holds the outcome, also when another caller confirmed it first. */
   applied(clientId: string, revocation: number): Promise<void>;
   /** The device was approved again (re-paired): a revocation still queued
    *  for it no longer applies. */
@@ -241,7 +242,11 @@ export async function loadRemoteClientCache(userDataPath: string): Promise<Remot
       await persist();
     },
     async applied(clientId, revocation) {
-      if (revocations.get(clientId) !== revocation) return;
+      // Already confirmed by another caller (the relay drain and an explicit
+      // unpair can both be answered for one instance), or queued anew: the
+      // state holds what it should, but the write that carries it may still be
+      // in flight. Resolve only once a write of it has landed.
+      if (revocations.get(clientId) !== revocation) return persist();
       revocations.delete(clientId);
       owe([clientId]);
       state.clients = state.clients.filter((client) => client.id !== clientId);
