@@ -1,8 +1,9 @@
-// A turn that opens before the previous turn's save reached disk: a crash in
-// it must still recover the previous turn, since the new turn's checkpoint
-// replaces the previous one. Saves that landed keep the checkpoint turn-only.
+// Turns whose session saves never land: each new turn's checkpoint would
+// replace the previous one, so a crash must still recover every earlier turn
+// still missing from disk — exactly once — while each turn's checkpoint write
+// stays the size of that turn, not of the growing session.
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -15,8 +16,15 @@ mkdirSync(join(root, 'sessions'), { recursive: true });
 
 const { saveSessionAsync, setSessionSaveFault } = await import('../store.mjs');
 const { settleSessionSummaryIndex } = await import('../store/listing.mjs');
-const { createTurnCheckpointRecorder, readTurnCheckpoint, recoverTurnCheckpoint, settleTurnCheckpointWrites } =
-  await import('./turn-checkpoint.mjs');
+const {
+  clearTurnCheckpoint,
+  createTurnCheckpointRecorder,
+  readTurnCheckpoint,
+  recoverTurnCheckpoint,
+  settleTurnCheckpointWrites,
+  turnCheckpointPath,
+} = await import('./turn-checkpoint.mjs');
+const { listRetainedCheckpoints } = await import('./turn-checkpoint-journal.mjs');
 const { createTurnInterruptionTracker } = await import('./turn-interruption.mjs');
 
 test.after(async () => {
@@ -26,12 +34,12 @@ test.after(async () => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const sessionPath = (id) => join(root, 'sessions', `${id}.json`);
-const texts = (messages) => messages.map((message) => message.content);
+const REPLY_CHARS = 20_000;
+const prompt = (k) => `task-${k}-end`;
+const reply = (k) => `${'x'.repeat(REPLY_CHARS)} reply-${k}-end`;
 
-/** Turn one completes in memory; `landed` decides whether its save reaches
- *  disk. Turn two then opens its checkpoint, and the process dies. */
-async function crashInSecondTurn(id, { landed }) {
+/** A session on disk as created, and its live copy. */
+function createSession(id) {
   const created = {
     id,
     generation: 1,
@@ -44,36 +52,122 @@ async function crashInSecondTurn(id, { landed }) {
     model: 'gpt-5.6-sol',
     messages: [{ role: 'system', content: 'sys' }],
   };
-  writeFileSync(sessionPath(id), JSON.stringify(created));
-  const live = structuredClone(created);
-  live.messages.push({ role: 'user', content: 'first task' }, { role: 'assistant', content: 'done one' });
-  if (landed) await saveSessionAsync(live, { expectedGeneration: 1 });
-  else {
-    setSessionSaveFault({ ids: [id] });
-    await assert.rejects(saveSessionAsync(live, { expectedGeneration: 1 }));
-    setSessionSaveFault(null);
-  }
-  const recorder = createTurnCheckpointRecorder({ sessionId: id, generation: 1, turnToken: `tok-${id}`, startedAt: 2_000 });
-  recorder.record({
-    currentUserContent: 'second task',
-    turnOutgoing: [...live.messages, { role: 'user', content: 'second task' }],
-    interruption: createTurnInterruptionTracker(),
-  });
-  await settleTurnCheckpointWrites(id);
-  const header = readTurnCheckpoint(id);
-  // The restarted process: only the data dir is left.
-  const restarted = JSON.parse(readFileSync(sessionPath(id), 'utf8'));
-  assert.equal(recoverTurnCheckpoint(restarted).recovered, true);
-  return { header, recovered: texts(restarted.messages) };
+  writeFileSync(join(root, 'sessions', `${id}.json`), JSON.stringify(created));
+  return structuredClone(created);
 }
 
-test('a crash after a turn whose save never landed still recovers that turn', async () => {
-  const { recovered } = await crashInSecondTurn('unsaved_previous_turn', { landed: false });
-  assert.deepEqual(recovered.slice(0, 4), ['sys', 'first task', 'done one', 'second task']);
+/** Opens turn `k` (its checkpoint header, retaining an uncleared previous
+ *  turn) and returns what that open wrote, then runs and commits the turn.
+ *  `land` decides whether the commit's save reaches disk. */
+async function runTurn(live, k, { land = false, crash = false, whileRunning = null } = {}) {
+  const id = live.id;
+  // Like every ask's first turn, recovery runs on the session this process
+  // holds: turns it has not saved yet are not stale and stay checkpointed.
+  assert.equal(recoverTurnCheckpoint(live).changed, false);
+  const outgoing = [...live.messages, { role: 'user', content: prompt(k) }];
+  const recorder = createTurnCheckpointRecorder({ sessionId: id, generation: 1, turnToken: `tok-${k}`, startedAt: 10_000 + k });
+  const tracker = createTurnInterruptionTracker();
+  const before = new Set(listRetainedCheckpoints(id).map((entry) => entry.path));
+  recorder.record({ currentUserContent: prompt(k), turnOutgoing: outgoing, interruption: tracker });
+  const opened = {
+    header: statSync(turnCheckpointPath(id)).size,
+    retained: listRetainedCheckpoints(id)
+      .filter((entry) => !before.has(entry.path))
+      .map((entry) => statSync(entry.path).size),
+  };
+  if (crash) {
+    await settleTurnCheckpointWrites(id);
+    return opened;
+  }
+  await whileRunning?.();
+  outgoing.push({ role: 'assistant', content: reply(k) });
+  recorder.record({ currentUserContent: prompt(k), turnOutgoing: outgoing, interruption: tracker });
+  recorder.stop();
+  live.messages = outgoing;
+  live.updatedAt = Date.now();
+  if (land) await saveSessionAsync(live, { expectedGeneration: 1 });
+  else await assert.rejects(saveSessionAsync(live, { expectedGeneration: 1 }));
+  await settleTurnCheckpointWrites(id);
+  return opened;
+}
+
+/** The process dies: the next one recovers from the data dir alone. */
+function recoverAfterCrash(id) {
+  const restarted = JSON.parse(readFileSync(join(root, 'sessions', `${id}.json`), 'utf8'));
+  const recovery = recoverTurnCheckpoint(restarted);
+  assert.equal(recovery.recovered, true);
+  return restarted.messages;
+}
+
+/** Each turn's prompt and reply appear exactly once, in turn order. */
+function assertEveryTurnOnce(messages, turns, { lastUnanswered }) {
+  const at = (role, text) => {
+    const found = messages.flatMap((message, index) =>
+      message.role === role && JSON.stringify(message.content).includes(text) ? [index] : []
+    );
+    assert.equal(found.length, 1, `${role} ${text} appears once`);
+    return found[0];
+  };
+  let previous = -1;
+  for (let k = 1; k <= turns; k += 1) {
+    const positions = [at('user', prompt(k))];
+    if (!(lastUnanswered && k === turns)) positions.push(at('assistant', `reply-${k}-end`));
+    for (const position of positions) {
+      assert.ok(position > previous, `turn ${k} follows turn ${k - 1}`);
+      previous = position;
+    }
+  }
+}
+
+test('with every save failing, each turn checkpoints its own size and a crash restores every turn once', async () => {
+  const live = createSession('unsaved_turns');
+  setSessionSaveFault({ ids: [live.id] });
+  const opens = [];
+  for (let k = 1; k <= 8; k += 1) opens.push(await runTurn(live, k));
+  opens.push(await runTurn(live, 9, { crash: true }));
+  setSessionSaveFault(null);
+
+  // The session grew past 160 KB, yet each open wrote one small header and
+  // at most the one previous turn it retained.
+  assert.ok(JSON.stringify(live.messages).length > 8 * REPLY_CHARS);
+  for (const [index, { header, retained }] of opens.entries()) {
+    assert.ok(header < 2_000, `turn ${index + 1} header is ${header} bytes`);
+    assert.equal(retained.length, index === 0 ? 0 : 1, `turn ${index + 1} retains only its predecessor`);
+    for (const size of retained) assert.ok(size < 2 * REPLY_CHARS, `turn ${index} kept in ${size} bytes`);
+  }
+  assertEveryTurnOnce(recoverAfterCrash(live.id), 9, { lastUnanswered: true });
 });
 
-test('after a landed save the checkpoint holds only the new turn and recovery is the same', async () => {
-  const { header, recovered } = await crashInSecondTurn('saved_previous_turn', { landed: true });
-  assert.deepEqual(texts(header.turnMessages), ['second task']);
-  assert.deepEqual(recovered.slice(0, 4), ['sys', 'first task', 'done one', 'second task']);
+test('a landed save drops the turns it covers; a crash restores the rest once each', async () => {
+  const live = createSession('partly_saved_turns');
+  setSessionSaveFault({ ids: [live.id] });
+  for (let k = 1; k <= 4; k += 1) await runTurn(live, k);
+  // A save covering turns 1-4 lands while turn 5 runs, after turn 5 opened
+  // and retained turn 4; turn 5's own save then fails.
+  const afterFour = structuredClone(live);
+  await runTurn(live, 5, {
+    whileRunning: async () => {
+      assert.equal(listRetainedCheckpoints(live.id).length, 4);
+      setSessionSaveFault(null);
+      await saveSessionAsync(afterFour, { expectedGeneration: 1 });
+      assert.equal(clearTurnCheckpoint(live.id, 'tok-4'), true);
+      assert.equal(listRetainedCheckpoints(live.id).length, 0, 'turns 1-4 are on disk now');
+      assert.equal(readTurnCheckpoint(live.id).turnToken, 'tok-5', "turn 5's own checkpoint stays");
+      setSessionSaveFault({ ids: [live.id] });
+    },
+  });
+  await runTurn(live, 6);
+  await runTurn(live, 7, { crash: true });
+  setSessionSaveFault(null);
+  assertEveryTurnOnce(recoverAfterCrash(live.id), 7, { lastUnanswered: true });
+});
+
+test('turns whose saves land leave no retained checkpoint behind', async () => {
+  const live = createSession('saved_turns');
+  for (let k = 1; k <= 3; k += 1) {
+    await runTurn(live, k, { land: true });
+    clearTurnCheckpoint(live.id, `tok-${k}`);
+  }
+  assert.equal(listRetainedCheckpoints(live.id).length, 0);
+  assert.equal(readTurnCheckpoint(live.id), null);
 });

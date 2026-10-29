@@ -30,10 +30,10 @@ export async function projectStoredTranscript(sessionId, doc, options) {
 export async function prepareStoredTranscriptBase(sessionId, doc, options) {
   let session = doc;
   if (!options.checkpointAbsent) {
-    const { projectTurnCheckpointMessages, readTurnCheckpoint } = await import('./manager/turn-checkpoint.mjs');
+    const { projectTurnCheckpointChain, readTurnCheckpointChain } = await import('./manager/turn-checkpoint.mjs');
     const projectCheckpoint = () => {
-      const checkpoint = readTurnCheckpoint(sessionId);
-      if (checkpoint) session = { ...session, messages: projectTurnCheckpointMessages(session, checkpoint) };
+      const chain = readTurnCheckpointChain(sessionId);
+      if (chain.length) session = { ...session, messages: projectTurnCheckpointChain(session, chain) };
     };
     const { isSessionTurnLive, recoverSessionAfterProcessRestart } = await import(
       './manager/turn-checkpoint-recovery.mjs'

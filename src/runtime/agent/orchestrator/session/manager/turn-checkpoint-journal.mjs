@@ -33,7 +33,7 @@
 // writer produced, so recovery/projection semantics are unchanged. A crash-torn
 // trailing line is discarded: replay stops at the first unparsable record and
 // keeps the durable prefix.
-import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { appendFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
@@ -166,9 +166,8 @@ function redactInterruptionSnapshot(sessionId, snapshot) {
 
 // ── Header (written once per turn, again when a sensitive value is marked) ──
 
-export function writeCheckpointHeader(checkpoint) {
+export function writeCheckpointHeader(checkpoint, target = turnCheckpointPath(checkpoint.sessionId)) {
   const { sessionId } = checkpoint;
-  const target = turnCheckpointPath(sessionId);
   const payload = {
     ...checkpoint,
     version: TURN_CHECKPOINT_VERSION,
@@ -205,6 +204,40 @@ export function readTurnCheckpointHeaderState(sessionId) {
     return { present: error?.code !== 'ENOENT', header: null };
   }
   return { present: true, header: parseTurnCheckpointHeader(text, sessionId) };
+}
+
+// ── Retained checkpoints ────────────────────────────────────────────────────
+// A turn whose covering session save has not landed when the session's next
+// turn opens keeps its checkpoint as `<session>.r<startedAt>.json`: one
+// self-contained file (no journal) written once, until a landed save covers
+// the turn. Recovery applies retained turns oldest first, then the current one.
+export function retainedCheckpointPath(sessionId, startedAt) {
+  const stamp = String(Math.max(0, Math.trunc(Number(startedAt) || 0))).padStart(16, '0');
+  return checkpointFilePath(sessionId, `.r${stamp}.json`, { ensureDir: true });
+}
+
+/** This session's retained checkpoints, oldest first: `{ path, header }`,
+ *  `header` null for an unreadable file. */
+export function listRetainedCheckpoints(sessionId) {
+  assertSessionId(sessionId);
+  let names;
+  try {
+    names = readdirSync(checkpointDirPath());
+  } catch {
+    return [];
+  }
+  const prefix = `${sessionId}.r`;
+  return names
+    .filter((name) => name.startsWith(prefix) && /^\d+\.json$/.test(name.slice(prefix.length)))
+    .sort()
+    .map((name) => {
+      const path = join(checkpointDirPath(), name);
+      try {
+        return { path, header: parseTurnCheckpointHeader(readFileSync(path, 'utf8'), sessionId) };
+      } catch {
+        return { path, header: null };
+      }
+    });
 }
 
 function parseTurnCheckpointHeader(text, sessionId) {
@@ -624,18 +657,11 @@ export function createTurnJournalEncoder({ turnToken, sessionId = null } = {}) {
      * and the journal's opening lines (head record, plus — defensively —
      * the delta that makes the journal authoritative if the tracker already
      * carried state at open time). `snapshot` is the tracker snapshot the
-     * header stores; `epoch` names the journal a rewritten header starts;
-     * `whole` journals the whole transcript instead of the turn alone. */
-    seed(
-      turnOutgoing,
-      currentUserContent,
-      interruption,
-      contextState = null,
-      { snapshot = null, epoch = 0, whole = false } = {}
-    ) {
+     * header stores; `epoch` names the journal a rewritten header starts. */
+    seed(turnOutgoing, currentUserContent, interruption, contextState = null, { snapshot = null, epoch = 0 } = {}) {
       const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
       const start = findTurnStart(source, currentUserContent);
-      fullTranscript = whole || start < 0;
+      fullTranscript = start < 0;
       journaled = fullTranscript ? source.slice() : source.slice(start);
       mirror = sensitiveValuesVersion(sessionId)
         ? {
