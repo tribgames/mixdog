@@ -5,7 +5,6 @@ import {
   cancelJournalWrites,
   createTurnJournalEncoder,
   emptyInterruptionSnapshot,
-  findTurnStart,
   openJournalForTurn,
   readTurnCheckpointHeader,
   readTurnCheckpointHeaderState,
@@ -14,123 +13,269 @@ import {
   settleTurnJournalWrites,
   turnCheckpointPath,
   turnCheckpointReadPath,
-  turnMessagesForCheckpoint,
   writeCheckpointHeader,
 } from './turn-checkpoint-journal.mjs';
 import { captureTurnCheckpointContextState, restoreTurnCheckpointContextState } from './turn-checkpoint-context.mjs';
 import { stripProviderReplayMessages } from './provider-replay.mjs';
 import { sensitiveValuesVersion } from '../sensitive-values.mjs';
+import { mintTranscriptEpoch, readDurableSessionRecord } from '../store/transcript-durability.mjs';
 
-export { turnCheckpointPath, turnMessagesForCheckpoint };
+export { turnCheckpointPath };
 export { captureTurnCheckpointContextState, restoreTurnCheckpointContextState };
 
 /** Resolve once every queued journal append for a session has been written. */
 export const settleTurnCheckpointWrites = settleTurnJournalWrites;
 
-/** Whether `checkpoint` describes this session's current turn: same
- *  generation, and either the session's active-turn marker names it or (with
- *  no marker) it is newer than the session record. */
-function checkpointAppliesTo(session, checkpoint) {
-  const sessionGeneration = Number(session.generation) || 0;
-  const checkpointGeneration = Number(checkpoint.generation) || 0;
-  const markerToken =
-    typeof session.activeTurnCheckpoint?.turnToken === 'string' ? session.activeTurnCheckpoint.turnToken : null;
-  const markerMatches = markerToken === checkpoint.turnToken;
-  const checkpointIsNewer = Number(checkpoint.updatedAt) > Number(session.updatedAt || 0);
-  return !(
-    checkpointGeneration !== sessionGeneration ||
-    (markerToken && !markerMatches) ||
-    (!markerToken && !checkpointIsNewer)
-  );
+// ── What a checkpoint means against the durable record ──────────────────────
+// A checkpoint names the base it was taken against: `base` (the transcript
+// epoch and length of the landed record the turn opened on) and `boundary`
+// (how many of that record's messages precede the turn). A self-contained
+// checkpoint (`fullTranscript`) carries the whole context instead. Every
+// history rewrite in this process mints a new transcript epoch before a
+// record carries it, and only the base or a later save of the turn can be
+// on disk after the turn opened (store/transcript-durability.mjs), so:
+//   covered   the record carries the finished turn's coverage token: nothing
+//             to replay, the checkpoint only awaits deletion;
+//   replay    the record is of the base epoch and holds the base prefix (the
+//             base itself, a pre-open save of it, or a save of this same
+//             active turn), or — for a self-contained checkpoint — is this
+//             same active turn's save on any epoch;
+//   conflict  anything else. The checkpoint is kept and reported, never
+//             spliced onto a record it was not taken against.
+
+/** `{ action: 'covered' | 'replay' | 'conflict', reason? }` for `checkpoint`
+ *  against the canonical record `durable` (as it is on disk). */
+export function checkpointDisposition(durable, checkpoint) {
+  if (!durable || !Array.isArray(durable.messages)) {
+    return { action: 'conflict', reason: 'the session has no durable record' };
+  }
+  if (typeof checkpoint?.turnToken === 'string' && durable.turnCoverage === checkpoint.turnToken) {
+    return { action: 'covered' };
+  }
+  const base = checkpoint?.base;
+  const baseEpoch = typeof base?.epoch === 'string' && base.epoch ? base.epoch : null;
+  const sameTurn = durable.activeTurnCheckpoint?.turnToken === checkpoint?.turnToken;
+  const onBaseEpoch = baseEpoch !== null && durable.transcriptEpoch === baseEpoch;
+  if (checkpoint?.fullTranscript === true) {
+    if (onBaseEpoch || sameTurn) return { action: 'replay' };
+    return { action: 'conflict', reason: 'the record is neither the base nor a save of this turn' };
+  }
+  const boundary = checkpoint?.boundary;
+  if (!baseEpoch || !Number.isInteger(boundary) || boundary < 0 || boundary > Number(base.length)) {
+    return { action: 'conflict', reason: 'the checkpoint names no base revision' };
+  }
+  if (onBaseEpoch && durable.messages.length >= boundary) return { action: 'replay' };
+  return { action: 'conflict', reason: 'the record is not of the base the checkpoint was taken against' };
 }
 
-/** Read-only projection for a turn still owned by another process. Unlike
- * recoverTurnCheckpoint this never mutates the session, clears the checkpoint,
- * or marks a live turn as interrupted. */
+/** The messages `checkpoint` contributes (finalized as interrupted unless it
+ *  was sealed) and the transcript they make on `durable`. */
+function replayCheckpoint(durable, checkpoint, routeChanged) {
+  const finalized =
+    checkpoint.sealed === true
+      ? { messages: checkpoint.turnMessages.slice(), responsePreserved: true }
+      : finalizeTurnInterruptionSnapshot({
+          turnOutgoing: checkpoint.turnMessages,
+          currentUserContent: checkpoint.currentUserContent,
+          snapshot: checkpoint.interruption,
+          abortReason: 'process-crash',
+        });
+  // The route switched models mid-turn and the journal may predate the
+  // switch: its turn still carries the previous provider's native replay
+  // state, which the saved route's provider must not receive.
+  const turnMessages = routeChanged ? stripProviderReplayMessages(finalized.messages) : finalized.messages;
+  const messages =
+    checkpoint.fullTranscript === true
+      ? turnMessages
+      : [...durable.messages.slice(0, checkpoint.boundary), ...turnMessages];
+  return { messages, responsePreserved: finalized.responsePreserved };
+}
+
+const _reportedConflicts = new Set();
+
+function reportCheckpointConflict(sessionId, checkpoint, reason) {
+  const key = `${sessionId}:${checkpoint.turnToken}`;
+  if (_reportedConflicts.has(key)) return;
+  _reportedConflicts.add(key);
+  try {
+    process.stderr.write(
+      `[turn-checkpoint] kept unrecovered checkpoint session=${sessionId} turn=${checkpoint.turnToken}: ${reason}\n`
+    );
+  } catch {
+    /* stderr best-effort */
+  }
+}
+
+/** Read-only projection for a turn still owned by another process (or not
+ *  yet durable in this one). Unlike recoverTurnCheckpoint this never mutates
+ *  the session, clears the checkpoint, or marks a live turn as interrupted.
+ *  `session` is read as the durable record. */
 export function projectTurnCheckpointMessages(session, checkpoint) {
   const source = Array.isArray(session?.messages) ? session.messages : [];
   if (!session?.id || checkpoint?.sessionId !== session.id || !Array.isArray(checkpoint?.turnMessages)) return source;
-  if (!checkpointAppliesTo(session, checkpoint)) return source;
-  if (checkpoint.fullTranscript === true) {
-    return checkpoint.turnMessages.slice();
-  }
-  const start = findTurnStart(source, checkpoint.currentUserContent);
-  return [...(start >= 0 ? source.slice(0, start) : source), ...checkpoint.turnMessages];
+  if (checkpointDisposition(session, checkpoint).action !== 'replay') return source;
+  if (checkpoint.fullTranscript === true) return checkpoint.turnMessages.slice();
+  return [...source.slice(0, checkpoint.boundary), ...checkpoint.turnMessages];
 }
 
 // ── Journal-backed checkpoint writes ─────────────────────────────────────────
-// A turn is checkpointed as a write-once header plus an append-only delta
-// journal (turn-checkpoint-journal.mjs). The recorder owns exactly one turn:
-// the FIRST record() writes the header synchronously — it is the crash
-// durability anchor for the prompt and must land before the provider runs —
-// and every later record() appends ONLY what changed since the previous flush.
-// Per-flush cost is therefore O(new bytes), not O(whole growing turn), so a
-// long tool-heavy turn no longer amplifies into the shared engine thread that
-// every fanned-out agent session shares.
-export function createTurnCheckpointRecorder({ sessionId, generation, turnToken, startedAt }) {
+// A turn is checkpointed as a header plus an append-only delta journal
+// (turn-checkpoint-journal.mjs). The recorder owns exactly one turn: the FIRST
+// record() writes the header synchronously — it is the crash durability
+// anchor for the prompt and must land before the provider runs — and every
+// later record() appends ONLY what changed since the previous flush. Per-flush
+// cost is therefore O(new bytes), not O(whole growing turn).
+//
+// The header names its base explicitly: the turn opens at `boundary` (the
+// index of its user message) on the durable landed transcript `base`
+// (`{ epoch, refs }`, store/transcript-durability.mjs). When the messages
+// before the boundary are not exactly the base's, or a later flush finds any
+// of them replaced (compaction, a prefix rewrite), the header is rewritten as
+// ONE self-contained replacement of the whole context under a new transcript
+// epoch — atomically, before any session record can carry that epoch — and
+// the journal restarts under it. A bare index move is never journaled.
+export function createTurnCheckpointRecorder({ session = null, sessionId, generation, turnToken, startedAt, base = null }) {
   const encoder = createTurnJournalEncoder({ turnToken, sessionId });
   let opened = false;
   let stopped = false;
   // The sensitive-values version (sensitive-values.mjs) the header and
   // journal were written under. A newly marked value rewrites both from the
-  // turn's current state with the value replaced, under a new journal epoch,
-  // so no recovery record keeps it.
+  // turn's current state with the value replaced, so no recovery record
+  // keeps it.
   let openedVersion = 0;
+  let headerWrites = 0;
+  // Frame: the header holds turnOutgoing[offset..] (offset 0 when
+  // self-contained); `pinned` are the messages before the turn's own region,
+  // any replacement of which is a history rewrite.
+  let fullTranscript = false;
+  let offset = 0;
+  let pinned = [];
+  let openingIndex = -1;
+  let openingRef = null;
+  let transcriptEpoch = null;
+  let contextState = null;
+
+  const adoptEpoch = (epoch) => {
+    transcriptEpoch = epoch;
+    if (session) session.transcriptEpoch = epoch;
+  };
+  const opensOnBase = (source, boundary) => {
+    if (!base || typeof base.epoch !== 'string' || !Array.isArray(base.refs)) return false;
+    if (session && session.transcriptEpoch !== base.epoch) return false;
+    if (boundary > base.refs.length) return false;
+    for (let index = 0; index < boundary; index += 1) if (source[index] !== base.refs[index]) return false;
+    return true;
+  };
+  const pinnedIntact = (source) => {
+    if (source.length < pinned.length) return false;
+    for (let index = 0; index < pinned.length; index += 1) if (source[index] !== pinned[index]) return false;
+    return true;
+  };
+  const trackOpening = (source) => {
+    openingRef = openingIndex >= 0 ? (source[openingIndex] ?? null) : null;
+  };
+  const writeHeader = ({ source, currentUserContent, interruption, captureContext, sealed }) => {
+    const snapshot =
+      typeof interruption?.snapshot === 'function' ? interruption.snapshot() : emptyInterruptionSnapshot();
+    if (typeof captureContext === 'function') contextState = captureContext(offset);
+    headerWrites += 1;
+    const seed = encoder.seed(source, interruption, contextState, { offset, snapshot, epoch: headerWrites });
+    writeCheckpointHeader({
+      sessionId,
+      generation,
+      turnToken,
+      startedAt,
+      currentUserContent,
+      base: base ? { epoch: base.epoch, length: base.refs.length } : null,
+      boundary: offset,
+      transcriptEpoch,
+      ...(fullTranscript ? { fullTranscript: true } : {}),
+      ...(sealed ? { sealed: true } : {}),
+      journalEpoch: headerWrites,
+      turnMessages: seed.turnMessages,
+      interruption: snapshot,
+      contextState: seed.contextState,
+    });
+    // Opening the journal is part of the anchor: a leftover journal (an
+    // earlier turn's, or this turn's under its previous header) must never
+    // replay onto the new header. It lands synchronously when the lane is
+    // idle and is otherwise FENCED behind the older in-flight write; the
+    // head record's token and journal epoch guard the interim window.
+    openJournalForTurn(sessionId, seed.openLines);
+    trackOpening(source);
+    return true;
+  };
   return {
     get opened() {
       return opened;
     },
-    /** True when this call wrote or queued durable state. */
-    record({ currentUserContent, turnOutgoing, interruption, contextState = null }) {
+    /** True when this call wrote or queued durable state. `boundary` is the
+     *  index of the turn's user message in `turnOutgoing` (read when the
+     *  checkpoint opens); `captureContext(boundary)` reads the context state
+     *  aligned with the header's split, re-read when `contextDirty`;
+     *  `sealed` records the turn as finished. */
+    record({
+      boundary,
+      currentUserContent,
+      turnOutgoing,
+      interruption,
+      captureContext = null,
+      contextDirty = false,
+      sealed = false,
+    }) {
       if (stopped || !sessionId || !turnToken) return false;
+      const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
       const version = sensitiveValuesVersion(sessionId);
-      if (!opened || version !== openedVersion) {
-        const snapshot =
-          typeof interruption?.snapshot === 'function' ? interruption.snapshot() : emptyInterruptionSnapshot();
-        const seed = encoder.seed(turnOutgoing, currentUserContent, interruption, contextState, {
-          snapshot,
-          epoch: version,
-        });
-        writeCheckpointHeader({
-          sessionId,
-          generation,
-          turnToken,
-          startedAt,
-          currentUserContent,
-          turnMessages: seed.turnMessages,
-          ...(seed.fullTranscript ? { fullTranscript: true } : {}),
-          ...(version ? { journalEpoch: version } : {}),
-          interruption: snapshot,
-          contextState: seed.contextState,
-        });
+      const header = { source, currentUserContent, interruption, captureContext, sealed };
+      if (!opened) {
+        const at = Number.isInteger(boundary) && boundary >= 0 && boundary <= source.length ? boundary : source.length;
+        if (opensOnBase(source, at)) {
+          fullTranscript = false;
+          offset = at;
+          transcriptEpoch = base.epoch;
+        } else {
+          fullTranscript = true;
+          offset = 0;
+          adoptEpoch(mintTranscriptEpoch());
+        }
+        pinned = source.slice(0, at);
+        openingIndex = at < source.length ? at : -1;
         openedVersion = version;
-        // Opening the journal is part of the anchor: a leftover journal
-        // from an earlier turn of this session must never replay onto
-        // the new header. It lands synchronously when the lane is idle
-        // and is otherwise FENCED behind the older in-flight write, so
-        // an old turn can never appear beneath this turn's token (the
-        // head record's token guards the interim window).
-        openJournalForTurn(sessionId, seed.openLines);
         opened = true;
-        return true;
+        return writeHeader(header);
       }
-      const lines = encoder.encode({
-        turnOutgoing,
-        currentUserContent,
-        interruption,
-        contextState,
-      });
+      if (!pinnedIntact(source)) {
+        // A history rewrite. The turn's own opening message, found by
+        // identity, bounds the new pinned prefix; without it every message
+        // present now is pinned.
+        const at = openingRef ? source.indexOf(openingRef) : -1;
+        fullTranscript = true;
+        offset = 0;
+        adoptEpoch(mintTranscriptEpoch());
+        pinned = source.slice(0, at >= 0 ? at : source.length);
+        openingIndex = at;
+        openedVersion = version;
+        return writeHeader(header);
+      }
+      if (version !== openedVersion) {
+        openedVersion = version;
+        return writeHeader(header);
+      }
+      if (contextDirty && typeof captureContext === 'function') contextState = captureContext(offset);
+      const lines = encoder.encode({ turnOutgoing: source, interruption, contextState, sealed });
+      trackOpening(source);
       if (lines.length === 0) return false;
-      appendJournalLines(sessionId, lines);
+      appendJournalLines(sessionId, lines, { immediate: sealed });
       return true;
     },
-    stop() {
+    /** `keepQueued`: the turn was sealed, so its queued appends still land. */
+    stop({ keepQueued = false } = {}) {
       if (stopped) return;
       stopped = true;
       // Retire queued (not yet written) appends. The durable prefix stays on
-      // disk on purpose: between turn commit and clearTurnCheckpoint a crash
-      // must still recover the turn's work, not just its opening header.
-      cancelJournalWrites(sessionId);
+      // disk on purpose: until a save covering the turn lands a crash must
+      // still recover the turn's work, not just its opening header.
+      if (!keepQueued) cancelJournalWrites(sessionId);
     },
   };
 }
@@ -180,10 +325,15 @@ export function clearTurnCheckpoint(sessionId, turnToken = null) {
 }
 
 /**
- * Merge a force-killed turn checkpoint into a loaded session. The caller must
- * durably save the mutated session before clearing the returned token.
+ * Merge a force-killed turn checkpoint into a loaded session, deciding from
+ * the canonical record `durable` as it is on disk (checkpointDisposition) —
+ * never from the in-memory session's freshness. Returns `covered` when that
+ * record already carries the turn (the caller deletes the checkpoint) and
+ * `conflict` when the checkpoint was not taken against it (kept, reported).
+ * A recovered session carries the turn's coverage token; the caller must
+ * durably save it before clearing the returned token.
  */
-export function recoverTurnCheckpoint(session) {
+export function recoverTurnCheckpoint(session, durable = session?.id ? readDurableSessionRecord(session.id) : null) {
   if (!session?.id || session.closed === true) {
     return { changed: false, recovered: false, turnToken: null };
   }
@@ -195,29 +345,24 @@ export function recoverTurnCheckpoint(session) {
     return { changed: true, recovered: false, turnToken: null };
   }
 
-  if (!checkpointAppliesTo(session, checkpoint)) {
-    clearTurnCheckpoint(session.id, checkpoint.turnToken);
-    if (typeof marker?.turnToken === 'string' && marker.turnToken === checkpoint.turnToken) {
-      delete session.activeTurnCheckpoint;
-    }
-    return { changed: false, recovered: false, turnToken: null };
+  const disposition = checkpointDisposition(durable, checkpoint);
+  if (disposition.action === 'covered') {
+    return { changed: false, recovered: false, covered: true, turnToken: checkpoint.turnToken };
+  }
+  if (disposition.action === 'conflict') {
+    reportCheckpointConflict(session.id, checkpoint, disposition.reason);
+    return { changed: false, recovered: false, conflict: disposition.reason, turnToken: null };
   }
 
-  const finalized = finalizeTurnInterruptionSnapshot({
-    turnOutgoing: checkpoint.turnMessages,
-    currentUserContent: checkpoint.currentUserContent,
-    snapshot: checkpoint.interruption,
-    abortReason: 'process-crash',
-  });
-  const current = Array.isArray(session.messages) ? session.messages : [];
-  const start = findTurnStart(current, checkpoint.currentUserContent);
-  const kept = start >= 0 ? current.slice(0, start) : current;
-  // The route switched models mid-turn (the marker says so) and the journal
-  // may predate the switch: its turn still carries the previous provider's
-  // native replay state, which the saved route's provider must not receive.
-  const turnMessages =
-    marker?.routeChanged === true ? stripProviderReplayMessages(finalized.messages) : finalized.messages;
-  session.messages = checkpoint.fullTranscript === true ? turnMessages : [...kept, ...turnMessages];
+  const routeChanged = [durable.activeTurnCheckpoint, marker].some(
+    (entry) => entry?.turnToken === checkpoint.turnToken && entry.routeChanged === true
+  );
+  const finalized = replayCheckpoint(durable, checkpoint, routeChanged);
+  session.messages = finalized.messages;
+  // The splice is a history rewrite of its own, and this record now covers
+  // the turn: a crash after it is saved never replays the checkpoint again.
+  session.transcriptEpoch = mintTranscriptEpoch();
+  session.turnCoverage = checkpoint.turnToken;
   // Re-anchor provider usage / post-compact replacement state to the exact
   // canonical checkpoint representation. If a legacy or corrupted checkpoint
   // cannot prove alignment, retain the last provider reading for display but

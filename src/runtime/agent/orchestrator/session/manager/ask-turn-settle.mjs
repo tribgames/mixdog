@@ -20,7 +20,7 @@ import { applyAskTerminalUsageTotals } from './usage-metrics.mjs';
 import { markSessionDone, markSessionEmptyFinal, _getRuntimeEntry } from './runtime-liveness.mjs';
 import { SessionClosedError } from './session-errors.mjs';
 import { filterModelVisibleSessionMessages } from './message-sanitize.mjs';
-import { clearTurnCheckpoint } from './turn-checkpoint.mjs';
+import { holdTurnUntilDurable } from './turn-durability.mjs';
 import { recordProviderContextBaseline } from '../loop/compact-policy.mjs';
 import { throwIfAborted } from '../../../../shared/abort-race.mjs';
 import { appendAssistantTurnMessage, persistProviderState, recordAskUsage } from './ask-turn-commit.mjs';
@@ -94,7 +94,7 @@ export function attachFailedTurnCompletion(messages, completion) {
 /** Commits the loop result into the session: messages, usage, provider state
  *  and queue acknowledgements. Returns the terminal result preview. */
 export async function commitAskTurn({ sessionId, opened, prepared, result, rawTranscriptMeta, askStartedAt }) {
-  const { turn, runtime, turnSignal, askGeneration, checkpoint, prepareCloseSnapshot } = opened;
+  const { turn, runtime, turnSignal, askGeneration, prepareCloseSnapshot } = opened;
   const session = turn.session;
   throwIfAborted(turnSignal);
   // Post-loop validation: if closeSession() landed while we were awaiting,
@@ -111,7 +111,8 @@ export async function commitAskTurn({ sessionId, opened, prepared, result, rawTr
   // Turn committed into session.messages; drop the live-turn alias so
   // contextStatus() reverts to the authoritative committed transcript.
   session.liveTurnMessages = null;
-  checkpoint.stop();
+  // The checkpoint keeps recording until publishAskTurn seals the finished
+  // transcript into it.
   delete session.activeTurnCheckpoint;
   appendAssistantTurnMessage({
     session,
@@ -160,7 +161,7 @@ export async function commitAskTurn({ sessionId, opened, prepared, result, rawTr
  *  starts the durable save and marks the session done. Returns the
  *  follow-up entries drained right after the provider accepted the turn. */
 export function publishAskTurn({ sessionId, opened, terminalResultPreview, askOpts, rawTranscriptMeta, askStartedAt }) {
-  const { turn, runtime, askGeneration, turnToken } = opened;
+  const { turn, runtime, askGeneration, turnToken, checkpoint } = opened;
   const session = turn.session;
   // The provider accepted this queued turn: only now remove its
   // durable ids. A crash before here leaves them for at-least-once
@@ -197,19 +198,23 @@ export function publishAskTurn({ sessionId, opened, terminalResultPreview, askOp
   // query/provider send (agentLoop pre-send), not after the previous
   // answer. This lets queued follow-up prompts resume immediately;
   // if they need compaction, their own spinner shows compacting first.
-  // Fire-and-forget terminal save. The result is already produced and
-  // (for agent surfaces) relayed via onTerminalResult above. When
-  // completion was relayed to the UI, yield before postMessage
-  // structured-clones the full session. Queued follow-up turns retain
-  // the original immediate-save ordering; they did not inject a
-  // terminal card and may mutate this same session on the next loop.
+  // The finished transcript (final assistant message, completion) is sealed
+  // into the checkpoint, and the record the terminal save writes names the
+  // turn it covers: a crash before that save lands replays the sealed turn,
+  // one after it deletes the checkpoint without a duplicate.
+  session.turnCoverage = turnToken;
+  checkpoint.seal();
+  // Terminal save. The result is already produced and (for agent surfaces)
+  // relayed via onTerminalResult above. When completion was relayed to the
+  // UI, yield before postMessage structured-clones the full session. Queued
+  // follow-up turns retain the original immediate-save ordering. Its landed
+  // acknowledgement is this session's next-turn gate (turn-durability.mjs),
+  // which alone deletes the checkpoint.
   const saveTerminalSession = terminalRelayed ? saveSessionAsyncDeferred : saveSessionAsync;
   const terminalSave = saveTerminalSession(session, { expectedGeneration: askGeneration });
+  holdTurnUntilDurable({ sessionId, session, turnToken, generation: askGeneration, save: terminalSave });
   terminalSave.then(
-    () => {
-      clearTurnCheckpoint(sessionId, turnToken);
-      ingestSessionTurn(session);
-    },
+    () => ingestSessionTurn(session),
     () => {}
   );
   finalizePendingMessageDelivery(session, turn.pendingEntries, terminalSave, () =>

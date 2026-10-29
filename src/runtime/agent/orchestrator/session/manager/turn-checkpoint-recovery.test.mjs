@@ -48,6 +48,7 @@ async function storeRunningTurn(id) {
       { role: 'system', content: 'sys' },
       { role: 'user', content: PROMPT },
     ],
+    transcriptEpoch: 'e0',
     activeTurnCheckpoint: { version: 1, turnToken: `tok-${id}`, startedAt: 1_000 },
   };
   writeFileSync(sessionPath(id), JSON.stringify(doc));
@@ -57,10 +58,11 @@ async function storeRunningTurn(id) {
     generation: 1,
     turnToken: `tok-${id}`,
     startedAt: 1_000,
+    base: { epoch: 'e0', refs: doc.messages.slice(0, 1) },
   });
   tracker.markProviderSendStarted();
   tracker.recordTextDelta(PARTIAL);
-  recorder.record({ currentUserContent: PROMPT, turnOutgoing: doc.messages, interruption: tracker });
+  recorder.record({ boundary: 1, currentUserContent: PROMPT, turnOutgoing: doc.messages, interruption: tracker });
   await settleTurnCheckpointWrites(id);
   return doc;
 }

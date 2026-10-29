@@ -1,5 +1,5 @@
 import { contextMessagesSignature } from '../context-utils.mjs';
-import { checkpointMessage, findTurnStart, turnMessagesForCheckpoint } from './turn-checkpoint-journal.mjs';
+import { checkpointMessage } from './turn-checkpoint-journal.mjs';
 
 const TURN_CONTEXT_STATE_VERSION = 1;
 
@@ -29,9 +29,11 @@ function compactCheckpointState(compaction) {
 
 /**
  * Capture provider usage or a post-compact replacement reading against the
- * same canonical message representation persisted by the checkpoint.
+ * same canonical message representation persisted by the checkpoint:
+ * `messages[0..boundary)` is the part recovery takes from the durable record,
+ * the rest is the checkpoint's own (boundary 0 for a self-contained one).
  */
-export function captureTurnCheckpointContextState(session, messages, currentUserContent) {
+export function captureTurnCheckpointContextState(session, messages, boundary) {
   if (!session || !Array.isArray(messages)) return null;
   const providerCount = nonNegativeCount(session.contextPressureBaselineMessageCount);
   const providerTokens = Number(session.contextPressureBaselineTokens);
@@ -54,12 +56,8 @@ export function captureTurnCheckpointContextState(session, messages, currentUser
   }
   if (!kind || anchorCount === null || anchorCount > messages.length) return null;
 
-  const start = findTurnStart(messages, currentUserContent);
-  const fullTranscript = start < 0;
-  const committedPrefixCount = fullTranscript ? 0 : start;
-  const canonicalTurnMessages = fullTranscript
-    ? messages.map(checkpointMessage)
-    : turnMessagesForCheckpoint(messages, currentUserContent);
+  const committedPrefixCount = Number.isInteger(boundary) && boundary >= 0 && boundary <= messages.length ? boundary : 0;
+  const canonicalTurnMessages = messages.slice(committedPrefixCount).map(checkpointMessage);
   const turnMessageCount = anchorCount - committedPrefixCount;
   if (turnMessageCount < 0 || turnMessageCount > canonicalTurnMessages.length) return null;
 

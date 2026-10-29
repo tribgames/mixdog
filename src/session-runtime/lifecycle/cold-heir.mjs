@@ -35,6 +35,9 @@ const SOURCE_RUNTIME_FIELDS = [
   'toolApprovalHook',
   '_providerPrefixGuardState',
   'activeTurnCheckpoint',
+  // The source's durable transcript identity (store/transcript-durability.mjs).
+  'transcriptEpoch',
+  'turnCoverage',
   'deferredInitialRefreshPending',
   'pendingGoalReminder',
   'goalReminderRevision',

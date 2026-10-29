@@ -6,6 +6,7 @@ import { captureTurnCheckpointContextState, createTurnCheckpointRecorder } from 
 import { finalizeTurnInterruptionSnapshot } from './turn-interruption.mjs';
 import { onSensitiveValuesMarked } from '../sensitive-values.mjs';
 import { saveSessionAsync } from '../store.mjs';
+import { setTranscriptSnapshotHook } from '../store/transcript-durability.mjs';
 import { ingestSessionTurn } from '../../../../session-search/session-search-ingest.mjs';
 
 // Coalescing window for streaming-delta flushes. Each flush journals only the
@@ -22,6 +23,8 @@ export function createAskTurnState(session) {
     outgoing: null,
     /** The user turn exactly as sent, kept for interruption finalization. */
     userTurnContent: '',
+    /** Index of the user turn in `outgoing` when it was assembled. */
+    boundary: null,
     /** Queue entries this turn consumed: acked on commit, released on failure. */
     pendingEntries: [],
   };
@@ -29,34 +32,52 @@ export function createAskTurnState(session) {
 
 /** The recorder writes this turn's header synchronously on its first flush
  *  (the crash-durability anchor for the prompt, landing before the provider
- *  runs) and appends bounded deltas afterwards. */
-export function createTurnCheckpointScheduler({ sessionId, generation, turnToken, startedAt, turn, interruption }) {
+ *  runs) and appends bounded deltas afterwards. `base` is the durable
+ *  transcript the turn opens on (store/transcript-durability.mjs). Every
+ *  save of the session flushes first, so a history rewrite is in the
+ *  checkpoint before any record carries its new epoch. */
+export function createTurnCheckpointScheduler({ sessionId, generation, turnToken, startedAt, turn, interruption, base }) {
   let timer = null;
   let stopped = false;
   let lastAt = 0;
   let warned = false;
-  let contextState = null;
-  const recorder = createTurnCheckpointRecorder({ sessionId, generation, turnToken, startedAt });
+  let contextDirty = false;
+  const recorder = createTurnCheckpointRecorder({
+    session: turn.session,
+    sessionId,
+    generation,
+    turnToken,
+    startedAt,
+    base,
+  });
+  const record = (messages, extra = {}) =>
+    recorder.record({
+      boundary: turn.boundary,
+      currentUserContent: turn.userTurnContent,
+      turnOutgoing: messages,
+      interruption,
+      captureContext: (boundary) => captureTurnCheckpointContextState(turn.session, messages, boundary),
+      contextDirty,
+      ...extra,
+    });
+  const warn = (error) => {
+    if (warned) return;
+    warned = true;
+    try {
+      process.stderr.write(`[turn-checkpoint] write failed session=${sessionId}: ${error?.message || error}\n`);
+    } catch {
+      // stderr may be closed; the checkpoint failure is only reported
+    }
+  };
   const flush = () => {
     if (stopped || !turn.outgoing || !turn.userTurnContent) return false;
     try {
-      const written = recorder.record({
-        currentUserContent: turn.userTurnContent,
-        turnOutgoing: turn.outgoing,
-        interruption,
-        contextState,
-      });
+      const written = record(turn.outgoing);
+      contextDirty = false;
       if (written) lastAt = Date.now();
       return written;
     } catch (error) {
-      if (!warned) {
-        warned = true;
-        try {
-          process.stderr.write(`[turn-checkpoint] write failed session=${sessionId}: ${error?.message || error}\n`);
-        } catch {
-          // stderr may be closed; the checkpoint failure is only reported
-        }
-      }
+      warn(error);
       return false;
     }
   };
@@ -83,9 +104,20 @@ export function createTurnCheckpointScheduler({ sessionId, generation, turnToken
     });
     ingestSessionTurn(turn.session);
   });
+  const unhookSaves = setTranscriptSnapshotHook(turn.session, () => {
+    if (!stopped && turn.outgoing) flushNow();
+  });
+  const halt = (options) => {
+    stopped = true;
+    stopMarks();
+    unhookSaves();
+    if (timer) clearTimeout(timer);
+    timer = null;
+    recorder.stop(options);
+  };
   return {
     refreshContextState() {
-      contextState = captureTurnCheckpointContextState(turn.session, turn.outgoing, turn.userTurnContent);
+      contextDirty = true;
     },
     schedule(immediate = false) {
       if (stopped || !turn.outgoing) return;
@@ -101,12 +133,27 @@ export function createTurnCheckpointScheduler({ sessionId, generation, turnToken
       }, waitMs);
       timer.unref?.();
     },
+    /** Record the finished transcript (`turn.session.messages`, with the
+     *  final assistant message and its completion) as sealed, then stop: a
+     *  crash before a save covers the turn replays it as finished, not as
+     *  interrupted. */
+    seal() {
+      if (stopped) return false;
+      let written = false;
+      if (turn.outgoing && turn.userTurnContent) {
+        try {
+          contextDirty = true;
+          written = record(turn.session.messages, { sealed: true });
+        } catch (error) {
+          warn(error);
+        }
+      }
+      halt({ keepQueued: true });
+      return written;
+    },
     stop() {
-      stopped = true;
-      stopMarks();
-      if (timer) clearTimeout(timer);
-      timer = null;
-      recorder.stop();
+      if (stopped) return;
+      halt();
     },
   };
 }
