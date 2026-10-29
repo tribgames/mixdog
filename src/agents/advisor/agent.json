@@ -1,6 +1,6 @@
 {
   "id": "advisor",
   "name": "Advisor",
-  "description": "Use when the approach is genuinely unclear, when errors recur or results stop converging, before changing approach, or when the user asks for a second opinion. Never for final verification.",
+  "description": "Use as a second mind on hard work: consulting before a risky or complex change is built, hunting a bug whose cause is unclear, errors that recur or results that stop converging, or when the user asks. Never for final verification.",
   "entry": "AGENT.md"
 }
