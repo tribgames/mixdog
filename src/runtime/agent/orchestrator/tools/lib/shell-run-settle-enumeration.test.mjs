@@ -50,7 +50,7 @@ const isHeld = (repo) => {
 // The POSIX probe answers from the process group first and never enumerates
 // for a group that is gone; the hung enumerator is a Windows settle path.
 test('a hung enumerator is killed at the deadline and the finished command still returns, releasable', {
-  skip: process.platform !== 'win32' && 'Windows settle path',
+  skip: process.platform !== 'win32' && 'requires Windows: POSIX settles from the process group and never enumerates',
 }, async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const repo = makeRepo();

@@ -1,16 +1,26 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createRestStreamWatchdogs } from './watchdogs.mjs';
-import { geminiTimeoutError } from '../gemini-stream.mjs';
-import {
-  PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
-  PROVIDER_SSE_IDLE_TIMEOUT_MS,
-  PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
-} from '../../stall-policy.mjs';
+// The stall policy reads host overrides once at load; the modules load with
+// the defaults (watchdog on, transport idle below the semantic idle), and the
+// host's values are put back afterwards.
+const POLICY_ENV = Object.keys(process.env).filter((name) =>
+  /^(MIXDOG_PROVIDER_|MIXDOG_STALL_|MIXDOG_ENABLE_STREAM_WATCHDOG$|STALL_TIMEOUT_S$)/.test(name),
+);
+const hostPolicy = POLICY_ENV.map((name) => [name, process.env[name]]);
+for (const name of POLICY_ENV) delete process.env[name];
+let createRestStreamWatchdogs, geminiTimeoutError, PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS, PROVIDER_SSE_IDLE_TIMEOUT_MS;
+try {
+  ({ createRestStreamWatchdogs } = await import('./watchdogs.mjs'));
+  ({ geminiTimeoutError } = await import('../gemini-stream.mjs'));
+  ({ PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS, PROVIDER_SSE_IDLE_TIMEOUT_MS } = await import('../../stall-policy.mjs'));
+} finally {
+  for (const [name, value] of hostPolicy) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
+}
 
-test('the REST idle watchdog waits the semantic window and names the idle phase', {
-  skip: !PROVIDER_SSE_IDLE_WATCHDOG_ENABLED || PROVIDER_SSE_IDLE_TIMEOUT_MS >= PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS,
-}, async (t) => {
+test('the REST idle watchdog waits the semantic window and names the idle phase', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] });
   const reader = { read: () => new Promise(() => {}), cancel: async () => {} };
   const watchdogs = createRestStreamWatchdogs({

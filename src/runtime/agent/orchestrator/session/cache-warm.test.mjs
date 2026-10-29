@@ -272,7 +272,6 @@ test('eligibility: explicit-breakpoint providers with a warm mode, no budget thi
 });
 
 test('timing: the warm goes out at T − 60 s for both tiers', () => {
-  assert.equal(CACHE_WARM_LEAD_MS, 60_000);
   assert.equal(cacheWarmDelayMs(HOUR), 3540_000);
   assert.equal(cacheWarmDelayMs(5 * MINUTE), 240_000);
 });

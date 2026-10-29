@@ -62,7 +62,7 @@ test('a stale tool_running snapshot writes exactly one stall_abort row to the fa
   assert.equal(row.snapshot_present, true);
   assert.equal(row.current_tool, 'shell');
   assert.equal(row.iteration, 7);
-  assert.ok(row.elapsed_ms >= 425000 && row.elapsed_ms < 430000);
+  assert.equal(row.elapsed_ms, 425000);
   assert.ok(row.last_progress_at > 0 && row.last_keepalive_at > 0 && row.anchor_ts > 0);
   assert.doesNotMatch(text, /stale \(/, 'the row carries no message text');
   // The decision: which clock was compared against the 420 s limit.
@@ -78,20 +78,42 @@ test('a stale tool_running snapshot writes exactly one stall_abort row to the fa
   assert.ok(row.ask_started_at > 0 && row.model_request_started_at > 0);
 });
 
+// The registry sweeps on a 1 s interval and stamps Date.now(); the child
+// freezes both at START and advances them one sweep at a time, so every clock
+// in a row is an exact multiple of the sweep. A child whose watchdog never
+// aborts throws (non-zero exit) instead of waiting on a real deadline.
+const START = 1_700_000_000_000;
+const FAKE_CLOCK = `
+    import { mock } from 'node:test';
+    mock.timers.enable({ apis: ['setInterval', 'setTimeout', 'Date'], now: ${START} });
+    // One registry sweep, then let the asynchronous progress reads settle.
+    const sweep = async () => {
+      mock.timers.tick(1000);
+      await new Promise((resolve) => setImmediate(resolve));
+    };
+    let aborted = false;
+    const onAbort = (signal) => signal.addEventListener('abort', () => { aborted = true; }, { once: true });
+    const sweepUntilAbort = async (sweeps) => {
+      for (let i = 1; i <= sweeps; i += 1) {
+        await sweep();
+        if (aborted !== (i === sweeps)) throw new Error('abort on sweep ' + i + ': ' + aborted);
+      }
+    };
+`;
+
 test('a manager with no progress snapshot writes snapshot_present false', () => {
   const { rows } = runAndReadRows(`
-    import { createProgressWatchdogRegistry } from './src/session-runtime/services/agent-watchdog-registry.mjs';
-    const aborted = new Promise((resolve) => {
-      const mgr = {
-        getSessionLastProgressAt: () => 0,
-        linkParentSignalToSession: (_id, signal) => {
-          signal.addEventListener('abort', resolve, { once: true });
-          return () => {};
-        },
-      };
-      createProgressWatchdogRegistry({ mgr }).start('sess_daemon_2', { idleStaleMs: 50 }, 'worker');
-    });
-    await Promise.race([aborted, new Promise((_, reject) => setTimeout(() => reject(new Error('no abort')), 4000))]);
+    ${FAKE_CLOCK}
+    const { createProgressWatchdogRegistry } = await import('./src/session-runtime/services/agent-watchdog-registry.mjs');
+    const mgr = {
+      getSessionLastProgressAt: () => 0,
+      linkParentSignalToSession: (_id, signal) => {
+        onAbort(signal);
+        return () => {};
+      },
+    };
+    createProgressWatchdogRegistry({ mgr }).start('sess_daemon_2', { idleStaleMs: 50 }, 'worker');
+    await sweepUntilAbort(1);
   `);
   assert.equal(rows.length, 1);
   const [row] = rows;
@@ -103,7 +125,8 @@ test('a manager with no progress snapshot writes snapshot_present false', () => 
   assert.equal(row.window, 'idle');
   assert.equal(row.limit_ms, 50);
   assert.equal(row.stage, null);
-  assert.ok(row.anchor_ts > 0);
+  assert.equal(row.anchor_ts, START);
+  assert.equal(row.elapsed_ms, 1000);
   assert.equal(row.compared_field, 'anchor_ts');
   assert.equal(row.compared_at, row.anchor_ts);
   assert.equal(row.snapshot_source, null);
@@ -111,47 +134,49 @@ test('a manager with no progress snapshot writes snapshot_present false', () => 
 });
 
 test('a failed-checks stop reports the last successful sweep as its compared clock', () => {
+  // Sweep 1 reads fine; sweeps 2 and 3 fail. Measured from sweep 1, the third
+  // sweep is the first past the 1.5 s limit (2 s); measured from the anchor,
+  // the second would already be (2 s).
   const { rows } = runAndReadRows(`
-    import { createProgressWatchdogRegistry } from './src/session-runtime/services/agent-watchdog-registry.mjs';
+    ${FAKE_CLOCK}
+    const { createProgressWatchdogRegistry } = await import('./src/session-runtime/services/agent-watchdog-registry.mjs');
     let calls = 0;
-    const aborted = new Promise((resolve) => {
-      const mgr = {
-        getSessionProgressSnapshot: () => {
-          calls += 1;
-          if (calls > 1) throw new Error('progress read broke');
-          return { stage: 'streaming', lastProgressAt: Date.now() };
-        },
-        linkParentSignalToSession: (_id, signal) => {
-          signal.addEventListener('abort', resolve, { once: true });
-          return () => {};
-        },
-      };
-      createProgressWatchdogRegistry({ mgr }).start('sess_daemon_4', { idleStaleMs: 1500 }, 'worker');
-    });
-    await Promise.race([aborted, new Promise((_, reject) => setTimeout(() => reject(new Error('no abort')), 8000))]);
+    const mgr = {
+      getSessionProgressSnapshot: () => {
+        calls += 1;
+        if (calls > 1) throw new Error('progress read broke');
+        return { stage: 'streaming', lastProgressAt: Date.now() };
+      },
+      linkParentSignalToSession: (_id, signal) => {
+        onAbort(signal);
+        return () => {};
+      },
+    };
+    createProgressWatchdogRegistry({ mgr }).start('sess_daemon_4', { idleStaleMs: 1500 }, 'worker');
+    await sweepUntilAbort(3);
   `);
   assert.equal(rows.length, 1);
   const [row] = rows;
   assert.equal(row.form, 'checks_failed');
   assert.equal(row.compared_field, 'last_successful_check_at');
-  // The decision measured from the first sweep (about 1 s after the anchor), not from the anchor.
-  assert.ok(row.compared_at - row.anchor_ts >= 500);
-  assert.ok(Math.abs(row.elapsed_ms - (row.ts - row.compared_at)) < 200);
-  assert.ok(row.elapsed_ms > 1500 && row.elapsed_ms < row.ts - row.anchor_ts - 500);
+  assert.equal(row.anchor_ts, START);
+  assert.equal(row.compared_at, START + 1000);
+  assert.equal(row.ts, START + 3000);
+  assert.equal(row.elapsed_ms, 2000);
 });
 
 test('a cached snapshot after a failed read shows the stale read time and the error name only', () => {
   const { text, rows } = runAndReadRows(`
-    import { createAgentTree } from './src/standalone/session-service/agent-tree.mjs';
-    import { createProgressWatchdogRegistry } from './src/session-runtime/services/agent-watchdog-registry.mjs';
+    ${FAKE_CLOCK}
+    const { createAgentTree } = await import('./src/standalone/session-service/agent-tree.mjs');
+    const { createProgressWatchdogRegistry } = await import('./src/session-runtime/services/agent-watchdog-registry.mjs');
     let reads = 0;
-    let stop;
-    const aborted = new Promise((resolve) => { stop = resolve; });
-    // The first read succeeds with an already-old progress clock; every later
-    // read fails, so the watchdog keeps judging that cached snapshot.
+    // The first read (sweep 1) succeeds with a progress clock at the anchor;
+    // every later read fails, so the watchdog keeps judging that cached
+    // snapshot until sweep 3 passes the 2.5 s limit.
     const runtime = {
       isWireSafe: true,
-      abort: () => stop(),
+      abort: () => { aborted = true; },
       getTurnLiveness: async () => {
         reads += 1;
         if (reads === 1) return { stage: 'streaming', lastProgressAt: Date.now() - 1000, askStartedAt: Date.now() - 5000 };
@@ -162,16 +187,17 @@ test('a cached snapshot after a failed read shows the stale read time and the er
     };
     const tree = createAgentTree({ sessionOwner: () => ({ runtime }) });
     createProgressWatchdogRegistry({ mgr: tree.agentManager }).start('sess_daemon_3', { idleStaleMs: 2500 }, 'worker');
-    await Promise.race([aborted, new Promise((_, reject) => setTimeout(() => reject(new Error('no abort')), 8000))]);
+    await sweepUntilAbort(3);
   `);
   assert.equal(rows.length, 1);
   const [row] = rows;
   assert.equal(row.snapshot_present, true);
   assert.equal(row.snapshot_source, 'cache');
   assert.equal(row.last_read_error, 'EWIRE');
-  assert.ok(row.last_read_ok_at > 0);
-  // The watchdog judged a read taken seconds before the stop, not current activity.
-  assert.ok(row.ts - row.last_read_ok_at >= 1500, 'last_read_ok_at is stale against the stop');
+  // The watchdog judged the read taken at sweep 1, not current activity.
+  assert.equal(row.last_read_ok_at, START + 1000);
+  assert.equal(row.ts, START + 3000);
+  assert.equal(row.compared_at, START);
   assert.equal(row.compared_field, 'last_progress_at');
   assert.doesNotMatch(text, /private\/secret/);
 });

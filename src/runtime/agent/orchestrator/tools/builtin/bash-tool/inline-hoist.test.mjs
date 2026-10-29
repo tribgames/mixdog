@@ -60,7 +60,9 @@ test('a replacement path containing `$` patterns is inserted verbatim', () => {
   assert.equal(plan.replace('C:/tmp/$&-$1.cjs'), 'node "C:/tmp/$&-$1.cjs"');
 });
 
-test('node -e / --eval / -p run correctly through the shell tool', { skip: process.platform !== 'win32' }, async () => {
+test('node -e / --eval / -p run correctly through the shell tool', {
+  skip: process.platform !== 'win32' && 'requires Windows PowerShell quoting',
+}, async () => {
   const run = async (command) => {
     const out = await executeBashTool({ command }, process.cwd(), {});
     return String(out?.result ?? out);

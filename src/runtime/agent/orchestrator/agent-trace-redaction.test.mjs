@@ -22,7 +22,7 @@ test('failure log previews redact --password/-p flags and URL userinfo', () => {
         resultText: 'Error: failed: mysql --password hunter2-flag -p hunter2-short https://user:hunter2-url@host.example/x',
       });
       await drainAgentTrace();
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      // No wait for the failure log: the process exit flushes it.
     `,
       ],
       {

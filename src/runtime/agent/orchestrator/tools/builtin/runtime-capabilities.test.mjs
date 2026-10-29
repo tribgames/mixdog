@@ -69,7 +69,7 @@ test('Shell tools startup line renders nothing when the probe fails or times out
 });
 
 test('Shell tools startup line on Windows walks PATH and ignores the Store stub', {
-  skip: process.platform === 'win32' ? false : 'PATH delimiter is platform-bound',
+  skip: process.platform === 'win32' ? false : 'requires Windows: the PATH delimiter is platform-bound',
 }, () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-shell-tools-win-'));
   try {

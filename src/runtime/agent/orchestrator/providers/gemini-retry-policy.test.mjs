@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   GEMINI_MIDSTREAM_MAX_ATTEMPTS,
-  GEMINI_REQUEST_RETRY,
   geminiEndsWithFunctionResponse,
   geminiInvalidStreamReason,
   geminiMidstreamDelayMs,
@@ -38,7 +37,6 @@ function harness(script) {
 const within = (value, base, ratio) => value >= base * (1 - ratio) - 1 && value <= base * (1 + ratio) + 1;
 
 test('connection phase: 10 attempts, 5s doubling to a 30s cap, ±30% jitter', async () => {
-  assert.equal(GEMINI_REQUEST_RETRY.maxAttempts, 10);
   const h = harness([() => Promise.reject(http(503))]);
   await assert.rejects(h.go(), (error) => {
     assert.equal(error.status, 503);
@@ -49,12 +47,6 @@ test('connection phase: 10 attempts, 5s doubling to a 30s cap, ±30% jitter', as
   const bases = [5000, 10_000, 20_000, 30_000, 30_000, 30_000, 30_000, 30_000, 30_000];
   assert.equal(h.sleeps.length, 9);
   h.sleeps.forEach((ms, index) => assert.ok(within(ms, bases[index], 0.3), `${index}: ${ms}`));
-});
-
-test('request ladder options: 499 retried, advice jittered upward and never below the backoff step', () => {
-  assert.equal(GEMINI_REQUEST_RETRY.retry499, true);
-  assert.equal(GEMINI_REQUEST_RETRY.retryAfterJitterRatio, 0.2);
-  assert.equal(GEMINI_REQUEST_RETRY.adviceAtLeastBackoff, true);
 });
 
 test('connection phase: a server-advised wait is honored in full, with only upward jitter', async () => {

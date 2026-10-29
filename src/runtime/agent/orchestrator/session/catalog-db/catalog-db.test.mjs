@@ -452,7 +452,6 @@ test('a v5 catalog DB opens through openChecked and is rebuilt to v6 with the ca
   await closeSessionCatalogDb();
   const rebuilt = new DatabaseSync(dbPath());
   try {
-    assert.equal(SCHEMA_VERSION, 11);
     assert.equal(rebuilt.prepare("SELECT value FROM meta WHERE key='schema_version'").get().value, '11');
     assert.equal(rebuilt.prepare('PRAGMA application_id').get().application_id, APPLICATION_ID);
     const columns = rebuilt

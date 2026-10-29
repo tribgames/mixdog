@@ -200,14 +200,13 @@ test('the handshake accepts exactly one frame and nothing else', async () => {
   );
 });
 
-test('an unterminated flood is cut off by the read bound, not the timeout', async () => {
-  const started = Date.now();
+test('an unterminated flood is cut off by the read bound, not the timeout', async (t) => {
+  // The handshake timeout never fires on the frozen clock, so a verdict at
+  // all proves the read bound ended the wait; without it the promise stays
+  // pending and the test fails with an unresolved promise.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const flooded = stubSession((s) => s.emit('X'.repeat(2 * 1024 * 1024)));
-  const verdict = await verifyContractOverSession(flooded, { timeoutMs: 5_000 });
-  const elapsed = Date.now() - started;
-
-  assert.equal(verdict, false);
-  assert.ok(elapsed < 1_000, `handshake waited ${elapsed}ms instead of cutting off`);
+  assert.equal(await verifyContractOverSession(flooded, { timeoutMs: 5_000 }), false);
 });
 
 test('an executable carrying the marker cannot serve the protocol, so it routes JS', async (t) => {

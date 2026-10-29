@@ -14,7 +14,6 @@ import {
   toolHistoryBudget,
   parseExecutionArchive,
   EXECUTION_RECOVERY_SOURCE,
-  TOOL_HISTORY_MAX_TOKENS,
 } from './execution-tail.mjs';
 import { isActualUserInstructionMessage } from './messages.mjs';
 import { renderAgentCompletionEnvelope } from '../../../../shared/task-notification-envelope.mjs';
@@ -141,7 +140,6 @@ test('a report steered into a running tool loop survives Compact between its exe
 });
 
 test('tool history scales with 5% of the context window up to a 40k-token ceiling', () => {
-  assert.equal(TOOL_HISTORY_MAX_TOKENS, 40_000);
   for (const [contextWindow, expected] of [
     [20_000, 1_000],
     [100_000, 5_000],

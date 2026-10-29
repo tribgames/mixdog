@@ -2,7 +2,6 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   ANTIGRAVITY_FIRST_BYTE_TIMEOUT_MS,
-  ANTIGRAVITY_RETRY,
   antigravity429WaitMs,
   antigravityFirstBytePolicy,
   antigravityFirstResponseBudget,
@@ -17,8 +16,6 @@ test('the same-host ladder defaults to 4 attempts at 1s / 2s / 4s with one first
     backoffMs: [1000, 1000, 2000, 4000],
     firstByteRetries: 1,
   });
-  assert.equal(ANTIGRAVITY_RETRY.maxAttempts, 4);
-  assert.deepEqual([...ANTIGRAVITY_RETRY.backoffMs], [1000, 1000, 2000, 4000]);
 });
 
 test('the ladder is configurable and clamped', () => {

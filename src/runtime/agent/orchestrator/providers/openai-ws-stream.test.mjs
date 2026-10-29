@@ -1,14 +1,24 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { EventEmitter } from 'node:events';
-import { _streamResponse } from './openai-ws-stream.mjs';
-import {
-  PROVIDER_FIRST_OUTPUT_TIMEOUT_MS,
-  PROVIDER_SSE_IDLE_WATCHDOG_ENABLED,
-  PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS,
-} from '../stall-policy.mjs';
-import { markSessionStreamDelta, updateSessionStage } from '../session/manager/runtime-liveness.mjs';
-import { runtimeState } from '../session/manager/runtime-state.mjs';
+
+// The stall policy reads host overrides once at load; the stream loads with
+// the defaults (watchdog on, default windows), and the host's values are put
+// back afterwards.
+const hostPolicy = Object.keys(process.env)
+  .filter((name) => /^(MIXDOG_PROVIDER_|MIXDOG_STALL_|MIXDOG_ENABLE_STREAM_WATCHDOG$|STALL_TIMEOUT_S$)/.test(name))
+  .map((name) => [name, process.env[name]]);
+for (const [name] of hostPolicy) delete process.env[name];
+let markSessionStreamDelta, updateSessionStage, runtimeState, _streamResponse;
+let PROVIDER_FIRST_OUTPUT_TIMEOUT_MS, PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS;
+try {
+  ({ markSessionStreamDelta, updateSessionStage } = await import('../session/manager/runtime-liveness.mjs'));
+  ({ runtimeState } = await import('../session/manager/runtime-state.mjs'));
+  ({ _streamResponse } = await import('./openai-ws-stream.mjs'));
+  ({ PROVIDER_FIRST_OUTPUT_TIMEOUT_MS, PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS } = await import('../stall-policy.mjs'));
+} finally {
+  for (const [name, value] of hostPolicy) process.env[name] = value;
+}
 
 // Observable contract of one Responses WS stream: what the resolved result
 // carries, what the callbacks saw, and what a stalled/closed stream reports.
@@ -244,7 +254,6 @@ test('an inter-chunk stall after output rejects as a continuation carrying the p
   assert.deepEqual(socket.closes, [[4000, 'inter_chunk_timeout']]);
 });
 
-const skipWatchdog = !PROVIDER_SSE_IDLE_WATCHDOG_ENABLED && 'stream watchdog disabled by env';
 const frame = (socket, event) => socket.emit('message', Buffer.from(JSON.stringify(event)));
 // Metadata/keepalive frames every minute for `ms`: the socket stays live.
 function keepalivesFor(t, socket, ms) {
@@ -255,7 +264,7 @@ function keepalivesFor(t, socket, ms) {
 }
 const reasoningItem = { type: 'reasoning', id: 'rs_1', summary: [] };
 
-test('a model may think silently past the semantic idle until its first output', { skip: skipWatchdog }, async (t) => {
+test('a model may think silently past the semantic idle until its first output', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const { pending, socket, seen } = run([
     created,
@@ -282,7 +291,7 @@ test('a model may think silently past the semantic idle until its first output',
   assert.equal((await pending).content, 'answer');
 });
 
-test('a stream with no output is aborted at the first-output deadline', { skip: skipWatchdog }, async (t) => {
+test('a stream with no output is aborted at the first-output deadline', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const { pending, socket } = run([created, { type: 'response.output_item.added', item: reasoningItem }]);
   keepalivesFor(t, socket, PROVIDER_FIRST_OUTPUT_TIMEOUT_MS - 1);
@@ -296,7 +305,7 @@ test('a stream with no output is aborted at the first-output deadline', { skip: 
   assert.deepEqual(socket.closes, [[4000, 'first_output_timeout']]);
 });
 
-test('after the first output the semantic idle applies unchanged', { skip: skipWatchdog }, async (t) => {
+test('after the first output the semantic idle applies unchanged', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'] });
   const { pending, socket } = run([created, { type: 'response.output_text.delta', delta: 'kept' }]);
   keepalivesFor(t, socket, PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS - 1);
@@ -318,7 +327,7 @@ function sessionRequest(t, sessionId) {
   return Date.now();
 }
 
-test('a reopened stream aborts at the logical request original deadline', { skip: skipWatchdog }, async (t) => {
+test('a reopened stream aborts at the logical request original deadline', async (t) => {
   const sessionId = 'sess_ws_retry_deadline';
   const startedAt = sessionRequest(t, sessionId);
   const first = run([created, { type: 'response.output_item.added', item: reasoningItem }], { state: { sessionId } });
@@ -335,7 +344,7 @@ test('a reopened stream aborts at the logical request original deadline', { skip
   assert.deepEqual(retry.socket.closes, [[4000, 'first_output_timeout']]);
 });
 
-test('a WS retry after output stays under the semantic idle', { skip: skipWatchdog }, async (t) => {
+test('a WS retry after output stays under the semantic idle', async (t) => {
   const sessionId = 'sess_ws_retry_after_output';
   sessionRequest(t, sessionId);
   await markSessionStreamDelta(sessionId, 'reasoning');

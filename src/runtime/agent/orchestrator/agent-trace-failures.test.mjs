@@ -111,8 +111,14 @@ test('failure traces redact secrets and preserve structured errors without loggi
         toolMs: 1, resultKind: 'error',
         resultText: '\\r\\n ⚠️ destructive command warning\\r\\n Error: Session "sess_cancelled" closed: aborted during call',
       });
+      traceAgentTool({
+        sessionId: 'structured-failure', iteration: 1, toolName: 'shell', toolKind: 'internal',
+        toolMs: 1, resultKind: 'error',
+        resultText: 'Error: failed: mysql --password hunter2-flag -p hunter2-short https://user:hunter2-url@host.example/x',
+      });
       await drainAgentTrace();
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      // No wait for the failure log: the process exit flushes it, which is
+      // what keeps a short-lived process's failure rows.
     `,
       ],
       {
@@ -131,12 +137,19 @@ test('failure traces redact secrets and preserve structured errors without loggi
     );
     assert.equal(result.status, 0, result.stderr);
     const log = readFileSync(join(directory, 'failures.jsonl'), 'utf8');
-    const row = JSON.parse(log.trim());
+    // The cancellation is not a failure row; the structured error and the
+    // credential-bearing command are.
+    const [row, flags, ...rest] = log.trim().split(/\r?\n/).map(JSON.parse);
+    assert.equal(rest.length, 0);
     assert.equal(row.error_first_line, 'Error: foreground_unavailable');
     assert.match(row.error_preview, /Authorization: Bearer \[redacted\]/);
+    assert.match(flags.error_preview, /--password \[redacted\]/);
     assert.doesNotMatch(log, /\[object Object\]|image-bytes-must-not-enter-logs|secret-example-token/);
-    const traces = readFileSync(join(directory, 'trace.jsonl'), 'utf8').trim().split(/\r?\n/).map(JSON.parse);
-    assert.equal(traces.length, 2);
+    const traceText = readFileSync(join(directory, 'trace.jsonl'), 'utf8');
+    // --password, -p and URL userinfo values reach neither sink.
+    assert.doesNotMatch(log + traceText, /hunter2/);
+    const traces = traceText.trim().split(/\r?\n/).map(JSON.parse);
+    assert.equal(traces.length, 3);
     assert.equal(traces[0].result_error_first_line, row.error_first_line);
     assert.equal(traces[1].result_error_category, 'expected-cancellation');
   } finally {

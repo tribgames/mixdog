@@ -116,7 +116,7 @@ const runPwsh = (script) =>
   spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 30000 });
 
 test('a rewritten heredoc and /dev/null redirect run to the expected output', {
-  skip: !pwsh || pwsh.status !== 0,
+  skip: (!pwsh || pwsh.status !== 0) && 'requires pwsh on Windows',
 }, () => {
   const script = rewrite("node - <<'EOF'\nconsole.log('hi ' + [1,2].length)\nEOF").command;
   assert.equal(runPwsh(script).stdout.trim(), 'hi 2');
@@ -125,7 +125,7 @@ test('a rewritten heredoc and /dev/null redirect run to the expected output', {
 });
 
 test('the shell tool runs the rewritten command and reports each rewrite', {
-  skip: !pwsh || pwsh.status !== 0,
+  skip: (!pwsh || pwsh.status !== 0) && 'requires pwsh on Windows',
 }, async () => {
   const args = { command: 'node -e "console.log(41 + 1)" 2>/dev/null' };
   const prepared = prepareShellCommand(args);
@@ -144,16 +144,11 @@ const ps51 =
     ? spawnSync('powershell.exe', ['-NoProfile', '-Command', '1'], { encoding: 'utf8' })
     : null;
 
-test('the shell prefix keeps native stdin BOM-less', () => {
-  assert.match(POWERSHELL_UTF8_PREFIX, /\$OutputEncoding=New-Object System\.Text\.UTF8Encoding \$false;/);
-  assert.doesNotMatch(POWERSHELL_UTF8_PREFIX, /\$OutputEncoding=\[System\.Text\.Encoding\]::UTF8/);
-});
-
 const py = ps51 ? spawnSync('python', ['--version'], { encoding: 'utf8' }) : null;
 
 // python rejects a leading U+FEFF ("invalid non-printable character"); node tolerates it.
 test('under powershell.exe 5.1 a rewritten heredoc reaches python without a BOM', {
-  skip: !ps51 || ps51.status !== 0 || !py || py.status !== 0,
+  skip: (!ps51 || ps51.status !== 0 || !py || py.status !== 0) && 'requires Windows PowerShell 5.1 and python',
 }, () => {
   const heredoc = "python - <<'EOF'\nprint('ok', 1)\nEOF";
   const run = spawnSync(

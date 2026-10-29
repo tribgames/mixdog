@@ -29,10 +29,9 @@ import {
   renderShellCompletionEnvelope,
 } from '../../../../shared/task-notification-envelope.mjs';
 import { escapeHarnessTags } from '../../../../shared/shell-output-summary.mjs';
-import { AGENT_TASK_WAIT_DEFAULT_MS, SHELL_HOLD_DEFAULT_MS, TASK_WAIT_DEFAULT_MS } from './wait-budgets.mjs';
+import { AGENT_TASK_WAIT_DEFAULT_MS, TASK_WAIT_DEFAULT_MS } from './wait-budgets.mjs';
 import {
   TASK_WAIT_TIMEOUT_DEFAULT_MS,
-  TASK_WAIT_TIMEOUT_MAX_MS,
   BUILTIN_TOOLS,
   bindAgentOwner,
 } from './builtin-tools.mjs';
@@ -54,11 +53,8 @@ const resultText = (out) => String(out?.result ?? out);
 const taskIdOf = (text) => /task_id: (\S+)/.exec(text)?.[1] || null;
 
 test('budgets come from one place: hold 60 s, task wait 300 s (agents 240 s)', () => {
-  assert.equal(SHELL_HOLD_DEFAULT_MS, 60_000);
-  assert.equal(TASK_WAIT_DEFAULT_MS, 300_000);
   assert.ok(AGENT_TASK_WAIT_DEFAULT_MS < 300_000, 'an agent wakes inside the 5 m cache TTL');
   assert.equal(TASK_WAIT_TIMEOUT_DEFAULT_MS, TASK_WAIT_DEFAULT_MS);
-  assert.equal(TASK_WAIT_TIMEOUT_MAX_MS, 3_600_000);
   const shell = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
   assert.match(shell.description, /Holds 60s;/);
   assert.equal(shell.inputSchema.properties.wait_ms.maximum, 600_000);

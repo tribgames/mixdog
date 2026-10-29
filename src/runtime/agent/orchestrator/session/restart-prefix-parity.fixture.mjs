@@ -1,4 +1,4 @@
-// Child process of restart-prefix-parity.test.mjs: one phase of a scripted
+// Child process of restart-prefix-parity.slow.test.mjs: one phase of a scripted
 // anthropic-oauth session in its own process, so a "restart" is a real new
 // process reading the data dir the previous one left. The fake provider
 // records the request body the real OAuth builder makes for every main-loop

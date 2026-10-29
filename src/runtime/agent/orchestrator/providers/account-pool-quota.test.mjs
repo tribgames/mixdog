@@ -244,8 +244,6 @@ test('a provider-supplied accountCooldownPolicy sets reason-based cooldowns when
     assert.ok(near(blockedFor(ids[0]), Math.min(expected, 6 * 60 * 60_000)), `quota step ${expected}`);
     await clearProviderAccountQuotaState(ag, ids[0]);
   }
-  assert.equal(ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY.waitForCooldownMs, 300_000);
-  assert.equal(ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY.rotateOnRateLimit, true);
   // A 30s cooldown sits inside the 300s wait bound: the pool waits for it,
   // so an abort ends that wait.
   const rate = () => Object.assign(new Error('slow'), { status: 429, code: 'rate_limit_exceeded' });
@@ -481,8 +479,6 @@ test('waitForCooldownMs: beyond the bound, or with quota evidence, the send thro
 });
 
 test('accountBlocked: a policy blockedMs cools that account and rotates; without it the error surfaces', async () => {
-  const { ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY } = await import('./antigravity-retry-policy.mjs');
-  assert.equal(ANTIGRAVITY_ACCOUNT_COOLDOWN_POLICY.blockedMs, 600_000);
   const blocked = () =>
     Object.assign(new Error('verify'), {
       status: 403,

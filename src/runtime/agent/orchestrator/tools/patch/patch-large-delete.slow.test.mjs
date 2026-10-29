@@ -264,7 +264,7 @@ test('a later failure in the same batch restores the quarantined file byte-exact
 
 test('a locked file that cannot be moved aside fails the batch and rolls everything back', async (t) => {
   if (process.platform !== 'win32') {
-    t.skip('mandatory file locks are a Windows behavior');
+    t.skip('requires Windows mandatory file locks');
     return;
   }
   const dir = makeDir(t);
@@ -451,7 +451,7 @@ test('replay capture marks a target it cannot open as unreadable, not absent or 
   try {
     try {
       readFileSync(locked);
-      t.skip('the file is still readable here (e.g. running as root)');
+      t.skip('requires a user that file permissions bind; the locked file is still readable (e.g. running as root)');
       return;
     } catch {
       // Expected: the lock/permission makes the file unreadable, which is the setup under test.

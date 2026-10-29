@@ -27,7 +27,7 @@ mock.module('./command-preflight.mjs', {
 const { executeBashTool } = await import('../bash-tool.mjs');
 
 test('a piped PowerShell command runs wrapped but reports the original command for job labels', {
-  skip: process.platform !== 'win32',
+  skip: process.platform !== 'win32' && 'requires Windows',
 }, async () => {
   const original = 'npm test 2>&1 | Select-String fail';
   await executeBashTool({ command: original, background: true }, process.cwd());

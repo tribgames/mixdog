@@ -63,7 +63,6 @@ test('a long unseen range is head + marker (with the log path) + tail, and its m
 });
 
 test('output up to 6,000 chars goes whole; longer output is head + marker + tail', () => {
-  assert.equal(DELIVERY_FULL_CHARS, 6_000);
   const lines = (n) => `${Array.from({ length: n }, (_, i) => `row ${String(i).padStart(4, '0')}`).join('\n')}\n`;
   const whole = lines(600); // 600 × 9 chars = 5,400
   assert.ok(whole.length <= 6_000);

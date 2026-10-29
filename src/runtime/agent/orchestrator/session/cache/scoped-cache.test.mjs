@@ -57,7 +57,9 @@ test('unobserved external changes have a bounded reuse window', () => {
   }
 });
 
-test('Windows aliases invalidate the same scope', { skip: process.platform !== 'win32' && 'Windows only' }, () => {
+test('Windows aliases invalidate the same scope', {
+  skip: process.platform !== 'win32' && 'requires Windows case-insensitive paths',
+}, () => {
   const spec = request('case', 'Src');
   setScopedToolCached({ ...spec, content: 'before' });
   clearScopedToolsForSessionPaths(spec.sessionId, [resolve(root, 'SRC/a.ts').toUpperCase()]);
@@ -65,7 +67,7 @@ test('Windows aliases invalidate the same scope', { skip: process.platform !== '
 });
 
 test('case-sensitive platforms keep distinct paths distinct', {
-  skip: process.platform === 'win32' && 'Windows only',
+  skip: process.platform === 'win32' && 'requires case-sensitive paths (not Windows)',
 }, () => {
   const spec = request('case', 'Src');
   setScopedToolCached({ ...spec, content: 'before' });

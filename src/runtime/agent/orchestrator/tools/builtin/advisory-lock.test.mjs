@@ -59,7 +59,7 @@ test('a failed edit releases the shared lock and preserves the callback error', 
 });
 
 test('an unsafe shared lock directory refuses the edit without a profile-local fallback', {
-  skip: process.platform === 'win32',
+  skip: process.platform === 'win32' && 'requires POSIX directory ownership and modes',
 }, async (t) => {
   const { root, lockDir } = sandbox(t);
   const other = join(root, 'other');
@@ -79,7 +79,7 @@ test('an unsafe shared lock directory refuses the edit without a profile-local f
 });
 
 test('Windows uses the local user directory when LOCALAPPDATA is unset', {
-  skip: process.platform !== 'win32',
+  skip: process.platform !== 'win32' && 'requires Windows',
 }, async (t) => {
   const { root } = sandbox(t);
   delete process.env.LOCALAPPDATA;
@@ -109,7 +109,9 @@ test('a leaf symlink and its referent contend for the same lock', async (t) => {
   });
 });
 
-test('two spellings of one target contend for the same lock', { skip: process.platform !== 'win32' }, async (t) => {
+test('two spellings of one target contend for the same lock', {
+  skip: process.platform !== 'win32' && 'requires Windows case-insensitive paths',
+}, async (t) => {
   const { root } = sandbox(t);
   const target = join(root, 'File.md');
   await withAdvisoryLocks([target], async () => {

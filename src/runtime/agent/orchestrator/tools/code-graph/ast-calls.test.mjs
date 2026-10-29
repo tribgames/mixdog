@@ -1578,13 +1578,20 @@ async function binaryCallsFormat(binary) {
   }
 }
 const localBinaryCallsFormat = () => binaryCallsFormat(graphBinary);
+// The real-binary cases run against a release build of THIS source, which
+// speaks wire v2; an absent or older local build is a missing capability.
+async function skipWithoutV2Build(t) {
+  const format = await localBinaryCallsFormat();
+  if (format === 2) return false;
+  t.skip(
+    `requires a current release mixdog-graph build (cargo build --release in native/mixdog-graph); ` +
+      `found ${format === null ? 'none' : `callsFormat=${format}`}`
+  );
+  return true;
+}
 
 test('the calls-wire probe is memoized per BINARY, not per process', async (t) => {
-  const format = await localBinaryCallsFormat();
-  if (format !== 2) {
-    t.skip(`pending: local mixdog-graph advertises callsFormat=${format === null ? 'no --langs' : format}`);
-    return;
-  }
+  if (await skipWithoutV2Build(t)) return;
   const previous = process.env.MIXDOG_GRAPH_BIN;
   try {
     _setCallsWireV2ForTest(null);
@@ -1609,11 +1616,7 @@ test('the calls-wire probe is memoized per BINARY, not per process', async (t) =
 });
 
 test('real binary: an incremental rebuild from an un-hydrated cache answers from the AST', async (t) => {
-  const format = await localBinaryCallsFormat();
-  if (format !== 2) {
-    t.skip(`pending: local mixdog-graph advertises callsFormat=${format === null ? 'no --langs' : format}`);
-    return;
-  }
+  if (await skipWithoutV2Build(t)) return;
   const root = await mkdtemp(join(tmpdir(), 'mixdog-graph-rehydrate-'));
   const dataDir = join(root, 'data');
   try {
@@ -1736,13 +1739,7 @@ test('a cache indexed by a pre-v2 binary re-indexes under a v2 binary instead of
 });
 
 test('real binary: --langs advertises wire v2 and --files reuse keeps calls on unchanged nodes', async (t) => {
-  const format = await localBinaryCallsFormat();
-  if (format !== 2) {
-    t.skip(
-      `pending: local mixdog-graph advertises callsFormat=${format === null ? 'no --langs' : format} — rerun once the Rust v2 build lands`
-    );
-    return;
-  }
+  if (await skipWithoutV2Build(t)) return;
   const root = await mkdtemp(join(tmpdir(), 'mixdog-graph-calls-'));
   try {
     await writeFile(join(root, 'package.json'), '{}');

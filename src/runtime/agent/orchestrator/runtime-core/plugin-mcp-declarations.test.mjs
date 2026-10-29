@@ -342,7 +342,9 @@ function findMcpJson(dir, out = []) {
   return out;
 }
 
-test('every official .mcp.json loads with zero errors', { skip: !existsSync(OFFICIAL) }, () => {
+test('every official .mcp.json loads with zero errors', {
+  skip: !existsSync(OFFICIAL) && `requires the claude-plugins-official checkout at ${OFFICIAL}`,
+}, () => {
   const files = findMcpJson(OFFICIAL);
   assert.ok(files.length > 0);
   for (const file of files) {

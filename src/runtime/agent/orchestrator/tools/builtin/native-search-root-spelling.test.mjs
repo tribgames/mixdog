@@ -129,7 +129,7 @@ test('a junction or symlinked root lists and greps each file once', { skip }, as
 });
 
 test('a lower-case Windows root lists and greps each file once', {
-  skip: skip || process.platform !== 'win32',
+  skip: skip || (process.platform !== 'win32' && 'requires Windows case-insensitive paths'),
 }, async () => {
   const real = makeTree('lower-Real');
   const alias = real.toLowerCase();

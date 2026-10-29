@@ -104,7 +104,7 @@ const parserError = (prose, id) =>
   `${prose}\n    + CategoryInfo          : ParserError: (:) [], ParentContainsErrorRecordException\n    + FullyQualifiedErrorId : ${id}\n`;
 
 test('PowerShell bash-ism hint is locale-independent and needs the structural error id', {
-  skip: process.platform !== 'win32',
+  skip: process.platform !== 'win32' && 'requires Windows',
 }, () => {
   const koGrep = notFound(
     'grep',

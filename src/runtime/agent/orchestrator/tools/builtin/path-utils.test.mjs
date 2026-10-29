@@ -20,7 +20,7 @@ test('toDisplayPath strips a cwd prefix without changing unmatched absolute path
 });
 
 test('normalizeInputPath strips the slash before a drive letter on Windows', {
-  skip: process.platform !== 'win32',
+  skip: process.platform !== 'win32' && 'requires Windows',
 }, () => {
   assert.equal(normalizeInputPath('/C:/x/y'), 'C:\\x\\y');
   assert.equal(normalizeInputPath('/C:\\x\\y'), 'C:\\x\\y');
@@ -28,7 +28,7 @@ test('normalizeInputPath strips the slash before a drive letter on Windows', {
 });
 
 test('/C:/ paths pass the write guard on Windows while ADS and trailing dot stay rejected', {
-  skip: process.platform !== 'win32',
+  skip: process.platform !== 'win32' && 'requires Windows',
 }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-slashdrive-'));
   try {

@@ -233,7 +233,7 @@ test('long inline transport: only a body the shell would pass through verbatim i
 const HAVE_PWSH = spawnSync('pwsh', ['-NoProfile', '-Command', '1'], { encoding: 'utf8' }).status === 0;
 
 test('long PowerShell transport ends with the same exit code as running the command itself', {
-  skip: !HAVE_PWSH,
+  skip: !HAVE_PWSH && 'requires pwsh',
 }, (t) => {
   const dir = tempDir(t);
   const run = (script) => spawnSync('pwsh', ['-NoProfile', '-Command', script], { encoding: 'utf8' });
@@ -292,7 +292,7 @@ test('segment splitter: a single-quoted string ending in a backslash is closed',
 });
 
 test('large-file probe and effects see a Windows path as written', {
-  skip: process.platform !== 'win32',
+  skip: process.platform !== 'win32' && 'requires Windows',
 }, async (t) => {
   const dir = tempDir(t);
   const big = join(dir, 'big file.txt');
@@ -356,7 +356,7 @@ test('exec policy does not read the body of a PowerShell here-string as commands
 const decodeEncoded = (command) => Buffer.from(/-EncodedCommand (\S+)/.exec(command)[1], 'base64').toString('utf16le');
 
 test('pwsh -Command re-encoding leaves text that is not a command alone', {
-  skip: process.platform !== 'win32',
+  skip: process.platform !== 'win32' && 'requires Windows',
 }, () => {
   for (const command of [
     `@'\npwsh -Command "Get-Date"\n'@ | Set-Content README.md`,
@@ -370,7 +370,7 @@ test('pwsh -Command re-encoding leaves text that is not a command alone', {
 });
 
 test('pwsh -Command re-encoding unescapes only the quote that wrapped the body', {
-  skip: process.platform !== 'win32',
+  skip: process.platform !== 'win32' && 'requires Windows',
 }, () => {
   const inner = `Write-Output 'it''s'`;
   assert.equal(decodeEncoded(_maybeEncodePowerShellCommand(`pwsh -NoProfile -Command "${inner}"`)), inner);

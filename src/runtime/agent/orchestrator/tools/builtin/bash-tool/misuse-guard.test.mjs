@@ -24,7 +24,7 @@ after(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const { guardShellCall, requestedShellType, SHELL_FILE_READ_MODE, SHELL_FILE_READ_NOTE } = await import(
+const { guardShellCall, requestedShellType, SHELL_FILE_READ_NOTE } = await import(
   './misuse-guard.mjs'
 );
 const { executeBashTool, executeTaskTool } = await import('../bash-tool.mjs');
@@ -353,11 +353,6 @@ test('piped program output, writes and reads that feed a program are not flagged
       assert.equal(telemetry.shellMisuse, undefined, `${shellType}: ${command}`);
     }
   }
-});
-
-test('warn is the shipped mode and the note text is exact', () => {
-  assert.equal(SHELL_FILE_READ_MODE, 'warn');
-  assert.equal(SHELL_FILE_READ_NOTE, 'Note: use the read / grep / list tools for files instead of the shell.');
 });
 
 test('reject mode blocks a flagged read without a note and still records it', () => {

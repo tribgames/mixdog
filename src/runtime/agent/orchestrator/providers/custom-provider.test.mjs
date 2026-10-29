@@ -4,8 +4,6 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import {
-  CUSTOM_PROVIDER_SCHEMA_VERSION,
-  CUSTOM_REASONING_LEVELS,
   createCustomProvider,
   effectiveCustomModelRows,
   normalizeCustomProviderConfig,
@@ -129,8 +127,6 @@ const ANTHROPIC = [
 ];
 
 test('legacy config migrates to v2 deterministically and idempotently', () => {
-  assert.equal(CUSTOM_PROVIDER_SCHEMA_VERSION, 2);
-  assert.deepEqual(CUSTOM_REASONING_LEVELS, ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
   const legacy = {
     ...base,
     id: 'x',
@@ -196,6 +192,20 @@ test('v2 validation rejects invalid overrides and canonicalizes levels', () => {
     r2: { reasoning: { levels: [] } },
   });
   assert.deepEqual(normalizeCustomProviderConfig(ok), ok);
+  // Every level a user may configure is accepted and ranked weakest → strongest.
+  const all = normalizeCustomProviderConfig({
+    ...v2,
+    modelOverrides: { m: { reasoning: { levels: ['max', 'medium', 'none', 'xhigh', 'low', 'minimal', 'high'] } } },
+  });
+  assert.deepEqual(all.modelOverrides.m.reasoning.levels, [
+    'none',
+    'minimal',
+    'low',
+    'medium',
+    'high',
+    'xhigh',
+    'max',
+  ]);
   const bad = (patch, re) => assert.throws(() => normalizeCustomProviderConfig({ ...v2, ...patch }), re);
   const ov = (override, extra = {}) => bad({ modelOverrides: { m: override }, ...extra });
   // v2 rejects unknown fields, numeric strings and unsafe integers.

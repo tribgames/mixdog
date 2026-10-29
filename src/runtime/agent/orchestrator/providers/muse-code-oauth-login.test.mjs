@@ -366,7 +366,7 @@ test('OAuth 4xx errors, access_denied and expired_token are never retried', asyn
   }
 });
 
-test('device and token requests time out after 30s and refuse redirects', async () => {
+test('device and token requests refuse redirects', async () => {
   const calls = [];
   await pollDeviceToken(device, {
     fetchFn: scripted([reply(200, { access_token: 't' })], calls),
@@ -374,9 +374,33 @@ test('device and token requests time out after 30s and refuse redirects', async 
     now: () => 0,
   });
   assert.equal(calls[0].init.redirect, 'error');
-  assert.ok(calls[0].init.signal instanceof AbortSignal);
-  const { DEVICE_REQUEST_TIMEOUT_MS } = await import('./muse-code-oauth-login.mjs');
-  assert.equal(DEVICE_REQUEST_TIMEOUT_MS, 30_000);
+});
+
+test('a device request that never answers aborts at 30s, not before, with a timeout error', async (t) => {
+  // AbortSignal.timeout runs on an internal timer the mock clock cannot reach;
+  // it is routed through the mocked setTimeout so the deadline is observable.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.mock.method(AbortSignal, 'timeout', (ms) => {
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(new DOMException('timed out', 'TimeoutError')), ms);
+    return controller.signal;
+  });
+  const hung = (_url, init) =>
+    new Promise((_resolve, reject) => {
+      init.signal.addEventListener('abort', () => reject(init.signal.reason), { once: true });
+    });
+  let outcome = null;
+  requestDeviceAuthorization({ fetchFn: hung }).then(
+    () => (outcome = 'resolved'),
+    (error) => (outcome = error)
+  );
+  t.mock.timers.tick(29_999);
+  await new Promise(setImmediate);
+  assert.equal(outcome, null, 'still waiting just before the deadline');
+  t.mock.timers.tick(1);
+  await new Promise(setImmediate);
+  assert.equal(outcome?.kind, 'timeout');
+  assert.match(outcome.message, /request to .+ timed out/);
 });
 
 test('a cross-origin redirect on the device-token request is rejected and the body is not resent', async () => {

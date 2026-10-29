@@ -217,7 +217,7 @@ for (const status of [525, 526]) {
 }
 
 test('a zstd 400 on the last attempt still replays uncompressed and surfaces a real response', {
-  skip: typeof zlib.zstdCompressSync !== 'function',
+  skip: typeof zlib.zstdCompressSync !== 'function' && 'requires zstd support in node:zlib',
 }, async () => {
   const seen = [];
   const fetchFn = async (_url, init) => {
@@ -245,7 +245,7 @@ test('a zstd 400 on the last attempt still replays uncompressed and surfaces a r
   assert.deepEqual(seen, [true, true, true, true, true, false]);
 });
 
-const zstdSkip = { skip: typeof zlib.zstdCompress !== 'function' };
+const zstdSkip = { skip: typeof zlib.zstdCompress !== 'function' && 'requires zstd support in node:zlib' };
 const openBig = (fetchFn, auth = { type: 'openai-oauth' }, headers = {}) =>
   openHttpSseResponse({
     auth,
