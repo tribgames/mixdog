@@ -4,6 +4,7 @@ import { SCROLL_END_THRESHOLD_PX, type TranscriptVirtualizer } from './transcrip
 import { rememberTranscriptVirtualMeasurements } from './transcript-virtual-cache';
 import type { TranscriptRowModel } from './transcript-rows';
 import { attachTranscriptSelectionDrag, type TranscriptSelectionPin } from './transcript-selection-drag';
+import { useSurfaceActive } from './surface-activity';
 
 /** On leave, lands held and gesture-deferred sizes and remembers the
  *  measurements. */
@@ -109,15 +110,19 @@ export function useSelectionDrag({
   setSelectionPin: (next: TranscriptSelectionPin | null) => void;
   onSelectionAutoScroll(delta: number): void;
 }) {
+  // An off-screen transcript (retained or parked conversation) watches no
+  // document pointer or selection: every selection made in the shown one
+  // would otherwise make it read the document's Selection (a forced layout).
+  const surfaceActive = useSurfaceActive();
   // biome-ignore lint/correctness/useExhaustiveDependencies: sessionKey is an intentional re-attach trigger per session; rowsRef is read through its ref
   useEffect(() => {
     const root = viewport.current;
-    if (!root) return undefined;
+    if (!root || !surfaceActive) return undefined;
     return attachTranscriptSelectionDrag({
       root,
       rowKeyAt: (index) => rowsRef.current[index]?.key,
       setPin: setSelectionPin,
       onAutoScroll: onSelectionAutoScroll,
     });
-  }, [onSelectionAutoScroll, sessionKey, setSelectionPin, viewport]);
+  }, [onSelectionAutoScroll, sessionKey, setSelectionPin, surfaceActive, viewport]);
 }

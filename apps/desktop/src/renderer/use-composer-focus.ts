@@ -85,8 +85,13 @@ export function usePaneTypingFocus(focusedLeafId: string, selectionKind: string 
       if (!typingSurfaceSelector) return;
       if (!shouldFocusComposerFromWindowKey(event)) return;
       const pane = document.querySelector<HTMLElement>(`[data-pane-id="${focusedLeafId}"]`);
-      const typingSurface = pane?.querySelector<HTMLTextAreaElement>(typingSurfaceSelector);
-      if (!typingSurface || typingSurface.closest('[inert]')) return;
+      // A pane also holds its retained (inert, unpainted) conversations: the
+      // shown one is the composer outside every inert subtree, wherever it
+      // sits in document order.
+      const typingSurface = [...(pane?.querySelectorAll<HTMLTextAreaElement>(typingSurfaceSelector) ?? [])].find(
+        (candidate) => !candidate.closest('[inert]')
+      );
+      if (!typingSurface) return;
       typingSurface.focus({ preventScroll: true });
     };
     window.addEventListener('keydown', focusComposerForTyping, true);

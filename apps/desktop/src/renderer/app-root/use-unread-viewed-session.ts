@@ -13,7 +13,6 @@ interface UseUnreadViewedSessionOptions {
   bottomPanelOpen: boolean;
   settingsOpen: boolean;
   sessions: DesktopSessionSummary[];
-  windowFocusTick: number;
   viewedSessionRef: MutableRefObject<string>;
   unreadViewedSessionRef: MutableRefObject<string>;
   /** Sessions the window's other visible panes show (side pane, split). */
@@ -30,7 +29,6 @@ export function useUnreadViewedSession({
   bottomPanelOpen,
   settingsOpen,
   sessions,
-  windowFocusTick,
   viewedSessionRef,
   unreadViewedSessionRef,
   screenSessionIdsRef,
@@ -54,12 +52,27 @@ export function useUnreadViewedSession({
   const otherSessionIds = (ids: readonly string[]) => (mobile ? [] : ids.filter((id) => id !== unreadViewedSessionId));
   const screenSessionIds = useScreenSessionIds();
   screenSessionIdsRef.current = otherSessionIds(screenSessionIds);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: Window focus must recheck unread state even when session data is unchanged; screenSessionIds re-runs it on a pane report.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: screenSessionIds re-runs it on a pane report.
   useEffect(() => {
     // The live report, not this render's: a pane hidden in this very commit
     // has already left it (reports land in layout effects).
-    const others = otherSessionIds(currentScreenSessionIds());
-    screenSessionIdsRef.current = others;
-    for (const sessionId of [unreadViewedSessionId, ...others]) consumeUnread(sessionId, sessions);
-  }, [consumeUnread, mobile, screenSessionIds, sessions, unreadViewedSessionId, windowFocusTick]);
+    const consumeShown = () => {
+      const others = otherSessionIds(currentScreenSessionIds());
+      screenSessionIdsRef.current = others;
+      for (const sessionId of [unreadViewedSessionId, ...others]) consumeUnread(sessionId, sessions);
+    };
+    consumeShown();
+    // A desktop window or phone resuming re-checks what it shows in place: a
+    // state tick re-rendered the whole app on every return (focus,
+    // visibilitychange and pageshow each) in the frames that come back.
+    window.addEventListener('focus', consumeShown);
+    // A resumed phone does not reliably pair its return with visibilitychange.
+    window.addEventListener('pageshow', consumeShown);
+    document.addEventListener('visibilitychange', consumeShown);
+    return () => {
+      window.removeEventListener('focus', consumeShown);
+      window.removeEventListener('pageshow', consumeShown);
+      document.removeEventListener('visibilitychange', consumeShown);
+    };
+  }, [consumeUnread, mobile, screenSessionIds, sessions, unreadViewedSessionId]);
 }

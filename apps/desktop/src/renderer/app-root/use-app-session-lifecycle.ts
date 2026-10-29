@@ -101,7 +101,7 @@ export function useAppSessionLifecycle(shell: AppWorkspaceShell, nav: AppNavigat
     install: installDesktopUpdate,
   } = useDesktopUpdater(invoke);
 
-  const { windowFocusTick, runningAutomationNames } = useAppSessionActivity({
+  const { runningAutomationNames } = useAppSessionActivity({
     sessions,
     setTabs,
     refreshSessions,
@@ -145,7 +145,6 @@ export function useAppSessionLifecycle(shell: AppWorkspaceShell, nav: AppNavigat
     openDesktopUpdate,
     closeDesktopUpdate,
     installDesktopUpdate,
-    windowFocusTick,
     runningAutomationNames,
   };
 }

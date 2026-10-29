@@ -434,6 +434,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   // and fired by the effect below on the commit that carries the words.
   const voiceSubmitPending = useRef(false);
   const dictation = useComposerDictation({
+    keysActive: paneActive,
     transitioningRef,
     textarea,
     setDraft,

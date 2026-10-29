@@ -15,6 +15,8 @@ import { t } from './i18n';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { DownloadSessionContext } from './project-file-download';
 import { PaneKeyContext } from './pane-key-context';
+import { SurfaceActiveContext } from './surface-activity';
+import { registerComposerPresenter } from './composer-text-inbox';
 import { PaneSplitLayout } from './PaneSplitLayout';
 import {
   isConversationSelection,
@@ -72,11 +74,13 @@ function selectionLabel(selection: WorkspaceSelection | null): string {
   }
 }
 
-/** Sessions a phone keeps mounted besides the shown one, so switching back
- *  to a recent session flips visibility instead of rendering its transcript
- *  again. Each costs one Conversation's DOM and row caches; the lanes stay
- *  unregistered with the host while retained. */
-const MOBILE_RETAINED_CONVERSATIONS = 2;
+/** Recently shown sessions kept mounted besides the shown ones (one budget
+ *  across every pane, desktop and phone alike), so switching back to one
+ *  flips visibility instead of tearing its transcript down and rebuilding it
+ *  behind the entry cover. Each costs one Conversation's DOM and row caches;
+ *  the lanes stay unregistered with the host while retained, and the oldest
+ *  leaves first, so memory stays bounded. */
+const RETAINED_CONVERSATIONS = 2;
 
 /** A retained conversation is frozen: the app re-creates its props on every
  *  workspace render, and re-rendering an unpainted transcript is pure cost.
@@ -276,17 +280,31 @@ export function PaneWorkspace({
   const { focusedLeafId } = workspace;
   const multi = workspace.leaves.length > 1;
   const { currentPaneSurfaces, paneSurfaceHandoffs } = usePaneSurfaceHandoffs(workspace.leaves);
-  const { conversationLeaves } = usePaneConversationOwners(
-    workspace,
-    paneSurfaceHandoffs,
-    mobileSurface ? MOBILE_RETAINED_CONVERSATIONS : 0
-  );
+  const { conversationLeaves } = usePaneConversationOwners(workspace, paneSurfaceHandoffs, RETAINED_CONVERSATIONS);
+  // Text sent to the composer (Settings → compose) lands in the focused
+  // pane's conversation, brought to the front when a file or utility tab
+  // parks it; a pane without one hands it to a pane that shows one. Retained
+  // (switched-away) sessions are never the target.
+  const presentComposer = useRef<() => void>(() => {});
+  presentComposer.current = () => {
+    const candidates = conversationLeaves.filter((entry) => !entry.retained && !entry.handoff);
+    const target =
+      candidates.find((entry) => entry.leaf.id === focusedLeafId) ??
+      candidates.find((entry) => !entry.parked) ??
+      candidates[0];
+    if (!target) return; // No conversation yet: the text waits for the first one.
+    if (target.parked) workspace.activateTab(target.leaf.id, target.selectionKey);
+    else if (target.leaf.id !== focusedLeafId) workspace.focusLeaf(target.leaf.id);
+    else return;
+    onFocusSelection(target.active);
+  };
+  useLayoutEffect(() => registerComposerPresenter(() => presentComposer.current()), []);
   // Conversation owns scroll, virtualizer, parsed Markdown and composer state.
   // Keep one stable owner per visible pane instead of keying it by the active
   // session. When an active tab/group moves to another leaf, match its prior
   // selection first so the same owner follows the move; ordinary tab switches
   // then fall back to the existing leaf owner and never remount Conversation.
-  // A phone also keeps its last few sessions mounted (retained, unpainted).
+  // The last few sessions shown also stay mounted (retained, unpainted).
   let conversationPortals: React.ReactNode[] = [];
   if (renderConversation) {
     conversationPortals = conversationLeaves.map(({ leaf, active, handoff, parked, retained, warm, owner }) => {
@@ -303,18 +321,24 @@ export function PaneWorkspace({
           className={`conversation-persistent-surface${handoff ? ' is-handoff' : ''}`}
           retained={retained}
         >
-          <RetainedConversation retained={retained}>
-            <PaneKeyContext.Provider value={leaf.id}>
-              {renderConversation(
-                active,
-                focused && !handoff && !parked && !retained,
-                focusPane,
-                leaf.id,
-                warm,
-                !parked && !retained
-              )}
-            </PaneKeyContext.Provider>
-          </RetainedConversation>
+          {/* Only an on-screen conversation owns anything live: a retained or
+              parked one is inert, but inert stops no window listener, mic or
+              timer. The context reaches past the frozen RetainedConversation,
+              so every owner below releases what it holds the moment it hides. */}
+          <SurfaceActiveContext.Provider value={!parked && !retained}>
+            <RetainedConversation retained={retained}>
+              <PaneKeyContext.Provider value={leaf.id}>
+                {renderConversation(
+                  active,
+                  focused && !handoff && !parked && !retained,
+                  focusPane,
+                  leaf.id,
+                  warm,
+                  !parked && !retained
+                )}
+              </PaneKeyContext.Provider>
+            </RetainedConversation>
+          </SurfaceActiveContext.Provider>
         </PersistentPanePortal>
       );
     });

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useSurfaceActive } from './surface-activity';
 
 const tickers = new Set<(now: number) => void>();
 let timer = 0;
@@ -24,14 +25,18 @@ function subscribeSecond(listener: (now: number) => void): () => void {
   };
 }
 
-/** Wall-clock milliseconds that tick once a second only while `active`, so an
- *  idle surface costs no timers. Only the component calling it re-renders. */
+/** Wall-clock milliseconds that tick once a second only while `active` and
+ *  on screen (not inside a retained or parked surface), so an idle or hidden
+ *  surface costs no timers; shown again, it catches up at once. Only the
+ *  component calling it re-renders. */
 export function useClock(active: boolean): number {
   const [clock, setClock] = useState(() => Date.now());
+  const surfaceActive = useSurfaceActive();
+  const ticking = active && surfaceActive;
   useEffect(() => {
-    if (!active) return undefined;
+    if (!ticking) return undefined;
     setClock(Date.now());
     return subscribeSecond(setClock);
-  }, [active]);
+  }, [ticking]);
   return clock;
 }

@@ -4,6 +4,7 @@ import { JSDOM } from 'jsdom';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { useComposerDictation } from './use-composer-dictation.ts';
+import { SurfaceActiveContext } from './surface-activity.ts';
 
 const tick = (ms = 0) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -137,8 +138,13 @@ async function withDictation({ muted = false } = {}, run) {
       return { value: 'first words' };
     },
   };
+  // The conversation's place: shown or not (SurfaceActiveContext, set by the
+  // pane workspace), and the focused pane's or not (keysActive).
+  ctx.surfaceActive = true;
+  ctx.keysActive = true;
   function Harness() {
     ctx.hook = useComposerDictation({
+      keysActive: ctx.keysActive,
       transitioningRef: { current: false },
       textarea: { current: dom.window.document.querySelector('textarea') },
       setDraft: (update) => {
@@ -155,9 +161,27 @@ async function withDictation({ muted = false } = {}, run) {
     return null;
   }
   const root = createRoot(dom.window.document.getElementById('root'));
+  const tree = () =>
+    React.createElement(SurfaceActiveContext.Provider, { value: ctx.surfaceActive }, React.createElement(Harness));
+  ctx.place = async (patch) => {
+    Object.assign(ctx, patch);
+    await act(async () => {
+      root.render(tree());
+      await tick();
+    });
+  };
+  // Enter as the user presses it in another composer: did a listener take it?
+  ctx.pressKey = async (key) => {
+    const event = new dom.window.KeyboardEvent('keydown', { key, cancelable: true, bubbles: true });
+    await act(async () => {
+      dom.window.dispatchEvent(event);
+      await tick();
+    });
+    return event.defaultPrevented;
+  };
   try {
     await act(async () => {
-      root.render(React.createElement(Harness));
+      root.render(tree());
     });
     assert.equal(ctx.hook.dictationInstalled, true);
     await run(ctx);
@@ -280,6 +304,75 @@ test('tapping the mic while preparing stops without transcribing', async () => {
     assert.equal(ctx.track.stopped, 1);
     assert.equal(ctx.called('transcribeAudio'), 0);
     assert.deepEqual(ctx.notices, []);
+  });
+});
+
+// Review P1: dictating in session A, switching to B and pressing Enter there
+// stopped A's take (a window capture listener) and A's mic stayed live.
+test('a conversation leaving the screen releases its mic and takes no key', async () => {
+  await withDictation({}, async (ctx) => {
+    await ctx.openMic();
+    await ctx.fireStart();
+    assert.equal(ctx.hook.dictationState, 'recording');
+    // Switched away: the conversation is retained, off screen.
+    await ctx.place({ surfaceActive: false, keysActive: false });
+    // Bounded: a mic that is never released must fail here, not hang.
+    await act(async () => {
+      await Promise.race([ctx.transcriptReady, tick(500)]);
+      await tick();
+    });
+    assert.equal(ctx.recorder.state, 'inactive', 'the recorder stopped');
+    assert.equal(ctx.track.stopped, 1, 'the mic is released');
+    assert.equal(ctx.hook.dictationState, 'idle');
+    assert.equal(ctx.draft, 'first words', 'what was said waits in its own draft');
+    assert.equal(ctx.submissions, 0, 'nothing is sent from the hidden conversation');
+    assert.notEqual(
+      ctx.dom.window.document.activeElement,
+      ctx.dom.window.document.querySelector('textarea'),
+      'a hidden composer takes no focus'
+    );
+    // Enter and Esc pressed in the shown conversation reach it untouched.
+    assert.equal(await ctx.pressKey('Enter'), false);
+    assert.equal(await ctx.pressKey('Escape'), false);
+    assert.equal(ctx.called('transcribeAudio'), 1);
+  });
+});
+
+test('a take still opening the mic when its conversation hides is discarded with the stream', async () => {
+  await withDictation({}, async (ctx) => {
+    let starting;
+    await act(async () => {
+      starting = ctx.hook.toggleDictation();
+    });
+    assert.equal(ctx.hook.dictationState, 'preparing');
+    await ctx.place({ surfaceActive: false });
+    assert.equal(ctx.hook.dictationState, 'idle');
+    await act(async () => {
+      ctx.resolveMic(ctx.stream);
+      await starting;
+    });
+    assert.equal(ctx.track.stopped, 1, 'the late stream is released at once');
+    assert.equal(ctx.recorders.length, 0, 'no recorder starts off screen');
+  });
+});
+
+test('a take in a pane that is not focused leaves Enter and Esc to the focused pane', async () => {
+  await withDictation({}, async (ctx) => {
+    await ctx.openMic();
+    await ctx.fireStart();
+    // Still on screen (split view), but the user typed into the other pane.
+    await ctx.place({ keysActive: false });
+    assert.equal(await ctx.pressKey('Enter'), false, 'Enter is not swallowed');
+    assert.equal(await ctx.pressKey('Escape'), false, 'Esc is not swallowed');
+    assert.equal(ctx.hook.dictationState, 'recording', 'the visible take keeps recording');
+    assert.equal(ctx.track.stopped, 0);
+    // Focus comes back to its pane: Enter finishes the take again.
+    await ctx.place({ keysActive: true });
+    assert.equal(await ctx.pressKey('Enter'), true);
+    await act(async () => {
+      await ctx.transcriptReady;
+    });
+    assert.equal(ctx.draft, 'first words');
   });
 });
 

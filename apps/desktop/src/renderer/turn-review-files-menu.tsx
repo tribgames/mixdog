@@ -12,6 +12,7 @@ import { MxIcon } from './MxIcon';
 import { useMobileBack } from './mobile-back';
 import { acquireModalLayer } from './modal-layer';
 import { RowOverflowMenu } from './RowOverflowMenu';
+import { useSurfaceActive } from './surface-activity';
 import {
   SESSION_CHANGES_SOURCES,
   prefetchSessionChanges,
@@ -106,6 +107,9 @@ export function TurnReviewFilesMenu({
     setOpen(false);
   };
   useMobileBack(open, () => setOpen(false));
+  // Off screen (retained or parked conversation) the open menu takes no press
+  // or key: they belong to the shown conversation.
+  const surfaceActive = useSurfaceActive();
   // A segment that leaves (its files went away) takes its open tab with it.
   useEffect(() => () => setOpenRef.current(false), []);
 
@@ -117,6 +121,7 @@ export function TurnReviewFilesMenu({
       refocus.current = false;
       return undefined;
     }
+    if (!surfaceActive) return undefined;
     // Opening the menu is the first sign the user may open Changes.
     prefetchSessionChanges(sessionId, { paneKey });
     queueMicrotask(() => panel.current?.querySelector<HTMLButtonElement>(MENU_ITEM)?.focus());
@@ -145,7 +150,7 @@ export function TurnReviewFilesMenu({
       document.removeEventListener('pointerdown', dismiss, true);
       document.removeEventListener('keydown', keydown, true);
     };
-  }, [open, sessionId, paneKey]);
+  }, [open, sessionId, paneKey, surfaceActive]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Tab') {

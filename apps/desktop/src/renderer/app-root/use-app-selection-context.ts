@@ -77,7 +77,6 @@ export function useAppSelectionContext(
     bottomPanelOpen: bottomPanel.open,
     settingsOpen,
     sessions,
-    windowFocusTick: lifecycle.windowFocusTick,
     viewedSessionRef,
     unreadViewedSessionRef,
     screenSessionIdsRef: unreadScreenSessionIdsRef,

@@ -1705,7 +1705,7 @@ html[data-mixdog-mobile-tabs] .sidebar-diff-column {
   z-index: 0;
   pointer-events: none;
 }
-/* A phone's recent sessions stay mounted under the shown one. Hidden content
+/* Recent sessions stay mounted under the shown one. Hidden content
    keeps its rendering state (layout, scroll offsets) but skips style, layout
    and paint until it is shown again. */
 .pane-conversation-slot > .conversation-persistent-surface[data-retained] {

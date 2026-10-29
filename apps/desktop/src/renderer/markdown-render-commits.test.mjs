@@ -112,6 +112,46 @@ test('a reply that arrives settled paints its final structure in the first commi
   });
 });
 
+// Coming back after the window idled in the background (main's idle reclaim
+// fired and dropped the parsed-Markdown cache): the reply on screen keeps its
+// parsed tree, so the next commit (a lane frame landing on return) redraws
+// nothing and moves nothing.
+test('a mounted reply survives an idle reclaim: the next commit keeps its parsed elements', async () => {
+  const { _runIdleReclaimForTest } = await import('./idle-reclaim.ts');
+  await withDom(async ({ host, root }) => {
+    await preloadMarkdownBody();
+    // Parsed ahead (as a warm transcript is), so no synchronous parse spends
+    // this frame's allowance and leaves a frame reset queued for later tests.
+    const text = `${SETTLED_REPLY}\n\nIdle ${Date.now()}.`;
+    await parseStreamingMarkdownAst(text);
+    let commits = [];
+    // A fresh item object each time, as a lane frame delivers it.
+    const render = () =>
+      act(async () =>
+        root.render(
+          React.createElement(
+            React.Profiler,
+            { id: 'idle', onRender: () => commits.push(firstCommitShape(host)) },
+            React.createElement(TranscriptRow, { item: { id: 'idle-reply', kind: 'assistant', text } })
+          )
+        )
+      );
+    await render();
+    const markdown = host.querySelector('.markdown');
+    const html = markdown.outerHTML;
+    assert.equal(firstCommitShape(host).pending, false);
+    _runIdleReclaimForTest();
+    commits = [];
+    await render();
+    assert.ok(
+      commits.every((shape) => !shape.pending),
+      'no pending (unparsed) frame on return'
+    );
+    assert.equal(host.querySelector('.markdown'), markdown, 'the same element, not a remount');
+    assert.equal(host.querySelector('.markdown').outerHTML, html, 'unchanged markup');
+  });
+});
+
 /** A distinct settled reply of exactly `units` UTF-16 code units. */
 function settledReplyOf(units, tag) {
   let text = `## ${tag}\n\n`;

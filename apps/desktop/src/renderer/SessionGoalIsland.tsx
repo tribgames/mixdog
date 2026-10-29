@@ -5,6 +5,7 @@ import type { GoalSnapshot, Snapshot, TodoSnapshot, TodoStatus, TodoTask } from 
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { useComposerIslandTab } from './composer-island-state';
+import { useSurfaceActive } from './surface-activity';
 import { useGoalAfterSubmission } from './session-goal-submission';
 import {
   goalDisplayStatus,
@@ -399,10 +400,13 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   }, [rawGoal, sessionId, visible]);
 
   // Dismiss on any interaction outside the island (or Escape) so the drawer
-  // never lingers over the transcript once attention moves elsewhere.
+  // never lingers over the transcript once attention moves elsewhere. Off
+  // screen (retained or parked conversation) it listens to nothing: those
+  // presses and keys belong to the shown conversation.
+  const surfaceActive = useSurfaceActive();
   // biome-ignore lint/correctness/useExhaustiveDependencies: setOpen is re-derived each render from the same open state
   useEffect(() => {
-    if (!open || editing) return undefined;
+    if (!open || editing || !surfaceActive) return undefined;
     const onPointerDown = (event: PointerEvent) => {
       const root = rootRef.current?.closest('.composer-island') ?? rootRef.current;
       if (root && event.target instanceof Node && root.contains(event.target)) return;
@@ -417,7 +421,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
       document.removeEventListener('pointerdown', onPointerDown, true);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [open, editing]);
+  }, [open, editing, surfaceActive]);
 
   const elapsedLabel = goal ? goalElapsedHoursMinutesLabel(goal, clock) : '';
   const control = async (action: string, values: Record<string, unknown> = {}): Promise<boolean> => {
