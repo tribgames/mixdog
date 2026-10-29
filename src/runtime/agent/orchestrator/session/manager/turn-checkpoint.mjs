@@ -7,6 +7,7 @@ import {
   emptyInterruptionSnapshot,
   findTurnStart,
   listRetainedCheckpoints,
+  matchingUserMessage,
   openJournalForTurn,
   retainedCheckpointPath,
   readTurnCheckpointHeader,
@@ -79,9 +80,11 @@ function applicableChain(session, chain) {
   return from < 0 ? [] : own.slice(from);
 }
 
-/** Each turn replaces the record from its own prompt on (or the whole record,
- *  for a turn that compaction rewrote), oldest first: a turn already on disk
- *  is replaced once, never duplicated. */
+/** Each turn replaces the record from its own position on (or the whole
+ *  record, for a turn that compaction rewrote), oldest first: a turn already
+ *  on disk is replaced once, never duplicated. A turn's position is the index
+ *  its prompt opened at (`turnStart`), never a search for its text, which an
+ *  earlier turn with the same prompt would also match. */
 function spliceTurns(source, chain, turnMessagesOf) {
   let messages = source;
   for (const checkpoint of chain) {
@@ -90,10 +93,21 @@ function spliceTurns(source, chain, turnMessagesOf) {
       messages = turnMessages.slice();
       continue;
     }
-    const start = findTurnStart(messages, checkpoint.currentUserContent);
-    messages = [...(start >= 0 ? messages.slice(0, start) : messages), ...turnMessages];
+    messages = [...messages.slice(0, turnPosition(messages, checkpoint)), ...turnMessages];
   }
   return messages;
+}
+
+function turnPosition(messages, checkpoint) {
+  if (Number.isInteger(checkpoint.turnStart) && checkpoint.turnStart >= 0) {
+    // A record shorter than the turn's position lacks messages no checkpoint
+    // holds: the turn follows what there is.
+    return Math.min(checkpoint.turnStart, messages.length);
+  }
+  // A checkpoint written before turns recorded their position (one turn, no
+  // retained ones): its prompt is the last one carrying that text.
+  const start = findTurnStart(messages, checkpoint.currentUserContent);
+  return start >= 0 ? start : messages.length;
 }
 
 // ── Journal-backed checkpoint writes ─────────────────────────────────────────
@@ -137,7 +151,7 @@ export function createTurnCheckpointRecorder({ sessionId, generation, turnToken,
           startedAt,
           currentUserContent,
           turnMessages: seed.turnMessages,
-          ...(seed.fullTranscript ? { fullTranscript: true } : {}),
+          ...(seed.fullTranscript ? { fullTranscript: true } : { turnStart: seed.turnStart }),
           ...(version ? { journalEpoch: version } : {}),
           interruption: snapshot,
           contextState: seed.contextState,
@@ -212,7 +226,10 @@ function retainPreviousTurn({ sessionId, generation, turnToken, turnOutgoing, cu
   const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
   const opening = findTurnStart(source, currentUserContent);
   const history = opening >= 0 ? source.slice(0, opening) : source;
-  const start = previous.fullTranscript === true ? 0 : findTurnStart(history, previous.currentUserContent);
+  // The previous turn sits where its prompt opened (turnStart), unless a
+  // rewrite moved it since: then it is kept as journaled.
+  const start =
+    previous.fullTranscript === true ? 0 : opensTurnAt(history, previous) ? previous.turnStart : -1;
   const retained =
     start >= 0
       ? {
@@ -225,6 +242,13 @@ function retainPreviousTurn({ sessionId, generation, turnToken, turnOutgoing, cu
       : previous;
   writeCheckpointHeader(retained, retainedCheckpointPath(sessionId, previous.startedAt));
   _retainedSessions.add(sessionId);
+}
+
+function opensTurnAt(history, checkpoint) {
+  const at = checkpoint.turnStart;
+  if (!Number.isInteger(at) || at < 0 || at >= history.length) return false;
+  // Checks the message at that index; it never searches for the text.
+  return matchingUserMessage(history[at], checkpoint.currentUserContent);
 }
 
 /** Remove retained checkpoints oldest first through `turnToken` (all of them
