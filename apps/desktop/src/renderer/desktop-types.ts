@@ -82,7 +82,17 @@ export type TranscriptRoomRow = {
   to?: string[];
   toName?: string[];
   failed?: boolean;
-  limit?: 'rounds' | 'messages';
+  /** A failed pass: every member a run of failures stands for, and why. */
+  names?: string[];
+  reason?: string;
+  limit?: 'rounds' | 'messages' | 'usage';
+  /** A usage-limit stop: what ran out, on which model, and when it resets. */
+  usage?: {
+    kind: 'quota_exhausted' | 'entitlement' | 'billing';
+    provider: string;
+    model: string;
+    resetAt: number | null;
+  };
   rounds?: number;
   messages?: number;
 };

@@ -209,7 +209,7 @@ function setup({
   let stored = normalizeDesktopPetPrefs(prefs);
   const screen = fakeScreen(displays);
   const windows = [];
-  const calls = { submit: [], open: [], read: [], copy: [], writes: 0 };
+  const calls = { submit: [], open: [], read: [], copy: [], decide: [], writes: 0 };
   const pet = createDesktopPet({
     prefsPath: 'pet.json',
     screen,
@@ -235,6 +235,10 @@ function setup({
     openApp: (sessionId) => calls.open.push(sessionId),
     markRead: (sessionId) => calls.read.push(sessionId),
     copyText: (text) => calls.copy.push(text),
+    decideApproval: async (sessionId, id, decision) => {
+      calls.decide.push([sessionId, id, decision]);
+      return true;
+    },
     avatarImage,
   });
   const app = fakeApp();
@@ -1714,6 +1718,35 @@ test("Copy writes the shown reply's whole text (every page) to the clipboard; no
   assert.deepEqual(calls.copy, []);
   window.webContents.emit(DESKTOP_PET_IPC.copy, 'long');
   assert.deepEqual(calls.copy, [text]);
+});
+
+test('a bubble decision applies only to the request the bubble shows, with the decision main holds', async () => {
+  const { window, app, calls } = await started();
+  const request = (id) => ({
+    id,
+    title: 'Run a command',
+    requester: 'Worker',
+    detail: 'npm test',
+    full: 'npm test',
+    note: '',
+    inline: true,
+    rows: [
+      { label: 'Allow once', decision: { approved: true } },
+      { label: 'Deny', decision: { approved: false } },
+    ],
+    primary: 0,
+    deny: 1,
+  });
+  const bubble = { kind: 'approval', approvals: [request('shown'), request('hidden')], total: 2 };
+  app.webContents.emit(DESKTOP_PET_IPC.publish, { ...STATE, bubble });
+  assert.equal(await window.webContents.invoke(DESKTOP_PET_IPC.decide, 'hidden', 0), false);
+  assert.equal(await window.webContents.invoke(DESKTOP_PET_IPC.decide, 'shown', 9), false);
+  assert.deepEqual(calls.decide, []);
+  assert.equal(await window.webContents.invoke(DESKTOP_PET_IPC.decide, 'shown', 1), true);
+  assert.deepEqual(
+    calls.decide.map(([sessionId, id, decision]) => [sessionId, id, decision.approved]),
+    [[MIXY, 'shown', false]]
+  );
 });
 
 test('auto-advance and auto-close: on by default, set from Settings, kept across a restart, drawn by the pet', async () => {

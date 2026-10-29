@@ -318,6 +318,7 @@ function PetApp() {
           if ('key' in bubble) setDismissedKey(bubble.key);
           pet.open();
         }}
+        onDecide={(id, index) => pet.decide(id, index)}
         onSend={(text) => pet.send(text)}
         onDismiss={setDismissedKey}
         onMenu={() => {

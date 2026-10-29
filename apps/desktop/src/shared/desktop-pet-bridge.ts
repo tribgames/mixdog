@@ -16,6 +16,9 @@ export interface DesktopPetBridge {
   read(key: string): void;
   /** Copy the whole reply with this key to the clipboard. */
   copy(key: string): void;
+  /** Decide the shown approval with its card row `index`; main sends the
+   *  row's decision the way the card does. True: recorded. */
+  decide(id: string, index: number): Promise<boolean>;
   /** One of the pet menu's items (DesktopPetCommand). */
   command(command: string): void;
   /** The box the pet, its bubble and its quick message cover (window px). */
@@ -44,6 +47,8 @@ export const DESKTOP_PET_WINDOW_IPC = {
   open: 'mixdog-pet:open',
   read: 'mixdog-pet:read',
   copy: 'mixdog-pet:copy',
+  /** pet → main (invoke): decide the shown approval. */
+  decide: 'mixdog-pet:decide',
   command: 'mixdog-pet:command',
   area: 'mixdog-pet:area',
   drag: 'mixdog-pet:drag',

@@ -9,6 +9,7 @@
 // drag unpins it), it stays on screen on its own, at a spot saved per display.
 // Either way it is clamped to a work area, back onto the primary display when
 // its own is removed.
+import type { ToolApprovalDecision } from '../shared/contract';
 import { DESKTOP_PET_WINDOW_IPC } from '../shared/desktop-pet-bridge';
 import {
   DESKTOP_PET_IPC as DESKTOP_PET_APP_IPC,
@@ -156,6 +157,8 @@ export interface DesktopPetDeps {
   /** The chat's latest reply was read in the overlay: the app's own shared
    *  read cursor for that session (what viewing the chat records). */
   markRead(sessionId: string): void;
+  /** Answer a pending approval of `sessionId` the way the approval card does. */
+  decideApproval(sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean>;
   /** The system clipboard (the pet window has no clipboard permission). */
   copyText(text: string): void;
   /** An agent's custom picture (getAgentAvatarImage: data URLs by state),
@@ -908,6 +911,17 @@ function listenPetWindow(s: PetContext, window: PetWindow) {
       if (bubble.kind === 'reply' && bubble.key === key) s.deps.copyText(bubble.text);
     })
   );
+  // Only a row of an approval the bubble shows now, and only a decision
+  // main holds from the published state: the pet window names a row, never a decision.
+  ipc.handle(DESKTOP_PET_IPC.decide, async (_event, id, index) => {
+    const { bubble, sessionId } = s.state;
+    if (!sessionId || bubble.kind !== 'approval' || !Number.isInteger(index)) return false;
+    // The bubble shows only the first request.
+    const item = bubble.approvals?.[0];
+    const row = item?.id === id && item.inline ? item.rows[index as number] : undefined;
+    if (!item || !row) return false;
+    return (await s.deps.decideApproval(sessionId, item.id, row.decision)) === true;
+  });
   ipc.on(
     DESKTOP_PET_IPC.command,
     guard((value) => runCommand(s, requiredDesktopPetCommand(value)))

@@ -306,12 +306,146 @@ html[data-pet-keys] .skin-companion-bubble:focus {
   border-color: var(--mx-warning);
   color: var(--mx-warning);
 }
+/* The tail draws its own two border sides; the flipped rule sets them with a
+   more specific selector, so both forms are named here. */
+.skin-companion-bubble[data-state="approval"]::after,
+html[data-pet-flipped] .skin-companion-bubble[data-state="approval"]::after {
+  border-color: var(--mx-warning);
+}
 .skin-companion-mark {
   min-width: 10px;
   font-size: 15px;
   font-weight: 700;
   line-height: 18px;
   text-align: center;
+}
+/* A request in the approval bubble (skin-companion-pet.tsx ApprovalRequest):
+   the bubble's width limit less its padding and border, and never taller
+   than the room above the bot (scrolls past that). The bubble's amber text
+   is for the "!" only. */
+.skin-companion-req {
+  display: grid;
+  gap: 6px;
+  width: min(300px, calc(var(--bubble-max, 320px) - 22px));
+  max-height: calc(100vh - 72px - var(--pet-size, 56px));
+  overflow: auto;
+  color: var(--mx-text);
+}
+.skin-companion-req:focus {
+  outline: none;
+}
+html[data-pet-keys] .skin-companion-req:focus,
+html[data-pet-keys] .skin-companion-req-more:focus {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.skin-companion-req-head {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.skin-companion-req-title {
+  font-weight: 600;
+}
+.skin-companion-req-who,
+.skin-companion-req-pager {
+  color: var(--mx-text-muted);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+.skin-companion-req-who {
+  margin-left: auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.skin-companion-req-pager {
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: inherit;
+}
+button.skin-companion-req-pager {
+  cursor: pointer;
+}
+.skin-companion-req-detail {
+  margin: 0;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgb(0 0 0 / 0.25);
+  color: var(--mx-text);
+  font-family: var(--mx-font-mono, ui-monospace, Consolas, monospace);
+  font-size: 12.5px;
+  line-height: 1.5;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.skin-companion-req-detail[data-full] {
+  max-height: 72px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.skin-companion-req-more {
+  display: grid;
+  gap: 6px;
+}
+.skin-companion-req-more:focus {
+  outline: none;
+}
+.skin-companion-req-note {
+  max-height: 54px;
+  overflow: auto;
+  color: var(--mx-text-muted);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+.skin-companion-req-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.skin-companion-req-btn {
+  min-height: 30px;
+  padding: 4px 12px;
+  border: 1px solid var(--mx-border);
+  border-radius: 8px;
+  background: var(--mx-bg-layer-2, transparent);
+  color: var(--mx-text);
+  font: 600 13px/1 var(--mx-font-sans, inherit);
+  cursor: pointer;
+}
+.skin-companion-req-btn[data-primary] {
+  border-color: var(--mx-text);
+  background: var(--mx-text);
+  color: var(--mx-bg-base);
+}
+.skin-companion-req-btn[data-link] {
+  margin-left: auto;
+  padding-inline: 6px;
+  border-color: transparent;
+  background: none;
+  color: var(--mx-text-muted);
+  font-weight: 500;
+}
+.skin-companion-req-btn:hover:not(:disabled) {
+  border-color: var(--mx-border-strong);
+}
+.skin-companion-req-btn:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+.skin-companion-req-btn:focus-visible,
+.skin-companion-req-pager:focus-visible {
+  outline: 2px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.skin-companion-decided {
+  font-weight: 600;
+}
+.skin-companion-decided[data-approved] {
+  color: var(--mx-success, var(--mx-text));
 }
 /* Mixy's reply, its markdown drawn compact (skin-companion-paging.ts). A
    short one: up to 320px wide and 140.4px tall (the height budget, what

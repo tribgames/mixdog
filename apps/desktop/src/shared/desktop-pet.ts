@@ -4,6 +4,8 @@
 // main relays it to the pet window. Nothing here carries session content
 // beyond the plain text of Mixy's latest reply.
 
+import type { ToolApprovalDecision } from './contract';
+
 /** The app window's view of the pet setting. */
 /** The overlay's settings, shown alike in Settings → General and in the
  *  pet's own menu. */
@@ -47,8 +49,47 @@ export type DesktopPetOption = (typeof DESKTOP_PET_OPTIONS)[number];
 export type DesktopPetBubble =
   | { kind: 'idle' }
   | { kind: 'working' }
-  | { kind: 'approval' }
+  | {
+      kind: 'approval';
+      /** The pending requests the bubble can show; none: only the "!". */
+      approvals?: DesktopPetApproval[];
+      /** Every request waiting (more than `approvals` carries). */
+      total?: number;
+    }
   | { kind: 'reply'; key: string; text: string };
+
+/** One pending approval as the bubble shows it, built from the approval
+ *  card's own model (renderer/desktop-pet-approval.ts). */
+export interface DesktopPetApproval {
+  id: string;
+  title: string;
+  requester: string;
+  /** The first line of what is asked (a command, a target). */
+  detail: string;
+  /** All of what is asked. */
+  full: string;
+  note: string;
+  /** Every card row is a plain decision: the bubble may decide it. Else the
+   *  bubble only opens the card. */
+  inline: boolean;
+  /** The card's rows in its order; empty unless `inline`. */
+  rows: DesktopPetApprovalRow[];
+  /** Indexes into `rows` of the card's first allow and its deny (-1: none). */
+  primary: number;
+  deny: number;
+}
+
+export interface DesktopPetApprovalRow {
+  label: string;
+  desc?: string;
+  /** Stays in main: the pet window sends only a row's index. */
+  decision: ToolApprovalDecision;
+}
+
+/** Most requests, and rows per request, a bubble carries. */
+export const DESKTOP_PET_APPROVALS_MAX = 8;
+export const DESKTOP_PET_APPROVAL_ROWS_MAX = 6;
+export const DESKTOP_PET_APPROVAL_TEXT_MAX = 2000;
 
 /** One face: an agent id, its name and its stored avatar look. */
 export interface DesktopPetMember {

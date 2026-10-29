@@ -55,7 +55,12 @@ import {
   DESKTOP_PET_MAX_LAYERS,
   DESKTOP_PET_MAX_TEXT,
   DESKTOP_PET_OPTIONS,
+  DESKTOP_PET_APPROVAL_ROWS_MAX,
+  DESKTOP_PET_APPROVAL_TEXT_MAX,
+  DESKTOP_PET_APPROVALS_MAX,
   DESKTOP_PET_REPLY_MAX,
+  type DesktopPetApproval,
+  type DesktopPetApprovalRow,
   DESKTOP_PET_SCALES,
   DESKTOP_PET_THEME_VARS,
   type DesktopPetBubble,
@@ -2322,7 +2327,8 @@ function petText(value: unknown, name: string, maximum: number): string {
 function requiredDesktopPetBubble(value: unknown): DesktopPetBubble {
   const bubble = petObject(value, 'pet bubble');
   const kind = bubble.kind;
-  if (kind === 'idle' || kind === 'working' || kind === 'approval') return { kind };
+  if (kind === 'idle' || kind === 'working') return { kind };
+  if (kind === 'approval') return requiredDesktopPetApprovalBubble(bubble);
   if (kind !== 'reply') throw new TypeError('pet bubble kind is invalid.');
   const key = petText(bubble.key, 'pet bubble key', PET_KEY_MAX);
   // Markdown source: line breaks, no other control characters.
@@ -2331,6 +2337,60 @@ function requiredDesktopPetBubble(value: unknown): DesktopPetBubble {
   }
   for (const line of bubble.text.split('\n')) petText(line, 'pet bubble text', DESKTOP_PET_REPLY_MAX);
   return { kind, key, text: bubble.text };
+}
+
+/** Text with line breaks and no other control characters. */
+function petLines(value: unknown, name: string, maximum: number): string {
+  if (typeof value !== 'string' || value.length > maximum) throw new TypeError(`${name} is invalid.`);
+  for (const line of value.split('\n')) petText(line, name, maximum);
+  return value;
+}
+
+function petIndex(value: unknown, name: string, rows: number): number {
+  if (!Number.isInteger(value) || (value as number) < -1 || (value as number) >= rows) {
+    throw new TypeError(`${name} is invalid.`);
+  }
+  return value as number;
+}
+
+/** The approval bubble: "!" alone, or the requests it can show. */
+function requiredDesktopPetApprovalBubble(bubble: Record<string, unknown>): DesktopPetBubble {
+  if (bubble.approvals === undefined) return { kind: 'approval' };
+  if (!Array.isArray(bubble.approvals) || bubble.approvals.length > DESKTOP_PET_APPROVALS_MAX) {
+    throw new TypeError('pet approvals are invalid.');
+  }
+  const approvals = bubble.approvals.map((entry): DesktopPetApproval => {
+    const item = petObject(entry, 'pet approval');
+    if (!Array.isArray(item.rows) || item.rows.length > DESKTOP_PET_APPROVAL_ROWS_MAX) {
+      throw new TypeError('pet approval rows are invalid.');
+    }
+    const rows = item.rows.map((row): DesktopPetApprovalRow => {
+      const input = petObject(row, 'pet approval row');
+      return {
+        label: petText(input.label, 'pet approval label', PET_NAME_MAX),
+        ...(input.desc === undefined ? {} : { desc: petText(input.desc, 'pet approval hint', PET_NAME_MAX) }),
+        decision: requiredToolApprovalDecision(input.decision),
+      };
+    });
+    return {
+      id: requiredString(item.id, 'pet approval id', 1_024),
+      title: petText(item.title, 'pet approval title', PET_NAME_MAX),
+      requester: petText(item.requester, 'pet approval requester', PET_NAME_MAX),
+      detail: petText(item.detail, 'pet approval detail', DESKTOP_PET_APPROVAL_TEXT_MAX),
+      full: petLines(item.full, 'pet approval text', DESKTOP_PET_APPROVAL_TEXT_MAX),
+      note: petLines(item.note, 'pet approval note', DESKTOP_PET_APPROVAL_TEXT_MAX),
+      inline: item.inline === true && rows.length > 0,
+      rows,
+      primary: petIndex(item.primary, 'pet approval primary', rows.length),
+      deny: petIndex(item.deny, 'pet approval deny', rows.length),
+    };
+  });
+  const total = Number(bubble.total);
+  return {
+    kind: 'approval',
+    approvals,
+    total: Number.isInteger(total) && total >= approvals.length && total <= 10_000 ? total : approvals.length,
+  };
 }
 
 /** A plain JSON look (mascot picks or custom file names), bounded. */

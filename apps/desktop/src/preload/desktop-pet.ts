@@ -21,6 +21,7 @@ const bridge: DesktopPetBridge = {
   open: () => ipcRenderer.send(DESKTOP_PET_IPC.open),
   read: (key) => ipcRenderer.send(DESKTOP_PET_IPC.read, String(key)),
   copy: (key) => ipcRenderer.send(DESKTOP_PET_IPC.copy, String(key)),
+  decide: (id, index) => ipcRenderer.invoke(DESKTOP_PET_IPC.decide, String(id), Number(index)),
   command: (command) => ipcRenderer.send(DESKTOP_PET_IPC.command, String(command)),
   area: (rect) => ipcRenderer.send(DESKTOP_PET_IPC.area, rect),
   drag: (drag) => ipcRenderer.send(DESKTOP_PET_IPC.drag, drag),

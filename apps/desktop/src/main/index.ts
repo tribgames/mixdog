@@ -87,6 +87,8 @@ import {
   retainNotification,
 } from './notification-window';
 import { createDesktopPet, type DesktopPet, type PetWindow } from './desktop-pet-window';
+import { resolveToolApprovalAnnouncingGrant } from './approval-grant-change';
+import { hostDeviceName } from './session-device';
 import { setBrowserApprovalHooks } from './browser/approval-dialog';
 import { approvalSurfaceSessionId, createApprovalRequesterResolver } from './browser/approval-requester';
 import { createBrowserApprovalGrants } from './browser/approval-grants';
@@ -2229,6 +2231,15 @@ function createDesktopPetController(): DesktopPet {
     // The composer's own route: the followed session's submitToSession.
     submit: async (sessionId, text) =>
       (await localService.submitToSession(sessionId, text, { submittedAt: Date.now() })) === true,
+    // The approval card's own answer path (ipc-sessions.ts).
+    decideApproval: (sessionId, id, decision) =>
+      resolveToolApprovalAnnouncingGrant(
+        localService,
+        (name, args) => localService.invokeDesktopOperation(name, args),
+        sessionId,
+        id,
+        { ...decision, device: hostDeviceName() }
+      ),
     openApp: (sessionId) => {
       if (!mainWindow || mainWindow.isDestroyed()) {
         void showConnectionWindow(localConnection).catch(() => {});

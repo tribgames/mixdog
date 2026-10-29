@@ -28,6 +28,11 @@ test("the latest completion carries the outcome and the final reply's markdown",
     done('d1', 50, { finalAssistantId: 'a1' }),
   ];
   assert.equal(model.latestCompletion(final).text, 'the answer', 'finalAssistantId picks the reply');
+  assert.equal(
+    model.latestCompletion([prompt('u1'), reply('a1', 'ROUTINE_QUIET\n'), done('d1', 50)]),
+    null,
+    'a quiet routine reply leaves no bubble'
+  );
   assert.equal(model.latestCompletion([prompt('u1'), { kind: 'turndone', id: 'd', status: 'failed' }]).kind, 'failed');
   assert.equal(
     model.latestCompletion([prompt('u1'), { kind: 'turndone', id: 'd', status: 'cancelled' }]).kind,

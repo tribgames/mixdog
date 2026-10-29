@@ -18,7 +18,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import type { DesktopPetDrag } from '../shared/desktop-pet';
+import type { DesktopPetApproval, DesktopPetDrag } from '../shared/desktop-pet';
 import { t } from './i18n';
 import type { CompanionBubble } from './skin-companion-model';
 import { measureReplyPages, pageReadMs, type ReplyPage, renderReplyBlocks, replyBlocks } from './skin-companion-paging';
@@ -326,8 +326,12 @@ export interface CompanionPetProps {
   canSend: boolean;
   /** Drag and arrow keys move it (off while pinned above the message box). */
   movable?: boolean;
-  /** The quiet pet was clicked: open (focus) Mixy's chat in the app. */
+  /** The quiet pet was clicked, or a request the bubble cannot decide
+   *  asked to open: open (focus) Mixy's chat in the app. */
   onOpen: () => void;
+  /** Decide row `index` of the approval `id` the bubble shows; true once
+   *  it is recorded. */
+  onDecide?: (id: string, index: number) => Promise<boolean>;
   /** Mixy's chat's send path (main → the composer's own route). */
   onSend: (text: string) => Promise<unknown>;
   /** The shown reply is seen: its bubble timed out or was closed (a click,
@@ -440,6 +444,164 @@ function useMascotDrag(movable: boolean, onDrag: (drag: DesktopPetDrag) => void)
 /** How far inside either edge of its span the bubble stays (desktop-pet.css). */
 const BUBBLE_EDGE = 16;
 
+/** How long "허용함" / "거절함" shows before the bubble is itself again. */
+export const DECISION_RESULT_MS = 1600;
+
+/** Sends row `index` of the shown request; `approved` is what that row decides. */
+type DecideRequest = (id: string, index: number, approved: boolean) => void;
+
+interface ApprovalRequestProps {
+  item: DesktopPetApproval;
+  position: number;
+  count: number;
+  busy: boolean;
+  onDecide: DecideRequest;
+  onOpen: () => void;
+  /** Set when focus was in the bubble as the last request was decided: the
+   *  next request's bubble takes it, so the keys carry on. */
+  takeFocus: { current: boolean };
+}
+
+/** One request in the bubble. Closed: what, who, a line of it, the card's
+ *  first allow and its deny, and "자세히". Opened ("자세히"): all of it, a note
+ *  and every row of the card. A request the bubble cannot decide only opens the card. */
+function ApprovalRequest({ item, position, count, busy, onDecide, onOpen, takeFocus }: ApprovalRequestProps) {
+  const [open, setOpen] = useState(false);
+  const groupRef = useRef<HTMLDivElement | null>(null);
+  const detailRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!takeFocus.current) return;
+    takeFocus.current = false;
+    groupRef.current?.focus({ preventScroll: true });
+  }, [takeFocus]);
+  // "자세히" is gone once pressed: focus goes to the text it revealed.
+  useEffect(() => {
+    if (open) detailRef.current?.focus({ preventScroll: true });
+  }, [open]);
+  const label = [item.title, item.requester].filter(Boolean).join(' · ');
+  const decideButton = (index: number) => {
+    const row = item.rows[index];
+    return (
+      <button
+        key={index}
+        type="button"
+        className="skin-companion-req-btn"
+        data-primary={index === item.primary ? 'true' : undefined}
+        disabled={busy}
+        title={row.desc}
+        onClick={() => onDecide(item.id, index, row.decision.approved)}
+      >
+        {row.label}
+      </button>
+    );
+  };
+  return (
+    <div
+      ref={groupRef}
+      className="skin-companion-req"
+      role="group"
+      aria-label={label}
+      tabIndex={-1}
+      onKeyDown={(event) => {
+        if (event.key !== 'Escape' || !open) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+        groupRef.current?.focus({ preventScroll: true });
+      }}
+    >
+      <div className="skin-companion-req-head">
+        <span className="skin-companion-mark" aria-hidden="true">
+          !
+        </span>
+        <span className="skin-companion-req-title">{item.title}</span>
+        {item.requester ? <span className="skin-companion-req-who">{item.requester}</span> : null}
+        {count > 1 && (
+          <span className="skin-companion-req-pager">
+            {position + 1}/{count}
+          </span>
+        )}
+      </div>
+      {!item.inline ? (
+        <div className="skin-companion-req-actions">
+          <button
+            type="button"
+            className="skin-companion-req-btn"
+            data-primary="true"
+            aria-label={t('Open approval')}
+            onClick={onOpen}
+          >
+            {t('Open')}
+          </button>
+        </div>
+      ) : open ? (
+        <>
+          <div ref={detailRef} className="skin-companion-req-more" role="group" aria-label={t('Details')} tabIndex={-1}>
+            {item.full ? (
+              <pre className="skin-companion-req-detail" data-full="true">
+                {item.full}
+              </pre>
+            ) : null}
+            {item.note ? <div className="skin-companion-req-note">{item.note}</div> : null}
+          </div>
+          <div className="skin-companion-req-actions">{item.rows.map((_, index) => decideButton(index))}</div>
+        </>
+      ) : (
+        <>
+          {item.detail ? (
+            <div className="skin-companion-req-detail" title={item.detail}>
+              {item.detail}
+            </div>
+          ) : null}
+          <div className="skin-companion-req-actions">
+            {decideButton(item.primary)}
+            {decideButton(item.deny)}
+            <button
+              type="button"
+              className="skin-companion-req-btn"
+              data-link="true"
+              aria-label={`${t('More details')}: ${item.title}`}
+              onClick={() => setOpen(true)}
+            >
+              {t('More details')}
+            </button>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/** The pending request, with "1/N" when others wait behind it. */
+function ApprovalBubble({
+  items,
+  total,
+  busy,
+  onDecide,
+  onOpen,
+  takeFocus,
+}: {
+  items: DesktopPetApproval[];
+  total: number;
+  busy: boolean;
+  onDecide: DecideRequest;
+  onOpen: () => void;
+  takeFocus: { current: boolean };
+}) {
+  return (
+    <ApprovalRequest
+      key={items[0].id}
+      item={items[0]}
+      position={0}
+      count={Math.max(total, items.length)}
+      busy={busy}
+      onDecide={onDecide}
+      onOpen={onOpen}
+      takeFocus={takeFocus}
+    />
+  );
+}
+
 /** One bubble element for every state: the reply grows out of the same
  *  anchored bubble the typing dots were in. Pointer and focus are held
  *  through `setHovered` / `setFocusWithin`. A click or Enter closes a short
@@ -459,8 +621,19 @@ function CompanionBubbleView({
   setHovered,
   setFocusWithin,
   span,
+  result,
+  deciding,
+  onDecide,
+  onOpen,
+  takeFocus,
 }: {
   bubble: CompanionBubble;
+  /** "허용함" / "거절함": shown instead of the bubble for a moment after a decision. */
+  result: { approved: boolean } | null;
+  deciding: boolean;
+  onDecide: DecideRequest;
+  onOpen: () => void;
+  takeFocus: { current: boolean };
   name: string;
   fading: boolean;
   /** The page's time is paused (the current dot's fill stops). */
@@ -527,7 +700,7 @@ function CompanionBubbleView({
       ref={ref}
       className="skin-companion-bubble"
       data-pet-hit=""
-      data-state={bubble.kind}
+      data-state={result ? 'decided' : bubble.kind}
       data-paged={paged ? 'true' : undefined}
       data-held={paged && held ? 'true' : undefined}
       data-fading={fading ? 'true' : undefined}
@@ -542,10 +715,24 @@ function CompanionBubbleView({
       onClick={short ? onClose : paged ? turn : undefined}
       onKeyDown={finished ? onKeyDown : undefined}
     >
-      {paging && finished ? (
+      {result ? (
+        <span className="skin-companion-decided" data-approved={result.approved ? 'true' : undefined}>
+          <span aria-hidden="true">{result.approved ? '✓' : '✕'} </span>
+          {result.approved ? t('You allowed it') : t('You denied it')}
+        </span>
+      ) : paging && finished ? (
         <PagedReply name={name} paging={paging} timed={timed} onCopy={onCopy} onClose={onClose} />
       ) : finished ? (
         <ReplyText text={bubble.text} onMeasured={onMeasured} />
+      ) : bubble.kind === 'approval' && bubble.approvals?.length ? (
+        <ApprovalBubble
+          items={bubble.approvals}
+          total={bubble.total ?? bubble.approvals.length}
+          busy={deciding}
+          onDecide={onDecide}
+          onOpen={onOpen}
+          takeFocus={takeFocus}
+        />
       ) : (
         <BubbleSymbol bubble={bubble} />
       )}
@@ -748,6 +935,7 @@ export function CompanionPet({
   canSend,
   movable = true,
   onOpen,
+  onDecide,
   onSend,
   onDismiss,
   onMenu,
@@ -810,6 +998,48 @@ export function CompanionPet({
   const closeReply = useCallback(() => {
     if (replyKeyRef.current) onDismissRef.current(replyKeyRef.current);
   }, []);
+  // A decision made in the bubble: its short result stands in for the
+  // bubble, then the bubble is itself again. A next request replaces it at once.
+  const [decided, setDecided] = useState<{ id: string; approved: boolean } | null>(null);
+  const [deciding, setDeciding] = useState(false);
+  const decidingRef = useRef(false);
+  const takeFocus = useRef(false);
+  const onDecideRef = useRef(onDecide);
+  onDecideRef.current = onDecide;
+  const decide = useCallback<DecideRequest>((id, index, approved) => {
+    if (decidingRef.current || !onDecideRef.current) return;
+    decidingRef.current = true;
+    setDeciding(true);
+    const fromBubble = Boolean(document.activeElement?.closest('.skin-companion-bubble'));
+    onDecideRef
+      .current(id, index)
+      .then(
+        (recorded) => {
+          if (!recorded) return;
+          setDecided({ id, approved });
+          // The buttons go away: the keys go back to the pet, and on to the next request.
+          if (fromBubble) {
+            takeFocus.current = true;
+            focusPet(mascotRef.current);
+          }
+        },
+        () => {}
+      )
+      .finally(() => {
+        decidingRef.current = false;
+        setDeciding(false);
+      });
+  }, []);
+  useEffect(() => {
+    if (!decided) return;
+    const timer = window.setTimeout(() => {
+      setDecided(null);
+      takeFocus.current = false;
+    }, DECISION_RESULT_MS);
+    return () => window.clearTimeout(timer);
+  }, [decided]);
+  const nextRequest = bubble.kind === 'approval' && bubble.approvals?.some((entry) => entry.id !== decided?.id);
+  const result = decided && !nextRequest ? decided : null;
   // Read once its end was on screen: the app counts the chat read too. A
   // long reply closed before its last page stays unread.
   const onReadRef = useRef(onRead);
@@ -863,7 +1093,7 @@ export function CompanionPet({
       data-dragging={dragging ? 'true' : undefined}
       data-pinned={movable ? undefined : 'true'}
       // Idle: no bubble; the pet itself breathes and blinks (CSS).
-      data-idle={idle && !quickInput && !dragging ? 'true' : undefined}
+      data-idle={idle && !result && !quickInput && !dragging ? 'true' : undefined}
       data-paused={paused ? 'true' : undefined}
       // The bubble's width cap, shared with the hidden copy pages are measured in.
       style={bubbleMax ? ({ '--bubble-max': `${bubbleMax}px` } as CSSProperties) : undefined}
@@ -872,9 +1102,14 @@ export function CompanionPet({
         <div className="skin-companion-balloon">
           <div className="skin-companion-status" role="status" aria-live="polite">
             <span className="sr-only">{label}</span>
-            {!collapsed && !idle && !quiet && (
+            {!collapsed && (!idle || result) && !quiet && (
               <CompanionBubbleView
-                bubble={bubble}
+                bubble={result ? { kind: 'idle' } : bubble}
+                result={result}
+                deciding={deciding}
+                onDecide={decide}
+                onOpen={onOpen}
+                takeFocus={takeFocus}
                 name={name}
                 fading={fading}
                 held={pagesHeld}

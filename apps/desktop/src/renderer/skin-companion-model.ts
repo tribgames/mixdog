@@ -2,6 +2,7 @@
 // is testable on its own: the app window derives it (desktop-pet-publisher.tsx),
 // the pet window draws it (skin-companion-pet.tsx).
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
+import { isRoutineQuietReply } from '../../../../src/runtime/shared/routine-trigger.mjs';
 import { isTranscriptCancelledStatusText } from '../../../../src/runtime/shared/tool-execution-contract.mjs';
 import { DESKTOP_PET_REPLY_MAX, type DesktopPetBubble } from '../shared/desktop-pet';
 import type { TranscriptItem } from './desktop-types';
@@ -65,6 +66,8 @@ export function latestCompletion(items: readonly TranscriptItem[]): CompanionCom
       reply = String(candidate.text || '');
       break;
     }
+    // A routine turn with nothing to tell leaves no bubble.
+    if (isRoutineQuietReply(reply)) return null;
     return { key: itemKey(item, index), kind: 'done', at, text: markdownReplyText(reply) };
   }
   return null;

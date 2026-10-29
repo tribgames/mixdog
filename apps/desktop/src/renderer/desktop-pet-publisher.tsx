@@ -17,6 +17,10 @@ import {
   type DesktopPetState,
   type DesktopPetTheme,
 } from '../shared/desktop-pet';
+import { useAgentChatSession } from './agent-chat-mode';
+import { useRequester } from './ApprovalCard';
+import { petApproval } from './desktop-pet-approval';
+import type { Approval } from './desktop-types';
 import { useRoomContacts } from './agent-room-parts';
 import { setPetIslandReserve } from './composer-island-state';
 import { isSshConnectionWindow } from './desktop-connection';
@@ -170,6 +174,9 @@ export function resetDesktopPetSeenForTests(): void {
 /** The focused pane's message field (the pet's click on Mixy's own view). */
 const COMPOSER_FIELD_SELECTOR = '.pane-cell.is-focused form.composer textarea';
 
+/** Stands in for the requester lookup while nothing is pending. */
+const NO_APPROVAL = {} as Approval;
+
 function PetPublish({ quiet }: { quiet: boolean }) {
   const sessionId = DESKTOP_PET_SESSION_ID;
   const snapshot = useSessionLane(sessionId);
@@ -185,9 +192,23 @@ function PetPublish({ quiet }: { quiet: boolean }) {
   // On Mixy's own view the chat shows everything: the pet goes quiet and a
   // reply arriving there counts as seen.
   if (quiet && completion) seenKey = completion.key;
-  const bubble = quiet
-    ? ({ kind: 'idle' } as const)
+  // The request itself, for the bubble to show and decide; a question is
+  // answered in the chat (its "!" stays).
+  const pending = snapshot?.toolApproval;
+  const requester = useRequester(pending ?? NO_APPROVAL, useAgentChatSession(sessionId));
+  const requesterName = requester.headAgent || requester.agentName;
+  const approvals = useMemo(
+    () =>
+      pending && pending.kind !== 'question'
+        ? [petApproval(pending, { requester: requesterName, agentName: requester.agentName })]
+        : [],
+    [pending, requesterName, requester.agentName]
+  );
+  const waiting = 1 + (Number(snapshot?.toolApprovalsWaiting) || 0);
+  let bubble: DesktopPetState['bubble'] = quiet
+    ? { kind: 'idle' }
     : companionBubble({ working, approval, completion, dismissedKey: seenKey, firstSeenAt, sawWorking });
+  if (bubble.kind === 'approval' && approvals.length) bubble = { kind: 'approval', approvals, total: waiting };
   const { id, name, avatar } = label(MIXY_AGENT_ID);
   const state: DesktopPetState = {
     sessionId,

@@ -131,7 +131,7 @@ export function useAgentName(agentId: string): string {
  *  agent the request names is still named. A sub-agent's request names its
  *  chain from the top-level chat down ("사무관 › Worker", "Lead › Reviewer"),
  *  wherever the card shows. */
-function useRequester(
+export function useRequester(
   approval: Approval,
   agentMode: boolean
 ): { agentName: string; headAgent: string; faceAgentId: string } {
@@ -464,7 +464,10 @@ export function connectorLevelLabel(level: string): string {
 
 /** The connector card's sentence: which bot, which connector and tool, the
  *  level now and the one asked for. */
-export function connectorChangeText(agentName: string, change: NonNullable<ReturnType<typeof connectorChange>>): string {
+export function connectorChangeText(
+  agentName: string,
+  change: NonNullable<ReturnType<typeof connectorChange>>
+): string {
   return t("{{agent}} wants to change {{service}}'s {{tool}} permission from '{{from}}' to '{{to}}'", {
     agent: agentName,
     service: connectorServiceLabel(`mcp__${change.server}__${change.tool}`) || change.server,
@@ -1485,7 +1488,13 @@ function ToolApprovalCard({
   const cardText = model.connector ? connectorChangeText(agentName, model.connector) : model.text;
   const ownText = model.kind !== 'outbound' && !(model.kind === 'secret' && !secretEntry) && cardText;
   const previewNode =
-    body || editor || office || ownText || model.requestAccount || model.detail || (model.kind === 'secret' && secretEntry) ? (
+    body ||
+    editor ||
+    office ||
+    ownText ||
+    model.requestAccount ||
+    model.detail ||
+    (model.kind === 'secret' && secretEntry) ? (
       <>
         {ownText && (
           <p className="approval-text" data-centered={model.kind === 'permission' || undefined}>
