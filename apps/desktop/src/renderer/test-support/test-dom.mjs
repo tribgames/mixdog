@@ -34,6 +34,9 @@ export function installTestDom(t, options = {}) {
   } = options;
   const dom = new JSDOM(html, { url: 'https://mixdog.test/', ...jsdom });
   const { window } = dom;
+  // Frames still pending at restore are cancelled: one firing after it would
+  // find requestAnimationFrame gone.
+  const frames = new Set();
   // jsdom has no Web Animations: an element runs no animations (the
   // decorative loops lock their phase through getAnimations on mount).
   window.Element.prototype.getAnimations = () => [];
@@ -44,8 +47,18 @@ export function installTestDom(t, options = {}) {
     // Node has no animation frames and jsdom only has them when pretending to
     // be visible; renderer code that waits for "the next frame" (the markdown
     // parse allowance) needs one that fires.
-    requestAnimationFrame: (callback) => setTimeout(() => callback(performance.now()), 16),
-    cancelAnimationFrame: (handle) => clearTimeout(handle),
+    requestAnimationFrame: (callback) => {
+      const handle = setTimeout(() => {
+        frames.delete(handle);
+        callback(performance.now());
+      }, 16);
+      frames.add(handle);
+      return handle;
+    },
+    cancelAnimationFrame: (handle) => {
+      frames.delete(handle);
+      clearTimeout(handle);
+    },
     ...Object.fromEntries(expose.map((key) => [key, window[key]])),
     ...globals,
   };
@@ -57,6 +70,8 @@ export function installTestDom(t, options = {}) {
   }
   const root = rootId ? require('react-dom/client').createRoot(window.document.getElementById(rootId)) : null;
   const restore = () => {
+    for (const handle of frames) clearTimeout(handle);
+    frames.clear();
     window.close();
     for (const [key, descriptor] of previous) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor);
