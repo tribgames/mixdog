@@ -786,7 +786,6 @@ function Install-UnpackedBuild {
     if (Test-Path -LiteralPath $backupDir) {
         throw "Fast deploy backup path already exists: $backupDir"
     }
-    $sourceExe = Join-Path $unpackedDir 'Mixdog.exe'
     $sourceResources = Join-Path $unpackedDir 'resources'
     $installedResources = Join-Path $InstallDir 'resources'
     $sourceUpdateMetadata = Join-Path $sourceResources 'app-update.yml'
@@ -797,10 +796,7 @@ function Install-UnpackedBuild {
     }
     & node (Join-Path $PSScriptRoot 'verify-update-metadata.mjs') "--dist=$distDir"
     if ($LASTEXITCODE -ne 0) { throw "verify-update-metadata exited with $LASTEXITCODE" }
-    $backupExe = Join-Path $backupDir 'Mixdog.exe'
-    $backupResources = Join-Path $backupDir 'resources'
-    $resourcesReplaced = $false
-    $exeReplaced = $false
+    $replaced = [System.Collections.Generic.List[object]]::new()
     function Move-WithRetry {
         param(
             [string]$Source,
@@ -823,15 +819,19 @@ function Install-UnpackedBuild {
     }
     try {
         New-Item -ItemType Directory -Path $backupDir -ErrorAction Stop | Out-Null
-        # Only app-owned artifacts change during a source deploy. Leaving the
+        # Every entry the build produced is app-owned: an Electron upgrade also
+        # changes the Chromium files beside Mixdog.exe, and a new executable
+        # beside the previous version's V8 snapshot dies at startup. Leaving the
         # installation directory itself in place avoids locks on debug.log and
         # preserves the registered uninstaller and shortcuts.
-        Move-WithRetry $installedResources $backupResources 'backup resources'
-        Move-WithRetry $sourceResources $installedResources 'install resources'
-        $resourcesReplaced = $true
-        Move-WithRetry $installedExe $backupExe 'backup executable'
-        Move-WithRetry $sourceExe $installedExe 'install executable'
-        $exeReplaced = $true
+        foreach ($entry in @(Get-ChildItem -LiteralPath $unpackedDir -Force)) {
+            $installed = Join-Path $InstallDir $entry.Name
+            $backup = Join-Path $backupDir $entry.Name
+            $hadInstalled = Test-Path -LiteralPath $installed
+            if ($hadInstalled) { Move-WithRetry $installed $backup "backup $($entry.Name)" }
+            $replaced.Add([pscustomobject]@{ Installed = $installed; Backup = $backup; HadInstalled = $hadInstalled })
+            Move-WithRetry $entry.FullName $installed "install $($entry.Name)"
+        }
         if (-not $NoLaunch) {
             Write-Step 'starting the fast-deployed app'
             Start-DetachedMixdogApp
@@ -846,18 +846,16 @@ function Install-UnpackedBuild {
     }
     catch {
         $failure = $_
-        if ($resourcesReplaced -or $exeReplaced) {
+        if ($replaced.Count) {
             Write-Step 'fast deploy failed; restoring the previous installation'
             Stop-MixdogApp
             Stop-Daemon
             Stop-InstalledMixdogProcess
-            if ($exeReplaced -and (Test-Path -LiteralPath $backupExe -PathType Leaf)) {
-                Remove-Item -LiteralPath $installedExe -Force -ErrorAction SilentlyContinue
-                Move-WithRetry $backupExe $installedExe 'restore executable'
-            }
-            if ($resourcesReplaced -and (Test-Path -LiteralPath $backupResources -PathType Container)) {
-                Remove-Item -LiteralPath $installedResources -Recurse -Force -ErrorAction SilentlyContinue
-                Move-WithRetry $backupResources $installedResources 'restore resources'
+            foreach ($item in $replaced) {
+                Remove-Item -LiteralPath $item.Installed -Recurse -Force -ErrorAction SilentlyContinue
+                if ($item.HadInstalled -and (Test-Path -LiteralPath $item.Backup)) {
+                    Move-WithRetry $item.Backup $item.Installed "restore $(Split-Path -Leaf $item.Installed)"
+                }
             }
         }
         Remove-Item -LiteralPath $backupDir -Recurse -Force -ErrorAction SilentlyContinue
