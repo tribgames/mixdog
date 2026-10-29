@@ -28,6 +28,7 @@ function Format-ObservationValue($value, $maximum = 120) {
   return ([string]$value).Substring(0, [Math]::Min(([string]$value).Length, $maximum))
 }
 function Resolve-WindowInfo($title, $id) { return @{Id='hwnd:0x1'; Title='fixture'; Handle=[IntPtr]1} }
+function Assert-AccessibleIntegrity($info) {}
 $mockWindow = [pscustomobject]@{}
 $mockWindow | Add-Member ScriptMethod FindAll {
   param($scope, $condition)

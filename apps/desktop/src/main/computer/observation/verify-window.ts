@@ -7,14 +7,17 @@
 import { elapsedMs, sleep } from '../shared/common';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import { evaluateVerifyPredicate, screenshotInteger, type VerifyStatus } from './analysis';
-import { verifyUnknownReason } from './verify-predicate';
+import { INTEGRITY_BLOCK_CODE, verifyUnknownReason } from './verify-predicate';
 import type { InspectHost } from './inspect';
 
 const DEFAULT_VERIFY_TIMEOUT_MS = 5_000;
 const MAX_VERIFY_TIMEOUT_MS = 30_000;
 const DEFAULT_VERIFY_STABLE_SAMPLES = 2;
 const VERIFY_POLL_INTERVAL_MS = 250;
-const VERIFY_PROVIDER_TIMEOUT_MS = 2_000;
+// A busy window can need longer than the floor, so each sample gets the time
+// left up to the cap; a timed-out sample is retried rather than ending the wait.
+const VERIFY_PROVIDER_MIN_TIMEOUT_MS = 2_000;
+const VERIFY_PROVIDER_MAX_TIMEOUT_MS = 5_000;
 // What an undecided text wait returns of the last read, so the caller sees why
 // the text did not match without spending a capture on it.
 const VERIFY_TEXT_SAMPLE_ENTRIES = 12;
@@ -25,6 +28,8 @@ export type VerifyHost = Pick<InspectHost, 'callPowerShell' | 'sessionIdFor' | '
 type Predicate = Record<string, unknown>;
 
 interface VerifyState {
+  /** Provider calls made, including those that timed out or failed. */
+  attempts: number;
   samples: number;
   /** Samples in a row where every predicate held. */
   consecutive: number;
@@ -61,16 +66,26 @@ function verifyPredicates(command: ComputerCommand): Predicate[] {
   return predicates as Predicate[];
 }
 
-/** One provider read judged against every predicate. False when the provider
- *  failed: polling stops and the predicates stay unknown. */
+/** A failed sample is unknown, not a verdict: only an integrity block cannot
+ *  change with more time, so only it stops the wait. */
+function failSample(state: VerifyState, predicates: Predicate[], message: string): 'retry' | 'blocked' {
+  state.providerError = message;
+  state.statuses = predicates.map(() => 'unknown');
+  state.consecutive = 0;
+  return message.includes(INTEGRITY_BLOCK_CODE) ? 'blocked' : 'retry';
+}
+
+/** One provider read judged against every predicate. */
 async function samplePredicates(
   host: VerifyHost,
   command: ComputerCommand,
   predicates: Predicate[],
   needsElementText: boolean,
-  state: VerifyState
-): Promise<boolean> {
+  state: VerifyState,
+  providerTimeoutMs: number
+): Promise<'ok' | 'retry' | 'blocked'> {
   let response: Awaited<ReturnType<VerifyHost['callPowerShell']>>;
+  state.attempts += 1;
   try {
     response = await host.callPowerShell(
       {
@@ -82,19 +97,16 @@ async function samplePredicates(
         session_id: host.sessionIdFor(command),
         read_only: true,
       },
-      VERIFY_PROVIDER_TIMEOUT_MS
+      providerTimeoutMs
     );
   } catch (error) {
-    state.providerError = (error as Error).message || String(error);
-    state.statuses = predicates.map(() => 'unknown');
-    return false;
+    return failSample(state, predicates, (error as Error).message || String(error));
+  }
+  if (!response.ok) {
+    return failSample(state, predicates, response.error || 'window predicate provider failed');
   }
   state.samples += 1;
-  if (!response.ok) {
-    state.providerError = response.error || 'window predicate provider failed';
-    state.statuses = predicates.map(() => 'unknown');
-    return false;
-  }
+  state.providerError = '';
   const elements = (Array.isArray(response.result?.elements) ? response.result.elements : []) as Array<
     Record<string, unknown>
   >;
@@ -115,7 +127,7 @@ async function samplePredicates(
   };
   state.statuses = predicates.map((predicate) => evaluateVerifyPredicate(predicate, observation));
   state.consecutive = state.statuses.every((status) => status === 'satisfied') ? state.consecutive + 1 : 0;
-  return true;
+  return 'ok';
 }
 
 export async function verifyWindowState(host: VerifyHost, command: ComputerCommand): Promise<ComputerCommandResult> {
@@ -140,6 +152,7 @@ export async function verifyWindowState(host: VerifyHost, command: ComputerComma
     (predicate) => typeof predicate.present === 'string' || typeof predicate.absent === 'string'
   );
   const state: VerifyState = {
+    attempts: 0,
     samples: 0,
     consecutive: 0,
     statuses: predicates.map(() => 'unknown'),
@@ -158,8 +171,13 @@ export async function verifyWindowState(host: VerifyHost, command: ComputerComma
     // The polling deadline is not a provider-health deadline. Even a one-shot
     // read needs its normal bounded budget; a final 1ms request would retire a
     // healthy worker and discard the evidence from earlier samples.
-    if (state.samples > 0 && performance.now() >= deadline) break;
-    if (!(await samplePredicates(host, command, predicates, needsElementText, state))) break;
+    if (state.attempts > 0 && performance.now() >= deadline) break;
+    const providerTimeoutMs = Math.max(
+      VERIFY_PROVIDER_MIN_TIMEOUT_MS,
+      Math.min(VERIFY_PROVIDER_MAX_TIMEOUT_MS, Math.round(deadline - performance.now()))
+    );
+    const sampled = await samplePredicates(host, command, predicates, needsElementText, state, providerTimeoutMs);
+    if (sampled === 'blocked') break;
     if (state.consecutive >= stableSamples) break;
     if (command.window_id && !state.exists && state.statuses.some((status) => status !== 'satisfied')) {
       targetClosed = true;

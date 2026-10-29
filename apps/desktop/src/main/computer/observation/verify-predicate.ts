@@ -1,6 +1,9 @@
 /** Negative text evidence is valid only when the provider completed its read. */
 export type VerifyStatus = 'satisfied' | 'unsatisfied' | 'unknown';
 
+/** Prefix the PowerShell host puts on its integrity refusal. */
+export const INTEGRITY_BLOCK_CODE = 'accessibility_blocked_by_integrity';
+
 export interface VerifyObservation {
   ok: boolean;
   exists: boolean;
@@ -21,7 +24,25 @@ export function verifyUnknownReason(observation: {
   textComplete?: boolean;
   observedElements: number;
 }): { reason: string; hint: string } | null {
-  if (!observation.needsElementText || observation.providerError || observation.textComplete === true) return null;
+  if (observation.providerError?.includes(INTEGRITY_BLOCK_CODE)) {
+    return {
+      reason: INTEGRITY_BLOCK_CODE,
+      hint: 'Windows hides this window\'s text from a lower-integrity host; capture it for pixels or OCR, or verify title_contains/window_exists instead',
+    };
+  }
+  if (observation.providerError?.includes('computer_command_timeout')) {
+    return {
+      reason: 'provider_timeout',
+      hint: 'the latest window read did not answer within its budget and the deadline passed without a decision; the window may be busy, so retry with a longer timeout_ms or verify title_contains/window_exists',
+    };
+  }
+  if (observation.providerError) {
+    return {
+      reason: 'provider_error',
+      hint: 'the latest window read failed and the deadline passed without a decision; see provider_error, retry, or verify title_contains/window_exists',
+    };
+  }
+  if (!observation.needsElementText || observation.textComplete === true) return null;
   return observation.observedElements > 0
     ? {
         reason: 'element_text_incomplete',

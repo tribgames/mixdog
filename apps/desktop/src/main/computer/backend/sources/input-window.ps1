@@ -79,6 +79,9 @@ function Get-WindowPredicates($req) {
             elements  = @()
         }
     }
+    # Title and existence stay readable on an elevated window; only the element
+    # text is hidden, and an empty list there would read as "text absent".
+    Assert-AccessibleIntegrity $info
     $win = Find-Window $req.window $req.window_id
     $max = if ($null -ne $req.max_elements) { [int]$req.max_elements } else { 400 }
     if ($max -lt 1 -or $max -gt 1000) { throw 'max_elements must be 1..1000' }

@@ -55,6 +55,7 @@ public static class MixMsaa {
 $AE = [System.Windows.Automation.AutomationElement]
 $TS = [System.Windows.Automation.TreeScope]
 function Resolve-WindowInfo { return @{ Id = 'hwnd:fixture'; Handle = 1; Title = 'fixture'; ClassName = 'Chrome_WidgetWin_1' } }
+function Assert-AccessibleIntegrity($info) {}
 $script:FixtureValue = '한글 "정확" ''따옴표'' C:\\test\\file.txt'
 $script:ValueUnavailable = $false
 $el = [pscustomobject]@{
