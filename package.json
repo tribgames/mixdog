@@ -144,7 +144,7 @@
     "arm64"
   ],
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.135.0",
+    "@anthropic-ai/sdk": "^0.137.0",
     "@formulajs/formulajs": "^4.6.1",
     "@google/generative-ai": "^0.24.1",
     "@huggingface/transformers": "^4.3.1",
