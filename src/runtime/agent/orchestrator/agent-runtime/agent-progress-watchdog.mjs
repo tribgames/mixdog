@@ -8,8 +8,9 @@
  * and never while the turn waits on the user's approval (`awaitingUser`).
  */
 
-import { appendAgentTrace } from '../agent-trace-io.mjs';
+import { appendAgentTrace, normalizeSessionId, _appendToolFailureRow } from '../agent-trace-io.mjs';
 import { getHiddenAgent } from '../internal-agents.mjs';
+import { PACKAGE_VERSION } from '../../../web-search/lib/package-version.mjs';
 import { envNonNegativeInt, envPresent } from '../../../shared/env.mjs';
 import {
   PROVIDER_FIRST_BYTE_TIMEOUT_MS,
@@ -149,18 +150,90 @@ export function noteStoppedShellJobsOnError(error, shellJobs) {
   if (note && error && typeof error === 'object') error.message = `${error.message} ${note}`;
 }
 
-function resolveWatchdogAbortElapsedMs({ snapshot, policy, now, anchorTs, lastProgressAt }) {
+// The timestamp the stop was measured from, and which clock it is.
+function resolveWatchdogAbortClock({ snapshot, policy, anchorTs, lastProgressAt }) {
   if (snapshot && policy) {
     if (snapshot.waitingForFirstSemantic) {
-      const startedAt = snapshot.modelRequestStartedAt || snapshot.askStartedAt;
-      if (startedAt) return Math.max(0, now - startedAt);
+      if (snapshot.modelRequestStartedAt) return { at: snapshot.modelRequestStartedAt, field: 'model_request_started_at' };
+      if (snapshot.askStartedAt) return { at: snapshot.askStartedAt, field: 'ask_started_at' };
     }
-    const last = snapshot.lastProgressAt || snapshot.firstActivityAt;
-    if (last) return Math.max(0, now - last);
+    if (snapshot.lastProgressAt) return { at: snapshot.lastProgressAt, field: 'last_progress_at' };
+    if (snapshot.firstActivityAt) return { at: snapshot.firstActivityAt, field: 'first_activity_at' };
   }
-  const last = lastProgressAt || anchorTs;
-  if (last) return Math.max(0, now - last);
-  return null;
+  if (lastProgressAt) return { at: lastProgressAt, field: 'reported_progress_at' };
+  if (anchorTs) return { at: anchorTs, field: 'anchor_ts' };
+  return { at: null, field: null };
+}
+
+// Which deadline fired, read from the abort message. `idle_bare` is the form
+// the registry/dispatch fallback throws when no progress snapshot existed.
+function watchdogAbortKind(message) {
+  const limit = Number(/\((\d+)ms/.exec(message)?.[1]) || null;
+  if (/^agent first transport stale/.test(message)) return { window: 'first_response', form: 'first_transport', limit };
+  if (/^agent first semantic response stale/.test(message)) return { window: 'first_output', form: 'first_semantic', limit };
+  if (/^agent task stale \(\d+ms without stream\/tool progress\)/.test(message)) {
+    return { window: 'idle', form: 'idle_progress', limit };
+  }
+  if (/^agent task stale/.test(message)) return { window: 'idle', form: 'idle_bare', limit };
+  if (/^agent progress checks failed/.test(message)) return { window: 'idle', form: 'checks_failed', limit: null };
+  return { window: null, form: 'other', limit: null };
+}
+
+// Shipped builds keep no agent trace, so a stop could not be audited after the
+// fact (was the agent really silent?). The tool-failure log stays on in ship
+// mode; the row holds clocks and names only, never prompt or output text.
+// `observation` says how the snapshot was obtained: a wire-safe runtime is
+// sampled asynchronously and the watchdog may judge a cached read, so
+// `snapshot_present` alone does not prove the clocks are current. Only an error
+// name/code is kept from a failed read, never its message.
+function recordAgentWatchdogAbortRow({
+  sessionId,
+  agent,
+  error,
+  snapshot,
+  policy,
+  clock,
+  elapsed,
+  anchorTs,
+  lastProgressAt,
+  iteration,
+  observation,
+  registrationId,
+}) {
+  if (process.env.MIXDOG_AGENT_TRACE_DISABLE === '1') return;
+  const message = typeof error.message === 'string' ? error.message : '';
+  const { window, form, limit } = watchdogAbortKind(message);
+  _appendToolFailureRow({
+    ts: Date.now(),
+    kind: 'stall_abort',
+    category: 'agent-stall',
+    build_version: PACKAGE_VERSION,
+    registration_id: registrationId || null,
+    session_id: normalizeSessionId(sessionId),
+    iteration: iteration ?? null,
+    agent: agent || null,
+    stage: snapshot?.stage ?? null,
+    window,
+    limit_ms: limit ?? policy?.idleStaleMs ?? null,
+    form,
+    compared_field: clock.field,
+    compared_at: clock.at,
+    elapsed_ms: elapsed,
+    snapshot_present: Boolean(snapshot),
+    snapshot_source: snapshot ? observation?.source || 'direct' : null,
+    last_read_ok_at: observation?.lastReadOkAt || null,
+    read_pending_since: observation?.readPendingSince || null,
+    last_read_error: observation?.lastReadError || null,
+    ask_started_at: snapshot?.askStartedAt || null,
+    model_request_started_at: snapshot?.modelRequestStartedAt || null,
+    waiting_for_transport: snapshot ? Boolean(snapshot.waitingForTransport) : null,
+    waiting_for_first_semantic: snapshot ? Boolean(snapshot.waitingForFirstSemantic) : null,
+    awaiting_user: snapshot?.awaitingUser || null,
+    last_progress_at: snapshot?.lastProgressAt || lastProgressAt || null,
+    last_keepalive_at: snapshot?.lastKeepaliveAt || null,
+    anchor_ts: anchorTs || null,
+    current_tool: snapshot?.currentTool || null,
+  });
 }
 
 function recordAgentWatchdogAbort({
@@ -173,15 +246,14 @@ function recordAgentWatchdogAbort({
   anchorTs = 0,
   lastProgressAt = 0,
   iteration = null,
+  observation = null,
+  registrationId = null,
+  comparedClock = null,
 }) {
   if (!sessionId || !error) return;
-  const elapsed = resolveWatchdogAbortElapsedMs({
-    snapshot,
-    policy,
-    now,
-    anchorTs,
-    lastProgressAt,
-  });
+  // A caller that decided on its own clock (the failed-checks stop) names it.
+  const clock = comparedClock || resolveWatchdogAbortClock({ snapshot, policy, anchorTs, lastProgressAt });
+  const elapsed = clock.at ? Math.max(0, now - clock.at) : null;
   try {
     appendAgentTrace({
       sessionId,
@@ -193,6 +265,24 @@ function recordAgentWatchdogAbort({
         message: typeof error.message === 'string' ? error.message : String(error),
         stage: snapshot?.stage ?? null,
       },
+    });
+  } catch {
+    /* best-effort */
+  }
+  try {
+    recordAgentWatchdogAbortRow({
+      sessionId,
+      agent,
+      error,
+      snapshot,
+      policy,
+      clock,
+      elapsed,
+      anchorTs,
+      lastProgressAt,
+      iteration,
+      observation,
+      registrationId,
     });
   } catch {
     /* best-effort */

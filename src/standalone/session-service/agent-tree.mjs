@@ -47,18 +47,51 @@ export function createAgentTree({
     cancelTranscripts.delete(sessionId);
     return messages;
   };
+  // How each session's last snapshot was obtained. A wire-safe runtime is read
+  // asynchronously and the watchdog judges the cached result, so a failed or
+  // hung read leaves old clocks that the watchdog row must be able to flag.
+  const progressObservation = new Map();
+  const observationOf = (sessionId) => {
+    let observation = progressObservation.get(sessionId);
+    if (!observation) {
+      observation = { source: null, lastReadOkAt: null, readPendingSince: null, lastReadError: null };
+      progressObservation.set(sessionId, observation);
+    }
+    return observation;
+  };
   function getSessionProgressSnapshot(sessionId) {
     const runtime = sessionOwner(sessionId)?.runtime;
     if (typeof runtime?.getTurnLiveness !== 'function') return null;
-    if (runtime.isWireSafe !== true) return runtime.getTurnLiveness();
+    const observation = observationOf(sessionId);
+    if (runtime.isWireSafe !== true) {
+      const snapshot = runtime.getTurnLiveness();
+      observation.source = snapshot ? 'direct' : null;
+      if (snapshot) observation.lastReadOkAt = Date.now();
+      return snapshot;
+    }
     if (!progressReads.has(sessionId)) {
       progressReads.add(sessionId);
-      Promise.resolve(runtime.getTurnLiveness())
-        .then((snapshot) => progress.set(sessionId, snapshot))
-        .catch((error) => log(`agent progress read failed session=${sessionId}: ${error?.message || error}`))
-        .finally(() => progressReads.delete(sessionId));
+      observation.readPendingSince = Date.now();
+      // A synchronous throw must settle like a rejected read; otherwise the
+      // session stays in progressReads and is never read again.
+      new Promise((resolve) => resolve(runtime.getTurnLiveness()))
+        .then((snapshot) => {
+          progress.set(sessionId, snapshot);
+          observation.lastReadOkAt = Date.now();
+          observation.lastReadError = null;
+        })
+        .catch((error) => {
+          observation.lastReadError = String(error?.code || error?.name || 'Error').slice(0, 40);
+          log(`agent progress read failed session=${sessionId}: ${error?.message || error}`);
+        })
+        .finally(() => {
+          progressReads.delete(sessionId);
+          observation.readPendingSince = null;
+        });
     }
-    return progress.get(sessionId) || null;
+    const cached = progress.get(sessionId) || null;
+    observation.source = cached ? 'cache' : null;
+    return cached;
   }
   const { rehydrateAgentSessions } = createAgentRehydration({ registry, listSessions, readStoredSession, log });
   const { createAgentChild, runAgentTurn } = createAgentTurns({
@@ -169,6 +202,7 @@ export function createAgentTree({
         : null;
     },
     getSessionProgressSnapshot,
+    getSessionProgressObservation: (sessionId) => ({ ...observationOf(sessionId) }),
     linkParentSignalToSession(sessionId, signal) {
       const runtime = sessionOwner(sessionId)?.runtime;
       if (typeof runtime?.abort !== 'function') throw new Error(`agent runtime cannot abort session ${sessionId}`);

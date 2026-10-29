@@ -2,6 +2,7 @@
 // One shared 1s timer sweeps every watched session, so a burst
 // of agents costs a single interval; the timer stops as soon as the last
 // watchdog is released. Abort policy itself lives in the runtime module.
+import { randomUUID } from 'node:crypto';
 import { armTurnTimeout } from '../../runtime/agent/orchestrator/session/manager/turn-reap.mjs';
 import {
   abortAgentProgressWatchdog,
@@ -108,6 +109,15 @@ export function createProgressWatchdogRegistry({ mgr }) {
     const abortErr = snapshot ? evaluateAgentWatchdogAbort(snapshot, now, watchdogPolicy) : null;
     // No progress snapshot: fall back to the coarse last-progress timestamp so a
     // session that never reports structured progress can still stall out.
+    const observe = () => {
+      try {
+        return typeof mgr.getSessionProgressObservation === 'function'
+          ? mgr.getSessionProgressObservation(sessionId)
+          : null;
+      } catch {
+        return null;
+      }
+    };
     if (!abortErr && !snapshot) {
       // start() admits a manager that provides EITHER progress source, so this
       // fallback must not assume the coarse one exists: throwing here escaped
@@ -131,6 +141,8 @@ export function createProgressWatchdogRegistry({ mgr }) {
           anchorTs,
           lastProgressAt: reported,
           iteration,
+          observation: observe(),
+          registrationId: state.registrationId,
         });
       }
       return;
@@ -145,6 +157,8 @@ export function createProgressWatchdogRegistry({ mgr }) {
         now,
         anchorTs,
         iteration,
+        observation: observe(),
+        registrationId: state.registrationId,
       });
     }
   }
@@ -159,7 +173,10 @@ export function createProgressWatchdogRegistry({ mgr }) {
           state.lastSuccessfulCheckAt = Date.now();
         } catch (error) {
           state.error = String(error?.message || error);
-          const elapsed = Date.now() - (state.lastSuccessfulCheckAt || state.anchorTs);
+          const compared = state.lastSuccessfulCheckAt
+            ? { at: state.lastSuccessfulCheckAt, field: 'last_successful_check_at' }
+            : { at: state.anchorTs, field: 'anchor_ts' };
+          const elapsed = Date.now() - compared.at;
           if (state.watchdogPolicy.idleStaleMs > 0 && elapsed > state.watchdogPolicy.idleStaleMs) {
             abortOnTimeout(state.controller, {
               sessionId: state.sessionId,
@@ -167,6 +184,8 @@ export function createProgressWatchdogRegistry({ mgr }) {
               error: new AgentStallAbortError(`agent progress checks failed: ${state.error}`),
               policy: state.watchdogPolicy,
               anchorTs: state.anchorTs,
+              comparedClock: compared,
+              registrationId: state.registrationId,
             });
           }
         }
@@ -185,6 +204,7 @@ export function createProgressWatchdogRegistry({ mgr }) {
         return null;
       if (typeof mgr.linkParentSignalToSession !== 'function') return null;
       const state = {
+        registrationId: randomUUID().slice(0, 8),
         sessionId,
         watchdogPolicy,
         agent,
