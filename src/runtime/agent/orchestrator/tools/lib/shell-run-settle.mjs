@@ -3,12 +3,7 @@
 // lease cleanup that a promoted or unconfirmed-kill child defers to its own
 // real exit.
 import { ExecResult, SHELL_OUTPUT_INLINE_CAP } from '../shell-exec-output.mjs';
-import {
-  createProcessTreeTracker,
-  endWatchWhenUnconfirmable,
-  probeShellDescendants,
-  watchTermination,
-} from './shell-descendants.mjs';
+import { endWatchWhenUnconfirmable, probeShellDescendants, watchTermination } from './shell-descendants.mjs';
 import { unregisterOwnedShellTree } from './owned-shell-trees.mjs';
 import {
   adoptShellWorkspaceAdmission,
@@ -22,6 +17,7 @@ import {
   detachAbortHandler,
   keepTerminationUnconfirmedRecord,
   releaseResourceLease,
+  runTreeTracker,
 } from './shell-run-state.mjs';
 
 // Unconfirmed-kill cleanup ceiling: the result is already reported, but the
@@ -83,7 +79,7 @@ export function releaseAdmissionOnConfirmedTermination(run, { markNow = true, sw
     cwd: run.foregroundRecordInput?.cwd || null,
     release,
   });
-  run.terminationTracker = run.terminationTracker || createProcessTreeTracker({ pid: child.pid });
+  runTreeTracker(run);
   // After a force-release the watch only waits for a confirmed exit. An
   // incomplete pre-kill capture of a root that is gone can never be completed,
   // so an observation that stays unknown on it ends the watch (never settling
@@ -200,6 +196,7 @@ async function probeSurvivingDescendants(run) {
   if (run.killed || run.timedOut || !run.child?.pid) return null;
   const descendants = await probeShellDescendants({
     pid: run.child.pid,
+    rootCreationTime: run.child.creationTime,
   });
   if (descendants) descendants.taskId = run.foregroundRecordId;
   return descendants;
@@ -273,8 +270,7 @@ export function createSettle(run, releasePromotedCapture) {
       // explicit force-release, and the record is kept, marked unconfirmed.
       // (The probe runs only for an unkilled root, so the lifecycle is not
       // already held here.)
-      run.terminationTracker = run.terminationTracker || createProcessTreeTracker({ pid: run.child.pid });
-      run.terminationTracker.acceptExitObservation();
+      runTreeTracker(run).acceptExitObservation();
       releaseAdmissionOnConfirmedTermination(run);
     }
     // Marked unconfirmed (with its force-release) only once an observation

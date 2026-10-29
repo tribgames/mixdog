@@ -9,10 +9,18 @@ import { ShellTextDecoder, TaskOutput, treeKill } from '../shell-exec-output.mjs
 import { createProcessTreeTracker, killAfterSnapshot } from './shell-descendants.mjs';
 import { registerOwnedShellTree } from './owned-shell-trees.mjs';
 
+/** The tracker of the run's process tree, created once. */
+export function runTreeTracker(run) {
+  run.terminationTracker =
+    run.terminationTracker ||
+    createProcessTreeTracker({ pid: run.child.pid, rootCreationTime: run.child.creationTime });
+  return run.terminationTracker;
+}
+
 /** One pre-kill identity read of the run's tree (every kill path shares it):
  *  resolves true once the capture is complete, false when it failed. */
 export function capturePreKill(run) {
-  run.terminationTracker = run.terminationTracker || createProcessTreeTracker({ pid: run.child.pid });
+  runTreeTracker(run);
   const rootExited = run.child.exitCode != null || run.child.signalCode != null;
   return run.terminationTracker.capture({ rootExited }).catch(() => false);
 }

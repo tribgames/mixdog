@@ -1,12 +1,13 @@
 import { fixtureRoot } from './isolated-test-env.mjs';
 import assert from 'node:assert/strict';
+import { once } from 'node:events';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 
-import { ENUMERATION_DEADLINE_MS } from '../../mcp/child-tree.mjs';
+import { ENUMERATION_DEADLINE_MS, readProcessTable } from '../../mcp/child-tree.mjs';
 import { execShellCommand } from '../shell-command.mjs';
 import { _shellJobRecordWritesSettledForTest, retireShellJobRecord } from '../builtin/lib/shell-job-records.mjs';
 import { waitShellJobTerminated } from '../builtin/shell-jobs.mjs';
@@ -15,8 +16,10 @@ import {
   _assertNativeSpawnCapabilitiesForTest,
   _resetNativeSpawnClientForTest,
   _setNativeSpawnBinaryForTest,
+  ensureNativeSpawnServer,
   listNativeTasks,
   shutdownNativeSpawnServer,
+  tryNativeSpawn,
   waitNativeTask,
 } from './native-spawn-client.mjs';
 import { cancelOwnedShellTrees } from './owned-shell-trees.mjs';
@@ -45,6 +48,32 @@ test('native spawn rejects binaries without the required lifecycle protocol', ()
 // watch's first read may queue behind the pre-kill capture; a pass the read
 // outlasts is re-checked one cadence later with a fresh read.
 const TERMINATION_CONFIRM_BOUND_MS = 3 * ENUMERATION_DEADLINE_MS + TERMINATION_RECHECK_MS;
+
+// The server's FILETIME and the process table's creation token name the same
+// kernel instant; the table holds it to the microsecond (truncated or rounded).
+test('a spawned root reports the kernel creation time the process table shows', {
+  skip: process.platform !== 'win32',
+  timeout: ENUMERATION_DEADLINE_MS + 15_000,
+}, async () => {
+  const binary = resolve('native/mixdog-spawn/target/debug', 'mixdog-spawn.exe');
+  _setNativeSpawnBinaryForTest(binary);
+  let child = null;
+  try {
+    await ensureNativeSpawnServer();
+    const native = tryNativeSpawn({ shell: process.execPath, argv: ['-e', 'setTimeout(() => {}, 20000)'] });
+    child = native.child;
+    await once(child, 'spawn');
+    assert.match(String(child.creationTime), /^\d+$/);
+    const table = await readProcessTable();
+    const gap = BigInt(table.tokenOf.get(child.pid)) / 10n - BigInt(child.creationTime) / 10n;
+    assert.ok(gap === 0n || gap === 1n, `table token ${table.tokenOf.get(child.pid)} vs ${child.creationTime}`);
+  } finally {
+    child?.kill();
+    if (child) await once(child, 'close');
+    await shutdownNativeSpawnServer('test-finish').catch(() => {});
+    _resetNativeSpawnClientForTest();
+  }
+});
 
 test('foreground shell has stable owner identity before promotion', {
   timeout: TERMINATION_CONFIRM_BOUND_MS + 15_000,

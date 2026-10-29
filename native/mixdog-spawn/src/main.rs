@@ -96,6 +96,34 @@ fn now_ms() -> u64 {
         .min(u64::MAX as u128) as u64
 }
 
+/// The child's kernel creation time as a FILETIME (100 ns ticks since 1601
+/// UTC). Windows keeps a dead parent's pid in its children's parent links and
+/// soon hands that pid to a new process; the runtime compares this time with
+/// the process table's creation dates so those older processes are not taken
+/// for this child's descendants.
+#[cfg(windows)]
+fn creation_filetime(child: &Child) -> Option<u64> {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::GetProcessTimes;
+    let zero = FILETIME {
+        dwLowDateTime: 0,
+        dwHighDateTime: 0,
+    };
+    let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
+    let ok = unsafe {
+        GetProcessTimes(
+            child.as_raw_handle().cast(),
+            &mut created,
+            &mut exited,
+            &mut kernel,
+            &mut user,
+        )
+    };
+    (ok != 0).then(|| {
+        (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime)
+    })
+}
+
 /// The child command a spawn request describes: stdio wiring (capture files
 /// when both opened, pipes otherwise), cwd, a replaced environment, and the
 /// platform flags that keep the child windowless / in its own process group.
@@ -318,7 +346,14 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
             .insert(job_id.clone(), Arc::clone(&managed));
     }
 
-    emit(&json!({ "id": id, "event": "spawned", "pid": pid }));
+    #[allow(unused_mut)]
+    let mut spawned = json!({ "id": id, "event": "spawned", "pid": pid });
+    #[cfg(windows)]
+    if let Some(created) = creation_filetime(&child) {
+        // A string: FILETIME values exceed the integers JSON readers keep exact.
+        spawned["creationTime"] = json!(created.to_string());
+    }
+    emit(&spawned);
     if job_id.is_some() {
         emit_task(id, "task_started", &managed);
     }

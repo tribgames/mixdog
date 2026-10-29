@@ -54,6 +54,17 @@ export function killAfterSnapshot(snapshot, kill) {
 
 const identityKey = (entry) => `${entry.pid}:${entry.token ?? ''}`;
 
+// Windows keeps a process's parent id after that parent exits and hands the
+// pid to a new process within milliseconds, so a parent link can name a
+// process created after the one listing it: an unrelated process then looks
+// like the new holder's child. A child is never created before its parent.
+// (POSIX reparents orphans, so its links never dangle.) Only kernel creation
+// times are compared — the table's tokens and the spawn server's root
+// creation time, both FILETIME ticks — at the table's microsecond precision;
+// a parent whose time is unknown excludes nothing. Any other token (POSIX
+// lstart, scripted test tokens) is unknown.
+const createdUs = (ticks) => (typeof ticks === 'string' && /^\d+$/.test(ticks) ? BigInt(ticks) / 10n : null);
+
 /** Tracks one command's process tree across its termination.
  *
  *  `capture()` records the identities of the root and every descendant while
@@ -66,8 +77,11 @@ const identityKey = (entry) => `${entry.pid}:${entry.token ?? ''}`;
  *      or (POSIX) a member of the command's group is alive   → running
  *    - no complete pre-exit capture exists                   → unknown
  *    - a tracked process without a creation token is present → unknown
- *  A failed table read rejects; callers treat it as unknown. */
-export function createProcessTreeTracker({ pid, members = [], exitObserved = false } = {}) {
+ *  A failed table read rejects; callers treat it as unknown.
+ *
+ *  `rootCreationTime`: the root's kernel creation time from its spawn (see
+ *  native-spawn-client), known even once the root is gone uncaptured. */
+export function createProcessTreeTracker({ pid, members = [], exitObserved = false, rootCreationTime = null } = {}) {
   const rootPid = Number(pid) || 0;
   let rootToken = null;
   let complete = false;
@@ -92,6 +106,12 @@ export function createProcessTreeTracker({ pid, members = [], exitObserved = fal
   // are ours. A different process under that pid is a reuse — not ours.
   const rootPidIsOurs = (table, rootAlive) =>
     rootAlive || !table.tokenOf.has(rootPid) || (rootToken != null && table.tokenOf.get(rootPid) === rootToken);
+  // When `cur` (a live root, or a present identity) was created, if known.
+  const createdAt = (table, cur, rootAlive) => {
+    if (!isWin) return null;
+    if (cur !== rootPid) return createdUs(table.tokenOf.get(cur));
+    return createdUs(rootCreationTime) ?? createdUs(rootAlive ? table.tokenOf.get(rootPid) : rootToken);
+  };
 
   function absorb(table, rootAlive) {
     const from = [];
@@ -100,8 +120,11 @@ export function createProcessTreeTracker({ pid, members = [], exitObserved = fal
     const seen = new Set(from);
     while (from.length) {
       const cur = from.pop();
+      const parentCreated = createdAt(table, cur, rootAlive);
       for (const child of table.childrenOf.get(cur) ?? []) {
         if (seen.has(child)) continue;
+        const childCreated = parentCreated == null ? null : createdUs(table.tokenOf.get(child));
+        if (childCreated != null && childCreated < parentCreated) continue;
         seen.add(child);
         track(table, child);
         from.push(child);
@@ -332,24 +355,26 @@ function delay(ms) {
  *               by pid (Windows re-parents nothing: a process whose parent
  *               exited keeps a dangling parent id, so an intermediate that
  *               already exited breaks the link).
- *  Rejects when the process table cannot be read completely. */
-export async function probeShellDescendants({ pid } = {}) {
+ *  Rejects when the process table cannot be read completely.
+ *  `rootCreationTime`: see createProcessTreeTracker. */
+export async function probeShellDescendants({ pid, rootCreationTime = null } = {}) {
   const root = Number(pid) || 0;
   if (root <= 0) return null;
   // POSIX fast path: no member of the command's group at all.
   if (!isWin && !groupAlive(root)) return null;
-  const tracker = createProcessTreeTracker({ pid: root, exitObserved: true });
+  const tracker = createProcessTreeTracker({ pid: root, exitObserved: true, rootCreationTime });
   const state = await tracker.observe({ rootExited: true });
   if (state === 'gone') return null;
   if (state === 'unknown') throw new Error('Remaining child processes could not be verified.');
-  return survivorHandle(root, tracker.live);
+  return survivorHandle(root, tracker.live, rootCreationTime);
 }
 
-function survivorHandle(rootPid, live) {
+function survivorHandle(rootPid, live, rootCreationTime) {
   const watch = live.map(({ pid, token, name }) => ({ pid, token, name }));
   const killPids = watch.filter((entry) => !CONSOLE_HOST.test(entry.name)).map((entry) => entry.pid);
   return {
     rootPid,
+    rootCreationTime,
     groupPid: isWin ? null : rootPid,
     killPids,
     watchPids: watch.map((entry) => entry.pid),
@@ -359,7 +384,12 @@ function survivorHandle(rootPid, live) {
 }
 
 const trackerFor = (handle) =>
-  createProcessTreeTracker({ pid: handle.rootPid, members: handle.watch, exitObserved: true });
+  createProcessTreeTracker({
+    pid: handle.rootPid,
+    members: handle.watch,
+    exitObserved: true,
+    rootCreationTime: handle.rootCreationTime,
+  });
 
 /** Resolve once every observed survivor (by identity) has exited, or false
  *  once `signal` aborts. These processes are not our children any more, so

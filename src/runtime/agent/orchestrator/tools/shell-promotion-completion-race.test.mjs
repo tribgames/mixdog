@@ -67,6 +67,8 @@ for (const event of ['close', 'exit']) {
     assert.equal(result.backgrounded, false);
     assert.equal(result.exitCode, 0);
     assert.match(result.stdout, /finished-ok/);
+    // Reported survivors keep the folder held (for the bash tool's survivors task, not this caller).
+    assert.equal(result.descendants, null, JSON.stringify(result.descendants));
     // A kill after the root's exit had no pre-kill snapshot: the workspace
     // stayed held as termination-unconfirmed for good.
     let free = false;

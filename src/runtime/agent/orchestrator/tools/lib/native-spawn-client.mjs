@@ -260,6 +260,9 @@ class NativeSpawnChild extends EventEmitter {
     this._cancel = cancel;
     this._send = send;
     this._closed = false;
+    // Windows kernel creation time (FILETIME ticks, decimal) from the server's
+    // 'spawned' event; null from servers that do not report it.
+    this.creationTime = null;
   }
 
   // stdinPipe children only (warm shell standby): forward script text to the
@@ -611,6 +614,7 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
       const event = String(message?.event || '');
       if (event === 'spawned') {
         fake.pid = Number(message.pid) || undefined;
+        if (/^\d+$/.test(String(message.creationTime ?? ''))) fake.creationTime = String(message.creationTime);
         fake.emit('spawn');
         return;
       }

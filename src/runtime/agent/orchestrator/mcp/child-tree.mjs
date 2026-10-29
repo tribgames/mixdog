@@ -69,8 +69,10 @@ function run(cmd, args, { strict = false, timeoutMs = ENUMERATION_DEADLINE_MS } 
 }
 
 // Snapshot the whole process table once: parent map + a per-pid identity
-// token (Windows CreationDate, POSIX lstart) so a later kill can prove a pid
-// number was not recycled onto a different process before signalling it.
+// token (Windows CreationDate as a UTC FILETIME, POSIX lstart) so a later kill
+// can prove a pid number was not recycled onto a different process before
+// signalling it. The FILETIME form orders against the spawn server's root
+// creation time and carries no local-time offset.
 // POSIX rows also carry the process group id (Windows has none).
 async function enumerate({ strict = false } = {}) {
   const childrenOf = new Map();
@@ -84,7 +86,7 @@ async function enumerate({ strict = false } = {}) {
           '-NoProfile',
           '-NonInteractive',
           '-Command',
-          `${strict ? "$ErrorActionPreference = 'Stop'; " : ''}Get-CimInstance Win32_Process | ForEach-Object { $created = if ($_.CreationDate) { $_.CreationDate.ToString('o') } else { '' }; "$($_.ProcessId) $($_.ParentProcessId) $($_.Name) $created" }`,
+          `${strict ? "$ErrorActionPreference = 'Stop'; " : ''}Get-CimInstance Win32_Process | ForEach-Object { $created = if ($_.CreationDate) { $_.CreationDate.ToFileTimeUtc() } else { '' }; "$($_.ProcessId) $($_.ParentProcessId) $($_.Name) $created" }`,
         ],
         { strict, timeoutMs: ENUMERATION_DEADLINE_MS }
       )

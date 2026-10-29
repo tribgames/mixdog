@@ -773,6 +773,32 @@ test(
   )
 );
 
+// Windows keeps a dead parent's pid in its children's parent links and hands
+// that pid to the next process. A command whose root got it exits before any
+// table read sees it: the spawn's kernel creation time still tells that older
+// process apart, so it is not adopted as a survivor holding the folder.
+test(
+  'a finished command releases its workspace past an older process whose dangling parent link names its pid',
+  { skip: process.platform !== 'win32' },
+  withTimers(async () => {
+    const repo = makeRepo();
+    const child = runningChild();
+    child.creationTime = '134062416010000000';
+    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    run.killed = false;
+    let result = null;
+    run.resolveResult = (value) => {
+      result = value;
+    };
+    exitChild(child, 0);
+    tree.state.next = () => processTable([{ pid: 4500, ppid: ROOT, token: '134062416005000000', name: 'soffice.bin' }]);
+    await createSettle(run, () => {})(0, null);
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.descendants, null);
+    assert.equal(isHeld(repo), false);
+  })
+);
+
 test(
   'descendants that cannot be verified keep the reservation',
   withTimers(async () => {
