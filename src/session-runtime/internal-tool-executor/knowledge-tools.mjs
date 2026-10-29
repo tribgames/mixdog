@@ -88,6 +88,14 @@ export function createKnowledgeToolHandlers({
       if (!codeGraphMod?.executeCodeGraphTool) throw new Error('code_graph runtime is not available');
       return await codeGraphMod.executeCodeGraphTool(name, args || {}, args?.cwd || callerCwd);
     },
+    explore: async (args, { callerCtx, callerCwd }) => {
+      const { runExplore } = await import('../../runtime/explore/tool.mjs');
+      return await runExplore(args || {}, {
+        cwd: callerCwd,
+        signal: signalFor(callerCtx),
+        callerSessionId: callerCtx?.callerSessionId || callerCtx?.sessionId || rt.session?.id || null,
+      });
+    },
     load_tool: toolSearch,
     Skill: (args) => skillToolContent(args?.name, activeToolSurface(), rt.mode),
   };

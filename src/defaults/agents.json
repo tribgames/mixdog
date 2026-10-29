@@ -1,6 +1,13 @@
 {
   "agents": [
     {
+      "agent": "explorer",
+      "slot": "explore",
+      "description": "One-off read-only explorer, one per query of the explore tool",
+      "invokedBy": "explore",
+      "maintKey": "explore"
+    },
+    {
       "agent": "cycle1-agent",
       "slot": "cycle1",
       "systemFile": "rules/agent/40-cycle1-agent.md",

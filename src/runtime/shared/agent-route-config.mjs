@@ -12,9 +12,16 @@ export const DEFAULT_DISABLED_AGENT_IDS = Object.freeze([
   'writer',
 ]);
 
+export const EXPLORE_AGENT_ID = 'explore';
+
 // The Maintainer also starts off: background upkeep spends model calls, so it
-// runs only once the user turns it on and picks its model.
-export const DEFAULT_DISABLED_AGENT_ROSTER = Object.freeze([...DEFAULT_DISABLED_AGENT_IDS, 'maintainer']);
+// runs only once the user turns it on and picks its model. Explore likewise:
+// its tool reaches the model only once the user picks its model.
+export const DEFAULT_DISABLED_AGENT_ROSTER = Object.freeze([
+  ...DEFAULT_DISABLED_AGENT_IDS,
+  'maintainer',
+  EXPLORE_AGENT_ID,
+]);
 
 /** The AGENT.md frontmatter `kind` the Workflows page writes when it creates
  *  an agent: a workflow delegation role, never a contact (봇). */
@@ -147,6 +154,14 @@ export function configuredAgentRouteCandidates(config, agentId) {
   if (bot !== undefined) return bot ? [bot] : [];
   const route = record(config?.agents)[id];
   return route ? [route] : [];
+}
+
+/** The explore tool runs only on Explore's own model (never Main) while it is on. */
+export function exploreRouteConfigured(config) {
+  return (
+    !isAgentDisabled(config, EXPLORE_AGENT_ID) &&
+    configuredAgentRouteCandidates(config, EXPLORE_AGENT_ID).some(isCompleteAgentRoute)
+  );
 }
 
 function canonicalizeAgentRoutes(config = {}) {

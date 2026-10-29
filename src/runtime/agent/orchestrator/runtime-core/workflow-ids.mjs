@@ -7,6 +7,7 @@ export const AGENT_DELETED_MARKER = '.deleted';
 export const FIXED_AGENT_SLOTS = Object.freeze([
   // Short one-liners on purpose: these render inside the 260px sidebar rail.
   { id: 'maintainer', label: 'Maintainer', description: 'Memory and upkeep', workflowSlot: 'memory' },
+  { id: 'explore', label: 'Explore', description: 'Codebase exploration', workflowSlot: 'explore' },
 ]);
 export const AGENT_ROLE_IDS = new Set(FIXED_AGENT_SLOTS.map((agent) => agent.id));
 // Slot-backed built-ins run through dedicated maintenance channels, so they are never

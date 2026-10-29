@@ -162,8 +162,8 @@ test('separation turns an old explicit workflow into an explicit mode, drops the
     let loaded = loadConfig({ secrets: false });
     assert.equal(read().agent.orchestrationMode, 'swarm');
     assert.equal(loaded.orchestrationMode, 'swarm');
-    // Every agent the old roster had on stays on; only advisor is newly off.
-    assert.deepEqual(loaded.disabledAgents, ['advisor']);
+    // Every agent the old roster had on stays on; only advisor and explore are newly off.
+    assert.deepEqual(loaded.disabledAgents, ['advisor', 'explore']);
 
     rmSync_(path);
     write({ agent: { workflow: { active: 'solo' } } });

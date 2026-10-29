@@ -3,6 +3,9 @@ import { normalizeContextTokens } from '../../../shared/llm/default-context-wind
 import { loadConfig } from '../config.mjs';
 import { getHiddenAgent } from '../internal-agents.mjs';
 
+// The settings agent whose route a hidden role runs on.
+const ROLE_BY_MAINT_KEY = Object.freeze({ memory: 'maintainer', explore: 'explore' });
+
 function normalizeMaintenanceCandidate(candidate) {
   if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) return candidate || null;
   const provider = String(candidate.provider || '').trim();
@@ -38,7 +41,7 @@ export function resolveMaintenanceRoute({ preset, optsPreset, agent, config: cfg
     try {
       const config = cfgIn || loadConfig({ secrets: false });
       const key = hidden.maintKey || hidden.slot;
-      const role = key === 'memory' ? 'maintainer' : '';
+      const role = ROLE_BY_MAINT_KEY[key] || '';
       if (!role) return config?.maintenance?.[key] ?? null;
       // A disabled agent must not silently fall back to the Main model:
       // "off" means the maintenance role does not run at all.

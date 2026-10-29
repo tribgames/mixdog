@@ -22,6 +22,7 @@ import { HEADLESS_MODEL_TOOL_NAMES, HEADLESS_TOOL_PROFILE, normalizeToolProfile 
 import { DEFERRED_DEFAULT_LEAD_TOOLS } from './tool-catalog-data.mjs';
 import { gitExecutablePresent } from '../../../shared/path-executable.mjs';
 import { onnxRuntimeSupported } from '../../../shared/onnx-runtime-support.mjs';
+import { exploreRouteConfigured } from '../../../shared/agent-route-config.mjs';
 import { setBuiltinInstalledInConfig, withGrandfatheredBuiltins } from '../../../shared/builtin-grandfathering.mjs';
 
 // Browser Use / Computer Use have no install marker: the desktop app publishes
@@ -158,6 +159,7 @@ export function featureDisallowedToolsFor(
     ...(builtinFeatureActive(configLike, 'media') ? [] : ['media']),
     ...(builtinFeatureActive(configLike, 'tidy') ? [] : ['tidy']),
     ...(builtinFeatureActive(configLike, 'visualize') ? [] : ['visualize']),
+    ...(exploreRouteConfigured(configLike) ? [] : ['explore']),
     // Bots' emoji reactions (Settings → General → Reactions); on unless turned off.
     ...(configLike?.reactions === false ? ['react'] : []),
   ];

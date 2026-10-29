@@ -117,8 +117,7 @@ export function _buildBaseRules({
     .join('\n\n---\n\n');
 }
 
-export function _buildAgentRules(profile = 'full') {
-  const key = String(profile || 'full');
+export function _buildAgentRules() {
   const PLUGIN_ROOT = mixdogRoot();
   const DATA_DIR = resolvePluginData();
   const RULES_DIR = join(PLUGIN_ROOT, 'rules');
@@ -126,8 +125,8 @@ export function _buildAgentRules(profile = 'full') {
     'buildAgentRoleContent',
     'agent role rules',
     [join(RULES_DIR, 'agent'), join(DATA_DIR, 'mixdog-config.json')],
-    { PLUGIN_ROOT, DATA_DIR, profile: key },
-    key
+    { PLUGIN_ROOT, DATA_DIR },
+    'full'
   );
 }
 

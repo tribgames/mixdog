@@ -121,9 +121,7 @@ export function sessionRolePromptFields(identity, { ownerIsAgent, toolFreeRole, 
   const mixy = (identity.agent || MIXY_AGENT_ID) === MIXY_AGENT_ID;
   let roleRules = '';
   if (!skipRules) {
-    roleRules = ownerIsAgent
-      ? _buildAgentRules(identity.agentRulesProfile)
-      : _buildLeadRules({ includeLeadBrief: !delegationFree });
+    roleRules = ownerIsAgent ? _buildAgentRules() : _buildLeadRules({ includeLeadBrief: !delegationFree });
   }
   let identityLine = '';
   if (agentMode) identityLine = agentModeIdentityLine(identity.agent || MIXY_AGENT_ID);
@@ -178,7 +176,6 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
     skipAgentRules: opts.skipAgentRules === true,
     profileSkip: { ...profile?.skip },
     agent: resolvedAgent,
-    agentRulesProfile: surface.agentRulesProfile,
   };
   const roleFields = sessionRolePromptFields(promptIdentity, {
     ownerIsAgent,

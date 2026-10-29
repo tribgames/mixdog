@@ -74,8 +74,6 @@ function schemaOmittedToolNames(toolsForRouting, tools) {
 export function resolveSessionToolSurface(opts, { profile, toolPreset, modelName }) {
   const ownerIsAgent = isAgentOwner(opts.owner);
   const resolvedAgent = opts.agent || opts.role || profile?.taskType || null;
-  const hiddenAgent = getHiddenAgent(resolvedAgent);
-  const isRetrievalAgent = hiddenAgent?.kind === 'retrieval';
   const hasCallerAllow = Array.isArray(opts.schemaAllowedTools);
   const schemaAllowedTools = honoredSchemaAllowlist(opts.schemaAllowedTools, { ownerIsAgent, agent: resolvedAgent });
   // Lead and Agent share the same cwd-scoped Skill inventory. A session that
@@ -112,7 +110,6 @@ export function resolveSessionToolSurface(opts, { profile, toolPreset, modelName
   return {
     ownerIsAgent,
     resolvedAgent,
-    agentRulesProfile: isRetrievalAgent ? 'retrieval' : 'full',
     skills,
     sessionDeny,
     toolPermission,

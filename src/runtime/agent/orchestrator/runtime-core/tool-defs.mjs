@@ -240,6 +240,7 @@ const OFFICE_RUNTIME_TOOLS = ['office'];
 const MEDIA_RUNTIME_TOOLS = ['media'];
 const TIDY_RUNTIME_TOOLS = ['tidy'];
 const VISUALIZE_RUNTIME_TOOLS = ['visualize'];
+const EXPLORE_RUNTIME_TOOLS = ['explore'];
 
 const admitted = (tools, names) => (tools || []).filter((tool) => names.includes(tool?.name));
 
@@ -262,6 +263,7 @@ export function collectStandaloneToolDefs({
   mediaToolDefs = [],
   tidyToolDefs = [],
   visualizeToolDefs = [],
+  exploreToolDefs = [],
   setupToolDefs = [],
   askUserToolDefs = [],
   handoffUserToolDefs = [],
@@ -285,6 +287,7 @@ export function collectStandaloneToolDefs({
     ...admitted(mediaToolDefs, MEDIA_RUNTIME_TOOLS),
     ...admitted(tidyToolDefs, TIDY_RUNTIME_TOOLS),
     ...admitted(visualizeToolDefs, VISUALIZE_RUNTIME_TOOLS),
+    ...admitted(exploreToolDefs, EXPLORE_RUNTIME_TOOLS),
     ...setupToolDefs,
     ...askUserToolDefs,
     ...handoffUserToolDefs,

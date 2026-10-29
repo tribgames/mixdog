@@ -127,6 +127,8 @@ function displayToolName(name, args = {}) {
     case 'web_fetch':
     case 'fetch':
       return 'Fetch';
+    case 'explore':
+      return 'Explore';
     case 'browser':
     case 'browser_devtools':
       return 'Browser';
@@ -263,6 +265,9 @@ export function summarizeToolArgs(name, args, { max = DEFAULT_SUMMARY_MAX } = {}
     case 'media':
     case 'tidy':
       return summarizeInterfaceToolArgs(normalized, a, args, max);
+    case 'explore':
+      if (Array.isArray(a.query)) return formatCountedUnit(collectionCount(a.query), 'query', 'queries');
+      return truncateToolText(a.query || '', Math.min(max, 80));
     case 'read_mcp_resource':
       return truncateToolText(a.uri || '', max);
     case 'list_mcp_resources':

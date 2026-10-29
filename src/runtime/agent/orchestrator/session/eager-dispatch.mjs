@@ -39,9 +39,10 @@ export function createEagerDispatcher({
     repeatFailLimit,
   });
   const barriers = createEagerBarriers({ cwd });
-  // A capped turn runs its calls in order, so none past its cap starts early
-  // (loop/turn-limits.mjs).
-  const capped = turnLimitsOf(opts) !== null;
+  // A turn capped by calls or time runs its calls in order, so none past its
+  // cap starts early (loop/turn-limits.mjs).
+  const limits = turnLimitsOf(opts);
+  const capped = limits !== null && (limits.maxToolCalls !== Infinity || limits.wrapUpAt !== Infinity);
   const execute = (call, entry) =>
     executeToolFn(call.name, call.arguments, cwd, sessionId, sessionRef, {
       toolCallId: call.id,

@@ -7,7 +7,7 @@ import { compareCodePoints } from '../../../shared/code-point-order.mjs';
 import { BOTS_DIR, MIXY_BOT_ID, botStoreActive, isStoreBot, mixyIdentityDir } from '../../../shared/agent-store.mjs';
 import { mixdogRoot } from '../../../shared/plugin-paths.mjs';
 import { readMarkdownDocument } from '../../../shared/markdown-frontmatter.mjs';
-import { listHiddenAgentsByKind, getAgentCatalogShareAgents } from '../internal-agents.mjs';
+import { listHiddenAgentsByKind } from '../internal-agents.mjs';
 import { mixdogGlobalDir, mtimeWithTtl, readSafe } from './skill-catalog.mjs';
 import { mixyDisplayName } from '../session/mixy-name.mjs';
 
@@ -15,14 +15,14 @@ import { mixyDisplayName } from '../session/mixy-name.mjs';
 // Emits a BP2 agent/system block scoped to the calling agent:
 //   - Public/custom agents: their own agents/<agent>.md when present,
 //     plus the public agent-worker contract.
-//   - Hidden agents: their own rules/agent/<agent>.md section only.
+//   - Hidden maintenance agents: their own rules/agent/<agent>.md section only.
 //   - Null agent: falls back to the full all-in-one block
 //     (explicit-cache unified-shard path).
 //
 // Agent-specific markdown intentionally rides BP2, behind the shared BP1 tool
 // and skill manifest prefix, so agent changes do not disturb the common layer.
 //
-// Classification is dynamic — hidden retrieval/maintenance sets come from the
+// Classification is dynamic — the hidden maintenance set comes from the
 // `kind` field in internal-agents.mjs. Any other non-null agent is public/custom.
 
 // One catalog/rules section; selectRoleInstructionSections matches sections
@@ -36,10 +36,7 @@ function loadAgentClassification() {
   // listHiddenAgentsByKind now reads from the mtime-aware cache inside
   // internal-agents.mjs so the classification always reflects the current
   // agents.json on disk.
-  return {
-    retrieval: new Set(listHiddenAgentsByKind('retrieval')),
-    maintenance: new Set(listHiddenAgentsByKind('maintenance')),
-  };
+  return { maintenance: new Set(listHiddenAgentsByKind('maintenance')) };
 }
 
 const _scopedRoleInstructionsCache = new Map();
@@ -167,26 +164,11 @@ function selfHiddenRuleSection(hiddenPairs, agent) {
   return self ? [roleSection(self.name, self.body)] : [];
 }
 
-function selectRoleInstructionSections({
-  useUnified,
-  agent,
-  classification,
-  agentSharesCatalog,
-  agentSections,
-  hiddenPairs,
-}) {
+function selectRoleInstructionSections({ useUnified, agent, classification, agentSections, hiddenPairs }) {
   if (useUnified || !agent) {
     return {
       agentRuleSectionsToEmit: hiddenRuleSections(hiddenPairs),
       agentSectionsToEmit: agentSections,
-    };
-  }
-  if (classification.retrieval.has(agent)) {
-    return {
-      agentRuleSectionsToEmit: selfHiddenRuleSection(hiddenPairs, agent),
-      agentSectionsToEmit: agentSections.filter((s) =>
-        [...agentSharesCatalog].some((name) => s.startsWith(`## ${name}\n`))
-      ),
     };
   }
   if (classification.maintenance.has(agent)) {
@@ -233,8 +215,6 @@ export function loadScopedRoleInstructions(agent, provider = null) {
   // failures (malformed/missing agents.json) must propagate, not be
   // silently swallowed by the file-IO catch below.
   const classification = loadAgentClassification();
-  const agentSharesCatalog =
-    agent && classification.retrieval.has(agent) ? new Set(getAgentCatalogShareAgents(agent)) : new Set();
   try {
     const agentSections = loadAgentSections(pluginRoot);
     const hiddenPairs = loadHiddenAgentSnippets(pluginRoot);
@@ -243,7 +223,6 @@ export function loadScopedRoleInstructions(agent, provider = null) {
       useUnified,
       agent,
       classification,
-      agentSharesCatalog,
       agentSections,
       hiddenPairs,
     });

@@ -7,6 +7,7 @@ import { ensureProviderEnabled } from '../../runtime/agent/orchestrator/runtime-
 import { resolveRouteContextState, selectionFastCapable } from '../route-state.mjs';
 import {
   canonicalizeAgentRouteStorage,
+  EXPLORE_AGENT_ID,
   isAgentDisabled,
   withAgentDisabled,
 } from '../../runtime/shared/agent-route-config.mjs';
@@ -226,5 +227,13 @@ export function createAgentRouteApi(deps) {
     return stayOff ? { ...routeToSave, id, disabled: true } : routeToSave;
   }
 
-  return { setAgentRoute };
+  // Explore's route decides whether the explore tool exists, so the empty
+  // session rebuilds its tool surface on any change of it.
+  async function setAgentRouteAndRefresh(agentId, next) {
+    const saved = await setAgentRoute(agentId, next);
+    if (agentEditorId(agentId) === EXPLORE_AGENT_ID) await deps.refreshEmptySessionToolPolicy?.();
+    return saved;
+  }
+
+  return { setAgentRoute: setAgentRouteAndRefresh };
 }

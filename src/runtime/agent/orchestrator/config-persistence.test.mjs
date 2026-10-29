@@ -147,7 +147,7 @@ test('sync and async config writes preserve user fields without persisting secre
       assert.deepEqual(persisted.profile, config.profile);
       // Only the delta against the default roster is stored.
       assert.equal(Object.hasOwn(persisted, 'disabledAgents'), false);
-      assert.deepEqual(persisted.enabledAgents, ['advisor', 'front-worker', 'heavy-worker', 'maintainer', 'security', 'worker', 'writer']);
+      assert.deepEqual(persisted.enabledAgents, ['advisor', 'explore', 'front-worker', 'heavy-worker', 'maintainer', 'security', 'worker', 'writer']);
       for (const field of ['skills', 'autoClear', 'compaction', 'shell', 'modules']) {
         assert.deepEqual(persisted[field], config[field]);
       }

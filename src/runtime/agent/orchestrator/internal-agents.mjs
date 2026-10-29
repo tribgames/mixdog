@@ -20,9 +20,10 @@
  * found" error rather than silently mis-dispatching.
  *
  * Kind classification:
- *   - 'retrieval'   : short-lived hidden retrieval agents.
  *   - 'maintenance' : background-trigger hidden agents (memory cycle and
  *                     title generation). Receive only their own self section.
+ *   An entry without a kind only names a route (the explore tool's
+ *   `explorer`, which runs no session).
  *
  * Permission classification:
  *   - 'read'       : read-only — apply_patch/shell blocked at loop.mjs runtime
@@ -185,7 +186,7 @@ export function listHiddenAgentNames() {
 }
 
 /**
- * List hidden agent names matching a given kind ('retrieval' | 'maintenance').
+ * List hidden agent names matching a given kind ('maintenance').
  * Consumed by collect.mjs to drive BP2 agent classification dynamically
  * instead of hard-coding agent-name sets.
  */
@@ -195,16 +196,4 @@ export function listHiddenAgentsByKind(kind) {
     if (def.kind === kind) out.push(name);
   }
   return out;
-}
-
-/**
- * Return the agents/<name>.md sections a hidden agent shares in its BP2 catalog
- * (in addition to its own self section). Drives hidden-role cache
- * alignment declaratively instead of a hard-coded agent-name branch in
- * collect.mjs. Returns [] when the agent declares none.
- */
-export function getAgentCatalogShareAgents(name) {
-  const hidden = getHiddenAgent(name);
-  if (!hidden || !Array.isArray(hidden.catalogShareAgents)) return [];
-  return hidden.catalogShareAgents.map((n) => String(n || '').trim()).filter(Boolean);
 }

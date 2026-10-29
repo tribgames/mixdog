@@ -48,7 +48,7 @@ function fixture(t, agentIds = ['worker', 'reviewer']) {
 
 test('fresh installs ship every starter Agent disabled with a complete definition', () => {
   const defaults = buildDefaultConfig({ detectCredentials: false });
-  assert.deepEqual(disabledAgentIds(defaults), [...DEFAULT_DISABLED_AGENT_IDS, 'maintainer'].sort());
+  assert.deepEqual(disabledAgentIds(defaults), [...DEFAULT_DISABLED_AGENT_IDS, 'explore', 'maintainer'].sort());
 
   const agentsRoot = join(process.cwd(), 'src', 'agents');
   for (const id of DEFAULT_DISABLED_AGENT_IDS) {

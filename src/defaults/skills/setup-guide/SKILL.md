@@ -106,6 +106,8 @@ done. Take the first open step, explain it in a sentence or two, ask, then act.
    provider. Give the reason in one line: a different model family catches what
    the main one misses. Suggest turning on the Maintainer with
    a cheap model at the lowest effort; it also decides turns in group rooms.
+   Offer Explore the same way, from its own picks: a cheap model that
+   searches code for the Lead in separate parallel sessions.
    A pick may carry `plans`: when the Lead provider's plan (`plan` in
    `status providers`) is listed there, recommend that model instead. A null or
    unlisted plan keeps the pick as is; never fail on an unknown plan.
@@ -152,8 +154,9 @@ step; do not insist.
   does part of a task. Users add their own on the Workflows page with the
   "에이전트 +" button. Bots are people-facing; agents work behind a task.
 - Default agents (기본 에이전트): built-in helpers listed on Workflows, such as
-  Web Search (runs the web search tool) and the Maintainer (memory upkeep and
-  session titles). They need a model route to work.
+  Web Search (runs the web search tool), the Maintainer (memory upkeep and
+  session titles) and Explore (code search for the Lead). They need a model
+  route to work.
 - Agent mode (에이전트 모드): a coding work session run by Lead and agents.
   A session a bot starts for a job is an agent task session (에이전트 작업
   세션); others are just sessions (세션).

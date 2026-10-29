@@ -1,12 +1,14 @@
 /**
  * turn-limits.mjs — a turn's caps (sendOpts.turnLimits; a heartbeat turn's,
- * manager/ask-turn-loop-options.mjs): `maxToolCalls` tool calls and
- * `wrapUpAt` (epoch ms). A call past the cap, or one made after the wrap-up
- * time, is answered without running. Once a cap is reached the model is told
- * to reply, and every later request of the turn forbids tool use
- * (toolChoice 'none'). A response that still calls tools after that ends the
- * turn with no reply, its calls answered unrun. A capped turn runs no call
- * eagerly (eager-dispatch.mjs), so none past the cap starts while streaming.
+ * manager/ask-turn-loop-options.mjs): `maxToolCalls` tool calls,
+ * `wrapUpAt` (epoch ms) and `maxToolRounds` tool-calling responses (an
+ * explorer's, runtime/explore/explorer.mjs). A call past the cap, or one made
+ * after the wrap-up time, is answered without running. Once a cap is reached
+ * the model is told to reply, and every later request of the turn forbids
+ * tool use (toolChoice 'none'). A response that still calls tools after that
+ * ends the turn with no reply, its calls answered unrun. A turn capped by
+ * calls or time runs no call eagerly (eager-dispatch.mjs), so none past the
+ * cap starts while streaming; a round cap cuts only between rounds.
  */
 
 const NOTICE =
@@ -21,6 +23,8 @@ export function turnLimitsOf(opts) {
   return {
     maxToolCalls: Number.isInteger(limits.maxToolCalls) && limits.maxToolCalls >= 0 ? limits.maxToolCalls : Infinity,
     wrapUpAt: Number.isFinite(limits.wrapUpAt) ? limits.wrapUpAt : Infinity,
+    maxToolRounds:
+      Number.isInteger(limits.maxToolRounds) && limits.maxToolRounds >= 0 ? limits.maxToolRounds : Infinity,
   };
 }
 
@@ -49,7 +53,8 @@ export function settleTurnLimits(state, overrun, now = Date.now()) {
   }
   const limits = turnLimitsOf(state.opts);
   if (!limits || state.turnLimitNoticed) return;
-  if (state.toolCallsTotal < limits.maxToolCalls && now < limits.wrapUpAt) return;
+  if (state.toolCallsTotal < limits.maxToolCalls && now < limits.wrapUpAt && state.iterations < limits.maxToolRounds)
+    return;
   state.turnLimitNoticed = true;
   state.messages.push({ role: 'user', content: NOTICE, meta: { source: 'turn-limit' } });
 }

@@ -91,6 +91,11 @@ const ALL_BUILTIN_SESSION_TOOLS = orderSessionTools(
   _dedupByName([...BUILTIN_TOOLS, ...PATCH_TOOL_DEFS, ...CODE_GRAPH_TOOL_DEFS])
 );
 
+/** The read-only filesystem tools (`tools:readonly`), in session route order. */
+export function readOnlyFilesystemTools() {
+  return ALL_BUILTIN_SESSION_TOOLS.filter((t) => READONLY_FS_TOOL_NAMES.has(t.name));
+}
+
 export function resolveSessionTools(
   toolSpec,
   skills,
@@ -154,7 +159,7 @@ function _computeBaseTools(toolSpec, mcp, skillTools) {
           addMany(ALL_BUILTIN_SESSION_TOOLS.filter((t) => FILESYSTEM_TOOL_NAMES.has(t.name)));
           break;
         case 'tools:readonly':
-          addMany(ALL_BUILTIN_SESSION_TOOLS.filter((t) => READONLY_FS_TOOL_NAMES.has(t.name)));
+          addMany(readOnlyFilesystemTools());
           break;
         case 'tools:shell':
         case 'tools:analysis':
@@ -186,8 +191,7 @@ function _computeBaseTools(toolSpec, mcp, skillTools) {
     case 'mcp':
       return orderSessionTools(_dedupByName([...mcp, ...skillTools]));
     case 'readonly': {
-      const readTools = ALL_BUILTIN_SESSION_TOOLS.filter((t) => READONLY_FS_TOOL_NAMES.has(t.name));
-      return orderSessionTools(_dedupByName([...readTools, ...mcp, ...skillTools]));
+      return orderSessionTools(_dedupByName([...readOnlyFilesystemTools(), ...mcp, ...skillTools]));
     }
     // 'full' and any unknown spec.
     default:

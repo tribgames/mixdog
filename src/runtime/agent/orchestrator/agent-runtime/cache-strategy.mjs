@@ -564,6 +564,19 @@ function oneShotPromptCacheOpts(agent) {
 }
 
 /**
+ * Cache send options for a session-less loop whose system prompt and tool
+ * schemas are the same bytes on every call (the explore tool's explorers):
+ * keyed on that prefix, never per call, on the default 5m tier. The parallel
+ * explorers of a fan-out and the next calls minutes later are its only
+ * readers, so the Lead's 1h / 12h tiers would only raise the write price.
+ */
+export function sharedPrefixProviderCacheOpts(provider) {
+  const shared = { promptCacheScope: 'shared' };
+  if (cacheCapabilityForProvider(provider) !== 'explicit-breakpoint') return shared;
+  return { ...shared, cacheStrategy: { tools: 'none', system: '5m', tier3: 'none', messages: '5m' } };
+}
+
+/**
  * Cache send options for a role's requests on `provider`: the breakpoint
  * strategy on explicit-breakpoint providers, the Lead-class 12h prefix TTL on
  * the OpenAI public API, plus the one-shot shared scope. Session and

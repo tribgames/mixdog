@@ -259,6 +259,7 @@ test('every bundled skill declares its mandatory existing tools without eagerly 
     'browser-use': ['browser', 'handoff_user'],
     'computer-use': ['computer', 'handoff_user'],
     'code-tidy': ['tidy'],
+    'test-suite': ['read', 'shell'],
     docx: ['office'],
     pdf: ['office'],
     pptx: ['office'],

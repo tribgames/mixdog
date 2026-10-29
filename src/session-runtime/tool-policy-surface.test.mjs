@@ -213,10 +213,6 @@ test('agent common policy keeps the Lead brief subordinate to safety and approva
     /not\s+exceptions to tool, safety, approval or verification rules\. Lead owns user\s+approval\./i
   );
   assert.doesNotMatch(rules, /overrides\s+any internal rule/i);
-  // The retrieval profile shares the same contract plus its read-only line.
-  const retrieval = buildAgentRoleContent({ PLUGIN_ROOT: join(process.cwd(), 'src'), profile: 'retrieval' });
-  assert.match(retrieval, /^# Agent$/m);
-  assert.match(retrieval, /Read-only retrieval role/);
 });
 
 test('apply_patch rejects an empty patch at the schema', () => {

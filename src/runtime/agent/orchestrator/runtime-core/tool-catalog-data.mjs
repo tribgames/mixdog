@@ -1,6 +1,7 @@
 // Canonical route order — the single surface order wherever tools serialize:
 // locator → path → content → symbol → read → edit → execute.
 export const ROUTE_TOOL_ORDER = Object.freeze([
+  'explore',
   'find',
   'glob',
   'list',
@@ -58,6 +59,8 @@ export const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
   'load_tool',
 ]);
 export const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
+  // Present only once Explore has a model (builtin-features.mjs).
+  'explore',
   'find',
   'glob',
   'list',
