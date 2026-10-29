@@ -235,6 +235,27 @@ test('Codex history_base: a missing base keeps the partial warning and imports w
   assert.deepEqual(texts(conversation), ['own question', 'own answer']);
 });
 
+test('Codex history_base: a compressed rollout with a missing base is listed with title, count and the reason', async () => {
+  const { home, env } = freshEnv();
+  writeRollout(
+    env,
+    id(30),
+    id(31),
+    [
+      meta(id(30), home, { history_base: { thread_id: id(98), end_ordinal_exclusive: 3, end_byte_offset: 50 } }),
+      msg('user', 'own question'),
+      msg('assistant', 'own answer'),
+    ],
+    { ext: 'jsonl.zst' }
+  );
+  const rows = await listAll('codex', env);
+  assert.equal(rows.length, 1);
+  assert.deepEqual(
+    [rows[0].title, rows[0].messageCount, rows[0].warnings.includes('historyUnavailable')],
+    ['own question', 2, true]
+  );
+});
+
 // ── compressed (zstd) rollouts ───────────────────────────────────────────────
 const comparable = ({ bytesRead, ...conversation }) => conversation;
 

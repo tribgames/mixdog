@@ -407,6 +407,10 @@ async function readTailLines(handle, size) {
   return (size > length ? text.slice(text.indexOf('\n') + 1) : text).split('\n');
 }
 
+// Whether the rollout a listed file continues is absent (a stat-only search): its own records are then all there is to name and count.
+const baseIsMissing = async (candidate, meta) =>
+  !!meta.historyBaseId && !(await findRolloutById(dirname(candidate.root ?? sourceRoot('codex')), meta.historyBaseId));
+
 async function readPrefixMeta(candidate) {
   const converter = createConversationConverter(candidate.source);
   const handle = await openCandidate(candidate);
@@ -441,12 +445,14 @@ async function readPrefixMeta(candidate) {
   }
   const conversion = converter.result();
   // A thread continuing a history base is only counted, named and judged empty once the base is followed (on import).
-  const listing = (meta) =>
-    conversion.historyBase
+  const listing = async (meta) =>
+    conversion.historyBase && !(await baseIsMissing(candidate, meta))
       ? { ...meta, title: null, messageCount: null, errorCode: meta.errorCode === 'empty' ? null : meta.errorCode }
-      : meta;
+      : conversion.historyBase
+        ? { ...meta, warnings: [...meta.warnings, IMPORT_WARNING_HISTORY_UNAVAILABLE] }
+        : meta;
   if (read.eof) return listing(metaFromConversion(conversion, true));
-  const meta = listing(metaFromConversion(conversion, false));
+  const meta = await listing(metaFromConversion(conversion, false));
   if (candidate.source === 'codex' && (!meta.foreignSessionId || !meta.cwd) && read.firstPartial) {
     // A session_meta line longer than the prefix still names its id/cwd.
     const fromLine = codexMetaFromTruncatedLine(read.firstPartial.replace(/^\uFEFF/, ''));
