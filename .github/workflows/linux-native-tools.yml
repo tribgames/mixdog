@@ -3,7 +3,10 @@
 # runner. (The packaged Linux app's overall floor is glibc 2.31, set by the
 # runtime built on ubuntu:20.04.) Called by the release workflow (once per
 # run) and by standalone linux-desktop-verify runs; the artifact name is
-# unique per run, so never call this twice in one run. Consumers download the native-tools-glibc228-<arch> artifact and point
+# unique per run, so never call this twice in one run with upload_artifact
+# left on. Deploy also calls it with upload_artifact: false right after a
+# native version bump, only to warm the per-tool caches the release's own call
+# then hits. Consumers download the native-tools-glibc228-<arch> artifact and point
 # MIXDOG_NATIVE_TOOLS_OVERRIDE_DIR / MIXDOG_COMPUTER_NATIVE_BIN at it.
 name: linux-native-tools
 
@@ -15,6 +18,11 @@ on:
         required: false
         type: string
         default: ""
+      upload_artifact:
+        description: "Upload native-tools-glibc228-<arch>; false only warms the tool caches (the name is unique per run, so a second upload in one run would fail)"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -87,6 +95,7 @@ jobs:
             test -f "native-out/mixdog-$tool"
           done
       - uses: actions/upload-artifact@v5
+        if: inputs.upload_artifact
         with:
           name: native-tools-glibc228-${{ matrix.arch }}
           path: native-out/

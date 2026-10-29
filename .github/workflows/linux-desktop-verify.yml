@@ -296,7 +296,11 @@ jobs:
             sleep $((attempt * 15))
           done
           exit 1
+      # fpm compresses the .deb payload with `tar -J` (XZ_OPT=-3), one thread
+      # by default; xz reads XZ_DEFAULTS before XZ_OPT, so -T0 uses every core.
       - name: Build Linux package
+        env:
+          XZ_DEFAULTS: -T0
         run: npm run build:linux -- --${{ matrix.arch }} --publish never
         working-directory: apps/desktop
       - name: Package size
@@ -508,6 +512,8 @@ jobs:
           exit 1
       - name: Build N+1 Linux package (patch version bumped)
         working-directory: apps/desktop
+        env:
+          XZ_DEFAULTS: -T0 # multi-threaded .deb compression, as in "Build Linux package"
         run: |
           next=$(node -p "const [a,b,c]=require('./package.json').version.split('.');[a,b,Number(c)+1].join('.')")
           echo "N+1 version: $next"
@@ -621,8 +627,12 @@ jobs:
     if: ${{ !cancelled() && needs.plan.result == 'success' && needs.plan.outputs.full == 'true' && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') && needs.verify.result == 'success' }}
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 30
+    # The smokes are short and off the release's critical path; three at a
+    # time keeps the run under the plan's 20 concurrent jobs while the macOS
+    # packages are still building.
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
         include:
           - { id: debian12, family: debian, image: "debian:12", runner: ubuntu-24.04, arch: x64, node: x64 }

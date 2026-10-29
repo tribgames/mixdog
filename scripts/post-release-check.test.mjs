@@ -12,6 +12,7 @@ import {
   checkRelayApp,
   detectPublished,
   getReleaseByTag,
+  runSections,
   waitForNpm,
 } from './post-release-check.mjs';
 
@@ -97,6 +98,63 @@ test('latest-mac.yml fails on version, missing zip, unknown file, size and sha51
   assert.deepEqual(badHash, ['latest-mac.yml: mixdog-desktop-mac-arm64.zip sha512 does not match the uploaded asset']);
   const badTop = await checkMac(macFeed({ top: 'mixdog-desktop-mac-x64.exe' }));
   assert.deepEqual(badTop, ['latest-mac.yml: path mixdog-desktop-mac-x64.exe is not listed in files[]']);
+});
+
+test('a feed downloads every listed asset at once', async () => {
+  let inFlight = 0;
+  let peak = 0;
+  const slowHash = async (a) => {
+    inFlight++;
+    peak = Math.max(peak, inFlight);
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    inFlight--;
+    return sha(a.name);
+  };
+  assert.deepEqual(await checkMac(macFeed(), { hashAsset: slowHash }), []);
+  assert.equal(peak, 4);
+});
+
+test('sections run concurrently, keep their order, and report a thrown section', async () => {
+  const started = [];
+  const gate = Promise.withResolvers();
+  // Sequential sections would leave the gate closed until the timeout.
+  const results = runSections([
+    [
+      'slow',
+      async () => {
+        started.push('slow');
+        let timer;
+        const opened = await Promise.race([
+          gate.promise.then(() => true),
+          new Promise((resolve) => {
+            timer = setTimeout(resolve, 2000, false);
+          }),
+        ]);
+        clearTimeout(timer);
+        return [opened ? 'late' : 'gate never opened'];
+      },
+    ],
+    [
+      'fast',
+      async () => {
+        started.push('fast');
+        gate.resolve();
+        return { problems: [], warnings: ['w'] };
+      },
+    ],
+    [
+      'broken',
+      () => {
+        throw new Error('boom');
+      },
+    ],
+  ]);
+  assert.deepEqual(await results, [
+    { name: 'slow', problems: ['late'], warnings: [] },
+    { name: 'fast', problems: [], warnings: ['w'] },
+    { name: 'broken', problems: ['check failed: boom'], warnings: [] },
+  ]);
+  assert.deepEqual(started, ['slow', 'fast'], 'the second section starts while the first still waits');
 });
 
 test('an unparseable feed is reported, not thrown', async () => {

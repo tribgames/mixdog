@@ -87,9 +87,12 @@ export async function checkFeed({ text, label, version, assets, hashAsset, requi
   for (const name of requiredFiles) {
     if (!byUrl.has(name)) problems.push(`${label}: files[] does not list ${name}`);
   }
+  // Every listed asset downloads at once; the problems keep files[] order.
+  const fileAssets = feed.files.map((file) => assets.find((candidate) => candidate.name === file.url));
+  const digests = await Promise.all(fileAssets.map((asset) => (asset ? hashAsset(asset) : null)));
   const hashes = new Map();
-  for (const file of feed.files) {
-    const asset = assets.find((candidate) => candidate.name === file.url);
+  for (const [index, file] of feed.files.entries()) {
+    const asset = fileAssets[index];
     if (!asset) {
       problems.push(`${label}: ${file.url} is not an uploaded asset`);
       continue;
@@ -99,7 +102,7 @@ export async function checkFeed({ text, label, version, assets, hashAsset, requi
       problems.push(`${label}: ${file.url} size ${size} != uploaded ${asset.size}`);
     }
     const sha512 = field(file, 'sha512');
-    const actual = await hashAsset(asset);
+    const actual = digests[index];
     hashes.set(file.url, actual);
     if (sha512 !== actual) problems.push(`${label}: ${file.url} sha512 does not match the uploaded asset`);
   }
@@ -233,6 +236,25 @@ export async function detectPublished({ fetchRelease, sleep = defaultSleep, atte
   }
 }
 
+/**
+ * Run independent `[name, run]` sections concurrently. Results keep the
+ * section order; a thrown section becomes a "check failed" problem.
+ */
+export function runSections(sections) {
+  return Promise.all(
+    sections.map(async ([name, run]) => {
+      try {
+        const outcome = await run();
+        return Array.isArray(outcome)
+          ? { name, problems: outcome, warnings: [] }
+          : { name, problems: outcome.problems, warnings: outcome.warnings };
+      } catch (error) {
+        return { name, problems: [`check failed: ${error.message}`], warnings: [] };
+      }
+    })
+  );
+}
+
 async function sha512Base64(url) {
   const response = await fetch(url, { redirect: 'follow' });
   if (!response.ok) throw new Error(`download ${url} answered ${response.status}`);
@@ -290,19 +312,7 @@ async function main() {
     ],
     ['npm', () => waitForNpm({ name: 'mixdog', version })],
   ];
-  const results = [];
-  for (const [name, run] of sections) {
-    try {
-      const outcome = await run();
-      results.push(
-        Array.isArray(outcome)
-          ? { name, problems: outcome, warnings: [] }
-          : { name, problems: outcome.problems, warnings: outcome.warnings }
-      );
-    } catch (error) {
-      results.push({ name, problems: [`check failed: ${error.message}`], warnings: [] });
-    }
-  }
+  const results = await runSections(sections);
 
   const lines = [`## Post-release check for ${tag}`, ''];
   for (const { name, problems, warnings } of results) {

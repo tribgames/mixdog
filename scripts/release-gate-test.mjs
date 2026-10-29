@@ -418,6 +418,39 @@ test('Deploy is the one-click release entry with incremental native workers', as
     /const unreleasedPattern = \/\^## Unreleased[\s\S]*else if \(unreleasedBody\)[\s\S]*const escaped = versionHeading\.replace[\s\S]*text\.replace\(new RegExp\(`\^\$\{escaped\}\[\^\\\\n\]\*\$`, 'm'\), \(heading\) => `\$\{heading\}\\n\\n\$\{unreleasedBody\}`\)/,
     "an unpublished same-version recovery must fold its notes under that release's dated heading"
   );
+  const { jobs } = parseYaml(deploy);
+  // A native version bump changes the old-glibc tools' cache keys, so Deploy
+  // warms them from the bumped commit without uploading (the release run's own
+  // call uploads the per-run artifact), and nothing waits on the warm-up.
+  const warm = jobs['linux-native-tools-warm'];
+  assert.equal(warm.uses, './.github/workflows/linux-native-tools.yml');
+  assert.deepEqual(warm.needs, ['plan', 'prepare-native']);
+  assert.equal(warm.if, "${{ needs.plan.outputs.native_changed == 'true' }}");
+  assert.deepEqual(warm.with, { ref: '${{ needs.prepare-native.outputs.sha }}', upload_artifact: false });
+  assert.equal(jobs['prepare-native'].outputs.sha, '${{ steps.bump.outputs.sha }}');
+  assert.match(
+    jobs['prepare-native'].steps.find((step) => step.id === 'bump').run,
+    /create_tag "\$SPAWN_BUILD" "\$SPAWN_TAG"\s*\n\s*echo "sha=\$\(git rev-parse HEAD\)" >> "\$GITHUB_OUTPUT"\s*$/
+  );
+  for (const [name, job] of Object.entries(jobs)) {
+    assert.ok(![job.needs ?? []].flat().includes('linux-native-tools-warm'), `${name} must not wait on the warm-up`);
+  }
+  const nativeTools = parseYaml(await workflow('linux-native-tools.yml'));
+  assert.equal(nativeTools.on.workflow_call.inputs.upload_artifact.default, true);
+  assert.equal(
+    nativeTools.jobs.build.steps.find((step) => String(step.uses).startsWith('actions/upload-artifact@')).if,
+    'inputs.upload_artifact'
+  );
+  // The timing report runs beside post-release-check, after the release call.
+  const timings = jobs['release-timings'];
+  assert.deepEqual(timings.needs, ['prepare-app', 'release']);
+  assert.match(timings.if, /always\(\) && needs\.release\.result != 'skipped'/);
+  assert.deepEqual(timings.permissions, { actions: 'read', contents: 'read' });
+  assert.ok(!jobs['post-release-check'].needs.includes('release-timings'));
+  const record = timings.steps.find((step) => step.name === 'Record timing and warn on material regressions');
+  assert.equal(record['continue-on-error'], true);
+  assert.match(record.run, /node scripts\/release-timing-report\.mjs/);
+  assert.equal(jobs.release.permissions.actions, 'read');
   for (const bump of ['patch', 'minor', 'major']) {
     assert.equal(
       packageJson.scripts[`release:${bump}`],
@@ -683,6 +716,19 @@ test('Linux native tools build per-tool caches and compile the missing tools con
   assert.match(script, /for pid in "\$\{pids\[@\]\}"; do\s*wait "\$pid" \|\| status=1/);
 });
 
+test('Linux .deb packaging compresses with every core', async () => {
+  const verify = parseYaml(await workflow('linux-desktop-verify.yml'));
+  const allSteps = Object.values(verify.jobs).flatMap((job) => job.steps ?? []);
+  for (const name of ['Build Linux package', 'Build N+1 Linux package (patch version bumped)']) {
+    const step = allSteps.find((candidate) => candidate.name === name);
+    assert.ok(step, name);
+    assert.equal(step.env?.XZ_DEFAULTS, '-T0', name);
+  }
+  const desktopPackage = parseYaml(await workflow('desktop-package.yml'));
+  const unix = desktopPackage.jobs.package.steps.find((step) => step.name === 'Build Unix desktop package');
+  assert.equal(unix.env.XZ_DEFAULTS, "${{ inputs.platform == 'linux' && '-T0' || '' }}");
+});
+
 test('the weekly suite-health sweep runs the opt-out catalog and reports failures', async () => {
   const sweep = await workflow('suite-health.yml');
   assert.match(sweep, /schedule:[\s\S]*cron:/, 'the sweep must run on a schedule');
@@ -830,14 +876,19 @@ function assertReleaseWorkflowContract(release) {
       release.indexOf('name: Verify complete hidden release'),
     'the merged macOS feed must be on the draft before the asset set is verified'
   );
+  // The packagers start without waiting for build-desktop-once; each waits for
+  // the desktop-out artifact inside desktop-package.yml (actions: read), and
+  // publish needs the build directly so a failed build always blocks it.
   for (const packageJob of ['windows', 'darwin-arm64', 'darwin-x64', 'linux-x64', 'linux-arm64']) {
     assert.match(
       release,
       new RegExp(
-        `desktop-${packageJob}:[\\s\\S]*?needs:\\s*\\[desktop-build, prepare-github-release(?:, linux-native-tools)?\\][\\s\\S]*?uses:\\s*\\.\\/\\.github\\/workflows\\/desktop-package\\.yml`
-      )
+        `desktop-${packageJob}:\\s*needs:\\s*\\[prepare-github-release(?:, linux-native-tools)?\\]\\s*uses:\\s*\\.\\/\\.github\\/workflows\\/desktop-package\\.yml\\s*permissions:\\s*contents:\\s*write\\s*actions:\\s*read\\s`
+      ),
+      packageJob
     );
   }
+  assert.match(release, /publish:[\s\S]*?needs:\s*\[[^\]]*\bdesktop-build\b[^\]]*\]/);
   // Linux ships native tools built in manylinux_2_28 and is gated on the full
   // Linux verification of the exact release commit.
   for (const packageJob of ['linux-x64', 'linux-arm64']) {
@@ -904,8 +955,8 @@ function assertReleaseWorkflowContract(release) {
   assert.match(release, /vars\.RELAY_DOMAIN/);
   assert.match(release, /DESKTOP_VERSION="\$\{RELEASE_TAG#v\}"/);
   assert.match(release, /deploy-release\.sh' '\$RELAY_DOMAIN' '\$RELEASE_TAG' '\$DESKTOP_VERSION'/);
-  assert.match(release, /release-timings:[\s\S]*Record timing and warn on material regressions/);
-  assert.match(release, /release-timing-report\.mjs/);
+  // The timing report runs in deploy.yml beside post-release-check.
+  assert.doesNotMatch(release, /release-timings:|release-timing-report\.mjs/);
 }
 
 // The per-platform packaging workflow: what it restores, what it saves before
@@ -925,6 +976,20 @@ function assertDesktopRuntimeCacheContract(desktopPackage) {
     desktopPackage,
     /name:\s*Download common desktop output[\s\S]*actions\/download-artifact@[0-9a-f]{40} # v8/
   );
+  // The download waits for this run's desktop-out artifact and fails at once
+  // when build-desktop-once failed, since the job no longer needs it.
+  assert.match(desktopPackage, /actions:\s*read/);
+  assert.ok(
+    desktopPackage.indexOf('name: Wait for the common desktop output') > 0 &&
+      desktopPackage.indexOf('name: Wait for the common desktop output') <
+        desktopPackage.indexOf('name: Download common desktop output'),
+    'the desktop-out download must follow the wait for the artifact'
+  );
+  const wait = desktopPackage.match(/name: Wait for the common desktop output[\s\S]*?(?=\n\s*- name:)/)?.[0] || '';
+  assert.match(wait, /actions\/runs\/\$\{GITHUB_RUN_ID\}\/artifacts\?name=desktop-out/);
+  assert.match(wait, /actions\/runs\/\$\{GITHUB_RUN_ID\}\/jobs/);
+  assert.match(wait, /endswith\(" \/ build-desktop-once"\)/);
+  assert.match(wait, /completed\*\)\s*echo "::error title=Desktop build failed::[^\n]*\n\s*exit 1/);
   assert.doesNotMatch(desktopPackage, /Download prepared platform runtime|desktop-runtime-\$\{\{ inputs\.platform/);
   assert.match(desktopPackage, /name:\s*Restore Electron downloads[\s\S]*ELECTRON_BUILDER_CACHE/);
   assert.match(desktopPackage, /name:\s*Resolve package and runtime cache keys/);
@@ -1039,8 +1104,24 @@ function assertSecureDesktopCacheContract(desktopPackage) {
 
 // The dependency caches and the steps the workflow no longer has.
 function assertDesktopDependencyCacheContract(desktopPackage) {
-  assert.match(desktopPackage, /name:\s*Restore stable desktop npm downloads/);
+  // darwin-x64 skips the npm download cache: its restore and save cost more
+  // than the install gains there.
+  assert.match(
+    desktopPackage,
+    /name:\s*Restore stable desktop npm downloads\s*\n\s*if: inputs\.platform != 'darwin' \|\| inputs\.arch != 'x64'\s*\n/
+  );
   assert.match(desktopPackage, /dependency-lock-cache-key\.mjs/);
+  // The Computer Use backend cache is restored first; Rust installs only when
+  // it misses (prepare-runtime calls no cargo on a marker match).
+  assert.ok(
+    desktopPackage.indexOf('name: Restore built Computer Use backend') <
+      desktopPackage.indexOf('name: Install Rust for the Computer Use backend'),
+    'the backend cache must be restored before the toolchain install'
+  );
+  assert.match(
+    desktopPackage,
+    /name:\s*Install Rust for the Computer Use backend\s*\n\s*if: >-\s*\n\s*inputs\.platform == 'darwin'\s*\n\s*&& steps\.prepared-runtime\.outputs\.cache-hit != 'true'\s*\n\s*&& steps\.computer-native\.outputs\.cache-hit != 'true'\s*\n/
+  );
   assert.match(
     desktopPackage,
     /runtime-dependency-cache-key\.mjs[\s\S]*--platform=\$\{\{ inputs\.platform \}\} --arch=\$\{\{ inputs\.arch \}\}/

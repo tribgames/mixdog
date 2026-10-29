@@ -272,6 +272,10 @@ jobs:
   # main/preload/renderer output is platform-neutral. Build it once, cache it
   # by the exact desktop/shared source inputs, then feed the same verified
   # artifact to every native packager instead of running Vite four times.
+  # The packagers do not `need` this job: they prepare their platform runtime
+  # meanwhile and wait for the desktop-out artifact only where they consume it
+  # (desktop-package.yml "Wait for the common desktop output", which fails at
+  # once when this job fails). publish and stage-relay still need it directly.
   desktop-build:
     name: build-desktop-once
     runs-on: ubuntu-22.04
@@ -397,11 +401,14 @@ jobs:
   # Desktop update feed. electron-updater reads latest.yml from the LATEST
   # GitHub release, so a tag without these assets leaves every installed app
   # stranded on its current version ("no update available" forever).
+  # actions: read lets each packager poll this run for the desktop-out
+  # artifact and the build-desktop-once result.
   desktop-windows:
-    needs: [desktop-build, prepare-github-release]
+    needs: [prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
+      actions: read
     with:
       ref: ${{ inputs.ref || github.ref }}
       tag: ${{ inputs.tag || github.ref_name }}
@@ -419,10 +426,11 @@ jobs:
       MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
 
   desktop-darwin-arm64:
-    needs: [desktop-build, prepare-github-release]
+    needs: [prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
+      actions: read
     with:
       ref: ${{ inputs.ref || github.ref }}
       tag: ${{ inputs.tag || github.ref_name }}
@@ -442,10 +450,11 @@ jobs:
       MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
 
   desktop-darwin-x64:
-    needs: [desktop-build, prepare-github-release]
+    needs: [prepare-github-release]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
+      actions: read
     with:
       ref: ${{ inputs.ref || github.ref }}
       tag: ${{ inputs.tag || github.ref_name }}
@@ -479,10 +488,11 @@ jobs:
       ref: ${{ inputs.ref }}
 
   desktop-linux-x64:
-    needs: [desktop-build, prepare-github-release, linux-native-tools]
+    needs: [prepare-github-release, linux-native-tools]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
+      actions: read
     with:
       ref: ${{ inputs.ref || github.ref }}
       tag: ${{ inputs.tag || github.ref_name }}
@@ -497,10 +507,11 @@ jobs:
       MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.MIXDOG_GOOGLE_OAUTH_CLIENT_SECRET }}
 
   desktop-linux-arm64:
-    needs: [desktop-build, prepare-github-release, linux-native-tools]
+    needs: [prepare-github-release, linux-native-tools]
     uses: ./.github/workflows/desktop-package.yml
     permissions:
       contents: write
+      actions: read
     with:
       ref: ${{ inputs.ref || github.ref }}
       tag: ${{ inputs.tag || github.ref_name }}
@@ -544,7 +555,7 @@ jobs:
 
   publish:
     name: publish-staged-release
-    needs: [validate, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full, linux-verify-sha-gate]
+    needs: [validate, desktop-build, prepare-github-release, desktop-windows, desktop-darwin-arm64, desktop-darwin-x64, desktop-linux-x64, desktop-linux-arm64, linux-verify-full, linux-verify-sha-gate]
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     permissions:
@@ -910,40 +921,3 @@ jobs:
           curl --fail --silent --show-error "https://$RELAY_DOMAIN/healthz" | grep -q '"status":"ok"'
           app_page="$(curl --fail --silent --show-error "https://$RELAY_DOMAIN/app")"
           grep -qF "href=\"$ANDROID_URL\"" <<<"$app_page"
-
-  release-timings:
-    if: always()
-    needs: [publish, deploy-relay]
-    runs-on: ubuntu-22.04
-    timeout-minutes: 15
-    permissions:
-      actions: read
-      contents: read
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
-        with:
-          ref: ${{ inputs.ref || github.ref }}
-          persist-credentials: false
-      - name: Record timing and warn on material regressions
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          gh api --paginate --slurp \
-            "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100" \
-            > /tmp/current-jobs.json
-          WORKFLOW_ID=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" --jq .workflow_id)
-          PREVIOUS_ID=$(gh api \
-            "repos/${GITHUB_REPOSITORY}/actions/workflows/${WORKFLOW_ID}/runs?status=success&per_page=20" \
-            --jq '.workflow_runs[0].id // empty')
-          if [[ -n "$PREVIOUS_ID" ]]; then
-            gh api --paginate --slurp \
-              "repos/${GITHUB_REPOSITORY}/actions/runs/${PREVIOUS_ID}/jobs?per_page=100" \
-              > /tmp/previous-jobs.json
-          else
-            printf '[]\n' > /tmp/previous-jobs.json
-          fi
-          node scripts/release-timing-report.mjs \
-            /tmp/current-jobs.json /tmp/previous-jobs.json

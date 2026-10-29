@@ -356,6 +356,8 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write # version commit and tag pushes
+    outputs:
+      sha: ${{ steps.bump.outputs.sha }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
@@ -363,6 +365,7 @@ jobs:
           fetch-depth: 0
 
       - name: Bump changed native components and create immutable tags
+        id: bump
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           PATCH_BUILD: ${{ needs.plan.outputs.patch_build }}
@@ -443,6 +446,27 @@ jobs:
           create_tag "$PATCH_BUILD" "$PATCH_TAG"
           create_tag "$GRAPH_BUILD" "$GRAPH_TAG"
           create_tag "$SPAWN_BUILD" "$SPAWN_TAG"
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+  # The native version bump above changes the native sources the old-glibc
+  # Linux tools are cached by, so release.yml's linux-native-tools missed its
+  # cache on every native-change deploy and built for ~4 minutes on the
+  # release's critical path. Build them now, beside the native release
+  # workers, from the bumped commit: nothing later in the deploy touches
+  # native/, so the release commit computes the same per-tool keys and hits.
+  # Only the caches are warmed; the release run's own call uploads the
+  # artifacts its consumers download. Nothing needs this job, so a failure
+  # here only costs the release its own build.
+  linux-native-tools-warm:
+    name: prebuild-linux-native-tools
+    needs: [plan, prepare-native]
+    if: ${{ needs.plan.outputs.native_changed == 'true' }}
+    uses: ./.github/workflows/linux-native-tools.yml
+    permissions:
+      contents: read
+    with:
+      ref: ${{ needs.prepare-native.outputs.sha }}
+      upload_artifact: false
 
   runtime:
     name: incremental-runtime
@@ -635,7 +659,7 @@ jobs:
     permissions:
       contents: write # callee prepare/publish/desktop jobs
       id-token: write # callee publish: npm --provenance
-      actions: read # callee release-timings
+      actions: read # callee desktop packages poll this run for the desktop-out artifact
     with:
       tag: ${{ needs.plan.outputs.app_tag }}
       ref: ${{ needs.prepare-app.outputs.sha }}
@@ -686,3 +710,43 @@ jobs:
           RELAY_DOMAIN: ${{ vars.RELAY_DOMAIN }}
           MOBILE_VERSION: ${{ needs.plan.outputs.mobile_version }}
         run: node scripts/post-release-check.mjs
+
+  # Runs beside post-release-check once the release call is done (it used to
+  # be release.yml's last job, after the relay deploy). GITHUB_RUN_ID is this
+  # Deploy run either way, so the current and baseline job sets are unchanged.
+  release-timings:
+    needs: [prepare-app, release]
+    if: ${{ always() && needs.release.result != 'skipped' }}
+    runs-on: ubuntu-22.04
+    timeout-minutes: 15
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          ref: ${{ needs.prepare-app.outputs.sha }}
+          persist-credentials: false
+      - name: Record timing and warn on material regressions
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh api --paginate --slurp \
+            "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/jobs?per_page=100" \
+            > /tmp/current-jobs.json
+          WORKFLOW_ID=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}" --jq .workflow_id)
+          PREVIOUS_ID=$(gh api \
+            "repos/${GITHUB_REPOSITORY}/actions/workflows/${WORKFLOW_ID}/runs?status=success&per_page=20" \
+            --jq '.workflow_runs[0].id // empty')
+          if [[ -n "$PREVIOUS_ID" ]]; then
+            gh api --paginate --slurp \
+              "repos/${GITHUB_REPOSITORY}/actions/runs/${PREVIOUS_ID}/jobs?per_page=100" \
+              > /tmp/previous-jobs.json
+          else
+            printf '[]\n' > /tmp/previous-jobs.json
+          fi
+          node scripts/release-timing-report.mjs \
+            /tmp/current-jobs.json /tmp/previous-jobs.json
