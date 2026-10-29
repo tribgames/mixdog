@@ -171,13 +171,15 @@ test('the failure reason quotes only page-safe errors, never a raw or parser mes
   assert.equal(oauthFailureReason('Failed.', null), 'Failed.');
 });
 
-test('the success page is branded, bilingual and offers a close button', () => {
+// The page opens in the user's browser from the app, so the browser refuses a
+// script's window.close(): a close button there could never work.
+test('the success page is branded, bilingual and asks the user to close the tab, with no dead close button', () => {
   const html = oauthSuccessHtml('Codex');
   assert.match(html, /<svg[\s\S]*<\/svg>/);
   assert.match(html, /로그인 완료/);
   assert.match(html, /Codex 로그인이 완료되었습니다\. 이 탭을 닫고 Mixdog로 돌아가 주세요\./);
   assert.match(html, /You can close this tab and return to Mixdog/);
-  assert.match(html, /<button type="button" onclick="window\.close\(\)">닫기 · Close<\/button>/);
+  assert.doesNotMatch(html, /<button|window\.close/);
   assert.match(html, /prefers-color-scheme: dark/);
   assert.doesNotMatch(html, /<a\s/);
   assert.doesNotMatch(html, /https?:\/\/(?!www\.w3\.org)/);
@@ -198,7 +200,7 @@ test('the failure page shows the escaped reason', () => {
   assert.match(html, /Sign-in failed/);
   assert.ok(html.includes('&lt;img src=x onerror=alert(1)&gt; &amp; &quot;q&quot;'));
   assert.ok(!html.includes('<img'));
-  assert.match(html, /window\.close\(\)/);
+  assert.doesNotMatch(html, /<button|window\.close/);
 });
 
 test('provider names are escaped on the success page', () => {

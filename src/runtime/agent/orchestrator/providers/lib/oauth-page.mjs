@@ -40,7 +40,6 @@ const COPY = {
     failureTitle: '로그인 실패',
     failureBody: 'Mixdog로 돌아가 다시 시도해 주세요.',
     reason: '사유',
-    close: '닫기',
   },
   en: {
     successTitle: 'Sign-in complete',
@@ -48,7 +47,6 @@ const COPY = {
     failureTitle: 'Sign-in failed',
     failureBody: 'Return to Mixdog and try again.',
     reason: 'Reason',
-    close: 'Close',
   },
 };
 
@@ -69,7 +67,6 @@ function renderPage({ kind, providerName, reason, lang }) {
   const reasonBlock = reason
     ? `<div class="reason"><span>${langs.map((code) => COPY[code].reason).join(' / ')}</span>${escapeHtml(reason)}</div>`
     : '';
-  const close = langs.map((code) => COPY[code].close).join(' · ');
   const documentTitle = escapeHtml(
     `${langs.map((code) => COPY[code][kind === 'success' ? 'successTitle' : 'failureTitle']).join(' / ')} · Mixdog`
   );
@@ -130,20 +127,6 @@ function renderPage({ kind, providerName, reason, lang }) {
       word-break: break-word;
     }
     .reason span { display: block; margin-bottom: 4px; color: var(--muted); font-family: inherit; font-size: 12px; }
-    button {
-      margin-top: 24px;
-      min-width: 120px;
-      height: 40px;
-      padding: 0 20px;
-      border: 1px solid var(--line);
-      border-radius: 10px;
-      background: transparent;
-      color: var(--fg);
-      font: inherit;
-      font-size: 14px;
-      cursor: pointer;
-    }
-    button:hover { border-color: var(--muted); }
   </style>
 </head>
 <body>
@@ -151,7 +134,6 @@ function renderPage({ kind, providerName, reason, lang }) {
     <div class="logo">${LOGO_SVG}</div>
     ${blocks}
     ${reasonBlock}
-    <button type="button" onclick="window.close()">${escapeHtml(close)}</button>
   </main>
 </body>
 </html>`;
