@@ -33,7 +33,7 @@
 // writer produced, so recovery/projection semantics are unchanged. A crash-torn
 // trailing line is discarded: replay stops at the first unparsable record and
 // keeps the durable prefix.
-import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { appendFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
@@ -98,7 +98,7 @@ export function checkpointMessage(message) {
   return content === message.content ? message : { ...message, content };
 }
 
-export function matchingUserMessage(message, currentUserContent) {
+function matchingUserMessage(message, currentUserContent) {
   return (
     message?.role === 'user' &&
     (message.content === currentUserContent ||
@@ -113,14 +113,6 @@ export function findTurnStart(messages, currentUserContent) {
     if (matchingUserMessage(source[index], currentUserContent)) return index;
   }
   return -1;
-}
-
-/** Where the turn opened at `turnStart` sits now: still there unless a
- *  history rewrite moved it; then the last user message carrying its prompt
- *  (-1 once compaction removed it). */
-function locateTurnStart(messages, currentUserContent, turnStart) {
-  if (Number.isInteger(turnStart) && matchingUserMessage(messages[turnStart], currentUserContent)) return turnStart;
-  return findTurnStart(messages, currentUserContent);
 }
 
 export function turnMessagesForCheckpoint(messages, currentUserContent) {
@@ -174,8 +166,9 @@ function redactInterruptionSnapshot(sessionId, snapshot) {
 
 // ── Header (written once per turn, again when a sensitive value is marked) ──
 
-export function writeCheckpointHeader(checkpoint, target = turnCheckpointPath(checkpoint.sessionId)) {
+export function writeCheckpointHeader(checkpoint) {
   const { sessionId } = checkpoint;
+  const target = turnCheckpointPath(sessionId);
   const payload = {
     ...checkpoint,
     version: TURN_CHECKPOINT_VERSION,
@@ -212,40 +205,6 @@ export function readTurnCheckpointHeaderState(sessionId) {
     return { present: error?.code !== 'ENOENT', header: null };
   }
   return { present: true, header: parseTurnCheckpointHeader(text, sessionId) };
-}
-
-// ── Retained checkpoints ────────────────────────────────────────────────────
-// A turn whose covering session save has not landed when the session's next
-// turn opens keeps its checkpoint as `<session>.r<startedAt>.json`: one
-// self-contained file (no journal) written once, until a landed save covers
-// the turn. Recovery applies retained turns oldest first, then the current one.
-export function retainedCheckpointPath(sessionId, startedAt) {
-  const stamp = String(Math.max(0, Math.trunc(Number(startedAt) || 0))).padStart(16, '0');
-  return checkpointFilePath(sessionId, `.r${stamp}.json`, { ensureDir: true });
-}
-
-/** This session's retained checkpoints, oldest first: `{ path, header }`,
- *  `header` null for an unreadable file. */
-export function listRetainedCheckpoints(sessionId) {
-  assertSessionId(sessionId);
-  let names;
-  try {
-    names = readdirSync(checkpointDirPath());
-  } catch {
-    return [];
-  }
-  const prefix = `${sessionId}.r`;
-  return names
-    .filter((name) => name.startsWith(prefix) && /^\d+\.json$/.test(name.slice(prefix.length)))
-    .sort()
-    .map((name) => {
-      const path = join(checkpointDirPath(), name);
-      try {
-        return { path, header: parseTurnCheckpointHeader(readFileSync(path, 'utf8'), sessionId) };
-      } catch {
-        return { path, header: null };
-      }
-    });
 }
 
 function parseTurnCheckpointHeader(text, sessionId) {
@@ -543,7 +502,6 @@ export function replayTurnJournal(header) {
   }
   let messages = header.turnMessages.slice();
   let fullTranscript = header.fullTranscript === true;
-  let turnStart = header.turnStart;
   let contextState = header.contextState ?? null;
   const state = interruptionStateFromSnapshot(header.interruption);
   let updatedAt = Number(header.updatedAt) || 0;
@@ -590,9 +548,6 @@ export function replayTurnJournal(header) {
     } else if (record.t === 'full' && Array.isArray(record.ms)) {
       messages = record.ms.slice();
       fullTranscript = true;
-      turnStart = undefined;
-    } else if (record.t === 'b') {
-      if (Number.isInteger(record.n) && record.n >= 0) turnStart = record.n;
     } else if (record.t === 'len') {
       const next = Number(record.n);
       if (Number.isInteger(next) && next >= 0 && next <= messages.length) {
@@ -607,12 +562,10 @@ export function replayTurnJournal(header) {
     if (Number.isFinite(at) && at > updatedAt) updatedAt = at;
   }
   if (!head) return header;
-  const { turnStart: _headerStart, ...rest } = header;
   return {
-    ...rest,
+    ...header,
     turnMessages: messages,
     ...(fullTranscript ? { fullTranscript: true } : {}),
-    ...(Number.isInteger(turnStart) ? { turnStart } : {}),
     interruption: interruptionSnapshotFromState(state),
     contextState,
     updatedAt,
@@ -627,8 +580,6 @@ export function replayTurnJournal(header) {
 export function createTurnJournalEncoder({ turnToken, sessionId = null } = {}) {
   let journaled = [];
   let fullTranscript = false;
-  // Index of the turn's prompt in the transcript; null for a whole-transcript turn.
-  let turnStart = null;
   let cursor = null;
   let contextStateKey = null;
   // Per-turn record sequence. It is assigned where records are produced, so
@@ -676,12 +627,8 @@ export function createTurnJournalEncoder({ turnToken, sessionId = null } = {}) {
      * header stores; `epoch` names the journal a rewritten header starts. */
     seed(turnOutgoing, currentUserContent, interruption, contextState = null, { snapshot = null, epoch = 0 } = {}) {
       const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
-      // The turn's position is fixed here, at its open: the prompt just
-      // committed is the last user message carrying it. From then on the
-      // turn is found by that index, never by its text again.
       const start = findTurnStart(source, currentUserContent);
       fullTranscript = start < 0;
-      turnStart = fullTranscript ? null : start;
       journaled = fullTranscript ? source.slice() : source.slice(start);
       mirror = sensitiveValuesVersion(sessionId)
         ? {
@@ -700,20 +647,14 @@ export function createTurnJournalEncoder({ turnToken, sessionId = null } = {}) {
       return {
         turnMessages: journaled.map(checkpointMessage),
         fullTranscript,
-        turnStart,
         contextState,
         openLines,
       };
     },
     encode({ turnOutgoing, currentUserContent, interruption, contextState = null }) {
       const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
-      const start = fullTranscript ? -1 : locateTurnStart(source, currentUserContent, turnStart);
+      const start = findTurnStart(source, currentUserContent);
       const records = [];
-      if (!fullTranscript && start >= 0 && start !== turnStart) {
-        // A history rewrite before the turn moved its prompt.
-        turnStart = start;
-        records.push({ t: 'b', n: start });
-      }
       if (!fullTranscript && start < 0) {
         // Pre-send compaction may replace the whole history, including
         // the user message that defined our turn-relative origin. The

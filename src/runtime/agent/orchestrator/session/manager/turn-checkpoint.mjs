@@ -6,10 +6,7 @@ import {
   createTurnJournalEncoder,
   emptyInterruptionSnapshot,
   findTurnStart,
-  listRetainedCheckpoints,
-  matchingUserMessage,
   openJournalForTurn,
-  retainedCheckpointPath,
   readTurnCheckpointHeader,
   readTurnCheckpointHeaderState,
   removeTurnJournal,
@@ -23,8 +20,6 @@ import {
 import { captureTurnCheckpointContextState, restoreTurnCheckpointContextState } from './turn-checkpoint-context.mjs';
 import { stripProviderReplayMessages } from './provider-replay.mjs';
 import { sensitiveValuesVersion } from '../sensitive-values.mjs';
-import { _hasPendingPersistence } from '../store/pending-saves.mjs';
-import { hasSessionSaveFailure } from '../store/live-state.mjs';
 
 export { turnCheckpointPath, turnMessagesForCheckpoint };
 export { captureTurnCheckpointContextState, restoreTurnCheckpointContextState };
@@ -53,61 +48,14 @@ function checkpointAppliesTo(session, checkpoint) {
  * recoverTurnCheckpoint this never mutates the session, clears the checkpoint,
  * or marks a live turn as interrupted. */
 export function projectTurnCheckpointMessages(session, checkpoint) {
-  return projectTurnCheckpointChain(session, checkpoint ? [checkpoint] : []);
-}
-
-/** The same read-only projection over a session's retained turns and its
- *  current one (readTurnCheckpointChain). */
-export function projectTurnCheckpointChain(session, chain) {
   const source = Array.isArray(session?.messages) ? session.messages : [];
-  const applied = applicableChain(session, chain);
-  return applied.length ? spliceTurns(source, applied, (checkpoint) => checkpoint.turnMessages) : source;
-}
-
-/** The chain entries recovery applies, oldest first: from the first one that
- *  describes this session's state on disk (checkpointAppliesTo) through the
- *  newest, skipping any of another generation. Retained turns before it are
- *  already covered by the record on disk. */
-function applicableChain(session, chain) {
-  if (!session?.id || !Array.isArray(chain)) return [];
-  const own = chain.filter(
-    (checkpoint) =>
-      checkpoint?.sessionId === session.id &&
-      Array.isArray(checkpoint.turnMessages) &&
-      (Number(checkpoint.generation) || 0) === (Number(session.generation) || 0)
-  );
-  const from = own.findIndex((checkpoint) => checkpointAppliesTo(session, checkpoint));
-  return from < 0 ? [] : own.slice(from);
-}
-
-/** Each turn replaces the record from its own position on (or the whole
- *  record, for a turn that compaction rewrote), oldest first: a turn already
- *  on disk is replaced once, never duplicated. A turn's position is the index
- *  its prompt opened at (`turnStart`), never a search for its text, which an
- *  earlier turn with the same prompt would also match. */
-function spliceTurns(source, chain, turnMessagesOf) {
-  let messages = source;
-  for (const checkpoint of chain) {
-    const turnMessages = turnMessagesOf(checkpoint);
-    if (checkpoint.fullTranscript === true) {
-      messages = turnMessages.slice();
-      continue;
-    }
-    messages = [...messages.slice(0, turnPosition(messages, checkpoint)), ...turnMessages];
+  if (!session?.id || checkpoint?.sessionId !== session.id || !Array.isArray(checkpoint?.turnMessages)) return source;
+  if (!checkpointAppliesTo(session, checkpoint)) return source;
+  if (checkpoint.fullTranscript === true) {
+    return checkpoint.turnMessages.slice();
   }
-  return messages;
-}
-
-function turnPosition(messages, checkpoint) {
-  if (Number.isInteger(checkpoint.turnStart) && checkpoint.turnStart >= 0) {
-    // A record shorter than the turn's position lacks messages no checkpoint
-    // holds: the turn follows what there is.
-    return Math.min(checkpoint.turnStart, messages.length);
-  }
-  // A checkpoint written before turns recorded their position (one turn, no
-  // retained ones): its prompt is the last one carrying that text.
-  const start = findTurnStart(messages, checkpoint.currentUserContent);
-  return start >= 0 ? start : messages.length;
+  const start = findTurnStart(source, checkpoint.currentUserContent);
+  return [...(start >= 0 ? source.slice(0, start) : source), ...checkpoint.turnMessages];
 }
 
 // ── Journal-backed checkpoint writes ─────────────────────────────────────────
@@ -139,7 +87,6 @@ export function createTurnCheckpointRecorder({ sessionId, generation, turnToken,
       if (!opened || version !== openedVersion) {
         const snapshot =
           typeof interruption?.snapshot === 'function' ? interruption.snapshot() : emptyInterruptionSnapshot();
-        if (!opened) retainPreviousTurn({ sessionId, generation, turnToken, turnOutgoing, currentUserContent });
         const seed = encoder.seed(turnOutgoing, currentUserContent, interruption, contextState, {
           snapshot,
           epoch: version,
@@ -151,7 +98,7 @@ export function createTurnCheckpointRecorder({ sessionId, generation, turnToken,
           startedAt,
           currentUserContent,
           turnMessages: seed.turnMessages,
-          ...(seed.fullTranscript ? { fullTranscript: true } : { turnStart: seed.turnStart }),
+          ...(seed.fullTranscript ? { fullTranscript: true } : {}),
           ...(version ? { journalEpoch: version } : {}),
           interruption: snapshot,
           contextState: seed.contextState,
@@ -194,82 +141,6 @@ export function readTurnCheckpoint(sessionId) {
   return replayTurnJournal(header);
 }
 
-// Sessions that may have retained checkpoints: retained by this process, or
-// found on disk by a chain read. Clearing a turn consults the disk only for
-// these, so the common turn end never lists the checkpoint directory.
-const _retainedSessions = new Set();
-
-/** The session's retained turns, oldest first, then its current turn. */
-export function readTurnCheckpointChain(sessionId) {
-  const retained = listRetainedCheckpoints(sessionId);
-  if (retained.length) _retainedSessions.add(sessionId);
-  const chain = retained.map((entry) => entry.header).filter(Boolean);
-  const current = readTurnCheckpoint(sessionId);
-  // A crash between retaining a turn and writing the next header leaves the
-  // turn twice; the retained copy is the complete one.
-  if (current && !chain.some((checkpoint) => checkpoint.turnToken === current.turnToken)) chain.push(current);
-  return chain;
-}
-
-/**
- * A new turn's header replaces the session's current checkpoint. When that
- * checkpoint still exists, the save that covers its turn has not landed (a
- * landed save clears it), so the turn is kept as a retained checkpoint first.
- * A turn this process committed is taken from the new turn's history, which
- * holds it exactly as committed; one that is not in it (another process's
- * unrecovered turn) is kept as journaled. Either costs that turn's size once.
- */
-function retainPreviousTurn({ sessionId, generation, turnToken, turnOutgoing, currentUserContent }) {
-  const previous = readTurnCheckpoint(sessionId);
-  if (!previous || previous.turnToken === turnToken) return;
-  if ((Number(previous.generation) || 0) !== (Number(generation) || 0)) return;
-  const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
-  const opening = findTurnStart(source, currentUserContent);
-  const history = opening >= 0 ? source.slice(0, opening) : source;
-  // The previous turn sits where its prompt opened (turnStart), unless a
-  // rewrite moved it since: then it is kept as journaled.
-  const start =
-    previous.fullTranscript === true ? 0 : opensTurnAt(history, previous) ? previous.turnStart : -1;
-  const retained =
-    start >= 0
-      ? {
-          ...previous,
-          turnMessages: history.slice(start),
-          sealed: true,
-          interruption: emptyInterruptionSnapshot(),
-          contextState: null,
-        }
-      : previous;
-  writeCheckpointHeader(retained, retainedCheckpointPath(sessionId, previous.startedAt));
-  _retainedSessions.add(sessionId);
-}
-
-function opensTurnAt(history, checkpoint) {
-  const at = checkpoint.turnStart;
-  if (!Number.isInteger(at) || at < 0 || at >= history.length) return false;
-  // Checks the message at that index; it never searches for the text.
-  return matchingUserMessage(history[at], checkpoint.currentUserContent);
-}
-
-/** Remove retained checkpoints oldest first through `turnToken` (all of them
- *  for null). Returns whether `turnToken` was among them. */
-function removeRetainedThrough(sessionId, turnToken, { listDisk = false } = {}) {
-  if (!listDisk && !_retainedSessions.has(sessionId)) return false;
-  const retained = listRetainedCheckpoints(sessionId);
-  const index =
-    turnToken === null ? retained.length - 1 : retained.findIndex((entry) => entry.header?.turnToken === turnToken);
-  if (index < 0) return false;
-  for (const { path } of retained.slice(0, index + 1)) {
-    try {
-      unlinkSync(path);
-    } catch {
-      /* already gone, or kept: a covered turn reapplies as itself */
-    }
-  }
-  if (index === retained.length - 1) _retainedSessions.delete(sessionId);
-  return true;
-}
-
 // The header stays a synchronous read + unlink: header writes are synchronous
 // too, so the token check and the removal cannot interleave with a follow-up
 // turn's new header. Only the journal removal (ordered by its write lane) and
@@ -280,7 +151,6 @@ export function clearTurnCheckpoint(sessionId, turnToken = null) {
   // turn's checkpoint; retire them BEFORE the token guard reads disk so a
   // lagging write can never resurrect state after the unlink.
   if (!turnToken) {
-    removeRetainedThrough(sessionId, null, { listDisk: true });
     cancelJournalWrites(sessionId);
     let removed = true;
     try {
@@ -293,15 +163,11 @@ export function clearTurnCheckpoint(sessionId, turnToken = null) {
     removeTurnJournal(sessionId);
     return removed;
   }
-  // A landed save covers its turn and every turn before it: their retained
-  // checkpoints go, oldest first.
-  const retained = removeRetainedThrough(sessionId, turnToken);
   const current = readTurnCheckpointHeaderState(sessionId);
   if (!current.present) return true;
   // A token guard prevents an older turn's late terminal save from
   // deleting the checkpoint already created by its queued follow-up.
-  if (current.header?.turnToken && current.header.turnToken !== turnToken) return retained;
-  removeRetainedThrough(sessionId, null);
+  if (current.header?.turnToken && current.header.turnToken !== turnToken) return false;
   cancelJournalWrites(sessionId);
   let removed = true;
   try {
@@ -321,47 +187,37 @@ export function recoverTurnCheckpoint(session) {
   if (!session?.id || session.closed === true) {
     return { changed: false, recovered: false, turnToken: null };
   }
-  const chain = readTurnCheckpointChain(session.id);
+  const checkpoint = readTurnCheckpoint(session.id);
   const marker = session.activeTurnCheckpoint;
-  if (!chain.length) {
+  if (!checkpoint) {
     if (!marker) return { changed: false, recovered: false, turnToken: null };
     delete session.activeTurnCheckpoint;
     return { changed: true, recovered: false, turnToken: null };
   }
 
-  const applied = applicableChain(session, chain);
-  if (!applied.length) {
-    // A session held in this process may be ahead of its record on disk:
-    // while a save of it is pending or failed, its checkpointed turns are not
-    // stale but missing from disk, and stay until a landed save covers them
-    // (the next turn retains them).
-    if (_hasPendingPersistence(session.id) || hasSessionSaveFailure(session.id)) {
-      return { changed: false, recovered: false, turnToken: null };
-    }
-    clearTurnCheckpoint(session.id, chain.at(-1).turnToken);
-    if (typeof marker?.turnToken === 'string' && chain.some((entry) => entry.turnToken === marker.turnToken)) {
+  if (!checkpointAppliesTo(session, checkpoint)) {
+    clearTurnCheckpoint(session.id, checkpoint.turnToken);
+    if (typeof marker?.turnToken === 'string' && marker.turnToken === checkpoint.turnToken) {
       delete session.activeTurnCheckpoint;
     }
     return { changed: false, recovered: false, turnToken: null };
   }
 
-  // Retained turns were committed: they return exactly as committed. Only an
-  // unfinished turn is finalized as interrupted by the crash.
-  const checkpoint = applied.at(-1);
-  let finalized = { responsePreserved: false };
-  session.messages = spliceTurns(Array.isArray(session.messages) ? session.messages : [], applied, (entry) => {
-    if (entry.sealed === true) return entry.turnMessages;
-    finalized = finalizeTurnInterruptionSnapshot({
-      turnOutgoing: entry.turnMessages,
-      currentUserContent: entry.currentUserContent,
-      snapshot: entry.interruption,
-      abortReason: 'process-crash',
-    });
-    // The route switched models mid-turn (the marker says so) and the journal
-    // may predate the switch: its turn still carries the previous provider's
-    // native replay state, which the saved route's provider must not receive.
-    return marker?.routeChanged === true ? stripProviderReplayMessages(finalized.messages) : finalized.messages;
+  const finalized = finalizeTurnInterruptionSnapshot({
+    turnOutgoing: checkpoint.turnMessages,
+    currentUserContent: checkpoint.currentUserContent,
+    snapshot: checkpoint.interruption,
+    abortReason: 'process-crash',
   });
+  const current = Array.isArray(session.messages) ? session.messages : [];
+  const start = findTurnStart(current, checkpoint.currentUserContent);
+  const kept = start >= 0 ? current.slice(0, start) : current;
+  // The route switched models mid-turn (the marker says so) and the journal
+  // may predate the switch: its turn still carries the previous provider's
+  // native replay state, which the saved route's provider must not receive.
+  const turnMessages =
+    marker?.routeChanged === true ? stripProviderReplayMessages(finalized.messages) : finalized.messages;
+  session.messages = checkpoint.fullTranscript === true ? turnMessages : [...kept, ...turnMessages];
   // Re-anchor provider usage / post-compact replacement state to the exact
   // canonical checkpoint representation. If a legacy or corrupted checkpoint
   // cannot prove alignment, retain the last provider reading for display but
@@ -379,8 +235,7 @@ export function recoverTurnCheckpoint(session) {
   return {
     changed: true,
     recovered: true,
-    // Clearing the newest turn clears every retained one before it.
-    turnToken: chain.at(-1).turnToken,
+    turnToken: checkpoint.turnToken,
     responsePreserved: finalized.responsePreserved,
     contextStateRestored,
   };
