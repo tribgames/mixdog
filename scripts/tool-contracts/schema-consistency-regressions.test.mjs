@@ -138,7 +138,7 @@ test('Grok normalizes nested array and map schemas without interpreting data-val
     assert.equal(field.type, 'array');
     assert.equal(Object.hasOwn(field, 'anyOf'), false);
     assert.deepEqual(field.items, { type: 'string' });
-    assert.match(field.description, /one or more values as an array/);
+    assert.ok(field.description.trim(), 'dropped scalar branch is projected into a description');
   }
   const validate = ajv.compile(tool.inputSchema);
   assert.equal(validate({ rows: [{ value: ['one'] }], values: [['two']], labels: { a: ['three'] } }), true);

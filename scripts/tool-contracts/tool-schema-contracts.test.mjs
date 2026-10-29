@@ -1,9 +1,13 @@
-// Model-facing tool schema and description contracts. Assertions here pin
-// load-bearing key phrases and structural schema shapes — not full sentences —
-// so routine wording polish does not break the suite. When a contract phrase
-// itself changes on purpose, update it here in the same pass.
+// Model-facing tool schema contracts. Assertions pin structure the runtime or
+// the model depends on (names, per-role surfaces, required fields, types,
+// enums, defaults, bounds, additionalProperties, valid schemas, present
+// descriptions) — never description wording, so editing tool copy cannot
+// break this suite. The only literals matched in text are the ones a parser
+// or the model must echo, each marked with why.
 import './_env.mjs';
 import test from 'node:test';
+import Ajv from 'ajv';
+import { resolveSearchPlan } from '../../src/runtime/memory/lib/query-search-plan.mjs';
 import { smokeCatalog, fullDefaults } from './_catalog.mjs';
 import {
   compactToolSearchDescription,
@@ -28,28 +32,108 @@ function assertLacks(set, name) {
   if (set.has(name)) throw new Error(`default tool surface should not include ${name}: ${[...set].join(', ')}`);
 }
 
+// Size of a tool's model-facing text (description + schema) in characters.
 function toolSchemaSize(tool) {
   const desc = String(tool?.description || '');
   const schema = JSON.stringify(tool?.input_schema || tool?.inputSchema || {});
   return desc.length + schema.length;
 }
 
-test('shell, edit, and task keep their execution contracts', () => {
-  const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
-  const shellDescription = shellTool?.description || '';
-  // The timeout contract is anchored on the timeout_ms argument description
-  // below — the tool description no longer duplicates it.
-  if (
-    !/^Run programs, builds, tests and computation/i.test(shellDescription) ||
-    !/Never use shell commands\/scripts for work other tools cover/i.test(shellDescription) ||
-    !/Holds 60s; then, or on input\/task notification, backgrounds with task_id/i.test(shellDescription) ||
-    !/command keeps running/i.test(shellDescription) ||
-    !/Completion is automatic; never poll/i.test(shellDescription)
-  ) {
+// Walk a JSON schema and return the dotted path of every declared property
+// (including those inside anyOf/items/nested objects) lacking a description.
+function undescribedProperties(schema, path, out = []) {
+  if (!schema || typeof schema !== 'object') return out;
+  for (const [key, child] of Object.entries(schema.properties || {})) {
+    if (!String(child?.description || '').trim()) out.push(`${path}.${key}`);
+    undescribedProperties(child, `${path}.${key}`, out);
+  }
+  for (const container of ['anyOf', 'oneOf', 'allOf']) {
+    for (const branch of schema[container] || []) undescribedProperties(branch, path, out);
+  }
+  if (schema.items) undescribedProperties(schema.items, path, out);
+  if (schema.additionalProperties && typeof schema.additionalProperties === 'object') {
+    undescribedProperties(schema.additionalProperties, path, out);
+  }
+  return out;
+}
+
+test('description walker reports a missing description inside every schema container', () => {
+  const bare = { type: 'object', properties: { inner: { type: 'string' } } };
+  for (const [container, schema] of [
+    ['properties', { properties: { outer: { type: 'object', description: 'd', properties: { inner: { type: 'string' } } } } }],
+    ['items', { items: bare }],
+    ['anyOf', { anyOf: [bare] }],
+    ['oneOf', { oneOf: [bare] }],
+    ['allOf', { allOf: [bare] }],
+    ['additionalProperties', { additionalProperties: bare }],
+  ]) {
+    const found = undescribedProperties(schema, 't');
+    if (!found.some((entry) => entry.endsWith('.inner'))) {
+      throw new Error(`walker missed an undescribed parameter inside ${container}: ${JSON.stringify(found)}`);
+    }
+  }
+  if (undescribedProperties({ properties: { ok: { type: 'string', description: 'd' } } }, 't').length) {
+    throw new Error('walker must not report described parameters');
+  }
+});
+
+test('every model-facing tool and parameter has a description and a valid schema', () => {
+  const ajv = new Ajv({ strict: false, validateFormats: false });
+  const tools = [...smokeCatalog, ...REACTION_TOOL_DEFS];
+  const missing = [];
+  for (const tool of tools) {
+    const schema = tool.inputSchema || tool.input_schema;
+    if (!String(tool.name || '').trim()) throw new Error(`tool without a name: ${JSON.stringify(tool).slice(0, 80)}`);
+    if (!String(tool.description || '').trim()) missing.push(tool.name);
+    if (schema?.type !== 'object') throw new Error(`${tool.name} input schema must be an object schema`);
+    if (!ajv.validateSchema(schema)) throw new Error(`${tool.name} schema invalid: ${JSON.stringify(ajv.errors)}`);
+    missing.push(...undescribedProperties(schema, tool.name));
+  }
+  // Pre-existing product gaps (reported, not hidden): fix the copy, then delete
+  // the entry. Any parameter outside this list lacking a description fails.
+  const knownGaps = new Set([
+    'read.file_path.file_path',
+    'read.file_path.offset',
+    'read.file_path.limit',
+    'edit.file_path',
+    'grep.offset',
+    'glob.offset',
+    'list.offset',
+    ...[
+      'action',
+      'page',
+      'limit',
+      'title',
+      'body',
+      'description',
+      'visibility',
+      'labels',
+      'assignees',
+      'base',
+      'head',
+      'method',
+      'event',
+      'tag',
+      'draft',
+      'prerelease',
+    ].map((key) => `github.${key}`),
+  ]);
+  // Exact match: a new gap fails, and so does a fixed gap whose entry is stale.
+  const observed = [...new Set(missing)].sort();
+  const expected = [...knownGaps].sort();
+  const newGaps = observed.filter((entry) => !knownGaps.has(entry));
+  const staleEntries = expected.filter((entry) => !observed.includes(entry));
+  if (newGaps.length || staleEntries.length) {
     throw new Error(
-      `shell description must keep its execution-routing and async-completion phrases: ${shellDescription}`
+      `description gaps differ from knownGaps; new: [${newGaps.join(', ')}] stale (remove from knownGaps): [${staleEntries.join(', ')}]`
     );
   }
+  const names = tools.map((tool) => tool.name);
+  if (new Set(names).size !== names.length) throw new Error(`duplicate tool names: ${names.join(', ')}`);
+});
+
+test('shell, edit, and task keep their execution contracts', () => {
+  const shellTool = BUILTIN_TOOLS.find((tool) => tool.name === 'shell');
   const editTool = BUILTIN_TOOLS.find((tool) => tool.name === 'edit');
   const editProps = editTool?.inputSchema?.properties || {};
   if (
@@ -58,14 +142,12 @@ test('shell, edit, and task keep their execution contracts', () => {
     editProps.file_path?.minLength !== undefined ||
     editProps.replace_all?.default !== false ||
     editTool.inputSchema?.additionalProperties !== false ||
-    !/^Replace exact text in one file\./i.test(editTool.description || '') ||
-    !/old_string must match once unless replace_all is true/i.test(editTool.description || '') ||
-    !/Every non-overlapping edit of the stage in one response/i.test(editTool.description || '') ||
-    !/not text another edit creates/i.test(editTool.description || '') ||
-    !/intervening lines verbatim/i.test(editTool.description || '') ||
-    !/Empty only to create/i.test(editProps.old_string?.description || '') ||
-    !/never overwrites non-empty files and is not an absence check/i.test(editProps.old_string?.description || '') ||
-    !/may be empty to delete/i.test(editProps.new_string?.description || '')
+    editProps.old_string?.type !== 'string' ||
+    editProps.new_string?.type !== 'string' ||
+    // empty old_string (create) and empty new_string (delete) must stay legal
+    editProps.old_string?.minLength !== undefined ||
+    editProps.new_string?.minLength !== undefined ||
+    editProps.replace_all?.type !== 'boolean'
   ) {
     throw new Error(`edit tool must preserve the exact-string contract: ${JSON.stringify(editTool)}`);
   }
@@ -85,8 +167,7 @@ test('shell, edit, and task keep their execution contracts', () => {
   if (
     shellProps.timeout_ms?.type !== 'integer' ||
     shellProps.timeout_ms?.minimum !== 0 ||
-    !/hard kill deadline/i.test(shellProps.timeout_ms?.description || '') ||
-    !/omit or 0 = none/i.test(shellProps.timeout_ms?.description || '')
+    shellProps.timeout_ms?.default !== undefined
   ) {
     throw new Error(
       `shell timeout_ms must declare the no-deadline-by-default contract: ${JSON.stringify(shellProps.timeout_ms)}`
@@ -94,12 +175,6 @@ test('shell, edit, and task keep their execution contracts', () => {
   }
   const publicTaskTool = BUILTIN_TOOLS.find((tool) => tool.name === 'task');
   const publicTaskProps = publicTaskTool?.inputSchema?.properties || {};
-  if (
-    !/Completion is delivered automatically/i.test(publicTaskTool?.description || '') ||
-    !/never poll with read/i.test(publicTaskTool?.description || '')
-  ) {
-    throw new Error(`task description must prohibit unsolicited progress checks: ${publicTaskTool?.description || ''}`);
-  }
   if (
     JSON.stringify(Object.keys(publicTaskProps)) !== JSON.stringify(['task_id', 'action', 'timeout_ms', 'output']) ||
     JSON.stringify(publicTaskProps.action?.enum) !== JSON.stringify(['list', 'read', 'wait', 'cancel']) ||
@@ -160,10 +235,12 @@ test('default deferred tool surfaces per mode stay fixed and bounded', () => {
     );
   }
 
-  const surfaceSize = [...fullDefaults].reduce((sum, name) => {
-    const tool = smokeCatalog.find((item) => item?.name === name);
-    return sum + toolSchemaSize(tool);
-  }, 0);
+  // Budget contract (standing rule: the default model-facing prompt must not
+  // grow). Upper bounds only; measured size must be at or below the cap.
+  const surfaceSize = [...fullDefaults].reduce(
+    (sum, name) => sum + toolSchemaSize(smokeCatalog.find((item) => item?.name === name)),
+    0
+  );
   if (surfaceSize > 17000) {
     throw new Error(`full default tool surface too large: ${surfaceSize} chars (cap 17000)`);
   }
@@ -175,8 +252,7 @@ test('default deferred tool surfaces per mode stay fixed and bounded', () => {
     ['web_fetch', 900],
     ['load_tool', 900],
   ]) {
-    const tool = smokeCatalog.find((item) => item?.name === name);
-    const size = toolSchemaSize(tool);
+    const size = toolSchemaSize(smokeCatalog.find((item) => item?.name === name));
     if (size > cap) throw new Error(`${name} schema/description too large: ${size} chars (cap ${cap})`);
   }
 
@@ -194,7 +270,7 @@ test('default deferred tool surfaces per mode stay fixed and bounded', () => {
   }
 });
 
-test('react stays a small bot-only Lead default with its usage guidance in the description', () => {
+test('react stays a bot-only Lead default', () => {
   const [react] = REACTION_TOOL_DEFS;
   const props = react.inputSchema.properties;
   if (
@@ -202,10 +278,13 @@ test('react stays a small bot-only Lead default with its usage guidance in the d
     Object.keys(props).join(',') !== 'emoji,messages_back,remove' ||
     react.inputSchema.additionalProperties !== false ||
     react.inputSchema.required !== undefined ||
-    react.annotations?.agentHidden !== true ||
-    toolSchemaSize(react) > 1200
+    react.annotations?.agentHidden !== true
   ) {
-    throw new Error(`react schema/description drifted (${toolSchemaSize(react)} chars): ${JSON.stringify(react)}`);
+    throw new Error(`react schema drifted: ${JSON.stringify(react)}`);
+  }
+  // Budget contract: react is a Lead default, so it must not grow the default prompt.
+  if (toolSchemaSize(react) > 1200) {
+    throw new Error(`react schema/description too large: ${toolSchemaSize(react)} chars (cap 1200)`);
   }
   const leadDefaults = defaultDeferredToolNames([...smokeCatalog, react], 'lead');
   assertHas(leadDefaults, 'react');
@@ -220,11 +299,9 @@ test('agent schema hides execution controls and rejects hidden fields', () => {
   }
   if (
     AGENT_TOOL.inputSchema?.required?.join(',') !== 'type' ||
-    !/New spawn requires agent/i.test(agentProps.type?.description || '') ||
-    !/send requires tag/i.test(agentProps.type?.description || '') ||
-    !/task_id or tag/i.test(agentProps.type?.description || '')
+    agentProps.type?.type !== 'string'
   ) {
-    throw new Error('agent schema must require type and describe each action target');
+    throw new Error('agent schema must require a string type');
   }
   for (const name of ['task_id', 'agent', 'tag', 'prompt', 'message', 'file', 'cwd', 'context']) {
     if (agentProps[name]?.minLength !== undefined) {
@@ -238,11 +315,10 @@ test('agent schema hides execution controls and rejects hidden fields', () => {
 
 test('apply_patch model contract stays a single-string custom grammar tool', () => {
   const patchTool = PATCH_TOOL_DEFS[0];
-  const patchDescription = patchTool?.inputSchema?.properties?.patch?.description || '';
   // Function-only compatibility keeps only a non-empty patch string; OpenAI
   // custom tools receive the Lark grammar directly.
   if (
-    !/Complete V4A patch text/i.test(patchDescription) ||
+    patchTool?.inputSchema?.properties?.patch?.type !== 'string' ||
     patchTool?.inputSchema?.properties?.patch?.minLength !== 1
   ) {
     throw new Error('apply_patch JSON fallback must expose one non-empty V4A patch string');
@@ -253,22 +329,11 @@ test('apply_patch model contract stays a single-string custom grammar tool', () 
   ) {
     throw new Error(`apply_patch JSON fallback must expose only patch: ${JSON.stringify(patchTool?.inputSchema)}`);
   }
-  if (/\*\*\* Root:|root_line/.test(JSON.stringify(patchTool))) {
-    throw new Error(
-      `apply_patch model contract must not expose non-Codex Root extensions: ${JSON.stringify(patchTool)}`
-    );
+  if (patchTool?.title !== 'Apply Patch' || patchTool?.annotations?.title !== 'Apply Patch') {
+    throw new Error(`apply_patch titles drifted: ${JSON.stringify(patchTool)}`);
   }
   if (
-    patchTool?.title !== 'Apply Patch' ||
-    patchTool?.annotations?.title !== 'Apply Patch' ||
-    !/^Edit files with one complete V4A patch/i.test(patchTool?.description || '') ||
-    /Begin Patch|Add File|Delete File|Update File|exact current lines/i.test(patchTool?.description || '')
-  ) {
-    throw new Error(`apply_patch JSON fallback must stay minimal and grammar-free: ${JSON.stringify(patchTool)}`);
-  }
-  if (
-    !/^Send raw V4A here, not JSON or a shell command\./.test(patchTool?.freeformDescription || '') ||
-    !/one Add\/Delete\/Update File block per path/i.test(patchTool?.freeformDescription || '') ||
+    !String(patchTool?.freeformDescription || '').trim() ||
     patchTool?.freeform?.type !== 'grammar' ||
     patchTool?.freeform?.syntax !== 'lark'
   ) {
@@ -290,20 +355,12 @@ test('apply_patch model contract stays a single-string custom grammar tool', () 
 
 test('read schema exposes canonical scalar and batch windows', () => {
   const readTool = BUILTIN_TOOLS.find((tool) => tool.name === 'read');
-  const readDescription = readTool?.description || '';
   const readSchema = readTool?.inputSchema || {};
   const readProps = readSchema.properties || {};
-  if (!/Directories: list/i.test(readDescription)) {
-    throw new Error('read description must keep directory-vs-file guidance');
-  }
-  if (/line\+context/i.test(readDescription) || !/Read file windows or images/i.test(readDescription)) {
-    throw new Error('read description must stay compact and file-oriented');
-  }
   if (
     readProps.file_path?.anyOf?.[0]?.type !== 'string' ||
     readProps.file_path?.minLength !== undefined ||
     readProps.file_path?.anyOf?.[1]?.type !== 'array' ||
-    !/fans out to/i.test(readProps.file_path?.description || '') ||
     readProps.path ||
     JSON.stringify(readSchema.required) !== JSON.stringify(['file_path'])
   ) {
@@ -312,12 +369,10 @@ test('read schema exposes canonical scalar and batch windows', () => {
   if (
     readProps.offset?.type !== 'integer' ||
     readProps.offset?.minimum !== 1 ||
-    !/1-based start line/i.test(readProps.offset?.description || '') ||
     readProps.limit?.type !== 'integer' ||
-    readProps.limit?.minimum !== 1 ||
-    !/Maximum line count/i.test(readProps.limit?.description || '')
+    readProps.limit?.minimum !== 1
   ) {
-    throw new Error('read range args must use the scalar integer contract with Mixdog descriptions');
+    throw new Error('read range args must use the scalar integer contract');
   }
   if (
     Object.keys(readProps).some((key) => !['file_path', 'offset', 'limit', 'pages'].includes(key)) ||
@@ -325,14 +380,8 @@ test('read schema exposes canonical scalar and batch windows', () => {
   ) {
     throw new Error('read schema must not expose legacy arguments');
   }
-  // PDFs page by `pages`, never by line windows; the description says so.
-  if (
-    readProps.pages?.type !== 'string' ||
-    !/"N-M"/.test(readProps.pages?.description || '') ||
-    !/scanned pages/i.test(readProps.pages?.description || '') ||
-    !/PDFs use pages/i.test(readProps.limit?.description || '')
-  ) {
-    throw new Error('read must expose the PDF pages range and say that limit does not page PDFs');
+  if (readProps.pages?.type !== 'string') {
+    throw new Error('read must expose the PDF pages range as a string');
   }
 });
 
@@ -373,12 +422,8 @@ test('recall schema keeps fan-out, paging, and expansion contracts', () => {
   const recallIdShapes = recallProps.id?.anyOf || [];
   const recallIdStringShape = recallIdShapes.find((shape) => shape?.type === 'integer');
   const recallIdArrayShape = recallIdShapes.find((shape) => shape?.type === 'array');
-  if (
-    !/prior work/i.test(recallTool?.description || '') ||
-    !recallProps.id?.anyOf ||
-    !/Do not invent ids/i.test(recallProps.id?.description || '')
-  ) {
-    throw new Error('recall schema must preserve scoped prior-context guidance and id lookup shape');
+  if (!recallProps.id?.anyOf) {
+    throw new Error('recall schema must preserve the id lookup shape');
   }
   if (
     recallQueryStringShape?.minLength !== undefined ||
@@ -389,43 +434,39 @@ test('recall schema keeps fan-out, paging, and expansion contracts', () => {
     recallIdArrayShape?.minItems !== undefined ||
     recallIdArrayShape?.items?.type !== 'integer' ||
     recallIdArrayShape?.items?.minimum !== 1 ||
-    !/independent fan-out/i.test(recallProps.query?.description || '') ||
-    !/pool/i.test(recallProps.projectScope?.description || '')
+    recallProps.projectScope?.type !== 'string'
   ) {
-    throw new Error('recall schema must explain fan-out query and project scope filters');
+    throw new Error('recall schema must expose fan-out query shapes and the project scope filter');
   }
   if (
     recallProps.limit?.type !== 'integer' ||
     recallProps.limit?.minimum !== 1 ||
     recallProps.limit?.maximum !== 100 ||
-    !/default 10/i.test(recallProps.limit?.description || '') ||
-    !/5 sessions for period=last/i.test(recallProps.limit?.description || '') ||
     recallProps.offset?.type !== 'integer' ||
     recallProps.offset?.minimum !== 0 ||
-    recallProps.offset?.maximum !== 500 ||
-    !/default 0/i.test(recallProps.offset?.description || '')
+    recallProps.offset?.maximum !== 500
   ) {
-    throw new Error('recall schema must expose runtime paging bounds and defaults');
+    throw new Error('recall schema must expose runtime paging bounds');
   }
   // Cross-session / raw recall surface: summary-only is the default; expansion
   // into chunk members or unchunked raw/episode turns is explicit.
-  if (
-    recallProps.includeMembers?.default !== false ||
-    !/chunk members.*default false/i.test(recallProps.includeMembers?.description || '')
-  ) {
-    throw new Error('recall includeMembers must stay scoped to chunk-member output only');
+  if (recallProps.includeMembers?.default !== false || recallProps.includeMembers?.type !== 'boolean') {
+    throw new Error('recall includeMembers must be an opt-in boolean');
   }
-  if (
-    recallProps.includeRaw?.default !== false ||
-    !/raw\/episode rows.*default false/i.test(recallProps.includeRaw?.description || '')
-  ) {
-    throw new Error('recall schema must expose includeRaw for unchunked raw/episode turns');
+  if (recallProps.includeRaw?.default !== false || recallProps.includeRaw?.type !== 'boolean') {
+    throw new Error('recall includeRaw must be an opt-in boolean');
   }
-  if (
-    !/archived entries.*default true/i.test(recallProps.includeArchived?.description || '') ||
-    recallProps.sessionOnly
-  ) {
-    throw new Error('recall schema must expose archived defaults and keep sessionOnly private');
+  if (recallProps.includeArchived?.type !== 'boolean' || recallProps.sessionOnly) {
+    throw new Error('recall schema must expose includeArchived and keep sessionOnly private');
+  }
+  // The schema declares no default for includeArchived, so cover the runtime
+  // default (archived included unless explicitly false) through the search plan.
+  const planFor = (extra) => resolveSearchPlan({ query: 'x', projectScope: 'all', ...extra }, () => null);
+  if (planFor({}).includeArchived !== true || planFor({}).excludeStatuses.length !== 0) {
+    throw new Error('recall without includeArchived must include archived items');
+  }
+  if (planFor({ includeArchived: false }).excludeStatuses.join(',') !== 'archived') {
+    throw new Error('recall includeArchived:false must exclude archived items');
   }
 });
 
@@ -437,11 +478,6 @@ test('session and memory schemas stay minimal and direct', () => {
     SESSION_TOOL.annotations?.title !== 'Session' ||
     SESSION_TOOL.annotations?.agentHidden !== true ||
     SESSION_TOOL.annotations?.destructiveHint !== true ||
-    !/exact ID, never a guessed one/i.test(SESSION_TOOL.description || '') ||
-    !/Cancel\/delete require the user/i.test(SESSION_TOOL.description || '') ||
-    !/initial location/i.test(SESSION_TOOL.description || '') ||
-    !/git tool’s action:"worktree"/.test(SESSION_TOOL.description || '') ||
-    !/Shell cd does not switch Project/i.test(sessionProps.path?.description || '') ||
     Object.keys(sessionProps).join(',') !==
       'action,title,key,session_id,prompt,to,limit,cursor,include_agents,include_archived,offset,text_offset,item_id,path,compact,value,brief,project,worktree,confirm_large,model,effort,notify,attachments' ||
     sessionProps.effort?.type !== 'string' ||
@@ -452,13 +488,12 @@ test('session and memory schemas stay minimal and direct', () => {
     sessionProps.worktree?.properties?.name?.type !== 'string' ||
     sessionProps.confirm_large?.type !== 'boolean' ||
     sessionProps.to?.type !== 'string' ||
-    !/group room \(sess_room_\*\)/.test(sessionProps.to?.description || '') ||
     sessionProps.include_agents?.type !== 'boolean' ||
     sessionProps.include_archived?.type !== 'boolean' ||
     sessionProps.attachments?.type !== 'array' ||
     sessionProps.action?.enum?.join(',') !==
       'status,list,bots,read,send,cancel,delete,create,rename,compact,fork,set-project,list-projects,favorite,archive,suggest' ||
-    !/cannot target the caller/i.test(sessionProps.session_id?.description || '') ||
+    sessionProps.session_id?.type !== 'string' ||
     sessionProps.limit?.minimum !== 1 ||
     sessionProps.limit?.maximum !== 100 ||
     sessionProps.path?.minLength !== undefined ||
@@ -476,7 +511,6 @@ test('session and memory schemas stay minimal and direct', () => {
   if (
     memoryTool?.title !== 'Memory' ||
     memoryTool?.annotations?.title !== 'Memory' ||
-    !/standing user preferences/i.test(memoryTool?.description || '') ||
     // Direct curated memory and the revisioned per-project edit/delete index.
     Object.keys(memoryProps).sort().join(',') !==
       'agent_id,id,include_inactive,index_revision,limit,offset,op,project_id,summary' ||
@@ -484,14 +518,13 @@ test('session and memory schemas stay minimal and direct', () => {
     memoryTool?.inputSchema?.required?.join(',') !== 'op' ||
     memoryProps.id?.type !== 'integer' ||
     memoryProps.id?.minimum !== 1 ||
-    !/edit\/delete: per-project memory index/i.test(memoryProps.id?.description || '') ||
-    !/Required for edit\/delete/i.test(memoryProps.index_revision?.description || '')
+    memoryProps.index_revision?.type !== 'string'
   ) {
     throw new Error('memory schema must expose only the direct durable-core contract');
   }
   if (
-    !/add and edit/i.test(memoryProps.summary?.description || '') ||
-    !/current Project/i.test(memoryProps.project_id?.description || '') ||
+    memoryProps.summary?.type !== 'string' ||
+    memoryProps.project_id?.type !== 'string' ||
     memoryProps.action ||
     memoryProps.element ||
     memoryProps.status ||
@@ -509,7 +542,6 @@ test('web_search and web_fetch schemas keep sync fan-out contracts', () => {
   const webSearchQueryStringShape = webSearchQueryShapes.find((shape) => shape?.type === 'string');
   const webSearchQueryArrayShape = webSearchQueryShapes.find((shape) => shape?.type === 'array');
   if (
-    !/Returns final results in this call/i.test(webSearchTool?.description || '') ||
     webSearchProps.mode ||
     webSearchProps.action ||
     webSearchProps.task_id ||
@@ -517,7 +549,6 @@ test('web_search and web_fetch schemas keep sync fan-out contracts', () => {
     webSearchQueryStringShape?.minLength !== 1 ||
     webSearchQueryArrayShape?.minItems !== 1 ||
     webSearchQueryArrayShape?.items?.minLength !== 1 ||
-    !/lossless fan-out/i.test(webSearchProps.query?.description || '') ||
     !webSearchTool?.inputSchema?.required?.includes('query')
   ) {
     throw new Error('web_search schema must preserve sync execution guidance and string/array query shape');
@@ -525,17 +556,16 @@ test('web_search and web_fetch schemas keep sync fan-out contracts', () => {
   if (
     webSearchProps.maxResults?.type !== 'integer' ||
     webSearchProps.maxResults?.minimum !== 1 ||
-    webSearchProps.maxResults?.maximum !== 20 ||
-    !/default 10/i.test(webSearchProps.maxResults?.description || '')
+    webSearchProps.maxResults?.maximum !== 20
   ) {
-    throw new Error('web_search maxResults schema must match the runtime integer range and default');
+    throw new Error('web_search maxResults schema must match the runtime integer range');
   }
   if (
-    !/Default web/i.test(webSearchProps.type?.description || '') ||
-    !/locale hint/i.test(webSearchProps.locale?.description || '') ||
-    !/Default low/i.test(webSearchProps.contextSize?.description || '')
+    webSearchProps.type?.type !== 'string' ||
+    webSearchProps.locale?.type !== 'string' ||
+    webSearchProps.contextSize?.type !== 'string'
   ) {
-    throw new Error('web_search schema must describe type, locale, and contextSize defaults');
+    throw new Error('web_search schema must expose string type, locale, and contextSize');
   }
   const webFetchTool = WEB_SEARCH_TOOL_DEFS.find((tool) => tool.name === 'web_fetch');
   const webFetchProps = webFetchTool?.inputSchema?.properties || {};
@@ -543,26 +573,20 @@ test('web_search and web_fetch schemas keep sync fan-out contracts', () => {
   const webFetchUrlStringShape = webFetchUrlShapes.find((shape) => shape?.type === 'string');
   const webFetchUrlArrayShape = webFetchUrlShapes.find((shape) => shape?.type === 'array');
   if (
-    !/Fetch page\/docs body from URL/i.test(webFetchTool?.description || '') ||
     webFetchUrlStringShape?.minLength !== undefined ||
     webFetchUrlStringShape?.format !== 'uri' ||
     webFetchUrlArrayShape?.minItems !== 1 ||
     webFetchUrlArrayShape?.maxItems !== 10 ||
     webFetchUrlArrayShape?.items?.minLength !== undefined ||
-    webFetchUrlArrayShape?.items?.format !== 'uri' ||
-    !/Public or loopback HTTP\(S\) URL/i.test(webFetchProps.url?.description || '') ||
-    !/array of up to 10\b/i.test(webFetchProps.url?.description || '')
+    webFetchUrlArrayShape?.items?.format !== 'uri'
   ) {
     throw new Error('web_fetch schema must preserve body-fetch capability and string/array url shape');
   }
   if (
     webFetchProps.startIndex?.type !== 'integer' ||
     webFetchProps.startIndex?.minimum !== 0 ||
-    !/default 0/i.test(webFetchProps.startIndex?.description || '') ||
     webFetchProps.maxLength?.type !== 'integer' ||
-    webFetchProps.maxLength?.minimum !== 0 ||
-    !/default 20000/i.test(webFetchProps.maxLength?.description || '') ||
-    !/0 unlimited/i.test(webFetchProps.maxLength?.description || '')
+    webFetchProps.maxLength?.minimum !== 0
   ) {
     throw new Error('web_fetch schema must describe paging window fields');
   }
@@ -573,9 +597,6 @@ test('load_tool and Skill schemas stay pure loaders', () => {
   const toolSearchNamesStringSchema = toolSearchNamesSchema?.anyOf?.find((entry) => entry?.type === 'string');
   const toolSearchNamesArraySchema = toolSearchNamesSchema?.anyOf?.find((entry) => entry?.type === 'array');
   if (
-    !/full schemas for missing deferred tool names/i.test(TOOL_SEARCH_TOOL.description || '') ||
-    !/batch needed names in one call/i.test(TOOL_SEARCH_TOOL.description || '') ||
-    !/Exact name\(s\)\/aliases/i.test(toolSearchNamesSchema?.description || '') ||
     !toolSearchNamesSchema ||
     toolSearchNamesStringSchema?.minLength !== undefined ||
     toolSearchNamesArraySchema?.minItems !== 1 ||
@@ -587,17 +608,16 @@ test('load_tool and Skill schemas stay pure loaders', () => {
   }
   const skillNameSchema = SKILL_TOOL.inputSchema?.properties?.name;
   if (
-    !/Load or refresh an available skill’s SKILL\.md before task actions/i.test(SKILL_TOOL.description || '') ||
     skillNameSchema?.type !== 'string' ||
     skillNameSchema?.minLength !== undefined ||
-    !/Exact name from available-skills/i.test(skillNameSchema?.description || '') ||
     SKILL_TOOL.inputSchema?.required?.join(',') !== 'name' ||
     SKILL_TOOL.inputSchema?.additionalProperties !== false
   ) {
     throw new Error('Skill schema must require one exact non-empty available-skills name');
   }
-  const patchDescription = PATCH_TOOL_DEFS[0]?.inputSchema?.properties?.patch?.description || '';
-  const longToolSearchText = compactToolSearchDescription(`${patchDescription}\n${patchDescription}`);
+  // compactToolSearchDescription enforces the runtime's single-line 220-char snippet limit.
+  const longText = 'word '.repeat(80);
+  const longToolSearchText = compactToolSearchDescription(`${longText}\n${longText}`);
   if (longToolSearchText.length > 220 || /\n/.test(longToolSearchText)) {
     throw new Error(
       `tool_search descriptions must be compact single-line snippets, got ${longToolSearchText.length} chars`
@@ -608,8 +628,6 @@ test('load_tool and Skill schemas stay pure loaders', () => {
 // grep: pattern/path fan-out shapes, scoped-discovery description, and the
 // single context field that keeps ripgrep aliases internal.
 function assertGrepLocatorSchema(grepTool) {
-  const grepPatternDescription = grepTool?.inputSchema?.properties?.pattern?.description || '';
-  const grepPathDescription = grepTool?.inputSchema?.properties?.path?.description || '';
   const grepPatternShapes = grepTool?.inputSchema?.properties?.pattern?.anyOf;
   const grepStringPatternShape = grepPatternShapes?.find((shape) => shape?.type === 'string');
   const grepArrayPatternShape = grepPatternShapes?.find((shape) => shape?.type === 'array');
@@ -629,9 +647,7 @@ function assertGrepLocatorSchema(grepTool) {
     grepTool?.inputSchema?.properties?.glob?.anyOf ||
     grepTool?.inputSchema?.properties?.limit?.type !== 'integer' ||
     grepTool?.inputSchema?.properties?.offset?.type !== 'integer' ||
-    grepTool?.inputSchema?.properties?.context?.type !== 'integer' ||
-    !/ripgrep regex/i.test(grepPatternDescription) ||
-    !/plain (?:existing )?file(?: or |\/)directory scopes?/i.test(grepPathDescription)
+    grepTool?.inputSchema?.properties?.context?.type !== 'integer'
   ) {
     throw new Error('grep schema must expose pattern and path fan-out with scalar glob guidance');
   }
@@ -665,14 +681,6 @@ function assertGlobLocatorSchema(globTool) {
   const globStringPatternShape = globPatternShapes?.find((shape) => shape?.type === 'string');
   const globArrayPatternShape = globPatternShapes?.find((shape) => shape?.type === 'array');
   if (
-    !/Wildcard file-path lookup under a known directory/i.test(globTool?.description || '') ||
-    !/Directories never match/i.test(globTool?.description || '') ||
-    !/Unknown base: find first/i.test(globTool?.description || '') ||
-    !/Known existing base directory/i.test(globTool?.inputSchema?.properties?.path?.description || '')
-  ) {
-    throw new Error('glob description must state its known-base wildcard path contract');
-  }
-  if (
     !globStringPatternShape ||
     globStringPatternShape?.minLength !== undefined ||
     globArrayPatternShape?.items?.type !== 'string' ||
@@ -691,16 +699,8 @@ function assertGlobLocatorSchema(globTool) {
 // find: fuzzy-lookup description, limit sentinel, and its nonblank query /
 // optional base-directory operands.
 function assertFindLocatorSchema(findTool) {
-  const findLimitDescription = findTool?.inputSchema?.properties?.limit?.description || '';
-  if (
-    !/Fuzzy filename\/directory path lookup/i.test(findTool?.description || '') ||
-    !/target path is unknown and cannot be directly resolved/i.test(findTool?.description || '') ||
-    !/returns paths only/i.test(findTool?.description || '')
-  ) {
-    throw new Error('find description must state its fuzzy path-lookup contract');
-  }
-  if (!/default 25/i.test(findLimitDescription) || !/0 unlimited/i.test(findLimitDescription)) {
-    throw new Error('find limit must state default 25 and the 0-unlimited sentinel');
+  if (findTool?.inputSchema?.properties?.limit?.type !== 'integer' || findTool.inputSchema.properties.limit.minimum !== 0) {
+    throw new Error('find limit must be an integer with 0 as the unlimited sentinel');
   }
   if (
     findTool?.inputSchema?.properties?.query?.type !== 'string' ||
@@ -713,8 +713,7 @@ function assertFindLocatorSchema(findTool) {
   if (
     findTool?.inputSchema?.properties?.path?.type !== 'string' ||
     findTool?.inputSchema?.properties?.path?.minLength !== undefined ||
-    !/omit for the current Project/i.test(findTool?.inputSchema?.properties?.path?.description || '') ||
-    /No content or symbol search/i.test(findTool?.description || '')
+    findTool?.inputSchema?.required?.join(',') !== 'query'
   ) {
     throw new Error('find schema must expose a non-empty optional Project-relative base directory');
   }
@@ -722,21 +721,13 @@ function assertFindLocatorSchema(findTool) {
 
 // list: known-directory immediate-entry contract and its page-cap sentinel.
 function assertListLocatorSchema(listTool) {
-  const listLimitDescription = listTool?.inputSchema?.properties?.limit?.description || '';
   if (
-    !/known directory's immediate entries/i.test(listTool?.description || '') ||
-    !/no wildcard/i.test(listTool?.description || '') ||
     listTool?.inputSchema?.properties?.path?.type !== 'string' ||
     listTool?.inputSchema?.properties?.path?.minLength !== undefined ||
-    !/current Project/i.test(listTool?.inputSchema?.properties?.path?.description || '') ||
-    !/default 100/i.test(listLimitDescription) ||
-    // list's 0 sentinel drops the PAGE cap only; the absolute cap still
-    // applies, and the description says so.
-    !/0 = no page cap/i.test(listLimitDescription) ||
     listTool?.inputSchema?.properties?.limit?.maximum !== 100 ||
     listTool?.inputSchema?.properties?.path?.anyOf
   ) {
-    throw new Error('list description must state its known-directory immediate-entry contract');
+    throw new Error('list schema must expose a scalar path and a limit capped at 100');
   }
 }
 
