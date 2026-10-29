@@ -213,6 +213,35 @@ test('a release removes only its own token dir, never a second creator inside th
   assert.deepEqual(readdirSync(lockDir), [OLD_TOKEN]);
 });
 
+test('a release whose lock root removal was refused retries it on the next call before letting go', async () => {
+  const realFs = require('fs');
+  let refusedRoot = null;
+  const fs = {
+    ...realFs,
+    rmdirSync: (target, ...rest) => {
+      if (target === refusedRoot) throw Object.assign(new Error(`EPERM: rmdir '${target}'`), { code: 'EPERM' });
+      return realFs.rmdirSync(target, ...rest);
+    },
+  };
+  const injected = new Function('require', 'process', 'Buffer', `${REMOTE_SERVER_LIBRARY}\nreturn { acquireInstallLock };`)(
+    (id) => (id === 'fs' ? fs : require(id)),
+    process,
+    Buffer
+  );
+  const lockDir = join(scratch(), '.install-lock');
+  const lock = await injected.acquireInstallLock(lockDir, { waitMs: 0 });
+  assert.ok(process.listeners('exit').includes(lock.release));
+  refusedRoot = lockDir;
+  lock.release();
+  // The token is gone but the empty root stayed: the exit hook still owns its removal.
+  assert.deepEqual(readdirSync(lockDir), []);
+  assert.ok(process.listeners('exit').includes(lock.release));
+  refusedRoot = null;
+  lock.release();
+  assert.equal(existsSync(lockDir), false);
+  assert.equal(process.listeners('exit').includes(lock.release), false);
+});
+
 test('interleaved contenders, some crashing while they hold the lock, never overlap', {
   timeout: 120_000,
 }, async () => {

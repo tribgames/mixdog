@@ -15,12 +15,18 @@ export const REMOTE_INSTALL_LOCK_STALE_MS = 15 * 60_000;
  *  token dir lockDir/<token>/ holding owner.json. A lock is stale when its
  *  owner pid on this host is dead or it is older than `staleMs`.
  *
- *  Takeover never displaces a live holder: the stealer renames exactly the
+ *  Takeover never displaces a live holder: the stealer deletes exactly the
  *  token dir it judged stale (a holder that took the lock since has another
- *  token, so the rename fails and the stealer re-evaluates), and lockDir
- *  itself only ever goes through rmdir, which refuses a dir a new holder has
- *  entered. A creator that stalled and meets another token dir next to its
- *  own backs off. Only a tombstone this process renamed is deleted. */
+ *  token, so the stealer finds nothing to delete and re-evaluates), and
+ *  lockDir itself only ever goes through rmdir, which refuses a dir a new
+ *  holder has entered. A creator that stalled and meets another token dir
+ *  next to its own backs off.
+ *
+ *  Token dirs are deleted in place, never renamed away: Windows refuses to
+ *  rename a directory while any process has a file in it open, so waiters
+ *  reading owner.json kept a holder's release failing for seconds and starved
+ *  each other. Deleting the file and then the empty dir is not blocked by
+ *  those readers. */
 export const REMOTE_LOCK_SOURCE = `
 const LOCK_TOKEN = /^[0-9a-f]{24}$/;
 /** Token dirs inside lockDir, or null when lockDir does not exist. */
@@ -49,33 +55,35 @@ function inspectInstallLock(lockDir, staleMs) {
   const deadOwner = owner.host === os.hostname() && !alive(Number(owner.pid));
   return { gone: false, stale: deadOwner || age > staleMs, token, owner };
 }
-/** Move a token dir out of the lock; true when this call moved it, so the
- *  caller owns the tombstone (and nobody else's lock was touched). The holder
- *  itself retries a refused rename (a reader's open handle on Windows);
- *  only a missing dir means someone else moved it. */
-function buryLockToken(lockDir, token, kind, retries = 0) {
-  const grave = path.join(path.dirname(lockDir), path.basename(lockDir) + '-' + kind + '-' + token + '-' + crypto.randomBytes(4).toString('hex'));
+/** Delete one token dir from the lock, touching only that token's files:
+ *  'removed' by this call, 'gone' when someone else removed it, 'busy' when
+ *  every attempt was refused (a Windows without POSIX delete semantics while
+ *  a reader has owner.json open). */
+function removeLockToken(lockDir, token, retries = 0) {
+  const dir = path.join(lockDir, token);
   for (let attempt = 0; ; attempt += 1) {
     try {
-      fs.renameSync(path.join(lockDir, token), grave);
-      break;
+      fs.rmSync(path.join(dir, 'owner.json'), { force: true });
+      fs.rmdirSync(dir);
+      return 'removed';
     } catch (error) {
-      if (error.code === 'ENOENT' || attempt >= retries) return false;
+      if (error.code === 'ENOENT') return 'gone';
+      if (attempt >= retries) return 'busy';
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
     }
   }
-  removeTree(grave);
-  return true;
 }
 /** rmdir lockDir if empty: a lock a holder has entered is never removed.
- *  True when this call removed it. */
+ *  'removed' by this call, 'kept' when it is gone or entered, 'busy' when
+ *  every attempt was refused. */
 function dropEmptyLock(lockDir, retries = 0) {
   for (let attempt = 0; ; attempt += 1) {
     try {
       fs.rmdirSync(lockDir);
-      return true;
+      return 'removed';
     } catch (error) {
-      if (error.code === 'ENOENT' || error.code === 'ENOTEMPTY' || error.code === 'EEXIST' || attempt >= retries) return false;
+      if (error.code === 'ENOENT' || error.code === 'ENOTEMPTY' || error.code === 'EEXIST') return 'kept';
+      if (attempt >= retries) return 'busy';
       Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 20);
     }
   }
@@ -83,10 +91,10 @@ function dropEmptyLock(lockDir, retries = 0) {
 /** Take over the lock judged stale in 'holder' (from inspectInstallLock).
  *  Any mismatch leaves the lock as it is (false) and the caller re-evaluates. */
 function stealInstallLock(lockDir, holder) {
-  const buried = Boolean(holder.token) && buryLockToken(lockDir, holder.token, 'stale');
-  if (holder.token && !buried) return false;
+  const removed = Boolean(holder.token) && removeLockToken(lockDir, holder.token) === 'removed';
+  if (holder.token && !removed) return false;
   // Empty now; rmdir refuses a lock a new holder has entered meanwhile.
-  return dropEmptyLock(lockDir) || buried;
+  return dropEmptyLock(lockDir) === 'removed' || removed;
 }
 function describeLockOwner(owner) {
   if (!owner) return 'owner unknown';
@@ -128,18 +136,29 @@ async function acquireInstallLock(lockDir, options) {
         const holders = lockHolders(lockDir) || [];
         if (holders.length === 1 && holders[0] === token) {
           let released = false;
+          let tokenSettled = false;
+          let rootPending = false;
           const release = () => {
             if (released) return;
+            // Released only once the cleanup finished: a refused delete leaves
+            // the exit hook (or a later call) to try again from that step.
+            if (!tokenSettled) {
+              const own = removeLockToken(lockDir, token, 250);
+              if (own === 'busy') return;
+              tokenSettled = true;
+              // 'gone': taken over as stale, so the root is no longer this holder's to drop.
+              rootPending = own === 'removed';
+            }
+            // 'kept' (a successor entered, or the root is gone) also ends the release.
+            if (rootPending && dropEmptyLock(lockDir, 250) === 'busy') return;
             released = true;
             process.removeListener('exit', release);
-            // Taken over as stale: nothing of this holder is left to remove.
-            if (buryLockToken(lockDir, token, 'done', 250)) dropEmptyLock(lockDir, 250);
           };
           process.on('exit', release);
           return { owner, release };
         }
         // Another holder entered while this creator stalled: the later one backs off.
-        if (buryLockToken(lockDir, token, 'done', 250)) dropEmptyLock(lockDir, 250);
+        if (removeLockToken(lockDir, token, 250) === 'removed') dropEmptyLock(lockDir, 250);
       }
       await sleep(Math.min(pollMs, 20 + Math.floor(Math.random() * 30)));
       continue;
