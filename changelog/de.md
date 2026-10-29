@@ -38,6 +38,9 @@ Das Agenten-Harness wurde mit Explore, einem eigenen Erkundungsagenten, und eine
 - Behoben: Tabellenzellen mit chinesischem oder japanischem Text ragten über den Tabellenrahmen hinaus.
 - Behoben: Bei Vertex AI-Modellen fehlte die Auswahl der Servicestufe (Standard, Flex, Priority), und eingereihte Flex-Anfragen wurden nach einer Minute abgebrochen (#271).
 - Behoben: Ein einzelnes fehlgeschlagenes Auslesen des Fortschritts hielt den Aktivitäts-Timer an, sodass der Agent fälschlich wegen fehlenden Fortschritts gestoppt wurde.
+- Behoben: `verify` in Computer Use brach unabhängig von `timeout_ms` nach 2 Sekunden ab und wartete unnötig, wenn sich der Text eines Fensters mit erhöhten Rechten nicht auslesen ließ (#274).
+- Behoben: Das Antippen eines Bots oder Raums im Sitzungen-Drawer auf dem Smartphone wechselte zur Bots-Seite, statt den zugehörigen Chat zu öffnen.
+- Behoben: Unter Windows wurde ein unabhängiger älterer Prozess fälschlich für den Rest eines beendeten Befehls gehalten, wodurch der Arbeitsbereich weiter als belegt galt oder dieser Prozess beendet wurde.
 
 ## v1.4.1 - 2026-10-27
 

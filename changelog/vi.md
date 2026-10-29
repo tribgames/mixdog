@@ -38,6 +38,9 @@ Cải thiện bộ điều phối agent với Explore, một agent chuyên khả
 - Sửa lỗi các ô bảng chứa chữ Trung hoặc chữ Nhật làm bảng bị tràn khỏi khung.
 - Sửa lỗi các mô hình Vertex AI thiếu tùy chọn gói dịch vụ (Standard, Flex, Priority) và các yêu cầu Flex đang xếp hàng bị ngắt sau một phút (#271).
 - Sửa lỗi chỉ một lần đọc tiến độ thất bại đã làm bộ đếm hoạt động ngừng cập nhật, khiến agent bị dừng nhầm vì tưởng là không còn tiến triển.
+- Sửa lỗi `verify` của Computer Use bỏ cuộc sau 2 giây bất kể `timeout_ms`, và chờ đợi không cần thiết khi không đọc được văn bản của cửa sổ chạy dưới quyền quản trị (#274).
+- Sửa lỗi chạm vào bot hoặc phòng trong ngăn kéo Phiên trên điện thoại lại chuyển sang trang Bot thay vì mở cuộc trò chuyện tương ứng.
+- Sửa lỗi trên Windows nhận nhầm một tiến trình cũ không liên quan là tiến trình còn sót lại của lệnh đã kết thúc, làm không gian làm việc bị giữ ở trạng thái bận hoặc dừng tiến trình đó.
 
 ## v1.4.1 - 2026-10-27
 

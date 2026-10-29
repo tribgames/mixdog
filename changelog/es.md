@@ -39,6 +39,9 @@ Se mejoró el arnés de agentes con Explore, un agente dedicado a la exploració
 - Se corrigió que las celdas de tabla con texto en chino o japonés desbordaran el marco de la tabla.
 - Se corrigió que a los modelos de Vertex AI les faltara la opción de nivel de servicio (Standard, Flex, Priority) y que las solicitudes Flex en cola se cortaran al cabo de un minuto (#271).
 - Se corrigió que un único fallo al leer el progreso detuviera el temporizador de actividad y provocara que el agente se detuviera por error al parecer que no avanzaba.
+- Se corrigió que `verify` de Computer Use desistiera a los 2 segundos sin importar `timeout_ms` y esperara innecesariamente cuando no se podía leer el texto de una ventana con permisos elevados (#274).
+- Se corrigió que al tocar un bot o una sala en el cajón de Sesiones del teléfono se cambiara a la página de Bots en lugar de abrir su chat.
+- Se corrigió un problema en Windows por el que se confundía un proceso antiguo no relacionado con un resto de un comando ya terminado, lo que mantenía ocupado el espacio de trabajo o detenía ese proceso.
 
 ## v1.4.1 - 2026-10-27
 

@@ -39,6 +39,9 @@ Amélioration du harnais d'agents avec Explore, un agent dédié à l'exploratio
 - Correction des cellules de tableau contenant du chinois ou du japonais qui faisaient déborder le tableau de son cadre.
 - Correction de l'absence du choix du niveau de service (Standard, Flex, Priority) sur les modèles Vertex AI, et de l'interruption après une minute des requêtes Flex en file d'attente (#271).
 - Correction d'un problème où un seul échec de lecture de la progression bloquait le minuteur d'activité et faisait arrêter l'agent à tort comme s'il n'avançait plus.
+- Correction de `verify` dans Computer Use qui abandonnait au bout de 2 secondes indépendamment de `timeout_ms`, et attendait inutilement lorsque le texte d'une fenêtre exécutée avec des privilèges élevés ne pouvait pas être lu (#274).
+- Correction d'un appui sur un bot ou un salon dans le tiroir Sessions sur téléphone qui basculait vers la page Bots au lieu d'ouvrir sa discussion.
+- Correction d'un problème sous Windows où un processus plus ancien sans rapport était pris à tort pour un processus résiduel d'une commande terminée, ce qui maintenait l'espace de travail occupé ou arrêtait ce processus.
 
 ## v1.4.1 - 2026-10-27
 

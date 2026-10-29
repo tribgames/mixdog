@@ -39,6 +39,9 @@ Improved the agent harness with Explore, a dedicated exploration agent, and stro
 - Fixed Chinese and Japanese table cells pushing the table past its frame.
 - Fixed Vertex AI models missing the Service tier choice (Standard, Flex, Priority), and queued Flex requests being cut off after a minute (#271).
 - Fixed an agent being stopped as stalled after a single failed progress read stopped its activity timer from updating.
+- Fixed Computer Use `verify` giving up after 2 seconds regardless of `timeout_ms`, and waiting needlessly when an elevated window's text cannot be read (#274).
+- Fixed tapping a bot or room in the phone's Sessions drawer switching to the Bots page instead of opening its chat.
+- Fixed an unrelated older process on Windows being mistaken for a finished command's leftover, keeping its workspace busy or stopping that process.
 
 ## v1.4.1 - 2026-10-27
 
