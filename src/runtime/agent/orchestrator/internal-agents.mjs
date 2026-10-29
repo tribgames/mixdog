@@ -23,7 +23,7 @@
  *   - 'maintenance' : background-trigger hidden agents (memory cycle and
  *                     title generation). Receive only their own self section.
  *   An entry without a kind only names a route (the explore tool's
- *   `explorer`, which runs no session).
+ *   `explore-agent`, which runs no session).
  *
  * Permission classification:
  *   - 'read'       : read-only — apply_patch/shell blocked at loop.mjs runtime

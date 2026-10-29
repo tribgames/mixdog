@@ -148,13 +148,18 @@ test('a fresh profile keeps every gated tool family off the session surface', ()
     'office',
     'tidy',
     'visualize',
+    'explore',
   ]);
 });
 
 test('installed features with live bridges expose the full tool surface', () => {
   // tidy ships after the grandfathering cut, so an upgraded profile still has
   // to install it; everything grandfathered stays available.
-  const config = setBuiltinInstalledInConfig(withGrandfatheredBuiltins({ presets: [] }), 'tidy', true);
+  // Explore surfaces once its own model is set.
+  const config = {
+    ...setBuiltinInstalledInConfig(withGrandfatheredBuiltins({ presets: [] }), 'tidy', true),
+    agents: { explore: { provider: 'anthropic', model: 'claude-haiku-4-5' } },
+  };
   process.env.MIXDOG_FEATURE_VISUALIZE = '1';
   try {
     assert.deepEqual(
@@ -240,7 +245,7 @@ test('a disabled toggle removes tools even while the feature stays installed', (
   };
   assert.deepEqual(
     featureDisallowedToolsFor(config, { browserAvailable: true, computerAvailable: true, terminalAvailable: true }),
-    ['memory', 'recall', 'office', 'tidy', 'visualize']
+    ['memory', 'recall', 'office', 'tidy', 'visualize', 'explore']
   );
 });
 
@@ -258,7 +263,7 @@ test('MIXDOG_FEATURE_* env overrides win over stored markers in both directions'
         computerAvailable: true,
         terminalAvailable: true,
       }),
-      ['git', 'github', 'visualize']
+      ['git', 'github', 'visualize', 'explore']
     );
   } finally {
     delete process.env.MIXDOG_FEATURE_OFFICE;

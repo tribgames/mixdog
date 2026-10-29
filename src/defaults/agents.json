@@ -1,7 +1,7 @@
 {
   "agents": [
     {
-      "agent": "explorer",
+      "agent": "explore-agent",
       "slot": "explore",
       "description": "One-off read-only explorer, one per query of the explore tool",
       "invokedBy": "explore",

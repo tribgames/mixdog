@@ -6,7 +6,9 @@ import { getProvider, initProviders } from '../agent/orchestrator/providers/regi
 import { EXPLORE_MAX_QUERIES } from './tool-defs.mjs';
 import { runExplorer } from './explorer.mjs';
 
-export const EXPLORER_AGENT = 'explorer';
+// Hidden ids are reserved from user agents, so this one keeps the `-agent`
+// suffix: a plain `explorer` would hide a user's own Explorer agent.
+export const EXPLORER_AGENT = 'explore-agent';
 export const EXPLORE_TIMEOUT_MS = 120_000;
 export const EXPLORE_OUTPUT_CAP = 24_000;
 const TRUNCATED = '\n[explore: answer truncated]';
