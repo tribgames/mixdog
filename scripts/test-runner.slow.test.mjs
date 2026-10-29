@@ -264,7 +264,7 @@ test('re-run classification separates flaky from failed and always states the ex
   assert.equal(formatFailureSummary({}), `${SUMMARY_TAG} 0 failed, 0 flaky (every failed test is named below)\n`);
   assert.match(policyLine(0), /every failure fails the run/);
   assert.match(USAGE, /--rerun-failed <n>/);
-  assert.match(USAGE, /does NOT fail the run/);
+  assert.match(USAGE, /does NOT fail the\s+run/);
   assert.match(USAGE, /--exclude-lane electron/);
 });
 

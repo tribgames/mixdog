@@ -691,7 +691,8 @@ test('the weekly suite-health sweep runs the opt-out catalog and reports failure
   for (const step of ['Fetch the Electron binary', 'Install a virtual X server']) {
     assert.match(
       sweep,
-      new RegExp(`- name: ${step}\\n\\s+continue-on-error: true`),
+      // \r?: a Windows checkout (core.autocrlf=true) has CRLF workflow files.
+      new RegExp(`- name: ${step}\\r?\\n\\s+continue-on-error: true`),
       `${step} must not block the rest of the sweep or the issue report`
     );
   }
