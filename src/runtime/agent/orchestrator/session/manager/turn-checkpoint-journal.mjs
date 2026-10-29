@@ -98,7 +98,7 @@ export function checkpointMessage(message) {
   return content === message.content ? message : { ...message, content };
 }
 
-function matchingUserMessage(message, currentUserContent) {
+export function matchingUserMessage(message, currentUserContent) {
   return (
     message?.role === 'user' &&
     (message.content === currentUserContent ||
@@ -113,6 +113,14 @@ export function findTurnStart(messages, currentUserContent) {
     if (matchingUserMessage(source[index], currentUserContent)) return index;
   }
   return -1;
+}
+
+/** Where the turn opened at `turnStart` sits now: still there unless a
+ *  history rewrite moved it; then the last user message carrying its prompt
+ *  (-1 once compaction removed it). */
+function locateTurnStart(messages, currentUserContent, turnStart) {
+  if (Number.isInteger(turnStart) && matchingUserMessage(messages[turnStart], currentUserContent)) return turnStart;
+  return findTurnStart(messages, currentUserContent);
 }
 
 export function turnMessagesForCheckpoint(messages, currentUserContent) {
@@ -535,6 +543,7 @@ export function replayTurnJournal(header) {
   }
   let messages = header.turnMessages.slice();
   let fullTranscript = header.fullTranscript === true;
+  let turnStart = header.turnStart;
   let contextState = header.contextState ?? null;
   const state = interruptionStateFromSnapshot(header.interruption);
   let updatedAt = Number(header.updatedAt) || 0;
@@ -581,6 +590,9 @@ export function replayTurnJournal(header) {
     } else if (record.t === 'full' && Array.isArray(record.ms)) {
       messages = record.ms.slice();
       fullTranscript = true;
+      turnStart = undefined;
+    } else if (record.t === 'b') {
+      if (Number.isInteger(record.n) && record.n >= 0) turnStart = record.n;
     } else if (record.t === 'len') {
       const next = Number(record.n);
       if (Number.isInteger(next) && next >= 0 && next <= messages.length) {
@@ -595,10 +607,12 @@ export function replayTurnJournal(header) {
     if (Number.isFinite(at) && at > updatedAt) updatedAt = at;
   }
   if (!head) return header;
+  const { turnStart: _headerStart, ...rest } = header;
   return {
-    ...header,
+    ...rest,
     turnMessages: messages,
     ...(fullTranscript ? { fullTranscript: true } : {}),
+    ...(Number.isInteger(turnStart) ? { turnStart } : {}),
     interruption: interruptionSnapshotFromState(state),
     contextState,
     updatedAt,
@@ -613,6 +627,8 @@ export function replayTurnJournal(header) {
 export function createTurnJournalEncoder({ turnToken, sessionId = null } = {}) {
   let journaled = [];
   let fullTranscript = false;
+  // Index of the turn's prompt in the transcript; null for a whole-transcript turn.
+  let turnStart = null;
   let cursor = null;
   let contextStateKey = null;
   // Per-turn record sequence. It is assigned where records are produced, so
@@ -660,8 +676,12 @@ export function createTurnJournalEncoder({ turnToken, sessionId = null } = {}) {
      * header stores; `epoch` names the journal a rewritten header starts. */
     seed(turnOutgoing, currentUserContent, interruption, contextState = null, { snapshot = null, epoch = 0 } = {}) {
       const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
+      // The turn's position is fixed here, at its open: the prompt just
+      // committed is the last user message carrying it. From then on the
+      // turn is found by that index, never by its text again.
       const start = findTurnStart(source, currentUserContent);
       fullTranscript = start < 0;
+      turnStart = fullTranscript ? null : start;
       journaled = fullTranscript ? source.slice() : source.slice(start);
       mirror = sensitiveValuesVersion(sessionId)
         ? {
@@ -680,14 +700,20 @@ export function createTurnJournalEncoder({ turnToken, sessionId = null } = {}) {
       return {
         turnMessages: journaled.map(checkpointMessage),
         fullTranscript,
+        turnStart,
         contextState,
         openLines,
       };
     },
     encode({ turnOutgoing, currentUserContent, interruption, contextState = null }) {
       const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
-      const start = findTurnStart(source, currentUserContent);
+      const start = fullTranscript ? -1 : locateTurnStart(source, currentUserContent, turnStart);
       const records = [];
+      if (!fullTranscript && start >= 0 && start !== turnStart) {
+        // A history rewrite before the turn moved its prompt.
+        turnStart = start;
+        records.push({ t: 'b', n: start });
+      }
       if (!fullTranscript && start < 0) {
         // Pre-send compaction may replace the whole history, including
         // the user message that defined our turn-relative origin. The
