@@ -1,6 +1,8 @@
-// Session snapshots are latest-wins under backpressure; terminal byte streams
-// concatenate instead. Keep socket ownership and bounded backlog policy here.
+// Session snapshots are latest-wins under backpressure; a session patch chains
+// onto the queued frame it builds on, and terminal byte streams concatenate.
+// Keep socket ownership and bounded backlog policy here.
 const TERMINAL_BACKLOG_MAX_CHARS = 256 * 1024;
+const KEEPALIVE_MS = 15_000;
 
 function terminalDataFrame(frame) {
   return frame?.type === 'desktop-event' &&
@@ -26,11 +28,26 @@ function mergePendingFrame(existing, frame, json) {
 }
 
 function pendingEntry(frame, json, queuedAt) {
-  return { frame, json, bytes: Buffer.byteLength(json) + 8, queuedAt };
+  const sse = `data: ${json}\n\n`;
+  return { frame, sse, bytes: Buffer.byteLength(sse), queuedAt };
 }
 
 function isResyncMarker(frame) {
   return frame?.resyncRequired === true || frame?.message?.resyncRequired === true;
+}
+
+// A patch builds on the frame queued before it for the same key. Replacing
+// that frame hands the receiver a lane it cannot decode, and the resync it
+// asks for re-sends the full snapshot into the same backlog.
+function isPatchFrame(frame) {
+  if (isResyncMarker(frame)) return false;
+  if (frame?.type === 'session-state') return Boolean(frame.patch) && Number.isSafeInteger(frame.baseRevision);
+  const wire = frame?.type === 'desktop-event' && frame.message?.kind === 'session-state' ? frame.message.wire : null;
+  return Boolean(wire?.__itemsPatch);
+}
+
+function readTraceIdOf(frame) {
+  return frame?.readTraceId ?? frame?.message?.readTraceId;
 }
 
 function resyncEntry(frame) {
@@ -116,13 +133,39 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
     } catch {}
   }
 
+  function pause(client) {
+    if (!client.paused) client.pausedAt = nowMs();
+    client.paused = true;
+  }
+
+  // A stream paused across a keepalive period: bytes still buffered mean the
+  // consumer stopped reading; none buffered means a drain that never fired.
+  function reportStall(client, res) {
+    if (typeof onDiagnostic !== 'function') return;
+    const atMs = nowMs();
+    if (atMs - client.pausedAt < KEEPALIVE_MS) return;
+    try {
+      onDiagnostic({
+        stage: 'stream-stalled',
+        atMs,
+        pausedMs: atMs - client.pausedAt,
+        bufferedBytes: res.writableLength,
+        needDrain: res.writableNeedDrain,
+        pendingBytes: client.pendingBytes || 0,
+        maxPendingBytes,
+      });
+    } catch {
+      /* A diagnostic failure cannot change backpressure. */
+    }
+  }
+
   function flushPending(client) {
     while (client.sse && !client.paused && client.pending.size > 0) {
       const [key, entry] = client.pending.entries().next().value;
       client.pending.delete(key);
       client.pendingBytes = Math.max(0, client.pendingBytes - (entry.bytes || 0));
       try {
-        if (client.sse.write(`data: ${entry.json}\n\n`) === false) client.paused = true;
+        if (client.sse.write(entry.sse) === false) pause(client);
         traceFrame(client, entry.frame, 'stream-write', entry);
       } catch {
         traceFrame(client, entry.frame, 'stream-write-failed', entry, true);
@@ -144,13 +187,18 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
     client.pending.set(key, entry);
     client.pendingBytes += entry.bytes || 0;
     traceFrame(client, entry.frame, 'stream-queued', entry);
+    boundPending(client, key);
+  }
+
+  function boundPending(client, key) {
     // The cap bounds accumulated backlog: older entries collapse to resync
     // markers or drop, oldest first. The newest frame is always admitted, so a
     // snapshot larger than the cap still reaches a client with no backlog, and
     // markers are kept so a receiver always learns what it missed.
     for (const [oldestKey, oldest] of client.pending) {
       if (client.pendingBytes <= maxPendingBytes) break;
-      if (oldestKey === key || isResyncMarker(oldest.frame)) continue;
+      // Only a single newest frame is exempt: a patch chain is backlog too.
+      if ((oldestKey === key && !oldest.chained) || isResyncMarker(oldest.frame)) continue;
       const marker = resyncEntry(oldest.frame);
       if (marker && marker.bytes < oldest.bytes) {
         traceFrame(client, oldest.frame, 'stream-resync-marker', oldest, true);
@@ -166,7 +214,26 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
   }
 
   function queueFrame(client, key, frame, json) {
-    const merged = mergePendingFrame(client.pending.get(key), frame, json);
+    const existing = client.pending.get(key);
+    if (existing && isPatchFrame(frame)) {
+      // A queued marker already makes the receiver fetch a fresh full
+      // snapshot, which supersedes every patch issued before it.
+      if (isResyncMarker(existing.frame)) return;
+      const next = pendingEntry(frame, json, nowMs());
+      // Map.set on a present key keeps its place: the chain leaves with its base.
+      client.pending.set(key, {
+        frame: readTraceIdOf(existing.frame) ? existing.frame : frame,
+        sse: existing.sse + next.sse,
+        bytes: existing.bytes + next.bytes,
+        queuedAt: existing.queuedAt,
+        chained: true,
+      });
+      client.pendingBytes += next.bytes;
+      traceFrame(client, frame, 'stream-queued', next);
+      boundPending(client, key);
+      return;
+    }
+    const merged = mergePendingFrame(existing, frame, json);
     setPending(client, key, pendingEntry(merged.frame, merged.json, nowMs()));
   }
 
@@ -177,7 +244,7 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
       return;
     }
     try {
-      if (client.sse.write(`data: ${json}\n\n`) === false) client.paused = true;
+      if (client.sse.write(`data: ${json}\n\n`) === false) pause(client);
       traceFrame(client, frame, 'stream-write');
     } catch {
       traceFrame(client, frame, 'stream-write-failed', {}, true);
@@ -221,7 +288,8 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
     const paused = res.write(': attached\n\n') === false;
     const previous = client.sse;
     client.sse = res;
-    client.paused = paused;
+    client.paused = false;
+    if (paused) pause(client);
     client.lastSeen = nowMs();
     // Replacement transfers ownership before closing the old stream, so its
     // close/error callbacks cannot detach the new response.
@@ -252,13 +320,17 @@ export function createSessionFrameStream({ clients, maxPendingBytes, nowMs, onAt
     res.on('close', cleanup);
     res.on('error', cleanup);
     keepAlive = setInterval(() => {
-      if (client.sse !== res || client.paused) return;
+      if (client.sse !== res) return;
+      if (client.paused) {
+        reportStall(client, res);
+        return;
+      }
       try {
-        if (res.write(': ka\n\n') === false) client.paused = true;
+        if (res.write(': ka\n\n') === false) pause(client);
       } catch {
         retireStream(res);
       }
-    }, 15_000);
+    }, KEEPALIVE_MS);
     keepAlive.unref?.();
     flushPending(client);
     return true;

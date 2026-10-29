@@ -21,7 +21,10 @@ class Response extends EventEmitter {
     this.emit('close');
   }
   frames() {
-    return this.writes.filter((value) => value.startsWith('data:')).map((value) => JSON.parse(value.slice(6)));
+    return this.writes
+      .flatMap((value) => value.split('\n\n'))
+      .filter((event) => event.startsWith('data:'))
+      .map((event) => JSON.parse(event.slice(6)));
   }
 }
 
@@ -267,6 +270,214 @@ test('broadcast skips serialization when no SSE client is a target', (t) => {
   assert.equal(client.pending.size, 0);
   stream.broadcast(frame, ['client']);
   assert.equal(serialized, 1);
+});
+
+function laneStream(t, { maxPendingBytes = 8 * 1024 * 1024, onDiagnostic } = {}) {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const client = { sse: null, paused: false, pending: new Map(), pendingBytes: 0 };
+  const stream = createSessionFrameStream({
+    clients: new Map([['client', client]]),
+    maxPendingBytes,
+    nowMs: () => 1_000,
+    onAttached() {},
+    onClosed() {},
+    onDiagnostic,
+  });
+  const response = new Response();
+  // Backpressured from the attach: every frame below is queued until drain.
+  response.results = [false];
+  stream.attachSse('client', response);
+  return { client, stream, response };
+}
+
+const laneFull = (sessionId, revision, text, readTraceId) => ({
+  type: 'desktop-event',
+  key: `desktop-event:desktop:session-state:${sessionId}`,
+  desktopId: 'desktop',
+  message: {
+    kind: 'session-state',
+    sessionId,
+    ...(readTraceId ? { readTraceId } : {}),
+    wire: { items: [text], __itemsRevision: revision },
+  },
+});
+const lanePatch = (sessionId, revision, text) => ({
+  type: 'desktop-event',
+  key: `desktop-event:desktop:session-state:${sessionId}`,
+  desktopId: 'desktop',
+  message: {
+    kind: 'session-state',
+    sessionId,
+    wire: { __itemsPatch: { base: revision - 1, revision, prefix: 1, append: [text] } },
+  },
+});
+
+/** The desktop decoder's contract: a patch applies only to the revision held. */
+function laneReceiver() {
+  const held = new Map();
+  const resyncs = [];
+  return {
+    resyncs,
+    held,
+    receive(frames) {
+      for (const frame of frames) {
+        const { sessionId, wire } = frame.message;
+        const patch = wire?.__itemsPatch;
+        if (!patch) {
+          held.set(sessionId, wire.__itemsRevision);
+        } else if (patch.base === held.get(sessionId)) {
+          held.set(sessionId, patch.revision);
+        } else {
+          held.delete(sessionId);
+          resyncs.push(sessionId);
+        }
+      }
+    },
+  };
+}
+
+test('a patch queued behind its full snapshot leaves with it instead of replacing it', (t) => {
+  const diagnostics = [];
+  const { client, stream, response } = laneStream(t, { onDiagnostic: (entry) => diagnostics.push(entry) });
+  const full = laneFull('B', 1, 'b'.repeat(300_000), 'read-B');
+  const patch = lanePatch('B', 2, 'live');
+  stream.broadcast(full);
+  stream.broadcast(patch);
+  // A full snapshot is self-contained, so it still replaces a queued chain.
+  const restartC = laneFull('C', 1, 'restart');
+  stream.broadcast(laneFull('C', 1, 'old'));
+  stream.broadcast(lanePatch('C', 2, 'z'));
+  stream.broadcast(restartC);
+  response.emit('drain');
+  assert.deepEqual(response.frames(), [full, patch, restartC]);
+  const receiver = laneReceiver();
+  receiver.receive(response.frames());
+  assert.deepEqual(receiver.resyncs, []);
+  assert.equal(receiver.held.get('B'), 2);
+  assert.equal(
+    diagnostics.some((r) => r.stage === 'stream-replaced' && r.sessionId === 'B'),
+    false
+  );
+  assert.equal(diagnostics.find((r) => r.stage === 'stream-write')?.traceId, 'read-B');
+  assert.equal(client.pendingBytes, 0);
+  response.end();
+});
+
+test('a lane resync is not re-sent each cycle while the stream is backed up', (t) => {
+  const { stream, response } = laneStream(t);
+  const receiver = laneReceiver();
+  // The service answers each resync with the full lane, and a live update
+  // follows it before the backlog drains.
+  const publishLane = () => {
+    stream.broadcast(laneFull('A', 1, 'a'.repeat(1024 * 1024)));
+    stream.broadcast(lanePatch('A', 2, 'tick'));
+  };
+  publishLane();
+  for (let cycle = 0; cycle < 3; cycle++) {
+    const before = response.frames().length;
+    response.results = [false];
+    response.emit('drain');
+    receiver.receive(response.frames().slice(before));
+    if (receiver.resyncs.length <= cycle) break;
+    publishLane();
+  }
+  assert.deepEqual(receiver.resyncs, []);
+  assert.equal(receiver.held.get('A'), 2);
+  assert.equal(response.frames().filter((f) => !f.message.wire.__itemsPatch).length, 1);
+  response.end();
+});
+
+test('a queued resync marker absorbs the patches issued after it', (t) => {
+  const { client, stream, response } = laneStream(t, { maxPendingBytes: 1_024 });
+  stream.broadcast(laneFull('A', 1, 'a'.repeat(700)));
+  // B pushes the backlog over the cap: A collapses to a marker.
+  const fullB = laneFull('B', 1, 'b'.repeat(4_000));
+  stream.broadcast(fullB);
+  stream.broadcast(lanePatch('A', 2, 'y'));
+  response.emit('drain');
+  assert.deepEqual(
+    response.frames().map((f) => [f.message.sessionId, f.message.resyncRequired === true]),
+    [
+      ['A', true],
+      ['B', false],
+    ]
+  );
+  assert.deepEqual(response.frames()[1], fullB);
+  assert.equal(client.pendingBytes, 0);
+  response.end();
+});
+
+test('the backlog cap still bounds patch chains', (t) => {
+  const { client, stream, response } = laneStream(t, { maxPendingBytes: 1_024 });
+  stream.broadcast(laneFull('A', 1, 'a'.repeat(400)));
+  for (let revision = 2; revision < 12; revision++) stream.broadcast(lanePatch('A', revision, 'p'.repeat(40)));
+  const fullB = laneFull('B', 1, 'b'.repeat(300));
+  stream.broadcast(fullB);
+  const queued = [...client.pending.values()].reduce((sum, entry) => sum + entry.bytes, 0);
+  assert.equal(client.pendingBytes, queued);
+  assert.ok(client.pendingBytes <= 1_024);
+  response.emit('drain');
+  assert.deepEqual(
+    response.frames().map((f) => [f.message.sessionId, f.message.resyncRequired === true]),
+    [
+      ['A', true],
+      ['B', false],
+    ]
+  );
+  response.end();
+});
+
+test('a session-state patch frame queued behind its full frame is delivered after it', (t) => {
+  const { stream, response } = laneStream(t);
+  const full = { type: 'session-state', key: 'session-state:S', sessionId: 'S', revision: 1, full: { items: [] } };
+  const patch = {
+    type: 'session-state',
+    key: 'session-state:S',
+    sessionId: 'S',
+    revision: 2,
+    baseRevision: 1,
+    patch: { set: { title: 't' } },
+  };
+  stream.broadcast(full);
+  stream.broadcast(patch);
+  response.emit('drain');
+  assert.deepEqual(response.frames(), [full, patch]);
+  response.end();
+});
+
+test('a stream paused past a keepalive period reports what is still buffered', (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  let now = 1_000;
+  const diagnostics = [];
+  const client = { sse: null, paused: false, pending: new Map(), pendingBytes: 0 };
+  const stream = createSessionFrameStream({
+    clients: new Map([['client', client]]),
+    maxPendingBytes: 1_024,
+    nowMs: () => now,
+    onAttached() {},
+    onClosed() {},
+    onDiagnostic: (entry) => diagnostics.push(entry),
+  });
+  const response = new Response();
+  response.writableLength = 4_096;
+  response.writableNeedDrain = true;
+  response.results = [true, false];
+  stream.attachSse('client', response);
+  stream.broadcast({ type: 'update' });
+  now += 15_000;
+  t.mock.timers.tick(15_000);
+  assert.deepEqual(diagnostics, [
+    {
+      stage: 'stream-stalled',
+      atMs: 16_000,
+      pausedMs: 15_000,
+      bufferedBytes: 4_096,
+      needDrain: true,
+      pendingBytes: 0,
+      maxPendingBytes: 1_024,
+    },
+  ]);
+  response.end();
 });
 
 test('stream diagnostics are rate bounded and throwing sinks cannot block writes', (t) => {
