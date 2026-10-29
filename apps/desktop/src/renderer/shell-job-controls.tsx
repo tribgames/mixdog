@@ -13,27 +13,36 @@ import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { formatWorkElapsed } from './transcript-primitives';
 
-type ShellRequest = { kind: 'stop' | 'release'; state: NonNullable<ShellStopState> };
+type ShellKind = 'stop' | 'release';
+// `held`: the stop was asked of a row already reported unconfirmed (it ends
+// the survivors), so it stays visible instead of turning into a release.
+type ShellRequest = { kind: ShellKind; state: NonNullable<ShellStopState>; held?: boolean };
 
 /** Stop requests per shell row. A row stays "stopping" until the shell-jobs
  *  status lists it as finished (the row then reads Stopped and Dismiss), or
  *  until the request fails, which keeps it running and offers a retry. A row
- *  whose termination is unconfirmed is released instead — only after the
- *  user confirms that its processes may still be running. */
+ *  whose termination is unconfirmed offers both Stop (ends its surviving
+ *  processes) and Release anyway — released only after the user confirms that
+ *  its processes may still be running. */
 export function useShellStops(sessionId: string) {
   const [stops, setStops] = useState<Record<string, ShellRequest>>({});
   // A pending or failed *stop* is moot once the host reports the row's
-  // termination unconfirmed; only a release request keeps that row busy.
+  // termination unconfirmed; only a release request, or a stop asked of an
+  // already unconfirmed row, keeps that row busy.
   const stopOf = (row: JobRow): ShellStopState => {
     const request = stops[row.key];
     if (row.finished || !request) return undefined;
-    if (request.kind === 'stop' && row.terminationUnconfirmed) return undefined;
+    if (request.kind === 'stop' && row.terminationUnconfirmed && !request.held) return undefined;
     return request.state;
   };
+  // A held row whose release (not a stop) is in flight or failed.
+  const releasingOf = (row: JobRow): boolean => row.terminationUnconfirmed === true && stops[row.key]?.kind !== 'stop';
   const stop = useCallback(
-    async (row: JobRow) => {
+    async (row: JobRow, requested?: ShellKind) => {
       if (!row.taskId) return;
+      const kind: ShellKind = requested ?? (row.terminationUnconfirmed ? 'release' : 'stop');
       if (
+        kind === 'release' &&
         row.terminationUnconfirmed &&
         !(await confirmAction(
           t(
@@ -44,8 +53,8 @@ export function useShellStops(sessionId: string) {
         ))
       )
         return;
-      const kind: ShellRequest['kind'] = row.terminationUnconfirmed ? 'release' : 'stop';
-      setStops((current) => ({ ...current, [row.key]: { kind, state: 'stopping' } }));
+      const held = kind === 'stop' && row.terminationUnconfirmed === true;
+      setStops((current) => ({ ...current, [row.key]: { kind, state: 'stopping', held } }));
       let done = false;
       let unconfirmed = false;
       try {
@@ -59,12 +68,15 @@ export function useShellStops(sessionId: string) {
       } catch {
         done = false;
       }
-      if (unconfirmed) setStops((current) => ({ ...current, [row.key]: { kind, state: 'unconfirmed' } }));
-      else if (!done) setStops((current) => ({ ...current, [row.key]: { kind, state: 'failed' } }));
+      // A stop of a held row that is not confirmed fails visibly, so Release
+      // anyway stays reachable.
+      if (unconfirmed && !held)
+        setStops((current) => ({ ...current, [row.key]: { kind, state: 'unconfirmed', held } }));
+      else if (!done) setStops((current) => ({ ...current, [row.key]: { kind, state: 'failed', held } }));
     },
     [sessionId]
   );
-  return { stopOf, stop };
+  return { stopOf, releasingOf, stop };
 }
 
 /** A finished shell's status mark: done (exit 0), cancelled (stopped) or failed. */
@@ -74,14 +86,24 @@ function finishedState(row: JobRow): 'done' | 'cancelled' | 'failed' {
 }
 
 /** A shell row's icon, command, folder · elapsed (or stop error) and status. */
-export function ShellJobContent({ row, clock, stop }: { row: JobRow; clock: number; stop: ShellStopState }) {
+export function ShellJobContent({
+  row,
+  clock,
+  stop,
+  releasing = row.terminationUnconfirmed === true,
+}: {
+  row: JobRow;
+  clock: number;
+  stop: ShellStopState;
+  releasing?: boolean;
+}) {
   const folder = cwdFolderName(row.cwd);
   const elapsed = row.startedAt > 0 ? formatWorkElapsed(clock - row.startedAt) || '0s' : '0s';
   let detail: ReactNode = null;
   if (stop === 'failed') {
     detail = (
       <small className="composer-island-row-error" role="alert">
-        {row.terminationUnconfirmed ? t("Couldn't release") : t("Island: Couldn't stop")}
+        {releasing ? t("Couldn't release") : t("Island: Couldn't stop")}
       </small>
     );
   } else if (folder) {
@@ -123,35 +145,63 @@ export function ShellJobContent({ row, clock, stop }: { row: JobRow; clock: numb
   );
 }
 
-/** The shell row's trailing button: Stop, Stopping…, Retry, or Dismiss. */
+/** The shell row's trailing buttons: Stop, Stopping…, Retry, or Dismiss. A
+ *  held row (termination unconfirmed) offers Release anyway and Stop (which
+ *  ends its surviving processes); after a failed stop, Retry in place of Stop. */
 export function ShellRowButton({
   row,
   stop,
+  releasing = row.terminationUnconfirmed === true,
   onStop,
   onDismiss,
 }: {
   row: JobRow;
   stop: ShellStopState;
-  onStop(row: JobRow): void;
+  releasing?: boolean;
+  onStop(row: JobRow, kind?: ShellKind): void;
   onDismiss(row: JobRow): void;
 }) {
   const action = shellRowAction(row, stop);
   const label = {
     stop: t('Stop'),
-    stopping: row.terminationUnconfirmed ? t('Releasing…') : t('Island: Stopping…'),
+    stopping: releasing ? t('Releasing…') : t('Island: Stopping…'),
     retry: t('Retry'),
     dismiss: t('Dismiss'),
     release: t('Release anyway'),
   }[action];
-  return (
+  const held = row.terminationUnconfirmed === true;
+  const button = (text: string, onClick: () => void, disabled = false) => (
     <button
+      key={text}
       type="button"
       className="composer-island-button composer-island-row-dismiss"
-      aria-label={action === 'stopping' ? undefined : `${label}: ${row.label}`}
-      disabled={action === 'stopping'}
-      onClick={() => (action === 'dismiss' ? onDismiss(row) : onStop(row))}
+      aria-label={disabled ? undefined : `${text}: ${row.label}`}
+      disabled={disabled}
+      onClick={onClick}
     >
-      {label}
+      {text}
     </button>
+  );
+  if (action === 'release') {
+    return (
+      <>
+        {button(label, () => onStop(row, 'release'))}
+        {button(t('Stop'), () => onStop(row, 'stop'))}
+      </>
+    );
+  }
+  if (action === 'retry' && held && !releasing) {
+    return (
+      <>
+        {button(t('Release anyway'), () => onStop(row, 'release'))}
+        {button(label, () => onStop(row, 'stop'))}
+      </>
+    );
+  }
+  const heldKind: ShellKind = releasing ? 'release' : 'stop';
+  return button(
+    label,
+    () => (action === 'dismiss' ? onDismiss(row) : onStop(row, held ? heldKind : undefined)),
+    action === 'stopping'
   );
 }

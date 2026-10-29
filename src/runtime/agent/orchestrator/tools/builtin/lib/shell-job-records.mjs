@@ -104,8 +104,13 @@ function validJobId(jobId) {
 
 function terminalRecord(base, detail) {
   const finishedAt = detail?.finishedAt || new Date().toISOString();
+  // A completed record no longer claims an unconfirmed termination: it is
+  // written once the processes are confirmed gone, or explicitly released.
+  // A completed record no longer claims an unconfirmed termination: it is
+  // written once the processes are confirmed gone, or explicitly released.
+  const { terminationUnconfirmed: _held, ...open } = base || {};
   return {
-    ...(base || {}),
+    ...open,
     jobId: String(detail?.jobId || base?.jobId || ''),
     kind: 'bash',
     status: String(detail?.status || 'failed'),

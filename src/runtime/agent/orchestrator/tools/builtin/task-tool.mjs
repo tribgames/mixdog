@@ -325,13 +325,15 @@ export async function stopBackgroundShellJob(taskId, options = {}) {
 }
 
 // The running shell tasks the caller's session owns (promoted jobs and the
-// survivors a finished command left). A foreground command holds no
-// background task, so it never appears here.
+// survivors a finished command left), including a task whose command already
+// exited while its tracked descendants still run (what the island lists as
+// termination unconfirmed). A foreground command holds no background task, so
+// it never appears here.
 function sessionShellTasks(options) {
   const sessionId = String(options.callerSessionId || '').trim();
   if (!sessionId) return [];
   return listBackgroundTasks({ ...options, surface: 'shell' })
-    .filter((row) => row.status === 'running')
+    .filter((row) => row.status === 'running' || isShellJobRunning(row.task_id))
     .map((row) => getBackgroundTask(row.task_id))
     .filter((task) => task?.ownerSessionId === sessionId);
 }
