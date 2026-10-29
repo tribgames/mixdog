@@ -15,9 +15,11 @@
 //                     before the provider ever runs, and store-summary-reader
 //                     keeps probing this exact path to detect a live turn.
 //   <session>.jsonl   append-only JSONL deltas — NEW/CHANGED turn messages (by
-//                     turn-relative index), a one-time full replacement when
-//                     compaction removes the opening prompt, APPENDED partial
-//                     text/reasoning and small interruption-state transitions.
+//                     index relative to the header's message list), APPENDED
+//                     partial text/reasoning, small interruption-state
+//                     transitions and the terminal seal. A history rewrite is
+//                     never a delta: the recorder rewrites the header with
+//                     the whole resulting context (turn-checkpoint.mjs).
 //                     A normal flush costs O(new bytes), never O(turn).
 // Appends ride a bounded coalescing lane (one in-flight write, one pending
 // buffer, synchronous drain above the byte ceiling) so the engine thread never
@@ -25,9 +27,8 @@
 //
 // Change detection is reference identity on message objects — the same contract
 // the session store's delta saves already rely on ("Replace, never mutate":
-// manager/prompt-utils.mjs, manager/session-lifecycle.mjs). A wholesale
-// transcript rewrite (image-strip splice, pre-send compaction) replaces the
-// refs, so it journals as changed indices plus a truncation record.
+// manager/prompt-utils.mjs, manager/session-lifecycle.mjs). Messages the turn
+// itself replaced journal as changed indices plus a truncation record.
 //
 // Reads replay header+journal into the EXACT object shape the full-snapshot
 // writer produced, so recovery/projection semantics are unchanged. A crash-torn
@@ -41,7 +42,6 @@ import { writeFileAtomicSync } from '../../../../shared/atomic-file.mjs';
 import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
 import { redactSettledText, sensitiveValuesVersion } from '../sensitive-values.mjs';
 import { redactSensitiveContent, redactSensitiveMessage, redactSensitiveToolCall } from '../sensitive-projection.mjs';
-import { promptContentText } from './prompt-utils.mjs';
 
 const TURN_CHECKPOINT_VERSION = 1;
 const SESSION_ID = /^[A-Za-z0-9_-]+$/;
@@ -96,30 +96,6 @@ export function checkpointMessage(message) {
   if (!message || typeof message !== 'object') return message;
   const content = sanitizeContentForStoredHistory(message.content);
   return content === message.content ? message : { ...message, content };
-}
-
-function matchingUserMessage(message, currentUserContent) {
-  return (
-    message?.role === 'user' &&
-    (message.content === currentUserContent ||
-      promptContentText(message.content) === promptContentText(currentUserContent))
-  );
-}
-
-/** Index of the user message that opened this turn, or -1. */
-export function findTurnStart(messages, currentUserContent) {
-  const source = Array.isArray(messages) ? messages : [];
-  for (let index = source.length - 1; index >= 0; index -= 1) {
-    if (matchingUserMessage(source[index], currentUserContent)) return index;
-  }
-  return -1;
-}
-
-export function turnMessagesForCheckpoint(messages, currentUserContent) {
-  const source = Array.isArray(messages) ? messages : [];
-  const start = findTurnStart(source, currentUserContent);
-  const turn = start >= 0 ? source.slice(start) : [];
-  return turn.map(checkpointMessage);
 }
 
 export function emptyInterruptionSnapshot() {
@@ -361,13 +337,21 @@ export function cancelJournalWrites(sessionId) {
   _releaseIdleEntry(sessionId, entry);
 }
 
-export function appendJournalLines(sessionId, lines) {
+/** `immediate`: written on the calling thread when nothing is queued or in
+ *  flight (the terminal seal), otherwise queued in order like any append. */
+export function appendJournalLines(sessionId, lines, { immediate = false } = {}) {
   if (!Array.isArray(lines) || lines.length === 0) return false;
-  _enqueueJournalOp(sessionId, {
-    kind: 'append',
-    path: turnJournalPath(sessionId),
-    data: lines.join(''),
-  });
+  const op = { kind: 'append', path: turnJournalPath(sessionId), data: lines.join('') };
+  if (immediate && !_journalWrites.has(sessionId)) {
+    try {
+      _runJournalOpSync(op);
+      return true;
+    } catch (error) {
+      _warnJournalOnce(sessionId, error);
+      return false;
+    }
+  }
+  _enqueueJournalOp(sessionId, op);
   return true;
 }
 
@@ -500,8 +484,8 @@ export function replayTurnJournal(header) {
   } catch {
     return header;
   }
-  let messages = header.turnMessages.slice();
-  let fullTranscript = header.fullTranscript === true;
+  const messages = header.turnMessages.slice();
+  let sealed = header.sealed === true;
   let contextState = header.contextState ?? null;
   const state = interruptionStateFromSnapshot(header.interruption);
   let updatedAt = Number(header.updatedAt) || 0;
@@ -545,9 +529,8 @@ export function replayTurnJournal(header) {
       if (Number.isInteger(index) && index >= 0 && index <= messages.length) {
         messages[index] = record.m;
       }
-    } else if (record.t === 'full' && Array.isArray(record.ms)) {
-      messages = record.ms.slice();
-      fullTranscript = true;
+    } else if (record.t === 'seal') {
+      sealed = true;
     } else if (record.t === 'len') {
       const next = Number(record.n);
       if (Number.isInteger(next) && next >= 0 && next <= messages.length) {
@@ -565,7 +548,7 @@ export function replayTurnJournal(header) {
   return {
     ...header,
     turnMessages: messages,
-    ...(fullTranscript ? { fullTranscript: true } : {}),
+    ...(sealed ? { sealed: true } : {}),
     interruption: interruptionSnapshotFromState(state),
     contextState,
     updatedAt,
@@ -573,13 +556,14 @@ export function replayTurnJournal(header) {
 }
 
 /**
- * Per-turn delta encoder. Holds the message refs already journaled (by
- * turn-relative index) plus an opaque interruption cursor, so each encode()
- * touches only what changed since the previous flush.
+ * Per-turn delta encoder. Holds the message refs already journaled (by index
+ * relative to the header's first message, `offset` in the working transcript)
+ * plus an opaque interruption cursor, so each encode() touches only what
+ * changed since the previous flush.
  */
 export function createTurnJournalEncoder({ turnToken, sessionId = null } = {}) {
   let journaled = [];
-  let fullTranscript = false;
+  let offset = 0;
   let cursor = null;
   let contextStateKey = null;
   // Per-turn record sequence. It is assigned where records are produced, so
@@ -620,16 +604,15 @@ export function createTurnJournalEncoder({ turnToken, sessionId = null } = {}) {
     return out;
   };
   return {
-    /** Seed from the turn's opening state; returns the header's messages
+    /** Seed from `turnOutgoing[offset..]`; returns the header's messages
      * and the journal's opening lines (head record, plus — defensively —
      * the delta that makes the journal authoritative if the tracker already
      * carried state at open time). `snapshot` is the tracker snapshot the
      * header stores; `epoch` names the journal a rewritten header starts. */
-    seed(turnOutgoing, currentUserContent, interruption, contextState = null, { snapshot = null, epoch = 0 } = {}) {
+    seed(turnOutgoing, interruption, contextState = null, { offset: from = 0, snapshot = null, epoch = 0 } = {}) {
       const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
-      const start = findTurnStart(source, currentUserContent);
-      fullTranscript = start < 0;
-      journaled = fullTranscript ? source.slice() : source.slice(start);
+      offset = from;
+      journaled = source.slice(offset);
       mirror = sensitiveValuesVersion(sessionId)
         ? {
             raw: interruptionStateFromSnapshot(snapshot),
@@ -646,40 +629,25 @@ export function createTurnJournalEncoder({ turnToken, sessionId = null } = {}) {
         openLines.push(line({ t: 'x', d: seededDelta, at: Date.now() }));
       return {
         turnMessages: journaled.map(checkpointMessage),
-        fullTranscript,
         contextState,
         openLines,
       };
     },
-    encode({ turnOutgoing, currentUserContent, interruption, contextState = null }) {
+    /** Lines for what changed since the previous flush; `sealed` adds the
+     *  record that marks the turn finished. */
+    encode({ turnOutgoing, interruption, contextState = null, sealed = false }) {
       const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
-      const start = findTurnStart(source, currentUserContent);
       const records = [];
-      if (!fullTranscript && start < 0) {
-        // Pre-send compaction may replace the whole history, including
-        // the user message that defined our turn-relative origin. The
-        // replacement is normally small; persist it once so reconnect
-        // and crash recovery never splice an empty turn onto the stale
-        // pre-compaction prefix.
-        fullTranscript = true;
-        journaled = source.slice();
-        records.push({
-          t: 'full',
-          ms: journaled.map(stored),
-        });
-      } else {
-        const offset = fullTranscript ? 0 : start;
-        const length = offset >= 0 ? source.length - offset : 0;
-        for (let index = 0; index < length; index += 1) {
-          const raw = source[offset + index];
-          if (journaled[index] === raw) continue;
-          journaled[index] = raw;
-          records.push({ t: 'm', i: index, m: stored(raw) });
-        }
-        if (journaled.length > length) {
-          journaled.length = length;
-          records.push({ t: 'len', n: length });
-        }
+      const length = Math.max(0, source.length - offset);
+      for (let index = 0; index < length; index += 1) {
+        const raw = source[offset + index];
+        if (journaled[index] === raw) continue;
+        journaled[index] = raw;
+        records.push({ t: 'm', i: index, m: stored(raw) });
+      }
+      if (journaled.length > length) {
+        journaled.length = length;
+        records.push({ t: 'len', n: length });
       }
       if (typeof interruption?.journalDelta === 'function') {
         const next = interruption.journalDelta(cursor);
@@ -692,6 +660,7 @@ export function createTurnJournalEncoder({ turnToken, sessionId = null } = {}) {
         contextStateKey = nextContextStateKey;
         records.push({ t: 'c', c: contextState });
       }
+      if (sealed) records.push({ t: 'seal' });
       if (records.length === 0) return [];
       // One timestamp per batch keeps `updatedAt` fresh for the
       // newer-than-session recovery guard without a per-record cost.

@@ -16,7 +16,7 @@ import {
 } from './pending-messages.mjs';
 import { _getRuntimeEntry, markSessionCancelled, markSessionError } from './runtime-liveness.mjs';
 import { SessionClosedError } from './session-errors.mjs';
-import { clearTurnCheckpoint } from './turn-checkpoint.mjs';
+import { holdTurnUntilDurable, turnCoveredOnDisk } from './turn-durability.mjs';
 import { attachFailedTurnCompletion } from './ask-turn-settle.mjs';
 import { turnFailureRecord } from '../turn-failure.mjs';
 import { transcriptRouteMetadataFields } from '../../../../shared/transcript-metadata.mjs';
@@ -97,6 +97,17 @@ async function persistFinalizedSession({ session, sessionId, generation, pending
   }
 }
 
+/** Keep the failed turn's checkpoint until a landed save covers its
+ *  finalized transcript (turn-durability.mjs); returns the save issued for
+ *  it, or null when an earlier one already landed it. */
+function holdFinalizedTurn({ sessionId, session, turnToken, generation }) {
+  const save = turnCoveredOnDisk(session, turnToken)
+    ? null
+    : saveSessionAsync(session, { expectedGeneration: generation });
+  holdTurnUntilDurable({ sessionId, session, turnToken, generation, save });
+  return save;
+}
+
 /** A SessionClosedError unwind: keeps the interruption snapshot unless the
  *  runtime already closed, in which case the consumed queue entries are
  *  released untouched. */
@@ -119,14 +130,14 @@ async function finalizeCancelledTurn({
   if (currentRuntime?.prepareCloseSnapshot === prepareCloseSnapshot) {
     currentRuntime.prepareCloseSnapshot = null;
   }
-  const settled = await persistFinalizedSession({
+  await persistFinalizedSession({
     session,
     sessionId,
     generation,
     pendingEntries: turn.pendingEntries,
     promptSurvived: finalized.responsePreserved,
   });
-  if (settled) clearTurnCheckpoint(sessionId, turnCheckpointToken);
+  holdFinalizedTurn({ sessionId, session, turnToken: turnCheckpointToken, generation });
   if (currentRuntime) currentRuntime.session = session;
   markSessionCancelled(sessionId);
 }
@@ -169,6 +180,9 @@ export async function finalizeAskTurnFailure({
   if (session) {
     session.liveTurnMessages = null;
     delete session.activeTurnCheckpoint;
+    // Every record saved from here on carries this turn as finalized: a
+    // crash after one lands deletes the checkpoint instead of replaying it.
+    session.turnCoverage = turnCheckpointToken;
     // The provider prefix snapshot commits per successful send INSIDE the
     // turn, while the transcript unwinds to its pre-turn/finalized shape
     // below. A surviving mid-turn snapshot flags every retry as
@@ -252,15 +266,16 @@ export async function finalizeAskTurnFailure({
       releasePendingMessages(sessionId, turn.pendingEntries);
     }
   }
-  if (!errorStateDurable && session) {
-    try {
-      errorStateDurable = (await settleAskCleanup(saveSessionAsync(session, { expectedGeneration: generation })))
-        .settled;
-    } catch {
-      /* retain checkpoint when canonical persistence fails */
+  if (session) {
+    const save = holdFinalizedTurn({ sessionId, session, turnToken: turnCheckpointToken, generation });
+    if (save && !errorStateDurable) {
+      try {
+        await settleAskCleanup(save);
+      } catch {
+        /* the checkpoint stays until a save covering the turn lands */
+      }
     }
   }
-  if (errorStateDurable) clearTurnCheckpoint(sessionId, turnCheckpointToken);
   logAskError(sessionId, err, providerOutcome);
   markSessionError(sessionId, err?.message ? err.message : String(err));
 }

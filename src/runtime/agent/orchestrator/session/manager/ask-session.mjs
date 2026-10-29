@@ -15,7 +15,7 @@ import { drainPendingMessages, hydratePendingMessages } from './pending-messages
 import { _unlinkParentAbortListener, _getRuntimeEntry, _evictTerminalSessionRuntime } from './runtime-liveness.mjs';
 import { acquireSessionLock } from './session-lock.mjs';
 import { createAskPromptQueue } from './ask-queue.mjs';
-import { armTurnDurability, claimTurnRuntime } from './ask-turn-open.mjs';
+import { armTurnDurability, claimTurnRuntime, settleTurnBase } from './ask-turn-open.mjs';
 import { prepareAskTurn, runAskAgentLoop } from './ask-turn-execute.mjs';
 import { commitAskTurn, publishAskTurn } from './ask-turn-settle.mjs';
 import { finalizeAskTurnFailure } from './ask-turn-failure.mjs';
@@ -255,12 +255,14 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         input.retryAttemptId = askOpts.retryAttemptId;
         retryTurnId = null;
       }
+      // The previous turn's save has landed and this turn's base is on disk
+      // before the turn touches the session (one unsettled turn per session).
+      await settleTurnBase(sessionId, { recoverCheckpoint: firstTurn });
       // Synchronous pre-await setup (must happen before any await so
       // closeSession() can't interleave between load and registration).
       const claimed = claimTurnRuntime({
         sessionId,
         askOpts,
-        recoverCheckpoint: firstTurn,
         emitStart: firstTurn,
       });
       warmTurn = noteTurnForCacheWarm(sessionId, claimed, input);

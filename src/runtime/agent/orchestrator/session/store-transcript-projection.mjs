@@ -41,7 +41,9 @@ export async function prepareStoredTranscriptBase(sessionId, doc, options) {
     // A running turn is never recovered: project its checkpoint read-only.
     if (isSessionTurnLive(sessionId)) projectCheckpoint();
     else {
-      session = recoverSessionAfterProcessRestart(sessionId) || session;
+      // `doc` is the record exactly as this read parsed it from disk: the
+      // durable evidence recovery decides on.
+      session = recoverSessionAfterProcessRestart(sessionId, doc) || session;
       // A closed session keeps its marker unrecovered.
       if (session?.activeTurnCheckpoint) projectCheckpoint();
     }
