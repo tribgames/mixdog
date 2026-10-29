@@ -136,7 +136,9 @@ export function renameWithRetrySync(src, dst, opts = {}) {
 // A read still open after RENAME_READ_WAIT_MS is left behind with its path's
 // entry (a stuck read must not hold the writer, its lock, or later readers),
 // and the attempt goes ahead under those same retries. Likewise a rename not
-// returned by then: readers held off read anyway, as without it.
+// returned by then: readers held off read anyway, as without it. A reader's
+// bound counts from the rename call, not from the attempt's own (bounded)
+// wait for reads, so a rename that just started is never read across.
 export const RENAME_READ_WAIT_MS = 1_000;
 const targetUse = new Map();
 const targetKey = (path) => {
@@ -145,7 +147,7 @@ const targetKey = (path) => {
 };
 function useOf(key) {
   let use = targetUse.get(key);
-  if (!use) targetUse.set(key, (use = { reads: 0, renaming: null, drained: [] }));
+  if (!use) targetUse.set(key, (use = { reads: 0, renaming: null, draining: null, drained: [] }));
   return use;
 }
 function forgetIfIdle(key, use) {
@@ -155,7 +157,10 @@ function forgetIfIdle(key, use) {
 // Waits for the rename `use` runs; one that has not returned within the bound
 // is left behind with the entry, and the caller goes on as without it.
 async function outwaitRename(key, use) {
-  if (!(await settlesWithin(use.renaming, RENAME_READ_WAIT_MS)) && targetUse.get(key) === use) targetUse.delete(key);
+  await use.draining;
+  if (use.renaming && !(await settlesWithin(use.renaming, RENAME_READ_WAIT_MS)) && targetUse.get(key) === use) {
+    targetUse.delete(key);
+  }
   return useOf(key);
 }
 
@@ -189,13 +194,13 @@ async function renameOver(src, dst) {
   use.renaming = new Promise((resolve) => {
     finish = resolve;
   });
+  use.draining = use.reads > 0 ? readsDrained(use, RENAME_READ_WAIT_MS) : null;
   try {
-    if (use.reads > 0 && !(await readsDrained(use, RENAME_READ_WAIT_MS)) && targetUse.get(key) === use) {
-      targetUse.delete(key);
-    }
+    if (use.draining && !(await use.draining) && targetUse.get(key) === use) targetUse.delete(key);
     await renameAsync(src, dst);
   } finally {
     use.renaming = null;
+    use.draining = null;
     finish();
     forgetIfIdle(key, use);
   }

@@ -29,11 +29,12 @@ mock.module(fileLockUrl, {
 });
 // A read of a path in `readGates` (a rename onto one in `renameGates`) waits
 // on its gate (once) before touching the file, so it stays in flight as long
-// as the test holds it; every rename's destination is logged, and so is each
-// held rename's start.
+// as the test holds it; every read's start and rename's destination is
+// logged, and so is each held rename's start.
 const realFsp = await import('node:fs/promises');
 const readGates = new Map();
 const renameGates = new Map();
+const readStarts = [];
 const heldRenames = [];
 const renamedTo = [];
 const { default: realFspDefault, ...fspNamed } = realFsp;
@@ -41,6 +42,7 @@ mock.module('node:fs/promises', {
   namedExports: {
     ...fspNamed,
     async readFile(path, ...rest) {
+      readStarts.push(String(path));
       const gate = readGates.get(String(path));
       readGates.delete(String(path));
       if (gate) await gate;
@@ -231,17 +233,22 @@ test('a quarantine name is no longer than the original `.corrupt-<ms>` shape', (
   assert.ok(basename(second).length <= 255, `${basename(second).length} characters`);
 });
 
-// Waits on a condition (the writer's lock and temp file are real disk I/O).
-const turns = async (until) => {
-  for (const end = Date.now() + 5_000; !until() && Date.now() < end; ) {
-    await new Promise((resolve) => setTimeout(resolve, 5));
+// Waits on a condition (the writer's lock and temp file are real disk I/O);
+// event-loop turns, since the cases below hold setTimeout on a mock clock.
+const turns = async (until = () => true) => {
+  for (const end = Date.now() + 5_000; ; ) {
+    await new Promise((resolve) => setImmediate(resolve));
+    if (until() || Date.now() >= end) break;
   }
   assert.ok(until());
 };
+const readsOf = (path) => readStarts.filter((p) => p === path).length;
 
-test("an update's rename waits for this process's read of the file in flight, then goes ahead", async () => {
+// The wait bounds run on a mock clock: only `tick` ends one, whatever the load.
+test("an update's rename waits for this process's read of the file in flight, then goes ahead", async (t) => {
   const path = freshFile();
   await updateJsonAtomic(path, () => ({ n: 0 }));
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   let release;
   readGates.set(path, new Promise((resolve) => (release = resolve)));
   const reading = readJsonState(path);
@@ -258,36 +265,49 @@ test("an update's rename waits for this process's read of the file in flight, th
   assert.deepEqual(_renameCoordinationForTest(), { entries: 0, waiters: 0 });
 });
 
-test('a read that never settles holds neither the writer nor later readers past the wait bound', { timeout: 15_000 }, async () => {
+test('a read that never settles holds neither the writer nor later readers past the wait bound', async (t) => {
   const path = freshFile();
   await updateJsonAtomic(path, () => ({ n: 0 }));
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   readGates.set(path, new Promise(() => {}));
   void readJsonState(path);
-  const started = Date.now();
+  let release;
+  renameGates.set(path, new Promise((resolve) => (release = resolve)));
   const writing = updateJsonAtomic(path, () => ({ n: 1 }));
   await turns(() => _renameCoordinationForTest().waiters === 1);
-  // A reader arriving while the rename waits is held off until it ran.
+  // A reader arriving while the rename waits on the stuck read is held off.
   const later = readJsonState(path);
+  await turns();
+  const readsBefore = readsOf(path);
+  assert.equal(heldRenames.includes(path), false, 'the writer waits on the read until the bound');
+  t.mock.timers.tick(RENAME_READ_WAIT_MS);
+  await turns(() => heldRenames.includes(path));
+  // The bound sent the writer on to its rename; the reader that waited on
+  // that writer keeps waiting while its rename runs, however long the wait
+  // for the stuck read took.
+  assert.equal(readsOf(path), readsBefore, 'no read of the file while the rename runs');
+  release();
   await writing;
-  const took = Date.now() - started;
-  assert.ok(took >= RENAME_READ_WAIT_MS - 50 && took < RENAME_READ_WAIT_MS + 3_000, `${took} ms`);
   assert.deepEqual(await later, { n: 1 });
   assert.deepEqual(await readJsonState(path), { n: 1 });
   assert.deepEqual(_renameCoordinationForTest(), { entries: 0, waiters: 0 });
 });
 
-test('a rename that does not return holds a reader of the file only up to the wait bound', { timeout: 15_000 }, async () => {
+test('a rename that does not return holds a reader of the file only up to the wait bound', async (t) => {
   const path = freshFile();
   await updateJsonAtomic(path, () => ({ n: 0 }));
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   let release;
   renameGates.set(path, new Promise((resolve) => (release = resolve)));
   const writing = updateJsonAtomic(path, () => ({ n: 1 }));
   await turns(() => heldRenames.includes(path));
-  const started = Date.now();
+  const readsBefore = readsOf(path);
+  const reading = readJsonState(path);
+  await turns();
+  assert.equal(readsOf(path), readsBefore, 'the reader waits for the rename');
+  t.mock.timers.tick(RENAME_READ_WAIT_MS);
   // The rename has not replaced the file: the reader gets the existing state.
-  assert.deepEqual(await readJsonState(path), { n: 0 });
-  const took = Date.now() - started;
-  assert.ok(took >= RENAME_READ_WAIT_MS - 50 && took < RENAME_READ_WAIT_MS + 3_000, `${took} ms`);
+  assert.deepEqual(await reading, { n: 0 });
   assert.deepEqual(_renameCoordinationForTest(), { entries: 0, waiters: 0 }, 'the hung rename was left behind');
   release();
   await writing;
