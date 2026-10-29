@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   useSyncExternalStore,
+  type ComponentProps,
   type ReactNode,
   type RefObject,
 } from 'react';
@@ -750,19 +751,21 @@ function ShellJobItem({
   row,
   clock,
   stop,
+  releasing,
   onStop,
   onDismiss,
 }: {
   row: JobRow;
   clock: number;
   stop: ShellStopState;
-  onStop(row: JobRow): void;
+  releasing: boolean;
+  onStop: ComponentProps<typeof ShellRowButton>['onStop'];
   onDismiss(row: JobRow): void;
 }) {
   return (
     <li className="composer-island-row" data-finished={row.finished ? 'true' : undefined}>
-      <ShellJobContent row={row} clock={clock} stop={stop} />
-      <ShellRowButton row={row} stop={stop} onStop={onStop} onDismiss={onDismiss} />
+      <ShellJobContent row={row} clock={clock} stop={stop} releasing={releasing} />
+      <ShellRowButton row={row} stop={stop} releasing={releasing} onStop={onStop} onDismiss={onDismiss} />
     </li>
   );
 }
@@ -993,7 +996,7 @@ function ShellsPanel({
   onDismissAll(rows: JobRow[]): void;
 }) {
   const clock = useClock(true);
-  const { stopOf, stop } = useShellStops(sessionId);
+  const { stopOf, releasingOf, stop } = useShellStops(sessionId);
   const runningShells = shells.filter((row) => !row.finished).length;
   const finished = shells.filter((row) => row.finished);
   return (
@@ -1017,7 +1020,15 @@ function ShellsPanel({
       />
       <ul className="composer-island-pbody composer-island-jobs">
         {shells.map((row) => (
-          <ShellJobItem key={row.key} row={row} clock={clock} stop={stopOf(row)} onStop={stop} onDismiss={onDismiss} />
+          <ShellJobItem
+            key={row.key}
+            row={row}
+            clock={clock}
+            stop={stopOf(row)}
+            releasing={releasingOf(row)}
+            onStop={stop}
+            onDismiss={onDismiss}
+          />
         ))}
       </ul>
     </section>

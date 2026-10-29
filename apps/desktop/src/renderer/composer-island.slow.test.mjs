@@ -696,6 +696,55 @@ test('a stop that ends termination-unconfirmed offers release, and the release w
   assert.equal(document.querySelector('.composer-island-row button').textContent, translate('Releasing…'));
 });
 
+test('a shell whose termination is unconfirmed offers Stop beside Release anyway, and Stop ends its survivors without a release', async (t) => {
+  const { root, document, window } = mount(t);
+  const stops = [];
+  const releases = [];
+  let stopResult = { stopped: false, unconfirmed: true };
+  window.mixdogDesktop.stopShellJob = async (...args) => {
+    stops.push(args);
+    return stopResult;
+  };
+  window.mixdogDesktop.releaseShellJob = async (...args) => {
+    releases.push(args);
+    return { released: true };
+  };
+  const prompts = [];
+  overrideConfirmAction((message) => {
+    prompts.push(message);
+    return true;
+  });
+  const job = {
+    taskId: 'job_survivor',
+    command: 'ping -t localhost',
+    cwd: '/work/cart-service',
+    startedAt: Date.now() - 5_000,
+    terminationUnconfirmed: true,
+  };
+  await publish({ shellJobs: { count: 1, jobs: [job] } });
+  await act(async () => root.render(React.createElement(ComposerDock, dockProps())));
+  await act(async () => document.querySelector('.composer-island-seg-shell').click());
+  const labels = () => [...document.querySelectorAll('.composer-island-row button')].map((b) => b.textContent);
+  assert.deepEqual(labels(), [translate('Release anyway'), translate('Stop')]);
+
+  // A stop that cannot confirm fails visibly; Release anyway stays reachable.
+  await act(async () => document.querySelectorAll('.composer-island-row button')[1].click());
+  assert.deepEqual(stops, [['island-session', 'job_survivor']]);
+  assert.deepEqual(prompts, [], 'stopping asks no release confirmation');
+  assert.deepEqual(releases, []);
+  await untilDom(document, () => labels().includes(translate('Retry')));
+  assert.deepEqual(labels(), [translate('Release anyway'), translate('Retry')]);
+  assert.equal(document.querySelector('.composer-island-row-error').textContent, translate("Island: Couldn't stop"));
+
+  // Retrying stops again and shows it in flight, not as a release.
+  stopResult = { stopped: true };
+  await act(async () => document.querySelectorAll('.composer-island-row button')[1].click());
+  assert.equal(stops.length, 2);
+  assert.deepEqual(releases, []);
+  assert.deepEqual(labels(), [translate('Island: Stopping…')]);
+  assert.equal(document.querySelector('.composer-island-row button').disabled, true);
+});
+
 test('the agent and shell segments expand the island panel inline', async (t) => {
   const { root, document, publishPool } = mount(t);
   await publish({
