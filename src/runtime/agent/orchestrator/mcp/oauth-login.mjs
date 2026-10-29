@@ -143,6 +143,7 @@ export function createLoginFlow({ url, cache, flow, provider, lifetimeSignal, op
     });
     // A discovery/registration error can precede waiting for the callback.
     callback.catch(() => {});
+    let codeReceived = false;
     try {
       signal.throwIfAborted();
       const { auth } = await import('@modelcontextprotocol/sdk/client/auth.js');
@@ -164,6 +165,7 @@ export function createLoginFlow({ url, cache, flow, provider, lifetimeSignal, op
       });
       if (result === 'REDIRECT') {
         const code = await callback;
+        codeReceived = true;
         signal.throwIfAborted();
         progress('onCallback');
         const exchanged = await cache.withLock(async () => {
@@ -180,6 +182,12 @@ export function createLoginFlow({ url, cache, flow, provider, lifetimeSignal, op
       await settle();
     } catch (error) {
       await settle({ code: error?.code });
+      // An authorization server that no longer knows our client_id answers the
+      // browser with an HTTP error, never a redirect or a token-endpoint
+      // invalid_client, so the SDK cannot see it: register again next time.
+      if (interactive && flow.browserOpened && !codeReceived && !provider.preRegistered) {
+        await provider.invalidateCredentials('client').catch(() => {});
+      }
       // SDK errors may contain authorization server response bodies/secrets.
       if (error?.code === 'reauthenticationRequired' || !interactive) throw reauthenticationRequired();
       // Our own error names scopes only (no token data): the one to pass on.

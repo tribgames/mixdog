@@ -181,6 +181,14 @@ async function fixture(
       clients.add(clientId);
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ ...metadata, client_id: clientId }));
+    } else if (path === '/authorize') {
+      // An unknown client gets an HTTP error page, not an OAuth error redirect.
+      if (clients.has(new URL(req.url, origin).searchParams.get('client_id'))) res.end('authorize');
+      else {
+        res
+          .writeHead(400, { 'Content-Type': 'application/json' })
+          .end(JSON.stringify({ message: 'Unrecognized client_id' }));
+      }
     } else if (path === '/token') {
       let body = '';
       for await (const chunk of req) body += chunk;
@@ -508,6 +516,42 @@ for (const mode of ['cancel', 'request-abort', 'timeout', 'denial']) {
     await assert.rejects(fetch(callback));
   });
 }
+
+test('a sign-in refused at the authorization endpoint drops the stored registration, and the next one registers again', async (t) => {
+  const server = await fixture(t);
+  const store = memoryStore();
+  const account = mcpOAuthAccount(server.url);
+  t.after(() => clearMcpOAuth({ url: server.url, credentialStore: store }));
+  // A registration the authorization server no longer knows.
+  store.values.set(
+    account,
+    JSON.stringify({ url: server.url, revision: 'seed', clientInformation: { client_id: 'stale-client' } })
+  );
+  const authorizations = [];
+  const openBrowser = async (href) => {
+    const response = await fetch(href);
+    authorizations.push([new URL(href).searchParams.get('client_id'), response.status]);
+    if (response.ok) await server.approve(href);
+  };
+
+  const refused = createMcpOAuth({ url: server.url, credentialStore: store, timeoutMs: 1500, openBrowser });
+  t.after(() => refused.close());
+  await assert.rejects(refused.fetch(server.url), /MCP OAuth login failed, cancelled, or timed out/);
+  refused.close();
+  const stored = JSON.parse(store.values.get(account));
+  assert.equal(stored.clientInformation, undefined);
+  assert.ok(stored.discovery?.authorizationServerMetadata, 'the discovery stays');
+  assert.equal(server.registrations(), 0);
+
+  const next = createMcpOAuth({ url: server.url, credentialStore: store, openBrowser });
+  t.after(() => next.close());
+  assert.equal((await next.fetch(server.url)).status, 405);
+  assert.equal(server.registrations(), 1);
+  assert.deepEqual(authorizations, [
+    ['stale-client', 400],
+    ['fixture-client', 200],
+  ]);
+});
 
 for (const type of ['http', 'sse']) {
   test(`${type}: closing the transport cancels a challenged handshake and cleans the callback`, async (t) => {
