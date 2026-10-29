@@ -1,8 +1,8 @@
 // The desktop pet's bubble state (Mixy's home chat), kept free of React so it
 // is testable on its own: the app window derives it (desktop-pet-publisher.tsx),
 // the pet window draws it (skin-companion-pet.tsx).
-// @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { isRoutineQuietReply } from '../../../../src/runtime/shared/routine-trigger.mjs';
+// @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
 import { isTranscriptCancelledStatusText } from '../../../../src/runtime/shared/tool-execution-contract.mjs';
 import { DESKTOP_PET_REPLY_MAX, type DesktopPetBubble } from '../shared/desktop-pet';
 import type { TranscriptItem } from './desktop-types';

@@ -918,7 +918,7 @@ function listenPetWindow(s: PetContext, window: PetWindow) {
     if (!sessionId || bubble.kind !== 'approval' || !Number.isInteger(index)) return false;
     // The bubble shows only the first request.
     const item = bubble.approvals?.[0];
-    const row = item?.id === id && item.inline ? item.rows[index as number] : undefined;
+    const row = item && item.id === id && item.inline ? item.rows[index as number] : undefined;
     if (!item || !row) return false;
     return (await s.deps.decideApproval(sessionId, item.id, row.decision)) === true;
   });
