@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.4.2 - 2026-10-29
+
 Das Agenten-Harness wurde mit Explore, einem eigenen Erkundungsagenten, und einer gründlicheren Überprüfung durch den Skill Test Suite verbessert; hinzu kommen Vertex AI und mehrere Konten pro Konnektor.
 
 ### Neue Funktionen

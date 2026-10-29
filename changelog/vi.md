@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.4.2 - 2026-10-29
+
 Cải thiện bộ điều phối agent với Explore, một agent chuyên khảo sát mã nguồn, cùng kỹ năng Test Suite giúp kiểm chứng chặt chẽ hơn; đồng thời bổ sung Vertex AI và hỗ trợ nhiều tài khoản trên mỗi trình kết nối.
 
 ### Tính năng mới

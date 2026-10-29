@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.4.2 - 2026-10-29
+
 Migliorato l'harness degli agenti con Explore, un agente dedicato all'esplorazione, e una verifica più solida grazie alla skill Test Suite, oltre al supporto per Vertex AI e per più account per connettore.
 
 ### Nuove funzionalità

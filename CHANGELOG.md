@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.4.2 - 2026-10-29
+
 Improved the agent harness with Explore, a dedicated exploration agent, and stronger verification with the Test Suite skill, plus Vertex AI and several accounts per connector.
 
 ### New features

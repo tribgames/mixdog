@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.4.2 - 2026-10-29
+
 Melhoramos a estrutura de agentes com o Explore, um agente dedicado à exploração, e uma verificação mais rigorosa com a habilidade Test Suite, além do suporte ao Vertex AI e a várias contas por conector.
 
 ### Novos recursos
