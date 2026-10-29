@@ -17,6 +17,8 @@ asarUnpack:
 # by prepare-runtime.mjs; never rebuild them against Electron headers here.
 npmRebuild: false
 nodeGypRebuild: false
+# Notarizes and staples a signed macOS app before its dmg and zip are made.
+afterSign: scripts/notarize-mac.cjs
 extraMetadata:
   name: mixdog-desktop
   homepage: https://github.com/tribgames/mixdog#readme
@@ -94,6 +96,9 @@ mac:
   # V8's JIT, bundled native modules, composer dictation, and the osascript
   # helpers (folder picker, clipboard attachments) working; helpers inherit them.
   # Signing and notarization only happen when CI provides the credentials.
+  # scripts/notarize-mac.cjs notarizes and staples (with a long staple retry)
+  # in place of electron-builder's built-in step.
+  notarize: false
   entitlements: build/entitlements.mac.plist
   entitlementsInherit: build/entitlements.mac.plist
   extendInfo:

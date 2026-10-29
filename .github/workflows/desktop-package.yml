@@ -404,7 +404,8 @@ jobs:
               printf '%s\n' "$APPLE_API_KEY_P8" > "$key_path"
               chmod 600 "$key_path"
               # electron-builder imports the base64 .p12 into a temporary
-              # keychain and notarizes through notarytool with the API key.
+              # keychain; its afterSign hook (scripts/notarize-mac.cjs)
+              # notarizes through notarytool with the API key and staples.
               export CSC_LINK="$MAC_CERTIFICATE_P12_BASE64"
               export CSC_KEY_PASSWORD="$MAC_CERTIFICATE_PASSWORD"
               export APPLE_API_KEY="$key_path"
@@ -419,18 +420,7 @@ jobs:
           fi
           unset MAC_CERTIFICATE_P12_BASE64 MAC_CERTIFICATE_PASSWORD APPLE_API_KEY_P8
           echo "signed=$signed" >> "$GITHUB_OUTPUT"
-          # electron-builder staples the notarized app itself, and its staple
-          # retries span only a few seconds; a CloudKit drop (NSURLError -1005,
-          # exit 68) outlasts them. Only that failure rebuilds after a pause.
-          for attempt in 1 2 3; do
-            log="$RUNNER_TEMP/electron-builder-$attempt.log"
-            if npx --no-install electron-builder --${{ inputs.target }} --${{ inputs.arch }} --publish never 2>&1 | tee "$log"; then
-              break
-            fi
-            if [ "$attempt" -eq 3 ] || ! grep -Fq 'Failed to staple your application' "$log"; then exit 1; fi
-            echo "staple failed (attempt $attempt); rebuilding in 60s"
-            sleep 60
-          done
+          npx --no-install electron-builder --${{ inputs.target }} --${{ inputs.arch }} --publish never
       - name: Verify macOS signature and notarization
         if: inputs.platform == 'darwin' && steps.unix-package.outputs.signed == 'true'
         shell: bash

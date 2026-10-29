@@ -81,7 +81,7 @@ jobs:
       ref: ${{ inputs.ref || github.sha }}
 
   tests:
-    name: tests-${{ matrix.suite }}-${{ matrix.arch }}
+    name: tests-${{ matrix.suite }}-${{ matrix.arch }}-${{ matrix.shard }}
     needs: native-tools
     if: ${{ !cancelled() && (needs.native-tools.result == 'success' || needs.native-tools.result == 'skipped') }}
     runs-on: ${{ matrix.runner }}
@@ -92,24 +92,20 @@ jobs:
     # job packages nothing, so the skip cannot reach a shipped app.
     env:
       ONNXRUNTIME_NODE_INSTALL: skip
-    # The root and desktop suites are separate legs per arch so they run in
-    # parallel; each leg repeats only the setup.
+    # The desktop suite, the longest leg, runs in two shards per arch (node
+    # --test --test-shard, as in release-gate.yml); root stays one leg. Six
+    # legs keep the release run under the plan's 20 concurrent jobs, so the
+    # package jobs never queue behind tests.
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: ubuntu-24.04
-            arch: x64
-            suite: root
-          - runner: ubuntu-24.04
-            arch: x64
-            suite: desktop
-          - runner: ubuntu-24.04-arm
-            arch: arm64
-            suite: root
-          - runner: ubuntu-24.04-arm
-            arch: arm64
-            suite: desktop
+          - { runner: ubuntu-24.04, arch: x64, suite: root, shard: 1, shards: 1 }
+          - { runner: ubuntu-24.04, arch: x64, suite: desktop, shard: 1, shards: 2 }
+          - { runner: ubuntu-24.04, arch: x64, suite: desktop, shard: 2, shards: 2 }
+          - { runner: ubuntu-24.04-arm, arch: arm64, suite: root, shard: 1, shards: 1 }
+          - { runner: ubuntu-24.04-arm, arch: arm64, suite: desktop, shard: 1, shards: 2 }
+          - { runner: ubuntu-24.04-arm, arch: arm64, suite: desktop, shard: 2, shards: 2 }
     steps:
       - uses: actions/checkout@v5
         with:
@@ -194,17 +190,17 @@ jobs:
           echo "CHROME_PATH=$HOME/chrome-wrapper" >> "$GITHUB_ENV"
       - name: Desktop tests
         if: matrix.suite == 'desktop'
-        run: npm test 2>&1 | tee ../../desktop-tests.log
+        run: npm test -- --test-shard=${{ matrix.shard }}/${{ matrix.shards }} 2>&1 | tee ../../desktop-tests.log
         working-directory: apps/desktop
       - name: Desktop typecheck
-        if: matrix.suite == 'desktop'
+        if: matrix.suite == 'desktop' && matrix.shard == 1
         run: npx tsc -p tsconfig.json --noEmit
         working-directory: apps/desktop
       - name: Upload test logs
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: test-logs-${{ matrix.suite }}-${{ matrix.arch }}
+          name: test-logs-${{ matrix.suite }}-${{ matrix.arch }}-${{ matrix.shard }}
           path: |
             root-tests.log
             desktop-tests.log
