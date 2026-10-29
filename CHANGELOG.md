@@ -24,6 +24,7 @@ Improved the agent harness with Explore, a dedicated exploration agent, and stro
 - Changed bot check-ins and prompt-cache warming to be off by default.
 - Changed the desktop and CLI to follow the system proxy, with PAC scripts and exceptions applied per address on desktop, keeping local and LAN hosts direct.
 - Changed tool activity rows to show elapsed time only while a command is still running.
+- Changed agents stopped as stalled to leave a `stall_abort` row in `history/tool-failures.jsonl`, so a wrongly stopped agent can be reported.
 
 ### Bug fixes
 
@@ -36,6 +37,8 @@ Improved the agent harness with Explore, a dedicated exploration agent, and stro
 - Fixed the TUI cutting off long sign-in URLs, and added `Ctrl+Y` to copy them (#261).
 - Fixed voice input failing to start on busy Windows PCs.
 - Fixed Chinese and Japanese table cells pushing the table past its frame.
+- Fixed Vertex AI models missing the Service tier choice (Standard, Flex, Priority), and queued Flex requests being cut off after a minute (#271).
+- Fixed an agent being stopped as stalled after a single failed progress read stopped its activity timer from updating.
 
 ## v1.4.1 - 2026-10-27
 

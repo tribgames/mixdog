@@ -23,6 +23,7 @@ Das Agenten-Harness wurde mit Explore, einem eigenen Erkundungsagenten, und eine
 - Regelmäßige Bot-Check-ins und das Vorwärmen des Prompt-Caches sind standardmäßig ausgeschaltet.
 - Desktop-App und CLI folgen nun dem System-Proxy, wobei in der Desktop-App PAC-Skripte und Ausnahmen pro Adresse angewendet und lokale sowie LAN-Adressen direkt verbunden werden.
 - Werkzeug-Aktivitätszeilen zeigen die verstrichene Zeit nur noch an, solange ein Befehl tatsächlich läuft.
+- Wenn ein Agent abgebrochen wird, weil er keinen Fortschritt mehr macht, wird nun eine `stall_abort`-Zeile in `history/tool-failures.jsonl` geschrieben, damit sich ein fälschlich gestoppter Agent melden lässt.
 
 ### Fehlerbehebungen
 
@@ -35,6 +36,8 @@ Das Agenten-Harness wurde mit Explore, einem eigenen Erkundungsagenten, und eine
 - Behoben: Lange Anmelde-URLs wurden in der TUI abgeschnitten; mit `Ctrl+Y` lassen sie sich nun kopieren (#261).
 - Behoben: Auf ausgelasteten Windows-PCs startete die Spracheingabe nicht.
 - Behoben: Tabellenzellen mit chinesischem oder japanischem Text ragten über den Tabellenrahmen hinaus.
+- Behoben: Bei Vertex AI-Modellen fehlte die Auswahl der Servicestufe (Standard, Flex, Priority), und eingereihte Flex-Anfragen wurden nach einer Minute abgebrochen (#271).
+- Behoben: Ein einzelnes fehlgeschlagenes Auslesen des Fortschritts hielt den Aktivitäts-Timer an, sodass der Agent fälschlich wegen fehlenden Fortschritts gestoppt wurde.
 
 ## v1.4.1 - 2026-10-27
 

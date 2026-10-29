@@ -24,6 +24,7 @@ Se mejoró el arnés de agentes con Explore, un agente dedicado a la exploració
 - Las revisiones periódicas de los bots y el precalentamiento de la caché de prompts ahora vienen desactivados de forma predeterminada.
 - La aplicación de escritorio y la CLI ahora siguen el proxy del sistema, aplicando scripts PAC y excepciones por dirección en el escritorio y manteniendo la conexión directa para direcciones locales y de red local (LAN).
 - Las filas de actividad de herramientas ahora muestran el tiempo transcurrido solo mientras el comando sigue en ejecución.
+- Cuando se detiene un agente por considerarse que se ha quedado sin avanzar, ahora deja una fila `stall_abort` en `history/tool-failures.jsonl` para poder informar si se detuvo por error.
 
 ### Correcciones de errores
 
@@ -36,6 +37,8 @@ Se mejoró el arnés de agentes con Explore, un agente dedicado a la exploració
 - Se corrigió que la TUI cortara las URL largas de inicio de sesión, y se añadió `Ctrl+Y` para copiarlas (#261).
 - Se corrigió que la entrada de voz no se iniciara en PCs con Windows con mucha carga.
 - Se corrigió que las celdas de tabla con texto en chino o japonés desbordaran el marco de la tabla.
+- Se corrigió que a los modelos de Vertex AI les faltara la opción de nivel de servicio (Standard, Flex, Priority) y que las solicitudes Flex en cola se cortaran al cabo de un minuto (#271).
+- Se corrigió que un único fallo al leer el progreso detuviera el temporizador de actividad y provocara que el agente se detuviera por error al parecer que no avanzaba.
 
 ## v1.4.1 - 2026-10-27
 

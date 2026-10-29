@@ -23,6 +23,7 @@ Cải thiện bộ điều phối agent với Explore, một agent chuyên khả
 - Tắt mặc định tính năng bot tự kiểm tra định kỳ và làm ấm bộ nhớ đệm prompt.
 - Bản máy tính và CLI nay tuân theo proxy hệ thống, áp dụng kịch bản PAC và danh sách ngoại lệ cho từng địa chỉ trên máy tính, đồng thời kết nối trực tiếp với các địa chỉ nội bộ (local) và mạng LAN.
 - Dòng hoạt động của công cụ chỉ hiển thị thời gian đã trôi qua khi lệnh vẫn đang chạy.
+- Khi agent bị dừng vì được cho là không còn tiến triển, hệ thống sẽ ghi lại một dòng `stall_abort` vào `history/tool-failures.jsonl` để có thể báo cáo nếu agent bị dừng nhầm.
 
 ### Sửa lỗi
 
@@ -35,6 +36,8 @@ Cải thiện bộ điều phối agent với Explore, một agent chuyên khả
 - Sửa lỗi giao diện TUI làm mất phần cuối của các URL đăng nhập dài, đồng thời thêm phím tắt `Ctrl+Y` để sao chép (#261).
 - Sửa lỗi không thể bắt đầu nhập giọng nói trên các máy Windows đang tải nặng.
 - Sửa lỗi các ô bảng chứa chữ Trung hoặc chữ Nhật làm bảng bị tràn khỏi khung.
+- Sửa lỗi các mô hình Vertex AI thiếu tùy chọn gói dịch vụ (Standard, Flex, Priority) và các yêu cầu Flex đang xếp hàng bị ngắt sau một phút (#271).
+- Sửa lỗi chỉ một lần đọc tiến độ thất bại đã làm bộ đếm hoạt động ngừng cập nhật, khiến agent bị dừng nhầm vì tưởng là không còn tiến triển.
 
 ## v1.4.1 - 2026-10-27
 

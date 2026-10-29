@@ -23,6 +23,7 @@ Melhoramos a estrutura de agentes com o Explore, um agente dedicado à exploraç
 - Os check-ins periódicos dos bots e o pré-aquecimento do cache de prompt agora ficam desativados por padrão.
 - O aplicativo para computador e a CLI agora seguem o proxy do sistema, aplicando scripts PAC e exceções por endereço no computador e mantendo conexões diretas para endereços locais e da rede local (LAN).
 - As linhas de atividade de ferramentas agora mostram o tempo decorrido apenas enquanto o comando está em execução.
+- Quando um agente é interrompido por parecer sem progresso, ele agora grava uma linha `stall_abort` em `history/tool-failures.jsonl`, permitindo relatar quando um agente foi parado por engano.
 
 ### Correções de bugs
 
@@ -35,6 +36,8 @@ Melhoramos a estrutura de agentes com o Explore, um agente dedicado à exploraç
 - Corrigido o corte de URLs longas de login na TUI e adicionado o atalho `Ctrl+Y` para copiá-las (#261).
 - Corrigida a falha ao iniciar a entrada de voz em PCs com Windows sobrecarregados.
 - Corrigido o problema em que células com texto em chinês ou japonês ultrapassavam a borda da tabela.
+- Corrigida a falta da opção de nível de serviço (Standard, Flex, Priority) nos modelos do Vertex AI e o corte das requisições Flex na fila após um minuto (#271).
+- Corrigido o problema em que uma única falha na leitura do progresso impedia a atualização do temporizador de atividade, fazendo o agente ser interrompido por engano como se tivesse parado de avançar.
 
 ## v1.4.1 - 2026-10-27
 

@@ -23,6 +23,7 @@ Migliorato l'harness degli agenti con Explore, un agente dedicato all'esplorazio
 - I check-in periodici dei bot e il preriscaldamento della cache dei prompt sono ora disattivati per impostazione predefinita.
 - L'app desktop e la CLI ora seguono il proxy di sistema, con script PAC ed eccezioni applicati per singolo indirizzo su desktop, mantenendo diretti gli host locali e sulla rete LAN.
 - Le righe di attività degli strumenti ora mostrano il tempo trascorso solo mentre un comando è in esecuzione.
+- Gli agenti fermati perché ritenuti bloccati senza progressi ora lasciano una riga `stall_abort` in `history/tool-failures.jsonl`, così da poter segnalare un'interruzione errata.
 
 ### Correzioni di bug
 
@@ -35,6 +36,8 @@ Migliorato l'harness degli agenti con Explore, un agente dedicato all'esplorazio
 - Corretto il taglio degli URL di accesso lunghi nella TUI e aggiunto `Ctrl+Y` per copiarli (#261).
 - Corretto il mancato avvio dell'input vocale sui PC Windows sotto carico.
 - Corretto lo sconfinamento delle celle con testo cinese o giapponese oltre la cornice della tabella.
+- Corretto il problema per cui nei modelli Vertex AI mancava la scelta del livello di servizio (Standard, Flex, Priority) e le richieste Flex in coda venivano interrotte dopo un minuto (#271).
+- Corretto il problema per cui una singola lettura fallita dell'avanzamento bloccava l'aggiornamento del timer di attività, facendo fermare per errore l'agente come se non stesse più avanzando.
 
 ## v1.4.1 - 2026-10-27
 

@@ -24,6 +24,7 @@ Amélioration du harnais d'agents avec Explore, un agent dédié à l'exploratio
 - Les points réguliers des bots et le préchauffage du cache de prompts sont désormais désactivés par défaut.
 - L'application de bureau et le CLI suivent désormais le proxy système, avec application des scripts PAC et des exceptions par adresse sur ordinateur, tout en gardant un accès direct pour les hôtes locaux et du réseau local (LAN).
 - Les lignes d'activité des outils n'affichent désormais le temps écoulé que pendant l'exécution d'une commande.
+- Lorsqu'un agent est arrêté parce qu'il semble ne plus avancer, il enregistre désormais une ligne `stall_abort` dans `history/tool-failures.jsonl`, afin de pouvoir signaler un arrêt injustifié.
 
 ### Corrections de bugs
 
@@ -36,6 +37,8 @@ Amélioration du harnais d'agents avec Explore, un agent dédié à l'exploratio
 - Correction des URL de connexion longues tronquées dans la TUI, et ajout de `Ctrl+Y` pour les copier (#261).
 - Correction de la saisie vocale qui ne démarrait pas sur les PC Windows très sollicités.
 - Correction des cellules de tableau contenant du chinois ou du japonais qui faisaient déborder le tableau de son cadre.
+- Correction de l'absence du choix du niveau de service (Standard, Flex, Priority) sur les modèles Vertex AI, et de l'interruption après une minute des requêtes Flex en file d'attente (#271).
+- Correction d'un problème où un seul échec de lecture de la progression bloquait le minuteur d'activité et faisait arrêter l'agent à tort comme s'il n'avançait plus.
 
 ## v1.4.1 - 2026-10-27
 
