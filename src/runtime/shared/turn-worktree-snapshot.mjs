@@ -235,7 +235,7 @@ function assertStateLive(state) {
   throw error;
 }
 
-function shadowArgs(state, args) {
+function shadowArgs(state, args, workTree = state.root) {
   assertStateLive(state);
   return [
     ...state.lineEndingArgs,
@@ -247,7 +247,7 @@ function shadowArgs(state, args) {
     '--git-dir',
     state.gitDir,
     '--work-tree',
-    state.root,
+    workTree,
     ...args,
   ];
 }
@@ -616,7 +616,7 @@ async function applyBaselineFilesUnlocked(state, tree, allEntries, { absent = nu
     return { tree, files: [...files, ...entries.map(({ path }) => ({ path, oid: null }))] };
   }
   try {
-    return await applyInIndex(state, tree, entries, files, temporaryIndexEnv(state));
+    return await applyInIndex(state, tree, entries, files, temporaryIndexEnv(state), { batch: true });
   } catch {
     // The original sequence in the shadow index: it fails, if at all, as before.
     return await applyInShadowIndex(state, tree, entries, files);
@@ -631,15 +631,194 @@ function temporaryIndexEnv(state) {
   return { ...process.env, GIT_INDEX_FILE: index };
 }
 
+/** `content` written as a blob, converted as the file at `path` would be. */
+async function hashBlob(state, path, content, env) {
+  const result = await runGit(shadowArgs(state, ['hash-object', '-w', '--stdin', '--path', path]), {
+    cwd: state.root,
+    input: content,
+    env,
+  });
+  return clean(result.stdout);
+}
+
+let blobWorkSeq = 0;
+// A path component a scratch worktree file could not carry unchanged: a
+// character or name the platform rewrites (Windows device names, trailing dots
+// and spaces, 8.3 aliases) or git treats specially (`.git`, `.gitattributes`).
+const UNBATCHABLE_COMPONENT =
+  /[\u0000-\u001f"*:<>?|\\]|[. ]$|~\d|^(?:con|prn|aux|nul|(?:com|lpt)[0-9\u00b9\u00b2\u00b3])(?:\..*)?$|^\.(?:git|gitattributes)$/i;
+// Longest scratch file path written: below the classic Windows MAX_PATH.
+const MAX_BATCH_PATH = 240;
+
+function batchKey(path) {
+  return path.normalize('NFC').toLowerCase();
+}
+
+/** Blob ids of `items` (`{ path, content }`) as `hash-object --stdin --path`
+ *  gives them, in a constant number of git processes. hash-object takes its
+ *  attributes, `core.autocrlf` and eol conversion from the file's path, so the
+ *  contents are written to a scratch worktree at the same relative paths, with
+ *  the real worktree's `.gitattributes` files beside them, and hashed there by
+ *  one `hash-object --stdin-paths`: the same attribute stack, the same
+ *  conversion code. A path with a `filter=` attribute (a clean driver may read
+ *  the worktree) and a path the scratch worktree cannot represent exactly are
+ *  hashed one by one as before. Any failure throws and the caller falls back. */
+async function hashBlobs(state, items, env) {
+  const ids = new Map();
+  const batched = [];
+  const single = [];
+  const keys = new Set();
+  const scratch = join(state.gitDir, `baseline-work-${process.pid}-${++blobWorkSeq}`);
+  for (const item of items) {
+    const key = batchKey(item.path);
+    const fits =
+      !keys.has(key) &&
+      scratch.length + 1 + item.path.length <= MAX_BATCH_PATH &&
+      !item.path.split('/').some((part) => UNBATCHABLE_COMPONENT.test(part));
+    if (fits) {
+      keys.add(key);
+      batched.push(item);
+    } else {
+      single.push(item);
+    }
+  }
+  if (batched.length > 0) {
+    try {
+      const directories = new Set(['']);
+      for (const { path } of batched) {
+        for (let dir = dirname(path); dir !== '.'; dir = dirname(dir)) directories.add(dir);
+      }
+      await mkdir(scratch, { recursive: true });
+      await Promise.all([...directories].map((dir) => mkdir(join(scratch, dir), { recursive: true })));
+      await Promise.all([
+        ...batched.map(({ path, content }) => writeFile(join(scratch, path), content)),
+        // git ignores a symbolic-link .gitattributes, so only a regular file is carried over.
+        ...[...directories].map(async (dir) => {
+          const source = join(state.root, dir, '.gitattributes');
+          if ((await lstat(source).catch(() => null))?.isFile()) await copyFile(source, join(scratch, dir, '.gitattributes'));
+        }),
+      ]);
+      const options = { cwd: scratch, env };
+      const filtered = await runGit(shadowArgs(state, ['check-attr', '-z', '--stdin', 'filter'], scratch), {
+        ...options,
+        input: `${batched.map(({ path }) => path).join('\0')}\0`,
+      });
+      const fields = filtered.stdout.split('\0');
+      const driven = new Set();
+      for (let index = 0; index + 2 < fields.length; index += 3) {
+        if (fields[index + 2] !== 'unspecified') driven.add(fields[index]);
+      }
+      const plain = batched.filter((item) => {
+        if (!driven.has(item.path)) return true;
+        single.push(item);
+        return false;
+      });
+      if (plain.length > 0) {
+        const hashed = await runGit(shadowArgs(state, ['hash-object', '-w', '--stdin-paths'], scratch), {
+          ...options,
+          input: `${plain.map(({ path }) => path).join('\n')}\n`,
+        });
+        const oids = hashed.stdout.split('\n').filter(Boolean);
+        if (oids.length !== plain.length) throw new Error('hash-object answered a different number of blobs');
+        plain.forEach((item, index) => ids.set(item, oids[index].trim()));
+      }
+    } finally {
+      await rm(scratch, { recursive: true, force: true }).catch(() => {});
+    }
+  }
+  for (const item of single) ids.set(item, await hashBlob(state, item.path, item.content, env));
+  return ids;
+}
+
+// Longest ls-tree command line the directory/file probe sends.
+const MAX_PROBE_CHARS = 24_000;
+
+/** Every proper parent directory of `path`, outermost last. */
+function parentDirectories(path) {
+  const parents = [];
+  for (let dir = dirname(path); dir !== '.' && dir !== '/'; dir = dirname(dir)) parents.push(dir);
+  return parents;
+}
+
+/** Could `update-index --index-info` take `addPaths` on top of `tree` without
+ *  replacing anything? Unlike `--cacheinfo`, it replaces a file by a directory
+ *  of the same name and the reverse; the per-file sequence refuses both and
+ *  the caller must see that refusal. False for a pair of added paths where one
+ *  is a directory of the other, or an added path whose parent is a file (or
+ *  submodule) in `tree`, or that is a directory in `tree`. A path the probe
+ *  cannot ask about exactly (a leading ':' is pathspec magic) or too many to
+ *  ask at once counts as unsafe, so the caller runs the per-file sequence. */
+async function addsReplaceNothing(state, tree, addPaths, env) {
+  if (addPaths.length === 0) return true;
+  if (addPaths.some((path) => path.startsWith(':'))) return false;
+  const added = new Set(addPaths);
+  const parents = new Set(addPaths.flatMap(parentDirectories));
+  if ([...parents].some((dir) => added.has(dir))) return false;
+  const asked = [...new Set([...added, ...parents])];
+  if (asked.reduce((total, path) => total + path.length + 1, 0) > MAX_PROBE_CHARS) return false;
+  const listed = await runGit(shadowArgs(state, ['ls-tree', '-z', tree, '--', ...asked]), {
+    cwd: state.root,
+    env,
+  });
+  for (const record of listed.stdout.split('\0')) {
+    const tab = record.indexOf('\t');
+    if (tab < 0) continue;
+    const isTree = record.slice(0, tab).split(' ')[1] === 'tree';
+    const path = record.slice(tab + 1);
+    if (isTree ? added.has(path) : parents.has(path)) return false;
+  }
+  return true;
+}
+
 /** The entries applied on top of `tree` in an index of their own, removed
  *  afterwards: the shadow index is never touched, so it needs no save and
  *  restore. Every command (hash-object's attribute lookup included) sees the
  *  same index content the original sequence does: `tree` plus the entries so
- *  far. Null `env`: the shadow index itself (the caller saves and restores). */
-async function applyInIndex(state, tree, entries, baseFiles, env) {
+ *  far. Null `env`: the shadow index itself (the caller saves and restores).
+ *  `batch`: when it spawns fewer git processes and no entry swaps a file for a
+ *  directory (addsReplaceNothing), every blob is hashed together (hashBlobs)
+ *  and every add and removal is one `update-index --index-info`, instead of a
+ *  `hash-object` and an `update-index` per entry. */
+async function applyInIndex(state, tree, entries, baseFiles, env, { batch = false } = {}) {
   const files = [...baseFiles];
   try {
-    await runGit(shadowArgs(state, ['read-tree', tree]), { cwd: state.root, env });
+    const live = entries.filter(({ noop }) => !noop);
+    const contents = live.filter(({ content }) => content !== null).length;
+    const adds = live.filter(({ content, oid }) => content !== null || oid).map(({ path }) => path);
+    // Per entry: a hash (content) plus an update-index, or an update-index. In
+    // batch: check-attr and hash-object for all contents, an ls-tree probe
+    // when anything is added, and one update-index.
+    const worthBatching =
+      batch && (contents > 0 ? 2 : 0) + 1 + (adds.length > 0 ? 1 : 0) < 2 * contents + (live.length - contents);
+    const [, replacesNothing] = await Promise.all([
+      runGit(shadowArgs(state, ['read-tree', tree]), { cwd: state.root, env }),
+      worthBatching ? addsReplaceNothing(state, tree, adds, env) : false,
+    ]);
+    if (replacesNothing) {
+      const hashed = await hashBlobs(
+        state,
+        live.filter(({ content }) => content !== null),
+        env
+      );
+      const nullOid = '0'.repeat(tree.length);
+      let info = '';
+      for (const entry of entries) {
+        if (entry.noop) {
+          files.push({ path: entry.path, oid: null });
+          continue;
+        }
+        const oid = entry.content !== null ? hashed.get(entry) : entry.oid;
+        // Mode 0 removes the path, as `update-index --force-remove` did.
+        info += oid ? `100644 ${oid}\t${entry.path}\0` : `0 ${nullOid}\t${entry.path}\0`;
+        files.push({ path: entry.path, oid });
+      }
+      await runGit(shadowArgs(state, ['update-index', '-z', '--index-info']), {
+        cwd: state.root,
+        env,
+        input: info,
+      });
+      entries = [];
+    }
     for (const { path, content, oid: recorded, noop } of entries) {
       if (noop) {
         files.push({ path, oid: null });
@@ -647,15 +826,7 @@ async function applyInIndex(state, tree, entries, baseFiles, env) {
       }
       let oid = recorded;
       if (content !== null) {
-        oid = clean(
-          (
-            await runGit(shadowArgs(state, ['hash-object', '-w', '--stdin', '--path', path]), {
-              cwd: state.root,
-              input: content,
-              env,
-            })
-          ).stdout
-        );
+        oid = await hashBlob(state, path, content, env);
       }
       if (oid) {
         await runGit(shadowArgs(state, ['update-index', '--add', '--cacheinfo', '100644', oid, path]), {
