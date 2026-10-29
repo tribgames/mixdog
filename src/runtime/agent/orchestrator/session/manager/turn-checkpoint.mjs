@@ -20,6 +20,8 @@ import {
 import { captureTurnCheckpointContextState, restoreTurnCheckpointContextState } from './turn-checkpoint-context.mjs';
 import { stripProviderReplayMessages } from './provider-replay.mjs';
 import { sensitiveValuesVersion } from '../sensitive-values.mjs';
+import { _hasPendingPersistence } from '../store/pending-saves.mjs';
+import { hasSessionSaveFailure } from '../store/live-state.mjs';
 
 export { turnCheckpointPath, turnMessagesForCheckpoint };
 export { captureTurnCheckpointContextState, restoreTurnCheckpointContextState };
@@ -87,9 +89,15 @@ export function createTurnCheckpointRecorder({ sessionId, generation, turnToken,
       if (!opened || version !== openedVersion) {
         const snapshot =
           typeof interruption?.snapshot === 'function' ? interruption.snapshot() : emptyInterruptionSnapshot();
+        // Recovery splices the turn onto the session record on disk. While an
+        // earlier save of this session is still on its way (or failed), that
+        // record lacks the previous turn, and this header replaces the
+        // previous turn's checkpoint: it then carries the whole transcript.
+        const whole = _hasPendingPersistence(sessionId) || hasSessionSaveFailure(sessionId);
         const seed = encoder.seed(turnOutgoing, currentUserContent, interruption, contextState, {
           snapshot,
           epoch: version,
+          whole,
         });
         writeCheckpointHeader({
           sessionId,

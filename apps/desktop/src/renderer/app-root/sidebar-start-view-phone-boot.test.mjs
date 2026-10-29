@@ -43,11 +43,11 @@ const { AppSidebarDrawer } = await import('./AppSidebarDrawer.tsx');
 
 const settle = (ms = 50) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
 
-/** One phone launch: the host answers the pins read after `hostDelayMs`. */
-async function launchPhone(hostPins, { hostDelayMs = 0 } = {}) {
+/** One phone launch: the host answers the pins read once `hostAnswer` settles. */
+async function launchPhone(hostPins, { hostAnswer = Promise.resolve() } = {}) {
   window.mixdogDesktop = {
     readActivityRailPins: async () => {
-      await new Promise((resolve) => setTimeout(resolve, hostDelayMs));
+      await hostAnswer;
       return { pins: hostPins, revision: 1 };
     },
     updateActivityRailPins: async (pins) => ({ pins, revision: 2 }),
@@ -175,10 +175,16 @@ test('a host answer that arrives after boot moves the first opening to the new r
   // The phone's cached pins are the old order; the host (the truth) reorders them.
   window.localStorage.setItem(PINS_KEY, JSON.stringify(DEFAULT_PINS));
   const hostPins = ['projects', ...DEFAULT_PINS.filter((id) => id !== 'projects')];
-  const phone = await launchPhone(hostPins, { hostDelayMs: 150 });
+  // The host answers only after boot, however long boot takes.
+  let answer;
+  const hostAnswer = new Promise((resolve) => {
+    answer = resolve;
+  });
+  const phone = await launchPhone(hostPins, { hostAnswer });
   try {
     await phone.mountBotsPage();
     assert.equal(phone.active(), 'sessions', 'the cached order leads until the host answers');
+    answer();
     await settle(400);
     assert.equal(phone.railTop(), 'projects');
     assert.equal(phone.active(), 'projects');
