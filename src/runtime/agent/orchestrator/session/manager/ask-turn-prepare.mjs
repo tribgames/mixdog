@@ -9,6 +9,7 @@ import { positiveInt } from '../../../../shared/numbers.mjs';
 import { appendAgentTrace } from '../../agent-trace.mjs';
 import { snapshotPendingDeferredToolDelta } from '../../runtime-core/deferred-tool-delta.mjs';
 import { snapshotPendingGoalReminder } from '../../runtime-core/goal-reminder.mjs';
+import { beginTodoTurn } from '../loop/no-tool-turn/todo-check.mjs';
 import { resolveSessionContextMeta } from './context-meta.mjs';
 import {
   promptContentText,
@@ -175,6 +176,9 @@ export async function buildUserTurn({
   }
   const currentTimeBlock = buildCurrentTimeBlock(prompt);
   const deferredToolDelta = snapshotPendingDeferredToolDelta(session);
+  // A real prompt (no runtime source: not a Goal turn or task notification)
+  // opens a new todo reminder cycle; every turn clears the last turn's waits.
+  beginTodoTurn(session, { genuine: !turnPromptSource?.source });
   // Read paused state after hydration and queue selection, not at
   // input intake: either can precede the previous turn's pause.
   // This supplies context only; it never resumes the Goal.

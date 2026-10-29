@@ -1717,14 +1717,25 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   color: var(--mx-text);
   font-weight: var(--mx-weight-label);
 }
-.session-goal-tasks li[data-status="awaiting_approval"] {
-  background: color-mix(in srgb, var(--mx-warning) 12%, transparent);
-}
-.session-goal-tasks li[data-stalled="true"] {
+.session-goal-tasks li[data-status="blocked"] {
   background: color-mix(in srgb, var(--mx-danger) 10%, transparent);
 }
-.session-goal-tasks li[data-stalled="true"][data-status] > span {
+.session-goal-tasks li[data-status="blocked"] > span {
   color: var(--mx-danger);
+}
+.session-goal-task-blocker {
+  color: var(--mx-text-muted);
+}
+.session-goal-task-note {
+  max-width: 180px;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-ui);
+  overflow-wrap: anywhere;
+  text-align: end;
+}
+.session-goal-tab-label {
+  font-weight: var(--mx-weight-label);
 }
 .session-goal-statusline {
   display: flex;
@@ -1757,15 +1768,11 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
 }
 /* Retired work stays readable but visibly out of the running. Never struck
    through: a dropped row was abandoned, not accomplished. */
-.session-goal-tasks li[data-status="dropped"] > span {
+.session-goal-tasks li[data-status="abandoned"] > span {
   color: var(--mx-text-faint);
 }
-.session-goal-tasks li[data-status="dropped"] > div {
+.session-goal-tasks li[data-status="abandoned"] > div {
   opacity: var(--mx-op-dim);
-}
-/* Parked on the user, not stalled by us. */
-.session-goal-tasks li[data-status="awaiting_approval"] > span {
-  color: var(--mx-warning);
 }
 .session-goal-tasks li > div {
   min-width: 0;
@@ -1777,13 +1784,6 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   font-size: var(--mx-font-minor);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
-}
-.session-goal-empty {
-  margin: 0;
-  color: var(--mx-text-muted);
-  font-weight: var(--mx-weight-regular);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-minor);
 }
 .session-goal-details {
   display: grid;
@@ -1892,8 +1892,4 @@ html[data-mixdog-mobile-tabs] .session-goal-tasks li > span > svg {
 html[data-mixdog-mobile-tabs] .session-goal-tasks li > div > span {
   font-size: var(--mx-font-ui);
   line-height: var(--mx-line-ui);
-}
-html[data-mixdog-mobile-tabs] .session-goal-empty {
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-minor);
 }

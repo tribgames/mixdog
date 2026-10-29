@@ -193,6 +193,8 @@ const TRANSCRIPT_HIDDEN_CONTROL_TOOL_NAMES = new Set([
   'get_goal',
   'set_goal_tasks',
   'update_goal',
+  // The step list shows in its own composer panel, not as transcript cards.
+  'todo',
   'load_tool',
   'tool_search',
   // A bot's reaction shows as its emoji under the user's message, not as a card.

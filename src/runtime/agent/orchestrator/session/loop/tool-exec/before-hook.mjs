@@ -16,6 +16,7 @@ import {
 } from '../../human-gate/gate.mjs';
 import { applyEditedArgs } from '../../human-gate/requests.mjs';
 import { effectiveToolCwd } from '../../../tools/builtin/bash-tool/shell-cwd.mjs';
+import { noteTodoUserWait } from '../no-tool-turn/todo-check.mjs';
 
 const isArgsObject = (value) => value && typeof value === 'object' && !Array.isArray(value);
 
@@ -56,7 +57,11 @@ async function askApproval(
   }
   const approval = askOutcome.approval;
   await recordHumanDecision(gate, approval);
-  if (askOutcome.denial) return { denial: askOutcome.denial };
+  if (askOutcome.denial) {
+    // The user said no: this turn may end waiting on them (todo-check.mjs).
+    noteTodoUserWait(callerSessionId);
+    return { denial: askOutcome.denial };
+  }
   if (approval && typeof approval === 'object' && isArgsObject(approval.args)) call.args = approval.args;
   // The card's edited text replaces the model's before the call runs.
   if (request?.kind === 'outbound' && approval?.editedArgs) {

@@ -22,7 +22,6 @@ test('goal time mode matches the dialog fields and opens above the modal layer',
           anchor: { current: host }, disabled: false,
           initialGoal: {
             objective: '목표: Verify the approved work', timeLimitMs: 10_800_000,
-            timeMode: 'duration',
           },
           onSave: async () => true, onClose() {}, returnFocus() {},
         }));

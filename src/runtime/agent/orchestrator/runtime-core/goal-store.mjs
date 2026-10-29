@@ -1,6 +1,6 @@
 /**
  * goal-store.mjs — the per-session Goal record: serialized mutations, the
- * revision-bumping commit, listener publication and the visible/stored
+ * commit, listener publication and the visible/stored
  * snapshots. Everything here reads and writes through the shared runtime
  * record (`ctx`) assembled by createGoalRuntime.
  */
@@ -14,24 +14,6 @@ import {
   normalizeStoredGoal,
   publicGoal,
 } from './goal-state.mjs';
-
-// Clock checkpoints and generated titles must not invalidate a model's task
-// update. Only changes to the actionable state advance the revision.
-const REVISION_STATE_FIELDS = [
-  'objective',
-  'tasks',
-  'status',
-  'blocker',
-  'timeLimitMs',
-  'archivedAt',
-  'tasksObjectiveRevision',
-  'timeMode',
-  'pauseReason',
-];
-
-function revisionStateKey(goal) {
-  return JSON.stringify(REVISION_STATE_FIELDS.map((field) => goal?.[field]));
-}
 
 export function createGoalStore(ctx) {
   const { root, dataDir, now, onStorageError, completedRetentionMs, listeners, mutationChains } = ctx;
@@ -91,15 +73,7 @@ export function createGoalStore(ctx) {
     const previous = goal ? readRecord(id).goal : null;
     let committedGoal = null;
     if (goal) {
-      committedGoal = {
-        ...goal,
-        sessionId: id,
-        tasks: Array.isArray(goal.tasks) ? goal.tasks.map((task) => ({ ...task })) : [],
-      };
-      committedGoal.revision =
-        previous?.id === goal.id
-          ? previous.revision + Number(revisionStateKey(previous) !== revisionStateKey(committedGoal))
-          : 1;
+      committedGoal = { ...goal, sessionId: id };
     }
     const rollback = async () => {
       try {

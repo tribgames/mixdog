@@ -45,6 +45,8 @@ export const DEFERRED_DEFAULT_FULL_TOOLS = Object.freeze([
   'read',
   'edit',
   'apply_patch',
+  // Every session's own step list: always loaded, never a load_tool hop.
+  'todo',
   'Skill',
   'load_tool',
 ]);
@@ -55,6 +57,7 @@ export const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
   'grep',
   'code_graph',
   'read',
+  'todo',
   'Skill',
   'load_tool',
 ]);
@@ -83,6 +86,7 @@ export const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
   // A bot's reaction, likewise: only a bot's chat with the user has it at all
   // (session-tool-surface.mjs reactionDisabled).
   'react',
+  'todo',
   'Skill',
   'load_tool',
 ]);

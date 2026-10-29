@@ -82,6 +82,7 @@ const HEADER_SNAPSHOT_FIELDS: ReadonlyArray<keyof Snapshot> = [
   'agentJobs',
   'activeTools',
   'goal',
+  'todo',
   'quotaResume',
 ];
 

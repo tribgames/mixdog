@@ -10,6 +10,7 @@ import { clean, terminalPidForContext } from '../helpers.mjs';
 import { renderResult } from '../render.mjs';
 import { closeManagedSession } from '../../../lifecycle/shared.mjs';
 import { hopOf } from '../../../../runtime/shared/bot-hops.mjs';
+import { notDoneReport } from '../../../../runtime/agent/orchestrator/runtime-core/todo-list.mjs';
 
 /** The completion callback that hands a worker's result back to its caller session; null without a handoff. */
 function handoffNotifier(handoffSessionId, notifySessionCompletion) {
@@ -86,6 +87,17 @@ export function createJobStarter({ mgr, notifyStatusChange, notifySessionComplet
         }
       },
     });
+    // Success, failure or cancellation: the report names what the agent's own
+    // todo list leaves undone. The Lead never receives the list otherwise.
+    task.reportAppendix = () => {
+      const sessionId = task.meta?.sessionId || jobMeta?.sessionId;
+      if (!sessionId) return '';
+      try {
+        return notDoneReport(mgr.getSession(sessionId));
+      } catch {
+        return '';
+      }
+    };
     // The model's tool call that started this job owns it (its result message
     // carries the id: agent-task-starts.mjs).
     recordAgentTaskStart(notifyContext?.toolCallId, task.taskId);

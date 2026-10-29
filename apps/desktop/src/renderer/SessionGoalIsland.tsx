@@ -1,7 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 
 import { liveAgentRows } from './AgentActivityPane';
-import type { GoalSnapshot, GoalTask, Snapshot } from './desktop-types';
+import type { GoalSnapshot, Snapshot, TodoSnapshot, TodoStatus, TodoTask } from './desktop-types';
 import { t } from './i18n';
 import { MxIcon } from './MxIcon';
 import { useComposerIslandTab } from './composer-island-state';
@@ -16,9 +16,11 @@ import {
   goalStateKind,
   goalStateLabel,
   goalStatusLabel,
-  goalTaskProgress,
+  todoPresent,
+  todoProgress,
+  todoStateKind,
   type GoalStateKind,
-  type GoalTaskProgress,
+  type TodoProgress,
 } from './session-goal-presentation';
 import { ComposerGoalDialog } from './ComposerGoalDialog';
 import { useClock } from './use-clock';
@@ -79,10 +81,19 @@ function GoalRingGlyph({ kind }: { kind: GoalStateKind }) {
   }
 }
 
-/** The Goal's one mark: a 16px ring whose arc is the finished share of the
- *  tasks (from 12 o'clock) around a glyph for the state, all in the state
- *  tint. Static: activity is named by its label, never by motion. */
-function GoalRing({ kind, progress, label }: { kind: GoalStateKind; progress: GoalTaskProgress; label?: string }) {
+/** The segment's one mark: a 16px ring whose arc is the finished share of the
+ *  steps (from 12 o'clock; abandoned steps are not in the share) around a glyph
+ *  for the state, all in the state tint. Static: activity is named by its
+ *  label, never by motion. */
+function GoalRing({
+  kind,
+  progress,
+  label,
+}: {
+  kind: GoalStateKind;
+  progress: Pick<TodoProgress, 'completed' | 'total'>;
+  label?: string;
+}) {
   const fraction =
     kind === 'complete' ? 1 : progress.total > 0 ? Math.min(1, Math.max(0, progress.completed / progress.total)) : 0;
   return (
@@ -123,70 +134,158 @@ function GoalRing({ kind, progress, label }: { kind: GoalStateKind; progress: Go
   );
 }
 
-const GOAL_TASK_GLYPHS = {
+const TODO_GLYPHS = {
   completed: 'check',
   in_progress: 'in-progress',
-  // Dropped work is retired, not finished: an X separates it from a check
+  // Abandoned work is retired, not finished: an X separates it from a check
   // so a scoped-out row never reads as an accomplishment.
-  dropped: 'close-small',
+  abandoned: 'close-small',
 } as const;
 
 const REMAINING_VISIBLE = 5;
 
-function GoalTaskRow({ task, kind }: { task: GoalTask; kind: GoalStateKind }) {
-  const taskStatus = task.status || 'pending';
-  // The running row carries the Goal's blocker; the one parked on the user
-  // asks for the answer. Both read by wash and glyph, not by a text badge.
-  const stalled = taskStatus === 'in_progress' && kind === 'blocked';
-  // The glyph is decorative; these two states also get spoken text.
-  const statusText = stalled ? t('Blocked') : taskStatus === 'awaiting_approval' ? t('Waiting for your answer') : '';
+function todoStatusText(status: TodoStatus): string {
+  switch (status) {
+    case 'completed':
+      return t('Done');
+    case 'abandoned':
+      return t('Dropped');
+    case 'blocked':
+      return t('Blocked');
+    case 'in_progress':
+      return t('In progress');
+    default:
+      return '';
+  }
+}
+
+function TodoRow({ task }: { task: TodoTask }) {
+  const status = task.status || 'pending';
+  const statusText = todoStatusText(status);
+  // A step's note reads small on the right; a blocked step also says why.
+  const note = String(task.note || '');
+  const blocker = status === 'blocked' ? String(task.blocker || '') : '';
   return (
-    <li data-status={taskStatus} data-stalled={stalled ? 'true' : undefined}>
+    <li data-status={status}>
       <span>
-        <GoalTaskGlyph status={taskStatus} stalled={stalled} />
-        {statusText && <span className="sr-only">{statusText}: </span>}
+        <TodoGlyph status={status} />
       </span>
       <div>
-        <span>{String(task.text || '')}</span>
+        <span>
+          {statusText && <span className="sr-only">{statusText}: </span>}
+          {String(task.content || '')}
+        </span>
+        {blocker && <span className="session-goal-task-blocker">{blocker}</span>}
       </div>
+      {note && <small className="session-goal-task-note">{note}</small>}
     </li>
   );
 }
 
-function GoalTaskGlyph({ status, stalled = false }: { status?: GoalTask['status']; stalled?: boolean }) {
-  // Stalled (!) and parked on the user (...) share a ringed 14px glyph.
-  if (stalled || status === 'awaiting_approval') {
+function TodoGlyph({ status }: { status: TodoStatus }) {
+  // A blocked step is a ringed "!" in its row's 14px glyph slot.
+  if (status === 'blocked') {
     return (
-      <svg
-        width="14"
-        height="14"
-        viewBox="0 0 16 16"
-        aria-hidden="true"
-        focusable="false"
-        data-glyph={stalled ? 'stalled' : 'awaiting'}
-      >
+      <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" focusable="false" data-glyph="stalled">
         <circle cx="8" cy="8" r="5.8" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        {stalled ? (
-          <g fill="currentColor">
-            <rect x="7.25" y="4.6" width="1.5" height="4.3" rx=".7" />
-            <circle cx="8" cy="11.1" r=".9" />
-          </g>
-        ) : (
-          <g fill="currentColor">
-            <circle cx="5.7" cy="8" r=".95" />
-            <circle cx="8" cy="8" r=".95" />
-            <circle cx="10.3" cy="8" r=".95" />
-          </g>
-        )}
+        <g fill="currentColor">
+          <rect x="7.25" y="4.6" width="1.5" height="4.3" rx=".7" />
+          <circle cx="8" cy="11.1" r=".9" />
+        </g>
       </svg>
     );
   }
-  const name = (status && GOAL_TASK_GLYPHS[status as keyof typeof GOAL_TASK_GLYPHS]) || 'pending';
+  const name = (status && TODO_GLYPHS[status as keyof typeof TODO_GLYPHS]) || 'pending';
   return <MxIcon name={name} size={14} />;
 }
 
+/** The step list: remaining rows (the first few, working and blocked ones
+ *  always, the rest folded) and a fold for the finished and dropped ones. */
+function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishedOpenByDefault: boolean }) {
+  const [showDone, setShowDone] = useState<boolean | null>(null);
+  const [showRest, setShowRest] = useState(false);
+  const doneListId = useId();
+  const restListId = useId();
+  const tasks = todo.phases.flatMap((phase) => phase.tasks);
+  const remaining = tasks.filter((task) => task.status !== 'completed' && task.status !== 'abandoned');
+  const done = tasks.filter((task) => task.status === 'completed' || task.status === 'abandoned');
+  const completedCount = done.filter((task) => task.status === 'completed').length;
+  const abandonedCount = done.length - completedCount;
+  // The first rows stay; every working or blocked row always makes the cut.
+  const shownIndexes = new Set<number>();
+  remaining.forEach((task, index) => {
+    if (task.status === 'in_progress' || task.status === 'blocked') shownIndexes.add(index);
+  });
+  for (let index = 0; index < remaining.length && shownIndexes.size < REMAINING_VISIBLE; index += 1) {
+    shownIndexes.add(index);
+  }
+  const shown = remaining.filter((_, index) => shownIndexes.has(index));
+  const rest = remaining.filter((_, index) => !shownIndexes.has(index));
+  // A finished list opens its done rows: they are all there is to read.
+  const doneOpen = showDone ?? (finishedOpenByDefault && remaining.length === 0);
+  return (
+    <div className="session-goal-tasks">
+      {remaining.length > 0 && (
+        <div className="session-goal-group">
+          <p className="session-goal-group-label">{t('Remaining {{n}}', { n: remaining.length })}</p>
+          <ul className="session-goal-task-list" aria-label={t('To-do')}>
+            {shown.map((task, index) => (
+              <TodoRow key={`${index}:${task.content}`} task={task} />
+            ))}
+          </ul>
+          {rest.length > 0 && (
+            <>
+              <button
+                type="button"
+                className="session-goal-fold"
+                data-fold="rest"
+                aria-expanded={showRest}
+                aria-controls={restListId}
+                onClick={() => setShowRest(!showRest)}
+              >
+                <MxIcon name="chevron-down" size={12} />
+                {t('Rest {{n}}', { n: rest.length })}
+              </button>
+              <ul id={restListId} className="session-goal-task-list" hidden={!showRest}>
+                {rest.map((task, index) => (
+                  <TodoRow key={`${index}:${task.content}`} task={task} />
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      )}
+      {done.length > 0 && (
+        <div className="session-goal-group">
+          <button
+            type="button"
+            className="session-goal-fold"
+            data-fold="done"
+            aria-expanded={doneOpen}
+            aria-controls={doneListId}
+            onClick={() => setShowDone(!doneOpen)}
+          >
+            <MxIcon name="chevron-down" size={12} />
+            {[
+              completedCount > 0 || abandonedCount === 0 ? t('Done {{n}}', { n: completedCount }) : '',
+              abandonedCount > 0 ? t('{{n}} dropped', { n: abandonedCount }) : '',
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </button>
+          <ul id={doneListId} className="session-goal-task-list" hidden={!doneOpen}>
+            {done.map((task, index) => (
+              <TodoRow key={`${index}:${task.content}`} task={task} />
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
 export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const goal = useGoalAfterSubmission(snapshot.goal || null, String(snapshot.sessionId || ''));
+  const todo = todoPresent(snapshot.todo) ? (snapshot.todo as TodoSnapshot) : null;
   const active = goal?.status === 'active';
   const clock = useClock(active);
   const [open, setOpen] = useComposerIslandTab('goal');
@@ -194,14 +293,10 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const [confirmStop, setConfirmStop] = useState(false);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
-  const [showDone, setShowDone] = useState<boolean | null>(null);
-  const [showRest, setShowRest] = useState(false);
   const [objectiveExpanded, setObjectiveExpanded] = useState(false);
   const [objectiveOverflows, setObjectiveOverflows] = useState(false);
   const longTextRef = useRef<HTMLParagraphElement | null>(null);
   const drawerId = useId();
-  const doneListId = useId();
-  const restListId = useId();
   const rootRef = useRef<HTMLDivElement | null>(null);
   const editRef = useRef<HTMLButtonElement | null>(null);
   const stopRef = useRef<HTMLButtonElement | null>(null);
@@ -223,8 +318,6 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
     setEditing(null);
     setConfirmStop(false);
     setError('');
-    setShowDone(null);
-    setShowRest(false);
     setObjectiveExpanded(false);
   }, [sessionId, goal?.id]);
 
@@ -286,7 +379,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   // names its cause — a lane frame that carried no goal, or the post-submit
   // mask — so a "goal blinked" report is attributable.
   const rawGoal = snapshot.goal || null;
-  const visible = Boolean(goal);
+  const visible = Boolean(goal) || Boolean(todo);
   const presence = useRef('');
   useEffect(() => {
     const key = `${sessionId}\u0000${visible ? 'shown' : 'hidden'}`;
@@ -347,36 +440,23 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
       setPending(false);
     }
   };
-  if (!goal) return null;
-  const tasks = Array.isArray(goal.tasks) ? goal.tasks : [];
-  const remainingTasks = tasks.filter((task) => task.status !== 'completed' && task.status !== 'dropped');
-  const doneTasks = tasks.filter((task) => task.status === 'completed' || task.status === 'dropped');
-  const completedCount = tasks.filter((task) => task.status === 'completed').length;
-  const droppedCount = doneTasks.length - completedCount;
-  const progress = goalTaskProgress(goal);
-  const progressLabel = `${progress.completed}/${progress.total}`;
-  const kind = goalStateKind(goal, displayStatus);
-  const stateLabel = goalStateLabel(goal, kind, displayStatus);
-  const segmentTime = goalSegmentTimeLabel(goal, clock);
-  const objective = String(goal.objective || '');
-  const title = String(goal.title || objective || t('Goal'));
+  if (!goal && !todo) return null;
+  const progress = todoProgress(todo);
+  // A Goal without a step list has no count to show; the ring stays empty.
+  // A list whose steps were all dropped still shows its 0/0.
+  const progressLabel = todo ? `${progress.completed}/${progress.total}` : '';
+  const kind = goal ? goalStateKind(goal, displayStatus) : todoStateKind(progress);
+  const stateLabel = goal
+    ? goalStateLabel(goal, kind, displayStatus)
+    : t(kind === 'blocked' ? 'Blocked' : kind === 'complete' ? 'Complete' : 'In progress');
+  const segmentTime = goal ? goalSegmentTimeLabel(goal, clock) : '';
+  const objective = String(goal?.objective || '');
+  const title = String(goal?.title || objective || t('Goal'));
   // Without a distinct short title the objective is the title itself.
-  const showObjective = Boolean(objective) && Boolean(goal.title) && title !== objective;
-  const budget = goalBudgetFraction(goal, clock);
-  const terminal = goal.status === 'complete' || goal.status === 'stopped';
-  const exhausted = Number(goal.timeLimitMs) > 0 && Number(goal.remainingMs) === 0;
-  // The first rows stay; every running or parked row always makes the cut.
-  const shownIndexes = new Set<number>();
-  remainingTasks.forEach((task, index) => {
-    if (task.status === 'in_progress' || task.status === 'awaiting_approval') shownIndexes.add(index);
-  });
-  for (let index = 0; index < remainingTasks.length && shownIndexes.size < REMAINING_VISIBLE; index += 1) {
-    shownIndexes.add(index);
-  }
-  const shownTasks = remainingTasks.filter((_, index) => shownIndexes.has(index));
-  const restTasks = remainingTasks.filter((_, index) => !shownIndexes.has(index));
-  // A finished list opens its done rows: they are all there is to read.
-  const doneOpen = showDone ?? (kind === 'complete' && remainingTasks.length === 0);
+  const showObjective = Boolean(objective) && Boolean(goal?.title) && title !== objective;
+  const budget = goal ? goalBudgetFraction(goal, clock) : null;
+  const terminal = goal?.status === 'complete' || goal?.status === 'stopped';
+  const exhausted = Number(goal?.timeLimitMs) > 0 && Number(goal?.remainingMs) === 0;
   const noteTone = kind === 'blocked' ? 'blocked' : kind === 'waiting' ? 'waiting' : undefined;
   const confirming = confirmStop && !terminal;
   const primary = active ? 'pause' : 'resume';
@@ -397,17 +477,21 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
         className="session-goal-trigger"
         aria-expanded={open}
         aria-controls={drawerId}
-        aria-label={t('Goal: {{objective}}, {{status}}, {{completed}} of {{total}} tasks done', {
-          objective,
-          status: stateLabel,
-          completed: progress.completed,
-          total: progress.total,
-        })}
+        aria-label={
+          goal
+            ? t('Goal: {{objective}}, {{status}}, {{completed}} of {{total}} tasks done', {
+                objective,
+                status: stateLabel,
+                completed: progress.completed,
+                total: progress.total,
+              })
+            : t('To-do {{completed}} of {{total}} done', { completed: progress.completed, total: progress.total })
+        }
         onClick={() => setOpen(!open)}
       >
         <GoalRing kind={kind} progress={progress} label={stateLabel} />
         <span className="session-goal-meta">
-          <span className="session-goal-progress">{progressLabel}</span>
+          {progressLabel && <span className="session-goal-progress">{progressLabel}</span>}
           {segmentTime && <span className="session-goal-trigger-time">{segmentTime}</span>}
         </span>
       </button>
@@ -429,16 +513,19 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
           pause / edit / stop controls, or dismiss once the Goal has finished. */}
       <div className="session-goal-drawer" aria-hidden={open ? 'false' : 'true'} inert={!open}>
         {/* biome-ignore lint/a11y/noRedundantRoles: the region role is spelled out for the drawer contract the Goal tests read. */}
-        <section id={drawerId} className="session-goal-panel" role="region" aria-label={t('Goal tasks')}>
+        <section id={drawerId} className="session-goal-panel" role="region" aria-label={t(goal ? 'Goal tasks' : 'To-do')}>
           <div className="composer-island-phead">
             <span className="composer-island-tab" data-active="true">
               <GoalRing kind={kind} progress={progress} />
               <span className="session-goal-meta">
-                <span className="session-goal-progress">{progressLabel}</span>
-                <span className="session-goal-meta-time">
-                  <span aria-hidden="true">·</span>
-                  <span className="session-goal-time">{elapsedLabel}</span>
-                </span>
+                {!goal && <span className="session-goal-tab-label">{t('To-do')}</span>}
+                {progressLabel && <span className="session-goal-progress">{progressLabel}</span>}
+                {goal && (
+                  <span className="session-goal-meta-time">
+                    <span aria-hidden="true">·</span>
+                    <span className="session-goal-time">{elapsedLabel}</span>
+                  </span>
+                )}
               </span>
             </span>
             <button
@@ -453,6 +540,8 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
           </div>
           <div className="session-goal-body">
             <div ref={contentRef} className="session-goal-content">
+              {goal && (
+                <>
               <div className="session-goal-details">
                 <p
                   ref={showObjective ? undefined : longTextRef}
@@ -502,68 +591,19 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
                   {String(goal.blocker)}
                 </p>
               ) : null}
-              <div className="session-goal-tasks">
-                {tasks.length === 0 && <p className="session-goal-empty">{t('No tasks yet.')}</p>}
-                {remainingTasks.length > 0 && (
-                  <div className="session-goal-group">
-                    <p className="session-goal-group-label">{t('Remaining {{n}}', { n: remainingTasks.length })}</p>
-                    <ul className="session-goal-task-list" aria-label={t('Goal tasks')}>
-                      {shownTasks.map((task, index) => (
-                        <GoalTaskRow key={String(task.id || index)} task={task} kind={kind} />
-                      ))}
-                    </ul>
-                    {restTasks.length > 0 && (
-                      <>
-                        <button
-                          type="button"
-                          className="session-goal-fold"
-                          data-fold="rest"
-                          aria-expanded={showRest}
-                          aria-controls={restListId}
-                          onClick={() => setShowRest(!showRest)}
-                        >
-                          <MxIcon name="chevron-down" size={12} />
-                          {t('Rest {{n}}', { n: restTasks.length })}
-                        </button>
-                        <ul id={restListId} className="session-goal-task-list" hidden={!showRest}>
-                          {restTasks.map((task, index) => (
-                            <GoalTaskRow key={String(task.id || index)} task={task} kind={kind} />
-                          ))}
-                        </ul>
-                      </>
-                    )}
-                  </div>
-                )}
-                {doneTasks.length > 0 && (
-                  <div className="session-goal-group">
-                    <button
-                      type="button"
-                      className="session-goal-fold"
-                      data-fold="done"
-                      aria-expanded={doneOpen}
-                      aria-controls={doneListId}
-                      onClick={() => setShowDone(!doneOpen)}
-                    >
-                      <MxIcon name="chevron-down" size={12} />
-                      {[
-                        completedCount > 0 || droppedCount === 0 ? t('Done {{n}}', { n: completedCount }) : '',
-                        droppedCount > 0 ? t('{{n}} dropped', { n: droppedCount }) : '',
-                      ]
-                        .filter(Boolean)
-                        .join(' · ')}
-                    </button>
-                    <ul id={doneListId} className="session-goal-task-list" hidden={!doneOpen}>
-                      {doneTasks.map((task, index) => (
-                        <GoalTaskRow key={String(task.id || index)} task={task} kind={kind} />
-                      ))}
-                    </ul>
-                  </div>
-                )}
-              </div>
+                </>
+              )}
+              {todo && (
+                <TodoList
+                  key={`${sessionId}:${goal?.id || ''}`}
+                  todo={todo}
+                  finishedOpenByDefault={Boolean(goal) && kind === 'complete'}
+                />
+              )}
             </div>
             {/* One row under the hairline: the stop confirmation takes the
                 controls' place, so nothing below the list moves or hides. */}
-            <div className="session-goal-controls">
+            {goal && (<div className="session-goal-controls">
               {confirming ? (
                 // biome-ignore lint/a11y/useSemanticElements: tag must stay a div; a fieldset would change layout and styling
                 <div className="session-goal-confirm" role="group" aria-label={t('Stop goal')}>
@@ -646,7 +686,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
                   </button>
                 </>
               )}
-            </div>
+            </div>)}
           </div>
         </section>
       </div>
@@ -655,7 +695,9 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
           anchor={rootRef}
           disabled={pending}
           initialGoal={editing}
-          onSave={(value) => control('edit', { ...value, revision: editing.revision })}
+          onSave={(value) =>
+            control('edit', { objective: value.objective, time_limit_minutes: value.timeLimitMinutes })
+          }
           onClose={() => setEditing(null)}
           returnFocus={() => {
             // The trigger is hidden while the Goal tab is open; focus lands on

@@ -112,30 +112,34 @@ export type Toast = RecordValue & {
   message?: string;
   tone?: string;
 };
-export type GoalTask = {
-  id?: string;
-  text?: string;
-  status?: 'pending' | 'in_progress' | 'completed' | 'dropped' | 'awaiting_approval';
-  kind?: 'work' | 'verification';
+export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'abandoned' | 'blocked';
+export type TodoTask = {
+  content: string;
+  status: TodoStatus;
+  blocker?: string;
+  note?: string;
 };
+export type TodoPhase = { name: string; tasks: TodoTask[] };
+/** The session's step list; absent or null when empty. */
+export type TodoSnapshot = {
+  phases: TodoPhase[];
+  completed: number;
+  abandoned: number;
+  total: number;
+};
+/** An agent row's to-do summary. */
+export type AgentTodoSummary = { completed: number; total: number; current?: string };
 export type GoalSnapshot = {
   id?: string;
-  revision?: number;
   // Bumped when the runtime delivers a "budget nearly over" warning, so a
   // surface can tell that crossing apart from an ordinary state update.
   warningRevision?: number;
-  needsTaskReview?: boolean;
   sessionId?: string;
   objective?: string;
   title?: string;
   status?: 'active' | 'paused' | 'blocked' | 'usage_limited' | 'duration_reached' | 'complete' | 'stopped';
   pauseReason?: 'user' | 'waiting';
-  timeMode?: 'max' | 'duration';
-  tasks?: GoalTask[];
-  tasksCompleted?: number;
-  tasksTotal?: number;
   turnCount?: number;
-  tasksUpdatedAt?: number | null;
   blocker?: string;
   timeLimitMs?: number;
   timeUsedMs?: number;
@@ -203,6 +207,7 @@ export type Snapshot = RecordValue & {
   spinner?: RecordValue | null;
   commandStatus?: RecordValue | null;
   goal?: GoalSnapshot | null;
+  todo?: TodoSnapshot | null;
   quotaResume?: DesktopQuotaResume | null;
   promptHistoryList?: unknown[];
   desktopSessionTitle?: string;

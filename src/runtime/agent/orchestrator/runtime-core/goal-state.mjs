@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { clean } from '../../../shared/clean.mjs';
 import { compactSessionTitle } from './session-title.mjs';
 import { MAX_GOAL_TIME_LIMIT_MS } from './goal-tool-defs.mjs';
-import { goalTaskProgress, normalizeGoalTasks } from './goal-tasks.mjs';
 import { SESSION_ID_PATTERN } from './session-id.mjs';
 
 export const DEFAULT_GOAL_TIME_LIMIT_MS = 0;
@@ -23,14 +22,6 @@ export const GOAL_STATUS_VALUES = Object.freeze([
 
 const MAX_OBJECTIVE_LENGTH = 4_000;
 const MAX_GOAL_BLOCKER_LENGTH = 1_000;
-const ACTIVE_AGENT_STATUSES = new Set([
-  'connecting',
-  'requesting',
-  'streaming',
-  'tool_running',
-  'running',
-  'cancelling',
-]);
 
 export function assertSessionId(value) {
   const sessionId = clean(value);
@@ -54,12 +45,6 @@ export function validateGoalBlocker(value) {
     throw new Error(`goal blocker exceeds ${MAX_GOAL_BLOCKER_LENGTH} characters`);
   }
   return blocker;
-}
-
-export function goalTimeMode(value, fallback = 'max') {
-  if (value == null || value === '') return fallback;
-  if (!['max', 'duration'].includes(value)) throw new Error('goal timeMode must be max or duration');
-  return value;
 }
 
 export function parseGoalDuration(value) {
@@ -100,12 +85,6 @@ export function parseUserCommand(command) {
 
   let objective = value;
   let duration = null;
-  let timeMode = null;
-  const modeMatch = objective.match(/(?:^|\s)--time-mode(?:=|\s+)([^\s]+)/i);
-  if (modeMatch) {
-    timeMode = goalTimeMode(modeMatch[1]);
-    objective = objective.replace(modeMatch[0], ' ').trim();
-  }
   const equalsMatch = objective.match(/(?:^|\s)--time=([^\s]+)/i);
   if (equalsMatch) {
     duration = equalsMatch[1];
@@ -117,7 +96,7 @@ export function parseUserCommand(command) {
       objective = objective.replace(spacedMatch[0], ' ').trim();
     }
   }
-  return { action: 'create', objective, duration, timeMode };
+  return { action: 'create', objective, duration };
 }
 
 function storedTimeLimitMs(value) {
@@ -125,11 +104,15 @@ function storedTimeLimitMs(value) {
   return Number.isFinite(stored) && stored > 0 ? Math.min(MAX_GOAL_TIME_LIMIT_MS, Math.max(60_000, stored)) : 0;
 }
 
-// Dropped work must survive the turn that removed it before completion.
-function storedLastDropTurn(value) {
-  const dropped =
-    value.revision != null || value.lastDropTurn !== 0 || (value.tasks || []).some((task) => task.status === 'dropped');
-  return Number.isInteger(value.lastDropTurn) && dropped ? value.lastDropTurn : -1;
+// Tasks a record written before the todo list carried: kept on the record
+// only until the session's todo list adopts them (todo-list.mjs).
+function storedLegacyTasks(value) {
+  const tasks = value.legacyTasks ?? value.tasks ?? value.criteria;
+  return Array.isArray(tasks) && tasks.length
+    ? tasks
+        .filter((task) => task && typeof task === 'object' && clean(task.text ?? task.content))
+        .map((task) => ({ text: clean(task.text ?? task.content), status: clean(task.status) || 'pending' }))
+    : [];
 }
 
 export function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
@@ -139,25 +122,19 @@ export function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
   if (!GOAL_STATUS_VALUES.includes(status)) throw new Error(`invalid stored Goal status: ${status}`);
   return {
     id: clean(value.id) || randomUUID(),
-    revision: Math.max(1, Math.floor(Number(value.revision) || 1)),
-    objectiveRevision: Math.max(1, Math.floor(Number(value.objectiveRevision) || 1)),
-    tasksObjectiveRevision: Math.max(1, Math.floor(Number(value.tasksObjectiveRevision) || 1)),
     sessionId,
     objective: validateObjective(value.objective),
     title: compactSessionTitle(value.title || value.objective),
     status,
-    tasks: normalizeGoalTasks(value.tasks ?? value.criteria ?? []),
+    legacyTasks: storedLegacyTasks(value),
     blocker: clean(value.blocker),
     pauseReason: ['waiting', 'cancelled'].includes(value.pauseReason) ? value.pauseReason : 'user',
     failureReason: clean(value.failureReason),
     failureCount: Math.max(0, Math.floor(Number(value.failureCount) || 0)),
     // Observations report progress; they never decide when work is complete.
     turnCount: Math.max(0, Math.floor(Number(value.turnCount) || 0)),
-    lastDropTurn: storedLastDropTurn(value),
-    tasksUpdatedAt: Number(value.tasksUpdatedAt) > 0 ? Number(value.tasksUpdatedAt) : null,
     timeLimitMs: storedTimeLimitMs(value),
-    // Unversioned durations retain their original full-period commitment.
-    timeMode: goalTimeMode(value.timeMode, 'duration'),
+    // Time is an upper bound only: a legacy `duration` record reads as a cap.
     timeUsedMs: Math.max(0, Number(value.timeUsedMs) || 0),
     createdAt: Math.max(0, Number(value.createdAt) || Date.now()),
     updatedAt: Math.max(0, Number(value.updatedAt) || Date.now()),
@@ -189,25 +166,18 @@ export function publicGoal(goal, now = Date.now()) {
   const timeUsedMs = activeElapsedMs(goal, now);
   const hasTimeLimit = Number(goal.timeLimitMs) > 0;
   const remainingMs = hasTimeLimit ? Math.max(0, Number(goal.timeLimitMs) - timeUsedMs) : null;
-  const tasks = normalizeGoalTasks(goal.tasks || []);
   return {
     id: goal.id,
-    revision: goal.revision,
-    // Warning delivery does not invalidate the actionable task revision.
+    // Advances once per delivered deadline warning (deadline-delivery.mjs).
     warningRevision: Math.max(0, Math.floor(Number(goal.warningRevision) || 0)),
-    needsTaskReview: goal.tasksObjectiveRevision !== goal.objectiveRevision,
     sessionId: goal.sessionId,
     objective: goal.objective,
     title: goal.title || compactSessionTitle(goal.objective),
     status: goal.status,
-    tasks,
     turnCount: Math.max(0, Math.floor(Number(goal.turnCount) || 0)),
-    tasksUpdatedAt: Number(goal.tasksUpdatedAt) > 0 ? Number(goal.tasksUpdatedAt) : null,
-    ...goalTaskProgress(tasks),
     blocker: goal.blocker || '',
     pauseReason: goal.pauseReason || 'user',
     timeLimitMs: goal.timeLimitMs,
-    timeMode: goal.timeMode,
     timeUsedMs,
     remainingMs,
     deadlineAt: hasTimeLimit && goal.status === 'active' && goal.lastStartedAt ? now + remainingMs : null,
@@ -309,15 +279,4 @@ export function resumeGoalState(goal, at, added = null) {
 
 export function startActiveClock(goal, now = Date.now()) {
   if (goal.status === 'active' && !goal.lastStartedAt) goal.lastStartedAt = now;
-}
-
-export function runningAgentWork(agentStatus) {
-  const jobs = Array.isArray(agentStatus?.agentJobs) ? agentStatus.agentJobs : [];
-  if (jobs.some((job) => clean(job?.status).toLowerCase() === 'running')) return true;
-  const workers = Array.isArray(agentStatus?.agentWorkers) ? agentStatus.agentWorkers : [];
-  return workers.some((worker) => {
-    const status = clean(worker?.status).toLowerCase();
-    const stage = clean(worker?.stage || worker?.worker_stage).toLowerCase();
-    return ACTIVE_AGENT_STATUSES.has(status) || ACTIVE_AGENT_STATUSES.has(stage);
-  });
 }

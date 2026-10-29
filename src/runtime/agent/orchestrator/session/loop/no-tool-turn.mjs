@@ -18,6 +18,7 @@ import { resetOutputLimitRecovery, resolveOutputLimit } from './no-tool-turn/out
 import { resolveRefusal } from './no-tool-turn/refusal.mjs';
 import { resumeContinuation } from './no-tool-turn/continuation.mjs';
 import { nudgeEmptyTurn } from './no-tool-turn/empty-nudge.mjs';
+import { noteTodoProgress, todoCompletionReminder } from './no-tool-turn/todo-check.mjs';
 import { isReactionSuccess, reactionCallIds, takeReactionTarget } from '../../runtime-core/reaction-tool-defs.mjs';
 import { messageIdOf } from '../message-ids.mjs';
 import { isReactableMessage } from '../message-reactions.mjs';
@@ -32,6 +33,7 @@ export function createNoToolTurnResolver({
   drainSteering,
   escalateMaxTokens = () => null,
   streamedChars = () => 0,
+  turnLimited = () => false,
 }) {
   const segments = createTurnSegments({ messages, opts });
   // Per-turn recovery counters shared by the ladders.
@@ -165,6 +167,16 @@ export function createNoToolTurnResolver({
         resetOutputLimitRecovery(state);
         return { action: 'continue', response };
       }
+      const reminder = todoCompletionReminder(opts.session, {
+        sessionId,
+        sessionAgent,
+        turnLimited: turnLimited(),
+      });
+      if (reminder) {
+        if (segments.commitIntermediate(response) && hasContent) segments.record(response.content, { committed: true });
+        messages.push({ role: 'user', content: reminder });
+        return { action: 'continue', response };
+      }
       return finishTurn(response);
     },
     // A turn that produced tool calls is never an empty contract violation,
@@ -177,6 +189,7 @@ export function createNoToolTurnResolver({
     // succeeded marks the turn as having reacted.
     noteToolBatchCompleted(calls = [], results = []) {
       state.continuationsSinceToolBatch = 0;
+      noteTodoProgress(opts.session);
       segments.clear();
       state.reactions.push(...batchReactions(calls, results));
     },

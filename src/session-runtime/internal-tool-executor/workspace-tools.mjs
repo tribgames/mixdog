@@ -17,6 +17,7 @@ import { scheduleCallerScope } from '../services/schedule-access.mjs';
 import { worktreeCallerScope } from '../services/worktree-access.mjs';
 import { resolveHandoffAttachments, sessionRoots } from '../handoff-attachments.mjs';
 import { delegationChainOf } from '../bot-chain.mjs';
+import { openTodoItems } from '../../runtime/agent/orchestrator/runtime-core/todo-list.mjs';
 import { BOT_TARGET_ACTIONS, resolveBotTarget } from '../bot-target.mjs';
 
 const USER_TITLE_ERROR = 'session: the user already titled this session; the title was not changed';
@@ -322,8 +323,20 @@ export function createWorkspaceToolHandlers({
     goal: async (args, { name, callerCtx }) => {
       // A Goal keeps working in its session across turns: a heartbeat's would
       // run on unseen in the hidden session.
-      if (['create', 'resume'].includes(clean(args?.action).toLowerCase()) && callerIsHeartbeat(callerCtx)) {
+      const action = clean(args?.action).toLowerCase();
+      if (action === 'create' && callerIsHeartbeat(callerCtx)) {
         throw new Error(`goal: ${HEARTBEAT_NO_HANDOFF}`);
+      }
+      // A completion claim with steps still open in the session's own list
+      // has not finished the work it recorded.
+      const callerSessionId = callerCtx?.callerSessionId || rt.session?.id || null;
+      if (action === 'complete' && rt.session?.id === callerSessionId) {
+        const open = openTodoItems(rt.session);
+        if (open.length) {
+          throw new Error(
+            `goal: cannot complete with ${open.length} open todo item(s) (${open.map((task) => task.content).join('; ')}); finish them, or drop or block each with its reason`
+          );
+        }
       }
       return await goalRuntime.executeTool(name, args || {}, {
         callerSessionId: callerCtx?.callerSessionId || rt.session?.id || rt.reservedSessionId || null,

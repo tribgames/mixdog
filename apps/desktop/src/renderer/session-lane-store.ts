@@ -198,6 +198,9 @@ function mergedLaneFrame(
   if (!Object.hasOwn(next, 'goal') && prior.goal != null) {
     merged.goal = prior.goal;
   }
+  if (!Object.hasOwn(next, 'todo') && prior.todo != null) {
+    merged.todo = prior.todo;
+  }
   return merged;
 }
 

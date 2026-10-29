@@ -11,6 +11,8 @@ import {
   GOAL_TOOL_DEFS,
   parseGoalDuration,
 } from './goal-runtime.mjs';
+import { completeBackgroundTask, registerBackgroundTask } from '../../../shared/background-tasks.mjs';
+import { beginUserCycle, stampShellJobCycle } from '../../../shared/background-wait.mjs';
 
 test('Goal runtime keeps completion visible across restart, then archives it on user input until TTL deletion', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-'));
@@ -23,18 +25,6 @@ test('Goal runtime keeps completion visible across restart, then archives it on 
     assert.equal(created.goal.status, 'active');
     assert.equal(created.goal.timeLimitMs, 2 * 60 * 60 * 1000);
     assert.equal(created.goal.title, 'Ship Goal mode');
-    assert.deepEqual(created.goal.tasks, []);
-    await runtime.executeTool(
-      'goal',
-      {
-        action: 'set_tasks',
-        tasks: [
-          { text: 'Persist Goal state', status: 'completed' },
-          { text: 'Verify Goal continuation', status: 'completed' },
-        ],
-      },
-      { callerSessionId: 'sess_goal_main' }
-    );
     await runtime.startTurn('sess_goal_main');
 
     clock += 2 * 60 * 60 * 1000;
@@ -47,7 +37,6 @@ test('Goal runtime keeps completion visible across restart, then archives it on 
     );
     const completed = JSON.parse(completedText).goal;
     assert.equal(completed.status, 'complete');
-    assert.equal(completed.tasksCompleted, 2);
     assert.equal(completed.timeUsedMs, 2 * 60 * 60 * 1000);
 
     const goalPath = join(dataDir, 'goals', 'sess_goal_main.json');
@@ -59,7 +48,6 @@ test('Goal runtime keeps completion visible across restart, then archives it on 
     const reloaded = createGoalRuntime({ dataDir, now: () => clock });
     try {
       assert.equal(reloaded.snapshot('sess_goal_main').status, 'complete');
-      assert.equal(reloaded.storedSnapshot('sess_goal_main').tasksTotal, 2);
       await reloaded.archiveCompletedOnUserInput('sess_goal_main');
       assert.equal(reloaded.snapshot('sess_goal_main'), null);
       assert.equal(reloaded.storedSnapshot('sess_goal_main').status, 'complete');
@@ -161,48 +149,11 @@ test('Goals default to no deadline and active elapsed time stays synchronized ac
   }
 });
 
-test('legacy Goal criteria migrate into durable task statuses', async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-migrate-'));
-  const goalsDir = join(dataDir, 'goals');
-  mkdirSync(goalsDir, { recursive: true });
-  writeFileSync(
-    join(goalsDir, 'sess_goal_legacy.json'),
-    JSON.stringify({
-      version: 1,
-      goal: {
-        id: 'legacy-goal',
-        sessionId: 'sess_goal_legacy',
-        objective: 'Migrate the Goal',
-        status: 'active',
-        criteria: [
-          { id: 'criterion_1', text: 'Keep completed work', satisfied: true },
-          { id: 'criterion_2', text: 'Keep pending work', satisfied: false },
-        ],
-        timeLimitMs: DEFAULT_GOAL_TIME_LIMIT_MS,
-        createdAt: 1,
-        updatedAt: 1,
-      },
-    })
-  );
-  const runtime = createGoalRuntime({ dataDir });
-  try {
-    const goal = runtime.snapshot('sess_goal_legacy');
-    assert.deepEqual(
-      goal.tasks.map((task) => task.status),
-      ['completed', 'pending']
-    );
-    assert.equal(goal.tasksTotal, 2);
-    assert.equal(goal.tasks[0].id, 'criterion_1');
-  } finally {
-    runtime.close();
-    rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('Goal continuation parks only for active agent work and the deadline limits new turns', async () => {
+test('Goal continuation waits on running agents and background shells of this cycle, not earlier servers, and the deadline limits turns', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-limit-'));
   let clock = 1_900_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock });
+  const shellTasks = [];
   try {
     const limitMs = 60 * 60 * 1000;
     await runtime.control('sess_goal_limit', {
@@ -214,425 +165,48 @@ test('Goal continuation parks only for active agent work and the deadline limits
       agentStatus: { agentJobs: [{ status: 'running' }] },
     });
     assert.equal(parked.run, false);
-    assert.equal(parked.reason, 'agent-running');
+    assert.equal(parked.reason, 'awaiting-work');
 
-    const shellIgnored = runtime.continuation('sess_goal_limit', {
-      agentStatus: { agentJobs: [], shellJobs: [{ status: 'running' }] },
-    });
-    assert.equal(shellIgnored.run, true);
-    assert.ok(shellIgnored.prompt);
+    // A server started in an earlier user cycle never counts as a wait.
+    const context = { callerSessionId: 'sess_goal_limit' };
+    const server = stampShellJobCycle(registerBackgroundTask({ surface: 'shell', context }));
+    shellTasks.push(server);
+    beginUserCycle('sess_goal_limit');
+    assert.equal(runtime.continuation('sess_goal_limit').run, true);
+
+    // A background build started this cycle does, until it finishes.
+    const build = stampShellJobCycle(registerBackgroundTask({ surface: 'shell', context }));
+    shellTasks.push(build);
+    assert.equal(runtime.continuation('sess_goal_limit').reason, 'awaiting-work');
+    completeBackgroundTask(build.taskId, { status: 'completed', notify: false });
+    assert.equal(runtime.continuation('sess_goal_limit').run, true);
 
     clock += limitMs + 1;
     const limited = runtime.snapshot('sess_goal_limit');
     assert.equal(limited.status, 'duration_reached');
     assert.equal(runtime.continuation('sess_goal_limit').run, false);
   } finally {
+    for (const task of shellTasks) completeBackgroundTask(task.taskId, { status: 'completed', notify: false });
     runtime.close();
     rmSync(dataDir, { recursive: true, force: true });
   }
 });
 
-test('Goal completion cannot discard or skip unfinished durable work', async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-status-'));
-  const runtime = createGoalRuntime({ dataDir });
-  try {
-    await runtime.control('sess_goal_status', { action: 'create', objective: 'Ship a verified result' });
-    await assert.rejects(
-      runtime.executeTool('goal', {}, { callerSessionId: 'sess_goal_status' }),
-      /action is required/
-    );
-    let goal = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'set_tasks',
-          tasks: [
-            { text: 'Implement result', status: 'completed' },
-            { text: 'Verify result', status: 'pending' },
-          ],
-        },
-        { callerSessionId: 'sess_goal_status' }
-      )
-    ).goal;
-    goal = runtime.snapshot('sess_goal_status');
-    assert.equal(goal.tasksCompleted, 1);
-    await assert.rejects(
-      runtime.executeTool(
-        'goal',
-        {
-          action: 'set_tasks',
-          tasks: [goal.tasks[0]],
-        },
-        { callerSessionId: 'sess_goal_status' }
-      ),
-      /cannot remove unfinished Goal tasks: task_2 \(Verify result\)/
-    );
-    assert.equal(runtime.snapshot('sess_goal_status').tasksTotal, 2);
-    await assert.rejects(
-      runtime.executeTool('goal', { action: 'complete' }, { callerSessionId: 'sess_goal_status' }),
-      /durable tasks remain incomplete/
-    );
-    goal = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'set_tasks',
-          tasks: goal.tasks.map((task) => ({ ...task, status: 'completed' })),
-        },
-        { callerSessionId: 'sess_goal_status' }
-      )
-    ).goal;
-    const completed = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'complete',
-        },
-        { callerSessionId: 'sess_goal_status' }
-      )
-    ).goal;
-    assert.equal(completed.status, 'complete');
-    assert.equal(completed.tasksCompleted, 2);
-  } finally {
-    runtime.close();
-    rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('Goal tool schemas expose lifecycle and durable task contracts', () => {
-  assert.equal(GOAL_TOOL_DEFS.length, 1);
-  const goalTool = GOAL_TOOL_DEFS[0];
-  assert.equal(goalTool.name, 'goal');
-  assert.deepEqual(goalTool.inputSchema.required, ['action']);
-  assert.deepEqual(Object.keys(goalTool.inputSchema.properties), [
-    'action',
-    'objective',
-    'time_limit_minutes',
-    'time_mode',
-    'tasks',
-    'updates',
-    'revision',
-    'blocker',
-  ]);
-  assert.deepEqual(goalTool.inputSchema.properties.action.enum, [
-    'status',
-    'create',
-    'pause',
-    'resume',
-    'set_tasks',
-    'update_tasks',
-    'complete',
-    'block',
-    'abandon',
-  ]);
-  assert.deepEqual(goalTool.inputSchema.properties.tasks.items.required, ['text', 'status']);
-  assert.equal(goalTool.inputSchema.properties.blocker.minLength, 1);
-  assert.match(goalTool.inputSchema.properties.action.description, /pause only at the user's explicit request/i);
-  // Retiring scoped-out work must not require falsely marking it completed.
-  assert.deepEqual(goalTool.inputSchema.properties.tasks.items.properties.status.enum, [
-    'pending',
-    'in_progress',
-    'completed',
-    'dropped',
-    'awaiting_approval',
-  ]);
-  // Schema bytes ride on every request, so this ceiling tracks the intended
-  // surface rather than drifting: it covers abandon, the dropped and
-  // awaiting_approval task states, the deferred-pause contract, and update
-  // triggers now owned by the always-present tool description, without the
-  // retired per-task kind field.
-  const size = JSON.stringify(goalTool).length;
-  assert.ok(
-    size < 3_700,
-    `goal tool schema is ${size} chars; budget 3700 — trim the description or justify raising the budget`
-  );
-});
-
-test('a user completes their own Goal without the model evidence gate', async () => {
+test('the runtime never completes a Goal by itself; model and user completions both settle it', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-user-complete-'));
   const runtime = createGoalRuntime({ dataDir });
   try {
-    await runtime.control('sess_goal_user_complete', {
-      action: 'create',
-      objective: 'Half-finished work',
-    });
-    await runtime.executeTool(
-      'goal',
-      {
-        action: 'set_tasks',
-        tasks: [
-          { text: 'Unfinished work', status: 'in_progress' },
-          { text: 'Unrun verification', status: 'pending' },
-        ],
-      },
-      { callerSessionId: 'sess_goal_user_complete' }
-    );
-    // The model's completion claim stays gated on evidence.
-    await assert.rejects(
-      runtime.executeTool(
-        'goal',
-        { action: 'complete' },
-        {
-          callerSessionId: 'sess_goal_user_complete',
-        }
-      ),
-      /durable tasks remain incomplete/
-    );
-    // The user's is not. Before this, the only user-side exit was deleting the
-    // Goal, which threw the whole record away.
-    const completed = (
-      await runtime.control('sess_goal_user_complete', {
-        action: 'complete',
-      })
-    ).goal;
+    await runtime.control('sess_goal_user_complete', { action: 'create', objective: 'Half-finished work' });
+    await runtime.startTurn('sess_goal_user_complete');
+    await runtime.settleTurn('sess_goal_user_complete', { status: 'done' });
+    assert.equal(runtime.snapshot('sess_goal_user_complete').status, 'active');
+    const completed = (await runtime.control('sess_goal_user_complete', { action: 'complete' })).goal;
     assert.equal(completed.status, 'complete');
-    assert.equal(completed.tasksCompleted, 0);
-    assert.equal(completed.tasksTotal, 2);
-  } finally {
-    runtime.close();
-    rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('editing the objective keeps durable task progress', async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-edit-'));
-  const runtime = createGoalRuntime({ dataDir });
-  try {
-    await runtime.control('sess_goal_edit', { action: 'create', objective: 'Original wording' });
-    await runtime.executeTool(
-      'goal',
-      {
-        action: 'set_tasks',
-        tasks: [
-          { text: 'Finished step', status: 'completed' },
-          { text: 'Remaining step', status: 'pending' },
-        ],
-      },
-      { callerSessionId: 'sess_goal_edit' }
-    );
-    // The desktop edit button drafts the CURRENT objective, so refining one
-    // word must not discard finished rows.
-    const edited = (
-      await runtime.control('sess_goal_edit', {
-        action: 'edit',
-        objective: 'Original wording, clarified',
-      })
+    await runtime.control('sess_goal_model_complete', { action: 'create', objective: 'Verified work' });
+    const model = JSON.parse(
+      await runtime.executeTool('goal', { action: 'complete' }, { callerSessionId: 'sess_goal_model_complete' })
     ).goal;
-    assert.equal(edited.objective, 'Original wording, clarified');
-    assert.equal(edited.tasksTotal, 2);
-    assert.equal(edited.tasksCompleted, 1);
-  } finally {
-    runtime.close();
-    rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('dropped tasks retire scoped-out work without a false completion', async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-dropped-'));
-  const runtime = createGoalRuntime({ dataDir });
-  try {
-    await runtime.control('sess_goal_dropped', { action: 'create', objective: 'Ship the feature' });
-    let goal = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'set_tasks',
-          tasks: [
-            { text: 'Build the feature', status: 'completed' },
-            { text: 'Port the legacy path', status: 'pending' },
-            { text: 'Verify the feature', status: 'completed' },
-          ],
-        },
-        { callerSessionId: 'sess_goal_dropped' }
-      )
-    ).goal;
-    goal = runtime.snapshot('sess_goal_dropped');
-    await assert.rejects(
-      runtime.executeTool('goal', { action: 'complete' }, { callerSessionId: 'sess_goal_dropped' }),
-      /durable tasks remain incomplete/
-    );
-
-    // Scope changed: the row is retired, not falsely completed.
-    goal = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'set_tasks',
-          tasks: goal.tasks.map((task) => (task.id === 'task_2' ? { ...task, status: 'dropped' } : task)),
-        },
-        { callerSessionId: 'sess_goal_dropped' }
-      )
-    ).goal;
-    goal = runtime.snapshot('sess_goal_dropped');
-    assert.equal(goal.tasks.length, 3);
-    assert.equal(goal.tasks[1].status, 'dropped');
-    // Retired work leaves the denominator so progress moves instead of freezing.
-    assert.equal(goal.tasksTotal, 2);
-    assert.equal(goal.tasksCompleted, 2);
-
-    // Settled rows may be omitted from a later snapshot; unfinished ones may not.
-    const trimmed = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'set_tasks',
-          tasks: goal.tasks.filter((task) => task.status !== 'dropped'),
-        },
-        { callerSessionId: 'sess_goal_dropped' }
-      )
-    ).goal;
-    assert.equal(trimmed.tasksTotal, 2);
-
-    await runtime.startTurn('sess_goal_dropped');
-    const completed = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'complete',
-        },
-        { callerSessionId: 'sess_goal_dropped' }
-      )
-    ).goal;
-    assert.equal(completed.status, 'complete');
-  } finally {
-    runtime.close();
-    rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('work dropped this turn cannot also close the Goal in the same turn', async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-drop-turn-'));
-  const runtime = createGoalRuntime({ dataDir });
-  try {
-    await runtime.control('sess_goal_drop_turn', { action: 'create', objective: 'Ship both paths' });
-    await runtime.startTurn('sess_goal_drop_turn');
-    let goal = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'set_tasks',
-          tasks: [
-            { text: 'Ship the main path', status: 'completed' },
-            { text: 'Ship the legacy path', status: 'pending' },
-            { text: 'Verify both paths', status: 'completed' },
-          ],
-        },
-        { callerSessionId: 'sess_goal_drop_turn' }
-      )
-    ).goal;
-    goal = runtime.snapshot('sess_goal_drop_turn');
-    goal = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'set_tasks',
-          tasks: goal.tasks.map((task) => (task.id === 'task_2' ? { ...task, status: 'dropped' } : task)),
-        },
-        { callerSessionId: 'sess_goal_drop_turn' }
-      )
-    ).goal;
-    goal = runtime.snapshot('sess_goal_drop_turn');
-    // Writing requested work off and closing the Goal in one breath is how a
-    // user condition disappears unnoticed, so the drop has to outlive the turn.
-    await assert.rejects(
-      runtime.executeTool(
-        'goal',
-        { action: 'complete' },
-        {
-          callerSessionId: 'sess_goal_drop_turn',
-        }
-      ),
-      /dropped this turn/
-    );
-    // Omitting the retired row does not launder the same turn either.
-    await runtime.executeTool(
-      'goal',
-      {
-        action: 'set_tasks',
-        tasks: goal.tasks.filter((task) => task.status !== 'dropped'),
-      },
-      { callerSessionId: 'sess_goal_drop_turn' }
-    );
-    await assert.rejects(
-      runtime.executeTool(
-        'goal',
-        { action: 'complete' },
-        {
-          callerSessionId: 'sess_goal_drop_turn',
-        }
-      ),
-      /dropped this turn/
-    );
-    // A later turn, where the user has seen the retired row, completes normally.
-    await runtime.startTurn('sess_goal_drop_turn');
-    const completed = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'complete',
-        },
-        { callerSessionId: 'sess_goal_drop_turn' }
-      )
-    ).goal;
-    assert.equal(completed.status, 'complete');
-  } finally {
-    runtime.close();
-    rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('abandoning a superseded Goal releases the create guard', async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-abandon-'));
-  const runtime = createGoalRuntime({ dataDir });
-  try {
-    await runtime.control('sess_goal_abandon', { action: 'create', objective: 'Superseded work' });
-    await runtime.control('sess_goal_abandon', { action: 'pause' });
-    // A stopped Goal used to block every later Goal in the session for good.
-    await assert.rejects(
-      runtime.executeTool(
-        'goal',
-        {
-          action: 'create',
-          objective: 'Replacement work',
-        },
-        { callerSessionId: 'sess_goal_abandon' }
-      ),
-      /abandon it if the user redirected away/
-    );
-
-    const abandoned = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'abandon',
-        },
-        { callerSessionId: 'sess_goal_abandon' }
-      )
-    );
-    assert.equal(abandoned.goal.status, 'stopped');
-    assert.equal(runtime.snapshot('sess_goal_abandon').status, 'stopped');
-    // The user's next prompt retires a model-abandoned Goal like a completed one.
-    await runtime.archiveCompletedOnUserInput('sess_goal_abandon');
-    assert.equal(runtime.snapshot('sess_goal_abandon'), null);
-    assert.equal(runtime.storedSnapshot('sess_goal_abandon').status, 'stopped');
-
-    const created = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'create',
-          objective: 'Replacement work',
-        },
-        { callerSessionId: 'sess_goal_abandon' }
-      )
-    ).goal;
-    assert.equal(created.objective, 'Replacement work');
-    assert.equal(created.status, 'active');
-
-    await assert.rejects(
-      runtime.executeTool('goal', { action: 'abandon' }, { callerSessionId: 'sess_goal_no_goal' }),
-      /no Goal exists/
-    );
+    assert.equal(model.status, 'complete');
   } finally {
     runtime.close();
     rmSync(dataDir, { recursive: true, force: true });
@@ -673,7 +247,7 @@ test('a legacy time-capped Goal loads as a finished duration, never as active wo
   }
 });
 
-test('Goal observations report turns and real task movement without judging them', async () => {
+test('Goal observations count turns without judging them', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-observe-'));
   let clock = 1_800_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock });
@@ -685,37 +259,6 @@ test('Goal observations report turns and real task movement without judging them
     await runtime.settleTurn('sess_goal_observe', { status: 'done' });
     await runtime.startTurn('sess_goal_observe');
     assert.equal(runtime.snapshot('sess_goal_observe').turnCount, 2);
-
-    clock += 60_000;
-    const moved = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'set_tasks',
-          tasks: [
-            { text: 'Observed step', status: 'in_progress' },
-            { text: 'Observed check', status: 'pending' },
-          ],
-        },
-        { callerSessionId: 'sess_goal_observe' }
-      )
-    ).goal;
-    assert.equal(moved.tasksUpdatedAt, clock);
-
-    // Re-sending an identical snapshot is not movement, so a stalled Goal
-    // cannot look busy on the observation line.
-    clock += 60_000;
-    const unchanged = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'set_tasks',
-          tasks: runtime.snapshot('sess_goal_observe').tasks,
-        },
-        { callerSessionId: 'sess_goal_observe' }
-      )
-    ).goal;
-    assert.equal(unchanged.tasksUpdatedAt, moved.tasksUpdatedAt);
   } finally {
     runtime.close();
     rmSync(dataDir, { recursive: true, force: true });
@@ -727,17 +270,6 @@ test('Goal status shows the model exactly what the user still sees', async () =>
   const runtime = createGoalRuntime({ dataDir });
   try {
     await runtime.control('sess_goal_visible', { action: 'create', objective: 'Archived work' });
-    await runtime.executeTool(
-      'goal',
-      {
-        action: 'set_tasks',
-        tasks: [
-          { text: 'Archived step', status: 'completed' },
-          { text: 'Archived check', status: 'completed' },
-        ],
-      },
-      { callerSessionId: 'sess_goal_visible' }
-    );
     await runtime.executeTool(
       'goal',
       { action: 'complete' },
@@ -758,171 +290,6 @@ test('Goal status shows the model exactly what the user still sees', async () =>
     );
     assert.equal(status.goal, null);
     assert.equal(runtime.snapshot('sess_goal_visible'), null);
-  } finally {
-    runtime.close();
-    rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('unified Goal tool accepts model-shaped fields', async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-unified-'));
-  const runtime = createGoalRuntime({ dataDir });
-  try {
-    const filler = {
-      objective: '',
-      time_limit_minutes: 60,
-      tasks: [{ id: '', text: '', status: 'pending' }],
-      blocker: '/',
-    };
-    const empty = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'status',
-          ...filler,
-        },
-        { callerSessionId: 'sess_goal_unified' }
-      )
-    );
-    assert.equal(empty.goal, null);
-    await assert.rejects(
-      runtime.executeTool(
-        'goal',
-        {
-          action: 'status',
-          ...filler,
-          unexpected: true,
-        },
-        { callerSessionId: 'sess_goal_unified' }
-      ),
-      /unknown fields: unexpected/
-    );
-    const created = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'create',
-          objective: 'Use one Goal tool',
-          tasks: [
-            { id: '', text: 'Use the unified Goal tool', status: 'awaiting_approval' },
-            { id: '', text: 'Verify the unified Goal tool', status: 'awaiting_approval' },
-          ],
-          blocker: 'ignored for create',
-        },
-        { callerSessionId: 'sess_goal_unified' }
-      )
-    ).goal;
-    assert.equal(created.objective, 'Use one Goal tool');
-    assert.equal(created.tasksTotal, 2);
-    assert.equal(created.tasks[0].id, 'task_1');
-
-    const paused = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'pause',
-          ...filler,
-        },
-        { callerSessionId: 'sess_goal_unified' }
-      )
-    ).goal;
-    assert.equal(paused.status, 'paused');
-    const pausedContinuation = runtime.continuation('sess_goal_unified');
-    assert.equal(pausedContinuation.run, false);
-    assert.equal(pausedContinuation.reason, 'paused');
-    assert.equal(pausedContinuation.goal.id, paused.id);
-    assert.equal(pausedContinuation.goal.status, paused.status);
-    const resumed = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'resume',
-          ...filler,
-        },
-        { callerSessionId: 'sess_goal_unified' }
-      )
-    ).goal;
-    assert.equal(resumed.status, 'active');
-    assert.equal(runtime.continuation('sess_goal_unified').run, true);
-
-    const completedTasks = created.tasks.map((task) => ({ ...task, status: 'completed' }));
-    const updated = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'set_tasks',
-          objective: 'ignored for set_tasks',
-          time_limit_minutes: 60,
-          tasks: completedTasks,
-          blocker: 'ignored for set_tasks',
-        },
-        { callerSessionId: 'sess_goal_unified' }
-      )
-    ).goal;
-    assert.equal(updated.tasksCompleted, 2);
-
-    const completed = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'complete',
-          ...filler,
-        },
-        { callerSessionId: 'sess_goal_unified' }
-      )
-    ).goal;
-    assert.equal(completed.status, 'complete');
-
-    const status = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'status',
-          ...filler,
-        },
-        { callerSessionId: 'sess_goal_unified' }
-      )
-    ).goal;
-    assert.equal(status.status, 'complete');
-
-    await runtime.executeTool(
-      'goal',
-      {
-        action: 'create',
-        objective: 'Block another Goal',
-        time_limit_minutes: 60,
-        tasks: [{ id: '', text: 'Wait for external state', status: 'in_progress' }],
-        blocker: 'ignored for create',
-      },
-      { callerSessionId: 'sess_goal_block_shape' }
-    );
-    await runtime.startTurn('sess_goal_block_shape');
-    const blocked = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'block',
-          ...filler,
-          blocker: 'External state unavailable',
-        },
-        { callerSessionId: 'sess_goal_block_shape' }
-      )
-    ).goal;
-    await runtime.settleTurn('sess_goal_block_shape', { status: 'done' });
-    assert.equal(blocked.status, 'blocked');
-    assert.equal(blocked.blocker, 'External state unavailable');
-    const resumedFromBlock = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'resume',
-          ...filler,
-        },
-        { callerSessionId: 'sess_goal_block_shape' }
-      )
-    ).goal;
-    assert.equal(resumedFromBlock.status, 'active');
-    assert.equal(resumedFromBlock.blocker, '');
   } finally {
     runtime.close();
     rmSync(dataDir, { recursive: true, force: true });
@@ -1009,106 +376,17 @@ test('Goal tool rejects a stale turn update after the Goal is replaced', async (
   const runtime = createGoalRuntime({ dataDir });
   try {
     await runtime.control('sess_goal_stale', { action: 'create', objective: 'Original Goal' });
-    await runtime.executeTool(
-      'goal',
-      {
-        action: 'set_tasks',
-        tasks: [
-          { text: 'Finish original Goal', status: 'completed' },
-          { text: 'Verify original Goal', status: 'completed' },
-        ],
-      },
-      { callerSessionId: 'sess_goal_stale' }
-    );
     await runtime.startTurn('sess_goal_stale');
     await runtime.control('sess_goal_stale', { action: 'complete' });
     await runtime.control('sess_goal_stale', { action: 'clear' });
     await runtime.control('sess_goal_stale', { action: 'create', objective: 'Replacement Goal' });
-    await assert.rejects(
-      runtime.executeTool(
-        'goal',
-        {
-          action: 'pause',
-        },
-        { callerSessionId: 'sess_goal_stale' }
-      ),
-      /stale Goal update rejected/
-    );
-    await assert.rejects(
-      runtime.executeTool(
-        'goal',
-        {
-          action: 'resume',
-        },
-        { callerSessionId: 'sess_goal_stale' }
-      ),
-      /stale Goal update rejected/
-    );
-    await assert.rejects(
-      runtime.executeTool(
-        'goal',
-        {
-          action: 'block',
-          blocker: 'stale turn result',
-        },
-        { callerSessionId: 'sess_goal_stale' }
-      ),
-      /stale Goal update rejected/
-    );
+    for (const args of [{ action: 'block', blocker: 'stale turn result' }, { action: 'complete' }]) {
+      await assert.rejects(
+        runtime.executeTool('goal', args, { callerSessionId: 'sess_goal_stale' }),
+        /stale Goal update rejected/
+      );
+    }
     assert.equal(runtime.snapshot('sess_goal_stale').objective, 'Replacement Goal');
-  } finally {
-    runtime.close();
-    rmSync(dataDir, { recursive: true, force: true });
-  }
-});
-
-test('model Goal creation rebinds the current turn and accepts immediate work updates', async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-create-turn-'));
-  const runtime = createGoalRuntime({ dataDir });
-  try {
-    await runtime.control('sess_goal_create_turn', { action: 'create', objective: 'Previous Goal' });
-    await runtime.executeTool(
-      'goal',
-      {
-        action: 'set_tasks',
-        tasks: [
-          { text: 'Finish previous Goal', status: 'completed' },
-          { text: 'Verify previous Goal', status: 'completed' },
-        ],
-      },
-      { callerSessionId: 'sess_goal_create_turn' }
-    );
-    await runtime.control('sess_goal_create_turn', { action: 'complete' });
-    await runtime.startTurn('sess_goal_create_turn');
-
-    const created = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'create',
-          objective: 'Approved replacement Goal',
-          tasks: [
-            { text: 'Start approved work', status: 'in_progress' },
-            { text: 'Verify approved work', status: 'pending' },
-          ],
-        },
-        { callerSessionId: 'sess_goal_create_turn' }
-      )
-    ).goal;
-    const updated = JSON.parse(
-      await runtime.executeTool(
-        'goal',
-        {
-          action: 'set_tasks',
-          tasks: created.tasks.map((task) => ({ ...task, status: 'completed' })),
-        },
-        { callerSessionId: 'sess_goal_create_turn' }
-      )
-    ).goal;
-
-    assert.equal(updated.id, created.id);
-    assert.equal(updated.tasksCompleted, 2);
-    assert.equal((await runtime.settleTurn('sess_goal_create_turn', { status: 'done' })).id, created.id);
   } finally {
     runtime.close();
     rmSync(dataDir, { recursive: true, force: true });
@@ -1126,17 +404,6 @@ test('daemon restart preserves active, paused, blocked, and complete Goal snapsh
         objective: 'Resume active work',
       })
     ).goal;
-    await runtime.executeTool(
-      'goal',
-      {
-        action: 'set_tasks',
-        tasks: [
-          { text: 'Keep active progress', status: 'in_progress' },
-          { text: 'Verify active recovery', status: 'pending' },
-        ],
-      },
-      { callerSessionId: 'sess_goal_restart_active' }
-    );
     await runtime.startTurn('sess_goal_restart_active');
     clock += 2_000;
     const preservedActive = await runtime.settleTurn('sess_goal_restart_active', {
@@ -1179,17 +446,6 @@ test('daemon restart preserves active, paused, blocked, and complete Goal snapsh
     await runtime.executeTool(
       'goal',
       {
-        action: 'set_tasks',
-        tasks: [
-          { text: 'Finish recovery work', status: 'completed' },
-          { text: 'Verify recovery work', status: 'completed' },
-        ],
-      },
-      { callerSessionId: 'sess_goal_restart_complete' }
-    );
-    await runtime.executeTool(
-      'goal',
-      {
         action: 'complete',
       },
       { callerSessionId: 'sess_goal_restart_complete' }
@@ -1208,10 +464,6 @@ test('daemon restart preserves active, paused, blocked, and complete Goal snapsh
       assert.equal(restoredActive.status, 'active');
       assert.equal(restoredActive.lastStartedAt, preservedActive.lastStartedAt);
       assert.equal(restoredActive.timeUsedMs, preservedActive.timeUsedMs + 5_000);
-      assert.deepEqual(
-        restoredActive.tasks.map((task) => task.status),
-        ['in_progress', 'pending']
-      );
       assert.equal(reloaded.continuation('sess_goal_restart_active').run, true);
       assert.equal(events.at(-1)?.goal?.id, active.id);
 
@@ -1229,7 +481,6 @@ test('daemon restart preserves active, paused, blocked, and complete Goal snapsh
       assert.equal(restoredComplete.id, complete.id);
       assert.equal(restoredComplete.status, 'complete');
       assert.equal(restoredComplete.completedAt, completed.completedAt);
-      assert.equal(restoredComplete.tasksCompleted, 2);
     } finally {
       reloaded.close();
     }
@@ -1244,4 +495,16 @@ test('Goal duration parser accepts compound limits and rejects unsafe values', (
   assert.equal(parseGoalDuration('2d 4h'), (2 * 24 + 4) * 60 * 60 * 1000);
   assert.throws(() => parseGoalDuration('30s'), /at least 1 minute/);
   assert.throws(() => parseGoalDuration('8d'), /exceeds 7 days/);
+});
+
+test('Goal tool schema is the minimal lifecycle surface within its size budget', () => {
+  assert.equal(GOAL_TOOL_DEFS.length, 1);
+  const goalTool = GOAL_TOOL_DEFS[0];
+  assert.deepEqual(goalTool.inputSchema.required, ['action']);
+  assert.deepEqual(Object.keys(goalTool.inputSchema.properties), ['action', 'objective', 'time_limit_minutes', 'blocker']);
+  assert.deepEqual(goalTool.inputSchema.properties.action.enum, ['status', 'create', 'complete', 'block']);
+  assert.match(goalTool.description, /todo/);
+  assert.doesNotMatch(goalTool.description, /goal-management/);
+  const size = JSON.stringify(goalTool).length;
+  assert.ok(size < 1_900, `goal tool schema is ${size} chars; budget 1900`);
 });

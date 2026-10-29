@@ -270,7 +270,6 @@ test('every bundled skill declares its mandatory existing tools without eagerly 
     'setup-guide': ['setup'],
     'local-provider': ['setup'],
     'skill-creator': ['read', 'shell'],
-    'goal-management': ['goal'],
     'memory-management': ['memory'],
     'history-recall': ['recall'],
     visualize: ['visualize'],
@@ -343,7 +342,7 @@ test('policy skills load their deferred tools while search stays independently d
   for (const provider of ['openai-oauth', 'anthropic-oauth']) {
     const current = session(provider, tools, 'lead');
     assert.deepEqual(current.tools.map((tool) => tool.name).sort(), ['Skill', 'read']);
-    for (const name of ['history-recall', 'goal-management', 'memory-management']) {
+    for (const name of ['history-recall', 'memory-management']) {
       const parsed = parseSkillDocument(
         readFileSync(new URL(`../../../../defaults/skills/${name}/SKILL.md`, import.meta.url), 'utf8')
       );

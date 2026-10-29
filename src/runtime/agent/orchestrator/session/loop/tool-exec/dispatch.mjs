@@ -20,6 +20,7 @@ import {
 import { executePatchTool } from '../../../tools/patch.mjs';
 import { executeInternalTool, isInternalTool } from '../../../internal-tools.mjs';
 import { buildSkillsListResponse, viewSkill } from '../tool-helpers.mjs';
+import { executeTodoTool } from '../../../runtime-core/todo-list.mjs';
 import { isOnDeferredToolSurface } from '../deferred-call-through.mjs';
 import { _executeCodeGraphToolLazy } from '../../manager/runtime-loaders.mjs';
 import { requiresReadBody } from '../tool-classify.mjs';
@@ -122,6 +123,14 @@ export function dispatchToolCall({ name, args }, ctx) {
   const { cwd, callerSessionId, sessionRef, executeOpts, toolOpts, completionToolOpts } = ctx;
   if (name === 'Skill' || name === 'skill_view') return viewSkill(cwd, args?.name, sessionRef);
   if (name === 'skills_list') return buildSkillsListResponse(cwd);
+  // The step list belongs to the calling session itself (Lead or agent).
+  if (name === 'todo') {
+    try {
+      return executeTodoTool(sessionRef, args || {});
+    } catch (error) {
+      return `Error: ${error?.message || String(error)}`;
+    }
+  }
   if (isMcpTool(name)) return dispatchMcp(name, args, ctx);
   if (name === 'code_graph') {
     // cwd chain: args.cwd (caller-explicit) → session cwd → undefined (handler throws)

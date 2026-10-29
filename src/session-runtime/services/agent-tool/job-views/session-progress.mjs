@@ -4,6 +4,8 @@
 import { resolveAgentWatchdogPolicy } from '../../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { buildAgentTaskProgressFields } from '../../agent-task-status.mjs';
 import { getProgressWatchdogState } from '../../agent-watchdog-registry.mjs';
+import { _liveSessions } from '../../../../runtime/agent/orchestrator/session/store/live-state.mjs';
+import { todoProgress } from '../../../../runtime/agent/orchestrator/runtime-core/todo-list.mjs';
 
 // Job statuses that can never progress again (mirrors TERMINAL_STATUSES in
 // runtime/shared/background-tasks.mjs; 'canceled' accepted defensively).
@@ -46,6 +48,11 @@ export function terminalJobFrozenFields(status, now = Date.now()) {
  *  the diagnostics through renderJob/list directly. */
 export function liveAgentStatusRow(row) {
   if (!row || typeof row !== 'object') return row;
+  // The agent's own todo progress, from its live session only (an evicted
+  // idle worker is not re-read on every pulse).
+  const live = row.sessionId ? _liveSessions.get(row.sessionId) : null;
+  const todo = live ? todoProgress(live) : null;
+  if (todo) row = { ...row, todo };
   const {
     silent_for: _silentFor,
     staleSeconds: _staleSeconds,

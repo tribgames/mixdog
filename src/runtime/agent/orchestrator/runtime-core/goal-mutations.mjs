@@ -1,22 +1,18 @@
 /**
  * goal-mutations.mjs — the durable Goal state transitions: create, the
- * model/user status update (complete / blocked), task edits and abandon.
+ * model/user status update (complete / blocked) and abandon.
  * Each takes the shared runtime record (`ctx`) and commits through its store.
  */
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 
 import { compactSessionTitle } from './session-title.mjs';
-import { GOAL_TASK_SETTLED } from './goal-tool-defs.mjs';
-import { applyGoalTaskChanges, normalizeGoalTasks } from './goal-tasks.mjs';
 import {
   GOAL_FILE_VERSION,
   NO_DEADLINE_WARNING_MS,
-  activeElapsedMs,
   assertSessionId,
   checkpointActiveClock,
   clearTurnFailures,
-  goalTimeMode,
   parseGoalDuration,
   publicGoal,
   stopActiveClock,
@@ -51,32 +47,17 @@ function initialTimeLimitMs(args, defaultTimeLimitMs) {
 function newGoalRecord(id, args, at, defaultTimeLimitMs) {
   const startTurn = args.startInCurrentTurn === true ? 1 : 0;
   const timeLimitMs = initialTimeLimitMs(args, defaultTimeLimitMs);
-  const initialTasks = Array.isArray(args.tasks)
-    ? normalizeGoalTasks(
-        args.tasks.filter((task) => clean(task?.text)),
-        [],
-        { strict: true }
-      )
-    : [];
   return {
     id: randomUUID(),
-    revision: 1,
-    objectiveRevision: 1,
-    tasksObjectiveRevision: 1,
     sessionId: id,
     objective: validateObjective(args.objective),
     title: compactSessionTitle(args.objective),
     status: 'active',
-    tasks: initialTasks,
     blocker: '',
     failureReason: '',
     failureCount: 0,
     turnCount: startTurn,
-    lastDropTurn: initialTasks.some((task) => task.status === 'dropped') ? startTurn : -1,
-    tasksUpdatedAt: initialTasks.length > 0 ? at : null,
     timeLimitMs,
-    // A stated budget commits that time; only an explicit cap permits early completion.
-    timeMode: goalTimeMode(args.timeMode, timeLimitMs > 0 ? 'duration' : 'max'),
     timeUsedMs: 0,
     deadlineWarnedMs: NO_DEADLINE_WARNING_MS,
     warningRevision: 0,
@@ -86,35 +67,6 @@ function newGoalRecord(id, args, at, defaultTimeLimitMs) {
     completedAt: null,
     archivedAt: null,
   };
-}
-
-// Evidence gates the MODEL's completion claim, never the user's. A user
-// completing their own Goal is an act of authority: without this the only
-// user-side exit was deleting the Goal, which threw the record away.
-// Unfinished rows stay unfinished so the record stays honest.
-function assertCompletionEvidence(goal, at) {
-  if (goal.tasksObjectiveRevision !== goal.objectiveRevision) {
-    throw new Error(
-      'cannot complete Goal: objective changed; read goal status and reconcile the full task list with set_tasks first'
-    );
-  }
-  const tasks = normalizeGoalTasks(goal.tasks || []);
-  const incomplete = tasks.filter((task) => !GOAL_TASK_SETTLED.includes(task.status));
-  if (incomplete.length > 0) {
-    throw new Error(`cannot complete Goal: ${incomplete.length} durable tasks remain incomplete`);
-  }
-  const turnCount = Math.max(0, Math.floor(Number(goal.turnCount) || 0));
-  if (goal.lastDropTurn >= 0 && goal.lastDropTurn === turnCount) {
-    throw new Error(
-      'cannot complete Goal: a task was dropped this turn; only a user scope change retires ' +
-        'requested work, so finish that work or let the user confirm the change first'
-    );
-  }
-  if (goal.timeMode === 'duration' && goal.timeLimitMs > 0 && activeElapsedMs(goal, at) < goal.timeLimitMs) {
-    throw new Error(
-      'cannot complete Goal before the requested duration ends; keep working, or the user may explicitly complete the Goal'
-    );
-  }
 }
 
 export function createGoalMutations(ctx) {
@@ -146,7 +98,7 @@ export function createGoalMutations(ctx) {
       // session, because the model owns no way to retire one.
       throw new Error(
         `cannot create a new Goal while an unfinished Goal exists (status ${record.goal.status}); ` +
-          'resume and finish it, or abandon it if the user redirected away from that objective'
+          'finish it, or ask the user to stop it from the Goal controls'
       );
     }
     const at = now();
@@ -164,7 +116,7 @@ export function createGoalMutations(ctx) {
     return created;
   };
 
-  const updateGoal = async (sessionId, args = {}, { user = false, expectedGoalId = '' } = {}) => {
+  const updateGoal = async (sessionId, args = {}, { expectedGoalId = '' } = {}) => {
     const id = assertSessionId(sessionId);
     const goal = ctx.requireGoal(id);
     assertExpectedGoal(goal, expectedGoalId, 'update');
@@ -180,7 +132,8 @@ export function createGoalMutations(ctx) {
       throw new Error('a completed Goal cannot change status; edit it or create a new Goal');
     }
     if (status === 'complete') {
-      if (!user) assertCompletionEvidence(goal, at);
+      // Completion is the model's claim after its own evidence audit (or
+      // the user's act of authority); the runtime never completes by itself.
       settleActiveClock(id, goal, at);
       goal.status = 'complete';
       goal.completedAt = at;
@@ -194,14 +147,6 @@ export function createGoalMutations(ctx) {
       clearTurnFailures(goal);
     }
     goal.updatedAt = at;
-    return ctx.commit(id, goal);
-  };
-
-  const setGoalTasks = async (sessionId, args = {}, { expectedGoalId = '', partial = false } = {}) => {
-    const id = assertSessionId(sessionId);
-    const goal = ctx.requireGoal(id);
-    assertExpectedGoal(goal, expectedGoalId, 'task update');
-    applyGoalTaskChanges(goal, args, { partial, at: now() });
     return ctx.commit(id, goal);
   };
 
@@ -227,5 +172,5 @@ export function createGoalMutations(ctx) {
     return publicGoal(goal, now());
   };
 
-  return { createGoal, updateGoal, setGoalTasks, abandonGoal };
+  return { createGoal, updateGoal, abandonGoal };
 }

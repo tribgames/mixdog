@@ -11,6 +11,7 @@ import { buildSkillToolDefs } from '../../context/collect.mjs';
 import { filterModelEditTools } from '../../../../shared/edit-tool-dialect.mjs';
 import { filterMcpToolsForSession } from '../../runtime-core/extension-scopes.mjs';
 import { ROUTE_TOOL_ORDER } from '../../runtime-core/tool-catalog-data.mjs';
+import { TODO_TOOL } from '../../runtime-core/todo-tool-defs.mjs';
 
 // Merge externally-connected MCP tools with the plugin's in-process tools
 // (registered by agent's toolExecutor adapter). Internal tools are exposed
@@ -110,8 +111,17 @@ export function resolveSessionTools(
   // The shell text follows the system shell the runtime actually resolves
   // (Git Bash/WSL on Windows, pwsh on POSIX), before the edit-dialect rewrite.
   const shellKind = resolveShellFor('default')?.shellType;
-  const base = _computeBaseTools(toolSpec, mcp, skillTools).map((tool) => bindShellKind(tool, shellKind));
+  const base = withTodoTool(_computeBaseTools(toolSpec, mcp, skillTools), toolSpec).map((tool) =>
+    bindShellKind(tool, shellKind)
+  );
   return filterModelEditTools(base, modelName);
+}
+
+// Every session that has tools at all owns a step list (the Lead and each
+// agent alike); an explicit "no tools" spec stays without one.
+function withTodoTool(tools, toolSpec) {
+  if (Array.isArray(toolSpec) && toolSpec.length === 0) return tools;
+  return _dedupByName([...tools, TODO_TOOL]);
 }
 
 export function previewSessionTools(toolSpec, skills = [], options = {}) {

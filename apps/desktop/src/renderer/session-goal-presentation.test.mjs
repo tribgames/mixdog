@@ -6,7 +6,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 import { SessionGoalIsland } from './SessionGoalIsland.tsx';
 import { PaneGoalIsland } from './app-snapshot-views.tsx';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
-import { goalDisplayStatus, goalElapsedLabel, goalStateKind, goalTaskProgress } from './session-goal-presentation.ts';
+import { goalDisplayStatus, goalElapsedLabel, goalStateKind, todoProgress, todoStateKind } from './session-goal-presentation.ts';
 import { t } from './i18n.ts';
 
 installTestDom(null, {
@@ -25,7 +25,6 @@ test('a paused Goal shows reply activity without inventing approval or elapsed w
     title: 'Approved work',
     timeUsedMs: 12_000,
     snapshotAt: 100_000,
-    tasks: [{ id: 'review', text: 'Review pending approval', status: 'awaiting_approval' }],
   });
   const render = (busy, toolApproval = null, currentGoal = goal) =>
     act(async () => {
@@ -41,7 +40,7 @@ test('a paused Goal shows reply activity without inventing approval or elapsed w
     assert.equal(activity(), t('Paused'));
     await render(true);
     assert.equal(activity(), t('Responding'));
-    assert.match(host.textContent, /0\/1/);
+    assert.equal(host.querySelector('.session-goal-progress'), null, 'no list, no count');
     assert.match(host.textContent, /0m elapsed/);
     assert.equal(goalElapsedLabel(goal, 200_000), '0:12');
     await render(true, { id: 'approval', name: 'apply_patch' });
@@ -129,45 +128,51 @@ test('collapsed trigger shows minute-format time and finished glyphs', async () 
   }
 });
 
-test('task progress is five fixed cells: the finished share, then the work in hand', async () => {
-  const task = (status, index) => ({ id: `t${index}`, text: `Task ${index}`, status });
-  const few = [task('completed', 1), task('in_progress', 2), task('dropped', 3), task('awaiting_approval', 4)];
-  // Dropped work is not counted, and the answer the user owes outranks work in hand.
-  assert.deepEqual(goalTaskProgress({ tasks: few, tasksTotal: 4 }), {
+const todoOf = (tasks, extra = {}) => {
+  const abandoned = tasks.filter((task) => task.status === 'abandoned').length;
+  return {
+    phases: [{ name: 'Plan', tasks }],
+    completed: tasks.filter((task) => task.status === 'completed').length,
+    abandoned,
+    total: tasks.length,
+    ...extra,
+  };
+};
+
+test('todo progress counts finished steps of the counted ones; abandoned work is never accomplished', () => {
+  const tasks = [
+    { content: 'a', status: 'completed' },
+    { content: 'b', status: 'in_progress' },
+    { content: 'c', status: 'abandoned' },
+    { content: 'd', status: 'blocked', blocker: 'No token' },
+  ];
+  assert.deepEqual(todoProgress(todoOf(tasks)), {
     completed: 1,
     total: 3,
-    pips: ['completed', 'awaiting_approval', 'pending', 'pending', 'pending'],
+    abandoned: 1,
+    blocked: true,
+    inProgress: true,
   });
-  const twenty = Array.from({ length: 20 }, (_, index) => task(index < 13 ? 'completed' : 'pending', index));
-  twenty[13].status = 'in_progress';
-  assert.deepEqual(goalTaskProgress({ tasks: twenty, tasksTotal: 20 }).pips, [
-    'completed',
-    'completed',
-    'completed',
-    'in_progress',
-    'pending',
-  ]);
-  // Only a finished list fills every cell: 19 of 20 rounds down to four.
-  for (const row of twenty.slice(13, 19)) row.status = 'completed';
-  assert.deepEqual(goalTaskProgress({ tasks: twenty, tasksTotal: 20 }).pips, [
-    'completed',
-    'completed',
-    'completed',
-    'completed',
-    'pending',
-  ]);
-  twenty[19].status = 'completed';
-  assert.deepEqual(goalTaskProgress({ tasks: twenty, tasksTotal: 20 }).pips, Array(5).fill('completed'));
-  // A summary count alone still fills its share; no tasks fill nothing.
-  assert.deepEqual(goalTaskProgress({ tasks: [], tasksTotal: 4, tasksCompleted: 2 }), {
-    completed: 2,
-    total: 4,
-    pips: ['completed', 'completed', 'pending', 'pending', 'pending'],
-  });
-  assert.deepEqual(goalTaskProgress({ tasks: [] }).pips, Array(5).fill('pending'));
+  assert.equal(todoStateKind(todoProgress(todoOf(tasks))), 'blocked');
+  assert.equal(todoStateKind(todoProgress(todoOf([{ content: 'a', status: 'in_progress' }]))), 'active');
+  assert.equal(todoStateKind(todoProgress(todoOf([{ content: 'a', status: 'completed' }]))), 'complete');
+  assert.equal(
+    todoStateKind(todoProgress(todoOf([{ content: 'a', status: 'abandoned' }]))),
+    'active',
+    'a list of only dropped work is not an accomplishment'
+  );
   assert.equal(goalStateKind({ status: 'paused', pauseReason: 'waiting' }, 'paused'), 'waiting');
   assert.equal(goalStateKind({ status: 'usage_limited' }, 'usage_limited'), 'blocked');
+});
 
+test('a Goal segment carries the ring, n/m and a label from the step list', async () => {
+  const tasks = [
+    { content: 'Write code', status: 'completed', note: 'merged' },
+    { content: 'Run migration', status: 'in_progress' },
+    { content: 'Ship it', status: 'blocked', blocker: 'No token' },
+    { content: 'Old idea', status: 'abandoned', note: 'out of scope' },
+    { content: 'Write docs', status: 'pending' },
+  ];
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -177,7 +182,8 @@ test('task progress is five fixed cells: the finished share, then the work in ha
         React.createElement(SessionGoalIsland, {
           snapshot: {
             sessionId: 'pips',
-            goal: { id: 'g', status: 'blocked', objective: 'Ship it', tasks: few, tasksTotal: 4, blocker: 'No token' },
+            goal: { id: 'g', status: 'blocked', objective: 'Ship it', blocker: 'No token' },
+            todo: todoOf(tasks),
           },
         })
       );
@@ -189,49 +195,103 @@ test('task progress is five fixed cells: the finished share, then the work in ha
         objective: 'Ship it',
         status: t('Blocked'),
         completed: 1,
-        total: 3,
+        total: 4,
       })
     );
-    assert.equal(trigger.querySelector('.session-goal-objective'), null, 'no title in the segment');
-    assert.equal(trigger.querySelector('.session-goal-pips'), null, 'the ring replaces the pips');
-    assert.equal(host.querySelector('.session-goal-badge'), null, 'rows carry no text badges');
-    assert.equal(host.querySelector('li[data-stalled="true"] svg')?.dataset.glyph, 'stalled');
-    assert.equal(host.querySelector('li[data-status="awaiting_approval"] svg')?.dataset.glyph, 'awaiting');
-    assert.doesNotMatch(host.textContent, /Needs your answer/);
+    assert.equal(trigger.querySelector('.session-goal-progress').textContent, '1/4');
+    assert.equal(host.querySelector('li[data-status="blocked"] svg')?.dataset.glyph, 'stalled');
+    assert.equal(host.querySelector('li[data-status="blocked"] .session-goal-task-blocker').textContent, 'No token');
+    assert.equal(host.querySelector('li[data-status="completed"] .session-goal-task-note').textContent, 'merged');
+    assert.equal(host.querySelector('li[data-status="abandoned"] .session-goal-task-note').textContent, 'out of scope');
+    assert.ok(host.querySelector('.session-goal-controls'), 'a Goal keeps its controls');
   } finally {
     await act(async () => root.unmount());
     host.remove();
   }
 });
 
-test('stalled and awaiting task rows carry accessible status text', async () => {
+test('a list without a Goal shows a To-do segment and panel with no time or controls', async () => {
+  const tasks = Array.from({ length: 7 }, (_, index) => ({ content: `Step ${index}`, status: 'pending' }));
+  tasks.push({ content: 'Done step', status: 'completed', note: 'ok' }, { content: 'Dropped step', status: 'abandoned' });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = (snapshot) =>
+    act(async () => {
+      root.render(React.createElement(SessionGoalIsland, { snapshot: { sessionId: 'todo-only', ...snapshot } }));
+    });
+  try {
+    await render({});
+    assert.equal(host.querySelector('.session-goal-island'), null, 'no list and no Goal: no segment');
+    await render({ todo: todoOf([]) });
+    assert.equal(host.querySelector('.session-goal-island'), null, 'an empty list is no segment');
+    await render({ todo: todoOf(tasks) });
+    const trigger = host.querySelector('.session-goal-trigger');
+    assert.equal(trigger.querySelector('.session-goal-progress').textContent, '1/8', 'dropped work leaves the total');
+    assert.equal(trigger.querySelector('.session-goal-trigger-time'), null);
+    assert.equal(
+      trigger.getAttribute('aria-label'),
+      t('To-do {{completed}} of {{total}} done', { completed: 1, total: 8 })
+    );
+    assert.equal(host.querySelector('.session-goal-panel').getAttribute('aria-label'), t('To-do'));
+    assert.equal(host.querySelector('.session-goal-controls'), null);
+    assert.equal(host.querySelector('.session-goal-title'), null);
+    assert.equal(host.querySelector('.session-goal-time'), null);
+    assert.equal(host.querySelector('.session-goal-dismiss'), null);
+    const remaining = host.querySelectorAll('ul[aria-label="' + t('To-do') + '"] li');
+    assert.equal(remaining.length, 5, 'the first five remaining steps show');
+    const rest = host.querySelector('[data-fold="rest"]');
+    assert.equal(rest.textContent, t('Rest {{n}}', { n: 2 }));
+    assert.equal(rest.getAttribute('aria-expanded'), 'false');
+    const done = host.querySelector('[data-fold="done"]');
+    assert.equal(done.textContent, `${t('Done {{n}}', { n: 1 })} · ${t('{{n}} dropped', { n: 1 })}`);
+    assert.equal(done.getAttribute('aria-expanded'), 'false');
+    await render({ todo: todoOf([{ content: 'Only', status: 'completed' }]) });
+    const finished = host.querySelector('.session-goal-island');
+    assert.equal(finished.dataset.state, 'complete');
+    assert.equal(
+      host.querySelector('[data-fold="done"]').getAttribute('aria-expanded'),
+      'false',
+      'a finished list without a Goal keeps its done rows folded'
+    );
+    await render({ todo: todoOf([{ content: 'Gone', status: 'abandoned' }]) });
+    assert.equal(
+      host.querySelector('.session-goal-trigger .session-goal-progress').textContent,
+      '0/0',
+      'a list whose steps were all dropped still shows its count'
+    );
+    await render({ todo: todoOf([{ content: 'Ship it', status: 'blocked', blocker: 'No token', note: 'asked owner' }]) });
+    assert.equal(host.querySelector('.session-goal-task-note').textContent, 'asked owner', 'a note shows on any step');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
+test('step rows carry accessible status text', async () => {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   const tasks = [
-    { id: 'a', text: 'Run migration', status: 'in_progress' },
-    { id: 'b', text: 'Ship it', status: 'awaiting_approval' },
-    { id: 'c', text: 'Write docs', status: 'pending' },
+    { content: 'Run migration', status: 'in_progress' },
+    { content: 'Ship it', status: 'blocked', blocker: 'No token' },
+    { content: 'Write docs', status: 'pending' },
+    { content: 'Old idea', status: 'abandoned' },
   ];
   try {
     await act(async () => {
-      root.render(
-        React.createElement(SessionGoalIsland, {
-          snapshot: { sessionId: 'a11y', goal: { id: 'g', status: 'blocked', objective: 'Ship', tasks, blocker: 'x' } },
-        })
-      );
+      root.render(React.createElement(SessionGoalIsland, { snapshot: { sessionId: 'a11y', todo: todoOf(tasks) } }));
     });
     const rowText = (selector) => host.querySelector(selector).textContent;
-    assert.equal(rowText('li[data-stalled="true"]'), `${t('Blocked')}: Run migration`);
-    assert.equal(rowText('li[data-status="awaiting_approval"]'), `${t('Waiting for your answer')}: Ship it`);
+    assert.equal(rowText('li[data-status="in_progress"]'), `${t('In progress')}: Run migration`);
+    assert.equal(rowText('li[data-status="blocked"]'), `${t('Blocked')}: Ship itNo token`);
     assert.equal(rowText('li[data-status="pending"]'), 'Write docs');
-    assert.ok(host.querySelector('li[data-stalled="true"] .sr-only'));
+    assert.equal(rowText('li[data-status="abandoned"]'), `${t('Dropped')}: Old idea`);
   } finally {
     await act(async () => root.unmount());
     host.remove();
   }
 });
-
 test('closing the drawer drops an armed Stop confirmation', async () => {
   const calls = [];
   window.mixdogDesktop = {
@@ -259,7 +319,7 @@ test('closing the drawer drops an armed Stop confirmation', async () => {
     await act(async () => {
       root.render(
         React.createElement(SessionGoalIsland, {
-          snapshot: { sessionId: 'stop-close', goal: { id: 'g', status: 'active', objective: 'Ship', tasks: [] } },
+          snapshot: { sessionId: 'stop-close', goal: { id: 'g', status: 'active', objective: 'Ship' } },
         })
       );
     });

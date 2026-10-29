@@ -422,6 +422,7 @@ function classifyToolFailure(resultText, toolName) {
   if (isUserControlCancellation(leading)) return 'expected-cancellation';
   if (
     /^The arguments provided to `[^`]+` are invalid JSON and could not be parsed:/i.test(leading) ||
+    // Retired Goal task errors: still in stored failure logs that get reclassified.
     /^new Goal tasks must omit ids; use updates for existing tasks$/i.test(leading) ||
     /^goal task exceeds \d+ characters$/i.test(leading) ||
     /^goal (?:tasks|updates) support at most \d+ entries(?:$|;)/i.test(leading) ||
