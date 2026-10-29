@@ -1,10 +1,11 @@
-// Runs scripts/gate-local.mjs from a stubbed checkout (every build, check and
-// test command is a no-op), with its temp root pointed at a private directory.
+// Runs scripts/gate-local.mjs from a stubbed checkout (every build and check
+// command is a no-op; the test runner stand-in lists one file per lane and
+// runs nothing), with its temp root pointed at a private directory.
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { copyFile, mkdir, mkdtemp, readdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
@@ -17,32 +18,56 @@ async function stubbedCheckout(t) {
   await mkdir(join(root, 'scripts', 'lib'), { recursive: true });
   await mkdir(join(root, 'apps', 'desktop'), { recursive: true });
   await copyFile(join(here, 'gate-local.mjs'), join(root, 'scripts', 'gate-local.mjs'));
-  for (const name of [
-    'gate-scheduler.mjs',
-    'stale-temp.mjs',
-    'run-node-tests.mjs',
-    'test-failure-records.mjs',
-    'test-failure-summary.mjs',
-  ])
+  for (const name of ['gate-scheduler.mjs', 'gate-timing-reporter.mjs', 'stale-temp.mjs'])
     await copyFile(join(here, 'lib', name), join(root, 'scripts', 'lib', name));
   for (const name of ['build-shipped-history', 'check-changelog-locales', 'check-model-recommendations'])
     await writeFile(join(root, 'scripts', `${name}.mjs`), '');
+  // Stand-in for scripts/test.mjs: `--list` prints one file of the selected
+  // lane in the real runner's `<lane> <file>` form, so every lane gets a
+  // shard; running a shard passes without running anything.
+  await writeFile(
+    join(root, 'scripts', 'test.mjs'),
+    [
+      "const slow = process.argv.includes('slow');",
+      "if (process.argv.includes('--list')) console.log(slow ? 'slow  stub.slow.test.mjs' : 'fast  stub.test.mjs');",
+    ].join('\n')
+  );
   const noop = 'node -e 0';
   await writeFile(
     join(root, 'package.json'),
     JSON.stringify({
-      scripts: { 'build:spawn:test': noop, test: noop, 'test:slow': noop, 'smoke:patch': noop },
+      scripts: {
+        'build:spawn:test': noop,
+        test: 'node scripts/test.mjs',
+        'test:slow': 'node scripts/test.mjs --lane slow',
+        'smoke:patch': noop,
+      },
     })
   );
   await writeFile(
     join(root, 'apps', 'desktop', 'package.json'),
-    JSON.stringify({ scripts: { build: noop, test: noop, 'test:slow': noop, 'test:daemon:e2e': noop } })
+    JSON.stringify({
+      scripts: {
+        build: noop,
+        test: 'node ../../scripts/test.mjs',
+        'test:slow': 'node ../../scripts/test.mjs --lane slow',
+        'test:daemon:e2e': noop,
+      },
+    })
   );
   return root;
 }
 
 function runGate(root, tempRoot) {
-  const env = { ...process.env, TEMP: tempRoot, TMP: tempRoot, TMPDIR: tempRoot };
+  // The stub checkout is no git work tree, and no enclosing one may stand in
+  // for it: the gate then keeps no timing history anywhere.
+  const env = {
+    ...process.env,
+    TEMP: tempRoot,
+    TMP: tempRoot,
+    TMPDIR: tempRoot,
+    GIT_CEILING_DIRECTORIES: dirname(root),
+  };
   delete env.MIXDOG_TEST_CONCURRENCY;
   delete env.NODE_TEST_CONTEXT;
   return new Promise((resolve, reject) => {
@@ -80,11 +105,12 @@ test('concurrent gate runs keep separate log dirs, and a start sweeps only stale
   });
   assert.notEqual(logDirs[0], logDirs[1]);
   for (const [index, run] of runs.entries()) {
-    // Every summary line names a log inside this run's own directory, and it exists.
-    const printed = [...run.stdout.matchAll(/^PASS {2}\S+ {2}\S+ {2}(.+)$/gm)].map((match) => match[1]);
-    assert.equal(printed.length, 5);
+    // Every summary line names a log inside this run's own directory, and it
+    // exists: one per lane (four test lanes, shipped-history, desktop).
+    const printed = [...run.stdout.matchAll(/^PASS {2}\S+ {2}\S+ \(.+?\) {2}(.+)$/gm)].map((match) => match[1]);
+    assert.equal(printed.length, 6, run.stdout);
     const names = await readdir(logDirs[index]);
-    assert.equal(names.length, 5);
+    assert.equal(names.length, 6);
     for (const path of printed)
       assert.ok(path.startsWith(logDirs[index]) && names.includes(path.split(/[\\/]/).at(-1)));
   }
