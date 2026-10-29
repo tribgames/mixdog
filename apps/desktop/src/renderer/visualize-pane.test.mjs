@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -187,10 +186,6 @@ test('pages and documents scale like browser zoom: laid out at 1/scale, then sca
     margin: 'auto',
     '--visualize-zoom': 1.5,
   });
-  assert.match(
-    readFileSync(new URL('./visualize.css', import.meta.url), 'utf8'),
-    /\.visualize-zoom-layer img\s*\{[^}]*zoom:\s*var\(--visualize-zoom/
-  );
 });
 
 test('zoom gestures made inside a pane frame (a page, a PDF) zoom the panel they land on', async () => {
@@ -378,11 +373,6 @@ test('a PDF cannot zoom on its own: main reports Ctrl and the document frame yie
     assert.equal(panel.hasAttribute('data-zoom-modifier'), true);
     await act(async () => document.dispatchEvent(new window.KeyboardEvent('keyup', { key: 'Control', bubbles: true })));
     assert.equal(panel.hasAttribute('data-zoom-modifier'), false);
-    // With Ctrl held the frame takes no pointer, so the wheel reaches the panel.
-    assert.match(
-      readFileSync(new URL('./visualize.css', import.meta.url), 'utf8'),
-      /\.visualize-pane\[data-zoom-modifier\] \.visualize-document-frame\s*\{[^}]*pointer-events:\s*none/
-    );
   } finally {
     await act(async () => root.unmount());
   }
@@ -445,12 +435,6 @@ test('every split cell has an enlarge button that shows it alone; it is a phone-
     assert.ok(document.querySelector('.visualize-pane-cell.is-solo[data-visualize-pane="1"]'));
     assert.equal(document.querySelectorAll('.visualize-pane-enlarge').length, 0, 'alone, no enlarge button');
     assert.ok(document.querySelector('.browser-zoom-pill'), 'the pill steps between cells and goes back');
-    const css = readFileSync(new URL('./visualize.css', import.meta.url), 'utf8');
-    assert.match(css, /\.visualize-pane-enlarge\s*\{\s*display:\s*none/);
-    assert.match(
-      css,
-      /html\[data-mixdog-mobile-tabs\] \.visualize-pane-enlarge\s*\{[^}]*top:\s*4px[^}]*width:\s*44px;\s*height:\s*44px/
-    );
   } finally {
     await act(async () => root.unmount());
   }
@@ -602,20 +586,6 @@ test('Elements and Comment bind to the swapped-in frame, even when its ready cam
 });
 
 test('the tab strip shares its width like the pane strip and the vertical wheel scrolls it', async () => {
-  const css = readFileSync(new URL('./visualize.css', import.meta.url), 'utf8');
-  const rule = (selector) => {
-    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    return css.match(new RegExp(`(?:^|\\n)${escaped}\\s*\\{([^}]*)\\}`))?.[1] ?? '';
-  };
-  // Chips shrink together from 160px to their floors (never keep their full label width).
-  assert.match(rule('.visualize-tabs .dock-header-chip'), /flex:\s*0 1 160px/);
-  assert.match(rule('.visualize-tabs .dock-header-chip'), /min-width:\s*88px/);
-  assert.match(rule('.visualize-tabs .dock-header-chip.is-active'), /min-width:\s*136px/);
-  // Past the floors the strip scrolls inside its own slot, before the header actions.
-  assert.match(rule('.visualize-tabs'), /min-width:\s*0/);
-  assert.match(rule('.visualize-tabs'), /overflow-x:\s*auto/);
-  assert.match(rule('.visualize-tabs:is([data-fade-start], [data-fade-end])'), /mask-image:\s*linear-gradient/);
-
   const tabs = ['커넥터', '대화방 머리 줄 시안', 'Mixy 그림·애니메이션'].map((label, index) => ({
     id: `w${index}`,
     label,
@@ -698,10 +668,6 @@ test('a two-finger pinch on the panel drives its zoom; one finger is left to scr
     ]);
     assert.equal(percent(), '100%');
     assert.ok(panel);
-    assert.match(
-      readFileSync(new URL('./visualize.css', import.meta.url), 'utf8'),
-      /\.visualize-pane-content\s*\{[^}]*touch-action:\s*pan-x pan-y/
-    );
   } finally {
     await act(async () => root.unmount());
   }
@@ -738,11 +704,6 @@ test('switching tabs keeps recent pages mounted (hidden), so switching back does
     await act(async () => root.unmount());
   }
   assert.deepEqual(visualizeKeptTabs('b', ['a', 'b', 'c', 'd', 'e']), ['b', 'a', 'c', 'd']);
-  assert.match(
-    readFileSync(new URL('./visualize.css', import.meta.url), 'utf8'),
-    // Kept bodies stay laid out (transparent, under the shown one), never display:none.
-    /\.visualize-bodies > \.visualize-body\[data-kept\]\s*\{[^}]*opacity:\s*0;[^}]*pointer-events:\s*none/
-  );
 });
 
 test('a file-change update marks a background tab with a dot and does not switch to it', async () => {

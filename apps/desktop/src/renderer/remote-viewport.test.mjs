@@ -120,7 +120,6 @@ test('a bottom inset keeps the scale, moves nothing, and lets what is under it b
   );
   assert.equal(at(OVERPAN_RETURN_MS - 1).settled, false);
   assert.deepEqual(at(OVERPAN_RETURN_MS), { view: pinned, settled: true });
-  assert.equal(OVERPAN_RETURN_MS, 250);
   assert.deepEqual(
     relaxView({ from: pinned, elapsedMs: 0 }, pc),
     { view: pinned, settled: true },

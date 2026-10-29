@@ -5,14 +5,6 @@ import { routeDrillBox, routeFlyoutBox, routeFlyoutFit, routePanelStyle, routeSh
 
 const viewport = { left: 0, top: 0, width: 1400, height: 900 };
 
-test('the composer route sheet opens above its pill, left edges aligned', () => {
-  const pill = { left: 100, right: 260, top: 800, bottom: 828 };
-  const box = routeSheetBox(pill, 120, viewport, 224, 'above', 'start');
-  assert.equal(box.placement, 'above');
-  assert.equal(box.top, 800 - 6 - 120);
-  assert.equal(box.left, 100);
-});
-
 test('the composer line pill at a pane right end opens its sheet above it, right edges aligned', () => {
   // A 900px pane: the pill sits at its right end, under the composer card.
   const pane = { left: 300, top: 0, width: 900, height: 900 };

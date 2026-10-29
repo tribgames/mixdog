@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import {
   MONACO_TYPESCRIPT_CONTRIBUTION,
-  MONACO_TYPESCRIPT_STUB,
   monacoTypescriptExternalEsbuildPlugin,
 } from '../../scripts/monaco-typescript-external.mjs';
 
@@ -15,6 +14,8 @@ const here = dirname(fileURLToPath(import.meta.url));
 const setupSource = readFileSync(resolve(here, 'monaco-setup.ts'), 'utf8');
 const viteConfig = readFileSync(resolve(here, '../../electron.vite.config.ts'), 'utf8');
 
+// PROPOSED SOURCE-TEXT EXCEPTION (routeLabel): monaco-setup.ts imports bundler-only ?worker modules, so its getWorker
+// switch cannot be imported; it is extracted and evaluated with tagged stubs.
 /** Evaluate the real getWorker switch from monaco-setup.ts with tagged stubs. */
 function routeLabel(label) {
   const body = /getWorker\(_workerId: string, label: string\) \{([\s\S]*?)\n {2}\},\n\};/.exec(setupSource)?.[1];
@@ -36,18 +37,18 @@ test('every Monaco language service that stays active routes to its own worker',
   assert.equal(routeLabel('editorWorkerService'), 'editor');
 });
 
-test('typescript/javascript labels never get a language-service worker', () => {
+test('typescript/javascript labels get the plain editor worker, never a language-service worker', () => {
   // The only worker that could serve them is the TS worker, which is not
   // imported; the plain editor worker would reject its RPCs.
-  assert.doesNotMatch(setupSource, /ts\.worker|tsWorker|language\/typescript/);
-  assert.match(setupSource, /import \* as monaco from 'monaco-editor';/);
+  for (const label of ['typescript', 'javascript']) assert.equal(routeLabel(label), 'editor');
 });
 
 test('Monaco built-in TypeScript service is stubbed in both build and dev optimizer', async () => {
   assert.match('../language/typescript/monaco.contribution.js', MONACO_TYPESCRIPT_CONTRIBUTION);
+  // PROPOSED SOURCE-TEXT EXCEPTION: electron.vite.config.ts is a build config no test can import; these two lines
+  // pin that it wires the stub that the esbuild build below proves effective.
   assert.match(viteConfig, /find: MONACO_TYPESCRIPT_CONTRIBUTION/);
   assert.match(viteConfig, /esbuildOptions: \{ plugins: \[monacoTypescriptExternalEsbuildPlugin\(\)\] \}/);
-  assert.equal(readFileSync(MONACO_TYPESCRIPT_STUB, 'utf8').includes('export {}'), true);
 
   const entry = createRequire(import.meta.url).resolve('monaco-editor/esm/vs/editor/editor.main.js');
   const options = {

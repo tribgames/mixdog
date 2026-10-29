@@ -149,7 +149,7 @@ test('inactive lanes stay within the byte budget, least recently viewed first', 
 });
 
 test('repeated pane open/grow/close cycles release snapshots, subscriptions and frame work', {
-  skip: typeof globalThis.gc !== 'function',
+  skip: typeof globalThis.gc !== 'function' && 'requires node --expose-gc (globalThis.gc is not exposed)',
 }, async () => {
   const store = createSessionLaneStore({ maxEntries: 64, maxBytes: 4_096, decorator });
   const refs = [];

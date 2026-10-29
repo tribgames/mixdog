@@ -309,12 +309,6 @@ test('the None preview shows the theme, not a retained accent override', async (
     html.style.getPropertyValue('--mx-skin-accent')
   );
   assert.equal(skin.getSkinAccent(), '#e9799a', 'the override itself is kept for the next skin');
-  const { readFileSync } = await import('node:fs');
-  const css = readFileSync(new URL('./skin-panel.css', import.meta.url), 'utf8');
-  assert.match(
-    css,
-    /data-mixdog-theme="light"\] \.skin-preview\[data-skin-preview="none"\] \{\s*--mx-user-bubble: var\(--mx-bg-layer-2\)/
-  );
   await act(async () => root.render(null));
 });
 

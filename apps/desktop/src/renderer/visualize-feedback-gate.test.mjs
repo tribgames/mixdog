@@ -12,7 +12,6 @@ import {
   takeVisualizeChoiceProposal,
   VISUALIZE_PICK_TTL_MS,
   VISUALIZE_PROPOSAL_MIN_INTERVAL_MS,
-  VISUALIZE_PROPOSAL_TTL_MS,
   visualizeChoiceProposal,
   visualizeFreshCrop,
   visualizeProposalKey,
@@ -126,7 +125,6 @@ test('choice proposals: one per pane, latest replaces, rate-limited, taken once'
   assert.equal(takeVisualizeChoiceProposal(key, latest.id).choice.choice, 'c');
   assert.equal(takeVisualizeChoiceProposal(key, latest.id), null, 'taken once');
   assert.equal(visualizeChoiceProposal(key), null);
-  assert.equal(VISUALIZE_PROPOSAL_TTL_MS, 10_000);
   assert.deepEqual(resets, []);
   resetVisualizeChoiceProposals();
 });

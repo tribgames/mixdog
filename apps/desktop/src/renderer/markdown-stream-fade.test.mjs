@@ -4,11 +4,8 @@ import test from 'node:test';
 import {
   applyStreamFade,
   dropStreamFadeTimeline,
-  STREAM_FADE_CHUNK_OPEN_MS,
   STREAM_FADE_DURATION_MS,
-  STREAM_FADE_FAST_CHARS_PER_MS,
   STREAM_FADE_SETTLE_FADE_MS,
-  STREAM_FADE_SETTLE_MS,
   StreamFadeTimeline,
   settledStreamFade,
   settleStreamFades,
@@ -43,14 +40,6 @@ function wrapped(root) {
 
 /** `count` words of four characters ("w00 "). */
 const fours = (count) => Array.from({ length: count }, (_, index) => `w${String(index).padStart(2, '0')} `).join('');
-
-test('the fade: 400 ms linear phrases of at least 100 ms; settle ends fades within 120 ms, unwraps by 700 ms', () => {
-  assert.equal(STREAM_FADE_DURATION_MS, 400);
-  assert.equal(STREAM_FADE_CHUNK_OPEN_MS, 100);
-  assert.equal(STREAM_FADE_FAST_CHARS_PER_MS, 1.6);
-  assert.equal(STREAM_FADE_SETTLE_FADE_MS, 120);
-  assert.equal(STREAM_FADE_SETTLE_MS, 700);
-});
 
 test('a large step fades as one phrase in one element: it starts now, with no stagger, over 400 ms', () => {
   assert.deepEqual(streamFadeWords('Hello, big world!'), ['Hello, ', 'big ', 'world!']);

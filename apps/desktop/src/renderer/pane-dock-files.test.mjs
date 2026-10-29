@@ -138,6 +138,7 @@ test('the dock Files view reveals the folder under the single DockHeaderRow', as
       rows.some((row) => row.textContent.includes('logo.png')),
       'its children are listed'
     );
+    assert.equal(document.querySelector('.side-file-status-row'), null, 'the Files tree draws no editor footer');
   } finally {
     await act(async () => root.unmount());
     restore();

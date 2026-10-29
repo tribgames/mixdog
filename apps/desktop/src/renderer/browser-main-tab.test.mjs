@@ -255,7 +255,7 @@ function publish(pageFrame, next) {
   for (const resolve of pageFrame.waiters.splice(0)) resolve();
 }
 
-async function mountPane(props, pageFrame) {
+async function mountPane(props, pageFrame, extraApi = {}) {
   const controls = [];
   window.mixdogDesktop = {
     browserPageFrame: async () => {
@@ -269,6 +269,7 @@ async function mountPane(props, pageFrame) {
     browserSetActiveGuest: async () => {},
     browserPresentNative: async () => ({ enabled: false, shown: false }),
     openExternal: async () => {},
+    ...extraApi,
   };
   const host = document.createElement('main');
   document.body.append(host);
@@ -320,6 +321,51 @@ test('main browser tab renders the nav row with a ⋯ menu and no dock header or
   }
 });
 
+test('the browser nav row ends with Import after the address field, then the ⋯ menu; a narrow row drops Forward and Import', async (t) => {
+  setUserAgent('Mozilla/5.0 Electron/30');
+  const importApi = { browserProfileImportSources: async () => [] };
+  const props = { sessionId: 'main-browser-nav', mode: 'main', initialUrl: 'https://example.test/page' };
+  let view = await mountPane(props, { current: frame() }, importApi);
+  try {
+    await flush();
+    await flush();
+    const toolbar = view.host.querySelector('.browser-pane-toolbar');
+    const kids = [...toolbar.children];
+    const address = kids.findIndex((child) => child.querySelector('input') || child.matches('input'));
+    const importAt = kids.findIndex((child) => child.classList.contains('browser-pane-import-button'));
+    const moreAt = kids.findIndex((child) => child.querySelector('.dock-header-more') || child.matches('.dock-header-more'));
+    assert.ok(address >= 0 && importAt > address, 'Import follows the address field');
+    assert.ok(moreAt > importAt, 'the ⋯ menu stays last');
+    assert.ok(toolbar.querySelector('[aria-label="Forward"]'));
+  } finally {
+    await view.unmount();
+  }
+  // Without an import source the button is not offered.
+  view = await mountPane(props, { current: frame() });
+  try {
+    await flush();
+    await flush();
+    assert.equal(view.host.querySelector('.browser-pane-import-button'), null);
+  } finally {
+    await view.unmount();
+  }
+  // A narrow row hides Forward first, then Import; Back, Reload and the address stay.
+  t.mock.method(window.Element.prototype, 'getBoundingClientRect', function () {
+    return { x: 0, y: 0, left: 0, top: 0, right: 120, bottom: 30, width: this.classList?.contains('browser-pane-toolbar') ? 120 : 0, height: 30 };
+  });
+  view = await mountPane(props, { current: frame() }, importApi);
+  try {
+    await flush();
+    await flush();
+    const toolbar = view.host.querySelector('.browser-pane-toolbar');
+    assert.equal(toolbar.querySelector('.browser-pane-import-button'), null);
+    assert.equal(toolbar.querySelector('[aria-label="Forward"]'), null);
+    assert.ok(toolbar.querySelector('[aria-label="Back"]') && toolbar.querySelector('[aria-label="Reload"]'));
+    assert.ok(toolbar.querySelector('input'));
+  } finally {
+    await view.unmount();
+  }
+});
 test('side browser shows a ⋯ with Open in main tab on desktop and hides it on phone/remote', async () => {
   setUserAgent('Mozilla/5.0 Electron/30');
   let view = await mountPane({ sessionId: 'conv-1' }, { current: frame() });

@@ -13,7 +13,6 @@ import {
   DOUBLE_TAP_SLOP_PX,
   EDGE_SLOP_PX,
   FEEDBACK_RADIUS_PX,
-  TOUCH_LONG_PRESS_MS,
   viewportGestureBindings,
 } from './remote-touch-gestures.ts';
 import { initialView, pictureToStage, viewBounds } from './remote-viewport.ts';
@@ -165,7 +164,6 @@ test('a tap held past the long-press time is no click; a long-press holds the le
   g.up(1, 50, 60);
   g.up(2, 150, 60);
   assert.deepEqual(r.actions, []);
-  assert.equal(TOUCH_LONG_PRESS_MS, 500);
 });
 
 test('one finger pans the view within the picture; a fast lift-off flings on with decaying steps', () => {

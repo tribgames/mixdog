@@ -179,7 +179,7 @@ function skinDom(t) {
   return { ...dom, root: dom.document.documentElement };
 }
 
-test('the stored transparency drives the CSS variables live; the old dim attribute is gone', async (t) => {
+test('the stored transparency drives the CSS variables live', async (t) => {
   const { root } = skinDom(t);
   const skin = await import('./desktop-skin');
   skin.setSkin('night-city');
@@ -199,7 +199,6 @@ test('the stored transparency drives the CSS variables live; the old dim attribu
     assert.match(root.style.getPropertyValue(`--mx-skin-${name}-amount`), /^\d+(\.\d)?%$/);
   }
   assert.match(root.style.getPropertyValue('--mx-skin-chrome-ink'), /^#[0-9a-f]{6}$/);
-  assert.equal(root.dataset.mixdogSkinDim, undefined);
   assert.equal(skin.getSkinOuterTransparency(), 100);
   assert.equal(skin.getSkinMainTransparency(), 100);
   skin.setSkinTransparency(1000);

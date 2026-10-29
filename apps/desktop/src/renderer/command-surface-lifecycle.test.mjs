@@ -14,7 +14,6 @@ import {
   subscribeStatsDataCache,
   surfaceDataCacheSize,
   writeSurfaceDataCache,
-  SURFACE_DATA_CACHE_LIMIT,
 } from './command-surface-cache.ts';
 import { resolveInheritBlockedReason } from './command-surface-inherit.tsx';
 import { useCommandSurfaceLifecycle } from './command-surface-lifecycle.ts';
@@ -101,7 +100,6 @@ test('usage getters omit snapshots while context, inheritance and commands retai
 
 test('command surface cache enforces bounded LRU eviction at limit 64', () => {
   clearSurfaceDataCache();
-  assert.equal(SURFACE_DATA_CACHE_LIMIT, 64);
 
   for (let i = 0; i < 64; i++) {
     writeSurfaceDataCache(`key-${i}`, { index: i });

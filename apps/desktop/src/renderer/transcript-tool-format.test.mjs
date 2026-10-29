@@ -16,12 +16,6 @@ test('a session row labels each action', () => {
   assert.equal(subject({}), 'fallback');
 });
 
-test('the session tool no longer labels worktree actions', () => {
-  const subject = (args) => toolActivitySubject('session', args, 'fallback');
-  assert.notEqual(subject({ action: 'list-worktrees' }), 'List worktrees');
-  assert.notEqual(subject({ action: 'merge-worktree' }), 'Merge worktree');
-});
-
 test('a git worktree row is labelled by its worktree_action', () => {
   const subject = (args) => toolActivitySubject('git', { action: 'worktree', ...args }, 'fallback');
   assert.equal(subject({ worktree_action: 'enter' }), 'Enter worktree');

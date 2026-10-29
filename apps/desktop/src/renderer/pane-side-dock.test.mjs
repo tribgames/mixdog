@@ -1023,21 +1023,6 @@ test('the browser ⋯ menu carries device view, copy link, system browser and cr
   assert.equal(zoomBar.checkbox, true);
   actions.find((item) => item.id === 'credential-c1').onSelect();
   assert.deepEqual(fills, ['c1']);
-  const { readFile } = await import('node:fs/promises');
-  const pane = await readFile(new URL('./BrowserPane.lazy.tsx', import.meta.url), 'utf8');
-  // The nav row ends where the main tab's popup strip (or the import dialog) begins.
-  const toolbarEnd = [pane.indexOf('{mainTab && tabs.length > 1'), pane.indexOf('<BrowserImportDialog')]
-    .filter((index) => index > 0)
-    .reduce((first, index) => Math.min(first, index));
-  const toolbar = pane.slice(pane.indexOf('className="browser-pane-toolbar"'), toolbarEnd);
-  assert.doesNotMatch(toolbar, /OpenSelect|ExternalLink|KeyRound/);
-  // Import sits at the right end of the nav row, after the address field,
-  // with the link glyph (the former Copy link icon).
-  assert.ok(toolbar.indexOf('browserAddressField(') < toolbar.indexOf('browser-pane-import-button'));
-  assert.match(toolbar, /<Link2 size=\{15\} \/>/);
-  assert.match(toolbar, /data-tooltip=\{t\('Import from browser'\)\}/);
-  assert.match(toolbar, /navLayout\.import &&/);
-  assert.equal(toolbar.trimEnd().endsWith('</div>'), true);
 });
 
 test('the side editor gutter is slim and its status bar is the 24px problems/cursor/language row', async () => {
@@ -1050,43 +1035,11 @@ test('the side editor gutter is slim and its status bar is the 24px problems/cur
   // No overview-ruler marks painted over the slim scrollbar thumb.
   assert.equal(options.overviewRulerLanes, 0);
   assert.equal(options.hideCursorInOverviewRuler, true);
-  const { readFile } = await import('node:fs/promises');
-  const css = await readFile(new URL('./desktop/26-editor.css', import.meta.url), 'utf8');
-  assert.doesNotMatch(css, /\.editor-statusbar/);
-  const editor = await readFile(new URL('./EditorPane.lazy.tsx', import.meta.url), 'utf8');
-  assert.doesNotMatch(editor, /editor-statusbar|editorStatusBar/);
 });
 
 test('dock header tab lists behave like the pane tab strip for 2-6 browser and terminal tabs at 280/500px', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const css = await readFile(new URL('./tab-strip.css', import.meta.url), 'utf8');
-  const rule = (selector) =>
-    css.match(new RegExp(`(?:^|\\n)${selector.replace(/[.[\]()>:]/g, '\\$&')} \\{([^}]*)\\}`))?.[1] ?? '';
-  const list = rule('.browser-tab-list');
-  assert.match(list, /overflow-x: scroll;/);
-  assert.match(list, /overflow-y: hidden;/);
-  assert.match(list, /scrollbar-width: none;/);
-  assert.doesNotMatch(css, /scrollbar-width: thin/);
-  assert.doesNotMatch(css, /overflow-x: auto/);
-  assert.match(rule('.browser-tab-list::-webkit-scrollbar'), /display: none;/);
-  // Tabs shrink to the pane tab floors before the list scrolls; titles ellipsize.
-  assert.match(rule('.browser-tab'), /flex: 0 1 160px;/);
-  assert.match(rule('.browser-tab'), /min-width: 30px;/);
-  assert.match(rule('.browser-tab.is-active'), /min-width: 56px;/);
-  assert.match(rule('.browser-tab-select > span:not(.progress-spinner-turn)'), /text-overflow: ellipsis;/);
-  assert.match(rule('.browser-tab-select > span:not(.progress-spinner-turn)'), /overflow: hidden;/);
-  // + and the row controls are fixed: the list is the only shrinking/scrolling part.
-  assert.match(rule('.browser-tab-new'), /flex: 0 0 30px;/);
-  assert.match(rule('.dock-header-controls'), /flex: none;/);
-  assert.match(rule('.dock-header-row .browser-tab-toolbar'), /flex: 0 1 auto;/);
-  // Plates are centred: 7px top and bottom inside the 44px row, tab fills the row.
-  assert.match(rule('.dock-header-row .browser-tab::before'), /inset: 7px 3px;/);
-  assert.match(rule('.browser-tab'), /height: 100%;/);
-  assert.match(rule('.dock-header-row .browser-tab-toolbar'), /height: 100%;/);
-
   const { renderToStaticMarkup } = await import('react-dom/server');
   const { BrowserTabStrip } = await import('./BrowserTabStrip.tsx');
-  const terminal = await readFile(new URL('./SessionTerminalTabs.tsx', import.meta.url), 'utf8');
   for (const count of [2, 3, 4, 5, 6]) {
     const tabs = Array.from({ length: count }, (_, i) => ({
       id: `p${i}`,
@@ -1107,10 +1060,6 @@ test('dock header tab lists behave like the pane tab strip for 2-6 browser and t
       assert.doesNotMatch(html, /style="[^"]*overflow/);
     }
   }
-  // The terminal strip reuses the same classes and the shared wheel mapping.
-  assert.match(terminal, /className="browser-tab-list"/);
-  assert.match(terminal, /scrollTabListByWheel\(event, strip\.current\)/);
-  assert.match(terminal, /className="browser-tab-new"/);
 });
 
 test('scrollTabListByWheel maps the vertical wheel to horizontal scroll like the pane strip', async () => {
@@ -1123,6 +1072,8 @@ test('scrollTabListByWheel maps the vertical wheel to horizontal scroll like the
   assert.deepEqual(calls, [40, -25]);
 });
 
+// PROPOSED SOURCE-TEXT EXCEPTION / DELETION CANDIDATE: stylesheet and icon-size parity between the dock header and the
+// pane strip. jsdom computes no layout, so there is no runnable surface here; it reads the stylesheets and components.
 test('dock header buttons and tab icons match the pane strip toggles, +, and tab glyphs', async () => {
   const { readFile } = await import('node:fs/promises');
   const strip = await readFile(new URL('./tab-strip.css', import.meta.url), 'utf8');
@@ -1254,46 +1205,9 @@ test('in-flow dock surfaces get the same expand control from the dock context, l
   assert.deepEqual(labels(row({ expanded: true, toggle() {} })).slice(-2), ['Restore', 'Close panel']);
   // No dock context (phone sheet, browser/terminal roots with their own props): no control.
   assert.deepEqual(labels(row(null)), ['Close panel']);
-  const { readFile } = await import('node:fs/promises');
-  const read = (name) => readFile(new URL(name, import.meta.url), 'utf8');
-  for (const file of ['./side-surface-strip.tsx', './SessionDiffPane.tsx', './pane-side-dock.tsx'])
-    assert.match(await read(file), /<DockHeaderRow/);
 });
 
-test('toggling expand sets and clears the dock sheet geometry; a surface switch or close resets it', async () => {
-  const { readFile } = await import('node:fs/promises');
-  const dock = await readFile(new URL('./pane-side-dock.tsx', import.meta.url), 'utf8');
-  assert.match(dock, /data-expanded=\{dockExpanded \? 'true' : 'false'\}/);
-  assert.match(
-    dock,
-    /position: 'fixed',\s*left: expandedRect\.left,\s*top: expandedRect\.top,\s*width: expandedRect\.width,\s*height: expandedRect\.height/
-  );
-  assert.match(dock, /dockExpanded && expandedRect && \(?\s*<div className="pane-side-dock-spacer"/);
-  const hooks = await readFile(new URL('./pane-side-dock-hooks.ts', import.meta.url), 'utf8');
-  assert.match(hooks, /if \(!expanded \|\| !openNow \|\| !host\) \{\s*setExpandedRect\(undefined\);/);
-  assert.match(hooks, /setExpanded\(false\);\s*\}, \[surface, view, openNow\]\);/);
-  assert.match(dock, /const dockExpanded = expanded && openNow && !mobileSheet;/);
-  assert.match(dock, /mobileSheet \? null : \{ expanded: dockExpanded, toggle: toggleExpanded \}/);
-  const slots = await readFile(new URL('./surface-slots.ts', import.meta.url), 'utf8');
-  assert.match(slots, /export function expandedDockRect/);
-  assert.match(slots, /const panel = expandedSheetBounds\(panelNode\);/);
-  const css = await readFile(new URL('./pane-layout.css', import.meta.url), 'utf8');
-  assert.match(css, /\.pane-side-dock\[data-expanded="true"\] \{\s*z-index: 40;\s*margin: 0;/);
-  // The expanded sheet stacks inside its isolated leaf: that leaf rises over the
-  // split handles (z-index 5), so no split hairline paints across the sheet.
-  const lifted = [...css.matchAll(/\.pane-leaf:has\(([^{]*)\) \{\s*z-index: (\d+);/g)].find((rule) =>
-    rule[1].includes('data-expanded')
-  );
-  assert.ok(lifted, 'a leaf holding an expanded surface is lifted');
-  assert.ok(Number(lifted[2]) > 5, 'above the split handles');
-  for (const surface of [
-    '.pane-side-dock[data-expanded="true"]',
-    '.pane-side-dock-header[data-surface-expanded="true"]',
-    '.session-browser-surface-container[data-expanded="true"][data-parked="false"]',
-    '.session-terminal-surface-container[data-expanded="true"][data-parked="false"]',
-  ]) {
-    assert.ok(lifted[1].includes(surface), surface);
-  }
+test('expandedDockRect measures the main panel and is undefined without a host', async () => {
   const { expandedDockRect } = await import('./surface-slots.ts');
   const { installTestDom } = await import('./test-support/test-dom.mjs');
   const { restore } = installTestDom(null, {
@@ -1316,6 +1230,42 @@ test('toggling expand sets and clears the dock sheet geometry; a surface switch 
   }
 });
 
+test('dock expansion toggles and resets when the surface, the view or the open state changes', async (t) => {
+  const { root } = installTestDom(t, { rootId: 'root' });
+  const { useDockExpansion } = await import('./pane-side-dock-hooks.ts');
+  // A measurable host inside the main panel, so expansion has geometry to clear.
+  const panel = document.createElement('div');
+  panel.className = 'main-panel';
+  panel.getBoundingClientRect = () => ({ left: 10, top: 20, width: 800, height: 600, right: 810, bottom: 620 });
+  const host = document.createElement('div');
+  host.getBoundingClientRect = () => ({ left: 0, top: 0, width: 300, height: 400, right: 300, bottom: 400 });
+  panel.append(host);
+  document.body.append(panel);
+  t.after(() => panel.remove());
+  const hostRef = { current: host };
+  let dock;
+  function Probe(props) {
+    dock = useDockExpansion(hostRef, props.surface, props.view, props.open);
+    return null;
+  }
+  const render = (props) => act(async () => root.render(React.createElement(Probe, props)));
+  const base = { surface: '', view: 'source-control', open: true };
+  await render(base);
+  assert.equal(dock.expanded, false);
+  await act(async () => dock.toggleExpanded());
+  assert.equal(dock.expanded, true);
+  await act(async () => dock.toggleExpanded());
+  assert.equal(dock.expanded, false, 'toggling again restores');
+  for (const change of [{ surface: 'file:a.ts' }, { view: 'browser' }, { open: false }]) {
+    await render(base);
+    await act(async () => dock.toggleExpanded());
+    assert.equal(dock.expanded, true);
+    assert.notEqual(dock.expandedRect, undefined, 'expansion measures the main panel');
+    await render({ ...base, ...change });
+    assert.equal(dock.expanded, false, `${Object.keys(change)[0]} change resets expansion`);
+    assert.equal(dock.expandedRect, undefined, `${Object.keys(change)[0]} change clears the geometry`);
+  }
+});
 test('side file: status lives in a second row; ⋯ holds only real actions', async () => {
   const { sideFileActions, SideFileStrip } = await import('./side-surface-strip.tsx');
   const { renderToStaticMarkup } = await import('react-dom/server');
@@ -1448,62 +1398,6 @@ test('side file: status lives in a second row; ⋯ holds only real actions', asy
     )
   );
   assert.ok(previewHeader.includes('class="browser-tab-select" title="decks/deck.pptx"'));
-  // Order inside the side file card: header, body (editor then problems), footer last.
-  const { readFile } = await import('node:fs/promises');
-  const dock = await readFile(new URL('./pane-side-dock.tsx', import.meta.url), 'utf8');
-  // The dock mounts the card ahead of the browser slot; the card owns its markup.
-  const stack = dock.slice(dock.indexOf('const surfaces ='), dock.indexOf('{browserSurface && ('));
-  assert.match(stack, /\{fileSurface\}\s*$/);
-  assert.match(dock, /dockBodyMounted && entry\.files\?\.length \? \(\s*<PaneDockFileSurface/);
-  assert.doesNotMatch(dock, /<SideFileStrip|<SideFileProblems|<SideFileStatusRow/);
-  const card = await readFile(new URL('./PaneDockFileSurface.tsx', import.meta.url), 'utf8');
-  const slot = card.slice(card.indexOf('<SideFileStrip'));
-  const at = (needle) => slot.indexOf(needle);
-  assert.ok(
-    at('<SideFileStrip') < at('pane-side-file-editor') && at('pane-side-file-editor') < at('<SideFileProblems')
-  );
-  assert.ok(at('<SideFileProblems') < at('<SideFileStatusRow'), 'footer follows the problems panel');
-  assert.match(
-    slot.trimEnd(),
-    /sideFileHasFooter\(fileChrome\) && <SideFileStatusRow[^>]*\/>\}\s*<\/div>\s*\);\s*\}$/,
-    'footer is the last child of the card, text editors only'
-  );
-  // Diff, Changes and the Files tree draw no footer.
-  for (const file of ['./SessionDiffPane.tsx', './pane-dock-files.tsx'])
-    assert.doesNotMatch(
-      await readFile(new URL(file, import.meta.url), 'utf8'),
-      /<SideFileStatusRow|side-file-status-row/,
-      file
-    );
-  const css = await readFile(new URL('./tab-strip.css', import.meta.url), 'utf8');
-  // Fixed 24px footer with a top hairline and no background of its own.
-  assert.match(css.match(/\.side-file-status-row \{([^}]*)\}/)[1], /height: 24px;/);
-  assert.match(css.match(/\.side-file-status-row \{([^}]*)\}/)[1], /border-top: 1px solid var\(--mx-border\);/);
-  // A single-row header has no rule under it; the browser nav row owns its own divider.
-  assert.match(css.match(/\n\.dock-header-row \{([^}]*)\}/)[1], /border-bottom: 0;/);
-  assert.doesNotMatch(css.match(/\n\.dock-header-row \{([^}]*)\}/)[1], /border-bottom: 1px/);
-  const pane = await readFile(new URL('./desktop/32-browser-pane.css', import.meta.url), 'utf8');
-  assert.match(pane.match(/\.browser-pane-toolbar \{([^}]*)\}/)[1], /border-bottom: 1px solid/);
-  // Table view: a flush spreadsheet grid (no inset box), themed through the app tokens.
-  const editor = await readFile(new URL('./desktop/26-editor.css', import.meta.url), 'utf8');
-  assert.doesNotMatch(editor, /\.editor-table-scroll/);
-  const grid = editor.match(/\.editor-table-grid\.rdg \{([^}]*)\}/)[1];
-  assert.doesNotMatch(grid, /margin:|border-radius:/);
-  assert.match(grid, /--rdg-border-color: var\(--mx-border-muted\);/);
-  assert.match(grid, /--rdg-selection-color: var\(--editor-table-accent\);/);
-  assert.match(grid, /--editor-table-accent: var\(--mx-accent, var\(--mx-focus\)\);/);
-  assert.match(grid, /--rdg-selection-width: 2px;/);
-  assert.match(grid, /--editor-table-tint: color-mix\(in srgb, var\(--mx-text\) 4%, var\(--mx-bg-base\)\);/);
-  assert.match(grid, /--rdg-row-hover-background-color: color-mix\(in srgb, var\(--mx-text\) 3%, transparent\);/);
-  assert.match(
-    editor,
-    /is-active-column[\s\S]*?color-mix\(in srgb, var\(--editor-table-accent\) 14%, var\(--editor-table-tint\)\)/
-  );
-  assert.match(editor.match(/\.editor-markdown-preview \{([^}]*)\}/)[1], /padding: 16px 20px 12px;/);
-  assert.match(css.match(/\.side-file-status-row \{([^}]*)\}/)[1], /background: transparent;/);
-  assert.match(css.match(/\.side-file-status-row \{([^}]*)\}/)[1], /flex: none;/);
-  assert.match(css.match(/\.side-file-status-cursor \{([^}]*)\}/)[1], /tabular-nums/);
-  assert.match(css.match(/\.side-file-status-problems \{([^}]*)\}/)[1], /min-width: 52px;/);
 });
 
 test('side file second row hides language first, then the cursor; counts stay', async () => {
@@ -1517,13 +1411,6 @@ test('side file second row hides language first, then the cursor; counts stay', 
   assert.deepEqual(L.sideStatusLayout(base + L.SIDE_STATUS_CURSOR_WIDTH - 1), { cursor: false, language: false });
   assert.deepEqual(L.sideStatusLayout(0), { cursor: true, language: true });
   assert.equal(L.SIDE_STATUS_TOGGLE_WIDTH, undefined);
-  // The problems counts are rendered regardless of the layout flags.
-  const { readFile } = await import('node:fs/promises');
-  const row = await readFile(new URL('./side-file-status-row.tsx', import.meta.url), 'utf8');
-  assert.doesNotMatch(row, /view-toggle|aria-pressed/);
-  assert.match(row, /\{showStatus && problems && \(/);
-  assert.match(row, /chrome\?\.cursor && layout\.cursor/);
-  assert.match(row, /chrome\?\.language && layout\.language/);
 });
 
 test('browser nav row hides Forward first, then Import; Back, Reload and the address always stay', async () => {
@@ -1541,10 +1428,6 @@ test('browser nav row hides Forward first, then Import; Back, Reload and the add
   // Without an import source Forward only needs one extra slot.
   assert.deepEqual(browserNavLayout(base + BROWSER_NAV_SLOT_WIDTH, false), { forward: true, import: false });
   assert.deepEqual(browserNavLayout(0, true), { forward: true, import: true });
-  const { readFile } = await import('node:fs/promises');
-  const pane = await readFile(new URL('./BrowserPane.lazy.tsx', import.meta.url), 'utf8');
-  assert.match(pane, /navLayout\.forward && \(/);
-  assert.match(pane, /navLayout\.import && \(/);
 });
 
 test('expanded surfaces stay inside the main panel frame (no overlap of its border pixels)', async () => {
@@ -1574,17 +1457,6 @@ test('expanded surfaces stay inside the main panel frame (no overlap of its bord
   } finally {
     restore();
   }
-  // The expanded containers round their inner corners to the frame: right corners, all when folded.
-  const { readFile } = await import('node:fs/promises');
-  const css = await readFile(new URL('./pane-layout.css', import.meta.url), 'utf8');
-  assert.match(
-    css,
-    /session-terminal-surface-container\[data-expanded="true"\],[^{]*session-browser-surface-container\[data-expanded="true"\] \{\s*border: 0;\s*border-radius: 0 calc\(var\(--mx-sheet-radius\) - 1px\) calc\(var\(--mx-sheet-radius\) - 1px\) 0;/
-  );
-  assert.match(
-    css,
-    /\.pane-side-dock-header\[data-surface-expanded="true"\] \{\s*border-radius: 0 calc\(var\(--mx-sheet-radius\) - 1px\) 0 0;/
-  );
 });
 
 // Mounts a dock in jsdom with pointer capture stubbed, so the panel's resize

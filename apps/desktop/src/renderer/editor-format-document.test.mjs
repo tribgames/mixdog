@@ -51,6 +51,8 @@ test('an unsupported action (no provider / read-only) is reported, not silently 
   );
 });
 
+// PROPOSED SOURCE-TEXT EXCEPTION: the wiring lives in Monaco-bound hooks (EditorPane, LSP session) that a renderer
+// test cannot mount; the helpers above own the behaviour and this only pins that the pane calls them.
 test('the pane gates Format on the provider claim, reruns on claim changes and toasts the outcome', () => {
   const pane = readFileSync(new URL('./EditorPane.lazy.tsx', import.meta.url), 'utf8');
   const commands = readFileSync(new URL('./use-editor-document-commands.ts', import.meta.url), 'utf8');

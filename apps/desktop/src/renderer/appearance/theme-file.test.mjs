@@ -190,6 +190,8 @@ test('the token sheet: specificity over the light block, skin-owned tokens step 
   assert.equal(css.indexOf(`${base} {`), -1, 'no token here outlives a skin');
 });
 
+// PROPOSED SOURCE-TEXT EXCEPTION: a cross-file invariant between two stylesheets (the skin plate tokens and the theme
+// sheet's skin-owned set). jsdom computes no cascade for custom properties across both, so the sheets are parsed.
 test('every token a skin plate re-declares on the root is skin-owned in the theme sheet', () => {
   const skinCss = readFileSync(new URL('../desktop/33-skin.css', import.meta.url), 'utf8');
   const start = skinCss.indexOf(':root[data-mixdog-skin][data-mixdog-skin-plate] {');

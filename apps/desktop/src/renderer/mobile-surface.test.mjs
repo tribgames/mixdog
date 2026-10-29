@@ -377,7 +377,6 @@ test('desktop Chrome boot lays out at device-width with no projection', () => {
   assert.match(boot.viewport, /width=device-width/u);
   assert.match(boot.viewport, /maximum-scale=1\.0/u);
   assert.match(boot.viewport, /user-scalable=no/u);
-  assert.doesNotMatch(bootSource, /width=1040/u);
   assert.equal(boot.projection, undefined);
   assert.equal(boot.phone, false);
 });

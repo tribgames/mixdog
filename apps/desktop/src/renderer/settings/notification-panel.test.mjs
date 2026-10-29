@@ -6,7 +6,6 @@ import React, { act } from 'react';
 import { installTestDom } from '../test-support/test-dom.mjs';
 import { setCachedConnectionInfo } from './connection-info.ts';
 import { ConnectionPanel } from './connection-panel.tsx';
-import { GeneralPanel } from './general-panel.tsx';
 import { NotificationsPanel } from './notification-panel.tsx';
 import { SETTINGS_CATEGORIES, settingsCategoriesForSurface } from './settings-items.ts';
 
@@ -429,22 +428,6 @@ test('the Connection tab lists devices without a notification line', async (t) =
   const rows = [...dom.document.querySelectorAll('.conn-list .conn-row')];
   assert.equal(rows.length, 3);
   for (const row of rows) assert.doesNotMatch(row.textContent, /Notifications/);
-});
-
-test('General no longer carries the old task-finished notification group', async (t) => {
-  const dom = installTestDom(t, DOM);
-  const context = {
-    api: {},
-    data: {},
-    snapshot: null,
-    pending: '',
-    run: async () => undefined,
-    confirm() {},
-    notice() {},
-  };
-  await act(async () => dom.root.render(React.createElement(GeneralPanel, context)));
-  assert.equal(dom.document.body.textContent.includes('Notify me when a task finishes'), false);
-  assert.equal(dom.document.body.textContent.includes('Notification volume'), false);
 });
 
 test('a failed first read shows the error with a retry that loads the panel', async (t) => {

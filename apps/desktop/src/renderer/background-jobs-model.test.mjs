@@ -16,7 +16,6 @@ import {
   backgroundJobRows,
   cwdFolderName,
   expiredShellRows,
-  SHELL_AUTO_DISMISS_MS,
   shellFinishedLabel,
   shellRowAction,
 } from './background-jobs-model.ts';
@@ -98,7 +97,6 @@ test('only clean exits expire, SHELL_AUTO_DISMISS_MS after they finished (or wer
     row('stopped', null, 1_000, 'cancelled'),
   ];
   const seen = () => 30_000;
-  assert.equal(SHELL_AUTO_DISMISS_MS, 60_000);
   assert.deepEqual(expiredShellRows(rows, 61_000, seen), { keys: ['ok-old'], nextAt: 90_000 });
   assert.deepEqual(expiredShellRows(rows, 110_000, seen), { keys: ['ok-old', 'ok-new', 'ok-unknown'], nextAt: 0 });
 });

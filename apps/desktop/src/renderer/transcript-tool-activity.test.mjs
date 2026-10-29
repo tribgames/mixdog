@@ -1454,21 +1454,22 @@ test('the live status token readout is its own span, hidden only while the pinne
     assert.match(tokens.textContent, /^ · .*tokens$/);
     assert.match(meta.textContent, /^1m 5\ds · .*tokens$/, 'the same text as before');
     assert.equal(meta.textContent.replace(tokens.textContent, '').trim().length > 0, true, 'the clock stays');
+    // The shipped stylesheet decides visibility: shown by default, hidden only under the pet flag.
+    const { readFile } = await import('node:fs/promises');
+    const style = document.createElement('style');
+    style.textContent = await readFile(new URL('./desktop/14-live-activity.css', import.meta.url), 'utf8');
+    document.head.append(style);
+    const display = () => dom.window.getComputedStyle(tokens).display;
+    assert.notEqual(display(), 'none');
+    document.documentElement.setAttribute('data-pet-over-transcript', '');
+    assert.equal(display(), 'none', 'hidden while the pinned bot stands over the transcript');
+    document.documentElement.removeAttribute('data-pet-over-transcript');
+    assert.notEqual(display(), 'none');
   } finally {
+    document.documentElement.removeAttribute('data-pet-over-transcript');
     await act(async () => dom.root.unmount());
     dom.close();
   }
-  const { readFile } = await import('node:fs/promises');
-  const css = (await readFile(new URL('./desktop/14-live-activity.css', import.meta.url), 'utf8')).replace(
-    /\/\*[\s\S]*?\*\//g,
-    ''
-  );
-  const rules = [...css.matchAll(/([^{}]*\.live-activity-tokens[^{}]*)\{([^}]*)\}/g)];
-  assert.deepEqual(
-    rules.map(([, selector, body]) => [selector.trim(), body.trim()]),
-    [['html[data-pet-over-transcript] .live-activity-tokens', 'display: none;']],
-    'hidden only under the flag'
-  );
 });
 
 test('the thinking spinner shows the runtime-resolved turn effort, falling back to the saved level', async () => {

@@ -54,7 +54,7 @@ function rowHeight(row) {
   return 90;
 }
 
-// A layout stand-in (transcript-list-prepend.test.mjs): the viewport scrolls
+// A layout stand-in (transcript-list-prepend.slow.test.mjs): the viewport scrolls
 // over the spacer the list sizes directly, and a ResizeObserver reports each
 // row's box from the heights the projection assigned.
 async function mountTranscript(heights) {

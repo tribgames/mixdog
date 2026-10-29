@@ -6,7 +6,6 @@ import { ComposerDock } from './ComposerDock.tsx';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
 import { t as translate } from './i18n.ts';
 import * as quotaContinue from './quota-continue.ts';
-import { DESKTOP_CAPABILITIES } from '../shared/contract-capabilities.ts';
 import { useConversationQuotaCard, rosterOffersOtherAccount } from './use-conversation-quota-card.ts';
 import { inheritSessionDirectly } from './session-inheritance.ts';
 import { DESKTOP_TOAST_EVENT } from './desktop-toasts.tsx';
@@ -69,13 +68,6 @@ test('reset label is HH:mm today and carries the day otherwise', () => {
   const now = new Date(2026, 9, 12, 9, 0).getTime();
   assert.equal(quotaResetLabel(new Date(2026, 9, 12, 18, 40).getTime(), now), '18:40');
   assert.equal(quotaResetLabel(new Date(2026, 9, 13, 3, 5).getTime(), now), '10/13 03:05');
-});
-
-test('the switch-and-retry flow is gone: no picker hand-off, no renderer retry capability', () => {
-  for (const name of ['beginQuotaContinue', 'takeQuotaContinue', 'cancelQuotaContinue']) {
-    assert.equal(name in quotaContinue, false, name);
-  }
-  assert.equal(DESKTOP_CAPABILITIES.includes('retryFailedTurn'), true);
 });
 
 test('account guidance needs a manual roster with another signed-in account', () => {

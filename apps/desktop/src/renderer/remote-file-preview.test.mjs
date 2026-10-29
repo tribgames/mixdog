@@ -382,7 +382,7 @@ test('the inlining budget caps how many assets a page may pull', async () => {
 });
 
 test('a remote visualize page carries a fetch for its own files only, read through the pane range', async () => {
-  const { readRemoteVisualizePane, PAGE_FETCH_MAX_BYTES } = await import('./remote-file-preview.ts');
+  const { readRemoteVisualizePane } = await import('./remote-file-preview.ts');
   const calls = [];
   const files = { 'site/index.html': 'page', 'site/data/x.json': '{"n":1}' };
   const call = async (method, params) => {
@@ -409,7 +409,6 @@ test('a remote visualize page carries a fetch for its own files only, read throu
   assert.equal(calls.length, before);
   // The host's own refusal (an unlisted file) surfaces as a failure.
   await assert.rejects(source.fetch('/site/other.bin'), /not part of the visualize tab/);
-  assert.equal(PAGE_FETCH_MAX_BYTES, 16 * 1024 * 1024);
 });
 
 test('remote visualize media streams on the media lane, and falls back to the RPC blob without it', async () => {

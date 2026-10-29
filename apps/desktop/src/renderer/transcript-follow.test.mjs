@@ -10,7 +10,7 @@ import {
   transcriptSelectionPrimaryButtonDown,
   transcriptSelectionPointerRegion,
 } from './transcript-selection-drag.ts';
-import { boundaryGestureReached, touchScrollLatchOpen, TRANSCRIPT_OVERFLOW_ANCHOR } from './use-transcript-follow.ts';
+import { boundaryGestureReached, touchScrollLatchOpen } from './use-transcript-follow.ts';
 
 test('transcript history grows in bounded pages only at a full window', () => {
   assert.equal(nextTranscriptHistoryLimit(120, 512), null);
@@ -34,10 +34,6 @@ test('a touch scroll owns the viewport through the finger and its whole fling', 
   assert.equal(touchScrollLatchOpen({ latched: true, touchDown: false, sinceScrollMs: 900 }), false);
   // A tap that never scrolled the transcript is not ownership.
   assert.equal(touchScrollLatchOpen({ latched: false, touchDown: true, sinceScrollMs: 0 }), false);
-});
-
-test('virtual-core remains the only transcript scroll anchoring authority', () => {
-  assert.equal(TRANSCRIPT_OVERFLOW_ANCHOR, 'none');
 });
 
 test('an unscrollable nested target hands the gesture straight to the transcript', () => {

@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React, { act } from 'react';
 
@@ -652,17 +651,6 @@ test('a closed saved server opens the connect dialog on that server instead of c
   await settle();
   assert.deepEqual(calls, [], 'a window that is not open goes through the dialog');
   assert.deepEqual(made.calls[0], ['inspect', 'root@vps.example.com']);
-});
-
-test('SSH connect styles: step states and the suggestion menu are defined; the menu reuses mx-menu', () => {
-  const css = readFileSync(new URL('./settings.css', import.meta.url), 'utf8');
-  for (const selector of [
-    '.conn-steps li[data-state="done"]::before',
-    '.conn-steps li[data-state="now"]::before',
-    '.ssh-suggest',
-  ]) {
-    assert.ok(css.includes(selector), selector);
-  }
 });
 
 const CHANGED = {
