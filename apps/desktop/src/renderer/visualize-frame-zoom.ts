@@ -13,7 +13,8 @@
 // window, with the three zoom inputs and finite numbers, nothing else. A page
 // that handles the gesture itself (preventDefault) is left alone.
 import { withHeadScript } from '../shared/sandbox-storage-shim';
-import { framePointInWindow, pinchGeometry } from './visualize-zoom';
+import { pinchGeometry } from './touch-zoom';
+import { framePointInWindow } from './visualize-zoom';
 import { dispatchZoomAt, dispatchZoomKey, type ZoomKey } from './zoom-target';
 
 export const FRAME_ZOOM_REQUEST = 'mixdog-page-zoom';

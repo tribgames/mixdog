@@ -12,7 +12,8 @@ import {
   inlineThemeFromDocument,
   renderInlineContent,
 } from './visualize-inline';
-import { framePointInWindow, watchPinch } from './visualize-zoom';
+import { watchTouchZoom } from './touch-zoom';
+import { framePointInWindow } from './visualize-zoom';
 import { dispatchZoomAt } from './zoom-target';
 
 type InlineState = { status: 'loading' } | { status: 'ready'; doc: string } | { status: 'error'; error: string };
@@ -90,10 +91,10 @@ function watchInlinePinch(frame: HTMLIFrameElement): void {
   if (!doc) return;
   inlinePinches.set(
     frame,
-    watchPinch(
+    watchTouchZoom(
       doc,
-      (point) => framePointInWindow(frame, point),
-      (ratio, at) => dispatchZoomAt(ratio > 1 ? 'in' : 'out', at, undefined, ratio)
+      { pinch: (ratio, at) => dispatchZoomAt(ratio > 1 ? 'in' : 'out', at, undefined, ratio) },
+      (point) => framePointInWindow(frame, point)
     )
   );
 }

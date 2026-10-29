@@ -509,6 +509,9 @@
   flex: 1 1 auto;
   min-height: 0;
   display: grid;
+  /* A definite cell, so the image's max-height: 100% fits it; an auto row
+     let a tall image grow past the stage and its bottom was cut off. */
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   place-items: center;
   overflow: hidden;
   touch-action: none;

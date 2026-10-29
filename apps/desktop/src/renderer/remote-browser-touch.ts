@@ -14,8 +14,8 @@ import {
 export { DOUBLE_TAP_TIMEOUT_MS, TOUCH_LONG_PRESS_MS, TOUCH_SLOP_PX } from './remote-touch-gestures';
 /** Android ViewConfiguration DOUBLE_TAP_SLOP (dp; a CSS pixel is a dp in an
  *  Android WebView at its default scale): the desktop pane's double tap that
- *  fits a zoomed picture. */
-const FIT_DOUBLE_TAP_SLOP_PX = 100;
+ *  fits a zoomed picture, and the image viewers' (touch-zoom.ts). */
+export const FIT_DOUBLE_TAP_SLOP_PX = 100;
 
 type Pointer = Extract<DesktopBrowserPageAction, { type: 'pointer' }>;
 type Wheel = Extract<DesktopBrowserPageAction, { type: 'wheel' }>;
