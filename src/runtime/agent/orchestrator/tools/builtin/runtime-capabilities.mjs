@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { readdir as readdirAsync } from 'node:fs/promises';
+import { startGitSync } from '../../../../shared/git-launch.mjs';
 import { runGitOffThread } from '../../../../shared/git-runner.mjs';
 import { findPathExecutable } from '../../../../shared/path-executable.mjs';
 import { dirname as pathDirname, join as pathJoin, resolve as pathResolveAbsolute } from 'node:path';
@@ -161,13 +162,15 @@ function _changeStateArgs(root) {
 
 function _probeRepositoryChangeStateSync(root) {
   try {
-    const result = spawnSync('git', _changeStateArgs(root), {
-      encoding: 'utf8',
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
-      maxBuffer: 64 * 1024,
-      timeout: 1500,
-      windowsHide: true,
-    });
+    const result = startGitSync({ ...process.env, GIT_OPTIONAL_LOCKS: '0' }, (command, env) =>
+      spawnSync(command, _changeStateArgs(root), {
+        encoding: 'utf8',
+        env,
+        maxBuffer: 64 * 1024,
+        timeout: 1500,
+        windowsHide: true,
+      })
+    );
     const output = String(result.stdout || '').trim();
     if (result.status === 0) return output ? 'changes present' : 'clean';
     if (result.error?.code === 'ENOBUFS' && output) return 'changes present';
@@ -271,14 +274,16 @@ function _checkIgnoreArgs(directory) {
 
 function _probeGitIgnoredEntriesSync(directory, names) {
   try {
-    const result = spawnSync('git', _checkIgnoreArgs(directory), {
-      encoding: 'utf8',
-      input: `${names.join('\0')}\0`,
-      env: { ...process.env, GIT_OPTIONAL_LOCKS: '0' },
-      maxBuffer: 1024 * 1024,
-      timeout: 1500,
-      windowsHide: true,
-    });
+    const result = startGitSync({ ...process.env, GIT_OPTIONAL_LOCKS: '0' }, (command, env) =>
+      spawnSync(command, _checkIgnoreArgs(directory), {
+        encoding: 'utf8',
+        input: `${names.join('\0')}\0`,
+        env,
+        maxBuffer: 1024 * 1024,
+        timeout: 1500,
+        windowsHide: true,
+      })
+    );
     // Exit 1 is "nothing ignored", not a failure.
     if (result.status !== 0 && result.status !== 1) return new Set();
     return new Set(

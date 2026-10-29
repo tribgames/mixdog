@@ -14,6 +14,7 @@ import { WORKTREE_SNAPSHOT_KIND } from '../../../../shared/worktrees/contract.mj
 import { isWithin } from '../../../../shared/worktrees/paths.mjs';
 import { readRegistrySync } from '../../../../shared/worktrees/registry.mjs';
 import { runAbortable } from '../../../../shared/abort-race.mjs';
+import { startGit } from '../../../../shared/git-launch.mjs';
 import { sleep } from '../../../../shared/sleep.mjs';
 import { capMarker } from '../../../../shared/tool-output-marker.mjs';
 import { drainCodeGraphCache } from '../code-graph-state.mjs';
@@ -437,7 +438,24 @@ function parseCommand(rawCommand, workDir) {
   return { command: String(command), cwd, globalArgs, operation, args };
 }
 
-async function runProcess(program, argv, { cwd, signal, maxBytes = MAX_CAPTURE_BYTES, optionalLocks = true } = {}) {
+function gitToolEnvironment(optionalLocks) {
+  return {
+    ...process.env,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_PAGER: 'cat',
+    GIT_EDITOR: 'true',
+    GIT_SEQUENCE_EDITOR: 'true',
+    LC_ALL: 'C',
+    // Reads run beside writes without a lock (git-repo-rw-lock.mjs).
+    // With optional locks off `git status` never takes index.lock to
+    // write back a refreshed index, so it cannot fail a concurrent
+    // write on that lock. (`git diff` ignores the setting and may still
+    // refresh the index briefly; the write retry absorbs that.)
+    ...(optionalLocks ? {} : { GIT_OPTIONAL_LOCKS: '0' }),
+  };
+}
+
+async function runProcess(program, argv, { cwd, signal, maxBytes = MAX_CAPTURE_BYTES, env } = {}) {
   let child;
   try {
     await ensureNativeSpawnServer();
@@ -446,20 +464,7 @@ async function runProcess(program, argv, { cwd, signal, maxBytes = MAX_CAPTURE_B
       argv,
       spawnOptions: {
         cwd,
-        env: {
-          ...process.env,
-          GIT_TERMINAL_PROMPT: '0',
-          GIT_PAGER: 'cat',
-          GIT_EDITOR: 'true',
-          GIT_SEQUENCE_EDITOR: 'true',
-          LC_ALL: 'C',
-          // Reads run beside writes without a lock (git-repo-rw-lock.mjs).
-          // With optional locks off `git status` never takes index.lock to
-          // write back a refreshed index, so it cannot fail a concurrent
-          // write on that lock. (`git diff` ignores the setting and may still
-          // refresh the index briefly; the write retry absorbs that.)
-          ...(optionalLocks ? {} : { GIT_OPTIONAL_LOCKS: '0' }),
-        },
+        env,
         outputLimit: maxBytes,
         // Bytes as git wrote them, decoded once by the caller: a multibyte
         // character split across two pipe reads must not become U+FFFD.
@@ -573,11 +578,11 @@ function commandFailure(plan, result, limit = GIT_OUTPUT_LINES_DEFAULT) {
 }
 
 function runGit(plan, argv, options = {}) {
-  return runProcess('git', [...plan.globalArgs, ...argv], {
-    cwd: plan.cwd,
-    signal: options.signal,
-    optionalLocks: !options.readOnly,
-  });
+  return startGit(
+    gitToolEnvironment(!options.readOnly),
+    (command, env) => runProcess(command, [...plan.globalArgs, ...argv], { cwd: plan.cwd, signal: options.signal, env }),
+    (result) => result.error
+  );
 }
 
 // Another process (an editor, a terminal, an IDE) holding one of git's lock

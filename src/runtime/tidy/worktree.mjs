@@ -7,6 +7,7 @@
 // already non-conforming in HEAD had to be reverted by hand. Scope still comes
 // from `paths` and nothing here derives one from a diff: the split is a report
 // the caller reads before writing, so they can pass a precise file list.
+import { startGit } from '../shared/git-launch.mjs';
 import { normalizeRel } from './languages.mjs';
 import { runProcess, which } from './process.mjs';
 
@@ -44,13 +45,16 @@ export async function listWorkingTreeChanges({
   env = process.env,
 } = {}) {
   if (!which('git', { env })) return { files: null, error: '', skipped: NO_GIT_REASON };
+  // The git the caller's own PATH names, as the lookup above found it.
+  const git = (args) =>
+    startGit(
+      env,
+      (command, childEnv) => runProcess(command, args, { cwd, signal, timeoutMs, env: childEnv }),
+      (result) => ({ code: result.errorCode })
+    );
   const [status, prefix] = await Promise.all([
-    runProcess(
-      'git',
-      ['-c', 'core.quotepath=false', '--literal-pathspecs', 'status', '--porcelain', '-z', '--untracked-files=all'],
-      { cwd, signal, timeoutMs, env }
-    ),
-    runProcess('git', ['rev-parse', '--show-prefix'], { cwd, signal, timeoutMs, env }),
+    git(['-c', 'core.quotepath=false', '--literal-pathspecs', 'status', '--porcelain', '-z', '--untracked-files=all']),
+    git(['rev-parse', '--show-prefix']),
   ]);
   const failed = [status, prefix].find((result) => result.code !== 0);
   if (failed) {

@@ -17,9 +17,12 @@ mock.module(new URL('../../../../shared/git-runner.mjs', import.meta.url).href, 
     runGitOffThread: (args, options) => gitRunner.runGitOffThread(args, { ...options, timeoutMs: 120_000 }),
   },
 });
+// The git program the probes start (the real binary behind a Git for Windows launcher).
+const { gitCommand } = await import('../../../../shared/git-launch.mjs');
+const GIT = gitCommand();
 const realSpawnSync = childProcess.spawnSync;
 childProcess.spawnSync = (command, args, options) =>
-  realSpawnSync(command, args, command === 'git' && options ? { ...options, timeout: 120_000 } : options);
+  realSpawnSync(command, args, command === GIT && options ? { ...options, timeout: 120_000 } : options);
 syncBuiltinESMExports();
 
 const {
@@ -208,7 +211,7 @@ test('an unfinished prewarm falls back to the synchronous probe with identical o
     } finally {
       spawns.restore();
     }
-    assert.equal(spawns.calls.filter((call) => call === 'spawnSync git').length, 2);
+    assert.equal(spawns.calls.filter((call) => call === `spawnSync ${GIT}`).length, 2);
     assert.match(gitLine, /; changes present\.$/);
     assert.equal(cwdLine, expectedCwdLine);
     // The late prewarm answers never replace the newer synchronous ones.

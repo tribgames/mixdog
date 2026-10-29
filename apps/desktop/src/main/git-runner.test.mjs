@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import test from 'node:test';
 
+import { gitCommand } from '../../../../src/runtime/shared/git-launch.mjs';
 import { runProcessOffThread } from '../../../../src/runtime/shared/process-runner.mjs';
 import {
   GIT_READ_TIMEOUT_MS,
@@ -53,9 +54,36 @@ test('with the daemon runner set, every git child starts off-thread with the sam
     streamNulRecords(root, ['no-such-command'], () => {}),
     /no-such-command|not a git command/
   );
-  assert.ok(commands.length >= 6 && commands.every((call) => call.command === 'git'));
+  assert.ok(commands.length >= 6 && commands.every((call) => call.command === gitCommand()));
   assert.equal(commands[0].env.GIT_TERMINAL_PROMPT, '0', 'the scrubbed git environment travels with each child');
 });
+
+// A Git for Windows install resolved for this PATH is then removed: the next
+// child (in-thread and off-thread alike) runs the git PATH names now.
+for (const offThread of [false, true]) {
+  test(`a removed git install falls back to the git PATH names now (${offThread ? 'off-thread' : 'in-thread'})`, {
+    skip: gitCommand() === 'git' ? 'needs Git for Windows behind its launcher' : false,
+  }, async (t) => {
+    if (offThread) {
+      setGitProcessRunner(runProcessOffThread);
+      t.after(() => setGitProcessRunner(null));
+    }
+    const real = dirname(dirname(dirname(gitCommand()))); // <root>\mingw64\bin\git.exe
+    const stale = mkdtempSync(join(tmpdir(), 'mixdog-git-runner-stale-'));
+    t.after(() => rmSync(stale, { recursive: true, force: true }));
+    for (const dir of ['cmd', 'usr/bin', 'mingw64/bin']) mkdirSync(join(stale, dir), { recursive: true });
+    for (const file of ['cmd/git.exe', 'git-bash.exe', 'mingw64/bin/git.exe']) writeFileSync(join(stale, file), '');
+    const path = process.env.PATH;
+    process.env.PATH = `${join(stale, 'cmd')}${delimiter}${join(real, 'cmd')}`;
+    t.after(() => {
+      process.env.PATH = path;
+    });
+    // Resolves the stale install; its empty git.exe cannot start.
+    await runWithStatus(tmpdir(), ['--version']).catch(() => {});
+    rmSync(stale, { recursive: true, force: true });
+    assert.match(await run(tmpdir(), ['--version']), /^git version /);
+  });
+}
 
 test('reads carry the read deadline; writes stay unbounded', async (t) => {
   const timeouts = [];

@@ -6,6 +6,7 @@
 // on the id. AUX_LANGUAGE_EXTENSIONS adds the config/markup languages the graph
 // never parses but formatters do (PowerShell, JSON, TOML, ...).
 import { extname } from 'node:path';
+import { startGit } from '../shared/git-launch.mjs';
 import { runProcess } from './process.mjs';
 
 export const CODE_LANGUAGE_EXTENSIONS = Object.freeze({
@@ -156,21 +157,22 @@ export function parseGraphLangs(stdout) {
 
 /** git-tracked files under `cwd`, filtered to the requested scope paths. */
 async function listScopedFiles({ cwd, paths = [], signal = null, timeoutMs = 20_000 } = {}) {
-  const result = await runProcess(
-    'git',
-    [
-      '-c',
-      'core.quotepath=false',
-      '--literal-pathspecs',
-      'ls-files',
-      '--cached',
-      '--others',
-      '--exclude-standard',
-      '-z',
-      '--',
-      ...paths,
-    ],
-    { cwd, signal, timeoutMs }
+  const args = [
+    '-c',
+    'core.quotepath=false',
+    '--literal-pathspecs',
+    'ls-files',
+    '--cached',
+    '--others',
+    '--exclude-standard',
+    '-z',
+    '--',
+    ...paths,
+  ];
+  const result = await startGit(
+    process.env,
+    (command, env) => runProcess(command, args, { cwd, signal, timeoutMs, env }),
+    (outcome) => ({ code: outcome.errorCode })
   );
   if (result.code !== 0) {
     return {

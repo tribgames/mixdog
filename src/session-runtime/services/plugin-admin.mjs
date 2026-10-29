@@ -8,6 +8,7 @@ import { resolvePluginData } from '../../runtime/shared/plugin-paths.mjs';
 import { pluginManifest } from '../../runtime/shared/plugin-manifest.mjs';
 import { pluginMetadata } from '../../runtime/shared/plugin-metadata.mjs';
 import { clean } from '../../runtime/shared/clean.mjs';
+import { startGitSync } from '../../runtime/shared/git-launch.mjs';
 
 const REGISTRY_VERSION = 1;
 
@@ -125,12 +126,15 @@ function normalizeSource(input) {
 }
 
 function runGit(args, options = {}) {
-  const result = spawnSync('git', args, {
-    cwd: options.cwd,
-    encoding: 'utf8',
-    windowsHide: true,
-    timeout: options.timeout ?? 120000,
-  });
+  const result = startGitSync(null, (command, env) =>
+    spawnSync(command, args, {
+      cwd: options.cwd,
+      env,
+      encoding: 'utf8',
+      windowsHide: true,
+      timeout: options.timeout ?? 120000,
+    })
+  );
   if (result.status !== 0) {
     const detail = clean(result.stderr) || clean(result.stdout) || `git ${args.join(' ')} failed`;
     throw new Error(detail);

@@ -108,8 +108,9 @@ function captureInto(state, key, chunk, cap) {
 
 /**
  * Spawn `bin` with `args` and collect its output.
- * Resolves `{code, signal, stdout, stderr, timedOut, error}` — a failed spawn is
- * reported, never thrown, so one broken engine cannot abort the multiplexer.
+ * Resolves `{code, signal, stdout, stderr, timedOut, error, errorCode}` — a
+ * failed spawn is reported (`errorCode`: its code, e.g. ENOENT), never thrown,
+ * so one broken engine cannot abort the multiplexer.
  */
 export function runProcess(
   bin,
@@ -151,6 +152,7 @@ export function runProcess(
         timedOut: false,
         truncated: false,
         error: error?.message || String(error),
+        errorCode: error?.code || '',
       });
       return;
     }
@@ -209,7 +211,7 @@ export function runProcess(
 
     // One exit path for both outcomes: whoever settles first reports the
     // captured output and clears the timers.
-    const settle = (code, exitSignal, error) => {
+    const settle = (code, exitSignal, error, errorCode = '') => {
       if (settled) return;
       settled = true;
       clearTimers();
@@ -221,12 +223,13 @@ export function runProcess(
         timedOut,
         truncated: Boolean(state.stdoutTruncated || state.stderrTruncated),
         error,
+        errorCode,
       });
     };
 
     child.stdout?.on('data', (chunk) => captureInto(state, 'stdout', chunk, cap));
     child.stderr?.on('data', (chunk) => captureInto(state, 'stderr', chunk, cap));
-    child.on('error', (error) => settle(-1, null, error?.message || String(error)));
+    child.on('error', (error) => settle(-1, null, error?.message || String(error), error?.code || ''));
     if (input != null && child.stdin) {
       child.stdin.on('error', () => {
         /* child may close stdin early */

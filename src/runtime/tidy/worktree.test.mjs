@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, copyFileSync, linkSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -91,6 +91,27 @@ test('no git on PATH skips the probe silently instead of spawning and warning', 
   assert.equal(skipped, NO_GIT_REASON);
   assert.deepEqual(worktreeNotes({ skipped }, 'fix'), [], 'a machine without git gets no standing warning');
   assert.deepEqual(worktreeNotes({ skipped }, 'check'), []);
+});
+
+test("the caller's PATH picks the git that runs, not this process's", async (t) => {
+  const root = await committedProject(t);
+  if (!root) {
+    t.skip('git is unavailable in this environment');
+    return;
+  }
+  // A "git" that is node: whatever it is asked, it is not git and fails.
+  const bin = mkdtempSync(join(tmpdir(), 'tidy-worktree-other-git-'));
+  t.after(() => rmSync(bin, { recursive: true, force: true }));
+  const fake = join(bin, process.platform === 'win32' ? 'git.exe' : 'git');
+  try {
+    linkSync(process.execPath, fake);
+  } catch {
+    copyFileSync(process.execPath, fake);
+    chmodSync(fake, 0o755);
+  }
+  const { files, error } = await listWorkingTreeChanges({ cwd: root, env: { ...process.env, PATH: bin, Path: bin } });
+  assert.equal(files, null, "this process's git would have answered with the file set");
+  assert.ok(error, "the caller's git ran and failed");
 });
 
 test('findings split into the modified and the clean population, with counts for both', () => {
