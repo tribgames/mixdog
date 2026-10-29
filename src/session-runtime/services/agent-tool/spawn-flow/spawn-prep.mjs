@@ -77,8 +77,8 @@ export function createSpawnPreparer({
    *  first-response deadline and the provider's first-response budget for the
    *  routed model (headers, and first output), handed to
    *  resolveAgentWatchdogPolicy. A provider on the shared window names none. */
-  function agentWatchdogOverrides({ agent, provider, model }) {
-    const budget = getProvider(provider)?.firstResponseBudget?.(model);
+  function agentWatchdogOverrides({ agent, provider, model, modelParameters }) {
+    const budget = getProvider(provider)?.firstResponseBudget?.(model, { modelParameters });
     return {
       firstResponseTimeoutMs: readAgentFirstResponseTimeoutMs(agent, dataDir, STANDALONE_SOURCE_ROOT) ?? undefined,
       providerFirstByteTimeoutMs: budget?.transportMs,
@@ -145,7 +145,12 @@ export function createSpawnPreparer({
       prompt: plan.prompt,
       watchdogPolicy: resolveAgentWatchdogPolicy(
         plan.agent,
-        agentWatchdogOverrides({ agent: plan.agent, provider: plan.preset.provider, model: plan.preset.model })
+        agentWatchdogOverrides({
+          agent: plan.agent,
+          provider: plan.preset.provider,
+          model: plan.preset.model,
+          modelParameters: plan.preset.modelParameters,
+        })
       ),
     };
   }

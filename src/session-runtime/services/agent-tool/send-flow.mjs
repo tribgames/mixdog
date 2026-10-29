@@ -94,7 +94,12 @@ export function createSendFlow({ mgr, defaultCwd, sessionSurface, canUseSessionS
     // the watchdog sweep re-stamps turnStartedAt at each turn boundary.
     const watchdogPolicy = resolveAgentWatchdogPolicy(
       sendAgent,
-      spawnFlow.agentWatchdogOverrides({ agent: sendAgent, provider: session.provider, model: session.model })
+      spawnFlow.agentWatchdogOverrides({
+        agent: sendAgent,
+        provider: session.provider,
+        model: session.model,
+        ...(session.modelParameters ? { modelParameters: session.modelParameters } : {}),
+      })
     );
     const watchdog = spawnFlow.startProgressIdleWatchdog(sessionId, watchdogPolicy, sendAgent, {
       onTurnStart: spawnFlow.turnStartStamper(session, tag),

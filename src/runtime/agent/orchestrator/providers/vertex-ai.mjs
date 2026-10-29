@@ -106,6 +106,12 @@ const SERVED_TIER = Object.freeze({
   ON_DEMAND: 'default',
 });
 
+// A Flex request queues server-side and may sit silent for minutes before its
+// first chunk (the docs allow request timeouts up to 30 minutes), so the shared
+// 60s first-chunk window would kill and replay a healthy one. Kept under the
+// 600s socket body timeout (MIXDOG_LLM_BODY_TIMEOUT_MS).
+const VERTEX_FLEX_FIRST_CHUNK_TIMEOUT_MS = 570_000;
+
 // Multi-region locations are served by representative endpoints, not by
 // <location>-aiplatform.googleapis.com.
 function vertexHost(location) {
@@ -212,6 +218,15 @@ export class VertexAIProvider {
 
   _projectId() {
     return vertexProjectOverride(this.config) || this._auth.projectId();
+  }
+
+  // Only a Flex route has a budget; the shared window covers the rest. Vertex
+  // never marks transport progress at the response headers, so the transport
+  // deadline must already cover the headers wait plus the first-chunk wait.
+  firstResponseBudget(_model, { modelParameters } = {}) {
+    if (vertexRequestedTier({ modelParameters }) !== VERTEX_FLEX_TIER) return null;
+    const ms = 2 * VERTEX_FLEX_FIRST_CHUNK_TIMEOUT_MS;
+    return { transportMs: ms, semanticMs: ms };
   }
 
   _express() {
@@ -394,6 +409,9 @@ export class VertexAIProvider {
             textLeakGuard,
             label: 'Vertex AI Gemini streamGenerateContent',
             failureUsage: vertexFailureUsage,
+            ...(tier === VERTEX_FLEX_TIER
+              ? { firstByteTimeoutMs: VERTEX_FLEX_FIRST_CHUNK_TIMEOUT_MS, idleAfterFirstChunk: true }
+              : {}),
           });
           return { response, textLeakGuard };
         },

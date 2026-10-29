@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import { VertexAccessTokenManager, VERTEX_SCOPE, VERTEX_TOKEN_URI } from './vertex-ai-auth.mjs';
 import { VertexAIProvider } from './vertex-ai.mjs';
@@ -1465,6 +1465,67 @@ test('Vertex express mode sends Gemini with the API key on the global endpoint, 
   assert.equal(regional.requests.length, 0);
   const keyless = express({ apiKey: undefined, apiKeyEnv: 'MIXDOG_TEST_UNSET_VERTEX_KEY' });
   assert.equal(await keyless.provider.isAvailable(), false);
+});
+
+test('a Flex send waits out a slow first chunk that times a Standard send out at 60s', async () => {
+  const hi = [{ role: 'user', content: 'hi' }];
+  const flush = async () => {
+    for (let i = 0; i < 10; i++) await new Promise((resolve) => setImmediate(resolve));
+  };
+  // Headers arrive at once; the first chunk follows after `delayMs` of (mocked) time.
+  const slowFirstChunk = (delayMs) => {
+    const body = geminiSse().body;
+    return new Response(
+      new ReadableStream({
+        async start(controller) {
+          const bytes = await new Response(body).arrayBuffer();
+          setTimeout(() => {
+            try {
+              controller.enqueue(new Uint8Array(bytes));
+              controller.close();
+            } catch {
+              // The reader was cancelled by a first-chunk timeout.
+            }
+          }, delayMs);
+        },
+      }),
+      { headers: { 'content-type': 'text/event-stream' } }
+    );
+  };
+  const run = async (modelParameters, firstChunkMs) => {
+    mock.timers.enable({ apis: ['setTimeout'] });
+    try {
+      let calls = 0;
+      const { provider, requests } = recordingProvider({ location: 'global', sleepFn: async () => {} }, () =>
+        ++calls === 1 ? slowFirstChunk(firstChunkMs) : geminiSse('replayed')
+      );
+      let outcome = null;
+      const sent = provider.send(hi, 'gemini-3.8-flash', [], { modelParameters }).then(
+        (value) => (outcome = { value }),
+        (error) => (outcome = { error })
+      );
+      await flush();
+      mock.timers.tick(60_001);
+      await flush();
+      const afterSixtySeconds = { requests: requests.length, settled: outcome !== null };
+      // Past the 300s semantic-idle window: only the first-byte allowance may govern a Flex wait.
+      mock.timers.tick(firstChunkMs - 60_001);
+      await flush();
+      await sent;
+      return { afterSixtySeconds, requests: requests.length, outcome };
+    } finally {
+      mock.timers.reset();
+    }
+  };
+
+  const standard = await run({}, 120_000);
+  assert.equal(standard.afterSixtySeconds.requests, 2, 'Standard: timed out at 60s and replayed');
+  assert.equal(standard.outcome.value?.content, 'replayed');
+
+  const flex = await run({ serviceTier: 'flex' }, 400_000);
+  assert.deepEqual(flex.afterSixtySeconds, { requests: 1, settled: false }, 'Flex: still waiting at 60s');
+  assert.equal(flex.requests, 1, 'Flex: no replay');
+  assert.equal(flex.outcome.value?.content, 'ok');
 });
 
 test('Vertex authentication failures surface a clear provider error', async () => {

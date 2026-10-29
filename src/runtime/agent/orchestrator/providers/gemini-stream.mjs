@@ -589,6 +589,9 @@ export async function consumeGeminiRestStreamResponse(
     onChunk = null,
     failureUsage = null,
     firstByteTimeoutMs = GEMINI_FIRST_BYTE_TIMEOUT_MS,
+    // A first-byte window longer than the idle window must govern alone until
+    // the first payload, or the idle timer would cut the wait short.
+    idleAfterFirstChunk = false,
   }
 ) {
   const unwrap =
@@ -649,7 +652,7 @@ export async function consumeGeminiRestStreamResponse(
   }
 
   try {
-    watchdogs.resetIdle();
+    if (!idleAfterFirstChunk) watchdogs.resetIdle();
     while (true) {
       let chunk;
       try {

@@ -11,6 +11,7 @@ import {
   watchdogStoppedHandoff,
 } from './agent-progress-watchdog.mjs';
 import { PROVIDER_FIRST_BYTE_TIMEOUT_MS, STALL_TICK_MS } from '../stall-policy.mjs';
+import { VertexAIProvider } from '../providers/vertex-ai.mjs';
 
 test('the first-transport deadline sits one tick above the provider first-byte window', () => {
   const providerWindow = 466_000;
@@ -49,6 +50,21 @@ test('the first-semantic ceiling covers the provider first-output budget, so a r
   assert.match(evaluateAgentWatchdogAbort(late, now, policy).message, /^agent first semantic response stale \(/);
   // Without a provider budget the 600s ceiling is unchanged.
   assert.equal(resolveAgentWatchdogPolicy('worker').firstSemanticMs, 600_000);
+});
+
+test('a Vertex Flex route raises the first-response deadlines above the 120s default; other tiers keep it', () => {
+  const provider = new VertexAIProvider({});
+  const budget = provider.firstResponseBudget('gemini-3.8-flash', { modelParameters: { serviceTier: 'flex' } });
+  const policy = resolveAgentWatchdogPolicy('worker', {
+    providerFirstByteTimeoutMs: budget?.transportMs,
+    providerFirstOutputTimeoutMs: budget?.semanticMs,
+  });
+  assert.ok(policy.firstTransportMs > 600_000, `${policy.firstTransportMs}`);
+  assert.equal(policy.firstTransportMs, budget.transportMs + STALL_TICK_MS);
+  for (const modelParameters of [undefined, {}, { serviceTier: 'priority' }, { serviceTier: 'standard' }]) {
+    assert.equal(provider.firstResponseBudget('gemini-3.8-flash', { modelParameters }), null);
+  }
+  assert.equal(resolveAgentWatchdogPolicy('worker').firstTransportMs, 120_000);
 });
 
 test('a per-agent first-response deadline applies above the floor; 0 keeps it off', () => {
