@@ -142,6 +142,7 @@ function stateForRoot(root) {
     gitDir,
     initialized: false,
     sourceIndexPath: null,
+    sourcePaths: null,
     sourceIndexIdentity: null,
     sourceTracked: new Set(),
     lineEndingArgs: [],
@@ -259,21 +260,62 @@ async function sourceGitPath(root, suffix) {
   return result.code === 0 && value ? resolve(root, value) : null;
 }
 
-async function syncSourceExclude(state) {
-  const source = await sourceGitPath(state.root, 'info/exclude');
+/** The source repository's info/exclude, index and common directory paths
+ *  from one `rev-parse`, kept for the state's lifetime once answered (the
+ *  index path already was). An unanswered or unexpected reply falls back to
+ *  the per-path reads, uncached, so a failure is retried as before. */
+async function sourceGitPaths(state) {
+  if (state.sourcePaths) return state.sourcePaths;
+  const result = await runGit(
+    [
+      'rev-parse',
+      '--path-format=absolute',
+      '--git-path',
+      'info/exclude',
+      '--git-path',
+      'index',
+      '--git-common-dir',
+    ],
+    { cwd: state.root, allowFailure: true }
+  );
+  const lines = String(result.stdout || '')
+    .split(/\r?\n/)
+    .filter((line) => line !== '');
+  if (result.code === 0 && lines.length === 3 && lines.every((line) => clean(line))) {
+    const [exclude, index, commonDir] = lines.map((line) => clean(line));
+    state.sourcePaths = {
+      exclude: resolve(state.root, exclude),
+      index: resolve(state.root, index),
+      commonDir,
+    };
+    return state.sourcePaths;
+  }
+  const [exclude, index, commonDir] = await Promise.all([
+    sourceGitPath(state.root, 'info/exclude'),
+    sourceGitPath(state.root, 'index'),
+    sourceCommonDir(state.root),
+  ]);
+  return { exclude, index, commonDir };
+}
+
+async function sourceCommonDir(root) {
+  const result = await runGit(['rev-parse', '--path-format=absolute', '--git-common-dir'], {
+    cwd: root,
+    allowFailure: true,
+  });
+  const commonDir = clean(result.stdout);
+  return result.code === 0 && commonDir ? commonDir : null;
+}
+
+async function syncSourceExclude(state, source) {
   if (!source || !(await exists(source))) return;
   const target = join(state.gitDir, 'info', 'exclude');
   await mkdir(dirname(target), { recursive: true });
   await copyFile(source, target).catch(() => {});
 }
 
-async function syncAlternates(state) {
-  const result = await runGit(['rev-parse', '--path-format=absolute', '--git-common-dir'], {
-    cwd: state.root,
-    allowFailure: true,
-  });
-  const commonDir = clean(result.stdout);
-  if (result.code !== 0 || !commonDir) return;
+async function syncAlternates(state, commonDir) {
+  if (!commonDir) return;
   const sourceObjects = join(resolve(state.root, commonDir), 'objects');
   if (!(await exists(sourceObjects))) return;
   const alternates = [sourceObjects];
@@ -294,7 +336,7 @@ async function syncAlternates(state) {
 }
 
 async function sourceIndexIdentity(state) {
-  state.sourceIndexPath ??= await sourceGitPath(state.root, 'index');
+  state.sourceIndexPath ??= (await sourceGitPaths(state)).index;
   if (!state.sourceIndexPath) return 'missing';
   try {
     const stat = await lstat(state.sourceIndexPath);
@@ -349,10 +391,14 @@ async function ensureState(state) {
       'utf8'
     );
   }
+  // One layout read serves both syncs below. Every (re)initialisation reads the
+  // source layout afresh, so a changed `.git` indirection is never served stale.
+  state.sourcePaths = null;
+  const paths = await sourceGitPaths(state);
   const [lineEndingArgs] = await Promise.all([
     sourceLineEndingArgs(state.root),
-    syncSourceExclude(state),
-    syncAlternates(state),
+    syncSourceExclude(state, paths.exclude),
+    syncAlternates(state, paths.commonDir),
   ]);
   state.lineEndingArgs = lineEndingArgs;
   // Seed once per process, then keep this index synchronized with the live
@@ -366,7 +412,7 @@ async function ensureState(state) {
 
 async function resetShadowIndex(state) {
   state.lastCapture = null;
-  state.sourceIndexPath ??= await sourceGitPath(state.root, 'index');
+  state.sourceIndexPath ??= (await sourceGitPaths(state)).index;
   const sourceIndex = state.sourceIndexPath;
   const target = join(state.gitDir, 'index');
   if (sourceIndex && (await exists(sourceIndex))) {
@@ -710,12 +756,66 @@ async function patchSectionsByPath(state, baselineTree, currentTree, pathspec, m
     if (error?.code === 'EMAXBUFFER') return null;
     throw error;
   }
+  return sectionsByPath(result.stdout);
+}
+
+function sectionsByPath(patchText) {
   const sections = new Map();
-  for (const section of splitPatchSections(Buffer.from(result.stdout, 'utf8'))) {
+  for (const section of splitPatchSections(Buffer.from(patchText, 'utf8'))) {
     const path = section.newPath ?? section.oldPath;
     if (path) sections.set(pathKey(path), section.patch);
   }
   return sections;
+}
+
+/** A range's name-status, numstat and whole patch from one `git diff`
+ *  (`--raw --numstat --patch -z`: raw records, numstat records, a NUL, then
+ *  the same patch bytes a patch-only read prints). Null when that read fails
+ *  or passes the patch read's byte cap, or its output is not that shape: the
+ *  caller then takes the separate reads, which fail or bound exactly as
+ *  before. */
+async function combinedTreeDiff(state, rangeArgs) {
+  let result;
+  try {
+    result = await runGit(
+      shadowArgs(state, ['diff', '--raw', '--numstat', '--patch', '--no-ext-diff', '--unified=3', '-z', ...rangeArgs]),
+      { cwd: state.root, maxBytes: COMMAND_MAX_BYTES + PATCH_OUTPUT_SLACK_BYTES, allowFailure: true }
+    );
+  } catch (error) {
+    if (error?.code === 'EMAXBUFFER') return null;
+    throw error;
+  }
+  if (result.code !== 0) return null;
+  const text = String(result.stdout || '');
+  if (!text) return { statuses: new Map(), stats: new Map(), sections: new Map() };
+  // Raw records (each starts with ':') re-shaped as name-status tokens.
+  const nameStatus = [];
+  let cursor = 0;
+  const token = () => {
+    const end = text.indexOf('\0', cursor);
+    if (end < 0) return null;
+    const value = text.slice(cursor, end);
+    cursor = end + 1;
+    return value;
+  };
+  while (text[cursor] === ':') {
+    const header = token();
+    const status = header?.slice(header.lastIndexOf(' ') + 1);
+    if (!status) return null;
+    const paths = [token()];
+    if (status[0] === 'R' || status[0] === 'C') paths.push(token());
+    if (paths.some((path) => !path)) return null;
+    nameStatus.push(status, ...paths);
+  }
+  // Numstat records never hold an empty token after a NUL, so the first NUL
+  // pair ends them; the separator NUL follows.
+  const numstatEnd = text[cursor] === '\0' ? cursor : text.indexOf('\0\0', cursor) + 1;
+  if (numstatEnd <= 0) return null;
+  return {
+    statuses: parseNameStatus(`${nameStatus.join('\0')}\0`),
+    stats: parseNumstat(text.slice(cursor, numstatEnd)),
+    sections: sectionsByPath(text.slice(numstatEnd + 1)),
+  };
 }
 
 /** After the whole range overflowed: patches read in path batches, the
@@ -761,6 +861,12 @@ async function boundedTreePatch(state, baselineTree, currentTree, pathspec, file
     sections = new Map();
     await batchedPatchSections(state, baselineTree, currentTree, files, sections);
   }
+  return boundedTreePatchFromSections(files, sections, whole);
+}
+
+/** `files` with the patch `sections` that fit the reply caps; `whole`: the
+ *  sections are a complete read, so a file without one has no patch. */
+function boundedTreePatchFromSections(files, sections, whole) {
   const budget = createReviewPatchBudget();
   const kept = [];
   const bounded = files.map((file) => {
@@ -783,12 +889,35 @@ async function diffTreesUnlocked(state, baselineTree, currentTree, paths = null)
   // baseline describes the whole worktree, concurrent sessions included.
   const pathspec = Array.isArray(paths) && paths.length > 0 ? paths : ['.'];
   const rangeArgs = ['--find-renames', baselineTree, currentTree, '--', ...pathspec];
+  const combined = await combinedTreeDiff(state, rangeArgs);
+  if (combined) {
+    const files = reviewFiles(combined.statuses, combined.stats);
+    const bounded = boundedTreePatchFromSections(files, combined.sections, true);
+    return {
+      patch: bounded.patch,
+      files: bounded.files,
+      patchTruncated: false,
+      diffTooLarge: reviewDiffTooLarge(bounded.files, bounded.patch),
+      currentTree,
+    };
+  }
   const [nameStatus, numstat] = await Promise.all([
     runGit(shadowArgs(state, ['diff', '--name-status', '-z', ...rangeArgs]), { cwd: state.root }),
     runGit(shadowArgs(state, ['diff', '--numstat', '-z', ...rangeArgs]), { cwd: state.root }),
   ]);
-  const statuses = parseNameStatus(nameStatus.stdout);
-  const stats = parseNumstat(numstat.stdout);
+  const files = reviewFiles(parseNameStatus(nameStatus.stdout), parseNumstat(numstat.stdout));
+  const bounded = await boundedTreePatch(state, baselineTree, currentTree, pathspec, files);
+  return {
+    patch: bounded.patch,
+    files: bounded.files,
+    patchTruncated: false,
+    diffTooLarge: reviewDiffTooLarge(bounded.files, bounded.patch),
+    currentTree,
+  };
+}
+
+/** Review rows from the name-status and numstat reads of one range. */
+function reviewFiles(statuses, stats) {
   const keys = [...new Set([...statuses.keys(), ...stats.keys()])];
   const files = keys
     .map((key) => {
@@ -804,14 +933,7 @@ async function diffTreesUnlocked(state, baselineTree, currentTree, paths = null)
       };
     })
     .sort((left, right) => left.path.localeCompare(right.path));
-  const bounded = await boundedTreePatch(state, baselineTree, currentTree, pathspec, files);
-  return {
-    patch: bounded.patch,
-    files: bounded.files,
-    patchTruncated: false,
-    diffTooLarge: reviewDiffTooLarge(bounded.files, bounded.patch),
-    currentTree,
-  };
+  return files;
 }
 
 /** One file's patch between two trees (a rename read with its old path), up

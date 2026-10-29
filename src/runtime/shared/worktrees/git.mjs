@@ -132,6 +132,45 @@ async function assertProjectFolder(cwd) {
 export async function inspectRepo(projectPath, { signal } = {}) {
   const cwd = canonicalPath(projectPath);
   await assertProjectFolder(cwd);
+  // The usual repository answers every fact in one `rev-parse`: bareness,
+  // top level, common dir and HEAD's commit, in that order, then the echoed
+  // `--` (which makes an unresolvable HEAD fail the call instead of being
+  // read as a path). Any other answer (bare, no work tree, no commits, an
+  // unexpected shape) takes the step-by-step reads, whose results and errors
+  // are the contract.
+  const facts = await runGit(
+    cwd,
+    [
+      'rev-parse',
+      '--is-bare-repository',
+      '--show-toplevel',
+      '--path-format=absolute',
+      '--git-common-dir',
+      'HEAD^{commit}',
+      '--',
+    ],
+    { signal, allowFailure: true }
+  );
+  const [factBare, factTop, factCommonDir, factHead, dashes, ...rest] = String(facts.stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim());
+  if (
+    facts.code === 0 &&
+    factBare === 'false' &&
+    factTop &&
+    factCommonDir &&
+    /^[0-9a-f]{40,64}$/.test(factHead) &&
+    dashes === '--' &&
+    rest.every((line) => line === '')
+  ) {
+    return {
+      projectPath: cwd,
+      topLevel: canonicalPath(factTop),
+      repoCommonDir: canonicalPath(factCommonDir),
+      headCommit: factHead,
+      currentBranch: await currentBranch(cwd, { signal }),
+    };
+  }
   const probe = await runGit(cwd, ['rev-parse', '--is-bare-repository', '--path-format=absolute', '--git-common-dir'], {
     signal,
     allowFailure: true,
@@ -179,6 +218,24 @@ export async function branchCommit(cwd, branch, { signal } = {}) {
     allowFailure: true,
   });
   return result.code === 0 ? firstLine(result.stdout) : null;
+}
+
+/** Full commit ids of two existing local branches from one `rev-parse` (the
+ *  trailing `--` makes a missing one fail the call), or null whenever that
+ *  answer is not exactly two commit ids: the caller then reads each with
+ *  branchCommit(). */
+export async function branchCommitPair(cwd, first, second, { signal } = {}) {
+  const result = await runGit(cwd, ['rev-parse', `refs/heads/${first}^{commit}`, `refs/heads/${second}^{commit}`, '--'], {
+    signal,
+    allowFailure: true,
+  });
+  const [a, b, dashes, ...rest] = String(result.stdout || '')
+    .split(/\r?\n/)
+    .map((line) => line.trim());
+  const commit = /^[0-9a-f]{40,64}$/;
+  return result.code === 0 && commit.test(a) && commit.test(b) && dashes === '--' && rest.every((line) => !line)
+    ? [a, b]
+    : null;
 }
 
 export async function localBranches(cwd, { signal, prefix = '' } = {}) {

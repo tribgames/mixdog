@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs';
-import { branchCommit, inspectRepo, listWorktrees, runGit, validBranchName } from './git.mjs';
+import { branchCommit, branchCommitPair, inspectRepo, listWorktrees, runGit, validBranchName } from './git.mjs';
 import { worktreeError, worktreeRefusal } from './contract.mjs';
 import { samePath } from './paths.mjs';
 import { getRecord, putRecord, readRegistry } from './registry.mjs';
@@ -37,7 +37,9 @@ function assertMergeTarget(currentBranch, target) {
 async function inspect(projectPath, branch) {
   const repo = await inspectRepo(projectPath);
   if (!(await validBranchName(repo.projectPath, branch))) throw new TypeError('Invalid local branch name.');
-  const commit = await branchCommit(repo.projectPath, branch);
+  // Both tips in one read when both exist; otherwise each on its own, as before.
+  const pair = repo.currentBranch ? await branchCommitPair(repo.projectPath, branch, repo.currentBranch) : null;
+  const commit = pair ? pair[0] : await branchCommit(repo.projectPath, branch);
   if (!commit) throw worktreeError('WORKTREE_MISSING', 'The local branch no longer exists.');
   const holder = (await listWorktrees(repo.projectPath)).find((row) => row.branch === branch && !row.prunable);
   const entry = holder ? await getWorktreeByPath(holder.path) : null;
@@ -46,7 +48,11 @@ async function inspect(projectPath, branch) {
     branch,
     commit,
     target: repo.currentBranch,
-    targetCommit: repo.currentBranch ? await branchCommit(repo.projectPath, repo.currentBranch) : null,
+    targetCommit: pair
+      ? pair[1]
+      : repo.currentBranch
+        ? await branchCommit(repo.projectPath, repo.currentBranch)
+        : null,
     path: holder?.path ?? null,
     worktreeId: entry?.id ?? null,
     kind: holder ? (samePath(holder.path, repo.topLevel) ? 'project' : entry ? 'managed' : 'external') : 'free',
