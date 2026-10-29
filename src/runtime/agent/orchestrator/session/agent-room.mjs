@@ -18,6 +18,7 @@ import {
 } from '../../../shared/transcript-metadata.mjs';
 import { AGENT_MESSAGE_NOTE } from '../../../shared/agent-message-envelope.mjs';
 import { agentHomeSessionId } from './agent-home.mjs';
+import { QUOTA_KINDS } from '../providers/provider-error-kind.mjs';
 
 const ROOM_PREFIX = 'sess_room_';
 const MEMBER_PREFIX = 'sess_rmem_';
@@ -41,6 +42,7 @@ const FIRST_TURN_ROWS = 40;
 const ROW_KINDS = new Set(['user', 'speech', 'pass', 'cap', 'stopped', 'interrupted']);
 const NAME_LIMIT = 80;
 const TEXT_LIMIT = 40_000;
+const REASON_LIMIT = 240;
 const TOOL_LIMIT = 3;
 const TOOL_SUMMARY_LIMIT = 400;
 const ATTACHMENT_REF = /^[a-f0-9]{64}$/;
@@ -237,6 +239,33 @@ export function roomMessageBudget(memberCount, maxMessages, random = Math.random
   return Math.min(maxMessages, low + Math.floor(random() * (maxMessages - low + 1)));
 }
 
+const finiteTime = (value) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : null);
+
+/** The usage-limit stop a member's failed `turndone` item records, as `{ kind,
+ *  provider, model, resetAt }`, or null for any other end. The same reading
+ *  the Lead's quota banner takes (a persisted provider-kind descriptor decides;
+ *  an item without one is a quota stop by its quota metadata alone). `route`
+ *  names the provider and model when the item carries none. */
+export function roomUsageLimit(done, route = {}) {
+  if (!done || done.status !== 'failed') return null;
+  const quota = done.quota && typeof done.quota === 'object' ? done.quota : null;
+  const described = done.errorKind && typeof done.errorKind === 'object' ? done.errorKind : null;
+  const kind = described?.kind
+    ? QUOTA_KINDS.has(described.kind)
+      ? described.kind
+      : ''
+    : quota
+      ? 'quota_exhausted'
+      : '';
+  if (!kind) return null;
+  return {
+    kind,
+    provider: String(quota?.provider || done.provider || route?.provider || ''),
+    model: String(quota?.model || done.model || route?.model || ''),
+    resetAt: finiteTime(quota?.resetAt) ?? finiteTime(described?.resetAt),
+  };
+}
+
 /** The member the supervisor's `decision` gives the next turn, as `{ id,
  *  instruction }`, or null to finish. A decision that names no other member
  *  than the last one to take a turn, or that finishes while nobody has spoken
@@ -283,7 +312,12 @@ function nextSpeaker(decision, { members, targets, turns, mustPick, mention }) {
  * reached after nothing but passes since the last speech is 'done' too, not a
  * cap. The exchange ends when the supervisor finishes ('done'), at a cap
  * ('capped', `limit` names which), on a stop ('stopped'), or, at any step
- * boundary after a newer user message arrives, 'superseded'. A turn answers
+ * boundary after a newer user message arrives, 'superseded'. A turn that
+ * failed answers `{ result: 'pass', failed: true }`; one that failed on the
+ * provider's usage limit also carries `usage` (roomUsageLimit): every other
+ * member would meet the same limit, so the exchange ends at once ('limited',
+ * with that `usage`). Failures with no such limit end the exchange ('failed')
+ * once every member has failed in a row, none having spoken between. A turn answers
  * 'superseded' when a newer user message cut it short: it leaves no trace and
  * the exchange ends 'superseded'.
  */
@@ -321,8 +355,10 @@ export async function runRoomExchange({
   let mention = '';
   // The kind of talk the newest usable decision saw.
   let scene = 'work';
+  let limitedBy = null;
   const end = (outcome, extra = {}) => ({
     outcome,
+    ...(outcome === 'limited' ? { usage: limitedBy } : {}),
     ...extra,
     rounds: Math.min(maxRounds, Math.max(1, Math.ceil(turns.length / members.length))),
     steps,
@@ -335,16 +371,32 @@ export async function runRoomExchange({
   };
   const take = async (agentId, turn) => {
     const answer = await speak(agentId, turn);
-    const { result, mention: addressee = '' } = typeof answer === 'string' ? { result: answer } : answer;
+    const {
+      result,
+      mention: addressee = '',
+      failed = false,
+      usage = null,
+    } = typeof answer === 'string' ? { result: answer } : answer;
     // A turn cut short by a stop or by a newer user message leaves no trace.
     if (result === 'stopped' || result === 'superseded') return result;
     // 'unavailable': the member left or was switched off; it counts as a pass.
     if (result !== 'unavailable') heard = true;
-    turns.push({ id: agentId, result: result === 'unavailable' ? 'pass' : result });
+    turns.push({ id: agentId, result: result === 'unavailable' ? 'pass' : result, ...(failed ? { failed } : {}) });
     const speech = result === 'speech';
     if (speech) messages += 1;
     mention = speech && addressee !== agentId && members.includes(addressee) ? addressee : '';
+    if (usage) {
+      limitedBy = usage;
+      return 'limited';
+    }
+    // Every member failed in a row: another round would only fail the same way.
+    if (failed && failedEverywhere()) return 'failed';
     return '';
+  };
+  const failedEverywhere = () => {
+    const failing = new Set();
+    for (let at = turns.length - 1; at >= 0 && turns[at].failed; at -= 1) failing.add(turns[at].id);
+    return members.every((id) => failing.has(id));
   };
   // Every member but the newest speech's author has passed since it (no
   // speech yet and the user not waiting: every member has passed): nobody
@@ -739,6 +791,29 @@ export function normalizeRoomRow(row = {}) {
         summary: bounded(tool?.summary, TOOL_SUMMARY_LIMIT),
       }))
     : [];
+  const failedPass = row.kind === 'pass' && row.failed === true;
+  // The members a collapsed run of failed passes names, and why they failed.
+  const names =
+    failedPass && Array.isArray(row.names) ? row.names.map(cleanName).filter(Boolean).slice(0, ROOM_MAX_MEMBERS) : [];
+  // Each reason gets an equal share of the budget, so a long one cannot push the others out.
+  const reasons = failedPass
+    ? [row.reason ?? []]
+        .flat()
+        .map((each) => String(each).trim())
+        .filter(Boolean)
+    : [];
+  const share = Math.floor((REASON_LIMIT - 2 * (reasons.length - 1)) / Math.max(1, reasons.length));
+  const reason = reasons.map((each) => bounded(each, share)).join('; ');
+  const stop =
+    row.kind === 'cap' && row.limit === 'usage' && row.usage && QUOTA_KINDS.has(row.usage.kind) ? row.usage : null;
+  const usage = stop
+    ? {
+        kind: stop.kind,
+        provider: bounded(stop.provider, NAME_LIMIT),
+        model: bounded(stop.model, NAME_LIMIT),
+        resetAt: finiteTime(stop.resetAt),
+      }
+    : null;
   const named = (key) => (cleanName(row[key]) ? { [key]: cleanName(row[key]) } : {});
   const count = (key) => (Number.isInteger(row[key]) && row[key] >= 0 ? { [key]: row[key] } : {});
   const targets = roomRowTargets(row)
@@ -768,7 +843,10 @@ export function normalizeRoomRow(row = {}) {
       ? { to: targets.map((target) => target.id), toName: targets.map((target) => target.name || target.id) }
       : {}),
     ...(row.failed === true ? { failed: true } : {}),
-    ...(row.limit === 'rounds' || row.limit === 'messages' ? { limit: row.limit } : {}),
+    ...(names.length ? { names } : {}),
+    ...(reason ? { reason } : {}),
+    ...(row.limit === 'rounds' || row.limit === 'messages' || usage ? { limit: row.limit } : {}),
+    ...(usage ? { usage } : {}),
     ...count('rounds'),
     ...count('messages'),
     ...(tools.length ? { tools } : {}),
@@ -801,9 +879,10 @@ export function isRoomRowMessage(message) {
 
 /** The plain-text line of a row (terminal clients; the app localizes from `room`). */
 function roomRowText(room, text) {
-  const who = room.name || room.speaker || 'agent';
+  const who = room.names?.join(', ') || room.name || room.speaker || 'agent';
   if (room.kind === 'user' || room.kind === 'speech') return text;
   if (room.kind === 'pass') return room.failed ? `${who} · no reply` : `${who} · pass`;
+  if (room.kind === 'cap' && room.usage) return 'Paused: the usage limit was reached.';
   if (room.kind === 'cap') return 'Stopped at the room limit. Continue to run another batch.';
   if (room.kind === 'stopped') return 'Stopped.';
   return 'Interrupted.';

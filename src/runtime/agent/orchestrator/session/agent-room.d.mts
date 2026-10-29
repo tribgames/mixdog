@@ -9,12 +9,19 @@ export interface RoomRow {
   to?: string[] | string;
   toName?: string[] | string;
   failed?: boolean;
+  /** A failed pass row: every member it stands for (a run of failures collapses
+   *  into one row), and why they failed. */
+  names?: string[];
+  /** Stored as one string; a host may hand the distinct reasons as a list. */
+  reason?: string | string[];
+  /** A usage-limit stop (`limit: 'usage'` on a cap row): what ran out, on which model. */
+  usage?: RoomUsageLimit;
   /** A user-kind row another session sent: its session, the sending bot
    *  (none for the user's Lead) and the name it is shown under. */
   fromSession?: string;
   fromAgent?: string;
   fromName?: string;
-  limit?: 'rounds' | 'messages';
+  limit?: 'rounds' | 'messages' | 'usage';
   rounds?: number;
   messages?: number;
   tools?: Array<{ name: string; summary: string }>;
@@ -66,14 +73,27 @@ export interface RoomMemberLabel {
   name: string;
 }
 export type RoomTurnResult = 'speech' | 'pass' | 'stopped' | 'superseded';
-/** A turn's answer; a speech may name the one peer it addressed. */
+/** What stopped a turn on the provider's usage limit (roomUsageLimit). */
+export interface RoomUsageLimit {
+  kind: 'quota_exhausted' | 'entitlement' | 'billing';
+  provider: string;
+  model: string;
+  /** Epoch ms the limit resets; null when unknown. */
+  resetAt: number | null;
+}
+/** The usage-limit stop a failed `turndone` item records, or null. */
+export function roomUsageLimit(done: unknown, route?: { provider?: string; model?: string }): RoomUsageLimit | null;
+/** A turn's answer; a speech may name the one peer it addressed, a failed
+ *  pass says so (`failed`) and, on a usage limit, why (`usage`). */
 export type RoomTurnAnswer =
   | RoomTurnResult
   | 'unavailable'
-  | { result: RoomTurnResult | 'unavailable'; mention?: string };
+  | { result: RoomTurnResult | 'unavailable'; mention?: string; failed?: boolean; usage?: RoomUsageLimit | null };
 export interface RoomExchangeResult {
-  outcome: 'done' | 'capped' | 'stopped' | 'superseded';
+  outcome: 'done' | 'capped' | 'stopped' | 'superseded' | 'limited' | 'failed';
   limit?: 'rounds' | 'messages';
+  /** A 'limited' end: the usage limit the turn met. */
+  usage?: RoomUsageLimit;
   rounds: number;
   /** Supervisor steps taken. */
   steps: number;
@@ -121,7 +141,7 @@ export type RoomScene = 'casual' | 'work';
 /** What one supervisor step is told. */
 export interface RoomStep {
   mustPick: boolean;
-  turns: Array<{ id: string; result: RoomTurnResult }>;
+  turns: Array<{ id: string; result: RoomTurnResult; failed?: boolean }>;
   last: string;
   mention: string;
   remaining: { messages: number; steps: number };

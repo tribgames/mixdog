@@ -19,6 +19,7 @@ import {
   type RoomExchangeOptions,
   type RoomTurnHost,
   type RunState,
+  postFailures,
   speakInRoom,
 } from './agent-room-turn';
 import type { AgentRoomRecord } from './agent-rooms';
@@ -127,6 +128,7 @@ export async function runRoomExchangeIn(
     pending: null,
     calls,
     waiting: waiting === true,
+    failures: [],
   };
   host.track(state);
   try {
@@ -211,7 +213,23 @@ async function exchangeTurns(
       only,
       wholeRoom: everyone,
     });
-    if (result.outcome === 'capped') {
+    await postFailures(host.turn, state);
+    if (result.outcome === 'limited') {
+      // No supervisor step ran after the turn that met the limit, so the
+      // member still in `speakingName` is the one that did.
+      const { usage } = result;
+      await host.post([
+        {
+          id: `row_${host.newId()}`,
+          kind: 'cap',
+          at: host.now(),
+          text: '',
+          name: state.speakingName,
+          limit: 'usage',
+          usage,
+        },
+      ]);
+    } else if (result.outcome === 'capped') {
       const { limit, rounds, messages, remaining } = result;
       if (remaining?.length) room.owed = remaining;
       await host.post([{ id: `row_${host.newId()}`, kind: 'cap', at: host.now(), text: '', limit, rounds, messages }]);

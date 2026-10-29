@@ -2585,6 +2585,61 @@ test('remove surfaces a failed cleanup', async () => {
   assert.equal(h.saved.doc.rooms[roomId], undefined);
 });
 
+/** Every member's turn ends failed with `done` merged into its turndone item. */
+function failingHarness(done) {
+  return harness({
+    decide: ROTATE,
+    snapshotGate: (_id, snapshot) => {
+      const ended = snapshot.items.at(-1);
+      snapshot.items = [
+        { id: 'u', kind: 'user', text: 'p' },
+        { id: 'd', kind: 'turndone', at: ended.at, status: 'failed', ...done },
+      ];
+    },
+  });
+}
+
+test('a usage limit stops the room at the first failed turn with one row naming the model and the reset', async () => {
+  const resetAt = 5_000_000;
+  const h = failingHarness({
+    detail: 'You have hit your usage limit',
+    errorKind: { kind: 'quota_exhausted', resetAt },
+    quota: { provider: 'openai', model: 'gpt-5', resetAt },
+  });
+  const { sessionId, roomId } = await room(h);
+  await h.rooms.send(sessionId, 'hello all');
+  await h.idle(roomId);
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh'],
+    'the next member is never handed the turn'
+  );
+  const after = h.log.filter((row) => row.kind !== 'user');
+  assert.equal(after.length, 1, 'one row, not a column of failures');
+  assert.deepEqual(
+    [after[0].kind, after[0].limit, after[0].name, after[0].usage],
+    ['cap', 'usage', 'GitHub', { kind: 'quota_exhausted', provider: 'openai', model: 'gpt-5', resetAt }]
+  );
+});
+
+test('failures that persist across members collapse into one row and stop the room after a round', async () => {
+  const h = failingHarness({ detail: 'upstream exploded' });
+  const { sessionId, roomId } = await room(h);
+  await h.rooms.send(sessionId, 'hello all');
+  await h.idle(roomId);
+  assert.deepEqual(
+    h.prompts.map((p) => p.agentId),
+    ['gh', 'rel', 'bench'],
+    'every member tried once, then the room stopped'
+  );
+  const after = h.log.filter((row) => row.kind !== 'user');
+  assert.equal(after.length, 1);
+  assert.deepEqual(
+    [after[0].kind, after[0].failed, after[0].names, after[0].reason],
+    ['pass', true, ['GitHub', 'Release', 'Bench'], ['upstream exploded']]
+  );
+});
+
 test('a member whose turn ended in a reaction alone takes its turn quietly: no pass row, the others still speak', async () => {
   const run = async (reacted) => {
     const h = harness({

@@ -3,7 +3,7 @@
 // line; a limit stop is one such line with an inline "Continue" (no counts,
 // the same for rows saved before); the overlay row names who is
 // speaking now. The user's own bubble only gains a "→ name" chip.
-import { useContext, useState } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { roomIdOfSession } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { TranscriptItem, TranscriptRoomRow } from './desktop-types';
 import { showDesktopToast } from './desktop-toasts';
@@ -13,6 +13,8 @@ import MarkdownBody from './MarkdownBody';
 import { MarkdownSessionContext } from './MarkdownLink';
 import { RoomMemberFace, useRoomContacts } from './agent-room-parts';
 import { useAgentRoom } from './agent-room-store';
+import { modelDisplayName, providerDisplayName } from './provider-display';
+import { quotaRemainingLabel } from './quota-continue';
 import { CopyControl } from './transcript-primitives';
 
 function useSpeaker(room: TranscriptRoomRow) {
@@ -45,7 +47,51 @@ export function RoomAddressChip({ room, fromUser = false }: { room: TranscriptRo
   );
 }
 
-function ContinueButton() {
+/** Now, refreshed twice a minute while `until` is still ahead. */
+function useClockUntil(until: number | null): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (until === null) return undefined;
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 30_000);
+    return () => window.clearInterval(timer);
+  }, [until]);
+  return now;
+}
+
+/** The room paused on the provider's usage limit: why, on which model and
+ *  when it resets. A quota that resets offers "Continue" once the reset has
+ *  passed (the limit then clears and the room goes on); a plan or billing
+ *  stop offers none, since only a change of model or plan helps. */
+function UsageLimitRow({ room }: { room: TranscriptRoomRow }) {
+  const usage = room.usage as NonNullable<TranscriptRoomRow['usage']>;
+  const now = useClockUntil(usage.resetAt);
+  let title = t('Usage limit reached');
+  if (usage.kind === 'entitlement') title = t('Not included in your plan');
+  else if (usage.kind === 'billing') title = t('Out of credits or at spend limit');
+  const route = [
+    usage.provider ? providerDisplayName(usage.provider) : '',
+    usage.model ? modelDisplayName(usage.model, usage.provider) : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+  const waiting = usage.resetAt !== null && usage.resetAt > now;
+  const parts = [
+    title,
+    route,
+    usage.resetAt !== null && usage.kind === 'quota_exhausted'
+      ? t('Resets in {{time}}', { time: quotaRemainingLabel(usage.resetAt, now) })
+      : '',
+  ].filter(Boolean);
+  return (
+    <div className="agent-room-pass agent-room-cap" role="status">
+      <span>{`${t('The conversation paused.')} ${parts.join(' · ')}`}</span>
+      {usage.kind === 'quota_exhausted' ? <ContinueButton blocked={waiting} /> : null}
+    </div>
+  );
+}
+
+function ContinueButton({ blocked = false }: { blocked?: boolean }) {
   const sessionId = useContext(MarkdownSessionContext);
   const room = useAgentRoom(sessionId);
   const [pending, setPending] = useState(false);
@@ -54,7 +100,7 @@ function ContinueButton() {
     <button
       type="button"
       className="agent-room-continue"
-      disabled={!roomId || pending || room?.running === true}
+      disabled={!roomId || pending || blocked || room?.running === true}
       onClick={() => {
         setPending(true);
         void Promise.resolve(window.mixdogDesktop?.agentRoomAction?.('continue', [roomId]))
@@ -101,13 +147,17 @@ export function RoomTranscriptRow({ item }: { item: TranscriptItem }) {
   if (room.kind === 'pass') {
     // A member that chose to stay quiet leaves no trace; only a failed turn shows.
     if (!room.failed) return null;
+    // A run of failures is one row naming every member and the reason.
+    const names = room.names?.length ? room.names.join(', ') : member.name;
     return (
       <div className="agent-room-pass">
         <RoomMemberFace member={member} />
-        {t('{{name}} · could not reply', { name: member.name })}
+        {t('{{name}} · could not reply', { name: names })}
+        {room.reason ? ` · ${room.reason}` : ''}
       </div>
     );
   }
+  if (room.kind === 'cap' && room.usage) return <UsageLimitRow room={room} />;
   if (room.kind === 'cap') {
     return (
       <div className="agent-room-pass agent-room-cap" role="status">

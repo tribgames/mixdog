@@ -18,6 +18,7 @@ import {
   roomRowTargets,
   roomRowsOfItems,
   roomTurnPrompt,
+  roomUsageLimit,
   roomUserWaiting,
   rowsSinceCursor,
   runRoomExchange,
@@ -1209,4 +1210,70 @@ test('a member is named exactly by id or name; a row from another session keeps 
     decide: async () => assert.fail('no supervisor step'),
   });
   assert.deepEqual([result.outcome, spoken], ['done', ['gh']]);
+});
+
+const LIMIT = { kind: 'quota_exhausted', provider: 'openai', model: 'gpt-5', resetAt: 9_000 };
+const FAILED = { result: 'pass', failed: true };
+
+test('a usage limit stops the exchange at the first failed turn: nobody else is handed it', async () => {
+  const run = scripted(
+    () => ({ ...FAILED, usage: LIMIT }),
+    (step) => SPEAK(['a', 'b', 'c'][step.turns.length % 3])
+  );
+  const result = await runRoomExchange({ members: ['a', 'b', 'c'], maxRounds: 3, maxMessages: 8, ...run });
+  assert.deepEqual(run.spoken, ['a']);
+  assert.deepEqual([result.outcome, result.usage], ['limited', LIMIT]);
+  // Called members are cut off just the same.
+  const called = scripted(
+    () => ({ ...FAILED, usage: LIMIT }),
+    () => assert.fail('no supervisor step')
+  );
+  const asked = await runRoomExchange({ members: ['a', 'b'], to: ['a', 'b'], maxRounds: 3, maxMessages: 8, ...called });
+  assert.deepEqual([asked.outcome, called.spoken], ['limited', ['a']]);
+});
+
+test('failures collapse the exchange once every member failed in a row; a speech between resets the run', async () => {
+  const rotate = (step) => SPEAK(['a', 'b', 'c'][step.turns.length % 3]);
+  const all = scripted(() => FAILED, rotate);
+  const stopped = await runRoomExchange({ members: ['a', 'b', 'c'], maxRounds: 10, maxMessages: 30, ...all });
+  assert.deepEqual([stopped.outcome, all.spoken], ['failed', ['a', 'b', 'c']]);
+  // One member speaking in between breaks the run: the exchange goes on to its own end.
+  const mixed = scripted((id) => (id === 'b' ? 'speech' : FAILED), rotate);
+  const kept = await runRoomExchange({ members: ['a', 'b', 'c'], maxRounds: 2, maxMessages: 30, ...mixed });
+  assert.deepEqual([kept.outcome, mixed.spoken], ['done', ['a', 'b', 'c', 'a']]);
+  // A lone member's failure is a whole round.
+  const lone = scripted(
+    () => FAILED,
+    () => SPEAK('a')
+  );
+  assert.equal((await runRoomExchange({ members: ['a'], maxRounds: 5, maxMessages: 30, ...lone })).outcome, 'failed');
+});
+
+test('a usage limit reads off a failed turndone like the Lead banner: descriptor first, quota alone as a quota stop', () => {
+  const route = { provider: 'anthropic', model: 'opus' };
+  assert.deepEqual(
+    roomUsageLimit(
+      { status: 'failed', errorKind: { kind: 'billing' }, quota: { provider: 'openai', model: 'gpt-5', resetAt: 5 } },
+      route
+    ),
+    { kind: 'billing', provider: 'openai', model: 'gpt-5', resetAt: 5 }
+  );
+  assert.deepEqual(roomUsageLimit({ status: 'failed', quota: { provider: 'openai' } }, route), {
+    kind: 'quota_exhausted',
+    provider: 'openai',
+    model: 'opus',
+    resetAt: null,
+  });
+  assert.equal(roomUsageLimit({ status: 'failed', errorKind: { kind: 'rate_limit' } }, route), null);
+  assert.equal(roomUsageLimit({ status: 'done', quota: { provider: 'openai' } }, route), null);
+  const reasons = normalizeRoomRow({
+    id: 'p1',
+    kind: 'pass',
+    failed: true,
+    reason: ['x'.repeat(500), 'second reason', 'third reason'],
+  }).reason;
+  assert.ok(reasons.length <= 240 && reasons.includes('second reason') && reasons.includes('third reason'));
+  const row = normalizeRoomRow({ id: 'c1', kind: 'cap', limit: 'usage', usage: LIMIT, name: 'AA' });
+  assert.deepEqual([row.limit, row.usage], ['usage', LIMIT]);
+  assert.equal(normalizeRoomRow({ id: 'c2', kind: 'cap', limit: 'usage', usage: { kind: 'x' } }).usage, undefined);
 });

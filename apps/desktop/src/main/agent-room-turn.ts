@@ -8,6 +8,7 @@ import {
   isPassReply,
   roomMentionOf,
   roomTurnPrompt,
+  roomUsageLimit,
   rowsSinceCursor,
   withoutPassMarker,
 } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
@@ -41,6 +42,9 @@ export interface RunState {
    *  a user message starts it, cleared by its first speech. A reply the member
    *  in flight finishes after a newer message is not an answer to it. */
   waiting: boolean;
+  /** Turns that failed and are not shown yet: a run of them posts as one row
+   *  (postFailures) before the next row of any kind lands. */
+  failures: Array<{ id: string; name: string; reason: string }>;
 }
 
 /** A member's turn another session waits on: a message it sent into the room
@@ -144,6 +148,28 @@ function emptyFinishedTurn(snapshot: SessionSnapshot, startedAt: number): Return
   const answer = items.find((item) => item.id === done.finalAssistantId && item.kind === 'assistant');
   if (answer && String(answer.text ?? '').trim()) return null;
   return { id: done.id as string, at: done.at, status: 'done', text: '' };
+}
+
+/** The held failures as one failed-pass row naming every member and each
+ *  distinct reason; nothing is posted when none is held. */
+export async function postFailures(host: RoomTurnHost, state: RunState): Promise<void> {
+  const failures = state.failures.splice(0);
+  if (!failures.length) return;
+  const names = [...new Set(failures.map((failure) => failure.name))];
+  const reasons = [...new Set(failures.map((failure) => failure.reason).filter(Boolean))];
+  await host.post([
+    {
+      id: `row_${host.newId()}`,
+      kind: 'pass',
+      speaker: failures[0].id,
+      name: names[0],
+      names,
+      at: host.now(),
+      text: '',
+      failed: true,
+      reason: reasons,
+    },
+  ]);
 }
 
 /** A pass never shows its marker: while the user waits, what the member
@@ -324,14 +350,13 @@ async function memberTurn(
     if (state.memberSession) await host.abort(state.memberSession).catch(() => undefined);
     return 'superseded';
   };
-  const passRow = (failed = false): RoomRow => ({
+  const passRow = (): RoomRow => ({
     id: `row_${newId()}`,
     kind: 'pass',
     speaker: agentId,
     name: member.name,
     at: now(),
     text: '',
-    ...(failed ? { failed: true } : {}),
   });
   let answer: ReturnType<typeof sessionFinalAnswer> = null;
   let snapshot: SessionSnapshot = null;
@@ -417,8 +442,12 @@ async function memberTurn(
     if (gone()) return await left();
     if (interrupted()) return await cutShort();
     outcome.failed = true;
-    await host.post([passRow(true)]);
-    return 'pass';
+    state.failures.push({
+      id: agentId,
+      name: member.name,
+      reason: error instanceof Error ? error.message : String(error),
+    });
+    return { result: 'pass', failed: true };
   } finally {
     state.approval = null;
     // A save in passing: one that fails is logged; the exchange's own saves
@@ -439,8 +468,22 @@ async function memberTurn(
   if (!text && answer.reacted === true) return 'pass';
   if (!text) {
     outcome.failed = answer.status !== 'done';
-    await host.post([passRow(outcome.failed)]);
-    return 'pass';
+    if (!outcome.failed) {
+      await host.post([passRow()]);
+      return 'pass';
+    }
+    const items = (snapshot?.items ?? []) as Array<Record<string, unknown>>;
+    const done = items.find((item) => item.kind === 'turndone' && item.id === answer.id);
+    // A usage limit fails every member alike: the exchange stops on it and
+    // says so once, instead of showing this turn as one more failure.
+    const usage = roomUsageLimit(done, (member.route ?? {}) as { provider?: string; model?: string });
+    if (usage) return { result: 'pass', failed: true, usage };
+    state.failures.push({
+      id: agentId,
+      name: member.name,
+      reason: typeof done?.detail === 'string' ? done.detail : '',
+    });
+    return { result: 'pass', failed: true };
   }
   outcome.text = text;
   return await postSpeech(host, state, room, labels, agentId, member, text, snapshot, startedAt);
@@ -479,6 +522,7 @@ async function postSpeech(
   if (mention) Object.assign(row, { to: [mention], toName: [labels.get(mention)?.name ?? mention] });
   const tools = toolSummaries(snapshot, startedAt);
   if (tools.length) row.tools = tools;
+  await postFailures(host, state);
   await host.post([row]);
   state.waiting = false;
   // The cursor stays on the last row this turn was handed: a message that
