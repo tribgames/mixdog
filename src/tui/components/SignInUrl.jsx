@@ -50,12 +50,16 @@ export function SignInUrl({ url, layout, status = '' }) {
   const text = String(url || '').trim();
   if (!text || layout.rows === 0) return null;
   return (
-    <Box flexDirection="column" width="100%">
-      <Text color={theme.text} wrap={layout.compact ? 'truncate-end' : 'wrap'}>
+    // flexShrink 0 everywhere: the layout reserved exactly these rows, and in a
+    // height-constrained panel (fillHeight) yoga would otherwise shrink the
+    // wrapped URL Text below its row count, so the hint row lands on the
+    // URL's last row. The panel's bordered box gives the rows up instead.
+    <Box flexDirection="column" flexShrink={0} width="100%">
+      <Text color={theme.text} wrap={layout.compact ? 'truncate-end' : 'wrap'} flexShrink={0}>
         {linkedUrl(text, layout.label)}
       </Text>
       {layout.hint ? (
-        <Text color={theme.subtle} wrap="truncate-end">
+        <Text color={theme.subtle} wrap="truncate-end" flexShrink={0}>
           {signInUrlNote(status)}
         </Text>
       ) : null}
