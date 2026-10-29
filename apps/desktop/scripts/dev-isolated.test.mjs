@@ -3,7 +3,7 @@ import { execFile, spawn } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, sep } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 
@@ -27,8 +27,25 @@ import { DEV_DEBUG_PORT, devRendererPortFor, persistentDevProfileDir } from './d
 const exec = promisify(execFile);
 const moduleUrl = new URL('./dev-isolated.mjs', import.meta.url).href;
 
+// Fixture instances must sit outside every shared location assertIsolation forbids. A TEMP
+// inside ~/.mixdog (an agent session's scratch) is one of them, so the base moves out of it.
+const isInside = (parent, path) => {
+  const rel = relative(parent, path);
+  return rel === '' || (rel.split(sep)[0] !== '..' && !isAbsolute(rel));
+};
+const fixtureBase = isInside(join(homedir(), '.mixdog'), tmpdir()) ? homedir() : tmpdir();
+
+test('the fixture base check treats only a whole ".." segment as leaving the shared folder', () => {
+  const shared = join(homedir(), '.mixdog');
+  assert.equal(isInside(shared, join(shared, '..scratch')), true, 'a child named ..scratch is inside');
+  assert.equal(isInside(shared, join(shared, 'data', 'scratch')), true);
+  assert.equal(isInside(shared, shared), true);
+  assert.equal(isInside(shared, join(shared, '..', 'elsewhere')), false);
+  assert.equal(isInside(shared, join(homedir(), '.mixdog-other')), false);
+});
+
 async function tempRoot(t) {
-  const root = await mkdtemp(join(tmpdir(), 'mixdog-isolated-test-'));
+  const root = await mkdtemp(join(fixtureBase, 'mixdog-isolated-test-'));
   t.after(() => rm(root, { recursive: true, force: true }));
   return root;
 }
@@ -604,11 +621,12 @@ test('stop kills the whole tree, an orphaned daemon included, and deletes the in
     process.execPath,
     [
       '-e',
-      "require('child_process').spawn(process.execPath,['-e','setInterval(()=>{},1e3)'],{stdio:'ignore'});setInterval(()=>{},1e3)",
+      "require('child_process').spawn(process.execPath,['-e','setInterval(()=>{},1e3)'],{stdio:'ignore'});console.log('ready');setInterval(()=>{},1e3)",
       join(instanceDir, 'marker'),
     ],
-    { stdio: 'ignore' }
+    { stdio: ['ignore', 'pipe', 'ignore'] }
   );
+  const treeReady = new Promise((resolve) => tree.stdout.once('data', resolve));
   // A daemon whose parent is gone: found only through the profile's daemon.json.
   const daemonDir = join(root, 'repo', 'src', 'standalone');
   await mkdir(daemonDir, { recursive: true });
@@ -619,7 +637,7 @@ test('stop kills the whole tree, an orphaned daemon included, and deletes the in
   t.after(() => {
     for (const pid of [tree.pid, daemon.pid]) if (isPidAlive(pid)) process.kill(pid);
   });
-  await new Promise((resolve) => setTimeout(resolve, 1500));
+  await treeReady; // the grandchild exists once the parent says so
 
   const lease = { name: 'tree', instanceDir, profile, startedAt: new Date().toISOString(), cdpPort: 9700 };
   await mkdir(join(root, 'leases'), { recursive: true });

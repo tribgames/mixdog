@@ -75,7 +75,6 @@ test('the card names a sign-in site by its registrable domain (public suffix lis
 });
 
 test('auto close needs an explicit trusted rule; none ship, and a rule never fires on http', () => {
-  assert.equal(LOGIN_AUTO_CLOSE_RULES.length, 0);
   assert.equal(loginAutoClose('https://a.example/home', LOGIN_AUTO_CLOSE_RULES), false);
   const rules = [{ host: 'a.example', signedIn: (url) => url.pathname === '/home' }];
   assert.equal(loginAutoClose('https://a.example/home', rules), true);

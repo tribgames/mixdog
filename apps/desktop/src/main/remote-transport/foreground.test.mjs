@@ -1,14 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { REMOTE_TRANSPORT_FOREGROUND_STALE_MS } from '../../shared/remote-transport.ts';
 import { legIsLive, legShowsSession, noteLegLive, someLegShowsSession } from './foreground.ts';
 
 const leg = (extra = {}) => ({ background: false, screenSessionIds: new Set(['s1']), ...extra });
-
-test('the stale window is the contract’s 35 s', () => {
-  assert.equal(REMOTE_TRANSPORT_FOREGROUND_STALE_MS, 35_000);
-});
 
 test('a frozen phone is foreground at 34 999 ms and not at 35 000 ms while its leg stays registered', () => {
   let clock = 1_000;

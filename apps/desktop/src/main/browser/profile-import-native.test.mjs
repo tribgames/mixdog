@@ -59,15 +59,15 @@ process.stdin.on('end', () => {
   };
   if (mode === 'ok') process.stdout.write(seal(report));
   else if (mode === 'large-delayed') {
-    // Multi-megabyte envelope whose tail is written by a grandchild 400 ms
-    // after this process has exited, so stdout drains after the exit event.
+    // Multi-megabyte envelope whose tail is written by a grandchild once this
+    // process has exited (it watches the parent pid), so stdout drains after the exit event.
     const envelope = seal({ filler: ${JSON.stringify(LARGE_UNIT)}.repeat(${LARGE_REPEAT}) });
     const cut = envelope.length - 256 * 1024;
     const tailFile = require('node:path').join(require('node:os').tmpdir(), 'mixdog-import-tail-' + process.pid);
     require('node:fs').writeFileSync(tailFile, envelope.slice(cut));
     process.stdout.write(envelope.slice(0, cut), () => {
       require('node:child_process')
-        .spawn(process.execPath, ['-e', 'setTimeout(() => { const fs = require("node:fs"); process.stdout.write(fs.readFileSync(process.argv[1])); fs.rmSync(process.argv[1]); }, 400)', tailFile], {
+        .spawn(process.execPath, ['-e', 'const fs = require("node:fs"); const wait = () => { try { process.kill(Number(process.argv[2]), 0); setTimeout(wait, 5); } catch { process.stdout.write(fs.readFileSync(process.argv[1])); fs.rmSync(process.argv[1]); } }; wait();', tailFile, String(process.pid)], {
           // Detached so it outlives this process (Windows kills job children on exit).
           stdio: ['ignore', 'inherit', 'inherit'],
           detached: true,

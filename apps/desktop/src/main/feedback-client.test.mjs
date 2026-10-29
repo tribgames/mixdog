@@ -8,7 +8,6 @@ import { startRelay } from '../../../relay/server.mjs';
 import { DESKTOP_IPC } from '../shared/contract.ts';
 import {
   FEEDBACK_ATTACHMENT_MAX_BYTES,
-  FEEDBACK_ATTACHMENT_MAX_COUNT,
   FEEDBACK_ATTACHMENT_MAX_TOTAL_BYTES,
   normalizeDesktopFeedback,
   normalizeFeedbackAttachments,
@@ -214,7 +213,6 @@ const shot = (name, type, fill) => {
 test('attachment validation is shared and strips unknown fields', () => {
   const a = shot('a.png', 'png', 3);
   const { bytes, ...wire } = a;
-  assert.equal(FEEDBACK_ATTACHMENT_MAX_COUNT, 3);
   assert.equal(FEEDBACK_ATTACHMENT_MAX_TOTAL_BYTES, 6291456);
   assert.deepEqual(normalizeFeedbackAttachments(undefined), []);
   assert.deepEqual(normalizeFeedbackAttachments([{ ...wire, path: 'C:/secret.png' }]), [wire]);

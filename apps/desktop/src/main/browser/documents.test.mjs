@@ -317,12 +317,24 @@ test('a child target that never becomes ready cannot hold the checkpoint past it
   assert.equal(await later.documents.renderCheckpoint(guestFor(), false), true);
 });
 
-test('a genuine read failure after the deadline still throws instead of reporting unconfirmed', async () => {
+test('a genuine read failure after the deadline still throws instead of reporting unconfirmed', async (t) => {
+  const timeouts = controlledTimeouts(t);
+  let deadlinePassed;
+  const passed = new Promise((resolve) => {
+    deadlinePassed = resolve;
+  });
+  let readStarted = false;
   const f = checkpointFixture({ top: 'blocked' }, 30, {
     beforeEvaluate: async () => {
-      await new Promise((resolve) => setTimeout(resolve, 80));
+      readStarted = true;
+      await passed;
       throw new Error('frame observation failed: boom');
     },
   });
-  await assert.rejects(f.documents.renderCheckpoint(guestFor(), false), /boom/);
+  const checkpoint = f.documents.renderCheckpoint(guestFor(), false);
+  const outcome = assert.rejects(checkpoint, /boom/);
+  await waitUntil(() => readStarted && timeouts.some(({ ms }) => ms === 30), 'a read in flight and the deadline armed');
+  timeouts.find(({ ms }) => ms === 30).expire();
+  deadlinePassed();
+  await outcome;
 });

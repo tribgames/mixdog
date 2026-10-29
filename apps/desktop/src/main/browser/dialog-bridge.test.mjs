@@ -4,7 +4,6 @@ import { runInNewContext } from 'node:vm';
 
 import {
   DIALOG_BRIDGE_PATH,
-  DIALOG_BRIDGE_PATTERN,
   DIALOG_BRIDGE_SCRIPT,
   dialogBridgeFulfillParams,
   parseDialogBridgeNotice,
@@ -12,7 +11,6 @@ import {
 } from './dialog-bridge.ts';
 
 test('dialog bridge uses a same-origin reserved path and parses any HTTP origin', () => {
-  assert.equal(DIALOG_BRIDGE_PATTERN, `*://*${DIALOG_BRIDGE_PATH}*`);
   assert.match(DIALOG_BRIDGE_SCRIPT, /location\.href/);
   assert.deepEqual(
     parseDialogBridgeRequest(

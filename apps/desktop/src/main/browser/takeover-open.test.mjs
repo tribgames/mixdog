@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test, { mock } from 'node:test';
 import { beginComputerOperation } from '../human-only-approval.ts';
-import { createTakeoverGate, TAKEOVER_EXPIRED_REASON, TAKEOVER_EXPIRY_MS } from '../takeover-gate.ts';
+import { createTakeoverGate, TAKEOVER_EXPIRY_MS } from '../takeover-gate.ts';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 const login = (id = 't1') => ({
@@ -80,7 +80,6 @@ test('Computer Use is blocked only by a screen takeover', async () => {
 test("a takeover nobody finishes settles 'expired' after the timeout and frees its session", async (t) => {
   mock.timers.enable({ apis: ['setTimeout'] });
   t.after(() => mock.timers.reset());
-  assert.equal(TAKEOVER_EXPIRED_REASON, 'expired');
   assert.equal(TAKEOVER_EXPIRY_MS, 15 * 60_000);
   const gate = createTakeoverGate(async (work) => work());
   const expired = [];

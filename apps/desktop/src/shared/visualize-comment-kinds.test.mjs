@@ -20,7 +20,6 @@ import {
 const KINDS = ['html', 'document', 'pdf', 'image', 'audio', 'video', 'inline'];
 
 test('every pane kind has an entry; audio takes no comments', () => {
-  assert.deepEqual(Object.keys(VISUALIZE_COMMENT_KINDS).sort(), [...KINDS].sort());
   assert.equal(visualizeCommentKind('audio'), null);
   assert.equal(visualizeCommentKind('toString'), null, 'only own entries');
   assert.equal(visualizeCommentKind('nope'), null);

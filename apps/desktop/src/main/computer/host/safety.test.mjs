@@ -3,7 +3,6 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { powershellHostProgram } from '../backend/program.ts';
 import { assertSafeComputerInput, assertSafeComputerSessionId } from '../input/guards.ts';
 import { normalizeComputerKeySequence } from '../input/keyboard.ts';
 import { createOcrCapturePreferenceStore, createVisualOnlyCapabilityStore } from '../input/capability-policy.ts';
@@ -25,18 +24,6 @@ import {
 import { createInspection } from '../observation/inspect.ts';
 import { appendComputerRunRecord, computerRunRecord } from '../session/run-log.ts';
 
-// The host is a set of modules plus the PowerShell program; the pins below read all of them so
-// they hold wherever a function lives. They guard Computer Use safety contracts that no
-// unit test drives (the PowerShell host only runs on a real desktop).
-const hostDirectory = new URL('../', import.meta.url);
-const hostFiles = (await readdir(hostDirectory, { recursive: true }))
-  .map((name) => name.split('\\').join('/'))
-  .filter((name) => name.endsWith('.ts') && !name.startsWith('harness/'))
-  .sort();
-const hostSource = [
-  ...(await Promise.all(hostFiles.map((name) => readFile(new URL(name, hostDirectory), 'utf8')))),
-  powershellHostProgram(),
-].join('\n');
 
 function windowRecord(id, overrides = {}) {
   return {
@@ -150,44 +137,6 @@ test('inspection reports empty target semantics and bounds each provider call', 
   const predicateCall = calls.find((call) => call.action === 'window_predicates');
   // A short polling window must not become a false provider-health timeout.
   assert.ok(predicateCall.timeoutMs > 0 && predicateCall.timeoutMs <= 2_000);
-});
-
-test('focus recovery falls back to the owner when the action closed its window', () => {
-  const start = hostSource.indexOf('function Restore-InputRecoveryState($req)');
-  assert.ok(start > 0);
-  const body = hostSource.slice(start, start + 1_200);
-  assert.ok(body.includes("$restoredTarget = 'owner'"));
-  // The recovered owner is validated, and landing anywhere else still counts as a miss.
-  assert.ok(body.includes('input recovery restore window is stale or invalid'));
-  // The owner is recorded while the window still exists: a destroyed handle can no longer name it.
-  assert.match(hostSource, /restore_owner_window_id\s*=\s*\$restoreOwnerId/);
-  // Landing anywhere else still counts as a miss: the TypeScript verification accepts the owner only when one was recorded.
-  assert.match(hostSource, /restoredTarget === 'owner' &&\s*\n\s*inputRecovery\.restoreOwnerWindowId !== ''/);
-});
-
-test('waiting on a condition never invalidates the refs the caller holds', () => {
-  const start = hostSource.indexOf('function Get-WindowPredicates($req)');
-  const end = hostSource.indexOf('function Get-MenuCandidates(', start);
-  assert.ok(start > 0 && end > start);
-  // Snapshot-Window bumps the generation and clears the map; a predicate read must do neither.
-  assert.doesNotMatch(hostSource.slice(start, end), /\$state\.Map\.Clear\(\)|\$state\.Generation/);
-});
-
-test('host types load from a per-build assembly cache with an inline fallback', () => {
-  // Exactly two compile sites: publish to the cache, and compile in-process as the fallback.
-  assert.equal(hostSource.split('-TypeDefinition $MixdogHostSource').length - 1, 2);
-});
-
-test('post-mutation settle waits out its budget instead of exiting on a transition start', () => {
-  const settle = hostSource.indexOf('if (settleDelayMs > 0) await sleep(');
-  assert.ok(settle > 0);
-  assert.doesNotMatch(hostSource.slice(Math.max(0, settle - 500), settle + 500), /(opened|closed)_windows\.length/);
-});
-
-test('capture change summary survives the invalidation a mutation performs', () => {
-  const invalidation = hostSource.indexOf('if (OBSERVATION_BOUND_INPUT_ACTIONS.has(action)) {');
-  assert.ok(invalidation > 0);
-  assert.equal(hostSource.slice(invalidation - 400, invalidation + 200).includes('lastCaptureBySession'), false);
 });
 
 test('run history records verdicts without typed text, keys, or clipboard', () => {

@@ -67,7 +67,7 @@ async function tempRoot(t) {
 }
 
 for (const shell of ['pwsh', 'powershell']) {
-  test(`${shell}: markers are written and the user's prompt still sees $?`, { skip: !onPath(shell) }, async () => {
+  test(`${shell}: markers are written and the user's prompt still sees $?`, { skip: !onPath(shell) && `${shell} is not installed` }, async () => {
     const plan = planShellIntegration({ path: shell }, null);
     const integration = Buffer.from(plan.args[2], 'base64').toString('utf16le');
     // The user's prompt (as a profile would define it), PSReadLine as an
@@ -108,7 +108,7 @@ async function bashHome(t) {
 
 const bashEnv = (home, plan) => ({ ...process.env, HOME: posix(home), ...plan.env });
 
-test('bash --login stays a genuine login shell and reports markers', { skip: !bash }, async (t) => {
+test('bash --login stays a genuine login shell and reports markers', { skip: !bash && 'bash is not installed' }, async (t) => {
   const { root, home } = await bashHome(t);
   const plan = planShellIntegration({ path: bash, args: ['--login', '-i'] }, root);
   assert.equal(plan.integration, 'bash');
@@ -120,7 +120,7 @@ test('bash --login stays a genuine login shell and reports markers', { skip: !ba
   assert.ok(out.includes(marker('D;1')), JSON.stringify(out));
 });
 
-test('bash --login whose profile replaces PROMPT_COMMAND stays unintegrated', { skip: !bash }, async (t) => {
+test('bash --login whose profile replaces PROMPT_COMMAND stays unintegrated', { skip: !bash && 'bash is not installed' }, async (t) => {
   const { root, home } = await bashHome(t);
   await writeFile(join(home, '.bash_profile'), "PROMPT_COMMAND='true'\n");
   const plan = planShellIntegration({ path: bash, args: ['--login', '-i'] }, root);
@@ -129,7 +129,7 @@ test('bash --login whose profile replaces PROMPT_COMMAND stays unintegrated', { 
   assert.ok(!out.includes('\x1b]697;'), JSON.stringify(out));
 });
 
-test('non-login bash reads its rc files through the init file and reports markers', { skip: !bash }, async (t) => {
+test('non-login bash reads its rc files through the init file and reports markers', { skip: !bash && 'bash is not installed' }, async (t) => {
   const { root, home } = await bashHome(t);
   const plan = planShellIntegration({ path: bash }, root);
   const out = await run(plan.path, plan.args, bashEnv(home, plan), BASH_PROBE);
@@ -162,18 +162,18 @@ async function zshRun(t, userZshenv, launchZdotdir) {
   return { out: await run(zsh, ['-c', ZSH_PROBE], env, ''), config: posix(config) };
 }
 
-test('zsh: a ZDOTDIR set by the user’s .zshenv survives the handoff', { skip: !zsh }, async (t) => {
+test('zsh: a ZDOTDIR set by the user’s .zshenv survives the handoff', { skip: !zsh && 'neither zsh nor bash is installed' }, async (t) => {
   // (MSYS bash rewrites HOME to its own spelling: match the user's path tail.)
   const { out } = await zshRun(t, 'ZDOTDIR=$HOME/cfg\n', false);
   assert.match(out, /Z=\S+\/home\/cfg RC=cfg FLAG=gone/);
 });
 
-test('zsh: ZDOTDIR unset at launch and never set by the user ends unset', { skip: !zsh }, async (t) => {
+test('zsh: ZDOTDIR unset at launch and never set by the user ends unset', { skip: !zsh && 'neither zsh nor bash is installed' }, async (t) => {
   const { out } = await zshRun(t, null, false);
   assert.match(out, /Z=unset RC=home FLAG=gone/);
 });
 
-test('zsh: a ZDOTDIR given at launch is handed back', { skip: !zsh }, async (t) => {
+test('zsh: a ZDOTDIR given at launch is handed back', { skip: !zsh && 'neither zsh nor bash is installed' }, async (t) => {
   const { out, config } = await zshRun(t, null, true);
   assert.ok(out.includes(`Z=${config} RC=cfg FLAG=gone`), out);
 });

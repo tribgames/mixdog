@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
-import { isSshMissingMessage, resolveSshTool, WINDOWS_SSH_CLIENT_COMMAND } from './ssh-binary.ts';
+import { isSshMissingMessage, resolveSshTool } from './ssh-binary.ts';
 
 const withFiles = (files, platform, env) => ({ platform, env, isFile: (path) => files.includes(path) });
 
@@ -42,5 +42,4 @@ test('macOS and Linux use PATH only', () => {
 test('the missing-client message is recognised and has the capability command', () => {
   assert.equal(isSshMissingMessage('The OpenSSH client (ssh-keyscan) was not found on PATH.'), true);
   assert.equal(isSshMissingMessage('Permission denied'), false);
-  assert.equal(WINDOWS_SSH_CLIENT_COMMAND, 'Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0');
 });

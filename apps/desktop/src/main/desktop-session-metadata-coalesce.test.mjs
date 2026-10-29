@@ -13,9 +13,13 @@ async function fixture(t) {
   const root = await mkdtemp(join(tmpdir(), 'mixdog-desktop-coalesce-'));
   const writes = { count: 0 };
   const realRename = fsPromises.rename;
-  t.mock.method(fsPromises, 'rename', (src, dst) => {
-    if (String(dst).endsWith('desktop-session-metadata.json')) writes.count += 1;
-    return realRename(src, dst);
+  t.mock.method(fsPromises, 'rename', async (src, dst) => {
+    const result = await realRename(src, dst);
+    if (String(dst).endsWith('desktop-session-metadata.json')) {
+      writes.count += 1;
+      writes.onWrite?.();
+    }
+    return result;
   });
   syncBuiltinESMExports();
   t.after(async () => {
@@ -65,8 +69,15 @@ test('a pending read cursor is flushed by the quit path and by the window timer'
   await metadata.flush(); // dispose() flushes the metadata on quit
   assert.equal((await reload()).reads[SESSION].messageCount, 7);
 
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   await metadata.markRead(SESSION, 9, false);
-  await new Promise((resolve) => setTimeout(resolve, 900));
+  const written = new Promise((resolve) => {
+    writes.onWrite = resolve;
+  });
+  t.mock.timers.tick(399);
+  assert.equal(writes.count, 1, 'nothing is written before the window ends');
+  t.mock.timers.tick(1);
+  await written;
   assert.equal(writes.count, 2, 'the trailing window wrote on its own');
   assert.equal((await reload()).reads[SESSION].messageCount, 9);
 });

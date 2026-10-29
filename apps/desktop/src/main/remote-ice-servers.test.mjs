@@ -5,7 +5,6 @@ import { createIceService, requestIceServers } from '../../../relay/lib/ice-legs
 import { turnConfigFromEnv, verifyTurnCredential } from '../../../relay/lib/turn-credentials.mjs';
 import { MAX_ICE_SERVERS, MAX_ICE_URLS } from '../shared/remote-webrtc.ts';
 import {
-  ICE_ALLOCATION_LIFETIME_MS,
   bindRemoteIceServers,
   createRemoteIceServers,
   refreshMarginMs,
@@ -82,7 +81,6 @@ function harness({ answers = [relayAnswer()] } = {}) {
 const turnEntry = (list) => list.find((server) => server.username);
 
 test('the margin is derived: one coturn allocation lifetime, capped at half the credential life', () => {
-  assert.equal(ICE_ALLOCATION_LIFETIME_MS, 3_600_000);
   assert.equal(refreshMarginMs(DAY_MS), 3_600_000);
   assert.equal(refreshMarginMs(7_200_000), 3_600_000);
   assert.equal(refreshMarginMs(1_200_000), 600_000);

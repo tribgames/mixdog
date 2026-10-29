@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import test from 'node:test';
 
+// PROPOSED SOURCE-TEXT EXCEPTION: the regex lives only inside a script string handed to a
+// BrowserWindow's executeJavaScript, so it has no runnable surface without Electron.
 // The anchor text is read inside a script injected through executeJavaScript,
 // so the regex travels through a TypeScript template literal first. Evaluate
 // that literal the way the source does and run the regex it produces.

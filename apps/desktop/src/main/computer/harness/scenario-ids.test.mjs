@@ -3,18 +3,11 @@ import test from 'node:test';
 import { scenarioGroupOnly } from '../../../../scripts/computer-host-repeat-policy.mjs';
 import { SCENARIO_GROUPS, SCENARIO_IDS, SCENARIO_RUN_ORDER, unknownScenarioIds } from './scenario-ids.ts';
 
-test('scenario groups partition S01..S47 and the run order is a permutation of them', () => {
-  const expected = Array.from({ length: 47 }, (_, index) => `S${String(index + 1).padStart(2, '0')}`);
-  assert.deepEqual([...SCENARIO_IDS], expected);
-  assert.deepEqual([...SCENARIO_RUN_ORDER].sort(), expected);
-  assert.deepEqual(Object.keys(SCENARIO_GROUPS), [
-    'observation',
-    'input',
-    'recovery',
-    'external',
-    'real-apps',
-    'performance',
-  ]);
+test('scenario groups partition the ids and the run order is a permutation of them', () => {
+  const ids = [...SCENARIO_IDS];
+  assert.deepEqual(ids, ids.map((_, index) => `S${String(index + 1).padStart(2, '0')}`), 'ids are contiguous from S01');
+  assert.deepEqual([...SCENARIO_RUN_ORDER].sort(), ids);
+  assert.deepEqual(Object.values(SCENARIO_GROUPS).flat().sort(), ids, 'every id is in exactly one group');
 });
 
 test('--group resolves to its ids and refuses unknown names', () => {

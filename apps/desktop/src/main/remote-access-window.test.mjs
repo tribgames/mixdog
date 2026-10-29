@@ -37,6 +37,8 @@ test('a QR build failure answers null and is logged instead of rejecting', async
   assert.match(String(logged.mock.calls[0].arguments[0]), /pairing QR build failed/);
 });
 
+// PROPOSED SOURCE-TEXT EXCEPTION: index.ts imports Electron and cannot be loaded by a test, so
+// the routing of its three actions through the guarded builder is pinned in its text.
 test('every remote-access action in the main process builds its card through the guarded path', async () => {
   const main = await readFile(new URL('./index.ts', import.meta.url), 'utf8');
   for (const name of ['remoteAccessInfo', 'rotateRemoteAccess', 'revokeRemoteAccessClient']) {

@@ -135,10 +135,12 @@ test('the server install’s error codes each get their own view', () => {
 
 test('a missing OpenSSH client gets the Windows install command, other systems only the message', () => {
   const error = new SshError('The OpenSSH client (ssh) was not found on PATH.', 'terminal');
-  assert.deepEqual(describeConnectFailure(error, target, 'win32'), {
-    kind: 'ssh-missing',
-    command: 'Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0',
-  });
+  const windows = describeConnectFailure(error, target, 'win32');
+  assert.equal(windows.kind, 'ssh-missing');
+  // The user pastes this into an administrator PowerShell: one line, a real cmdlet, naming the OpenSSH client capability.
+  assert.equal(typeof windows.command, 'string');
+  assert.doesNotMatch(windows.command, /[\r\n]/);
+  assert.match(windows.command, /^\s*Add-WindowsCapability\s+-Online\s+-Name\s+OpenSSH\.Client~~~~0\.0\.1\.0\s*$/);
   assert.deepEqual(describeConnectFailure(error, target, 'linux'), { kind: 'ssh-missing', command: null });
 });
 

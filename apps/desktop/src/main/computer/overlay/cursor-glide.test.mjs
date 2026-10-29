@@ -14,6 +14,8 @@ import {
 
 const display = { x: 0, y: 0, width: 1920, height: 1080 };
 
+// PROPOSED SOURCE-TEXT EXCEPTION: the worker's wait constants exist only in the C# source
+// (compiled on a real Windows desktop); this pins them against the overlay's TypeScript plan.
 test('the worker waits exactly as long as the overlay travels', () => {
   const source = readFileSync(new URL('../backend/sources/MixWin32.cs', import.meta.url), 'utf8');
   const constant = (name) => Number(source.match(new RegExp(`${name} = ([0-9.]+)`))[1]);

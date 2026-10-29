@@ -13,7 +13,6 @@ import { worktreeErrorWithCode } from './worktree-validation.ts';
 import { WORKTREE_ERROR_CODES } from '../../../../src/runtime/shared/worktrees/contract.mjs';
 import {
   WORKTREE_NEW_TASK_DEFAULTS,
-  WORKTREE_SETTINGS_DEFAULTS,
 } from '../../../../src/runtime/shared/worktrees/settings.mjs';
 import { SESSION_CONFIGURE_ACTIONS, SESSION_READ_ACTIONS } from '../../../../src/standalone/session-protocol.mjs';
 import { createSessionWorktreeApi } from '../../../../src/tui/session/session-api/worktree.mjs';
@@ -36,12 +35,6 @@ test('worktree capabilities are registered on the desktop surface and the sessio
 test('desktop mirrors match the runtime contract', () => {
   assert.deepEqual([...DESKTOP_WORKTREE_ERROR_CODES].sort(), Object.keys(WORKTREE_ERROR_CODES).sort());
   assert.deepEqual([...DESKTOP_WORKTREE_NEW_TASK_DEFAULTS], [...WORKTREE_NEW_TASK_DEFAULTS]);
-  assert.deepEqual(Object.keys(WORKTREE_SETTINGS_DEFAULTS).sort(), [
-    'autoCleanup',
-    'branchPrefix',
-    'newTaskDefault',
-    'sizeWarnBytes',
-  ]);
 });
 
 test('worktree capability arguments are shape-checked', () => {

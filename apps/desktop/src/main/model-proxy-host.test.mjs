@@ -363,12 +363,18 @@ test('a daemon silent past its lease makes the PC abandon every active call', as
   const provider = hangingProvider();
   let now = 1_000;
   let daemonSilent = false;
+  let failedHeartbeats = 0;
+  let onFailedHeartbeat;
   const { channel, host } = connect(t, fakeRuntime({ openai: provider }), {
     heartbeatMs: 5,
     leaseMs: 100,
     now: () => now,
     intercept: async (operation) => {
-      if (daemonSilent && operation === 'modelProxyHeartbeat') throw new Error('connection lost');
+      if (daemonSilent && operation === 'modelProxyHeartbeat') {
+        failedHeartbeats += 1;
+        onFailedHeartbeat?.();
+        throw new Error('connection lost');
+      }
     },
   });
   const daemonCall = new ModelProxyProvider('openai', {}, channel).send([], 'gpt', undefined, {});
@@ -377,7 +383,21 @@ test('a daemon silent past its lease makes the PC abandon every active call', as
   daemonSilent = true;
   // Failed heartbeats inside the lease keep the call running.
   now += 50;
-  await new Promise((resolve) => setTimeout(resolve, 30));
+  const keepAlive = setInterval(() => {}, 1_000); // the host's heartbeat timer is unref'd
+  let giveUp;
+  t.after(() => {
+    clearInterval(keepAlive);
+    clearTimeout(giveUp);
+  });
+  await new Promise((resolve, reject) => {
+    onFailedHeartbeat = () => failedHeartbeats >= 3 && resolve();
+    // A failure bound, not a sleep: it only fires when heartbeats stopped before three failures.
+    giveUp = setTimeout(
+      () => reject(new Error(`expected 3 failed heartbeats inside the lease, saw ${failedHeartbeats}`)),
+      10_000
+    );
+  });
+  clearTimeout(giveUp);
   assert.equal(host.running, 1);
   // Past the lease: aborted and dropped locally.
   now += 100;
