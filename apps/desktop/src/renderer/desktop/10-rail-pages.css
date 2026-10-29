@@ -95,24 +95,12 @@
    page's pinned control instead of being cut hard against it. The fades paint the rail's own solid tone, so they
    only cover the scroller's 12px top padding (and the 8px page gap under a
    pinned control). The title-band fades only appear once their list has
-   scrolled — at rest some pages open a heading inside that strip. */
+   scrolled — at rest some pages open a heading inside that strip.
+   No CSS scroll timelines (see .transcript-scroll-fade in 12-transcript.css):
+   scroll-progress.ts writes each scroller's position onto it and onto these
+   fade hosts. */
 .session-sidebar {
   --mx-rail-pin-bg: var(--mx-window-band);
-  timeline-scope: --rail-panel-scroll, --rail-session-scroll;
-}
-.sidebar.session-sidebar > .session-sidebar-scroll {
-  scroll-timeline: --rail-panel-scroll block;
-}
-.session-sidebar-sessions > .session-sidebar-scroll {
-  scroll-timeline: --rail-session-scroll block;
-}
-@keyframes rail-scroll-fade {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 html:is([data-window-material="mica"], [data-mixdog-skin]) .session-sidebar {
   --mx-rail-pin-bg: var(--mx-mica-panel-solid);
@@ -132,30 +120,9 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .session-sidebar {
   height: 12px;
   background: linear-gradient(var(--mx-rail-pin-bg), transparent);
   pointer-events: none;
-  /* Hidden while the list cannot scroll (its timeline is inactive). */
-  opacity: 0;
-  animation: rail-scroll-fade linear both;
-  animation-range: 0 12px;
-}
-.sidebar.session-sidebar > .session-panel-header::after {
-  animation-timeline: --rail-panel-scroll;
-}
-.session-sidebar-sessions > .session-sidebar-launchers::after {
-  animation-timeline: --rail-session-scroll;
-}
-/* Phone: no scroll timelines at all (the Android WebView freezes a fling while
-   one is alive). scroll-progress.ts writes the scroller's position; the same
-   fades follow it over the same 0-12px range. */
-html[data-mixdog-mobile-tabs] .session-sidebar {
-  timeline-scope: none;
-}
-html[data-mixdog-mobile-tabs] :is(.sidebar.session-sidebar, .session-sidebar-sessions) > .session-sidebar-scroll {
-  scroll-timeline: none;
-}
-html[data-mixdog-mobile-tabs]
-  :is(.sidebar.session-sidebar > .session-panel-header, .session-sidebar-sessions > .session-sidebar-launchers)::after {
+  /* Fades in over the list's first 12px of scroll; 0 (hidden) at rest and
+     for a list that cannot scroll. */
   --mx-scroll-top: inherit;
-  animation: none;
   opacity: clamp(0, var(--mx-scroll-top) / 12, 1);
 }
 /* A page's view switcher or search field stays reachable while its list
@@ -167,43 +134,19 @@ html[data-mixdog-mobile-tabs]
   /* Above the title band's fade, which would otherwise wash its top edge. */
   z-index: 3;
   top: 0;
-  box-shadow:
-    0 0 0 6px var(--mx-rail-pin-bg),
-    0 0 0 0 transparent;
-  animation: rail-pin-tail linear both;
-  animation-timeline: --rail-panel-scroll;
-  animation-range: 0 12px;
-}
-/* Phone: the same tail, keyed on the panel scroller's position (the pane and
-   page between pass it down). */
-html[data-mixdog-mobile-tabs] .session-sidebar-panels :is(.schedules-pane, .schedules-page) {
-  --mx-scroll-top: inherit;
-}
-html[data-mixdog-mobile-tabs]
-  .session-sidebar-panels
-  .schedules-page
-  > :is(.sidebar-section-toolbar, .schedules-search) {
+  /* The fading tail grows over the panel scroller's first 12px of scroll; at
+     rest the page's first heading sits right under the control. */
   --mx-scroll-top: inherit;
   --mx-pin-tail: clamp(0, var(--mx-scroll-top) / 12, 1);
-  animation: none;
   box-shadow:
     0 0 0 6px var(--mx-rail-pin-bg),
     0 calc(6px * var(--mx-pin-tail)) calc(4px * var(--mx-pin-tail)) 0
     color-mix(in srgb, var(--mx-rail-pin-bg) calc(100% * var(--mx-pin-tail)), transparent);
 }
-/* The fading tail only exists once the list scrolls; at rest the page's
-   first heading sits right under the control. */
-@keyframes rail-pin-tail {
-  from {
-    box-shadow:
-      0 0 0 6px var(--mx-rail-pin-bg),
-      0 0 0 0 transparent;
-  }
-  to {
-    box-shadow:
-      0 0 0 6px var(--mx-rail-pin-bg),
-      0 6px 4px 0 var(--mx-rail-pin-bg);
-  }
+/* The pane and page between the panel scroller and its control pass the
+   scroller's position down. */
+.session-sidebar-panels :is(.schedules-pane, .schedules-page) {
+  --mx-scroll-top: inherit;
 }
 /* The side panel's own opaque surface: the sheet tone it paints on desktop,
    the phone drawer and the right dock, and under dark Mica the solid panel
@@ -1610,9 +1553,9 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
      header "+" that sits outside this scroller. */
   margin-right: calc(-1 * var(--mx-scrollbar-gutter));
   /* Rows dissolve at whichever edge has more to scroll, like the transcript's
-     top edge. The fade lengths ride a scroll-driven animation: 0 at an end
-     the list rests on, 20px once there is content past that edge; a list
-     that cannot scroll has no active timeline and keeps both at 0. */
+     top edge. The fade lengths follow the position scroll-progress.ts
+     writes: 0 at an end the list rests on, 20px once there is content past
+     that edge; a list that cannot scroll keeps both at 0. */
   /* A page's pinned control (view switcher or search field) is a child of
      this scroller, so the mask would fade it too. --sidebar-pin-clear is the
      scroller's inset plus that control's height: the mask stays fully opaque
@@ -1635,8 +1578,18 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
     #000 calc(100% - var(--sidebar-fade-bottom)),
     transparent 100%
   );
-  animation: session-sidebar-scroll-fade linear both;
-  animation-timeline: scroll(self block);
+  /* Top grows over the first 4% of the scroll, bottom shrinks over the last
+     4% (0 for a list that cannot scroll). */
+  --sidebar-fade-top: calc(
+    20px *
+    clamp(0, var(--mx-scroll-top) / max(var(--mx-scroll-max), 1) / 0.04, 1) *
+    min(var(--mx-scroll-max), 1)
+  );
+  --sidebar-fade-bottom: calc(
+    20px *
+    clamp(0, (1 - var(--mx-scroll-top) / max(var(--mx-scroll-max), 1)) / 0.04, 1) *
+    min(var(--mx-scroll-max), 1)
+  );
 }
 /* Only the active page's pinned control counts (inactive panes stay mounted
    but hidden). Each value is the container's top inset (4px desktop, 12px
@@ -1657,41 +1610,7 @@ html[data-mixdog-mobile-tabs]
   .session-sidebar-panels:has(.schedules-pane[data-surface-active="true"] > .schedules-page > .schedules-search) {
   --sidebar-pin-clear: calc(var(--mx-touch) + 12px);
 }
-/* Phone: the same fade lengths from the scroller's position (0 for a list that
-   cannot scroll, where the timeline was inactive): top grows over the first
-   4% of the scroll, bottom shrinks over the last 4%. */
-html[data-mixdog-mobile-tabs] :is(.session-sidebar-scroll, .utility-dock .agent-activity-page) {
-  --sidebar-fade-top: calc(
-    20px *
-    clamp(0, var(--mx-scroll-top) / max(var(--mx-scroll-max), 1) / 0.04, 1) *
-    min(var(--mx-scroll-max), 1)
-  );
-  --sidebar-fade-bottom: calc(
-    20px *
-    clamp(0, (1 - var(--mx-scroll-top) / max(var(--mx-scroll-max), 1)) / 0.04, 1) *
-    min(var(--mx-scroll-max), 1)
-  );
-  animation: none;
-}
 /* --sidebar-fade-top/-bottom are registered in font-faces.css. */
-@keyframes session-sidebar-scroll-fade {
-  0% {
-    --sidebar-fade-top: 0px;
-    --sidebar-fade-bottom: 20px;
-  }
-  4% {
-    --sidebar-fade-top: 20px;
-    --sidebar-fade-bottom: 20px;
-  }
-  96% {
-    --sidebar-fade-top: 20px;
-    --sidebar-fade-bottom: 20px;
-  }
-  100% {
-    --sidebar-fade-top: 20px;
-    --sidebar-fade-bottom: 0px;
-  }
-}
 /* SessionSidebar preserves the first visible keyed row when activity-order
    inserts above it. Native anchoring would apply a second, browser-dependent
    correction and recreate the visible jump. Other rail panels keep native
