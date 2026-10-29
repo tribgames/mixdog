@@ -4,6 +4,38 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Cải thiện bộ điều phối agent với Explore, một agent chuyên khảo sát mã nguồn, cùng kỹ năng Test Suite giúp kiểm chứng chặt chẽ hơn; đồng thời bổ sung Vertex AI và hỗ trợ nhiều tài khoản trên mỗi trình kết nối.
+
+### Tính năng mới
+
+- **Explore** — Thêm agent khảo sát chỉ đọc (tùy chọn) để Lead có thể giao cùng lúc nhiều câu hỏi về mã nguồn; chọn mô hình tại Quy trình → Agent tích hợp.
+- **Kỹ năng Test Suite** — Thêm kỹ năng tích hợp để viết, chạy, chẩn đoán lỗi và dọn dẹp bộ kiểm thử của dự án.
+- **Vertex AI** — Thêm Vertex AI với các mô hình Gemini, Claude và mô hình mở, đăng nhập bằng khóa tài khoản dịch vụ, tài khoản gcloud hoặc khóa API chế độ express (#249).
+- **Nhiều tài khoản trong một trình kết nối** — Cho phép gắn nhiều tài khoản vào cùng một trình kết nối; agent sẽ dùng tài khoản gần nhất trừ khi bạn chỉ định tài khoản khác.
+- **Khóa và header cho nhà cung cấp tùy chỉnh** — Cho phép thêm nhiều khóa API dự phòng để tự động chuyển đổi khi hết hạn mức, cùng các HTTP header riêng cho mỗi yêu cầu (#233, #239).
+- **Quyền dùng công cụ kết nối cho bot** — Thêm tùy chọn Tự động, Cần phê duyệt và Đã tắt cho từng công cụ của mỗi trình kết nối trong hồ sơ bot (#264).
+- **Phê duyệt ngay trên bot nổi trên màn hình** — Hiển thị nội dung yêu cầu cùng hai nút Cho phép và Từ chối ngay trong bong bóng thoại của bot trên màn hình.
+- **Dừng mọi lệnh chạy nền** — Thêm `/stop` để dừng toàn bộ lệnh chạy nền của phiên, đồng thời hỗ trợ `/shells` và `/mcp login` trên bản máy tính.
+
+### Thay đổi
+
+- Khi bước kiểm tra thất bại, agent sẽ sửa tận gốc nguyên nhân thay vì chạy lại, tăng thời gian chờ hoặc bỏ qua.
+- Tắt mặc định tính năng bot tự kiểm tra định kỳ và làm ấm bộ nhớ đệm prompt.
+- Bản máy tính và CLI nay tuân theo proxy hệ thống, áp dụng kịch bản PAC và danh sách ngoại lệ cho từng địa chỉ trên máy tính, đồng thời kết nối trực tiếp với các địa chỉ nội bộ (local) và mạng LAN.
+- Dòng hoạt động của công cụ chỉ hiển thị thời gian đã trôi qua khi lệnh vẫn đang chạy.
+
+### Sửa lỗi
+
+- Sửa lỗi nhấn Dừng hoặc Vẫn giải phóng nhưng các tiến trình con của lệnh đã kết thúc vẫn tiếp tục chạy (#259).
+- Sửa lỗi phòng trò chuyện nhóm lặp lại thông báo "không thể trả lời" cho từng bot khi hết hạn mức sử dụng; nay chỉ dừng một lần và nêu rõ lý do.
+- Sửa lỗi các phiên dài hoặc đã rút gọn không thể cuộn ngược về tin nhắn đầu tiên trên cả máy tính và điện thoại.
+- Sửa lỗi phiên hiển thị "Phiên không khả dụng" trong lúc các phiên đang bận khác gửi bản cập nhật lớn.
+- Sửa lỗi không nhập được các cuộc trò chuyện Codex chỉ còn lưu dưới dạng tệp nén (#262).
+- Sửa lỗi đăng nhập trình kết nối lặp lại thông báo "Unrecognized client_id" sau khi dịch vụ quên thông tin đăng ký của Mixdog (#269).
+- Sửa lỗi giao diện TUI làm mất phần cuối của các URL đăng nhập dài, đồng thời thêm phím tắt `Ctrl+Y` để sao chép (#261).
+- Sửa lỗi không thể bắt đầu nhập giọng nói trên các máy Windows đang tải nặng.
+- Sửa lỗi các ô bảng chứa chữ Trung hoặc chữ Nhật làm bảng bị tràn khỏi khung.
+
 ## v1.4.1 - 2026-10-27
 
 Đã sửa lỗi đăng nhập qua SSH, lỗi thiết lập truy cập PC và các agent bị dừng trên các mô hình Anthropic, đồng thời thêm nút chuyển đổi chế độ xem cho các thẻ Visualize song song.

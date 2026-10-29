@@ -5,6 +5,38 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+Improved the agent harness with Explore, a dedicated exploration agent, and stronger verification with the Test Suite skill, plus Vertex AI and several accounts per connector.
+
+### New features
+
+- **Explore** — Added an optional read-only exploration agent the Lead can hand several code questions at once; pick its model under Workflows → Built-in agents.
+- **Test Suite skill** — Added a built-in skill for writing, running, diagnosing and pruning a project's tests.
+- **Vertex AI** — Added Vertex AI with Gemini, Claude and open models, signing in with a service-account key, your gcloud login or an express-mode API key (#249).
+- **Accounts inside a connector** — Added several accounts to one connector; agents use the last-used account unless you name another.
+- **Custom provider keys and headers** — Added extra API keys that take over when one runs out of quota, and your own HTTP headers on every request (#233, #239).
+- **Connector tool permissions for bots** — Added per-tool Auto, Needs approval and Disabled choices for each connector on a bot's profile (#264).
+- **Approve from the on-screen bot** — Added the request and its Allow and Deny buttons to the speech bubble of the on-screen bot.
+- **Stop every background command** — Added `/stop` to stop all background commands of a session, plus `/shells` and `/mcp login` on desktop.
+
+### Changes
+
+- Changed agents to fix the cause of a failing check instead of rerunning it, raising its timeout or skipping it.
+- Changed bot check-ins and prompt-cache warming to be off by default.
+- Changed the desktop and CLI to follow the system proxy, with PAC scripts and exceptions applied per address on desktop, keeping local and LAN hosts direct.
+- Changed tool activity rows to show elapsed time only while a command is still running.
+
+### Bug fixes
+
+- Fixed Stop and Release anyway leaving a finished command's child processes running (#259).
+- Fixed a group room repeating "could not reply" for every bot when the usage limit ran out; it now stops once and says why.
+- Fixed long or compacted sessions not scrolling back to their first message on desktop and phone.
+- Fixed a session showing "Session unavailable" while other busy sessions were sending large updates.
+- Fixed Codex conversations kept only as compressed files failing to import (#262).
+- Fixed connector sign-in repeating an "Unrecognized client_id" error after the service forgot Mixdog's registration (#269).
+- Fixed the TUI cutting off long sign-in URLs, and added `Ctrl+Y` to copy them (#261).
+- Fixed voice input failing to start on busy Windows PCs.
+- Fixed Chinese and Japanese table cells pushing the table past its frame.
+
 ## v1.4.1 - 2026-10-27
 
 Fixed sign-in over SSH, PC access setup failures and agents stopping on Anthropic models, and added a view switch for side-by-side Visualize tabs.

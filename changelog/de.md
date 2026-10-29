@@ -4,6 +4,38 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Das Agenten-Harness wurde mit Explore, einem eigenen Erkundungsagenten, und einer gründlicheren Überprüfung durch den Skill Test Suite verbessert; hinzu kommen Vertex AI und mehrere Konten pro Konnektor.
+
+### Neue Funktionen
+
+- **Explore** — Optionaler Nur-Lese-Erkundungsagent, dem der Lead mehrere Codefragen auf einmal übergeben kann; das Modell lässt sich unter Workflows → Integrierte Agenten auswählen.
+- **Test Suite-Skill** — Integrierter Skill zum Schreiben, Ausführen, Untersuchen und Aufräumen der Tests eines Projekts hinzugefügt.
+- **Vertex AI** — Vertex AI mit Gemini, Claude und offenen Modellen hinzugefügt; die Anmeldung erfolgt per Dienstkontoschlüssel, gcloud-Login oder Express-Mode-API-Schlüssel (#249).
+- **Mehrere Konten in einem Konnektor** — Ein Konnektor kann nun mehrere Konten enthalten; Agenten nutzen das zuletzt verwendete Konto, sofern kein anderes angegeben wird.
+- **Eigene Anbieter-Schlüssel und Header** — Zusätzliche API-Schlüssel hinzugefügt, die einspringen, wenn das Kontingent eines Schlüssels erschöpft ist, sowie eigene HTTP-Header für jede Anfrage (#233, #239).
+- **Konnektor-Tool-Berechtigungen für Bots** — Pro Tool die Optionen Auto, Freigabe nötig und Deaktiviert für jeden Konnektor im Profil eines Bots hinzugefügt (#264).
+- **Freigabe über den Bot auf dem Bildschirm** — Die Anfrage samt Schaltflächen Zulassen und Ablehnen wird nun direkt in der Sprechblase des Bots auf dem Bildschirm angezeigt.
+- **Alle Hintergrundbefehle beenden** — `/stop` zum Beenden aller Hintergrundbefehle einer Sitzung sowie `/shells` und `/mcp login` in der Desktop-App hinzugefügt.
+
+### Änderungen
+
+- Agenten beheben bei einer fehlgeschlagenen Prüfung nun die Ursache, statt sie einfach erneut auszuführen, das Zeitlimit zu erhöhen oder sie zu überspringen.
+- Regelmäßige Bot-Check-ins und das Vorwärmen des Prompt-Caches sind standardmäßig ausgeschaltet.
+- Desktop-App und CLI folgen nun dem System-Proxy, wobei in der Desktop-App PAC-Skripte und Ausnahmen pro Adresse angewendet und lokale sowie LAN-Adressen direkt verbunden werden.
+- Werkzeug-Aktivitätszeilen zeigen die verstrichene Zeit nur noch an, solange ein Befehl tatsächlich läuft.
+
+### Fehlerbehebungen
+
+- Behoben: Nach Stopp oder Trotzdem freigeben liefen Kindprozesse eines bereits beendeten Befehls weiter (#259).
+- Behoben: In Gruppenräumen wiederholte jeder Bot „konnte nicht antworten“, wenn das Nutzungslimit erreicht war; nun stoppt der Raum einmalig und nennt den Grund.
+- Behoben: Lange oder komprimierte Sitzungen ließen sich auf Desktop und Smartphone nicht bis zur ersten Nachricht zurückscrollen.
+- Behoben: Eine Sitzung zeigte „Sitzung nicht verfügbar“ an, während andere ausgelastete Sitzungen große Aktualisierungen sendeten.
+- Behoben: Nur als komprimierte Dateien gespeicherte Codex-Unterhaltungen ließen sich nicht importieren (#262).
+- Behoben: Bei der Konnektor-Anmeldung trat wiederholt der Fehler "Unrecognized client_id" auf, wenn der Dienst die Registrierung von Mixdog vergessen hatte (#269).
+- Behoben: Lange Anmelde-URLs wurden in der TUI abgeschnitten; mit `Ctrl+Y` lassen sie sich nun kopieren (#261).
+- Behoben: Auf ausgelasteten Windows-PCs startete die Spracheingabe nicht.
+- Behoben: Tabellenzellen mit chinesischem oder japanischem Text ragten über den Tabellenrahmen hinaus.
+
 ## v1.4.1 - 2026-10-27
 
 Anmeldung über SSH, Fehler bei der Einrichtung des PC-Zugriffs sowie das Anhalten von Agenten bei Anthropic-Modellen behoben und eine Ansichtsumschaltung für nebeneinanderliegende Visualize-Tabs hinzugefügt.

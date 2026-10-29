@@ -4,6 +4,38 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Melhoramos a estrutura de agentes com o Explore, um agente dedicado à exploração, e uma verificação mais rigorosa com a habilidade Test Suite, além do suporte ao Vertex AI e a várias contas por conector.
+
+### Novos recursos
+
+- **Explore** — Adicionado um agente opcional de exploração somente leitura ao qual o Lead pode delegar várias perguntas sobre o código de uma só vez; escolha o modelo em Workflows → Agentes integrados.
+- **Habilidade Test Suite** — Adicionada uma habilidade integrada para escrever, executar, diagnosticar e limpar os testes de um projeto.
+- **Vertex AI** — Adicionado o Vertex AI com modelos Gemini, Claude e abertos, fazendo login com chave de conta de serviço, login do gcloud ou chave de API no modo expresso (#249).
+- **Várias contas em um conector** — Adicionada a opção de conectar várias contas a um mesmo conector; os agentes usam a última conta utilizada, a menos que você indique outra.
+- **Chaves e cabeçalhos de provedor personalizado** — Adicionadas chaves de API extras que assumem quando a cota de uma acaba, além de cabeçalhos HTTP personalizados em cada requisição (#233, #239).
+- **Permissões de ferramentas de conectores para bots** — Adicionadas as opções Auto, Requer aprovação e Desativado por ferramenta para cada conector no perfil do bot (#264).
+- **Aprovação pelo bot na tela** — Adicionada a solicitação com os botões Permitir e Negar direto no balão de fala do bot na tela.
+- **Parar todos os comandos em segundo plano** — Adicionado o comando `/stop` para encerrar todos os comandos em segundo plano de uma sessão, além de `/shells` e `/mcp login` no aplicativo para computador.
+
+### Alterações
+
+- Os agentes agora corrigem a causa de uma verificação que falhou, em vez de apenas executá-la novamente, aumentar o tempo limite ou ignorá-la.
+- Os check-ins periódicos dos bots e o pré-aquecimento do cache de prompt agora ficam desativados por padrão.
+- O aplicativo para computador e a CLI agora seguem o proxy do sistema, aplicando scripts PAC e exceções por endereço no computador e mantendo conexões diretas para endereços locais e da rede local (LAN).
+- As linhas de atividade de ferramentas agora mostram o tempo decorrido apenas enquanto o comando está em execução.
+
+### Correções de bugs
+
+- Corrigido o problema em que Parar e Liberar mesmo assim deixavam processos filhos de um comando já finalizado em execução (#259).
+- Corrigido o problema em que uma sala em grupo repetia "não conseguiu responder" para cada bot quando o limite de uso acabava; agora ela para uma única vez e informa o motivo.
+- Corrigido o problema em que sessões longas ou compactadas não rolavam de volta até a primeira mensagem no computador e no celular.
+- Corrigido o problema em que uma sessão exibia "Sessão indisponível" enquanto outras sessões ocupadas enviavam atualizações grandes.
+- Corrigida a falha ao importar conversas do Codex mantidas apenas como arquivos compactados (#262).
+- Corrigido o login de conectores que repetia o erro "Unrecognized client_id" depois que o serviço esquecia o registro do Mixdog (#269).
+- Corrigido o corte de URLs longas de login na TUI e adicionado o atalho `Ctrl+Y` para copiá-las (#261).
+- Corrigida a falha ao iniciar a entrada de voz em PCs com Windows sobrecarregados.
+- Corrigido o problema em que células com texto em chinês ou japonês ultrapassavam a borda da tabela.
+
 ## v1.4.1 - 2026-10-27
 
 Corrigidos o login via SSH, as falhas de configuração de acesso ao PC e a interrupção de agentes em modelos da Anthropic, e adicionado um alternador de visualização para as abas lado a lado do Visualize.

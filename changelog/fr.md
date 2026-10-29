@@ -5,6 +5,38 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+Amélioration du harnais d'agents avec Explore, un agent dédié à l'exploration, et une vérification renforcée grâce à la compétence Test Suite, ainsi que la prise en charge de Vertex AI et de plusieurs comptes par connecteur.
+
+### Nouvelles fonctionnalités
+
+- **Explore** — Ajout d'un agent d'exploration facultatif en lecture seule auquel Lead peut confier plusieurs questions sur le code en une fois ; choisissez son modèle dans Workflows → Agents intégrés.
+- **Compétence Test Suite** — Ajout d'une compétence intégrée pour écrire, exécuter, diagnostiquer et nettoyer les tests d'un projet.
+- **Vertex AI** — Ajout de Vertex AI avec les modèles Gemini, Claude et ouverts, avec connexion par clé de compte de service, identifiants gcloud ou clé API en mode express (#249).
+- **Plusieurs comptes par connecteur** — Possibilité d'associer plusieurs comptes à un même connecteur ; les agents utilisent le dernier compte utilisé, sauf si vous en précisez un autre.
+- **Clés et en-têtes de fournisseur personnalisé** — Ajout de clés API de secours qui prennent le relais lorsqu'une clé atteint son quota, et d'en-têtes HTTP personnalisés sur chaque requête (#233, #239).
+- **Autorisations des outils de connecteur pour les bots** — Ajout des choix Auto, Approbation requise et Désactivé par outil pour chaque connecteur dans le profil d'un bot (#264).
+- **Approbation depuis le bot à l'écran** — Ajout de la demande et des boutons Autoriser et Refuser directement dans la bulle du bot affiché à l'écran.
+- **Arrêt de toutes les commandes en arrière-plan** — Ajout de `/stop` pour arrêter toutes les commandes en arrière-plan d'une session, ainsi que de `/shells` et `/mcp login` sur l'application de bureau.
+
+### Modifications
+
+- Les agents corrigent désormais la cause d'une vérification en échec au lieu de la relancer, d'augmenter son délai d'expiration ou de l'ignorer.
+- Les points réguliers des bots et le préchauffage du cache de prompts sont désormais désactivés par défaut.
+- L'application de bureau et le CLI suivent désormais le proxy système, avec application des scripts PAC et des exceptions par adresse sur ordinateur, tout en gardant un accès direct pour les hôtes locaux et du réseau local (LAN).
+- Les lignes d'activité des outils n'affichent désormais le temps écoulé que pendant l'exécution d'une commande.
+
+### Corrections de bugs
+
+- Correction d'un problème où Arrêter et Libérer quand même laissaient tourner les processus enfants d'une commande terminée (#259).
+- Correction d'un salon de groupe qui répétait « n’a pas pu répondre » pour chaque bot une fois la limite d'utilisation atteinte ; il s'arrête désormais une seule fois en indiquant la raison.
+- Correction de l'impossibilité de remonter jusqu'au premier message dans les sessions longues ou compactées sur ordinateur et téléphone.
+- Correction d'une session qui affichait « Session indisponible » pendant que d'autres sessions très actives envoyaient de volumineuses mises à jour.
+- Correction de l'échec d'importation des conversations Codex conservées uniquement sous forme de fichiers compressés (#262).
+- Correction de la connexion à un connecteur qui répétait l'erreur "Unrecognized client_id" lorsque le service avait oublié l'enregistrement de Mixdog (#269).
+- Correction des URL de connexion longues tronquées dans la TUI, et ajout de `Ctrl+Y` pour les copier (#261).
+- Correction de la saisie vocale qui ne démarrait pas sur les PC Windows très sollicités.
+- Correction des cellules de tableau contenant du chinois ou du japonais qui faisaient déborder le tableau de son cadre.
+
 ## v1.4.1 - 2026-10-27
 
 Correction de la connexion via SSH, des échecs de configuration de l'accès au PC et de l'arrêt des agents sur les modèles Anthropic, et ajout d'un commutateur de vue pour les onglets Visualize côte à côte.
