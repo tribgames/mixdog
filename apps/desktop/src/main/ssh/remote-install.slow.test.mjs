@@ -178,6 +178,18 @@ test('a lock whose owner died, or that outlived the stale timeout, is taken over
   assert.deepEqual(readdirSync(dirname(lockDir)), []);
 });
 
+test('a waiter dates its hold from taking the lock, not from when it began waiting', async () => {
+  const lockDir = join(scratch(), '.install-lock');
+  const first = await library.acquireInstallLock(lockDir, { waitMs: 0 });
+  const waiting = library.acquireInstallLock(lockDir, { waitMs: 5_000, pollMs: 10 });
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const releasedAt = Date.now();
+  first.release();
+  const second = await waiting;
+  assert.ok(second.owner.startedAt >= releasedAt, 'the wait does not count toward the stale age');
+  second.release();
+});
+
 test('a takeover never moves or deletes the lock of a holder that replaced the stale one', async () => {
   const lockDir = join(scratch(), '.install-lock');
   seedLock(lockDir, OLD_TOKEN, { pid: 999_999_99, host: hostname(), startedAt: Date.now() });

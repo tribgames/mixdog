@@ -132,6 +132,8 @@ async function acquireInstallLock(lockDir, options) {
         if (error.code !== 'ENOENT' && !contended(error)) fail('install-failed', 'Cannot create the install lock ' + lockDir + ': ' + error.message);
       }
       if (entered) {
+        // Age counts from holding the lock, not from the wait before it.
+        owner.startedAt = Date.now();
         fs.writeFileSync(path.join(mine, 'owner.json'), JSON.stringify(owner));
         const holders = lockHolders(lockDir) || [];
         if (holders.length === 1 && holders[0] === token) {
