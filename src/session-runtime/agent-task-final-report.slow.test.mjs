@@ -82,6 +82,9 @@ function world(t, { settleMs = 0, wake = null } = {}) {
   const sent = [];
   // The bots' work each boot left owned (a process-wide registry) ends with the test.
   const booted = [];
+  // The record drops started when a send's work ended: that write is not
+  // awaited by the send (agent-task-sessions.mjs sendWork).
+  const disowns = [];
   t.after(() => {
     for (const booting of booted) for (const send of booting.submits()) endBotWork(send.options.id);
   });
@@ -140,7 +143,11 @@ function world(t, { settleMs = 0, wake = null } = {}) {
         remove: (runId) => delivery.unwatchTask(runId),
         own: (work) => delivery.ownTask(work),
         owned: () => delivery.ownedTasks(),
-        disown: (runId) => delivery.disownTask(runId),
+        disown: (runId) => {
+          const write = delivery.disownTask(runId);
+          disowns.push(write);
+          return write;
+        },
       },
       queuedSubmissionIds: async () => [],
       loadSession: async (id) => records.get(id) || null,
@@ -177,8 +184,15 @@ function world(t, { settleMs = 0, wake = null } = {}) {
   const watches = async () => createRoutineResultQueue(file).watches();
   // The stored records of bot work that reports nothing (apart from the watches).
   const ownedIds = async () => (await createRoutineResultQueue(file).owned()).map((work) => work.runId);
+  // Every record drop started so far has reached the file (a macrotask first,
+  // so a drop queued in the microtasks that ended the work has started).
+  const disowned = async () => {
+    await new Promise((resolve) => setImmediate(resolve));
+    await Promise.all(disowns);
+  };
   return {
     ownedIds,
+    disowned,
     file,
     home,
     records,
@@ -800,6 +814,7 @@ test("a send that reports nothing is still the bot's work until its chain ends, 
   await wokenTurn(w, p, FINAL);
   await pump(p.delivery);
   assert.deepEqual(ownersOf(), [], 'the chain ended');
+  await w.disowned();
   assert.deepEqual(await w.ownedIds(), [], 'and its record is dropped');
   assert.deepEqual(announced, [TASK, TASK], 'and the catalog hears of that too');
   assert.deepEqual(w.reports(), []);

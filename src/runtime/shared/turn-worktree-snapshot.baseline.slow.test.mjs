@@ -133,8 +133,9 @@ function entriesFor(headBlob) {
     '$dollar.txt',
     "q'uote.txt",
     '%pct.txt',
-    // Git for Windows refuses a path with a leading colon.
-    process.platform === 'win32' ? 'colon.txt' : ':lead.txt',
+    // Git for Windows refuses a colon in a path. A leading colon is pathspec magic,
+    // which sends the whole apply to the per-file sequence, so it stays mid-name here.
+    process.platform === 'win32' ? 'colon.txt' : 'mid:colon.txt',
     process.platform === 'win32' ? 'glob[a-z]!.txt' : 'star*.txt',
     process.platform === 'win32' ? 'auxiliary.txt' : 'aux.txt',
     '.gitattributes',
