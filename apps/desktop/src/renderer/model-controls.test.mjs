@@ -924,6 +924,77 @@ test('the speed pane offers Ultrafast only for models with the serviceTier optio
   await selected.cleanup();
 });
 
+test('a model without a Speed row gets a generic Service tier row; the Ultrafast Speed row does not', async () => {
+  const tierModel = {
+    ...model,
+    model: 'vertex-tier-test',
+    display: 'Tier test',
+    fastCapable: false,
+    fastEfforts: [],
+    modelParameterOptions: [
+      {
+        id: 'serviceTier',
+        label: 'Service tier',
+        kind: 'enum',
+        options: [
+          { value: 'standard', label: 'Standard' },
+          { value: 'flex', label: 'Flex' },
+          { value: 'priority', label: 'Priority' },
+        ],
+      },
+    ],
+  };
+  const drafts = [];
+  const openSheet = async (target, fastCapable) => {
+    const host = document.createElement('main');
+    document.body.append(host);
+    const root = createRoot(host);
+    availableModels = [target];
+    await act(async () =>
+      root.render(
+        React.createElement(ModelSelector, {
+          effort: 'high',
+          fastCapable,
+          contextPercent: 100,
+          modelDisabled: false,
+          tuningDisabled: false,
+          invokeResult: (work) => work(),
+          applySnapshot() {},
+          onOpenSettings() {},
+          provider: target.provider,
+          model: target.model,
+          fast: false,
+          modelParameters: {},
+          onDraftSelection: (selection) => drafts.push(selection),
+        })
+      )
+    );
+    await act(async () => {
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    await act(async () => document.querySelector('.model-trigger').click());
+    return async () => {
+      await act(async () => root.unmount());
+      host.remove();
+    };
+  };
+  const tierRow = () =>
+    [...document.querySelectorAll('.route-sheet-row')].find((button) => button.textContent.includes('Service tier'));
+
+  const closeTier = await openSheet(tierModel, false);
+  assert.ok(tierRow());
+  await act(async () => tierRow().click());
+  assert.ok(option('Standard') && option('Flex') && option('Priority'));
+  await act(async () => option('Priority').click());
+  assert.equal(drafts.at(-1).modelParameters.serviceTier, 'priority');
+  await closeTier();
+
+  const closeUltra = await openSheet(ultraModel, true);
+  assert.equal(tierRow(), undefined);
+  await closeUltra();
+});
+
 test('/fast parsing accepts ultra and executes Ultrafast only when the model offers it', async () => {
   const { parseFastArgument, createSlashExecutor } = await import('./composer-slash-executor.ts');
   assert.equal(parseFastArgument('ultra', false), 'ultrafast');
