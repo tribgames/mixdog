@@ -26,6 +26,7 @@ const TITLES: Record<string, () => string> = {
   'setup-guide': () => t('Setup guide'),
   'skill-creator': () => t('Create skill'),
   'code-tidy': () => t('Code Tidy'),
+  'test-suite': () => t('Test Suite'),
 };
 export const skillTitle = (name: string) => (Object.hasOwn(TITLES, name) ? TITLES[name]() : name);
 

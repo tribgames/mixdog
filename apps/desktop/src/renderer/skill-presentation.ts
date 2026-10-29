@@ -19,6 +19,7 @@ const DESCRIPTIONS: Record<string, () => string> = {
   'setup-guide': () => t('Guide first setup and explain Mixdog concepts.'),
   'skill-creator': () => t('Create, review, and improve reusable skills.'),
   'code-tidy': () => t('Format, lint, and tidy code across languages.'),
+  'test-suite': () => t('Write, run, and maintain tests without overloading your machine.'),
   visualize: () => t('Show mockups, documents, and other results beside the chat.'),
 };
 

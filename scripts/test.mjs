@@ -40,12 +40,11 @@ export const USAGE = `Usage: node scripts/test.mjs [--lane ${LANES.join('|')}] [
   --exclude-lane  drop one lane from the selection, repeatable. Electron and
                   window-capture tests cannot run twice at once, so a second
                   concurrent --lane all run uses --exclude-lane electron.
-  --rerun-failed <n>  re-run the failed files up to n times. Default: 1 for a
-                  local run, 0 (off) when CI is set; MIXDOG_TEST_RERUN_FAILED
-                  overrides the default. A test that passes on a re-run is
-                  reported as flaky and does NOT fail the run; a test that
-                  fails every re-run still exits 1. With 0 every failure fails
-                  the run.
+  --rerun-failed <n>  re-run the failed files up to n times to classify flaky
+                  tests. Default 0: every failure fails the run;
+                  MIXDOG_TEST_RERUN_FAILED overrides the default. A test that
+                  passes on a re-run is reported as flaky and does NOT fail the
+                  run; a test that fails every re-run still exits 1.
   Per-file timeout: --test-timeout (default 120000 ms for the fast lane, 600000
                   ms otherwise); MIXDOG_TEST_TIMEOUT_MS overrides, 0 disables.
   --import        forwarded to node (desktop passes its test-env and tsx loaders).
@@ -88,15 +87,11 @@ function rerunCount(value) {
   return Number(value);
 }
 
-// Files run in parallel on every core, which exposes timing-sensitive tests
-// that pass alone. A local run therefore re-runs failed files once and reports
-// a pass on the re-run as flaky (named in the failure summary). CI keeps the
-// strict policy unless it opts in with --rerun-failed or MIXDOG_TEST_RERUN_FAILED;
-// MIXDOG_TEST_RERUN_FAILED=0 turns the local default off.
+// Every failure fails the run, locally and in CI: a test that passes only on a
+// re-run is a defect to fix, not a pass. Re-runs happen only on an explicit
+// --rerun-failed or MIXDOG_TEST_RERUN_FAILED, to classify a failure as flaky.
 export function defaultRerunFailed(env = process.env) {
-  if (/^\d+$/.test(String(env.MIXDOG_TEST_RERUN_FAILED ?? ''))) return Number(env.MIXDOG_TEST_RERUN_FAILED);
-  const ci = String(env.CI ?? '').toLowerCase();
-  return ci && ci !== '0' && ci !== 'false' ? 0 : 1;
+  return /^\d+$/.test(String(env.MIXDOG_TEST_RERUN_FAILED ?? '')) ? Number(env.MIXDOG_TEST_RERUN_FAILED) : 0;
 }
 
 export function parseArgs(argv) {

@@ -23,6 +23,7 @@ const names = [
   'setup-guide',
   'skill-creator',
   'code-tidy',
+  'test-suite',
 ];
 
 test('every shipped skill and built-in feature has translated UI descriptions in every supported non-English language', async () => {

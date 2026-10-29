@@ -64,6 +64,7 @@ const SKILL_ARTWORK: Record<string, CapabilityArtwork> = {
   image: 'image',
   video: 'video',
   'code-tidy': 'tidy',
+  'test-suite': 'goal',
 };
 
 const PLATE = { fill: 'currentColor', fillOpacity: 0.14, stroke: 'none' } as const;

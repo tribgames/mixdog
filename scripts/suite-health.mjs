@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 // Weekly opt-out sweep: run every test:*/smoke:* npm script in the repository
-// so no locally-registered suite can rot silently (docs/testing.md, "A
-// contract suite runs in CI or it drifts"). New scripts join automatically;
+// so no locally-registered suite can rot silently (docs/testing.md, "CI coverage"). New scripts join automatically;
 // exclusions are explicit, reasoned, and fail closed when they go stale.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';

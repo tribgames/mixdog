@@ -68,11 +68,11 @@ test('per-file timeout: flag wins, env overrides the lane default, 0 disables', 
   assert.equal(testTimeoutArg(['--test-timeout=9'], { MIXDOG_TEST_TIMEOUT_MS: '5000' }, 120_000), null);
 });
 
-test('local runs re-run failures once; CI stays strict unless it opts in', () => {
-  assert.equal(defaultRerunFailed({}), 1);
+test('no run re-runs failures unless it opts in', () => {
+  assert.equal(defaultRerunFailed({}), 0);
   assert.equal(defaultRerunFailed({ CI: 'true' }), 0);
+  assert.equal(defaultRerunFailed({ MIXDOG_TEST_RERUN_FAILED: '2' }), 2);
   assert.equal(defaultRerunFailed({ CI: 'true', MIXDOG_TEST_RERUN_FAILED: '2' }), 2);
-  assert.equal(defaultRerunFailed({ MIXDOG_TEST_RERUN_FAILED: '0' }), 0);
 });
 
 test('a full-suite file list is batched under the command-line cap, in order', () => {

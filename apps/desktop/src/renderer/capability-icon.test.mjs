@@ -28,6 +28,7 @@ test('all built-in capabilities and shipped skills render self-contained scalabl
     'image',
     'video',
     'code-tidy',
+    'test-suite',
   ];
   for (const [kind, names] of [
     ['builtin', features],
