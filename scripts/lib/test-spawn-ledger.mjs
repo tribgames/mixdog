@@ -1,5 +1,5 @@
 // Preloaded (--import) into every test process the runner starts: records
-// "<pid> <spawn time ms>" for each child process, so a process a test leaves
+// each child process's pid, spawn time and exit, so a process a test leaves
 // running can be traced back to the run after its parent exited
 // (scripts/lib/run-node-tests.mjs). Without the runner's environment it does
 // nothing.
@@ -54,11 +54,20 @@ if (
 
 const ledger = spawnLedgerPath(process.env[FAILURE_RECORDS_ENV]);
 if (ledger) {
-  // spawn, exec, execFile and fork all start their process here.
+  // spawn, exec, execFile and fork all start their process here. A spawn is
+  // "<pid> <before> <since>", the clock just before and just after it; the
+  // same line plus "<exited>" follows once its exit is seen. The 'exit' event
+  // comes before the child's handle is closed, so the pid is still this
+  // child's when the exit is written: from then on another process may hold it.
   const spawn = ChildProcess.prototype.spawn;
   ChildProcess.prototype.spawn = function recordedSpawn(...args) {
+    const before = Date.now();
     const result = spawn.apply(this, args);
-    if (this.pid) appendFileSync(ledger, `${this.pid} ${Date.now()}\n`);
+    if (this.pid) {
+      const spawned = `${this.pid} ${before} ${Date.now()}`;
+      appendFileSync(ledger, `${spawned}\n`);
+      this.once('exit', () => appendFileSync(ledger, `${spawned} ${Date.now()}\n`));
+    }
     return result;
   };
 }

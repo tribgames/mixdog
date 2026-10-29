@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, utimes, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, realpath, rename, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -24,6 +24,7 @@ import { parseArgs } from './test.mjs';
 
 const runnerPath = fileURLToPath(new URL('./test.mjs', import.meta.url));
 const runNodeTestsUrl = new URL('./lib/run-node-tests.mjs', import.meta.url).href;
+const spawnLedgerUrl = new URL('./lib/test-spawn-ledger.mjs', import.meta.url).href;
 const WINDOWS_COMMAND_LINE_LIMIT = 32_767;
 const cost = (files) => files.reduce((total, file) => total + file.length + 3, 0);
 
@@ -292,16 +293,67 @@ test('a process a test leaves running is killed, while one that only names the s
   assert.match(output.stdout.trimEnd().split('\n').at(-1), /^\[failure-summary\] 0 failed, 0 flaky/);
 });
 
+test('a process outside the run that took the pid of a spawn the run saw exit survives the run', async (t) => {
+  // Windows hands a freed pid to the next process within milliseconds. The
+  // ledger here records what a test sees when a child it started exits a
+  // moment before a process outside the run (another run's test runner, in
+  // the gate) starts under the same pid.
+  const cwd = await fixture(t, {
+    'reuse.test.mjs': `
+      import { appendFileSync, existsSync, readFileSync, writeFileSync } from 'node:fs';
+      import test from 'node:test';
+      import { setTimeout as delay } from 'node:timers/promises';
+      test('a recorded child exits and its pid is reused', async () => {
+        writeFileSync('started', '');
+        for (let waited = 0; !existsSync('bystander.json') && waited < 30_000; waited += 100) await delay(100);
+        const { pid, before } = JSON.parse(readFileSync('bystander.json', 'utf8'));
+        const spawned = \`\${pid} \${before - 1_005} \${before - 1_000}\`;
+        appendFileSync(\`\${process.env.MIXDOG_TEST_FAILURE_RECORDS}.spawns\`, \`\${spawned}\\n\${spawned} \${before - 700}\\n\`);
+      });
+    `,
+  });
+  const probe = `
+    const { runNodeTests } = await import(${JSON.stringify(runNodeTestsUrl)});
+    await runNodeTests(['--test'], ['reuse.test.mjs']);
+  `;
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT;
+  const run = spawn(process.execPath, ['--input-type=module', '--eval', probe], { cwd, env });
+  const output = { stdout: '', stderr: '' };
+  run.stdout.on('data', (chunk) => (output.stdout += chunk));
+  run.stderr.on('data', (chunk) => (output.stderr += chunk));
+  const status = new Promise((resolve) => run.on('close', resolve));
+  for (let waited = 0; !existsSync(join(cwd, 'started')) && waited < 30_000; waited += 100) await delay(100);
+  const before = Date.now();
+  const bystander = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
+  t.after(() => bystander.kill());
+  await new Promise((resolve) => bystander.on('spawn', resolve));
+  await writeFile(join(cwd, 'bystander.tmp'), JSON.stringify({ pid: bystander.pid, before }));
+  await rename(join(cwd, 'bystander.tmp'), join(cwd, 'bystander.json'));
+  const code = await status;
+  t.after(() => rm(dirname(/^Full test log: (.+)$/m.exec(output.stderr)[1]), { recursive: true, force: true }));
+  assert.equal(code, 0, output.stdout + output.stderr);
+  assert.doesNotMatch(output.stderr, new RegExp(`left running:.*\\b${bystander.pid}\\b`));
+  assert.doesNotThrow(() => process.kill(bystander.pid, 0), 'the process outside the run survived');
+});
+
 test('ownership follows recorded spawns and their descendants, never a reused pid', () => {
   const scratchDir = join(tmpdir(), 'mixdog-test-scratch-x');
-  const batchStart = 1_000_000;
-  const at = (offset) => batchStart + offset;
+  const at = (offset) => 1_000_000 + offset;
+  // A recorded spawn: the clock before and after the spawn call, and its exit when seen.
+  const spawned = (pid, before, since, exited) => ({
+    pid,
+    before: at(before),
+    since: at(since),
+    ...(exited === undefined ? {} : { exited: at(exited) }),
+  });
   const snapshot = [
-    // Orphan of recorded spawn 10 (exited), and its child.
-    { pid: 11, ppid: 10, created: at(5_000), exe: 'C:\\Windows\\System32\\cmd.exe' },
+    // Orphan of recorded spawn 10 (exited), started while the spawn call was
+    // still returning, and its child.
+    { pid: 11, ppid: 10, created: at(4_800), exe: 'C:\\Windows\\System32\\cmd.exe' },
     { pid: 12, ppid: 11, created: at(5_100), exe: 'C:\\pg\\postgres.exe' },
     // Recorded spawn 20 is alive under its own identity.
-    { pid: 20, ppid: 1, created: at(6_000), exe: 'node.exe' },
+    { pid: 20, ppid: 1, created: at(5_996), exe: 'node.exe' },
     // Pid 30 was recorded, exited and was reused by a later, unrelated process:
     // its younger child is not the run's, an older orphan of the recorded one is.
     { pid: 30, ppid: 1, created: at(60_000), exe: 'editor.exe' },
@@ -311,17 +363,59 @@ test('ownership follows recorded spawns and their descendants, never a reused pi
     { pid: 40, ppid: 2, created: at(9_000), exe: join(scratchDir, 'data', 'pg', 'bin', 'postgres.exe') },
     // Only names the scratch root; not started by the run.
     { pid: 50, ppid: 3, created: at(9_500), exe: 'code.exe' },
+    // Another run's node --test process took recorded spawn 60's pid 1.5 s
+    // after that spawn had exited; neither it nor its test file process is
+    // this run's.
+    { pid: 60, ppid: 4, created: at(11_500), exe: 'node.exe' },
+    { pid: 61, ppid: 60, created: at(30_000), exe: 'node.exe' },
+    // Recorded spawn 70's exit was never seen (its spawner ended first); the
+    // process holding its pid was created a second after that spawn.
+    { pid: 70, ppid: 5, created: at(13_000), exe: 'node.exe' },
+    // A process that reused exited spawn 80's pid and is gone left this child.
+    { pid: 81, ppid: 80, created: at(16_000), exe: 'node.exe' },
   ];
   const anchors = [
-    { pid: 10, since: at(4_900) },
-    { pid: 20, since: at(6_000) },
-    { pid: 30, since: at(7_000) },
+    spawned(10, 4_700, 5_000, 5_200),
+    spawned(20, 5_990, 6_000),
+    spawned(30, 6_990, 7_000, 9_000),
+    spawned(60, 9_990, 10_000, 10_300),
+    spawned(70, 11_990, 12_000),
+    spawned(80, 13_990, 14_000, 15_000),
   ];
-  const owned = ownedProcesses(snapshot, anchors, { batchStart, scratchDir, platform: 'win32' });
+  const owned = ownedProcesses(snapshot, anchors, { scratchDir, platform: 'win32' });
   assert.deepEqual(
     owned.map((entry) => entry.pid).sort((a, b) => a - b),
     [11, 12, 20, 32, 40]
   );
+});
+
+test('the spawn ledger brackets each spawn with the clock and records the exit its spawner saw', async (t) => {
+  const dir = await mkdtemp(join(tmpdir(), 'mixdog-spawn-ledger-'));
+  t.after(() => rm(dir, { recursive: true, force: true }));
+  const records = join(dir, 'batch-1.jsonl');
+  const probe = `
+    import { spawn } from 'node:child_process';
+    const child = spawn(process.execPath, ['-e', '']);
+    await new Promise((resolve) => child.on('exit', resolve));
+    console.log(child.pid);
+  `;
+  const env = { ...process.env, MIXDOG_TEST_FAILURE_RECORDS: records };
+  delete env.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, ['--import', spawnLedgerUrl, '--input-type=module', '--eval', probe], {
+    env,
+    encoding: 'utf8',
+    timeout: 20_000,
+  });
+  assert.equal(result.status, 0, result.stderr);
+  const pid = Number(result.stdout.trim());
+  const lines = (await readFile(`${records}.spawns`, 'utf8'))
+    .trim()
+    .split('\n')
+    .map((line) => line.split(' ').map(Number));
+  assert.equal(lines.length, 2, lines.join('\n'));
+  const [[spawnedPid, before, since], [exitedPid, exitBefore, exitSince, exited]] = lines;
+  assert.deepEqual([spawnedPid, exitedPid, exitBefore, exitSince], [pid, pid, before, since]);
+  assert.ok(before <= since && since <= exited, lines.join('\n'));
 });
 
 test('a batch that never finishes is killed by the watchdog and named, and later batches still run', async (t) => {
@@ -496,5 +590,10 @@ test('--test-concurrency consumes its value in both forms and still beats the en
 test('a non-zero exit with no failed test is reported as a failed run, not "0 failed"', async () => {
   const { formatFailureSummary } = await import('./lib/test-failure-summary.mjs');
   assert.match(formatFailureSummary({ exitCode: 9 }), /^\[failure-summary\] RUN FAILED: exit code 9/);
+  // The runner process is named, so a kill from outside can be matched to its "Killing ..." line.
+  assert.match(
+    formatFailureSummary({ exitCode: 1, pids: [45952] }),
+    /^\[failure-summary\] RUN FAILED: exit code 1 with no failed test recorded \(node --test pid 45952: /
+  );
   assert.match(formatFailureSummary({ exitCode: 0 }), /^\[failure-summary\] 0 failed, 0 flaky/);
 });

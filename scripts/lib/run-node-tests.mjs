@@ -190,17 +190,29 @@ async function processSnapshot() {
     });
 }
 
-const CLOCK_SLACK_MS = 2000;
+// How far a snapshot's creation time may sit from Date.now() read around the
+// spawn. Windows reports creation to the microsecond from the same system
+// clock, so only a clock tick separates them; POSIX ps reports whole elapsed
+// seconds. No wider: Windows hands a freed pid to the next process within
+// milliseconds, and a 2 s window made a process another run had just started
+// pass for one of this run's exited spawns, so it was killed with them.
+const clockSlackMs = (platform) => (platform === 'win32' ? 50 : 2000);
 
 // The processes this run owns, out of a snapshot: an anchor (the batch, or a
 // child a test process recorded in its spawn ledger) still alive under its
-// pid, the orphans an exited anchor left (they still name it as their parent;
-// a later process that reuses its pid only has younger children), every
-// descendant of those, and anything executing from the run's scratch root
-// (e.g. the postgres the memory runtime downloads into MIXDOG_DATA_DIR).
+// pid, the orphans an exited anchor left (they still name it as their parent),
+// every descendant of those, and anything executing from the run's scratch
+// root (e.g. the postgres the memory runtime downloads into MIXDOG_DATA_DIR).
+// An anchor is { pid, before, since, exited? }: the clock just before and just
+// after its spawn, and when its exit was seen. A pid alone never identifies a
+// process: an anchor seen to exit no longer holds its pid, so whatever holds
+// it now is another process; a live holder was created within its spawn; an
+// orphan was created while its anchor lived (a later process that reuses the
+// pid only has younger children); a descendant is younger than its parent.
 // Command-line text never makes a process the run's: an editor or terminal
 // opened on the scratch root is not.
-export function ownedProcesses(snapshot, anchors, { batchStart, scratchDir, platform = process.platform }) {
+export function ownedProcesses(snapshot, anchors, { scratchDir, platform = process.platform }) {
+  const slack = clockSlackMs(platform);
   const byPid = new Map(snapshot.map((entry) => [entry.pid, entry]));
   const childrenOf = new Map();
   for (const entry of snapshot) childrenOf.set(entry.ppid, [...(childrenOf.get(entry.ppid) ?? []), entry]);
@@ -211,14 +223,19 @@ export function ownedProcesses(snapshot, anchors, { batchStart, scratchDir, plat
     owned.set(entry.pid, entry);
     queue.push(entry);
   };
-  for (const { pid, since } of anchors) {
+  for (const { pid, before, since, exited } of anchors) {
     const holder = byPid.get(pid);
-    if (holder && holder.created >= batchStart - CLOCK_SLACK_MS && holder.created <= since + CLOCK_SLACK_MS) {
+    if (holder && exited === undefined && holder.created >= before - slack && holder.created <= since + slack) {
       claim(holder);
       continue;
     }
     for (const orphan of childrenOf.get(pid) ?? []) {
-      if (orphan.created >= since - CLOCK_SLACK_MS && (!holder || orphan.created < holder.created)) claim(orphan);
+      if (
+        orphan.created >= before - slack &&
+        orphan.created <= (exited ?? Number.POSITIVE_INFINITY) + slack &&
+        (!holder || orphan.created < holder.created)
+      )
+        claim(orphan);
     }
   }
   const fold = (path) => (platform === 'win32' ? path.toLowerCase() : path);
@@ -230,26 +247,30 @@ export function ownedProcesses(snapshot, anchors, { batchStart, scratchDir, plat
   while (queue.length > 0) {
     const parent = queue.pop();
     for (const entry of childrenOf.get(parent.pid) ?? []) {
-      if (entry.created >= parent.created - CLOCK_SLACK_MS) claim(entry);
+      if (entry.created >= parent.created - slack) claim(entry);
     }
   }
   return [...owned.values()];
 }
 
+// One anchor per recorded spawn (scripts/lib/test-spawn-ledger.mjs): its
+// "<pid> <before> <since>" line, with "<exited>" from the line that repeats
+// it once the exit was seen.
 async function readSpawnLedger(path) {
   const text = await readFile(path, 'utf8').catch(() => '');
-  return text
-    .split('\n')
-    .filter(Boolean)
-    .map((line) => {
-      const [pid, since] = line.split(' ').map(Number);
-      return { pid, since };
-    });
+  const spawns = new Map();
+  for (const line of text.split('\n').filter(Boolean)) {
+    const [pid, before, since, exited] = line.split(' ').map(Number);
+    const key = `${pid} ${before} ${since}`;
+    spawns.set(key, { ...(spawns.get(key) ?? { pid, before, since }), ...(exited ? { exited } : {}) });
+  }
+  return [...spawns.values()];
 }
 
 // A process a test leaves running must not outlive its batch: it can hold a
 // port, a database, or files in the scratch root the run removes at the end.
-async function reapLeftovers(child, { batchStart, ledger, scratchDir }) {
+// `batch` is the batch's own anchor, its exit already seen.
+async function reapLeftovers(child, { batch, ledger, scratchDir }) {
   // The batch itself has exited: only its process group can remain.
   if (process.platform !== 'win32' && child.pid) {
     try {
@@ -258,12 +279,12 @@ async function reapLeftovers(child, { batchStart, ledger, scratchDir }) {
       /* the group is empty */
     }
   }
-  const anchors = [...(child.pid ? [{ pid: child.pid, since: batchStart }] : []), ...(await readSpawnLedger(ledger))];
-  await killOwned(anchors, { batchStart, scratchDir });
+  const anchors = [...(child.pid ? [batch] : []), ...(await readSpawnLedger(ledger))];
+  await killOwned(anchors, { scratchDir });
 }
 
-async function killOwned(anchors, { batchStart, scratchDir }) {
-  const leftovers = ownedProcesses(await processSnapshot(), anchors, { batchStart, scratchDir });
+async function killOwned(anchors, { scratchDir }) {
+  const leftovers = ownedProcesses(await processSnapshot(), anchors, { scratchDir });
   if (leftovers.length === 0) return;
   const pids = leftovers.map((entry) => entry.pid);
   console.error(`Killing ${pids.length} process(es) a test left running: ${pids.join(' ')}`);
@@ -280,12 +301,13 @@ async function killOwned(anchors, { batchStart, scratchDir }) {
   }
 }
 
-// Resolves { code, hung } once the batch exited and its leftovers are gone.
+// Resolves { code, hung, pid } once the batch exited and its leftovers are gone.
 // `scratchDir` '' = leave the scratch-root sweep to the caller (side-by-side batches).
 function spawnBatch(args, env, { files, ledger, scratchDir, timeoutMs }) {
   return new Promise((resolve) => {
-    const batchStart = Date.now();
+    const before = Date.now();
     const child = spawn(process.execPath, args, { stdio: 'inherit', env, detached: process.platform !== 'win32' });
+    const since = Date.now();
     let hung = '';
     const watchdog = setTimeout(() => {
       hung = `hung after ${minutes(timeoutMs)} min: ${files.join(' ') || '(discovered files)'}`;
@@ -303,10 +325,11 @@ function spawnBatch(args, env, { files, ledger, scratchDir, timeoutMs }) {
     const signals = process.platform === 'win32' ? [] : ['SIGINT', 'SIGTERM'];
     for (const signal of signals) process.on(signal, forward);
     const settle = async (code) => {
+      const batch = { pid: child.pid, before, since, exited: Date.now() };
       clearTimeout(watchdog);
       for (const signal of signals) process.off(signal, forward);
-      await reapLeftovers(child, { batchStart, ledger, scratchDir });
-      resolve({ code: hung ? 1 : code, hung });
+      await reapLeftovers(child, { batch, ledger, scratchDir });
+      resolve({ code: hung ? 1 : code, hung, pid: child.pid });
     };
     child.on('error', (error) => {
       console.error(error);
@@ -462,7 +485,7 @@ async function executeRun(
   );
   // Peers were still running while each batch exited, so the scratch root's
   // own processes (e.g. a postgres a test started) are swept once, here.
-  if (overlapped) await killOwned([], { batchStart: Date.now(), scratchDir });
+  if (overlapped) await killOwned([], { scratchDir });
   // Logs and records merge in batch order, whatever order the batches finished.
   for (const [index, outcome] of outcomes.entries()) {
     const batchLog = batchLogOf(index);
@@ -519,6 +542,7 @@ async function executeRun(
     await rm(coverageDir, { recursive: true, force: true });
   }
   // Last line of the run, after every reporter and the coverage report.
-  process.stdout.write(`\n${formatFailureSummary({ failed, flaky, rerunFailed, hung, exitCode: status })}`);
+  const pids = outcomes.filter((outcome) => outcome.code !== 0 && outcome.pid).map((outcome) => outcome.pid);
+  process.stdout.write(`\n${formatFailureSummary({ failed, flaky, rerunFailed, hung, exitCode: status, pids })}`);
   return status;
 }

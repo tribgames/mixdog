@@ -46,13 +46,24 @@ export function policyLine(rerunFailed) {
 // `hung` holds one "hung after N min: <files>" message per batch the runner's
 // watchdog killed; such a batch fails the run whatever its tests reported.
 // A non-zero `exitCode` with no failed test, flaky test or hung batch behind it
-// (a bad node flag, a crashed runner) is its own failure, never "0 failed".
-export function formatFailureSummary({ failed = [], flaky = [], rerunFailed = 0, hung = [], exitCode = 0 }) {
+// (a bad node flag, a crashed runner, a kill from outside) is its own failure,
+// never "0 failed". `pids` names the node --test processes that exited
+// non-zero, so a kill can be matched to the "Killing ... <pid>" line of
+// whatever killed them.
+export function formatFailureSummary({
+  failed = [],
+  flaky = [],
+  rerunFailed = 0,
+  hung = [],
+  exitCode = 0,
+  pids = [],
+}) {
   const hungCount = hung.length > 0 ? `, ${hung.length} hung batch(es)` : '';
   const unexplained = exitCode !== 0 && failed.length === 0 && hung.length === 0;
+  const runner = pids.length > 0 ? `node --test pid ${pids.join(' ')}: ` : '';
   const lines = [
     unexplained
-      ? `${SUMMARY_TAG} RUN FAILED: exit code ${exitCode} with no failed test recorded (bad argument or runner error; see output above)`
+      ? `${SUMMARY_TAG} RUN FAILED: exit code ${exitCode} with no failed test recorded (${runner}bad argument, runner error or killed from outside; see output above)`
       : `${SUMMARY_TAG} ${failed.length} failed, ${flaky.length} flaky${hungCount} (every failed test is named below)`,
   ];
   for (const message of hung) lines.push(`${SUMMARY_TAG} HUNG ${message}`);
