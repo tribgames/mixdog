@@ -25,23 +25,21 @@ Improved the agent harness with Explore, a dedicated exploration agent, and stro
 - Changed the desktop and CLI to follow the system proxy, with PAC scripts and exceptions applied per address on desktop, keeping local and LAN hosts direct.
 - Changed tool activity rows to show elapsed time only while a command is still running.
 - Changed agents stopped as stalled to leave a `stall_abort` row in `history/tool-failures.jsonl`, so a wrongly stopped agent can be reported.
+- Changed Git on Windows to start `git.exe` directly and record turn changes with fewer processes, making turns, Undo/Reapply and git tool calls faster.
 
 ### Bug fixes
 
-- Fixed Stop and Release anyway leaving a finished command's child processes running (#259).
+- Fixed stopping commands on Windows: child processes kept running after Stop, Release anyway, a timeout or closing a session, a background command could hang when stopped, and an unrelated older process could be taken for a leftover (#259). Each command now runs in its own Windows job; `MIXDOG_SHELL_ALLOW_BREAKAWAY=1` lets a command start processes outside it.
 - Fixed a group room repeating "could not reply" for every bot when the usage limit ran out; it now stops once and says why.
-- Fixed long or compacted sessions not scrolling back to their first message on desktop and phone.
-- Fixed a session showing "Session unavailable" while other busy sessions were sending large updates.
+- Fixed session views: long or compacted sessions not scrolling back to their first message, "Session unavailable" while other sessions sent large updates, and the phone's Sessions drawer opening the Bots page instead of the chat.
 - Fixed Codex conversations kept only as compressed files failing to import (#262).
 - Fixed connector sign-in repeating an "Unrecognized client_id" error after the service forgot Mixdog's registration (#269).
 - Fixed the TUI cutting off long sign-in URLs, and added `Ctrl+Y` to copy them (#261).
-- Fixed voice input failing to start on busy Windows PCs.
+- Fixed voice input failing to start, and settings or session saves failing, on busy Windows PCs.
 - Fixed Chinese and Japanese table cells pushing the table past its frame.
 - Fixed Vertex AI models missing the Service tier choice (Standard, Flex, Priority), and queued Flex requests being cut off after a minute (#271).
 - Fixed an agent being stopped as stalled after a single failed progress read stopped its activity timer from updating.
 - Fixed Computer Use `verify` giving up after 2 seconds regardless of `timeout_ms`, and waiting needlessly when an elevated window's text cannot be read (#274).
-- Fixed tapping a bot or room in the phone's Sessions drawer switching to the Bots page instead of opening its chat.
-- Fixed an unrelated older process on Windows being mistaken for a finished command's leftover, keeping its workspace busy or stopping that process.
 
 ## v1.4.1 - 2026-10-27
 

@@ -25,23 +25,21 @@ Amélioration du harnais d'agents avec Explore, un agent dédié à l'exploratio
 - L'application de bureau et le CLI suivent désormais le proxy système, avec application des scripts PAC et des exceptions par adresse sur ordinateur, tout en gardant un accès direct pour les hôtes locaux et du réseau local (LAN).
 - Les lignes d'activité des outils n'affichent désormais le temps écoulé que pendant l'exécution d'une commande.
 - Lorsqu'un agent est arrêté parce qu'il semble ne plus avancer, il enregistre désormais une ligne `stall_abort` dans `history/tool-failures.jsonl`, afin de pouvoir signaler un arrêt injustifié.
+- Git sous Windows lance désormais `git.exe` directement et enregistre les modifications d'un tour avec moins de processus, ce qui accélère les tours, Annuler/Réappliquer et les appels à l'outil git.
 
 ### Corrections de bugs
 
-- Correction d'un problème où Arrêter et Libérer quand même laissaient tourner les processus enfants d'une commande terminée (#259).
+- Correction de l'arrêt des commandes sous Windows : les processus enfants continuaient de tourner après Arrêter, Libérer quand même, un délai d'expiration ou la fermeture d'une session, une commande en arrière-plan pouvait se bloquer à l'arrêt, et un processus plus ancien sans rapport pouvait être pris à tort pour un processus résiduel (#259). Chaque commande s'exécute désormais dans son propre job Windows ; `MIXDOG_SHELL_ALLOW_BREAKAWAY=1` permet à une commande de lancer des processus en dehors de celui-ci.
 - Correction d'un salon de groupe qui répétait « n’a pas pu répondre » pour chaque bot une fois la limite d'utilisation atteinte ; il s'arrête désormais une seule fois en indiquant la raison.
-- Correction de l'impossibilité de remonter jusqu'au premier message dans les sessions longues ou compactées sur ordinateur et téléphone.
-- Correction d'une session qui affichait « Session indisponible » pendant que d'autres sessions très actives envoyaient de volumineuses mises à jour.
+- Correction des vues de session : impossibilité de remonter jusqu'au premier message dans les sessions longues ou compactées, affichage de « Session indisponible » pendant que d'autres sessions envoyaient de volumineuses mises à jour, et ouverture de la page Bots au lieu de la discussion depuis le tiroir Sessions sur téléphone.
 - Correction de l'échec d'importation des conversations Codex conservées uniquement sous forme de fichiers compressés (#262).
 - Correction de la connexion à un connecteur qui répétait l'erreur "Unrecognized client_id" lorsque le service avait oublié l'enregistrement de Mixdog (#269).
 - Correction des URL de connexion longues tronquées dans la TUI, et ajout de `Ctrl+Y` pour les copier (#261).
-- Correction de la saisie vocale qui ne démarrait pas sur les PC Windows très sollicités.
+- Correction de la saisie vocale qui ne démarrait pas et de l'échec de l'enregistrement des paramètres ou des sessions sur les PC Windows très sollicités.
 - Correction des cellules de tableau contenant du chinois ou du japonais qui faisaient déborder le tableau de son cadre.
 - Correction de l'absence du choix du niveau de service (Standard, Flex, Priority) sur les modèles Vertex AI, et de l'interruption après une minute des requêtes Flex en file d'attente (#271).
 - Correction d'un problème où un seul échec de lecture de la progression bloquait le minuteur d'activité et faisait arrêter l'agent à tort comme s'il n'avançait plus.
 - Correction de `verify` dans Computer Use qui abandonnait au bout de 2 secondes indépendamment de `timeout_ms`, et attendait inutilement lorsque le texte d'une fenêtre exécutée avec des privilèges élevés ne pouvait pas être lu (#274).
-- Correction d'un appui sur un bot ou un salon dans le tiroir Sessions sur téléphone qui basculait vers la page Bots au lieu d'ouvrir sa discussion.
-- Correction d'un problème sous Windows où un processus plus ancien sans rapport était pris à tort pour un processus résiduel d'une commande terminée, ce qui maintenait l'espace de travail occupé ou arrêtait ce processus.
 
 ## v1.4.1 - 2026-10-27
 

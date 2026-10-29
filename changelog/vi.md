@@ -24,23 +24,21 @@ Cải thiện bộ điều phối agent với Explore, một agent chuyên khả
 - Bản máy tính và CLI nay tuân theo proxy hệ thống, áp dụng kịch bản PAC và danh sách ngoại lệ cho từng địa chỉ trên máy tính, đồng thời kết nối trực tiếp với các địa chỉ nội bộ (local) và mạng LAN.
 - Dòng hoạt động của công cụ chỉ hiển thị thời gian đã trôi qua khi lệnh vẫn đang chạy.
 - Khi agent bị dừng vì được cho là không còn tiến triển, hệ thống sẽ ghi lại một dòng `stall_abort` vào `history/tool-failures.jsonl` để có thể báo cáo nếu agent bị dừng nhầm.
+- Trên Windows, Git nay khởi chạy trực tiếp `git.exe` và dùng ít tiến trình hơn khi ghi nhận thay đổi của lượt, giúp xử lý lượt, Hoàn tác/Áp dụng lại và gọi công cụ git nhanh hơn.
 
 ### Sửa lỗi
 
-- Sửa lỗi nhấn Dừng hoặc Vẫn giải phóng nhưng các tiến trình con của lệnh đã kết thúc vẫn tiếp tục chạy (#259).
+- Sửa lỗi dừng lệnh trên Windows: các tiến trình con vẫn tiếp tục chạy sau khi nhấn Dừng, Vẫn giải phóng, hết thời gian chờ hoặc đóng phiên, lệnh chạy nền có thể bị treo khi dừng, và một tiến trình cũ không liên quan có thể bị nhận nhầm là tiến trình còn sót lại (#259). Mỗi lệnh nay chạy trong một Windows job riêng; đặt `MIXDOG_SHELL_ALLOW_BREAKAWAY=1` để cho phép lệnh khởi chạy tiến trình bên ngoài job đó.
 - Sửa lỗi phòng trò chuyện nhóm lặp lại thông báo "không thể trả lời" cho từng bot khi hết hạn mức sử dụng; nay chỉ dừng một lần và nêu rõ lý do.
-- Sửa lỗi các phiên dài hoặc đã rút gọn không thể cuộn ngược về tin nhắn đầu tiên trên cả máy tính và điện thoại.
-- Sửa lỗi phiên hiển thị "Phiên không khả dụng" trong lúc các phiên đang bận khác gửi bản cập nhật lớn.
+- Sửa các lỗi hiển thị phiên: các phiên dài hoặc đã rút gọn không thể cuộn ngược về tin nhắn đầu tiên, thông báo "Phiên không khả dụng" xuất hiện khi các phiên khác gửi bản cập nhật lớn, và ngăn kéo Phiên trên điện thoại mở trang Bot thay vì cuộc trò chuyện.
 - Sửa lỗi không nhập được các cuộc trò chuyện Codex chỉ còn lưu dưới dạng tệp nén (#262).
 - Sửa lỗi đăng nhập trình kết nối lặp lại thông báo "Unrecognized client_id" sau khi dịch vụ quên thông tin đăng ký của Mixdog (#269).
 - Sửa lỗi giao diện TUI làm mất phần cuối của các URL đăng nhập dài, đồng thời thêm phím tắt `Ctrl+Y` để sao chép (#261).
-- Sửa lỗi không thể bắt đầu nhập giọng nói trên các máy Windows đang tải nặng.
+- Sửa lỗi không thể bắt đầu nhập giọng nói và lỗi lưu cài đặt hoặc phiên trên các máy Windows đang tải nặng.
 - Sửa lỗi các ô bảng chứa chữ Trung hoặc chữ Nhật làm bảng bị tràn khỏi khung.
 - Sửa lỗi các mô hình Vertex AI thiếu tùy chọn gói dịch vụ (Standard, Flex, Priority) và các yêu cầu Flex đang xếp hàng bị ngắt sau một phút (#271).
 - Sửa lỗi chỉ một lần đọc tiến độ thất bại đã làm bộ đếm hoạt động ngừng cập nhật, khiến agent bị dừng nhầm vì tưởng là không còn tiến triển.
 - Sửa lỗi `verify` của Computer Use bỏ cuộc sau 2 giây bất kể `timeout_ms`, và chờ đợi không cần thiết khi không đọc được văn bản của cửa sổ chạy dưới quyền quản trị (#274).
-- Sửa lỗi chạm vào bot hoặc phòng trong ngăn kéo Phiên trên điện thoại lại chuyển sang trang Bot thay vì mở cuộc trò chuyện tương ứng.
-- Sửa lỗi trên Windows nhận nhầm một tiến trình cũ không liên quan là tiến trình còn sót lại của lệnh đã kết thúc, làm không gian làm việc bị giữ ở trạng thái bận hoặc dừng tiến trình đó.
 
 ## v1.4.1 - 2026-10-27
 

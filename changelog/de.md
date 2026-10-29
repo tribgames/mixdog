@@ -24,23 +24,21 @@ Das Agenten-Harness wurde mit Explore, einem eigenen Erkundungsagenten, und eine
 - Desktop-App und CLI folgen nun dem System-Proxy, wobei in der Desktop-App PAC-Skripte und Ausnahmen pro Adresse angewendet und lokale sowie LAN-Adressen direkt verbunden werden.
 - Werkzeug-Aktivitätszeilen zeigen die verstrichene Zeit nur noch an, solange ein Befehl tatsächlich läuft.
 - Wenn ein Agent abgebrochen wird, weil er keinen Fortschritt mehr macht, wird nun eine `stall_abort`-Zeile in `history/tool-failures.jsonl` geschrieben, damit sich ein fälschlich gestoppter Agent melden lässt.
+- Git startet unter Windows nun `git.exe` direkt und zeichnet Änderungen pro Durchlauf mit weniger Prozessen auf, wodurch Durchläufe, Rückgängigmachen/Wiederholen und Git-Tool-Aufrufe schneller ablaufen.
 
 ### Fehlerbehebungen
 
-- Behoben: Nach Stopp oder Trotzdem freigeben liefen Kindprozesse eines bereits beendeten Befehls weiter (#259).
+- Behoben: Das Beenden von Befehlen unter Windows wurde korrigiert — Kindprozesse liefen nach Stopp, Trotzdem freigeben, einem Zeitlimit oder dem Schließen einer Sitzung weiter, ein Hintergrundbefehl konnte beim Beenden hängen bleiben, und ein unabhängiger älterer Prozess konnte fälschlich für einen übrig gebliebenen Prozess gehalten werden (#259). Jeder Befehl läuft nun in einem eigenen Windows-Job; mit `MIXDOG_SHELL_ALLOW_BREAKAWAY=1` kann ein Befehl Prozesse außerhalb davon starten.
 - Behoben: In Gruppenräumen wiederholte jeder Bot „konnte nicht antworten“, wenn das Nutzungslimit erreicht war; nun stoppt der Raum einmalig und nennt den Grund.
-- Behoben: Lange oder komprimierte Sitzungen ließen sich auf Desktop und Smartphone nicht bis zur ersten Nachricht zurückscrollen.
-- Behoben: Eine Sitzung zeigte „Sitzung nicht verfügbar“ an, während andere ausgelastete Sitzungen große Aktualisierungen sendeten.
+- Behoben: In den Sitzungsansichten ließen sich lange oder komprimierte Sitzungen nicht bis zur ersten Nachricht zurückscrollen, es erschien „Sitzung nicht verfügbar“, während andere Sitzungen große Aktualisierungen sendeten, und der Sitzungen-Drawer auf dem Smartphone öffnete die Bots-Seite statt den Chat.
 - Behoben: Nur als komprimierte Dateien gespeicherte Codex-Unterhaltungen ließen sich nicht importieren (#262).
 - Behoben: Bei der Konnektor-Anmeldung trat wiederholt der Fehler "Unrecognized client_id" auf, wenn der Dienst die Registrierung von Mixdog vergessen hatte (#269).
 - Behoben: Lange Anmelde-URLs wurden in der TUI abgeschnitten; mit `Ctrl+Y` lassen sie sich nun kopieren (#261).
-- Behoben: Auf ausgelasteten Windows-PCs startete die Spracheingabe nicht.
+- Behoben: Auf ausgelasteten Windows-PCs startete die Spracheingabe nicht oder das Speichern von Einstellungen und Sitzungen schlug fehl.
 - Behoben: Tabellenzellen mit chinesischem oder japanischem Text ragten über den Tabellenrahmen hinaus.
 - Behoben: Bei Vertex AI-Modellen fehlte die Auswahl der Servicestufe (Standard, Flex, Priority), und eingereihte Flex-Anfragen wurden nach einer Minute abgebrochen (#271).
 - Behoben: Ein einzelnes fehlgeschlagenes Auslesen des Fortschritts hielt den Aktivitäts-Timer an, sodass der Agent fälschlich wegen fehlenden Fortschritts gestoppt wurde.
 - Behoben: `verify` in Computer Use brach unabhängig von `timeout_ms` nach 2 Sekunden ab und wartete unnötig, wenn sich der Text eines Fensters mit erhöhten Rechten nicht auslesen ließ (#274).
-- Behoben: Das Antippen eines Bots oder Raums im Sitzungen-Drawer auf dem Smartphone wechselte zur Bots-Seite, statt den zugehörigen Chat zu öffnen.
-- Behoben: Unter Windows wurde ein unabhängiger älterer Prozess fälschlich für den Rest eines beendeten Befehls gehalten, wodurch der Arbeitsbereich weiter als belegt galt oder dieser Prozess beendet wurde.
 
 ## v1.4.1 - 2026-10-27
 

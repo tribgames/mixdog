@@ -24,23 +24,21 @@ Migliorato l'harness degli agenti con Explore, un agente dedicato all'esplorazio
 - L'app desktop e la CLI ora seguono il proxy di sistema, con script PAC ed eccezioni applicati per singolo indirizzo su desktop, mantenendo diretti gli host locali e sulla rete LAN.
 - Le righe di attività degli strumenti ora mostrano il tempo trascorso solo mentre un comando è in esecuzione.
 - Gli agenti fermati perché ritenuti bloccati senza progressi ora lasciano una riga `stall_abort` in `history/tool-failures.jsonl`, così da poter segnalare un'interruzione errata.
+- Git su Windows ora avvia direttamente `git.exe` e registra le modifiche del turno con meno processi, rendendo più rapidi i turni, Annulla/Riapplica e le chiamate allo strumento git.
 
 ### Correzioni di bug
 
-- Corretto il problema per cui Ferma e Rilascia comunque lasciavano in esecuzione i processi figli di un comando già terminato (#259).
+- Corretto l'arresto dei comandi su Windows: i processi figli rimanevano in esecuzione dopo Ferma, Rilascia comunque, un timeout o la chiusura di una sessione, un comando in background poteva bloccarsi durante l'arresto e un processo più vecchio non correlato poteva essere scambiato per un processo residuo (#259). Ogni comando ora viene eseguito nel proprio job di Windows; `MIXDOG_SHELL_ALLOW_BREAKAWAY=1` consente a un comando di avviare processi al di fuori di esso.
 - Corretto il problema per cui una stanza di gruppo ripeteva «non ha potuto rispondere» per ogni bot all'esaurimento del limite di utilizzo; ora si ferma una sola volta e ne indica il motivo.
-- Corretto il problema per cui nelle sessioni lunghe o compattate non era possibile scorrere fino al primo messaggio su desktop e telefono.
-- Corretto il problema per cui una sessione mostrava «Sessione non disponibile» mentre altre sessioni impegnate inviavano aggiornamenti di grandi dimensioni.
+- Corrette le viste delle sessioni: nelle sessioni lunghe o compattate non era possibile scorrere fino al primo messaggio, compariva «Sessione non disponibile» mentre altre sessioni inviavano aggiornamenti di grandi dimensioni e il cassetto Sessioni del telefono apriva la pagina Bot invece della chat.
 - Corretto il mancato import delle conversazioni Codex conservate solo come file compressi (#262).
 - Corretto l'accesso ai connettori che ripeteva l'errore "Unrecognized client_id" dopo che il servizio aveva dimenticato la registrazione di Mixdog (#269).
 - Corretto il taglio degli URL di accesso lunghi nella TUI e aggiunto `Ctrl+Y` per copiarli (#261).
-- Corretto il mancato avvio dell'input vocale sui PC Windows sotto carico.
+- Corretto il mancato avvio dell'input vocale e il fallimento del salvataggio delle impostazioni o delle sessioni sui PC Windows sotto carico.
 - Corretto lo sconfinamento delle celle con testo cinese o giapponese oltre la cornice della tabella.
 - Corretto il problema per cui nei modelli Vertex AI mancava la scelta del livello di servizio (Standard, Flex, Priority) e le richieste Flex in coda venivano interrotte dopo un minuto (#271).
 - Corretto il problema per cui una singola lettura fallita dell'avanzamento bloccava l'aggiornamento del timer di attività, facendo fermare per errore l'agente come se non stesse più avanzando.
 - Corretto il problema per cui `verify` di Computer Use rinunciava dopo 2 secondi indipendentemente da `timeout_ms` e attendeva inutilmente quando il testo di una finestra con privilegi elevati non poteva essere letto (#274).
-- Corretto il problema per cui toccando un bot o una stanza nel cassetto Sessioni del telefono si passava alla pagina Bot invece di aprire la relativa chat.
-- Corretto il problema su Windows per cui un processo più vecchio non correlato veniva scambiato per il residuo di un comando terminato, mantenendo occupata l'area di lavoro o arrestando quel processo.
 
 ## v1.4.1 - 2026-10-27
 

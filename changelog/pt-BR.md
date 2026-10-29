@@ -24,23 +24,21 @@ Melhoramos a estrutura de agentes com o Explore, um agente dedicado à exploraç
 - O aplicativo para computador e a CLI agora seguem o proxy do sistema, aplicando scripts PAC e exceções por endereço no computador e mantendo conexões diretas para endereços locais e da rede local (LAN).
 - As linhas de atividade de ferramentas agora mostram o tempo decorrido apenas enquanto o comando está em execução.
 - Quando um agente é interrompido por parecer sem progresso, ele agora grava uma linha `stall_abort` em `history/tool-failures.jsonl`, permitindo relatar quando um agente foi parado por engano.
+- O Git no Windows agora inicia o `git.exe` diretamente e registra as alterações de cada turno com menos processos, tornando os turnos, Desfazer/Reaplicar e as chamadas da ferramenta git mais rápidos.
 
 ### Correções de bugs
 
-- Corrigido o problema em que Parar e Liberar mesmo assim deixavam processos filhos de um comando já finalizado em execução (#259).
+- Corrigida a interrupção de comandos no Windows: processos filhos continuavam em execução após Parar, Liberar mesmo assim, um tempo limite esgotado ou o fechamento de uma sessão, um comando em segundo plano podia travar ao ser interrompido e um processo antigo sem relação podia ser confundido com uma sobra (#259). Cada comando agora roda em seu próprio job do Windows; `MIXDOG_SHELL_ALLOW_BREAKAWAY=1` permite que um comando inicie processos fora dele.
 - Corrigido o problema em que uma sala em grupo repetia "não conseguiu responder" para cada bot quando o limite de uso acabava; agora ela para uma única vez e informa o motivo.
-- Corrigido o problema em que sessões longas ou compactadas não rolavam de volta até a primeira mensagem no computador e no celular.
-- Corrigido o problema em que uma sessão exibia "Sessão indisponível" enquanto outras sessões ocupadas enviavam atualizações grandes.
+- Corrigidas as visualizações de sessão: sessões longas ou compactadas não rolavam de volta até a primeira mensagem, "Sessão indisponível" aparecia enquanto outras sessões enviavam atualizações grandes e a gaveta Sessões no celular abria a página Bots em vez do chat.
 - Corrigida a falha ao importar conversas do Codex mantidas apenas como arquivos compactados (#262).
 - Corrigido o login de conectores que repetia o erro "Unrecognized client_id" depois que o serviço esquecia o registro do Mixdog (#269).
 - Corrigido o corte de URLs longas de login na TUI e adicionado o atalho `Ctrl+Y` para copiá-las (#261).
-- Corrigida a falha ao iniciar a entrada de voz em PCs com Windows sobrecarregados.
+- Corrigida a falha ao iniciar a entrada de voz e ao salvar configurações ou sessões em PCs com Windows sobrecarregados.
 - Corrigido o problema em que células com texto em chinês ou japonês ultrapassavam a borda da tabela.
 - Corrigida a falta da opção de nível de serviço (Standard, Flex, Priority) nos modelos do Vertex AI e o corte das requisições Flex na fila após um minuto (#271).
 - Corrigido o problema em que uma única falha na leitura do progresso impedia a atualização do temporizador de atividade, fazendo o agente ser interrompido por engano como se tivesse parado de avançar.
 - Corrigido o problema em que o `verify` do Computer Use desistia após 2 segundos independentemente de `timeout_ms` e aguardava sem necessidade quando não era possível ler o texto de uma janela com privilégios elevados (#274).
-- Corrigido o problema em que tocar em um bot ou sala na gaveta Sessões no celular mudava para a página Bots em vez de abrir o respectivo chat.
-- Corrigido o problema no Windows em que um processo mais antigo sem relação era confundido com uma sobra de um comando finalizado, mantendo o espaço de trabalho ocupado ou encerrando esse processo.
 
 ## v1.4.1 - 2026-10-27
 

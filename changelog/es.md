@@ -25,23 +25,21 @@ Se mejoró el arnés de agentes con Explore, un agente dedicado a la exploració
 - La aplicación de escritorio y la CLI ahora siguen el proxy del sistema, aplicando scripts PAC y excepciones por dirección en el escritorio y manteniendo la conexión directa para direcciones locales y de red local (LAN).
 - Las filas de actividad de herramientas ahora muestran el tiempo transcurrido solo mientras el comando sigue en ejecución.
 - Cuando se detiene un agente por considerarse que se ha quedado sin avanzar, ahora deja una fila `stall_abort` en `history/tool-failures.jsonl` para poder informar si se detuvo por error.
+- Git en Windows ahora inicia `git.exe` directamente y registra los cambios de cada turno con menos procesos, agilizando los turnos, Deshacer/Reaplicar y las llamadas a la herramienta git.
 
 ### Correcciones de errores
 
-- Se corrigió un problema por el que Detener y Liberar de todos modos dejaban en ejecución los procesos secundarios de un comando ya terminado (#259).
+- Se corrigió la detención de comandos en Windows: los procesos secundarios seguían ejecutándose tras Detener, Liberar de todos modos, un tiempo de espera agotado o el cierre de una sesión, un comando en segundo plano podía bloquearse al detenerse y un proceso antiguo no relacionado podía confundirse con un proceso residual (#259). Ahora cada comando se ejecuta en su propio trabajo de Windows; `MIXDOG_SHELL_ALLOW_BREAKAWAY=1` permite que un comando inicie procesos fuera de él.
 - Se corrigió que en una sala grupal cada bot repitiera «no pudo responder» al agotarse el límite de uso; ahora se detiene una sola vez e indica el motivo.
-- Se corrigió que las sesiones largas o compactadas no permitieran desplazarse hasta el primer mensaje en el escritorio y el teléfono.
-- Se corrigió que una sesión mostrara «Sesión no disponible» mientras otras sesiones con mucha actividad enviaban actualizaciones grandes.
+- Se corrigieron las vistas de sesión: las sesiones largas o compactadas no permitían desplazarse hasta el primer mensaje, aparecía «Sesión no disponible» mientras otras sesiones enviaban actualizaciones grandes y el cajón de Sesiones del teléfono abría la página de Bots en lugar del chat.
 - Se corrigió que las conversaciones de Codex guardadas únicamente como archivos comprimidos fallaran al importarse (#262).
 - Se corrigió que el inicio de sesión de un conector repitiera el error "Unrecognized client_id" cuando el servicio olvidaba el registro de Mixdog (#269).
 - Se corrigió que la TUI cortara las URL largas de inicio de sesión, y se añadió `Ctrl+Y` para copiarlas (#261).
-- Se corrigió que la entrada de voz no se iniciara en PCs con Windows con mucha carga.
+- Se corrigió que la entrada de voz no se iniciara y que fallara el guardado de la configuración o de las sesiones en PCs con Windows con mucha carga.
 - Se corrigió que las celdas de tabla con texto en chino o japonés desbordaran el marco de la tabla.
 - Se corrigió que a los modelos de Vertex AI les faltara la opción de nivel de servicio (Standard, Flex, Priority) y que las solicitudes Flex en cola se cortaran al cabo de un minuto (#271).
 - Se corrigió que un único fallo al leer el progreso detuviera el temporizador de actividad y provocara que el agente se detuviera por error al parecer que no avanzaba.
 - Se corrigió que `verify` de Computer Use desistiera a los 2 segundos sin importar `timeout_ms` y esperara innecesariamente cuando no se podía leer el texto de una ventana con permisos elevados (#274).
-- Se corrigió que al tocar un bot o una sala en el cajón de Sesiones del teléfono se cambiara a la página de Bots en lugar de abrir su chat.
-- Se corrigió un problema en Windows por el que se confundía un proceso antiguo no relacionado con un resto de un comando ya terminado, lo que mantenía ocupado el espacio de trabajo o detenía ese proceso.
 
 ## v1.4.1 - 2026-10-27
 
