@@ -624,11 +624,18 @@ export function createTurnJournalEncoder({ turnToken, sessionId = null } = {}) {
      * and the journal's opening lines (head record, plus — defensively —
      * the delta that makes the journal authoritative if the tracker already
      * carried state at open time). `snapshot` is the tracker snapshot the
-     * header stores; `epoch` names the journal a rewritten header starts. */
-    seed(turnOutgoing, currentUserContent, interruption, contextState = null, { snapshot = null, epoch = 0 } = {}) {
+     * header stores; `epoch` names the journal a rewritten header starts;
+     * `whole` journals the whole transcript instead of the turn alone. */
+    seed(
+      turnOutgoing,
+      currentUserContent,
+      interruption,
+      contextState = null,
+      { snapshot = null, epoch = 0, whole = false } = {}
+    ) {
       const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
       const start = findTurnStart(source, currentUserContent);
-      fullTranscript = start < 0;
+      fullTranscript = whole || start < 0;
       journaled = fullTranscript ? source.slice() : source.slice(start);
       mirror = sensitiveValuesVersion(sessionId)
         ? {

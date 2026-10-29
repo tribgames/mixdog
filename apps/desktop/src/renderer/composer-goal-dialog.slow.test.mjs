@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 
-// The DOM suite owns mode selection and saving. This browser check owns the
-// actual field geometry, shared skin, and menu visibility above the dialog.
-test('goal time mode matches the dialog fields and opens above the modal layer', async (t) => {
+// The DOM suite owns field values and saving. This browser check owns the
+// actual field geometry and shared skin.
+test('goal editor fields follow the dialog skin and stay in their pane', async (t) => {
   const bundle = await build({
     stdin: {
       contents: `
@@ -58,7 +58,7 @@ test('goal time mode matches the dialog fields and opens above the modal layer',
     </body></html>`);
     await page.addStyleTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.css')).text });
     await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
-    await page.waitForSelector('[role="combobox"]', { visible: true });
+    await page.waitForSelector('input[type="number"]', { visible: true });
     await page.$eval('[role="dialog"]', async (dialog) => {
       await Promise.all(dialog.getAnimations({ subtree: true }).map((animation) => animation.finished));
       await document.fonts.ready;
@@ -66,28 +66,17 @@ test('goal time mode matches the dialog fields and opens above the modal layer',
     const fields = await page.$eval('[role="dialog"]', (dialog) => {
       const measure = (element) => {
         const { left, right, width, height } = element.getBoundingClientRect();
-        const style = getComputedStyle(element);
-        return {
-          left,
-          right,
-          width,
-          height,
-          color: style.color,
-          background: style.backgroundColor,
-          radius: style.borderRadius,
-          fontSize: style.fontSize,
-          shadow: style.boxShadow,
-        };
+        return { left, right, width, height };
       };
       return {
         input: measure(dialog.querySelector('input[type="number"]')),
-        select: measure(dialog.querySelector('[role="combobox"]')),
+        objective: measure(dialog.querySelector('textarea')),
+        modeChoice: dialog.querySelector('[role="combobox"]') !== null,
         typography: [
           dialog.querySelector('h2'),
           ...dialog.querySelectorAll('.schedules-field > span'),
           dialog.querySelector('textarea'),
           dialog.querySelector('input[type="number"]'),
-          dialog.querySelector('[role="combobox"]'),
           dialog.querySelector('small'),
         ].map((element) => {
           const style = getComputedStyle(element);
@@ -108,8 +97,6 @@ test('goal time mode matches the dialog fields and opens above the modal layer',
         ['16px', '600'],
         ['15px', '600'],
         ['15px', '600'],
-        ['15px', '600'],
-        ['14px', '400'],
         ['14px', '400'],
         ['14px', '400'],
         ['13px', '400'],
@@ -119,36 +106,13 @@ test('goal time mode matches the dialog fields and opens above the modal layer',
     for (const typography of fields.typography) {
       assert.ok(typography.family.startsWith('"Pretendard Variable"'), `${width}px: one UI font family`);
     }
-    assert.equal(fields.typography[4].line, '20px', `${width}px: multiline objective has readable leading`);
-    assert.equal(fields.select.height, 32, `${width}px: standard dialog control height`);
-    for (const property of ['left', 'width', 'height', 'color', 'background', 'radius', 'fontSize', 'shadow']) {
-      assert.equal(fields.select[property], fields.input[property], `${width}px: matching ${property}`);
+    assert.equal(fields.typography[3].line, '20px', `${width}px: multiline objective has readable leading`);
+    assert.equal(fields.modeChoice, false, `${width}px: no time mode to choose`);
+    assert.equal(fields.input.height, 32, `${width}px: standard dialog control height`);
+    for (const property of ['left', 'width']) {
+      assert.equal(fields.input[property], fields.objective[property], `${width}px: fields share ${property}`);
     }
-    assert.ok(fields.select.left >= inset && fields.select.right <= width, `${width}px: field stays in its pane`);
-    await page.click('[role="combobox"]');
-    await page.waitForSelector('[role="listbox"]', { visible: true });
-    await page.$eval('[role="listbox"]', async (listbox) => {
-      await Promise.all(listbox.getAnimations({ subtree: true }).map((animation) => animation.finished));
-    });
-    const menu = await page.$eval('[role="listbox"]', (listbox) => {
-      const { left, right, top, bottom } = listbox.getBoundingClientRect();
-      return {
-        left,
-        right,
-        top,
-        bottom,
-        items: [...listbox.querySelectorAll('[role="option"]')].map((option) => {
-          const rect = option.getBoundingClientRect();
-          const hit = document.elementFromPoint(rect.x + rect.width / 2, rect.y + rect.height / 2);
-          return option === hit || option.contains(hit);
-        }),
-      };
-    });
-    assert.ok(
-      menu.left >= inset && menu.right <= width && menu.top >= 0 && menu.bottom <= 800,
-      `${width}px: menu stays within the visible pane`
-    );
-    assert.deepEqual(menu.items, [true, true], `${width}px: both choices are above the modal and hittable`);
+    assert.ok(fields.input.left >= inset && fields.input.right <= width, `${width}px: field stays in its pane`);
   }
   assert.deepEqual(errors, []);
 });

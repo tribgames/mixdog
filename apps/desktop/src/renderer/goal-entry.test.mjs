@@ -125,9 +125,15 @@ test('/goal and the add menu open the same goal editor without creating or faili
         .find((node) => node.textContent.includes('Set a goal'))
         .click()
     );
+    const assertGoalEditor = (dialog) => {
+      // An objective and a time cap; no time mode to choose.
+      assert.ok(dialog.querySelector('textarea'));
+      assert.equal(dialog.querySelector('input[type="number"]').value, '60');
+      assert.equal(dialog.querySelector('[role="combobox"]'), null);
+    };
     let dialog = document.querySelector('[role="dialog"]');
     assert.ok(dialog);
-    assert.equal(dialog.querySelector('[role="combobox"]').textContent, 'Maximum time — finish early when verified');
+    assertGoalEditor(dialog);
     await act(async () => dialog.querySelector('[aria-label="Close"]').click());
     const input = host.querySelector('textarea');
     await act(async () => {
@@ -139,7 +145,7 @@ test('/goal and the add menu open the same goal editor without creating or faili
     );
     dialog = document.querySelector('[role="dialog"]');
     assert.ok(dialog, 'bare /goal opens the same editor');
-    assert.equal(dialog.querySelector('[role="combobox"]').textContent, 'Maximum time — finish early when verified');
+    assertGoalEditor(dialog);
     assert.deepEqual(
       calls.filter((call) => call === 'submit' || call?.capability === 'goalControl'),
       [],
