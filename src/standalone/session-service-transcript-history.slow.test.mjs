@@ -33,6 +33,9 @@ test.after(() => {
 
 const PAGE_BYTES = 1_000_000;
 const TAIL = { transcriptItemLimit: 32, transcriptByteBudget: PAGE_BYTES, transcriptPrepend: true };
+// A host that scrolls asks for the most one answer may carry, so the row bound
+// is what every page exercises and a scroll takes few (quadratic-cost) pages.
+const PAGE_ROWS = TRANSCRIPT_RESPONSE_MAX_ITEMS;
 const CACHE_MAX_BYTES = 32 * 1024 * 1024;
 const MESSAGES = 20_000;
 const ARCHIVE_SEGMENTS = 3;
@@ -87,7 +90,7 @@ function storedService(overrides = {}) {
   });
 }
 
-/** What the desktop host does: opens a 32-row tail, then pages 64 rows at a
+/** What the desktop host does: opens a 32-row tail, then pages PAGE_ROWS rows at a
  *  time naming the rows it holds (`transcriptHeld`) and the revision and
  *  stamp it holds, applying each answer — a page above its rows, a patch, or a
  *  whole window. Records the rows and bytes every answer carried. */
@@ -156,7 +159,7 @@ function hostView(service, sessionId) {
         await service.readSession(
           {
             sessionId,
-            transcriptItemLimit: held.length + 64,
+            transcriptItemLimit: held.length + PAGE_ROWS,
             transcriptByteBudget: PAGE_BYTES,
             transcriptPageBase: held.length,
             transcriptPrepend: true,

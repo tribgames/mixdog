@@ -13,7 +13,7 @@
  *       node scripts/build-shipped-history.mjs --check   (release workflow)
  * A shallow clone has no history: the committed file is left untouched.
  */
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -39,11 +39,80 @@ if (git('rev-parse', '--is-shallow-repository').toString().trim() === 'true') {
   process.exit(0);
 }
 
-const blobs = new Map();
-const blob = (sha) => {
-  if (!blobs.has(sha)) blobs.set(sha, git('cat-file', 'blob', sha));
-  return blobs.get(sha);
+/**
+ * One long-lived `git cat-file --batch` answers every object read, so the whole
+ * history costs a single process. `read(spec)` resolves to {sha, type, body}
+ * or null when the object is missing.
+ */
+const catFile = spawn('git', ['cat-file', '--batch'], { cwd: ROOT, stdio: ['pipe', 'pipe', 'inherit'] });
+const waiting = [];
+let pending = Buffer.alloc(0);
+catFile.stdout.on('data', (chunk) => {
+  pending = Buffer.concat([pending, chunk]);
+  for (;;) {
+    const eol = pending.indexOf(10);
+    if (eol < 0) return;
+    const header = pending.toString('utf8', 0, eol);
+    if (header.endsWith(' missing')) {
+      pending = pending.subarray(eol + 1);
+      waiting.shift()(null);
+      continue;
+    }
+    const [sha, type, size] = header.split(' ');
+    const end = eol + 1 + Number(size);
+    if (pending.length < end + 1) return;
+    const body = pending.subarray(eol + 1, end);
+    pending = pending.subarray(end + 1);
+    waiting.shift()({ sha, type, body });
+  }
+});
+const read = (spec) =>
+  new Promise((resolve) => {
+    waiting.push(resolve);
+    catFile.stdin.write(`${spec}\n`);
+  });
+
+/** Entries of a tree object body: [{ name, tree, sha }] in git (ls-tree) order. */
+function parseTree(body) {
+  const entries = [];
+  for (let at = 0; at < body.length; ) {
+    const space = body.indexOf(32, at);
+    const nul = body.indexOf(0, space);
+    const mode = body.toString('latin1', at, space);
+    entries.push({
+      name: body.toString('utf8', space + 1, nul),
+      tree: mode === '40000',
+      sha: body.toString('hex', nul + 1, nul + 21),
+    });
+    at = nul + 21;
+  }
+  return entries;
+}
+
+const treeCache = new Map();
+const blobCache = new Map();
+const treeOf = async (sha) => {
+  if (!treeCache.has(sha)) treeCache.set(sha, read(sha).then(({ body }) => parseTree(body)));
+  return treeCache.get(sha);
 };
+const blobOf = async (sha) => {
+  if (!blobCache.has(sha)) blobCache.set(sha, read(sha).then(({ body }) => body));
+  return blobCache.get(sha);
+};
+
+/** Relative path -> blob sha for every file under a tree entry (a lone file keeps its own name). */
+async function filesOf({ name, tree, sha }) {
+  if (!tree) return new Map([[name, sha]]);
+  const files = new Map();
+  const walk = async (treeSha, base) => {
+    for (const entry of await treeOf(treeSha)) {
+      if (entry.tree) await walk(entry.sha, `${base}${entry.name}/`);
+      else files.set(`${base}${entry.name}`, entry.sha);
+    }
+  };
+  await walk(sha, '');
+  return files;
+}
 
 /** Names (path segment after `prefix`) that ever existed under prefix. */
 function everNames(prefix) {
@@ -54,29 +123,39 @@ function everNames(prefix) {
   return [...names].sort();
 }
 
-/** Every version of `path`: Map of relative path -> blob sha, one per commit that touched it. */
-function versionsOf(path) {
-  const versions = [];
-  for (const commit of lines(git('log', '--format=%H', '--', path))) {
-    const files = new Map();
-    for (const row of lines(git('ls-tree', '-r', commit, '--', path))) {
-      const [meta, file] = row.split('\t');
-      files.set(file.slice(path.length + 1) || file.split('/').pop(), meta.split(' ')[2]);
+/**
+ * Every distinct state `prefix/<name>` had in the commits the path-limited
+ * `git log -- path` lists (its history simplification decides which commits
+ * count). Only the object reads are batched through `cat-file`.
+ */
+async function everVersions(prefix) {
+  const out = new Map();
+  for (const name of everNames(prefix)) {
+    const path = `${prefix}/${name}`;
+    const states = new Map();
+    for (const commit of lines(git('log', '--format=%H', '--', path))) {
+      const object = await read(`${commit}:${path}`);
+      if (object) states.set(object.sha, { name, tree: object.type === 'tree', sha: object.sha });
     }
-    if (files.size) versions.push(files);
+    const versions = [];
+    for (const entry of states.values()) {
+      const files = await filesOf(entry);
+      if (files.size) versions.push(files);
+    }
+    out.set(name, versions);
   }
-  return versions;
+  return out;
 }
-
 const unique = (hashes) => [...new Set(hashes)].sort();
 
-function packHistory(dir, entry) {
+async function packHistory(dir, entry) {
   const out = {};
-  for (const id of everNames(dir)) {
+  for (const [id, versions] of await everVersions(dir)) {
     const hashes = [];
-    for (const files of versionsOf(`${dir}/${id}`)) {
-      const read = (name) => (files.has(name) ? blob(files.get(name)).toString('utf8') : null);
-      const definition = packDefinitionFrom(read, entry, id);
+    for (const files of versions) {
+      const texts = new Map();
+      for (const [file, sha] of files) texts.set(file, (await blobOf(sha)).toString('utf8'));
+      const definition = packDefinitionFrom((name) => texts.get(name) ?? null, entry, id);
       if (definition) hashes.push(hashDefinition(definition));
     }
     if (hashes.length) out[id] = unique(hashes);
@@ -84,32 +163,35 @@ function packHistory(dir, entry) {
   return out;
 }
 
-function outputStyleHistory() {
+async function outputStyleHistory() {
   const out = {};
-  for (const name of everNames('src/output-styles')) {
-    const hashes = versionsOf(`src/output-styles/${name}`).map((files) => hashText(blob([...files.values()][0])));
+  for (const [name, versions] of await everVersions('src/output-styles')) {
+    const hashes = [];
+    for (const files of versions) hashes.push(hashText(await blobOf([...files.values()][0])));
     if (hashes.length) out[name] = unique(hashes);
   }
   return out;
 }
 
-function skillHistory() {
+async function skillHistory() {
   const out = {};
-  for (const name of everNames('src/defaults/skills')) {
-    const hashes = versionsOf(`src/defaults/skills/${name}`).map((files) =>
-      hashTree([...files].map(([rel, sha]) => [rel, blob(sha)]))
-    );
+  for (const [name, versions] of await everVersions('src/defaults/skills')) {
+    const hashes = [];
+    for (const files of versions) {
+      hashes.push(hashTree(await Promise.all([...files].map(async ([rel, sha]) => [rel, await blobOf(sha)]))));
+    }
     if (hashes.length) out[name] = unique(hashes);
   }
   return out;
 }
 
 const history = {
-  agents: packHistory('src/agents', 'AGENT.md'),
-  workflows: packHistory('src/workflows', 'WORKFLOW.md'),
-  outputStyles: outputStyleHistory(),
-  skills: skillHistory(),
+  agents: await packHistory('src/agents', 'AGENT.md'),
+  workflows: await packHistory('src/workflows', 'WORKFLOW.md'),
+  outputStyles: await outputStyleHistory(),
+  skills: await skillHistory(),
 };
+catFile.stdin.end();
 const text = `${JSON.stringify(history, null, 2)}\n`;
 if (CHECK) {
   let committed = '';

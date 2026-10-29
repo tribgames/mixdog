@@ -41,13 +41,28 @@ async function gitProject(t) {
   return root;
 }
 
+// The read-only cases (scan, check, rules) share one project and one scan of it.
+const sharedCleanups = [];
+test.after(() => {
+  for (const cleanup of sharedCleanups) cleanup();
+});
+let sharedRoot = null;
+const sharedProject = () => {
+  sharedRoot ??= gitProject({ after: (cleanup) => sharedCleanups.push(cleanup) });
+  return sharedRoot;
+};
+let sharedScanReport = null;
+const sharedScan = (root) => {
+  sharedScanReport ??= executeTidyTool({ action: 'scan', paths: ['.'] }, { cwd: root }).then(parseResult);
+  return sharedScanReport;
+};
 test('scan reports detected languages, engine resolution and the download policy', async (t) => {
-  const root = await gitProject(t);
+  const root = await sharedProject();
   if (!root) {
     t.skip('git is unavailable in this environment');
     return;
   }
-  const report = parseResult(await executeTidyTool({ action: 'scan', paths: ['.'] }, { cwd: root }));
+  const report = await sharedScan(root);
   assert.equal(report.ok, true);
   assert.equal(report.action, 'scan');
   assert.deepEqual(report.languages.map((language) => language.id).sort(), ['javascript', 'markdown', 'python']);
@@ -60,7 +75,7 @@ test('scan reports detected languages, engine resolution and the download policy
 });
 
 test('scan honors the paths and languages filters', async (t) => {
-  const root = await gitProject(t);
+  const root = await sharedProject();
   if (!root) {
     t.skip('git is unavailable in this environment');
     return;
@@ -74,7 +89,7 @@ test('scan honors the paths and languages filters', async (t) => {
 });
 
 test('check runs read-only and reports one result row per runnable engine', async (t) => {
-  const root = await gitProject(t);
+  const root = await sharedProject();
   if (!root) {
     t.skip('git is unavailable in this environment');
     return;
@@ -93,12 +108,12 @@ test('check runs read-only and reports one result row per runnable engine', asyn
 });
 
 test('language detection uses the graph binary when it answers --langs', async (t) => {
-  const root = await gitProject(t);
+  const root = await sharedProject();
   if (!root) {
     t.skip('git is unavailable in this environment');
     return;
   }
-  const report = parseResult(await executeTidyTool({ action: 'scan', paths: ['.'] }, { cwd: root }));
+  const report = await sharedScan(root);
   const expected = (await scanCapableGraphBinary(root)) ? 'graph-binary' : 'git';
   assert.equal(report.languageSource, expected);
 });
@@ -132,7 +147,7 @@ test('a structural fix dry-run reports graph-binary matches without writing', as
 });
 
 test('rules lists the structural packs and the adapter that would run them', async (t) => {
-  const root = await gitProject(t);
+  const root = await sharedProject();
   if (!root) {
     t.skip('git is unavailable in this environment');
     return;

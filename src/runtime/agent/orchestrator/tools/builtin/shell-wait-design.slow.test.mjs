@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import { executeBuiltinTool } from '../builtin.mjs';
 import { executeTaskTool } from './task-tool.mjs';
@@ -49,9 +49,43 @@ function script(name, body) {
 }
 
 const options = (sessionId) => ({ sessionId, callerSessionId: sessionId, routingSessionId: sessionId });
+// `task wait` clamps timeout_ms to at least 10 s, and its ceiling timer is a
+// plain setTimeout. These cases are about what a ceiling hit reports, so the
+// timer runs on a fake clock: the wait must register a 10 000 ms timer, still
+// be pending 1 ms before it, and settle on the single tick that crosses it.
 const resultText = (out) => String(out?.result ?? out);
 const taskIdOf = (text) => /task_id: (\S+)/.exec(text)?.[1] || null;
 
+const turn = () => new Promise((resolve) => setImmediate(resolve));
+async function waitToCeiling(taskId, sessionId) {
+  mock.timers.enable({ apis: ['setTimeout'] });
+  const timers = mock.method(globalThis, 'setTimeout');
+  try {
+    let settled = false;
+    const answer = executeTaskTool({ action: 'wait', task_id: taskId, timeout_ms: 10_000 }, options(sessionId)).finally(
+      () => {
+        settled = true;
+      }
+    );
+    for (let turns = 0; turns < 200 && !timers.mock.calls.some((call) => call.arguments[1] === 10_000); turns += 1) {
+      await turn();
+    }
+    assert.ok(
+      timers.mock.calls.some((call) => call.arguments[1] === 10_000),
+      'the wait registered its 10 s ceiling timer'
+    );
+    mock.timers.tick(9_999);
+    for (let turns = 0; turns < 20; turns += 1) await turn();
+    assert.equal(settled, false, 'still waiting 1 ms before the ceiling');
+    mock.timers.tick(1);
+    for (let turns = 0; turns < 200 && !settled; turns += 1) await turn();
+    assert.equal(settled, true, 'settled on the tick that crossed the ceiling, without further ticks');
+    return await answer;
+  } finally {
+    timers.mock.restore();
+    mock.timers.reset();
+  }
+}
 test('budgets come from one place: hold 60 s, task wait 300 s (agents 240 s)', () => {
   assert.ok(AGENT_TASK_WAIT_DEFAULT_MS < 300_000, 'an agent wakes inside the 5 m cache TTL');
   assert.equal(TASK_WAIT_TIMEOUT_DEFAULT_MS, TASK_WAIT_DEFAULT_MS);
@@ -185,21 +219,12 @@ test('a wait that keeps hitting its ceiling suggests checking progress or cancel
     context: { callerSessionId: sessionId, routingSessionId: sessionId },
   });
   task.promise = new Promise(() => {});
-  // The wait's ceiling timer is unref'd; keep this process alive through it.
-  const keepAlive = setTimeout(() => {}, 25_000);
   try {
-    const first = await executeTaskTool(
-      { action: 'wait', task_id: task.taskId, timeout_ms: 10_000 },
-      options(sessionId)
-    );
+    const first = await waitToCeiling(task.taskId, sessionId);
     assert.match(first, /Wait ceiling reached; task still running and its result is delivered automatically/);
-    const second = await executeTaskTool(
-      { action: 'wait', task_id: task.taskId, timeout_ms: 10_000 },
-      options(sessionId)
-    );
+    const second = await waitToCeiling(task.taskId, sessionId);
     assert.match(second, /Wait ceiling reached again \(2 times\).*task read output:tail.*cancel it if it is stuck/);
   } finally {
-    clearTimeout(keepAlive);
     cancelBackgroundTask(task.taskId, 'test cleanup');
   }
 });
@@ -214,25 +239,17 @@ test('a ceiling-hit count belongs to its task: a removed task id starts over', {
     task.promise = new Promise(() => {});
     return task;
   };
-  const keepAlive = setTimeout(() => {}, 25_000);
   try {
     const first = register();
-    const hit = await executeTaskTool(
-      { action: 'wait', task_id: first.taskId, timeout_ms: 10_000 },
-      options(sessionId)
-    );
+    const hit = await waitToCeiling(first.taskId, sessionId);
     assert.match(hit, /Wait ceiling reached; task still running/);
     // The task goes away without a wait ever seeing it settle.
     assert.equal(cleanupBackgroundTasks({ context, force: true }).removed, 1);
     const second = register();
-    const again = await executeTaskTool(
-      { action: 'wait', task_id: second.taskId, timeout_ms: 10_000 },
-      options(sessionId)
-    );
+    const again = await waitToCeiling(second.taskId, sessionId);
     assert.match(again, /Wait ceiling reached; task still running/);
     assert.doesNotMatch(again, /reached again/);
   } finally {
-    clearTimeout(keepAlive);
     cancelBackgroundTask('task_shell_wait_ceiling_reuse', 'test cleanup');
   }
 });
