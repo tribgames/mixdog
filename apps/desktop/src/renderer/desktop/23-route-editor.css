@@ -627,17 +627,11 @@
 }
 /* A list that scrolls on fades its last visible row out instead of cutting
    it mid-line (user: 드랍다운 아래 글자 잘리는 경우가 많고). The fade
-   shrinks to nothing over the final 24px of scroll, and a palette that does
-   not scroll has no timeline, so it never fades. --mx-palette-fade is
-   registered in font-faces.css. */
-@keyframes mx-palette-end-fade {
-  from {
-    --mx-palette-fade: 24px;
-  }
-  to {
-    --mx-palette-fade: 0px;
-  }
-}
+   shrinks to nothing over the final 24px of scroll, from the position
+   scroll-progress.ts writes (no CSS scroll timeline, see
+   .transcript-scroll-fade in 12-transcript.css); a palette that does not
+   scroll reads 0, so it never fades. --mx-palette-fade is registered in
+   font-faces.css. */
 .slash-palette::after {
   content: "";
   position: sticky;
@@ -650,18 +644,6 @@
   pointer-events: none;
 }
 .slash-palette {
-  animation:
-    mx-menu-in var(--mx-motion-chrome),
-    mx-palette-end-fade linear both;
-  animation-timeline: auto, scroll(self);
-  animation-range:
-    normal,
-    calc(100% - 24px) 100%;
-}
-/* Phone: no scroll timeline (the Android WebView freezes a fling while one is
-   alive); the fade shrinks over the final 24px of scroll from the position
-   scroll-progress.ts writes. */
-html[data-mixdog-mobile-tabs] .slash-palette {
   animation: mx-menu-in var(--mx-motion-chrome);
   --mx-palette-fade: calc(24px * clamp(0, (var(--mx-scroll-max) - var(--mx-scroll-top)) / 24, 1));
 }
