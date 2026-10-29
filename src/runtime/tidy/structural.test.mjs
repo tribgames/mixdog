@@ -250,7 +250,7 @@ test('the local graph binary answers the live scan contract', async (t) => {
   // The probe, not mere existence: an older binary accepts --langs, exits 0 and
   // prints nothing, and must not be mistaken for a scan-capable one.
   if (!binPath || !existsSync(binPath) || !(await graphSupportsScan(binPath, { cwd: root }))) {
-    t.skip('no mixdog-graph build with the --langs/--scan modes on this machine');
+    t.skip('a mixdog-graph build with the --langs/--scan modes is not available on this machine');
     return;
   }
   writeFileSync(join(root, 'a.js'), 'function f(){ debugger; }');

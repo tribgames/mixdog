@@ -105,7 +105,7 @@ test('language detection uses the graph binary when it answers --langs', async (
 
 test('a structural fix dry-run reports graph-binary matches without writing', async (t) => {
   if (!(await scanCapableGraphBinary(process.cwd()))) {
-    t.skip('no mixdog-graph build with the --langs/--scan modes on this machine');
+    t.skip('a mixdog-graph build with the --langs/--scan modes is not available on this machine');
     return;
   }
   const root = await gitProject(t);

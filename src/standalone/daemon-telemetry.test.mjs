@@ -219,6 +219,11 @@ test('the production timer is a single 30s unrefed loop that samples then runs o
   timers[0].fn();
   assert.equal(lines.length, 2);
   assert.deepEqual(intervalTicks, ['lag']);
+
+  // A caller-chosen interval is the one the timer gets.
+  const custom = fixture();
+  custom.telemetry.start(50);
+  assert.equal(custom.timers[0].ms, 50);
 });
 
 test('onStart runs once when the loop starts, before its first tick, and a throw stays contained', () => {
@@ -294,39 +299,6 @@ test('an unrefed telemetry timer does not keep a child process alive', async () 
   const child = await runNode(['--input-type=module', '-e', script], { timeoutMs: 8_000 });
   assert.equal(child.code, 0, child.stderr);
   assert.equal(child.signal, null);
-});
-
-test('a child using the production start/stop loop emits periodic samples then freezes after stop', async () => {
-  const script = `
-    import { createDaemonTelemetry } from ${JSON.stringify(TELEMETRY_URL)};
-    const lines = [];
-    let intervalTicks = 0;
-    const telemetry = createDaemonTelemetry({
-      log: (line) => lines.push(line),
-      getWork: () => ({ activeCalls: 1, queuedCalls: 0, busySessions: 0, busyMemoryAgents: 0 }),
-      onInterval() { intervalTicks += 1; },
-    });
-    telemetry.emit('boot');
-    telemetry.start(50);
-    await new Promise((resolve) => setTimeout(resolve, 180));
-    telemetry.stop();
-    const frozen = { lines: lines.length, intervalTicks };
-    await new Promise((resolve) => setTimeout(resolve, 180));
-    process.stdout.write(JSON.stringify({
-      boot: lines[0] || '',
-      frozen,
-      after: { lines: lines.length, intervalTicks },
-      periodic: lines.filter((line) => line.includes('reason=periodic')).length,
-    }));
-  `;
-  const child = await runNode(['--input-type=module', '-e', script], { timeoutMs: 8_000 });
-  assert.equal(child.code, 0, child.stderr);
-  const report = JSON.parse(child.stdout);
-  assert.match(report.boot, /^daemon-telemetry reason=boot /);
-  assert.ok(report.frozen.intervalTicks >= 1);
-  assert.ok(report.periodic >= 1);
-  assert.equal(report.after.lines, report.frozen.lines);
-  assert.equal(report.after.intervalTicks, report.frozen.intervalTicks);
 });
 
 test('post-major-GC heap: min per interval is reported on the line and reset on take', async () => {

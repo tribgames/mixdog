@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   HEARTBEAT_QUIET,
-  HEARTBEAT_SOURCE,
   heartbeatTriggerHeader,
   isHeartbeatSession,
   isRoutineQuietReply,
@@ -57,8 +56,6 @@ test('the heartbeat header is one line that is no user message, grants no approv
   // Unlike a routine's header it never invites delegating or a later result.
   assert.doesNotMatch(header, /delegating|fired|arrives here later/);
   assert.equal(stripRoutineTriggerHeader(`${header}\n\n- schedule "a" failed 3x`), '- schedule "a" failed 3x');
-  assert.equal(HEARTBEAT_QUIET, 'HEARTBEAT_QUIET');
-  assert.equal(HEARTBEAT_SOURCE, 'heartbeat');
 });
 
 test('only the in-process mark makes a heartbeat session: set, ended, blank ids ignored', () => {

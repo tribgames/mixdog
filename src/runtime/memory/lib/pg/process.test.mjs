@@ -51,7 +51,7 @@ test('initdb keeps its default share dir for an ASCII runtime path', async () =>
 });
 
 test('initdb reads a non-ASCII runtime share dir through a temporary ASCII junction', {
-  skip: process.platform !== 'win32',
+  skip: process.platform !== 'win32' && 'NTFS junctions exist only on Windows',
 }, async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-initdb-share-'));
   try {
@@ -73,7 +73,7 @@ test('initdb reads a non-ASCII runtime share dir through a temporary ASCII junct
 });
 
 test('junction cleanup failures never replace the initdb result or error', {
-  skip: process.platform !== 'win32',
+  skip: process.platform !== 'win32' && 'NTFS junctions exist only on Windows',
 }, async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-initdb-share-'));
   try {

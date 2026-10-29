@@ -493,7 +493,7 @@ for (const shell of powerShells()) {
 }
 
 test('bash (Git Bash on Windows) resolves mixdog-skill-node by name and propagates arguments and the exit code', {
-  skip: !resolveShellFor('bash') && 'no bash on this host',
+  skip: !resolveShellFor('bash') && 'bash is not installed on this host',
 }, async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog skill bash '));
   try {

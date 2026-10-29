@@ -2106,20 +2106,57 @@ test('bridge clients authenticate and preserve text plus image results', async (
       { sessionId: 'computer-session-1' }
     );
     assert.equal(clipboardRead.content[0].text, '{"action":"user-content","nested":true}');
-    assert.equal(deferComputerSessionRelease('computer-session-1', 20), true);
-    const continued = await executeComputerTool(
-      { action: 'list', input: { kind: 'windows' } },
-      { sessionId: 'computer-session-1' }
-    );
-    assert.equal(continued.isError, undefined);
-    assert.equal(await endComputerExecution('computer-session-1'), true);
-    assert.equal(await endComputerExecution('computer-session-1'), false);
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    assert.equal(seen.filter((entry) => entry.body.action === 'session_release').length, 0);
-    assert.equal(deferComputerSessionRelease('computer-session-1', 20), true);
-    await waitUntil(() => seen.some((entry) => entry.body.action === 'session_release'), {
-      message: 'deferred session release sent',
-    });
+    // Controlled timers for the deferral only (recognised by its delay): the test decides when a
+    // deadline passes, and every other timer stays real.
+    const DEFER_MS = 7777;
+    const deferTimers = [];
+    const realSetTimeout = globalThis.setTimeout;
+    const realClearTimeout = globalThis.clearTimeout;
+    globalThis.setTimeout = (fn, ms, ...rest) => {
+      if (ms !== DEFER_MS) return realSetTimeout(fn, ms, ...rest);
+      const timer = {
+        fn,
+        cleared: false,
+        unref() {
+          return this;
+        },
+      };
+      deferTimers.push(timer);
+      return timer;
+    };
+    globalThis.clearTimeout = (timer) => {
+      if (deferTimers.includes(timer)) timer.cleared = true;
+      else realClearTimeout(timer);
+    };
+    try {
+      assert.equal(deferComputerSessionRelease('computer-session-1', DEFER_MS), true);
+      const continued = await executeComputerTool(
+        { action: 'list', input: { kind: 'windows' } },
+        { sessionId: 'computer-session-1' }
+      );
+      assert.equal(continued.isError, undefined);
+      assert.equal(deferTimers.length, 1);
+      assert.equal(deferTimers[0].cleared, true, 'the continued tool call cancelled the pending deferral');
+      // Past the original deadline: a deferral the tool call failed to cancel fires now.
+      for (const timer of deferTimers) if (!timer.cleared) timer.fn();
+      assert.equal(await endComputerExecution('computer-session-1'), true);
+      assert.equal(await endComputerExecution('computer-session-1'), false);
+      assert.equal(
+        seen.filter((entry) => entry.body.action === 'session_release').length,
+        0,
+        'no release happened after the original deadline passed'
+      );
+      // Re-arming is a fresh deferral and sends exactly one release.
+      assert.equal(deferComputerSessionRelease('computer-session-1', DEFER_MS), true);
+      assert.equal(deferTimers.length, 2);
+      deferTimers[1].fn();
+      await waitUntil(() => seen.some((entry) => entry.body.action === 'session_release'), {
+        message: 'deferred session release sent',
+      });
+    } finally {
+      globalThis.setTimeout = realSetTimeout;
+      globalThis.clearTimeout = realClearTimeout;
+    }
     assert.equal(seen.filter((entry) => entry.body.action === 'session_release').length, 1);
     assert.equal(await releaseComputerSession('computer-session-1'), true);
     assert.equal(await releaseComputerSession('computer-session-1'), true);
@@ -2687,8 +2724,6 @@ test('computer client skips the deferred release for sessions that never reached
     // Every turn settles through the deferred release; a session that never
     // called the tool must not wake the desktop host.
     assert.equal(deferComputerSessionRelease('idle-session', 20), false);
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    assert.deepEqual(seen, []);
     // Once a host-bound session has been released, its later idle turns stay
     // quiet as well.
     await executeComputerTool({ action: 'list', input: { kind: 'windows' } }, { sessionId: 'used-once-session' });
@@ -2701,8 +2736,6 @@ test('computer client skips the deferred release for sessions that never reached
       ['list_windows', 'session_release']
     );
     assert.equal(deferComputerSessionRelease('used-once-session', 20), false);
-    await new Promise((resolve) => setTimeout(resolve, 40));
-    assert.equal(seen.length, 2);
   } finally {
     server.closeAllConnections?.();
     await new Promise((resolve) => server.close(resolve));

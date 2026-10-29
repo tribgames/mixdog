@@ -74,12 +74,16 @@ assert.equal(disk.profile.title, 'Alice');
 // Disposed runtimes stop reloading.
 b.lifecycle.disposeConfigSync();
 const before = b.reloads();
+// A live control runtime marks the moment the change has reached watching runtimes.
+const control = runtime();
 a.lifecycle.saveConfigAndAdopt({ ...a.config(), autoClear: { enabled: true } });
 await a.lifecycle.flushAllConfigSavesAsync();
-await sleep(400);
+for (let i = 0; i < 200 && control.config().autoClear.enabled !== true; i += 1) await sleep(25);
+assert.equal(control.config().autoClear.enabled, true);
 assert.equal(b.reloads(), before);
 assert.equal(b.config().autoClear.enabled, false);
 a.lifecycle.disposeConfigSync();
+control.lifecycle.disposeConfigSync();
 `;
 
 test('a config saved by one runtime is visible to another without restart, keeping its pending edit', () => {

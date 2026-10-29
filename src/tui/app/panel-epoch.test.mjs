@@ -328,6 +328,8 @@ test('Esc on the Update panel still kills its in-flight first check', async () =
   assert.equal(host.painted.length, paintedBefore);
 });
 
+// Source-text on purpose: App.jsx is a JSX component with no importable runnable surface here, and the
+// invariant is that the handover calls the supersede guard; createPanelHost tests would pass without it.
 test('App.jsx routes every picker handover through shouldSupersedePanelEpoch', async () => {
   const source = await readFile(new URL('../App.jsx', import.meta.url), 'utf8');
   assert.match(
@@ -800,6 +802,8 @@ async function sourceFiles(directory) {
   return out;
 }
 
+// Source-text on purpose: the claim is that the raw sink names do not exist outside two files, which is
+// a property of the module graph that no runnable call can observe.
 test('audit: the raw panel sinks are unreachable outside the owning layer', async () => {
   const root = fileURLToPath(new URL('..', import.meta.url));
   const offenders = [];

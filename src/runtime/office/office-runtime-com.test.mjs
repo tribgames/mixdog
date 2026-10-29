@@ -111,6 +111,8 @@ test('Office cleanup ignores unrelated or malformed identities and forgets retir
   assert.deepEqual(killed, []);
 });
 
+// Source-text on purpose: the COM host is a PowerShell script that only runs against installed Microsoft
+// Office on Windows, so the operations it implements can only be read from its text on every other host.
 test('operation registry matches every COM implementation and rejects unknown fields before dispatch', async () => {
   const source = await readFile(new URL('./com/office-com-host.ps1', import.meta.url), 'utf8');
   const sections = [

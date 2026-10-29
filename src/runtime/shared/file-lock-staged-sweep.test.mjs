@@ -20,17 +20,21 @@ test('taking a lock never waits for the staged-file sweep of a crowded directory
     utimesSync(path, old, old);
     return path;
   };
-  // Listing the directory takes 400 ms, as for a profile directory with many files.
-  const SLOW_MS = 400;
+  // A crowded directory: the async listing stays pending until the test releases it, and every
+  // synchronous listing of the directory is counted.
+  let releaseListing;
+  const listingGate = new Promise((resolve) => {
+    releaseListing = resolve;
+  });
+  let syncListings = 0;
   const listSync = fs.readdirSync;
   const listAsync = fsp.readdir;
   fs.readdirSync = function (...args) {
-    const until = Date.now() + SLOW_MS;
-    while (Date.now() < until);
+    if (args[0] === dir) syncListings += 1;
     return listSync.apply(this, args);
   };
   fsp.readdir = async function (...args) {
-    await delay(SLOW_MS);
+    if (args[0] === dir) await listingGate;
     return listAsync.apply(this, args);
   };
   syncBuiltinESMExports();
@@ -42,29 +46,31 @@ test('taking a lock never waits for the staged-file sweep of a crowded directory
   const syncStale = staged('sync.lock');
   const asyncStale = staged('async.lock');
 
-  let startedAt = Date.now();
   assert.equal(
     withFileLockSync(join(dir, 'sync.lock'), () => 'entered'),
     'entered'
   );
-  assert.ok(Date.now() - startedAt < SLOW_MS, 'the synchronous lock did not list the directory');
+  assert.equal(syncListings, 0, 'the synchronous lock did not list the directory');
 
-  let ticks = 0;
-  const timer = setInterval(() => {
-    ticks += 1;
-  }, 5);
-  t.after(() => clearInterval(timer));
-  startedAt = Date.now();
-  assert.equal(await withFileLock(join(dir, 'async.lock'), async () => 'entered'), 'entered');
-  assert.ok(Date.now() - startedAt < SLOW_MS, 'the asynchronous lock did not wait for the listing');
+  // The async lock is entered while the listing is still pending; a lock that waited for it never settles.
+  const entered = withFileLock(join(dir, 'async.lock'), async () => 'entered');
+  const giveUp = new AbortController();
+  const outcome = await Promise.race([
+    entered,
+    delay(5_000, 'waited-for-the-listing', { signal: giveUp.signal }).catch(() => 'cancelled'),
+  ]);
+  giveUp.abort();
+  assert.equal(outcome, 'entered', 'the asynchronous lock did not wait for the listing');
+  assert.equal(syncListings, 0, 'the asynchronous lock did not list the directory synchronously');
 
-  // The sweeps still run, beside the locks, and the timer kept running through them.
+  // The sweeps still run, beside the locks, once the listing completes.
+  releaseListing();
   const deadline = Date.now() + 5_000;
   while (existsSync(syncStale) || existsSync(asyncStale)) {
     assert.ok(Date.now() < deadline, 'the stale staged files were swept');
     await delay(20);
   }
-  assert.ok(ticks >= 10, `timers ran ${ticks} times while the directory was listed`);
+  assert.equal(syncListings, 0, 'no sweep listed the directory synchronously');
 });
 
 test('a stale staged owner record of a dead process is swept once per lock path', async (t) => {

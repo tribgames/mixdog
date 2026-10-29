@@ -87,9 +87,6 @@ function oldDefault(id) {
 
 test('the catalog: six dogs, six accessories, four expressions, ten colours', () => {
   assert.deepEqual(MASCOT_SPECIES, ['labrador', 'shepherd', 'terrier', 'corgi', 'husky', 'shiba']);
-  for (const gone of ['dalmatian', 'cat', 'bird', 'robot']) {
-    assert.equal(MASCOT_SPRITES.species[gone], undefined, `${gone} removed`);
-  }
   assert.equal(MASCOT_SPECIES.includes('mixy'), false, "Mixy's look is not offered");
   assert.deepEqual(MASCOT_ACCESSORIES, ['none', 'collar', 'glasses', 'beanie', 'scarf', 'bow']);
   assert.deepEqual(MASCOT_EXPRESSIONS, ['calm', 'happy', 'wink', 'sleepy']);

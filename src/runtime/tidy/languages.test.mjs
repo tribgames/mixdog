@@ -36,7 +36,7 @@ test('the static registry agrees with the graph binary capability table', async 
   const result = await runProcess(release, ['.', '--langs'], { cwd: process.cwd(), timeoutMs: 30_000 });
   const table = parseGraphLangs(result.stdout);
   if (!table) {
-    t.skip('the local mixdog-graph build predates the --langs capability table');
+    t.skip('the local mixdog-graph build does not support the --langs capability table');
     return;
   }
   for (const [language, extensions] of Object.entries(CODE_LANGUAGE_EXTENSIONS)) {

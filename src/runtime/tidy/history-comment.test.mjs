@@ -278,7 +278,7 @@ test('live graph scan: mixed comments are manual; pure history comments are dele
   const root = mkdtempSync(join(tmpdir(), 'tidy-history-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   if (!binPath || !existsSync(binPath) || !(await graphSupportsScan(binPath, { cwd: root }))) {
-    t.skip('no mixdog-graph build with the --langs/--scan modes on this machine');
+    t.skip('a mixdog-graph build with the --langs/--scan modes is not available on this machine');
     return;
   }
   writeFileSync(

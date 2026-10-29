@@ -15,7 +15,7 @@ import fsp from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import {
   claimSingletonOwner,
@@ -106,22 +106,22 @@ function successorClaim(ownerPath) {
   return JSON.parse(out.stdout);
 }
 
-/** Largest gap between 5 ms ticks while `run()` is awaited: how long the
- *  event loop was blocked at once. */
-async function maxLoopGap(run) {
-  let last = performance.now();
-  let max = 0;
-  const timer = setInterval(() => {
-    const now = performance.now();
-    max = Math.max(max, now - last);
-    last = now;
-  }, 5);
+/** How many event-loop turns ran while `run()` was awaited: zero when it
+ *  blocked the loop for its whole duration. */
+async function loopTurns(run) {
+  let turns = 0;
+  let spinning = true;
+  const spin = () => {
+    if (!spinning) return;
+    turns += 1;
+    setImmediate(spin);
+  };
+  setImmediate(spin);
   try {
     const result = await run();
-    // A block that ends the run is never followed by a tick: count it too.
-    return { result, maxGapMs: Math.max(max, performance.now() - last) };
+    return { result, turns };
   } finally {
-    clearInterval(timer);
+    spinning = false;
   }
 }
 
@@ -147,23 +147,90 @@ test('the async refresh keeps the claim-lock verdicts of the sync one', async ()
   }
 });
 
-test('a held claim lock: the async refresh waits it out without blocking the loop, the sync one blocks', async () => {
+/** Rejects the synchronous lock and I/O operations an async refresh must never use: any sync
+ *  write, link, rename, unlink, mkdir, directory listing or removal under `root`, and any
+ *  blocking Atomics.wait (the sync lock's retry sleep, which throws here so a regression ends). */
+function rejectSyncLockIo(root) {
+  const names = ['writeFileSync', 'linkSync', 'renameSync', 'unlinkSync', 'mkdirSync', 'readdirSync', 'rmSync', 'rmdirSync'];
+  const originals = new Map(names.map((name) => [name, fs[name]]));
+  const attempts = [];
+  for (const [name, original] of originals) {
+    fs[name] = function (...args) {
+      if (String(args[0]).startsWith(root)) attempts.push(name);
+      return original.apply(this, args);
+    };
+  }
+  const wait = Atomics.wait;
+  Atomics.wait = () => {
+    attempts.push('Atomics.wait');
+    throw new Error('a synchronous wait');
+  };
+  syncBuiltinESMExports();
+  return {
+    attempts,
+    restore() {
+      for (const [name, original] of originals) fs[name] = original;
+      Atomics.wait = wait;
+      syncBuiltinESMExports();
+    },
+  };
+}
+
+test('a held claim lock: the async refresh parks at its retry wait with the loop free, the sync one blocks', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-singleton-owner-'));
   try {
     const ownerPath = join(root, 'data', 'daemon-owner.json');
     mkdirSync(`${ownerPath}.claim.lock`, { recursive: true });
     const owner = { kind: 'mixdog-daemon', pid: 4242 };
     // An ownerless lock (an older version's directory) younger than 5 s is
-    // waited out for the 500 ms claim window: busy.
-    const async = await maxLoopGap(() => refreshSingletonOwnerAsync(ownerPath, owner));
-    assert.deepEqual(async.result, { status: 'busy', owner: null });
-    assert.ok(async.maxGapMs < 150, `async refresh blocked the loop for ${Math.round(async.maxGapMs)}ms`);
-    const sync = await maxLoopGap(async () => refreshSingletonOwner(ownerPath, owner));
-    assert.equal(sync.result.status, 'busy');
-    assert.ok(
-      sync.maxGapMs >= 400,
-      `the sync refresh blocks for its whole retry window (${Math.round(sync.maxGapMs)}ms)`
+    // waited out for the 500 ms claim window: busy. The retry wait is a controlled timer, so the
+    // refresh stays parked at that async boundary until the test advances it.
+    const immediate = () => new Promise((resolve) => setImmediate(resolve));
+    const retryWaits = [];
+    mock.timers.enable({ apis: ['setTimeout', 'Date'], now: Date.now() });
+    const controlled = globalThis.setTimeout;
+    globalThis.setTimeout = (fn, ms, ...rest) => {
+      retryWaits.push(ms);
+      return controlled(fn, ms, ...rest);
+    };
+    const guard = rejectSyncLockIo(root);
+    let settled = false;
+    let verdict;
+    try {
+      const refresh = refreshSingletonOwnerAsync(ownerPath, owner).then((value) => {
+        settled = true;
+        return value;
+      });
+      while (retryWaits.length === 0 && !settled) await immediate();
+      assert.equal(settled, false, 'the refresh is parked at its retry wait');
+      assert.ok(retryWaits.length >= 1, 'the refresh reached an awaited retry wait');
+      // While it is held the loop keeps turning and the refresh stays pending.
+      for (let turn = 0; turn < 5; turn += 1) await immediate();
+      assert.equal(settled, false, 'the held refresh made no progress on its own');
+      // Advance the controlled clock through the claim window, one retry wait at a time.
+      let advanced = 0;
+      while (!settled) {
+        if (retryWaits.length > advanced) {
+          advanced = retryWaits.length;
+          mock.timers.tick(retryWaits[advanced - 1]);
+        }
+        await immediate();
+      }
+      verdict = await refresh;
+    } finally {
+      guard.restore();
+      globalThis.setTimeout = controlled;
+      mock.timers.reset();
+    }
+    assert.deepEqual(verdict, { status: 'busy', owner: null });
+    assert.deepEqual(
+      guard.attempts,
+      [],
+      `the async refresh used no synchronous lock or write operation: ${guard.attempts.join(',')}`
     );
+    const sync = await loopTurns(async () => refreshSingletonOwner(ownerPath, owner));
+    assert.equal(sync.result.status, 'busy');
+    assert.equal(sync.turns, 0, 'the sync refresh blocks the loop for its whole retry window');
     // Neither takes (nor removes) a lock it did not get, nor writes the record.
     assert.equal(existsSync(`${ownerPath}.claim.lock`), true);
     assert.equal(readSingletonOwner(ownerPath).owner, null);

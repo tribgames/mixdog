@@ -233,20 +233,31 @@ test('a slow managed-binary verification does not block the event loop', async (
     script,
     `import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
-const SLOW_MS = 400;
 const slow = (p) => String(p).includes('stylua');
+let ticks = 0;
+let syncOpens = 0;
+let heldOpens = 0;
+const timer = setInterval(() => { ticks += 1; }, 5);
 const openSync = fs.openSync;
 fs.openSync = (p, ...rest) => {
-  if (slow(p)) for (const end = Date.now() + SLOW_MS; Date.now() < end; );
+  if (slow(p)) syncOpens += 1;
   return openSync(p, ...rest);
 };
+// The slow async open is held from the moment it is reached, and released only after the loop
+// has turned several times since then. Ticks from module import or earlier work do not count
+// (the counter restarts here), and a verification that never reaches the async open leaves
+// heldOpens at 0.
 const open = fs.promises.open;
-fs.promises.open = (p, ...rest) =>
-  slow(p) ? new Promise((resolve) => setTimeout(resolve, SLOW_MS)).then(() => open(p, ...rest)) : open(p, ...rest);
+fs.promises.open = (p, ...rest) => {
+  if (!slow(p)) return open(p, ...rest);
+  heldOpens += 1;
+  ticks = 0;
+  return new Promise((resolve) => {
+    const wait = setInterval(() => { if (ticks >= 5) { clearInterval(wait); resolve(); } }, 5);
+  }).then(() => open(p, ...rest));
+};
 syncBuiltinESMExports();
 const { resolveEngines } = await import(${JSON.stringify(resolveUrl)});
-let ticks = 0;
-const timer = setInterval(() => { ticks += 1; }, 10);
 const { engines } = await resolveEngines({
   cwd: process.env.CHILD_ROOT,
   engineIds: ['stylua'],
@@ -256,7 +267,7 @@ const { engines } = await resolveEngines({
   env: { PATH: '', Path: '' },
 });
 clearInterval(timer);
-console.log(JSON.stringify({ ticks, source: engines[0].source, version: engines[0].version }));
+console.log(JSON.stringify({ ticks, syncOpens, heldOpens, source: engines[0].source, version: engines[0].version }));
 `
   );
   const out = spawnSync(process.execPath, [script], {
@@ -272,7 +283,9 @@ console.log(JSON.stringify({ ticks, source: engines[0].source, version: engines[
   const result = JSON.parse(out.stdout.trim().split('\n').pop());
   assert.equal(result.source, 'managed');
   assert.equal(result.version, '0.20.0');
-  assert.ok(result.ticks >= 15, `event loop kept running during slow verification (ticks=${result.ticks})`);
+  assert.equal(result.syncOpens, 0, 'the engine binary is verified through the async open');
+  assert.ok(result.heldOpens >= 1, 'verification reached the intercepted async open');
+  assert.ok(result.ticks >= 5, `loop turned while the open was held (ticks since it started=${result.ticks})`);
 });
 
 test('an unresolved engine reports its install hint and whether tidy can fetch it', async (t) => {

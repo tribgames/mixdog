@@ -108,14 +108,13 @@ test("dispose under this process's own async lock holder drains before teardown"
   });
   worker.flushWorkerIndexMutations();
   // Let the async persist start and block on the held lock.
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await new Promise((resolve) => setImmediate(resolve));
   worker.dispose();
   worker.dispose();
   assert.equal(exitFlushCount(), before + 2, 'exit hook stays registered until drained');
   release();
   await holder;
   await worker.flushWorkerIndexWrites();
-  await new Promise((resolve) => setTimeout(resolve, 20));
   const stored = JSON.parse(readFileSync(file, 'utf8'));
   assert.equal(stored.workers.gated?.sessionId, 'gated');
   assert.equal(exitFlushCount(), before + 1, 'worker hook released after drain');
@@ -158,10 +157,10 @@ function exitChildSource(mode) {
     await lockTaken;
     worker.queueWorkerIndexMutation((byKey) => byKey.set('first', row('first')));
     worker.flushWorkerIndexMutations();
-    await new Promise((resolve) => setTimeout(resolve, 30)); // persist is now running
+    await new Promise((resolve) => setImmediate(resolve)); // persist is now running
     worker.queueWorkerIndexMutation((byKey) => byKey.set('second', row('second')));
     worker.flushWorkerIndexMutations();
-    setTimeout(release, 30);
+    setImmediate(release);
     await flushAllIndexWrites();`
         : `worker.queueWorkerIndexMutation((byKey) => byKey.set('first', row('first')));
     worker.queueWorkerIndexMutation((byKey) => byKey.set('second', row('second')));`

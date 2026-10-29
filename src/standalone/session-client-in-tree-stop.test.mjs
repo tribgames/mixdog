@@ -82,7 +82,7 @@ function inTreeLauncher(t) {
 }
 
 test('launcher quit stops its in-tree daemon gracefully and waits for it', {
-  skip: process.platform !== 'win32',
+  skip: process.platform !== 'win32' && 'in-tree daemon stop is only supported on Windows',
 }, async (t) => {
   const launcher = inTreeLauncher(t);
   // Not in-tree yet: nothing to stop.
@@ -96,7 +96,7 @@ test('launcher quit stops its in-tree daemon gracefully and waits for it', {
 });
 
 test('a daemon that does not exit holds the quit for the default bound only', {
-  skip: process.platform !== 'win32',
+  skip: process.platform !== 'win32' && 'in-tree daemon stop is only supported on Windows',
 }, async (t) => {
   const launcher = inTreeLauncher(t);
   const daemon = await launcher.spawn({ wedged: true });

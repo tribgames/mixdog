@@ -657,7 +657,7 @@ test('dotnet-format --report from a mis-formatted temp .cs maps to the shared sh
   writeFileSync(full, 'class  Foo{int  x=1;}\n');
   const bin = which('dotnet');
   if (!bin) {
-    t.skip('dotnet SDK is not on PATH');
+    t.skip('the dotnet SDK is not installed (not found on PATH)');
     return;
   }
 

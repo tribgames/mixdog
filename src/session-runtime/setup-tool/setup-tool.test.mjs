@@ -111,6 +111,8 @@ test('tool definition: schema enums mirror the exported action/domain/target lis
   }
 });
 
+// Source-text on purpose: the Desktop slash and section tables are TypeScript renderer modules that Node
+// cannot import here, so cross-surface routing parity can only be read from their text.
 test('every open target is a slash command or a settings section routed by both TUI and Desktop', () => {
   const tuiNames = new Set(TUI_SLASH_COMMANDS.flatMap((cmd) => [cmd.name, ...(cmd.aliases || [])]));
   const renderer = path.join(repoRoot, 'apps', 'desktop', 'src', 'renderer');
