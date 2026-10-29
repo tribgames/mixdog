@@ -27,7 +27,41 @@ mock.module(fileLockUrl, {
     },
   },
 });
+// A read of a path in `readGates` (a rename onto one in `renameGates`) waits
+// on its gate (once) before touching the file, so it stays in flight as long
+// as the test holds it; every rename's destination is logged, and so is each
+// held rename's start.
+const realFsp = await import('node:fs/promises');
+const readGates = new Map();
+const renameGates = new Map();
+const heldRenames = [];
+const renamedTo = [];
+const { default: realFspDefault, ...fspNamed } = realFsp;
+mock.module('node:fs/promises', {
+  namedExports: {
+    ...fspNamed,
+    async readFile(path, ...rest) {
+      const gate = readGates.get(String(path));
+      readGates.delete(String(path));
+      if (gate) await gate;
+      return realFsp.readFile(path, ...rest);
+    },
+    async rename(src, dst) {
+      const gate = renameGates.get(String(dst));
+      renameGates.delete(String(dst));
+      if (gate) {
+        heldRenames.push(String(dst));
+        await gate;
+      }
+      await realFsp.rename(src, dst);
+      renamedTo.push(String(dst));
+    },
+  },
+  defaultExport: realFspDefault,
+});
 const {
+  _renameCoordinationForTest,
+  RENAME_READ_WAIT_MS,
   readJsonState,
   quarantinePath,
   readJsonStateSync,
@@ -195,6 +229,70 @@ test('a quarantine name is no longer than the original `.corrupt-<ms>` shape', (
   const second = quarantinePath(path);
   assert.equal(second, `${path}.corrupt-${frozen + 1}`);
   assert.ok(basename(second).length <= 255, `${basename(second).length} characters`);
+});
+
+// Waits on a condition (the writer's lock and temp file are real disk I/O).
+const turns = async (until) => {
+  for (const end = Date.now() + 5_000; !until() && Date.now() < end; ) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  assert.ok(until());
+};
+
+test("an update's rename waits for this process's read of the file in flight, then goes ahead", async () => {
+  const path = freshFile();
+  await updateJsonAtomic(path, () => ({ n: 0 }));
+  let release;
+  readGates.set(path, new Promise((resolve) => (release = resolve)));
+  const reading = readJsonState(path);
+  renamedTo.length = 0;
+  const writing = updateJsonAtomic(path, () => ({ n: 1 }));
+  // The writer reached its rename and waits on the held read.
+  await turns(() => _renameCoordinationForTest().waiters === 1);
+  assert.equal(renamedTo.includes(path), false, 'no rename over the file while it is being read');
+  release();
+  assert.deepEqual(await reading, { n: 0 });
+  await writing;
+  assert.equal(renamedTo.includes(path), true);
+  assert.deepEqual(await readJsonState(path), { n: 1 });
+  assert.deepEqual(_renameCoordinationForTest(), { entries: 0, waiters: 0 });
+});
+
+test('a read that never settles holds neither the writer nor later readers past the wait bound', { timeout: 15_000 }, async () => {
+  const path = freshFile();
+  await updateJsonAtomic(path, () => ({ n: 0 }));
+  readGates.set(path, new Promise(() => {}));
+  void readJsonState(path);
+  const started = Date.now();
+  const writing = updateJsonAtomic(path, () => ({ n: 1 }));
+  await turns(() => _renameCoordinationForTest().waiters === 1);
+  // A reader arriving while the rename waits is held off until it ran.
+  const later = readJsonState(path);
+  await writing;
+  const took = Date.now() - started;
+  assert.ok(took >= RENAME_READ_WAIT_MS - 50 && took < RENAME_READ_WAIT_MS + 3_000, `${took} ms`);
+  assert.deepEqual(await later, { n: 1 });
+  assert.deepEqual(await readJsonState(path), { n: 1 });
+  assert.deepEqual(_renameCoordinationForTest(), { entries: 0, waiters: 0 });
+});
+
+test('a rename that does not return holds a reader of the file only up to the wait bound', { timeout: 15_000 }, async () => {
+  const path = freshFile();
+  await updateJsonAtomic(path, () => ({ n: 0 }));
+  let release;
+  renameGates.set(path, new Promise((resolve) => (release = resolve)));
+  const writing = updateJsonAtomic(path, () => ({ n: 1 }));
+  await turns(() => heldRenames.includes(path));
+  const started = Date.now();
+  // The rename has not replaced the file: the reader gets the existing state.
+  assert.deepEqual(await readJsonState(path), { n: 0 });
+  const took = Date.now() - started;
+  assert.ok(took >= RENAME_READ_WAIT_MS - 50 && took < RENAME_READ_WAIT_MS + 3_000, `${took} ms`);
+  assert.deepEqual(_renameCoordinationForTest(), { entries: 0, waiters: 0 }, 'the hung rename was left behind');
+  release();
+  await writing;
+  assert.deepEqual(await readJsonState(path), { n: 1 });
+  assert.deepEqual(_renameCoordinationForTest(), { entries: 0, waiters: 0 });
 });
 
 test('a read-only file mode is written and flushed through its creating handle', (t) => {

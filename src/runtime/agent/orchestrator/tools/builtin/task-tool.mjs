@@ -7,6 +7,7 @@ import {
   otherSessionBackgroundShellJobCount,
   cancelBackgroundShellJobWatch,
   clearShellJobNotifyCtx,
+  shellJobKillSent,
   shellJobPublicTaskResult,
   shellJobTaskStatus,
   waitForShellJob,
@@ -237,7 +238,8 @@ async function cancelShellTaskOutcome(task, taskId, options) {
     // Confirm the process actually terminated before reporting a
     // terminal status. Removing the watcher on the strength of a
     // delivered signal left a live, unmonitored process behind a
-    // false 'cancelled'.
+    // false 'cancelled'. The window opens once the kill is actually sent.
+    await shellJobKillSent(taskId);
     const confirmed = await waitForShellJob(taskId, { timeoutMs: TASK_CANCEL_CONFIRM_MS });
     if (confirmed && confirmed.status === 'running') {
       // Watcher and notify context stay armed: the eventual exit

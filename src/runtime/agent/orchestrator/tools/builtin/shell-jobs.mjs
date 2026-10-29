@@ -433,7 +433,12 @@ export function killShellJob(jobId) {
     // complete, a fresh read). The kill waits for it at most the read bound
     // and is sent regardless; without a snapshot the outcome stays unknown and
     // the folder stays held under the observation loop.
-    void killAfterSnapshot(prepareTrackedKill(tracked), () => cancelNativeTask(jobId));
+    // The kill never outruns the promotion baseline itself: a read still in
+    // flight takes its table after a kill sent beside it, finds the root gone,
+    // and the job could never be confirmed terminated. That read ends by its
+    // own enumeration deadline.
+    const snapshot = prepareTrackedKill(tracked);
+    tracked.killSent = tracked.baseline.then(() => killAfterSnapshot(snapshot, () => cancelNativeTask(jobId)));
     return { ...attachJobInsights(normalizeShellJobDetail(current)), killed: true };
   }
   if (tracked) {
@@ -452,6 +457,12 @@ export function killShellJob(jobId) {
   if (!detail) return null;
   const wasRunning = detail.status === 'running';
   return { ...attachJobInsights(normalizeShellJobDetail(detail)), killed: wasRunning };
+}
+
+/** Settles once the kill a stop of the tracked job queued has been sent (at
+ *  once when none is pending). */
+export function shellJobKillSent(jobId) {
+  return Promise.resolve(backgroundTrackers.get(String(jobId || ''))?.killSent).catch(() => {});
 }
 
 /** True once every process of a tracked background job is confirmed gone,

@@ -128,12 +128,108 @@ export function renameWithRetrySync(src, dst, opts = {}) {
   }
 }
 
+// Windows refuses to rename over a file while any handle on it is open, so
+// this process's own reads of a busy state file (a delivery loop polling it)
+// could fail every attempt of its writer's rename until the retries ran out.
+// Here a rename attempt waits for the reads of its target in flight and holds
+// new ones off only while it runs; other processes are what the retries cover.
+// A read still open after RENAME_READ_WAIT_MS is left behind with its path's
+// entry (a stuck read must not hold the writer, its lock, or later readers),
+// and the attempt goes ahead under those same retries. Likewise a rename not
+// returned by then: readers held off read anyway, as without it.
+export const RENAME_READ_WAIT_MS = 1_000;
+const targetUse = new Map();
+const targetKey = (path) => {
+  const full = resolve(path);
+  return process.platform === 'win32' ? full.toLowerCase() : full;
+};
+function useOf(key) {
+  let use = targetUse.get(key);
+  if (!use) targetUse.set(key, (use = { reads: 0, renaming: null, drained: [] }));
+  return use;
+}
+function forgetIfIdle(key, use) {
+  if (use.reads === 0 && !use.renaming && targetUse.get(key) === use) targetUse.delete(key);
+}
+
+// Waits for the rename `use` runs; one that has not returned within the bound
+// is left behind with the entry, and the caller goes on as without it.
+async function outwaitRename(key, use) {
+  if (!(await settlesWithin(use.renaming, RENAME_READ_WAIT_MS)) && targetUse.get(key) === use) targetUse.delete(key);
+  return useOf(key);
+}
+
+function settlesWithin(promise, ms) {
+  let timer;
+  const bound = new Promise((resolve) => {
+    timer = setTimeout(() => resolve(false), ms);
+  });
+  return Promise.race([promise.then(() => true), bound]).finally(() => clearTimeout(timer));
+}
+
+async function readTarget(path, read) {
+  const key = targetKey(path);
+  let use = useOf(key);
+  while (use.renaming) use = await outwaitRename(key, use);
+  use.reads += 1;
+  try {
+    return await read();
+  } finally {
+    use.reads -= 1;
+    if (use.reads === 0) for (const done of use.drained.splice(0)) done();
+    forgetIfIdle(key, use);
+  }
+}
+
+async function renameOver(src, dst) {
+  const key = targetKey(dst);
+  let use = useOf(key);
+  while (use.renaming) use = await outwaitRename(key, use);
+  let finish;
+  use.renaming = new Promise((resolve) => {
+    finish = resolve;
+  });
+  try {
+    if (use.reads > 0 && !(await readsDrained(use, RENAME_READ_WAIT_MS)) && targetUse.get(key) === use) {
+      targetUse.delete(key);
+    }
+    await renameAsync(src, dst);
+  } finally {
+    use.renaming = null;
+    finish();
+    forgetIfIdle(key, use);
+  }
+}
+
+// True once `use` has no read in flight, false after `ms` (its waiter removed).
+function readsDrained(use, ms) {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      resolve(true);
+    };
+    const timer = setTimeout(() => {
+      const at = use.drained.indexOf(done);
+      if (at >= 0) use.drained.splice(at, 1);
+      resolve(false);
+    }, ms);
+    use.drained.push(done);
+  });
+}
+
+/** Test seam: the per-path coordination left (entries, drain waiters). */
+export function _renameCoordinationForTest() {
+  let waiters = 0;
+  for (const use of targetUse.values()) waiters += use.drained.length;
+  return { entries: targetUse.size, waiters };
+}
+
 async function renameWithRetry(src, dst, opts = {}) {
   const backoffs = renameBackoffs(opts);
   let lastErr = null;
   for (let attempt = 0; attempt <= backoffs.length; attempt++) {
     try {
-      await renameAsync(src, dst);
+      await renameOver(src, dst);
       return true;
     } catch (err) {
       lastErr = err;
@@ -433,7 +529,7 @@ function readContentOrNullSync(filePath) {
 
 async function readContentOrNullAsync(filePath) {
   try {
-    return await readFileAsync(filePath);
+    return await readTarget(filePath, () => readFileAsync(filePath));
   } catch (err) {
     if (err?.code === 'ENOENT') return null;
     throw err;

@@ -70,6 +70,7 @@ const {
   readShellJobRecord,
 } = await import('./lib/shell-job-records.mjs');
 const { cancelOwnedShellTrees } = await import('../lib/owned-shell-trees.mjs');
+const { PROCESS_TABLE_READ_BOUND_MS } = await import('../lib/shell-descendants.mjs');
 const { shellJobsStatusFresh } = await import('../../../../shared/statusline/statusline-segments.mjs');
 
 after(cleanupTempDirs);
@@ -142,6 +143,32 @@ test('a killed background job tracks a grandchild the kill orphaned', async (t) 
   assert.equal(isHeld(repo), true);
   tree.state.next = () => processTable([]);
   t.mock.timers.tick(5_000);
+  await until(() => !isHeld(repo));
+});
+
+test('a stop that arrives while the promotion snapshot is still being read waits for it, and the job is confirmed gone', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const repo = makeRepo();
+  const alive = () => processTable([{ pid: 7500 }, { pid: 7501, ppid: 7500 }]);
+  // The promotion read takes its table only when it lands: a busy machine's
+  // slow PowerShell start. A kill sent before then empties that table.
+  let land = null;
+  tree.state.next = () =>
+    new Promise((resolve) => {
+      land = () => resolve(tasks.get('job_bg_7500').status === 'running' ? alive() : processTable([]));
+    });
+  await promote(repo, 7500);
+  await flush();
+  tree.state.next = alive;
+  onCancel.set('job_bg_7500', () => {
+    tree.state.next = () => processTable([]);
+  });
+  assert.equal(killShellJob('job_bg_7500').killed, true);
+  t.mock.timers.tick(PROCESS_TABLE_READ_BOUND_MS);
+  await flush();
+  assert.equal(tasks.get('job_bg_7500').status, 'running', 'no kill before the snapshot it relies on');
+  land();
+  await until(() => tasks.get('job_bg_7500').status === 'cancelled');
   await until(() => !isHeld(repo));
 });
 
