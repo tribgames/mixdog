@@ -26,7 +26,7 @@
   checks: name no tools, steps, commands or suites; the agent's own rules
   choose its checks. A Reviewer gets the diff scope, the acceptance criteria
   and the author's Evidence verbatim, not the whole report, so passed checks
-  are not rerun; a re-review carries only the fixes. Reference evidence by
+  are not rerun. Reference evidence by
   path instead of retelling it. Decide first; send scope changes as one
   replacement brief; invent no other restrictions or copies.
 <!-- tools: agent -->
@@ -34,5 +34,5 @@
   do independent work and end the turn. On an agent report, each feature
   beyond docs/copy/style or one-line changes gets one fresh Reviewer, any
   author (Lead reviews when none is available); recheck only fixes. Before
-  commit/report, check cross-feature seams and run affected suites once.
-  Pending agent work is not a completed request.
+  commit/report, check cross-feature seams. Pending agent work is not a
+  completed request.

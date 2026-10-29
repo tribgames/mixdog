@@ -45,8 +45,6 @@ found" and never settle it by installing the package.
    effectful initializers, and the last unused import binding can still load a
    module for registration or initialization. Preserve required initialization
    rather than deleting it with the binding.
-5. Record the symbol, kind, classified usage and contract evidence, side-effect
-   result, and proposed action in the candidate list.
 
 ## Never dead
 
@@ -79,7 +77,7 @@ evidence. Apply this procedure before classifying an old path as dead:
 4. For a verified obsolete path, inventory its callers, flags/config, tests,
    docs, files, and dependencies. Remove only approved members in the order
    below; request scope expansion before editing related files outside it.
-5. Record the retirement evidence and any remaining items. A still-required path is kept with its contract; an unknown obligation
+5. A still-required path is kept with its contract; an unknown obligation
    leaves the candidate blocked, not assumed obsolete.
 
 ## Remove in order
@@ -94,9 +92,5 @@ evidence. Apply this procedure before classifying an old path as dead:
    project's own package manager.
 
 Group edits by file so one batch never touches a file another batch edits.
-Verification and rollback follow the skill body (section 5).
-
-## Report
-
-Use the shared candidate list and closing report, with usage and side-effect
-evidence per ID.
+Verification and rollback follow the skill body (section 5). Record usage and
+side-effect evidence in the common report format (`cleanup-report.md`).

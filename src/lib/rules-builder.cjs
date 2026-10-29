@@ -7,7 +7,6 @@
  *   - buildSharedToolContent            — BP1: shared tool policy
  *   - buildLeadRoleContent              — BP3: Lead role/system rules
  *   - buildAgentRoleContent             — BP3: agent role/system rules
- *   - buildAgentRetrievalInjectionContent — BP3: narrow read-only retrieval role
  *   - buildLeadMetaContent              — BP2: Lead profile/settings context
  *
  * 4-BP cache layout (composeSystemPrompt):
@@ -392,8 +391,8 @@ const AGENT_MODE_PROGRESS =
 const AGENT_MODE_REPORT =
   '- Relay agent reports faithfully. Code: one fresh Reviewer per non-trivial\n' +
   '  feature after its last worker, any author (Lead if none); docs/copy/style:\n' +
-  '  read the diff. Recheck only fixes; at request end check feature seams and\n' +
-  '  run affected suites once.';
+  '  read the diff. Recheck only concrete fixes, never rerun passing checks\n' +
+  '  without new evidence; at request end check feature seams.';
 
 function buildLeadRoleContent({ PLUGIN_ROOT, includeLeadBrief = true, part = 'common' }) {
   const RULES_DIR = path.join(PLUGIN_ROOT, 'rules');
@@ -472,31 +471,8 @@ function buildLeadLanguage({ DATA_DIR }) {
   return language?.prompt ? { id: language.id, name: language.prompt } : null;
 }
 
-function buildAgentRoleContent({ PLUGIN_ROOT, profile = 'full' }) {
-  const AGENT_DIR = path.join(PLUGIN_ROOT, 'rules', 'agent');
-  if (String(profile || 'full') === 'retrieval') {
-    return buildAgentRetrievalInjectionContent({ PLUGIN_ROOT });
-  }
-  return readOptional(path.join(AGENT_DIR, 'AGENT.md'));
-}
-
-/**
- * BP3 role rules for narrow hidden retrieval roles. These roles already carry a separate
- * read-only tool schema shard, so keeping the full agent worker prefix does
- * not improve cross-role cache reuse and only adds unrelated shell/edit/git
- * guidance.
- *
- * @returns {string}
- */
-function buildAgentRetrievalInjectionContent({ PLUGIN_ROOT }) {
-  const AGENT_DIR = path.join(PLUGIN_ROOT, 'rules', 'agent');
-  const core = readOptional(path.join(AGENT_DIR, 'AGENT.md'));
-  // Full ordered shared policy now ships via BP1 for retrieval
-  // roles too; no compact duplicate here.
-  const parts = [];
-  if (core) parts.push(core);
-  parts.push('', '- Read-only retrieval role: do not edit files, run shell, or use git.');
-  return parts.join('\n');
+function buildAgentRoleContent({ PLUGIN_ROOT }) {
+  return readOptional(path.join(PLUGIN_ROOT, 'rules', 'agent', 'AGENT.md'));
 }
 
 module.exports = {
@@ -508,6 +484,5 @@ module.exports = {
   buildLeadLanguageContent,
   buildLeadLanguage,
   buildAgentRoleContent,
-  buildAgentRetrievalInjectionContent,
   omitToolRoutes,
 };

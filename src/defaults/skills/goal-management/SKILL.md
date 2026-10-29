@@ -1,7 +1,7 @@
 ---
 name: goal-management
 description: Manage the task list of approved work carried across turns, its progress, approvals, and completion.
-when_to_use: 'Explicit Goal (`goal` tool) requests, approved multi-turn work in progress (migrations, improvement passes); not single-turn tasks or recurring schedules.'
+when_to_use: 'Goal requests or approved multi-turn work in progress; not one-turn tasks or recurring schedules.'
 dependencies:
   tools:
     - type: tool

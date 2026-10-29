@@ -13,9 +13,9 @@
   source unless the user asks.
 <!-- tools: visualize -->
 - Show every finished visual artifact with `visualize open`, loading its schema
-  first if deferred: images, video, HTML, documents, decks, mockups, diagrams,
-  plans; comparisons or research tables go in a visualize page. Keep the chat
-  to a short summary. `open` shows the user a deliverable; to check your own
+  first if deferred: images, video, HTML, documents, decks, mockups, diagrams.
+  A summary, plan or report of your own work stays in the chat, never a
+  visualize page. `open` shows the user a deliverable; to check your own
   work (`check`, `inspect`, `capture`, `export`), open with `verify: true`.
 
 <!-- tools: git -->

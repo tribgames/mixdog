@@ -133,8 +133,8 @@ or radius are one option.
 
 ### Inline content or a file
 - **Inline** (`open` with `input.content` — `mermaid`, `svg`, `chart` (an
-  ECharts option as JSON), `html`, `markdown`): diagrams, charts, quick
-  sketches and notes you will not edit again. No file is written. `mermaid`,
+  ECharts option as JSON), `html`, `markdown`): diagrams, charts and quick
+  sketches you will not edit again; never a report of your own work. No file is written. `mermaid`,
   `svg` and `markdown` are static, sanitized output (no scripts). `chart` is
   interactive (tooltips, zoom) and `html` runs its scripts, as in-memory pages
   held to the same rules as an HTML file: outside network is blocked, so an

@@ -1,5 +1,4 @@
 // Biome — JSON reporter for check, `--write` (1.x: `--apply`) for fix.
-import { availableParallelism } from 'node:os';
 import { mapLimit, runProcess } from '../process.mjs';
 import {
   FILES_PER_SPAWN,
@@ -19,8 +18,9 @@ export const BIOME_CHECK_ARGS = ['check', '--reporter=json', '--max-diagnostics=
 export const BIOME_TRUNCATED_NOTE =
   'biome JSON output was truncated; split the scope and re-run to get complete diagnostics';
 const EXPLAIN_TIMEOUT_MS = 8_000;
-// One short single-rule process each; scale the fan-out with the host.
-const EXPLAIN_CONCURRENCY = Math.max(4, Math.ceil(availableParallelism() / 2));
+// One short single-rule process each, a few at a time: the host is the
+// user's working machine, so the fan-out does not grow with its core count.
+const EXPLAIN_CONCURRENCY = 4;
 
 function severityOf(value) {
   const level = String(value || '').toLowerCase();
