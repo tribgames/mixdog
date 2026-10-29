@@ -2,16 +2,88 @@
 // file handling for managed processes.
 
 use super::*;
+use std::sync::atomic::AtomicUsize;
+use std::sync::mpsc;
 
-pub(crate) fn emit(value: &serde_json::Value) {
-    let stdout = std::io::stdout();
-    let mut out = stdout.lock();
-    let _ = writeln!(out, "{value}");
-    let _ = out.flush();
+/// One item for the stdout writer: a line, or a marker it acknowledges once
+/// everything queued before it was written (drain_output).
+enum Out {
+    Line(String),
+    Drained(mpsc::Sender<()>),
 }
 
+/// The queue to the one thread that writes stdout (start_writer). Unbounded,
+/// so an enqueue never waits on the client: an event emitted inside a
+/// state-lock hold keeps transition order without ever blocking the hold.
+/// Only ever locked for a non-blocking send.
+static OUT: Mutex<Option<mpsc::Sender<Out>>> = Mutex::new(None);
+/// Bytes queued and not yet written.
+static QUEUED_BYTES: AtomicUsize = AtomicUsize::new(0);
+/// Stream output (emit_output) waits while more than this is queued, as it
+/// waited on a full stdout pipe when it wrote stdout itself: a fast command
+/// with a slow client does not grow the queue without bound.
+const OUTPUT_HIGH_WATER: usize = 8 * 1024 * 1024;
+
+fn start_writer(mut sink: impl Write + Send + 'static) -> mpsc::Sender<Out> {
+    let (queue, items) = mpsc::channel::<Out>();
+    thread::spawn(move || {
+        for item in items {
+            match item {
+                Out::Line(line) => {
+                    let _ = writeln!(sink, "{line}");
+                    let _ = sink.flush();
+                    QUEUED_BYTES.fetch_sub(line.len(), Ordering::AcqRel);
+                }
+                Out::Drained(ack) => {
+                    let _ = ack.send(());
+                }
+            }
+        }
+    });
+    queue
+}
+
+fn enqueue(item: Out) {
+    let mut out = OUT.lock().unwrap_or_else(|e| e.into_inner());
+    let queue = out.get_or_insert_with(|| start_writer(std::io::stdout()));
+    let _ = queue.send(item);
+}
+
+/// Every emission: a non-blocking enqueue for the stdout writer.
+pub(crate) fn emit(value: &serde_json::Value) {
+    let line = value.to_string();
+    QUEUED_BYTES.fetch_add(line.len(), Ordering::AcqRel);
+    enqueue(Out::Line(line));
+}
+
+/// A command's stream output (pump_pipe, which holds no lock here): first
+/// waits while the queue is past OUTPUT_HIGH_WATER.
+pub(crate) fn emit_output(value: &serde_json::Value) {
+    while QUEUED_BYTES.load(Ordering::Acquire) > OUTPUT_HIGH_WATER {
+        thread::sleep(Duration::from_millis(2));
+    }
+    emit(value);
+}
+
+/// Wait up to `within` for everything queued so far to be written (shutdown:
+/// a client that stopped reading cannot hold the exit).
+pub(crate) fn drain_output(within: Duration) -> bool {
+    let (ack, acked) = mpsc::channel();
+    enqueue(Out::Drained(ack));
+    acked.recv_timeout(within).is_ok()
+}
+
+/// Tests: the writer from here on writes to `sink`.
+#[cfg(all(windows, test))]
+pub(crate) fn replace_writer(sink: impl Write + Send + 'static) {
+    *OUT.lock().unwrap_or_else(|e| e.into_inner()) = Some(start_writer(sink));
+}
+
+/// The snapshot is taken and its event queued in one state-lock hold, so it
+/// is ordered with the tree events.
 pub(crate) fn emit_task(id: u64, event: &str, managed: &ManagedProcess) {
-    if let Some(task) = managed.snapshot() {
+    let state = managed.lock_state();
+    if let Some(task) = state.snapshot(managed.request_id, managed.pid) {
         emit(&json!({ "id": id, "event": event, "task": task }));
     }
 }
@@ -55,16 +127,24 @@ pub(crate) fn arm_timeout(managed: Arc<ManagedProcess>, timeout_ms: u64) {
     }
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(timeout_ms));
-        if let Ok(mut state) = managed.state.lock() {
-            if managed.done.load(Ordering::Acquire) || state.status != "running" {
-                return;
-            }
+        let mut state = managed.lock_state();
+        if state.status == "running" && kill_running(&managed, &mut state) {
             state.timed_out = true;
-            state.killed = true;
             state.error = Some(format!("timed out after {timeout_ms} ms"));
-            managed.terminate();
         }
     });
+}
+
+/// The kill of a command over its output cap, under its state lock (`state`,
+/// `killed` and the error already recorded). A contained command's only while
+/// it runs (kill_running: never its kept survivors); an uncontained one's
+/// process group / job as before, even after its root exited.
+pub(crate) fn kill_over_cap(managed: &ManagedProcess, state: &mut TaskState) {
+    if state.contained {
+        kill_running(managed, state);
+    } else {
+        managed.terminate();
+    }
 }
 
 pub(crate) fn encode_base64(bytes: &[u8]) -> String {
@@ -121,23 +201,21 @@ pub(crate) fn pump_pipe(
                     .unwrap_or(false);
                 if stream {
                     if raw_output {
-                        emit(&json!({
+                        emit_output(&json!({
                             "id": id,
                             "event": kind,
                             "dataBase64": encode_base64(&buf[..n]),
                         }));
                     } else {
                         let text = String::from_utf8_lossy(&buf[..n]).into_owned();
-                        emit(&json!({ "id": id, "event": kind, "text": text }));
+                        emit_output(&json!({ "id": id, "event": kind, "text": text }));
                     }
                 }
                 if exceeded {
-                    if let Ok(mut state) = managed.state.lock() {
-                        state.killed = true;
-                        state.error =
-                            Some(format!("output exceeded {} byte cap", state.output_limit));
-                    }
-                    managed.terminate();
+                    let mut state = managed.lock_state();
+                    state.killed = true;
+                    state.error = Some(format!("output exceeded {} byte cap", state.output_limit));
+                    kill_over_cap(&managed, &mut state);
                     break;
                 }
             }
@@ -225,11 +303,13 @@ pub(crate) fn read_capture_tail(path: &str, limit: usize) -> (u64, Vec<u8>) {
 // File capture has no pump thread, so byte counts and the preview tails that
 // completion envelopes render come from the files themselves. Returns true
 // when the output cap is now exceeded — the same verdict pump_pipe reaches
-// per chunk on the pipe path.
+// per chunk on the pipe path — and then, with `kill`, kills the command in the
+// same hold.
 pub(crate) fn refresh_capture_state(
     managed: &ManagedProcess,
     stdout_path: &str,
     stderr_path: &str,
+    kill: bool,
 ) -> bool {
     let (out_bytes, out_tail) = read_capture_tail(stdout_path, TAIL_LIMIT);
     let (err_bytes, err_tail) = read_capture_tail(stderr_path, TAIL_LIMIT);
@@ -243,6 +323,9 @@ pub(crate) fn refresh_capture_state(
             if out_bytes.saturating_add(err_bytes) > limit && state.status == "running" {
                 state.killed = true;
                 state.error = Some(format!("output exceeded {} byte cap", state.output_limit));
+                if kill {
+                    kill_over_cap(managed, &mut state);
+                }
                 return true;
             }
             false
@@ -260,8 +343,7 @@ pub(crate) fn arm_output_size_watchdog(
         if managed.done.load(Ordering::Acquire) {
             return;
         }
-        if refresh_capture_state(&managed, &stdout_path, &stderr_path) {
-            managed.terminate();
+        if refresh_capture_state(&managed, &stdout_path, &stderr_path, true) {
             return;
         }
         thread::sleep(Duration::from_millis(SIZE_WATCHDOG_INTERVAL_MS));

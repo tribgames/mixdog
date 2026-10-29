@@ -102,6 +102,8 @@ function ensureWarmShellStandby({ shell, env }) {
         outputLimit: SHELL_OUTPUT_DISK_CAP,
         rawOutput: true,
         stdinPipe: true,
+        // The command it is fed runs contained, like a fresh spawn's.
+        contain: true,
         shellType: 'powershell',
         command: '(warm shell standby)',
       },

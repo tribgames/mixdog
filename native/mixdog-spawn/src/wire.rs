@@ -38,6 +38,10 @@ pub(crate) struct SpawnRequest {
     // script text after spawn). Default false preserves Stdio::null().
     #[serde(default)]
     pub(crate) stdin_pipe: bool,
+    // Windows: refuse breakaway from the command's job, so the server can
+    // report its whole tree gone (`tree_empty`). Ignored elsewhere.
+    #[serde(default)]
+    pub(crate) contain: bool,
     #[serde(default)]
     pub(crate) command: Option<String>,
     #[serde(default)]

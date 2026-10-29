@@ -136,6 +136,8 @@ async function gatedSpawn({
         command,
         ownerSessionId,
         clientHostPid,
+        // Windows: the whole tree stays in the command's job (native-spawn-client).
+        contain: true,
         ...(stdinPipe ? { stdinPipe: true } : {}),
         ...(capture
           ? {
@@ -296,7 +298,9 @@ export async function spawnShellChild(input) {
       await Promise.resolve(released).catch(() => {});
     } else {
       try {
-        // Identities first: the kill may break the parent chain.
+        input.run.killed = true;
+        // Identities first: the kill may break the parent chain (a contained
+        // tree needs none: its kill is at once and verified by the server).
         // Bounded: the kill is sent even if the snapshot hangs or fails.
         await killAfterSnapshot(capturePreKill(input.run), () => killShellJob(input.run.foregroundRecordId));
         const detail = await waitForShellJob(input.run.foregroundRecordId);

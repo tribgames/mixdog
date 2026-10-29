@@ -373,7 +373,42 @@ test(
 );
 
 test(
-  'a hanging pre-kill snapshot never blocks the kill: it is sent at the read bound',
+  'a pre-kill snapshot slower than the read bound is still taken before the kill, so the cancelled tree is confirmed gone',
+  withTimers(async () => {
+    const repo = makeRepo();
+    const child = runningChild();
+    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    // A table read answers with the processes alive when it is taken: a
+    // loaded host's enumerator takes it long after it was asked for.
+    let alive = [{ pid: ROOT }];
+    let takeTable;
+    tree.state.next = () => new Promise((resolve) => (takeTable = () => resolve(processTable(alive))));
+    let kills = 0;
+    child.kill = () => {
+      kills += 1;
+      alive = [];
+      return true;
+    };
+    run.settle = createSettle(run, () => {});
+    treeKillForceSettle(run, 'cancellation');
+    await flush();
+    await tick(PROCESS_TABLE_READ_BOUND_MS);
+    assert.equal(kills, 0, 'no kill before the snapshot it relies on');
+    takeTable();
+    await flush();
+    assert.equal(kills, 1);
+    assert.equal(run.terminationTracker.complete, true, 'the identities were taken while the root ran');
+    tree.state.next = () => processTable(alive);
+    exitChild(child, 137);
+    await settleAndFlush(run);
+    await tick(5_000);
+    assert.equal(isHeld(repo), false, 'the workspace is released once the tree is confirmed gone');
+    run.stopTerminationWatch?.();
+  })
+);
+
+test(
+  'a stuck pre-kill snapshot never blocks the kill: it is sent once the read fails at its deadline',
   withTimers(async () => {
     const repo = makeRepo();
     const child = runningChild();
@@ -383,16 +418,21 @@ test(
       kills.push(Date.now());
       return true;
     };
-    tree.state.next = () => new Promise(() => {}); // the process-table read never answers
+    // The enumerator is stuck until its deadline kills it (the strict read rejects).
+    const timedOut = () => new Error('Process enumeration timed out after 20000 ms.');
+    let failRead;
+    tree.state.next = () => new Promise((_, reject) => (failRead = () => reject(timedOut())));
     run.settle = createSettle(run, () => {});
     treeKillForceSettle(run, 'abort');
     await flush();
-    await tick(PROCESS_TABLE_READ_BOUND_MS - 1);
+    await tick(PROCESS_TABLE_READ_BOUND_MS);
     assert.equal(kills.length, 0);
-    await tick(1);
-    assert.equal(kills.length, 1, 'the kill is sent once the bound elapses');
+    tree.state.next = () => Promise.reject(timedOut());
+    failRead();
+    await flush();
+    assert.equal(kills.length, 1, 'the kill is sent once the read failed');
     // Never confirmed: the run settles unconfirmed and the folder stays held.
-    // Three attempts, each a 5 s deadline plus at most one read bound.
+    // Three attempts, each a 5 s deadline (every later read fails at once).
     for (let second = 0; second < 3 * 7 && !run.killUnconfirmed; second += 1) await tick(1_000);
     assert.equal(run.killUnconfirmed, true);
     assert.equal(kills.length, 3, 'every attempt is sent');
@@ -400,6 +440,185 @@ test(
     await tick(60_000);
     assert.equal(isHeld(repo), true, 'no timer releases it');
     run.stopTerminationWatch();
+  })
+);
+
+// A child the spawn server contains (Windows job without breakaway): the
+// server, not a process-table read, reports when its whole tree is gone.
+const containedChild = () => Object.assign(runningChild(), { contained: true, treeOutcome: null });
+
+test(
+  'a contained tree is killed at once, with no pre-kill snapshot, and released on the server’s empty-job report',
+  withTimers(async () => {
+    const repo = makeRepo();
+    const child = containedChild();
+    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    tree.state.next = () => new Promise(() => {}); // any table read would hang
+    const reads = tree.state.reads;
+    let kills = 0;
+    child.kill = () => {
+      kills += 1;
+      return true;
+    };
+    run.settle = createSettle(run, () => {});
+    treeKillForceSettle(run, 'cancellation');
+    assert.equal(kills, 1, 'the kill is sent synchronously');
+    // The server verified the job empty before reporting the exit.
+    child.treeOutcome = 'empty';
+    exitChild(child, 137);
+    await settleAndFlush(run);
+    assert.equal(isHeld(repo), false, 'released on the verified-empty job');
+    assert.equal(tree.state.reads, reads, 'no process-table read at all');
+  })
+);
+
+test(
+  'a contained kill the server never verifies empty stays unknown: the workspace stays held',
+  withTimers(async () => {
+    const repo = makeRepo();
+    const child = containedChild();
+    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const reads = tree.state.reads;
+    run.settle = createSettle(run, () => {});
+    treeKillForceSettle(run, 'timeout');
+    child.treeOutcome = 'pending';
+    exitChild(child, 137);
+    await settleAndFlush(run);
+    await tick(60_000);
+    assert.equal(isHeld(repo), true, 'a root exit is not a verified-empty job');
+    assert.equal(records.published.at(-1)?.terminationUnconfirmed, true, 'shown as termination unconfirmed');
+    // A late report (the server kept watching the job) still releases it.
+    child.treeOutcome = 'empty';
+    await tick(5_000);
+    assert.equal(isHeld(repo), false);
+    assert.equal(tree.state.reads, reads);
+  })
+);
+
+// Finding 1: the cancel reached the server only after the root had exited on
+// its own and its tree was settled, so the server kept the survivors in their
+// job. The process table then says nothing reliable about them: the root's
+// pid may already name another process. Kernel creation times (FILETIME).
+const ROOT_CREATED = '134000000000000000';
+const LATER = (seconds) => String(BigInt(ROOT_CREATED) + BigInt(seconds) * 10_000_000n);
+
+async function cancelRacingNaturalExit(repo, rows) {
+  const child = Object.assign(containedChild(), { creationTime: ROOT_CREATED });
+  const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+  let kills = 0;
+  child.kill = () => {
+    kills += 1;
+    return true;
+  };
+  tree.state.kills.length = 0;
+  tree.state.next = () => processTable(rows);
+  const reads = tree.state.reads;
+  run.settle = createSettle(run, () => {});
+  treeKillForceSettle(run, 'cancellation');
+  child.treeOutcome = 'preserved';
+  exitChild(child, 0);
+  await settleAndFlush(run);
+  return { child, run, kills: () => kills, reads: () => tree.state.reads - reads };
+}
+
+test(
+  'a reused root pid never hides a kept survivor: held until the server verified the job empty',
+  withTimers(async () => {
+    const repo = makeRepo();
+    // ROOT now names an unrelated process; 4510 is our root's real survivor.
+    const raced = await cancelRacingNaturalExit(repo, [
+      { pid: ROOT, token: LATER(5) },
+      { pid: 4510, ppid: ROOT, token: LATER(1) },
+    ]);
+    await tick(60_000);
+    assert.equal(isHeld(repo), true, 'never released on a table read');
+    assert.equal(raced.kills(), 2, 'the kill is re-sent to the kept job');
+    raced.child.treeOutcome = 'empty';
+    await tick(5_000);
+    assert.equal(isHeld(repo), false, 'released once the job is verified empty');
+    assert.equal(raced.reads(), 0, 'no process table consulted');
+  })
+);
+
+test(
+  'the dangling children of a reused root pid are never swept as the kept survivors',
+  withTimers(async () => {
+    const repo = makeRepo();
+    // The pid's later owner exited too; 4530 is ITS child, created after our root.
+    const raced = await cancelRacingNaturalExit(repo, [{ pid: 4530, ppid: ROOT, token: LATER(3) }]);
+    await tick(60_000);
+    assert.deepEqual(tree.state.kills, [], 'no process is killed by pid');
+    assert.equal(isHeld(repo), true);
+    assert.equal(raced.reads(), 0);
+    raced.child.treeOutcome = 'empty';
+    await tick(5_000);
+    assert.equal(isHeld(repo), false);
+  })
+);
+
+test(
+  'kept survivors the server lets go unverified stay unconfirmed: never gone',
+  withTimers(async () => {
+    const repo = makeRepo();
+    const raced = await cancelRacingNaturalExit(repo, []);
+    raced.child.treeOutcome = 'released';
+    await tick(60_000);
+    assert.equal(isHeld(repo), true);
+    assert.equal(
+      (await forceReleaseTerminationHold('job_unconfirmed_kill', { callerSessionId: 'session' })).released,
+      true
+    );
+    assert.equal(isHeld(repo), false);
+    assert.equal(raced.reads(), 0);
+  })
+);
+
+// Finding 2: the server stopped verifying a killed job it could not empty.
+test(
+  'a contained kill the server gives up verifying is never gone: held as unconfirmed until a force-release',
+  withTimers(async () => {
+    const repo = makeRepo();
+    const child = containedChild();
+    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    const reads = tree.state.reads;
+    let treeSettled = false;
+    run.settle = createSettle(run, () => {});
+    treeKillForceSettle(run, 'timeout');
+    child.treeOutcome = 'pending';
+    exitChild(child, 137);
+    await settleAndFlush(run);
+    void run.treeSettled.then(() => (treeSettled = true));
+    child.treeOutcome = 'unverified';
+    await tick(60_000);
+    assert.equal(isHeld(repo), true);
+    assert.equal(records.published.at(-1)?.terminationUnconfirmed, true, 'shown as termination unconfirmed');
+    assert.equal(
+      (await forceReleaseTerminationHold('job_unconfirmed_kill', { callerSessionId: 'session' })).released,
+      true,
+      'its owner can still force-release it'
+    );
+    await flush();
+    assert.equal(isHeld(repo), false);
+    await tick(60_000);
+    assert.equal(treeSettled, false, 'never reported terminated');
+    assert.equal(tree.state.reads, reads, 'no process table stands in for the missing verification');
+  })
+);
+
+test(
+  'a session close cancels a contained foreground tree without waiting for a snapshot',
+  withTimers(async () => {
+    const repo = makeRepo();
+    const child = containedChild();
+    const { run } = unconfirmedRun(repo, child, { killUnconfirmed: false });
+    run.killed = false;
+    run.foregroundRecordId = 'job_contained_close';
+    tree.state.next = () => new Promise(() => {});
+    registerForegroundOwnedTree(run, 'sess_contained_close');
+    const outcome = cancelOwnedShellTrees('sess_contained_close');
+    assert.equal(typeof outcome?.then, 'undefined', 'sent at once, not after a snapshot');
+    assert.equal(run.killed, true);
+    assert.equal(run.terminationTracker.contained, true);
   })
 );
 

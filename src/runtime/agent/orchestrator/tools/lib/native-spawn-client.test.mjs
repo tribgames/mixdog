@@ -18,6 +18,7 @@ import {
   _setNativeSpawnBinaryForTest,
   ensureNativeSpawnServer,
   listNativeTasks,
+  nativeSpawnContainmentRequested,
   shutdownNativeSpawnServer,
   tryNativeSpawn,
   waitNativeTask,
@@ -40,6 +41,28 @@ test('native spawn rejects binaries without the required lifecycle protocol', ()
       cancelOwner: true,
     }),
     true
+  );
+});
+
+test('containment is asked only of a Windows server that advertises it, unless breakaway is allowed', () => {
+  const caps = { verifiedContainment: true };
+  const win = { platform: 'win32', env: {} };
+  assert.equal(nativeSpawnContainmentRequested(caps, { contain: true }, win), true);
+  // An older server: no capability, so the request keeps today's tracking.
+  assert.equal(nativeSpawnContainmentRequested({ fileCapture: true }, { contain: true }, win), false);
+  assert.equal(nativeSpawnContainmentRequested(caps, {}, win), false, 'only callers that ask');
+  assert.equal(nativeSpawnContainmentRequested(caps, { contain: true }, { platform: 'linux', env: {} }), false);
+  assert.equal(
+    nativeSpawnContainmentRequested(caps, { contain: true }, { platform: 'win32', env: { MIXDOG_SHELL_ALLOW_BREAKAWAY: '1' } }),
+    false,
+    'the emergency switch in Mixdog’s environment'
+  );
+  const optedOut = { contain: true, env: { PATH: 'x', MIXDOG_SHELL_ALLOW_BREAKAWAY: '1' } };
+  assert.equal(nativeSpawnContainmentRequested(caps, optedOut, win), false, 'one command opts out in its own env');
+  assert.equal(
+    nativeSpawnContainmentRequested(caps, { contain: true, env: { PATH: 'x' } }, win),
+    true,
+    'and only that command'
   );
 });
 

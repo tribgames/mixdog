@@ -196,6 +196,48 @@ export function createProcessTreeTracker({ pid, members = [], exitObserved = fal
   };
 }
 
+/** The tracker of a KILLED tree the native spawn server contains (a Windows
+ *  job object nothing can break away from), driven only by the server's
+ *  outcome for that job (`outcome()`, see native-spawn-client treeOutcome).
+ *  It never reads the process table: membership is the job's, never a guess
+ *  from parent links, which a reused root pid makes point at the wrong
+ *  processes. So the kill never waits for a snapshot.
+ *    'empty'                 gone
+ *    'preserved'             the root exited on its own before the kill
+ *                            reached the server, which kept its survivors in
+ *                            the job: `cancel()` re-sends the kill to exactly
+ *                            that job (once), and its verdict follows
+ *    'unverified'/'released' unknown for good, and incomplete, so a
+ *                            force-release ends the watch: never gone
+ *    anything else           unknown until the server reports (a lost server
+ *                            never does) */
+export function createContainedTreeTracker({ outcome, cancel }) {
+  let cancelled = false;
+  return {
+    contained: true,
+    get complete() {
+      const value = outcome();
+      return value !== 'unverified' && value !== 'released';
+    },
+    live: [],
+    capture: async () => true,
+    acceptExitObservation() {},
+    async observe() {
+      const value = outcome();
+      if (value === 'empty') return 'gone';
+      if (value === 'preserved' && !cancelled) {
+        cancelled = true;
+        try {
+          cancel();
+        } catch {
+          /* the server link is gone: the outcome stays unknown */
+        }
+      }
+      return 'unknown';
+    },
+  };
+}
+
 /** Terminate every identity the last observation found alive (console hosts
  *  excepted: they are witnesses, never workers). These are processes of a tree
  *  that was KILLED — they escaped its process group (setsid, job control, a

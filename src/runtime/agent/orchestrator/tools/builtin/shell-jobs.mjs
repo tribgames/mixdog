@@ -38,6 +38,7 @@ import {
   takeReleaseRequest,
 } from './lib/shell-job-records.mjs';
 import {
+  createContainedTreeTracker,
   createProcessTreeTracker,
   endWatchWhenUnconfirmable,
   killAfterSnapshot,
@@ -64,12 +65,32 @@ const PRE_DEADLINE_CAPTURE_MS = PROCESS_TABLE_READ_BOUND_MS + 1_000;
 // the promotion baseline predates whatever the job started since (a server,
 // an npm child); the baseline still stands when the fresh read fails. Marks
 // the job killed, so its settle relies on this snapshot instead of an
-// after-exit observation.
+// after-exit observation. A job the spawn server contains needs none (true at
+// once): its kill is verified by the server's empty-job report.
 function prepareTrackedKill(entry) {
   entry.killed = true;
+  if (entry.contained) return true;
   return (entry.baseline || Promise.resolve(false)).then(() =>
     entry.tracker.capture().catch(() => entry.tracker.complete)
   );
+}
+
+const FINAL_TREE_OUTCOMES = new Set(['empty', 'unverified', 'released']);
+
+/** The tracker of a contained job's killed or emptied tree, driven by the
+ *  server's outcome (a final one latched: the task entry may expire).
+ *  Survivors the server kept in the job are cancelled through it. */
+function containedJobTracker(jobId) {
+  let final = null;
+  return createContainedTreeTracker({
+    outcome: () => {
+      if (final) return final;
+      const outcome = getNativeTask(jobId)?.treeOutcome ?? null;
+      if (FINAL_TREE_OUTCOMES.has(outcome)) final = outcome;
+      return outcome;
+    },
+    cancel: () => cancelNativeTask(jobId),
+  });
 }
 import { isPidAlive } from '../../../../shared/pid-liveness.mjs';
 import { hopOf } from '../../../../shared/bot-hops.mjs';
@@ -129,9 +150,14 @@ async function trackShellJobRecord(task, options) {
     if (!(await holding)) throw worktreeError('WORKTREE_BUSY_JOBS', 'The command folder is being managed.');
   }
   const tracker = task?.cwd ? createProcessTreeTracker({ pid: task.pid }) : null;
+  // Killed, or emptied on its own, a contained job is confirmed by the server
+  // (containedJobTracker); the process tracker still observes the survivors a
+  // root that exited on its own leaves.
+  const contained = task?.contained === true;
   let resolveTerminated = null;
   const entry = {
     tracker,
+    contained,
     killed: false,
     baseline: null,
     // Settles once every process of the job is confirmed gone (or the user
@@ -156,7 +182,7 @@ async function trackShellJobRecord(task, options) {
   // identities of what the job started since its promotion.
   const deadlineMs = Math.floor(Number(options?.timeoutMs) || 0);
   const deadlineCapture =
-    tracker && deadlineMs > 0
+    tracker && !contained && deadlineMs > 0
       ? setTimeout(
           () => {
             if (!settled) void tracker.capture().catch(() => false);
@@ -183,6 +209,8 @@ async function trackShellJobRecord(task, options) {
     // settle does. A killed one relies on the snapshot taken before the kill.
     const killed = entry.killed || detail.killed || detail.timedOut || String(detail.status) === 'cancelled';
     if (!killed) tracker.acceptExitObservation();
+    const watched =
+      contained && (killed || detail.treeOutcome === 'empty') ? containedJobTracker(jobId) : tracker;
     // The completion notice is already on its way (watchBackgroundShellJob);
     // the record — and with it the workspace admission — completes only once
     // every process is confirmed gone, or the user releases it explicitly.
@@ -205,7 +233,7 @@ async function trackShellJobRecord(task, options) {
       return releaseHold();
     };
     const stop = watchTermination({
-      tracker: endWatchWhenUnconfirmable(tracker, { released: () => released !== null, stop: () => stop() }),
+      tracker: endWatchWhenUnconfirmable(watched, { released: () => released !== null, stop: () => stop() }),
       // A killed job is not over while processes it started still run.
       sweep: killed,
       onTerminated: finish,
@@ -436,9 +464,12 @@ export function killShellJob(jobId) {
     // The kill never outruns the promotion baseline itself: a read still in
     // flight takes its table after a kill sent beside it, finds the root gone,
     // and the job could never be confirmed terminated. That read ends by its
-    // own enumeration deadline.
+    // own enumeration deadline. A contained job is cancelled at once.
     const snapshot = prepareTrackedKill(tracked);
-    tracked.killSent = tracked.baseline.then(() => killAfterSnapshot(snapshot, () => cancelNativeTask(jobId)));
+    tracked.killSent =
+      snapshot === true
+        ? new Promise((resolve) => resolve(cancelNativeTask(jobId)))
+        : tracked.baseline.then(() => killAfterSnapshot(snapshot, () => cancelNativeTask(jobId)));
     return { ...attachJobInsights(normalizeShellJobDetail(current)), killed: true };
   }
   if (tracked) {
@@ -737,8 +768,9 @@ export async function shutdownShellJobs(_reason = 'runtime-close', { scope = nul
   let cancelledWatchers = 0;
   // Identities first, as every other kill does: once a root dies, what it
   // started outside its process group is reparented and can no longer be
-  // found. The cancel is sent at the snapshot bound regardless.
-  await killAfterSnapshot(Promise.all(prepareOwnedShellTreeKills(scoped ? ownerSessionId : null)), () => {
+  // found. The cancel is sent at the snapshot bound regardless — and at once
+  // when no snapshot is pending (every tree contained, or already captured).
+  const cancelAll = () => {
     for (const task of jobs) {
       if (cancelBackgroundShellJobWatch(task.jobId)) cancelledWatchers += 1;
       try {
@@ -746,7 +778,10 @@ export async function shutdownShellJobs(_reason = 'runtime-close', { scope = nul
       } catch {}
       jobNotifyCtxByJobId.delete(task.jobId);
     }
-  });
+  };
+  const snapshots = prepareOwnedShellTreeKills(scoped ? ownerSessionId : null);
+  if (snapshots.length === 0) cancelAll();
+  else await killAfterSnapshot(Promise.all(snapshots), cancelAll);
   const settled = await Promise.all(jobs.map((task) => waitNativeTask(task.jobId, 1_200).catch(() => null)));
   // A process still running after the wait is not forgotten: it keeps being
   // stopped until its exit is confirmed.

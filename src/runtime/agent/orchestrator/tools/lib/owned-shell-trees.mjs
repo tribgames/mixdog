@@ -5,6 +5,8 @@
 // PROCESS_TABLE_READ_BOUND_MS, and then sends the kill whether or not they
 // arrived. A missing snapshot leaves the outcome unknown, so the workspace
 // stays held under the observation loop instead of being released blind.
+// A tree the spawn server contains (Windows job) needs no snapshot: its
+// prepareKill answers true, so a cancel of only such trees is sent at once.
 import { cancelNativeTasks } from './native-spawn-client.mjs';
 import { killAfterSnapshot } from './shell-descendants.mjs';
 

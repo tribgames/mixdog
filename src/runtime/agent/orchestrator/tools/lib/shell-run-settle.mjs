@@ -194,6 +194,8 @@ export async function readCapturedOutput(taskOutput, final = false) {
 // instead of a clean finish; null means nothing survived.
 async function probeSurvivingDescendants(run) {
   if (run.killed || run.timedOut || !run.child?.pid) return null;
+  // The spawn server verified the command's job empty: nothing survived.
+  if (run.child.treeOutcome === 'empty') return null;
   const descendants = await probeShellDescendants({
     pid: run.child.pid,
     rootCreationTime: run.child.creationTime,

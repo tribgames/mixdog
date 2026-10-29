@@ -13,6 +13,51 @@ const RESTART_BACKOFF_MS = 30_000;
 const SERVER_READY_TIMEOUT_MS = 5_000;
 const REQUIRED_LIFECYCLE_CAPS = Object.freeze(['trackedForeground', 'promoteTask', 'cancelOwner']);
 
+// Windows containment. A spawn that asks for it (`spawnOptions.contain`, the
+// shell runner's commands) runs in a job object it cannot break away from, and
+// the server reports what became of that job's tree (`treeOutcome`, below):
+// verified empty, the whole tree is gone, so a kill needs no process-table
+// snapshot first. A program that must start children with
+// CREATE_BREAKAWAY_FROM_JOB (some installers, launchers) fails to under it.
+// `MIXDOG_SHELL_ALLOW_BREAKAWAY=1` in a command's OWN environment
+// (`spawnOptions.env`) opts that command out; in Mixdog's environment it is
+// the emergency switch for every command. Either way the command keeps the
+// conservative process-table tracking. A failed command is never re-run
+// without containment: it may already have had side effects.
+// Servers without the `verifiedContainment` capability are never asked.
+export const ALLOW_BREAKAWAY_ENV = 'MIXDOG_SHELL_ALLOW_BREAKAWAY';
+
+/** Whether a spawn with `spawnOptions` asks the server `caps` for containment. */
+export function nativeSpawnContainmentRequested(
+  caps,
+  spawnOptions = {},
+  { platform = process.platform, env = process.env } = {}
+) {
+  return (
+    spawnOptions?.contain === true &&
+    platform === 'win32' &&
+    caps?.verifiedContainment === true &&
+    env[ALLOW_BREAKAWAY_ENV] !== '1' &&
+    spawnOptions.env?.[ALLOW_BREAKAWAY_ENV] !== '1'
+  );
+}
+
+// treeOutcome of a contained spawn (null until known):
+//   'empty'       verified: every process of the tree has exited (final)
+//   'pending'     killed, the server is still verifying
+//   'preserved'   the root exited on its own before any kill reached it; the
+//                 server keeps its survivors in their job for a while, where a
+//                 targeted cancel (`cancel` by request id, `cancelTask`) still
+//                 kills exactly them and is verified like any kill
+//   'unverified'  killed, but the job was never verified empty (final)
+//   'released'    the kept survivors were let go unobserved (final). With
+//                 `breakawayRestored: false` (on `tree_released`, `exit`, task
+//                 snapshots) they were not even let go: they stay in a job they
+//                 cannot leave. Either way unknown for good, never gone.
+const FINAL_TREE_OUTCOMES = new Set(['empty', 'unverified', 'released']);
+const treeOutcomeOf = (value) =>
+  value === 'pending' || value === 'preserved' || FINAL_TREE_OUTCOMES.has(value) ? value : null;
+
 let _server = null;
 let _binaryPath;
 let _lastFailureAt = 0;
@@ -205,12 +250,19 @@ function normalizeTask(task) {
     stdoutPath: override?.stdoutPath || null,
     stderrPath: override?.stderrPath || null,
     mergeStderr: false,
+    contained: task.contained === true,
+    treeOutcome: treeOutcomeOf(task.treeOutcome),
   };
 }
 
 function acceptTask(message) {
   const task = normalizeTask(message?.task);
   if (!task) return null;
+  const known = _tasks.get(task.jobId);
+  // A final outcome stands: a snapshot taken before its report is late.
+  if (FINAL_TREE_OUTCOMES.has(known?.treeOutcome) && known.requestId === task.requestId) {
+    task.treeOutcome = known.treeOutcome;
+  }
   _tasks.set(task.jobId, task);
   _markTerminalTask(task.jobId, task.status);
   _taskEvents.emit(task.jobId, task);
@@ -263,6 +315,10 @@ class NativeSpawnChild extends EventEmitter {
     // Windows kernel creation time (FILETIME ticks, decimal) from the server's
     // 'spawned' event; null from servers that do not report it.
     this.creationTime = null;
+    // Spawned into a job it cannot leave, and what the server reported about
+    // that job's tree (treeOutcomeOf).
+    this.contained = false;
+    this.treeOutcome = null;
   }
 
   // stdinPipe children only (warm shell standby): forward script text to the
@@ -397,6 +453,21 @@ function _teardown(error, { kill = true } = {}) {
   }
 }
 
+// The server's outcome for the tree of request `id`. Only a request of THIS
+// server still awaiting a final outcome takes it: a lost server's trees stay
+// unconfirmed, whatever a new server later says about a reused request id.
+function _settleTree(server, id, outcome) {
+  const entry = server.trees.get(id);
+  if (!entry || FINAL_TREE_OUTCOMES.has(entry.child.treeOutcome)) return;
+  entry.child.treeOutcome = outcome;
+  if (FINAL_TREE_OUTCOMES.has(outcome)) server.trees.delete(id);
+  const task = entry.jobId ? _tasks.get(entry.jobId) : null;
+  if (task && task.requestId === id && !FINAL_TREE_OUTCOMES.has(task.treeOutcome)) {
+    task.treeOutcome = outcome;
+    _taskEvents.emit(entry.jobId, { ...task });
+  }
+}
+
 export async function shutdownNativeSpawnServer(reason = 'process-exit', timeoutMs = 1_000) {
   const server = _server;
   if (!server) return true;
@@ -445,7 +516,9 @@ function _ensureServer() {
     _lastFailureAt = Date.now();
     return null;
   }
-  const server = { child, pending: new Map(), sequence: 0, ready: false, caps: {} };
+  // trees: request id -> { child, jobId } of contained spawns awaiting a final
+  // tree outcome (it may follow their exit).
+  const server = { child, pending: new Map(), trees: new Map(), sequence: 0, ready: false, caps: {} };
   let resolveReady;
   server.readyPromise = new Promise((resolve) => {
     resolveReady = resolve;
@@ -475,7 +548,16 @@ function _ensureServer() {
       const jobId = String(message?.jobId || '');
       if (jobId) _dropTaskEntry(jobId, { notifyServer: false });
     } else if (event.startsWith('task_')) {
-      acceptTask(message);
+      const task = acceptTask(message);
+      // A job id assigned by the server (background) or later (track).
+      const tree = task ? server.trees.get(task.requestId) : null;
+      if (tree) tree.jobId = task.jobId;
+    } else if (event === 'tree_empty') {
+      _settleTree(server, Number(message?.id), 'empty');
+    } else if (event === 'tree_unverified') {
+      _settleTree(server, Number(message?.id), 'unverified');
+    } else if (event === 'tree_released') {
+      _settleTree(server, Number(message?.id), 'released');
     }
     const pending = server.pending.get(Number(message?.id));
     if (!pending) return;
@@ -573,6 +655,7 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
   // fields and keep piping, so the capability gate decides rather than hope.
   const _fileCapture =
     server.caps?.fileCapture === true && Boolean(spawnOptions.stdoutPath) && Boolean(spawnOptions.stderrPath);
+  const contain = nativeSpawnContainmentRequested(server.caps, spawnOptions);
   const request = {
     id,
     program: String(shell || ''),
@@ -592,6 +675,7 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
         }
       : {}),
     ...(spawnOptions.stdinPipe === true ? { stdinPipe: true } : {}),
+    ...(contain ? { contain: true } : {}),
     command: spawnOptions.command || undefined,
     shellType: spawnOptions.shellType || undefined,
     ownerSessionId: spawnOptions.ownerSessionId || undefined,
@@ -615,6 +699,11 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
       if (event === 'spawned') {
         fake.pid = Number(message.pid) || undefined;
         if (/^\d+$/.test(String(message.creationTime ?? ''))) fake.creationTime = String(message.creationTime);
+        // Only a containment the request asked for counts.
+        if (contain && message.contained === true) {
+          fake.contained = true;
+          server.trees.set(id, { child: fake, jobId: request.jobId || null });
+        }
         fake.emit('spawn');
         return;
       }
@@ -632,6 +721,10 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
         server.pending.delete(id);
         fake.exitCode = message.code == null ? null : Number(message.code);
         fake.signalCode = message.signal || null;
+        // The outcome when the server finished the request; a pending one is
+        // made final by a later report. A contained exit without one (a
+        // malformed or partial report) proves nothing.
+        if (fake.contained) _settleTree(server, id, treeOutcomeOf(message.treeOutcome) ?? 'unverified');
         fake._closed = true;
         fake.emit('close', fake.exitCode, fake.signalCode);
         _recomputeServerRef(server);

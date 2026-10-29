@@ -6,21 +6,31 @@
 import { randomUUID } from 'node:crypto';
 import { publishForegroundShellRecord, retireForegroundShellRecord } from '../builtin/shell-jobs.mjs';
 import { ShellTextDecoder, TaskOutput, treeKill } from '../shell-exec-output.mjs';
-import { createProcessTreeTracker, killAfterSnapshot } from './shell-descendants.mjs';
+import { createContainedTreeTracker, createProcessTreeTracker } from './shell-descendants.mjs';
 import { registerOwnedShellTree } from './owned-shell-trees.mjs';
 
-/** The tracker of the run's process tree, created once. */
+/** The tracker of the run's process tree, created once. A killed tree the
+ *  spawn server contains is gone on its verified-empty report alone; every
+ *  other tree (no containment, or a root that exited on its own and left
+ *  survivors) is observed through the process table. */
 export function runTreeTracker(run) {
   run.terminationTracker =
     run.terminationTracker ||
-    createProcessTreeTracker({ pid: run.child.pid, rootCreationTime: run.child.creationTime });
+    (run.killed === true && run.child.contained === true
+      ? createContainedTreeTracker({
+          outcome: () => run.child.treeOutcome,
+          // Survivors the server kept in the job: the kill, by request id.
+          cancel: () => treeKill(run.child),
+        })
+      : createProcessTreeTracker({ pid: run.child.pid, rootCreationTime: run.child.creationTime }));
   return run.terminationTracker;
 }
 
 /** One pre-kill identity read of the run's tree (every kill path shares it):
- *  resolves true once the capture is complete, false when it failed. */
+ *  resolves true once the capture is complete, false when it failed. A
+ *  contained kill needs none: true at once, so the kill is never delayed. */
 export function capturePreKill(run) {
-  runTreeTracker(run);
+  if (runTreeTracker(run).contained) return true;
   const rootExited = run.child.exitCode != null || run.child.signalCode != null;
   return run.terminationTracker.capture({ rootExited }).catch(() => false);
 }
@@ -40,6 +50,7 @@ export function registerForegroundOwnedTree(run, ownerSessionId) {
       run.killCause = run.killCause || 'session-close';
       // Always a fresh read: an earlier one predates what the run started
       // since. Pending, the kill is sent at the snapshot bound regardless.
+      // A contained tree answers true at once: its cancel is sent at once.
       return capturePreKill(run);
     },
   };
@@ -227,18 +238,23 @@ export function keepTerminationUnconfirmedRecord(run) {
 // Record the tree's identities while the root is still alive, THEN kill: once
 // an intermediate dies its children's parent links dangle and a snapshot taken
 // afterwards can no longer find them.
-// The kill waits for the snapshot at most PROCESS_TABLE_READ_BOUND_MS and is
-// sent whether the snapshot succeeded, failed or is still pending (a late
-// snapshot is still absorbed; a missing one leaves the outcome unknown, so the
-// workspace stays held under the observation loop). The confirmation deadline
-// starts once the kill is actually issued.
+// The kill waits until the snapshot succeeded or failed, never just for a
+// while: a read still in flight takes its table after a kill sent beside it,
+// finds the root gone, and the tree could never be confirmed terminated (the
+// workspace then stays held until a force-release). A healthy table read takes
+// seconds on a loaded host; a stuck one ends at its enumeration deadline
+// (ENUMERATION_DEADLINE_MS), and the kill is sent then, the outcome unknown.
+// A tree the spawn server contains is killed at once instead: its job holds
+// every descendant, and the server reports when that job is empty.
+// The confirmation deadline starts once the kill is actually issued.
 function snapshotThenKill(run, afterKill) {
-  if (!run.child?.pid) {
+  const snapshot = run.child?.pid ? capturePreKill(run) : true;
+  if (snapshot === true) {
     treeKill(run.child);
     afterKill();
     return;
   }
-  void killAfterSnapshot(capturePreKill(run), () => {
+  void snapshot.then(() => {
     treeKill(run.child);
     afterKill();
   });
