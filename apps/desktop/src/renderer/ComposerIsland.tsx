@@ -52,6 +52,7 @@ import { MxIcon } from './MxIcon';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import { quotaRemainingLabel, quotaResetLabel } from './quota-continue';
 import { useClock } from './use-clock';
+import { useSurfaceActive } from './surface-activity';
 
 /** A short notice the island shows in place of its pill, then returns. */
 /** `icon`: the glyph before the text (default the check). */
@@ -479,7 +480,9 @@ function fitDockedApproval(slot: HTMLElement, island: HTMLElement): void {
  * reduced motion apply every change instantly; reduced motion turning on
  * mid-motion lands the slot at its target at once. The island's entry fade
  * (data-entry) is enabled only by content arriving, or the island changing
- * shape, after the first frame: a mounted island draws at its final state.
+ * shape, after the first frame: a mounted island draws at its final state,
+ * and so does an island a session had open when it was last shown, once its
+ * late segments land (only an island's first appearance in a session fades).
  * Content changes are read in the mutation microtask, before the frame's
  * layout, so the transcript's viewport observer sees the new dock in the same
  * frame. Segments render from their own state, so the island's DOM, not its
@@ -587,6 +590,10 @@ function useIslandSlotPresence(
     let height = -1;
     let carried = false;
     let shape: string | null = null;
+    // The session's island was open when it was last shown: its first
+    // content after this mount (segments re-reading, a lane landing) is the
+    // island coming back, not appearing, so it draws without the entry fade.
+    let returning = (rememberedSlotHeight(sessionIdRef.current) ?? 0) > 0;
     const presence = (value: SlotPresence) => slot.setAttribute('data-presence', value);
     // An unchanged target starts no transition: it leaves any motion running.
     const resize = (target: number, animate: boolean) => {
@@ -628,11 +635,18 @@ function useIslandSlotPresence(
       const content = Boolean(island.querySelector(ISLAND_CONTENT));
       const mode = island.getAttribute('data-mode');
       // Set in the same microtask as the change, so the style pass that
-      // shows the new content starts its fade; once set it stays.
-      if (armed && content && (!carried || mode !== shape)) slot.setAttribute('data-entry', '');
+      // shows the new content starts its fade; once set it stays. A session
+      // coming back to its open island, or content landing in a retained
+      // (unpainted) conversation, is no entry: the fade would replay the
+      // moment the session is shown again.
+      if (armed && content && (!carried || mode !== shape)) {
+        if (returning || slot.closest('[data-retained]')) slot.removeAttribute('data-entry');
+        else slot.setAttribute('data-entry', '');
+      }
       carried = content;
       shape = mode;
       if (content) {
+        returning = false;
         cancelGrace();
         reserve(false);
         // Shown first: a closed slot has no box to measure.
@@ -659,6 +673,7 @@ function useIslandSlotPresence(
         cancelGrace();
         reserve(false);
         held = 0;
+        returning = false;
         rememberSlotHeight(sessionIdRef.current, 0);
         collapse(animate && !pane?.hasAttribute('data-transcript-entering'));
         return;
@@ -681,6 +696,7 @@ function useIslandSlotPresence(
         () => {
           grace = 0;
           reserve(false);
+          returning = false;
           rememberSlotHeight(sessionIdRef.current, 0);
           collapse(!reducedMotion.matches);
         },
@@ -1088,11 +1104,13 @@ function useIslandAgentRows(sessionId: string): IslandAgentRow[] {
   );
   const agentRows = useMemo(() => islandAgentRows(pool, sessionId), [pool, sessionId]);
   const hasActive = agentRows.some((row) => !row.finished);
+  // An off-screen conversation keeps no reconcile poll alive.
+  const surfaceActive = useSurfaceActive();
   useEffect(() => {
     startAgentPool(poolStore);
-    if (!hasActive) return undefined;
+    if (!hasActive || !surfaceActive) return undefined;
     return subscribeSharedPoll(poolStore, () => void refreshAgentPool(poolStore), AGENT_POOL_RECONCILE_MS);
-  }, [hasActive, poolStore]);
+  }, [hasActive, poolStore, surfaceActive]);
   return agentRows;
 }
 
@@ -1361,9 +1379,11 @@ export const ComposerIsland = memo(function ComposerIsland({
   }, [sessionId]);
   // Outside press or Escape collapses the island's own tabs and the branch
   // and git tabs. The Goal and files tabs own their dismissal (they also
-  // guard their dialogs and pickers).
+  // guard their dialogs and pickers). An island whose conversation is off
+  // screen listens to nothing: those presses and keys belong to the shown one.
+  const surfaceActive = useSurfaceActive();
   useEffect(() => {
-    if (!['agents', 'shells', 'resume', 'branch', 'git'].includes(expanded)) return undefined;
+    if (!surfaceActive || !['agents', 'shells', 'resume', 'branch', 'git'].includes(expanded)) return undefined;
     const onPointerDown = (event: PointerEvent) => {
       const island = islandRef.current;
       if (island && event.target instanceof Node && island.contains(event.target)) return;
@@ -1378,7 +1398,7 @@ export const ComposerIsland = memo(function ComposerIsland({
       document.removeEventListener('pointerdown', onPointerDown, true);
       document.removeEventListener('keydown', onKeyDown);
     };
-  }, [expanded]);
+  }, [expanded, surfaceActive]);
 
   let mode = 'pill';
   if (approval) mode = 'approval';

@@ -1,5 +1,6 @@
 import { type RefObject, useEffect, useRef } from 'react';
 import { TOUCH_SLOP_PX } from './remote-browser-touch';
+import { useSurfaceActive } from './surface-activity';
 
 const ROW_CONTEXT_MENU_SELECTOR = '.dock-scm-context-menu';
 
@@ -125,8 +126,13 @@ export function useMenuDismiss({
 }): void {
   const latest = useRef({ close, panels, onEscape });
   latest.current = { close, panels, onEscape };
+  // A popup owned by a retained or parked surface (an off-screen
+  // conversation, an inactive Dock tab) takes no press, Escape or Tab: those
+  // belong to the shown surface.
+  const surfaceActive = useSurfaceActive();
+  const listening = open && surfaceActive;
   useEffect(() => {
-    if (!open) return undefined;
+    if (!listening) return undefined;
     // A row context menu opened from the popup (portaled to <body>) is part of
     // it: its pointer events do not dismiss the popup, and it owns Escape and
     // Tab while it is up.
@@ -163,5 +169,5 @@ export function useMenuDismiss({
       window.removeEventListener('pointerdown', onPointerDown, true);
       window.removeEventListener('keydown', onKeyDown, true);
     };
-  }, [open, trigger]);
+  }, [listening, trigger]);
 }

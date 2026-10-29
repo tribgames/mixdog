@@ -6,6 +6,7 @@ import { ErrorNotice } from './ErrorNotice';
 import { MxIcon } from './MxIcon';
 import { t } from './i18n';
 import { useMobileBack } from './mobile-back';
+import { useSurfaceActive } from './surface-activity';
 import { skillTitle, type ComposerSkill } from './composer-skill';
 import { cachedSkillCatalog, refreshSkillCatalog } from './composer-skill-mentions';
 import { wrappedNavigationIndex } from './list-navigation';
@@ -42,9 +43,12 @@ function useComposerAddMenuDismiss({
   close(): void;
   setOpen(open: boolean): void;
 }): void {
+  // Off screen (retained or parked conversation) the menu takes no press or
+  // Escape: they belong to the shown conversation.
+  const surfaceActive = useSurfaceActive();
   // biome-ignore lint/correctness/useExhaustiveDependencies: must run only when open changes; re-running on callback identity would refocus the first menu item
   useEffect(() => {
-    if (!open) return;
+    if (!open || !surfaceActive) return;
     panel.current?.querySelector<HTMLElement>('[role="menuitem"]')?.focus();
     const pointer = (event: PointerEvent) => {
       if (
@@ -67,7 +71,7 @@ function useComposerAddMenuDismiss({
       document.removeEventListener('pointerdown', pointer, true);
       document.removeEventListener('keydown', key, true);
     };
-  }, [open]);
+  }, [open, surfaceActive]);
 }
 
 function renderComposerSkillEntry(skill: ComposerSkill, dismiss: () => void, onSkill: (name: string) => void) {

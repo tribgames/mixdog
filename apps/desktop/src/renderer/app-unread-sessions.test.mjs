@@ -262,7 +262,8 @@ test("a bot chat's turn answered by a reaction alone leaves no unread dot; its n
 
 // The split layout of the report: coding sessions in the focused left pane, a
 // bot chat ('비서') open as the right pane's tab.
-function SplitHarness({ api, screen, focusTick, sessions, useScreenSessions, useUnreadViewedSession }) {
+function SplitHarness({ api, screen, sessions, useScreenSessions, useUnreadViewedSession, onRender }) {
+  onRender?.();
   useScreenSessions(screen);
   const viewedSessionRef = useRef('');
   const unreadViewedSessionRef = useRef('');
@@ -277,7 +278,6 @@ function SplitHarness({ api, screen, focusTick, sessions, useScreenSessions, use
     bottomPanelOpen: false,
     settingsOpen: false,
     sessions,
-    windowFocusTick: focusTick,
     viewedSessionRef,
     unreadViewedSessionRef,
     screenSessionIdsRef,
@@ -318,7 +318,7 @@ const side = { ...row, id: 'bot-home', messageCount: 2, readMessageCount: 2 };
 test('a reply landing in a chat open in the side pane of the focused window is read as it arrives', async () => {
   const { dom, api, reads, render, marks } = await splitSetup({ focused: true });
   try {
-    await render({ screen: ['main', 'bot-home'], focusTick: 0, sessions: [main, side] });
+    await render({ screen: ['main', 'bot-home'], sessions: [main, side] });
     await act(async () => api.reconcileUnreadSessions([main, side]));
     await act(async () => api.reconcileUnreadSessions([main, { ...side, messageCount: 4 }]));
     assert.equal(marks(), '', 'no dot for a reply the user is looking at');
@@ -335,14 +335,14 @@ test('a reply landing in a chat open in the side pane of the focused window is r
 test('a side pane chat that got unread behind another app clears when focus returns; a hidden pane keeps it', async () => {
   const { dom, api, reads, render, marks } = await splitSetup({ focused: false });
   try {
-    await render({ screen: ['main', 'bot-home'], focusTick: 0, sessions: [main, side] });
+    await render({ screen: ['main', 'bot-home'], sessions: [main, side] });
     await act(async () => api.reconcileUnreadSessions([main, side]));
     const replied = [main, { ...side, messageCount: 4 }];
     await act(async () => api.reconcileUnreadSessions(replied));
     assert.equal(marks(), 'bot-home', 'an unfocused window is not reading');
     // Focus returns, but the side pane is hidden (single-pane carousel).
     dom.state.focused = true;
-    await render({ screen: ['main'], focusTick: 1, sessions: replied });
+    await render({ screen: ['main'], sessions: replied });
     await act(async () => api.reconcileUnreadSessions([main, { ...side, messageCount: 5 }]));
     assert.equal(marks(), 'bot-home', 'a hidden pane does not mark read');
     assert.equal(
@@ -350,12 +350,41 @@ test('a side pane chat that got unread behind another app clears when focus retu
       false
     );
     // The pane is shown again: its chat is read.
-    await render({ screen: ['main', 'bot-home'], focusTick: 1, sessions: [main, { ...side, messageCount: 5 }] });
+    await render({ screen: ['main', 'bot-home'], sessions: [main, { ...side, messageCount: 5 }] });
     assert.equal(marks(), '');
     assert.deepEqual(
       reads.find(([id]) => id === 'bot-home'),
       ['bot-home', 5, true]
     );
+  } finally {
+    await act(async () => dom.root.unmount());
+    dom.close();
+  }
+});
+
+test('focus coming back reads the shown chats without re-rendering the window', async () => {
+  const { dom, api, reads, render, marks } = await splitSetup({ focused: false });
+  let renders = 0;
+  const onRender = () => {
+    renders += 1;
+  };
+  try {
+    const replied = [main, { ...side, messageCount: 4 }];
+    await render({ screen: ['main', 'bot-home'], sessions: [main, side], onRender });
+    await act(async () => api.reconcileUnreadSessions([main, side]));
+    await act(async () => api.reconcileUnreadSessions(replied));
+    await render({ screen: ['main', 'bot-home'], sessions: replied, onRender });
+    assert.equal(marks(), 'bot-home', 'an unfocused window is not reading');
+    const before = renders;
+    dom.state.focused = true;
+    await act(async () => window.dispatchEvent(new window.Event('focus')));
+    assert.deepEqual(
+      reads.find(([id]) => id === 'bot-home'),
+      ['bot-home', 4, true],
+      'the shown side chat is read on return'
+    );
+    assert.equal(marks(), '');
+    assert.equal(renders - before, 1, 'only the dot changes; no extra render for the return itself');
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();

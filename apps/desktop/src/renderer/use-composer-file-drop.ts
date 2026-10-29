@@ -1,5 +1,6 @@
 import { useEffect, useState, type RefObject } from 'react';
 import { absolutePathsForDragPayload, dataTransferHasDroppableFiles, readFileDragPayload } from './file-drag';
+import { useSurfaceActive } from './surface-activity';
 
 /**
  * Native and internal file drops onto the composer. Owns the "dragging files"
@@ -29,10 +30,16 @@ export function useComposerFileDrop({
   insertLocalFolderPaths?: (paths: string[]) => void;
 }) {
   const [draggingFiles, setDraggingFiles] = useState(false);
+  // Off screen (retained or parked conversation) the composer takes no drop
+  // and watches no window drag: a drag belongs to the shown conversation.
+  const surfaceActive = useSurfaceActive();
 
   useEffect(() => {
     const target = dropTargetRef.current;
-    if (!target) return;
+    if (!target || !surfaceActive) {
+      setDraggingFiles(false);
+      return;
+    }
     const containsInput = (event: DragEvent) =>
       Boolean(event.dataTransfer && dataTransferHasDroppableFiles(event.dataTransfer));
     const clearDraggingFiles = () => setDraggingFiles(false);
@@ -119,6 +126,7 @@ export function useComposerFileDrop({
     insertLocalFolderPaths,
     dropTargetRef,
     projectScope,
+    surfaceActive,
     transitioningRef,
   ]);
 

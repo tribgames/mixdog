@@ -66,7 +66,7 @@ test('invocations clear stale errors, retain results, and report failures withou
   assert.deepEqual(hook.current.errors, ['Desktop bridge is unavailable. Open this renderer inside Mixdog Desktop.']);
 });
 
-test('session activity preserves pinned titles, reconciles readiness, and wakes on phone resume', async (t) => {
+test('session activity preserves pinned titles, reconciles readiness, and does not re-render on resume', async (t) => {
   let finishRefresh;
   let refreshes = 0;
   const ready = [];
@@ -103,9 +103,15 @@ test('session activity preserves pinned titles, reconciles readiness, and wakes 
   assert.deepEqual([...hook.current.runningAutomationNames.webhook], ['notify']);
   assert.equal(refreshes, 1);
   assert.deepEqual(ready, []);
-  const previousTick = hook.current.windowFocusTick;
-  await act(async () => hook.window.dispatchEvent(new hook.window.Event('pageshow')));
-  assert.equal(hook.current.windowFocusTick, previousTick + 1);
+  // Coming back to the window re-renders nothing at the app root: unread
+  // consumption listens for the return itself (use-unread-viewed-session).
+  const beforeReturn = hook.current;
+  await act(async () => {
+    hook.window.dispatchEvent(new hook.window.Event('pageshow'));
+    hook.window.dispatchEvent(new hook.window.Event('focus'));
+    hook.window.document.dispatchEvent(new hook.window.Event('visibilitychange'));
+  });
+  assert.equal(hook.current, beforeReturn, 'no root render on return');
   await act(async () => finishRefresh());
   assert.deepEqual(ready, [true]);
   const reconciledTabs = tabs;

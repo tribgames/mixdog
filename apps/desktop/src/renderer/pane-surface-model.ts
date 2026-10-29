@@ -118,16 +118,15 @@ export function usePaneSurfaceHandoffs(leaves: readonly PaneLeaf[]) {
   return { currentPaneSurfaces, paneSurfaceHandoffs };
 }
 
-/** A session tab shown on a phone, newest first in the recency list. */
+/** A session tab shown in a pane, newest first in the recency list. */
 type RecentSelection = { leafId: string; selectionKey: string };
 
 /**
  * Resolves the stable Conversation owner key per visible pane so a moved
  * active tab keeps its owner and ordinary tab switches never remount it.
  *
- * `retainLimit` > 0 (the phone, which shows one pane) also keeps that many
- * recently shown session tabs mounted as their own retained owners, one
- * budget across every pane: switching back to one is a visibility flip
+ * `retainLimit` > 0 also keeps that many recently shown session tabs mounted
+ * as their own retained owners, one budget across every pane: switching back to one is a visibility flip
  * instead of a full transcript render. A retained tab that is closed or
  * pushed out of the budget gives its owner back to the next session opened
  * in its pane.

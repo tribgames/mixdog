@@ -21,6 +21,7 @@
 // open watcher layers to sentinels, and watchers return once the stack drains.
 import { useEffect, useRef } from 'react';
 import { nativeAppInfo } from '../shared/native-app';
+import { useSurfaceActive } from './surface-activity';
 
 type CloseWatcherLike = { onclose: (() => void) | null; destroy(): void };
 type CloseWatcherConstructor = new () => CloseWatcherLike;
@@ -150,8 +151,13 @@ export function registerMobileBack(close: () => void): () => void {
 export function useMobileBack(open: boolean, close: () => void): void {
   const closeRef = useRef(close);
   closeRef.current = close;
+  // A layer inside a retained or parked surface (an off-screen conversation,
+  // an inactive Dock tab) is not on top of anything the user sees: Back
+  // belongs to the shown surface until this one is shown again.
+  const surfaceActive = useSurfaceActive();
+  const armed = open && surfaceActive;
   useEffect(() => {
-    if (!open) return undefined;
+    if (!armed) return undefined;
     return registerMobileBack(() => closeRef.current());
-  }, [open]);
+  }, [armed]);
 }
