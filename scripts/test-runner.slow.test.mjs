@@ -226,6 +226,53 @@ test('failure records name the failing leaf with its suite path, and skip todo a
   assert.equal(createFailureRecorder('')({ type: 'test:fail', data: { name: 'x', nesting: 0, file } }), undefined);
 });
 
+test('a test file whose process exits non-zero or dies on a signal names how it ended on its FAILED line', async (t) => {
+  // The shape node gives a file whose process ended badly: no failing test,
+  // only "test failed" with the exit code and signal on the error.
+  const fileFailure = (exitCode, signal = null) => ({
+    type: 'test:fail',
+    data: {
+      name: 'crash.test.mjs',
+      nesting: 0,
+      file: join(process.cwd(), 'src', 'crash.test.mjs'),
+      details: { error: { failureType: 'testCodeFailure', exitCode, signal } },
+    },
+  });
+  const record = (event) => failureRecord(event, new Map());
+  assert.deepEqual(record(fileFailure(3221225794)), {
+    file: 'src/crash.test.mjs',
+    name: 'crash.test.mjs',
+    exit: 'test process exited with code 3221225794 (0xC0000142)',
+  });
+  assert.equal(record(fileFailure(null, 'SIGKILL')).exit, 'test process killed by SIGKILL');
+  assert.equal(record(fileFailure(7)).exit, 'test process exited with code 7');
+  assert.deepEqual(record(fileFailure(0)), { file: 'src/crash.test.mjs', name: 'crash.test.mjs' });
+  assert.equal(
+    formatFailureSummary({ failed: [record(fileFailure(3221225794))], exitCode: 1 }).split('\n')[1],
+    `${SUMMARY_TAG} FAILED src/crash.test.mjs > crash.test.mjs (test process exited with code 3221225794 (0xC0000142))`
+  );
+
+  // Through the runner: a real process exit beside an ordinary failing test,
+  // whose line stays exactly as it was.
+  const cwd = await fixture(t, {
+    'src/exits.test.mjs': 'process.exit(7);\n',
+    'src/fails.test.mjs': `
+      import test from 'node:test';
+      test('fails', () => { throw new Error('ordinary failure'); });
+    `,
+  });
+  const run = runNode(cwd, [runnerPath]);
+  t.after(() => rm(dirname(/^Full test log: (.+)$/m.exec(run.stderr)[1]), { recursive: true, force: true }));
+  assert.equal(run.status, 1, run.stdout);
+  assert.deepEqual(
+    run.stdout.split('\n').filter((line) => line.startsWith(`${SUMMARY_TAG} FAILED`)),
+    [
+      `${SUMMARY_TAG} FAILED src/exits.test.mjs > ${join('src', 'exits.test.mjs')} (test process exited with code 7)`,
+      `${SUMMARY_TAG} FAILED src/fails.test.mjs > fails`,
+    ]
+  );
+});
+
 test('re-run classification separates flaky from failed and always states the exit policy', () => {
   const failing = { file: 'src/a.test.mjs', name: 'always fails' };
   const flaky = { file: 'src/b.test.mjs', name: 'load sensitive' };

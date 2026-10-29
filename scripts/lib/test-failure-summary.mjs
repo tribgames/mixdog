@@ -58,7 +58,8 @@ export function formatFailureSummary({ failed = [], flaky = [], rerunFailed = 0,
   for (const message of hung) lines.push(`${SUMMARY_TAG} HUNG ${message}`);
   for (const record of failed) {
     const origin = record.firstSeenOnRerun ? ` (first seen on re-run ${record.firstSeenOnRerun})` : '';
-    lines.push(`${SUMMARY_TAG} FAILED ${record.file} > ${record.name}${origin}`);
+    const exit = record.exit ? ` (${record.exit})` : '';
+    lines.push(`${SUMMARY_TAG} FAILED ${record.file} > ${record.name}${exit}${origin}`);
   }
   for (const record of flaky) {
     lines.push(

@@ -36,7 +36,20 @@ export function failureRecord(event, stacks) {
   if (event.data.todo) return null;
   if (event.data.details?.error?.failureType === 'subtestsFailed') return null;
   const ancestors = (stacks.get(file) ?? []).slice(0, event.data.nesting);
-  return { file, name: [...ancestors, event.data.name].join(' > ') };
+  const exit = processExit(event.data.details?.error);
+  return { file, name: [...ancestors, event.data.name].join(' > '), ...(exit ? { exit } : {}) };
+}
+
+// A test file whose process ended badly fails with only "test failed"; node
+// keeps how it ended on the error. A Windows NTSTATUS code (e.g. 0xC0000142,
+// the process could not initialise) reads better in hex.
+export function processExit(error) {
+  if (error?.failureType !== 'testCodeFailure') return '';
+  if (error.signal) return `test process killed by ${error.signal}`;
+  const code = error.exitCode;
+  if (!Number.isInteger(code) || code === 0) return '';
+  const hex = code > 255 || code < 0 ? ` (0x${(code >>> 0).toString(16).toUpperCase().padStart(8, '0')})` : '';
+  return `test process exited with code ${code}${hex}`;
 }
 
 // The runner sets FAILURE_RECORDS_ENV to a per-spawn JSONL path. Without it
