@@ -420,13 +420,8 @@ function goalUnit(a) {
   const verbs = {
     status: ['Checking', 'Checked'],
     create: ['Creating', 'Created'],
-    pause: ['Pausing', 'Paused'],
-    resume: ['Resuming', 'Resumed'],
-    set_tasks: ['Planning', 'Planned'],
-    update_tasks: ['Updating', 'Updated'],
     complete: ['Completing', 'Completed'],
     block: ['Blocking', 'Blocked'],
-    abandon: ['Abandoning', 'Abandoned'],
   }[action] || ['Updating', 'Updated'];
   return unitDescriptor('Setup', {
     count: 1,

@@ -20,10 +20,6 @@ function goalRevision(goal: GoalSnapshot | null): string {
     goal.status,
     goal.title,
     goal.objective,
-    goal.tasks,
-    goal.tasksUpdatedAt,
-    goal.tasksCompleted,
-    goal.tasksTotal,
     goal.blocker,
     goal.completedAt,
   ]);

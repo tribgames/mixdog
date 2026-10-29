@@ -47,12 +47,12 @@ test('dismissing a finished Goal retires its chrome and keeps the record', async
   assert.equal(runtime.storedSnapshot(SESSION).archivedAt, stored.archivedAt);
 });
 
-test('a Goal the model stopped is dismissed the same way', async (t) => {
+test('a Goal the model completed is dismissed the same way', async (t) => {
   const runtime = goalRuntime(t);
   await runtime.control(SESSION, { action: 'create', objective: 'Write the lexer' });
-  await runtime.executeTool('goal', { action: 'abandon' }, { callerSessionId: SESSION });
+  await runtime.executeTool('goal', { action: 'complete' }, { callerSessionId: SESSION });
   const stopped = runtime.snapshot(SESSION);
-  assert.equal(stopped.status, 'stopped');
+  assert.equal(stopped.status, 'complete');
   await runtime.control(SESSION, { action: 'dismiss', expectedGoalId: stopped.id });
   assert.equal(runtime.snapshot(SESSION), null);
 });

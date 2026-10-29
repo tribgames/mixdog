@@ -19,7 +19,6 @@ import {
   REACTION_TOOL_DEFS,
   validateReactionArgs,
 } from '../../src/runtime/agent/orchestrator/runtime-core/reaction-tool-defs.mjs';
-import { normalizeGoalTasks, patchGoalTasks } from '../../src/session-runtime/goal-tasks.mjs';
 import { validateBrowserToolArgs } from '../../src/runtime/browser-bridge/action-schema.mjs';
 import {
   COMPUTER_ACTION_CONTRACTS,
@@ -114,26 +113,13 @@ test('react first calls that every provider schema accepts agree with runtime va
   }
 });
 
-test('Goal boundaries are known before a call and updates do not need a failed addition first', () => {
-  const task = { text: 'x'.repeat(500), status: 'pending' };
-  accepts(schemaFor('goal'), { action: 'create', objective: 'One-shot outcome', tasks: [task] });
-  const created = normalizeGoalTasks([task], [], { strict: true });
-  const update = { action: 'update_tasks', revision: 1, updates: [{ id: created[0].id, status: 'completed' }] };
-  accepts(schemaFor('goal'), update);
-  assert.equal(patchGoalTasks(created, update)[0].status, 'completed');
-  const tooLong = { ...task, text: 'x'.repeat(501) };
-  assert.equal(ajv.validate(schemaFor('goal'), { action: 'create', tasks: [tooLong] }), false);
-  assert.throws(() => normalizeGoalTasks([tooLong], [], { strict: true }), /exceeds 500 characters/);
-  const unicode = { ...task, text: '😀'.repeat(500) };
-  accepts(schemaFor('goal'), { action: 'create', tasks: [unicode] });
-  assert.equal(normalizeGoalTasks([unicode], [], { strict: true })[0].text, unicode.text);
-  assert.equal(
-    ajv.validate(schemaFor('goal'), {
-      action: 'create',
-      tasks: Array.from({ length: 21 }, (_, i) => ({ ...task, text: `Task ${i}` })),
-    }),
-    false
-  );
+test('Goal boundaries are known before a call', () => {
+  accepts(schemaFor('goal'), { action: 'create', objective: 'One-shot outcome', time_limit_minutes: 30 });
+  accepts(schemaFor('goal'), { action: 'block', blocker: 'The user must sign in' });
+  accepts(schemaFor('goal'), { action: 'complete' });
+  assert.equal(ajv.validate(schemaFor('goal'), { action: 'set_tasks' }), false);
+  assert.equal(ajv.validate(schemaFor('goal'), { action: 'create', tasks: [] }), false);
+  assert.equal(ajv.validate(schemaFor('goal'), { action: 'block', blocker: '' }), false);
 });
 
 test('documented browser first calls and stored-login sequences agree with runtime validation', () => {
@@ -311,7 +297,6 @@ test('Gemini uses its JSON Schema wire field for opaque values instead of guessi
   assert.equal(Object.hasOwn(closed, 'parameters'), false);
   assert.deepEqual(closed.parametersJsonSchema, GOAL_TOOL_DEFS[0].inputSchema);
   const { additionalProperties: _closed, ...openSchema } = structuredClone(GOAL_TOOL_DEFS[0].inputSchema);
-  for (const key of ['tasks', 'updates']) delete openSchema.properties[key].items.additionalProperties;
   const typed = toGeminiTools([{ ...GOAL_TOOL_DEFS[0], inputSchema: openSchema }]).functionDeclarations[0];
   assert.equal(Object.hasOwn(typed, 'parametersJsonSchema'), false);
   assert.ok(typed.parameters);

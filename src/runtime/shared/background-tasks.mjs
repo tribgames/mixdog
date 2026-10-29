@@ -243,8 +243,13 @@ export function getBackgroundTask(taskId, options = {}) {
   return task;
 }
 
-function countsAsActive(task, wanted, awaitedOnly) {
-  return task.status === 'running' && !(awaitedOnly && task.detached === true) && (!wanted || task.surface === wanted);
+function countsAsActive(task, wanted, awaitedOnly, match = null) {
+  return (
+    task.status === 'running' &&
+    !(awaitedOnly && task.detached === true) &&
+    (!wanted || task.surface === wanted) &&
+    (!match || match(task) === true)
+  );
 }
 
 /** Lifetime signal: a session-owned background task remains live
@@ -256,9 +261,11 @@ function countsAsActive(task, wanted, awaitedOnly) {
 export function hasActiveBackgroundTasks(options = {}) {
   const wanted = clean(options.surface);
   const awaitedOnly = options.awaitedOnly === true;
+  // Optional caller predicate over the running task (background-wait.mjs).
+  const match = typeof options.match === 'function' ? options.match : null;
   const scope = normalizeTaskScope(options);
   for (const task of tasks.values()) {
-    if (countsAsActive(task, wanted, awaitedOnly) && taskMatchesScope(task, scope, { includeUnattributed: false })) {
+    if (countsAsActive(task, wanted, awaitedOnly, match) && taskMatchesScope(task, scope, { includeUnattributed: false })) {
       return true;
     }
   }
@@ -565,10 +572,18 @@ export function reconcileBackgroundTask(
 
 export function renderBackgroundTaskNotification(task) {
   if (!task) return '';
-  const result =
+  const body =
     task.surface === 'agent' && typeof task.result?.content === 'string'
       ? task.result.content
       : resultTextForTask(task);
+  // An owner-supplied trailer (an agent's unfinished todo items).
+  let appendix = '';
+  try {
+    appendix = typeof task.reportAppendix === 'function' ? String(task.reportAppendix() || '') : '';
+  } catch {
+    appendix = '';
+  }
+  const result = appendix ? [body, appendix].filter(Boolean).join('\n\n') : body;
   if (task.surface === 'shell') {
     const parsed = parseTaskNotification(result);
     // The completion envelope already carries the result (exit code,

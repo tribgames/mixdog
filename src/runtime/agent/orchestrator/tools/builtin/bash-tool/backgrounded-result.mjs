@@ -1,4 +1,5 @@
 import { registerBackgroundTask, renderBackgroundTask } from '../../../../../shared/background-tasks.mjs';
+import { stampShellJobCycle } from '../../../../../shared/background-wait.mjs';
 import { killShellJob, watchBackgroundShellJob } from '../shell-jobs.mjs';
 import { renderBackgroundPartialOutput } from '../shell-output.mjs';
 import { readShellTaskOutput } from '../lib/shell-task-output.mjs';
@@ -65,7 +66,9 @@ export function renderBackgroundedResult({
 }) {
   let task = null;
   if (result.jobId) {
-    task = registerPromotedTask({ result, command, cwd, options, startedAtMs });
+    // The owner's user cycle at start decides whether it is waited on
+    // (background-wait.mjs), however the job reached the background.
+    task = stampShellJobCycle(registerPromotedTask({ result, command, cwd, options, startedAtMs }));
     try {
       watchBackgroundShellJob(result.jobId, {
         notifyFn: typeof options?.notifyFn === 'function' ? options.notifyFn : null,

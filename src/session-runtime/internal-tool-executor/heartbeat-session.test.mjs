@@ -91,7 +91,7 @@ test('stored heartbeat fields without the heartbeat mark are no heartbeat sessio
   assert.equal(forged.agentCalls.length, 1, 'it gets none of the heartbeat limits either');
 });
 
-test('a heartbeat session hands no work off: agent spawn/send, session create/send, Goal create/resume', async (t) => {
+test('a heartbeat session hands no work off: agent spawn/send, session create/send, Goal create', async (t) => {
   marked(t);
   const hb = handlers(HEARTBEAT);
   for (const args of [
@@ -108,7 +108,7 @@ test('a heartbeat session hands no work off: agent spawn/send, session create/se
   ]) {
     await assert.rejects(hb.session(args), /session: a heartbeat turn cannot hand work off/);
   }
-  for (const action of ['create', 'resume']) {
+  for (const action of ['create']) {
     await assert.rejects(hb.goal({ action, objective: 'x' }), /goal: a heartbeat turn cannot hand work off/);
   }
   assert.deepEqual(hb.sessionControl, []);
@@ -145,7 +145,7 @@ test('the hand-off limits hold for any case and spacing of the action, and only 
       action
     );
   }
-  for (const action of ['CREATE', ' Resume ', 'rEsUmE']) {
+  for (const action of ['CREATE', ' Create ', 'cReAtE']) {
     await assert.rejects(hb.goal({ action, objective: 'x' }), /goal: a heartbeat turn cannot hand work off/, action);
   }
   assert.deepEqual([hb.agentCalls, hb.sessionControl, hb.goalCalls], [[], [], []]);

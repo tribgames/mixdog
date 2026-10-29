@@ -35,8 +35,10 @@ const HARNESS = `
     { kind: 'tool', id: 'edit', name: 'apply_patch', args: {}, result: 'Updated' },
   ];
   const goal = (title) => ({ sessionId: 's1', goal: {
-    id: 'goal', title, objective: title, status: 'active', tasksTotal: 5, tasksCompleted: 3,
-    tasks: [{ id: 't', text: 'Check layout', status: 'in_progress' }],
+    id: 'goal', title, objective: title, status: 'active',
+  }, todo: {
+    phases: [{ name: 'Plan', tasks: [{ content: 'Check layout', status: 'in_progress' }] }],
+    completed: 3, abandoned: 0, total: 5,
   } });
   function Composer() {
     return <>

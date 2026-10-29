@@ -29,7 +29,7 @@ test('the Goal progress bar is static in every state', async (t) => {
       React.createElement(SessionGoalIsland, {
         snapshot: {
           sessionId: 'animation-test',
-          goal: { id: 'goal', status, title: 'Working Goal', tasks: [], timeUsedMs: 1_000 },
+          goal: { id: 'goal', status, title: 'Working Goal', timeUsedMs: 1_000 },
           ...execution,
         },
       })

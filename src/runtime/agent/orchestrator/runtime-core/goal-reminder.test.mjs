@@ -6,30 +6,14 @@ import {
   markPendingGoalReminder,
   snapshotPendingGoalReminder,
 } from './goal-reminder.mjs';
-import { continuationPrompt, goalStateReminder, goalTaskLines } from './goal-text.mjs';
+import { continuationPrompt, goalStateReminder } from './goal-text.mjs';
+import { executeTodoTool } from './todo-list.mjs';
 
 const goal = (overrides = {}) => ({
   id: 'goal_1',
   objective: 'Ship the verified result',
   status: 'active',
-  tasks: [
-    { id: 'task_1', text: 'Implement result', status: 'completed' },
-    { id: 'task_2', text: 'Verify  result', status: 'in_progress' },
-  ],
   ...overrides,
-});
-
-test('the Goal snapshot counts completed and dropped rows in its task slots', () => {
-  const text = goalStateReminder(
-    goal({
-      tasks: [
-        { id: 'task_1', text: 'Implement result', status: 'completed' },
-        { id: 'task_2', text: 'Verify result', status: 'in_progress' },
-        { id: 'task_3', text: 'Superseded plan', status: 'dropped' },
-      ],
-    })
-  );
-  assert.match(text, /Status: active · tasks 1\/2 · task slots used 3\/20\n/);
 });
 
 test('post-compaction Goal reminder renders durable state once and clears on acceptance', () => {
@@ -44,12 +28,7 @@ test('post-compaction Goal reminder renders durable state once and clears on acc
   assert.match(snapshot.content, /<goal_state>/);
   assert.match(snapshot.content, /Context was compacted/);
   assert.match(snapshot.content, /Objective: Ship the verified result/);
-  assert.match(snapshot.content, /Status: active · tasks 1\/2/);
-  assert.match(snapshot.content, /- \[x\] task_1: Implement result/);
-  assert.match(snapshot.content, /- \[~\] task_2: Verify result/);
-  // Behaviour rules stay in the cached tool description; the injected block
-  // carries state only.
-  assert.doesNotMatch(snapshot.content, /set_tasks/);
+  assert.match(snapshot.content, /Status: active/);
 
   assert.equal(acknowledgePendingGoalReminder(session, snapshot.revision + 1), false);
   assert.ok(session.pendingGoalReminder);
@@ -64,7 +43,7 @@ test('compaction preserves exact duration and elapsed time instead of losing the
     markPendingGoalReminder(session, 'compaction');
     const snapshot = snapshotPendingGoalReminder(session, { readGoal: () => current });
     for (const text of [snapshot.content, continuationPrompt(current)]) {
-      assert.match(text, /Requested duration: 1h \(3600000 ms\)/);
+      assert.match(text, /Time cap: 1h \(3600000 ms\)/);
       assert.match(text, /Time elapsed: 11m \(615000 ms\)/);
       assert.match(text, /Time remaining: 50m \(2985000 ms\)/);
     }
@@ -73,9 +52,9 @@ test('compaction preserves exact duration and elapsed time instead of losing the
   }
   const untimed = goal({ timeLimitMs: 0, timeUsedMs: 615_000 });
   for (const text of [goalStateReminder(untimed), continuationPrompt(untimed)]) {
-    assert.match(text, /Duration: none/);
+    assert.match(text, /Time cap: none/);
     assert.match(text, /Time elapsed: 11m \(615000 ms\)/);
-    assert.doesNotMatch(text, /Requested duration:|Time remaining:/);
+    assert.doesNotMatch(text, /Time remaining:/);
   }
 });
 
@@ -106,14 +85,12 @@ test('a user-paused Goal reminder preserves the explicit resume boundary', () =>
   const snapshot = snapshotPendingGoalReminder(session, {
     readGoal: () => goal({ status: 'paused' }),
   });
-  assert.match(snapshot.content, /resume only when the user asks to continue/);
-  assert.match(snapshot.content, /Do not resume for bookkeeping, notifications, or unrelated questions/);
+  assert.match(snapshot.content, /Do not work on it until the user resumes it/);
 });
 
 test('a deadline warning carries the wrap-up contract and the live remaining time', () => {
   const session = { id: 'sess_goal_deadline' };
   const timed = goal({
-    timeMode: 'duration',
     timeLimitMs: 3_600_000,
     timeUsedMs: 3_240_000,
   });
@@ -122,9 +99,9 @@ test('a deadline warning carries the wrap-up contract and the live remaining tim
   assert.equal(snapshot.reason, 'deadline-soon');
   assert.match(snapshot.content, /<goal_deadline>/);
   assert.doesNotMatch(snapshot.content, /<goal_state>/);
-  assert.match(snapshot.content, /The requested duration is nearly over\./);
+  assert.match(snapshot.content, /time cap is nearly spent/);
   assert.match(snapshot.content, /Time remaining: 6m \(360000 ms\)/);
-  assert.match(snapshot.content, /never complete or block to beat the clock/);
+  assert.match(snapshot.content, /Never complete or block to beat the clock/);
 });
 
 test('an undelivered advance warning uses the authoritative stopped state at request preparation', () => {
@@ -139,8 +116,7 @@ test('an undelivered advance warning uses the authoritative stopped state at req
   const snapshot = snapshotPendingGoalReminder(session, { readGoal: () => stopped });
   assert.equal(snapshot.goal.status, 'duration_reached');
   assert.match(snapshot.content, /<goal_deadline_reached>/);
-  assert.match(snapshot.content, /Revision: 9/);
-  assert.doesNotMatch(snapshot.content, /nearly over|still active/);
+  assert.doesNotMatch(snapshot.content, /nearly spent|still active/);
   assert.equal(acknowledgePendingGoalReminder(session, snapshot.revision), true);
   assert.equal(snapshotPendingGoalReminder(session, { readGoal: () => stopped }), null);
 });
@@ -164,22 +140,6 @@ test('a user pause supersedes pending deadline guidance without losing the resum
   }
 });
 
-test('Goal task lines carry mark and id for every task', () => {
-  assert.deepEqual(goalTaskLines([]), ['- No durable tasks recorded yet.']);
-  assert.deepEqual(goalTaskLines([{ id: 'task_9', text: 'Do <it>', status: 'pending' }]), [
-    '- [ ] task_9: Do &lt;it&gt;',
-  ]);
-  assert.equal(goalStateReminder(null), '');
-});
-
-test('Goal reminders exclude dropped work from progress but preserve its task record', () => {
-  const current = goal();
-  current.tasks.push({ id: 'task_3', text: 'Retired work', status: 'dropped' });
-  const text = goalStateReminder(current);
-  assert.match(text, /Status: active · tasks 1\/2/);
-  assert.match(text, /- \[-\] task_3: Retired work/);
-});
-
 test('request preparation finds a paused Goal without any intake marker and does not resume it', () => {
   const session = { id: 'sess_goal_cold_turn' };
   const paused = goal({ status: 'paused', revision: 7 });
@@ -189,7 +149,6 @@ test('request preparation finds a paused Goal without any intake marker and does
     readGoal: () => paused,
   });
   assert.match(snapshot.content, /Status: paused/);
-  assert.match(snapshot.content, /Revision: 7/);
   assert.equal(snapshot.reason, 'paused');
   assert.deepEqual(paused, before);
   acknowledgePendingGoalReminder(session, snapshot.revision);
@@ -211,7 +170,6 @@ test('request preparation uses current state when input precedes pause and stays
   assert.equal(session.pendingGoalReminder, undefined);
   current = goal({ status: 'paused', revision: 9 });
   const snapshot = snapshotPendingGoalReminder(session, options);
-  assert.match(snapshot.content, /Revision: 9/);
   assert.match(snapshot.content, /Status: paused/);
   // A marker must not describe an already-resumed Goal as paused.
   current = goal({ revision: 10 });
@@ -231,6 +189,26 @@ test('compaction and objective reminders retain the current paused-state recover
     });
     assert.equal(snapshot.reason, reason);
     assert.match(snapshot.content, /The user paused this Goal/);
-    assert.match(snapshot.content, /resume only when the user asks to continue/);
+    assert.match(snapshot.content, /until the user resumes it/);
   }
+});
+
+test('compaction re-injects the open todo list once, with or without a Goal', () => {
+  const session = { id: 'sess_todo_compaction' };
+  executeTodoTool(session, { op: 'init', items: ['Find the cause', 'Fix the bug'] });
+  markPendingGoalReminder(session, 'compaction');
+  const snapshot = snapshotPendingGoalReminder(session, { readGoal: () => null });
+  assert.match(snapshot.content, /<todo_state>/);
+  assert.match(snapshot.content, /\[>\] Find the cause/);
+  assert.doesNotMatch(snapshot.content, /<goal_state>/);
+  assert.equal(acknowledgePendingGoalReminder(session, snapshot.revision), true);
+  assert.equal(snapshotPendingGoalReminder(session, { readGoal: () => null }), null);
+  markPendingGoalReminder(session, 'compaction');
+  const both = snapshotPendingGoalReminder(session, { readGoal: () => goal() });
+  assert.match(both.content, /<goal_state>[\s\S]*<todo_state>/);
+  // A closed list has nothing to re-inject.
+  executeTodoTool(session, { op: 'done', item: 'Find the cause' });
+  executeTodoTool(session, { op: 'done', item: 'Fix the bug' });
+  markPendingGoalReminder(session, 'compaction');
+  assert.equal(snapshotPendingGoalReminder(session, { readGoal: () => null }), null);
 });

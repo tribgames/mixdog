@@ -159,11 +159,7 @@ const withGoal = (goal, extra = {}, frameSource = 'live') => ({
   frameSource,
   snapshot: { goal, busy: false, ...extra },
 });
-const parked = (id = 't1') => ({
-  id: 'g1',
-  status: 'active',
-  tasks: [{ id, status: 'awaiting_approval' }],
-});
+const parked = (blocker = 'needs a sign-in') => ({ id: 'g1', status: 'blocked', blocker });
 
 test('a session that starts waiting for the user pushes once per wait', async (t) => {
   const f = fixture();
@@ -172,21 +168,10 @@ test('a session that starts waiting for the user pushes once per wait', async (t
   f.notifier.onSessionState(withGoal(parked()));
   await settle();
   assert.equal(f.sent.length, 1);
-  f.notifier.onSessionState(withGoal({ id: 'g1', status: 'active', tasks: [{ id: 't1', status: 'completed' }] }));
-  f.notifier.onSessionState(withGoal(parked('t2')));
+  f.notifier.onSessionState(withGoal({ id: 'g1', status: 'active' }));
+  f.notifier.onSessionState(withGoal(parked('needs an API key')));
   await settle();
   assert.equal(f.sent.length, 2);
-  f.notifier.onSessionState(withGoal({ id: 'g1', status: 'blocked', blocker: 'needs a sign-in' }));
-  await settle();
-  assert.equal(f.sent.length, 3);
-});
-
-test('a parked task while the turn is still running is not yet a wait', async (t) => {
-  const f = fixture();
-  t.after(() => f.notifier.dispose());
-  f.notifier.onSessionState(withGoal(parked(), { busy: true }));
-  await settle();
-  assert.equal(f.sent.length, 0);
 });
 
 test('input-needed push obeys the same gates as approvals', async (t) => {

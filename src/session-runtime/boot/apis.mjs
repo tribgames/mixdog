@@ -164,6 +164,7 @@ export function wireApis(boot) {
     getSession: () => boot.rt.session,
     getSessionId: getFacadeSessionId,
     goalRuntime: boot.goalRuntime,
+    persistSession: (session) => saveSessionAsync(session, { expectedGeneration: session.generation }),
   });
 }
 
