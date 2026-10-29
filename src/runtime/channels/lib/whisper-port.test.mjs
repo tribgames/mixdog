@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import net from 'node:net';
-import { selectWhisperPort, whisperListenerOwned } from './whisper-port.mjs';
+import { listenerPidsInclude, selectWhisperPort, whisperListenerOwned } from './whisper-port.mjs';
+
+test('listener pid parsing matches whole lines only', () => {
+  assert.equal(listenerPidsInclude('4242\r\n', 4242), true);
+  assert.equal(listenerPidsInclude('100\r\n4242\r\n', 4242), true);
+  assert.equal(listenerPidsInclude('14242\r\n42420\r\n', 4242), false);
+  assert.equal(listenerPidsInclude('', 4242), false);
+});
 
 test('occupied preferred port falls back without touching its listener, and ownership rejects another PID', async () => {
   const foreign = net.createServer((socket) => socket.end());

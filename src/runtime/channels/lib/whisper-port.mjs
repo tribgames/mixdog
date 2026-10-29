@@ -48,22 +48,31 @@ function runOwnershipQuery(command, args) {
   });
 }
 
+// Get-NetTCPConnection prints one OwningProcess number per line: no localized words.
+export function listenerPidsInclude(stdout, pid) {
+  return stdout.split(/\r?\n/).some((line) => line.trim() === String(pid));
+}
+
 export async function whisperListenerOwned(host, port, pid) {
   if (!Number.isInteger(pid) || pid <= 0 || !Number.isInteger(port)) return false;
   try {
     if (process.platform === 'win32') {
       const root = process.env.SystemRoot || 'C:\\Windows';
-      const stdout = await runOwnershipQuery(path.join(root, 'System32', 'netstat.exe'), ['-ano', '-p', 'tcp']);
+      // netstat omits listeners when the TCP table is large; the CIM-backed cmdlet does not.
+      // The State filter is skipped (it can report an unknown state for live listeners);
+      // a listening row is the one with no remote endpoint (RemotePort 0).
+      if (!/^[0-9a-fA-F:.]+$/.test(host)) return false;
+      const stdout = await runOwnershipQuery(
+        path.join(root, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe'),
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          `(Get-NetTCPConnection -LocalAddress '${host}' -LocalPort ${port} -ErrorAction SilentlyContinue | Where-Object RemotePort -eq 0).OwningProcess`,
+        ]
+      );
       if (stdout === null) return false;
-      return stdout.split(/\r?\n/).some((line) => {
-        const fields = line.trim().split(/\s+/);
-        return (
-          fields[0] === 'TCP' &&
-          fields[1] === `${host}:${port}` &&
-          fields[3] === 'LISTENING' &&
-          fields[4] === String(pid)
-        );
-      });
+      return listenerPidsInclude(stdout, pid);
     }
     if (process.platform === 'linux') {
       const stdout = await runOwnershipQuery('ss', ['-H', '-ltnp', `sport = :${port}`]);

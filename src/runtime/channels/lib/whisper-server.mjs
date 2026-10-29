@@ -80,6 +80,9 @@ const mgr = {
   child: null, // ChildProcess handle (non-detached)
   port: null, // selected port; must belong to the current child
   host: null,
+  // Ownership proven for this child+port. A live child keeps its bound port, so
+  // no other process can take it; cleared whenever the child goes away.
+  proof: null, // { child, port }
   runtimeKey: null, // exact contract fingerprint
   contract: null, // { serverCmd, modelPath, threadCount, host }
   startPromise: null, // in-flight ensureReady() start
@@ -330,6 +333,7 @@ async function teardown(reason) {
     }
   }
   mgr.child = null;
+  mgr.proof = null;
   mgr.port = null;
   mgr.host = null;
   mgr.runtimeKey = null;
@@ -357,6 +361,7 @@ function wireChildExit() {
     detachChildHandlers();
     clearPidMeta();
     mgr.child = null;
+    mgr.proof = null;
     mgr.port = null;
     mgr.runtimeKey = null;
     mgr.contract = null;
@@ -435,6 +440,7 @@ async function startServer(contract) {
       mgr.state === STATE.STARTING
     ) {
       mgr.port = port;
+      mgr.proof = { child, port };
       mgr.state = STATE.READY;
       return;
     }
@@ -509,7 +515,10 @@ export async function transcribe(wavPath, { language } = {}) {
   try {
     const [data, owned] = await Promise.all([
       fs.promises.readFile(wavPath),
-      whisperListenerOwned(host, port, child.pid),
+      // Proven at readiness for this live child; re-prove only without that proof.
+      mgr.proof?.child === child && mgr.proof.port === port && child.exitCode === null
+        ? true
+        : whisperListenerOwned(host, port, child.pid),
     ]);
     // Re-check after the awaits: a replacement listener (or child) must never
     // receive audio. Nothing awaits between this check and the request.
