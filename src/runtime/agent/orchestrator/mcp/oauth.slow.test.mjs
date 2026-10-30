@@ -132,7 +132,15 @@ const createMcpTransport = (options) =>
 
 async function fixture(
   t,
-  { type = 'http', header = null, rotate = false, failTools = false, resetRetry = false } = {}
+  {
+    type = 'http',
+    header = null,
+    rotate = false,
+    failTools = false,
+    resetRetry = false,
+    resourceScopes = null,
+    serverScopes = null,
+  } = {}
 ) {
   let origin;
   let metadata;
@@ -157,7 +165,13 @@ async function fixture(
     const path = new URL(req.url, origin).pathname;
     if (path.startsWith('/.well-known/oauth-protected-resource')) {
       res.setHeader('Content-Type', 'application/json');
-      res.end(JSON.stringify({ resource: `${origin}/mcp`, authorization_servers: [origin] }));
+      res.end(
+        JSON.stringify({
+          resource: `${origin}/mcp`,
+          authorization_servers: [origin],
+          ...(resourceScopes && { scopes_supported: resourceScopes }),
+        })
+      );
     } else if (path.startsWith('/.well-known/')) {
       res.setHeader('Content-Type', 'application/json');
       res.end(
@@ -170,6 +184,7 @@ async function fixture(
           grant_types_supported: ['authorization_code', 'refresh_token'],
           code_challenge_methods_supported: ['S256'],
           token_endpoint_auth_methods_supported: ['none'],
+          ...(serverScopes && { scopes_supported: serverScopes }),
         })
       );
     } else if (path === '/register') {
@@ -1685,6 +1700,55 @@ test('a sign-in whose token response lacks a requested scope fails, stores no to
   assert.equal(success.status, 200);
   assert.match(await success.text(), /Google Drive 로그인이 완료되었습니다\./);
 });
+
+// Vercel's shape: the resource advertises only `openid`, while its authorization
+// server issues refresh tokens only to a request that adds `offline_access`.
+const vercelLike = (serverScopes) => ({ resourceScopes: ['openid'], serverScopes });
+for (const { title, scopes, oauthClient, granted, expected } of [
+  {
+    title: 'a dynamic client adds offline_access (and consent) when the authorization server lists it',
+    scopes: vercelLike(['openid', 'offline_access']),
+    expected: { scope: 'openid offline_access', prompt: 'consent' },
+  },
+  {
+    title: 'a dynamic client keeps the resource scope when the authorization server lacks offline_access',
+    scopes: vercelLike(['openid', 'email']),
+    expected: { scope: 'openid', prompt: null },
+  },
+  {
+    title: 'a pre-registered client keeps its own scopes when the authorization server lists offline_access',
+    scopes: vercelLike(['openid', 'offline_access']),
+    oauthClient: scopedClient,
+    granted: `openid https://www.googleapis.com/auth/userinfo.email ${CALENDAR}`,
+    expected: { scope: `openid email ${CALENDAR}`, prompt: null },
+  },
+]) {
+  test(title, async (t) => {
+    const server = await fixture(t, scopes);
+    const opened = [];
+    const oauth = buildOAuth({
+      url: server.url,
+      credentialStore: memoryStore(),
+      interactive: true,
+      serverName: 'Fixture',
+      // The fixture's own token endpoint checks the code exchange against the
+      // approved request; a pre-registered client's is answered by the stub.
+      ...(oauthClient && { oauthClient, fetchImpl: scopedTokenFetch(granted) }),
+      openBrowser: oauthClient
+        ? approvingBrowser(opened)
+        : async (href) => {
+            opened.push(href);
+            await server.approve(href);
+          },
+    });
+    t.after(() => oauth.close());
+    assert.equal((await oauth.fetch(server.url)).status, 405);
+    assert.equal(opened.length, 1);
+    const { searchParams } = new URL(opened[0]);
+    assert.equal(searchParams.get('scope'), expected.scope);
+    assert.equal(searchParams.get('prompt'), expected.prompt);
+  });
+}
 
 test('a sign-in whose code exchange fails gets a generic failure page that echoes nothing from the server', async (t) => {
   const server = await fixture(t);

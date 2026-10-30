@@ -145,6 +145,20 @@ export function createOAuthProvider({ cache, flow, lifetimeSignal, client = null
       // access_type=offline, without which no refresh token is issued).
       if (client?.scopes) target.searchParams.set('scope', client.scopes.join(' '));
       for (const [key, value] of Object.entries(client?.authParams || {})) target.searchParams.set(key, value);
+      // A dynamically registered client asks for offline access when the
+      // authorization server lists it (MCP SEP-2207): the SDK sends only the
+      // resource's scopes (Vercel's `openid`), and without `offline_access`
+      // such a server issues no refresh token, so the sign-in ends within the
+      // hour. `prompt=consent` is what the SDK adds beside that scope. An
+      // empty scope stays empty: the server's default scopes would be lost.
+      if (!client) {
+        const scope = target.searchParams.get('scope');
+        const offered = creds.discovery?.authorizationServerMetadata?.scopes_supported;
+        if (scope && offered?.includes('offline_access') && !scope.split(' ').includes('offline_access')) {
+          target.searchParams.set('scope', `${scope} offline_access`);
+          target.searchParams.append('prompt', 'consent');
+        }
+      }
       // The explicit sign-in's account mode (mcp-oauth-login.mjs) decides the
       // provider's documented account-choice parameter, if any.
       await flow.launchBrowser(withAccountParams(target.href, flow.launchBrowser.accountMode || 'connect').href);
