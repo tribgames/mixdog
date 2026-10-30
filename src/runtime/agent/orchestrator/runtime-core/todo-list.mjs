@@ -114,9 +114,25 @@ export function onTodoChange(listener) {
   return () => listeners.delete(listener);
 }
 
+/** A list with items, every one completed or dropped. */
+export function todoAllClosed(session) {
+  return todoPhases(session).length > 0 && unfinishedTodoItems(session).length === 0;
+}
+
+/** Let go of the session's list. */
+export function clearTodo(session, at = Date.now()) {
+  session.todo = null;
+  session.updatedAt = at;
+  publish(session);
+}
+
 function commitPhases(session, phases, at = Date.now()) {
   session.todo = { phases, updatedAt: at };
   session.updatedAt = at;
+  publish(session);
+}
+
+function publish(session) {
   for (const listener of [...listeners]) {
     try {
       listener({ sessionId: session.id || null, todo: todoSnapshot(session) });

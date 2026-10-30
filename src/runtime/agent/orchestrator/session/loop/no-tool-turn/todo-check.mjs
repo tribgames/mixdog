@@ -15,7 +15,7 @@
 import { resolvePluginData } from '../../../../../shared/plugin-paths.mjs';
 import { awaitingBackgroundWork, beginUserCycle } from '../../../../../shared/background-wait.mjs';
 import { readStoredGoalSnapshot } from '../../../runtime-core/goal-storage.mjs';
-import { openTodoItems, todoPhases } from '../../../runtime-core/todo-list.mjs';
+import { clearTodo, openTodoItems, todoAllClosed, todoPhases } from '../../../runtime-core/todo-list.mjs';
 import { HIDDEN_AGENT_NAMES } from '../hidden-agents.mjs';
 
 export const MAX_TODO_REMINDERS = 3;
@@ -43,6 +43,9 @@ export function beginTodoTurn(session, { genuine = false } = {}) {
   if (genuine) {
     session.todoCheck = { reminders: 0, awaitingProgress: false, auditAsked: false };
     beginUserCycle(session.id);
+    // A finished list stays on screen until the user moves on, then goes the
+    // way a finished Goal does. An active Goal keeps it for its audit.
+    if (todoAllClosed(session) && !activeGoal(session.id)) clearTodo(session);
   }
 }
 
