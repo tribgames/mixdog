@@ -49,18 +49,23 @@ function createSession(sessionId, messages) {
 
 function openTurn(session, prompt) {
   const tracker = createTurnInterruptionTracker();
+  const boundary = session.messages.length - 1;
   const recorder = createTurnCheckpointRecorder({
     sessionId: session.id,
     generation: session.generation,
     turnToken: `tok-${session.id}`,
     startedAt: 1_000,
+    base: { epoch: 'e0', refs: session.messages.slice(0, boundary) },
   });
-  const flush = (contextState = null) =>
+  // `contextDirty`: a provider reading arrived since the previous flush.
+  const flush = (contextDirty = false) =>
     recorder.record({
+      boundary,
       currentUserContent: prompt,
       turnOutgoing: session.messages,
       interruption: tracker,
-      contextState,
+      captureContext: (at) => captureTurnCheckpointContextState(session, session.messages, at),
+      contextDirty,
     });
   session.activeTurnCheckpoint = {
     turnToken: `tok-${session.id}`,
@@ -110,10 +115,10 @@ test('restart restores the durable 132K provider anchor instead of jumping to a 
     ),
     true
   );
-  turn.flush(captureTurnCheckpointContextState(live, live.messages, prompt));
+  turn.flush(true);
   turn.tracker.markProviderSendStarted();
   turn.tracker.recordTextDelta('durable partial response');
-  turn.flush(captureTurnCheckpointContextState(live, live.messages, prompt));
+  turn.flush(true);
   await settleTurnCheckpointWrites(live.id);
 
   const checkpoint = readTurnCheckpoint(live.id);
@@ -123,7 +128,8 @@ test('restart restores the durable 132K provider anchor instead of jumping to a 
   const restarted = createSession(live.id, structuredClone(messages));
   restarted.activeTurnCheckpoint = { turnToken: `tok-${live.id}` };
   restarted.lastContextTokens = 132_000;
-  const recovery = recoverTurnCheckpoint(restarted);
+  restarted.transcriptEpoch = 'e0';
+  const recovery = recoverTurnCheckpoint(restarted, structuredClone(restarted));
   assert.equal(recovery.recovered, true);
   assert.equal(recovery.contextStateRestored, true);
   assert.equal(restarted.contextPressureBaselineSource, 'checkpoint_provider');
@@ -161,18 +167,19 @@ test('mid-tool restart keeps completed history and repairs only the interrupted 
     ),
     true
   );
-  turn.flush(captureTurnCheckpointContextState(live, live.messages, prompt));
+  turn.flush(true);
 
   const call = { id: 'call-read', name: 'read', arguments: '{"file_path":"work.txt"}' };
   live.messages.push({ role: 'assistant', content: '', toolCalls: [call] });
   turn.tracker.recordToolCalls([call]);
   turn.tracker.markToolPhaseStarted();
-  turn.flush(captureTurnCheckpointContextState(live, live.messages, prompt));
+  turn.flush(true);
   await settleTurnCheckpointWrites(live.id);
 
   const restarted = createSession(live.id, [...structuredClone(completed), { role: 'user', content: prompt }]);
   restarted.activeTurnCheckpoint = { turnToken: `tok-${live.id}` };
-  const recovery = recoverTurnCheckpoint(restarted);
+  restarted.transcriptEpoch = 'e0';
+  const recovery = recoverTurnCheckpoint(restarted, structuredClone(restarted));
   assert.equal(recovery.contextStateRestored, true);
   assert.deepEqual(restarted.messages.slice(0, completed.length), completed);
   assert.ok(restarted.messages.some((message) => message.role === 'tool' && message.toolCallId === call.id));
@@ -203,7 +210,7 @@ test('post-compact replacement and its pressure snapshot recover as one canonica
     usedTokens: 23_000,
     source: 'post_compact',
   });
-  turn.flush(captureTurnCheckpointContextState(live, live.messages, prompt));
+  turn.flush(true);
   await settleTurnCheckpointWrites(live.id);
 
   const checkpoint = readTurnCheckpoint(live.id);
@@ -215,7 +222,8 @@ test('post-compact replacement and its pressure snapshot recover as one canonica
     { role: 'user', content: prompt },
   ]);
   restarted.activeTurnCheckpoint = { turnToken: `tok-${live.id}` };
-  const recovery = recoverTurnCheckpoint(restarted);
+  restarted.transcriptEpoch = 'e0';
+  const recovery = recoverTurnCheckpoint(restarted, structuredClone(restarted));
   assert.equal(recovery.contextStateRestored, true);
   assert.deepEqual(restarted.messages, compacted);
   assert.equal(restarted.contextPressureBaselineSource, 'checkpoint_post_compact');

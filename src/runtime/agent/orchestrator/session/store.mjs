@@ -31,6 +31,7 @@ export {
   _removeSessionSummary,
 } from './store-summary-index.mjs';
 import { _sessionForDisk, _ensureLifecycleFields } from './store/serialize.mjs';
+import { captureTranscriptSnapshot, recordLandedTranscript } from './store/transcript-durability.mjs';
 import {
   _cacheSessionSummary,
   _rollbackCachedSessionSummary,
@@ -337,6 +338,7 @@ function _doSaveSync(payload) {
     // rebuilt from them, never re-read from the later mutable live session.
     let attempted = null;
     try {
+      const transcript = captureTranscriptSnapshot(session);
       const disk = _sessionForDisk(session);
       attempted = JSON.stringify(disk);
       // The lifecycle these exact bytes carry, recorded with the commit stamp.
@@ -382,6 +384,7 @@ function _doSaveSync(payload) {
         _recordOwnSessionCommit(target, scratch, lifecycle);
         _publishLandedWriteEpoch(opts, epoch);
         _untrackSaveTmp(tmp);
+        recordLandedTranscript(session, transcript, epoch);
         if (mayMutate()) {
           if (publishSummary) _queueSessionSummaryUpsert(session, summaryVersion);
           _clearSaveStateIfCurrent(id, epoch);
@@ -627,6 +630,7 @@ async function _doSave(payload) {
   // payload, never the live session as it looks at settlement time.
   let attempted = null;
   try {
+    const transcript = captureTranscriptSnapshot(session);
     const disk = _sessionForDisk(session);
     attempted = JSON.stringify(disk);
     // Captured before the await: the lifecycle of exactly these bytes.
@@ -671,6 +675,7 @@ async function _doSave(payload) {
       _recordOwnSessionCommit(target, scratch, lifecycle);
       _publishLandedWriteEpoch(opts, epoch);
       _untrackSaveTmp(tmp);
+      recordLandedTranscript(session, transcript, epoch);
       if (mayMutate()) {
         _queueSessionSummaryUpsert(session, summaryVersion);
         _clearSaveStateIfCurrent(id, epoch);

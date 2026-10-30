@@ -23,6 +23,7 @@ import {
   _clearSessionRuntime,
 } from './runtime-liveness.mjs';
 import { clearTurnCheckpoint } from './turn-checkpoint.mjs';
+import { forgetUnsettledTurn } from './turn-durability.mjs';
 import { forgetSessionSaveBaseline } from '../store/save-worker.mjs';
 import { publishSessionPersistence } from '../store/session-persistence-events.mjs';
 import { forgetSessionLoadCache } from '../store/load-cache.mjs';
@@ -148,6 +149,7 @@ function finishClose({ id, reason, tombstone, entry, closeSnapshot, newGen, outc
   _stopToolActivityHeartbeat(id);
   cancelOwnedShellProcesses({ id, reason, tombstone });
   clearTurnCheckpoint(id);
+  forgetUnsettledTurn(id);
   teardownSessionRuntime({ id, entry, reason, tombstone, newGen });
   return true;
 }

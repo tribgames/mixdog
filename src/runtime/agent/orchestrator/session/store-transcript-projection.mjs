@@ -41,7 +41,9 @@ export async function prepareStoredTranscriptBase(sessionId, doc, options) {
     // A running turn is never recovered: project its checkpoint read-only.
     if (isSessionTurnLive(sessionId)) projectCheckpoint();
     else {
-      session = recoverSessionAfterProcessRestart(sessionId) || session;
+      // `doc` is the record exactly as this read parsed it from disk: the
+      // durable evidence recovery decides on.
+      session = recoverSessionAfterProcessRestart(sessionId, doc) || session;
       // A closed session keeps its marker unrecovered.
       if (session?.activeTurnCheckpoint) projectCheckpoint();
     }
@@ -307,6 +309,10 @@ export async function windowStoredTranscript(sessionId, base, options) {
     desktopSession: desktopSession(session.desktopSession, session.cwd),
     workflow: session.workflow || null,
     todo: todoSnapshot(session),
+    // Turns whose checkpoints recovery could not apply, kept on disk.
+    ...(Array.isArray(session.unrecoveredTurns) && session.unrecoveredTurns.length
+      ? { unrecoveredTurns: session.unrecoveredTurns }
+      : {}),
     ...contextFields,
   };
 }

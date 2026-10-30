@@ -46,10 +46,12 @@ function runTurnUntilSwitch(sessionId) {
     generation: 2,
     turnToken: `tok-${sessionId}`,
     startedAt: 1000,
+    base: { epoch: 'e0', refs: history },
   });
   // The prompt anchors at turn start; the tool round lands before the next
   // request fails and the route switches.
   recorder.record({
+    boundary: history.length,
     currentUserContent: prompt,
     turnOutgoing: outgoing.slice(0, history.length + 1),
     interruption: createTurnInterruptionTracker(),
@@ -72,6 +74,7 @@ function savedSession(sessionId, history, { routeChanged }) {
     model: 'claude-opus-4-1',
     routeFallbackIndex: 1,
     messages: [...history, { role: 'user', content: prompt }],
+    transcriptEpoch: 'e0',
     activeTurnCheckpoint: { version: 1, turnToken: `tok-${sessionId}`, startedAt: 1000, routeChanged },
     updatedAt: Date.now(),
   };
@@ -84,7 +87,7 @@ test('a crash after a saved mid-turn switch resumes the turn with its tool resul
   const { history } = runTurnUntilSwitch(sessionId);
   await settleTurnCheckpointWrites(sessionId);
   const session = savedSession(sessionId, history, { routeChanged: true });
-  const recovery = recoverTurnCheckpoint(session);
+  const recovery = recoverTurnCheckpoint(session, structuredClone(session));
   assert.equal(recovery.recovered, true);
   assert.equal(session.provider, 'anthropic');
   const calls = session.messages.flatMap((m) => (m.role === 'assistant' ? m.toolCalls || [] : []));
@@ -109,6 +112,6 @@ test('without a switch the recovered turn keeps its own provider state', async (
   const { history } = runTurnUntilSwitch(sessionId);
   await settleTurnCheckpointWrites(sessionId);
   const session = savedSession(sessionId, history, { routeChanged: false });
-  assert.equal(recoverTurnCheckpoint(session).recovered, true);
+  assert.equal(recoverTurnCheckpoint(session, structuredClone(session)).recovered, true);
   assert.match(JSON.stringify(session.messages), /gemini-sig/);
 });
