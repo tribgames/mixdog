@@ -73,7 +73,12 @@ export async function collectGarbageNow() {
  * @param {(message: string) => void} [options.log]
  * @param {string} [options.label] Log prefix.
  */
-export function createIdleGc({ isBusy, log = () => {}, label = 'idle gc' } = {}) {
+export function createIdleGc({
+  isBusy,
+  log = () => {},
+  label = 'idle gc',
+  memoryUsage = () => process.memoryUsage(),
+} = {}) {
   const enabled = !DISABLED.test(String(process.env.MIXDOG_IDLE_GC || ''));
   // Long enough that the pause between two turns of one conversation never
   // triggers a sweep, short enough that a desktop left alone reclaims soon.
@@ -90,6 +95,11 @@ export function createIdleGc({ isBusy, log = () => {}, label = 'idle gc' } = {})
   // between committed and used is itself a reason to sweep — the collection is
   // what lets V8 release those pages — so either signal alone arms the sweep.
   const minSlackBytes = envNumber('MIXDOG_IDLE_GC_MIN_SLACK_MB', 64) * MB;
+  // Buffers, ArrayBuffers and external strings live outside the JS heap, so a
+  // daemon can sit on gigabytes of dead attachment data behind a tiny heap
+  // (external 2.8GB beside heapTotal 7MB was measured) and never trip the heap
+  // floors above. Only a collection frees them.
+  const minExternalBytes = envNumber('MIXDOG_IDLE_GC_MIN_EXTERNAL_MB', 96) * MB;
   // Re-sweeping a process that has not allocated since the last sweep only
   // burns CPU; require real growth (or an announced release, see
   // noteMemoryRelease) before running again.
@@ -98,6 +108,7 @@ export function createIdleGc({ isBusy, log = () => {}, label = 'idle gc' } = {})
   let timer = null;
   let lastBusyAt = Date.now();
   let lastSweptHeap = 0;
+  let lastSweptExternal = 0;
   let sweptReleaseSeq = releaseSeq;
   let appliedReleaseAt = lastReleaseAt;
   let sweeping = false;
@@ -123,12 +134,22 @@ export function createIdleGc({ isBusy, log = () => {}, label = 'idle gc' } = {})
       lastBusyAt = Math.max(lastBusyAt, Math.min(lastReleaseAt, Date.now()));
     }
     if (Date.now() - lastBusyAt < idleMs) return 'settling';
-    const usageBefore = process.memoryUsage();
+    const usageBefore = memoryUsage();
     const before = usageBefore.heapUsed;
+    const externalBefore = usageBefore.external || 0;
     const slackBefore = Math.max(0, usageBefore.heapTotal - before);
-    if (before < minHeapBytes && slackBefore < minSlackBytes) return 'small';
+    if (before < minHeapBytes && slackBefore < minSlackBytes && externalBefore < minExternalBytes) {
+      return 'small';
+    }
     const released = releaseSeq !== sweptReleaseSeq;
-    if (lastSweptHeap && !released && before < lastSweptHeap + growthBytes) return 'unchanged';
+    if (
+      lastSweptHeap &&
+      !released &&
+      before < lastSweptHeap + growthBytes &&
+      externalBefore < lastSweptExternal + growthBytes
+    ) {
+      return 'unchanged';
+    }
 
     sweeping = true;
     const releaseSeqAtSweep = releaseSeq;
@@ -139,9 +160,10 @@ export function createIdleGc({ isBusy, log = () => {}, label = 'idle gc' } = {})
         disarm();
         return 'unavailable';
       }
-      const usageAfter = process.memoryUsage();
+      const usageAfter = memoryUsage();
       const after = usageAfter.heapUsed;
       lastSweptHeap = after;
+      lastSweptExternal = usageAfter.external || 0;
       // Releases announced while this sweep ran still get their own.
       sweptReleaseSeq = releaseSeqAtSweep;
       const mb = (bytes) => (bytes / MB).toFixed(1);
@@ -150,7 +172,8 @@ export function createIdleGc({ isBusy, log = () => {}, label = 'idle gc' } = {})
       log(
         `${label}: heapUsed ${mb(before)} -> ${mb(after)} MB` +
           ` (reclaimed ${mb(before - after)} MB) in ${Date.now() - startedAt}ms` +
-          `, committed ${mb(usageBefore.heapTotal)} -> ${mb(usageAfter.heapTotal)} MB`
+          `, committed ${mb(usageBefore.heapTotal)} -> ${mb(usageAfter.heapTotal)} MB` +
+          `, external ${mb(externalBefore)} -> ${mb(usageAfter.external || 0)} MB`
       );
       return 'swept';
     } catch (e) {
@@ -185,6 +208,6 @@ export function createIdleGc({ isBusy, log = () => {}, label = 'idle gc' } = {})
     },
     /** Drives one cycle synchronously for tests; returns the decision taken. */
     _tickForTest: tick,
-    _configForTest: { enabled, idleMs, checkMs, minHeapBytes, minSlackBytes, growthBytes },
+    _configForTest: { enabled, idleMs, checkMs, minHeapBytes, minSlackBytes, minExternalBytes, growthBytes },
   };
 }
