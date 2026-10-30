@@ -335,9 +335,10 @@ export function createWorkspaceToolHandlers({
       if (['spawn', 'send'].includes((clean(args?.type) || 'spawn').toLowerCase()) && callerIsHeartbeat(callerCtx)) {
         throw new Error(`agent: ${HEARTBEAT_NO_HANDOFF}`);
       }
-      // `attachmentParts` is never the model's to set: only the resolved
-      // `attachments` reach the agent's turn.
-      const { attachments, attachmentParts: _ignored, ...rest } = args || {};
+      // `attachmentParts` and `skillSelection` are never the model's to set:
+      // only the resolved `attachments` reach the agent's turn, and its skills
+      // are selected from its whole prompt.
+      const { attachments, attachmentParts: _ignored, skillSelection: _selection, ...rest } = args || {};
       const attachmentParts = callerAttachmentParts(rt, { attachments }, callerCwd, 'agent');
       return await agentTool.execute(attachmentParts.length ? { ...rest, attachmentParts } : rest, {
         callerCwd,

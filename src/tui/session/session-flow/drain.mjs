@@ -145,8 +145,10 @@ export function turnOptionsForBatch(batch, steering) {
       Array.isArray(entry?.resumeCompletionKeys) ? entry.resumeCompletionKeys : []
     ),
     transcriptMeta: completionWakeTranscriptMeta(batch),
-    // Only a routine turn names its selection text (never its payload).
-    ...(batch[0]?.mode === 'routine' && typeof batch[0].skillSelection === 'string'
+    // Only host code names a selection text (queue/entry-shape.mjs): a
+    // routine turn, or a routine's executor sub-agent turn — its trusted
+    // instructions, never a payload.
+    ...(typeof batch[0]?.skillSelection === 'string'
       ? { skillSelection: batch[0].skillSelection }
       : {}),
     context:

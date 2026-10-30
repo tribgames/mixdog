@@ -79,12 +79,17 @@ const ownershipTest = async () => {
   let call = queryCalls.at(-1);
   assert.match(call.sql, /owner_agent_id = EXCLUDED\.owner_agent_id/);
   assert.doesNotMatch(call.sql, /last_payload\s*=/, 'an edit keeps the last event');
-  assert.equal(call.params.at(-1), 'lead');
-  await upsertEndpoint(
-    { name: 'issues', instructions: 'p', ownerAgentId: 'reviewer', model: 'x/y' },
+  assert.deepEqual(call.params.slice(-2), ['lead', null], 'no executor unless one is named');
+  assert.match(ddl, /ADD COLUMN IF NOT EXISTS executor_agent_id text;/);
+  assert.match(call.sql, /executor_agent_id = EXCLUDED\.executor_agent_id/);
+  assert.equal(legacy.executorAgentId, null, 'a row without an executor reads as none, whatever the legacy columns hold');
+  queryRows = [{ name: 'issues', instructions: 'p', enabled: true, owner_agent_id: 'reviewer', executor_agent_id: 'worker' }];
+  const named = await upsertEndpoint(
+    { name: 'issues', instructions: 'p', ownerAgentId: 'reviewer', executorAgentId: 'worker', model: 'x/y' },
     { dataDir: '/hooks-owner' }
   );
-  assert.equal(queryCalls.at(-1).params.at(-1), 'reviewer');
+  assert.deepEqual(queryCalls.at(-1).params.slice(-2), ['reviewer', 'worker']);
+  assert.equal(named.executorAgentId, 'worker');
   assert.doesNotMatch(queryCalls.at(-1).sql, /\b(model|workflow|run_as_agent)\b/, 'legacy columns are not written');
 
   const at = new Date('2030-01-01T00:00:00Z');

@@ -71,6 +71,17 @@ const spec = (parentSessionId, extra = {}) => ({
   ...extra,
 });
 
+test("a turn's trusted skill selection reaches the child's submission; none is invented", async () => {
+  const h = createHarness();
+  const { session } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  await h.tree.runAgentTurn({ session, prompt: 'task with $payload-skill', skillSelection: 'trusted $a' });
+  assert.equal(h.turns.at(-1).options.skillSelection, 'trusted $a');
+  await h.tree.runAgentTurn({ session, prompt: 'task', skillSelection: '' });
+  assert.equal(h.turns.at(-1).options.skillSelection, '', 'an empty selection selects nothing');
+  await h.tree.runAgentTurn({ session, prompt: 'task' });
+  assert.equal(Object.hasOwn(h.turns.at(-1).options, 'skillSelection'), false);
+});
+
 test('a busy child accepts follow-ups on its existing runtime', async () => {
   const h = createHarness({ busyIds: new Set(['child-1']) });
   const { session } = await h.tree.createAgentChild({ spec: spec('lead-1') });

@@ -221,6 +221,123 @@ test('a webhook turn fences its payload; skills come only from the instructions'
   await run;
 });
 
+/** An executor stub: records its calls, answers `report` (or rejects with it when an Error). */
+function executorStub(report) {
+  const calls = [];
+  const executor = async (input, context) => {
+    calls.push({ input, context });
+    if (report instanceof Error) throw report;
+    return typeof report === 'function' ? report(input) : report;
+  };
+  return { executor, calls };
+}
+
+test("with an executor, the sub-agent does the fire first and the bot's turn holds only its report", async () => {
+  const thread = homeThread({ reply: () => 'Three issues were triaged.' });
+  const fired = webhookRunPrompt('Triage the issue.', { action: 'opened', body: 'x' }, { 'x-github-event': 'issues' });
+  const { executor, calls } = executorStub('Triaged 3 issues: #1 bug, #2 docs, #3 question.');
+  const run = runRoutineTurn(
+    {
+      kind: 'webhook',
+      name: 'issues',
+      ownerAgentId: 'reviewer',
+      executorAgentId: 'worker',
+      prompt: fired.prompt,
+      skillSelection: fired.skillSelection,
+      cwd: 'C:\\work',
+      attachments: [{ kind: 'text', name: 'a.txt', mimeType: 'text/plain', data: 'hi' }],
+      event: 'issues · opened',
+    },
+    deps(thread, { executor })
+  );
+  await tick();
+  // The executor got the instructions with the fenced payload, the attachments and the folder.
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].input.agentId, 'worker');
+  assert.equal(calls[0].input.ownerAgentId, 'reviewer');
+  assert.equal(calls[0].input.kind, 'webhook');
+  assert.equal(calls[0].input.prompt, fired.prompt);
+  assert.equal(calls[0].input.skillSelection, 'Triage the issue.', 'only the trusted instructions select skills');
+  assert.equal(calls[0].input.cwd, 'C:\\work');
+  assert.equal(calls[0].input.attachments.length, 1);
+  assert.equal(calls[0].context.surface, thread.surface);
+  // The bot's turn is a routine turn holding the report only.
+  const [turn] = thread.submitted;
+  assert.equal(thread.submitted.length, 1);
+  assert.equal(turn.sessionId, 'sess_home_reviewer');
+  assert.equal(turn.options.mode, 'routine');
+  assert.deepEqual(turn.options.transcriptMeta.routineTrigger, {
+    kind: 'webhook',
+    name: 'issues',
+    event: 'issues · opened',
+  });
+  const text = String(turn.content);
+  assert.match(text, /^\[Routine trigger\] Your webhook "issues" fired and its sub-agent "worker" already carried it out/);
+  assert.equal(stripRoutineTriggerHeader(text), 'Triaged 3 issues: #1 bug, #2 docs, #3 question.');
+  assert.doesNotMatch(text, /UNTRUSTED|Triage the issue/, 'neither the instructions nor the payload reach the bot');
+  assert.equal(turn.options.skillSelection, '', 'the report, derived from the payload, selects no skill');
+  // The bot's own turn is the unattended run, as before.
+  assert.deepEqual(unattendedRunOf('sess_home_reviewer'), { kind: 'webhook', agentId: 'reviewer', name: 'issues' });
+  thread.settle();
+  assert.deepEqual(await run, { sessionId: 'sess_home_reviewer', result: 'Three issues were triaged.' });
+});
+
+test('an executor that reports the quiet marker wakes nobody', async () => {
+  const thread = homeThread();
+  for (const report of ['ROUTINE_QUIET', '  ROUTINE_QUIET\n']) {
+    const { executor } = executorStub(report);
+    const out = await runRoutineTurn(
+      { kind: 'schedule', name: 'daily', executorAgentId: 'worker', prompt: 'Check.' },
+      deps(thread, { executor })
+    );
+    assert.deepEqual(out, { sessionId: 'sess_home_lead', result: 'ROUTINE_QUIET' });
+  }
+  assert.equal(thread.submitted.length, 0, 'no turn was queued in the bot’s chat');
+});
+
+test('an executor that fails, reports nothing or is cancelled fails the run; nothing falls back to the bot', async () => {
+  const thread = homeThread();
+  const failing = executorStub(new Error('schedule "daily" cannot run: executor agent "worker" is turned off'));
+  await assert.rejects(
+    runRoutineTurn({ kind: 'schedule', name: 'daily', executorAgentId: 'worker', prompt: 'x' }, deps(thread, failing)),
+    /executor agent "worker" is turned off/
+  );
+  const empty = executorStub('   ');
+  await assert.rejects(
+    runRoutineTurn({ kind: 'schedule', name: 'daily', executorAgentId: 'worker', prompt: 'x' }, deps(thread, empty)),
+    /returned no report/
+  );
+  // The caller's abort reaches the executor, and the run fails with it.
+  const controller = new AbortController();
+  const seen = [];
+  const hanging = async ({ signal }) => {
+    seen.push(signal);
+    await new Promise((resolve) => signal.addEventListener('abort', resolve, { once: true }));
+    return 'late report';
+  };
+  const run = runRoutineTurn(
+    { kind: 'webhook', name: 'hook', executorAgentId: 'worker', prompt: 'x', signal: controller.signal },
+    deps(thread, { executor: hanging })
+  );
+  await tick();
+  controller.abort(new Error('Run now was stopped'));
+  await assert.rejects(run, /Run now was stopped/);
+  assert.equal(seen[0], controller.signal);
+  assert.equal(thread.submitted.length, 0, 'the bot was never woken');
+});
+
+test('a routine with no executor never starts one', async () => {
+  const thread = homeThread();
+  const { executor, calls } = executorStub('unused');
+  for (const executorAgentId of [undefined, null, '']) {
+    const run = runRoutineTurn({ kind: 'schedule', name: 'daily', executorAgentId, prompt: 'Go.' }, deps(thread, { executor }));
+    await tick();
+    thread.settle();
+    await run;
+  }
+  assert.equal(calls.length, 0);
+});
+
 /** Timers whose single pending timeout the test fires by hand. */
 function manualTimers() {
   const timers = { pending: null, cleared: 0 };

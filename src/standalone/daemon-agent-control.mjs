@@ -6,7 +6,7 @@
 //
 // Inputs: `getSessionService` / `getSessionRuntimeHost` (both are wired after
 // this control exists — the host takes `execute` as a constructor option), and
-// `cwd`. Output: { canonicalAgentTool, execute }.
+// `cwd`. Output: { canonicalAgentTool, execute, runForeground, dispose }.
 
 export function createCanonicalAgentControl({ getSessionService, getSessionRuntimeHost, cwd }) {
   let canonicalAgentToolPromise = null;
@@ -43,16 +43,33 @@ export function createCanonicalAgentControl({ getSessionService, getSessionRunti
     return canonicalAgentToolPromise;
   }
 
-  async function execute(args = {}, context = {}) {
-    const tool = await canonicalAgentTool();
+  /** `context` rooted at its caller session (agent-tool: the owner is the caller's root). */
+  async function scopeContext(context) {
     const sessionService = getSessionService();
     const parentSessionId = String(context?.callerSessionId || '').trim();
     await sessionService.rehydrateAgentSessions();
-    const scopedContext = {
-      ...context,
-      callerSessionId: parentSessionId || null,
-      ownerSessionId: sessionService.rootOwnerSessionId(parentSessionId),
+    return {
+      parentSessionId,
+      sessionService,
+      scopedContext: {
+        ...context,
+        callerSessionId: parentSessionId || null,
+        ownerSessionId: sessionService.rootOwnerSessionId(parentSessionId),
+      },
     };
+  }
+
+  /** One agent run to its end for a caller with no session to hand it to
+   *  (routine-executor.mjs): resolves `{ sessionId, content }`. */
+  async function runForeground(args = {}, context = {}, options = {}) {
+    const tool = await canonicalAgentTool();
+    const { scopedContext } = await scopeContext(context);
+    return await tool.runToCompletion(args, scopedContext, options);
+  }
+
+  async function execute(args = {}, context = {}) {
+    const tool = await canonicalAgentTool();
+    const { parentSessionId, sessionService, scopedContext } = await scopeContext(context);
     if (String(args?.type || '') === '__close_all') {
       await tool.closeAll?.(String(args?.reason || 'agent owner closed'), {
         callerSessionId: parentSessionId || null,
@@ -72,5 +89,5 @@ export function createCanonicalAgentControl({ getSessionService, getSessionRunti
     await tool?.disposeAsync?.({ settle: true });
   }
 
-  return { canonicalAgentTool, execute, dispose };
+  return { canonicalAgentTool, execute, runForeground, dispose };
 }

@@ -7,13 +7,17 @@ import { t, uiFormatLocale } from './i18n';
 import { InitialSurface } from './InitialSurface';
 import {
   AutomationAgentPicker,
+  ExecutorAgentPicker,
   RoutineNeedsBot,
   RoutineSortChips,
   RoutineSideGroups,
   automationAgentOf,
   automationRunFields,
+  executorAgentOf,
+  executorRunFields,
   routinePausedText,
   useAutomationAgents,
+  useExecutorAgents,
 } from './automation-agent-picker';
 import { showDesktopToast } from './notifications';
 import { scheduleErrorText } from './schedule-error-text';
@@ -95,6 +99,8 @@ interface ScheduleDraft {
   attachments: AutomationAttachment[];
   /** The bot it belongs to: each run is a turn in that bot's chat. */
   agent: string;
+  /** The sub-agent that does the work first, the bot relaying its result; '' for none. */
+  executor: string;
   instructions: string;
   enabled: boolean;
 }
@@ -192,6 +198,7 @@ function scheduleDraft(schedule: RecordValue | undefined, defaultAgent: string):
     cwd: String(source.cwd || ''),
     attachments: attachmentsFromRecords(source.attachments),
     agent: automationAgentOf(schedule, defaultAgent),
+    executor: executorAgentOf(schedule),
     instructions: String(source.instructions || ''),
     enabled: source.enabled !== false,
   };
@@ -229,6 +236,7 @@ function ScheduleEditor({
   const [frequency, setFrequency] = useState<FrequencyKind>(draft.frequency);
   const [weekday, setWeekday] = useState(draft.weekday);
   const [agent, setAgent] = useState(draft.agent);
+  const [executor, setExecutor] = useState(draft.executor);
   const [cwdEdit, setCwdEdit] = useState<string | null>(null);
   const { cwd, shown: shownCwd } = automationEditorCwd(draft.cwd, cwdEdit, taskWorkspace);
   const [attachments, setAttachments] = useState<AutomationAttachment[]>(draft.attachments);
@@ -278,6 +286,7 @@ function ScheduleEditor({
                 ? { at: draft.whenAt && at === draft.at ? draft.whenAt : at }
                 : { time: scheduleCron(frequency, text, weekday) }),
               ...automationRunFields(agent),
+              ...executorRunFields(executor),
               ...(cwd ? { cwd } : {}),
               ...(attachments.length ? { attachments } : {}),
               instructions: text('schedule-instructions'),
@@ -342,6 +351,22 @@ function ScheduleEditor({
                 disabled={busy}
                 options={projectOptions}
                 onChange={(next) => setCwdEdit(next === '__none__' ? '' : next)}
+              />
+            </div>
+          </div>
+          <div className="schedules-field">
+            <span>{t('Executor')}</span>
+            <small>{t('A sub-agent does the work first and the bot relays its result.')}</small>
+            <div className="schedules-frequency">
+              <ExecutorAgentPicker
+                api={api}
+                value={executor}
+                disabled={busy}
+                ariaLabel={t('Schedule executor')}
+                onChange={(next) => {
+                  setExecutor(next);
+                  setFormError('');
+                }}
               />
             </div>
           </div>
@@ -462,6 +487,7 @@ export function SchedulesPane({
   const bots = useAutomationAgents(api, active);
   const noBot = bots.ready && bots.members.length === 0;
   const defaultAgent = bots.members[0]?.id ?? '';
+  const executors = useExecutorAgents(api, active);
   const projects = values.projects;
   const taskWorkspace = useTaskWorkspace(api, active);
   // Host-scoped completion invalidates the keys a capability made untrue and
@@ -510,7 +536,14 @@ export function SchedulesPane({
   const text = query.trim().toLowerCase();
   const visible = schedules.filter((schedule) => {
     if (!text) return true;
-    return [schedule.name, schedule.description, schedule.time, bots.label(automationAgentOf(schedule)).name]
+    const executor = executorAgentOf(schedule);
+    return [
+      schedule.name,
+      schedule.description,
+      schedule.time,
+      bots.label(automationAgentOf(schedule)).name,
+      executor && executors.label(executor),
+    ]
       .map((value) => String(value || '').toLowerCase())
       .join(' ')
       .includes(text);
@@ -612,13 +645,16 @@ export function SchedulesPane({
               // routineRows keeps the routine tab's state (last run, auto-pause).
               const row = routineRows([schedule], owner)[0];
               const paused = routinePausedText(schedule, row.pausedAfter);
+              const executor = executorAgentOf(schedule);
+              const runBy = executor ? executors.label(executor) : '';
               const when =
                 sort === 'bot'
-                  ? [describeSchedule(schedule), paused || (row.nextAt !== null ? relativeTime(row.nextAt) : '')]
+                  ? [describeSchedule(schedule), runBy, paused || (row.nextAt !== null ? relativeTime(row.nextAt) : '')]
                   : sort === 'cadence'
-                    ? [bot.name, cadenceTime(schedule), paused]
+                    ? [bot.name, runBy, cadenceTime(schedule), paused]
                     : [
                         bot.name,
+                        runBy,
                         paused || (row.nextAt !== null ? relativeTime(row.nextAt) : describeSchedule(schedule)),
                       ];
               return (

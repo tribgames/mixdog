@@ -13,6 +13,7 @@ import { t } from './i18n';
 import { OPEN_AGENTS_VIEW_EVENT, requestMixyDialog, useMixyStatus } from './mixy-identity';
 import { OpenSelect } from './OpenSelect';
 import { useSidebarReferences } from './sidebar-reference-cache';
+import { DEFAULT_AGENT_IDS, agentRosterOf } from './workflows-agent-rows';
 import './mixy-first.css';
 
 const AGENT_KEYS = ['agents'] as const;
@@ -34,6 +35,70 @@ export function useAutomationAgents(api: AgentsApi, active: boolean) {
       members.find((member) => member.id === id) ?? { id, name: id, avatar: agentAvatar(id, null) };
     return { members, label, ready: mixyCreated !== null };
   }, [values.agents, mixyCreated]);
+}
+
+/** The delegatable workflow sub-agents (Worker, …) a routine can name as its
+ *  executor: the Workflows page's agents, never a bot, a shared service or a
+ *  switched-off agent. `label` names an id, an unknown one as itself. */
+export function useExecutorAgents(api: AgentsApi, active: boolean) {
+  const { values } = useSidebarReferences(api, AGENT_KEYS, active, false);
+  return useMemo(() => {
+    const off = new Set(values.agents.filter((row) => row.disabled === true).map((row) => String(row.id || '')));
+    const choices = agentRosterOf(values.agents)
+      .filter((agent) => !agent.contact && !DEFAULT_AGENT_IDS.has(agent.id) && !off.has(agent.id))
+      .map((agent) => ({ id: agent.id, name: agent.label }));
+    const label = (id: string) => choices.find((choice) => choice.id === id)?.name ?? id;
+    return { choices, label };
+  }, [values.agents]);
+}
+
+/** The executor a saved row names; '' when the bot handles it itself. */
+export function executorAgentOf(row: RecordValue | undefined): string {
+  return typeof row?.executorAgentId === 'string' ? row.executorAgentId : '';
+}
+
+/** The save field of the executor pick: null clears it. */
+export function executorRunFields(executor: string): RecordValue {
+  return { executorAgentId: executor || null };
+}
+
+const NO_EXECUTOR = '__none__';
+
+/** The optional sub-agent that does the routine's work first, the bot only
+ *  relaying its result; none (the default) leaves the work to the bot. */
+export function ExecutorAgentPicker({
+  api,
+  value,
+  disabled,
+  ariaLabel,
+  onChange,
+}: {
+  api: AgentsApi;
+  /** The sub-agent id; '' for none. */
+  value: string;
+  disabled: boolean;
+  ariaLabel: string;
+  onChange(executor: string): void;
+}) {
+  const executors = useExecutorAgents(api, true);
+  // An executor the catalog no longer offers (switched off, deleted) stays the shown choice.
+  const choices =
+    value && !executors.choices.some((choice) => choice.id === value)
+      ? [...executors.choices, { id: value, name: executors.label(value) }]
+      : executors.choices;
+  return (
+    <OpenSelect
+      className="automation-executor-picker"
+      ariaLabel={ariaLabel}
+      value={value || NO_EXECUTOR}
+      disabled={disabled}
+      options={[
+        { value: NO_EXECUTOR, label: t('The bot itself') },
+        ...choices.map((choice) => ({ value: choice.id, label: choice.name })),
+      ]}
+      onChange={(next) => onChange(next === NO_EXECUTOR ? '' : next)}
+    />
+  );
 }
 
 /** The bot a saved row belongs to (a row without an owner: Mixy); a new row's

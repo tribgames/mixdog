@@ -212,6 +212,11 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
         description:
           "The bot id that owns the schedule or webhook; each run is a turn in that bot's chat, where it replies with the result. The bot must exist (no representative bot yet = refused). New entries default to the bot of the calling thread (the representative bot = lead); on overwrite, omission keeps the owner.",
       },
+      executorAgentId: {
+        ...removableText,
+        description:
+          "The workflow sub-agent id (Worker, …) that carries out each run first, on its own model; only its final report goes to the owner bot, which relays it in its own words. Must be an enabled workflow sub-agent: never a bot (the representative bot included); unknown or turned-off ids are refused. Set it for recurring work that suits a sub-agent; leave it unset for trivial chat-only routines (the owner bot then does the work itself). null or \"\" clears it; on overwrite, omission keeps it.",
+      },
       overwrite: { ...boolean, description: 'Explicitly update an existing entry; omitted fields are preserved.' },
     },
     ['name']

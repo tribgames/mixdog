@@ -12,6 +12,15 @@ const source = (...modes) =>
     steering
   ).promptSource;
 
+test('a trusted skill selection reaches the turn (a routine, or its executor sub-agent); none is made up', () => {
+  const options = (entry) => turnOptionsForBatch([{ id: 'q', text: 'use $x', ...entry }], steering);
+  assert.equal(options({ mode: 'routine', skillSelection: 'trusted' }).skillSelection, 'trusted');
+  assert.equal(options({ mode: 'prompt', skillSelection: 'trusted' }).skillSelection, 'trusted');
+  assert.equal(options({ mode: 'prompt', skillSelection: '' }).skillSelection, '', 'an empty selection stays empty');
+  assert.equal(Object.hasOwn(options({ mode: 'prompt', skillSelection: null }), 'skillSelection'), false);
+  assert.equal(Object.hasOwn(options({ mode: 'prompt' }), 'skillSelection'), false);
+});
+
 test('idle-drained completion batches are task notifications; prompts and Goal turns keep theirs', () => {
   assert.equal(source('task-notification'), 'task-notification');
   assert.equal(source('pending-resume'), 'task-notification');

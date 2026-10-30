@@ -87,16 +87,20 @@ const ownershipTest = async () => {
   let call = queryCalls.at(-1);
   assert.match(call.sql, /owner_agent_id = EXCLUDED\.owner_agent_id/);
   assert.doesNotMatch(call.sql, /\b(model|workflow|run_as_agent)\b/, 'legacy columns are not written');
-  assert.equal(call.params.at(-1), 'lead');
+  assert.deepEqual(call.params.slice(-2), ['lead', null], 'no executor unless one is named');
+  assert.equal(legacy.executorAgentId, null, 'a row without an executor reads as none, whatever the legacy columns hold');
+  assert.match(ddl, /ADD COLUMN IF NOT EXISTS executor_agent_id text;/);
+  assert.match(call.sql, /executor_agent_id = EXCLUDED\.executor_agent_id/);
 
-  queryRows = [{ name: 'pr', prompt: 'p', owner_agent_id: 'reviewer' }];
+  queryRows = [{ name: 'pr', prompt: 'p', owner_agent_id: 'reviewer', executor_agent_id: 'worker' }];
   const saved = await upsertSchedule(
-    { name: 'pr', prompt: 'p', whenCron: '0 9 * * 1-5', ownerAgentId: 'reviewer' },
+    { name: 'pr', prompt: 'p', whenCron: '0 9 * * 1-5', ownerAgentId: 'reviewer', executorAgentId: 'worker' },
     { dataDir: '/sched-owner' }
   );
   call = queryCalls.at(-1);
-  assert.equal(call.params.at(-1), 'reviewer');
+  assert.deepEqual(call.params.slice(-2), ['reviewer', 'worker']);
   assert.equal(saved.ownerAgentId, 'reviewer');
+  assert.equal(saved.executorAgentId, 'worker');
 
   const at = new Date('2030-01-01T00:00:00Z');
   await markScheduleSkipped('pr', at, { dataDir: '/sched-owner' });
@@ -191,8 +195,8 @@ test('a new table has no target or channel_id column and an insert does not writ
   assert.doesNotMatch(ddl, /\btarget\b|channel_id/);
   const call = queryCalls.at(-1);
   assert.doesNotMatch(call.sql, /\btarget\b|channel_id/);
-  assert.equal(call.params.length, 13);
-  assert.equal(call.params.at(-1), 'lead');
+  assert.equal(call.params.length, 14);
+  assert.deepEqual(call.params.slice(-2), ['lead', null]);
 });
 
 test('an insert fills the NOT NULL target column of a table from an older release with session', async () => {
@@ -202,9 +206,9 @@ test('an insert fills the NOT NULL target column of a table from an older releas
   const probes = legacyQueryCalls.filter((c) => /information_schema\.columns/.test(c.sql));
   assert.equal(probes.length, 1, 'the schema is probed once per connection');
   const call = legacyQueryCalls.at(-1);
-  assert.match(call.sql, /owner_agent_id, target\)/);
-  assert.match(call.sql, /\$13,\$14\)/);
+  assert.match(call.sql, /executor_agent_id, target\)/);
+  assert.match(call.sql, /\$14,\$15\)/);
   assert.doesNotMatch(call.sql, /channel_id/);
-  assert.deepEqual(call.params.slice(-2), ['lead', 'session']);
+  assert.deepEqual(call.params.slice(-3), ['lead', null, 'session']);
   assert.doesNotMatch(call.sql, /target\s*=\s*EXCLUDED/, 'a conflict leaves the stored target alone');
 });

@@ -171,7 +171,9 @@ step; do not insist.
   addresses one bot; otherwise the Maintainer decides who answers next.
 - Schedules and webhooks: a timed or incoming-event trigger (`save_automation`).
   Each run is one turn in its bot's own chat, with that bot's persona, rules,
-  permissions, memory and model. Without a bot they cannot be used.
+  permissions, memory and model. Without a bot they cannot be used. A routine
+  can also name an executor sub-agent (`executorAgentId`, e.g. Worker): that
+  sub-agent does each run on its own model and the bot only relays its report.
 - Approval cards: when a tool needs permission it waits in the chat until the
   user approves or declines.
 - Phone remote access: pair a phone under Settings → Connection to follow and

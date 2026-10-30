@@ -13,6 +13,7 @@ import { usePersistedListOrder } from './use-persisted-list-order';
 import { useSidebarCapabilityRunner } from './use-sidebar-capability-runner';
 import type { RecordValue } from './desktop-types';
 import {
+  DEFAULT_AGENT_IDS,
   AgentRouteRow,
   AgentRouteSummaryView,
   AgentRowIcon,
@@ -33,11 +34,6 @@ type WorkflowsApi = Partial<
 
 // Agents have exactly two states: a pinned model, or off. "Follows Main" is
 // reserved for Web Search, whose row keeps its own default marker route.
-// Shared services, not delegation targets: they run behind a tool (web_search,
-// explore) or a background cycle (maintainer), so they carry a model route but
-// no editable definition and never appear in a workflow's agent subset.
-const DEFAULT_AGENT_IDS = new Set(['maintainer', 'explore']);
-
 // listWorkflows/listAgents/quickProviderModels are the same shared snapshots
 // Schedules and Webhooks read, so entering this panel costs nothing extra.
 // Workflow and agent configuration has its own rail destination. The sidebar

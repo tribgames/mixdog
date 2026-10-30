@@ -45,6 +45,9 @@ ALTER TABLE webhooks.endpoints ALTER COLUMN role SET DEFAULT '';
 ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS owner_agent_id text NOT NULL DEFAULT 'lead';
 -- Legacy columns model, workflow and run_as_agent are no longer read or written (kept, not dropped, to avoid a risky migration).
 ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS run_as_agent boolean NOT NULL DEFAULT false;
+-- The workflow sub-agent that carries out each run first (its final report is
+-- what the owner bot relays); NULL = the owner bot does the work itself.
+ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS executor_agent_id text;
 -- The latest received event (its payload kept for a manual re-run) and the
 -- outcome stamps of the runs it started.
 ALTER TABLE webhooks.endpoints ADD COLUMN IF NOT EXISTS last_event_at timestamptz;
@@ -86,7 +89,7 @@ const getDb = createPgSchemaDb({
 // The stored payload itself is never projected here (readEndpointLastPayload
 // is its only read path); rows carry a presence flag.
 const ENDPOINT_COLS =
-  'name, description, parser, secret, cwd, attachments, delivery, instructions, enabled, owner_agent_id, last_event_at, last_success_at, last_failed_at, last_skipped_at, consecutive_failures, result_delivery, (last_payload IS NOT NULL) AS has_last_payload, created_at, updated_at';
+  'name, description, parser, secret, cwd, attachments, delivery, instructions, enabled, owner_agent_id, executor_agent_id, last_event_at, last_success_at, last_failed_at, last_skipped_at, consecutive_failures, result_delivery, (last_payload IS NOT NULL) AS has_last_payload, created_at, updated_at';
 
 function rowToEndpoint(row) {
   if (!row) return null;
@@ -104,6 +107,7 @@ function rowToEndpoint(row) {
     instructions: row.instructions,
     enabled: row.enabled,
     ownerAgentId: row.owner_agent_id || 'lead',
+    executorAgentId: row.executor_agent_id || null,
     lastEventAt: row.last_event_at || null,
     lastSuccessAt: row.last_success_at || null,
     lastFailedAt: row.last_failed_at || null,
@@ -187,15 +191,17 @@ export async function upsertEndpoint(def, { dataDir } = {}) {
     def.instructions ?? '',
     def.enabled ?? true,
     def.ownerAgentId || 'lead',
+    def.executorAgentId || null,
   ];
   // The last event and run stamps survive an edit: they describe deliveries,
   // not the definition.
   const { rows } = await db.query(
     `INSERT INTO webhooks.endpoints
-       (name, description, role, parser, secret, cwd, attachments, delivery, instructions, enabled, owner_agent_id)
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+       (name, description, role, parser, secret, cwd, attachments, delivery, instructions, enabled, owner_agent_id, executor_agent_id)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
      ON CONFLICT (name) DO UPDATE SET
        owner_agent_id = EXCLUDED.owner_agent_id,
+       executor_agent_id = EXCLUDED.executor_agent_id,
        description  = EXCLUDED.description,
        role        = EXCLUDED.role,
        parser       = EXCLUDED.parser,

@@ -79,7 +79,7 @@ Read this when choosing a `setup` mutation.
 | Create a workflow, agent, or machine-global user skill | `create_definition` |
 | Partially edit a workflow, agent, or machine-global user skill | `save_definition` |
 | Delete a user workflow/agent definition or override | `delete_definition` |
-| Save a schedule/webhook; explicitly overwrite to edit. A new one belongs to the calling thread's agent (Mixy = `lead`); `entry.owner` moves it to another agent | `save_automation` |
+| Save a schedule/webhook; explicitly overwrite to edit. A new one belongs to the calling thread's agent (Mixy = `lead`); `entry.owner` moves it to another agent; `entry.executorAgentId` names the workflow sub-agent that carries out each run first (`null`/`""` clears it) | `save_automation` |
 | Delete an existing schedule/webhook | `delete_automation` |
 | Enable/disable (pause/resume) a schedule/webhook | `set_automation_enabled` |
 | Run a schedule once now, or re-run a webhook on its latest received payload; the result posts into the owning agent's thread | `run_automation` |
@@ -406,6 +406,17 @@ markers are read with `status desktop`.
   active is skipped. In an attended bot conversation (chat, room, or work a
   bot started) the same payment and permanent-delete connectors ask first,
   allow once or deny only; a coding session is not asked.
+- `entry.executorAgentId` (schedule or webhook) is an enabled workflow
+  sub-agent id (Worker, …; never a bot or Mixy; unknown or turned-off ids are
+  refused). With it, each run is first carried out by that sub-agent on its own
+  route, unattended like the bot's own run (never asks, payments and permanent
+  deletes refused, no task sessions), and only its final report reaches the
+  owner bot, which relays it in its own words; a report that is exactly
+  `ROUTINE_QUIET` wakes nobody. If the sub-agent is later removed or turned
+  off, the run fails with that error instead of falling back. Without it the
+  owner bot does the work itself. Set it for recurring work a sub-agent suits;
+  leave it unset for trivial chat-only routines. `overwrite:true` keeps it
+  when omitted.
 - Enabling or creating automation may start its background worker. This is a
   persisted automation change, not permission to run an unrelated task now.
 

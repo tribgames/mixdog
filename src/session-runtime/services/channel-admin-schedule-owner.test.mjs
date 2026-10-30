@@ -57,6 +57,22 @@ mock.module('../routine-owner.mjs', {
   },
 });
 
+// Which sub-agents can execute a routine.
+const subAgents = {
+  worker: { listed: true, contact: false, disabled: false },
+  writer: { listed: true, contact: false, disabled: false },
+  reviewer: { listed: true, contact: false, disabled: true },
+  'sales-bot': { listed: true, contact: true, disabled: false },
+};
+const executorProbe = async (id) => subAgents[id] || { listed: false, contact: false, disabled: false };
+const executor = await import('../routine-executor.mjs');
+mock.module('../routine-executor.mjs', {
+  namedExports: {
+    ...executor,
+    assertRoutineExecutor: (value) => executor.assertRoutineExecutor(value, executorProbe),
+  },
+});
+
 const { channelSetup, listSchedules, saveSchedule, saveWebhook } = await import('./channel-admin.mjs');
 
 test('a new webhook defaults its owner to Mixy; an edit keeps it; a list row never carries the payload', async () => {
@@ -156,4 +172,63 @@ test('with no bot, nothing can be made, and routines of a missing bot list as pa
   bots.mixy = true;
   const after = new Map((await listSchedules()).map((row) => [row.name, row.ownerProblem]));
   assert.equal(after.get('mixy-owned'), undefined);
+});
+
+test('a schedule saves, lists and clears its executor; omission keeps it; bad ids are refused at save', async () => {
+  const created = await saveSchedule({ ...base, name: 'exec-sched', executorAgentId: 'Worker' });
+  assert.equal(upserts.at(-1).executorAgentId, 'worker');
+  assert.equal(created.executorAgentId, 'worker');
+  // An edit that does not mention it (the desktop editor of an older build) keeps it.
+  await saveSchedule({ ...base, name: 'exec-sched', overwrite: true });
+  assert.equal(upserts.at(-1).executorAgentId, 'worker');
+  assert.equal((await listSchedules()).find((row) => row.name === 'exec-sched').executorAgentId, 'worker');
+  // Another sub-agent, then none (null and "" both clear).
+  await saveSchedule({ ...base, name: 'exec-sched', executorAgentId: 'writer', overwrite: true });
+  assert.equal(upserts.at(-1).executorAgentId, 'writer');
+  for (const clear of [null, '']) {
+    await saveSchedule({ ...base, name: 'exec-sched', executorAgentId: 'worker', overwrite: true });
+    const cleared = await saveSchedule({ ...base, name: 'exec-sched', executorAgentId: clear, overwrite: true });
+    assert.equal(upserts.at(-1).executorAgentId, null);
+    assert.equal(cleared.executorAgentId, null);
+  }
+  // A schedule without one lists null, never undefined.
+  const plain = await saveSchedule({ ...base, name: 'no-exec' });
+  assert.equal(upserts.at(-1).executorAgentId, null);
+  assert.equal(plain.executorAgentId, null);
+  rows.set('legacy-exec', { name: 'legacy-exec', whenCron: '0 9 * * *', prompt: 'p', model: 'openai/gpt-5' });
+  assert.equal((await listSchedules()).find((row) => row.name === 'legacy-exec').executorAgentId, null);
+
+  const before = upserts.length;
+  await assert.rejects(saveSchedule({ ...base, name: 'x1', executorAgentId: 'ghost' }), /not an available sub-agent/);
+  await assert.rejects(saveSchedule({ ...base, name: 'x2', executorAgentId: 'reviewer' }), /is turned off/);
+  await assert.rejects(saveSchedule({ ...base, name: 'x3', executorAgentId: 'sales-bot' }), /is a bot/);
+  await assert.rejects(saveSchedule({ ...base, name: 'x4', executorAgentId: 'lead' }), /is a bot/);
+  assert.equal(upserts.length, before, 'nothing was saved');
+  // A saved executor that was turned off since does not block an unrelated edit.
+  await saveSchedule({ ...base, name: 'exec-sched', executorAgentId: 'worker', overwrite: true });
+  subAgents.worker.disabled = true;
+  try {
+    await saveSchedule({ ...base, name: 'exec-sched', instructions: 'Check again', overwrite: true });
+    assert.equal(upserts.at(-1).executorAgentId, 'worker');
+  } finally {
+    subAgents.worker.disabled = false;
+  }
+});
+
+test('a webhook saves, lists and clears its executor the same way', async () => {
+  const hook = { instructions: 'Triage the issue', parser: 'github' };
+  const created = await saveWebhook({ ...hook, name: 'exec-hook', executorAgentId: 'worker' });
+  assert.equal(endpointUpserts.at(-1).executorAgentId, 'worker');
+  assert.equal(created.executorAgentId, 'worker');
+  await saveWebhook({ ...hook, name: 'exec-hook', overwrite: true });
+  assert.equal(endpointUpserts.at(-1).executorAgentId, 'worker');
+  assert.equal((await channelSetup()).webhooks.find((row) => row.name === 'exec-hook').executorAgentId, 'worker');
+  const cleared = await saveWebhook({ ...hook, name: 'exec-hook', executorAgentId: null, overwrite: true });
+  assert.equal(endpointUpserts.at(-1).executorAgentId, null);
+  assert.equal(cleared.executorAgentId, null);
+  assert.equal((await channelSetup()).webhooks.find((row) => row.name === 'exec-hook').executorAgentId, null);
+  const before = endpointUpserts.length;
+  await assert.rejects(saveWebhook({ ...hook, name: 'bad-hook', executorAgentId: 'ghost' }), /not an available sub-agent/);
+  await assert.rejects(saveWebhook({ ...hook, name: 'bad-hook', executorAgentId: 'sales-bot' }), /is a bot/);
+  assert.equal(endpointUpserts.length, before);
 });
