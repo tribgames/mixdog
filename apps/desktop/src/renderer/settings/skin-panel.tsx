@@ -121,16 +121,22 @@ function SkinRow({ title, description, children }: { title: string; description?
   );
 }
 
-function Segmented<T extends string>({
+/** A row of pressed/unpressed buttons. `onPreview` gets the hovered or focused
+ *  option, then null when the pointer or focus leaves it. */
+export function Segmented<T extends string>({
   label,
   value,
   options,
+  disabled,
   onChange,
+  onPreview,
 }: {
   label: string;
   value: T;
   options: ReadonlyArray<{ value: T; label: string }>;
+  disabled?: boolean;
   onChange(value: T): void;
+  onPreview?(value: T | null): void;
 }) {
   return (
     <div className="skin-seg" role="group" aria-label={label}>
@@ -140,7 +146,12 @@ function Segmented<T extends string>({
           key={option.value}
           aria-pressed={option.value === value}
           data-value={option.value}
+          disabled={disabled}
           onClick={() => onChange(option.value)}
+          onPointerEnter={onPreview && (() => onPreview(option.value))}
+          onPointerLeave={onPreview && (() => onPreview(null))}
+          onFocus={onPreview && (() => onPreview(option.value))}
+          onBlur={onPreview && (() => onPreview(null))}
         >
           {option.label}
         </button>

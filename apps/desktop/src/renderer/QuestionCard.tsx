@@ -10,6 +10,7 @@ import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 import { usePhoneSurfaceMarked } from './mobile-surface';
 import { bindCardKeys, focusCardWhenIdle, isImeKey, isTypingTarget } from './question-card-keys';
+import { getQuestionConfirm } from './question-confirm-preference';
 import { useSurfaceActive } from './surface-activity';
 import {
   buildAnswers,
@@ -172,9 +173,11 @@ export function QuestionCard({
     if (action === 'send') return void decide({ approved: true, answers: buildAnswers(questions, current) });
     apply({ type: 'step', delta: 1 });
   };
-  // A single-select pick with no typed text is the whole answer: move on.
+  // A single-select pick with no typed text is the whole answer: move on,
+  // unless this device asks for an explicit Next/Send first.
   const choose = (option: number) => {
     apply({ type: 'pick', option });
+    if (getQuestionConfirm()) return;
     const { drafts: current, index: at, multi: multiFlags } = stateRef.current;
     const draftNow = current[at];
     if (!multiFlags[at] && !draftNow.text.trim() && draftNow.selected.includes(option)) advance();

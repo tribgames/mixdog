@@ -82,6 +82,7 @@ test('a fitted readout measures its texts again when a web font finishes loading
     observe() {}
     disconnect() {}
   };
+  globalThis.MutationObserver = window.MutationObserver;
   globalThis.getComputedStyle = window.getComputedStyle.bind(window);
   globalThis.IS_REACT_ACT_ENVIRONMENT = true;
   const line = document.createElement('div');
@@ -90,6 +91,7 @@ test('a fitted readout measures its texts again when a web font finishes loading
   t.after(() => {
     line.remove();
     delete document.fonts;
+    delete globalThis.MutationObserver;
     delete globalThis.ResizeObserver;
     delete globalThis.getComputedStyle;
     delete globalThis.IS_REACT_ACT_ENVIRONMENT;
@@ -112,6 +114,57 @@ test('a fitted readout measures its texts again when a web font finishes loading
   act(() => root.unmount());
   fonts.dispatchEvent(new window.Event('loadingdone'));
   assert.deepEqual(canvas.measured, [...once, ...once]);
+});
+
+// The route label joins the readout's line after the readout mounted (its
+// setting turned on, or the delegation mode arriving): nothing resizes yet,
+// but the label takes room, so the readout must fit again and drop first.
+test('a fitted readout hides when a sibling appears after mount and leaves no room', async (t) => {
+  const { createRoot } = await import('react-dom/client');
+  const { act } = React;
+  const widths = new Map();
+  const rect = Object.getOwnPropertyDescriptor(window.Element.prototype, 'getBoundingClientRect');
+  window.Element.prototype.getBoundingClientRect = function () {
+    return { width: widths.get(this) ?? 0, height: 0, top: 0, left: 0, right: 0, bottom: 0 };
+  };
+  globalThis.ResizeObserver = class {
+    observe() {}
+    disconnect() {}
+  };
+  globalThis.MutationObserver = window.MutationObserver;
+  globalThis.getComputedStyle = window.getComputedStyle.bind(window);
+  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+  const style = document.createElement('style');
+  style.textContent = '.after-mount-readout { padding: 0 4px; } .after-mount-line { padding: 0; }';
+  document.head.append(style);
+  const line = document.createElement('div');
+  line.className = 'after-mount-line';
+  Object.defineProperty(line, 'clientWidth', { configurable: true, value: 300 });
+  document.body.append(line);
+  const root = createRoot(line);
+  t.after(() => {
+    line.remove();
+    style.remove();
+    Object.defineProperty(window.Element.prototype, 'getBoundingClientRect', rect);
+    delete globalThis.ResizeObserver;
+    delete globalThis.MutationObserver;
+    delete globalThis.getComputedStyle;
+    delete globalThis.IS_REACT_ACT_ENVIRONMENT;
+  });
+  const variants = [[{ text: 'Load 1' }, { text: 'Load 2', separator: true }], [{ text: 'Load 1' }]];
+  function View({ label }) {
+    return React.createElement(
+      React.Fragment,
+      null,
+      label && React.createElement('button', { ref: (node) => node && widths.set(node, 290) }, 'Review · Swarm'),
+      React.createElement(FittedReadout, { variants, onClick() {}, title: 'Usage', className: 'after-mount-readout' })
+    );
+  }
+  await act(async () => root.render(React.createElement(View, { label: false })));
+  const readout = () => line.querySelector('.composer-usage-readout');
+  assert.equal(readout().hidden, false, 'it fits alone');
+  await act(async () => root.render(React.createElement(View, { label: true })));
+  assert.equal(readout().hidden, true, 'the label that left no room hid it');
 });
 
 // Session-cumulative totals as the runtime persists them (the speed sums

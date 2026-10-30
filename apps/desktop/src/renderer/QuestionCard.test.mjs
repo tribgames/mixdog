@@ -25,6 +25,7 @@ globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 const { default: React, act } = await import('react');
 const { createRoot } = await import('react-dom/client');
 const { QuestionCard } = await import('./QuestionCard.tsx');
+const { setQuestionConfirm } = await import('./question-confirm-preference.ts');
 
 const questions = [
   {
@@ -99,5 +100,42 @@ test('step buttons: a multi-select advances by click, Previous goes back, the la
     ]);
   } finally {
     await ui.done();
+  }
+});
+
+test('a single-choice pick answers at once, or waits for Send when this device asks to confirm', async (t) => {
+  const single = [questions[1]];
+  const run = async () => {
+    const decisions = [];
+    const ui = await mount(
+      React.createElement(QuestionCard, {
+        questions: single,
+        draftsRef: { current: [] },
+        resolve: async (d) => (decisions.push(d), true),
+      })
+    );
+    const options = () => [...ui.doc.querySelectorAll('.question-option')];
+    return { ui, decisions, options };
+  };
+  t.after(() => setQuestionConfirm(false));
+
+  const instant = await run();
+  try {
+    await instant.ui.click(instant.options()[1]);
+    assert.deepEqual(instant.decisions, [{ approved: true, answers: [{ selected: ['No'] }] }]);
+  } finally {
+    await instant.ui.done();
+  }
+
+  setQuestionConfirm(true);
+  const confirm = await run();
+  try {
+    await confirm.ui.click(confirm.options()[1]);
+    await confirm.ui.click(confirm.options()[0]);
+    assert.deepEqual(confirm.decisions, [], 'a pick alone does not answer');
+    await confirm.ui.click(confirm.ui.button('send'));
+    assert.deepEqual(confirm.decisions, [{ approved: true, answers: [{ selected: ['Yes'] }] }]);
+  } finally {
+    await confirm.ui.done();
   }
 });

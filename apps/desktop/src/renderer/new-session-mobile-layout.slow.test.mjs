@@ -45,7 +45,7 @@ test('new-session phone layout: chips above the card, model in the card row, not
       <section class="conversation" style="height:700px;justify-content:flex-end">
         <div class="composer-region">
         <div class="composer-context-line"><div class="composer-model-line-context">${chips}</div></div>
-        <form class="composer" data-phone-card>
+        <form class="composer" data-card>
           <div class="composer-input-row"><textarea rows="1" aria-label="Message"></textarea></div>
           <div class="composer-footer"><button type="button" class="composer-tool">+</button>
             <span class="composer-model-line-controls"><div class="route-controls"><div class="route-editor">

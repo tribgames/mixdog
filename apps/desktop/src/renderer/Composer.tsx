@@ -91,6 +91,8 @@ import {
   ComposerModelLine,
 } from './ComposerFooter';
 import { useMobileRemoteSurface } from './mobile-surface';
+import { useOneLineOverflow } from './composer-card-layout';
+import { useComposerStyle } from './composer-route-label';
 import { CapabilityIcon } from './CapabilityIcon';
 import { shouldRemoveSelectedSkill, skillTitle, useComposerSkill } from './composer-skill';
 import { VisualizeFeedbackCards } from './VisualizeFeedbackCards';
@@ -969,10 +971,14 @@ export const Composer = memo(function Composer(props: ComposerProps) {
     if (!target.closest('button, input, textarea, [role="listbox"]')) textarea.current?.focus();
   };
   const goalDisabled = turnBusy || commandBusy || submitting;
-  // A phone's coding composer is the two-row card: the typing band, then the
-  // +, the model with its gauge, the mic and send; a bot's 1:1 chat too.
-  // A group room keeps its one-line bar.
-  const phoneCard = useMobileRemoteSurface() && !roomMembers;
+  // The coding composer's two-row card: the typing band, then the +, the model
+  // with its gauge, the mic and send; a bot's 1:1 chat too. A phone always
+  // has it; the PC, in the "simple" style or once its one-line bar cannot show
+  // every item in full. A group room keeps its one-line bar.
+  const phone = useMobileRemoteSurface() && !roomMembers;
+  const style = useComposerStyle();
+  const oneLineOverflows = useOneLineOverflow(paletteAnchor, !phone && !roomMembers && style !== 'simple');
+  const card = !roomMembers && (phone || style === 'simple' || oneLineOverflows);
   const modelControlProps: ComposerModelControlProps = {
     modelAside,
     agentMode,
@@ -1002,12 +1008,12 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       {btw.card && <BtwCard card={btw.card} onClose={btw.close} onRetry={btw.retry} />}
       {/* The phone's pickers line keeps its height after the first message,
           so the card below it never moves when the chat starts. */}
-      {phoneCard && !agentMode && <div className="composer-context-line">{contextBar}</div>}
+      {phone && !agentMode && <div className="composer-context-line">{contextBar}</div>}
       <form
         ref={paletteAnchor}
         className="composer"
         data-chat-mode={agentMode ? 'agent' : undefined}
-        data-phone-card={phoneCard ? '' : undefined}
+        data-card={card ? '' : undefined}
         onSubmit={onSubmit}
         data-composer-palette-open={
           selector.open || slash.open || mention.open || skillMention.open ? 'true' : undefined
@@ -1175,14 +1181,15 @@ export const Composer = memo(function Composer(props: ComposerProps) {
           onStop={() => void stop()}
           sessionId={sessionId}
           onOpenSettings={onOpenSettings}
-          modelControls={phoneCard ? <ComposerModelControls {...modelControlProps} /> : null}
+          modelControls={card ? <ComposerModelControls {...modelControlProps} /> : null}
         />
       </form>
       <ComposerModelLine
         {...modelControlProps}
-        usageReadout={phoneCard ? usageReadout : (contextBar ?? usageReadout)}
+        usageReadout={usageReadout}
+        pickers={phone ? undefined : contextBar}
         room={Boolean(roomMembers)}
-        controls={!phoneCard}
+        card={card}
       />
       {offSkills.length > 0 && !agentMode && (
         <p className="composer-skill-status" role="status">

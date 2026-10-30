@@ -94,6 +94,15 @@ test('main PC settings: one nav in four headed sections, no badge, display setti
   }
   assert.deepEqual(
     [...document.querySelectorAll('.settings-group > header h3')].map((node) => node.textContent),
-    ['Language and time', 'Windows and panels']
+    ['Language and time', 'Windows and panels', 'Composer', 'Conversation']
+  );
+  for (const title of ['Confirm question answers', 'Composer style']) {
+    assert.ok(document.body.textContent.includes(title), title);
+  }
+  assert.ok(
+    document.body.textContent.includes(
+      'Simple: the model inside the input card only. Standard: usage too. Detailed: usage, workflow and delegation.'
+    ),
+    'the composer style shows its description'
   );
 });

@@ -1,0 +1,171 @@
+/* Settings → Display → Composer: a small PC and phone composer in the app's
+   own surface tokens, redrawn for the previewed style. */
+/* Both frames share the top edge of their captions and the height of the
+   taller one; each draws its composer at its own bottom edge. */
+.csp {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 12px;
+  margin: 12px 0 4px;
+  padding: 12px;
+  border: 1px solid var(--mx-border);
+  border-radius: 10px;
+  background: var(--mx-bg-base);
+  color: var(--mx-text-muted);
+  font-size: 10.5px;
+}
+.csp-frame {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.csp-frame:first-child {
+  flex: 1 1 260px;
+}
+.csp-caption {
+  padding-left: 2px;
+  color: var(--mx-text-faint);
+}
+.csp-pc,
+.csp-phone {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 5px;
+  padding: 8px 8px 2px;
+  border-radius: 8px;
+  background: var(--mx-bg-layer-1);
+}
+.csp-phone {
+  width: 224px;
+  max-width: 100%;
+  padding-bottom: 4px;
+  border: 1px solid var(--mx-border);
+  border-radius: 16px;
+}
+.csp-bubble {
+  align-self: flex-start;
+  width: 55%;
+  height: 9px;
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--mx-text) 10%, transparent);
+}
+.csp-bubble[data-me="true"] {
+  align-self: flex-end;
+  width: 35%;
+}
+.csp-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  margin-top: 4px;
+  padding: 0 4px 0 9px;
+  border-radius: 13px;
+  background: var(--mx-composer-surface);
+}
+.csp-input {
+  flex: 1;
+}
+.csp-card {
+  margin-top: 4px;
+  padding: 0 4px;
+  border-radius: 13px;
+  background: var(--mx-composer-surface);
+}
+.csp-band {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 6px;
+  color: var(--mx-text-faint);
+}
+.csp-row {
+  display: flex;
+  align-items: center;
+  height: 24px;
+  white-space: nowrap;
+}
+.csp-plus {
+  flex: none;
+  width: 16px;
+  text-align: center;
+}
+.csp-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.csp-send {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--mx-text) 14%, transparent);
+  color: var(--mx-text);
+  font-size: 9px;
+  font-weight: 700;
+}
+.csp-mic {
+  flex: none;
+}
+.csp-gauge {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-left: 4px;
+  border: 1.5px solid color-mix(in srgb, var(--mx-text) 25%, transparent);
+  border-radius: 50%;
+}
+.csp-model {
+  padding: 0 3px;
+  color: var(--mx-text);
+  font-weight: 600;
+}
+.csp-effort {
+  color: var(--mx-text-muted);
+  font-weight: 400;
+}
+.csp-line,
+.csp-under {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+  white-space: nowrap;
+}
+.csp-under[data-centred] {
+  justify-content: center;
+}
+.csp-usage {
+  color: var(--mx-text-faint);
+}
+.csp-controls,
+.csp-under > .csp-route {
+  margin-left: auto;
+}
+.csp-controls {
+  display: flex;
+  align-items: center;
+}
+.csp-route {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.csp-workflow {
+  color: var(--mx-text-soft);
+}
+.csp-divider {
+  width: 1px;
+  height: 9px;
+  margin: 0 3px;
+  background: var(--mx-border);
+}

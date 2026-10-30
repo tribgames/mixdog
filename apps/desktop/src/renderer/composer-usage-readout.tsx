@@ -358,22 +358,30 @@ export function FittedReadout({
         textWidth(font, item.text) +
         (item.separator ? ITEM_GAP + textWidth(font, '·') : 0) +
         (item.icon === 'dot' ? DOT_WIDTH + ICON_GAP : item.icon ? ICON_WIDTH + ICON_GAP : 0);
-      setShown(
-        fittingVariant(
-          // The `font` shorthand reads back empty when the element sets other
-          // font properties (numeric variants), so the canvas gets its parts.
-          variants.map(
-            (items) =>
-              items.reduce((sum, item) => sum + itemWidth(item), 0) + ITEM_GAP * (items.length - 1) + padding + 2
-          ),
-          available - 8
-        )
+      // The `font` shorthand reads back empty when the element sets other
+      // font properties (numeric variants), so the canvas gets its parts.
+      const widths = variants.map(
+        (items) => items.reduce((sum, item) => sum + itemWidth(item), 0) + ITEM_GAP * (items.length - 1) + padding + 2
       );
+      // The worded form (variant 0): what the PC's one-line layout needs
+      // before the card takes over (useOneLineOverflow).
+      button.dataset.fullWidth = String(Math.ceil(widths[0] ?? 0) + 8);
+      setShown(fittingVariant(widths, available - 8));
     };
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(line);
-    for (const child of Array.from(line.children)) if (child !== button) observer.observe(child);
+    const observeSiblings = () => {
+      for (const child of Array.from(line.children)) if (child !== button) observer.observe(child);
+    };
+    observeSiblings();
+    // A sibling that appears later (the route label, once its setting is on or
+    // the delegation mode arrives) takes room too, though nothing resized yet.
+    const siblings = new MutationObserver(() => {
+      observeSiblings();
+      measure();
+    });
+    siblings.observe(line, { childList: true });
     // A web font that finishes loading changes the texts' widths, though
     // neither the line nor its items may resize for it: measure afresh.
     const onFontsLoaded = () => {
@@ -383,6 +391,7 @@ export function FittedReadout({
     document.fonts?.addEventListener('loadingdone', onFontsLoaded);
     return () => {
       observer.disconnect();
+      siblings.disconnect();
       document.fonts?.removeEventListener('loadingdone', onFontsLoaded);
     };
   }, [key]);

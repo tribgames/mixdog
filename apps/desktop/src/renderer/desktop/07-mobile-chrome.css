@@ -382,53 +382,14 @@ html[data-mixdog-mobile-tabs] .composer-model-line > .composer-usage-readout {
   height: var(--mx-touch-main);
   line-height: var(--mx-touch-main);
 }
-/* The phone's coding composer (Composer.tsx `phoneCard`): the two-row card of
-   1.2 — the typing band, then +, the model with its gauge, the mic and send.
-   The line under the card holds the readout alone, centred. A bot's 1:1 chat
-   uses the same card; a group room keeps the one-line bar (agent-chat.css). */
-html[data-mixdog-mobile-tabs] form.composer[data-phone-card] > .composer-input-row {
-  flex: 0 0 100%;
-  order: 0;
-}
-html[data-mixdog-mobile-tabs] form.composer[data-phone-card] > .composer-footer {
-  display: flex;
-  flex: 0 0 100%;
-  order: 1;
-  align-items: center;
-  min-width: 0;
-}
-html[data-mixdog-mobile-tabs] form.composer[data-phone-card] > .composer-footer > .composer-tool {
-  margin-block: 0;
-}
-html[data-mixdog-mobile-tabs] form.composer[data-phone-card] .composer-footer > .composer-model-line-controls {
-  margin-left: 0;
-}
-html[data-mixdog-mobile-tabs] form.composer[data-phone-card] .composer-primary-actions {
-  margin-block: 0;
-  margin-left: auto;
-}
-/* The gauge's card opens upward from the card's row, anchored to the row. */
-html[data-mixdog-mobile-tabs] .composer-footer .session-context-indicator {
-  position: static;
-}
+/* The phone always has the composer card (15-composer.css, Composer.tsx
+   `card`), at the PC's proportions. A bot's 1:1 chat uses it too; a group room
+   keeps the one-line bar (agent-chat.css). */
 html[data-mixdog-mobile-tabs] .composer-footer .session-context-popover {
-  top: auto;
-  bottom: calc(100% + 6px);
   max-width: calc(100vw - 2 * var(--mx-mobile-edge-main));
 }
 html[data-mixdog-mobile-tabs] .composer-model-line {
   justify-content: center;
-}
-/* The card at the PC's proportions: a 44 typing band whose 24 line sits
-   centred over the 44 control row (88 in all), its text on the same 12dp edge
-   as the transcript and the + glyph below it (PC: 9px / 6px in a 42 bar). The
-   agent bar's 56 pill (agent-chat.css) is not this card. */
-html[data-mixdog-mobile-tabs] form.composer[data-phone-card] {
-  min-height: 88px;
-}
-html[data-mixdog-mobile-tabs] form.composer[data-phone-card] textarea {
-  min-height: 44px;
-  padding: 10px var(--composer-text-inset);
 }
 /* The phone's dark ramp is neutral grey (below); the card keeps the PC's own
    composer plate so it reads the same on both. A skin's frosted card still
@@ -439,18 +400,21 @@ html[data-mixdog-mobile-tabs] form.composer[data-phone-card] textarea {
 /* The readout line under the card at the PC's 36 line and 4 gap (not the 44
    touch line): the line stays reserved so nothing shifts when the chat
    starts, and the dock closes on the safe area alone (PC: 2px). */
-html[data-mixdog-mobile-tabs] form.composer[data-phone-card] ~ .composer-model-line {
+html[data-mixdog-mobile-tabs] form.composer[data-card] ~ .composer-model-line {
   min-height: 36px;
   margin-top: 4px;
 }
-html[data-mixdog-mobile-tabs] form.composer[data-phone-card] ~ .composer-model-line > .composer-usage-readout {
+html[data-mixdog-mobile-tabs] form.composer[data-card] ~ .composer-model-line > .composer-route-label {
+  padding-inline: 4px;
+}
+html[data-mixdog-mobile-tabs] form.composer[data-card] ~ .composer-model-line > .composer-usage-readout {
   height: auto;
   line-height: inherit;
 }
-html[data-mixdog-mobile-tabs] .composer-region:has(> form.composer[data-phone-card]) {
+html[data-mixdog-mobile-tabs] .composer-region:has(> form.composer[data-card]) {
   padding-bottom: max(2px, env(safe-area-inset-bottom, 0px));
 }
-html[data-mixdog-mobile-tabs][data-mixdog-keyboard="open"] .composer-region:has(> form.composer[data-phone-card]) {
+html[data-mixdog-mobile-tabs][data-mixdog-keyboard="open"] .composer-region:has(> form.composer[data-card]) {
   padding-bottom: 2px;
 }
 /* New session: Project / Workflow / Delegation / Branch in a line of their
