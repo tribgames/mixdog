@@ -75,6 +75,27 @@ test('a small heap sitting on a wide committed gap is still swept', async () => 
   );
 });
 
+test('a small heap with large external memory is still swept', async () => {
+  // Dead Buffers/ArrayBuffers sit outside the JS heap: external 2.8GB beside a
+  // 7MB heapTotal was measured after large attachment reads.
+  await withEnv(
+    {
+      MIXDOG_IDLE_GC_IDLE_MS: '1000',
+      MIXDOG_IDLE_GC_MIN_HEAP_MB: '65536',
+      MIXDOG_IDLE_GC_MIN_SLACK_MB: '65536',
+    },
+    async () => {
+      const MB = 1024 * 1024;
+      const gc = createIdleGc({
+        isBusy: () => false,
+        memoryUsage: () => ({ heapUsed: 5 * MB, heapTotal: 7 * MB, external: 2800 * MB }),
+      });
+      await sleep(1100);
+      assert.equal(await gc._tickForTest(), 'swept');
+    }
+  );
+});
+
 test('an idle host sweeps once, then waits for real growth', async () => {
   await withEnv({ MIXDOG_IDLE_GC_IDLE_MS: '1000', MIXDOG_IDLE_GC_MIN_HEAP_MB: '0' }, async () => {
     const lines = [];
