@@ -2224,6 +2224,8 @@
   "Go to Type Definition": "型定義に移動",
   "Goal": "目標",
   "Goal could not be started. Your input has been kept.": "目標を開始できませんでした。入力内容は保持されています。",
+  "Replace the current goal?": "現在の目標を置き換えますか？",
+  "{{objective}} ({{status}}) will be replaced by the new goal.": "{{objective}}（{{status}}）は新しい目標に置き換えられます。",
   "Goal could not be updated.": "目標を更新できませんでした。",
   "Goal details": "目標の詳細",
   "Goal objective": "目標の内容",

@@ -74,6 +74,7 @@ export function createGoalRuntime({
     readRecord: ctx.readRecord,
     withMutation: ctx.withMutation,
     commit: ctx.commit,
+    stampLive: ctx.stampLive,
     onStorageError,
     deadlineWarningMs,
   });

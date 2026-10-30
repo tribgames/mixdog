@@ -2275,6 +2275,8 @@
   "Go to Type Definition": "Gehen Sie zur Typdefinition",
   "Goal": "Ziel",
   "Goal could not be started. Your input has been kept.": "Ziel konnte nicht gestartet werden. Ihre Eingabe wurde beibehalten.",
+  "Replace the current goal?": "Aktuelles Ziel ersetzen?",
+  "{{objective}} ({{status}}) will be replaced by the new goal.": "{{objective}} ({{status}}) wird durch das neue Ziel ersetzt.",
   "Goal could not be updated.": "Das Ziel konnte nicht aktualisiert werden.",
   "Goal details": "Zieldetails",
   "Goal objective": "Zielvorgabe",

@@ -45,7 +45,9 @@ export function goalCompletedTimeLabel(goal: GoalSnapshot): string {
 
 function goalElapsedMs(goal: GoalSnapshot, clock: number): number {
   const snapshotUsed = Math.max(0, Number(goal.timeUsedMs) || 0);
-  if (goal.status !== 'active') return snapshotUsed;
+  // Never above the cap, whatever an older runtime stored for a spent budget.
+  const limit = Math.max(0, Number(goal.timeLimitMs) || 0);
+  if (goal.status !== 'active') return limit > 0 ? Math.min(limit, snapshotUsed) : snapshotUsed;
   const snapshotAt = Number(goal.snapshotAt) || 0;
   let elapsed = snapshotUsed;
   if (snapshotAt > 0) {

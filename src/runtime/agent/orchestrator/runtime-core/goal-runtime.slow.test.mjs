@@ -462,8 +462,9 @@ test('daemon restart preserves active, paused, blocked, and complete Goal snapsh
       unsubscribe();
       assert.equal(restoredActive.id, active.id);
       assert.equal(restoredActive.status, 'active');
-      assert.equal(restoredActive.lastStartedAt, preservedActive.lastStartedAt);
-      assert.equal(restoredActive.timeUsedMs, preservedActive.timeUsedMs + 5_000);
+      // The 5 s the daemon was down is not time the Goal ran.
+      assert.equal(restoredActive.lastStartedAt, preservedActive.lastStartedAt + 5_000);
+      assert.equal(restoredActive.timeUsedMs, preservedActive.timeUsedMs);
       assert.equal(reloaded.continuation('sess_goal_restart_active').run, true);
       assert.equal(events.at(-1)?.goal?.id, active.id);
 

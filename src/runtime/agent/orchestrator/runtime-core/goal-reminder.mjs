@@ -15,6 +15,10 @@ import { goalStateReminder } from './goal-text.mjs';
 import { clean } from './session-text.mjs';
 import { todoContextBlock } from './todo-list.mjs';
 
+// Stalled states the model is told about when they begin. Time-budget
+// exhaustion has its own one-time closeout notice (deadline-reached).
+const STALL_NOTICE_STATUSES = ['paused', 'blocked', 'usage_limited'];
+
 function pendingRevision(session) {
   return Math.max(0, Number(session?.pendingGoalReminder?.revision) || 0);
 }
@@ -55,8 +59,13 @@ export function snapshotPendingGoalReminder(session, { dataDir = null, readGoal 
     goal = null;
   }
   if (goal?.status === 'complete') goal = null;
-  // Compaction drops the todo tool results too: the open list rides once.
   const marked = clean(session.pendingGoalReminder?.reason);
+  // A Goal that left the stalled states is told afresh if it stalls again.
+  if (!goal || goal.status === 'active') delete session.goalStalledNotice;
+  // A stalled Goal is told once, when it stalls; compaction does not
+  // re-inject it. Only a Goal that keeps running needs its state restored.
+  if (marked === 'compaction' && goal && goal.status !== 'active') goal = null;
+  // Compaction drops the todo tool results too: the open list rides once.
   const todoBlock =
     revision && marked === 'compaction'
       ? todoContextBlock(session, 'Context was compacted; your todo list (exact wordings):')
@@ -68,7 +77,12 @@ export function snapshotPendingGoalReminder(session, { dataDir = null, readGoal 
     return null;
   }
   if (!revision) {
-    if (!['paused', 'blocked'].includes(goal.status)) return null;
+    if (!STALL_NOTICE_STATUSES.includes(goal.status)) return null;
+    // One notice per stall: a later pause, block or limit of the same Goal
+    // (a turn ran in between) is a new stall.
+    const stall = `${goal.id}:${goal.status}:${Math.max(0, Number(goal.turnCount) || 0)}`;
+    if (session.goalStalledNotice === stall) return null;
+    session.goalStalledNotice = stall;
     revision = markPendingGoalReminder(session, goal.status).revision;
   }
   const reason = clean(session.pendingGoalReminder?.reason);

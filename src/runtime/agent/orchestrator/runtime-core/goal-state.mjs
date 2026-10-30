@@ -9,7 +9,10 @@ export const DEFAULT_COMPLETED_GOAL_TTL_MS = 24 * 60 * 60 * 1000;
 export const DEFAULT_GOAL_DEADLINE_WARNING_MS = Object.freeze([10 * 60_000, 5 * 60_000]);
 export const NO_DEADLINE_WARNING_MS = Number.MAX_SAFE_INTEGER;
 export const GOAL_FILE_VERSION = 1;
-export const SESSION_ID = SESSION_ID_PATTERN;
+// A live runtime re-stamps an active Goal's `liveAt` this often; a longer gap
+// means nothing was running it (app closed, PC asleep).
+export const GOAL_LIVE_HEARTBEAT_MS = 60_000;
+export const GOAL_LIVE_STALE_MS = 3 * GOAL_LIVE_HEARTBEAT_MS;export const SESSION_ID = SESSION_ID_PATTERN;
 export const GOAL_STATUS_VALUES = Object.freeze([
   'active',
   'paused',
@@ -85,6 +88,10 @@ export function parseUserCommand(command) {
 
   let objective = value;
   let duration = null;
+  // The user's confirmation that a new Goal replaces a stalled one, naming it:
+  // `--replace=<goal id>`.
+  const replaceMatch = objective.match(/(?:^|\s)--replace(?:=(\S+))?(?=\s|$)/i);
+  if (replaceMatch) objective = objective.replace(replaceMatch[0], ' ').trim();
   const equalsMatch = objective.match(/(?:^|\s)--time=([^\s]+)/i);
   if (equalsMatch) {
     duration = equalsMatch[1];
@@ -96,7 +103,12 @@ export function parseUserCommand(command) {
       objective = objective.replace(spacedMatch[0], ' ').trim();
     }
   }
-  return { action: 'create', objective, duration };
+  return {
+    action: 'create',
+    objective,
+    duration,
+    ...(replaceMatch ? { replace: true, ...(replaceMatch[1] ? { expectedGoalId: replaceMatch[1] } : {}) } : {}),
+  };
 }
 
 function storedTimeLimitMs(value) {
@@ -135,18 +147,57 @@ export function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
     turnCount: Math.max(0, Math.floor(Number(value.turnCount) || 0)),
     timeLimitMs: storedTimeLimitMs(value),
     // Time is an upper bound only: a legacy `duration` record reads as a cap.
-    timeUsedMs: Math.max(0, Number(value.timeUsedMs) || 0),
+    // A record exhausted by an older build may carry wall-clock time past its
+    // cap; the cap is what was spent.
+    timeUsedMs: cappedTimeUsedMs(
+      status === 'duration_reached' ? storedTimeLimitMs(value) : 0,
+      Math.max(0, Number(value.timeUsedMs) || 0)
+    ),
     createdAt: Math.max(0, Number(value.createdAt) || Date.now()),
     updatedAt: Math.max(0, Number(value.updatedAt) || Date.now()),
     // Preserve the open segment across task writes, eviction, and restart.
     lastStartedAt:
       status === 'active' ? Math.max(0, Number(value.lastStartedAt) || Number(resumedAt) || Date.now()) : null,
+    // The last moment a live runtime was running this Goal's open segment.
+    liveAt: Math.max(0, Number(value.liveAt) || 0),
     completedAt: Number(value.completedAt) > 0 ? Number(value.completedAt) : null,
     stoppedAt: Number(value.stoppedAt) > 0 ? Number(value.stoppedAt) : null,
     archivedAt: Number(value.archivedAt) > 0 ? Number(value.archivedAt) : null,
     deadlineWarnedMs: normalizeDeadlineWarnedMs(value.deadlineWarnedMs),
     warningRevision: Math.max(0, Math.floor(Number(value.warningRevision) || 0)),
   };
+}
+
+function cappedTimeUsedMs(limitMs, usedMs) {
+  return limitMs > 0 ? Math.min(limitMs, usedMs) : usedMs;
+}
+
+/** Drop the part of an active Goal's open segment that no live runtime ran
+ *  (the app was closed, the PC slept): the segment start moves forward by the
+ *  unobserved gap. Returns whether anything was dropped. */
+export function discardUnobservedTime(goal, at, toleranceMs = 0) {
+  if (goal?.status !== 'active' || !(Number(goal.lastStartedAt) > 0)) return false;
+  const seenAt = Math.max(Number(goal.lastStartedAt), Number(goal.liveAt) || 0);
+  const gap = at - seenAt;
+  // The tolerance covers heartbeat jitter inside a live runtime only; a load
+  // after downtime passes none, so no closed-app interval is ever credited.
+  if (gap <= toleranceMs) return false;
+  goal.lastStartedAt = Number(goal.lastStartedAt) + gap;
+  goal.liveAt = at;
+  return true;
+}
+
+/** The Goal as a reader without a runtime sees it. Such a reader cannot know
+ *  whether anything is running the Goal, so it uses no clock: the open
+ *  segment counts only up to `liveAt`, the last moment a runtime persisted as
+ *  having run it (at most one heartbeat behind). That makes the usage a pure
+ *  function of the record — never above what the runtime has stored, never
+ *  charging downtime, never moving backward between reads. */
+export function freezeUnobservedSegment(goal) {
+  if (goal?.status !== 'active' || !(Number(goal.lastStartedAt) > 0)) return;
+  const observedMs = Math.max(0, (Number(goal.liveAt) || 0) - Number(goal.lastStartedAt));
+  goal.timeUsedMs = Math.max(0, Number(goal.timeUsedMs) || 0) + observedMs;
+  goal.lastStartedAt = null;
 }
 
 export function activeElapsedMs(goal, now = Date.now()) {
@@ -163,8 +214,10 @@ export function normalizeDeadlineWarnedMs(value) {
 
 export function publicGoal(goal, now = Date.now()) {
   if (!goal) return null;
-  const timeUsedMs = activeElapsedMs(goal, now);
   const hasTimeLimit = Number(goal.timeLimitMs) > 0;
+  // Never above the cap: a read that lands after the deadline but before the
+  // expiry commit reports the cap, not the overshoot.
+  const timeUsedMs = cappedTimeUsedMs(Number(goal.timeLimitMs) || 0, activeElapsedMs(goal, now));
   const remainingMs = hasTimeLimit ? Math.max(0, Number(goal.timeLimitMs) - timeUsedMs) : null;
   return {
     id: goal.id,

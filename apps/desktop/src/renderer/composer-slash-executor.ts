@@ -10,6 +10,8 @@ import type {
   DesktopSubmitOptions,
   SessionSnapshot,
 } from '../shared/contract';
+import type { GoalSnapshot } from './desktop-types';
+import { goalStatusLabel } from './session-goal-presentation';
 import { hostRouteAutoEffort } from './auto-effort-store';
 import { type RouteSpeed, speedRouteFields } from './model-route-utils';
 import {
@@ -73,6 +75,8 @@ type SlashRun = { deps: SlashExecutorDeps; failed: boolean };
 type SlashCommand = NonNullable<ReturnType<typeof resolveDesktopSlashCommand>>;
 
 const STATUS_ARGUMENTS = ['status', 'current', 'show'];
+/** The runtime's answer to a new Goal while a stalled one exists. */
+const GOAL_REPLACE_REQUIRED = 'goal-replace-required';
 
 export function createSlashExecutor(deps: SlashExecutorDeps) {
   return async (raw: string): Promise<boolean> => {
@@ -340,7 +344,21 @@ async function runGoal(run: SlashRun, argument: string): Promise<boolean | undef
     const accepted = await deps.submit(argument, { displayText: argument, goalCommand: argument });
     return accepted === true ? undefined : false;
   }
-  const result = asRecord(await commandCapability<unknown>(run, 'goalControl', [{ command: argument }]));
+  let result = asRecord(await commandCapability<unknown>(run, 'goalControl', [{ command: argument }]));
+  // A stalled Goal is the user's to replace: the runtime answers a new Goal
+  // with the stalled one, and the same command goes again once they agree.
+  const stalled = result?.code === GOAL_REPLACE_REQUIRED ? asRecord(result.goal) : null;
+  if (stalled) {
+    const replace = await confirmAction(
+      `${t('Replace the current goal?')}\n${t('{{objective}} ({{status}}) will be replaced by the new goal.', {
+        objective: confirmText(String(stalled.objective || '')),
+        status: goalStatusLabel(stalled as GoalSnapshot),
+      })}`,
+      { danger: true, confirmLabel: t('Replace') }
+    );
+    if (!replace) return false;
+    result = asRecord(await commandCapability<unknown>(run, 'goalControl', [{ command: argument, replace: true, expectedGoalId: String(stalled.id || '') }]));
+  }
   if (!run.failed) deps.showNotice(String(result?.message || 'Goal updated.'));
   return undefined;
 }

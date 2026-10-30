@@ -2326,6 +2326,8 @@
   "Go to Type Definition": "Accéder à la définition du type",
   "Goal": "Objectif",
   "Goal could not be started. Your input has been kept.": "L'objectif n'a pas pu être démarré. Votre contribution a été conservée.",
+  "Replace the current goal?": "Remplacer l’objectif actuel ?",
+  "{{objective}} ({{status}}) will be replaced by the new goal.": "{{objective}} ({{status}}) sera remplacé par le nouvel objectif.",
   "Goal could not be updated.": "L’objectif n’a pas pu être mis à jour.",
   "Goal details": "Détails de l'objectif",
   "Goal objective": "Objectif à atteindre",

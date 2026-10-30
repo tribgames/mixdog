@@ -2224,6 +2224,8 @@
   "Go to Type Definition": "형식 정의로 이동",
   "Goal": "목표",
   "Goal could not be started. Your input has been kept.": "목표를 시작하지 못했습니다. 입력한 내용은 유지됩니다.",
+  "Replace the current goal?": "현재 목표를 교체할까요?",
+  "{{objective}} ({{status}}) will be replaced by the new goal.": "{{objective}}({{status}}) 목표가 새 목표로 교체됩니다.",
   "Goal could not be updated.": "목표를 변경하지 못했습니다.",
   "Goal details": "목표 세부사항",
   "Goal objective": "목표 내용",

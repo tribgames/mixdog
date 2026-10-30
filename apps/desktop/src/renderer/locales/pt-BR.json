@@ -2326,6 +2326,8 @@
   "Go to Type Definition": "Ir para a definição de tipo",
   "Goal": "Objetivo",
   "Goal could not be started. Your input has been kept.": "A meta não pôde ser iniciada. Sua entrada foi mantida.",
+  "Replace the current goal?": "Substituir a meta atual?",
+  "{{objective}} ({{status}}) will be replaced by the new goal.": "{{objective}} ({{status}}) será substituída pela nova meta.",
   "Goal could not be updated.": "Não foi possível atualizar o objetivo.",
   "Goal details": "Detalhes do objetivo",
   "Goal objective": "Objetivo da meta",

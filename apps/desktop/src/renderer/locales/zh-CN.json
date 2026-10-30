@@ -2224,6 +2224,8 @@
   "Go to Type Definition": "转到类型定义",
   "Goal": "目标",
   "Goal could not be started. Your input has been kept.": "无法启动目标。您的输入已被保留。",
+  "Replace the current goal?": "要替换当前目标吗？",
+  "{{objective}} ({{status}}) will be replaced by the new goal.": "{{objective}}（{{status}}）将被新目标替换。",
   "Goal could not be updated.": "无法更新目标。",
   "Goal details": "目标详情",
   "Goal objective": "目标目标",

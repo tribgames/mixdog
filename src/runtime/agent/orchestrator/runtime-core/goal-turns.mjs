@@ -78,7 +78,7 @@ function applyTurnOutcome(goal, detail, at) {
   if (goal.timeLimitMs > 0 && goal.timeUsedMs >= goal.timeLimitMs) {
     stopActiveClock(goal, at);
     goal.status = 'duration_reached';
-    goal.timeUsedMs = Math.max(goal.timeUsedMs, goal.timeLimitMs);
+    goal.timeUsedMs = goal.timeLimitMs;
   }
 }
 

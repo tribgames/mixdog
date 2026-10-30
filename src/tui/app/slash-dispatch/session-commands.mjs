@@ -85,7 +85,7 @@ export const sessionCommands = {
           store.pushNotice('Goal is unavailable.', 'warn');
           return;
         }
-        store.pushNotice(result.message || 'Goal updated.', 'info');
+        store.pushNotice(result.message || 'Goal updated.', result.ok === false ? 'warn' : 'info');
       })
       .catch((error) => store.pushNotice(`Goal failed: ${error?.message || error}`, 'error'));
     return true;

@@ -29,6 +29,13 @@ export function goalFinished(goal) {
   return FINISHED_STATUSES.includes(goal.status);
 }
 
+/** A Goal that is neither running nor finished (paused, blocked, usage
+ *  limited, time budget reached): it waits for the user, who may clear or
+ *  replace it. */
+export function goalStalled(goal) {
+  return Boolean(goal) && goal.status !== 'active' && !goalFinished(goal);
+}
+
 /** Reject a write aimed at a Goal the caller no longer holds. */
 export function assertExpectedGoal(goal, expectedGoalId, what = 'update') {
   if (clean(expectedGoalId) && clean(expectedGoalId) !== clean(goal.id)) {
@@ -92,7 +99,8 @@ export function createGoalMutations(ctx) {
   const createGoal = async (sessionId, args = {}) => {
     const id = assertSessionId(sessionId);
     const record = ctx.readRecord(id);
-    if (record.goal && !goalFinished(record.goal)) {
+    const replaced = goalStalled(record.goal) && args.replace === true;
+    if (record.goal && !goalFinished(record.goal) && !replaced) {
       // Recovery is part of the message on purpose: without it a stopped Goal
       // (paused/blocked/limited) permanently blocked every later Goal in the
       // session, because the model owns no way to retire one.
@@ -105,6 +113,13 @@ export function createGoalMutations(ctx) {
     const goal = newGoalRecord(id, args, at, defaultTimeLimitMs);
     if (args.startInCurrentTurn === true) {
       goal.lastStartedAt = record.goal ? at : turnStartedAt.get(id) || at;
+    }
+    if (replaced) {
+      // The user confirmed: the stalled Goal retires into history as stopped.
+      record.goal.status = 'stopped';
+      record.goal.stoppedAt = at;
+      record.goal.archivedAt = at;
+      record.goal.updatedAt = at;
     }
     if (record.goal) await archiveFinishedGoal(id, record.goal);
     const created = await ctx.commit(id, goal);

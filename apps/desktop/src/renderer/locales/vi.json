@@ -2224,6 +2224,8 @@
   "Go to Type Definition": "Đi tới Định nghĩa loại",
   "Goal": "Mục tiêu",
   "Goal could not be started. Your input has been kept.": "Không thể bắt đầu mục tiêu. Thông tin đầu vào của bạn đã được lưu giữ.",
+  "Replace the current goal?": "Thay thế mục tiêu hiện tại?",
+  "{{objective}} ({{status}}) will be replaced by the new goal.": "{{objective}} ({{status}}) sẽ được thay bằng mục tiêu mới.",
   "Goal could not be updated.": "Không thể cập nhật mục tiêu.",
   "Goal details": "Chi tiết mục tiêu",
   "Goal objective": "Mục tiêu mục tiêu",

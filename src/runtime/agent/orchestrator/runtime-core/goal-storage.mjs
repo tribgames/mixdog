@@ -15,6 +15,7 @@ import {
   SESSION_ID,
   assertSessionId,
   completedGoalExpired,
+  freezeUnobservedSegment,
   normalizeStoredGoal,
   publicGoal,
 } from './goal-state.mjs';
@@ -40,7 +41,9 @@ export function deleteStoredGoalFile(dataDir, sessionId) {
 function readStoredGoalFile(dataDir, sessionId, at = Date.now()) {
   const id = assertSessionId(sessionId);
   try {
-    return readGoalRecordFile(goalFilePath(dataDir, id), id, normalizeStoredGoal, at).goal;
+    const goal = readGoalRecordFile(goalFilePath(dataDir, id), id, normalizeStoredGoal, at).goal;
+    freezeUnobservedSegment(goal);
+    return goal;
   } catch (error) {
     reportGoalStorageError(error);
     return null;
