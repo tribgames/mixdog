@@ -148,6 +148,9 @@ export function createRuntimePulse({
   const pulse = () => {
     if (flags.disposed) return;
     if (flags.pendingSessionReset) return;
+    // A closed conversation has no session to read: republishing would blank
+    // its last todo and Goal for anyone still viewing it.
+    if (flags.admission === 'terminal') return;
     syncContextStats({ allowEstimated: true });
     publishChanged({
       ...routeState(),

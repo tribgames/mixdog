@@ -67,6 +67,7 @@ function harness() {
   };
   return {
     runtime,
+    flags,
     store,
     tick,
     notifications: () => notified,
@@ -132,4 +133,15 @@ test('the pulse publishes the resolved turn effort as it changes', () => {
   runtime.turnEffort = 'low';
   tick();
   assert.equal(store.getPublishedState().turnEffort, 'low', 'a step re-judge republishes');
+});
+
+test('a closed conversation keeps its last published todo', () => {
+  const { runtime, flags, store, tick } = harness();
+  runtime.session = { todo: { phases: [{ name: 'Tasks', tasks: [{ content: 'Read it', status: 'completed' }] }] } };
+  tick();
+  assert.equal(store.getPublishedState().todo?.completed, 1);
+  flags.admission = 'terminal';
+  runtime.session = null;
+  tick();
+  assert.equal(store.getPublishedState().todo?.completed, 1, 'the closed session is not read as an empty list');
 });
