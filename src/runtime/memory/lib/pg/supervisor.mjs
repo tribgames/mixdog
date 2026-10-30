@@ -20,7 +20,7 @@ import { __mixdogMemoryLog } from '../memory-log.mjs';
  */
 
 import { createServer } from 'node:net';
-import { existsSync, unlinkSync, readFileSync, writeFileSync, renameSync, statSync, mkdirSync } from 'node:fs';
+import { existsSync, unlinkSync, readFileSync, renameSync, statSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   discoveryPath as _pgDiscoveryPath,
@@ -28,6 +28,7 @@ import {
   writeServiceAdvert as _writePgServiceAdvert,
 } from '../../../shared/service-discovery.mjs';
 import { withFileLockSync } from '../../../shared/atomic-file.mjs';
+import { withFileLock } from '../../../shared/file-lock.mjs';
 import { isPidAlive } from '../../../shared/pid-liveness.mjs';
 import { envFlag } from '../../../shared/env.mjs';
 import { createSharedAbortable } from '../../../shared/abort-race.mjs';
@@ -64,90 +65,9 @@ let _ownedExitStopInstalled = false;
 const PG_PORT_MIN = 55432;
 const PG_PORT_MAX = 55632;
 const PG_LOG_MAX_BYTES = 10 * 1024 * 1024; // 10 MB
-const SPAWN_LOCK_NAME = 'pg-spawn.lock';
-const LOCK_WAIT_MS = 30_000;
-const LOCK_POLL_MS = 100;
-const LOCK_WARN_MS = 5_000;
-const LOCK_WAIT_CODES = new Set(['EEXIST', 'EPERM', 'EACCES', 'EBUSY']);
 
 function attachOnlyMode() {
   return envFlag('MIXDOG_PG_ATTACH_ONLY') || envFlag('MIXDOG_MEMORY_SECONDARY');
-}
-
-// ── File lock (O_EXCL pattern from dispatch-persist.mjs / run-mcp.mjs) ───────
-
-/**
- * Acquire `${dataDir}/pg-spawn.lock`.
- * Returns the lock-file path on success, or null on timeout (caller proceeds
- * best-effort — worst case: two supervisors race initdb on the same pgdata,
- * but the second will fail pg_ctl start gracefully and healthcheck will
- * converge on the first's port).
- */
-async function acquireSpawnLock(dataDir, blockedProbe = null) {
-  const lp = join(dataDir, SPAWN_LOCK_NAME);
-  const deadline = Date.now() + LOCK_WAIT_MS;
-  const body = JSON.stringify({ pid: process.pid, startedAt: Date.now() });
-  let warned = false;
-  for (;;) {
-    try {
-      // 'wx' = O_CREAT | O_EXCL — atomic, fails with EEXIST if held.
-      writeFileSync(lp, body, { flag: 'wx' });
-      return { lockPath: lp, reuse: null };
-    } catch (err) {
-      if (!LOCK_WAIT_CODES.has(err?.code)) {
-        __mixdogMemoryLog(`[supervisor-pg] spawn lock error: ${err?.code || err?.message}\n`);
-        return { lockPath: null, reuse: null };
-      }
-      if (blockedProbe) {
-        try {
-          const reuse = await blockedProbe();
-          if (reuse) return { lockPath: null, reuse };
-        } catch {}
-      }
-      // Dead-holder detection: same as run-mcp.mjs acquireLock().
-      try {
-        const holder = JSON.parse(readFileSync(lp, 'utf8'));
-        if (holder?.pid) {
-          try {
-            process.kill(holder.pid, 0);
-          } catch (ke) {
-            if (ke.code === 'ESRCH') {
-              try {
-                unlinkSync(lp);
-              } catch {}
-              continue; // retry immediately after removing stale lock
-            }
-          }
-        }
-        const ageMs = Date.now() - Number(holder?.startedAt || 0);
-        if (!warned && ageMs >= LOCK_WARN_MS) {
-          warned = true;
-          __mixdogMemoryLog(
-            `[supervisor-pg] waiting for spawn lock holder pid=${holder?.pid || 'unknown'} ageMs=${ageMs}\n`
-          );
-        }
-      } catch {
-        /* unreadable — fall through and wait */
-      }
-      if (Date.now() >= deadline) {
-        if (blockedProbe) {
-          try {
-            const reuse = await blockedProbe();
-            if (reuse) return { lockPath: null, reuse };
-          } catch {}
-        }
-        throw new Error(`[supervisor-pg] spawn-lock acquire timeout (concurrent supervisor risk)`);
-      }
-      await new Promise((r) => setTimeout(r, LOCK_POLL_MS));
-    }
-  }
-}
-
-function releaseSpawnLock(lp) {
-  if (!lp) return;
-  try {
-    unlinkSync(lp);
-  } catch {}
 }
 
 // ── Port allocation ──────────────────────────────────────────────────────────
@@ -602,18 +522,10 @@ async function _doEnsure(dataDir, signal) {
     throw new Error('secondary memory runtime requires an existing PG instance');
   }
 
-  // ── Acquire spawn lock to serialize initdb races ─────────────────────────
-  const acquired = await acquireSpawnLock(dataDir, () =>
-    tryReusePgInstance({
-      pgdata,
-      runtimeDir,
-      healthcheckPg,
-      source: 'lock-wait',
-    })
-  );
-  if (acquired?.reuse) return acquired.reuse;
-  const lp = acquired?.lockPath ?? null;
-  try {
+  // ── Spawn lock serializes initdb races (see withFileLock below) ──────────
+  let lockEntered = false;
+  const spawnUnderLock = async () => {
+    lockEntered = true;
     // ── Reuse path: another supervisor already started PG ─────────────────
     const lockedReuse = await tryReusePgInstance({
       pgdata,
@@ -701,8 +613,16 @@ async function _doEnsure(dataDir, signal) {
     // ── Allocate a fresh port and spawn ───────────────────────────────────
     const port = await allocatePort();
     return await _startFresh(dataDir, pgdata, port, runtimeDir);
-  } finally {
-    releaseSpawnLock(lp);
+  };
+  try {
+    return await withFileLock(join(dataDir, 'pg-spawn.lock'), spawnUnderLock, { timeoutMs: 30_000 });
+  } catch (err) {
+    // Only an acquisition timeout (spawnUnderLock never ran) falls back to
+    // reuse; failures from inside the locked region propagate untouched.
+    if (lockEntered || err?.code !== 'ELOCKTIMEOUT') throw err;
+    const reuse = await tryReusePgInstance({ pgdata, runtimeDir, healthcheckPg, source: 'lock-wait' });
+    if (reuse) return reuse;
+    throw new Error('[supervisor-pg] spawn-lock acquire timeout (concurrent supervisor risk)', { cause: err });
   }
 }
 
