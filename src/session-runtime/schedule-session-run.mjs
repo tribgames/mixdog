@@ -26,6 +26,7 @@ export async function runScheduleSession(
         kind: 'schedule',
         name: schedule.name,
         ownerAgentId: schedule.ownerAgentId,
+        executorAgentId: schedule.executorAgentId || null,
         prompt: body,
         attachments: schedule.attachments,
         cwd: schedule.cwd || null,

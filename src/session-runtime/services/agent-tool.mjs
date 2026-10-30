@@ -2,7 +2,15 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureProcessListenerHeadroom } from '../../runtime/shared/process-listener-headroom.mjs';
 import { AGENT_TOOL } from './agent-tool/tool-def.mjs';
-import { agentScope, envTimeoutMs, callerSessionForContext, terminalPidForContext } from './agent-tool/helpers.mjs';
+import { cancelBackgroundTask } from '../../runtime/shared/background-tasks.mjs';
+import { closeManagedSession } from '../lifecycle/shared.mjs';
+import {
+  agentScope,
+  clean,
+  envTimeoutMs,
+  callerSessionForContext,
+  terminalPidForContext,
+} from './agent-tool/helpers.mjs';
 import { createTagRegistry } from './agent-tool/tag-registry.mjs';
 import { createJobViews } from './agent-tool/job-views.mjs';
 import { liveAgentStatusRow } from './agent-tool/job-views/session-progress.mjs';
@@ -129,6 +137,44 @@ export function createStandaloneAgent({
     listProviderModels,
   });
 
+  /**
+   * Run one workflow agent (`args.agent`, `args.prompt`, optional `cwd` and
+   * `attachmentParts`) to completion and resolve `{ sessionId, content }` —
+   * for a caller that has no session to hand the result to (a routine's
+   * executor, routine-executor.mjs). `context.callerSessionId` is the id the
+   * agent is created under: its run stamp and unattended policy come from it.
+   * Rejects when the agent fails or is cancelled, or `signal` aborts (which
+   * cancels it). The agent's session is closed afterwards.
+   */
+  async function runToCompletion(args = {}, context = {}, { signal = null } = {}) {
+    await awaitKeychainPrewarm();
+    const abortError = () =>
+      signal?.reason instanceof Error ? signal.reason : new Error(String(signal?.reason || 'agent run aborted'));
+    if (signal?.aborted) throw abortError();
+    const job = spawnFlow.startDeferredSpawnJob({ ...args, type: 'spawn' }, clean(context.callerCwd), context, context);
+    const onAbort = () => cancelBackgroundTask(job.taskId, 'agent run aborted', { notify: false });
+    signal?.addEventListener?.('abort', onAbort, { once: true });
+    let value = null;
+    try {
+      value = await job.promise;
+    } finally {
+      signal?.removeEventListener?.('abort', onAbort);
+    }
+    const sessionId = clean(job.meta?.sessionId) || clean(value?.sessionId);
+    if (sessionId) {
+      try {
+        await closeManagedSession(mgr, sessionId, 'routine-executor-finished');
+      } catch {
+        /* the run's result stands; a close that fails is swept with idle agents */
+      }
+    }
+    if (signal?.aborted) throw abortError();
+    if (job.status === 'cancelled') throw new Error('the agent run was cancelled');
+    if (job.status !== 'completed') throw new Error(job.error || 'the agent run failed');
+    const result = value ?? job.result;
+    return { sessionId: sessionId || null, content: String(result?.content ?? '') };
+  }
+
   function getStatus(context = {}) {
     if (!isKeychainPrewarmReady()) {
       void awaitKeychainPrewarm();
@@ -162,6 +208,7 @@ export function createStandaloneAgent({
   return {
     tools: [AGENT_TOOL],
     execute,
+    runToCompletion,
     onStatusChange: (listener) => {
       if (typeof listener !== 'function') return () => {};
       statusListeners.add(listener);

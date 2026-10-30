@@ -124,11 +124,24 @@ export function createSpawnRunner({
     const { args, session, workerCwd } = prepared;
     // The caller's forwarded files ride along as attachment parts.
     const prompt = handoffContent(prepared.prompt, args.attachmentParts);
+    // Host-set only (a routine executor, routine-executor.mjs): the trusted
+    // text skills are selected from, so nothing else in the prompt selects one.
+    const selection = typeof args.skillSelection === 'string' ? { skillSelection: args.skillSelection } : {};
     return whileTurnDispatched(session.id, () => {
       if (typeof sessionSurface?.runTurn === 'function' && sessionSurface.canRun?.(session) !== false) {
-        return sessionSurface.runTurn({ session, prompt, context: args.context || null, cwd: workerCwd, ...turnHooks });
+        return sessionSurface.runTurn({
+          session,
+          prompt,
+          context: args.context || null,
+          cwd: workerCwd,
+          ...selection,
+          ...turnHooks,
+        });
       }
-      return mgr.askSession(session.id, prompt, args.context || null, null, workerCwd, null, turnHooks);
+      return mgr.askSession(session.id, prompt, args.context || null, null, workerCwd, null, {
+        ...turnHooks,
+        ...selection,
+      });
     });
   }
 

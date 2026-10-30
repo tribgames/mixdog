@@ -201,6 +201,7 @@ function wireWebhookHandlers() {
     const run = await runWebhookSession({
       name: context?.endpoint || 'webhook',
       ownerAgentId: context?.owner || null,
+      executorAgentId: context?.executor || null,
       cwd: cwd || null,
       attachments: attachments || null,
       event: context?.event || '',

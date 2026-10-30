@@ -14,7 +14,10 @@
  * (outbound actions are allowed within the bot's permissions; payments and
  * permanent deletes are refused, human-gate/run-policy.mjs). Resolves with the
  * reply once the turn ends; rejects when the turn fails, is cancelled, or the
- * caller's `signal` aborts (which also aborts the turn once it runs). A
+ * caller's `signal` aborts (which also aborts the turn once it runs). With an
+ * `executorAgentId` the fire is first carried out by that sub-agent
+ * (routine-executor.mjs) and the turn holds only its final report, which the
+ * bot relays; the quiet marker as the report wakes nobody and resolves it. A
  * heartbeat turn past its wall-clock cap is aborted and resolves with no reply
  * (`timedOut`).
  */
@@ -25,12 +28,16 @@ import { automationPromptContent } from '../runtime/shared/automation-attachment
 import { ROUTINE_LIMITS } from '../runtime/shared/routine-limits.mjs';
 import {
   HEARTBEAT_TURN_LIMITS,
+  ROUTINE_QUIET,
   isHeartbeatSession,
+  isRoutineQuietReply,
   normalizeRoutineTrigger,
+  routineRelayHeader,
   routineTriggerHeader,
 } from '../runtime/shared/routine-trigger.mjs';
 import { agentHomeLiveSurface, scheduleOwnerAgentId } from './agent-home-delivery.mjs';
 import { markUnattendedRun, unattendedRunOf } from './held-requests.mjs';
+import { runRoutineExecutor } from './routine-executor.mjs';
 
 // Routine turns waiting or running per home thread.
 const waiting = new Map();
@@ -72,6 +79,9 @@ export async function runRoutineTurn(
     // thread and the routine trigger header.
     sessionId = null,
     header = null,
+    // A workflow sub-agent that carries the fire out first (routine-executor.mjs):
+    // the bot's turn then holds only its final report, for the bot to relay.
+    executorAgentId = null,
   },
   {
     surface = agentHomeLiveSurface(),
@@ -79,9 +89,10 @@ export async function runRoutineTurn(
     limit = ROUTINE_LIMITS.homeQueueLimit,
     log = (line) => process.stderr.write(`mixdog routines: ${line}\n`),
     timers = globalThis,
+    executor = runRoutineExecutor,
   } = {}
 ) {
-  const body = String(prompt || '').trim();
+  let body = String(prompt || '').trim();
   if (!body) throw new Error(`${kind} "${name}" has no instructions`);
   if (signal?.aborted) throw abortError(signal);
   if (typeof surface?.submit !== 'function') throw new Error('routine run: the session service is not running');
@@ -91,12 +102,42 @@ export async function runRoutineTurn(
   if (!home || home.closed === true) {
     throw new Error(`the bot "${agentId}" has no chat yet: open it once in the app`);
   }
+  let opening = header || routineTriggerHeader({ kind, name, project: cwd ? String(cwd) : '' });
+  let selection = String(skillSelection ?? body);
+  let turnAttachments = attachments;
+  if (executorAgentId) {
+    const report = String(
+      (await executor(
+        {
+          agentId: executorAgentId,
+          kind,
+          name,
+          ownerAgentId: agentId,
+          prompt: body,
+          skillSelection: selection,
+          attachments,
+          cwd,
+          signal,
+        },
+        { surface }
+      )) ?? ''
+    ).trim();
+    if (signal?.aborted) throw abortError(signal);
+    if (!report) throw new Error(`${kind} "${name}": executor agent "${executorAgentId}" returned no report`);
+    // Nothing to tell: the bot is not woken.
+    if (isRoutineQuietReply(report)) return { sessionId: homeId, result: ROUTINE_QUIET };
+    // The bot only relays the report: it is derived from whatever the executor
+    // read (a webhook's payload included), so it selects no skill.
+    body = report;
+    opening = routineRelayHeader({ kind, name, executor: executorAgentId, project: cwd ? String(cwd) : '' });
+    selection = '';
+    turnAttachments = null;
+  }
   const queued = waiting.get(homeId) || 0;
   if (queued >= limit) throw new Error(`${limit} routine runs already wait in this bot's chat`);
   waiting.set(homeId, queued + 1);
   const trigger = normalizeRoutineTrigger({ kind, name, event });
-  const opening = header || routineTriggerHeader({ kind, name, project: cwd ? String(cwd) : '' });
-  const content = automationPromptContent(`${opening}\n\n${body}`, attachments);
+  const content = automationPromptContent(`${opening}\n\n${body}`, turnAttachments);
   return new Promise((resolve, reject) => {
     let started = false;
     let aborted = false;
@@ -150,7 +191,7 @@ export async function runRoutineTurn(
       restorable: false,
       // Esc ends this fire; it is never put back in the queue.
       abortDiscardOnAbort: true,
-      skillSelection: String(skillSelection ?? body),
+      skillSelection: selection,
       transcriptMeta: { routineTrigger: trigger },
       onCommitted: () => {
         if (started) return;

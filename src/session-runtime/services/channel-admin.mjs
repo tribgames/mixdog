@@ -25,6 +25,7 @@ import {
 } from '../../runtime/channels/lib/webhooks-db.mjs';
 import { normalizeAutomationAttachments } from '../../runtime/shared/automation-attachments.mjs';
 import { assertRoutineOwner, routineOwnerProblem } from '../routine-owner.mjs';
+import { assertRoutineExecutor } from '../routine-executor.mjs';
 import { hasEnabledAutomation } from '../../runtime/shared/automation-presence.mjs';
 import { resolveScheduleTimezone, validateScheduleCron } from '../../runtime/shared/schedule-time.mjs';
 import { scheduleNameTakenError, scheduleRenameRunningError } from '../../runtime/channels/lib/schedule-errors.mjs';
@@ -203,6 +204,8 @@ function scheduleToDisplay(s, ownerProblem = '') {
     instructions: s.prompt,
     // The bot it belongs to: each run is a turn in that bot's chat.
     owner: s.ownerAgentId || MIXY_AGENT_ID,
+    // The sub-agent that carries each fire out first (routine-executor.mjs); null = the bot itself.
+    executorAgentId: s.executorAgentId || null,
     // Why it is paused for its owner (routine-owner.mjs); absent when it runs.
     ...(ownerProblem ? { ownerProblem } : {}),
     nextFireAt: isoOrUndefined(s.nextFireAt),
@@ -248,6 +251,13 @@ function scheduleOwner(owner, existing) {
     return value;
   }
   return existing?.ownerAgentId || MIXY_AGENT_ID;
+}
+
+// A save's executor: `executorAgentId` undefined keeps the saved one on an
+// overwrite; null or '' clears it; an id must be a delegatable sub-agent.
+async function routineExecutor(executorAgentId, existing) {
+  if (executorAgentId === undefined) return existing?.executorAgentId || null;
+  return assertRoutineExecutor(executorAgentId);
 }
 
 /** Each owner's problem (routine-owner.mjs) for its stored rows, probed once
@@ -319,6 +329,7 @@ export async function saveSchedule(
     enabled,
     instructions,
     owner,
+    executorAgentId,
     overwrite = false,
     newName,
   } = {},
@@ -340,6 +351,7 @@ export async function saveSchedule(
   }
   const ownerAgentId = scheduleOwner(owner, existing);
   await assertRoutineOwner(ownerAgentId);
+  const executor = await routineExecutor(executorAgentId, existing);
   const whenCron = hasTime ? validateScheduleCron(foldDaysIntoCron(normalizeCron(time), days)) : null;
   const whenAt = hasAt ? parseAtDatetime(at) : null;
   const scheduleTimezone = hasTime ? resolveScheduleTimezone(timezone) : null;
@@ -356,6 +368,7 @@ export async function saveSchedule(
     enabled: enabled !== false,
     nextFireAt: whenAt,
     ownerAgentId,
+    executorAgentId: executor,
   };
   let saved;
   if (renaming) {
@@ -407,6 +420,7 @@ async function listWebhooks() {
     instructions: ep.instructions,
     // The bot it belongs to: each run is a turn in that bot's chat.
     owner: ep.ownerAgentId || MIXY_AGENT_ID,
+    executorAgentId: ep.executorAgentId || null,
     ...(problems[index] ? { ownerProblem: problems[index] } : {}),
     lastEventAt: isoOrUndefined(ep.lastEventAt),
     lastSuccessAt: isoOrUndefined(ep.lastSuccessAt),
@@ -428,6 +442,7 @@ export async function saveWebhook({
   enabled,
   instructions,
   owner,
+  executorAgentId,
   overwrite = false,
 } = {}) {
   const id = assertName(name, 'webhook name');
@@ -445,6 +460,7 @@ export async function saveWebhook({
   }
   const ownerAgentId = scheduleOwner(owner, existing);
   await assertRoutineOwner(ownerAgentId);
+  const executor = await routineExecutor(executorAgentId, existing);
   // Secret semantics: an explicit value always wins; an EMPTY value on an
   // overwrite PRESERVES the stored secret (editing instructions must not
   // silently rotate the key the external service was configured with); only
@@ -464,11 +480,13 @@ export async function saveWebhook({
     instructions: body,
     enabled: enabled !== false,
     ownerAgentId,
+    executorAgentId: executor,
   });
   automationProbe.invalidate();
   return {
     name: id,
     owner: saved.ownerAgentId || ownerAgentId,
+    executorAgentId: saved.executorAgentId || null,
     description: saved.description,
     parser: saved.parser,
     ...(saved.cwd ? { cwd: saved.cwd } : {}),

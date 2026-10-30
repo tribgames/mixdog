@@ -79,7 +79,16 @@ export function createAgentTurns({
     return error;
   }
 
-  async function runAgentTurn({ session, prompt, context = null, onToolResult, onTerminalResult } = {}) {
+  async function runAgentTurn({
+    session,
+    prompt,
+    context = null,
+    onToolResult,
+    onTerminalResult,
+    // The trusted skill-selection text of the turn (a routine executor's
+    // instructions); absent selects from the whole prompt, as any turn does.
+    skillSelection,
+  } = {}) {
     await rehydrateAgentSessions();
     const sessionId = String(session?.id || session || '').trim();
     const cancelEpoch = registry.assertAdmission(sessionId);
@@ -116,6 +125,7 @@ export function createAgentTurns({
         priority: 'next',
         context,
         transcriptMeta: agentTurnTranscriptMeta(content),
+        ...(typeof skillSelection === 'string' ? { skillSelection } : {}),
         ...(entry.runtime.isWireSafe === true || typeof onToolResult !== 'function' ? {} : { onToolResult }),
       };
       const detail = await target.call(entry.runtime, content, options);

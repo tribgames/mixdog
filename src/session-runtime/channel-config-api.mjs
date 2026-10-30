@@ -167,6 +167,7 @@ export function createChannelConfigApi({ channels, reloadChannelsSoon, ensureAut
         {
           name: endpoint.name,
           ownerAgentId: endpoint.ownerAgentId,
+          executorAgentId: endpoint.executorAgentId || null,
           cwd: endpoint.cwd || null,
           attachments: endpoint.attachments || null,
           event: webhookEventSummary(payload.headers ?? {}, payload.body ?? {}),

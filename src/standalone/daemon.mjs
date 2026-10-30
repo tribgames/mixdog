@@ -1043,7 +1043,9 @@ async function main() {
     submit: async (sessionId, prompt, options) =>
       (await sessionService.submitSession({ sessionId, prompt, options }))?.accepted === true,
     abort: (sessionId) => sessionService.abortSession({ sessionId }),
-  });
+    // A routine's executor sub-agent, run to its end before its bot is woken
+    // (routine-executor.mjs); resolves `{ sessionId, content }`.
+    runAgent: (args, context, options) => agentControl.runForeground(args, context, options),  });
   // A bot's next turn, whatever starts it, first reads the progress updates
   // queued for its thread (they wake nobody on their own).
   setSessionTurnPrelude(postBeforeAgentTurn);

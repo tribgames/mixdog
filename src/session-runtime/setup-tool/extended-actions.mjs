@@ -307,6 +307,8 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
       owner: input.owner,
     });
     const next = { ...pick(previous, entryKeys), ...input };
+    // Omitted keeps the saved executor without checking it again (channel-admin.mjs).
+    if (!own(input, 'executorAgentId')) delete next.executorAgentId;
     if (kind === 'schedule') {
       if (previous.whenAt && !own(input, 'time') && !own(input, 'at')) {
         next.at = new Date(previous.whenAt).toISOString();

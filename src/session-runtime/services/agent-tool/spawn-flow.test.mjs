@@ -163,6 +163,59 @@ test('a user-cancelled Agent turn settles the worker row as cancelled, not error
   assert.equal(updates.at(-1).stage, 'cancelled');
 });
 
+test("a spawn's host-set skill selection reaches the worker's turn on both runtimes; none is invented", async () => {
+  const prepared = (args) => ({
+    args,
+    tag: 'sel-worker',
+    session: { id: 'sess_sel_worker' },
+    agent: 'worker',
+    preset: { provider: 'test-provider', model: 'test-model' },
+    presetName: 'worker-route',
+    workerCwd: 'C:\\Project\\tree',
+    prompt: 'task with $payload-skill',
+    watchdogPolicy: null,
+  });
+  const common = {
+    upsertWorkerSessionDeferred() {},
+    emitSubagentEvent() {},
+    createTurnReviewCollector: () => ({ onToolResult() {}, complete() {} }),
+  };
+  const canonical = [];
+  const surfaceFlow = createSpawnFlow({
+    ...common,
+    mgr: { getSession: () => ({ messages: [] }) },
+    sessionSurface: {
+      canonical: true,
+      canRun: () => true,
+      async runTurn(turn) {
+        canonical.push(turn);
+        return { content: 'ok' };
+      },
+    },
+  });
+  await surfaceFlow.runSpawn(prepared({ skillSelection: 'trusted $a' }), { callerSessionId: 'x' }, null);
+  await surfaceFlow.runSpawn(prepared({}), { callerSessionId: 'x' }, null);
+  assert.equal(canonical[0].skillSelection, 'trusted $a');
+  assert.equal(Object.hasOwn(canonical[1], 'skillSelection'), false);
+
+  const asked = [];
+  const managerFlow = createSpawnFlow({
+    ...common,
+    mgr: {
+      getSession: () => ({ messages: [] }),
+      async askSession(...argv) {
+        asked.push(argv.at(-1));
+        return { content: 'ok' };
+      },
+    },
+  });
+  await managerFlow.runSpawn(prepared({ skillSelection: '' }), { callerSessionId: 'x' }, null);
+  await managerFlow.runSpawn(prepared({}), { callerSessionId: 'x' }, null);
+  assert.equal(asked[0].skillSelection, '', 'an empty trusted selection selects nothing');
+  assert.equal(Object.hasOwn(asked[1], 'skillSelection'), false);
+  cleanupBackgroundTasks({ surface: 'agent', force: true });
+});
+
 // A running worker whose turn appends `partial` (if any) and then blocks until
 // its session is closed, owned by a Lead that records every delivery.
 async function closeRunningWorker(partial) {

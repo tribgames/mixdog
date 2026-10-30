@@ -112,6 +112,11 @@ export interface AgentSummary {
   contact: boolean;
 }
 
+// Shared services, not delegation targets: they run behind a tool (web_search,
+// explore) or a background cycle (maintainer), so they carry a model route but
+// no editable definition and never appear in a workflow's agent subset.
+export const DEFAULT_AGENT_IDS = new Set(['maintainer', 'explore']);
+
 /** The catalog's agents as rows; a row without an id is dropped. */
 export function agentRosterOf(agents: readonly RecordValue[]): AgentSummary[] {
   return agents

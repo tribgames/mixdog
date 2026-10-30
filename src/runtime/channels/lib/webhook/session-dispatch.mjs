@@ -96,6 +96,8 @@ function createWebhookSessionDispatcher({ getBridgeDispatch, store = { recordEnd
           endpoint: name,
           // The bot whose chat the run is a turn in.
           owner: extra.owner || null,
+          // The sub-agent that carries the run out first, if the endpoint names one.
+          executor: extra.executor || null,
           deliveryId,
           event: extra.event || null,
         },
@@ -108,7 +110,7 @@ function createWebhookSessionDispatcher({ getBridgeDispatch, store = { recordEnd
 
   async function dispatchEndpoint({ name, body, headers, res, deliveryId, endpoint }) {
     try {
-      const { instructions, cwd, attachments, delivery, ownerAgentId } = endpoint;
+      const { instructions, cwd, attachments, delivery, ownerAgentId, executorAgentId } = endpoint;
       const run = webhookRunPrompt(instructions, body, headers);
       if (!getBridgeDispatch()) throw new Error(`[webhook] session dispatch requires bridgeDispatch`);
       // Kept for the app's "Run now", which re-runs the latest event. Losing
@@ -118,6 +120,7 @@ function createWebhookSessionDispatcher({ getBridgeDispatch, store = { recordEnd
       );
       await dispatchSessionRun(name, run.prompt, deliveryId, res, {
         owner: ownerAgentId || null,
+        executor: executorAgentId || null,
         cwd: cwd || null,
         event: webhookEventSummary(headers, body),
         attachments: attachments || null,

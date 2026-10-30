@@ -60,6 +60,9 @@ ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS last_skipped_at timesta
 ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS owner_agent_id text NOT NULL DEFAULT 'lead';
 -- Legacy columns model, workflow and run_as_agent are no longer read or written (kept, not dropped, to avoid a risky migration).
 ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS run_as_agent boolean NOT NULL DEFAULT false;
+-- The workflow sub-agent that carries out each fire first (its final report is
+-- what the owner bot relays); NULL = the owner bot does the work itself.
+ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS executor_agent_id text;
 -- Failed runs in a row: a success or switching it back on resets it; at
 -- ROUTINE_LIMITS.pauseAfterFailures the schedule switches itself off.
 ALTER TABLE scheduler.schedules ADD COLUMN IF NOT EXISTS consecutive_failures integer NOT NULL DEFAULT 0;
@@ -101,6 +104,7 @@ function rowToDef(row) {
     lastFailedAt: row.last_failed_at,
     lastSkippedAt: row.last_skipped_at,
     ownerAgentId: row.owner_agent_id || 'lead',
+    executorAgentId: row.executor_agent_id || null,
     consecutiveFailures: Number(row.consecutive_failures) || 0,
     resultDelivery: row.result_delivery || null,
     nextFireAt: row.next_fire_at,
@@ -136,7 +140,7 @@ function hasRequiredTargetColumn(db) {
 }
 
 const COLS =
-  'name, description, when_at, when_cron, timezone, cwd, attachments, delivery, prompt, enabled, status, last_fired_at, last_scheduled_at, last_started_at, last_success_at, last_failed_at, last_skipped_at, owner_agent_id, consecutive_failures, result_delivery, next_fire_at, deferred_until, skipped_until, created_at, updated_at';
+  'name, description, when_at, when_cron, timezone, cwd, attachments, delivery, prompt, enabled, status, last_fired_at, last_scheduled_at, last_started_at, last_success_at, last_failed_at, last_skipped_at, owner_agent_id, executor_agent_id, consecutive_failures, result_delivery, next_fire_at, deferred_until, skipped_until, created_at, updated_at';
 
 // ---------------------------------------------------------------------------
 // Public API
@@ -176,6 +180,7 @@ export async function upsertSchedule(def, { dataDir } = {}) {
     def.status ?? 'active',
     def.nextFireAt ?? null,
     def.ownerAgentId || 'lead',
+    def.executorAgentId || null,
   ];
   let legacyTarget = '';
   let legacyTargetValue = '';
@@ -186,10 +191,11 @@ export async function upsertSchedule(def, { dataDir } = {}) {
   }
   const { rows } = await db.query(
     `INSERT INTO scheduler.schedules
-       (name, description, when_at, when_cron, timezone, cwd, attachments, delivery, prompt, enabled, status, next_fire_at, owner_agent_id${legacyTarget})
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13${legacyTargetValue})
+       (name, description, when_at, when_cron, timezone, cwd, attachments, delivery, prompt, enabled, status, next_fire_at, owner_agent_id, executor_agent_id${legacyTarget})
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14${legacyTargetValue})
      ON CONFLICT (name) DO UPDATE SET
        owner_agent_id = EXCLUDED.owner_agent_id,
+       executor_agent_id = EXCLUDED.executor_agent_id,
        description  = EXCLUDED.description,
        when_at      = EXCLUDED.when_at,
        when_cron    = EXCLUDED.when_cron,
@@ -235,7 +241,7 @@ export async function renameSchedule(oldName, def, { timingChanged = false, data
     const { rows } = await db.query(
       `UPDATE scheduler.schedules SET
          name = $2, description = $3, when_at = $4, when_cron = $5, timezone = $6, cwd = $7,
-         attachments = $8, prompt = $9, enabled = $10, owner_agent_id = $11,
+         attachments = $8, prompt = $9, enabled = $10, owner_agent_id = $11, executor_agent_id = $13,
          next_fire_at = CASE WHEN $12::boolean THEN $4::timestamptz ELSE next_fire_at END,
          status = CASE WHEN $12::boolean THEN 'active' ELSE status END,
          deferred_until = CASE WHEN $12::boolean THEN NULL ELSE deferred_until END,
@@ -258,6 +264,7 @@ export async function renameSchedule(oldName, def, { timingChanged = false, data
         def.enabled ?? true,
         def.ownerAgentId || 'lead',
         timingChanged === true,
+        def.executorAgentId || null,
       ]
     );
     return rowToDef(rows[0]);

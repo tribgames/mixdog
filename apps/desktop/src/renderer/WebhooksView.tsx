@@ -6,13 +6,17 @@ import { t } from './i18n';
 import { InitialSurface } from './InitialSurface';
 import {
   AutomationAgentPicker,
+  ExecutorAgentPicker,
   RoutineNeedsBot,
   RoutineSideGroups,
   RoutineSortChips,
   automationAgentOf,
   automationRunFields,
+  executorAgentOf,
+  executorRunFields,
   routinePausedText,
   useAutomationAgents,
+  useExecutorAgents,
 } from './automation-agent-picker';
 import { RoomMemberFace } from './agent-room-parts';
 import { showDesktopToast } from './notifications';
@@ -58,6 +62,8 @@ interface WebhookDraft {
   parser: string;
   /** The bot it belongs to: each run is a turn in that bot's chat. */
   agent: string;
+  /** The sub-agent that does the work first, the bot relaying its result; '' for none. */
+  executor: string;
   cwd: string;
   attachments: AutomationAttachment[];
   instructions: string;
@@ -75,6 +81,7 @@ function webhookDraft(webhook: RecordValue | undefined, defaultAgent: string): W
     // shows — and save it back unchanged.
     parser: String(source.parser || 'github'),
     agent: automationAgentOf(webhook, defaultAgent),
+    executor: executorAgentOf(webhook),
     cwd: String(source.cwd || ''),
     attachments: attachmentsFromRecords(source.attachments),
     instructions: String(source.instructions || ''),
@@ -287,6 +294,7 @@ function WebhookEditor({
   const previewUrl = urlName.trim() ? endpointUrl(publicBase, urlName.trim()) : '';
   const shownUrl = editing ? endpointUrl(publicBase, draft.name) : previewUrl;
   const [agent, setAgent] = useState(draft.agent);
+  const [executor, setExecutor] = useState(draft.executor);
   const [formError, setFormError] = useState('');
   const projectOptions = automationProjectOptions(projects, shownCwd);
   return (
@@ -332,6 +340,7 @@ function WebhookEditor({
               // webhook fire runs as a fresh New-task session — no channel
               // target, so saving a legacy channel webhook converts it.
               ...automationRunFields(agent),
+              ...executorRunFields(executor),
               ...(cwd ? { cwd } : {}),
               ...(attachments.length ? { attachments } : {}),
               ...(effectiveSecret ? { secret: effectiveSecret } : {}),
@@ -398,6 +407,22 @@ function WebhookEditor({
                 disabled={busy}
                 options={projectOptions}
                 onChange={(next) => setCwdEdit(next === '__none__' ? '' : next)}
+              />
+            </div>
+          </div>
+          <div className="schedules-field">
+            <span>{t('Executor')}</span>
+            <small>{t('A sub-agent does the work first and the bot relays its result.')}</small>
+            <div className="schedules-frequency">
+              <ExecutorAgentPicker
+                api={api}
+                value={executor}
+                disabled={busy}
+                ariaLabel={t('Webhook executor')}
+                onChange={(next) => {
+                  setExecutor(next);
+                  setFormError('');
+                }}
               />
             </div>
           </div>
@@ -512,6 +537,7 @@ export function WebhooksPane({
   const bots = useAutomationAgents(api, active);
   const noBot = bots.ready && bots.members.length === 0;
   const defaultAgent = bots.members[0]?.id ?? '';
+  const executors = useExecutorAgents(api, active);
   const projects = values.projects;
   const taskWorkspace = useTaskWorkspace(api, active);
   const { pending, error, setError, run } = useSidebarCapabilityRunner({
@@ -551,7 +577,14 @@ export function WebhooksPane({
   const text = query.trim().toLowerCase();
   const visible = webhooks.filter((webhook) => {
     if (!text) return true;
-    return [webhook.name, webhook.description, webhook.parser, bots.label(automationAgentOf(webhook)).name]
+    const executor = executorAgentOf(webhook);
+    return [
+      webhook.name,
+      webhook.description,
+      webhook.parser,
+      bots.label(automationAgentOf(webhook)).name,
+      executor && executors.label(executor),
+    ]
       .map((value) => String(value || '').toLowerCase())
       .join(' ')
       .includes(text);
@@ -694,8 +727,10 @@ export function WebhooksPane({
                       })
                     : relativeTime(row.eventAt)
                   : t('No events');
+              const executor = executorAgentOf(webhook);
               const detail = [
                 sort === 'bot' ? '' : bot.name,
+                executor ? executors.label(executor) : '',
                 event,
                 paused,
                 webhook.secretSet !== true ? t('secret missing') : '',
