@@ -154,6 +154,10 @@ function redactInterruptionSnapshot(sessionId, snapshot) {
 
 export function writeCheckpointHeader(checkpoint) {
   const { sessionId } = checkpoint;
+  // A half-moved checkpoint is finished before anything replaces its files.
+  if (finishPendingSetAside(sessionId).pending) {
+    throw new Error(`[turn-checkpoint] session ${sessionId}: an unrecovered checkpoint is still being set aside`);
+  }
   const target = turnCheckpointPath(sessionId);
   const payload = {
     ...checkpoint,
@@ -182,8 +186,11 @@ export function readTurnCheckpointHeader(sessionId) {
 }
 
 /** `present` is false only when the header file does not exist (ENOENT);
- * an unreadable or invalid header is present with a null `header`. */
+ * an unreadable or invalid header is present with a null `header`, and so
+ * are the files of an unfinished set-aside (`settingAside`), which are never
+ * read as a checkpoint. */
 export function readTurnCheckpointHeaderState(sessionId) {
+  if (finishPendingSetAside(sessionId).pending) return { present: true, header: null, settingAside: true };
   let text;
   try {
     text = readFileSync(turnCheckpointReadPath(sessionId), 'utf8');
@@ -197,47 +204,135 @@ export function readTurnCheckpointHeaderState(sessionId) {
 // A checkpoint recovery cannot apply (it names no base revision, or the record
 // is not of its base) must never be overwritten by the session's next turn.
 // It is renamed, header and journal as they are, to
-// `<session>.unrecovered-<key>.json(l)`, `key` a digest of the header bytes,
-// so a crash between the two renames repeats them onto the same names.
+// `<session>.unrecovered-<key>.json(l)`, `key` a digest of the header bytes.
+//
+// The move is several filesystem steps, so it is made one recoverable unit by
+// an intent record, `<session>.setaside` ({ key }), written durably FIRST and
+// removed LAST:
+//   1. intent   2. journal → <stem>.jsonl   3. header → <stem>.json   4. drop intent
+// While the intent exists the primary files are never read as a checkpoint,
+// cleared, or written over (readTurnCheckpointHeaderState, clearTurnCheckpoint
+// in turn-checkpoint.mjs, writeCheckpointHeader): every access first finishes
+// the move, and when that is still refused it reports the set-aside as
+// pending instead. A crash or a refused rename after any step therefore
+// resolves only to finishing it. A moved journal is never overwritten: a
+// primary journal found once `<stem>.jsonl` exists is not this checkpoint's.
 const UNRECOVERED = '.unrecovered-';
+const SET_ASIDE_KEY = /^[0-9a-f]{16}$/;
 
-/** Move `sessionId`'s current checkpoint aside. Returns its key, or null when
- *  there is none. Throws when the files cannot be moved: the caller must not
- *  then write a new checkpoint over them. */
-export function setAsideTurnCheckpoint(sessionId) {
-  const header = turnCheckpointReadPath(sessionId);
-  let text;
+// Test seam: called with the step name ('intent' | 'journal' | 'header' |
+// 'done') before each step; throwing simulates a crash or a refused rename there.
+let _setAsideFault = null;
+export function _setSetAsideFaultForTest(fault) {
+  _setAsideFault = typeof fault === 'function' ? fault : null;
+}
+
+function setAsideIntentPath(sessionId) {
+  return checkpointFilePath(sessionId, '.setaside', { ensureDir: false });
+}
+
+function unrecoveredStem(sessionId, key) {
+  return join(checkpointDirPath(), `${sessionId}${UNRECOVERED}${key}`);
+}
+
+const headerKey = (text) => createHash('sha256').update(text).digest('hex').slice(0, 16);
+
+function readFileOrNull(path) {
   try {
-    text = readFileSync(header, 'utf8');
+    return readFileSync(path, 'utf8');
   } catch (error) {
     if (error?.code === 'ENOENT') return null;
     throw error;
   }
-  const key = createHash('sha256').update(text).digest('hex').slice(0, 16);
-  const stem = join(checkpointDir(), `${sessionId}${UNRECOVERED}${key}`);
-  // Journal first: the header stays the anchor until both moved.
+}
+
+/** The key of the set-aside in progress for `sessionId`, or null. */
+function pendingSetAsideKey(sessionId) {
+  const text = readFileOrNull(setAsideIntentPath(sessionId));
+  if (text === null) return null;
   try {
-    renameSync(turnJournalReadPath(sessionId), `${stem}.jsonl`);
+    const key = JSON.parse(text)?.key;
+    if (typeof key === 'string' && SET_ASIDE_KEY.test(key)) return key;
+  } catch {
+    /* an intent is written atomically; fall back to the header's own key */
+  }
+  const header = readFileOrNull(turnCheckpointReadPath(sessionId));
+  return header === null ? '' : headerKey(header);
+}
+
+function renameIfPresent(from, to) {
+  try {
+    renameSync(from, to);
   } catch (error) {
     if (error?.code !== 'ENOENT') throw error;
   }
-  renameSync(header, `${stem}.json`);
+}
+
+/** Steps 2-4 for `key` ('' when no primary header is left to name it). */
+function completeSetAside(sessionId, key) {
+  if (key) {
+    const stem = unrecoveredStem(sessionId, key);
+    _setAsideFault?.('journal');
+    if (!existsSync(`${stem}.jsonl`)) renameIfPresent(turnJournalReadPath(sessionId), `${stem}.jsonl`);
+    _setAsideFault?.('header');
+    renameIfPresent(turnCheckpointReadPath(sessionId), `${stem}.json`);
+  }
+  _setAsideFault?.('done');
+  try {
+    unlinkSync(setAsideIntentPath(sessionId));
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+}
+
+/** Finish an interrupted set-aside of `sessionId`. Returns `{ pending }`:
+ *  true when one is still unfinished (its files must not be touched);
+ *  `key` names the one it finished. */
+export function finishPendingSetAside(sessionId) {
+  let key;
+  try {
+    key = pendingSetAsideKey(sessionId);
+    if (key === null) return { pending: false, key: null };
+    completeSetAside(sessionId, key);
+    return { pending: false, key: key || null };
+  } catch {
+    return { pending: true, key: key || null };
+  }
+}
+
+/** Move `sessionId`'s current checkpoint aside (finishing an interrupted move
+ *  first). Returns the key of what it moved, or null when there was nothing.
+ *  Throws when the files cannot be moved: the caller must not then write a
+ *  new checkpoint, and every reader keeps treating them as being set aside. */
+export function setAsideTurnCheckpoint(sessionId) {
+  const pending = pendingSetAsideKey(sessionId);
+  if (pending !== null) completeSetAside(sessionId, pending);
+  const text = readFileOrNull(turnCheckpointReadPath(sessionId));
+  if (text === null) return pending || null;
+  const key = headerKey(text);
+  checkpointDir();
+  _setAsideFault?.('intent');
+  writeFileAtomicSync(setAsideIntentPath(sessionId), JSON.stringify({ key }));
+  completeSetAside(sessionId, key);
   return key;
 }
 
-/** `[{ key, checkpoint }]` for every checkpoint of `sessionId` set aside;
- *  `checkpoint` is null when its header is unreadable. */
+/** `[{ key, checkpoint, pending? }]` for every checkpoint of `sessionId` set
+ *  aside; `checkpoint` is null when its header is unreadable or its move is
+ *  still unfinished (`pending`). */
 export function listUnrecoveredTurnCheckpoints(sessionId) {
   const prefix = `${assertSessionId(sessionId)}${UNRECOVERED}`;
+  const unfinished = finishPendingSetAside(sessionId);
   let names;
   try {
     names = readdirSync(checkpointDirPath());
   } catch {
-    return [];
+    names = [];
   }
-  const found = [];
+  const found = unfinished.pending ? [{ key: unfinished.key, checkpoint: null, pending: true }] : [];
   for (const name of names) {
     if (!name.startsWith(prefix) || !name.endsWith('.json')) continue;
+    if (unfinished.pending && name === `${prefix}${unfinished.key}.json`) continue;
     const stem = join(checkpointDirPath(), name.slice(0, -'.json'.length));
     let checkpoint = null;
     try {
@@ -253,7 +348,7 @@ export function listUnrecoveredTurnCheckpoints(sessionId) {
 
 /** Delete one set-aside checkpoint (only on evidence that disk covers it). */
 export function removeUnrecoveredTurnCheckpoint(sessionId, key) {
-  const stem = join(checkpointDirPath(), `${assertSessionId(sessionId)}${UNRECOVERED}${key}`);
+  const stem = unrecoveredStem(assertSessionId(sessionId), key);
   for (const path of [`${stem}.json`, `${stem}.jsonl`]) {
     try {
       unlinkSync(path);

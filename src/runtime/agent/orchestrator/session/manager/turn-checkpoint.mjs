@@ -5,6 +5,7 @@ import {
   cancelJournalWrites,
   createTurnJournalEncoder,
   emptyInterruptionSnapshot,
+  finishPendingSetAside,
   openJournalForTurn,
   readTurnCheckpointHeader,
   readTurnCheckpointHeaderState,
@@ -328,6 +329,9 @@ export function readTurnCheckpoint(sessionId) {
 // the directory probes left the event loop.
 export function clearTurnCheckpoint(sessionId, turnToken = null) {
   const target = turnCheckpointReadPath(sessionId);
+  // The files of a set-aside still being moved are not this checkpoint's to
+  // clear (turn-checkpoint-journal.mjs): it is finished first, or kept.
+  if (finishPendingSetAside(sessionId).pending) return false;
   // Queued appends are stale the moment the caller decides to clear this
   // turn's checkpoint; retire them BEFORE the token guard reads disk so a
   // lagging write can never resurrect state after the unlink.

@@ -304,6 +304,77 @@ test('a new-format conflict is set aside before the next turn, and deleted only 
   });
 });
 
+test('a set-aside interrupted at any step is finished, never replayed, orphaned or overwritten', async () => {
+  const { existsSync, readdirSync } = await import('node:fs');
+  const journal = await import('./turn-checkpoint-journal.mjs');
+  const { setAsideUnrecoveredCheckpoint } = await import('./turn-checkpoint-recovery.mjs');
+  const dir = join(root, 'turn-checkpoints');
+  const prefix = [{ role: 'system', content: 'sys' }, user('earlier'), assistant('earlier answer')];
+  const files = (id) => readdirSync(dir).filter((name) => name.startsWith(`${id}.`)).sort();
+  for (const step of ['intent', 'journal', 'header', 'done']) {
+    for (const outcome of ['crash', 'refused-again']) {
+      const id = `durable_setaside_${step}_${outcome.replace('-', '_')}`;
+      // A legacy checkpoint whose prefix proof passes, but whose journal
+      // replaced the whole context after compaction: as a whole a conflict.
+      const token = writeLegacyCheckpoint(id, prefix, [user('legacy prompt')]);
+      writeFileSync(
+        join(dir, `${id}.jsonl`),
+        `${JSON.stringify({ t: 'h', turnToken: token, s: 0 })}\n${JSON.stringify({
+          t: 'full',
+          ms: [user('[summary]'), user('legacy prompt'), assistant('after compaction')],
+          s: 1,
+        })}\n`
+      );
+      writeFileSync(sessionFile(id), JSON.stringify(record(id, prefix)));
+      assert.match(recoverTurnCheckpoint(record(id, prefix)).conflict, /self-contained/);
+
+      let failing = true;
+      journal._setSetAsideFaultForTest((at) => {
+        if (failing && at === step) throw Object.assign(new Error(`refused ${at}`), { code: 'EPERM' });
+      });
+      try {
+        assert.throws(() => journal.setAsideTurnCheckpoint(id), /refused/);
+        failing = outcome === 'refused-again';
+        // Restart: recovery, the next turn's guard and a new turn's header.
+        const session = record(id, prefix);
+        const recovery = _recoverTurnCheckpointDurably(session, id);
+        assert.equal(recovery.recovered, false, `${step}/${outcome}: never replayed`);
+        assert.deepEqual(texts(session.messages), texts(prefix));
+        assert.deepEqual(texts(readDurableSessionRecord(id).messages), texts(prefix));
+        if (failing) {
+          assert.throws(() => setAsideUnrecoveredCheckpoint(session, id), (error) => error.code === 'ETURNNOTDURABLE');
+          // Once the intent exists, even a header write past the guard refuses.
+          if (step !== 'intent') {
+            const next = openTurn.bind(null, id, prefix, 'next turn', { token: `next-${id}` });
+            assert.throws(next, /still being set aside/);
+          }
+          assert.equal(journal.listUnrecoveredTurnCheckpoints(id)[0]?.pending === true, step !== 'intent');
+          failing = false;
+        }
+        setAsideUnrecoveredCheckpoint(session, id);
+        const [kept, ...rest] = journal.listUnrecoveredTurnCheckpoints(id);
+        assert.equal(rest.length, 0);
+        assert.equal(kept.checkpoint.turnToken, token);
+        assert.equal(kept.checkpoint.fullTranscript, true, 'its journal moved with it');
+        assert.deepEqual(texts(kept.checkpoint.turnMessages), [
+          'user:[summary]',
+          'user:legacy prompt',
+          'assistant:after compaction',
+        ]);
+        assert.deepEqual(files(id), [`${id}.unrecovered-${kept.key}.json`, `${id}.unrecovered-${kept.key}.jsonl`]);
+        assert.equal(existsSync(join(dir, `${id}.setaside`)), false);
+        assert.equal(session.unrecoveredTurns?.[0]?.turnToken, token);
+      } finally {
+        journal._setSetAsideFaultForTest(null);
+      }
+      // Only now may a new turn write the session's checkpoint.
+      openTurn(id, prefix, 'next turn', { token: `next-${id}` });
+      await settleTurnCheckpointWrites(id);
+      assert.equal(journal.listUnrecoveredTurnCheckpoints(id)[0].checkpoint.fullTranscript, true);
+    }
+  }
+});
+
 // ── Through askSession: the next turn's gate ────────────────────────────────
 
 const USAGE = { inputTokens: 10, outputTokens: 5, cachedTokens: 0, cacheWriteTokens: 0 };
