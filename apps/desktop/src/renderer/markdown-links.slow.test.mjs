@@ -350,6 +350,40 @@ test('previewable links of a paired device or behind an access token keep their 
   assert.deepEqual(f.sent, []);
 });
 
+test('a paired device opens a web page link in the session Visualize panel, else the PC browser pane', async (t) => {
+  const withSession = (text) =>
+    React.createElement(MarkdownSessionContext.Provider, { value: 'sess-viz-remote' }, renderers.settled(text));
+  const stopReveal = onBrowserPageRevealRequested(() => {});
+  t.after(stopReveal);
+  const f = await mount(t, withSession, '[h](site/index.html)', PROJECT, (fixture) => {
+    installProjectFiles(fixture, { [PROJECT]: ['site/index.html'] });
+    fixture.sent = [];
+    fixture.pageUrls = [];
+    fixture.dom.window.mixdogDesktop.visualizeCommand = async (command) => {
+      fixture.sent.push(command);
+    };
+    fixture.dom.window.mixdogDesktop.localPageUrl = async (_project, rel) => {
+      fixture.pageUrls.push(rel);
+      return `http://127.0.0.1:9/token/${rel}`;
+    };
+    fixture.dom.window.mixdogRemoteServer = 'wss://relay.example';
+  });
+  t.after(() => delete f.dom.window.mixdogRemoteServer);
+  await f.click();
+  assert.deepEqual(
+    f.sent.map(({ action, targets }) => [action, targets]),
+    [['reopen', [`${PROJECT}/site/index.html`]]]
+  );
+  assert.deepEqual(f.pageUrls, []);
+  // A host that does not serve the panel to devices refuses the open: the
+  // page keeps loading in the PC's browser pane.
+  f.dom.window.mixdogDesktop.visualizeCommand = async () => {
+    throw new Error('This desktop does not serve the visualize panel to remote devices.');
+  };
+  await f.click();
+  assert.deepEqual(f.pageUrls, ['site/index.html']);
+});
+
 test('a previewable file outside the session working directory (access token) is not reopened', async (t) => {
   const withSession = (text) =>
     React.createElement(MarkdownSessionContext.Provider, { value: 'sess-viz3' }, renderers.settled(text));

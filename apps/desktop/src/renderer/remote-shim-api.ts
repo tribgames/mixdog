@@ -496,7 +496,9 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     },
     visualizeCommand: async (command) => {
       await connect();
-      if (!ctx.peerVisualize) return undefined;
+      // Refused like the pane reads, so an open (a chat link) can fall back to
+      // the route an older host still serves instead of doing nothing.
+      if (!ctx.peerVisualize) throw new Error('This desktop does not serve the visualize panel to remote devices.');
       return (await call<VisualizeCommandResult | null>('visualizeCommand', [command])) ?? undefined;
     },
     visualizePaneText: async (sessionId, tabId, index) => {
