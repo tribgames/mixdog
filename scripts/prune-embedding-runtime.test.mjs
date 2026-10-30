@@ -41,6 +41,28 @@ test('Windows embedding pruning keeps DirectML and removes optional DXC payload'
   }
 });
 
+test('pruning keeps the onnxruntime-node install script npm runs concurrently (#282)', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'mixdog-prune-embedding-'));
+  try {
+    const transformerRoot = join(root, 'node_modules', '@huggingface', 'transformers');
+    const ortRoot = join(root, 'node_modules', 'onnxruntime-node');
+    await put(join(transformerRoot, 'package.json'), JSON.stringify({ name: '@huggingface/transformers' }));
+    await put(join(transformerRoot, 'dist', 'transformers.node.cjs'));
+    await put(join(transformerRoot, 'dist', 'transformers.node.mjs'));
+    await put(join(ortRoot, 'package.json'), JSON.stringify({ name: 'onnxruntime-node' }));
+    await put(join(ortRoot, 'bin', 'napi-v6', 'linux', 'x64', 'onnxruntime_binding.node'));
+    await put(join(ortRoot, 'script', 'install.js'));
+    await put(join(ortRoot, 'script', 'install-utils.js'));
+
+    await pruneEmbeddingRuntime(root, { platform: 'linux', arch: 'x64' });
+
+    await access(join(ortRoot, 'script', 'install.js'));
+    await access(join(ortRoot, 'script', 'install-utils.js'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('darwin-x64 pruning succeeds without an ONNX binding and removes every native payload', async () => {
   const root = await mkdtemp(join(tmpdir(), 'mixdog-prune-embedding-'));
   try {
