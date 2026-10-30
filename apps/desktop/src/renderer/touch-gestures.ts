@@ -268,8 +268,13 @@ function scrollsHorizontally(win: Window, element: Element): boolean {
   return overflow === 'auto' || overflow === 'scroll';
 }
 
+/** A strip a surface that owns every drag sets aside for the sheet's swipe:
+ *  the phone's streamed browser page sends all its touches to the PC page. */
+const SWIPE_GRIP_SELECTOR = '[data-edge-swipe-grip]';
+
 /** True where a horizontal drag belongs to the content, not the drawers. */
 function ownsHorizontalDrag(win: Window, start: Element): boolean {
+  if (start.closest(SWIPE_GRIP_SELECTOR)) return false;
   if (start.closest(OWN_DRAG_SELECTOR) || start.closest(EDITABLE_SELECTOR)) return true;
   const selection = win.getSelection?.();
   if (selection && !selection.isCollapsed && selection.toString() !== '') return true;

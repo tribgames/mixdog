@@ -1769,6 +1769,9 @@ export default function RemoteBrowserPane({
           covered={awaitingFit}
           finishComposition={finishComposition}
         />
+        {/* Every touch on the page drives the PC page, so the phone's
+            swipe that pushes this sheet away starts on its own edge strip. */}
+        {phone && <div className="browser-remote-swipe-grip" data-edge-swipe-grip="" aria-hidden="true" />}
         {frame?.dialog && (
           <BrowserPagePrompts
             key={`${frame.documentId}:${frame.dialog.id}`}
