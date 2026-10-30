@@ -3,9 +3,13 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runExplore, EXPLORE_OUTPUT_CAP } from './tool.mjs';
-import { EXPLORER_MAX_TOOL_ROUNDS, EXPLORER_SYSTEM_PROMPT, EXPLORER_TOOL_NAMES } from './explorer.mjs';
-import { featureDisallowedToolsFor } from '../agent/orchestrator/runtime-core/builtin-features.mjs';
+
+// The native patch prewarm spawns a shared server on import, which the
+// cancellation tests' child-process count would mistake for a leak (#280).
+process.env.MIXDOG_PATCH_NATIVE_PREWARM = '0';
+const { runExplore, EXPLORE_OUTPUT_CAP } = await import('./tool.mjs');
+const { EXPLORER_MAX_TOOL_ROUNDS, EXPLORER_SYSTEM_PROMPT, EXPLORER_TOOL_NAMES } = await import('./explorer.mjs');
+const { featureDisallowedToolsFor } = await import('../agent/orchestrator/runtime-core/builtin-features.mjs');
 
 const ROUTE = { provider: 'openai', model: 'gpt-x' };
 const configured = { agents: { explore: ROUTE } };
