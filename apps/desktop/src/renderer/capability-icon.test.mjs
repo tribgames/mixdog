@@ -18,7 +18,6 @@ test('all built-in capabilities and shipped skills render self-contained scalabl
     'memory-management',
     'local-provider',
     'history-recall',
-    'goal-management',
     'skill-creator',
     'setup',
     'pdf',

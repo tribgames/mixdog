@@ -11,7 +11,6 @@ const DESCRIPTIONS: Record<string, () => string> = {
   pptx: () => t('Create, edit, and review slide presentations.'),
   image: () => t('Generate and edit still images.'),
   video: () => t('Generate, extend, and animate videos.'),
-  'goal-management': () => t('Set and manage ongoing task goals.'),
   'history-recall': () => t('Find information from previous conversations.'),
   'memory-management': () => t('Manage saved user preferences and constraints.'),
   'local-provider': () => t('Download and run AI models on this device.'),

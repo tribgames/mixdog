@@ -18,7 +18,6 @@ const TITLES: Record<string, () => string> = {
   video: () => t('Video'),
   'browser-use': () => t('Browser Use'),
   'computer-use': () => t('Computer Use'),
-  'goal-management': () => t('Goal'),
   'history-recall': () => t('History recall'),
   'memory-management': () => t('Memory'),
   'local-provider': () => t('Local Provider'),

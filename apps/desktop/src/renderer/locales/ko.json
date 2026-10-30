@@ -4410,7 +4410,6 @@
   "Sessions share one Browser Use profile, including sign-ins, cookies, and site data.": "모든 세션이 로그인 정보, 쿠키, 사이트 데이터를 담은 단일 브라우저 유즈 프로필을 공유합니다.",
   "Sessions still retain this folder. Close or remove those sessions before cleaning it up.": "세션이 아직 이 폴더를 사용하고 있습니다. 폴더를 정리하기 전에 해당 세션을 닫거나 삭제하세요.",
   "Set a goal": "목표 설정",
-  "Set and manage ongoing task goals.": "지속적으로 수행할 작업 목표를 설정하고 관리합니다.",
   "Set Fast or Ultrafast mode for the current model": "현재 모델의 Fast 또는 Ultrafast 모드 설정",
   "Set project": "프로젝트 설정",
   "Set reasoning effort for the current model": "현재 모델의 추론 강도 설정",

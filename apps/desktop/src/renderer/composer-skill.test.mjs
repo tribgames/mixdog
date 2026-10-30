@@ -62,7 +62,7 @@ test('built-in skills stay off the menu and custom skills keep their reported or
       { name: 'pdf', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
       { name: 'release-notes', enabled: true, description: 'Release notes' },
       { name: 'setup', enabled: true, owner: { kind: 'builtin' }, description: 'MODEL_ONLY_TEXT' },
-      { name: 'goal-management', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
+      { name: 'history-recall', enabled: true, source: 'builtin', description: 'MODEL_ONLY_TEXT' },
     ],
   }).map((skill) => skill.name);
   assert.deepEqual(names, ['team-review', 'release-notes']);
