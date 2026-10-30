@@ -118,7 +118,9 @@ export async function pruneEmbeddingRuntime(packageRoot, options = {}) {
       }
     }
   }
-  await removeChildrenExcept(ortRoot, new Set(['package.json', 'dist', 'bin', 'node_modules']));
+  // npm runs onnxruntime-node's own postinstall (node ./script/install)
+  // concurrently with ours, so its script/ helpers must survive the prune.
+  await removeChildrenExcept(ortRoot, new Set(['package.json', 'dist', 'bin', 'node_modules', 'script']));
 
   // The Node bundle marks onnxruntime-web as an ignored webpack external. Keep
   // only its manifest so npm's dependency inventory remains coherent.
