@@ -35,6 +35,7 @@ import {
   _sessionStoreTestMode,
 } from './save-fault.mjs';
 import { connectOwnCommitPeer } from './canonical-reader.mjs';
+import { captureTranscriptSnapshot, recordLandedTranscript } from './transcript-durability.mjs';
 
 // ── Worker-thread async save ──────────────────────────────────────────────────
 // Single long-lived Worker serializes all saveSessionAsync calls.
@@ -280,6 +281,7 @@ function _settleLandedWrite(
     // built — never a row re-derived from the live session, which
     // may already carry a newer (unwritten, possibly failing) turn.
     _queueSessionSummaryUpsertRow(summaryRow, summaryVersion);
+    recordLandedTranscript(p.session, p.transcript, epoch);
     // ONLY a landed write proves durability, so this is the only
     // place the save-failure flag may be cleared — and only when
     // THIS payload is at least as new as the newest failed/dropped
@@ -536,6 +538,9 @@ function _postAsyncWrite(
   { forceFull = false, retriedFull = false } = {}
 ) {
   const reqId = ++_saveWorkerReqId;
+  // Before the bytes are built: what this write will prove durable once it
+  // lands (store/transcript-durability.mjs).
+  const transcript = captureTranscriptSnapshot(session);
   // The wire payload is built at POST time from the live session: N calls
   // coalesced behind one in-flight write project ONCE (newest state), and a
   // pure-append turn ships only the tail (see _buildWirePayload).
@@ -553,6 +558,7 @@ function _postAsyncWrite(
   _saveWorkerPending.set(reqId, {
     id,
     session,
+    transcript,
     attempt,
     opts,
     summaryVersion,

@@ -58,8 +58,9 @@ function startTurn(sessionId) {
     generation: 1,
     turnToken: `tok-${sessionId}`,
     startedAt: 1,
+    base: { epoch: 'e0', refs: [] },
   });
-  const flush = () => recorder.record({ currentUserContent: prompt, turnOutgoing: outgoing, interruption: tracker });
+  const flush = () => recorder.record({ boundary: 0, currentUserContent: prompt, turnOutgoing: outgoing, interruption: tracker });
   return { tracker, outgoing, flush };
 }
 
@@ -79,7 +80,7 @@ test('records journaled before a value is marked are rewritten without it', asyn
   assert.doesNotMatch(onDisk(sessionId), new RegExp(CODE), 'header and journal no longer hold it');
   const checkpoint = readTurnCheckpoint(sessionId);
   assert.equal(checkpoint.turnMessages.at(-1).content, 'Your verification code is [redacted].');
-  assert.equal(checkpoint.journalEpoch, 1);
+  assert.equal(checkpoint.journalEpoch, 2);
 
   // Later records stay redacted, and the old journal never replays onto the new header.
   turn.outgoing.push({ role: 'assistant', content: `Typing ${CODE} now.` });
@@ -117,6 +118,7 @@ test('marking a value during a turn rewrites its checkpoint at once and resaves 
       { role: 'tool', toolCallId: 'M', content: `Code: ${CODE}` },
     ],
     userTurnContent: prompt,
+    boundary: 0,
   };
   const interruption = createTurnInterruptionTracker();
   const checkpoint = createTurnCheckpointScheduler({

@@ -22,7 +22,13 @@ process.on('exit', () => {
 
 function settle(id, terminalResultPreview) {
   const session = { id, messages: [], provider: 'p', model: 'm' };
-  const opened = { turn: { session, pendingEntries: [] }, runtime: {}, askGeneration: 0, turnToken: 't' };
+  const opened = {
+    turn: { session, pendingEntries: [] },
+    runtime: {},
+    askGeneration: 0,
+    turnToken: 't',
+    checkpoint: { seal() {} },
+  };
   publishAskTurn({
     sessionId: id,
     opened,

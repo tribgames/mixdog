@@ -206,6 +206,9 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   if (effortConfiguration) stampTurnEffort(userTurn.userTurnMessage, effortConfiguration);
   const { historyMessages, outgoing } = userTurn;
   turn.userTurnContent = userTurn.userTurnMessage.content;
+  // The turn opens right after the history it was built on: its checkpoint
+  // boundary, never looked up again by the prompt's text.
+  turn.boundary = historyMessages.length;
   turn.outgoing = outgoing;
   precommitUserTurn(session, outgoing, historyMessages, input);
   persistTurnPreflight(session, { turnToken, startedAt, checkpoint, askGeneration });

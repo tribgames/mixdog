@@ -31,7 +31,6 @@ const {
   readTurnCheckpoint,
   recoverTurnCheckpoint,
   settleTurnCheckpointWrites,
-  turnMessagesForCheckpoint,
 } = await import('./turn-checkpoint.mjs');
 const { _setJournalOpGateForTest, turnCheckpointPath, turnJournalPath } = await import('./turn-checkpoint-journal.mjs');
 const { createTurnInterruptionTracker, finalizeTurnInterruptionSnapshot } = await import('./turn-interruption.mjs');
@@ -54,14 +53,26 @@ function startTurn(sessionId, prompt = 'do the thing') {
     generation: 3,
     turnToken: `tok-${sessionId}`,
     startedAt: 1000,
+    base: baseOf(outgoing),
   });
   const flush = () =>
     recorder.record({
+      boundary: 1,
       currentUserContent: prompt,
       turnOutgoing: outgoing,
       interruption: tracker,
     });
   return { tracker, outgoing, recorder, flush, prompt };
+}
+
+// The durable record a turn opening at index 1 of `outgoing` is taken against.
+function baseOf(outgoing) {
+  return { epoch: 'e0', refs: outgoing.slice(0, 1) };
+}
+
+// That record as it is on disk.
+function durableOf(session) {
+  return { ...session, transcriptEpoch: 'e0', messages: session.messages.slice() };
 }
 
 /**
@@ -118,7 +129,7 @@ test('journal replay reproduces the full snapshot at bounded cost', async () => 
   // opening prompt, so the growing turn never rewrites it.
   assert.equal(statSync(turnCheckpointPath(sessionId)).size, headerBytes);
   const checkpoint = readTurnCheckpoint(sessionId);
-  assert.deepEqual(checkpoint.turnMessages, turnMessagesForCheckpoint(turn.outgoing, turn.prompt));
+  assert.deepEqual(checkpoint.turnMessages, turn.outgoing.slice(1));
   assert.deepEqual(checkpoint.interruption, turn.tracker.snapshot());
 
   // Bounded cost: total bytes written stay proportional to the turn payload
@@ -185,7 +196,7 @@ test('crash recovery matches the live finalize path (text reset, tool pairing)',
     lastContextTokensStaleAfterCompact: false,
   };
   const staleBaselineUpdatedAt = session.contextPressureBaselineUpdatedAt;
-  const recovery = recoverTurnCheckpoint(session);
+  const recovery = recoverTurnCheckpoint(session, durableOf(session));
   assert.equal(recovery.recovered, true);
   // A recovered (rewritten) transcript must never keep the mid-turn provider
   // prefix snapshot: a stale one flags every following send as
@@ -262,7 +273,7 @@ test('crash recovery preserves a provider baseline for a matching durable prefix
   );
   const baselineUpdatedAt = session.contextPressureBaselineUpdatedAt;
 
-  const recovery = recoverTurnCheckpoint(session);
+  const recovery = recoverTurnCheckpoint(session, durableOf(session));
   assert.equal(recovery.recovered, true);
   assert.equal(session.contextPressureBaselineTokens, 211_200);
   assert.equal(session.contextPressureBaselineMessageCount, 1);
@@ -318,28 +329,38 @@ test('a journal from another turn never replays onto a new header', async () => 
   assert.equal(checkpoint.interruption.partialAssistantContent, '');
 });
 
-test('rewritten and truncated transcripts replay latest-wins', async () => {
+test('the turn replacing and truncating its own messages replays latest-wins', async () => {
   const sessionId = 'sess-rewrite';
   const turn = startTurn(sessionId);
   turn.flush();
   turn.outgoing.push({ role: 'assistant', content: 'first' }, { role: 'assistant', content: 'second' });
   turn.flush();
-  // Wholesale replacement (image-strip splice / pre-send compaction).
-  turn.outgoing.splice(
-    0,
-    turn.outgoing.length,
-    { role: 'system', content: 'sys' },
-    { role: 'user', content: turn.prompt },
-    { role: 'assistant', content: 'rewritten' }
-  );
+  turn.outgoing.splice(2, turn.outgoing.length, { role: 'assistant', content: 'rewritten' });
   turn.flush();
   await settleTurnCheckpointWrites(sessionId);
 
   const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint.fullTranscript, undefined);
   assert.deepEqual(checkpoint.turnMessages, [
     { role: 'user', content: turn.prompt },
     { role: 'assistant', content: 'rewritten' },
   ]);
+});
+
+test('a rewrite of the history before the turn is one self-contained replacement', async () => {
+  const sessionId = 'sess-prefix-rewrite';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  const opening = turn.outgoing[1];
+  turn.outgoing.splice(0, 1, { role: 'system', content: 'stripped sys' });
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint.fullTranscript, true);
+  assert.deepEqual(checkpoint.base, { epoch: 'e0', length: 1 });
+  assert.notEqual(checkpoint.transcriptEpoch, 'e0');
+  assert.deepEqual(checkpoint.turnMessages, [{ role: 'system', content: 'stripped sys' }, opening]);
 });
 
 test('compaction that removes the opening prompt checkpoints the full replacement', async () => {
@@ -371,7 +392,7 @@ test('compaction that removes the opening prompt checkpoints the full replacemen
   assert.deepEqual(projectTurnCheckpointMessages(stored, checkpoint), compacted);
 
   const recovered = structuredClone(stored);
-  const recovery = recoverTurnCheckpoint(recovered);
+  const recovery = recoverTurnCheckpoint(recovered, structuredClone(stored));
   assert.equal(recovery.recovered, true);
   assert.deepEqual(recovered.messages, compacted);
 });
@@ -418,13 +439,21 @@ test('clear never runs a synchronous journal unlink and a follow-up turn opens a
   assert.ok(!unlinks.includes(journalPath), 'journal unlink ran on the event loop');
   // The next turn starts while the removal is still queued: its open must
   // land after the removal, never be deleted by it.
-  const next = createTurnCheckpointRecorder({ sessionId, generation: 3, turnToken: 'tok-next', startedAt: 3000 });
+  const nextOutgoing = [
+    { role: 'system', content: 'sys' },
+    { role: 'user', content: 'next prompt' },
+  ];
+  const next = createTurnCheckpointRecorder({
+    sessionId,
+    generation: 3,
+    turnToken: 'tok-next',
+    startedAt: 3000,
+    base: baseOf(nextOutgoing),
+  });
   next.record({
+    boundary: 1,
     currentUserContent: 'next prompt',
-    turnOutgoing: [
-      { role: 'system', content: 'sys' },
-      { role: 'user', content: 'next prompt' },
-    ],
+    turnOutgoing: nextOutgoing,
     interruption: createTurnInterruptionTracker(),
   });
   await settleTurnCheckpointWrites(sessionId);
@@ -448,18 +477,20 @@ test('a new turn fences an older IN-FLIGHT append (no stale turn under a new tok
     first.flush(); // genuinely in flight: accepted, not on disk
     first.recorder.stop();
 
+    const secondOutgoing = [
+      { role: 'system', content: 'sys' },
+      { role: 'user', content: 'second prompt' },
+    ];
     second = createTurnCheckpointRecorder({
       sessionId,
       generation: 3,
       turnToken: 'tok-second',
       startedAt: 2000,
+      base: baseOf(secondOutgoing),
     });
-    const secondOutgoing = [
-      { role: 'system', content: 'sys' },
-      { role: 'user', content: 'second prompt' },
-    ];
     assert.equal(
       second.record({
+        boundary: 1,
         currentUserContent: 'second prompt',
         turnOutgoing: secondOutgoing,
         interruption: createTurnInterruptionTracker(),
@@ -522,8 +553,8 @@ const sessionId = ${JSON.stringify(sessionId)};
 const prompt = 'exit prompt';
 const tracker = interruption.createTurnInterruptionTracker();
 const outgoing = [{ role: 'system', content: 'sys' }, { role: 'user', content: prompt }];
-const recorder = checkpoint.createTurnCheckpointRecorder({ sessionId, generation: 3, turnToken: 'tok-exit', startedAt: 1000 });
-const flush = () => recorder.record({ currentUserContent: prompt, turnOutgoing: outgoing, interruption: tracker });
+const recorder = checkpoint.createTurnCheckpointRecorder({ sessionId, generation: 3, turnToken: 'tok-exit', startedAt: 1000, base: { epoch: 'e0', refs: outgoing.slice(0, 1) } });
+const flush = () => recorder.record({ boundary: 1, currentUserContent: prompt, turnOutgoing: outgoing, interruption: tracker });
 flush();
 // Never resolves: the next append stays in flight, the one after it queues.
 journal._setJournalOpGateForTest(() => new Promise(() => {}));
