@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { createNoToolTurnResolver } from '../no-tool-turn.mjs';
-import { executeTodoTool } from '../../../runtime-core/todo-list.mjs';
+import { executeTodoTool, onTodoChange, todoSnapshot } from '../../../runtime-core/todo-list.mjs';
 import { createGoalRuntime } from '../../../runtime-core/goal-runtime.mjs';
 import { completeBackgroundTask, registerBackgroundTask } from '../../../../../shared/background-tasks.mjs';
 import { beginTodoTurn, noteTodoUserWait } from './todo-check.mjs';
@@ -117,4 +117,39 @@ test('an active Goal with every item closed asks once for the completion audit',
   assert.match(f.reminders().at(-1).content, /call goal with action complete; otherwise append the remaining work/);
   f.resolver.noteToolBatchCompleted([], []);
   assert.equal((await f.end()).action, 'break', 'asked once per cycle');
+});
+
+test('a new prompt lets go of a finished list; automatic turns, blocked items and an active Goal keep it', async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-todo-retire-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  const goals = createGoalRuntime({ dataDir });
+  const published = new Map();
+  const unsubscribe = onTodoChange(({ sessionId, todo }) => published.set(sessionId, todo));
+  t.after(async () => {
+    unsubscribe();
+    await goals.close();
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+
+  const done = fixture({ items: ['Only step'] });
+  executeTodoTool(done.session, { op: 'done', item: 'Only step' });
+  beginTodoTurn(done.session, { genuine: false });
+  assert.equal(todoSnapshot(done.session)?.completed, 1, 'the finished list stays through automatic turns');
+  beginTodoTurn(done.session, { genuine: true });
+  assert.equal(todoSnapshot(done.session), null);
+  assert.equal(published.get(done.session.id), null, 'the cleared list is published at once');
+
+  const blocked = fixture({ items: ['Only step'] });
+  executeTodoTool(blocked.session, { op: 'block', item: 'Only step', reason: 'waiting on the user' });
+  beginTodoTurn(blocked.session, { genuine: true });
+  assert.equal(todoSnapshot(blocked.session)?.total, 1, 'a blocked item is unfinished');
+
+  const audited = fixture({ items: ['Only step'] });
+  executeTodoTool(audited.session, { op: 'done', item: 'Only step' });
+  await goals.control(audited.session.id, { action: 'create', objective: 'Ship it' });
+  beginTodoTurn(audited.session, { genuine: true });
+  assert.equal(todoSnapshot(audited.session)?.completed, 1, 'an active Goal keeps its list for the audit');
 });
