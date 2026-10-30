@@ -26,7 +26,7 @@ test('a host without the visualize flag reads as having no tabs and gets no call
     assert.equal(shim.ctx.peerVisualize, false);
     const sent = shim.ctx.socket.sent.length;
     assert.deepEqual(await api.visualizeState(), []);
-    await api.visualizeCommand({ sessionId: 's1', tabId: 'v1', action: 'activate' });
+    await assert.rejects(api.visualizeCommand({ sessionId: 's1', tabId: 'v1', action: 'activate' }), /does not serve/);
     await assert.rejects(api.visualizePaneSource('s1', 'v1', 0), /does not serve/);
     assert.equal(shim.ctx.socket.sent.length, sent, 'nothing was sent to the older host');
   });

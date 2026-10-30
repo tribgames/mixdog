@@ -506,10 +506,13 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
       // session's Visualize panel through main's validated reopen. The target
       // goes as an absolute path: main checks it against the session's own
       // working directory (symlinks resolved) and a refusal, e.g. outside that
-      // directory, falls through to the regular opening below.
+      // directory, falls through to the regular opening below. A paired
+      // device sends only web pages there: its other previewable files keep
+      // the device's own viewer, while a page in the PC's browser pane shows
+      // a desktop-sized streamed tab instead of the phone-fitted panel.
       const projectFile =
         !external &&
-        !remote &&
+        (!remote || pageLink) &&
         !serverWindow &&
         !accessToken &&
         !directory &&
