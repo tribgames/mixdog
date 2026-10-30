@@ -62,8 +62,9 @@ export interface DesktopService {
     startedAt: number,
     signal?: AbortSignal
   ): Promise<SessionFinalAnswer | null>;
-  /** Base64 of a stored attachment blob; null when it is permanently unreadable. */
-  readAttachmentImage(attachmentRef: string): Promise<string | null>;
+  /** Base64 of a stored attachment blob; null when it is permanently unreadable
+   *  or, given `maxBytes`, larger than that on disk (decided without reading it). */
+  readAttachmentImage(attachmentRef: string, maxBytes?: number): Promise<string | null>;
   /** The session's transcript as this host holds it (the window its views
    *  were sent), read without publishing when nothing is held. Host-only:
    *  a paired device's full-output reads and its attachment lookups. */

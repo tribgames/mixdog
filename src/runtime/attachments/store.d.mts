@@ -1,4 +1,5 @@
 export function readAttachmentBuffer(value: string | { attachmentRef?: string }): Buffer;
+export function attachmentBlobSize(value: string | { attachmentRef?: string }, claimed?: number): number;
 export function isPermanentAttachmentError(error: unknown): boolean;
 export function isAttachmentReference(value: unknown): boolean;
 export interface MessageAttachment {

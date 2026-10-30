@@ -316,7 +316,7 @@ export function readAttachmentBase64(value) {
 // Real on-disk size of a referenced blob. Caps must never trust the client's
 // claimed sizeBytes; a blob that is not on disk cannot be read later either, so
 // only then does the claimed size stand.
-function attachmentBlobSize(value, claimed = 0) {
+export function attachmentBlobSize(value, claimed = 0) {
   try {
     return statSync(attachmentPath(typeof value === 'string' ? value : value?.attachmentRef)).size;
   } catch (error) {

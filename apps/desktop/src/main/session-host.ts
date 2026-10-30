@@ -29,6 +29,7 @@ import type {
   ToolApprovalDecision,
 } from '../shared/contract';
 import {
+  attachmentBlobSize,
   isAttachmentReference,
   isPermanentAttachmentError,
   readAttachmentBuffer,
@@ -608,9 +609,12 @@ export class SessionHost implements DesktopService {
     return this.transport.readSession(sessionId, forceFull, publish, readTraceId, page, signal);
   }
 
-  async readAttachmentImage(attachmentRef: string): Promise<string | null> {
+  async readAttachmentImage(attachmentRef: string, maxBytes?: number): Promise<string | null> {
     if (!isAttachmentReference({ attachmentRef })) return null;
     try {
+      // A blob over the caller's bound is decided by its size on disk: reading
+      // and hashing it would cost several times its size for a null answer.
+      if (maxBytes !== undefined && attachmentBlobSize(attachmentRef) > maxBytes) return null;
       return readAttachmentBuffer(attachmentRef).toString('base64');
     } catch (error) {
       if (isPermanentAttachmentError(error)) return null;

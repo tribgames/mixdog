@@ -860,8 +860,8 @@ export class DesktopServiceClient implements DesktopService {
   setQuotaAutoResume(enabled: boolean): Promise<boolean> {
     return this.invoke('setQuotaAutoResume', [enabled]);
   }
-  readAttachmentImage(attachmentRef: string): Promise<string | null> {
-    return this.invokeRead('readAttachmentImage', [attachmentRef]);
+  readAttachmentImage(attachmentRef: string, maxBytes?: number): Promise<string | null> {
+    return this.invokeRead('readAttachmentImage', maxBytes === undefined ? [attachmentRef] : [attachmentRef, maxBytes]);
   }
   /** The provenance behind attachment opens and file grants: main's IPC
    *  checks a request against the transcript the service holds. */
