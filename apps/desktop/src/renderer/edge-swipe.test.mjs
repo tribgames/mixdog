@@ -241,6 +241,24 @@ test('the open files dock leaves a horizontally scrollable region its own scroll
   env.dispose();
 });
 
+test('the open dock is swiped shut from the streamed browser page only through its edge grip', () => {
+  const env = setup();
+  env.state.right = true;
+  const stage = env.doc.createElement('div');
+  stage.className = 'browser-remote-stage';
+  const page = env.doc.createElement('div');
+  page.className = 'browser-pane-content';
+  const grip = env.doc.createElement('div');
+  grip.setAttribute('data-edge-swipe-grip', '');
+  stage.append(page, grip);
+  env.doc.getElementById('dock').append(stage);
+  drag(env, page, 100, 400, 50);
+  assert.deepEqual(env.calls, [], 'a drag on the page stays the PC page input');
+  drag(env, grip, 10, 400, 50);
+  assert.deepEqual(env.calls, ['right:false']);
+  env.dispose();
+});
+
 test('a slider on the open files dock keeps its drag; the dock stays open', () => {
   const env = setup();
   env.state.right = true;

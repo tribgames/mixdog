@@ -472,6 +472,15 @@ html[data-mixdog-mobile-tabs] .browser-remote-pane .browser-pane-toolbar .browse
 html[data-mixdog-mobile-tabs] .browser-remote-content {
   background: var(--mx-workspace-sheet);
 }
+/* The sheet's swipe-away strip on the streamed page's left edge (touches
+   there never reach the PC page); painted over the page, under its dialogs. */
+html[data-mixdog-mobile-tabs] .browser-remote-swipe-grip {
+  position: absolute;
+  inset-block: 0;
+  left: 0;
+  width: 20px;
+  touch-action: none;
+}
 
 /* Shortcuts: label left, keybind chip right, as on the PC. Only a chord that
    does not fit beside its label (Ctrl+Shift+Tab) wraps, and it wraps whole to
