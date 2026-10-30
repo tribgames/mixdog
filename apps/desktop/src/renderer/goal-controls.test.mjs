@@ -207,6 +207,50 @@ test('goal creation offers only an objective and a time limit and preserves inpu
   }
 });
 
+test('a stalled Goal is dismissed from its segment in one click, with no overshoot in its time', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const calls = [];
+  window.mixdogDesktop = {
+    invokeCapability: async (request) => {
+      calls.push(request);
+      return { value: { ok: true } };
+    },
+  };
+  const spent = {
+    id: 'goal-spent',
+    objective: 'Verify the markets',
+    status: 'duration_reached',
+    timeLimitMs: 21 * 3_600_000 + 23 * 60_000,
+    timeUsedMs: 23 * 3_600_000 + 26 * 60_000,
+    remainingMs: 0,
+  };
+  const render = (current) =>
+    act(async () =>
+      root.render(React.createElement(SessionGoalIsland, { snapshot: { sessionId: 'own-pane', goal: current } }))
+    );
+  try {
+    for (const status of ['duration_reached', 'blocked', 'paused', 'usage_limited']) {
+      calls.length = 0;
+      await render({ ...spent, id: `goal-${status}`, status });
+      const dismiss = host.querySelector('.session-goal-dismiss');
+      assert.ok(dismiss, `${status} Goal offers the segment dismiss`);
+      assert.equal(dismiss.closest('[inert]'), null);
+      await click(dismiss);
+      assert.deepEqual(calls.at(-1).args, [{ action: 'dismiss', expectedGoalId: `goal-${status}` }]);
+    }
+    await render(spent);
+    assert.ok(host.textContent.includes(t('{{hours}}h {{minutes}}m', { hours: 21, minutes: 23 }) + ' / '));
+    assert.equal(host.textContent.includes(t('{{hours}}h {{minutes}}m', { hours: 23, minutes: 26 })), false);
+    await render({ ...spent, id: 'goal-running', status: 'active' });
+    assert.equal(host.querySelector('.session-goal-dismiss'), null, 'running work is stopped, never dismissed');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
+  }
+});
+
 test('a finished Goal is dismissed from its segment or its tab; a running one offers no dismiss', async () => {
   const host = document.createElement('div');
   document.body.append(host);

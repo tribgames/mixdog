@@ -41,6 +41,7 @@ const SOURCE_RUNTIME_FIELDS = [
   'deferredInitialRefreshPending',
   'pendingGoalReminder',
   'goalReminderRevision',
+  'goalStalledNotice',
   // The source's own step list and its reminder cycle.
   'todo',
   'todoCheck',

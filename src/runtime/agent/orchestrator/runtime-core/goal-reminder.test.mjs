@@ -37,7 +37,7 @@ test('post-compaction Goal reminder renders durable state once and clears on acc
 });
 
 test('compaction preserves exact duration and elapsed time instead of losing the time commitment', () => {
-  for (const status of ['active', 'paused']) {
+  for (const status of ['active']) {
     const session = { id: `sess_goal_time_${status}` };
     const current = goal({ status, timeLimitMs: 3_600_000, timeUsedMs: 615_000 });
     markPendingGoalReminder(session, 'compaction');
@@ -70,13 +70,13 @@ test('a finished or missing Goal drops the pending reminder instead of re-readin
   assert.equal(missing.pendingGoalReminder, undefined);
 });
 
-test('an unfinished non-active Goal still renders so it survives compaction', () => {
-  const session = { id: 'sess_goal_reminder_paused' };
-  markPendingGoalReminder(session);
-  const snapshot = snapshotPendingGoalReminder(session, {
-    readGoal: () => goal({ status: 'paused' }),
-  });
-  assert.match(snapshot.content, /Status: paused/);
+test('compaction does not re-inject a stalled Goal; only a running one is restored', () => {
+  for (const status of ['paused', 'blocked', 'usage_limited', 'duration_reached']) {
+    const session = { id: `sess_goal_reminder_${status}` };
+    markPendingGoalReminder(session, 'compaction');
+    assert.equal(snapshotPendingGoalReminder(session, { readGoal: () => goal({ status }) }), null, status);
+    assert.equal(session.pendingGoalReminder, undefined);
+  }
 });
 
 test('a user-paused Goal reminder preserves the explicit resume boundary', () => {
@@ -152,14 +152,25 @@ test('request preparation finds a paused Goal without any intake marker and does
   assert.equal(snapshot.reason, 'paused');
   assert.deepEqual(paused, before);
   acknowledgePendingGoalReminder(session, snapshot.revision);
-  // Answering a question is not a resume. The next actual request still needs
-  // the durable state even though the prior marker was acknowledged.
-  const next = snapshotPendingGoalReminder(session, {
-    includePaused: true,
-    readGoal: () => paused,
-  });
-  assert.ok(next.revision > snapshot.revision);
+  // Answering a question is not a resume, and the model was already told: the
+  // stall is announced once, not on every later request.
+  assert.equal(snapshotPendingGoalReminder(session, { includePaused: true, readGoal: () => paused }), null);
   assert.deepEqual(paused, before);
+});
+
+test('a stalled Goal is announced once per stall, again only after it ran and stalled anew', () => {
+  const session = { id: 'sess_goal_stall_once' };
+  let current = goal({ status: 'blocked', blocker: 'Needs a key', turnCount: 3 });
+  const options = { includePaused: true, readGoal: () => current };
+  const first = snapshotPendingGoalReminder(session, options);
+  assert.match(first.content, /Status: blocked/);
+  acknowledgePendingGoalReminder(session, first.revision);
+  for (let turn = 0; turn < 3; turn += 1) assert.equal(snapshotPendingGoalReminder(session, options), null);
+
+  current = goal({ status: 'active', turnCount: 3 });
+  assert.equal(snapshotPendingGoalReminder(session, options), null);
+  current = goal({ status: 'blocked', blocker: 'Needs a key', turnCount: 4 });
+  assert.match(snapshotPendingGoalReminder(session, options).content, /Status: blocked/);
 });
 
 test('request preparation uses current state when input precedes pause and stays quiet otherwise', () => {
@@ -179,18 +190,16 @@ test('request preparation uses current state when input precedes pause and stays
   assert.equal(snapshotPendingGoalReminder(session, options), null);
 });
 
-test('compaction and objective reminders retain the current paused-state recovery guidance', () => {
-  for (const reason of ['compaction', 'objective-updated']) {
-    const session = { id: `sess_goal_${reason}` };
-    markPendingGoalReminder(session, reason);
-    const snapshot = snapshotPendingGoalReminder(session, {
-      includePaused: true,
-      readGoal: () => goal({ status: 'paused' }),
-    });
-    assert.equal(snapshot.reason, reason);
-    assert.match(snapshot.content, /The user paused this Goal/);
-    assert.match(snapshot.content, /until the user resumes it/);
-  }
+test('an objective edit reminder retains the current paused-state recovery guidance', () => {
+  const session = { id: 'sess_goal_objective-updated' };
+  markPendingGoalReminder(session, 'objective-updated');
+  const snapshot = snapshotPendingGoalReminder(session, {
+    includePaused: true,
+    readGoal: () => goal({ status: 'paused' }),
+  });
+  assert.equal(snapshot.reason, 'objective-updated');
+  assert.match(snapshot.content, /The user paused this Goal/);
+  assert.match(snapshot.content, /until the user resumes it/);
 });
 
 test('compaction re-injects the open todo list once, with or without a Goal', () => {

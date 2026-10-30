@@ -2377,6 +2377,8 @@
   "Go to Type Definition": "Перейти к определению типа",
   "Goal": "Цель",
   "Goal could not be started. Your input has been kept.": "Невозможно запустить цель. Ваш ввод сохранен.",
+  "Replace the current goal?": "Заменить текущую цель?",
+  "{{objective}} ({{status}}) will be replaced by the new goal.": "{{objective}} ({{status}}) будет заменена новой целью.",
   "Goal could not be updated.": "Не удалось обновить цель.",
   "Goal details": "Сведения о цели",
   "Goal objective": "Цель",

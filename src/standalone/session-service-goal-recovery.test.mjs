@@ -146,7 +146,8 @@ test('recreated session service projects every unexpired Goal cold and resumes o
       assert.equal(result.projection, true);
       assert.equal(result.full.goal.status, status);
       assert.equal(Object.hasOwn(result.full.goal, 'tasks'), false);
-      if (status === 'active') assert.equal(result.full.goal.timeUsedMs, 10_000);
+      // A cold projection credits no open segment a runtime did not persist.
+      if (status === 'active') assert.equal(result.full.goal.timeUsedMs, 5_000);
     }
     const archived = await service.subscribeSession({ sessionId: ids.archived }, { clientToken: 'viewer-archived' });
     assert.equal(archived.full.goal, null);

@@ -13,11 +13,12 @@ import {
   clearTurnFailures,
   parseGoalDuration,
   parseUserCommand,
+  publicGoal,
   resumeGoalState,
   stopActiveClock,
   validateObjective,
 } from './goal-state.mjs';
-import { assertExpectedGoal, goalFinished } from './goal-mutations.mjs';
+import { assertExpectedGoal, goalFinished, goalStalled } from './goal-mutations.mjs';
 import { clean } from '../../../shared/clean.mjs';
 
 /** "12m remaining" for a budgeted Goal, "3m elapsed" for an open-ended one. */
@@ -28,6 +29,9 @@ function goalTimingLabel(goal) {
 }
 
 const reply = (action, goal, message) => ({ ok: true, action, goal, message });
+
+/** `code` of the create answer that asks the user to confirm replacing a stalled Goal. */
+export const GOAL_REPLACE_REQUIRED = 'goal-replace-required';
 
 const GOAL_CONTROL_ACTIONS = {
   async stop(ctx, { id, expectedGoalId, action }) {
@@ -99,10 +103,16 @@ const GOAL_CONTROL_ACTIONS = {
     const goal = await ctx.updateGoal(id, { status: 'complete' });
     return reply(action, goal, `Goal complete · ${goal.objective} · ${durationLabel(goal.timeUsedMs)} elapsed`);
   },
-  async dismiss(ctx, { id, goal, at, action }) {
+  async dismiss(ctx, { id, goal, at, action, expectedGoalId }) {
+    // A stalled Goal waits for the user and nothing else retires it: dismissing
+    // it is the stop-and-archive the Stop control confirms.
+    if (goalStalled(goal)) {
+      await ctx.abandonGoal(id, { expectedGoalId, archive: true });
+      return reply(action, null, `Goal dismissed · ${goal.objective}`);
+    }
     // The user's acknowledgement of finished work: the same archive a new
     // prompt applies, so the chrome lets go while the record stays.
-    if (!goalFinished(goal)) throw new Error('only a finished Goal can be dismissed; stop or complete it first');
+    if (!goalFinished(goal)) throw new Error('only a finished or stalled Goal can be dismissed; stop it first');
     if (!goal.archivedAt) {
       goal.archivedAt = at;
       goal.updatedAt = at;
@@ -119,10 +129,33 @@ export async function runGoalControl(ctx, sessionId, rawArgs = {}) {
   else if (rawArgs?.command != null) args = { ...rawArgs, ...parseUserCommand(rawArgs.command) };
   const action = clean(args?.action || 'get').toLowerCase();
   if (action === 'create') {
+    const existing = ctx.readRecord(id).goal;
+    // Replacing a stalled Goal is the user's call: ask once, and let the same
+    // request come back with `replace` once they agree.
+    if (goalStalled(existing) && args.replace !== true) {
+      return {
+        ok: false,
+        action,
+        code: GOAL_REPLACE_REQUIRED,
+        goal: publicGoal(existing, ctx.now()),
+        message:
+          `A ${existing.status} Goal already exists · ${existing.objective}. ` +
+          `Run /goal --replace=${existing.id} followed by the new objective to replace it.`,
+      };
+    }
+    // The confirmation names the Goal the user saw; it runs inside the
+    // mutation queue, so a Goal that changed since refuses instead of retiring.
+    if (args.replace === true && existing) {
+      if (goalStalled(existing) && !clean(args.expectedGoalId)) {
+        throw new Error(`a replace must name the stalled Goal to retire (--replace=${existing.id})`);
+      }
+      if (clean(args.expectedGoalId)) assertExpectedGoal(existing, args.expectedGoalId, 'replace');
+    }
     const goal = await ctx.createGoal(id, {
       objective: args.objective,
       duration: args.duration,
       timeLimitMs: args.timeLimitMs,
+      replace: args.replace === true,
     });
     return reply(action, goal, `Goal active · ${goal.objective} · ${goalTimingLabel(goal)}`);
   }

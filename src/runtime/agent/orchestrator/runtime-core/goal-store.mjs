@@ -11,6 +11,7 @@ import {
   GOAL_FILE_VERSION,
   assertSessionId,
   completedGoalExpired,
+  discardUnobservedTime,
   normalizeStoredGoal,
   publicGoal,
 } from './goal-state.mjs';
@@ -18,9 +19,20 @@ import {
 export function createGoalStore(ctx) {
   const { root, dataDir, now, onStorageError, completedRetentionMs, listeners, mutationChains } = ctx;
   const pathFor = (sessionId) => join(root, `${assertSessionId(sessionId)}.json`);
+  // The first load of a session's record in this runtime: whatever stretch of
+  // an open clock segment no live runtime ran (closed app, sleeping PC) is not
+  // time the Goal spent. Later re-reads are this runtime's own writes.
+  const adopted = new Set();
   const storage = createGoalStorage({
     pathFor,
-    normalizeGoal: normalizeStoredGoal,
+    normalizeGoal(value, sessionId, at) {
+      const goal = normalizeStoredGoal(value, sessionId, at);
+      if (goal && !adopted.has(sessionId)) {
+        adopted.add(sessionId);
+        discardUnobservedTime(goal, at);
+      }
+      return goal;
+    },
     now,
     writeRecord: ctx.writeGoalRecord,
   });
@@ -74,6 +86,7 @@ export function createGoalStore(ctx) {
     let committedGoal = null;
     if (goal) {
       committedGoal = { ...goal, sessionId: id };
+      if (committedGoal.status === 'active') committedGoal.liveAt = now();
     }
     const rollback = async () => {
       try {
@@ -109,11 +122,14 @@ export function createGoalStore(ctx) {
     return publicGoal(committedGoal, now());
   };
 
+  // The heartbeat's write: durable liveness only, nothing for listeners.
+  const stampLive = (id, goal) => storage.write(id, { version: GOAL_FILE_VERSION, goal: { ...goal, sessionId: id } });
+
   const requireGoal = (sessionId) => {
     const record = readRecord(sessionId);
     if (!record.goal) throw new Error('no Goal exists for this session');
     return record.goal;
   };
 
-  return { readRecord, withMutation, storedSnapshot, visibleSnapshot, emit, commit, requireGoal };
+  return { readRecord, withMutation, storedSnapshot, visibleSnapshot, emit, commit, stampLive, requireGoal };
 }

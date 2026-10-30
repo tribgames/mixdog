@@ -2224,6 +2224,8 @@
   "Go to Type Definition": "轉到型別定義",
   "Goal": "目標",
   "Goal could not be started. Your input has been kept.": "無法啟動目標。您的輸入已被保留。",
+  "Replace the current goal?": "要取代目前的目標嗎？",
+  "{{objective}} ({{status}}) will be replaced by the new goal.": "{{objective}}（{{status}}）將被新目標取代。",
   "Goal could not be updated.": "無法更新目標。",
   "Goal details": "目標詳細資料",
   "Goal objective": "目標內容",

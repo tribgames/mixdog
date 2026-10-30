@@ -460,6 +460,9 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const showObjective = Boolean(objective) && Boolean(goal?.title) && title !== objective;
   const budget = goal ? goalBudgetFraction(goal, clock) : null;
   const terminal = goal?.status === 'complete' || goal?.status === 'stopped';
+  // A stalled Goal (paused, blocked, usage limited, time budget reached)
+  // waits for the user; the segment's × clears it like a finished one.
+  const dismissible = Boolean(goal) && goal?.status !== 'active';
   const exhausted = Number(goal?.timeLimitMs) > 0 && Number(goal?.remainingMs) === 0;
   const noteTone = kind === 'blocked' ? 'blocked' : kind === 'waiting' ? 'waiting' : undefined;
   const confirming = confirmStop && !terminal;
@@ -499,9 +502,9 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
           {segmentTime && <span className="session-goal-trigger-time">{segmentTime}</span>}
         </span>
       </button>
-      {/* A finished Goal lets go of its segment in one click; the open tab
-          carries the same action. */}
-      {terminal && (
+      {/* A finished or stalled Goal lets go of its segment in one click; a
+          finished one also carries the action in the open tab. */}
+      {dismissible && (
         <button
           type="button"
           className="session-goal-dismiss"
