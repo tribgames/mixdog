@@ -766,6 +766,9 @@ export class SessionHostLifecycle {
     if (sessionId !== request.sessionId) throw new Error('New task service returned a mismatched reserved session id.');
     this.owner.pendingCatalogSessionIds.add(sessionId);
     this.owner.applySessionResult(sessionId, created);
+    // A replay (receipt past `reserved`) may follow an ambiguous send, so only
+    // a first attempt that fails before goalControl/submit gets a new address.
+    let unsent = request.phase === 'reserved';
     try {
       // Record the applied draft, so a replay after an ambiguous submission
       // goes straight to the idempotent submit even if the draft's workflow,
@@ -819,6 +822,7 @@ export class SessionHostLifecycle {
           );
         }
       }
+      unsent = false;
       const goalCommand = String(options.goalCommand || '').trim();
       if (goalCommand) {
         const goalResult = await this.owner.invokeSession(sessionId, 'goalControl', [
@@ -874,6 +878,9 @@ export class SessionHostLifecycle {
       void this.owner.publishCatalogs();
       return { accepted: true, sessionId, snapshot };
     } catch (error) {
+      // The daemon destroys the unclaimed reservation on unsubscribe, so the
+      // receipt must stop pointing at it. A failed reset keeps the original error.
+      if (unsent) await request.reset().catch(() => undefined);
       await this.unsubscribeQuietly(sessionId);
       throw error;
     } finally {

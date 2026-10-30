@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { chmod, mkdir, open, stat } from 'node:fs/promises';
 import type { Stats } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -19,6 +19,10 @@ export interface NewTaskRequest {
   readonly sessionId: string;
   readonly phase: Phase;
   commit(phase: 'configured' | 'accepted'): Promise<void>;
+  /** Back to `reserved` on a fresh session address, for an attempt that failed
+   * before anything that could have been accepted was sent: the old
+   * reservation is destroyed unclaimed, so a resend must not resume it. */
+  reset(): Promise<void>;
 }
 
 // The receipts folder is made owner-only ONCE per process, before any receipt
@@ -163,6 +167,15 @@ export class NewTaskRequests {
         },
         async commit(phase) {
           const next = { ...receipt, phase };
+          await writeReceipt(path, next);
+          receipt = next;
+        },
+        async reset() {
+          const next: Receipt = {
+            signature,
+            sessionId: `sess_desktop_${randomBytes(32).toString('hex')}`,
+            phase: 'reserved',
+          };
           await writeReceipt(path, next);
           receipt = next;
         },

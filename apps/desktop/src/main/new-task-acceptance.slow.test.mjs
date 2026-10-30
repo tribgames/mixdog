@@ -25,24 +25,37 @@ async function fixture(t, kind = 'prompt') {
     names: { keeper: 'User name' },
   });
   await fsp.writeFile(metadataPath, original);
-  const state = { accepted: false, allow: true, creates: [], submits: [], goals: [], unsubscribes: [] };
+  const state = {
+    accepted: false,
+    allow: true,
+    creates: [],
+    submits: [],
+    goals: [],
+    unsubscribes: [],
+    // The daemon destroys an unclaimed reservation on unsubscribe; such an address cannot be resumed.
+    dead: new Set(),
+    current: sessionId,
+  };
   const warnings = [];
   const errors = [];
   t.mock.method(console, 'warn', (...args) => warnings.push(args));
   t.mock.method(console, 'error', (...args) => errors.push(args));
-  const full = () => ({ sessionId, items: [], queued: [], busy: state.accepted });
+  const full = () => ({ sessionId: state.current, items: [], queued: [], busy: state.accepted });
   const client = {
     list: async () => ({
-      sessions: state.accepted ? [{ id: sessionId, preview: 'Accepted work', messageCount: 1 }] : [],
+      sessions: state.accepted ? [{ id: state.current, preview: 'Accepted work', messageCount: 1 }] : [],
     }),
     async create(params) {
+      if (state.dead.has(params.sessionId)) throw new Error(`session ${params.sessionId} could not be resumed`);
       state.creates.push(params.sessionId);
+      state.current = params.sessionId;
       return { sessionId: params.sessionId, revision: 0, full: full() };
     },
     async submit(params) {
+      assert.ok(!state.dead.has(params.sessionId), 'submit on a destroyed reservation');
       state.submits.push({ sessionId: params.sessionId, id: params.options.id });
       state.accepted = state.allow;
-      return { sessionId, accepted: state.accepted, revision: 1, full: full() };
+      return { sessionId: state.current, accepted: state.accepted, revision: 1, full: full() };
     },
     async configure(params) {
       if (state.onConfigure && params.action !== 'goalControl') return state.onConfigure(params);
@@ -50,7 +63,7 @@ async function fixture(t, kind = 'prompt') {
       state.goals.push(params.sessionId);
       state.accepted = state.allow;
       return {
-        sessionId,
+        sessionId: state.current,
         revision: 1,
         full: full(),
         value: state.accepted
@@ -58,9 +71,12 @@ async function fixture(t, kind = 'prompt') {
           : { ok: false, message: 'Goal refused' },
       };
     },
-    read: async () => ({ sessionId, revision: 1, full: full() }),
+    read: async () => ({ sessionId: state.current, revision: 1, full: full() }),
     async unsubscribe(params) {
       state.unsubscribes.push(params.sessionId);
+      if (!state.submits.some((s) => s.sessionId === params.sessionId) && !state.goals.includes(params.sessionId)) {
+        state.dead.add(params.sessionId);
+      }
       return {};
     },
     close: async () => {},
@@ -258,9 +274,9 @@ test('a worktree draft enters its worktree before the prompt is submitted; a lar
       });
     }
     return {
-      sessionId: f.sessionId,
+      sessionId: f.state.current,
       revision: 1,
-      full: { sessionId: f.sessionId, items: [] },
+      full: { sessionId: f.state.current, items: [] },
       value: { pending: false, workspace: { worktreeId: 'add-dark-mode' } },
     };
   };
@@ -287,6 +303,36 @@ test('a worktree draft enters its worktree before the prompt is submitted; a lar
   assert.equal(f.state.submits.length, 1);
 });
 
+test('a worktree refusal before submission leaves the same submission id resendable on a fresh reservation', async (t) => {
+  const f = await fixture(t);
+  f.state.onConfigure = async (params) => {
+    if (params.action === 'requestWorktree') {
+      throw Object.assign(new Error('This folder does not support worktrees.'), { code: 'WORKTREE_UNSUPPORTED_REPO' });
+    }
+    assert.equal(params.action, 'selectBranch');
+    return {
+      sessionId: f.state.current,
+      revision: 1,
+      full: { sessionId: f.state.current, items: [] },
+      value: { workspace: { branch: 'main', worktreeId: null } },
+    };
+  };
+  await assert.rejects(f.host.submitNewTask('Accepted work', f.options, { worktree: {} }), /^Error: WORKTREE_UNSUPPORTED_REPO/);
+  assert.ok(f.state.dead.has(f.sessionId), 'the unclaimed reservation was destroyed');
+  const reset = f.receipt();
+  assert.equal(reset.phase, 'reserved');
+  assert.notEqual(reset.sessionId, f.sessionId);
+  assert.match(reset.sessionId, /^[A-Za-z0-9_-]+$/);
+  assert.deepEqual(f.state.submits, []);
+
+  const accepted = await f.host.submitNewTask('Accepted work', f.options, { worktree: { branch: 'main' } });
+  assert.equal(accepted.accepted, true);
+  assert.equal(accepted.sessionId, reset.sessionId);
+  assert.deepEqual(f.state.creates, [f.sessionId, reset.sessionId]);
+  assert.deepEqual(f.state.submits, [{ sessionId: reset.sessionId, id: f.options.id }]);
+  assert.deepEqual(f.receipt(), { signature: reset.signature, sessionId: reset.sessionId, phase: 'accepted' });
+});
+
 for (const create of [false, true]) {
   test(`a branch draft resolves its checkout before first send (create=${create})`, async (t) => {
     const f = await fixture(t, `branch-${create}`);
@@ -297,9 +343,9 @@ for (const create of [false, true]) {
       assert.equal(f.state.submits.length, 0, 'the prompt cannot precede the workspace move');
       requests.push(params.args[0]);
       return {
-        sessionId: f.sessionId,
+        sessionId: f.state.current,
         revision: 1,
-        full: { sessionId: f.sessionId, items: [] },
+        full: { sessionId: f.state.current, items: [] },
         value: { workspace: { branch: applied ? 'feature/login' : 'main', worktreeId: create ? 'login' : null } },
       };
     };
@@ -353,9 +399,9 @@ test('a worktree draft whose session cannot be created (no model) or is not boun
     }
     // A runtime that only armed the lazy intent.
     return {
-      sessionId: f.sessionId,
+      sessionId: f.state.current,
       revision: 1,
-      full: { sessionId: f.sessionId, items: [] },
+      full: { sessionId: f.state.current, items: [] },
       value: { pending: true },
     };
   };
