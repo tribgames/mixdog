@@ -29,6 +29,7 @@ export function createPluginsResourceApi({ deps, sync, decorate }) {
     pluginsStatus,
     resolveMcpCatalog = () => ({ adoption: null }),
     flushSkillsSave,
+    invalidateSkills,
   } = deps;
   const pluginData = () => cfgMod.getPluginData?.();
 
@@ -59,6 +60,9 @@ export function createPluginsResourceApi({ deps, sync, decorate }) {
       return { plugin, status: pluginsStatus() };
     },
     async updatePlugin(plugin = {}) {
+      // Windows refuses to rename a directory holding an open recursive
+      // skill watch, so drop the watchers before the root is swapped.
+      invalidateSkills?.();
       const updated = registryUpdatePlugin(pluginKey(plugin), { dataDir: pluginData() });
       await adoptPluginServerCopies();
       await sync.reconcilePluginsAndAnnounce();
