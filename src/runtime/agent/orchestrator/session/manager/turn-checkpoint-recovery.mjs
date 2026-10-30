@@ -16,6 +16,7 @@ import {
   reportCheckpointConflict,
 } from './turn-checkpoint.mjs';
 import {
+  finishPendingSetAside,
   listUnrecoveredTurnCheckpoints,
   removeUnrecoveredTurnCheckpoint,
   setAsideTurnCheckpoint,
@@ -35,21 +36,27 @@ import { hasUnsettledTurn, TurnPersistenceError, turnCoveredOnDisk } from './tur
  *  TurnPersistenceError when it cannot be moved, so no new checkpoint is
  *  written over it. */
 export function setAsideUnrecoveredCheckpoint(session, sessionId) {
-  const checkpoint = readTurnCheckpoint(sessionId);
-  if (checkpoint && turnCoveredOnDisk(session, checkpoint.turnToken)) {
-    clearTurnCheckpoint(sessionId, checkpoint.turnToken);
-    return;
-  }
-  try {
-    if (setAsideTurnCheckpoint(sessionId) === null) return;
-  } catch (error) {
-    throw new TurnPersistenceError(
+  const refused = (error) =>
+    new TurnPersistenceError(
       sessionId,
       'an unrecovered turn checkpoint could not be set aside, so the next turn cannot start',
       error
     );
+  // An interrupted move first: until it is finished nothing below may run.
+  const unfinished = finishPendingSetAside(sessionId);
+  if (unfinished.pending) throw refused(null);
+  let moved = unfinished.key !== null;
+  const checkpoint = readTurnCheckpoint(sessionId);
+  if (checkpoint && turnCoveredOnDisk(session, checkpoint.turnToken)) {
+    clearTurnCheckpoint(sessionId, checkpoint.turnToken);
+  } else {
+    try {
+      if (setAsideTurnCheckpoint(sessionId) !== null) moved = true;
+    } catch (error) {
+      throw refused(error);
+    }
   }
-  listUnrecoveredTurns(session, sessionId);
+  if (moved) listUnrecoveredTurns(session, sessionId);
 }
 
 /** Re-read the set-aside checkpoints of `sessionId`: delete those the durable
@@ -58,11 +65,14 @@ function listUnrecoveredTurns(session, sessionId, durableRecord = undefined) {
   const entries = listUnrecoveredTurnCheckpoints(sessionId);
   let durable = durableRecord;
   const kept = [];
-  for (const { key, checkpoint } of entries) {
+  for (const { key, checkpoint, pending } of entries) {
     if (durable === undefined) durable = readDurableSessionRecord(sessionId);
     const disposition = checkpoint
       ? checkpointDisposition(durable, checkpoint)
-      : { action: 'conflict', reason: 'the checkpoint header is unreadable' };
+      : {
+          action: 'conflict',
+          reason: pending ? 'its set-aside is not finished yet' : 'the checkpoint header is unreadable',
+        };
     if (disposition.action === 'covered') {
       removeUnrecoveredTurnCheckpoint(sessionId, key);
       continue;
@@ -99,8 +109,15 @@ export function _recoverTurnCheckpointDurably(session, sessionId, durable = unde
   const recovery = recoverTurnCheckpoint(session, durable);
   // The record on disk already carries the turn: only the checkpoint goes.
   if (recovery.covered) clearTurnCheckpoint(sessionId, recovery.turnToken);
-  if (recovery.conflict) setAsideUnrecoveredCheckpoint(session, sessionId);
-  else listUnrecoveredTurns(session, sessionId, durable);
+  if (recovery.conflict) {
+    try {
+      setAsideUnrecoveredCheckpoint(session, sessionId);
+    } catch {
+      // Still in place (or half-moved, which no reader replays): the next
+      // turn's guard retries before it may write a checkpoint.
+      listUnrecoveredTurns(session, sessionId, durable);
+    }
+  } else listUnrecoveredTurns(session, sessionId, durable);
   if (!recovery.changed) return recovery;
   // Recovery is a durable reconnect boundary, not a renderer-only view.
   // Persist (with the turn's coverage) before removing the checkpoint so a
