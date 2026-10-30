@@ -56,7 +56,12 @@ export function sessionRemoteMethods(
       );
     },
     readAttachmentThumbnail: ([attachmentRef]) =>
-      readAttachmentThumbnail(attachmentRef, (ref) => host.readAttachmentImage(ref), null, REMOTE_ORIGINAL_MAX_BYTES),
+      readAttachmentThumbnail(
+        attachmentRef,
+        (ref) => host.readAttachmentImage(ref, REMOTE_ORIGINAL_MAX_BYTES),
+        null,
+        REMOTE_ORIGINAL_MAX_BYTES
+      ),
     // The other half of the phone's output cap (remote-transcript.ts): the
     // uncapped result of one tool row, read from the host's held transcript.
     readTranscriptItem: async ([sessionId, itemId]) => {
