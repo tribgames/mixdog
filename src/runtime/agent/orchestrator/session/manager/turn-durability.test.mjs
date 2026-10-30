@@ -176,6 +176,134 @@ test('compaction keeping the prompt, with its save failed, recovers the compacte
   }
 });
 
+// ── Legacy checkpoints (written before checkpoints named their base) ────────
+
+const { contextMessagesSignature } = await import('../context-utils.mjs');
+const { turnCheckpointPath } = await import('./turn-checkpoint-journal.mjs');
+
+/** A checkpoint header exactly as the previous release wrote it: the turn's
+ *  own messages from its prompt, the prefix only in its context state. */
+function writeLegacyCheckpoint(id, prefix, turnMessages, { token = `legacy-${id}`, contextState = true } = {}) {
+  writeFileSync(
+    turnCheckpointPath(id),
+    JSON.stringify({
+      sessionId: id,
+      generation: 1,
+      turnToken: token,
+      startedAt: 1,
+      currentUserContent: turnMessages[0].content,
+      turnMessages,
+      interruption: {
+        responseStarted: true,
+        partialAssistantContent: 'legacy partial',
+        partialReasoningContent: '',
+        phase: 'streaming',
+        observedToolCalls: [],
+        observedToolResults: [],
+      },
+      contextState: contextState
+        ? {
+            version: 1,
+            committedPrefixCount: prefix.length,
+            committedPrefixSignature: contextMessagesSignature(prefix, prefix.length),
+          }
+        : null,
+      version: 1,
+      updatedAt: 2,
+    })
+  );
+  return token;
+}
+
+test('a legacy checkpoint on exactly the prefix it recorded replays once on upgrade', () => {
+  const id = 'durable_legacy_replay';
+  const prefix = [{ role: 'system', content: 'sys' }, user('earlier'), assistant('earlier answer')];
+  const token = writeLegacyCheckpoint(id, prefix, [user('legacy prompt')]);
+  writeFileSync(sessionFile(id), JSON.stringify(record(id, prefix)));
+  const session = record(id, prefix);
+  const recovery = _recoverTurnCheckpointDurably(session, id);
+  assert.equal(recovery.recovered, true);
+  assert.deepEqual(texts(session.messages).slice(0, 4), [
+    'system:sys',
+    'user:earlier',
+    'assistant:earlier answer',
+    'user:legacy prompt',
+  ]);
+  assert.ok(session.messages.some((message) => String(message.content).includes('legacy partial')));
+  assert.equal(readDurableSessionRecord(id).turnCoverage, token, 'saved with its coverage');
+  assert.equal(readTurnCheckpoint(id), null);
+});
+
+test('a legacy checkpoint that cannot prove its base is set aside, and the next turn never overwrites it', async () => {
+  await _withRegisteredProviderForTestAsync('anthropic-oauth', provider, async () => {
+    const session = createSession({
+      provider: 'anthropic-oauth',
+      model: 'claude-opus-5-5',
+      cwd: root,
+      skipSkills: true,
+      workflow: { id: 'headless', delegatesAgents: false },
+    });
+    const id = session.id;
+    // The crashed old-format turn recorded no prefix: recovery cannot apply it.
+    const token = writeLegacyCheckpoint(id, [], [user('unsaved legacy turn')], { contextState: false });
+    await askSession(id, 'new task', null, null, null, null, {});
+    const { awaitPreviousTurnDurable } = await import('./turn-durability.mjs');
+    await awaitPreviousTurnDurable(id);
+    const { listUnrecoveredTurnCheckpoints } = await import('./turn-checkpoint-journal.mjs');
+    const kept = listUnrecoveredTurnCheckpoints(id);
+    assert.equal(kept.length, 1);
+    assert.equal(kept[0].checkpoint.turnToken, token);
+    assert.equal(kept[0].checkpoint.turnMessages[0].content, 'unsaved legacy turn');
+    assert.equal(readTurnCheckpoint(id), null, "the new turn's own checkpoint settled normally");
+    // The read-only view surfaces it, from the durable record.
+    const stored = readDurableSessionRecord(id);
+    assert.equal(stored.unrecoveredTurns?.[0]?.turnToken, token);
+    const { projectStoredTranscript } = await import('../store-transcript-projection.mjs');
+    const view = await projectStoredTranscript(id, stored, { itemLimit: 10, checkpointAbsent: true });
+    assert.equal(view.unrecoveredTurns?.[0]?.turnToken, token);
+    // Another turn, and a restart's recovery, still keep it.
+    await askSession(id, 'another task', null, null, null, null, {});
+    await awaitPreviousTurnDurable(id);
+    _recoverTurnCheckpointDurably(structuredClone(readDurableSessionRecord(id)), id);
+    assert.equal(listUnrecoveredTurnCheckpoints(id).length, 1);
+  });
+});
+
+test('a new-format conflict is set aside before the next turn, and deleted only once disk covers it', async () => {
+  await _withRegisteredProviderForTestAsync('anthropic-oauth', provider, async () => {
+    const session = createSession({
+      provider: 'anthropic-oauth',
+      model: 'claude-opus-5-5',
+      cwd: root,
+      skipSkills: true,
+      workflow: { id: 'headless', delegatesAgents: false },
+    });
+    const id = session.id;
+    const { saveSession } = await import('../store.mjs');
+    saveSession(session, { sync: true });
+    // A crashed turn taken against a base the record is not of.
+    const turn = openTurn(id, [{ role: 'system', content: 'other base' }], 'lost turn', {
+      epoch: 'not-on-disk',
+      token: `conflict-${id}`,
+    });
+    await settleTurnCheckpointWrites(id);
+    await askSession(id, 'next task', null, null, null, null, {});
+    const { awaitPreviousTurnDurable } = await import('./turn-durability.mjs');
+    await awaitPreviousTurnDurable(id);
+    const { listUnrecoveredTurnCheckpoints } = await import('./turn-checkpoint-journal.mjs');
+    const [kept] = listUnrecoveredTurnCheckpoints(id);
+    assert.equal(kept?.checkpoint?.turnToken, turn.token);
+    assert.match(readDurableSessionRecord(id).unrecoveredTurns[0].reason, /base/);
+    // Explicit evidence: a record carrying the turn's coverage.
+    const disk = readDurableSessionRecord(id);
+    writeFileSync(sessionFile(id), JSON.stringify({ ...disk, turnCoverage: turn.token }));
+    const restarted = readDurableSessionRecord(id);
+    _recoverTurnCheckpointDurably(restarted, id);
+    assert.equal(listUnrecoveredTurnCheckpoints(id).length, 0);
+    assert.equal(restarted.unrecoveredTurns, undefined);
+  });
+});
+
 // ── Through askSession: the next turn's gate ────────────────────────────────
 
 const USAGE = { inputTokens: 10, outputTokens: 5, cachedTokens: 0, cacheWriteTokens: 0 };
