@@ -11,7 +11,7 @@ test('goal masks restore rejected submissions and admit real goal updates and se
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
-  const oldGoal = { id: 'old', status: 'complete', title: 'Previous work', tasks: [] };
+  const oldGoal = { id: 'old', status: 'complete', title: 'Previous work' };
   function Goal({ goal, session }) {
     const visible = useGoalAfterSubmission(goal, session);
     return visible ? React.createElement('p', null, visible.title) : null;

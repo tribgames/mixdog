@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { isAgentHomeSessionId } from '../../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { BOT_DELETED_EVENT } from '../agent-profile-actions';
 import { navigationKey } from '../text-format';
@@ -49,21 +49,6 @@ export function useAppSessionActivity({
   subscribeSessionsRemoved,
   closePaneTab,
 }: SessionActivityOptions) {
-  // Re-evaluate unread consumption when a desktop window or phone resumes.
-  const [windowFocusTick, setWindowFocusTick] = useState(0);
-  useEffect(() => {
-    const onEngage = () => setWindowFocusTick((tick) => (tick + 1) % 1_000_000);
-    window.addEventListener('focus', onEngage);
-    // A resumed phone does not reliably pair its return with visibilitychange.
-    window.addEventListener('pageshow', onEngage);
-    document.addEventListener('visibilitychange', onEngage);
-    return () => {
-      window.removeEventListener('focus', onEngage);
-      window.removeEventListener('pageshow', onEngage);
-      document.removeEventListener('visibilitychange', onEngage);
-    };
-  }, []);
-
   // A phone holds no turn of its own: only the conversation it shows can be
   // interrupted by adopting a deploy, not every agent working on the desktop.
   const shown = isMobileRemoteSurface() ? new Set(currentVisibleSessionIds()) : null;
@@ -128,5 +113,5 @@ export function useAppSessionActivity({
       live = false;
     };
   }, [refreshSessions, setSessionCatalogReady]);
-  return { windowFocusTick, runningAutomationNames };
+  return { runningAutomationNames };
 }

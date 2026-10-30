@@ -319,7 +319,9 @@ async function chainRoot(t) {
 
 test("a consumer's next search supersedes its previous one; other consumers and an aborted signal behave alone", async (t) => {
   const root = await chainRoot(t);
-  const slow = { maxScannedEntries: 1, yieldEvery: 1, includeDirectories: true };
+  // The walks outlive no time budget here: only supersession or the signal
+  // may cut one short, however slowly the disk answers.
+  const slow = { maxScannedEntries: 1, yieldEvery: 1, includeDirectories: true, beyondBudgetMs: 120_000 };
   const deep = `${Array(40).fill('d').join('/')}/needle-end.txt`;
   const first = searchProjectDirectory(root, 'needle', 10, { ...slow, consumer: 'window-1' });
   const other = searchProjectDirectory(root, 'needle-end', 10, { ...slow, consumer: 'window-2' });

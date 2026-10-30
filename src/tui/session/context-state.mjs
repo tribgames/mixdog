@@ -7,6 +7,7 @@
  */
 import { contextMeasurementStats } from '../../runtime/shared/context-measurement.mjs';
 import { goalStateSnapshot } from '../../runtime/agent/orchestrator/runtime-core/goal-state.mjs';
+import { todoSnapshot } from '../../runtime/agent/orchestrator/runtime-core/todo-list.mjs';
 
 export function createContextState({
   runtime,
@@ -92,6 +93,8 @@ export function createContextState({
     // The daemon-queued quota resume of this session id (identity-stable while
     // unchanged), so a resume or session switch republishes it with the route.
     quotaResume: typeof getQuotaResume === 'function' ? getQuotaResume() : null,
+    // The session's own step list (identity-stable while unchanged); null when empty.
+    todo: todoSnapshot(runtime.session),
   });
 
   const routeState = () => {

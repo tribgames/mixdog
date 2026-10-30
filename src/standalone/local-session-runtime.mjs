@@ -17,6 +17,7 @@ import { createToolCardResults } from '../tui/session/tool-card-results.mjs';
 import { createAgentJobFeed } from '../tui/session/agent-job-feed.mjs';
 import { createWorktreeSetupNotices } from '../tui/session/worktree-setup-notice.mjs';
 import { createContextState } from '../tui/session/context-state.mjs';
+import { onTodoChange, todoSnapshot } from '../runtime/agent/orchestrator/runtime-core/todo-list.mjs';
 import { createSessionFlow } from '../tui/session/session-flow.mjs';
 import { createRunTurn } from '../tui/session/turn.mjs';
 import { createQuotaResumeLane } from '../tui/session/quota-resume.mjs';
@@ -399,6 +400,12 @@ export async function createLocalSessionRuntime({
       bag.scheduleGoalContinuation?.();
     });
   }
+
+  // A todo call republishes the list at once, not on the next 2s pulse.
+  lifecycle.unsubscribeTodo = onTodoChange(({ sessionId }) => {
+    if (flags.disposed || flags.pendingSessionReset || !sessionId || sessionId !== runtime.id) return;
+    set({ todo: todoSnapshot(runtime.session) });
+  });
 
   const { patchToolCardResult, flushToolResults } = createToolCardResults({
     getState,

@@ -160,17 +160,20 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
     };
   }, []);
 
-  const refreshSessions = useCallback(async () => {
-    const host = window.mixdogDesktop;
-    if (!host?.listSessions) return [];
-    const version = ++refreshVersion.current;
-    const next = await host.listSessions();
-    const rows = projectSessionRows(next);
-    if (version === refreshVersion.current) {
-      return commitProjectedRows(rows, false);
-    }
-    return rows;
-  }, [commitProjectedRows, projectSessionRows]);
+  const refreshSessions = useCallback(
+    async (lowPriority = false) => {
+      const host = window.mixdogDesktop;
+      if (!host?.listSessions) return [];
+      const version = ++refreshVersion.current;
+      const next = await host.listSessions();
+      const rows = projectSessionRows(next);
+      if (version === refreshVersion.current) {
+        return commitProjectedRows(rows, lowPriority);
+      }
+      return rows;
+    },
+    [commitProjectedRows, projectSessionRows]
+  );
 
   // Push-capable desktop hosts own freshness through their store watcher.
   // Browser shims without that lane retain the bounded fallback poll.
@@ -179,15 +182,23 @@ export function useSessionCatalog(reconcileUnreadSessions: (rows: DesktopSession
       if (document.visibilityState !== 'visible') return;
       void refreshSessions().catch(() => undefined);
     };
+    // Coming back to the window is the moment its first frames must show
+    // what it showed when it left: the catch-up catalog commits as a
+    // transition, after those frames, instead of re-laying the sidebar out
+    // in the frame that returns.
+    const refreshOnReturn = () => {
+      if (document.visibilityState !== 'visible') return;
+      void refreshSessions(true).catch(() => undefined);
+    };
     const pushCapable = typeof window.mixdogDesktop?.subscribeSessions === 'function';
     const timer = pushCapable ? undefined : window.setInterval(refresh, FALLBACK_POLL_INTERVAL_MS);
-    document.addEventListener('visibilitychange', refresh);
+    document.addEventListener('visibilitychange', refreshOnReturn);
     // Schedule surfaces (Run now / save) announce new background sessions
     // immediately instead of waiting out the poll interval.
     window.addEventListener('mixdog:sessions-refresh', refresh as EventListener);
     return () => {
       if (timer !== undefined) window.clearInterval(timer);
-      document.removeEventListener('visibilitychange', refresh);
+      document.removeEventListener('visibilitychange', refreshOnReturn);
       window.removeEventListener('mixdog:sessions-refresh', refresh as EventListener);
     };
   }, [refreshSessions]);

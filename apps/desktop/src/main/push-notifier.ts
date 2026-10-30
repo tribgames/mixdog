@@ -66,23 +66,18 @@ interface PendingInputSnapshot {
     id?: unknown;
     status?: unknown;
     blocker?: unknown;
-    tasks?: ReadonlyArray<{ id?: unknown; status?: unknown }>;
   } | null;
 }
 
 /** The session runtime has no ask-user tool; the way a session waits for the
- *  user is its Goal: a blocked Goal, or tasks parked `awaiting_approval` (the
- *  user's own action) once the turn has gone idle. Returns an identity for the
- *  wait, or null when nothing is waiting. */
+ *  user is its Goal: a blocked Goal. Returns an identity for the wait, or null
+ *  when nothing is waiting. */
 function pendingInputKey(snapshot: PendingInputSnapshot | null | undefined): string | null {
   const goal = snapshot?.goal;
   if (!goal) return null;
   const goalId = String(goal.id ?? 'goal');
   if (goal.status === 'blocked') return `${goalId}:blocked:${String(goal.blocker ?? '')}`;
-  if (goal.status !== 'active' || snapshot?.busy || snapshot?.commandBusy) return null;
-  const parked = (goal.tasks ?? []).filter((task) => task?.status === 'awaiting_approval');
-  if (parked.length === 0) return null;
-  return `${goalId}:parked:${parked.map((task) => String(task.id ?? '')).join(',')}`;
+  return null;
 }
 
 export interface HeldRequestPush {

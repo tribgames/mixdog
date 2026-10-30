@@ -59,6 +59,16 @@ export function installTestDom(t, options = {}) {
       frames.delete(handle);
       clearTimeout(handle);
     },
+    // jsdom has no ResizeObserver, which every browser the renderer runs in
+    // has (scroll-progress binds one on every scroller). jsdom renders no
+    // boxes, and an observer only reports a box that is rendered with a
+    // non-zero size, so this one never delivers. A suite that drives resizes
+    // installs its own, before this call or through `globals`.
+    ResizeObserver: globalThis.ResizeObserver ?? class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
     ...Object.fromEntries(expose.map((key) => [key, window[key]])),
     ...globals,
   };

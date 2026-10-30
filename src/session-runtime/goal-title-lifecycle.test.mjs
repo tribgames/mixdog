@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import test from 'node:test';
 import { createGoalRuntime } from '../runtime/agent/orchestrator/runtime-core/goal-runtime.mjs';
 
-test('a title queued behind an accepted task write cannot commit after runtime close', async () => {
+test('a title queued behind an accepted Goal write cannot commit after runtime close', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-title-close-'));
   const generated = Promise.withResolvers();
   const writeStarted = Promise.withResolvers();
@@ -33,10 +33,7 @@ test('a title queued behind an accepted task write cannot commit after runtime c
     });
     pending = runtime.executeTool(
       'goal',
-      {
-        action: 'set_tasks',
-        tasks: [{ text: 'Accepted task update', status: 'in_progress' }],
-      },
+      { action: 'block', blocker: 'Accepted blocker update' },
       { sessionId: 'session-title' }
     );
     await writeStarted.promise;
@@ -53,7 +50,7 @@ test('a title queued behind an accepted task write cannot commit after runtime c
     await new Promise(setImmediate);
     const stored = JSON.parse(readFileSync(join(dataDir, 'goals', 'session-title.json'), 'utf8')).goal;
     assert.equal(stored.title, created.goal.title);
-    assert.equal(stored.tasks[0].text, 'Accepted task update');
+    assert.equal(stored.blocker, 'Accepted blocker update');
     assert.equal(writes, 2);
   } finally {
     writeGate.resolve();

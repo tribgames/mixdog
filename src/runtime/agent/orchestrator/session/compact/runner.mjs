@@ -421,6 +421,9 @@ function prependLatestUserContext(message, prefix) {
   if (replacesGoalState) {
     suffix = suffix.replace(/<system-reminder>\s*<goal_state>[\s\S]*?<\/goal_state>\s*<\/system-reminder>\s*/gi, '');
   }
+  if (text.includes('<todo_state>')) {
+    suffix = suffix.replace(/<system-reminder>\s*<todo_state>[\s\S]*?<\/todo_state>\s*<\/system-reminder>\s*/gi, '');
+  }
   // The kept suffix still carries the turn's agent list reminder: it stays told.
   const told = bare !== message && message.meta.agentListing ? { agentListing: message.meta.agentListing } : null;
   return withRuntimeUserContext(told ? { ...bare, meta: { ...bare.meta, ...told } } : bare, {

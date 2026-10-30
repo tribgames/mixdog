@@ -43,11 +43,20 @@ test('Goal tab controls stay in one visible row under the task list', async (t) 
             timeLimitMs: 3_600_000,
             timeUsedMs: 3_600_000,
             remainingMs: 0,
-            tasks: Array.from({ length: 24 }, (_, index) => ({
-              id: String(index),
-              status: 'pending',
-              text: `Task ${index + 1}: retain the original evidence and verify every result before reporting completion.`,
-            })),
+          },
+          todo: {
+            phases: [
+              {
+                name: 'Plan',
+                tasks: Array.from({ length: 24 }, (_, index) => ({
+                  status: 'pending',
+                  content: `Task ${index + 1}: retain the original evidence and verify every result before reporting completion.`,
+                })),
+              },
+            ],
+            completed: 0,
+            abandoned: 0,
+            total: 24,
           },
         },
       })
@@ -136,7 +145,7 @@ test('approval and flash modes hide the Goal pill even with the Goal tab open', 
     React.createElement(SessionGoalIsland, {
       snapshot: {
         sessionId: 'hidden-test',
-        goal: { id: 'goal', status: 'active', objective: 'Hide under approval', tasks: [] },
+        goal: { id: 'goal', status: 'active', objective: 'Hide under approval' },
       },
     })
   );
@@ -210,14 +219,12 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
   const page = await browser.newPage();
   const tasks = [
     {
-      id: 'en',
       status: 'in_progress',
-      text: 'Preserve prior measurements and inspect costly traces to identify a bounded change, then verify the result without weakening the approved requirements.',
+      content: 'Preserve prior measurements and inspect costly traces to identify a bounded change, then verify the result without weakening the approved requirements.',
     },
     {
-      id: 'ko',
       status: 'pending',
-      text: '기존 측정 결과와 작업 기록을 보존하고 Goal UI의 긴 한글·영문 문장이 좁은 화면에서도 편하게 읽히는지 확인합니다.',
+      content: '기존 측정 결과와 작업 기록을 보존하고 Goal UI의 긴 한글·영문 문장이 좁은 화면에서도 편하게 읽히는지 확인합니다.',
     },
   ];
   for (const width of [900, 320]) {
@@ -232,13 +239,12 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
                 status: 'paused',
                 title: 'Goal UI 글자 위계 정리',
                 objective: 'Verify the agreed typography',
-                timeMode: 'max',
                 timeLimitMs: 3_600_000,
                 timeUsedMs: 60_000,
                 remainingMs: 3_540_000,
-                tasks: empty ? [] : tasks,
                 blocker: '승인 대기 — waiting for approval',
               },
+              todo: empty ? null : { phases: [{ name: 'Plan', tasks }], completed: 0, abandoned: 0, total: tasks.length },
             },
           })
         )
@@ -269,7 +275,7 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
         return {
           title: typography(island.querySelector('.session-goal-title')),
           supporting: [
-            ...island.querySelectorAll('.session-goal-meta-time, .session-goal-objective-full, .session-goal-empty'),
+            ...island.querySelectorAll('.session-goal-meta-time, .session-goal-objective-full'),
           ].map((element) => ({
             ...typography(element),
             time: element.matches('.session-goal-meta-time'),
@@ -360,10 +366,13 @@ test('stopping a Goal with a long checklist keeps its confirmation pressable', a
             goal: {
               id: 'long-goal', status: 'active', objective: 'Finish the approved verification work',
               timeLimitMs: 3600000, timeUsedMs: 120000, remainingMs: 3480000,
-              tasks: Array.from({ length: 24 }, (_, index) => ({
-                id: String(index), status: index === 0 ? 'in_progress' : 'pending',
-                text: 'Task ' + (index + 1) + ': retain the original evidence and verify every result before reporting completion.',
-              })),
+            },
+            todo: {
+              phases: [{ name: 'Plan', tasks: Array.from({ length: 24 }, (_, index) => ({
+                status: index === 0 ? 'in_progress' : 'pending',
+                content: 'Task ' + (index + 1) + ': retain the original evidence and verify every result before reporting completion.',
+              })) }],
+              completed: 0, abandoned: 0, total: 24,
             },
           },
         }));

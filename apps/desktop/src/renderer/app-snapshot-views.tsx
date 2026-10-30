@@ -26,6 +26,7 @@ import {
   type DesktopSnapshotStore,
 } from './desktop-snapshot-store';
 import { EMPTY_SNAPSHOT, type Snapshot, type TranscriptItem } from './desktop-types';
+import { todoPresent } from './session-goal-presentation';
 import { draftModelSelectionFromSnapshot } from './draft-pane-prefs-store';
 import { focusedDraftModelSelection } from './use-focused-draft-route';
 import { createSurfaceHoldSignal, PaneSurfaceCover } from './PaneSurfaceGate';
@@ -494,7 +495,7 @@ function GoalIslandBootReady({ bootKey }: { bootKey: string }) {
 /** Goal capsule snapshot owner for the composer. */
 export function PaneGoalIsland({ sessionId, hidden }: { sessionId: string; hidden: boolean }) {
   const snapshot = usePaneIslandSnapshot(sessionId, hidden);
-  const goalPresent = Boolean(snapshot.goal);
+  const goalPresent = Boolean(snapshot.goal) || todoPresent(snapshot.todo);
   const moduleLoaded = useSyncExternalStore(
     subscribeSessionGoalModule,
     readSessionGoalModuleLoaded,

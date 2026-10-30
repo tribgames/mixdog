@@ -5,7 +5,8 @@ import Ajv from 'ajv';
 import { TOOL_DEFS as browser } from '../../src/runtime/browser-bridge/tool-defs.mjs';
 import { validateBrowserToolArgs } from '../../src/runtime/browser-bridge/action-schema.mjs';
 import { COMPUTER_INPUT_SCHEMA, validateComputerToolArgs } from '../../src/runtime/computer-bridge/action-schema.mjs';
-import { normalizeGoalTasks, patchGoalTasks } from '../../src/session-runtime/goal-tasks.mjs';
+import { executeTodoTool, todoSnapshot } from '../../src/runtime/agent/orchestrator/runtime-core/todo-list.mjs';
+import { MAX_TODO_ITEMS } from '../../src/runtime/agent/orchestrator/runtime-core/todo-tool-defs.mjs';
 import { schemaStringLength, schemaValueError } from '../../src/runtime/shared/schema-value-error.mjs';
 
 const ajv = new Ajv({ strict: false, allErrors: true, validateFormats: false });
@@ -114,20 +115,12 @@ test('computer Unicode text respects schema bounds without increasing the native
   assert.match(validateComputerToolArgs(type), /4000 UTF-16 code units/);
 });
 
-test('Goal describes the retained-task total without weakening the cap', () => {
-  const previous = normalizeGoalTasks(
-    Array.from({ length: 19 }, (_, i) => ({
-      text: `Task ${i}`,
-      status: i % 2 ? 'completed' : 'dropped',
-      kind: 'work',
-    })),
-    [],
-    { strict: true }
-  );
-  const added = { text: 'New work', status: 'pending', kind: 'work' };
-  assert.equal(patchGoalTasks(previous, { tasks: [added] }).length, 20);
-  assert.throws(
-    () => patchGoalTasks(previous, { tasks: [added, { ...added, text: 'Overflow' }] }),
-    /at most 20 entries/
-  );
+test('todo counts closed items toward its cap without weakening it', () => {
+  const session = {};
+  executeTodoTool(session, { op: 'init', items: Array.from({ length: MAX_TODO_ITEMS - 1 }, (_, i) => `Step ${i}`) });
+  executeTodoTool(session, { op: 'done', item: 'Step 0' });
+  executeTodoTool(session, { op: 'drop', item: 'Step 1' });
+  assert.match(executeTodoTool(session, { op: 'append', items: ['New work'] }), /New work/);
+  assert.throws(() => executeTodoTool(session, { op: 'append', items: ['Overflow'] }), /at most 50 items/);
+  assert.equal(todoSnapshot(session).total, MAX_TODO_ITEMS);
 });

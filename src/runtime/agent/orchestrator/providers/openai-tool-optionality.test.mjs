@@ -24,7 +24,13 @@ test('Responses function tools preserve optional Goal fields in direct and defer
   ]) {
     assert.equal(wire.strict, false);
     assert.deepEqual(wire.parameters.required, ['action']);
-    assert.equal(wire.parameters.properties.tasks.items.required.includes('id'), false);
-    assert.deepEqual(wire.parameters.properties.updates.items.required, ['id']);
+    // Per-action fields stay optional instead of turning into required nullables.
+    assert.deepEqual(Object.keys(wire.parameters.properties).sort(), [
+      'action',
+      'blocker',
+      'objective',
+      'time_limit_minutes',
+    ]);
+    assert.equal(wire.parameters.properties.objective.type, 'string');
   }
 });

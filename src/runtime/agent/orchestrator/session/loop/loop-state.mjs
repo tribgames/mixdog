@@ -143,6 +143,8 @@ export function createLoopState({ provider, messages, model, tools, cwd, sendOpt
     escalateMaxTokens: () => state.provider?.escalatedMaxTokens?.(state.model, state.opts, state.lastSendTools) ?? null,
     // Characters the latest send put on screen through the live text stream.
     streamedChars: () => state.lastStreamedChars,
+    // A capped turn was told to reply; it may end without the todo check.
+    turnLimited: () => state.turnLimitNoticed === true,
   });
   return state;
 }

@@ -37,20 +37,23 @@ test('Goal tab controls address their own session, confirm stop, and preserve th
   };
   const goal = {
     id: 'goal-controls',
-    revision: 3,
     objective: 'Approved objective',
     status: 'active',
     timeLimitMs: 3_600_000,
     timeUsedMs: 5_000,
     remainingMs: 3_595_000,
-    timeMode: 'max',
-    tasks: [{ id: 'one', text: 'Current work', status: 'in_progress' }],
+  };
+  const todo = {
+    phases: [{ name: 'Plan', tasks: [{ content: 'Current work', status: 'in_progress' }] }],
+    completed: 0,
+    abandoned: 0,
+    total: 1,
   };
   const render = (current) =>
     act(async () =>
       root.render(
         React.createElement(SessionGoalIsland, {
-          snapshot: { sessionId: 'own-pane', goal: current },
+          snapshot: { sessionId: 'own-pane', goal: current, todo },
         })
       )
     );
@@ -85,26 +88,14 @@ test('Goal tab controls address their own session, confirm stop, and preserve th
     await click(button(host, 'Edit goal'));
     const dialog = document.querySelector('[role="dialog"]');
     assert.equal(dialog.querySelector('textarea').value, goal.objective);
-    const mode = dialog.querySelector('[role="combobox"]');
-    assert.equal(mode.getAttribute('aria-label'), t('Time budget mode'));
-    assert.equal(mode.textContent, t('Maximum time — finish early when verified'));
-    await click(mode);
-    const options = document.querySelector('[role="listbox"]');
-    assert.equal(
-      options.querySelector('[aria-selected="true"]').textContent,
-      t('Maximum time — finish early when verified')
-    );
-    await click(button(options, 'Sustained work — continue for the full duration'));
-    assert.equal(mode.textContent, t('Sustained work — continue for the full duration'));
-    assert.equal(mode.getAttribute('aria-expanded'), 'false');
+    assert.equal(dialog.querySelector('[role="combobox"]'), null, 'no duration or mode choice');
+    assert.equal(dialog.querySelector('input[type="number"]').value, '60');
     await click(button(dialog, 'Save'));
     assert.deepEqual(calls.at(-1).args[0], {
       action: 'edit',
       expectedGoalId: goal.id,
       objective: goal.objective,
-      timeLimitMs: goal.timeLimitMs,
-      timeMode: 'duration',
-      revision: 3,
+      time_limit_minutes: 60,
     });
     assert.equal(trigger.getAttribute('aria-expanded'), 'true');
     await click(button(host, 'Stop goal'));
@@ -135,7 +126,7 @@ test('closing the Goal edit dialog returns focus to the visible Edit control, no
         React.createElement(SessionGoalIsland, {
           snapshot: {
             sessionId: 'focus-return',
-            goal: { id: 'goal-focus', revision: 1, objective: 'Return focus', status: 'active', tasks: [] },
+            goal: { id: 'goal-focus', objective: 'Return focus', status: 'active' },
           },
         })
       )
@@ -152,13 +143,13 @@ test('closing the Goal edit dialog returns focus to the visible Edit control, no
   }
 });
 
-test('goal creation defaults to maximum time and preserves input after a rejected start', async () => {
+test('goal creation offers only an objective and a time limit and preserves input after a rejected start', async () => {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
   const commands = [];
   const anchor = { current: host };
-  const initialGoal = { objective: 'Existing duration', timeMode: 'duration', timeLimitMs: 1_800_000 };
+  const initialGoal = { objective: 'Existing limit', timeLimitMs: 1_800_000 };
   try {
     await act(async () =>
       root.render(
@@ -175,7 +166,7 @@ test('goal creation defaults to maximum time and preserves input after a rejecte
       )
     );
     const dialog = document.querySelector('[role="dialog"]');
-    assert.equal(dialog.querySelector('[role="combobox"]').textContent, t('Maximum time — finish early when verified'));
+    assert.equal(dialog.querySelector('[role="combobox"]'), null);
     await act(async () => {
       const input = dialog.querySelector('textarea');
       Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set.call(input, 'Deliver result');
@@ -183,7 +174,7 @@ test('goal creation defaults to maximum time and preserves input after a rejecte
       input.dispatchEvent(new window.Event('change', { bubbles: true }));
     });
     await click(button(dialog, 'Start goal'));
-    assert.equal(commands.at(-1), '/goal Deliver result --time 60m --time-mode max');
+    assert.equal(commands.at(-1), '/goal Deliver result --time 60m');
     assert.equal(dialog.querySelector('textarea').value, 'Deliver result');
     assert.ok(dialog.textContent.includes(t('Goal could not be started. Your input has been kept.')));
     await act(async () =>
@@ -206,14 +197,9 @@ test('goal creation defaults to maximum time and preserves input after a rejecte
     await click(button(edit, 'Save'));
     assert.deepEqual(commands.at(-1), {
       objective: initialGoal.objective,
-      timeLimitMs: 1_800_000,
-      timeMode: 'duration',
+      timeLimitMinutes: 30,
     });
     assert.equal(edit.querySelector('textarea').value, initialGoal.objective);
-    assert.equal(
-      edit.querySelector('[role="combobox"]').textContent,
-      t('Sustained work — continue for the full duration')
-    );
     assert.ok(edit.textContent.includes(t('Goal could not be started. Your input has been kept.')));
   } finally {
     await act(async () => root.unmount());
@@ -234,11 +220,9 @@ test('a finished Goal is dismissed from its segment or its tab; a running one of
   };
   const goal = {
     id: 'goal-done',
-    revision: 4,
     objective: 'Ship it',
     status: 'complete',
     timeUsedMs: 60_000,
-    tasks: [{ id: 'one', text: 'Done work', status: 'completed' }],
   };
   const render = (current) =>
     act(async () =>
