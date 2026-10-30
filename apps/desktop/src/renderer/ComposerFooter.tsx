@@ -1,4 +1,10 @@
 import { memo, useCallback, type ReactNode, type RefObject } from 'react';
+import {
+  ComposerRouteLabel,
+  useComposerStyle,
+  useRouteLabelParts,
+  type RouteLabelParts,
+} from './composer-route-label';
 import { useStableCallback } from './use-stable-callback';
 import type { ComposerProps } from './Composer';
 import { ComposerAddMenu } from './ComposerAddMenu';
@@ -64,8 +70,13 @@ export const ComposerModelControls = memo(function ComposerModelControls({
   paneActive,
   onRoutePreferenceApplied,
   sheetAlign,
+  routeLabel = null,
   ...modelProps
-}: ComposerModelControlProps) {
+}: ComposerModelControlProps & {
+  /** The conversation's workflow and delegation, shown left of the model
+   *  (Display → Show workflow and delegation). */
+  routeLabel?: RouteLabelParts | null;
+}) {
   const { sessionId } = modelProps;
   const applyAgentRoute = useCallback<NonNullable<ModelProps['onRoutePreferenceApplied']>>(
     (selection, options) => {
@@ -78,6 +89,12 @@ export const ComposerModelControls = memo(function ComposerModelControls({
   );
   return (
     <span className="composer-model-line-controls">
+      {routeLabel && (
+        <>
+          <ComposerRouteLabel parts={routeLabel} />
+          <span className="composer-route-divider" aria-hidden="true" />
+        </>
+      )}
       <ServerAccountBadge />
       <ModelSelector
         {...modelProps}
@@ -98,28 +115,39 @@ export const ComposerModelControls = memo(function ComposerModelControls({
   );
 });
 
-/** The slim line UNDER the composer card: the usage readout on the left, the
- *  model picker and the context gauge on the right. A phone's coding composer
- *  carries the model controls in its card instead (`controls` false), so the
- *  line holds the readout alone. */
+/** The slim line UNDER the composer: the usage readout on the left, the model
+ *  picker and the context gauge on the right. Under the card (`card`: the
+ *  model controls sit in the card's row) the line holds the readout alone,
+ *  centred, or in the "detail" style the readout at the left and the route
+ *  label at the right end; the "simple" style shows no readout, so the line is
+ *  there only for the pre-chat `pickers`. */
 export const ComposerModelLine = memo(function ComposerModelLine({
   usageReadout,
+  pickers,
   room = false,
-  controls = true,
+  card = false,
   ...controlProps
 }: ComposerModelControlProps & {
   usageReadout?: ReactNode;
+  /** Before the first message: the Project / Workflow / Delegation / Branch
+   *  pickers, in the readout's place. */
+  pickers?: ReactNode;
   /** A group room: its members each use their own model, so the line shows
    *  neither the model picker nor the context gauge. */
   room?: boolean;
-  controls?: boolean;
+  card?: boolean;
 }) {
-  if (room) return usageReadout ? <div className="composer-model-line">{usageReadout}</div> : null;
+  const style = useComposerStyle();
+  const route = useRouteLabelParts(controlProps.sessionChoices);
+  const lead = pickers ?? (style === 'simple' ? null : usageReadout);
+  if (room) return lead ? <div className="composer-model-line">{lead}</div> : null;
+  if (card && !lead && style === 'simple') return null;
   return (
-    <div className="composer-model-line">
-      {usageReadout}
+    <div className="composer-model-line" data-card={card ? style : undefined}>
+      {lead}
+      {card && route && <ComposerRouteLabel parts={route} />}
       {/* At the line's right end the pill grows leftwards: its sheet shares its right edge. */}
-      {controls && <ComposerModelControls {...controlProps} sheetAlign="end" />}
+      {!card && <ComposerModelControls {...controlProps} routeLabel={route} sheetAlign="end" />}
     </div>
   );
 });

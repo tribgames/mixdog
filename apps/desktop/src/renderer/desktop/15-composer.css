@@ -1963,6 +1963,120 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
   color: var(--mx-text);
   background: var(--mx-hover);
 }
+/* Composer style "detail": a muted icon + "workflow · mode" left of the model
+   trigger, a hairline between (under the card: at the line's right end, no
+   hairline). No box; hover answers like the readout. The workflow name and the
+   effort label are never dropped: a line too narrow for them is the card. */
+.composer-route-label {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 6px;
+  height: 28px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: none;
+  color: var(--mx-text-muted);
+  font-family: inherit;
+  font-size: var(--mx-font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.composer-route-label:hover,
+.composer-route-label:focus-visible {
+  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.composer-route-label > svg {
+  flex: none;
+}
+.composer-route-label-workflow {
+  color: var(--mx-text-soft);
+}
+.composer-route-divider {
+  flex: none;
+  width: 1px;
+  height: 14px;
+  margin: 0 2px;
+  background: var(--mx-border);
+}
+/* Under the card: "basic" centres the readout, "detail" puts the readout at
+   the left and the route label at the right end. */
+.composer-model-line[data-card="basic"] > .composer-usage-readout {
+  margin-inline: auto;
+}
+.composer-model-line[data-card] > .composer-route-label {
+  margin-left: auto;
+}
+/* The card (Composer.tsx `card`: a phone, the "simple" style, or a PC bar too
+   narrow for its items): the typing band, then the + and the model with its
+   gauge at the left, the mic and send at the right. 88 in all: a 44 band whose
+   24 line sits centred over the 44 control row, its text on the same edge as
+   the transcript and the + glyph below it. */
+html form.composer.composer[data-card] {
+  min-height: 88px;
+}
+/* The PC dock's floor gap is the line under the composer (agent-chat.css keeps
+   the region's own at 2px); the "simple" card has no line, so the region keeps
+   the gap itself rather than hug the window edge. */
+html:not([data-mixdog-mobile-tabs]) .composer-region:has(> form.composer[data-card]):not(:has(> .composer-model-line)) {
+  padding-bottom: 12px;
+}
+html form.composer.composer[data-card] > .composer-input-row {
+  flex: 0 0 100%;
+  order: 0;
+}
+html form.composer.composer[data-card] textarea {
+  min-height: 44px;
+  padding: 10px var(--composer-text-inset);
+}
+html form.composer.composer[data-card] > .composer-footer {
+  position: relative;
+  display: flex;
+  flex: 0 0 100%;
+  order: 1;
+  align-items: center;
+  min-width: 0;
+  height: 44px;
+}
+html form.composer.composer[data-card] > .composer-footer > .composer-tool {
+  margin-block: 0;
+}
+html form.composer.composer[data-card] .composer-footer > .composer-model-line-controls {
+  margin-left: 0;
+}
+html form.composer.composer[data-card] .composer-primary-actions {
+  margin-block: 0;
+  margin-left: auto;
+}
+/* The model pill keeps its natural width (the line's own rule above does the
+   same): a percentage cap of this shrink-to-fit group cut its label short. */
+html form.composer.composer[data-card] .composer-footer .route-controls {
+  max-width: 100%;
+}
+/* The gauge's card opens upward from the card's row, anchored to the row. */
+html form.composer.composer[data-card] .composer-footer .session-context-indicator {
+  position: static;
+}
+html form.composer.composer[data-card] .composer-footer .session-context-popover {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+/* Flipped upward, the hover bridge hangs below the card and also crosses the
+   8px between the row's edge and the gauge inside it. */
+html form.composer.composer[data-card] .composer-footer .session-context-popover::before {
+  top: auto;
+  bottom: calc(-1 * (var(--mx-popup-bridge-reach) + 8px));
+  height: calc(var(--mx-popup-bridge-reach) + 8px);
+}
+/* A PC's row is wide: the card opens from the row's left end, by the gauge,
+   not from the far right end the aside's rule gives it (a phone's row is as
+   narrow as the card). */
+html:not([data-mixdog-mobile-tabs]) form.composer.composer[data-card] .composer-footer .session-context-popover {
+  right: auto;
+  left: 0;
+}
 /* Context gauge right after the model trigger. The gauge keeps its island slot; only its card flips UPWARD here, since
    the line is the last thing above the window's bottom edge. */
 .composer-model-aside {

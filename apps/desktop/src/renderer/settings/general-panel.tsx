@@ -10,6 +10,8 @@ import {
 import type { DesktopApi, DesktopEditorSettings } from '../../shared/contract';
 import { DEFAULT_DESKTOP_EDITOR_SETTINGS } from '../../shared/editor-settings';
 import { getLinkPreview, setLinkPreview, subscribeLinkPreview } from '../link-preview-preference';
+import { getQuestionConfirm, setQuestionConfirm, subscribeQuestionConfirm } from '../question-confirm-preference';
+import { ComposerStyleGroup } from './composer-style-preview';
 import { record } from '../record-utils';
 import { getTimeFormat, setTimeFormat, subscribeTimeFormat, type TimeFormat } from '../time-format-preference';
 import { isRemoteBrowserRenderer, isRemoteHostRenderer } from '../remote-ui-projection';
@@ -98,6 +100,21 @@ function LinkPreviewToggle({ pending }: Pick<PanelContext, 'pending'>) {
       checked={enabled}
       disabled={Boolean(pending)}
       onChange={setLinkPreview}
+    />
+  );
+}
+
+/** Per-device: a single-choice pick waits for Next/Send instead of answering. */
+function QuestionConfirmToggle({ pending }: Pick<PanelContext, 'pending'>) {
+  const enabled = useSyncExternalStore(subscribeQuestionConfirm, getQuestionConfirm, () => false);
+  return (
+    <ToggleRow
+      title={t('Confirm question answers')}
+      description={t('Picking an option only selects it; press Send or Next to answer.')}
+      showDescription
+      checked={enabled}
+      disabled={Boolean(pending)}
+      onChange={setQuestionConfirm}
     />
   );
 }
@@ -212,6 +229,10 @@ export function DisplayPanel({ pending }: PanelContext) {
         <SidePanelChoices pending={pending} />
         <LinkPreviewToggle pending={pending} />
         {!remoteSurface && <MarkdownDefaultViewChoice pending={pending} />}
+      </Group>
+      <ComposerStyleGroup pending={pending} />
+      <Group title={t('Conversation')}>
+        <QuestionConfirmToggle pending={pending} />
       </Group>
     </>
   );

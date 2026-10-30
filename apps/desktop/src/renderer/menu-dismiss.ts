@@ -1,8 +1,10 @@
 import { type RefObject, useEffect, useRef } from 'react';
 import { TOUCH_SLOP_PX } from './remote-browser-touch';
 import { useSurfaceActive } from './surface-activity';
+import { routeMenuTrigger } from './composer-route-label';
 
 const ROW_CONTEXT_MENU_SELECTOR = '.dock-scm-context-menu';
+const TRIGGER_PROXY_SELECTOR = '[data-menu-trigger-proxy]';
 
 const SCROLL_KEYS = new Set([
   'PageUp',
@@ -137,10 +139,18 @@ export function useMenuDismiss({
     // it: its pointer events do not dismiss the popup, and it owns Escape and
     // Tab while it is up.
     const rowMenu = (target: Node | null) => (target as Element | null)?.closest?.(ROW_CONTEXT_MENU_SELECTOR) != null;
+    // A stand-in for this menu's trigger (the composer's route label opens the
+    // model menu): its press must reach its click, which toggles, not close
+    // first. Any other open menu still closes on it.
+    const proxyOfTrigger = (target: Node) => {
+      const proxy = (target as Element).closest?.(TRIGGER_PROXY_SELECTOR);
+      return proxy != null && trigger.current != null && routeMenuTrigger(proxy) === trigger.current;
+    };
     const inside = (target: Node | null) =>
       Boolean(
         target &&
           (rowMenu(target) ||
+            proxyOfTrigger(target) ||
             trigger.current?.contains(target) ||
             latest.current.panels().some((panel) => panel?.contains(target)))
       );
