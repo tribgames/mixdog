@@ -193,7 +193,7 @@ function renderComposerAddMenuPanel({
                 void onGoal('/goal');
               }}
             >
-              <CapabilityIcon name="goal-management" />
+              <CapabilityIcon name="goal" />
               <span>
                 <b>{t('Set a goal')}</b>
                 <small>{t('Track work that runs past this turn.')}</small>

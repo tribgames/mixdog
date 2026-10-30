@@ -53,7 +53,7 @@ const SKILL_ARTWORK: Record<string, CapabilityArtwork> = {
   'memory-management': 'memory',
   'local-provider': 'local',
   'history-recall': 'recall',
-  'goal-management': 'goal',
+  goal: 'goal',
   'skill-creator': 'creator',
   'attach-files': 'attach',
   setup: 'setup',

@@ -15,7 +15,6 @@ const names = [
   'pptx',
   'image',
   'video',
-  'goal-management',
   'history-recall',
   'memory-management',
   'local-provider',

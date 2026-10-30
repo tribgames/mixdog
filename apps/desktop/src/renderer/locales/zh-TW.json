@@ -4410,7 +4410,6 @@
   "Sessions share one Browser Use profile, including sign-ins, cookies, and site data.": "各工作階段共用同一個 Browser Use 設定檔，包括登入資訊、Cookie 和網站資料。",
   "Sessions still retain this folder. Close or remove those sessions before cleaning it up.": "仍有工作階段保留此資料夾。清理前請先關閉或移除這些工作階段。",
   "Set a goal": "設定目標",
-  "Set and manage ongoing task goals.": "設定和管理持續執行的工作目標。",
   "Set Fast or Ultrafast mode for the current model": "設定目前模型的快速或 Ultrafast 模式",
   "Set project": "設定專案",
   "Set reasoning effort for the current model": "設定目前模型的推理強度",

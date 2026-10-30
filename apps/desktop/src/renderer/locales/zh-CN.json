@@ -4410,7 +4410,6 @@
   "Sessions share one Browser Use profile, including sign-ins, cookies, and site data.": "各会话共享同一个 Browser Use 配置文件，包括登录信息、Cookie 和网站数据。",
   "Sessions still retain this folder. Close or remove those sessions before cleaning it up.": "会话仍在占用此文件夹。请在清理之前关闭或移除这些会话。",
   "Set a goal": "设定目标",
-  "Set and manage ongoing task goals.": "设定和管理持续执行的任务目标。",
   "Set Fast or Ultrafast mode for the current model": "设置当前模型的快速或 Ultrafast 模式",
   "Set project": "设置项目",
   "Set reasoning effort for the current model": "设置当前模型的推理强度",
