@@ -80,8 +80,8 @@ that a call returned without transport error.
 Setup changes settings; it does not stop work. Use the tool that owns it:
 `session` `cancel` (another session's turn, a routine run in a bot's chat, a
 group room's exchange; a Browser/Computer takeover ends with its turn),
-`agent` `cancel`/`close` (sub-agents), `task` (background shell jobs), `goal`
-`pause` (an active Goal, at the user's request). Setup only prevents more: `set_automation_enabled false`
+`agent` `cancel`/`close` (sub-agents), `task` (background shell jobs); an
+active Goal is paused or stopped by the user from its controls. Setup only prevents more: `set_automation_enabled false`
 (future routine runs), `fallbacks: []` (further hops), `cancel_quota_resume`,
 `set_builtin_enabled` browser/computer off.
 

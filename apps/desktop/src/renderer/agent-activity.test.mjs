@@ -474,6 +474,20 @@ test('header snapshot equality ignores unrelated stats but tracks visible contex
   );
 });
 
+const todoFrom = (tasks) => {
+  const rows = tasks.map((task) => ({
+    content: task.text,
+    status: task.status === 'dropped' ? 'abandoned' : task.status === 'awaiting_approval' ? 'blocked' : task.status,
+  }));
+  const abandoned = rows.filter((row) => row.status === 'abandoned').length;
+  return {
+    phases: [{ name: 'Plan', tasks: rows }],
+    completed: rows.filter((row) => row.status === 'completed').length,
+    abandoned,
+    total: rows.length,
+  };
+};
+
 test('Goal island keeps its summary compact and toggles from the capsule', async () => {
   const dom = installDom();
   try {
@@ -487,18 +501,16 @@ test('Goal island keeps its summary compact and toggles from the capsule', async
               title: 'Short Goal Title',
               objective: 'A much longer objective that should not consume the progress and elapsed-time regions',
               status: 'active',
-              tasks: [
-                { id: 'task_1', text: 'Implement the change', status: 'completed' },
-                { id: 'task_2', text: 'Check mobile layout', status: 'in_progress' },
-                { id: 'task_3', text: 'Verify the objective', status: 'pending' },
-              ],
-              tasksTotal: 3,
-              tasksCompleted: 1,
               timeLimitMs: 60 * 60 * 1000,
               timeUsedMs: 5 * 60 * 1000,
               remainingMs: 60 * 60 * 1000,
               deadlineAt: Date.now() + 60 * 60 * 1000,
             },
+            todo: todoFrom([
+              { text: 'Implement the change', status: 'completed' },
+              { text: 'Check mobile layout', status: 'in_progress' },
+              { text: 'Verify the objective', status: 'pending' },
+            ]),
           },
         })
       );
@@ -593,12 +605,12 @@ test('Goal drawer lists remaining tasks first and folds done and dropped ones', 
               id: 'goal-fold',
               objective: 'Fold the finished work',
               status: 'active',
-              tasks: [
-                { id: 'a', text: 'Finished', status: 'completed' },
-                { id: 'b', text: 'Running', status: 'in_progress' },
-                { id: 'c', text: 'Scoped out', status: 'dropped' },
-              ],
             },
+            todo: todoFrom([
+              { text: 'Finished', status: 'completed' },
+              { text: 'Running', status: 'in_progress' },
+              { text: 'Scoped out', status: 'dropped' },
+            ]),
           },
         })
       );
@@ -611,7 +623,7 @@ test('Goal drawer lists remaining tasks first and folds done and dropped ones', 
     assert.equal(fold?.textContent, 'Done 1 · 1 dropped');
     assert.equal(fold?.getAttribute('aria-expanded'), 'false');
     const lists = document.querySelectorAll('.session-goal-task-list');
-    assert.equal(lists[0].textContent, 'Running');
+    assert.equal(lists[0].textContent, 'In progress: Running');
     assert.equal(lists[1].hasAttribute('hidden'), true);
     await act(async () => {
       fold?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
@@ -684,7 +696,11 @@ test('the progress ring fills by completed/total and shows one glyph per state',
       await act(async () => {
         dom.root.render(
           React.createElement(SessionGoalIsland, {
-            snapshot: { sessionId: 'ring', goal: { id: `ring-${glyph}`, objective: 'Ring', tasks, ...extra } },
+            snapshot: {
+              sessionId: 'ring',
+              goal: { id: `ring-${glyph}`, objective: 'Ring', ...extra },
+              todo: todoFrom(tasks),
+            },
           })
         );
       });
@@ -736,7 +752,8 @@ test('task rows carry no badges; five remaining rows show and the rest folds', a
         React.createElement(SessionGoalIsland, {
           snapshot: {
             sessionId: 'rest',
-            goal: { id: 'rest', objective: 'Many', status: 'blocked', blocker: 'Stuck', tasks },
+            goal: { id: 'rest', objective: 'Many', status: 'blocked', blocker: 'Stuck' },
+            todo: todoFrom(tasks),
           },
         })
       );
@@ -748,11 +765,7 @@ test('task rows carry no badges; five remaining rows show and the rest folds', a
     assert.doesNotMatch(document.body.textContent, /Needs your answer/);
     const rows = [...document.querySelectorAll('.session-goal-task-list')];
     assert.equal(rows[0].children.length, 5, 'first five remaining rows');
-    assert.equal(rows[0].querySelector('li[data-stalled="true"] svg')?.getAttribute('data-glyph'), 'stalled');
-    assert.equal(
-      rows[0].querySelector('li[data-status="awaiting_approval"] svg')?.getAttribute('data-glyph'),
-      'awaiting'
-    );
+    assert.equal(rows[0].querySelector('li[data-status="blocked"] svg')?.getAttribute('data-glyph'), 'stalled');
     assert.equal(document.querySelector('.session-goal-group-label')?.textContent, 'Remaining 8');
     const rest = document.querySelector('.session-goal-fold[data-fold="rest"]');
     assert.equal(rest?.textContent, 'Rest 3');
@@ -780,14 +793,15 @@ test('running and awaiting rows always make the five-row cut', async () => {
         React.createElement(SessionGoalIsland, {
           snapshot: {
             sessionId: 'cut',
-            goal: { id: `cut-${tasks.length}-${Math.random()}`, objective: 'Cut', status: 'active', tasks },
+            goal: { id: `cut-${tasks.length}-${Math.random()}`, objective: 'Cut', status: 'active' },
+            todo: todoFrom(tasks),
           },
         })
       );
     });
-    // The task text only; an awaiting row also carries spoken (sr-only) status text.
+    // The step text only; a row also carries spoken (sr-only) status text before it.
     return [...document.querySelector('.session-goal-task-list').children].map(
-      (li) => li.querySelector('div').textContent
+      (li) => li.querySelector('div > span').lastChild.textContent
     );
   };
   try {

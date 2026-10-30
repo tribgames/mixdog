@@ -10,6 +10,7 @@ import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 import { usePhoneSurfaceMarked } from './mobile-surface';
 import { bindCardKeys, focusCardWhenIdle, isImeKey, isTypingTarget } from './question-card-keys';
+import { useSurfaceActive } from './surface-activity';
 import {
   buildAnswers,
   emptyDraft,
@@ -188,11 +189,14 @@ export function QuestionCard({
   useEffect(() => {
     if (cardRef.current) focusCardWhenIdle(cardRef.current);
   }, []);
+  // A card in a retained or parked conversation answers no key: it would
+  // otherwise outrank the shown conversation's card in the same pane.
+  const surfaceActive = useSurfaceActive();
   useEffect(() => {
     const card = cardRef.current;
-    if (!card) return;
+    if (!card || !surfaceActive) return;
     return bindCardKeys(card, (event) => routeCardKey(event, { live, stateRef, rowRefs, inputRef, apply }));
-  }, [apply]);
+  }, [apply, surfaceActive]);
 
   const moveFromInput = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (composingRef.current || isImeKey(event.nativeEvent)) return;

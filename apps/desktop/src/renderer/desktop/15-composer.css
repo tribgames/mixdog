@@ -883,6 +883,22 @@
   height: var(--island-row-button-height, 26px);
   line-height: var(--island-row-button-line, 20px);
 }
+/* An agent's step list: a 12px ring and n/m after the name. */
+.agent-todo-mark {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-inline-start: 8px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.agent-todo-mark > svg {
+  display: block;
+  color: var(--mx-accent);
+}
 /* A finished background shell: muted until the user dismisses it (or, after
    a clean exit, until it is dismissed on its own). Ended reads muted, failed
    in the danger hue. */

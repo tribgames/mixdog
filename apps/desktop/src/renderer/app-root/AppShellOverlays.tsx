@@ -1,6 +1,7 @@
 import type React from 'react';
 import { lazy, Suspense, useCallback, useEffect, useRef, type ComponentProps } from 'react';
 import { OPEN_DOCTOR_EVENT } from '../command-surface-doctor-event';
+import { sendTextToComposer } from '../composer-text-inbox';
 import type { SettingsSection as SlashSettingsSection } from '../slash-commands';
 import type { DesktopModelSelection, DesktopSessionSummary } from '../../shared/contract';
 import { SessionSearchHost } from '../SessionSearchDialog';
@@ -143,7 +144,8 @@ export function AppShellOverlays({
   const composeFromSettings = useCallback(
     (text: string) => {
       setSettingsOpen(false);
-      window.dispatchEvent(new CustomEvent('mixdog:composer-draft', { detail: text }));
+      // Exactly one composer takes it, brought to the front if it is parked.
+      sendTextToComposer(text);
     },
     [setSettingsOpen]
   );

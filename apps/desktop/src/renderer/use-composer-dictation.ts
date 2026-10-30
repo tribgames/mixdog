@@ -9,6 +9,7 @@ import {
 } from 'react';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 import { isRemoteHostRenderer } from './remote-ui-projection';
+import { useSurfaceActive } from './surface-activity';
 
 // `preparing` runs from the tap until audio is actually captured: a phone
 // takes a noticeable moment to open the mic, and words spoken before capture
@@ -141,7 +142,12 @@ export function useComposerDictation({
   showNotice,
   requestVoiceInstall,
   onTranscriptSubmit,
+  keysActive = true,
 }: {
+  /** This composer is the focused pane's: only then do Enter and Esc reach
+   *  its take (a window capture listener would otherwise take them from the
+   *  pane the user is typing in). */
+  keysActive?: boolean;
   transitioningRef: MutableRefObject<boolean>;
   textarea: MutableRefObject<HTMLTextAreaElement | null>;
   setDraft: Dispatch<SetStateAction<string>>;
@@ -152,6 +158,10 @@ export function useComposerDictation({
   onTranscriptSubmit?(): void;
 }) {
   const [dictationState, setDictationState] = useState<DictationState>('idle');
+  // Off screen (a retained or parked conversation) the composer owns no mic.
+  const surfaceActive = useSurfaceActive();
+  const surfaceActiveRef = useRef(surfaceActive);
+  surfaceActiveRef.current = surfaceActive;
   // Elapsed time backs the composer's recording overlay: the disc alone
   // never told the user how long the mic had been live (user-flagged).
   const [recordingSince, setRecordingSince] = useState(0);
@@ -312,7 +322,9 @@ export function useComposerDictation({
               // Editing a transcript needs the caret; sending it directly does
               // not (and must not reopen the mobile keyboard).
               if (!session.submitOnStop) {
-                window.setTimeout(() => textarea.current?.focus(), 0);
+                window.setTimeout(() => {
+                  if (surfaceActiveRef.current) textarea.current?.focus();
+                }, 0);
               }
               // Only a take that produced words is allowed to send itself. A
               // silent or failed transcription falls back to the ordinary
@@ -379,6 +391,7 @@ export function useComposerDictation({
   // would send it while the mic is still live.
   // While preparing, Enter is swallowed: there is no speech yet to finish.
   useEffect(() => {
+    if (!keysActive || !surfaceActive) return undefined;
     if (dictationState !== 'recording' && dictationState !== 'preparing') return undefined;
     const onKeyDown = (event: KeyboardEvent): void => {
       if (event.isComposing) return;
@@ -397,7 +410,23 @@ export function useComposerDictation({
     };
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [cancelDictation, dictationState, toggleDictation]);
+  }, [cancelDictation, dictationState, keysActive, surfaceActive, toggleDictation]);
+
+  // The conversation left the screen (switched away, parked behind a tab):
+  // the take ends and the mic is released. Speech already captured is still
+  // transcribed into this composer's draft, where it waits for the user's
+  // return; a take still opening the mic is discarded.
+  useEffect(() => {
+    if (surfaceActive) return;
+    const pending = dictationAttempt.current;
+    if (pending) {
+      pending.cancelled = true;
+      dictationAttempt.current = null;
+      setDictationState('idle');
+    }
+    const session = dictationSession.current;
+    if (session) stopRecorder(session.recorder);
+  }, [surfaceActive]);
 
   useEffect(() => {
     if (dictationState !== 'recording' || !recordingSince) {

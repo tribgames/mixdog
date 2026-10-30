@@ -6,10 +6,12 @@ import {
   type RefObject,
   type SetStateAction,
 } from 'react';
+import { subscribeComposerText, takeComposerText } from './composer-text-inbox';
+import { useSurfaceActive } from './surface-activity';
 import { useComposerShareIntake } from './use-composer-share-intake';
 
 /** Text that reaches the draft from outside the textarea: a shared link/note
- *  (share sheet) and `mixdog:composer-draft` events. Both APPEND to what the
+ *  (share sheet) and text sent to the composer. Both APPEND to what the
  *  user already typed, and keep draftRef in step with the state write. */
 export function useComposerExternalDraft({
   draftRef,
@@ -42,20 +44,28 @@ export function useComposerExternalDraft({
     [draftRef, setDraft, textarea]
   );
   useComposerShareIntake({ active: shareActive, attachFiles, appendText: appendSharedText });
-  // biome-ignore lint/correctness/useExhaustiveDependencies: listener is mounted once; refs and setters are stable and read at event time
+  // Text sent to "the composer" (composer-text-inbox) is taken by exactly one
+  // composer: the focused pane's, while it is on screen. A conversation
+  // brought to the front for it (parked behind a file tab) takes what waits
+  // the moment it becomes that composer; retained sessions never do.
+  const surfaceActive = useSurfaceActive();
+  const takesText = shareActive && surfaceActive;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refs and setters are stable and read at take time
   useEffect(() => {
-    const receiveDraft = (event: Event) => {
-      const text = String((event as CustomEvent<unknown>).detail || '');
-      if (!text) return;
+    if (!takesText) return undefined;
+    const take = () => {
+      const texts = takeComposerText();
+      if (texts.length === 0) return;
       setDraft((current) => {
-        const next = `${current}${current && !/\s$/.test(current) ? ' ' : ''}${text}`;
+        let next = current;
+        for (const text of texts) next = `${next}${next && !/\s$/.test(next) ? ' ' : ''}${text}`;
         draftRef.current = next;
         return next;
       });
       historyNavigation.current = { index: -1, seed: '' };
       window.setTimeout(() => textarea.current?.focus(), 0);
     };
-    window.addEventListener('mixdog:composer-draft', receiveDraft);
-    return () => window.removeEventListener('mixdog:composer-draft', receiveDraft);
-  }, []);
+    take();
+    return subscribeComposerText(take);
+  }, [takesText]);
 }

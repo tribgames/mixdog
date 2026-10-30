@@ -30,6 +30,7 @@ import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 import { mixyAvatar } from './mixy-identity';
 import { bindCardKeys, cardKeysChanged, isTypingTarget, ownsKeyboard, watchCardKeyOwner } from './question-card-keys';
+import { useSurfaceActive } from './surface-activity';
 import { useSidebarReferences } from './sidebar-reference-cache';
 import { touchPrimaryPointer } from './surface-input-focus';
 import { isComposerComposing } from './use-composer-ime';
@@ -157,11 +158,14 @@ export function deadlineText(ms: number): string {
 
 function useNow(enabled: boolean): number {
   const [now, setNow] = useState(() => Date.now());
+  // An off-screen card does not tick; shown again, it catches up at once.
+  const surfaceActive = useSurfaceActive();
   useEffect(() => {
-    if (!enabled) return;
+    if (!enabled || !surfaceActive) return;
+    setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, [enabled]);
+  }, [enabled, surfaceActive]);
   return now;
 }
 
@@ -368,9 +372,12 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
   // Whether Enter / Esc answer this card right now; the chips show on exactly
   // this (`data-keys`), both read from `keysOpen`.
   const [keys, setKeys] = useState(false);
+  // Off screen (retained or parked conversation) the card owns no key, focus
+  // or window listener; it binds again when its conversation is shown.
+  const surfaceActive = useSurfaceActive();
   useEffect(() => {
     const node = ref.current;
-    if (!node || decided) return;
+    if (!node || decided || !surfaceActive) return;
     let settleEnd = 0;
     // The chips follow exactly what the handler below answers: not while the
     // card settles (re-evaluated when that ends), not with the window blurred,
@@ -444,7 +451,7 @@ export function ApprovalPrompt(props: ApprovalPromptProps) {
       window.removeEventListener('focus', onWindowFocus);
       unbind();
     };
-  }, [decided]);
+  }, [decided, surfaceActive]);
 
   const left = expiresAt && !status ? t('{{left}} left', { left: clock(expiresAt - now) }) : '';
   // A wide button takes its own row; the others share the row below it.

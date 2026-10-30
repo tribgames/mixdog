@@ -217,34 +217,32 @@
      covered most of the scroll approach. Selection and copy are untouched —
      only the pointer shape is pinned. */
   cursor: default;
-  /* Drives the shell's edge fade strips (no JS listeners). */
-  scroll-timeline: --mx-transcript-scroll block;
 }
 /* Top scroll fade strip. Absolute sibling of the scroller, so scroll geometry
    and the virtual list's measurements are untouched. No fade above the
    composer. */
 .transcript-shell {
   --mx-scroll-fade-surface: var(--mx-workspace-sheet);
-  timeline-scope: --mx-transcript-scroll;
 }
 html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
   --mx-scroll-fade-surface: var(--mx-mica-layer);
 }
 /* A real element (conversation-pane-transcript.tsx), never a pseudo-element:
-   the scroll timeline restyles it every scroll frame, and a restyled
-   ::before made the accessibility tree re-serialize the whole shell. */
+   the scroll position restyles it every scroll frame, and a restyled
+   ::before made the accessibility tree re-serialize the whole shell.
+   No CSS scroll timeline: on Electron 43 a timeline left dirty by an input
+   lifecycle made a mouse-up over a text selection re-enter style recalc
+   (renderer CHECK, crbug 394797260), and the Android WebView froze flings
+   while one was alive. scroll-progress.ts writes the scroll position onto
+   the strip and it fades in over 0-32px; a transcript too short to scroll
+   reads 0 and keeps the strip hidden. */
 .transcript-scroll-fade {
   position: absolute;
   z-index: 8;
   left: 0;
   right: 0;
   pointer-events: none;
-  /* A transcript too short to scroll leaves the timeline inactive; the
-     strips then stay hidden instead of fading the first/last message. */
-  opacity: 0;
-  animation-timeline: --mx-transcript-scroll;
-  animation-fill-mode: both;
-  animation-timing-function: linear;
+  opacity: clamp(0, var(--mx-scroll-top) / 32, 1);
   top: 0;
   height: 32px;
   background: linear-gradient(
@@ -255,29 +253,6 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
     color-mix(in srgb, var(--mx-scroll-fade-surface) 15%, transparent) 70%,
     transparent 100%
   );
-  animation-name: mx-scroll-fade-in;
-  animation-range: 0 32px;
-}
-/* Phone: no scroll timeline (the Android WebView freezes a fling while one is
-   alive); scroll-progress.ts writes the scroll position onto the strip and it
-   fades in over the same 0-32px. */
-html[data-mixdog-mobile-tabs] .transcript {
-  scroll-timeline: none;
-}
-html[data-mixdog-mobile-tabs] .transcript-shell {
-  timeline-scope: none;
-}
-html[data-mixdog-mobile-tabs] .transcript-scroll-fade {
-  animation: none;
-  opacity: clamp(0, var(--mx-scroll-top) / 32, 1);
-}
-@keyframes mx-scroll-fade-in {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
 }
 /* cursor inherits: anchors and any embedded fields resolved their shapes from
    `auto` before, so pin them back under the transcript's arrow. */

@@ -83,7 +83,7 @@ export const SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
   {
     name: 'goal',
     usage: '/goal',
-    params: '[objective --time 1h --time-mode max|status|pause|resume|edit|stop]',
+    params: '[objective --time 1h|status|pause|resume|edit|stop]',
     description: 'Run and manage a durable session Goal',
     action: 'goal',
   },

@@ -38,6 +38,7 @@ import { asRecord, textOf } from './text-format';
 import { useRemoteHostImageUrl } from './local-image-preview';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { useSidebarReferences } from './sidebar-reference-cache';
+import { useSurfaceActive } from './surface-activity';
 import { useSessionTitle } from './session-glance-store';
 import {
   approvalAllowIsPointerOnly,
@@ -1648,11 +1649,15 @@ export function HeldRequestCard({ held, sessionId }: { held: Record<string, unkn
   const wasPending = useRef(!settledKey);
   const decidedHere = useRef(false);
   const pending = !settledKey && held.status === 'pending' && (!expiresAt || expiresAt > now);
+  // An off-screen card (retained or parked conversation) does not tick; shown
+  // again, it catches up at once.
+  const surfaceActive = useSurfaceActive();
   useEffect(() => {
-    if (!pending || !expiresAt) return;
+    if (!pending || !expiresAt || !surfaceActive) return;
+    setNow(Date.now());
     const timer = window.setInterval(() => setNow(Date.now()), 1_000);
     return () => window.clearInterval(timer);
-  }, [pending, expiresAt]);
+  }, [pending, expiresAt, surfaceActive]);
   useLayoutEffect(() => {
     if (!settledKey || !wasPending.current) return;
     wasPending.current = false;

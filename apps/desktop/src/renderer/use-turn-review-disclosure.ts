@@ -1,5 +1,6 @@
 import { type Dispatch, type SetStateAction, useEffect, useRef, useState } from 'react';
 import { useComposerIslandTab } from './composer-island-state';
+import { useSurfaceActive } from './surface-activity';
 
 /** The review bar's open/closed state (local, or the island's `files` tab),
  *  its open file, revert confirm/error/undo bookkeeping, and the outside
@@ -29,9 +30,12 @@ export function useTurnReviewDisclosure(islandTab: boolean) {
   // Presses inside (rows, revert, diff style) keep it open, so the disclosure
   // never collapses under its own controls.
   const barElement = useRef<HTMLElement | null>(null);
+  // Off screen (retained or parked conversation), presses and Escape belong
+  // to the shown conversation: the bar keeps its state and listens again on return.
+  const surfaceActive = useSurfaceActive();
   // biome-ignore lint/correctness/useExhaustiveDependencies: setExpanded is a new closure each render; the listeners only need to rebind when the bar opens, closes or changes kind.
   useEffect(() => {
-    if (!expanded) return undefined;
+    if (!expanded || !surfaceActive) return undefined;
     const collapse = () => {
       setExpanded(false);
       setOpenFile('');
@@ -54,7 +58,7 @@ export function useTurnReviewDisclosure(islandTab: boolean) {
       window.removeEventListener('pointerdown', closeOnOutsidePointer, true);
       document.removeEventListener('keydown', closeOnEscape);
     };
-  }, [expanded, islandTab]);
+  }, [expanded, islandTab, surfaceActive]);
   return {
     expanded,
     setExpanded,

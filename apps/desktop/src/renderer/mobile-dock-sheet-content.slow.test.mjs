@@ -62,16 +62,17 @@ const PROBES = `
       focused: Boolean(button) && document.activeElement === button,
     };
   };
-  // Samples the change commit, then every frame until the sheet stops moving.
+  // Samples the change commit, then every frame until the slide has ended and
+  // the sheet stops moving.
   window.changeAndSample = async (open) => {
     const samples = [];
     setSheet(open);
     samples.push(snap());
     let still = 0;
-    while (still < 3 && samples.length < 120) {
+    while (still < 3 && samples.length < 600) {
       await nextFrame();
       const sample = snap();
-      still = sample.left === samples.at(-1).left ? still + 1 : 0;
+      still = sample.left === samples.at(-1).left && !document.getAnimations().length ? still + 1 : 0;
       samples.push(sample);
     }
     return samples;
@@ -176,6 +177,11 @@ async function launch(t) {
   await page.addStyleTag({ content: css });
   await page.addScriptTag({ content: js });
   await page.addScriptTag({ content: PROBES });
+  // The slide plays at a quarter of its speed: a loaded machine paints fewer
+  // frames, and the frame-by-frame checks need several during the slide.
+  const cdp = await page.createCDPSession();
+  await cdp.send('Animation.enable');
+  await cdp.send('Animation.setPlaybackRate', { playbackRate: 0.25 });
   await page.evaluate(() => setSheet(false));
   await page.evaluate(() => settle());
   t.after(() => assert.deepEqual(errors, []));

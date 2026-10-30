@@ -1256,6 +1256,40 @@ test('a revisited session reserves its resting island height until its segments 
   assert.equal(presence(), 'open');
   assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
   assert.equal(moving(), false, 'the arriving segments move nothing');
+  assert.equal(slot().hasAttribute('data-entry'), false, 'coming back to its island replays no entry fade');
+});
+
+test('an island fades in only on its first appearance in a session, never inside a retained conversation', async (t) => {
+  const { root, document, window } = mount(t);
+  const { slot } = slotFixture(t, window, document);
+  const { ComposerIsland } = await import('./ComposerIsland.tsx');
+  const { IslandSegmentPending } = await import('./composer-island-state');
+  const segment = React.createElement('button', { type: 'button', className: 'composer-island-seg' }, 'files');
+  const pending = React.createElement(IslandSegmentPending, { kind: 'files' });
+  const render = (sessionId, files) =>
+    act(async () => root.render(React.createElement(ComposerIsland, { key: sessionId, sessionId, files })));
+  const entry = () => slot().hasAttribute('data-entry');
+  // A session whose island has never shown: the content arriving after the
+  // first frame is a real appearance.
+  await render('appear-a', pending);
+  await firstFrame();
+  await render('appear-a', segment);
+  assert.equal(entry(), true, 'a first appearance fades in');
+  // Away and back, its segments re-reading: the island returns at rest.
+  await render('appear-b', null);
+  await firstFrame();
+  await render('appear-a', pending);
+  await firstFrame();
+  await render('appear-a', segment);
+  assert.equal(entry(), false, 'a revisit does not replay the fade');
+  // Content landing while the conversation is retained (mounted, unpainted)
+  // must not leave a fade armed for the moment it is shown again.
+  document.body.setAttribute('data-retained', '');
+  t.after(() => document.body.removeAttribute('data-retained'));
+  await render('appear-c', pending);
+  await firstFrame();
+  await render('appear-c', segment);
+  assert.equal(entry(), false, 'no fade inside a retained conversation');
 });
 
 test('a first entry reserves the resting height of the island it replaces in the dock', async (t) => {
@@ -1279,6 +1313,7 @@ test('a first entry reserves the resting height of the island it replaces in the
   assert.equal(presence(), 'open');
   assert.equal(slot().style.getPropertyValue('--island-slot-height'), '46px');
   assert.equal(moving(), false, 'the arriving segments move nothing');
+  assert.equal(slot().hasAttribute('data-entry'), true, 'its first appearance in this session fades in');
 });
 
 // User: 대화창 들어가면 덜컥 한 줄 정도 내려앉는다. Entering a chat from a

@@ -1,4 +1,4 @@
-import type { GoalSnapshot, Snapshot } from './desktop-types';
+import type { GoalSnapshot, Snapshot, TodoSnapshot } from './desktop-types';
 import { t, uiFormatLocale } from './i18n';
 import { timeFormatOptions } from './time-format-preference';
 
@@ -115,8 +115,7 @@ export function goalDrawerTimeLabel(goal: GoalSnapshot, clock: number): string {
 
 export function goalStatusLabel(goal: GoalSnapshot): string {
   if (goal.status === 'paused') return t(goal.pauseReason === 'waiting' ? 'Waiting for your answer' : 'Paused');
-  if (goal.status === 'duration_reached')
-    return t(goal.timeMode === 'max' ? 'Time budget reached' : 'Requested duration reached');
+  if (goal.status === 'duration_reached') return t('Time budget reached');
   if (goal.status === 'blocked') return t('Blocked');
   if (goal.status === 'usage_limited') return t('Provider usage limit reached');
   if (goal.status === 'stopped') return t('Stopped');
@@ -146,47 +145,42 @@ export function goalStateLabel(goal: GoalSnapshot, kind: GoalStateKind, displayS
   return goalStatusLabel(goal);
 }
 
-type GoalProgressCell = 'completed' | 'in_progress' | 'awaiting_approval' | 'pending';
-
-export type GoalTaskProgress = {
+export type TodoProgress = {
+  /** Finished steps. Abandoned steps never count as accomplished. */
   completed: number;
+  /** Steps still meant to be done: the list minus the abandoned ones. */
   total: number;
-  /** GOAL_PROGRESS_CELLS cells whatever the task count: the finished share of
-   *  the counted tasks (dropped excluded), rounded down so only a finished
-   *  list fills them all, then one cell for the work in hand. */
-  pips: GoalProgressCell[];
+  abandoned: number;
+  blocked: boolean;
+  inProgress: boolean;
 };
 
-const GOAL_PROGRESS_CELLS = 5;
-
-export function goalTaskProgress(goal: GoalSnapshot): GoalTaskProgress {
-  const tasks = Array.isArray(goal.tasks) ? goal.tasks : [];
-  const summaryTotal = Number(goal.tasksTotal) || 0;
-  let completed: number;
-  let total: number;
-  if (tasks.length > 0 && tasks.length >= summaryTotal) {
-    const counted = tasks.filter((task) => task.status !== 'dropped');
-    completed = counted.filter((task) => task.status === 'completed').length;
-    total = counted.length;
-  } else {
-    total = Math.max(tasks.length, summaryTotal);
-    completed = Math.min(
-      total,
-      Math.max(tasks.filter((task) => task.status === 'completed').length, Number(goal.tasksCompleted) || 0)
-    );
-  }
-  const filled = total > 0 ? Math.floor((completed * GOAL_PROGRESS_CELLS) / total) : 0;
-  // Work that needs the user's answer outranks work in hand.
-  let current: GoalProgressCell = 'pending';
-  if (tasks.some((task) => task.status === 'awaiting_approval')) current = 'awaiting_approval';
-  else if (tasks.some((task) => task.status === 'in_progress')) current = 'in_progress';
-  const pips = Array.from({ length: GOAL_PROGRESS_CELLS }, (_, index): GoalProgressCell => {
-    if (index < filled) return 'completed';
-    return index === filled ? current : 'pending';
-  });
-  return { completed, total, pips };
+/** Whether the snapshot carries a step list worth a segment. */
+export function todoPresent(todo: TodoSnapshot | null | undefined): boolean {
+  return Boolean(todo?.phases?.some((phase) => phase.tasks?.length));
 }
 
+/** Counts for the ring and the n/m label. The runtime's own totals are the
+ *  source; the flags come from the rows. */
+export function todoProgress(todo: TodoSnapshot | null | undefined): TodoProgress {
+  const tasks = (todo?.phases ?? []).flatMap((phase) => phase.tasks ?? []);
+  const abandoned = Math.max(0, Number(todo?.abandoned) || 0);
+  return {
+    completed: Math.max(0, Number(todo?.completed) || 0),
+    total: Math.max(0, (Number(todo?.total) || 0) - abandoned),
+    abandoned,
+    blocked: tasks.some((task) => task.status === 'blocked'),
+    inProgress: tasks.some((task) => task.status === 'in_progress'),
+  };
+}
+
+/** The ring state of a list shown without a Goal: finished only when something
+ *  was accomplished and nothing is left; a blocked step outranks working. */
+export function todoStateKind(progress: TodoProgress): GoalStateKind {
+  if (progress.blocked) return 'blocked';
+  if (progress.total > 0 && progress.completed >= progress.total) return 'complete';
+  return 'active';
+}
 export function goalTimeLabel(goal: GoalSnapshot, clock: number): string {
   if (goal.status === 'complete') {
     return t('{{time}} elapsed', { time: formatGoalDuration(Number(goal.timeUsedMs) || 0) });

@@ -56,14 +56,11 @@ export function createGoalRuntime({
     turnGoalIds: new Map(),
     turnStartedAt: new Map(),
     titleJobs: new Map(),
-    observedGoals: new Map(),
-    // Session -> the Goal identity, turn, and revision already answered with
-    // no progress: the one settled-duration review, or an automatic turn that
-    // called no tool. In memory on purpose: a restart is a new chance.
+    // Session -> the Goal identity and turn an automatic turn answered with no
+    // tool call. In memory on purpose: a restart is a new chance.
     idleReviewTurns: new Map(),
-    // Session -> { goalId, revision, quietTurns }: which continuation tier this
-    // context still owes, from the rules and state already delivered into it.
-    // In memory on purpose: a restart is a fresh context that needs them again.
+    // Session -> id of the Goal whose full continuation rules this context
+    // already holds. In memory on purpose: a restart is a fresh context.
     continuationTiers: new Map(),
     // Session -> Goal id whose turn ended in a stop (failed, cancelled, usage
     // limit) the record could not save. The record still reads active, so
@@ -109,6 +106,23 @@ export function createGoalRuntime({
       return withMutation(sessionId, () => ctx.control(sessionId, args));
     },
     executeTool: (name, args = {}, context = {}) => executeGoalTool(ctx, name, args, context),
+    // Tasks a legacy record still carries for the session's todo list to
+    // adopt; [] once adopted (clearLegacyTasks).
+    legacyTasks(sessionId) {
+      try {
+        return ctx.readRecord(sessionId).goal?.legacyTasks || [];
+      } catch {
+        return [];
+      }
+    },
+    clearLegacyTasks(sessionId) {
+      return withMutation(sessionId, async (id) => {
+        const goal = ctx.readRecord(id).goal;
+        if (!goal?.legacyTasks?.length) return null;
+        goal.legacyTasks = [];
+        return ctx.commit(id, goal);
+      });
+    },
     ...createGoalTurnLifecycle(ctx),
     close() {
       ctx.closed = true;
@@ -117,7 +131,6 @@ export function createGoalRuntime({
       deadlines.close();
       ctx.turnGoalIds.clear();
       ctx.turnStartedAt.clear();
-      ctx.observedGoals.clear();
       ctx.idleReviewTurns.clear();
       ctx.continuationTiers.clear();
       ctx.unsavedStops.clear();

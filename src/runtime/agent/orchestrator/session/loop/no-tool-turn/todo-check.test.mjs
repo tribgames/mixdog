@@ -1,0 +1,120 @@
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test from 'node:test';
+
+import { createNoToolTurnResolver } from '../no-tool-turn.mjs';
+import { executeTodoTool } from '../../../runtime-core/todo-list.mjs';
+import { createGoalRuntime } from '../../../runtime-core/goal-runtime.mjs';
+import { completeBackgroundTask, registerBackgroundTask } from '../../../../../shared/background-tasks.mjs';
+import { beginTodoTurn, noteTodoUserWait } from './todo-check.mjs';
+import { stampShellJobCycle } from '../../../../../shared/background-wait.mjs';
+
+let seq = 0;
+function fixture({ items = ['Find the cause', 'Fix the bug'], agent = 'lead' } = {}) {
+  seq += 1;
+  const session = { id: `sess_todo_check_${seq}`, agent };
+  if (items.length) executeTodoTool(session, { op: 'init', items });
+  beginTodoTurn(session, { genuine: true });
+  const messages = [];
+  const resolver = createNoToolTurnResolver({
+    messages,
+    opts: { session },
+    sessionId: session.id,
+    sessionAgent: agent,
+    drainSteering: () => false,
+  });
+  const end = () => resolver.resolve({ content: 'Here is where things stand.' }, 1);
+  const reminders = () => messages.filter((message) => message.role === 'user');
+  return { session, messages, resolver, end, reminders };
+}
+
+test('an ended turn with open items gets one hidden reminder listing them and continues', async () => {
+  const f = fixture();
+  assert.equal((await f.end()).action, 'continue');
+  const [reminder] = f.reminders();
+  assert.match(reminder.content, /^<system-reminder>/);
+  assert.match(reminder.content, /2 open todo item\(s\):\n- Find the cause\n- Fix the bug/);
+  assert.match(reminder.content, /Reminder 1\/3/);
+  assert.equal(f.messages[0].role, 'assistant', 'the ended text is kept before the reminder');
+});
+
+test('a reminder that produced no progress stops the check; progress re-arms it up to 3 per cycle', async () => {
+  const f = fixture();
+  assert.equal((await f.end()).action, 'continue');
+  assert.equal((await f.end()).action, 'break', 'no tool batch since the last reminder');
+  for (const expected of ['continue', 'continue', 'break']) {
+    f.resolver.noteToolBatchCompleted([], []);
+    assert.equal((await f.end()).action, expected);
+  }
+  assert.equal(f.reminders().length, 3);
+  // An automatic continuation is not a new cycle; a genuine user prompt is.
+  beginTodoTurn(f.session, { genuine: false });
+  f.resolver.noteToolBatchCompleted([], []);
+  assert.equal((await f.end()).action, 'break');
+  beginTodoTurn(f.session, { genuine: true });
+  assert.equal((await f.end()).action, 'continue');
+});
+
+test('no reminder without open items, for hidden roles, or while the turn waits on the user', async () => {
+  assert.equal((await fixture({ items: [] }).end()).action, 'break');
+  const closed = fixture({ items: ['Only step'] });
+  executeTodoTool(closed.session, { op: 'done', item: 'Only step' });
+  assert.equal((await closed.end()).action, 'break');
+  const blocked = fixture({ items: ['Only step'] });
+  executeTodoTool(blocked.session, { op: 'block', item: 'Only step', reason: 'waiting on the user' });
+  assert.equal((await blocked.end()).action, 'break', 'blocked items are not open');
+  const denied = fixture();
+  noteTodoUserWait(denied.session.id);
+  assert.equal((await denied.end()).action, 'break');
+  // The next turn no longer carries the last turn's wait.
+  beginTodoTurn(denied.session, { genuine: false });
+  assert.equal((await denied.end()).action, 'continue');
+});
+
+test('a running agent or a background shell started this cycle skips the reminder; an earlier server does not', async () => {
+  const f = fixture();
+  const context = { callerSessionId: f.session.id };
+  const agentJob = registerBackgroundTask({ surface: 'agent', context });
+  assert.equal((await f.end()).action, 'break');
+  completeBackgroundTask(agentJob.taskId, { status: 'completed', notify: false });
+  // A server started in an earlier user cycle keeps running across prompts.
+  const server = stampShellJobCycle(registerBackgroundTask({ surface: 'shell', context }));
+  beginTodoTurn(f.session, { genuine: true });
+  try {
+    assert.equal((await f.end()).action, 'continue', 'an earlier-cycle server is no wait');
+    f.resolver.noteToolBatchCompleted([], []);
+    // A build started this cycle (background: true or moved there) is.
+    const build = stampShellJobCycle(registerBackgroundTask({ surface: 'shell', context }));
+    assert.equal((await f.end()).action, 'break');
+    // An automatic continuation stays in the same cycle.
+    beginTodoTurn(f.session, { genuine: false });
+    assert.equal((await f.end()).action, 'break');
+    completeBackgroundTask(build.taskId, { status: 'completed', notify: false });
+    assert.equal((await f.end()).action, 'continue');
+  } finally {
+    completeBackgroundTask(server.taskId, { status: 'completed', notify: false });
+  }
+});
+
+test('an active Goal with every item closed asks once for the completion audit', async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-todo-goal-'));
+  const previous = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = dataDir;
+  const goals = createGoalRuntime({ dataDir });
+  t.after(async () => {
+    await goals.close();
+    if (previous === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previous;
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+  const f = fixture({ items: ['Only step'] });
+  executeTodoTool(f.session, { op: 'done', item: 'Only step' });
+  assert.equal((await f.end()).action, 'break', 'no Goal: nothing to audit');
+  await goals.control(f.session.id, { action: 'create', objective: 'Ship it' });
+  assert.equal((await f.end()).action, 'continue');
+  assert.match(f.reminders().at(-1).content, /call goal with action complete; otherwise append the remaining work/);
+  f.resolver.noteToolBatchCompleted([], []);
+  assert.equal((await f.end()).action, 'break', 'asked once per cycle');
+});

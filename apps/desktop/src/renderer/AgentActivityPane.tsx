@@ -31,6 +31,7 @@ import { sessionDisplayTitle } from './session-display-title';
 import { t } from './i18n';
 import { agentElapsedText } from './agent-row-meta';
 import { useClock } from './use-clock';
+import { AgentTodoMark } from './AgentTodoMark';
 import { clearableAgentTreeRows, dismissFinishedAgentRows, useVisibleAgentPool } from './agent-dismiss';
 import { AgentProviderMark, AgentRouteSummary, useSessionDragSource } from './agent-row-parts';
 import { type AgentChatIndicator, agentChatTimeLabel, agentRowName } from './agent-chat-summary';
@@ -243,6 +244,7 @@ export const AgentPoolRow = memo(function AgentPoolRow({
         <span className="agent-pool-heading">
           <b className="agent-pool-name">{name}</b>
           {lead && descendantCount > 0 && <span className="dock-review-count">{descendantCount}</span>}
+          <AgentTodoMark todo={agent.todo} />
         </span>
         <AgentRouteSummary agent={agent} />
       </span>

@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { desktopSession, positiveNumber } from './store-summary-fields.mjs';
 import { compactionArchiveRange, readCompactionArchivePage } from './compaction-archive.mjs';
 import { dataDir } from './store-summary-locations.mjs';
+import { todoSnapshot } from '../runtime-core/todo-list.mjs';
 
 /** The parse/recovery/projection body of a stored transcript read. Runs once
  *  per distinct content; its result is shared read-only through the cache. */
@@ -305,6 +306,7 @@ export async function windowStoredTranscript(sessionId, base, options) {
     cwd: session.cwd || '',
     desktopSession: desktopSession(session.desktopSession, session.cwd),
     workflow: session.workflow || null,
+    todo: todoSnapshot(session),
     ...contextFields,
   };
 }

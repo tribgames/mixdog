@@ -8,6 +8,7 @@ import {
   ASK_USER_MAX_TEXT,
 } from '../../runtime/agent/orchestrator/runtime-core/ask-user-tool-defs.mjs';
 import { createCallerContextResolvers } from './caller-context.mjs';
+import { noteTodoUserWait } from '../../runtime/agent/orchestrator/session/loop/no-tool-turn/todo-check.mjs';
 import { runAbortable } from '../../runtime/shared/abort-race.mjs';
 import {
   HANDOFF_OUTCOMES as AGENT_OUTCOMES,
@@ -309,6 +310,8 @@ export function createAskUserToolHandlers({ rt }) {
           normalizeAskUserAnswers(result.answers, questions),
           normalizeAskUserReply(result.reply)
         );
+      // A question left unanswered: the turn may end waiting on the user.
+      noteTodoUserWait(sessionIdFor(callerCtx));
       return DISMISSED;
     },
   };

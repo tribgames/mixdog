@@ -135,6 +135,8 @@ export interface DesktopAgentPoolRow extends Readonly<Record<string, unknown>> {
   usage?: DesktopAgentPoolUsage | null;
   /** Cumulative tool calls the agent session has made; null when unknown. */
   toolCalls?: number | null;
+  /** The agent's own step list: finished of counted steps, and the step in hand. */
+  todo?: { completed: number; total: number; current?: string } | null;
 }
 
 export interface DesktopAgentPoolUsage {
@@ -184,26 +186,28 @@ export interface DesktopQuotaResume {
   attempts: number;
 }
 
-export interface DesktopGoalTask extends Readonly<Record<string, unknown>> {
-  id?: string;
-  text?: string;
-  status?: 'pending' | 'in_progress' | 'completed' | 'dropped' | 'awaiting_approval';
-  kind?: 'work' | 'verification';
+export interface DesktopTodoTask extends Readonly<Record<string, unknown>> {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed' | 'abandoned' | 'blocked';
+  blocker?: string;
+  note?: string;
+}
+
+/** The session's step list; null when empty. */
+export interface DesktopTodoState extends Readonly<Record<string, unknown>> {
+  phases: { name: string; tasks: DesktopTodoTask[] }[];
+  completed: number;
+  abandoned: number;
+  total: number;
 }
 
 export interface DesktopGoalState extends Readonly<Record<string, unknown>> {
   id?: string;
-  revision?: number;
-  needsTaskReview?: boolean;
   sessionId?: string;
   objective?: string;
   title?: string;
   status?: 'active' | 'paused' | 'blocked' | 'usage_limited' | 'duration_reached' | 'complete';
-  tasks?: DesktopGoalTask[];
-  tasksCompleted?: number;
-  tasksTotal?: number;
   turnCount?: number;
-  tasksUpdatedAt?: number | null;
   blocker?: string;
   timeLimitMs?: number;
   timeUsedMs?: number;
@@ -243,6 +247,7 @@ export interface DesktopSessionState extends Readonly<Record<string, unknown>> {
   spinner?: DesktopActivityState | null;
   commandStatus?: DesktopActivityState | null;
   goal?: DesktopGoalState | null;
+  todo?: DesktopTodoState | null;
   /** A quota-stopped turn waiting to resume itself at the provider's reset. */
   quotaResume?: DesktopQuotaResume | null;
   progressHint?: { text?: string; tone?: string; percent?: number } | null;

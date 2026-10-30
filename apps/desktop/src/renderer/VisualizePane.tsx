@@ -42,7 +42,7 @@ import {
   visualizePanesStacked,
   visualizeTabTooltip,
 } from './visualize-store';
-import { VISUALIZE_ZOOM_RANGE, visualizeZoomStyle, useVisualizeZoom } from './visualize-zoom';
+import { VISUALIZE_ZOOM_RANGE, visualizeZoomStyle, useImagePaneTouch, useVisualizeZoom } from './visualize-zoom';
 import { setVisualizeSoloPane, useVisualizeSoloPane, visualizeSoloStep } from './visualize-solo-pane';
 import { useZoomBarVisible, zoomBarAction } from './zoom-bar-pref';
 import { ZoomPill } from './ZoomPill';
@@ -545,6 +545,7 @@ function RemotePaneContent({
 }
 
 type VisualizeTab = ReturnType<typeof useVisualizeState>['tabs'][number];
+type VisualizeZoom = ReturnType<typeof useVisualizeZoom>;
 
 function problemOrigin(tab: VisualizeTab, problem: NonNullable<VisualizeTab['problems']>[number]): string {
   return [
@@ -691,7 +692,7 @@ function VisualizePaneCell({
   content: ReactNode;
   showSource: boolean;
   commenting: boolean;
-  zoom: number;
+  zoom: VisualizeZoom;
   showSolo(index: number | null): void;
 }) {
   // In the split, a click on a pane shows it alone — not while
@@ -699,6 +700,11 @@ function VisualizePaneCell({
   // take clicks); the hover name chip works for every pane.
   const split = shown.panes.length > 1 && solo === null;
   const clickToSolo = split && !commenting && !showSource && pane.kind !== 'audio' && pane.kind !== 'video';
+  // A shown image takes its own touches (pinch, pan, double tap); while
+  // commenting the comment layer has them.
+  const [paneContent, setPaneContent] = useState<HTMLDivElement | null>(null);
+  const touchZoom = live && !commenting && !showSource && pane.kind === 'image';
+  useImagePaneTouch(paneContent, touchZoom, zoom);
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions lint/a11y/useKeyWithClickEvents: a pointer shortcut; the name chip is the keyboard path
     <div
@@ -734,8 +740,8 @@ function VisualizePaneCell({
           <Maximize2 size={16} aria-hidden="true" />
         </button>
       ) : null}
-      <div className="visualize-pane-content">
-        <div className="visualize-zoom-layer" style={visualizeZoomStyle(live ? zoom : 1, pane.kind)}>
+      <div ref={setPaneContent} className="visualize-pane-content" data-touch-zoom={touchZoom ? '' : undefined}>
+        <div className="visualize-zoom-layer" style={visualizeZoomStyle(live ? zoom.scale : 1, pane.kind)}>
           {content}
         </div>
         {live && visualizeCommentKind(pane.kind) && !showSource && (
@@ -1136,7 +1142,7 @@ function VisualizeBodies({
   sourceOn: boolean;
   remoteSource: DesktopApi['visualizePaneSource'];
   commenting: boolean;
-  zoom: number;
+  zoom: VisualizeZoom;
   showSolo(index: number | null): void;
 }) {
   return (
@@ -1281,12 +1287,13 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
   // Content scale of the active tab; the zoom bar is a shared preference.
   const [panel, setPanel] = useState<HTMLElement | null>(null);
   const zoomBarVisible = useZoomBarVisible();
-  const { scale: zoom, setScale: setZoom } = useVisualizeZoom({
+  const zoomControl = useVisualizeZoom({
     panel,
     // Not the revision: a reload of the tab's files keeps the user's zoom.
     scopeKey: tab ? `${sessionId}\0${tab.id}` : '',
     enabled: active && Boolean(tab),
   });
+  const { scale: zoom, setScale: setZoom } = zoomControl;
   const zoomable = Boolean(tab?.panes.some((pane) => pane.kind !== 'audio' && pane.kind !== 'video'));
 
   const { commenting, setComment, commentAction } = useVisualizeCommentMode(sessionId, tab, body);
@@ -1361,7 +1368,7 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
           sourceOn={extras.sourceOn}
           remoteSource={remoteSource}
           commenting={commenting}
-          zoom={zoom}
+          zoom={zoomControl}
           showSolo={showSolo}
         />
       ) : (

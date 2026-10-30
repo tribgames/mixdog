@@ -29,10 +29,6 @@ function writeGoal(
         objective: `Keep ${status} Goal`,
         title: `${status} Goal`,
         status,
-        tasks: [
-          { id: 'task_1', text: 'Keep progress', status: 'in_progress' },
-          { id: 'task_2', text: 'Verify recovery', status: 'pending' },
-        ],
         blocker: status === 'blocked' ? 'External service unavailable' : '',
         failureReason: '',
         failureCount: 0,
@@ -149,7 +145,7 @@ test('recreated session service projects every unexpired Goal cold and resumes o
       const result = await service.subscribeSession({ sessionId: ids[status] }, { clientToken: `viewer-${status}` });
       assert.equal(result.projection, true);
       assert.equal(result.full.goal.status, status);
-      assert.equal(result.full.goal.tasks[0].status, 'in_progress');
+      assert.equal(Object.hasOwn(result.full.goal, 'tasks'), false);
       if (status === 'active') assert.equal(result.full.goal.timeUsedMs, 10_000);
     }
     const archived = await service.subscribeSession({ sessionId: ids.archived }, { clientToken: 'viewer-archived' });

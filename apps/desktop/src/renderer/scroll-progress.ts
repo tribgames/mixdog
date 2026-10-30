@@ -1,16 +1,18 @@
-// Scroll position as CSS numbers, for the phone layout only.
+// Scroll position as CSS numbers, driving every scroller's edge fades.
 //
-// The desktop edge fades ride CSS scroll-driven animations (`scroll-timeline`
-// / `animation-timeline`). Android WebView 153-156 freezes a touch fling after
-// finger lift whenever ANY scroll timeline is alive on the page and lands the
-// rest of the distance in one jump (Chromium 572898003, fixed in M157). On the
-// phone layout the CSS drops every timeline (`html[data-mixdog-mobile-tabs]`
-// rules next to each one) and reads these two registered numbers instead
-// (font-faces.css): the scroller's `scrollTop`, and its scrollable distance
-// (0 = the list cannot scroll, where the timeline was inactive). The CSS
-// applies the same ranges the timelines used.
+// The renderer uses no CSS scroll-driven animations (`scroll-timeline` /
+// `animation-timeline`), on any layout:
+//  - Electron 43 (Chromium 150) skips the post-layout scroll-snapshot step for
+//    input-driven lifecycle updates, so a mouse-up over a text selection could
+//    reach the selection commit with an animation timeline still dirty; its
+//    forced style update then hit a renderer CHECK (crbug 394797260).
+//  - Android WebView 153-156 freezes a touch fling after finger lift whenever
+//    ANY scroll timeline is alive on the page (Chromium 572898003, fixed in
+//    M157).
+// The CSS reads these two registered numbers instead (font-faces.css): the
+// scroller's `scrollTop`, and its scrollable distance (0 = the list cannot
+// scroll).
 import { type RefObject, useEffect } from 'react';
-import { usePhoneSurfaceMarked } from './mobile-surface';
 
 const TOP = '--mx-scroll-top';
 const MAX = '--mx-scroll-max';
@@ -87,14 +89,12 @@ export function bindScrollProgress(scroller: HTMLElement, hosts?: string): () =>
   };
 }
 
-/** Binds the scroller in `ref` while the phone layout is on; follows
- *  phone <-> desktop switches. `remount` re-binds when the element behind the
- *  ref was replaced. */
+/** Binds the scroller in `ref`. `remount` re-binds when the element behind
+ *  the ref was replaced. */
 export function useScrollProgress(ref: RefObject<HTMLElement | null>, hosts?: string, remount?: unknown): void {
-  const phone = usePhoneSurfaceMarked();
   useEffect(() => {
     const scroller = ref.current;
-    if (!phone || !scroller) return;
+    if (!scroller) return;
     return bindScrollProgress(scroller, hosts);
-  }, [phone, ref, hosts, remount]);
+  }, [ref, hosts, remount]);
 }

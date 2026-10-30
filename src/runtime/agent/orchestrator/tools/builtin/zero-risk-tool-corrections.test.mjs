@@ -70,14 +70,12 @@ test('exec policy block names the rule and the matched fragment', () => {
   assert.equal(checkExecPolicyMessage('echo hi'), null);
 });
 
-test('goal unknown fields list the allowed ones; stringified tasks parse', () => {
+test('goal unknown fields list the allowed ones', () => {
   assert.throws(
     () => validateGoalToolCall({ action: 'create', title: 'x' }),
-    /unknown fields: title\. Allowed for create: action, objective/
+    /unknown fields: title\. Allowed for create: action, objective, time_limit_minutes/
   );
-  const call = { action: 'set_tasks', tasks: '[{"text":"a","status":"pending"}]' };
-  assert.equal(validateGoalToolCall(call), 'set_tasks');
-  assert.deepEqual(call.tasks, [{ text: 'a', status: 'pending' }]);
+  assert.equal(validateGoalToolCall({ action: 'block', blocker: 'x' }), 'block');
 });
 
 test('git: pipe rejection names the replacement; stringified command array runs as an array', async () => {

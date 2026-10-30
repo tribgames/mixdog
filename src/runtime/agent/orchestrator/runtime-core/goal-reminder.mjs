@@ -13,6 +13,7 @@ import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { readStoredGoalSnapshot } from './goal-runtime.mjs';
 import { goalStateReminder } from './goal-text.mjs';
 import { clean } from './session-text.mjs';
+import { todoContextBlock } from './todo-list.mjs';
 
 function pendingRevision(session) {
   return Math.max(0, Number(session?.pendingGoalReminder?.revision) || 0);
@@ -53,9 +54,16 @@ export function snapshotPendingGoalReminder(session, { dataDir = null, readGoal 
   } catch {
     goal = null;
   }
+  if (goal?.status === 'complete') goal = null;
+  // Compaction drops the todo tool results too: the open list rides once.
+  const marked = clean(session.pendingGoalReminder?.reason);
+  const todoBlock =
+    revision && marked === 'compaction'
+      ? todoContextBlock(session, 'Context was compacted; your todo list (exact wordings):')
+      : '';
   // Nothing left to remind about (no Goal, or it already finished): drop the
   // marker instead of re-reading the same file on every later turn.
-  if (!goal || goal.status === 'complete') {
+  if (!goal && !todoBlock) {
     clearPendingGoalReminder(session);
     return null;
   }
@@ -64,7 +72,10 @@ export function snapshotPendingGoalReminder(session, { dataDir = null, readGoal 
     revision = markPendingGoalReminder(session, goal.status).revision;
   }
   const reason = clean(session.pendingGoalReminder?.reason);
-  const content = goalStateReminder(goal, { reason });
+  const goalContent = goal ? goalStateReminder(goal, { reason }) : '';
+  const content = [goalContent, todoBlock ? `<system-reminder>\n${todoBlock}\n</system-reminder>` : '']
+    .filter(Boolean)
+    .join('\n\n');
   if (!content) {
     clearPendingGoalReminder(session);
     return null;

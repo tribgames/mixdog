@@ -13,6 +13,7 @@ import {
 import type { useReadingAnchor } from './transcript-list-reading-anchor';
 import type { TranscriptRowModel } from './transcript-rows';
 import { logTranscriptScroll, transcriptScrollDiagnosticsEnabled } from './transcript-scroll-diagnostics';
+import { useSurfaceActive } from './surface-activity';
 
 type ReadingAnchorState = ReturnType<typeof useReadingAnchor>;
 
@@ -191,7 +192,12 @@ export function useVirtualizerResizePatch({
   // A window resize re-lays the list out before this frame's observers run:
   // the resize event is dispatched ahead of layout, so the re-measure lands in
   // the frame of the new width, once per frame however fast the drag.
+  // An off-screen transcript (retained or parked conversation) is not laid
+  // out: re-measuring it on a resize would force layout of skipped content.
+  // It re-measures once, in the commit that shows it again.
+  const surfaceActive = useSurfaceActive();
   useLayoutEffect(() => {
+    if (!surfaceActive) return undefined;
     const sync = () => widthSync.current?.();
     const unregister = registerTranscriptWidthSync(sync);
     window.addEventListener('resize', sync);
@@ -199,7 +205,13 @@ export function useVirtualizerResizePatch({
       unregister();
       window.removeEventListener('resize', sync);
     };
-  }, []);
+  }, [surfaceActive]);
+  const shownBefore = useRef(surfaceActive);
+  useLayoutEffect(() => {
+    const returning = surfaceActive && !shownBefore.current;
+    shownBefore.current = surfaceActive;
+    if (returning) widthSync.current?.();
+  }, [surfaceActive]);
   // React re-renders reuse one virtualizer instance. Patch resizeItem exactly
   // once instead of wrapping the previous wrapper again on every render.
   const patchedVirtualizer = useRef<TranscriptVirtualizer | null>(null);

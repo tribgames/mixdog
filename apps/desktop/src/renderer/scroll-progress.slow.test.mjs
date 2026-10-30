@@ -5,14 +5,15 @@ import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
 import { launchPuppeteerBrowser } from '../../../../src/runtime/shared/browser-launch.mjs';
 
-// The edge fades ride CSS scroll timelines on desktop. The Android WebView
-// (153-156) freezes a fling while any scroll timeline is alive, so the phone
-// layout drops them all and follows the scroller from scroll-progress.ts
-// instead. In a real Chrome against the app's own stylesheets: the phone has no
-// scroll-driven animation anywhere, its fades equal what the timelines produce
-// on desktop at the top, in the middle and at the end, and desktop keeps them.
+// The edge fades follow the scroller from scroll-progress.ts on every layout:
+// no CSS scroll timeline may exist (Electron 43 renderer CHECK on a mouse-up
+// over a selection, frozen Android WebView flings). In a real Chrome against
+// the app's own stylesheets, on desktop and on the phone layout: nothing is
+// scroll-driven, and each fade matches the ranges the former timelines used at
+// the top, in the middle and at the end.
 
 const PAGE = `
+  <div class="workbench-side-panel" data-side="left" style="display:contents">
   <aside class="sidebar session-sidebar" id="rail" style="display:flex;flex-direction:column;width:300px;height:640px">
     <header class="session-panel-header" id="header" style="flex:none;height:36px"></header>
     <div class="session-sidebar-sessions" id="sessions" style="flex:1 1 0;min-height:0;display:flex;flex-direction:column">
@@ -28,6 +29,7 @@ const PAGE = `
       </div>
     </div>
   </aside>
+  </div>
   <div class="transcript-shell" id="shell" style="position:relative;height:300px;width:300px">
     <div class="transcript-scroll-fade" id="fade" aria-hidden="true"></div>
     <div class="transcript" id="transcript" style="height:300px;overflow-y:auto;padding:0"><div id="thread" style="height:1200px"></div></div>
@@ -87,14 +89,38 @@ const near = (actual, expected, label) => {
   );
 };
 
-test('phone: no scroll-driven animation, fades follow the scroller exactly as the desktop timelines', async (t) => {
+// What the former timelines produced at scroll position `top` of `max`
+// (animation ranges 0-12px, 0-32px, the first/last 4%, the final 24px).
+const unit = (value) => Math.min(1, Math.max(0, value));
+const expectedAt = (id, top, max) => {
+  const ramp = (value) => `${(20 * unit(value / 0.04) * Math.min(max, 1)).toFixed(3)}px`;
+  const fade = [ramp(top / Math.max(max, 1)), ramp(1 - top / Math.max(max, 1))];
+  const tail = unit(top / 12);
+  if (id === 'list') return { launchers: unit(top / 12), fade };
+  if (id === 'panels') return { header: unit(top / 12), fade, tail: [0, 6 * tail, 4 * tail, 0] };
+  if (id === 'transcript') return { fade: unit(top / 32) };
+  return { fade: `${24 * unit((max - top) / 24)}px` };
+};
+
+test('every layout: no scroll-driven animation, fades follow the scroller over the former ranges', async (t) => {
   const resolveDir = fileURLToPath(new URL('.', import.meta.url));
   const [bundle, styles] = await Promise.all([
     build({
       stdin: {
         resolveDir,
-        loader: 'ts',
-        contents: `import { bindScrollProgress } from './scroll-progress'; window.bindScrollProgress = bindScrollProgress;`,
+        loader: 'tsx',
+        contents: `
+          import { createElement, useRef } from 'react';
+          import { createRoot } from 'react-dom/client';
+          import { bindScrollProgress, useScrollProgress } from './scroll-progress';
+          window.bindScrollProgress = bindScrollProgress;
+          function Probe() {
+            const ref = useRef(null);
+            useScrollProgress(ref);
+            return createElement('div', { ref, id: 'hooked', style: { height: '100px', overflowY: 'auto' } },
+              createElement('div', { style: { height: '500px' } }));
+          }
+          window.mountProbe = (host) => createRoot(host).render(createElement(Probe));`,
       },
       bundle: true,
       write: false,
@@ -152,27 +178,26 @@ test('phone: no scroll-driven animation, fades follow the scroller exactly as th
     }
     return result;
   };
-  const rest = async () =>
-    page.evaluate(async () => {
-      for (const id of ['list', 'panels', 'transcript', 'palette']) document.getElementById(id).scrollTop = 0;
+  const none = { timelines: 0, declared: [] };
+  assert.deepEqual(await page.evaluate('scrollDriven()'), none, 'desktop: no scroll-driven animation');
+
+  // The hook binds on desktop (no phone marker).
+  const hooked = await page.evaluate(async () => {
+    const host = document.createElement('div');
+    document.body.append(host);
+    window.mountProbe(host);
+    const frames = async () => {
       for (let i = 0; i < 3; i += 1) await new Promise((resolve) => requestAnimationFrame(resolve));
-    });
+    };
+    await frames();
+    const el = document.getElementById('hooked');
+    el.scrollTop = 50;
+    await frames();
+    return [el.style.getPropertyValue('--mx-scroll-top'), el.style.getPropertyValue('--mx-scroll-max')];
+  });
+  assert.deepEqual(hooked, ['50', '400'], 'desktop: useScrollProgress writes the scroller position');
 
-  // Desktop: the timelines are alive and produce the reference values.
-  const before = await page.evaluate('scrollDriven()');
-  assert.ok(before.timelines > 0, 'desktop keeps its scroll timelines');
-  assert.ok(before.declared.includes('header::after'), 'the title-band fade is timeline-driven on desktop');
-  const desktop = await measure();
-  assert.ok(desktop.list.at(-1).max > 100, 'the fixture scrolls');
-  assert.ok(
-    desktop.panels.at(-3).header > 0.9 && desktop.panels[0].header === '0',
-    'the reference fades actually move'
-  );
-  await rest();
-
-  // Phone: marker on, scrollers bound.
   await page.evaluate(() => {
-    document.documentElement.setAttribute('data-mixdog-mobile-tabs', '');
     window.unbinds = [
       window.bindScrollProgress(document.getElementById('list'), ':scope > .session-sidebar-launchers'),
       window.bindScrollProgress(document.getElementById('panels'), ':scope > .session-panel-header'),
@@ -180,31 +205,29 @@ test('phone: no scroll-driven animation, fades follow the scroller exactly as th
       window.bindScrollProgress(document.getElementById('palette')),
       window.bindScrollProgress(document.getElementById('short')),
     ];
-    // The fixture's header/launchers/fade hosts live next to different scrollers.
   });
-  // Panel and session list hosts: the header follows the panels, the launchers the list.
-  const phoneState = await page.evaluate('scrollDriven()');
-  assert.deepEqual(phoneState, { timelines: 0, declared: [] }, 'phone: no scroll-driven animation');
-  const phone = await measure();
-  for (const id of SCROLLERS) {
-    desktop[id].forEach((expected, index) => {
-      const actual = phone[id][index];
-      const label = `${id} @${expected.top}`;
-      assert.equal(actual.max, expected.max, `${label}: same geometry`);
-      assert.equal(actual.top, expected.top, `${label}: same position`);
-      near(actual.fade, expected.fade, `${label}: fade`);
-      if (id === 'list') near(actual.launchers, expected.launchers, `${label}: launchers`);
-      if (id === 'panels') {
-        near(actual.header, expected.header, `${label}: title band`);
-        near(actual.pin, expected.pin, `${label}: pinned control tail`);
+  const check = (layout, measured) => {
+    assert.ok(measured.list.at(-1).max > 100, 'the fixture scrolls');
+    for (const id of SCROLLERS) {
+      for (const actual of measured[id]) {
+        const expected = expectedAt(id, actual.top, actual.max);
+        const label = `${layout} ${id} @${actual.top}/${actual.max}`;
+        near(actual.fade, expected.fade, `${label}: fade`);
+        if (id === 'list') near(actual.launchers, expected.launchers, `${label}: launchers`);
+        if (id === 'panels') {
+          near(actual.header, expected.header, `${label}: title band`);
+          near(numbers(actual.pin).slice(-4), expected.tail, `${label}: pinned control tail ${actual.pin}`);
+        }
       }
-    });
-  }
-  assert.deepEqual(
-    await page.evaluate('scrollDriven()'),
-    { timelines: 0, declared: [] },
-    'phone: still none after scrolling'
-  );
+    }
+  };
+  check('desktop', await measure());
+  assert.deepEqual(await page.evaluate('scrollDriven()'), none, 'desktop: still none after scrolling');
+
+  await page.evaluate(() => document.documentElement.setAttribute('data-mixdog-mobile-tabs', ''));
+  check('phone', await measure());
+  assert.deepEqual(await page.evaluate('scrollDriven()'), none, 'phone: no scroll-driven animation');
+  await page.evaluate(() => document.documentElement.removeAttribute('data-mixdog-mobile-tabs'));
 
   // A list that cannot scroll keeps both fades at 0; growing it (no scroll event) starts the bottom fade.
   const fades = () =>
@@ -213,26 +236,22 @@ test('phone: no scroll-driven animation, fades follow the scroller exactly as th
       const style = getComputedStyle(document.getElementById('short'));
       return [style.getPropertyValue('--sidebar-fade-top'), style.getPropertyValue('--sidebar-fade-bottom')];
     });
-  assert.deepEqual(await fades(), ['0px', '0px'], 'phone: a list that cannot scroll has no fade');
+  assert.deepEqual(await fades(), ['0px', '0px'], 'a list that cannot scroll has no fade');
   await page.evaluate(() => {
     document.getElementById('short').innerHTML += Array.from(
       { length: 20 },
       () => '<div style="height:30px">x</div>'
     ).join('');
   });
-  assert.deepEqual(await fades(), ['0px', '20px'], 'phone: a list that grows scrollable fades its end');
+  assert.deepEqual(await fades(), ['0px', '20px'], 'a list that grows scrollable fades its end');
 
-  // Back to desktop: the properties are gone and the timelines return.
   await page.evaluate(() => {
     for (const unbind of window.unbinds) unbind();
-    document.documentElement.removeAttribute('data-mixdog-mobile-tabs');
   });
-  const after = await page.evaluate('scrollDriven()');
-  assert.ok(after.timelines > 0, 'desktop again: scroll timelines return');
   assert.equal(
     await page.evaluate(() => document.getElementById('list').style.getPropertyValue('--mx-scroll-top')),
     '',
-    'desktop again: the scroll position properties are removed'
+    'unbinding removes the scroll position properties'
   );
   assert.deepEqual(errors, []);
 });

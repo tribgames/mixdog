@@ -2,11 +2,10 @@ import { useEffect, useId, useRef, useState, type CSSProperties, type RefObject 
 import { containDialogTab, PaneDialogLayer } from './sidebar-dialog';
 import { ErrorNotice } from './ErrorNotice';
 import { MxIcon } from './MxIcon';
-import { OpenSelect } from './OpenSelect';
 import { t } from './i18n';
 import type { GoalSnapshot } from './desktop-types';
 
-type GoalEditorValue = { objective: string; timeLimitMs: number; timeMode: 'max' | 'duration' };
+type GoalEditorValue = { objective: string; timeLimitMinutes: number };
 
 export function ComposerGoalDialog({
   anchor,
@@ -29,9 +28,6 @@ export function ComposerGoalDialog({
   const titleId = useId();
   const [objective, setObjective] = useState(initialGoal?.objective || '');
   const [minutes, setMinutes] = useState(initialGoal ? String((initialGoal.timeLimitMs || 0) / 60_000) : '60');
-  const [timeMode, setTimeMode] = useState<'max' | 'duration'>(
-    initialGoal ? initialGoal.timeMode || 'duration' : 'max'
-  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const focusReturn = useRef(returnFocus);
@@ -80,8 +76,8 @@ export function ComposerGoalDialog({
               const trimmedObjective = objective.trim();
               const timeFlag = duration ? ` --time ${duration}m` : '';
               const accepted = onSave
-                ? await onSave({ objective: trimmedObjective, timeLimitMs: duration * 60_000, timeMode })
-                : await onStart?.(`/goal ${trimmedObjective}${timeFlag} --time-mode ${timeMode}`);
+                ? await onSave({ objective: trimmedObjective, timeLimitMinutes: duration })
+                : await onStart?.(`/goal ${trimmedObjective}${timeFlag}`);
               if (accepted) onClose();
               else setError(t('Goal could not be started. Your input has been kept.'));
             } catch (reason) {
@@ -105,32 +101,18 @@ export function ComposerGoalDialog({
             />
           </label>
           <label className="schedules-field">
-            <span>{t('Duration in minutes')}</span>
+            <span>{t('Time limit in minutes')}</span>
             <input
               type="number"
               min="0"
               max="10080"
               step="1"
-              required
               value={minutes}
               disabled={busy}
               onChange={(event) => setMinutes(event.target.value)}
             />
             <small>{t('Use 0 for no time limit. Paused time does not count.')}</small>
           </label>
-          <div className="schedules-field">
-            <span>{t('Time budget mode')}</span>
-            <OpenSelect
-              ariaLabel={t('Time budget mode')}
-              value={timeMode}
-              disabled={busy}
-              options={[
-                { value: 'max', label: t('Maximum time — finish early when verified') },
-                { value: 'duration', label: t('Sustained work — continue for the full duration') },
-              ]}
-              onChange={(value) => setTimeMode(value as 'max' | 'duration')}
-            />
-          </div>
           <footer>
             {error && <ErrorNotice error={error} />}
             <button type="button" className="secondary" disabled={busy} onClick={close}>
