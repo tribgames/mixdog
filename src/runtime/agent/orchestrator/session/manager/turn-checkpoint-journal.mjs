@@ -34,7 +34,17 @@
 // writer produced, so recovery/projection semantics are unchanged. A crash-torn
 // trailing line is discarded: replay stops at the first unparsable record and
 // keeps the durable prefix.
-import { appendFileSync, existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import {
+  appendFileSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  renameSync,
+  unlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { appendFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
@@ -181,6 +191,76 @@ export function readTurnCheckpointHeaderState(sessionId) {
     return { present: error?.code !== 'ENOENT', header: null };
   }
   return { present: true, header: parseTurnCheckpointHeader(text, sessionId) };
+}
+
+// ── Unrecovered checkpoints, set aside ──────────────────────────────────────
+// A checkpoint recovery cannot apply (it names no base revision, or the record
+// is not of its base) must never be overwritten by the session's next turn.
+// It is renamed, header and journal as they are, to
+// `<session>.unrecovered-<key>.json(l)`, `key` a digest of the header bytes,
+// so a crash between the two renames repeats them onto the same names.
+const UNRECOVERED = '.unrecovered-';
+
+/** Move `sessionId`'s current checkpoint aside. Returns its key, or null when
+ *  there is none. Throws when the files cannot be moved: the caller must not
+ *  then write a new checkpoint over them. */
+export function setAsideTurnCheckpoint(sessionId) {
+  const header = turnCheckpointReadPath(sessionId);
+  let text;
+  try {
+    text = readFileSync(header, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
+    throw error;
+  }
+  const key = createHash('sha256').update(text).digest('hex').slice(0, 16);
+  const stem = join(checkpointDir(), `${sessionId}${UNRECOVERED}${key}`);
+  // Journal first: the header stays the anchor until both moved.
+  try {
+    renameSync(turnJournalReadPath(sessionId), `${stem}.jsonl`);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+  renameSync(header, `${stem}.json`);
+  return key;
+}
+
+/** `[{ key, checkpoint }]` for every checkpoint of `sessionId` set aside;
+ *  `checkpoint` is null when its header is unreadable. */
+export function listUnrecoveredTurnCheckpoints(sessionId) {
+  const prefix = `${assertSessionId(sessionId)}${UNRECOVERED}`;
+  let names;
+  try {
+    names = readdirSync(checkpointDirPath());
+  } catch {
+    return [];
+  }
+  const found = [];
+  for (const name of names) {
+    if (!name.startsWith(prefix) || !name.endsWith('.json')) continue;
+    const stem = join(checkpointDirPath(), name.slice(0, -'.json'.length));
+    let checkpoint = null;
+    try {
+      const header = parseTurnCheckpointHeader(readFileSync(`${stem}.json`, 'utf8'), sessionId);
+      checkpoint = header ? replayTurnJournal(header, `${stem}.jsonl`) : null;
+    } catch {
+      checkpoint = null;
+    }
+    found.push({ key: name.slice(prefix.length, -'.json'.length), checkpoint });
+  }
+  return found;
+}
+
+/** Delete one set-aside checkpoint (only on evidence that disk covers it). */
+export function removeUnrecoveredTurnCheckpoint(sessionId, key) {
+  const stem = join(checkpointDirPath(), `${assertSessionId(sessionId)}${UNRECOVERED}${key}`);
+  for (const path of [`${stem}.json`, `${stem}.jsonl`]) {
+    try {
+      unlinkSync(path);
+    } catch (error) {
+      if (error?.code !== 'ENOENT') throw error;
+    }
+  }
 }
 
 function parseTurnCheckpointHeader(text, sessionId) {
@@ -476,16 +556,17 @@ function applyInterruptionDelta(state, delta) {
 /** Merge the append-only journal onto its header. Returns the header unchanged
  * when no journal exists, when the journal belongs to another turn, or when it
  * has no usable head record. */
-export function replayTurnJournal(header) {
+export function replayTurnJournal(header, journalPath = header ? turnJournalReadPath(header.sessionId) : null) {
   if (!header) return null;
   let raw;
   try {
-    raw = readFileSync(turnJournalReadPath(header.sessionId), 'utf8');
+    raw = readFileSync(journalPath, 'utf8');
   } catch {
     return header;
   }
-  const messages = header.turnMessages.slice();
+  let messages = header.turnMessages.slice();
   let sealed = header.sealed === true;
+  let fullTranscript = header.fullTranscript === true;
   let contextState = header.contextState ?? null;
   const state = interruptionStateFromSnapshot(header.interruption);
   let updatedAt = Number(header.updatedAt) || 0;
@@ -531,6 +612,11 @@ export function replayTurnJournal(header) {
       }
     } else if (record.t === 'seal') {
       sealed = true;
+    } else if (record.t === 'full' && Array.isArray(record.ms)) {
+      // Legacy journals (before checkpoints named their base) replaced the
+      // whole context this way; read them so they are not misread as a turn.
+      messages = record.ms.slice();
+      fullTranscript = true;
     } else if (record.t === 'len') {
       const next = Number(record.n);
       if (Number.isInteger(next) && next >= 0 && next <= messages.length) {
@@ -549,6 +635,7 @@ export function replayTurnJournal(header) {
     ...header,
     turnMessages: messages,
     ...(sealed ? { sealed: true } : {}),
+    ...(fullTranscript ? { fullTranscript: true } : {}),
     interruption: interruptionSnapshotFromState(state),
     contextState,
     updatedAt,

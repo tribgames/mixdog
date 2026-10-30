@@ -15,7 +15,7 @@ import { linkParentSignalToSession, markSessionAskStart, _touchRuntime } from '.
 import { SessionClosedError } from './session-errors.mjs';
 import { ensureCodexWireSessionId, mintUuidV7 } from './session-id.mjs';
 import { createTurnInterruptionTracker } from './turn-interruption.mjs';
-import { _recoverTurnCheckpointDurably } from './turn-checkpoint-recovery.mjs';
+import { _recoverTurnCheckpointDurably, setAsideUnrecoveredCheckpoint } from './turn-checkpoint-recovery.mjs';
 import { awaitPreviousTurnDurable, ensureDurableTranscript } from './turn-durability.mjs';
 import { emitAskSessionStart } from './ask-support.mjs';
 import { createAskTurnState, createCloseSnapshot, createTurnCheckpointScheduler } from './ask-turn-state.mjs';
@@ -53,6 +53,10 @@ export async function settleTurnBase(sessionId, { recoverCheckpoint }) {
   adoptDiskGeneration(session, sessionId);
   if (recoverCheckpoint) _recoverTurnCheckpointDurably(session, sessionId);
   await ensureDurableTranscript(session);
+  // This turn's checkpoint replaces the session's checkpoint file. Whatever
+  // is still there (a conflict, an unreadable header, a crashed turn this
+  // ask did not recover) is set aside first, never overwritten.
+  setAsideUnrecoveredCheckpoint(session, sessionId);
 }
 
 /** Loads the session for a new turn and reconciles its on-disk lifecycle:

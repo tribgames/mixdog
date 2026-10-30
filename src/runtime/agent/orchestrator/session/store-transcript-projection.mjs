@@ -309,6 +309,10 @@ export async function windowStoredTranscript(sessionId, base, options) {
     desktopSession: desktopSession(session.desktopSession, session.cwd),
     workflow: session.workflow || null,
     todo: todoSnapshot(session),
+    // Turns whose checkpoints recovery could not apply, kept on disk.
+    ...(Array.isArray(session.unrecoveredTurns) && session.unrecoveredTurns.length
+      ? { unrecoveredTurns: session.unrecoveredTurns }
+      : {}),
     ...contextFields,
   };
 }

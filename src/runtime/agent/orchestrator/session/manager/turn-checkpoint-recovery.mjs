@@ -8,8 +8,77 @@ import { readSingletonOwner } from '../../../../shared/singleton-owner.mjs';
 import { loadSession, saveSession } from '../store.mjs';
 import { dataDir } from '../store-summary-locations.mjs';
 import { runtimeState, isTurnInFlight } from './runtime-state.mjs';
-import { clearTurnCheckpoint, recoverTurnCheckpoint } from './turn-checkpoint.mjs';
-import { hasUnsettledTurn, turnCoveredOnDisk } from './turn-durability.mjs';
+import {
+  checkpointDisposition,
+  clearTurnCheckpoint,
+  readTurnCheckpoint,
+  recoverTurnCheckpoint,
+  reportCheckpointConflict,
+} from './turn-checkpoint.mjs';
+import {
+  listUnrecoveredTurnCheckpoints,
+  removeUnrecoveredTurnCheckpoint,
+  setAsideTurnCheckpoint,
+} from './turn-checkpoint-journal.mjs';
+import { readDurableSessionRecord } from '../store/transcript-durability.mjs';
+import { hasUnsettledTurn, TurnPersistenceError, turnCoveredOnDisk } from './turn-durability.mjs';
+
+// ── Checkpoints recovery cannot apply ───────────────────────────────────────
+// A conflicting checkpoint (or one whose header cannot be read) is never
+// deleted and never overwritten by the next turn: it is set aside
+// (setAsideTurnCheckpoint) before that turn opens its own, listed on the
+// session as `unrecoveredTurns` for the read-only view, re-reported by every
+// recovery, and deleted only when the durable record carries its coverage.
+
+/** Set aside whatever checkpoint of `sessionId` is still in place, unless
+ *  `session`'s last landed save covers it (then it is deleted). Throws
+ *  TurnPersistenceError when it cannot be moved, so no new checkpoint is
+ *  written over it. */
+export function setAsideUnrecoveredCheckpoint(session, sessionId) {
+  const checkpoint = readTurnCheckpoint(sessionId);
+  if (checkpoint && turnCoveredOnDisk(session, checkpoint.turnToken)) {
+    clearTurnCheckpoint(sessionId, checkpoint.turnToken);
+    return;
+  }
+  try {
+    if (setAsideTurnCheckpoint(sessionId) === null) return;
+  } catch (error) {
+    throw new TurnPersistenceError(
+      sessionId,
+      'an unrecovered turn checkpoint could not be set aside, so the next turn cannot start',
+      error
+    );
+  }
+  listUnrecoveredTurns(session, sessionId);
+}
+
+/** Re-read the set-aside checkpoints of `sessionId`: delete those the durable
+ *  record covers, report the rest and list them on `session`. */
+function listUnrecoveredTurns(session, sessionId, durableRecord = undefined) {
+  const entries = listUnrecoveredTurnCheckpoints(sessionId);
+  let durable = durableRecord;
+  const kept = [];
+  for (const { key, checkpoint } of entries) {
+    if (durable === undefined) durable = readDurableSessionRecord(sessionId);
+    const disposition = checkpoint
+      ? checkpointDisposition(durable, checkpoint)
+      : { action: 'conflict', reason: 'the checkpoint header is unreadable' };
+    if (disposition.action === 'covered') {
+      removeUnrecoveredTurnCheckpoint(sessionId, key);
+      continue;
+    }
+    const reason = disposition.reason || 'set aside before a later turn';
+    reportCheckpointConflict(sessionId, checkpoint ?? { turnToken: key }, reason);
+    kept.push({
+      key,
+      turnToken: checkpoint?.turnToken ?? null,
+      startedAt: checkpoint?.startedAt ?? null,
+      reason,
+    });
+  }
+  if (kept.length) session.unrecoveredTurns = kept;
+  else delete session.unrecoveredTurns;
+}
 
 /** Whether this session's turn may still be running — in flight in this
  *  process, or owned by another live process holding the daemon record — or
@@ -27,12 +96,11 @@ export function _recoverTurnCheckpointDurably(session, sessionId, durable = unde
   // A turn this process finished but has not saved yet is in memory, not
   // lost: its own save gate settles it.
   if (hasUnsettledTurn(sessionId)) return { changed: false, recovered: false, turnToken: null };
-  const recovery = durable === undefined ? recoverTurnCheckpoint(session) : recoverTurnCheckpoint(session, durable);
+  const recovery = recoverTurnCheckpoint(session, durable);
   // The record on disk already carries the turn: only the checkpoint goes.
-  if (recovery.covered) {
-    clearTurnCheckpoint(sessionId, recovery.turnToken);
-    return recovery;
-  }
+  if (recovery.covered) clearTurnCheckpoint(sessionId, recovery.turnToken);
+  if (recovery.conflict) setAsideUnrecoveredCheckpoint(session, sessionId);
+  else listUnrecoveredTurns(session, sessionId, durable);
   if (!recovery.changed) return recovery;
   // Recovery is a durable reconnect boundary, not a renderer-only view.
   // Persist (with the turn's coverage) before removing the checkpoint so a

@@ -18,6 +18,7 @@ import {
 import { captureTurnCheckpointContextState, restoreTurnCheckpointContextState } from './turn-checkpoint-context.mjs';
 import { stripProviderReplayMessages } from './provider-replay.mjs';
 import { sensitiveValuesVersion } from '../sensitive-values.mjs';
+import { contextMessagesSignature } from '../context-utils.mjs';
 import { mintTranscriptEpoch, readDurableSessionRecord } from '../store/transcript-durability.mjs';
 
 export { turnCheckpointPath };
@@ -42,9 +43,14 @@ export const settleTurnCheckpointWrites = settleTurnJournalWrites;
 //             same active turn's save on any epoch;
 //   conflict  anything else. The checkpoint is kept and reported, never
 //             spliced onto a record it was not taken against.
+// A legacy checkpoint (written before checkpoints named their base: no
+// `boundary`) replays only when the record is exactly the prefix the turn
+// recorded in its context state (count and exact-content signature), or a
+// save of that same turn holding that prefix; otherwise it is a conflict.
 
-/** `{ action: 'covered' | 'replay' | 'conflict', reason? }` for `checkpoint`
- *  against the canonical record `durable` (as it is on disk). */
+/** `{ action: 'covered' | 'replay' | 'conflict', reason?, boundary? }` for
+ *  `checkpoint` against the canonical record `durable` (as it is on disk);
+ *  `boundary` is how many of the record's messages a replay keeps. */
 export function checkpointDisposition(durable, checkpoint) {
   if (!durable || !Array.isArray(durable.messages)) {
     return { action: 'conflict', reason: 'the session has no durable record' };
@@ -52,6 +58,7 @@ export function checkpointDisposition(durable, checkpoint) {
   if (typeof checkpoint?.turnToken === 'string' && durable.turnCoverage === checkpoint.turnToken) {
     return { action: 'covered' };
   }
+  if (checkpoint && !Object.hasOwn(checkpoint, 'boundary')) return legacyDisposition(durable, checkpoint);
   const base = checkpoint?.base;
   const baseEpoch = typeof base?.epoch === 'string' && base.epoch ? base.epoch : null;
   const sameTurn = durable.activeTurnCheckpoint?.turnToken === checkpoint?.turnToken;
@@ -64,13 +71,41 @@ export function checkpointDisposition(durable, checkpoint) {
   if (!baseEpoch || !Number.isInteger(boundary) || boundary < 0 || boundary > Number(base.length)) {
     return { action: 'conflict', reason: 'the checkpoint names no base revision' };
   }
-  if (onBaseEpoch && durable.messages.length >= boundary) return { action: 'replay' };
+  if (onBaseEpoch && durable.messages.length >= boundary) return { action: 'replay', boundary };
   return { action: 'conflict', reason: 'the record is not of the base the checkpoint was taken against' };
 }
 
+function legacyDisposition(durable, checkpoint) {
+  const conflict = (reason) => ({ action: 'conflict', reason: `legacy checkpoint: ${reason}` });
+  if ((Number(checkpoint.generation) || 0) !== (Number(durable.generation) || 0)) {
+    return conflict('the record is of another lifecycle generation');
+  }
+  const marker = durable.activeTurnCheckpoint?.turnToken;
+  if (typeof marker === 'string' && marker !== checkpoint.turnToken) {
+    return conflict('the record names another active turn');
+  }
+  if (checkpoint.fullTranscript === true) return conflict('a self-contained checkpoint names no base');
+  const state = checkpoint.contextState;
+  const count = state?.committedPrefixCount;
+  if (!Number.isInteger(count) || count < 0 || typeof state.committedPrefixSignature !== 'string') {
+    return conflict('the checkpoint records no prefix');
+  }
+  if (
+    durable.messages.length < count ||
+    contextMessagesSignature(durable.messages, count) !== state.committedPrefixSignature
+  ) {
+    return conflict('the record does not hold the prefix the turn opened on');
+  }
+  if (durable.messages.length !== count && marker !== checkpoint.turnToken) {
+    return conflict('the record holds more than the prefix the turn opened on');
+  }
+  return { action: 'replay', boundary: count };
+}
+
 /** The messages `checkpoint` contributes (finalized as interrupted unless it
- *  was sealed) and the transcript they make on `durable`. */
-function replayCheckpoint(durable, checkpoint, routeChanged) {
+ *  was sealed) and the transcript they make on `durable`, keeping its first
+ *  `boundary` messages. */
+function replayCheckpoint(durable, checkpoint, boundary, routeChanged) {
   const finalized =
     checkpoint.sealed === true
       ? { messages: checkpoint.turnMessages.slice(), responsePreserved: true }
@@ -87,19 +122,19 @@ function replayCheckpoint(durable, checkpoint, routeChanged) {
   const messages =
     checkpoint.fullTranscript === true
       ? turnMessages
-      : [...durable.messages.slice(0, checkpoint.boundary), ...turnMessages];
+      : [...durable.messages.slice(0, boundary), ...turnMessages];
   return { messages, responsePreserved: finalized.responsePreserved };
 }
 
 const _reportedConflicts = new Set();
 
-function reportCheckpointConflict(sessionId, checkpoint, reason) {
-  const key = `${sessionId}:${checkpoint.turnToken}`;
+export function reportCheckpointConflict(sessionId, checkpoint, reason) {
+  const key = `${sessionId}:${checkpoint?.turnToken}`;
   if (_reportedConflicts.has(key)) return;
   _reportedConflicts.add(key);
   try {
     process.stderr.write(
-      `[turn-checkpoint] kept unrecovered checkpoint session=${sessionId} turn=${checkpoint.turnToken}: ${reason}\n`
+      `[turn-checkpoint] kept unrecovered checkpoint session=${sessionId} turn=${checkpoint?.turnToken}: ${reason}\n`
     );
   } catch {
     /* stderr best-effort */
@@ -113,9 +148,10 @@ function reportCheckpointConflict(sessionId, checkpoint, reason) {
 export function projectTurnCheckpointMessages(session, checkpoint) {
   const source = Array.isArray(session?.messages) ? session.messages : [];
   if (!session?.id || checkpoint?.sessionId !== session.id || !Array.isArray(checkpoint?.turnMessages)) return source;
-  if (checkpointDisposition(session, checkpoint).action !== 'replay') return source;
+  const disposition = checkpointDisposition(session, checkpoint);
+  if (disposition.action !== 'replay') return source;
   if (checkpoint.fullTranscript === true) return checkpoint.turnMessages.slice();
-  return [...source.slice(0, checkpoint.boundary), ...checkpoint.turnMessages];
+  return [...source.slice(0, disposition.boundary), ...checkpoint.turnMessages];
 }
 
 // ── Journal-backed checkpoint writes ─────────────────────────────────────────
@@ -333,7 +369,7 @@ export function clearTurnCheckpoint(sessionId, turnToken = null) {
  * A recovered session carries the turn's coverage token; the caller must
  * durably save it before clearing the returned token.
  */
-export function recoverTurnCheckpoint(session, durable = session?.id ? readDurableSessionRecord(session.id) : null) {
+export function recoverTurnCheckpoint(session, durableRecord = undefined) {
   if (!session?.id || session.closed === true) {
     return { changed: false, recovered: false, turnToken: null };
   }
@@ -345,6 +381,7 @@ export function recoverTurnCheckpoint(session, durable = session?.id ? readDurab
     return { changed: true, recovered: false, turnToken: null };
   }
 
+  const durable = durableRecord === undefined ? readDurableSessionRecord(session.id) : durableRecord;
   const disposition = checkpointDisposition(durable, checkpoint);
   if (disposition.action === 'covered') {
     return { changed: false, recovered: false, covered: true, turnToken: checkpoint.turnToken };
@@ -357,7 +394,7 @@ export function recoverTurnCheckpoint(session, durable = session?.id ? readDurab
   const routeChanged = [durable.activeTurnCheckpoint, marker].some(
     (entry) => entry?.turnToken === checkpoint.turnToken && entry.routeChanged === true
   );
-  const finalized = replayCheckpoint(durable, checkpoint, routeChanged);
+  const finalized = replayCheckpoint(durable, checkpoint, disposition.boundary, routeChanged);
   session.messages = finalized.messages;
   // The splice is a history rewrite of its own, and this record now covers
   // the turn: a crash after it is saved never replays the checkpoint again.
