@@ -386,7 +386,7 @@ function isFixedPaneRow(child: Element, host: Element): child is HTMLElement {
  *  cell minus its fixed rows (border boxes — the Problems panel's negative
  *  overlay margin is not space it gives back) and the dock's own margins.
  *  Computed from the siblings only, so the dock's height never feeds it. */
-export function paneDockRoom(host: HTMLElement): number {
+function paneDockRoom(host: HTMLElement): number {
   const cell = host.parentElement;
   if (!cell) return 0;
   let fixed = 0;

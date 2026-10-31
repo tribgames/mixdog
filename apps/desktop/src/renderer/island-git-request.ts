@@ -14,7 +14,7 @@ const MARK = '\u2063';
 const REQUEST_PATTERN = new RegExp(`^${MARK}git-request:(pr|commit-push|commit)${MARK}([^\\n]*)(?:\\n([^\\n]*))?`);
 const MAX_LISTED_FILES = 200;
 
-export function islandGitActionLabel(action: IslandGitAction): string {
+function islandGitActionLabel(action: IslandGitAction): string {
   if (action === 'pr') return t('Create PR');
   if (action === 'commit-push') return t('Commit · push');
   return t('Commit');

@@ -1,13 +1,13 @@
 import type { editor } from 'monaco-editor';
 
-export const SIDE_EDITOR_SCROLLBAR_SIZE = 8;
-export const SIDE_EDITOR_LINE_DECORATIONS_WIDTH = 12;
-export const SIDE_EDITOR_LINE_NUMBERS_MIN_CHARS = 3;
+const SIDE_EDITOR_SCROLLBAR_SIZE = 8;
+const SIDE_EDITOR_LINE_DECORATIONS_WIDTH = 12;
+const SIDE_EDITOR_LINE_NUMBERS_MIN_CHARS = 3;
 
 /** A main-tab editor on the phone layout: a phone-wide column has no room for
  *  a minimap or horizontal scrolling, so wrap is on (Alt+Z still overrides)
  *  and the minimap off. The PC keeps the user's settings. */
-export function phoneEditorOptions(
+function phoneEditorOptions(
   base: editor.IStandaloneEditorConstructionOptions,
   wordWrapOverride: editor.IStandaloneEditorConstructionOptions['wordWrap'] | null
 ): editor.IStandaloneEditorConstructionOptions {

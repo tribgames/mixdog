@@ -129,7 +129,7 @@ export function dockMenuPlacement(
 
 /** False once the menu's owner is detached, `hidden`/`inert`, or inside a
  *  `display: none` / `visibility: hidden` ancestor. */
-export function dockMenuOwnerActive(owner: Element): boolean {
+function dockMenuOwnerActive(owner: Element): boolean {
   if (!owner.isConnected || owner.closest('[hidden], [inert]')) return false;
   const view = owner.ownerDocument.defaultView;
   for (let node: Element | null = owner; node; node = node.parentElement) {

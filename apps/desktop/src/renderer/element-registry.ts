@@ -5,8 +5,8 @@
 // registry scans only what was inserted, never the document again. Reading a
 // registry first takes the observer's pending records, so the answer is
 // current synchronously, also inside the event handler that just changed the
-// DOM. The hot paths that used to query the whole document per keystroke or
-// per frame (the keymap's modal check, the desktop pet's floating layers)
+// DOM. The hot paths that would otherwise query the whole document per keystroke
+// or per frame (the keymap's modal check, the desktop pet's floating layers)
 // read these instead: their cost follows the registered elements, not the
 // size of the document (a hidden but mounted panel can hold ~50k nodes).
 

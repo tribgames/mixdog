@@ -8,9 +8,9 @@
 import { loadImage } from './load-image';
 import { isRemoteContentSurface } from './remote-conversation-privacy';
 
-export const PREVIEW_MAX_SIDE = 320;
+const PREVIEW_MAX_SIDE = 320;
 export const PREVIEW_MAX_BYTES = 40 * 1024;
-export const PREVIEW_STORE_MAX_BYTES = 50 * 1024 * 1024;
+const PREVIEW_STORE_MAX_BYTES = 50 * 1024 * 1024;
 const HOT_LIMIT = 96;
 
 export interface PreviewMeta {
@@ -90,7 +90,7 @@ function transactionDone(tx: IDBTransaction): Promise<void> {
   });
 }
 
-export function indexedDbPreviewBackend(factory: IDBFactory = indexedDB): PreviewBackend {
+function indexedDbPreviewBackend(factory: IDBFactory = indexedDB): PreviewBackend {
   let opened: Promise<IDBDatabase> | null = null;
   const open = () => {
     opened ??= new Promise<IDBDatabase>((resolve, reject) => {

@@ -142,7 +142,7 @@ export const PANE_SIDE_DOCK_DIFF_DEFAULT_WIDTH = PANE_SIDE_DOCK_DEFAULT_WIDTH;
 /** The dock is its own floating sheet: its left gap plus the two 1px borders
  *  come on top of the measured column width on desktop. Keep in step with
  *  --mx-sheet-gap in pane-layout.css. */
-export const PANE_SIDE_DOCK_SHEET_FRAME_WIDTH = 2 + 2;
+const PANE_SIDE_DOCK_SHEET_FRAME_WIDTH = 2 + 2;
 export const PANE_DOCK_BROWSER_SURFACE = 'browser';
 export const PANE_DOCK_TERMINAL_SURFACE = 'terminal';
 export const PANE_DOCK_DIFF_SURFACE = 'diff';
@@ -165,8 +165,8 @@ export function paneDockActiveFile(entry: Pick<PaneSideDockEntry, 'files' | 'act
 export function paneDiffShowing(entry: Pick<PaneSideDockEntry, 'open' | 'surface' | 'diff'>): boolean {
   return entry.open && entry.surface === PANE_DOCK_DIFF_SURFACE && entry.diff !== null;
 }
-// The Goal capsule stays on the composer. It used to ride the diff column
-// while a diff showed, which read as the Goal UI leaking into Source Control.
+// The Goal capsule stays on the composer, never in the diff column: there it
+// would read as the Goal UI leaking into Source Control.
 /** A closed diff column waits at least this long, and for a typing pause of
  *  the same length, before its tree is dropped: the unmount commit of a
  *  large diff is one uninterruptible task, so it must not land between two
@@ -331,7 +331,7 @@ function entryFiles(entry: Record<string, unknown> | null, files: PaneSideDockFi
 /** The dock map as written to storage: file tabs opened with a file-scoped
  *  access token (and an active-file key naming one) never reach storage. The
  *  live map is not touched; a load drops such tabs anyway. */
-export function storablePaneSideDocks(docks: Record<string, PaneSideDockEntry>): Record<string, PaneSideDockEntry> {
+function storablePaneSideDocks(docks: Record<string, PaneSideDockEntry>): Record<string, PaneSideDockEntry> {
   let out = docks;
   for (const [leafId, entry] of Object.entries(docks)) {
     if (!entry.files?.some((file) => file.accessToken !== undefined)) continue;
@@ -1921,10 +1921,10 @@ export function PaneSideDock(rawProps: PaneSideDockProps) {
     maxWidth: PANE_SIDE_DOCK_MAX_WIDTH,
     commitWidth: (width) => commitWidthPref(PANE_SIDE_DOCK_DIFF_WIDTH_KEY, width),
   });
-  // Closing the diff used to unmount its whole column — thousands of diff
-  // rows — inside the click commit, and a keystroke landing in that same
-  // task waited 30–70ms for it. The
-  // column now only HIDES on close; the retained tree is dropped later, in
+  // Unmounting the diff's whole column — thousands of diff rows — inside the
+  // click commit would stall a keystroke landing in that same task for
+  // 30–70ms. The
+  // column only HIDES on close; the retained tree is dropped later, in
   // idle time and as a transition, so typing keeps its own frames. A reopen
   // of the same file inside that window reuses the live tree.
   const retainedDiff = useRetainedDiff(entry.diff);

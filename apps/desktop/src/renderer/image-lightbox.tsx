@@ -79,13 +79,13 @@ export function lightboxItemsFor(element: HTMLElement): LightboxItem[] {
 /** How the viewer saves `item`: `device` on a paired device (the host's file,
  *  or the bytes shown, go to this device and its share sheet), `dialog` on the
  *  desktop where the OS save dialog can take the URL, else not at all. */
-export function lightboxSaveMode(item: Pick<LightboxItem, 'src' | 'target'>): 'device' | 'dialog' | null {
+function lightboxSaveMode(item: Pick<LightboxItem, 'src' | 'target'>): 'device' | 'dialog' | null {
   if (isRemoteHostRenderer()) return 'device';
   return window.mixdogDesktop?.saveFileAs && /^(?:data|https?):/i.test(item.src) ? 'dialog' : null;
 }
 
 /** Runs the save of `lightboxSaveMode`, reporting a failure as a toast. */
-export function saveLightboxItem(sessionId: string, item: Pick<LightboxItem, 'src' | 'name' | 'target'>): void {
+function saveLightboxItem(sessionId: string, item: Pick<LightboxItem, 'src' | 'name' | 'target'>): void {
   const run = async () => {
     if (lightboxSaveMode(item) === 'dialog') {
       await window.mixdogDesktop!.saveFileAs!(item.src, item.name);
@@ -134,7 +134,7 @@ export interface LightboxStage {
 /** `view` zoomed by `ratio` about window point `at`, then moved by (dx, dy).
  *  Touch keeps the scale between fit (1) and the original resolution, and the
  *  image over the stage: an axis it does not overflow stays centred. */
-export function touchLightboxView(
+function touchLightboxView(
   view: LightboxView,
   stage: LightboxStage,
   ratio: number,

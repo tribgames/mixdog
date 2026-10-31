@@ -79,7 +79,7 @@ export const prefetchDiffView = (): Promise<unknown> => diffPrefetch.run();
 export const prefetchTerminalPane = (): Promise<unknown> => terminalPrefetch.run();
 export const prefetchBrowserPane = (): Promise<unknown> => browserPrefetch.run();
 export const prefetchEditorPane = (): Promise<unknown> => editorPrefetch.run();
-export const prefetchStudioView = (): Promise<unknown> => loadStudioViewModule();
+const prefetchStudioView = (): Promise<unknown> => loadStudioViewModule();
 /**
  * Start the chunk a selection is about to need, without waiting for it.
  *

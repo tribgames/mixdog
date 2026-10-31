@@ -9,7 +9,7 @@ const LEGACY_STORAGE_KEY = 'mixdog.leadAvatar';
  *  (getLeadAppearance / setLeadAppearance), so the desktop and every paired
  *  phone show the same face; a change reaches the others through the existing
  *  settings-changed event. Missing or invalid → the neutral grey pup. */
-export const DEFAULT_LEAD_AVATAR: MascotAvatarValue = Object.freeze({
+const DEFAULT_LEAD_AVATAR: MascotAvatarValue = Object.freeze({
   kind: 'mascot',
   species: 'shepherd',
   accessory: 'none',
@@ -25,7 +25,7 @@ let current: MascotAvatarValue = DEFAULT_LEAD_AVATAR;
 
 /** The host's answer (or a stored value) as a mascot, else the grey default.
  *  Only a mascot counts: Leads have no image avatars. */
-export function parseLeadAvatar(raw: unknown): MascotAvatarValue {
+function parseLeadAvatar(raw: unknown): MascotAvatarValue {
   const value = normalizeAgentAvatar(raw);
   return value?.kind === 'mascot' ? value : DEFAULT_LEAD_AVATAR;
 }
