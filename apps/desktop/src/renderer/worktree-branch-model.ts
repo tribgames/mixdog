@@ -164,7 +164,7 @@ function carryRefusedText(): string {
 /** The shared meaning of a refusal reason: each English source string is the
  *  runtime's own text for that reason (WORKTREE_REFUSAL_REASONS), so the
  *  desktop, remote and TUI say the same. Null for any other reason. */
-export function worktreeRefusalText(reason: unknown): string | null {
+function worktreeRefusalText(reason: unknown): string | null {
   switch (reason as DesktopWorktreeRefusalReason) {
     case 'workspace-retained':
       return t('Sessions still retain this folder. Close or remove those sessions before cleaning it up.');
@@ -314,7 +314,7 @@ export type BranchGroup = 'current' | 'worktree' | 'recent' | 'other' | 'externa
 
 /** A branch is recent when its tip was committed within this window; at most
  *  RECENT_BRANCH_LIMIT of them, newest first. */
-export const RECENT_BRANCH_DAYS = 14;
+const RECENT_BRANCH_DAYS = 14;
 export const RECENT_BRANCH_LIMIT = 10;
 const GROUP_ORDER: BranchGroup[] = ['current', 'worktree', 'recent', 'other', 'external'];
 

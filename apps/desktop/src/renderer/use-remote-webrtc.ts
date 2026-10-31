@@ -29,7 +29,7 @@ const PAGE_INPUT_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /** The page input a data channel may carry (dialog answers and navigation stay on the relay). */
-export function remoteWebrtcPageInput(control: DesktopRemoteBrowserControl): control is RemoteWebrtcPageInput {
+function remoteWebrtcPageInput(control: DesktopRemoteBrowserControl): control is RemoteWebrtcPageInput {
   return PAGE_INPUT_TYPES.has(control.type);
 }
 

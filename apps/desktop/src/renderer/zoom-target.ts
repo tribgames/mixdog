@@ -33,7 +33,7 @@ export interface ZoomTarget {
 
 const targets = new Set<ZoomTarget>();
 
-export function zoomKeyInput(key: string): ZoomKey | null {
+function zoomKeyInput(key: string): ZoomKey | null {
   if (key === '=' || key === '+') return 'in';
   if (key === '-' || key === '_') return 'out';
   if (key === '0') return 'reset';
@@ -43,7 +43,7 @@ export function zoomKeyInput(key: string): ZoomKey | null {
 const enabledTargets = () => [...targets].filter((target) => target.enabled());
 
 /** The target a keyboard zoom belongs to: focus decides, hover is the fallback. */
-export function keyZoomTarget(): ZoomTarget | null {
+function keyZoomTarget(): ZoomTarget | null {
   const live = enabledTargets();
   const active = document.activeElement;
   return live.find((target) => target.element.contains(active)) ?? live.find((target) => target.hovered()) ?? null;

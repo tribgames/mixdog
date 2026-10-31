@@ -25,7 +25,7 @@ const MAX_READY_PER_SECOND = 4;
  *  size, as a frame does while the panel is still opening. */
 const EMPTY_VIEWPORT_RETRIES = 5;
 
-export type PaneReading =
+type PaneReading =
   | { state: 'loading' }
   | { state: 'unavailable' }
   | { state: 'error'; message: string }

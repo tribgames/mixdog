@@ -48,7 +48,7 @@ export function applyTerminalActivity(event: TerminalActivityEvent): void {
 
 /** Replace everything with the host's current list (a later entry for the
  *  same id wins; a null state removes it). */
-export function applyTerminalActivitySnapshot(events: readonly TerminalActivityEvent[]): void {
+function applyTerminalActivitySnapshot(events: readonly TerminalActivityEvent[]): void {
   const next = new Map<string, TerminalActivityState>();
   for (const event of events) {
     if (event.state) next.set(event.id, event.state);

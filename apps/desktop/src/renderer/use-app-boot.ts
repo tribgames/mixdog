@@ -165,9 +165,9 @@ export function useAppModuleWarmup(startupSettled: boolean, trackSidebarPanelMod
               run: () => prefetchEditorPane().catch(() => {}),
             }),
           ]),
-      // The /context · /usage dialog chunk. A native window used to skip this
-      // lane and pay the whole import on the first open (user: 컨텍스트창 왜
-      // 바로 안 열리고 로딩이 심하지); the idle lane still yields to input.
+      // The /context · /usage dialog chunk. Warmed on a native window too, so
+      // the first open does not pay the whole import; the idle lane still
+      // yields to input.
       scheduleBootWarmup({
         id: 'module:command-surface',
         priority: BOOT_WARMUP.commandSurfaceModule,

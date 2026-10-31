@@ -78,7 +78,7 @@ export interface ToolOutputBasics {
 
 /** The output facts of `toolOutputFacts` that tone and summary read: from the
  *  row's own output, with the whole output's where a phone's cut copy carries them. */
-export function toolOutputBasics(item: TranscriptItem): ToolOutputBasics {
+function toolOutputBasics(item: TranscriptItem): ToolOutputBasics {
   return { ...toolOutputBasicsOf(item), ...(carriedOutputFacts(item) as Partial<ToolOutputBasics> | null) };
 }
 
@@ -441,7 +441,7 @@ export function desktopToolDisplayIdentity(
 }
 
 /** A bridge load_tool result (described / missing / blocked), or null. */
-export function desktopToolDescribeResult(
+function desktopToolDescribeResult(
   name: unknown,
   args: unknown,
   result: unknown

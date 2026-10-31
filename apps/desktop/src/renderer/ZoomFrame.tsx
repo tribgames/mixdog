@@ -54,7 +54,7 @@ export interface ZoomViewport {
   height: number;
 }
 
-export interface ZoomRenderState {
+interface ZoomRenderState {
   /** The resolved scale: the fit scale in fit mode, the picked one otherwise. */
   scale: number;
   mode: ZoomMode;

@@ -191,7 +191,7 @@ export function useAppShellPanels(activeBottomPanelPaneId: string) {
     setCommandSurfaceSessionId(surface === 'context' || surface === 'inherit' ? sessionId : '');
     setCommandSurface(surface);
   }, []);
-  // The right dock is now PER-PANE state (pane-side-dock.tsx); this hook
+  // The right dock is PER-PANE state (pane-side-dock.tsx); this hook
   // keeps the window-level drawer, bottom panel, and rail surfaces only.
   const bottomPanel = useBottomPanelState(activeBottomPanelPaneId);
   const [problemsFilter, setProblemsFilter] = useState<ProblemsPanelFilter>(() => ({

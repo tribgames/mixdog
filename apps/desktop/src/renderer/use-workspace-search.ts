@@ -15,7 +15,7 @@ export type SearchContentResults = Array<{
 }>;
 
 /** One finished search: the query and mode it answered, and what it found. */
-export interface SettledSearch {
+interface SettledSearch {
   /** The projects it searched. */
   projects: string;
   query: string;

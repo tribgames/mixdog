@@ -147,7 +147,7 @@ export interface ImageMarkerChip {
 /** Each marker chip's stored original: the next unused `imageRefs` entry drawn
  *  by the chip's line. Chips with no such entry (omitted images, bare `#N`
  *  references) get none. */
-export function markerChipRefs(
+function markerChipRefs(
   chips: readonly ImageMarkerChip[],
   refs: TranscriptItem['imageRefs']
 ): Array<string | undefined> {
@@ -158,8 +158,8 @@ export function markerChipRefs(
   });
 }
 
-export const inflightThumbnails = new Map<string, Promise<string | undefined>>();
-export const failedThumbnails = new Set<string>();
+const inflightThumbnails = new Map<string, Promise<string | undefined>>();
+const failedThumbnails = new Set<string>();
 
 // A deleted session's attachments are gone with it: forget their misses.
 onSessionPreviewsDeleted((session) => {
@@ -206,7 +206,7 @@ export function loadAttachmentThumbnail(
 
 /** The thumbnail of a sent image, by its stored attachment ref. Loaded async;
  *  the card keeps its size meanwhile. */
-export function useStoredImagePreview(session: string, attachmentRef: string | undefined): string | undefined {
+function useStoredImagePreview(session: string, attachmentRef: string | undefined): string | undefined {
   const key = attachmentRef ? previewKey(session, `attachment:${attachmentRef}`) : '';
   const sync = key ? persistentImagePreviews.peek(key) : undefined;
   const [loaded, setLoaded] = useState<{ key: string; url: string } | null>(null);
@@ -224,7 +224,7 @@ export function useStoredImagePreview(session: string, attachmentRef: string | u
 }
 
 /** The host file behind a sent image: its store reference in this session. */
-export function storedAttachmentRef(session: string, ref: string | undefined): StoredAttachment | undefined {
+function storedAttachmentRef(session: string, ref: string | undefined): StoredAttachment | undefined {
   return session && ref && /^[a-f0-9]{64}$/.test(ref) ? { sessionId: session, id: ref } : undefined;
 }
 
@@ -232,7 +232,7 @@ export type SentAttachmentRecord = NonNullable<TranscriptItem['attachments']>[nu
 
 /** The message-metadata attachment each file / pasted chip stands for: files
  *  by their name first, then pasted texts by name or, failing that, in order. */
-export function chipAttachments(
+function chipAttachments(
   records: TranscriptItem['attachments'],
   fileChips: readonly { name: string }[],
   pastedChips: readonly { name: string }[]
@@ -296,7 +296,7 @@ export function sentPastedRecords(item: TranscriptItem): Array<SentAttachmentRec
 
 /** Reads each stored paste and hands its text over as it arrives. The returned
  *  function drops every result still outstanding. */
-export function readStoredPastes(
+function readStoredPastes(
   read: (session: string, id: string) => Promise<{ dataUrl: string }>,
   session: string,
   ids: readonly string[],
@@ -317,7 +317,7 @@ export function readStoredPastes(
   };
 }
 
-export function SentImageCard({
+function SentImageCard({
   session,
   attachmentRef,
   live,

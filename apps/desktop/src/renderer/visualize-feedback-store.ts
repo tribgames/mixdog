@@ -428,7 +428,7 @@ export function consumeVisualizeFeedback(sessionId: string, sent: VisualizeFeedb
 // A click on a pin's composer card asks the panel to open that pin's comment
 // card. One pending slot: only the composer fills it (a user click), and only
 // the Comment layer of the pin's pane takes it, once and while still fresh.
-export const VISUALIZE_PIN_OPEN_TTL_MS = 5_000;
+const VISUALIZE_PIN_OPEN_TTL_MS = 5_000;
 
 let pinOpen: { sessionId: string; pinId: string; at: number } | null = null;
 
@@ -540,13 +540,13 @@ export function visualizeChoicesChip(choices: readonly VisualizeChoice[]): strin
 }
 
 /** `accent: #2f6fed (was #3b82f6), density: compact (was cozy)` */
-export const visualizeTweakChangesText = (set: VisualizeTweakSet): string =>
+const visualizeTweakChangesText = (set: VisualizeTweakSet): string =>
   set.changes.map((change) => `${change.id}: ${change.value} (was ${change.was})`).join(', ');
 
 /** Leads a tweaks line in message text; the transcript draws an icon instead (the emoji has no glyph on Windows). */
 export const VISUALIZE_TWEAKS_MARK = '🎚';
 
-export function visualizeTweaksLabel(tweaks: readonly VisualizeTweakSet[]): string {
+function visualizeTweaksLabel(tweaks: readonly VisualizeTweakSet[]): string {
   return tweaks.map(visualizeTweakChangesText).join('; ');
 }
 

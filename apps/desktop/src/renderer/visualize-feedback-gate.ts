@@ -36,7 +36,7 @@ export const VISUALIZE_PICK_TTL_MS = 2_000;
 export const MAX_VISUALIZE_CAPTURES_IN_FLIGHT = 1;
 /** How far (CSS px) the element may have moved since the pick and still be
  *  cropped where it was pinned. */
-export const VISUALIZE_CROP_DRIFT_PX = 1;
+const VISUALIZE_CROP_DRIFT_PX = 1;
 
 function randomId(): string {
   const bytes = new Uint8Array(16);

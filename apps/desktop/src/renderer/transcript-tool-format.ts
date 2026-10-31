@@ -129,7 +129,7 @@ export const TOOL_ACTIVITY_INTERNAL_ARGS = new Set(['categoryOrder', 'loadingTar
 /** Knobs that bound a call (how much, how long) rather than say what it did.
  *  They are never shown: a row of "Limit 45 · Timeout 10s" told the reader
  *  nothing about the work. */
-export const TOOL_ACTIVITY_OPERATIONAL_ARGS = new Set([
+const TOOL_ACTIVITY_OPERATIONAL_ARGS = new Set([
   'limit',
   'head_limit',
   'output_limit',

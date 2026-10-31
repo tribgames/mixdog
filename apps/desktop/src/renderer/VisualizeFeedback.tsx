@@ -221,7 +221,7 @@ export function requestVisualizeDescription(
 
 /** What lies in an area of the page (its viewport px) now: the elements
  *  wholly inside and the secret fields to mask, or null without an answer. */
-export function requestVisualizeMeasure(
+function requestVisualizeMeasure(
   frame: HTMLIFrameElement,
   rect: VisualizeFeedbackRect
 ): Promise<VisualizePageMeasure | null> {
@@ -1104,7 +1104,7 @@ export function VisualizeCommentLayer({
 /** A pane's confirm bar for a choice made without a gesture main could see.
  *  Only a trusted click or key press on its own button queues the choice;
  *  Cancel, a replacement or the timeout put the page's marks back. */
-export function VisualizeChoiceConfirm({ proposalKey }: { proposalKey: string }) {
+function VisualizeChoiceConfirm({ proposalKey }: { proposalKey: string }) {
   const proposal = useVisualizeChoiceProposal(proposalKey);
   useEffect(() => {
     if (!proposal) return;

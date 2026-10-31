@@ -19,7 +19,7 @@ const END_TOLERANCE_PX = 2;
 const WHEEL_UP_WINDOW_MS = 200;
 // A key that scrolls up vouches for the scroll it causes, and keeps the end
 // pin off while it lands.
-export const KEY_UP_WINDOW_MS = 1_000;
+const KEY_UP_WINDOW_MS = 1_000;
 // A lifted finger that left the transcript above the end vouches for the
 // momentum scrolls that follow.
 const TOUCH_END_WINDOW_MS = 2_500;
@@ -212,7 +212,7 @@ export function widthShiftPending(seen: { client: number; spent: number | null }
   return seen !== null && clientWidth !== seen.client && clientWidth !== seen.spent;
 }
 
-export type ScrollVerdict = 'pin' | 'unpin' | 'restore' | 'none';
+type ScrollVerdict = 'pin' | 'unpin' | 'restore' | 'none';
 
 /**
  * What one scroll observation means for follow.

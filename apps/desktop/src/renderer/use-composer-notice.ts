@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useRef } from 'react';
 import { dismissDesktopToast, showDesktopToast } from './desktop-toasts';
 
-export type ComposerNoticeTone = 'info' | 'error';
+type ComposerNoticeTone = 'info' | 'error';
 
 export function useComposerNotice() {
   const current = useRef<string | undefined>(undefined);

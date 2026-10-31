@@ -19,11 +19,11 @@ export const TRANSCRIPT_HISTORY_TOP_PX = 320;
  *  cover a page's round trip at that speed. The landing's anchor restore keeps
  *  the reader in place wherever the page lands, so asking early costs nothing
  *  but the (bounded) pages themselves. */
-export const TRANSCRIPT_HISTORY_LEAD_VIEWPORTS = 10;
+const TRANSCRIPT_HISTORY_LEAD_VIEWPORTS = 10;
 
 /** Pages one entry may ask for to extend a scrollable first window toward the
  *  lead (see useTranscriptHistoryFill). */
-export const TRANSCRIPT_HISTORY_FILL_LEAD_PAGES = 4;
+const TRANSCRIPT_HISTORY_FILL_LEAD_PAGES = 4;
 
 /** Scroll offset at or below which older history is requested. */
 export function transcriptHistoryLead(viewportHeight: number): number {

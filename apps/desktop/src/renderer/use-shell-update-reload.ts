@@ -12,8 +12,6 @@
 import { useEffect, useRef } from 'react';
 import { subscribeShellUpdate } from './shell-update-state';
 
-export { SHELL_UPDATE_MESSAGE } from './shell-update-state';
-
 /** How long the app has to sit untouched before a reload interrupts a VISIBLE
  *  screen. Off screen there is nothing to interrupt. */
 export const SHELL_RELOAD_IDLE_MS = 2000;

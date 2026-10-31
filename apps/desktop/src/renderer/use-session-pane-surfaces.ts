@@ -37,7 +37,7 @@ const ROUTINE_OWNER_KEYS = ['channelSetup'] as const;
 /** A dock view an agent reveal (or the agent panel event) left for a session
  *  no pane shows yet: selected in its pane once one shows it, in front of
  *  that session's own file tabs or diff. */
-export type PendingDockReveal = 'terminal' | 'visualize' | 'routines';
+type PendingDockReveal = 'terminal' | 'visualize' | 'routines';
 
 /** The page a waiting browser reveal named (its session-local id, and how
  *  the owner conversation names the session); null when it named none. */
