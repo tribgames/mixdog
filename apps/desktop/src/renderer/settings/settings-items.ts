@@ -176,7 +176,7 @@ export const SETTINGS_CATEGORIES = [
     group: 'AI behavior',
     items: ['autocompact', 'autoclear'],
   },
-  // How sessions work: web search, instruction files, Auto reasoning, worktrees.
+  // How sessions work: web search, instruction files, Auto reasoning.
   {
     value: 'work',
     label: 'Work style',

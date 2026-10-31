@@ -148,13 +148,26 @@ export const DESKTOP_WORKTREE_NEW_TASK_DEFAULTS = ['branch', 'worktree'] as cons
 export interface DesktopWorktreeSettings {
   /** `branch` (default): new tasks use the current branch; `worktree`: a new worktree. */
   newTaskDefault: (typeof DESKTOP_WORKTREE_NEW_TASK_DEFAULTS)[number];
-  /** Ref prefix ending with "/"; default "mixdog/". */
+  /** Optional ref prefix ending with "/" (e.g. "mixdog/"); default "" names branches after the task alone. */
   branchPrefix: string;
   /** Repository size that asks for confirmation first; 0 never asks. Default 2 GiB. */
   sizeWarnBytes: number;
-  /** Remove clean, merged worktrees when their task ends. Default true. */
+  /** Remove clean, merged worktrees when their task ends. Default true; the
+   *  four settings below apply only while it is on. */
   autoCleanup: boolean;
+  /** Keep at most this many worktrees, least recently used cleaned first; 0 = no limit. Default 15. */
+  maxWorktrees: number;
+  /** Clean up worktrees unused this many days; 0 = never. Default 30. */
+  unusedDays: number;
+  /** Archiving a session cleans up its worktrees. Default true. */
+  cleanupArchived: boolean;
+  /** Cleanup deletes the branch too (its tip stays under a recovery ref). Default false. */
+  deleteBranch: boolean;
 }
+
+/** Upper bounds of maxWorktrees / unusedDays (runtime settings.mjs). */
+export const DESKTOP_WORKTREE_MAX_WORKTREES_LIMIT = 1000;
+export const DESKTOP_WORKTREE_UNUSED_DAYS_LIMIT = 3650;
 
 /** Stable `error.code` values (runtime WORKTREE_ERROR_CODES). */
 export const DESKTOP_WORKTREE_ERROR_CODES = [
@@ -267,6 +280,27 @@ export interface DesktopManagedWorktreeRow extends DesktopRetainedWorktree {
   ownerLive: boolean;
   /** What pruneWorktrees would remove once clean and merged, with no retained recovery data. */
   removable: boolean;
+  /** Sessions besides the owner that share this checkout. */
+  sharedSessionIds?: string[];
+  /** Uncommitted paths (incl. modified include copies). */
+  dirty?: number;
+  /** Commits the merge target lacks (0: merged). */
+  unmerged?: number;
+  /** Folder size; `sizeComplete: false` when the walk stopped early (a lower bound). */
+  sizeBytes?: number | null;
+  sizeComplete?: boolean;
+  /** The owner session's title and archive flag, when known. */
+  ownerTitle?: string | null;
+  ownerArchived?: boolean;
+  /** Last activity (owner session or creation), epoch ms. */
+  lastActiveAt?: number | null;
+}
+
+/** deleteWorktree's input: the row's id; `force` deletes despite uncommitted
+ *  or unmerged work (an unmerged tip stays under refs/mixdog/removed/<id>). */
+export interface DesktopDeleteWorktreeInput {
+  entryId: string;
+  force?: boolean;
 }
 
 /** Session capabilities of the feature. Arguments, in order:
@@ -280,7 +314,12 @@ export interface DesktopManagedWorktreeRow extends DesktopRetainedWorktree {
  *  removeWorktree(DesktopRemoveWorktreeInput?) → DesktopWorkspaceTransitionResult
  *    (WORKTREE_REMOVAL_INCOMPLETE: partly removed; call again to finish)
  *  listWorktrees() → DesktopManagedWorktreeRow[]
- *  pruneWorktrees() → reconcile report (removes clean, merged worktrees no session retains)
+ *  pruneWorktrees() → reconcile report (removes clean, merged worktrees no session retains,
+ *    plus, with autoCleanup on, what the count/age limits select)
+ *  previewWorktreeCleanup({ repoCommonDir? }?) → { hasCandidates } (whether pruneWorktrees could act
+ *    on anything; read-only, no git verification — a candidate may still be kept when pruned)
+ *  deleteWorktree(DesktopDeleteWorktreeInput) → { removed, entryId, path } (refuses one in use;
+ *    WORKTREE_DIRTY / WORKTREE_UNMERGED unless `force`)
  *  getWorktreeSettings() → DesktopWorktreeSettings
  *  setWorktreeSettings(Partial<DesktopWorktreeSettings>) → DesktopWorktreeSettings */
 export const DESKTOP_WORKTREE_CAPABILITIES = [
@@ -296,6 +335,8 @@ export const DESKTOP_WORKTREE_CAPABILITIES = [
   'removeWorktree',
   'listWorktrees',
   'pruneWorktrees',
+  'previewWorktreeCleanup',
+  'deleteWorktree',
   'getWorktreeSettings',
   'setWorktreeSettings',
 ] as const;
@@ -305,6 +346,7 @@ export const DESKTOP_WORKTREE_READ_CAPABILITIES = [
   'getBranchMenu',
   'getProjectBranchMenu',
   'listWorktrees',
+  'previewWorktreeCleanup',
   'getWorktreeSettings',
 ] as const;
 
