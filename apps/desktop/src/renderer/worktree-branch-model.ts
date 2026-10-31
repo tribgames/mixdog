@@ -377,11 +377,19 @@ export function branchRows(
 }
 
 /** Where the search hits a branch name: [start, end) of the first
- *  case-insensitive match, or null. */
+ *  case-insensitive match in `name` itself, or null. Offsets are found in the
+ *  original text, since lowercasing can change a string's length (İ → i̇). */
 export function branchMatch(name: string, query: string): [number, number] | null {
   const needle = query.trim().toLocaleLowerCase();
-  const start = needle ? name.toLocaleLowerCase().indexOf(needle) : -1;
-  return start < 0 ? null : [start, start + needle.length];
+  if (!needle) return null;
+  for (let start = 0; start < name.length; start += 1) {
+    for (let end = start + 1; end <= name.length; end += 1) {
+      const part = name.slice(start, end).toLocaleLowerCase();
+      if (part === needle) return [start, end];
+      if (part.length >= needle.length) break;
+    }
+  }
+  return null;
 }
 
 /** The searched name, when no branch is called exactly that: the list then
