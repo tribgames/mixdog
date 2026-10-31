@@ -114,9 +114,14 @@ async function runAsync(steps) {
 
 function* readLockOwner(lockPath) {
   try {
-    const parts = String(yield ['read', lockPath])
-      .trim()
-      .split(/\s+/);
+    const text = String(yield ['read', lockPath]).trim();
+    // v1.4.2 pg-spawn.lock wrote `{"pid":N,"startedAt":T}`; an older process
+    // may still hold one, so its pid must count as an owner.
+    if (text.startsWith('{')) {
+      const legacyPid = Number(JSON.parse(text)?.pid);
+      return { pid: Number.isInteger(legacyPid) && legacyPid > 0 ? legacyPid : null, token: null };
+    }
+    const parts = text.split(/\s+/);
     const pid = Number.parseInt(parts[0], 10);
     return {
       pid: Number.isFinite(pid) && pid > 0 ? pid : null,
