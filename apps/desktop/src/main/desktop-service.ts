@@ -1099,7 +1099,7 @@ export async function createDesktopService({
     .catch((error) => console.warn('[mixdog-session] Could not read the auto-retention record:', error));
   const sessionRetentionSchedule = startSessionRetentionSchedule({
     idleSeconds: async () => (await notificationStatus()).idleSeconds,
-    run: () =>
+    run: (control) =>
       runSessionRetentionPass(
         sessionRetentionHostFor(host, {
           readPolicy: () => settingsStore.readSessionRetention(),
@@ -1108,7 +1108,9 @@ export async function createDesktopService({
           dataDirectory: mixdogDataDirectory,
           // The daemon's stderr is daemon.log.
           log: (line) => console.warn(line),
-        })
+        }),
+        Date.now,
+        control
       ),
   });
   // The direct carrier's peers run in the desktop app's hidden peer window:
@@ -1209,6 +1211,10 @@ export async function createDesktopService({
       return stateSync.releaseClient(epoch);
     },
     async dispose(): Promise<void> {
+      // First: a pass in flight uses the runtime hosts, the session host and
+      // the upload staging, so it settles (and no later one starts) before
+      // any of them is torn down.
+      await sessionRetentionSchedule.stop();
       unregisterRuntimeHosts();
       stopConfigChanges();
       importProgress.dispose();
@@ -1220,7 +1226,6 @@ export async function createDesktopService({
       transportPeers.standIn.dispose();
       detachModelProxy?.();
       stopUploadSweeps();
-      sessionRetentionSchedule.stop();
       // The first load's migration may still be writing the preferences file.
       await notificationPreferencesLoaded;
       // Likewise the retention record's first write into the profile folder.

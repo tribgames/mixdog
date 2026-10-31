@@ -253,6 +253,94 @@ test('a session whose worktree holds work is kept archived; an unknown worktree 
   assert.ok(failing.calls.logs.some((line) => /delete sess_dirty: WORKTREE_NOT_IMPLEMENTED/.test(line)));
 });
 
+test('protected sessions do not starve newer ones: the sweep moves past them in bounded passes', async () => {
+  const rows = Array.from({ length: 121 }, (_, index) => session(`sess_d${index}`, { archived: true }));
+  // sess_d0 is the oldest; the first 120 keep worktree work, the last is deletable.
+  const archivedAt = Object.fromEntries(rows.map((row, index) => [row.id, NOW - (300 - index) * DAY]));
+  const protectedIds = new Set(rows.slice(0, 120).map((row) => row.id));
+  let checks = 0;
+  const { host, calls } = passHost(rows, {
+    view: { archivedAt },
+    host: {
+      worktreeWork: async (ids) => {
+        checks += ids.length;
+        return ids.filter((id) => protectedIds.has(id));
+      },
+    },
+  });
+  const pending = new Set();
+  const perPass = [];
+  for (let pass = 0; pass < 3; pass += 1) {
+    checks = 0;
+    await runSessionRetentionPass(host, () => NOW, { pending });
+    perPass.push(checks);
+  }
+  assert.deepEqual(perPass, [50, 50, 21]);
+  assert.deepEqual(calls.deleted, ['sess_d120'], 'protected sessions are kept, never deleted');
+});
+
+test('a session examined earlier in a sweep is revisited even while a newcomer arrives before every pass', async () => {
+  const rows = Array.from({ length: 60 }, (_, index) => session(`sess_p${index}`, { archived: true }));
+  const archivedAt = Object.fromEntries(rows.map((row, index) => [row.id, NOW - (300 - index) * DAY]));
+  const protectedIds = new Set(rows.map((row) => row.id));
+  const { host, calls } = passHost(rows, {
+    view: { archivedAt },
+    host: { worktreeWork: async (ids) => ids.filter((id) => protectedIds.has(id)) },
+  });
+  const pending = new Set();
+  await runSessionRetentionPass(host, () => NOW, { pending });
+  // sess_p0 was examined as protected; now its worktree is clean.
+  protectedIds.delete('sess_p0');
+  for (let pass = 0; pass < 4 && !calls.deleted.includes('sess_p0'); pass += 1) {
+    const newcomer = session(`sess_n${pass}`, { archived: true });
+    rows.push(newcomer);
+    archivedAt[newcomer.id] = NOW - 95 * DAY;
+    protectedIds.add(newcomer.id);
+    await runSessionRetentionPass(host, () => NOW, { pending });
+  }
+  assert.ok(calls.deleted.includes('sess_p0'), 'revisited within the next sweep');
+});
+
+test('a user who becomes active ends the pass before the next session', async () => {
+  let asked = 0;
+  const { host, calls } = passHost([session('sess_a'), session('sess_b')]);
+  await runSessionRetentionPass(host, () => NOW, { stillIdle: async () => ++asked < 2 });
+  assert.deepEqual(calls.archived, ['sess_a']);
+});
+
+test('stopping during a slow worktree check finishes within a bound and deletes nothing', async () => {
+  const controller = new AbortController();
+  const slow = Promise.withResolvers();
+  const { host, calls } = passHost([session('sess_d', { archived: true })], {
+    view: { archivedAt: { sess_d: NOW - 100 * DAY } },
+    host: { worktreeWork: () => slow.promise },
+  });
+  const pass = runSessionRetentionPass(host, () => NOW, { signal: controller.signal });
+  await settled();
+  controller.abort();
+  const outcome = await Promise.race([pass, new Promise((resolve) => setTimeout(() => resolve('timeout'), 1000))]);
+  assert.notEqual(outcome, 'timeout', 'the pass ended without waiting for the check');
+  slow.resolve([]);
+  await settled();
+  assert.deepEqual(calls.deleted, []);
+});
+
+test('stopping while queued for the session lock abandons the wait and mutates nothing later', async () => {
+  const controller = new AbortController();
+  const { host, calls } = passHost([session('sess_a')]);
+  const holder = Promise.withResolvers();
+  const holding = host.withSessionLock('sess_a', () => holder.promise);
+  const pass = runSessionRetentionPass(host, () => NOW, { signal: controller.signal });
+  await settled();
+  controller.abort();
+  const outcome = await Promise.race([pass, new Promise((resolve) => setTimeout(() => resolve('timeout'), 1000))]);
+  assert.notEqual(outcome, 'timeout');
+  holder.resolve();
+  await holding;
+  await settled();
+  assert.deepEqual(calls.archived, []);
+});
+
 test('a fresh view that cannot be read, or a turn seen in it, skips the session', async () => {
   const unsure = passHost([session('sess_a')], { host: { freshView: async () => null } });
   assert.deepEqual((await runSessionRetentionPass(unsure.host, () => NOW)).skipped, ['sess_a']);
@@ -369,8 +457,95 @@ test('the schedule ticks every 15 minutes, runs only when allowed, and never ove
   release.resolve();
   assert.equal(await first, true);
   assert.equal(runs, 1);
-  schedule.stop();
+  await schedule.stop();
   assert.equal(cleared, true);
+});
+
+const settled = () => new Promise((resolve) => setImmediate(resolve));
+
+test('stopping while the idle read is pending starts no pass, and stop resolves once the tick has settled', async () => {
+  let now = 0;
+  const idle = Promise.withResolvers();
+  let runs = 0;
+  const schedule = startSessionRetentionSchedule({
+    clock: () => now,
+    idleSeconds: () => idle.promise,
+    run: async () => {
+      runs += 1;
+    },
+    setInterval: () => ({ unref() {} }),
+    clearInterval: () => {},
+  });
+  now = SESSION_RETENTION_START_DELAY_MS;
+  const tick = schedule.tick();
+  let stopped = false;
+  const stopping = schedule.stop().then(() => {
+    stopped = true;
+  });
+  await settled();
+  assert.equal(stopped, false, 'stop waits for the tick in flight');
+  idle.resolve(3600);
+  await stopping;
+  assert.equal(await tick, false);
+  assert.equal(runs, 0, 'the idle answer arrived after stop');
+  assert.equal(await schedule.tick(), false, 'no tick after stop');
+  assert.equal(runs, 0);
+});
+
+test('stopping during a pass aborts it and resolves only after it has settled', async () => {
+  let now = 0;
+  const release = Promise.withResolvers();
+  let passSignal = null;
+  const schedule = startSessionRetentionSchedule({
+    clock: () => now,
+    idleSeconds: async () => 3600,
+    run: async ({ signal }) => {
+      passSignal = signal;
+      await release.promise;
+    },
+    setInterval: () => ({ unref() {} }),
+    clearInterval: () => {},
+  });
+  now = SESSION_RETENTION_START_DELAY_MS;
+  const tick = schedule.tick();
+  await settled();
+  assert.equal(passSignal?.aborted, false);
+  let stopped = false;
+  const stopping = schedule.stop().then(() => {
+    stopped = true;
+  });
+  await settled();
+  assert.equal(passSignal.aborted, true);
+  assert.equal(stopped, false, 'the pass is still running');
+  release.resolve();
+  await stopping;
+  assert.equal(await tick, true);
+});
+
+test('an aborted pass starts no further session and lets the one in progress finish', async () => {
+  const controller = new AbortController();
+  const { host, calls } = passHost(
+    [
+      session('sess_a', { activityAt: NOW - 30 * DAY }),
+      session('sess_b', { activityAt: NOW - 20 * DAY }),
+      session('sess_c', { activityAt: NOW - 10 * DAY }),
+    ],
+    {
+      host: {
+        archive: async (id) => {
+          calls.archived.push(id);
+          controller.abort();
+        },
+      },
+    }
+  );
+  const report = await runSessionRetentionPass(host, () => NOW, { signal: controller.signal });
+  assert.deepEqual(calls.archived, ['sess_a']);
+  assert.deepEqual(report.archived, ['sess_a']);
+  const before = passHost([session('sess_a')]);
+  controller.abort();
+  assert.equal(await runSessionRetentionPass(before.host, () => NOW, { signal: controller.signal }), null);
+  assert.deepEqual(before.calls.archived, []);
 });
 
 test('the retention record dates the feature once and tracks restores in a temp data dir', async (t) => {
