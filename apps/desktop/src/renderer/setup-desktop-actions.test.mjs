@@ -254,6 +254,29 @@ test('notificationVolume: written via setNotificationVolume, read back in status
   }
 });
 
+test('session retention days: written via setSessionRetention, only the offered choices accepted', async () => {
+  const { api, run } = fixture();
+  const calls = [];
+  api.setSessionRetention = async (key, days) => {
+    calls.push([key, days]);
+    return { [key]: days };
+  };
+  await run({ action: 'set_desktop_settings', desktop: { sessionAutoArchiveDays: 14, sessionAutoDeleteDays: 0 } });
+  assert.deepEqual(calls, [
+    ['sessionAutoArchiveDays', 14],
+    ['sessionAutoDeleteDays', 0],
+  ]);
+  // 14 is an archive choice but not a delete choice; strings are never days.
+  for (const desktop of [
+    { sessionAutoDeleteDays: 14 },
+    { sessionAutoArchiveDays: '7' },
+    { sessionAutoArchiveDays: 3 },
+  ]) {
+    await assert.rejects(run({ action: 'set_desktop_settings', desktop }), /must be one of/);
+  }
+  assert.equal(calls.length, 2);
+});
+
 test('appearance markdownDefaultView, linkPreview and toolActivityExpansion write, read back and reject bad values', async () => {
   stubWindow();
   const { desktopSetupPreferences } = await import('./use-setup-desktop-request.ts');
