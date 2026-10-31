@@ -29,13 +29,25 @@ function toolTimeLimitMs(args) {
 // meanwhile is refused instead of settled by mistake.
 async function settleStatus(ctx, id, args, action) {
   const expectedGoalId = ctx.turnGoalIds.get(id) || ctx.requireGoal(id).id;
-  const goal = await ctx.withMutation(id, () =>
-    ctx.updateGoal(
+  const goal = await ctx.withMutation(id, () => {
+    const current = ctx.requireGoal(id);
+    // The objective was edited after this turn last saw it: the claim was made
+    // against old wording. Show the current text once; the next call, made
+    // with that text in view, settles normally.
+    const seen = ctx.turnObjectiveRevisions.get(id);
+    if (current.id === expectedGoalId && seen !== undefined && seen !== current.objectiveRevision) {
+      ctx.turnObjectiveRevisions.set(id, current.objectiveRevision);
+      throw new Error(
+        `The Goal objective changed since this turn began, so ${action} was not recorded. ` +
+          `Current objective: ${current.objective}\nCheck the work against it, then call goal ${action} again if it still holds.`
+      );
+    }
+    return ctx.updateGoal(
       id,
       { status: action === 'block' ? 'blocked' : 'complete', ...(action === 'block' ? { blocker: args.blocker } : {}) },
       { expectedGoalId }
-    )
-  );
+    );
+  });
   return toolReply(goal);
 }
 
@@ -43,7 +55,8 @@ const GOAL_TOOL_ACTIONS = {
   status(ctx, id) {
     // Same view the user sees. Reading the stored record here showed the
     // model Goals the user had already archived away.
-    ctx.readRecord(id); // A real I/O error is an actionable error, not "no Goal".
+    const record = ctx.readRecord(id).goal; // A real I/O error is an actionable error, not "no Goal".
+    if (record && ctx.turnGoalIds.get(id) === record.id) ctx.turnObjectiveRevisions.set(id, record.objectiveRevision);
     return toolReply(ctx.visibleSnapshot(id), { full: true });
   },
   async create(ctx, id, args) {

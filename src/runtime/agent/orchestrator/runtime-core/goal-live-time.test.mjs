@@ -21,17 +21,28 @@ test('a Goal is charged only for the time a live runtime ran it, not for a close
   t.after(() => mock.timers.reset());
   const dataDir = dataDirFor(t);
   let clock = 1_800_000_000_000;
-  const open = () => createGoalRuntime({ dataDir, now: () => clock, deadlineWarningMs: [], generateTitle: null });
+  // The monotonic clock stops while the OS is suspended; the wall clock does not.
+  let mono = 0;
+  const open = () =>
+    createGoalRuntime({
+      dataDir,
+      now: () => clock,
+      monotonicNow: () => mono,
+      suspendDetectable: true,
+      deadlineWarningMs: [],
+      generateTitle: null,
+    });
 
   const first = open();
   await first.control(SESSION, { action: 'create', objective: 'Verify the markets', duration: '1h' });
   // Ten live minutes: the heartbeat re-stamps the record every minute.
   for (let minute = 0; minute < 10; minute += 1) {
     clock += MINUTE;
+    mono += MINUTE;
     mock.timers.tick(MINUTE);
     await first.control(SESSION, { action: 'get' });
   }
-  // The PC sleeps for six hours with the app open: the next beat drops the silence.
+  // The PC sleeps for six hours with the app open: the next beat drops the suspension.
   clock += 6 * HOUR;
   mock.timers.tick(MINUTE);
   await first.control(SESSION, { action: 'get' });
@@ -79,15 +90,157 @@ test('a spent budget stored with wall-clock overshoot loads at its cap, never ab
 });
 
 test('a Goal that reaches its cap on a late observation reports the cap as spent', async (t) => {
+  mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  t.after(() => mock.timers.reset());
   const dataDir = dataDirFor(t);
   let clock = 1_800_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock, deadlineWarningMs: [], generateTitle: null });
   t.after(() => runtime.close());
   await runtime.control(SESSION, { action: 'create', objective: 'Short budget', duration: '30m' });
-  clock += 2 * HOUR;
+  // Live heartbeats up to 29 minutes, then a read lands inside the heartbeat
+  // tolerance but past the cap: running time, not sleep.
+  for (let minute = 0; minute < 29; minute += 1) {
+    clock += MINUTE;
+    mock.timers.tick(MINUTE);
+    await runtime.control(SESSION, { action: 'get' });
+  }
+  clock += 2.5 * MINUTE;
   const goal = runtime.snapshot(SESSION);
   assert.equal(goal.status, 'duration_reached');
   assert.equal(goal.timeUsedMs, 30 * MINUTE);
+});
+
+test('a snapshot read after the PC slept does not expire the Goal or charge the sleep', async (t) => {
+  mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  t.after(() => mock.timers.reset());
+  const dataDir = dataDirFor(t);
+  let clock = 1_800_000_000_000;
+  const mono = 0;
+  const runtime = createGoalRuntime({
+    dataDir,
+    now: () => clock,
+    monotonicNow: () => mono,
+    suspendDetectable: true,
+    deadlineWarningMs: [],
+    generateTitle: null,
+  });
+  t.after(() => runtime.close());
+  await runtime.control(SESSION, { action: 'create', objective: 'Slept through', duration: '30m' });
+  // No heartbeat fires: the first observer after the sleep is a snapshot read,
+  // and only the wall clock moved.
+  clock += 6 * HOUR;
+  const goal = runtime.snapshot(SESSION);
+  assert.equal(goal.status, 'active');
+  assert.ok(goal.timeUsedMs <= MINUTE, `charged ${goal.timeUsedMs}`);
+  await runtime.control(SESSION, { action: 'get' });
+  assert.equal(readStoredGoalSnapshot({ dataDir, sessionId: SESSION, now: () => clock }).status, 'active');
+});
+
+test('a suspend is charged at the edit that re-stamps the Goal, and never reused against a later awake stall', async (t) => {
+  mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  t.after(() => mock.timers.reset());
+  const dataDir = dataDirFor(t);
+  let clock = 1_800_000_000_000;
+  let mono = 0;
+  const runtime = createGoalRuntime({
+    dataDir,
+    now: () => clock,
+    monotonicNow: () => mono,
+    suspendDetectable: true,
+    deadlineWarningMs: [],
+    generateTitle: null,
+  });
+  t.after(() => runtime.close());
+  await runtime.control(SESSION, { action: 'create', objective: 'Edited after sleep', duration: '2h' });
+  // The PC sleeps; the first thing to touch the Goal is the user's edit.
+  clock += 6 * HOUR;
+  const edited = (await runtime.control(SESSION, { action: 'edit', objective: 'Edited after sleep, clarified' })).goal;
+  assert.equal(edited.status, 'active');
+  assert.ok(edited.timeUsedMs <= MINUTE, `edit charged ${edited.timeUsedMs}`);
+  // Then the process stalls awake for 40 minutes before any heartbeat: that
+  // time ran, and the sleep before the edit must not be deducted from it.
+  clock += 40 * MINUTE;
+  mono += 40 * MINUTE;
+  const goal = runtime.snapshot(SESSION);
+  assert.equal(goal.status, 'active');
+  assert.ok(goal.timeUsedMs >= 39 * MINUTE, `stall counted as ${goal.timeUsedMs}`);
+});
+
+const SETTLEMENTS = {
+  'a model completion': [
+    (runtime) => runtime.executeTool('goal', { action: 'complete' }, { callerSessionId: SESSION }),
+    'complete',
+  ],
+  'a clean turn finish': [(runtime) => runtime.settleTurn(SESSION, { status: 'done' }), 'active'],
+  'a cancelled turn': [(runtime) => runtime.settleTurn(SESSION, { status: 'cancelled' }), 'paused'],
+  'a failed turn': [(runtime) => runtime.settleTurn(SESSION, { status: 'failed', error: 'boom' }), 'blocked'],
+};
+for (const [name, [settle, expected]] of Object.entries(SETTLEMENTS)) {
+  test(`${name} right after a suspend does not charge the sleep or reach the cap`, async (t) => {
+    mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+    t.after(() => mock.timers.reset());
+    const dataDir = dataDirFor(t);
+    let clock = 1_800_000_000_000;
+    const mono = 0;
+    const runtime = createGoalRuntime({
+      dataDir,
+      now: () => clock,
+      monotonicNow: () => mono,
+      suspendDetectable: true,
+      deadlineWarningMs: [],
+      generateTitle: null,
+    });
+    t.after(() => runtime.close());
+    await runtime.control(SESSION, { action: 'create', objective: 'Turn across a sleep', duration: '30m' });
+    await runtime.startTurn(SESSION);
+    // The PC sleeps mid-turn; the turn ends before any heartbeat or read.
+    clock += 6 * HOUR;
+    await settle(runtime);
+    const goal = runtime.snapshot(SESSION);
+    assert.equal(goal.status, expected);
+    assert.ok(goal.timeUsedMs <= MINUTE, `charged ${goal.timeUsedMs}`);
+  });
+}
+
+test('an awake stall past the heartbeat tolerance still expires a Goal over its cap', async (t) => {
+  mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  t.after(() => mock.timers.reset());
+  const dataDir = dataDirFor(t);
+  let clock = 1_800_000_000_000;
+  let mono = 0;
+  const runtime = createGoalRuntime({
+    dataDir,
+    now: () => clock,
+    monotonicNow: () => mono,
+    suspendDetectable: true,
+    deadlineWarningMs: [],
+    generateTitle: null,
+  });
+  t.after(() => runtime.close());
+  await runtime.control(SESSION, { action: 'create', objective: 'Starved loop', duration: '30m' });
+  // A busy event loop for 40 minutes: both clocks advanced, no heartbeat ran.
+  clock += 40 * MINUTE;
+  mono += 40 * MINUTE;
+  const goal = runtime.snapshot(SESSION);
+  assert.equal(goal.status, 'duration_reached');
+  assert.equal(goal.timeUsedMs, 30 * MINUTE);
+});
+
+test('without suspend evidence (no usable monotonic clock) the time is counted', async (t) => {
+  const dataDir = dataDirFor(t);
+  let clock = 1_800_000_000_000;
+  const runtime = createGoalRuntime({
+    dataDir,
+    now: () => clock,
+    monotonicNow: () => 0,
+    suspendDetectable: false,
+    deadlineWarningMs: [],
+    generateTitle: null,
+  });
+  t.after(() => runtime.close());
+  await runtime.control(SESSION, { action: 'create', objective: 'Windows-like', duration: '30m' });
+  clock += 6 * HOUR;
+  assert.equal(runtime.snapshot(SESSION).status, 'duration_reached');
 });
 
 test('snapshot reads do not starve the heartbeat: live minutes survive a reopen a day later', async (t) => {
@@ -154,20 +307,21 @@ test('a stateless read reports only persisted usage: never above it, never charg
   assert.equal(runtime.snapshot(SESSION).timeUsedMs, 3.5 * MINUTE);
   assert.equal(read(), 3 * MINUTE, 'a live read never exceeds what the runtime persisted');
 
-  // A starved heartbeat: five silent minutes later usage neither grows nor
-  // drops to zero, and the late beat does not change it either.
+  // A starved heartbeat: five silent minutes later the file still reports what
+  // it persisted; the late beat then records the stall as running time (an
+  // awake stall is not suspend).
   clock += 5 * MINUTE;
   assert.equal(read(), 3 * MINUTE);
   mock.timers.tick(MINUTE);
   await runtime.control(SESSION, { action: 'get' });
-  assert.equal(read(), 3 * MINUTE);
+  assert.equal(read(), 8.5 * MINUTE);
   await beatMinute();
-  assert.equal(read(), 4 * MINUTE);
+  assert.equal(read(), 9.5 * MINUTE);
 
   // Closed: the open segment stays at what was persisted, however long it stays closed.
   await runtime.close();
   const persisted = read();
-  assert.equal(persisted, 4 * MINUTE);
+  assert.equal(persisted, 9.5 * MINUTE);
   assert.equal(read(clock + 30_000), persisted, 'closing immediately never charges downtime');
   assert.equal(read(clock + 2 * MINUTE), persisted);
   assert.equal(read(clock + 24 * HOUR), persisted);

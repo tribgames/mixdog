@@ -1,12 +1,14 @@
 import {
   GOAL_LIVE_HEARTBEAT_MS,
-  GOAL_LIVE_STALE_MS,
   activeElapsedMs,
   assertSessionId,
-  discardUnobservedTime,
+  discardSuspendedTime,
   normalizeDeadlineWarnedMs,
   stopActiveClock,
 } from './goal-state.mjs';
+
+// Wall time may outrun the monotonic clock by a little without any suspend.
+const MIN_SUSPEND_EVIDENCE_MS = 5_000;
 
 function normalizeDeadlineWarningMs(value) {
   const thresholds = (Array.isArray(value) ? value : [value])
@@ -25,8 +27,32 @@ export function createGoalDeadlines({
   stampLive,
   onStorageError,
   deadlineWarningMs,
+  monotonicNow = null,
+  // libuv's clock (Node's performance.now) stops during suspend on Linux and
+  // macOS (CLOCK_MONOTONIC, mach_absolute_time) but typically keeps counting
+  // on Windows (QueryPerformanceCounter), so there it proves nothing.
+  suspendDetectable = process.platform !== 'win32',
 }) {
   const warningThresholdsMs = normalizeDeadlineWarningMs(deadlineWarningMs);
+  // Session -> wall and monotonic readings at the last moment the Goal was
+  // known to be running. Wall time that outran the monotonic clock since then
+  // is suspend: positive evidence. A stall of an awake process moves both
+  // clocks, so it is never dropped; without evidence time is counted, because
+  // overcounting is safer than a Goal running past its cap.
+  const anchors = new Map();
+  // Only a Goal that is still running keeps an anchor: an inactive one has its
+  // entry retired by armDeadline, and recording it again would leak.
+  const observe = (id, at, goal) => {
+    if (goal?.status !== 'active') return;
+    if (monotonicNow && suspendDetectable) anchors.set(id, { wall: at, mono: monotonicNow() });
+  };
+  const suspendedMs = (id, at) => {
+    const anchor = anchors.get(id);
+    if (!anchor) return 0;
+    const suspended = at - anchor.wall - (monotonicNow() - anchor.mono);
+    return suspended > MIN_SUSPEND_EVIDENCE_MS ? suspended : 0;
+  };
+  const dropSuspended = (id, goal, at) => discardSuspendedTime(goal, at, suspendedMs(id, at));
   const deadlineTimers = new Map();
   const warningTimers = new Map();
   const heartbeatTimers = new Map();
@@ -69,11 +95,12 @@ export function createGoalDeadlines({
       const goal = readRecord(id).goal;
       if (goal?.status !== 'active' || !goal.lastStartedAt) return;
       const at = now();
-      if (discardUnobservedTime(goal, at, GOAL_LIVE_STALE_MS)) await commit(id, goal);
+      if (dropSuspended(id, goal, at)) await commit(id, goal);
       else {
         goal.liveAt = at;
         await stampLive(id, goal);
       }
+      observe(id, at, goal);
     }).catch(onStorageError);
   };
 
@@ -88,15 +115,28 @@ export function createGoalDeadlines({
     return true;
   };
 
+  // Every path that reads an open segment against the clock (expiry, warnings,
+  // the next timer) first drops the suspended stretch, as the heartbeat does;
+  // otherwise a read after the PC slept would charge the sleep to the budget.
+  // `goal` is a working copy. Returns whether it changed.
+  const settleProjection = (id, goal, at) => {
+    const dropped = dropSuspended(id, goal, at);
+    return expiredProjection(goal, at) || dropped;
+  };
+
   const limitIfExpired = (sessionId) => {
     const id = assertSessionId(sessionId);
     const goal = readRecord(id).goal;
-    if (expiredProjection(goal, now()) && !closed && !expiryPending.has(id)) {
+    if (settleProjection(id, goal, now()) && !closed && !expiryPending.has(id)) {
       expiryPending.add(id);
       void withMutation(id, async () => {
         if (closed) return;
         const current = readRecord(id).goal;
-        if (expiredProjection(current, now())) await commit(id, current);
+        const at = now();
+        if (settleProjection(id, current, at)) {
+          await commit(id, current);
+          observe(id, at, current);
+        }
       })
         .catch(onStorageError)
         .finally(() => expiryPending.delete(id));
@@ -126,8 +166,9 @@ export function createGoalDeadlines({
     return delay;
   };
 
-  const warningState = (goal, at) => {
+  const warningState = (id, goal, at) => {
     if (goal?.status !== 'active' || !goal.lastStartedAt || !(Number(goal.timeLimitMs) > 0)) return null;
+    dropSuspended(id, goal, at);
     const remainingMs = Math.max(0, Number(goal.timeLimitMs) - activeElapsedMs(goal, at));
     if (remainingMs <= 0) return null;
     return {
@@ -140,14 +181,14 @@ export function createGoalDeadlines({
   const deliverDeadlineWarning = (sessionId, thresholdMs = 0) => {
     const id = assertSessionId(sessionId);
     if (closed || warningPending.has(id)) return;
-    const pending = warningState(readRecord(id).goal, now());
+    const pending = warningState(id, readRecord(id).goal, now());
     const target = thresholdMs || pending?.crossedMs || 0;
     if (!pending || !target || pending.crossedMs !== target) return;
     warningPending.add(id);
     void withMutation(id, async () => {
       if (closed) return;
       const current = readRecord(id).goal;
-      const state = warningState(current, now());
+      const state = warningState(id, current, now());
       if (!state?.crossedMs || state.crossedMs !== target) return;
       current.deadlineWarnedMs = Math.min(normalizeDeadlineWarnedMs(current.deadlineWarnedMs), target);
       current.warningRevision = Math.max(0, Math.floor(Number(current.warningRevision) || 0)) + 1;
@@ -172,20 +213,25 @@ export function createGoalDeadlines({
     clearDeadline(sessionId);
     const goal = readRecord(sessionId).goal;
     if (goal?.status === 'active' && goal.lastStartedAt) {
+      if (!anchors.has(sessionId)) observe(sessionId, now(), goal);
       if (!heartbeatTimers.has(sessionId)) {
         const timer = setInterval(() => beat(sessionId), GOAL_LIVE_HEARTBEAT_MS);
         timer.unref?.();
         heartbeatTimers.set(sessionId, timer);
       }
-    } else stopHeartbeat(sessionId);
+    } else {
+      stopHeartbeat(sessionId);
+      anchors.delete(sessionId);
+    }
     if (goal?.status !== 'active' || !goal.lastStartedAt || !(Number(goal.timeLimitMs) > 0)) return;
     const at = now();
+    dropSuspended(sessionId, goal, at);
     const remainingMs = Math.max(0, goal.timeLimitMs - activeElapsedMs(goal, at));
     if (remainingMs <= 0) {
       queueMicrotask(() => reportingErrors(() => limitIfExpired(sessionId)));
       return;
     }
-    const warnings = warningState(goal, at);
+    const warnings = warningState(sessionId, goal, at);
     if (warnings?.crossedMs) {
       const thresholdMs = warnings.crossedMs;
       queueMicrotask(() => reportingErrors(() => deliverDeadlineWarning(sessionId, thresholdMs)));
@@ -202,13 +248,16 @@ export function createGoalDeadlines({
     const timer = setTimeout(() => {
       deadlineTimers.delete(sessionId);
       // A timer that fires after the PC slept must not expire the Goal on
-      // time nobody ran: settle the silence first, then decide.
+      // time nobody ran: settle the suspension first, then decide.
       reportingErrors(() => {
         void withMutation(sessionId, async () => {
           if (closed) return;
           const current = readRecord(sessionId).goal;
-          if (current && discardUnobservedTime(current, now(), GOAL_LIVE_STALE_MS)) await commit(sessionId, current);
-          else limitIfExpired(sessionId);
+          const at = now();
+          if (current && settleProjection(sessionId, current, at)) {
+            await commit(sessionId, current);
+            observe(sessionId, at, current);
+          }
         }).catch(onStorageError);
       });
     }, remainingMs);
@@ -220,6 +269,12 @@ export function createGoalDeadlines({
     armDeadline,
     clearDeadline,
     limitIfExpired,
+    // A write is about to stamp `liveAt`: charge the pending suspend to the
+    // working copy first, so the stamp never hides it, and `refreshAnchor`
+    // starts the next evidence window once the write has landed.
+    settleSuspended: dropSuspended,
+    refreshAnchor: observe,
+    anchorCount: () => anchors.size,
     close() {
       closed = true;
       for (const timer of deadlineTimers.values()) clearTimeout(timer);
@@ -230,6 +285,7 @@ export function createGoalDeadlines({
       heartbeatTimers.clear();
       warningPending.clear();
       expiryPending.clear();
+      anchors.clear();
     },
   };
 }

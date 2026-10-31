@@ -87,6 +87,7 @@ export function createGoalTurnLifecycle(ctx) {
     now,
     turnGoalIds,
     turnStartedAt,
+    turnObjectiveRevisions,
     idleReviewTurns,
     continuationTiers,
     unsavedStops,
@@ -104,11 +105,13 @@ export function createGoalTurnLifecycle(ctx) {
         if (!goal || goal.archivedAt) {
           turnGoalIds.delete(id);
           turnStartedAt.delete(id);
+          turnObjectiveRevisions.delete(id);
           return null;
         }
         const at = now();
         turnGoalIds.set(id, goal.id);
         turnStartedAt.set(id, at);
+        turnObjectiveRevisions.set(id, goal.objectiveRevision);
         if (goal.status !== 'active') return visibleSnapshot(id);
         goal.turnCount = Math.max(0, Math.floor(Number(goal.turnCount) || 0)) + 1;
         startActiveClock(goal, at);
@@ -122,6 +125,7 @@ export function createGoalTurnLifecycle(ctx) {
         const expectedGoalId = turnGoalIds.get(id) || '';
         turnGoalIds.delete(id);
         turnStartedAt.delete(id);
+        turnObjectiveRevisions.delete(id);
         const goal = readRecord(id).goal;
         // commit() returns the record even when it is archived, so a settled
         // turn on retired work would republish the capsule the user's prompt

@@ -36,7 +36,19 @@ export function createGoalStore(ctx) {
     now,
     writeRecord: ctx.writeGoalRecord,
   });
-  const readRecord = storage.read;
+  // The committed record, exactly as stored. Only the deadline controller reads
+  // it this way: it does its own suspend accounting and needs to see whether a
+  // read changed anything.
+  const readStoredRecord = storage.read;
+  // Every other caller edits what it reads and commits it, and moves
+  // `lastStartedAt` or the status on the way. Charging a pending suspend here,
+  // before any caller sees the working copy, means no checkpoint or status
+  // transition can charge the sleep to the Goal, now or in a future caller.
+  const readRecord = (sessionId) => {
+    const record = readStoredRecord(sessionId);
+    ctx.deadlines.settleSuspended(sessionId, record.goal, now());
+    return record;
+  };
 
   const withMutation = (sessionId, operation) => {
     const id = assertSessionId(sessionId);
@@ -82,11 +94,17 @@ export function createGoalStore(ctx) {
 
   const commit = async (sessionId, goal, { isCurrent, accept } = {}) => {
     const id = assertSessionId(sessionId);
-    const previous = goal ? readRecord(id).goal : null;
+    // Rollback restores exactly what was stored, not a settled working copy.
+    const previous = goal ? readStoredRecord(id).goal : null;
     let committedGoal = null;
+    const stampedAt = now();
     if (goal) {
       committedGoal = { ...goal, sessionId: id };
-      if (committedGoal.status === 'active') committedGoal.liveAt = now();
+      if (committedGoal.status === 'active') {
+        // Stamping liveAt would hide a suspend nobody has charged yet.
+        ctx.deadlines.settleSuspended(id, committedGoal, stampedAt);
+        committedGoal.liveAt = stampedAt;
+      }
     }
     const rollback = async () => {
       try {
@@ -117,6 +135,7 @@ export function createGoalStore(ctx) {
         return null;
       }
     }
+    ctx.deadlines.refreshAnchor(id, stampedAt, committedGoal);
     ctx.deadlines.armDeadline(id);
     emit(id);
     return publicGoal(committedGoal, now());
@@ -131,5 +150,15 @@ export function createGoalStore(ctx) {
     return record.goal;
   };
 
-  return { readRecord, withMutation, storedSnapshot, visibleSnapshot, emit, commit, stampLive, requireGoal };
+  return {
+    readRecord,
+    readStoredRecord,
+    withMutation,
+    storedSnapshot,
+    visibleSnapshot,
+    emit,
+    commit,
+    stampLive,
+    requireGoal,
+  };
 }

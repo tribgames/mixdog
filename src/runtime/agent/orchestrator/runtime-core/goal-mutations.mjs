@@ -59,6 +59,7 @@ function newGoalRecord(id, args, at, defaultTimeLimitMs) {
     sessionId: id,
     objective: validateObjective(args.objective),
     title: compactSessionTitle(args.objective),
+    objectiveRevision: 0,
     status: 'active',
     blocker: '',
     failureReason: '',
@@ -77,7 +78,7 @@ function newGoalRecord(id, args, at, defaultTimeLimitMs) {
 }
 
 export function createGoalMutations(ctx) {
-  const { root, now, defaultTimeLimitMs, turnGoalIds, turnStartedAt } = ctx;
+  const { root, now, defaultTimeLimitMs, turnGoalIds, turnStartedAt, turnObjectiveRevisions } = ctx;
 
   // The Goal owning the current turn keeps its open segment; any other stops.
   const settleActiveClock = (id, goal, at) => {
@@ -126,6 +127,7 @@ export function createGoalMutations(ctx) {
     if (args.startInCurrentTurn === true) {
       turnGoalIds.set(id, goal.id);
       turnStartedAt.set(id, goal.lastStartedAt);
+      turnObjectiveRevisions.set(id, goal.objectiveRevision);
     }
     ctx.scheduleGoalTitle(id, goal);
     return created;
@@ -184,6 +186,7 @@ export function createGoalMutations(ctx) {
     if (archive) goal.archivedAt = goal.stoppedAt;
     await ctx.commit(id, goal);
     turnGoalIds.delete(id);
+    turnObjectiveRevisions.delete(id);
     return publicGoal(goal, now());
   };
 
