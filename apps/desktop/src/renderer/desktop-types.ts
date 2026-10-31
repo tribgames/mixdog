@@ -127,8 +127,6 @@ export type TodoSnapshot = {
   abandoned: number;
   total: number;
 };
-/** An agent row's to-do summary. */
-export type AgentTodoSummary = { completed: number; total: number; current?: string };
 export type GoalSnapshot = {
   id?: string;
   // Bumped when the runtime delivers a "budget nearly over" warning, so a
