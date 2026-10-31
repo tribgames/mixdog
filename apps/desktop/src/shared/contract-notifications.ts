@@ -115,7 +115,7 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationDevicePreferences = {
   events: DEFAULT_EVENTS,
   automaticRuns: true,
   quietHours: DEFAULT_QUIET_HOURS,
-  holdWhileDesktopActive: false,
+  holdWhileDesktopActive: true,
   taskbarFlash: true,
 };
 

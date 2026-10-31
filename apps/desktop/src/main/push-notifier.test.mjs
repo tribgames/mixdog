@@ -277,7 +277,11 @@ test('each paired device gets its own decision: scope and event switch', async (
 
 test('a device holding pushes while this PC is in use waits, and this PC is asked only for it', async (t) => {
   fakeHoldTimers(t);
-  const quiet = devices(t, { desktopActive: true });
+  const noHold = { holdWhileDesktopActive: false };
+  const quiet = devices(t, {
+    desktopActive: true,
+    preferences: { 'phone-a': noHold, 'phone-b': noHold, 'tab-1': noHold },
+  });
   quiet.notifier.onSessionState(update({ id: 'a1' }));
   await settle();
   assert.equal(quiet.native.length, 2);
@@ -285,7 +289,7 @@ test('a device holding pushes while this PC is in use waits, and this PC is aske
   const held = devices(t, {
     desktopActive: true,
     holdMs: 150,
-    preferences: { 'phone-a': { holdWhileDesktopActive: true } },
+    preferences: { 'phone-a': { holdWhileDesktopActive: true }, 'phone-b': noHold, 'tab-1': noHold },
   });
   held.notifier.onSessionState(update({ id: 'a1' }));
   await settle();
@@ -307,10 +311,11 @@ test('a device holding pushes while this PC is in use waits, and this PC is aske
 
 test('a held approval answered on this PC during the hold is never pushed', async (t) => {
   fakeHoldTimers(t);
+  const noHold = { holdWhileDesktopActive: false };
   const f = devices(t, {
     desktopActive: true,
     holdMs: 150,
-    preferences: { 'phone-a': { holdWhileDesktopActive: true } },
+    preferences: { 'phone-a': { holdWhileDesktopActive: true }, 'phone-b': noHold, 'tab-1': noHold },
   });
   f.notifier.onSessionState(update({ id: 'a1' }));
   await settle();
