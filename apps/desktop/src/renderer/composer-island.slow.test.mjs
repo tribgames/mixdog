@@ -2418,6 +2418,8 @@ test('the worktree menu runs Merge through the confirm popup, shows conflicts in
     if (request.capability === 'getBranchMenu') return { value: worktreeMenu() };
     // The git action's change read is not a worktree call.
     if (request.capability === 'getSessionReviewDiff') return { value: null };
+    // The clean-up button's read-only preview is not a worktree action.
+    if (request.capability === 'previewWorktreeCleanup') return { value: { hasCandidates: true } };
     calls.push(request);
     return { value: reply };
   };
@@ -2452,7 +2454,7 @@ test('the worktree menu runs Merge through the confirm popup, shows conflicts in
       row.querySelector('small')?.textContent ?? '',
     ]),
     [
-      ['mixdog/fix-login', ''],
+      ['mixdog/fix-login', 'Current'],
       ['main', 'Project folder'],
     ]
   );
@@ -2526,6 +2528,8 @@ test('removing the worktree asks in a danger popup and a refusal shows in a popu
     if (request.capability === 'getBranchMenu') return { value: worktreeMenu() };
     // The git action's change read is not a worktree call.
     if (request.capability === 'getSessionReviewDiff') return { value: null };
+    // The clean-up button's read-only preview is not a worktree action.
+    if (request.capability === 'previewWorktreeCleanup') return { value: { hasCandidates: true } };
     calls.push(request);
     throw new Error('WORKTREE_DIRTY: The worktree has uncommitted changes.');
   };
@@ -2580,6 +2584,8 @@ test('a worktree on an existing branch (no merge target of its own) merges into 
       };
     }
     if (request.capability === 'getSessionReviewDiff') return { value: null };
+    // The clean-up button's read-only preview is not a worktree action.
+    if (request.capability === 'previewWorktreeCleanup') return { value: { hasCandidates: true } };
     calls.push(request);
     return { value: { merged: true, target: 'trunk', commit: 'abc999' } };
   };
@@ -2719,15 +2725,25 @@ test('on main the segment opens the New Task branch menu; Worktree provisions no
   await act(async () => segment().click());
   assert.equal(menu().querySelector('input[type="search"]').placeholder, 'Search branches');
   assert.ok(menu().querySelector('.branch-row-more'));
-  assert.equal(menu().querySelector('.composer-island-pfoot [data-kind="create"]').textContent, 'New branch');
+  assert.deepEqual(
+    [...menu().querySelectorAll('.composer-island-pfoot button')].map((button) => [
+      button.dataset.kind,
+      button.textContent,
+    ]),
+    [
+      ['create', 'New branch'],
+      ['worktree', 'New worktree'],
+      ['prune', 'Clean up'],
+    ]
+  );
   const rows = [...menu().querySelectorAll('.branch-menu-list .branch-menu-item')];
   assert.deepEqual(
     rows.map((row) => [row.querySelector('span').textContent, row.querySelector('small')?.textContent ?? '']),
     [
-      ['Worktree', 'New branch · separate folder'],
-      ['main', ''],
+      ['main', 'Current'],
       ['pr-67', ''],
-      ['ext', 'Worktree'],
+      // An unmanaged worktree's branch shows where it is checked out.
+      ['ext', '/elsewhere'],
     ]
   );
   assert.deepEqual(
@@ -2739,7 +2755,7 @@ test('on main the segment opens the New Task branch menu; Worktree provisions no
     assert.ok(shell.querySelector(':scope > .branch-menu-item'), 'the row is in its shell');
     assert.ok(shell.querySelector(':scope > .branch-row-more'), 'the … trigger sits in the same row shell');
   }
-  await act(async () => rows[0].click());
+  await act(async () => menu().querySelector('.composer-island-pfoot [data-kind="worktree"]').click());
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   assert.deepEqual(
     calls.filter((call) => call.capability === 'requestWorktree'),
@@ -2787,7 +2803,13 @@ test('while work runs the menu opens without a warning and no switch starts', as
   await act(async () => menu().querySelector('[data-kind="worktree"]').click());
   await act(async () => rows[1].click());
   assert.deepEqual(
-    calls.filter((call) => call.capability !== 'getBranchMenu' && call.capability !== 'getSessionReviewDiff'),
+    calls.filter(
+      (call) =>
+        call.capability !== 'getBranchMenu' &&
+        call.capability !== 'getSessionReviewDiff' &&
+        // A read-only preview for the clean-up button: it changes nothing.
+        call.capability !== 'previewWorktreeCleanup'
+    ),
     [],
     'nothing is scheduled or sent'
   );
@@ -3016,14 +3038,21 @@ test('the branch segment opens an island tab: ✕, outside press and Escape coll
   assert.equal(panel().querySelector('.composer-island-phead .composer-island-tab').textContent, 'main');
   assert.ok(panel().querySelector('.composer-island-tab svg.lucide-git-branch'));
   assert.equal(panel().querySelector('.branch-menu-search').placeholder, 'Search branches');
-  assert.equal(panel().querySelector('[data-kind="worktree"] small').textContent, 'New branch · separate folder');
+  assert.equal(panel().querySelector('.branch-menu-list [data-kind="worktree"]'), null, 'no "Worktree" row');
+  assert.equal(panel().querySelector('.composer-island-pfoot [data-kind="worktree"]').textContent, 'New worktree');
   assert.ok(panel().querySelector('[data-branch="main"] .branch-menu-check'), '✓ on the current branch');
-  assert.equal(panel().querySelector('[data-branch="main"] small'), null, 'the check replaces the label');
+  assert.equal(panel().querySelector('[data-branch="main"] small').textContent, 'Current', 'beside the check');
   assert.equal(panel().querySelectorAll('.branch-menu-check').length, 1);
-  assert.equal(panel().querySelector('[data-branch="ext"] small').textContent, 'Worktree');
+  assert.equal(panel().querySelector('[data-branch="ext"] small').textContent, '/elsewhere');
+  assert.equal(panel().querySelector('[data-branch="ext"]').getAttribute('aria-disabled'), 'true');
+  const prune = panel().querySelector('.composer-island-pfoot [data-kind="prune"]');
+  assert.ok(prune, 'Clean up worktrees in the footer');
+  assert.ok(prune.classList.contains('composer-island-button'), 'styled like New branch');
+  assert.equal(prune.previousElementSibling?.dataset.kind, 'worktree');
+  assert.ok(prune.querySelector('svg.lucide-brush-cleaning'));
   assert.ok(
-    panel().querySelector('[data-branch="ext"] svg.lucide-git-fork'),
-    'a worktree branch shows the worktree icon'
+    panel().querySelector('[data-branch="ext"] svg[class*="lucide-folder-git"]'),
+    'a worktree branch shows the folder icon'
   );
   // ✕ closes and hands focus back.
   await act(async () => panel().querySelector('.composer-island-close').click());

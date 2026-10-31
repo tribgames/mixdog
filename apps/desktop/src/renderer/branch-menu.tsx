@@ -1,8 +1,9 @@
 // The branch menu shared by the New Task branch chip (a popup) and the
-// composer island's branch segment (an island tab): search · "Worktree" ·
-// branches · "New branch", in one theme. Its data, the popup's placement,
-// actions and dialogs live here; each host owns only its trigger.
-import { Check, GitBranch, GitFork, Plus, Search, X } from 'lucide-react';
+// composer island's branch segment (an island tab): search · branches ·
+// "New branch" · "New worktree" · "Clean up", in one theme. Its data, the
+// popup's placement, actions and dialogs live here; each host owns only its
+// trigger.
+import { BrushCleaning, Check, ChevronDown, ChevronRight, FolderGit2, GitBranch, Plus, Search, X } from 'lucide-react';
 import {
   type CSSProperties,
   type ReactNode,
@@ -29,11 +30,18 @@ import { useSurfaceActive } from './surface-activity';
 import { touchPrimaryPointer } from './surface-input-focus';
 import { clampOverlayIntoView } from './anchored-panel';
 import { acquireTitleBarDim } from './titlebar-dim';
+import { useSessionTitle } from './session-glance-store';
 import {
+  type BranchGroup,
   type BranchRow,
+  branchAge,
+  branchMatch,
   branchMenuPosition,
+  searchedNewBranch,
   invokeWorktree,
   largeRepoPrompt,
+  nothingToCleanUp,
+  pruneReportText,
   setWorktreeIntent,
   setBranchIntent,
   getBranchIntent,
@@ -475,8 +483,54 @@ export function useBranchMenuActions({
     if (name) void selectBranch(name, true);
   };
 
+  // Whether "Clean up" has anything to act on (a cheap read, no git checks):
+  // unknown (loading, failed) keeps the button usable. Re-read whenever the
+  // menu is read again and after a prune.
+  const repoCommonDir = menu?.workspace.repoCommonDir;
+  const [cleanup, setCleanup] = useState<{ repoCommonDir: string; empty: boolean } | null>(null);
+  const cleanupRead = useRef(0);
+  const readCleanup = useCallback(async () => {
+    const id = ++cleanupRead.current;
+    // A new request makes the answer unknown (usable) until it arrives.
+    setCleanup(null);
+    if (!repoCommonDir) return;
+    const empty = await invokeWorktree('previewWorktreeCleanup', [{ repoCommonDir }], sessionId)
+      .then(nothingToCleanUp)
+      .catch(() => false);
+    if (id === cleanupRead.current) setCleanup({ repoCommonDir, empty });
+  }, [repoCommonDir, sessionId]);
+  // `menu` itself is a fresh object per render for a draft's chosen branch;
+  // its occupancy list is the read's own identity.
+  const menuRead = menu?.occupancy;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: menuRead is the deliberate re-read trigger
+  useEffect(() => {
+    void readCleanup();
+  }, [readCleanup, menuRead]);
+
+  /** "Clean up": the manual prune (clean, merged worktrees no session keeps;
+   *  registrations whose folder is gone), its summary as the notice, then a
+   *  fresh read. Unmanaged worktrees with work in them are never touched. */
+  const prune = async () => {
+    if (busy) return;
+    setBusy(true);
+    setNotice('');
+    try {
+      setNotice(pruneReportText(await invokeWorktree('pruneWorktrees', [{ repoCommonDir }], sessionId)));
+      await Promise.all([load(), readCleanup()]);
+    } catch (reason) {
+      setNotice(worktreeFailureText(worktreeFailure(reason)));
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return {
-    management: { projectPath, refresh: load },
+    // "Clean up worktrees" wherever the folder is a git repository (worktrees are possible).
+    management: {
+      projectPath,
+      refresh: load,
+      ...(repoCommonDir ? { prune, nothingToClean: cleanup?.repoCommonDir === repoCommonDir && cleanup.empty } : {}),
+    },
     busy,
     pending,
     pickWorktree,
@@ -670,7 +724,13 @@ export function WorktreeCarryDialog({
 }
 
 type BranchMenuContentsProps = {
-  management?: { projectPath: string; refresh(): Promise<unknown> };
+  management?: {
+    projectPath: string;
+    refresh(): Promise<unknown>;
+    prune?(): Promise<void>;
+    /** "Clean up" has nothing it could act on (disabled). */
+    nothingToClean?: boolean;
+  };
   query: string;
   onQuery(query: string): void;
   notice: string;
@@ -684,18 +744,18 @@ type BranchMenuContentsProps = {
   base: string;
   rows: BranchRow[];
   worktreeBound: boolean;
-  /** Lists the "Worktree" row (not for a session already in its worktree). */
-  showWorktree: boolean;
   /** Remembers the unfiltered list's height under this key, so a reopened
    *  list starts at it instead of growing as rows arrive. */
   heightKey?: string;
   autoFocusSearch: boolean;
   onPickWorktree(): void;
   onPickRow(row: BranchRow): void;
+  /** Offered as the list's last row when the search names no branch exactly. */
+  onCreateFromSearch?(): void;
 };
 
-/** The menu body both hosts share: the search, an error notice,
- *  then "Worktree" and the branches. While `locked` no switch can start. */
+/** The menu body both hosts share: the search, an error notice, then the
+ *  grouped branches. While `locked` no switch can start. */
 function BranchMenuContents({
   management,
   query,
@@ -708,15 +768,22 @@ function BranchMenuContents({
   locked = false,
   rows,
   worktreeBound,
-  showWorktree,
   heightKey = '',
   autoFocusSearch,
-  onPickWorktree,
   onPickRow,
+  onCreateFromSearch,
 }: BranchMenuContentsProps) {
   const switchDisabled = busy || locked;
   const list = useRef<HTMLDivElement>(null);
-  const track = useStableMenuList(list, rows, query, heightKey);
+  const [otherExpanded, setOtherExpanded] = useState(false);
+  // The rest of the branches fold away once recent ones can be told apart
+  // (the menu carries commit times); a search always lists every hit.
+  const collapsible = !query.trim() && rows.some((row) => row.committedAt !== undefined);
+  const otherCollapsed = collapsible && !otherExpanded;
+  const otherCount = rows.filter((row) => row.group === 'other').length;
+  const toggleOther = () => setOtherExpanded((expanded) => !expanded);
+  const track = useStableMenuList(list, rows, query, heightKey, otherExpanded);
+  const newName = onCreateFromSearch ? searchedNewBranch(rows, query) : '';
   return (
     <>
       <div className="schedules-search branch-menu-search-frame">
@@ -738,32 +805,28 @@ function BranchMenuContents({
         </p>
       )}
       <div className="branch-menu-list" ref={list} onScroll={track} onPointerOver={track} onFocusCapture={track}>
-        {showWorktree && (
-          <button
-            type="button"
-            className="branch-menu-item"
-            data-kind="worktree"
-            data-selected={intent || undefined}
-            data-pending={pending?.kind === 'worktree' || undefined}
-            aria-disabled={switchDisabled || undefined}
-            onClick={onPickWorktree}
-          >
-            {pending?.kind === 'worktree' ? (
-              <ProgressSpinner size={14} aria-hidden="true" />
+        {/* One flat keyed list: a row keeps its element when the group it starts changes. */}
+        {rows.flatMap((row, index) => {
+          if (row.group === 'other' && otherCollapsed) {
+            if (rows[index - 1]?.group === 'other') return [];
+            return [
+              <OtherBranchesToggle key="group:other" count={otherCount} expanded={false} onToggle={toggleOther} />,
+            ];
+          }
+          const group =
+            row.group !== rows[index - 1]?.group &&
+            (row.group === 'other' && collapsible ? (
+              <OtherBranchesToggle key="group:other" count={otherCount} expanded onToggle={toggleOther} />
             ) : (
-              <GitFork size={14} aria-hidden="true" />
-            )}
-            <span>{t('Worktree')}</span>
-            <small>{t('New branch · separate folder')}</small>
-            {intent && <Check size={14} className="branch-menu-check" aria-hidden="true" />}
-          </button>
-        )}
-        <h3 className="branch-menu-label">{t('Branch')}</h3>
-        {rows.map((row) => {
+              <h3 className="branch-menu-label" data-group={row.group} key={`group:${row.group}`}>
+                {GROUP_LABELS[row.group]()}
+              </h3>
+            ));
           const item = (
             <BranchMenuRow
               key={row.name}
               row={row}
+              query={query}
               intent={intent}
               busy={busy}
               pending={pending?.kind === 'branch' && pending.name === row.name}
@@ -772,7 +835,7 @@ function BranchMenuContents({
               onPick={onPickRow}
             />
           );
-          return management ? (
+          const shell = management ? (
             <BranchRowActions
               key={row.name}
               projectPath={management.projectPath}
@@ -787,8 +850,29 @@ function BranchMenuContents({
               {item}
             </div>
           );
+          return group ? [group, shell] : [shell];
         })}
+        {newName && (
+          <button
+            type="button"
+            className="branch-menu-item"
+            data-kind="create-from-search"
+            data-pending={pending?.kind === 'create' || undefined}
+            aria-disabled={switchDisabled || undefined}
+            onClick={() => {
+              if (!switchDisabled) onCreateFromSearch?.();
+            }}
+          >
+            {pending?.kind === 'create' ? (
+              <ProgressSpinner size={14} aria-hidden="true" />
+            ) : (
+              <Plus size={14} aria-hidden="true" />
+            )}
+            <span>{t('Create branch "{{name}}"', { name: newName })}</span>
+          </button>
+        )}
         {rows.length === 0 &&
+          !newName &&
           (loading ? (
             <p className="branch-menu-empty" data-loading role="status">
               {t('Loading branches…')}
@@ -801,7 +885,96 @@ function BranchMenuContents({
   );
 }
 
-/** "New branch": a menu row in the popup, a footer button in the island tab. */
+const GROUP_LABELS: Record<BranchGroup, () => string> = {
+  current: () => t('Current branch'),
+  worktree: () => t('Worktrees'),
+  recent: () => t('Recent'),
+  other: () => t('Other branches'),
+  external: () => t('Other worktrees'),
+};
+
+/** The "other branches" header: collapses and expands the group. */
+function OtherBranchesToggle({ count, expanded, onToggle }: { count: number; expanded: boolean; onToggle(): void }) {
+  return (
+    <h3 className="branch-menu-label" data-group="other">
+      <button type="button" className="branch-menu-group-toggle" aria-expanded={expanded} onClick={onToggle}>
+        {expanded ? <ChevronDown size={12} aria-hidden="true" /> : <ChevronRight size={12} aria-hidden="true" />}
+        <span>{t('Other branches: {{count}}', { count })}</span>
+      </button>
+    </h3>
+  );
+}
+
+/** "Clean up" (worktrees): the footer's quiet last button wherever the
+ *  folder is a git repository; its summary becomes the menu notice. */
+function PruneWorktreesButton({
+  className,
+  busy,
+  empty,
+  onPrune,
+}: {
+  className: string;
+  busy: boolean;
+  /** Nothing to clean: not clickable, the tooltip says so. */
+  empty: boolean;
+  onPrune(): Promise<void>;
+}) {
+  const disabled = busy || empty;
+  return (
+    <button
+      type="button"
+      className={className}
+      data-kind="prune"
+      aria-disabled={disabled || undefined}
+      title={
+        empty
+          ? t('Nothing to clean up.')
+          : t('Remove clean, merged worktrees no session keeps, and forget deleted worktree folders')
+      }
+      onClick={() => {
+        if (!disabled) void onPrune();
+      }}
+    >
+      <BrushCleaning size={14} aria-hidden="true" />
+      <span>{t('Clean up')}</span>
+    </button>
+  );
+}
+
+/** "New worktree": the next turn starts on a new branch in its own folder.
+ *  Pressed while chosen; not offered to a session already in its worktree. */
+function NewWorktreeButton({
+  className,
+  intent,
+  pending,
+  disabled,
+  onPick,
+}: {
+  className: string;
+  intent: boolean;
+  pending: boolean;
+  disabled: boolean;
+  onPick(): void;
+}) {
+  return (
+    <button
+      type="button"
+      className={className}
+      data-kind="worktree"
+      data-selected={intent || undefined}
+      data-pending={pending || undefined}
+      aria-pressed={intent}
+      aria-disabled={disabled || undefined}
+      title={t('New branch · separate folder')}
+      onClick={onPick}
+    >
+      {pending ? <ProgressSpinner size={14} aria-hidden="true" /> : <FolderGit2 size={14} aria-hidden="true" />}
+      <span>{t('New worktree')}</span>
+    </button>
+  );
+}
+
+/** "New branch": the first footer button in both hosts. */
 function CreateBranchButton({
   className,
   pending,
@@ -828,7 +1001,8 @@ function CreateBranchButton({
   );
 }
 
-/** The New Task chip's popup: search · "Worktree" · branches · "New branch". */
+/** The New Task chip's popup: search · branches, then "New branch" ·
+ *  "New worktree" · "Clean up". */
 export function BranchMenuPanel({
   panel,
   panelId,
@@ -836,7 +1010,7 @@ export function BranchMenuPanel({
   onCreateBranch,
   onEscape,
   ...contents
-}: Omit<BranchMenuContentsProps, 'showWorktree' | 'autoFocusSearch'> & {
+}: Omit<BranchMenuContentsProps, 'autoFocusSearch' | 'onCreateFromSearch'> & {
   panel: RefObject<HTMLDivElement | null>;
   panelId: string;
   position: CSSProperties;
@@ -859,23 +1033,40 @@ export function BranchMenuPanel({
       style={position}
       onKeyDown={(event) => moveMenuFocus(event, panel.current, onEscape)}
     >
-      <BranchMenuContents {...contents} showWorktree autoFocusSearch={!touchPrimaryPointer()} />
+      <BranchMenuContents {...contents} autoFocusSearch={!touchPrimaryPointer()} onCreateFromSearch={onCreateBranch} />
       <hr className="branch-menu-rule" />
-      <CreateBranchButton
-        className="branch-menu-item"
-        pending={contents.pending?.kind === 'create'}
-        disabled={contents.busy || Boolean(contents.locked)}
-        onCreate={onCreateBranch}
-      />
+      <div className="branch-menu-actions">
+        <CreateBranchButton
+          className="branch-menu-item"
+          pending={contents.pending?.kind === 'create'}
+          disabled={contents.busy || Boolean(contents.locked)}
+          onCreate={onCreateBranch}
+        />
+        <NewWorktreeButton
+          className="branch-menu-item"
+          intent={contents.intent}
+          pending={contents.pending?.kind === 'worktree'}
+          disabled={contents.busy || Boolean(contents.locked)}
+          onPick={contents.onPickWorktree}
+        />
+        {contents.management?.prune && (
+          <PruneWorktreesButton
+            className="branch-menu-item"
+            busy={contents.busy}
+            empty={contents.management.nothingToClean === true}
+            onPrune={contents.management.prune}
+          />
+        )}
+      </div>
     </div>
   );
 }
 
 /** The composer island's branch tab: the same menu in the island's panel
  *  grammar — a header with the branch chip and close, then the search ·
- *  "Worktree" · branches, and a footer with "New branch". A session in its
- *  worktree lists no "Worktree" row and its footer holds `worktreeActions`
- *  (View changes · Merge · Remove), the first of which takes focus. */
+ *  branches, and a footer with "New branch" · "New worktree" · "Clean up".
+ *  A session in its worktree has `worktreeActions` (View changes · Merge ·
+ *  Remove) in place of the first two, the first of which takes focus. */
 export function BranchIslandPanel({
   panel,
   panelId,
@@ -885,7 +1076,7 @@ export function BranchIslandPanel({
   onCreateBranch,
   onClose,
   ...contents
-}: Omit<BranchMenuContentsProps, 'showWorktree' | 'autoFocusSearch'> & {
+}: Omit<BranchMenuContentsProps, 'autoFocusSearch' | 'onCreateFromSearch'> & {
   panel: RefObject<HTMLElement | null>;
   panelId: string;
   /** The header chip: the branch glyph and name. */
@@ -930,16 +1121,33 @@ export function BranchIslandPanel({
       <div className="composer-island-pbody branch-menu-body">
         <BranchMenuContents
           {...contents}
-          showWorktree={!worktreeActions}
           autoFocusSearch={!touchPrimaryPointer() && !worktreeActions}
+          onCreateFromSearch={worktreeActions ? undefined : onCreateBranch}
         />
         <div className="composer-island-pfoot branch-menu-foot">
           {worktreeActions ?? (
-            <CreateBranchButton
+            <>
+              <CreateBranchButton
+                className="composer-island-button"
+                pending={contents.pending?.kind === 'create'}
+                disabled={contents.busy || Boolean(contents.locked)}
+                onCreate={onCreateBranch}
+              />
+              <NewWorktreeButton
+                className="composer-island-button"
+                intent={contents.intent}
+                pending={contents.pending?.kind === 'worktree'}
+                disabled={contents.busy || Boolean(contents.locked)}
+                onPick={contents.onPickWorktree}
+              />
+            </>
+          )}
+          {contents.management?.prune && (
+            <PruneWorktreesButton
               className="composer-island-button"
-              pending={contents.pending?.kind === 'create'}
-              disabled={contents.busy || Boolean(contents.locked)}
-              onCreate={onCreateBranch}
+              busy={contents.busy}
+              empty={contents.management.nothingToClean === true}
+              onPrune={contents.management.prune}
             />
           )}
         </div>
@@ -953,9 +1161,17 @@ export function BranchIslandPanel({
  *  the pointer or focus (rows are keyed by branch name, so it is the same
  *  element) stays where it was by correcting the list's scroll. Returns the
  *  tracker the list calls when focus, pointer or scroll moves the anchor. */
-function useStableMenuList(list: RefObject<HTMLDivElement | null>, rows: BranchRow[], query: string, heightKey = '') {
-  const floor = useRef((heightKey && !query && lastListHeights.get(heightKey)) || 0);
-  const seenQuery = useRef(query);
+function useStableMenuList(
+  list: RefObject<HTMLDivElement | null>,
+  rows: BranchRow[],
+  query: string,
+  heightKey = '',
+  expanded = false
+) {
+  // Folding a group is the user's own change, like a search: it keys the floor too.
+  const shape = `${expanded ? '+' : '-'}${query}`;
+  const floor = useRef((heightKey && !query && !expanded && lastListHeights.get(heightKey)) || 0);
+  const seenQuery = useRef(shape);
   const anchor = useRef<{ name: string; top: number } | null>(null);
   const rowNodes = () => Array.from(list.current?.querySelectorAll<HTMLElement>('[data-branch]') ?? []);
   const track = () => {
@@ -967,9 +1183,9 @@ function useStableMenuList(list: RefObject<HTMLDivElement | null>, rows: BranchR
   useLayoutEffect(() => {
     const element = list.current;
     if (!element) return;
-    if (seenQuery.current !== query) {
-      // Filtering is the user's own change: no floor, no anchor.
-      seenQuery.current = query;
+    if (seenQuery.current !== shape) {
+      // Filtering or folding is the user's own change: no floor, no anchor.
+      seenQuery.current = shape;
       floor.current = 0;
       anchor.current = null;
       element.style.minHeight = '';
@@ -981,9 +1197,9 @@ function useStableMenuList(list: RefObject<HTMLDivElement | null>, rows: BranchR
     }
     floor.current = Math.max(floor.current, element.offsetHeight);
     element.style.minHeight = floor.current ? `${floor.current}px` : '';
-    if (heightKey && !query && floor.current) lastListHeights.set(heightKey, floor.current);
+    if (heightKey && !query && !expanded && floor.current) lastListHeights.set(heightKey, floor.current);
     track();
-  }, [rows, query]);
+  }, [rows, shape]);
   return track;
 }
 
@@ -998,7 +1214,7 @@ function moveMenuFocus(event: React.KeyboardEvent, panel: HTMLElement | null, on
   if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
   const stops = Array.from(
     panel?.querySelectorAll<HTMLElement>(
-      'input, .branch-menu-item:not([aria-disabled="true"]), .branch-menu-foot button:not([aria-disabled="true"])'
+      ':is(input, .branch-menu-item, .branch-menu-group-toggle, .branch-menu-foot button):not([aria-disabled="true"])'
     ) ?? []
   );
   const index = stops.indexOf(document.activeElement as HTMLElement);
@@ -1007,17 +1223,33 @@ function moveMenuFocus(event: React.KeyboardEvent, panel: HTMLElement | null, on
   next?.focus();
 }
 
-/** The muted label closing a row: "Current", "Worktree" for a branch that has
- *  its own folder, "Project folder" for the project's branch. */
-function rowLabel(row: BranchRow, hasWorktree: boolean, selected: boolean): string {
-  // The selected current branch carries the check instead of the label.
-  if (row.mark === 'current') return selected ? '' : t('Current');
-  if (hasWorktree) return t('Worktree');
+/** The muted label closing a row: "Current", the owning session's name for a
+ *  branch in a managed worktree (`owner`), an unmanaged worktree's path,
+ *  "Project folder" for the project's branch. */
+function rowLabel(row: BranchRow, hasWorktree: boolean, owner: string): string {
+  if (row.mark === 'current') return t('Current');
+  if (row.mark === 'external' && row.path) return row.path;
+  if (hasWorktree) return owner;
   return row.mark === 'project' ? t('Project folder') : '';
+}
+
+/** The branch name with the searched text in the accent color. */
+function BranchName({ name, query }: { name: string; query: string }) {
+  const match = branchMatch(name, query);
+  if (!match) return <span>{name}</span>;
+  const [start, end] = match;
+  return (
+    <span>
+      {name.slice(0, start)}
+      <mark className="branch-menu-match">{name.slice(start, end)}</mark>
+      {name.slice(end)}
+    </span>
+  );
 }
 
 function BranchMenuRow({
   row,
+  query,
   intent,
   busy,
   pending,
@@ -1026,6 +1258,7 @@ function BranchMenuRow({
   onPick,
 }: {
   row: BranchRow;
+  query: string;
   intent: boolean;
   busy: boolean;
   /** This row was chosen and its result has not arrived. */
@@ -1038,7 +1271,9 @@ function BranchMenuRow({
     (row.mark === 'current' && worktreeBound) || row.mark === 'inUse' || row.mark === 'external' || row.retained;
   // The check marks the selection: the current branch, until the worktree is chosen.
   const selected = row.mark === 'current' && !intent;
-  const label = rowLabel(row, hasWorktree, selected);
+  const owner = useSessionTitle(row.sessionId ?? '', t('Worktree'));
+  // A row with nothing else to say shows how long ago its tip was committed.
+  const label = rowLabel(row, hasWorktree, owner) || (row.committedAt !== undefined ? branchAge(row.committedAt) : '');
   // Shared and external rows move this session too; only the current row is a no-op.
   const switches = !(row.mark === 'current' && !intent);
   return (
@@ -1050,16 +1285,21 @@ function BranchMenuRow({
       data-mark={row.mark || undefined}
       data-pending={pending || undefined}
       aria-disabled={row.disabled || busy || (locked && switches) || undefined}
+      title={
+        row.mark === 'external' && row.path
+          ? t('Checked out in a worktree Mixdog does not manage: {{path}}', { path: row.path })
+          : undefined
+      }
       onClick={() => onPick(row)}
     >
       {pending ? (
         <ProgressSpinner size={14} aria-hidden="true" />
       ) : hasWorktree ? (
-        <GitFork size={14} aria-hidden="true" />
+        <FolderGit2 size={14} aria-hidden="true" />
       ) : (
         <GitBranch size={14} aria-hidden="true" />
       )}
-      <span>{row.name}</span>
+      <BranchName name={row.name} query={query} />
       {label && <small>{label}</small>}
       {selected && <Check size={14} className="branch-menu-check" role="img" aria-label={t('Current')} />}
     </button>

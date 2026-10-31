@@ -219,16 +219,66 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
 .branch-menu-item[data-mark="external"] {
   opacity: var(--mx-op-disabled);
 }
+/* Groups are told apart by spacing and this small muted label, never rules. */
 .branch-menu-label {
   height: 22px;
   display: flex;
   align-items: center;
-  margin: 4px 0 0;
+  margin: 6px 0 0;
   padding: 0 10px;
-  border-top: 1px solid var(--mx-border-muted);
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
+}
+/* "Other branches: N": the header of the folded group is its toggle. */
+.branch-menu-group-toggle {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.branch-menu-group-toggle:hover,
+.branch-menu-group-toggle:focus-visible {
+  outline: 0;
+  color: var(--mx-text);
+}
+.branch-menu-group-toggle > svg {
+  flex: none;
+}
+/* The popup's footer: New branch · New worktree, then the quiet Clean up
+   pushed to the right; short labels keep them on one line at 280px, and
+   longer translations wrap to a second line instead of cutting a label. */
+.branch-menu-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+.branch-menu-actions > .branch-menu-item {
+  width: auto;
+  min-width: 0;
+  flex: 0 0 auto;
+  gap: 6px;
+  padding-inline: 8px;
+}
+:is(.branch-menu-actions, .branch-menu-foot) > [data-kind="prune"] {
+  margin-left: auto;
+}
+/* The current branch: the first row, pressed; its icon stays monochrome. */
+.branch-menu-item[data-mark="current"] {
+  background: var(--mx-pressed);
+}
+.branch-menu-match {
+  color: var(--mx-accent);
+  background: transparent;
 }
 .branch-menu-empty {
   margin: 0;
@@ -279,7 +329,7 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
   margin-left: 0;
 }
 /* The composer island's branch tab (BranchIslandPanel): the same body in the
-   island's panel grammar — compact 40px rows on hairline rules, the list
+   island's panel grammar — compact 40px rows grouped by spacing, the list
    capped like the island's other tab lists, New branch or a worktree
    session's actions (View changes · Merge · Remove) in the footer. */
 .branch-menu-body {
@@ -321,22 +371,20 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
 .branch-menu-body .branch-row-shell:hover > .branch-menu-item:not([aria-disabled="true"]) {
   background: var(--composer-island-wash);
 }
-.branch-menu-body .branch-menu-item + .branch-menu-item,
-.branch-menu-body .branch-row-shell + .branch-row-shell {
-  border-top: var(--mx-hairline) solid var(--composer-island-rule);
-}
 .branch-menu-body .branch-menu-item:hover:not([aria-disabled="true"]),
 .branch-menu-body .branch-menu-item:focus-visible,
-.branch-menu-body .branch-menu-item[data-selected] {
+.branch-menu-body .branch-menu-item[data-selected],
+.branch-menu-body .branch-menu-item[data-mark="current"],
+.branch-menu-foot > .composer-island-button[data-selected] {
   background: var(--composer-island-wash);
 }
 .branch-menu-body .branch-menu-label {
   height: auto;
-  margin-top: 6px;
+  margin-top: 8px;
   padding: 6px 6px 2px;
-  border-top-color: var(--composer-island-rule);
 }
 .branch-menu-foot {
+  flex-wrap: wrap;
   justify-content: flex-start;
   margin-top: 4px;
   padding-top: 10px;
