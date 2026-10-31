@@ -18,7 +18,7 @@ export const SESSION_RETENTION_INTERVAL_MS = 15 * 60 * 1000;
 export const SESSION_RETENTION_START_DELAY_MS = 10 * 60 * 1000;
 /** The computer counts as idle after this long without input anywhere. */
 export const SESSION_RETENTION_MIN_IDLE_SECONDS = 15 * 60;
-/** Archives plus deletes in one pass. */
+/** Candidates examined (each may cost a catalog refresh and worktree check) in one pass. */
 export const SESSION_RETENTION_PASS_CAP = 50;
 /** A session waiting on the user stays out of the archive this long. */
 const AWAITING_USER_GRACE_MS = DAY_MS;
@@ -287,6 +287,25 @@ function lastUsedAtOf(sessionId: string, view: RetentionView): number {
   return Number(row?.lastUsedAt) || 0;
 }
 
+class StoppedError extends Error {
+  constructor() {
+    super('Auto-retention stopped.');
+  }
+}
+
+/** `work`'s result, or a StoppedError as soon as `signal` aborts: a slow read
+ *  (Git, the daemon) is abandoned rather than waited for. Its late result is
+ *  dropped; reads only, so it can change nothing. */
+function unlessStopped<T>(work: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return work;
+  return new Promise<T>((resolve, reject) => {
+    const stop = () => reject(new StoppedError());
+    work.then(resolve, reject).finally(() => signal.removeEventListener('abort', stop));
+    if (signal.aborted) stop();
+    else signal.addEventListener('abort', stop, { once: true });
+  });
+}
+
 /** Act on one planned session. The slow reads (policy, record, a fresh
  *  catalog listing and job scan, a delete's worktree check) run OUTSIDE the
  *  session's lifecycle lock, so a turn start or any other lifecycle action
@@ -300,24 +319,30 @@ async function actOnSession(
   host: SessionRetentionHost,
   sessionId: string,
   action: SessionRetentionAction,
-  clock: () => number
+  clock: () => number,
+  signal?: AbortSignal
 ): Promise<SessionOutcome> {
   const version = host.lifecycleVersion(sessionId);
-  const policy = await host.readPolicy();
+  const policy = await unlessStopped(host.readPolicy(), signal);
   if (!policy) return 'skipped';
-  const record = await host.state.load();
-  const fresh = await host.freshView(sessionId);
+  const record = await unlessStopped(host.state.load(), signal);
+  const fresh = await unlessStopped(host.freshView(sessionId), signal);
   if (!fresh) return 'skipped';
   if (sessionRetentionVerdict(sessionId, { ...fresh, now: clock(), policy, record }) !== action) return 'skipped';
   // As the fresh read left it: a refresh during the worktree check counts as a change.
   const resident = host.residentToken(sessionId);
   if (action === 'delete') {
-    const holding = await host.worktreeWork([sessionId]);
+    const holding = await unlessStopped(host.worktreeWork([sessionId]), signal);
     if (holding.includes(sessionId)) return 'kept-worktree';
   }
   const expected = { lastUsedAt: lastUsedAtOf(sessionId, fresh) };
-  return host.withSessionLock(sessionId, async () => {
+  let entered = false;
+  const locked = host.withSessionLock(sessionId, async (): Promise<SessionOutcome> => {
+    entered = true;
+    // Once stopped, nothing new is mutated; an archive or delete already
+    // under way below finishes as its own operation guarantees.
     const unchanged =
+      signal?.aborted !== true &&
       !host.contended(sessionId) &&
       host.lifecycleVersion(sessionId) === version &&
       host.residentToken(sessionId) === resident &&
@@ -333,38 +358,95 @@ async function actOnSession(
     }
     return (await host.deleteIfIdle(sessionId, expected)).deleted ? 'deleted' : 'skipped';
   });
+  // A stop while still queued for the lock abandons the wait: the task finds
+  // the signal aborted when its turn comes and mutates nothing. Once inside,
+  // the archive or delete is awaited to its end.
+  if (!signal) return locked;
+  return new Promise<SessionOutcome>((resolve, reject) => {
+    const abandon = () => {
+      if (!entered) reject(new StoppedError());
+    };
+    if (signal.aborted) abandon();
+    signal.addEventListener('abort', abandon, { once: true });
+    locked.then(resolve, reject).finally(() => signal.removeEventListener('abort', abandon));
+  });
 }
 
-/** One pass: at most SESSION_RETENTION_PASS_CAP sessions, archives first
- *  (they can be undone), each confirmed under its lifecycle lock right
- *  before it is acted on. Null when the policy is invalid or turned off. */
+/** What a running pass answers to besides the host. */
+export interface SessionRetentionControl {
+  /** Aborts when the schedule stops: the pass starts no further session,
+   *  abandons its slow reads, and finishes only an archive or delete already
+   *  under way. */
+  signal?: AbortSignal;
+  /** Asked before each session; false (the user is back) ends the pass. */
+  stillIdle?(): Promise<boolean>;
+  /** The candidates still to examine in the current sweep, kept across
+   *  passes. A sweep covers the candidates that existed when it began; when
+   *  none are left the next pass begins a new one over the then-current
+   *  candidates, so a newcomer waits for the next sweep and no session
+   *  already examined is put off past the end of this one. */
+  pending?: Set<string>;
+}
+
+/** One pass: examines at most SESSION_RETENTION_PASS_CAP candidates, archives
+ *  first (they can be undone), each confirmed under its lifecycle lock right
+ *  before it is acted on. A candidate kept or skipped is not examined again
+ *  until the sweep's others have had their turn (`control.pending`), so protected
+ *  sessions never starve newer ones and the work per pass stays bounded.
+ *  Null when the policy is invalid or turned off, or the pass was stopped
+ *  before the plan. */
 export async function runSessionRetentionPass(
   host: SessionRetentionHost,
-  clock: () => number = Date.now
+  clock: () => number = Date.now,
+  control: SessionRetentionControl = {}
 ): Promise<SessionRetentionReport | null> {
-  const policy = await host.readPolicy();
+  try {
+    return await runPass(host, clock, control);
+  } catch (error) {
+    if (error instanceof StoppedError || control.signal?.aborted) return null;
+    throw error;
+  }
+}
+
+async function runPass(
+  host: SessionRetentionHost,
+  clock: () => number,
+  { signal, stillIdle, pending = new Set<string>() }: SessionRetentionControl
+): Promise<SessionRetentionReport | null> {
+  const policy = await unlessStopped(host.readPolicy(), signal);
   if (!policy || (!policy.sessionAutoArchiveDays && !policy.sessionAutoDeleteDays)) return null;
-  const record = await host.state.load();
-  const view = await host.view();
+  const record = await unlessStopped(host.state.load(), signal);
+  const view = await unlessStopped(host.view(), signal);
   const plan = planSessionRetention({ ...view, now: clock(), policy, record });
-  const queue: Array<[string, SessionRetentionAction]> = [
+  const candidates: Array<[string, SessionRetentionAction]> = [
     ...plan.archive.map((id): [string, SessionRetentionAction] => [id, 'archive']),
     ...plan.delete.map((id): [string, SessionRetentionAction] => [id, 'delete']),
-  ].slice(0, SESSION_RETENTION_PASS_CAP);
+  ];
+  const due = new Set(candidates.map(([id]) => id));
+  for (const id of pending) if (!due.has(id)) pending.delete(id);
+  if (!pending.size) for (const id of due) pending.add(id);
+  const queue = candidates.filter(([id]) => pending.has(id)).slice(0, SESSION_RETENTION_PASS_CAP);
   const report: SessionRetentionReport = { archived: [], deleted: [], keptForWorktree: [], skipped: [] };
   const failures: string[] = [];
   for (const [id, action] of queue) {
+    if (signal?.aborted) break;
+    if (stillIdle && !(await unlessStopped(stillIdle(), signal).catch(() => false))) break;
     let outcome: SessionOutcome;
     try {
-      outcome = await actOnSession(host, id, action, clock);
+      outcome = await actOnSession(host, id, action, clock, signal);
     } catch (error) {
+      if (error instanceof StoppedError) break;
+      pending.delete(id);
       failures.push(`${action} ${id}: ${error instanceof Error ? error.message : String(error)}`);
       continue;
     }
+    pending.delete(id);
     if (outcome === 'archived') report.archived.push(id);
     else if (outcome === 'deleted') report.deleted.push(id);
-    else if (outcome === 'kept-worktree') report.keptForWorktree.push(id);
-    else report.skipped.push(id);
+    else {
+      if (outcome === 'kept-worktree') report.keptForWorktree.push(id);
+      else report.skipped.push(id);
+    }
   }
   if (report.archived.length || report.deleted.length || report.keptForWorktree.length) {
     host.log(
@@ -440,7 +522,8 @@ export function sessionRetentionHostFor(
 }
 
 export interface SessionRetentionScheduleOptions {
-  run(): Promise<unknown>;
+  /** One pass, under the schedule's stop signal, idle check and sweep state. */
+  run(control: SessionRetentionControl): Promise<unknown>;
   /** Seconds since the last input anywhere on the computer; null when unknown. */
   idleSeconds(): Promise<number | null>;
   clock?: () => number;
@@ -470,33 +553,50 @@ export function sessionRetentionTickAllowed({
 }
 
 /** A pass every SESSION_RETENTION_INTERVAL_MS when the tick allows it.
- *  Returns the stop. Exposes `tick` for tests. */
+ *  Returns the stop, which ends the schedule and resolves once the tick in
+ *  flight (if any) has settled: it starts no pass after the idle read, and a
+ *  pass under way is aborted between sessions. Exposes `tick` for tests. */
 export function startSessionRetentionSchedule(options: SessionRetentionScheduleOptions): {
-  stop(): void;
+  stop(): Promise<void>;
   tick(): Promise<boolean>;
 } {
   const clock = options.clock ?? Date.now;
   const startedAt = clock();
-  let running = false;
-  const tick = async (): Promise<boolean> => {
-    if (running) return false;
-    running = true;
+  const stopped = new AbortController();
+  let inFlight: Promise<boolean> | null = null;
+  const pending = new Set<string>();
+  const stillIdle = async (): Promise<boolean> => {
+    const seconds = await options.idleSeconds().catch(() => null);
+    return seconds !== null && seconds >= SESSION_RETENTION_MIN_IDLE_SECONDS;
+  };
+  const attempt = async (): Promise<boolean> => {
     try {
       const idleSeconds = await options.idleSeconds().catch(() => null);
+      if (stopped.signal.aborted) return false;
       if (!sessionRetentionTickAllowed({ now: clock(), startedAt, running: false, idleSeconds })) return false;
-      await options.run();
+      await options.run({ signal: stopped.signal, stillIdle, pending });
       return true;
     } catch (error) {
       console.warn('[mixdog-session] auto-retention pass failed:', error);
       return false;
-    } finally {
-      running = false;
     }
+  };
+  const tick = (): Promise<boolean> => {
+    if (inFlight || stopped.signal.aborted) return Promise.resolve(false);
+    const current = attempt().finally(() => {
+      inFlight = null;
+    });
+    inFlight = current;
+    return current;
   };
   const timer = (options.setInterval ?? setInterval)(() => void tick(), SESSION_RETENTION_INTERVAL_MS);
   (timer as { unref?: () => void }).unref?.();
   return {
-    stop: () => (options.clearInterval ?? clearInterval)(timer),
+    stop: async () => {
+      stopped.abort();
+      (options.clearInterval ?? clearInterval)(timer);
+      await inFlight;
+    },
     tick,
   };
 }
