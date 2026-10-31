@@ -20,7 +20,6 @@ Se añadieron los ajustes de Worktrees y la limpieza de ramas, se reemplazaron l
 - **Gestos para imágenes en móviles** — Se añadieron gestos de pellizcar, desplazar y doble toque para ampliar imágenes en el chat y Visualize en teléfonos (#275).
 - **Uso de llamadas Fast** — Se añadió una fila de desglose de uso para llamadas Fast de un modelo, con tablas responsivas adaptadas a pantallas de teléfonos (#288).
 - **Automatización del ciclo de sesiones** — Se añadió el archivado automático de sesiones inactivas tras 7 días y su eliminación tras 90 días durante periodos de inactividad.
-- **Agrupación de worktrees en la barra lateral** — Se añadió la agrupación de sesiones de worktree bajo su carpeta de proyecto principal en la barra lateral.
 - **Pausa de notificaciones con PC en uso** — Se añadió la pausa de notificaciones push en el teléfono mientras se está utilizando activamente este PC.
 
 ### Cambios

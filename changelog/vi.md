@@ -19,7 +19,6 @@ Thêm phần cài đặt Worktree và dọn dẹp nhánh, thay thế tác vụ G
 - **Thao tác chạm cho ảnh trên điện thoại** — Thêm thao tác chụm ngón tay, vuốt và chạm hai lần để thu phóng ảnh trong trò chuyện và Visualize trên điện thoại (#275).
 - **Mức sử dụng lượt gọi Fast** — Thêm dòng thống kê riêng cho các lượt gọi Fast của mô hình, với bảng sử dụng căn chỉnh phù hợp màn hình điện thoại (#288).
 - **Tự động hóa vòng đời phiên** — Tự động lưu trữ các phiên không hoạt động sau 7 ngày và xóa sau 90 ngày trong thời gian rảnh.
-- **Nhóm worktree trên thanh bên** — Gom nhóm các phiên worktree bên dưới thư mục dự án cha trên thanh bên.
 - **Tạm dừng thông báo khi đang dùng máy tính** — Tạm dừng gửi thông báo đẩy đến điện thoại khi bạn đang chủ động dùng máy tính này.
 
 ### Thay đổi
