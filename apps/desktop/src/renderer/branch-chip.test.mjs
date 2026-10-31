@@ -1639,3 +1639,11 @@ test('a New Task first send carries its worktree choice; a large repository conf
     );
   }
 });
+
+test('a search hit is highlighted on the matching characters even when lowercasing changes the length', async () => {
+  const { branchMatch } = await import('./worktree-branch-model.ts');
+  // 'İ' lowercases to two code units, which shifted the old offsets by one.
+  assert.deepEqual(branchMatch('İ-feature', 'feature'), [2, 9]);
+  assert.deepEqual(branchMatch('Fix/Login', 'login'), [4, 9]);
+  assert.equal(branchMatch('main', 'dev'), null);
+});
