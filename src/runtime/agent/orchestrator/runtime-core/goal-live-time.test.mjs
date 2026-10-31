@@ -226,6 +226,69 @@ test('an awake stall past the heartbeat tolerance still expires a Goal over its 
   assert.equal(goal.timeUsedMs, 30 * MINUTE);
 });
 
+test('a faked Date clock with no monotonic source counts its jumps, where suspend detection is on', async (t) => {
+  // Fake timers move Date.now but not performance.now; a test that fakes Date
+  // opts out of the monotonic pair with `monotonicNow: null`.
+  mock.timers.enable({ apis: ['Date', 'setTimeout'], now: 2_000_000_000_000 });
+  t.after(() => mock.timers.reset());
+  const dataDir = dataDirFor(t);
+  const runtime = createGoalRuntime({
+    dataDir,
+    monotonicNow: null,
+    suspendDetectable: true,
+    deadlineWarningMs: [],
+    generateTitle: null,
+  });
+  t.after(() => runtime.close());
+  await runtime.control(SESSION, { action: 'create', objective: 'Fake clock', duration: '30m' });
+  mock.timers.tick(31 * MINUTE);
+  assert.equal(runtime.snapshot(SESSION).status, 'duration_reached');
+});
+
+test('a transparent Date.now wrapper does not disable real suspend detection', async (t) => {
+  // Provenance is not decided by Date.now's identity: a wrapper that only
+  // forwards the real clock (here shifted like a sleeping PC) still detects.
+  const realNow = Date.now.bind(Date);
+  let shift = 0;
+  t.mock.method(Date, 'now', () => realNow() + shift);
+  const dataDir = dataDirFor(t);
+  const runtime = createGoalRuntime({ dataDir, suspendDetectable: true, deadlineWarningMs: [], generateTitle: null });
+  t.after(() => runtime.close());
+  await runtime.control(SESSION, { action: 'create', objective: 'Wrapped clock', duration: '30m' });
+  shift = 6 * HOUR;
+  const goal = runtime.snapshot(SESSION);
+  assert.equal(goal.status, 'active');
+  assert.ok(goal.timeUsedMs <= MINUTE, `charged ${goal.timeUsedMs}`);
+});
+
+test('a missing monotonic reading retires the anchor, so a later valid one cannot discard counted time', async (t) => {
+  mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  t.after(() => mock.timers.reset());
+  const dataDir = dataDirFor(t);
+  let clock = 1_800_000_000_000;
+  const mono = 0;
+  let reading = true;
+  const runtime = createGoalRuntime({
+    dataDir,
+    now: () => clock,
+    monotonicNow: () => (reading ? mono : null),
+    suspendDetectable: true,
+    deadlineWarningMs: [],
+    generateTitle: null,
+  });
+  t.after(() => runtime.close());
+  await runtime.control(SESSION, { action: 'create', objective: 'Gap in readings', duration: '2h' });
+  // Twenty minutes pass with no monotonic reading: they are counted.
+  reading = false;
+  clock += 20 * MINUTE;
+  assert.equal(runtime.snapshot(SESSION).timeUsedMs, 20 * MINUTE);
+  // The reading returns while the monotonic clock never moved. Against the old
+  // anchor that gap looks like a suspend and would erase the counted 20 minutes.
+  reading = true;
+  clock += MINUTE;
+  assert.equal(runtime.snapshot(SESSION).timeUsedMs, 21 * MINUTE);
+});
+
 test('without suspend evidence (no usable monotonic clock) the time is counted', async (t) => {
   const dataDir = dataDirFor(t);
   let clock = 1_800_000_000_000;
