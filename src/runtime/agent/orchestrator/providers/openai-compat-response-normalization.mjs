@@ -234,12 +234,10 @@ export function normalizeCompatChatResponse({
     model: response.model || useModel,
     toolCalls,
     stopReason,
-    // P1 audit fix: a text-only completion that hit finish_reason=
-    // 'length' (no tool calls, so not thrown above as
-    // ProviderIncompleteError) previously returned as an ordinary
-    // success with no signal that the content is a mid-sentence
-    // cutoff. Flag it so loop.mjs can surface a one-line warning
-    // instead of silently treating a truncated answer as complete.
+    // A text-only completion that hit finish_reason='length' (no tool
+    // calls, so not thrown above as ProviderIncompleteError) is flagged so
+    // loop.mjs can surface a one-line warning instead of silently treating
+    // a mid-sentence cutoff as complete.
     ...(stopReason === 'length' && (assembled.content || '').length > 0 ? { truncated: true } : {}),
     ...(reasoningContent !== null ? { reasoningContent } : {}),
     ...(Object.keys(providerMetadata).length ? { providerMetadata } : {}),

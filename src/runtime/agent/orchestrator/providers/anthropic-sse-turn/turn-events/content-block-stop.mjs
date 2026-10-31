@@ -7,9 +7,9 @@
 import { makeInvalidToolArgsMarker } from '../../lib/openai-tool-args.mjs';
 import { OAUTH_STREAM_LABELS } from '../../lib/anthropic-stream-labels.mjs';
 
-// Bare JSON.parse used to throw straight up into the surrounding broad catch,
-// which swallowed the whole tool_call — the loop never saw it and the
-// assistant turn ended with an unmatched tool_use id. A malformed input still
+// A bare JSON.parse would throw into the surrounding broad catch, which
+// swallows the whole tool_call — the loop never sees it and the assistant
+// turn ends with an unmatched tool_use id. A malformed input still
 // produces a tool_call (with an invalid-args marker and a logged error)
 // instead of a silent drop or accidental `{}` dispatch. Tool arguments must
 // be a plain object: Anthropic's tool_use input is always a JSON object, but
