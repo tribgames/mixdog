@@ -42,6 +42,7 @@ const { clearBranchMenuCache } = await import('./branch-menu.tsx');
 const model = await import('./worktree-branch-model.ts');
 const { initUiLanguage, setUiLanguagePreference } = await import('./i18n.ts');
 const { SourceControlBranchPicker } = await import('./source-control-branch-picker.tsx');
+const { publishSessionGlances } = await import('./session-glance-store.ts');
 
 const branch = (name, current = false) => ({ name, current, remote: false, upstream: '' });
 const workspace = (over = {}) => ({
@@ -81,7 +82,7 @@ const draftMenu = () =>
   });
 const rect = (top = 600) => ({ x: 300, y: top, left: 300, right: 460, top, bottom: top + 28, width: 160, height: 28 });
 
-async function mount(t, props = {}, { keepCache = false, gate = null } = {}) {
+async function mount(t, props = {}, { keepCache = false, gate = null, handlers: initial = {} } = {}) {
   calls.length = 0;
   handlers = gate
     ? {
@@ -89,8 +90,9 @@ async function mount(t, props = {}, { keepCache = false, gate = null } = {}) {
           await gate.promise;
           return menuReply;
         },
+        ...initial,
       }
-    : {};
+    : { ...initial };
   if (!keepCache) clearBranchMenuCache();
   menuReply ??= menuFor();
   const host = document.createElement('main');
@@ -120,6 +122,7 @@ const openMenu = async (trigger) => {
   return document.querySelector('.branch-menu');
 };
 const items = (menu) => [...menu.querySelectorAll('.branch-menu-item')];
+const worktreeButton = (menu) => menu.querySelector('[data-kind="worktree"]');
 const settle = () => act(async () => {});
 const typeBranchName = async (input, value) => {
   await act(async () => {
@@ -274,7 +277,7 @@ test('branch name dialog blocks duplicate requests and preserves failed names fo
   assert.equal(document.querySelector('.branch-name-dialog'), null);
 });
 
-test('menu structure: search, worktree, branch section, separator, new branch', async (t) => {
+test('menu structure: search, grouped branches, a footer with New branch · New worktree · Clean up', async (t) => {
   setUiLanguagePreference('en');
   await initUiLanguage();
   menuReply = menuFor();
@@ -286,18 +289,23 @@ test('menu structure: search, worktree, branch section, separator, new branch', 
   assert.ok(menu.querySelector('input[type="search"]').closest('.schedules-search'));
   const list = menu.querySelector('.branch-menu-list');
   assert.equal(list.querySelectorAll('.branch-row-more').length, 4, 'every branch exposes its own actions');
-  const [worktree, ...rest] = items(list);
-  assert.equal(worktree.querySelector('span').textContent, 'Worktree');
-  assert.equal(worktree.querySelector('small').textContent, 'New branch · separate folder');
-  assert.equal(list.querySelector('h3').textContent, 'Branch');
+  const rows = items(list);
+  assert.equal(list.querySelector('[data-kind="worktree"]'), null, 'no "Worktree" row in the list');
+  assert.equal(list.querySelector('h3').textContent, 'Current branch');
+  assert.equal(rows[0].dataset.mark, 'current', 'the current branch is the first row');
   assert.deepEqual(
-    rest.map((row) => [row.querySelector('span').textContent, row.querySelector('small')?.textContent ?? '']),
+    rows.map((row) => [row.querySelector('span').textContent, row.querySelector('small')?.textContent ?? '']),
     [
-      ['main', ''],
+      ['main', 'Current'],
       ['feat/ssh-remote', 'Worktree'],
       ['next-patch', ''],
-      ['ext-branch', 'Worktree'],
+      ['ext-branch', '/elsewhere/ext'],
     ]
+  );
+  assert.deepEqual(
+    [...list.querySelectorAll('h3')].map((label) => label.textContent),
+    ['Current branch', 'Worktrees', 'Other branches', 'Other worktrees'],
+    'without commit times nothing folds away'
   );
   assert.deepEqual(
     [...list.querySelectorAll('.branch-menu-check')].map((check) => check.closest('[data-branch]')?.dataset.branch),
@@ -307,7 +315,20 @@ test('menu structure: search, worktree, branch section, separator, new branch', 
   for (const shell of list.querySelectorAll('.branch-row-shell')) {
     assert.ok(shell.querySelector(':scope > .branch-row-more'), 'the … trigger sits inside the row');
   }
-  assert.equal(menu.lastElementChild.querySelector('span').textContent, 'New branch');
+  assert.deepEqual(
+    [...menu.lastElementChild.querySelectorAll('button')].map((button) => [button.dataset.kind, button.textContent]),
+    [
+      ['create', 'New branch'],
+      ['worktree', 'New worktree'],
+      ['prune', 'Clean up'],
+    ],
+    'the footer holds New branch, New worktree and Clean up, outside the list'
+  );
+  assert.equal(worktreeButton(menu).title, 'New branch · separate folder');
+  const folderIcon = 'svg[class*="lucide-folder-git"]';
+  assert.ok(worktreeButton(menu).querySelector(folderIcon));
+  assert.ok(list.querySelector(`[data-branch="feat/ssh-remote"] ${folderIcon}`), 'worktree rows show a folder');
+  assert.equal(list.querySelector('[data-kind="prune"]'), null);
   // No merge / return entries live in this menu.
   assert.equal(menu.textContent.includes('Merge'), false);
 });
@@ -354,7 +375,7 @@ test('a remounted chip shows the cached menu at once; the fresh list updates the
   });
   gate.resolve();
   await settle();
-  assert.deepEqual(names(), ['main', 'aaa-new', 'feat/ssh-remote', 'next-patch', 'ext-branch']);
+  assert.deepEqual(names(), ['main', 'feat/ssh-remote', 'aaa-new', 'next-patch', 'ext-branch']);
   assert.equal(menu.querySelector('[data-branch="next-patch"]'), row, 'the row element is kept');
   assert.equal(document.activeElement, row, 'focus stays on the row');
 });
@@ -394,17 +415,17 @@ test('chip states: current branch, worktree intent in a draft, worktree-bound se
   );
   assert.equal(draft.trigger.querySelector('.branch-chip-label').textContent, 'main');
   let menu = await openMenu(draft.trigger);
-  await act(async () => items(menu)[0].click());
+  assert.equal(worktreeButton(menu).getAttribute('aria-pressed'), 'false');
+  await act(async () => worktreeButton(menu).click());
   assert.equal(document.querySelector('.branch-menu'), null);
   assert.equal(draft.trigger.querySelector('.branch-chip-label').textContent, 'Worktree');
   assert.ok(draft.trigger.querySelector('.branch-chip-fork'));
   assert.equal(model.getWorktreeIntent('d1'), true);
   menu = await openMenu(draft.trigger);
-  const selected = items(menu)[0];
-  assert.equal(selected.querySelector('small').textContent, 'New branch · separate folder');
+  const selected = worktreeButton(menu);
   assert.equal(selected.hasAttribute('data-selected'), true);
-  assert.ok(selected.querySelector('.branch-menu-check'), 'only the selected worktree row shows the check');
-  assert.equal(menu.querySelectorAll('.branch-menu-check').length, 1);
+  assert.equal(selected.getAttribute('aria-pressed'), 'true', 'the chosen New worktree stays pressed');
+  assert.equal(menu.querySelectorAll('.branch-menu-check').length, 0);
   assert.equal(menu.querySelector('[data-branch="main"] small').textContent, 'Current');
   assert.equal(menu.querySelector('[data-branch="main"] .branch-menu-check'), null, 'the check moved to the worktree');
   assert.equal(menu.querySelector('[data-branch="main"]').hasAttribute('data-selected'), false);
@@ -428,11 +449,11 @@ test('chip states: current branch, worktree intent in a draft, worktree-bound se
   const boundMenu = await openMenu(bound.trigger);
   assert.deepEqual(
     items(boundMenu.querySelector('.branch-menu-list')).map((row) => row.querySelector('small')?.textContent ?? ''),
-    ['New branch · separate folder', '', 'Project folder']
+    ['Current', 'Project folder']
   );
 });
 
-test('occupancy: shared and external worktrees move this session instead of opening another session', async (t) => {
+test('occupancy: shared worktrees move this session; an unmanaged worktree branch is shown, not pickable', async (t) => {
   menuReply = menuFor();
   const { trigger, opened } = await mount(t);
   handlers.selectBranch = (request) => ({
@@ -440,27 +461,164 @@ test('occupancy: shared and external worktrees move this session instead of open
     workspace: workspace({ branch: request.args[0].branch, revision: 4 }),
   });
   let menu = await openMenu(trigger);
-  const [, , used, free, external] = items(menu);
+  const [, used, free, external] = items(menu);
   assert.equal(used.getAttribute('data-tooltip'), null);
-  assert.notEqual(external.getAttribute('aria-disabled'), 'true');
-  assert.equal(external.getAttribute('data-tooltip'), null);
+  // Its pick would be refused (WORKTREE_BRANCH_OCCUPIED): disabled, with where it is checked out.
+  assert.equal(external.dataset.branch, 'ext-branch');
+  assert.equal(external.getAttribute('aria-disabled'), 'true');
+  assert.equal(external.title, 'Checked out in a worktree Mixdog does not manage: /elsewhere/ext');
   calls.length = 0;
   await act(async () => external.click());
-  assert.equal(calls.filter((call) => call.capability === 'selectBranch').length, 1);
-  menu = await openMenu(trigger);
-  await act(async () => items(menu)[2].click());
+  assert.equal(calls.filter((call) => call.capability === 'selectBranch').length, 0);
+  await act(async () => items(menu)[1].click());
   assert.deepEqual(opened, []);
-  assert.equal(calls.filter((call) => call.capability === 'selectBranch').length, 2);
+  assert.equal(calls.filter((call) => call.capability === 'selectBranch').length, 1);
   assert.equal(document.querySelector('.branch-menu'), null);
   menu = await openMenu(trigger);
   calls.length = 0;
   handlers.selectBranch = () => ({ revision: 4, workspace: workspace({ branch: 'next-patch', revision: 4 }) });
-  await act(async () => items(menu)[3].click());
+  await act(async () => items(menu)[2].click());
   assert.deepEqual(
     calls.filter((call) => call.capability === 'selectBranch'),
     [{ capability: 'selectBranch', args: [{ branch: 'next-patch', expectedRevision: 3 }], sessionId: 's1' }]
   );
   assert.ok(free);
+});
+
+test('"Clean up worktrees" runs the manual prune, reports it and reads the menu again', async (t) => {
+  setUiLanguagePreference('en');
+  await initUiLanguage();
+  menuReply = menuFor();
+  const { trigger } = await mount(t);
+  handlers.pruneWorktrees = () => ({ removed: ['old'], pruned: ['/gone'], kept: [] });
+  const menu = await openMenu(trigger);
+  calls.length = 0;
+  await act(async () => menu.querySelector('[data-kind="prune"]').click());
+  await settle();
+  assert.deepEqual(
+    calls.map((call) => call.capability).filter((capability) => capability !== 'previewWorktreeCleanup'),
+    ['pruneWorktrees', 'getBranchMenu']
+  );
+  // The click cleans only the repository the preview covered.
+  assert.deepEqual(calls[0], {
+    capability: 'pruneWorktrees',
+    args: [{ repoCommonDir: '/p/.git' }],
+    sessionId: 's1',
+  });
+  assert.equal(document.querySelector('.branch-menu-notice').textContent, 'Worktrees cleaned up: 2');
+  handlers.pruneWorktrees = () => ({ removed: [], pruned: [], kept: [{ id: 'dirty', reason: 'dirty' }] });
+  await act(async () => document.querySelector('[data-kind="prune"]').click());
+  await settle();
+  assert.equal(document.querySelector('.branch-menu-notice').textContent, 'Nothing to clean up.');
+});
+
+test('"Clean up worktrees" is disabled with a tooltip only when the preview finds nothing to clean', async (t) => {
+  setUiLanguagePreference('en');
+  await initUiLanguage();
+  menuReply = menuFor();
+  const { trigger } = await mount(t, {}, { handlers: { previewWorktreeCleanup: () => ({ hasCandidates: false }) } });
+  await openMenu(trigger);
+  await settle();
+  const button = document.querySelector('[data-kind="prune"]');
+  assert.equal(button.getAttribute('aria-disabled'), 'true');
+  assert.equal(button.title, 'Nothing to clean up.');
+  const preview = calls.find((call) => call.capability === 'previewWorktreeCleanup');
+  assert.deepEqual(preview.args, [{ repoCommonDir: menuReply.workspace.repoCommonDir }]);
+  calls.length = 0;
+  await act(async () => button.click());
+  assert.equal(calls.filter((call) => call.capability === 'pruneWorktrees').length, 0);
+});
+
+test('"Clean up worktrees" is usable while a refreshed preview is pending, and a late older answer is ignored', async (t) => {
+  setUiLanguagePreference('en');
+  await initUiLanguage();
+  menuReply = menuFor();
+  const { trigger } = await mount(t, {}, { handlers: { previewWorktreeCleanup: () => ({ hasCandidates: false }) } });
+  await openMenu(trigger);
+  await settle();
+  assert.equal(document.querySelector('[data-kind="prune"]').getAttribute('aria-disabled'), 'true');
+  let release;
+  const pending = new Promise((resolve) => {
+    release = resolve;
+  });
+  handlers.previewWorktreeCleanup = () => pending;
+  // A new menu read (new object) starts a new preview.
+  menuReply = menuFor({ occupancy: [{ branch: 'main', kind: 'current' }] });
+  handlers.getBranchMenu = () => menuReply;
+  await act(async () => document.querySelector('.branch-menu input[type="search"]').focus());
+  await act(async () => trigger.click());
+  await act(async () => trigger.click());
+  await settle();
+  assert.ok(
+    calls.filter((call) => call.capability === 'previewWorktreeCleanup').length >= 2,
+    'a refresh was requested'
+  );
+  assert.equal(document.querySelector('[data-kind="prune"]').getAttribute('aria-disabled'), null, 'unknown: usable');
+  await act(async () => release({ hasCandidates: false }));
+  assert.equal(document.querySelector('[data-kind="prune"]').getAttribute('aria-disabled'), 'true');
+});
+
+test('nothingToCleanUp disables only on an explicit "no candidates" answer', () => {
+  assert.equal(model.nothingToCleanUp({ hasCandidates: false }), true);
+  for (const unknown of [{ hasCandidates: true }, {}, null, undefined, 'x']) {
+    assert.equal(model.nothingToCleanUp(unknown), false);
+  }
+});
+
+test('"Clean up worktrees" stays usable while the preview is unknown or reports candidates', async (t) => {
+  menuReply = menuFor();
+  const { trigger } = await mount(t, {}, { handlers: { previewWorktreeCleanup: () => ({ hasCandidates: true }) } });
+  await openMenu(trigger);
+  await settle();
+  assert.equal(document.querySelector('[data-kind="prune"]').getAttribute('aria-disabled'), null);
+});
+
+test('"Clean up worktrees" stays available without unmanaged worktrees and while a search hides every branch', async (t) => {
+  setUiLanguagePreference('en');
+  await initUiLanguage();
+  // Only this session's and another session's managed worktrees: no external row.
+  menuReply = menuFor({
+    branches: [branch('main', true), branch('feat/ssh-remote'), branch('next-patch')],
+    occupancy: [
+      { branch: 'main', kind: 'current' },
+      { branch: 'feat/ssh-remote', kind: 'session', sessionId: 'other-session' },
+      { branch: 'next-patch', kind: 'free' },
+    ],
+  });
+  const { trigger } = await mount(t);
+  const menu = await openMenu(trigger);
+  assert.equal(menu.querySelector('[data-mark="external"]'), null);
+  assert.ok(menu.querySelector('[data-kind="prune"]'), 'offered with managed worktrees only');
+  await act(async () => {
+    const input = menu.querySelector('input[type="search"]');
+    Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, 'no-such-branch');
+    input.dispatchEvent(new window.Event('input', { bubbles: true }));
+  });
+  assert.equal(menu.querySelectorAll('[data-branch]').length, 0);
+  assert.equal(
+    menu.querySelector('.branch-menu-list [data-kind="create-from-search"]').textContent,
+    'Create branch "no-such-branch"',
+    'no branch matches: the list offers to create it'
+  );
+  assert.equal(menu.querySelector('.branch-menu-empty'), null);
+  handlers.pruneWorktrees = () => ({ removed: ['old'], pruned: [] });
+  calls.length = 0;
+  await act(async () => menu.querySelector('[data-kind="prune"]').click());
+  await settle();
+  // The click cleans only the repository the preview covered.
+  assert.deepEqual(calls[0], {
+    capability: 'pruneWorktrees',
+    args: [{ repoCommonDir: '/p/.git' }],
+    sessionId: 's1',
+  });
+});
+
+test('"Clean up worktrees" is not offered outside a git repository', async (t) => {
+  menuReply = menuFor({ workspace: workspace({ repoCommonDir: null }) });
+  const { trigger } = await mount(t);
+  const menu = await openMenu(trigger);
+  assert.ok(menu.querySelector('[data-branch="main"]'));
+  assert.equal(menu.querySelector('[data-kind="prune"]'), null);
 });
 
 test('large repository confirms once and resends with confirmLarge', async (t) => {
@@ -485,7 +643,7 @@ test('large repository confirms once and resends with confirmLarge', async (t) =
     return { revision: 4, workspace: bound };
   };
   const menu = await openMenu(trigger);
-  await act(async () => items(menu)[0].click());
+  await act(async () => worktreeButton(menu).click());
   assert.equal(attempts, 2);
   assert.deepEqual(prompts, ['A worktree needs about 3.0 GB. Create it anyway?']);
   const sent = calls.filter((call) => call.capability === 'requestWorktree').map((call) => call.args[0]);
@@ -554,7 +712,7 @@ test('a declined large-repository prompt sends nothing more', async (t) => {
     throw error;
   };
   const menu = await openMenu(trigger);
-  await act(async () => items(menu)[0].click());
+  await act(async () => worktreeButton(menu).click());
   assert.equal(attempts, 1);
   assert.ok(document.querySelector('.branch-menu'));
 });
@@ -583,7 +741,7 @@ test('uncommitted project files ask leave / carry / cancel and resend with carry
   // The choice replaces the menu (nothing of it is drawn over the dialog);
   // Cancel sends nothing more and leaves both closed.
   let menu = await openMenu(trigger);
-  await act(async () => items(menu)[0].click());
+  await act(async () => worktreeButton(menu).click());
   assert.equal(document.querySelector('.branch-menu'), null, 'the menu closes before the dialog opens');
   assert.equal(dialog().querySelector('h3').textContent, 'Uncommitted files in the project folder: 3');
   assert.deepEqual(
@@ -605,7 +763,7 @@ test('uncommitted project files ask leave / carry / cancel and resend with carry
   // Carry: the menu comes back with the refusal as its notice.
   calls.length = 0;
   menu = await openMenu(trigger);
-  await act(async () => items(menu)[0].click());
+  await act(async () => worktreeButton(menu).click());
   await act(async () => choice('carry').click());
   assert.deepEqual(sent(), [
     { expectedRevision: 3, provision: true },
@@ -619,7 +777,7 @@ test('uncommitted project files ask leave / carry / cancel and resend with carry
   // Leave: the worktree is created and the menu stays closed.
   calls.length = 0;
   menu = document.querySelector('.branch-menu');
-  await act(async () => items(menu)[0].click());
+  await act(async () => worktreeButton(menu).click());
   await act(async () => choice('leave').click());
   assert.deepEqual(sent().at(-1), { expectedRevision: 3, provision: true, carryChanges: 'leave' });
   assert.equal(document.querySelector('.branch-menu'), null);
@@ -636,7 +794,7 @@ test('busy jobs and revision conflicts become a notice; a conflict re-reads the 
     throw error;
   };
   let menu = await openMenu(trigger);
-  await act(async () => items(menu)[3].click());
+  await act(async () => items(menu)[2].click());
   menu = document.querySelector('.branch-menu');
   assert.equal(
     menu.querySelector('[role="alert"]').textContent,
@@ -647,7 +805,7 @@ test('busy jobs and revision conflicts become a notice; a conflict re-reads the 
     throw new Error('Error invoking remote method: WORKTREE_REVISION_CONFLICT: stale');
   };
   const before = calls.filter((call) => call.capability === 'getBranchMenu').length;
-  await act(async () => items(menu)[3].click());
+  await act(async () => items(menu)[2].click());
   await settle();
   assert.equal(
     document.querySelector('.branch-menu [role="alert"]').textContent,
@@ -784,17 +942,18 @@ test('Korean copy', async (t) => {
   const { trigger } = await mount(t);
   const menu = await openMenu(trigger);
   const list = menu.querySelector('.branch-menu-list');
-  assert.equal(items(list)[0].querySelector('span').textContent, '워크트리');
-  assert.equal(items(list)[0].querySelector('small').textContent, '새 브랜치 · 별도 폴더');
-  assert.equal(list.querySelector('h3').textContent, '브랜치');
+  assert.equal(list.querySelector('h3').textContent, '현재 브랜치');
   assert.deepEqual(
-    items(list)
-      .slice(1)
-      .map((row) => row.querySelector('small')?.textContent ?? ''),
-    ['', '워크트리', '', '워크트리']
+    items(list).map((row) => row.querySelector('small')?.textContent ?? ''),
+    ['현재', '워크트리', '', '/elsewhere/ext']
   );
   assert.equal(menu.querySelector('input').placeholder, '브랜치 검색');
-  assert.equal(menu.lastElementChild.textContent, '새 브랜치');
+  assert.deepEqual(
+    [...menu.lastElementChild.querySelectorAll('button')].map((button) => button.textContent),
+    ['새 브랜치', '새 워크트리', '정리']
+  );
+  await typeBranchName(menu.querySelector('input'), 'shell');
+  assert.equal(menu.querySelector('[data-kind="create-from-search"]').textContent, '"shell" 브랜치 새로 만들기');
 });
 
 test('source-control picker marks occupied branches and routes the click', async (t) => {
@@ -861,6 +1020,173 @@ test('source-control picker marks occupied branches and routes the click', async
   assert.deepEqual(checkouts, []);
 });
 
+const DAY = 86_400_000;
+const dated = (name, daysAgo, now = Date.now()) => ({
+  ...branch(name),
+  lastCommitAt: new Date(now - daysAgo * DAY).toISOString(),
+});
+
+test('branchRows groups: current, worktrees, recent by commit time, the rest, external worktrees', () => {
+  const now = Date.parse('2026-10-31T12:00:00Z');
+  const menu = menuFor({
+    branches: [
+      { ...dated('main', 40, now), current: true },
+      dated('mine', 50, now),
+      dated('a-recent', 2, now),
+      dated('b-recent', 1, now),
+      dated('old', 30, now),
+      branch('undated'),
+      dated('ext', 0, now),
+      ...Array.from({ length: 11 }, (_, index) => dated(`r${index}`, 3 + index / 10, now)),
+    ],
+    occupancy: [
+      { branch: 'main', kind: 'current' },
+      { branch: 'mine', kind: 'session', sessionId: 's1' },
+      { branch: 'ext', kind: 'external', path: '/x' },
+    ],
+  });
+  const rows = model.branchRows(menu, 's1', '', now);
+  assert.deepEqual(
+    rows.map((row) => [row.name, row.group]),
+    [
+      ['main', 'current'],
+      ['mine', 'worktree'],
+      ['b-recent', 'recent'],
+      ['a-recent', 'recent'],
+      ...Array.from({ length: 8 }, (_, index) => [`r${index}`, 'recent']),
+      ['old', 'other'],
+      ['undated', 'other'],
+      ['r8', 'other'],
+      ['r9', 'other'],
+      ['r10', 'other'],
+      ['ext', 'external'],
+    ],
+    'at most ten recent branches, newest first; the rest keep their order'
+  );
+  // A search keeps each hit in its group: an old branch is never promoted.
+  assert.deepEqual(
+    model
+      .branchRows(menu, 's1', 'r', now)
+      .map((row) => [row.name, row.group])
+      .slice(0, 3),
+    [
+      ['b-recent', 'recent'],
+      ['a-recent', 'recent'],
+      ['r0', 'recent'],
+    ]
+  );
+  assert.deepEqual(
+    model.branchRows(menu, 's1', 'old', now).map((row) => [row.name, row.group]),
+    [['old', 'other']]
+  );
+});
+
+test('older branches fold under "Other branches: N"; search and toggle show them; keys reach it', async (t) => {
+  setUiLanguagePreference('en');
+  await initUiLanguage();
+  menuReply = menuFor({
+    branches: [{ ...dated('main', 1), current: true }, dated('fresh', 2), dated('pr-77', 60), dated('pr-78', 90)],
+    occupancy: [{ branch: 'main', kind: 'current' }],
+  });
+  const { trigger } = await mount(t);
+  const menu = await openMenu(trigger);
+  const list = menu.querySelector('.branch-menu-list');
+  const shown = () => [...list.querySelectorAll('[data-branch]')].map((row) => row.dataset.branch);
+  assert.deepEqual(shown(), ['main', 'fresh']);
+  assert.deepEqual(
+    [...list.querySelectorAll('h3')].map((label) => label.textContent),
+    ['Current branch', 'Recent', 'Other branches: 2']
+  );
+  assert.match(list.querySelector('[data-branch="fresh"] small').textContent, /2 days ago/);
+  const toggle = list.querySelector('.branch-menu-group-toggle');
+  assert.equal(toggle.getAttribute('aria-expanded'), 'false');
+
+  // The arrow keys step from the search over the rows to the toggle.
+  const input = menu.querySelector('input[type="search"]');
+  input.focus();
+  const visited = [];
+  for (let step = 0; step < 6; step++) {
+    await pressBranchKey(document.activeElement, 'ArrowDown');
+    const at = document.activeElement;
+    visited.push(at.dataset.branch ?? at.dataset.kind ?? at.className);
+  }
+  assert.deepEqual(
+    visited,
+    ['main', 'fresh', 'branch-menu-group-toggle', 'create', 'worktree', 'prune'],
+    'search → rows → the group toggle → the footer, in list order'
+  );
+
+  await act(async () => toggle.click());
+  assert.deepEqual(shown(), ['main', 'fresh', 'pr-77', 'pr-78']);
+  assert.equal(list.querySelector('.branch-menu-group-toggle').getAttribute('aria-expanded'), 'true');
+  await act(async () => list.querySelector('.branch-menu-group-toggle').click());
+  assert.deepEqual(shown(), ['main', 'fresh']);
+
+  // A search lists every hit, folded group or not.
+  await typeBranchName(input, 'pr-7');
+  assert.deepEqual(shown(), ['pr-77', 'pr-78']);
+  assert.deepEqual(
+    [...list.querySelectorAll('h3')].map((label) => label.textContent),
+    ['Other branches']
+  );
+});
+
+test('"Clean up worktrees" is a footer button with a cleanup icon', async (t) => {
+  setUiLanguagePreference('en');
+  await initUiLanguage();
+  menuReply = menuFor();
+  const { trigger } = await mount(t);
+  const menu = await openMenu(trigger);
+  const prune = menu.querySelector('[data-kind="prune"]');
+  assert.ok(prune.closest('.branch-menu-actions'), 'in the footer, after New branch and New worktree');
+  assert.equal(prune.previousElementSibling?.dataset.kind, 'worktree');
+  assert.equal(prune.closest('.branch-menu-list'), null);
+  assert.ok(prune.querySelector('svg.lucide-brush-cleaning'), 'a broom, never the close mark');
+  assert.equal(prune.querySelector('svg.lucide-x'), null);
+});
+
+test('worktree rows name their session; a search highlights the hit and offers to create the name', async (t) => {
+  setUiLanguagePreference('en');
+  await initUiLanguage();
+  publishSessionGlances([{ id: 'other-session', title: 'Place dev', preview: '', working: false }]);
+  t.after(() => publishSessionGlances([]));
+  menuReply = menuFor();
+  const { trigger } = await mount(t);
+  const menu = await openMenu(trigger);
+  const label = (name) => menu.querySelector(`[data-branch="${name}"] small`)?.textContent;
+  assert.equal(label('feat/ssh-remote'), 'Place dev', "the owning session's name");
+  assert.equal(label('main'), 'Current');
+  assert.ok(menu.querySelector('[data-branch="main"] .branch-menu-check'), 'the current row keeps its check');
+
+  const input = menu.querySelector('input[type="search"]');
+  await typeBranchName(input, 'SSH');
+  const name = menu.querySelector('[data-branch="feat/ssh-remote"] span');
+  assert.equal(name.textContent, 'feat/ssh-remote');
+  assert.equal(name.querySelector('mark.branch-menu-match').textContent, 'ssh', 'the matched text, case-insensitive');
+  const create = () => menu.querySelector('[data-kind="create-from-search"]');
+  assert.equal(create().textContent, 'Create branch "SSH"');
+  // The arrow keys reach it after the hits, before the footer.
+  input.focus();
+  await pressBranchKey(input, 'ArrowDown');
+  await pressBranchKey(document.activeElement, 'ArrowDown');
+  assert.equal(document.activeElement, create());
+
+  await typeBranchName(input, 'next-patch');
+  assert.equal(create(), null, 'an exact name is picked, not created');
+
+  handlers.selectBranch = (request) => ({
+    revision: 4,
+    workspace: workspace({ branch: request.args[0].branch, revision: 4 }),
+  });
+  await typeBranchName(input, 'feat/new');
+  calls.length = 0;
+  await act(async () => create().click());
+  assert.deepEqual(
+    calls.filter((call) => call.capability === 'selectBranch').map((call) => call.args[0]),
+    [{ branch: 'feat/new', create: true, expectedRevision: 3 }]
+  );
+});
+
 test('branchRows filters by search and ignores remote branches', () => {
   const rows = model.branchRows(
     menuFor({ branches: [branch('main', true), { ...branch('origin/main'), remote: true }, branch('dev')] }),
@@ -881,14 +1207,18 @@ test('a draft defers its branch selection until first send without changing the 
   const menu = await openMenu(trigger);
   const rows = items(menu.querySelector('.branch-menu-list'));
   assert.deepEqual(
-    rows.slice(1).map((row) => row.querySelector('small')?.textContent ?? ''),
-    ['', '', 'Worktree'],
-    'the real occupancy, not a guess from the branch list'
+    rows.map((row) => row.querySelector('small')?.textContent ?? ''),
+    ['Current', 'Worktree', ''],
+    'the real occupancy, not a guess from the branch list (the held branch leads as a worktree)'
+  );
+  assert.deepEqual(
+    rows.map((row) => row.dataset.branch),
+    ['main', 'mixdog/held', 'dev']
   );
   handlers.selectProjectBranch = () => {
     throw new Error("Error invoking remote method 'mixdog:invoke-capability': Error: WORKTREE_DIRTY: dirty");
   };
-  await act(async () => rows[2].click());
+  await act(async () => menu.querySelector('[data-branch="dev"]').click());
   assert.deepEqual(
     calls.filter((call) => call.capability === 'selectProjectBranch'),
     []

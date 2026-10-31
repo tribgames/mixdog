@@ -32,6 +32,7 @@ test('the runtime getBranchMenu response feeds the renderer model: rows, marks a
             { branch: 'feat/ssh-remote', kind: 'session', sessionId: 'other-session', path: '/wt/ssh' },
             { branch: 'ext-branch', kind: 'external', path: '/elsewhere' },
           ],
+          committedAt: { dev: new Date(Date.now() - 86_400_000).toISOString() },
           retainedWorktree: null,
         };
       },
@@ -40,13 +41,14 @@ test('the runtime getBranchMenu response feeds the renderer model: rows, marks a
   const menu = await api.getBranchMenu();
   menu.workspace.branch = 'main';
   assert.deepEqual(
-    model.branchRows(menu, 'lead-1', '').map((row) => [row.name, row.mark]),
+    model.branchRows(menu, 'lead-1', '').map((row) => [row.name, row.mark, row.group]),
     [
-      ['main', 'current'],
-      ['dev', ''],
-      ['feat/ssh-remote', 'inUse'],
-      ['ext-branch', 'external'],
-    ]
+      ['main', 'current', 'current'],
+      ['feat/ssh-remote', 'inUse', 'worktree'],
+      ['dev', '', 'recent'],
+      ['ext-branch', 'external', 'external'],
+    ],
+    'the commit time reaches the renderer: dev, committed yesterday, is recent'
   );
   assert.deepEqual(
     model.branchRows(menu, 'lead-1', 'SSH').map((row) => row.name),

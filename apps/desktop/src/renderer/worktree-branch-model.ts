@@ -16,7 +16,7 @@ import { DESKTOP_WORKTREE_ERROR_CODES } from '../shared/contract';
 import { splitErrorTrailer } from '../shared/error-trailer';
 import { anchoredPanelGeometry, anchoredPanelStyle, paneBounds, rectFrom } from './anchored-panel';
 import { confirmAction } from './app-confirm';
-import { t } from './i18n';
+import { t, uiFormatLocale } from './i18n';
 
 export interface WorktreeFailure {
   code: DesktopWorktreeErrorCode | null;
@@ -48,7 +48,7 @@ export function worktreeFailure(error: unknown): WorktreeFailure {
   return { code, message, details };
 }
 
-function formatByteSize(bytes: number): string {
+export function formatByteSize(bytes: number): string {
   if (!(bytes > 0)) return '';
   const units = ['B', 'KB', 'MB', 'GB', 'TB'];
   let value = bytes;
@@ -294,16 +294,36 @@ export type BranchMark = 'current' | 'inUse' | 'external' | 'project' | '';
 export interface BranchRow {
   name: string;
   mark: BranchMark;
-  /** Owning session when another Mixdog session holds the branch. */
+  /** The session whose managed worktree holds the branch (this one's for a
+   *  retained worktree). */
   sessionId?: string;
   /** Where an external worktree holds the branch. */
   path?: string;
   /** This Lead's own retained worktree branch: picking it reuses the worktree. */
   retained: boolean;
   disabled: boolean;
+  /** The tip's commit time (ms), when the menu carries it. */
+  committedAt?: number;
+  group: BranchGroup;
 }
 
-export function branchRows(menu: DesktopBranchMenu, ownSessionId: string, query: string): BranchRow[] {
+/** The list's groups, in order: the session's (and the project folder's)
+ *  branch, branches held by managed worktrees, recently committed branches,
+ *  the rest, and branches held by worktrees Mixdog does not manage. */
+export type BranchGroup = 'current' | 'worktree' | 'recent' | 'other' | 'external';
+
+/** A branch is recent when its tip was committed within this window; at most
+ *  RECENT_BRANCH_LIMIT of them, newest first. */
+export const RECENT_BRANCH_DAYS = 14;
+export const RECENT_BRANCH_LIMIT = 10;
+const GROUP_ORDER: BranchGroup[] = ['current', 'worktree', 'recent', 'other', 'external'];
+
+export function branchRows(
+  menu: DesktopBranchMenu,
+  ownSessionId: string,
+  query: string,
+  now = Date.now()
+): BranchRow[] {
   const needle = query.trim().toLocaleLowerCase();
   const occupancy = new Map<string, DesktopBranchOccupancy>(menu.occupancy.map((row) => [row.branch, row]));
   const seen = new Set<string>();
@@ -311,25 +331,97 @@ export function branchRows(menu: DesktopBranchMenu, ownSessionId: string, query:
   for (const branch of menu.branches as DesktopGitBranch[]) {
     if (branch.remote || seen.has(branch.name)) continue;
     seen.add(branch.name);
-    if (needle && !branch.name.toLocaleLowerCase().includes(needle)) continue;
     const held = occupancy.get(branch.name);
-    const row: BranchRow = { name: branch.name, mark: '', retained: false, disabled: false };
+    const committedAt = branch.lastCommitAt ? Date.parse(branch.lastCommitAt) : Number.NaN;
+    const row: BranchRow = { name: branch.name, mark: '', retained: false, disabled: false, group: 'other' };
+    if (Number.isFinite(committedAt)) row.committedAt = committedAt;
     if (branch.name === menu.workspace.branch) row.mark = 'current';
     else if (held?.kind === 'current' && menu.workspace.worktreeId) row.mark = 'project';
     else if (held?.kind === 'session' && held.sessionId && held.sessionId !== ownSessionId) {
       row.mark = 'inUse';
       row.sessionId = held.sessionId;
-    } else if (held?.kind === 'session') row.retained = true;
-    else if (held?.kind === 'external') {
+    } else if (held?.kind === 'session') {
+      row.retained = true;
+      if (held.sessionId) row.sessionId = held.sessionId;
+    } else if (held?.kind === 'external') {
+      // Checked out in a worktree Mixdog does not manage: a pick is refused
+      // (the branch is occupied), so the row only shows where it is.
       row.mark = 'external';
       row.path = held.path;
+      row.disabled = true;
     }
+    if (row.mark === 'current' || row.mark === 'project') row.group = 'current';
+    else if (row.mark === 'external') row.group = 'external';
+    else if (held?.kind === 'session') row.group = 'worktree';
     rows.push(row);
   }
-  // The session's own branch leads; the rest keep their order.
-  const current = rows.findIndex((row) => row.mark === 'current');
-  if (current > 0) rows.unshift(...rows.splice(current, 1));
-  return rows;
+  // Recent is decided over the whole list, so a search never promotes an old
+  // branch into it.
+  const since = now - RECENT_BRANCH_DAYS * 86_400_000;
+  rows
+    .filter((row) => row.group === 'other' && row.committedAt !== undefined && row.committedAt >= since)
+    .sort((a, b) => (b.committedAt ?? 0) - (a.committedAt ?? 0))
+    .slice(0, RECENT_BRANCH_LIMIT)
+    .forEach((row) => {
+      row.group = 'recent';
+    });
+  const recentFirst = (a: BranchRow, b: BranchRow) =>
+    a.group === 'recent' ? (b.committedAt ?? 0) - (a.committedAt ?? 0) : 0;
+  // The session's branch leads its group; the rest keep the runtime's order.
+  const currentFirst = (a: BranchRow, b: BranchRow) => Number(b.mark === 'current') - Number(a.mark === 'current');
+  return rows
+    .filter((row) => !needle || row.name.toLocaleLowerCase().includes(needle))
+    .sort(
+      (a, b) => GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group) || currentFirst(a, b) || recentFirst(a, b)
+    );
+}
+
+/** Where the search hits a branch name: [start, end) of the first
+ *  case-insensitive match, or null. */
+export function branchMatch(name: string, query: string): [number, number] | null {
+  const needle = query.trim().toLocaleLowerCase();
+  const start = needle ? name.toLocaleLowerCase().indexOf(needle) : -1;
+  return start < 0 ? null : [start, start + needle.length];
+}
+
+/** The searched name, when no branch is called exactly that: the list then
+ *  offers to create it. */
+export function searchedNewBranch(rows: BranchRow[], query: string): string {
+  const name = query.trim();
+  return name && !rows.some((row) => row.name === name) ? name : '';
+}
+
+const AGE_UNITS: [Intl.RelativeTimeFormatUnit, number][] = [
+  ['year', 365 * 86_400_000],
+  ['month', 30 * 86_400_000],
+  ['week', 7 * 86_400_000],
+  ['day', 86_400_000],
+  ['hour', 3_600_000],
+  ['minute', 60_000],
+];
+
+/** A branch row's short, localized commit age ("3 days ago", "2 mo. ago"). */
+export function branchAge(at: number, now = Date.now()): string {
+  const elapsed = Math.max(0, now - at);
+  const format = new Intl.RelativeTimeFormat(uiFormatLocale(), { numeric: 'auto', style: 'short' });
+  for (const [unit, size] of AGE_UNITS) {
+    if (elapsed >= size) return format.format(-Math.floor(elapsed / size), unit);
+  }
+  return format.format(0, 'minute');
+}
+
+/** The summary of a manual prune (pruneWorktrees' reconcile report). */
+export function pruneReportText(report: unknown): string {
+  const value = (report && typeof report === 'object' ? report : {}) as { removed?: unknown; pruned?: unknown };
+  const total =
+    (Array.isArray(value.removed) ? value.removed.length : 0) + (Array.isArray(value.pruned) ? value.pruned.length : 0);
+  return total ? t('Worktrees cleaned up: {{total}}', { total }) : t('Nothing to clean up.');
+}
+
+/** Whether "Clean up" has nothing to act on: only a read that says so
+ *  (previewWorktreeCleanup → `hasCandidates: false`); unknown or failed stays usable. */
+export function nothingToCleanUp(preview: unknown): boolean {
+  return (preview as { hasCandidates?: unknown } | null | undefined)?.hasCandidates === false;
 }
 
 export type BranchChipState =
