@@ -3,6 +3,7 @@ import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { sanitizeToolPairs } from '../session/context-utils.mjs';
 import { noteRequestServiceTier } from '../../../shared/llm/usage-context.mjs';
 import { buildGeminiRequest } from './gemini-request-body.mjs';
+import { geminiDocumentedThinkingLevels } from './gemini-thinking.mjs';
 import { geminiEndsWithFunctionResponse, runGeminiStreamAttempts } from './gemini-retry-policy.mjs';
 import { consumeGeminiRestStreamResponse } from './gemini-stream.mjs';
 import { geminiTextLeakGuardFor } from './gemini-sdk-request.mjs';
@@ -551,7 +552,15 @@ export class VertexAIProvider {
   async listModels() {
     return VERTEX_MODELS.map((model) => {
       const tierOption = vertexTierOption(model.id);
-      return { ...model, provider: this.name, ...(tierOption ? { modelParameterOptions: [tierOption] } : {}) };
+      // The picker offers effort only from a declared ladder; these models'
+      // levels are documented rather than listed by a catalog.
+      const levels = geminiDocumentedThinkingLevels(model.id);
+      return {
+        ...model,
+        provider: this.name,
+        ...(levels ? { supportsReasoning: true, reasoningOptions: [{ type: 'effort', values: levels }] } : {}),
+        ...(tierOption ? { modelParameterOptions: [tierOption] } : {}),
+      };
     });
   }
 

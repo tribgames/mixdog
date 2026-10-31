@@ -52,7 +52,7 @@ function budgetSpec(model) {
 
 // Levels documented for models whose ladder differs from the generic wire
 // vocabulary (a catalog ladder, when declared, still takes precedence).
-function documentedThinkingLevels(model) {
+export function geminiDocumentedThinkingLevels(model) {
   const bare = String(model || '')
     .replace(/^models\//i, '')
     .toLowerCase();
@@ -105,7 +105,7 @@ export function geminiThinkingConfig(model, opts = {}, { includeThoughts, provid
     }
     config.thinkingBudget = spec.efforts[level];
   } else if (level) {
-    const supported = catalogThinkingLevels(model, provider) ?? documentedThinkingLevels(model) ?? LEVELS;
+    const supported = catalogThinkingLevels(model, provider) ?? geminiDocumentedThinkingLevels(model) ?? LEVELS;
     if (!supported.includes(level)) {
       throw new TypeError(`${model} supports thinking levels ${supported.join(', ')}; received ${level}.`);
     }

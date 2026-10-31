@@ -4,6 +4,8 @@ import test, { mock } from 'node:test';
 
 import { VertexAccessTokenManager, VERTEX_SCOPE, VERTEX_TOKEN_URI } from './vertex-ai-auth.mjs';
 import { VertexAIProvider } from './vertex-ai.mjs';
+import { providerModelCacheRow } from '../../../../session-runtime/model-recency.mjs';
+import { hydrateProviderModelRow } from '../../../../session-runtime/provider-models/row-hydration.mjs';
 
 function serviceAccount(overrides = {}) {
   const { privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -344,6 +346,38 @@ test('Vertex Gemini 4 Argon routes as a Google publisher model with a documented
   const thinking = JSON.parse(requests[0].init.body).generationConfig?.thinkingConfig;
   assert.equal(thinking?.thinkingLevel, 'high');
   assert.equal(Object.hasOwn(thinking || {}, 'thinkingBudget'), false);
+});
+
+test('Vertex Gemini 4 Argon and 3.8 Flash offer Low, Medium and High and send the chosen level (#292)', async () => {
+  const { provider, requests } = recordingProvider({ location: 'global' }, () => geminiSse());
+  const models = await provider.listModels();
+  for (const id of ['gemini-4-argon', 'gemini-3.8-flash']) {
+    const row = hydrateProviderModelRow(
+      {},
+      providerModelCacheRow(
+        'vertex-ai',
+        models.find((model) => model.id === id),
+        () => false
+      )
+    );
+    assert.deepEqual(
+      row.effortOptions.map((option) => option.value),
+      ['low', 'medium', 'high'],
+      id
+    );
+    for (const effort of ['low', 'medium', 'high']) {
+      await provider.send([{ role: 'user', content: 'hi' }], id, [], { effort });
+      assert.equal(JSON.parse(requests.at(-1).init.body).generationConfig?.thinkingConfig?.thinkingLevel, effort);
+    }
+  }
+  // Models without documented levels keep their catalog-driven options.
+  assert.equal(
+    Object.hasOwn(
+      models.find((model) => model.id === 'gemini-3.7-flash'),
+      'reasoningOptions'
+    ),
+    false
+  );
 });
 
 test('Vertex Gemini usage is cache-exclusive like the Claude route', async () => {
