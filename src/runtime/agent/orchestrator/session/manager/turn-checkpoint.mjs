@@ -9,11 +9,13 @@ import {
   openJournalForTurn,
   readTurnCheckpointHeader,
   readTurnCheckpointHeaderState,
+  removeOrphanTurnJournal,
   removeTurnJournal,
   replayTurnJournal,
   settleTurnJournalWrites,
   turnCheckpointPath,
   turnCheckpointReadPath,
+  withCheckpointOpenLock,
   writeCheckpointHeader,
 } from './turn-checkpoint-journal.mjs';
 import { captureTurnCheckpointContextState, restoreTurnCheckpointContextState } from './turn-checkpoint-context.mjs';
@@ -185,6 +187,7 @@ export function createTurnCheckpointRecorder({
   // turn's current state with the value replaced, so no recovery record
   // keeps it.
   let openedVersion = 0;
+  let headerPending = false;
   let headerWrites = 0;
   // Frame: the header holds turnOutgoing[offset..] (offset 0 when
   // self-contained); `pinned` are the messages before the turn's own region,
@@ -222,30 +225,107 @@ export function createTurnCheckpointRecorder({
     if (typeof captureContext === 'function') contextState = captureContext(offset);
     headerWrites += 1;
     const seed = encoder.seed(source, interruption, contextState, { offset, snapshot, epoch: headerWrites });
-    writeCheckpointHeader({
-      sessionId,
-      generation,
-      turnToken,
-      startedAt,
-      currentUserContent,
-      base: base ? { epoch: base.epoch, length: base.refs.length } : null,
-      boundary: offset,
-      transcriptEpoch,
-      ...(fullTranscript ? { fullTranscript: true } : {}),
-      ...(sealed ? { sealed: true } : {}),
-      journalEpoch: headerWrites,
-      turnMessages: seed.turnMessages,
-      interruption: snapshot,
-      contextState: seed.contextState,
+    // Header publish and journal open are one step under the session's
+    // checkpoint lock, so the orphan-journal sweep of another process never
+    // deletes the journal between them (turn-checkpoint-journal.mjs).
+    withCheckpointOpenLock(sessionId, () => {
+      writeCheckpointHeader({
+        sessionId,
+        generation,
+        turnToken,
+        startedAt,
+        currentUserContent,
+        base: base ? { epoch: base.epoch, length: base.refs.length } : null,
+        boundary: offset,
+        transcriptEpoch,
+        ...(fullTranscript ? { fullTranscript: true } : {}),
+        ...(sealed ? { sealed: true } : {}),
+        journalEpoch: headerWrites,
+        turnMessages: seed.turnMessages,
+        interruption: snapshot,
+        contextState: seed.contextState,
+      });
+      // Opening the journal is part of the anchor: a leftover journal (an
+      // earlier turn's, or this turn's under its previous header) must never
+      // replay onto the new header. It lands synchronously when the lane is
+      // idle and is otherwise FENCED behind the older in-flight write; the
+      // head record's token and journal epoch guard the interim window.
+      openJournalForTurn(sessionId, seed.openLines);
     });
-    // Opening the journal is part of the anchor: a leftover journal (an
-    // earlier turn's, or this turn's under its previous header) must never
-    // replay onto the new header. It lands synchronously when the lane is
-    // idle and is otherwise FENCED behind the older in-flight write; the
-    // head record's token and journal epoch guard the interim window.
-    openJournalForTurn(sessionId, seed.openLines);
     trackOpening(source);
     return true;
+  };
+  const report = (text) => {
+    try {
+      process.stderr.write(`[turn-checkpoint] session=${sessionId}: ${text}\n`);
+    } catch {
+      // stderr may be closed; the removal is already done
+    }
+  };
+  // The journal removal is owed until it is confirmed (`journalOwed`): the
+  // recorder writes nothing meanwhile, and every flush (and stop) tries again.
+  let journalOwed = false;
+  let journalRemoving = false;
+  let redactionFailure = '';
+  const removeOwedJournal = () => {
+    if (journalRemoving) return;
+    journalRemoving = true;
+    removeTurnJournal(sessionId).then((gone) => {
+      journalRemoving = false;
+      if (gone) journalOwed = false;
+      report(
+        gone
+          ? `removed the checkpoint: a value marked sensitive could not be redacted in it (${redactionFailure})`
+          : 'the checkpoint journal still holds a value marked sensitive and could not be removed; trying again on the next flush'
+      );
+    });
+  };
+  // The rewrite that would redact a newly marked value failed: remove the
+  // checkpoint rather than leave the plaintext (losing recovery data is the
+  // lesser harm). Once header and journal are both gone the next flush opens a
+  // fresh, redacted one. When the header cannot be removed the recorder stops,
+  // so nothing more is appended to the files.
+  const failClosed = (cause) => {
+    redactionFailure = cause?.message || String(cause);
+    let removed = false;
+    try {
+      removed = clearTurnCheckpoint(sessionId, turnToken);
+    } catch {
+      // reported below with the stop
+    }
+    if (removed) {
+      opened = false;
+      headerPending = false;
+      journalOwed = true;
+      removeOwedJournal();
+    } else {
+      stopped = true;
+      cancelJournalWrites(sessionId);
+      report(
+        `a value marked sensitive could not be redacted in the checkpoint (${redactionFailure}); could not remove it, no longer recording`
+      );
+    }
+    return false;
+  };
+  // Persistence state advances only once the header is written: a write that
+  // fails (a transient EPERM) leaves the header pending, so the next flush
+  // writes it again instead of appending journal deltas under a header that
+  // never landed (recovery reads no journal without one).
+  const commitHeader = (header, version) => {
+    headerPending = true;
+    let written;
+    try {
+      written = writeHeader(header);
+    } catch (error) {
+      // The files on disk hold the turn from before a value was marked
+      // sensitive and could not be replaced: they must not outlive this call.
+      if (opened && version !== openedVersion) return failClosed(error);
+      throw error;
+    }
+    headerPending = false;
+    openedVersion = version;
+    opened = true;
+    return written;
   };
   return {
     get opened() {
@@ -266,6 +346,10 @@ export function createTurnCheckpointRecorder({
       sealed = false,
     }) {
       if (stopped || !sessionId || !turnToken) return false;
+      if (journalOwed) {
+        removeOwedJournal();
+        return false;
+      }
       const source = Array.isArray(turnOutgoing) ? turnOutgoing : [];
       const version = sensitiveValuesVersion(sessionId);
       const header = { source, currentUserContent, interruption, captureContext, sealed };
@@ -282,9 +366,7 @@ export function createTurnCheckpointRecorder({
         }
         pinned = source.slice(0, at);
         openingIndex = at < source.length ? at : -1;
-        openedVersion = version;
-        opened = true;
-        return writeHeader(header);
+        return commitHeader(header, version);
       }
       if (!pinnedIntact(source)) {
         // A history rewrite. The turn's own opening message, found by
@@ -296,13 +378,9 @@ export function createTurnCheckpointRecorder({
         adoptEpoch(mintTranscriptEpoch());
         pinned = source.slice(0, at >= 0 ? at : source.length);
         openingIndex = at;
-        openedVersion = version;
-        return writeHeader(header);
+        return commitHeader(header, version);
       }
-      if (version !== openedVersion) {
-        openedVersion = version;
-        return writeHeader(header);
-      }
+      if (headerPending || version !== openedVersion) return commitHeader(header, version);
       if (contextDirty && typeof captureContext === 'function') contextState = captureContext(offset);
       const lines = encoder.encode({ turnOutgoing: source, interruption, contextState, sealed });
       trackOpening(source);
@@ -314,6 +392,7 @@ export function createTurnCheckpointRecorder({
     stop({ keepQueued = false } = {}) {
       if (stopped) return;
       stopped = true;
+      if (journalOwed) removeOwedJournal();
       // Retire queued (not yet written) appends. The durable prefix stays on
       // disk on purpose: until a save covering the turn lands a crash must
       // still recover the turn's work, not just its opening header.
@@ -385,6 +464,9 @@ export function recoverTurnCheckpoint(session, durableRecord = undefined) {
   const checkpoint = readTurnCheckpoint(session.id);
   const marker = session.activeTurnCheckpoint;
   if (!checkpoint) {
+    // A journal left without its header (a removal that failed, or a restart
+    // that cut it short) can never be recovered: delete it.
+    removeOrphanTurnJournal(session.id);
     if (!marker) return { changed: false, recovered: false, turnToken: null };
     delete session.activeTurnCheckpoint;
     return { changed: true, recovered: false, turnToken: null };
