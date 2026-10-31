@@ -33,7 +33,7 @@ import type {
   DesktopCapabilityRequest,
   DesktopCapabilityResult,
 } from './contract-capabilities';
-import type { DesktopSettingKey, DesktopSettings } from './contract-settings';
+import type { DesktopSettingKey, DesktopSettings, SessionRetentionSettingKey } from './contract-settings';
 import type {
   DesktopPetAppLayout,
   DesktopPetComposer,
@@ -939,6 +939,8 @@ export interface DesktopApi {
   updateSetting(key: DesktopSettingKey, enabled: boolean): Promise<DesktopSettings>;
   /** Desktop-only: notification sound volume in percent. */
   setNotificationVolume?(volume: number): Promise<DesktopSettings>;
+  /** Settings → General → Sessions: auto-archive / auto-delete days (0 = never). */
+  setSessionRetention?(key: SessionRetentionSettingKey, days: number): Promise<DesktopSettings>;
   /** Desktop-only: play the notification sound at the saved volume. */
   previewNotificationSound?(): Promise<string>;
   /** A desktop setting or the global Git identity was written (here or on the host). */

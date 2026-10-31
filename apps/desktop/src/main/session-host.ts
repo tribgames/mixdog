@@ -66,6 +66,11 @@ import {
 import { DesktopProjectRegistry } from './desktop-project-registry';
 import { resolveManagedWorktree, type ManagedWorktreeScope } from './managed-worktree-path';
 import { DesktopSessionMetadata } from './desktop-session-metadata';
+import {
+  createSessionRetentionState,
+  type SessionRetentionInput,
+  type SessionRetentionState,
+} from './session-auto-retention';
 import { SessionViewRegistry } from './session-view-registry';
 import { NewTaskRequests } from './new-task-requests';
 import { createShellJobsPoller } from './shell-jobs-poller';
@@ -124,6 +129,8 @@ export class SessionHost implements DesktopService {
   private readonly pendingCatalogSessionIds = new Set<string>();
   private readonly projects: DesktopProjectRegistry;
   private readonly sessionMetadata: DesktopSessionMetadata;
+  /** Settings → General → Sessions: the auto-retention pass's record. */
+  readonly sessionRetention: SessionRetentionState;
   private readonly shellJobsPoller: ReturnType<typeof createShellJobsPoller>;
   private readonly taskWorkspacePath: string;
   /** `taskWorkspacePath` as the file system resolves it; set before the first catalog is read. */
@@ -213,6 +220,7 @@ export class SessionHost implements DesktopService {
       userDataRoot: () => options.userDataPath,
     });
     this.sessionMetadata = new DesktopSessionMetadata(() => options.userDataPath);
+    this.sessionRetention = createSessionRetentionState(join(options.userDataPath, 'session-auto-retention.json'));
     this.newTaskRequests = new NewTaskRequests(options.userDataPath);
     this.lifecycle = this.createLifecycle(options);
     this.agentRooms = this.createAgentRooms(options);
@@ -230,6 +238,7 @@ export class SessionHost implements DesktopService {
       newTaskRequests: this.newTaskRequests,
       pendingCatalogSessionIds: this.pendingCatalogSessionIds,
       sessionMetadata: this.sessionMetadata,
+      sessionRetention: this.sessionRetention,
       transcriptWindows: this.transcriptWindows,
       agentGreetingsPath: join(options.userDataPath, 'agent-greetings.json'),
       isDisposed: () => this.disposed,
@@ -884,6 +893,93 @@ export class SessionHost implements DesktopService {
 
   async setSessionArchived(sessionId: string, archived: boolean): Promise<void> {
     return this.lifecycle.setSessionArchived(sessionId, archived);
+  }
+
+  /** What the auto-retention pass decides on (session-auto-retention.ts):
+   *  the catalog, the raw rows with sub-agents, archive stamps, and live
+   *  checks for on-screen panes and background shell jobs. */
+  async sessionRetentionView(): Promise<
+    Omit<SessionRetentionInput, 'now' | 'policy' | 'record' | 'hasScheduledResume'>
+  > {
+    const sessions = await this.listSessions();
+    return {
+      sessions,
+      storedRows: this.rawSessionRows,
+      archivedAt: { ...(this.sessionMetadata.archived ?? {}) },
+      isVisible: (sessionId) => this.visibleSessionIds.has(sessionId),
+      hasBackgroundJobs: (sessionId) => this.shellJobsPoller.statusFor(sessionId, this.sessionCwd(sessionId)).count > 0,
+    };
+  }
+
+  /** The view again for acting on `sessionId` now: a catalog listing started
+   *  after this call (never one already in flight) and a fresh scan of its
+   *  background shell jobs. Null when either cannot be had. */
+  async freshSessionRetentionView(
+    sessionId: string
+  ): Promise<Omit<SessionRetentionInput, 'now' | 'policy' | 'record' | 'hasScheduledResume'> | null> {
+    const inFlight = this.sessionCatalogPromise;
+    if (inFlight) await inFlight.catch(() => undefined);
+    if (inFlight && this.sessionCatalogPromise === inFlight) return null;
+    const sessions = await this.listSessions();
+    const jobs = await this.shellJobsPoller.freshStatusFor(sessionId, this.sessionCwd(sessionId));
+    if (!jobs) return null;
+    return {
+      sessions,
+      storedRows: this.rawSessionRows,
+      archivedAt: { ...(this.sessionMetadata.archived ?? {}) },
+      isVisible: (id) => this.visibleSessionIds.has(id),
+      // Only `sessionId` was scanned: any other session reads as busy.
+      hasBackgroundJobs: (id) => id !== sessionId || jobs.count > 0,
+    };
+  }
+
+  /** Run `task` holding `sessionId`'s lifecycle lock (archive, restore,
+   *  favorite, delete and turn starts take it too). */
+  withSessionLifecycleLock<T>(sessionId: string, task: () => Promise<T>): Promise<T> {
+    return this.lifecycle.sessionLocks.run(sessionId, task);
+  }
+
+  /** A lifecycle action on `sessionId` is waiting for its lock. */
+  sessionLifecycleContended(sessionId: string): boolean {
+    return this.lifecycle.sessionLocks.contended(sessionId);
+  }
+
+  /** Lifecycle actions on `sessionId` finished so far (archive, restore,
+   *  favorite, delete, turn starts): unchanged means none ran in between. */
+  sessionLifecycleVersion(sessionId: string): number {
+    return this.lifecycle.sessionLocks.version(sessionId);
+  }
+
+  /** The resident state of `sessionId` a retention action depends on, read
+   *  without I/O: its archive and favorite flags and its cached catalog row's
+   *  activity and run state (catalog refreshes move it). */
+  sessionRetentionToken(sessionId: string): string {
+    const row = this.rawSessionRows.find((entry) => String(entry.id || '') === sessionId);
+    return JSON.stringify([
+      this.sessionMetadata.archived?.[sessionId] ?? null,
+      Object.hasOwn(this.sessionMetadata.favorites, sessionId),
+      row
+        ? [row.lastUsedAt, row.updatedAt, row.messageCount, row.working, row.agentWorking, row.awaitingApproval]
+        : null,
+    ]);
+  }
+
+  /** Auto-retention's delete: refused unless the session is still archived,
+   *  idle and unchanged since `expected` (SessionHostLifecycle). */
+  deleteSessionIfIdle(
+    sessionId: string,
+    expected: { lastUsedAt: number }
+  ): Promise<{ deleted: boolean; reason?: string }> {
+    return this.lifecycle.deleteSessionIfIdle(sessionId, expected);
+  }
+
+  /** Of `sessionIds`, the ones owning a worktree with dirty or unmerged work. */
+  async sessionWorktreeWork(sessionIds: string[]): Promise<string[]> {
+    const value = (await this.transport.invokeControl('getSessionWorktreeWork', [{ sessionIds }])) as {
+      sessionIds?: unknown;
+    } | null;
+    if (!Array.isArray(value?.sessionIds)) throw new Error('Worktree work check returned no result.');
+    return value.sessionIds.filter((id): id is string => typeof id === 'string');
   }
 
   async archiveSessionAlone(sessionId: string): Promise<void> {

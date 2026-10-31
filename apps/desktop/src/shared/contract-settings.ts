@@ -72,6 +72,25 @@ export interface DesktopTidyEngineStatus {
 export const NOTIFICATION_VOLUME_DEFAULT = 100;
 export const NOTIFICATION_VOLUME_MAX = 400;
 
+/** Settings → General → Sessions: days without conversation before a session
+ *  is archived, and days archived before it is deleted. 0 is Never. */
+export const SESSION_AUTO_ARCHIVE_DAY_CHOICES = [0, 1, 7, 14, 30, 90] as const;
+export const SESSION_AUTO_DELETE_DAY_CHOICES = [0, 7, 30, 90] as const;
+export const SESSION_AUTO_ARCHIVE_DAYS_DEFAULT = 7;
+export const SESSION_AUTO_DELETE_DAYS_DEFAULT = 90;
+export type SessionRetentionSettingKey = 'sessionAutoArchiveDays' | 'sessionAutoDeleteDays';
+
+export function isSessionRetentionSettingKey(value: unknown): value is SessionRetentionSettingKey {
+  return value === 'sessionAutoArchiveDays' || value === 'sessionAutoDeleteDays';
+}
+
+/** One of the day choices offered for `key`. */
+export function isSessionRetentionDays(key: SessionRetentionSettingKey, value: unknown): value is number {
+  const choices: readonly number[] =
+    key === 'sessionAutoArchiveDays' ? SESSION_AUTO_ARCHIVE_DAY_CHOICES : SESSION_AUTO_DELETE_DAY_CHOICES;
+  return typeof value === 'number' && choices.includes(value);
+}
+
 export type DesktopSettingKey =
   | 'autoClear'
   | 'autoCompact'
@@ -101,6 +120,12 @@ export interface DesktopSettings {
   /** Desktop-only (Windows): notification sound volume in percent,
    *  0..NOTIFICATION_VOLUME_MAX. Default NOTIFICATION_VOLUME_DEFAULT. */
   notificationVolume: number;
+  /** Archive a session after this many days without conversation (0 = never).
+   *  One of SESSION_AUTO_ARCHIVE_DAY_CHOICES; default SESSION_AUTO_ARCHIVE_DAYS_DEFAULT. */
+  sessionAutoArchiveDays: number;
+  /** Delete an archived session this many days after its archive (0 = never).
+   *  One of SESSION_AUTO_DELETE_DAY_CHOICES; default SESSION_AUTO_DELETE_DAYS_DEFAULT. */
+  sessionAutoDeleteDays: number;
   /** Activity-rail usage pin mode, shared by desktop and remote surfaces. */
   usagePinned: boolean;
   /** Pinned rail bars: false = the longest period only (default), true = the

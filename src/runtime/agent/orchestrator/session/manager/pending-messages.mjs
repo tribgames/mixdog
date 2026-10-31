@@ -490,6 +490,14 @@ registerTaskWaitSteeringCheck((sessionId) => {
   return wake;
 });
 
+/** Whether anything waits in this session's queue (memory or takeover-hydrated). */
+export function hasPendingMessages(sessionId) {
+  return (
+    (_sessionPendingMessages.get(sessionId)?.length ?? 0) > 0 ||
+    (_hydratedPendingMessages.get(sessionId)?.length ?? 0) > 0
+  );
+}
+
 // True when this session's queue holds task notifications and nothing else:
 // the mid-chain boundary may then take the whole queue without bypassing the
 // prompt filters that keep queued prompts for the terminal boundary.

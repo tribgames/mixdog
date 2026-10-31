@@ -1795,6 +1795,17 @@ html[data-mixdog-mobile-tabs] .conn-qr-row {
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
 }
+/* Settings › General › Sessions: the irreversible-delete line and the
+   exemptions note under the group card. */
+.mixdog-settings__row-desc.session-retention-warning {
+  color: var(--mx-warning);
+}
+.session-retention-note {
+  margin: 8px 0 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
 .notif-device-pick {
   display: flex;
   flex-wrap: wrap;

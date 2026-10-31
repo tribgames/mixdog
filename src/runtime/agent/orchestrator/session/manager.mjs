@@ -65,7 +65,12 @@ export {
   settlePendingMessageWrites,
   markCompletionEntry,
   COMPLETION_NOTIFICATION_KIND,
+  hasPendingMessages,
 } from './manager/pending-messages.mjs';
+// The per-session ask mutex every turn holds, tried without waiting, and the
+// unsettled-turn check: the idle-only delete (session-delete.mjs) acts under them.
+export { tryAcquireSessionLock, sessionLockContended } from './manager/session-lock.mjs';
+export { hasUnsettledTurn } from './manager/turn-durability.mjs';
 
 // ── Usage-metrics surface — re-exported unchanged so loop.mjs / smoke scripts
 //    keep resolving these through the facade. ────────────────────────────────

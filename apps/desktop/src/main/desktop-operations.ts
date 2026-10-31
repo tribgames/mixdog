@@ -393,6 +393,11 @@ function settingsOperations(settingsStore: DesktopSettingsStore, emit: Emit): Re
     updateSetting: (args) =>
       settingsStore.update(args[0] as Parameters<DesktopSettingsStore['update']>[0], args[1] === true),
     updateNotificationVolume: (args) => settingsStore.updateNotificationVolume(Number(args[0])),
+    updateSessionRetention: (args) =>
+      settingsStore.updateSessionRetention(
+        args[0] as Parameters<DesktopSettingsStore['updateSessionRetention']>[0],
+        args[1] as number
+      ),
     readZoom: () => settingsStore.readZoom(),
     updateZoom: (args) => settingsStore.updateZoom(Number(args[0])),
   };

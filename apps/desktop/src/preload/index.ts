@@ -688,6 +688,7 @@ const api: DesktopApi = {
   readSettings: () => invokeIpc(DESKTOP_IPC.readSettings),
   updateSetting: (key, enabled) => invokeIpc(DESKTOP_IPC.updateSetting, key, enabled),
   setNotificationVolume: (volume) => invokeIpc(DESKTOP_IPC.setNotificationVolume, volume),
+  setSessionRetention: (key, days) => invokeIpc(DESKTOP_IPC.setSessionRetention, key, days),
   previewNotificationSound: () => invokeIpc(DESKTOP_IPC.previewNotificationSound),
   subscribeSettingsChanged: (listener) => subscribeIpc(DESKTOP_IPC.settingsChanged, listener),
   subscribeOrchestrationModeChanged: (listener) => subscribeIpc(DESKTOP_IPC.orchestrationModeChanged, listener),

@@ -4,6 +4,7 @@
 // sessions that carry an active Goal after daemon replacement is wired in from
 // ./goal-recovery.mjs.
 import { createGoalRecovery } from './goal-recovery.mjs';
+import { createSessionTurnGate } from './turn-gate.mjs';
 import {
   attachmentsForIntake,
   materializePromptSubmission,
@@ -54,6 +55,8 @@ export function createSessionTurnCalls(ctx) {
   const { log, readStoredGoal, listStoredActiveGoalSessionIds, hasAgentSession, sessionResult, advanceForCaller } = ctx;
   const { retainUnwatched } = ctx.retention;
   const { entryForSession } = ctx.entries;
+  // One gate per service, shared with the idle-only delete (session-calls.mjs).
+  const turnGate = ctx.turnGate ?? createSessionTurnGate();
 
   /** Publishes the step an action produced and keeps the entry on the retention clock. */
   const settleAction = (entry, reason) => {
@@ -66,16 +69,26 @@ export function createSessionTurnCalls(ctx) {
   // attachment conversion that has not yet become a turn.
   const intakeAborts = new Map();
 
-  async function submitSession({
-    sessionId,
-    prompt,
-    options = {},
-    open: openHints = {},
-    baseRevision = null,
-    signal = null,
-  } = {}) {
-    const id = String(sessionId || '');
+  /** Run `start` as an admitted turn start of `sessionId` (turn-gate.mjs). */
+  async function admitted(sessionId, start) {
+    const leave = turnGate.enter(sessionId);
+    try {
+      return await start();
+    } finally {
+      leave();
+    }
+  }
+
+  async function submitSession(params = {}) {
+    const id = String(params?.sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
+    return admitted(id, () => submitAdmitted(id, params));
+  }
+
+  async function submitAdmitted(
+    id,
+    { prompt, options = {}, open: openHints = {}, baseRevision = null, signal = null } = {}
+  ) {
     const entry = await entryForSession(id, openHints || {});
     const target = entry.runtime.submitAsync;
     if (typeof target !== 'function') throw new TypeError('session runtime must implement submitAsync');
@@ -150,9 +163,12 @@ export function createSessionTurnCalls(ctx) {
   async function materializeSession(sessionId, openHints = {}) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
-    const entry = await entryForSession(id, openHints || {});
-    retainUnwatched(entry, 'daemon session owner');
-    return entry.runtime;
+    // Its callers start work on the runtime (Goal and quota resumes, bots).
+    return admitted(id, async () => {
+      const entry = await entryForSession(id, openHints || {});
+      retainUnwatched(entry, 'daemon session owner');
+      return entry.runtime;
+    });
   }
 
   const recoverActiveGoals = createGoalRecovery({
@@ -196,12 +212,15 @@ export function createSessionTurnCalls(ctx) {
   async function approveSession({ sessionId, approvalId, decision, open: openHints = {}, baseRevision = null } = {}) {
     const id = String(sessionId || '');
     if (!id) throw new TypeError('sessionId is required');
-    const entry = await entryForSession(id, openHints || {});
-    const target = entry.runtime.resolveToolApproval;
-    if (typeof target !== 'function') {
-      throw new TypeError('session action resolveToolApproval is unavailable');
-    }
-    const approved = await target.call(entry.runtime, approvalId, decision);
+    // An answer resumes the turn: an admitted start.
+    const { entry, approved } = await admitted(id, async () => {
+      const hosted = await entryForSession(id, openHints || {});
+      const target = hosted.runtime.resolveToolApproval;
+      if (typeof target !== 'function') {
+        throw new TypeError('session action resolveToolApproval is unavailable');
+      }
+      return { entry: hosted, approved: await target.call(hosted.runtime, approvalId, decision) };
+    });
     const step = settleAction(entry, 'headless session approval');
     return sessionResult(entry, step, baseRevision, { approved: approved === true });
   }

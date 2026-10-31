@@ -38,6 +38,7 @@ export function createLifecycleApi(deps) {
     listSessions: switching.listSessions,
     sessionStoreDir: switching.sessionStoreDir,
     deleteSession: switching.deleteSession,
+    deleteSessionIfIdle: switching.deleteSessionIfIdle,
     switchContext: switching.switchContext,
     newSession: switching.newSession,
     prefetchSession: switching.prefetchSession,

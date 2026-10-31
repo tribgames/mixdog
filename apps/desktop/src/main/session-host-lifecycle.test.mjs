@@ -96,6 +96,26 @@ test('archiving a session archives its sub-agent sessions; restoring it brings b
   assert.deepEqual((await host.sessionSidebarState()).archived, {});
 });
 
+test("archiving or restoring a session hands its tree's ids to the worktree cleanup, and a failure there never fails the archive", async (t) => {
+  const rows = [
+    { id: 'sess_lead', owner: 'user', agent: 'lead', sourceType: 'lead', messageCount: 2, preview: 'lead' },
+    { id: 'sess_w1', owner: 'agent', agent: 'worker', ownerSessionId: 'sess_lead', messageCount: 2, preview: 'w' },
+  ];
+  const { host } = await fixture(t, async () => {}, rows);
+  const forwarded = [];
+  host.transport.invokeControl = async (method, args) => {
+    forwarded.push([method, args]);
+    throw new Error('daemon unavailable');
+  };
+  await host.setSessionArchived('sess_lead', true);
+  await host.setSessionArchived('sess_lead', false);
+  assert.deepEqual(forwarded, [
+    ['setArchivedSessionWorktrees', [{ sessionIds: ['sess_lead', 'sess_w1'], archived: true }]],
+    ['setArchivedSessionWorktrees', [{ sessionIds: ['sess_lead', 'sess_w1'], archived: false }]],
+  ]);
+  assert.deepEqual((await host.sessionSidebarState()).archived, {});
+});
+
 test("sub-agent retention archives exactly its tree's members through the real host, no cascade past them", async (t) => {
   const sub = (id, links, extra = {}) => ({
     id,

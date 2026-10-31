@@ -14,6 +14,7 @@
 import { createSessionActionCalls } from './session-calls/session-action.mjs';
 import { createSessionTurnCalls } from './session-calls/session-turns.mjs';
 import { createSessionViewCalls } from './session-calls/session-views.mjs';
+import { createSessionTurnGate } from './session-calls/turn-gate.mjs';
 
 /**
  * @param {object} deps
@@ -54,7 +55,7 @@ export function createSessionCalls(deps) {
     return step;
   }
 
-  const ctx = { ...deps, sessionResult, responseSessionId, advanceForCaller };
+  const ctx = { ...deps, sessionResult, responseSessionId, advanceForCaller, turnGate: createSessionTurnGate() };
   const actions = createSessionActionCalls(ctx);
   const views = createSessionViewCalls({ ...ctx, runSessionAction: actions.runSessionAction });
   const turns = createSessionTurnCalls(ctx);

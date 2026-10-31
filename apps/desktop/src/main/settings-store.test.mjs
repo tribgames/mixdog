@@ -105,6 +105,8 @@ test('desktop settings read the canonical agent section and desktop defaults', (
     keepAwake: true,
     runInBackground: true,
     notificationVolume: 100,
+    sessionAutoArchiveDays: 7,
+    sessionAutoDeleteDays: 90,
     usagePinned: true,
     usageRailShortLong: false,
     usageAccountsExpanded: false,
@@ -138,6 +140,8 @@ test('desktop settings read the canonical agent section and desktop defaults', (
       keepAwake: false,
       runInBackground: false,
       notificationVolume: 250,
+      sessionAutoArchiveDays: 7,
+      sessionAutoDeleteDays: 90,
       usagePinned: false,
       usageRailShortLong: false,
       usageAccountsExpanded: false,
@@ -178,6 +182,56 @@ test('notification volume stores only a non-default percent and rejects invalid 
   assert.equal(Object.hasOwn(value.desktop, 'notificationVolume'), false);
   await assert.rejects(store.updateNotificationVolume(401), /invalid/);
   await assert.rejects(store.updateNotificationVolume(12.5), /invalid/);
+});
+
+test('session retention defaults to 7-day archive and 90-day delete, stores only other choices, and an invalid value disables the pass', async () => {
+  let value = { desktop: {} };
+  const store = new DesktopSettingsStore({
+    loadConfig: async () => ({
+      readConfig: () => value,
+      updateConfigAsync: async (updater) => {
+        value = updater(value);
+        return value;
+      },
+    }),
+  });
+  assert.deepEqual(await store.readSessionRetention(), { sessionAutoArchiveDays: 7, sessionAutoDeleteDays: 90 });
+  assert.equal((await store.updateSessionRetention('sessionAutoArchiveDays', 0)).sessionAutoArchiveDays, 0);
+  assert.equal((await store.updateSessionRetention('sessionAutoDeleteDays', 0)).sessionAutoDeleteDays, 0);
+  assert.deepEqual(value.desktop, { sessionAutoArchiveDays: 0, sessionAutoDeleteDays: 0 });
+  await store.updateSessionRetention('sessionAutoArchiveDays', 7);
+  await store.updateSessionRetention('sessionAutoDeleteDays', 90);
+  assert.deepEqual(value.desktop, {});
+  await assert.rejects(store.updateSessionRetention('sessionAutoArchiveDays', 3), /invalid/);
+  await assert.rejects(store.updateSessionRetention('sessionAutoDeleteDays', 1), /invalid/);
+  await assert.rejects(store.updateSessionRetention('keepAwake', 7), /invalid/);
+  // A hand-edited value outside the choices: the page shows the default, the pass does nothing.
+  value = { desktop: { sessionAutoDeleteDays: 5 } };
+  assert.equal((await store.read()).sessionAutoDeleteDays, 90);
+  assert.equal(await store.readSessionRetention(), null);
+});
+
+test('the session retention IPC validates and forwards to the store', async () => {
+  const handlers = new Map();
+  const saved = [];
+  registerWindowSettingsIpc({
+    window: { webContents: { setZoomFactor() {}, send() {} }, setTitleBarOverlay() {} },
+    app: {},
+    host: {},
+    handle: (channel, handler) => handlers.set(channel, handler),
+    invokeDesktopOperation: async () => undefined,
+    settingsStore: {
+      updateSessionRetention: async (key, days) => {
+        saved.push([key, days]);
+        return { [key]: days };
+      },
+    },
+  });
+  const set = handlers.get(DESKTOP_IPC.setSessionRetention);
+  assert.deepEqual(await set({}, 'sessionAutoArchiveDays', 14), { sessionAutoArchiveDays: 14 });
+  await assert.rejects(set({}, 'sessionAutoArchiveDays', '14'), /invalid/);
+  await assert.rejects(set({}, 'notificationVolume', 7), /invalid/);
+  assert.deepEqual(saved, [['sessionAutoArchiveDays', 14]]);
 });
 
 test('a control that is already on grandfathers its install marker', () => {
@@ -252,6 +306,8 @@ test('writes are atomic core updates that retain unrelated config and nested fie
     keepAwake: false,
     runInBackground: false,
     notificationVolume: 100,
+    sessionAutoArchiveDays: 7,
+    sessionAutoDeleteDays: 90,
     usagePinned: true,
     usageRailShortLong: false,
     usageAccountsExpanded: false,

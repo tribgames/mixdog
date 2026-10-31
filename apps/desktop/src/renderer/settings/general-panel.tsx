@@ -29,7 +29,7 @@ import { followHostDisplay } from '../host-display-sync';
 import { ActionButton, AutoSaveRow, Group, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
 import { label, rows, type PanelContext } from './capability-data';
 import { ImportConversationsDialog } from './import-conversations-dialog';
-import { WorktreeSettings } from './worktree-settings';
+import { SessionRetentionSettings } from './session-retention-settings';
 import { NARROW_SHELL_QUERY } from '../use-responsive-shell-bands';
 
 function UiLanguageChoices({ pending }: Pick<PanelContext, 'pending'>) {
@@ -306,6 +306,7 @@ export function GeneralPanel({ data, pending, run }: PanelContext) {
           <MarkdownDefaultViewChoice pending={pending} />
         </Group>
       )}
+      <SessionRetentionSettings pending={pending} />
     </>
   );
 }
