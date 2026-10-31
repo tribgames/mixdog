@@ -112,7 +112,8 @@ export type SettingsCategory =
   | 'about'
   | 'display'
   | 'work'
-  | 'instructions';
+  | 'worktrees'
+  | 'delegation';
 
 interface SettingsCategoryItem {
   value: SettingsCategory;
@@ -183,10 +184,17 @@ export const SETTINGS_CATEGORIES = [
     group: 'AI behavior',
     items: ['web-search-enabled'],
   },
-  // The full text of each orchestration mode and output-style depth level.
+  // The full text of each orchestration mode (the mode itself is chosen in the composer).
   {
-    value: 'instructions',
-    label: 'Instruction control',
+    value: 'delegation',
+    label: 'Delegation mode',
+    group: 'AI behavior',
+    items: [],
+  },
+  // Git worktrees: creation, automatic cleanup and the managed worktree list.
+  {
+    value: 'worktrees',
+    label: 'Worktrees',
     group: 'AI behavior',
     items: [],
   },
@@ -296,12 +304,13 @@ export function categoryForSettingsItem(value: SettingsItemValue): SettingsCateg
 }
 
 export function settingsCategoryForSurface(
-  requested: SettingsCategory | 'appearance',
+  requested: SettingsCategory | 'appearance' | 'instructions',
   remote: boolean,
   hostOpenAccess = false
 ): SettingsCategory {
-  // The retired "Themes and fonts" page now lives on the Theme page.
-  const category = requested === 'appearance' ? 'skin' : requested;
+  // The retired "Themes and fonts" page now lives on the Theme page; the retired
+  // "Instruction control" page split into Delegation and Output style.
+  const category = requested === 'appearance' ? 'skin' : requested === 'instructions' ? 'delegation' : requested;
   if (MOVED_EXTENSION_CATEGORIES.has(category)) return 'general';
   return remote && !hostOpenAccess && LEGACY_REMOTE_HIDDEN_SETTINGS_CATEGORIES.has(category) ? 'general' : category;
 }

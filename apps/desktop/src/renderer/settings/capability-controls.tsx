@@ -463,11 +463,14 @@ export function ResourceRow({
   actions,
   className = '',
   plainStatus = false,
+  badges,
 }: {
   title: string;
   description?: string;
   meta?: string;
   status?: string;
+  /** Extra badges after the status (e.g. Modified). */
+  badges?: ReactNode;
   selected?: boolean;
   actions?: ReactNode;
   className?: string;
@@ -491,6 +494,7 @@ export function ResourceRow({
               {t(state.label)}
             </span>
           )}
+          {badges}
         </div>
         {meta && <small className="settings-resource-meta">{meta}</small>}
       </div>

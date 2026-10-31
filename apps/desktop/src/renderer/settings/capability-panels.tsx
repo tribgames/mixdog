@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react';
+import { Fragment, type ReactNode, useEffect, useState } from 'react';
 import { ErrorNotice } from '../ErrorNotice';
 
 import type { DesktopApi } from '../../shared/contract';
@@ -21,7 +21,7 @@ import { ConnectionPanel } from './connection-panel';
 import { DeveloperPanel } from './developer-panel';
 import { getCachedDesktopStatus, readDesktopStatus, storeDesktopStatus } from './desktop-status-cache';
 import { DisplayPanel, GeneralPanel, WorkPanel } from './general-panel';
-import { InstructionControlPanel } from './instruction-control-panel';
+import { DelegationPanel, InstructionBadges, useInstructionEditor } from './instruction-editor';
 import { SkinPanel } from './skin-panel';
 import { BotsPanel } from './desktop-pet-toggle';
 import { NotificationsPanel } from './notification-panel';
@@ -70,7 +70,8 @@ export function CategoryPanel({ category, context }: { category: CapabilityCateg
   if (category === 'skin') return <SkinPanel {...context} />;
   if (category === 'bots') return <BotsPanel {...context} />;
   if (category === 'work') return <WorkPanel {...context} />;
-  if (category === 'instructions') return <InstructionControlPanel {...context} />;
+  if (category === 'worktrees') return <WorktreesPanel active={context.active} />;
+  if (category === 'delegation') return <DelegationPanel {...context} />;
   return <GeneralPanel {...context} />;
 }
 
@@ -175,8 +176,15 @@ function ChoicePanel({
   emptyText,
   loadingRows = 0,
   onChoose,
+  description,
+  badges,
+  editAction,
 }: {
   title: string;
+  description?: string;
+  /** Extra badges and an Edit button per row (the instruction editor). */
+  badges?(id: string): ReactNode;
+  editAction?(id: string): ReactNode;
   values: RecordValue[];
   active: string;
   pending: string;
@@ -186,7 +194,7 @@ function ChoicePanel({
   onChoose(id: string): void;
 }) {
   return (
-    <Group title={title}>
+    <Group title={title} description={description}>
       {values.length ? (
         values.map((entry) => {
           const id = String(entry.id);
@@ -200,13 +208,16 @@ function ChoicePanel({
                   : undefined
               }
               selected={id === active || entry.active === true}
+              badges={badges?.(id)}
               actions={
-                id !== active &&
-                !entry.active && (
-                  <ActionButton disabled={Boolean(pending)} onClick={() => onChoose(id)}>
-                    {t('Choose')}
-                  </ActionButton>
-                )
+                <>
+                  {editAction?.(id)}
+                  {id !== active && !entry.active && (
+                    <ActionButton disabled={Boolean(pending)} onClick={() => onChoose(id)}>
+                      {t('Choose')}
+                    </ActionButton>
+                  )}
+                </>
               }
             />
           );
@@ -238,7 +249,10 @@ function ChoicePanel({
 // reserves that many so the loaded list replaces it in place.
 let lastOutputStyleRows = 4;
 
-function OutputStylePanel({ data, pending, run }: PanelContext) {
+function OutputStylePanel(context: PanelContext) {
+  const { data, pending, run } = context;
+  const { fileFor, editButton, editor } = useInstructionEditor(context, 'outputStyle');
+  if (editor) return editor;
   const output = record(data.outputStyles);
   const failure = sectionError(data, 'outputStyles');
   const styleRows = rows(output, 'styles');
@@ -251,6 +265,9 @@ function OutputStylePanel({ data, pending, run }: PanelContext) {
       ) : (
         <ChoicePanel
           title={t('Response style')}
+          description={t('Choose how detailed answers are. Use "Edit" to change the instructions of each style.')}
+          badges={(id) => <InstructionBadges file={fileFor(id)} />}
+          editAction={editButton}
           values={styleRows}
           active={String(record(output.current).id || output.configured || 'default')}
           pending={pending}

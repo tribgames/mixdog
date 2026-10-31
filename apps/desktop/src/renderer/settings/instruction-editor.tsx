@@ -1,19 +1,19 @@
 import { ArrowLeft } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 
 import { errorMessage } from '../editor-pane-session-errors';
 import { t } from '../i18n';
 import { registerMobileBack } from '../mobile-back';
-import { record } from '../record-utils';
-import { ActionButton, Group } from './capability-controls';
+import { ActionButton, Group, ResourceRow } from './capability-controls';
 import type { PanelContext } from './capability-data';
 
-// Settings → Instruction control: the full text of each orchestration mode and
-// each output-style depth level, as the shipped .md or the user's override of
-// the same name (src/session-runtime/workflow-agents-api/instruction-files.mjs).
-// Which mode / style is in use is still chosen where it always was.
+// The instruction editor shared by Settings → Delegation and Settings → Output
+// style: the full text of an orchestration mode or an output-style depth level,
+// as the shipped .md or the user's override of the same name
+// (src/session-runtime/workflow-agents-api/instruction-files.mjs). Which mode /
+// style is in use is still chosen where it always was.
 
-type InstructionGroup = 'delegation' | 'outputStyle';
+export type InstructionGroup = 'delegation' | 'outputStyle';
 
 interface InstructionFile {
   group: InstructionGroup;
@@ -28,20 +28,10 @@ interface InstructionFile {
   revision: string;
 }
 
-const GROUPS: ReadonlyArray<{ group: InstructionGroup; title: string; description: string; crumb: string }> = [
-  {
-    group: 'delegation',
-    title: 'Delegation',
-    description: 'How the AI splits and hands off work in each mode. Choose the mode in the composer, as before.',
-    crumb: 'Delegation instructions',
-  },
-  {
-    group: 'outputStyle',
-    title: 'Output style',
-    description: 'How detailed each level writes. Choose the level on the Output style page.',
-    crumb: 'Output style instructions',
-  },
-];
+const CRUMBS: Record<InstructionGroup, string> = {
+  delegation: 'Delegation instructions',
+  outputStyle: 'Output style instructions',
+};
 
 // The first sentence of the text, headings and list markers skipped.
 export function instructionPreview(body: string): string {
@@ -60,16 +50,26 @@ function parseItems(value: unknown): InstructionFile[] {
   return Array.isArray(value) ? (value.filter((entry) => entry && typeof entry === 'object') as InstructionFile[]) : [];
 }
 
-export function InstructionControlPanel({ data, pending, run, confirm, notice }: PanelContext) {
+/** Modified / File ignored badges of a row or of the editor header. */
+export function InstructionBadges({ file }: { file?: InstructionFile }) {
+  return (
+    <>
+      {file?.modified && <span className="settings-status settings-status--warning">{t('Modified')}</span>}
+      {file?.problem && <span className="settings-status settings-status--warning">{t('File ignored')}</span>}
+    </>
+  );
+}
+
+/** The editor sub-page for one group (`editor` replaces the page while open),
+ *  plus what a list row needs: its file, its badges and an Edit action. */
+export function useInstructionEditor({ data, pending, run, confirm, notice }: PanelContext, group: InstructionGroup) {
   const [items, setItems] = useState<InstructionFile[]>(() => parseItems(data.instructionFiles));
-  const [editing, setEditing] = useState<{ group: InstructionGroup; id: string } | null>(null);
+  const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   useEffect(() => setItems(parseItems(data.instructionFiles)), [data.instructionFiles]);
 
-  const activeMode = String(data.orchestrationMode || '');
-  const activeStyle = String(record(record(data.outputStyles).current).id || '');
-  const inUse = (item: InstructionFile) => item.id === (item.group === 'delegation' ? activeMode : activeStyle);
-  const current = editing ? items.find((item) => item.group === editing.group && item.id === editing.id) : undefined;
+  const fileFor = (id: string) => items.find((item) => item.group === group && item.id === id);
+  const current = editing ? fileFor(editing) : undefined;
 
   const adopt = (next: InstructionFile | undefined) => {
     if (!next) return;
@@ -98,28 +98,28 @@ export function InstructionControlPanel({ data, pending, run, confirm, notice }:
   };
   const edit = (item: InstructionFile) => {
     setDraft(item.body);
-    setEditing({ group: item.group, id: item.id });
+    setEditing(item.id);
   };
   const back = () => setEditing(null);
   useEffect(() => (editing ? registerMobileBack(() => setEditing(null)) : undefined), [editing]);
 
-  if (editing && current) {
-    const meta = GROUPS.find((entry) => entry.group === current.group);
+  const crumb = t(CRUMBS[group]);
+  let editor: ReactNode = null;
+  if (current) {
     const busy = Boolean(pending);
     const unchanged = draft.trim() === current.body.trim();
-    return (
+    editor = (
       <>
         <div className="instruction-subhead">
           <button type="button" className="instruction-back" aria-label={t('Back')} onClick={back}>
             <ArrowLeft aria-hidden="true" size={16} />
           </button>
           <h2>
-            {current.label} <span>· {t(meta?.crumb || '')}</span>
+            {current.label} <span>· {crumb}</span>
           </h2>
         </div>
         <div className="instruction-meta">
-          {current.modified && <span className="settings-status settings-status--warning">{t('Modified')}</span>}
-          {current.problem && <span className="settings-status settings-status--warning">{t('File ignored')}</span>}
+          <InstructionBadges file={current} />
           {current.path && <span className="instruction-path">{current.path}</span>}
         </div>
         {current.problem && (
@@ -128,7 +128,7 @@ export function InstructionControlPanel({ data, pending, run, confirm, notice }:
         <div className="workflows-md-field instruction-editor">
           <textarea
             name="instruction-text"
-            aria-label={`${current.label} · ${t(meta?.crumb || '')}`}
+            aria-label={`${current.label} · ${crumb}`}
             value={draft}
             spellCheck={false}
             disabled={busy}
@@ -175,41 +175,38 @@ export function InstructionControlPanel({ data, pending, run, confirm, notice }:
     );
   }
 
+  const editButton = (id: string) => {
+    const item = fileFor(id);
+    return item ? (
+      <ActionButton disabled={Boolean(pending)} onClick={() => edit(item)}>
+        {t('Edit')}
+      </ActionButton>
+    ) : null;
+  };
+  return { items: items.filter((item) => item.group === group), fileFor, editButton, editor };
+}
+
+// Settings → Delegation: the four orchestration modes. The mode in use is
+// still chosen in the composer; this page only edits each mode's text.
+export function DelegationPanel(context: PanelContext) {
+  const { items, fileFor, editButton, editor } = useInstructionEditor(context, 'delegation');
+  if (editor) return editor;
+  const activeMode = String(context.data.orchestrationMode || '');
   return (
-    <>
-      {GROUPS.map(({ group, title, description }) => (
-        <Group key={group} title={t(title)} description={t(description)}>
-          {items
-            .filter((item) => item.group === group)
-            .map((item) => (
-              <div className="settings-resource" key={item.id}>
-                <div>
-                  <div className="settings-resource-title">
-                    <b>{item.label}</b>
-                    {inUse(item) && (
-                      <span className="settings-status settings-status--neutral">
-                        <i aria-hidden="true" />
-                        {t('In use')}
-                      </span>
-                    )}
-                    {item.modified && <span className="settings-status settings-status--warning">{t('Modified')}</span>}
-                    {item.problem && (
-                      <span className="settings-status settings-status--warning">{t('File ignored')}</span>
-                    )}
-                  </div>
-                  <small className="settings-resource-meta">{instructionPreview(item.body)}</small>
-                </div>
-                <div className="settings-resource-control">
-                  <div className="settings-resource-actions">
-                    <ActionButton disabled={Boolean(pending)} onClick={() => edit(item)}>
-                      {t('Edit')}
-                    </ActionButton>
-                  </div>
-                </div>
-              </div>
-            ))}
-        </Group>
+    <Group
+      title={t('Delegation mode')}
+      description={t('How the AI splits and hands off work in each mode. Choose the mode in the composer, as before.')}
+    >
+      {items.map((item) => (
+        <ResourceRow
+          key={item.id}
+          title={item.label}
+          meta={instructionPreview(item.body)}
+          status={item.id === activeMode ? 'In use' : undefined}
+          badges={<InstructionBadges file={fileFor(item.id)} />}
+          actions={editButton(item.id)}
+        />
       ))}
-    </>
+    </Group>
   );
 }
