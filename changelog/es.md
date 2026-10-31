@@ -5,6 +5,50 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+Se añadieron los ajustes de Worktrees y la limpieza de ramas, se reemplazaron las tareas de Goal por listas de tareas de sesión y se introdujeron estilos de cuadro de mensaje personalizables.
+
+### Nuevas funciones
+
+- **Ajustes de Worktrees** — Se añadió Ajustes → Worktrees con uso de disco, acciones para abrir y eliminar, y limpieza automática tras 15 worktrees o 30 días sin uso.
+- **Acciones de ramas para worktrees** — Se añadieron las acciones Nueva rama, Nuevo worktree y Limpiar al pie del menú de ramas, con resaltado de búsqueda y vista previa segura.
+- **Lista de tareas de sesión** — Se añadió una lista de tareas de sesión que reemplaza las tareas de Goal, mostrando el progreso del agente en vivo y conservando tareas y objetivos al cerrar.
+- **Estilos del cuadro de mensaje** — Se añadieron los estilos Simple, Estándar y Detallado en Ajustes con vista previa, barra responsiva y confirmación opcional de respuestas (#270, #276).
+- **Ajustes de delegación** — Se añadió una página dedicada en Ajustes → Delegación para instrucciones de orquestación, y edición directa en Estilo de salida con restablecimiento (#291).
+- **Subagentes ejecutores de rutinas** — Se añadió la selección de un subagente ejecutor con su propio modelo para tareas programadas y webhooks.
+- **Importación de Claude Desktop Cowork** — Se añadió la importación de conversaciones de Claude Desktop Cowork, listando primero las conversaciones destacadas (#283).
+- **Enlaces de rutas en el chat** — Se añadió la apertura de enlaces de rutas del PC desde el chat: carpetas como raíz en el panel de archivos y archivos previsualizables en Visualize (#277).
+- **Gestos para imágenes en móviles** — Se añadieron gestos de pellizcar, desplazar y doble toque para ampliar imágenes en el chat y Visualize en teléfonos (#275).
+- **Uso de llamadas Fast** — Se añadió una fila de desglose de uso para llamadas Fast de un modelo, con tablas responsivas adaptadas a pantallas de teléfonos (#288).
+- **Automatización del ciclo de sesiones** — Se añadió el archivado automático de sesiones inactivas tras 7 días y su eliminación tras 90 días durante periodos de inactividad.
+- **Agrupación de worktrees en la barra lateral** — Se añadió la agrupación de sesiones de worktree bajo su carpeta de proyecto principal en la barra lateral.
+- **Pausa de notificaciones con PC en uso** — Se añadió la pausa de notificaciones push en el teléfono mientras se está utilizando activamente este PC.
+
+### Cambios
+
+- Las filas de actividad de herramientas ahora agrupan operaciones repetitivas en etiquetas con recuento y nombre de tarea, como «Gestión de worktrees ×4».
+- Los ajustes e instrucciones cambiados en cualquier lugar ahora se aplican en el siguiente turno sin reiniciar sesiones ni invalidar la caché de prompts.
+- La búsqueda web ahora se carga de inmediato sin una llamada diferida de herramienta, acelerando las consultas.
+- El gesto de deslizar para cerrar el navegador remoto en teléfonos ahora solo funciona desde el borde izquierdo para evitar cierres accidentales al interactuar.
+- La lectura de uso de tokens del agente en el cuadro de mensaje ahora se actualiza en aproximadamente un segundo tras cada llamada al modelo.
+- La recolección de basura en reposo ahora también limpia la memoria de búfer externo, reduciendo el consumo de memoria del demonio.
+
+### Correcciones de errores
+
+- Se corrigió la pérdida de turnos no guardados tras bloqueos o reinicios añadiendo transferencia duradera de turnos y recuperación de puntos de control.
+- Se corrigió el bloqueo del renderizador de escritorio al soltar el ratón tras seleccionar texto arrastrando.
+- Se corrigió que el cambio de sesión reconstruyera transcripciones o repitiera animaciones manteniendo montadas las conversaciones recientes.
+- Se corrigió que los Goals atascados contaran tiempo de inactividad en el presupuesto, repitieran avisos o reemplazaran un Goal existente sin confirmación.
+- Se corrigió la caducidad del inicio de sesión en conectores tras una hora solicitando tokens de actualización y se evitó el cambio de cuenta por nombres reutilizados (#285).
+- Se corrigió que las actualizaciones de plugins en Windows fallaran con errores de bloqueo de archivos `EPERM` al renombrar carpetas (#284).
+- Se corrigieron los fallos de instalación causados por la eliminación de scripts de onnxruntime-node durante la limpieza de embeddings (#282).
+- Se corrigió el bloqueo al iniciar el servicio de memoria por bloqueos huérfanos de PostgreSQL tras salidas inesperadas de procesos (#278).
+- Se corrigió el fallo de reCAPTCHA y widgets de autenticación en el navegador integrado concediendo acceso al almacenamiento compatible con Chrome.
+- Se corrigió que los informes de subagentes no llegaran al agente Lead al ser interrumpidos por recordatorios, entradas en cola o fallos posteriores.
+- Se corrigió que Computer Use reiniciara el host de entrada en lecturas lentas de pantalla y reportara observadores rotos en breves pausas de entrada.
+- Se corrigió que las búsquedas de recuerdos perdieran palabras con contenido en coreano en consultas mixtas y se optimizó el escaneo de términos exactos.
+- Se corrigió que los enlaces web y pestañas del navegador en teléfonos vinculados no se adaptaran a pantallas móviles ni abrieran en Visualize.
+- Se corrigió la superposición de filas de color con descripciones en ventanas estrechas de Ajustes y se evitó sobrescribir cambios simultáneos de instrucciones (#287).
+
 ## v1.4.2 - 2026-10-29
 
 Se mejoró el arnés de agentes con Explore, un agente dedicado a la exploración, y una verificación más sólida con la habilidad Test Suite, además de añadir Vertex AI y varias cuentas por conector.

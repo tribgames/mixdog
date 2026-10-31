@@ -5,6 +5,50 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+Ajout des paramètres Worktrees et du nettoyage des branches, remplacement des tâches Goal par des listes de tâches de session, et ajout de styles personnalisables pour la zone de saisie.
+
+### Nouvelles fonctionnalités
+
+- **Paramètres Worktrees** — Ajout de Paramètres → Worktrees avec l'utilisation du disque, les actions d'ouverture et suppression, et un nettoyage automatique après 15 worktrees ou 30 jours d'inactivité.
+- **Actions de branches pour worktrees** — Ajout des actions Nouvelle branche, Nouveau worktree et Nettoyer au pied du menu des branches, avec surbrillance de recherche et aperçu sécurisé.
+- **Liste de tâches de session** — Ajout d'une liste de tâches de session remplaçant les tâches Goal, affichant la progression en direct et conservant tâches et objectifs à la fermeture.
+- **Styles de zone de saisie** — Ajout des styles Simple, Standard et Détaillé dans les Paramètres avec aperçu en direct, barre réactive et confirmation facultative des réponses (#270, #276).
+- **Paramètres de délégation** — Ajout d'une page Paramètres → Délégation pour les instructions d'orchestration, et modification directe dans Style de sortie avec réinitialisation (#291).
+- **Sous-agents exécuteurs de routines** — Ajout du choix d'un sous-agent exécuteur avec son propre modèle pour les tâches planifiées et les webhooks.
+- **Importation Claude Desktop Cowork** — Ajout de l'importation de conversations depuis Claude Desktop Cowork, en listant les conversations favorites en premier (#283).
+- **Liens de chemins dans le chat** — Ajout de l'ouverture de liens de chemins partout sur le PC depuis le chat : dossiers comme racine dans le panneau Fichiers et fichiers dans Visualize (#277).
+- **Gestes sur images sur mobile** — Ajout du zoom par pincement, du panoramique et du double tapotement pour les images du chat et de Visualize sur smartphone (#275).
+- **Utilisation des appels Fast** — Ajout d'une ligne dédiée à l'utilisation des appels Fast d'un modèle, avec des tableaux adaptés aux écrans de smartphones (#288).
+- **Cycle de vie automatique des sessions** — Ajout de l'archivage automatique des sessions inactives après 7 jours et de leur suppression après 90 jours pendant les périodes d'inactivité.
+- **Regroupement des worktrees dans la barre latérale** — Ajout du regroupement des sessions de worktrees sous leur dossier de projet parent dans la barre latérale.
+- **Pause des notifications sur PC actif** — Ajout de la mise en pause des notifications push sur smartphone pendant que vous utilisez activement ce PC.
+
+### Modifications
+
+- Les lignes d'activité des outils regroupent désormais les opérations répétitives sous des étiquettes numérotées, comme « Gestion des worktrees ×4 ».
+- Les paramètres et instructions modifiés n'importe où s'appliquent désormais au tour suivant sans redémarrer les sessions ni invalider le cache de prompts.
+- La recherche web se charge désormais immédiatement sans étape d'appel différé d'outil, ce qui accélère les requêtes.
+- Le balayage pour fermer le navigateur distant sur smartphone ne fonctionne plus que depuis le bord gauche pour éviter les fermetures accidentelles lors des interactions.
+- L'affichage de l'utilisation des tokens par l'agent dans la zone de saisie se met désormais à jour environ une seconde après chaque appel au modèle.
+- Le ramasse-miettes en période d'inactivité nettoie désormais aussi la mémoire tampon externe, réduisant l'empreinte mémoire du démon.
+
+### Corrections de bugs
+
+- Correction de la perte de tours non enregistrés après un plantage ou un redémarrage grâce au transfert durable des tours et à la récupération par points de contrôle.
+- Correction du plantage du moteur de rendu sur ordinateur au relâchement de la souris après une sélection de texte par glisser.
+- Correction du changement de session qui reconstruisait les transcriptions ou rejouait les animations en maintenant montées les conversations récentes.
+- Correction des Goals bloqués qui comptaient le temps d'inactivité dans leur budget, répétaient les alertes ou remplaçaient un Goal sans confirmation.
+- Correction de l'expiration des connexions aux connecteurs après une heure en demandant des jetons de rafraîchissement et prévention des échanges de comptes (#285).
+- Correction de l'échec des mises à jour de plugins sous Windows avec des erreurs de verrouillage de fichier `EPERM` lors du renommage de dossiers (#284).
+- Correction des échecs d'installation causés par la suppression des scripts d'onnxruntime-node pendant le nettoyage des embeddings (#282).
+- Correction du blocage du service de mémoire au démarrage dû à des verrous PostgreSQL orphelins après l'arrêt inattendu d'un processus (#278).
+- Correction de l'échec de reCAPTCHA et des widgets d'authentification dans le navigateur intégré en accordant un accès au stockage compatible Chrome.
+- Correction des rapports de sous-agents qui ne parvenaient pas à l'agent Lead en cas d'interruption par des rappels, des entrées en file ou des erreurs ultérieures.
+- Correction de Computer Use qui redémarrait l'hôte de saisie lors de lectures d'écran lentes et signalait des observateurs défaillants lors de courtes pauses de saisie.
+- Correction de la recherche mémorielle qui perdait les mots de contenu coréens dans les requêtes mixtes et optimisation de la recherche de termes exacts.
+- Correction des liens web et des onglets de navigateur diffusés sur smartphone qui ne s'adaptaient pas aux écrans mobiles ou ne s'ouvraient pas dans Visualize.
+- Correction du chevauchement des sélecteurs de couleur avec leurs descriptions dans les fenêtres étroites et protection contre l'écrasement des instructions (#287).
+
 ## v1.4.2 - 2026-10-29
 
 Amélioration du harnais d'agents avec Explore, un agent dédié à l'exploration, et une vérification renforcée grâce à la compétence Test Suite, ainsi que la prise en charge de Vertex AI et de plusieurs comptes par connecteur.

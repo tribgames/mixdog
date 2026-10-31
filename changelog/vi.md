@@ -4,6 +4,50 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Thêm phần cài đặt Worktree và dọn dẹp nhánh, thay thế tác vụ Goal bằng danh sách việc cần làm của phiên, và ra mắt các kiểu ô nhập tùy chỉnh.
+
+### Tính năng mới
+
+- **Cài đặt Worktree** — Thêm Cài đặt → Worktree hiển thị dung lượng đĩa, thao tác mở và xóa, cùng quy tắc tự động dọn dẹp sau 15 worktree hoặc 30 ngày không dùng.
+- **Thao tác nhánh cho worktree** — Thêm thao tác Nhánh mới, Worktree mới và Dọn dẹp ở chân menu nhánh, kèm làm nổi bật kết quả tìm kiếm và xem trước an toàn.
+- **Danh sách việc cần làm của phiên** — Thêm danh sách việc cần làm thay thế tác vụ Goal, hiển thị tiến độ trực tiếp của agent và giữ lại việc cùng Goal khi đóng.
+- **Kiểu ô nhập** — Thêm các kiểu ô nhập Đơn giản, Tiêu chuẩn và Chi tiết trong Cài đặt với xem trước trực tiếp, thanh công cụ thích ứng và xác nhận câu trả lời (#270, #276).
+- **Cài đặt cách giao việc** — Thêm trang Cài đặt → Cách giao việc cho chỉ dẫn điều phối, cùng tính năng sửa trực tiếp chỉ dẫn Kiểu đầu ra với nút khôi phục mặc định (#291).
+- **Chỉ định sub-agent thực thi quy trình** — Bổ sung lựa chọn sub-agent thực thi chạy mô hình riêng cho các tác vụ theo lịch và webhook.
+- **Nhập dữ liệu từ Claude Desktop Cowork** — Thêm tính năng nhập cuộc trò chuyện từ Claude Desktop Cowork, ưu tiên hiển thị các cuộc trò chuyện có gắn dấu sao (#283).
+- **Liên kết đường dẫn trong trò chuyện** — Hỗ trợ mở liên kết đường dẫn trên máy tính từ khung trò chuyện: thư mục mở như gốc trong bảng Tệp và tệp xem được mở trong Visualize (#277).
+- **Thao tác chạm cho ảnh trên điện thoại** — Thêm thao tác chụm ngón tay, vuốt và chạm hai lần để thu phóng ảnh trong trò chuyện và Visualize trên điện thoại (#275).
+- **Mức sử dụng lượt gọi Fast** — Thêm dòng thống kê riêng cho các lượt gọi Fast của mô hình, với bảng sử dụng căn chỉnh phù hợp màn hình điện thoại (#288).
+- **Tự động hóa vòng đời phiên** — Tự động lưu trữ các phiên không hoạt động sau 7 ngày và xóa sau 90 ngày trong thời gian rảnh.
+- **Nhóm worktree trên thanh bên** — Gom nhóm các phiên worktree bên dưới thư mục dự án cha trên thanh bên.
+- **Tạm dừng thông báo khi đang dùng máy tính** — Tạm dừng gửi thông báo đẩy đến điện thoại khi bạn đang chủ động dùng máy tính này.
+
+### Thay đổi
+
+- Các dòng hoạt động công cụ nay gom các thao tác lặp lại thành nhãn có đếm số lần và tên tác vụ, như "Quản lý worktree ×4".
+- Các thay đổi cài đặt và chỉ dẫn ở bất kỳ đâu nay áp dụng ngay từ lượt tiếp theo mà không cần khởi động lại phiên hay làm hỏng bộ nhớ đệm prompt.
+- Tìm kiếm web tải ngay lập tức mà không cần bước gọi công cụ trì hoãn, giúp tra cứu nhanh hơn.
+- Thao tác vuốt để đóng trình duyệt từ xa trên điện thoại nay chỉ nhận diện ở dải mép trái nhằm tránh vô tình đóng khi tương tác trang web.
+- Số liệu sử dụng token của agent trên ô nhập cập nhật trong khoảng một giây sau mỗi lượt gọi mô hình.
+- Tiến trình dọn rác khi rảnh nay thu hồi cả bộ nhớ đệm ngoài, giúp giảm dung lượng bộ nhớ của daemon.
+
+### Sửa lỗi
+
+- Khắc phục tình trạng mất lượt chưa lưu sau sự cố hoặc khởi động lại nhờ cơ chế chuyển giao lượt bền bỉ và khôi phục điểm kiểm tra.
+- Sửa lỗi tiến trình kết xuất của bản máy tính bị văng khi thả chuột sau khi quét chọn văn bản.
+- Sửa lỗi chuyển phiên phải dựng lại nhật ký hoặc phát lại hiệu ứng chuyển động bằng cách giữ các cuộc trò chuyện gần đây luôn sẵn sàng.
+- Sửa lỗi Goal bị đình trệ tính cả thời gian chờ vào ngân sách, lặp lại thông báo hoặc thay thế Goal hiện có mà không có xác nhận.
+- Sửa lỗi đăng nhập trình kết nối hết hạn sau một giờ bằng cách yêu cầu mã làm mới, và tránh nhầm tài khoản khi tái sử dụng tên cũ (#285).
+- Sửa lỗi cập nhật plugin trên Windows thất bại do lỗi khóa tệp `EPERM` khi đổi tên thư mục (#284).
+- Sửa lỗi cài đặt thất bại do các tập lệnh của onnxruntime-node bị xóa khi thu gọn embedding (#282).
+- Sửa lỗi khởi động dịch vụ bộ nhớ bị treo do các khóa PostgreSQL mồ côi sau khi tiến trình dừng đột ngột (#278).
+- Sửa lỗi reCAPTCHA và tiện ích xác thực trong trình duyệt nội bộ bằng cách cấp quyền truy cập bộ lưu trữ tương thích với Chrome.
+- Sửa lỗi báo cáo của sub-agent không đến được agent Lead khi bị gián đoạn bởi nhắc nhở, dữ liệu đầu vào đang chờ hoặc lỗi phát sinh sau đó.
+- Sửa lỗi Computer Use khởi động lại máy chủ nhập liệu khi đọc màn hình chậm và báo lỗi trình quan sát trong các khoảng dừng nhập liệu ngắn.
+- Sửa lỗi tìm kiếm ký ức bỏ sót từ nội dung tiếng Hàn trong các truy vấn đa ngữ, đồng thời tối ưu hóa quét từ khóa chính xác.
+- Sửa lỗi liên kết web và tab trình duyệt truyền trực tiếp trên điện thoại không vừa màn hình hoặc không mở trong Visualize.
+- Sửa lỗi các hàng chọn màu bị đè lên phần mô tả trong cửa sổ Cài đặt thu hẹp và tránh ghi đè các chỉnh sửa chỉ dẫn diễn ra đồng thời (#287).
+
 ## v1.4.2 - 2026-10-29
 
 Cải thiện bộ điều phối agent với Explore, một agent chuyên khảo sát mã nguồn, cùng kỹ năng Test Suite giúp kiểm chứng chặt chẽ hơn; đồng thời bổ sung Vertex AI và hỗ trợ nhiều tài khoản trên mỗi trình kết nối.

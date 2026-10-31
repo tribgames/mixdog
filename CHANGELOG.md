@@ -5,6 +5,50 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+Added Worktrees settings and branch cleanup, replaced Goal tasks with session todo lists, and introduced customizable composer styles.
+
+### New features
+
+- **Worktrees settings** — Added Settings → Worktrees with disk usage, open and delete actions, and automatic cleanup after 15 worktrees or 30 unused days.
+- **Worktree branch actions** — Added New branch, New worktree, and Clean up actions to the branch menu footer, with search highlights and safe cleanup previews.
+- **Session todo list** — Added a session todo list replacing goal tasks, showing live agent progress, and preserving the last todo and Goal when an agent closes.
+- **Composer styles** — Added Simple, Normal, and Detailed composer styles in Settings with live preview, responsive toolbar layouts, and optional question-answer confirmation (#270, #276).
+- **Delegation settings** — Added a dedicated Settings → Delegation page for orchestration instructions, and inline prompt editing in Output style with reset to defaults (#291).
+- **Sub-agent routine executors** — Added picking an executor sub-agent with its own model for scheduled tasks and webhooks.
+- **Claude Desktop Cowork import** — Added importing conversations from Claude Desktop Cowork, listing starred conversations first (#283).
+- **Chat path links** — Added opening path links anywhere on your PC from chat: folders open as File panel roots and previewable files open in Visualize (#277).
+- **Phone image gestures** — Added pinch, pan, and double-tap zoom for images in chat and Visualize on phones (#275).
+- **Fast call usage** — Added a dedicated usage breakdown row for a model's Fast calls, with responsive tables formatted for phone screens (#288).
+- **Session lifecycle automation** — Added automatic archival of inactive sessions after 7 days and deletion after 90 days during idle periods.
+- **Sidebar worktree grouping** — Added grouping of worktree sessions under their parent project folder in the sidebar.
+- **Active PC notification pause** — Added pausing phone push notifications while you are actively using this PC.
+
+### Changes
+
+- Changed tool activity rows to group repetitive operations into counted labels with task names, such as "Worktree management ×4".
+- Changed settings and prompt edits made anywhere to apply on the next turn without restarting sessions or breaking prompt caches.
+- Changed web search to load immediately without a deferred tool call hop, speeding up lookups.
+- Changed remote browser streaming on phones to swipe shut only from the left edge strip, preventing accidental closes during web page interactions.
+- Changed the composer bar's agent token usage readout to update within about a second of each model call.
+- Adjusted idle garbage collection to sweep external buffer memory, reducing daemon memory footprint.
+
+### Bug fixes
+
+- Fixed uncommitted turns being lost after crashes or restarts by adding durable turn handoff and checkpoint recovery.
+- Fixed desktop renderer crashing on mouse-up after drag-selecting text.
+- Fixed session switching rebuilding transcripts or replaying animations by keeping recent conversations mounted.
+- Fixed stalled Goals counting idle time against budget, repeating notifications, and replacing existing Goals without confirmation.
+- Fixed connector sign-ins expiring after an hour by requesting refresh tokens, and prevented account switching when reusing removed account names (#285).
+- Fixed plugin updates on Windows failing with `EPERM` file-lock errors during folder renames (#284).
+- Fixed installation failures caused by onnxruntime-node scripts being removed during embedding prune (#282).
+- Fixed memory service startup hanging on orphaned PostgreSQL locks after unexpected process exits (#278).
+- Fixed reCAPTCHA and authentication widgets failing in the in-app browser by granting Chrome-compatible storage access.
+- Fixed sub-agent reports failing to reach the Lead agent when interrupted by reminders, queued input, or later failures.
+- Fixed Computer Use restarting the input host on slow screen reads and reporting observers broken during brief input gaps.
+- Fixed recall searches dropping Korean content words in mixed queries, and optimized exact-term scanning.
+- Fixed web links and streamed browser tabs on paired phones failing to fit mobile screens or open in Visualize.
+- Fixed Settings color rows overlapping descriptions on narrow windows, and prevented instruction edits from overwriting concurrent changes (#287).
+
 ## v1.4.2 - 2026-10-29
 
 Improved the agent harness with Explore, a dedicated exploration agent, and stronger verification with the Test Suite skill, plus Vertex AI and several accounts per connector.

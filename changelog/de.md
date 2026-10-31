@@ -4,6 +4,50 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Einstellungen für Worktrees und Bereinigung von Branches hinzugefügt, Ziel-Aufgaben (Goals) durch Sitzungs-To-do-Listen ersetzt und anpassbare Eingabefeld-Stile eingeführt.
+
+### Neue Funktionen
+
+- **Worktrees-Einstellungen** — Einstellungen → Worktrees mit Speicherplatzanzeige, Aktionen zum Öffnen und Löschen sowie automatischer Bereinigung nach 15 Worktrees oder 30 ungenutzten Tagen hinzugefügt.
+- **Worktree-Branch-Aktionen** — Die Aktionen Neuer Branch, Neuer Worktree und Bereinigen mit Such-Hervorhebung und sicherer Vorschau zur Fußzeile des Branch-Menüs hinzugefügt.
+- **Sitzungs-To-do-Liste** — Sitzungs-To-do-Liste als Ersatz für Ziel-Aufgaben hinzugefügt, die den Live-Fortschritt von Agenten anzeigt und letzte Aufgaben sowie Ziele beim Schließen bewahrt.
+- **Eingabefeld-Stile** — Eingabefeld-Stile Einfach, Standard und Ausführlich in den Einstellungen mit Live-Vorschau, responsiver Leiste und optionaler Bestätigung bei Antworten hinzugefügt (#270, #276).
+- **Delegationseinstellungen** — Dedizierte Seite Einstellungen → Delegation für Orchestrierungsanweisungen und direktes Bearbeiten der Ausgabestil-Anweisungen mit Zurücksetzen auf Standard hinzugefügt (#291).
+- **Sub-Agenten für Routinen** — Auswahl eines ausführenden Sub-Agenten mit eigenem Modell für geplante Aufgaben und Webhooks hinzugefügt.
+- **Import aus Claude Desktop Cowork** — Import von Unterhaltungen aus Claude Desktop Cowork hinzugefügt, wobei mit Stern markierte Unterhaltungen zuerst aufgeführt werden (#283).
+- **Pfadlinks im Chat** — Öffnen von Pfadlinks überall auf dem PC aus dem Chat hinzugefügt: Ordner öffnen sich als Wurzeln im Dateifenster, vorschaufähige Dateien in Visualize (#277).
+- **Bildgesten auf Smartphones** — Zoom per Zusammendrücken, Verschieben und Doppeltippen für Bilder im Chat und in Visualize auf Smartphones hinzugefügt (#275).
+- **Fast-Aufruf-Nutzung** — Eigene Zeile zur Aufschlüsselung der Fast-Aufrufe eines Modells mit responsiven, für Smartphones optimierten Nutzungstabellen hinzugefügt (#288).
+- **Automatischer Sitzungslebenszyklus** — Automatische Archivierung inaktiver Sitzungen nach 7 Tagen und Löschung nach 90 Tagen während Leerlaufzeiten hinzugefügt.
+- **Worktree-Gruppierung in der Seitenleiste** — Gruppierung von Worktree-Sitzungen unter ihrem übergeordneten Projektordner in der Seitenleiste hinzugefügt.
+- **Benachrichtigungspause bei PC-Nutzung** — Pausieren von Smartphone-Push-Benachrichtigungen hinzugefügt, während dieser PC aktiv genutzt wird.
+
+### Änderungen
+
+- Werkzeug-Aktivitätszeilen fassen wiederholte Aktionen nun in gezählten Bezeichnungen mit Aufgabennamen wie „Worktree-Verwaltung ×4“ zusammen.
+- An beliebiger Stelle vorgenommene Einstellungs- und Prompt-Änderungen greifen im nächsten Durchlauf, ohne Sitzungen neu zu starten oder den Cache zu brechen.
+- Die Websuche wird sofort geladen, ohne Verzögerung durch Werkzeugaufrufe, was Suchabfragen beschleunigt.
+- Das Wischen zum Schließen des Remote-Browsers auf Smartphones greift nur noch am linken Randstreifen, um versehentliches Schließen bei Interaktionen zu verhindern.
+- Die Anzeige der Token-Nutzung des Agenten im Eingabefeld aktualisiert sich nun innerhalb von etwa einer Sekunde nach jedem Modellaufruf.
+- Die Garbage Collection im Leerlauf bereinigt nun auch externen Pufferspeicher, was den Speicherbedarf des Daemons senkt.
+
+### Fehlerbehebungen
+
+- Nicht gespeicherte Durchläufe gehen nach Abstürzen oder Neustarts dank dauerhafter Übergabe und Checkpoint-Wiederherstellung nicht mehr verloren.
+- Absturz des Desktop-Renderers beim Loslassen der Maustaste nach dem Markieren von Text behoben.
+- Neuaufbau des Verlaufs und erneutes Abspielen von Animationen beim Wechseln von Sitzungen behoben, indem kürzlich geöffnete Unterhaltungen geladen bleiben.
+- Fehler behoben, durch den stockende Ziele Leerlaufzeit auf das Budget anrechneten, Benachrichtigungen wiederholten oder bestehende Ziele ohne Bestätigung ersetzten.
+- Ablauf von Konnektor-Anmeldungen nach einer Stunde durch Anforderung von Refresh-Tokens behoben und Kontowechsel bei wiederverwendeten Namen verhindert (#285).
+- Fehler behoben, durch den Plugin-Aktualisierungen unter Windows beim Umbenennen von Ordnern mit `EPERM`-Dateisperren fehlschlugen (#284).
+- Installationsfehler behoben, bei denen Skripte von onnxruntime-node während des Embedding-Bereinigens entfernt wurden (#282).
+- Hängenbleiben des Speicherdiensts beim Start durch verwaiste PostgreSQL-Sperren nach unerwartetem Prozessende behoben (#278).
+- Fehler behoben, durch den reCAPTCHA und Authentifizierungs-Widgets im In-App-Browser fehlschlugen, indem Chrome-kompatibler Speicherzugriff gewährt wird.
+- Fehler behoben, durch den Berichte von Sub-Agenten den Lead bei Unterbrechungen durch Erinnerungen, Warteschlangen-Eingaben oder spätere Fehler nicht erreichten.
+- Fehler behoben, durch den Computer Use bei langsamen Bildschirmlesevorgängen den Eingabe-Host neu startete oder Beobachter bei kurzen Eingabepausen als defekt meldete.
+- Fehler behoben, durch den die Erinnerungssuche bei gemischten Abfragen koreanische Inhaltswörter verlor, und Scan nach exakten Begriffen optimiert.
+- Fehler behoben, durch den Weblinks und gestreamte Browser-Tabs auf gekoppelten Smartphones nicht auf mobile Bildschirme passten oder nicht in Visualize öffneten.
+- Überlappung der Farbzeilen in den Einstellungen mit Beschreibungen auf schmalen Fenstern behoben und Überschreiben gleichzeitiger Anweisungsänderungen verhindert (#287).
+
 ## v1.4.2 - 2026-10-29
 
 Das Agenten-Harness wurde mit Explore, einem eigenen Erkundungsagenten, und einer gründlicheren Überprüfung durch den Skill Test Suite verbessert; hinzu kommen Vertex AI und mehrere Konten pro Konnektor.
