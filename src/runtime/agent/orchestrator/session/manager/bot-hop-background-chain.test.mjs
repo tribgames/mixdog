@@ -179,7 +179,7 @@ test("an agent task's completion returns at the hop of the turn that started it"
   const startJob = createJobStarter({
     mgr: {},
     notifyStatusChange() {},
-    notifySessionCompletion: (sessionId, text, meta) => {
+    notifySessionCompletion: (sessionId, _text, meta) => {
       completions.push({ sessionId, meta });
       return true;
     },

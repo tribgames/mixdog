@@ -222,7 +222,7 @@ function budgetedEdge(from, step, length, rows, byteBudget, sizeOf) {
 }
 
 /** The most rows one historical-position read carries, whatever it asks. */
-export const CURSOR_PAGE_MAX_ROWS = 512;
+const CURSOR_PAGE_MAX_ROWS = 512;
 
 /** A cursor's page size: 1 to CURSOR_PAGE_MAX_ROWS rows. */
 export function cursorPageRows(maxRows) {

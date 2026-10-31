@@ -99,7 +99,7 @@ function feedbackDisplay(body) {
   return lines.join('\n');
 }
 
-export function withVisualizeFeedbackDisplay(text) {
+function withVisualizeFeedbackDisplay(text) {
   const value = String(text ?? '');
   if (!value.includes(FEEDBACK_OPEN)) return value;
   return value.replace(FEEDBACK_BLOCK, (_block, body) => feedbackDisplay(body));
@@ -121,7 +121,7 @@ const PASTED_LINES = /· (\d+) lines?$/;
 const PASTED_TEXT_MAX_BYTES = 1024 * 1024;
 /** Blob bytes one transcript load may read to count the lines of pastes
  *  whose stored name does not carry the count (pastes stored before it did). */
-export const PASTED_LINE_READ_BUDGET_BYTES = 4 * 1024 * 1024;
+const PASTED_LINE_READ_BUDGET_BYTES = 4 * 1024 * 1024;
 
 /** A stored plain-text prompt part's text within the load's byte budget, else ''. */
 function offloadedPromptText(part, budget) {

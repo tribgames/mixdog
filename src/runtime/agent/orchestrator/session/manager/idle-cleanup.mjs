@@ -185,7 +185,7 @@ function _runCleanupCycle() {
     await sweepOrphanedPendingMessages();
     await sweepIdleSessions({ includeTombstones: true });
     // Reclaim same-process session snapshots whose state is durable on disk
-    // (memory-leak guard: _liveSessions used to grow for process lifetime).
+    // (memory-leak guard: _liveSessions would otherwise grow for process lifetime).
     try {
       evictIdleLiveSessions({ isSessionLive: _isSessionLive });
     } catch {

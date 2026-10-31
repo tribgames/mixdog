@@ -68,7 +68,7 @@ export function fallbackTitleFromMessages(messages) {
 /** Fills `session.title` only when missing. Never touches a locked (manual/AI)
  *  or generated title, and leaves generatedTitleStage unset so
  *  updateSessionGeneratedTitle can still upgrade it. The caller persists. */
-export function applyFallbackSessionTitle(session, title) {
+function applyFallbackSessionTitle(session, title) {
   if (!session || !isUsableTitle(title) || isUsableTitle(session.title)) return false;
   if (session.titleLocked === true || session.generatedTitleStage) return false;
   session.title = title;

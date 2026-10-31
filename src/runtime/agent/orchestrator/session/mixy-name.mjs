@@ -15,7 +15,7 @@ import { mixyIdentityDir } from '../../../shared/agent-store.mjs';
 export const DEFAULT_MIXY_NAME = 'Mixy';
 
 /** The display name in a lead manifest (agent.json), else Mixy. */
-export function mixyNameOf(manifest) {
+function mixyNameOf(manifest) {
   const name = typeof manifest?.name === 'string' ? manifest.name.replace(/\s+/g, ' ').trim() : '';
   return name || DEFAULT_MIXY_NAME;
 }

@@ -38,7 +38,7 @@ const HOP_REASONS = {
 const routeLabel = (route) => displayModelName(route.model, route.provider) || `${route.provider}/${route.model}`;
 
 /** The muted transcript line for a hop: `<from> <reason> — switched to <to>.` */
-export function routeFallbackNoticeText(from, to, error) {
+function routeFallbackNoticeText(from, to, error) {
   const reason = HOP_REASONS[providerErrorKind(error).kind] || 'unavailable';
   return `${routeLabel(from)} ${reason} — switched to ${routeLabel(to)}.`;
 }

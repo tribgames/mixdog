@@ -64,7 +64,7 @@ const LIGHTER_FAMILY = Object.freeze({
   },
   'openai-oauth': {
     catalog: loadSavedCodexCatalog,
-    matches: (row, id) => id.includes('-luna') && gptVersion(id) !== null,
+    matches: (_row, id) => id.includes('-luna') && gptVersion(id) !== null,
     compare: compareGptVersion,
   },
 });

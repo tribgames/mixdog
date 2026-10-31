@@ -19,7 +19,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
-export const SUMMARY_LOG_FILENAME = 'session-summaries.log';
+const SUMMARY_LOG_FILENAME = 'session-summaries.log';
 
 export function summaryLogPath(indexPath) {
   return join(dirname(indexPath), SUMMARY_LOG_FILENAME);

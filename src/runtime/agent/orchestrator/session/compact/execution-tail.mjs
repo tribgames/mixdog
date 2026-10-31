@@ -18,7 +18,7 @@ export const EXECUTION_RECOVERY_SOURCE = 'compact-execution-recovery';
 const TOOL_HISTORY_CONTEXT_RATIO = 0.05;
 // The working set of recent execution evidence does not grow with the window:
 // above 800k, 5% kept a large block of old tool output after every Compact.
-export const TOOL_HISTORY_MAX_TOKENS = 40_000;
+const TOOL_HISTORY_MAX_TOKENS = 40_000;
 const ARCHIVE_THRESHOLD_TOKENS = 512;
 // Only the newest reminder survives a Compact; it names the dumps it replaced
 // (each dump holds the reminder that preceded it, so older ones stay reachable).

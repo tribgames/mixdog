@@ -26,7 +26,7 @@ export const SESSION_CATALOG_DB_FILE = 'session-catalog.sqlite';
  *  path (an off-switch); absent or true uses the DB whenever it can. */
 export const SESSION_STORE_CONFIG_DEFAULTS = Object.freeze({ sqliteCatalog: true });
 /** Stable prefix of every daemon.log line of the catalog DB. */
-export const SESSION_CATALOG_LOG_PREFIX = '[session-catalog-db]';
+const SESSION_CATALOG_LOG_PREFIX = '[session-catalog-db]';
 
 // A worker that keeps dying is given up on for a while.
 const CRASH_WINDOW_MS = 10 * 60_000;
@@ -93,7 +93,7 @@ function workerSettings() {
  * worker threads are not the main thread, and a daemon started by the CLI
  * under system Node stays on JSON.
  */
-export function isSessionCatalogDbWriter() {
+function isSessionCatalogDbWriter() {
   if (testOptions && 'writer' in testOptions) return testOptions.writer === true;
   return (
     isMainThread &&

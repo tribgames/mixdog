@@ -90,7 +90,7 @@ const SUMMED_USAGE_FIELDS = [
 ];
 
 /** What `total` added after the running total `earlier` (both from addUsage); null when nothing. */
-export function usageSince(total, earlier) {
+function usageSince(total, earlier) {
   if (!total) return null;
   if (!earlier) return { ...total };
   const delta = {};

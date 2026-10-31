@@ -43,7 +43,7 @@ export function beginProviderToolExclusions(sessionRef) {
   if (isSessionRef(sessionRef)) sessions.get(sessionRef)?.current.clear();
 }
 
-export function excludedToolNoticeText({ name, pointer, reason }) {
+function excludedToolNoticeText({ name, pointer, reason }) {
   return `Tool "${name}" was excluded from this session's requests: its input schema is invalid at ${pointer || '/'} (${reason}). Fix the tool's schema or disable the tool.`;
 }
 

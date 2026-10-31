@@ -55,7 +55,7 @@ const tokens = (value) => `${Number(value || 0).toLocaleString('en-US')} tokens`
 // for any history, so compacting the history cannot help and is not tried.
 // The wording avoids provider context-overflow phrasing on purpose: this is
 // not a "conversation too long" refusal and must not be routed as one.
-export class ToolSurfaceExceedsContextError extends Error {
+class ToolSurfaceExceedsContextError extends Error {
   constructor({ sessionId, provider, model, overhead }) {
     const target = [provider, model].filter(Boolean).join('/') || 'this model';
     const reserve = overhead.kind === 'configured_reserve';

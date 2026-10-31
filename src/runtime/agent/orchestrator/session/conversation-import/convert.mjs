@@ -14,7 +14,7 @@ import {
   normalizeTurns,
 } from './turns.mjs';
 
-export const IMPORT_SOURCES = Object.freeze(['codex', 'claude', 'cowork']);
+const IMPORT_SOURCES = Object.freeze(['codex', 'claude', 'cowork']);
 /** A line or converted transcript beyond the import limits fails the file. */
 export const IMPORT_ERROR_TOO_LARGE = 'tooLarge';
 export const IMPORT_MAX_LINE_BYTES = 32 * 1024 * 1024;

@@ -1,12 +1,12 @@
 // manager/turn-checkpoint-journal.mjs
 // Bounded-cost, crash-safe turn checkpointing.
 //
-// PROBLEM. The turn checkpoint used to be a single full-snapshot file that was
-// rewritten on every flush (up to ~6/s per live session): the WHOLE growing
+// PROBLEM. A single full-snapshot checkpoint file rewritten on every flush (up
+// to ~6/s per live session) would re-sanitize and re-serialize the WHOLE growing
 // turn — every committed message, every buffered partial character, every
-// observed tool call — was re-sanitized and re-serialized on the engine thread.
-// Cost per flush grew with the turn (O(turn^2) over a long tool-heavy turn) and
-// at maximum agent fan-out every live session paid it on the SAME event loop.
+// observed tool call — on the engine thread. Cost per flush would grow with the
+// turn (O(turn^2) over a long tool-heavy turn) and at maximum agent fan-out
+// every live session would pay it on the SAME event loop.
 //
 // DESIGN. Split the checkpoint into a write-once header plus an append-only
 // delta journal:

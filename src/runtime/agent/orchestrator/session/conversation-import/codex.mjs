@@ -28,7 +28,7 @@ const CODEX_ENVELOPE_TAGS = [
 ];
 const TOOL_CALL_TYPES = new Set(['function_call', 'custom_tool_call', 'local_shell_call']);
 
-export function isCodexEnvelopeText(text) {
+function isCodexEnvelopeText(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) return true;
   if (/^# AGENTS\.md instructions\b/.test(trimmed) && trimmed.includes('<INSTRUCTIONS>')) return true;

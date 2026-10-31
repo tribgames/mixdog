@@ -239,7 +239,7 @@ test('hydration that completes after a retained-input retry runs the queued mess
   const provider = {
     name: providerName,
     contextWindow: 128000,
-    async send(messages, model, _tools, sendOpts) {
+    async send(messages, _model, _tools, sendOpts) {
       sends.push(messages.map((m) => ({ role: m.role, content: m.content })));
       return reply(messages, sendOpts);
     },

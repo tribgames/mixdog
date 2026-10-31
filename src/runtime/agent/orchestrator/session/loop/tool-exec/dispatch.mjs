@@ -59,8 +59,8 @@ function dispatchMcp(name, args, { cwd, callerSessionId, sessionRef, executeOpts
     return formatUnknownBuiltinToolMessage(name, args, 'tool');
   }
   // 24h trace data shows ~24% of external MCP calls are cwd-sensitive
-  // (bash / grep / read / list / glob etc.) but the worker session's
-  // cwd was previously dropped here. Inject cwd only when the tool's
+  // (bash / grep / read / list / glob etc.), so the worker session's
+  // cwd must reach them. Inject cwd only when the tool's
   // inputSchema declares the field — schemas without it would reject
   // an unknown argument.
   const needsCwdInjection = cwd && mcpToolHasField(name, 'cwd', mcpScopeId) && (args == null || args.cwd == null);

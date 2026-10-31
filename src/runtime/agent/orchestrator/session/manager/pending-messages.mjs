@@ -591,7 +591,7 @@ export function drainPendingMessages(sessionId) {
     );
   }
   // Only materialize the ledger when there is an id to suppress: an empty
-  // drain used to leave a dead Set behind on every call.
+  // drain would leave a dead Set behind on every call.
   const claimedIds = accepted.filter((entry) => entry.id);
   if (claimedIds.length > 0) {
     const inDelivery = pendingIdSet(_inDeliveryPendingIds, sessionId);

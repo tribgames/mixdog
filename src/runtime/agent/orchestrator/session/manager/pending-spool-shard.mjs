@@ -9,7 +9,7 @@ import { legacyPendingMessagesPath, pendingMessagesPath, PENDING_MESSAGES_MODE }
 const SHARD_KEY_RE = /^[A-Za-z0-9_-]+$/;
 const MIGRATION_LOCK_TIMEOUT_MS = 15_000;
 
-export function isShardKey(key) {
+function isShardKey(key) {
   return typeof key === 'string' && SHARD_KEY_RE.test(key);
 }
 

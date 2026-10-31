@@ -7,7 +7,7 @@
 // user's words; the structured `heldRequest` payload is for the UI only.
 import { escapeHarnessTags } from '../../../../shared/shell-output-summary.mjs';
 
-export const HELD_REQUEST_SOURCE = 'held-request';
+const HELD_REQUEST_SOURCE = 'held-request';
 const STATUSES = new Set(['pending', 'approved', 'denied', 'expired']);
 
 const clean = (value, limit = 200) =>

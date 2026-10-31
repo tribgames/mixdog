@@ -337,8 +337,8 @@ const baseBuilds = createBaseBuilds({ build: buildBase });
 // history) and a page of a retained one costs ~0.2 s, a rebuilt one ~1 s. 96
 // MB keeps the largest sessions seen (~78 MB records) smooth; 128 MB holds
 // one of those beside a few ordinary ones.
-export const WORKER_HISTORY_SESSION_MAX_BYTES = 96 * 1024 * 1024;
-export const WORKER_HISTORY_MAX_BYTES = 128 * 1024 * 1024;
+const WORKER_HISTORY_SESSION_MAX_BYTES = 96 * 1024 * 1024;
+const WORKER_HISTORY_MAX_BYTES = 128 * 1024 * 1024;
 
 /**
  * The display histories one worker retains (`{ value, rowBytes, bytes }`,

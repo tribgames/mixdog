@@ -220,7 +220,8 @@ export async function finalizeAskTurnFailure({
   // contract answers "did the provider produce output we must commit?" for
   // every transport. Anthropic's stall/truncation errors carry neither
   // liveTextEmitted nor unsafeToRetry — only partialContent/partialToolCalls
-  // — and used to drop the streamed summary from history on that provider.
+  // — so consulting the flags would drop the streamed summary from history on
+  // that provider.
   const providerOutcome = readStreamOutcome(err);
   const preserveProviderPartial =
     restoredResetText ||

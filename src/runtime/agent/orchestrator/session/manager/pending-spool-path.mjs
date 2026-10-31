@@ -9,8 +9,8 @@ export const PENDING_MESSAGES_MODE = 0o600;
 // Layout: one file (and one lock) per pending key under `session-pending/`.
 // A key is an orchestrator session id or a `tui_<lead session id>` steering
 // bucket, so operations on different sessions never share a lock.
-export const PENDING_SHARD_DIR_NAME = 'session-pending';
-export const LEGACY_PENDING_FILE_NAME = 'session-pending-messages.json';
+const PENDING_SHARD_DIR_NAME = 'session-pending';
+const LEGACY_PENDING_FILE_NAME = 'session-pending-messages.json';
 
 export function pendingShardDir() {
   return join(resolvePluginData(), PENDING_SHARD_DIR_NAME);

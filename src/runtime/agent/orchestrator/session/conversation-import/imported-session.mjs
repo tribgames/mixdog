@@ -12,7 +12,7 @@ import { writeStderrBestEffort } from '../../../../shared/best-effort-stderr.mjs
 import { IMPORTED_MESSAGE_SOURCE } from '../imported-message.mjs';
 import { ingestSessionTurn } from '../../../../session-search/session-search-ingest.mjs';
 
-export const IMPORT_ORIGIN_VERSION = 1;
+const IMPORT_ORIGIN_VERSION = 1;
 
 /**
  * Dedupe identity: the foreign session id, else the canonical source path.
