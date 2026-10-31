@@ -211,7 +211,7 @@ export function transcriptItemsEqual(previous: TranscriptItem | undefined, next:
 // on every range change of a fling, so one formatter per locale + options.
 let shortTimeFormat: { key: string; format: Intl.DateTimeFormat } | null = null;
 
-export function shortTimeText(at: number): string {
+function shortTimeText(at: number): string {
   const locale = uiFormatLocale();
   const options: Intl.DateTimeFormatOptions = { timeStyle: 'short', ...timeFormatOptions() };
   const key = `${locale}|${JSON.stringify(options)}`;

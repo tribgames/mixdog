@@ -10,11 +10,11 @@ const covers = new Set<string>();
 const listeners = new Set<() => void>();
 let coverSeq = 0;
 
-export function workspaceCovered(): boolean {
+function workspaceCovered(): boolean {
   return covers.size > 0 || hasOpenModal();
 }
 
-export function subscribeWorkspaceCover(listener: () => void): () => void {
+function subscribeWorkspaceCover(listener: () => void): () => void {
   listeners.add(listener);
   const unsubscribeModals = subscribeModals(listener);
   return () => {
@@ -24,7 +24,7 @@ export function subscribeWorkspaceCover(listener: () => void): () => void {
 }
 
 /** Marks (or clears) one named cover; listeners hear only real changes. */
-export function setWorkspaceCover(key: string, covering: boolean): void {
+function setWorkspaceCover(key: string, covering: boolean): void {
   if (covers.has(key) === covering) return;
   if (covering) covers.add(key);
   else covers.delete(key);

@@ -44,18 +44,18 @@ import { transcriptRowNamespace } from './transcript-virtual-cache';
 /** Unpaced: least time between two paints of a growing part. */
 export const REVEAL_INTERVAL_MS = 33;
 /** Paced: characters a step reveals. */
-export const REVEAL_STEP_CHARS = 22;
+const REVEAL_STEP_CHARS = 22;
 /** Paced: a backlog drains in about this long. */
-export const REVEAL_TARGET_LAG_MS = 550;
+const REVEAL_TARGET_LAG_MS = 550;
 /** Paced: shortest and longest time between steps. */
-export const REVEAL_MIN_STEP_MS = 25;
-export const REVEAL_MAX_STEP_MS = 150;
+const REVEAL_MIN_STEP_MS = 25;
+const REVEAL_MAX_STEP_MS = 150;
 /** Paced: a step that waited this long adds the whole excess backlog. */
-export const REVEAL_CATCH_UP_RAMP_MS = 75;
+const REVEAL_CATCH_UP_RAMP_MS = 75;
 /** Paced: a first text longer than this shows at once. */
-export const REVEAL_JOIN_CHARS = 400;
+const REVEAL_JOIN_CHARS = 400;
 /** Paced: one delivery this large over a backlog this large shows at once. */
-export const REVEAL_REJOIN_CHARS = 600;
+const REVEAL_REJOIN_CHARS = 600;
 /** The backlog the fastest cadence drains within the target lag. */
 const CATCH_UP_FROM = (REVEAL_TARGET_LAG_MS * REVEAL_STEP_CHARS) / REVEAL_MIN_STEP_MS;
 const REGISTRY_LIMIT = 64;

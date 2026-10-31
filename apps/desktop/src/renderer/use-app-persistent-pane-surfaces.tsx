@@ -192,12 +192,10 @@ export function useAppPersistentPaneSurfaces({
         );
       });
   };
-  // Utility surfaces (Studio/terminal/diff/PR) used to exist only while their
-  // tab was the ACTIVE selection, so navigating away unmounted the whole pane
-  // and coming back replayed the cold "Preparing …" cover (user: Studio가 백
-  // 후 재진입마다 다시 로딩). Once a surface has been activated it stays
-  // mounted — hidden and inert — for as long as its tab remains open; closing
-  // the tab still disposes it.
+  // Unmounting a utility surface (Studio/terminal/diff/PR) when its tab leaves
+  // the ACTIVE selection would replay the cold "Preparing …" cover on every
+  // re-entry. Once a surface has been activated it stays mounted — hidden and
+  // inert — for as long as its tab remains open; closing the tab disposes it.
   const activatedUtilitySurfaceKeys = useRef(new Set<string>());
   const paneUtilityTabs = (leaf: PaneLeaf, focused: boolean, focusPane: () => void) => {
     const active = paneActiveSelection(leaf);

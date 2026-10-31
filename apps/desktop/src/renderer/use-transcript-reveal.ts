@@ -5,7 +5,7 @@ import { TRANSCRIPT_BOTTOM_SPACER, TRANSCRIPT_RELEARN_ATTRIBUTE } from './transc
 import { transcriptScrollPosition } from './use-transcript-follow';
 
 /** A row's remembered size and offset (a virtual item of the snapshot). */
-export type RetainedRow = { readonly key: unknown; readonly start: number; readonly size: number };
+type RetainedRow = { readonly key: unknown; readonly start: number; readonly size: number };
 
 // Bound row/font settling once the dock has answered or its wait has expired.
 export const ENTRY_REVEAL_MAX_MS = 2_000;

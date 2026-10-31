@@ -27,7 +27,7 @@ let touching = false;
 /** The cut rows of every registered group within about one screen of the
  *  viewport go to the read queue (tool-full-output.tsx: two at a time, none
  *  while a history page is pending). */
-export function prefetchNearbyToolOutputs(): void {
+function prefetchNearbyToolOutputs(): void {
   if (touching || historyPagePending()) return;
   const screen = window.innerHeight || 0;
   for (const [element, entry] of registered) {

@@ -106,7 +106,7 @@ export function releaseFullToolOutputs(sessionId: string): void {
 }
 
 /** The key a row's read is held under. */
-export function fullToolOutputKey(sessionId: string, item: TranscriptItem): string {
+function fullToolOutputKey(sessionId: string, item: TranscriptItem): string {
   return `${sessionId}|${item.id == null ? '' : String(item.id)}|${toolRowRevision(item)}`;
 }
 

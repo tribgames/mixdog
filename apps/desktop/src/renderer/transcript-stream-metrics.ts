@@ -280,7 +280,7 @@ function gaps(times: number[]): number[] {
   return out;
 }
 
-export function summarizeStreamRun(target: StreamRun | null = run ?? lastRun) {
+function summarizeStreamRun(target: StreamRun | null = run ?? lastRun) {
   if (!target) return null;
   // The streamed window: first visible grapheme through the last growth.
   const firstGrowth = target.frames.findIndex((sample) => sample.grew > 0);

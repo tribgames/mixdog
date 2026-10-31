@@ -8,7 +8,7 @@ import { withHeadMarkup } from '../shared/sandbox-storage-shim';
 import { BLOCKED_NETWORK_CSP, blockedResourceType, isOutsideNetworkUrl } from '../shared/visualize-network-policy';
 import { MAX_VISUALIZE_PROBLEMS } from '../shared/visualize';
 
-export const PAGE_BLOCKED_REQUEST = 'mixdog-page-blocked';
+const PAGE_BLOCKED_REQUEST = 'mixdog-page-blocked';
 
 /** The in-page half (plain ES5, no `</script`). */
 const BLOCKED_NETWORK_SCRIPT = `(function () {
