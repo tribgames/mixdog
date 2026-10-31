@@ -39,6 +39,7 @@ import {
   visualizeKindForPath,
 } from './targets.ts';
 import { visualizeOverlayScript } from './overlay-script.ts';
+import { remoteLabelOf } from './tab-state.ts';
 
 function workspace() {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-visualize-'));
@@ -1462,7 +1463,7 @@ test('an absolute-path open puts no host path anywhere in the remote state', asy
       sessionId: 's1',
       cwd,
       action: 'open',
-      input: { targets: [join(cwd, 'chart.png'), 'paper.pdf'], label: `Charts from ${cwd}` },
+      input: { targets: [join(cwd, 'chart.png'), 'paper.pdf'], label: 'Charts from C:\\work\\charts' },
     });
     await service.execute({
       sessionId: 's1',
@@ -1487,6 +1488,19 @@ test('an absolute-path open puts no host path anywhere in the remote state', asy
     assert.equal(service.hostSnapshot()[0].tabs[0].panes[0].path, realpathSync(page));
   } finally {
     service.dispose();
+    cleanup();
+  }
+});
+
+test('a remote tab label naming the working directory falls back to the panes, however long the path', () => {
+  // A request label is capped at 120 characters, so a long temp directory
+  // cannot reach this check through the service; call it directly.
+  const { cwd, cleanup } = workspace();
+  try {
+    const panes = [{ target: 'chart.png', remoteTarget: 'chart.png' }];
+    assert.equal(remoteLabelOf({ cwd, label: `Charts${cwd}` }, panes), 'chart.png');
+    assert.equal(remoteLabelOf({ cwd, label: 'Charts' }, panes), 'Charts');
+  } finally {
     cleanup();
   }
 });
