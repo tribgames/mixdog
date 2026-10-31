@@ -42,6 +42,26 @@ test('duplicate wordings and unknown items are refused without changing the list
   assert.equal(todoSnapshot(session), before);
 });
 
+test('a follow-up init cannot erase unfinished items; append keeps them and init works once all are closed', () => {
+  const session = { id: 'sess_todo_followup' };
+  executeTodoTool(session, { op: 'init', items: ['Implement the change', 'Verify the change'] });
+  executeTodoTool(session, { op: 'done', item: 'Implement the change' });
+  const before = todoSnapshot(session);
+  assert.throws(
+    () => executeTodoTool(session, { op: 'init', items: ['Also update the docs'] }),
+    /unfinished items \("Verify the change"\)/
+  );
+  assert.equal(todoSnapshot(session), before, 'the refused init leaves the list untouched');
+
+  executeTodoTool(session, { op: 'append', items: ['Also update the docs'] });
+  executeTodoTool(session, { op: 'done', item: 'Also update the docs' });
+  assert.match(notDoneReport(session), /Verify the change/, 'the earlier item is still reported');
+
+  executeTodoTool(session, { op: 'drop', item: 'Verify the change' });
+  executeTodoTool(session, { op: 'init', items: ['A new request'] });
+  assert.deepEqual(statuses(session), ['in_progress']);
+});
+
 test('every op keeps exactly one item in progress, blocked never starts and completed never reopens', () => {
   const session = { id: 'sess_todo_normalize' };
   executeTodoTool(session, { op: 'init', items: ['One', 'Two', 'Three'] });

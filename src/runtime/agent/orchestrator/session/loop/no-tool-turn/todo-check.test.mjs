@@ -330,6 +330,14 @@ test("an agent's brief or follow-up with no open list carries one hidden ask to 
   const next = await buildUserTurn({ session: agentSession, prompt: 'Now a new brief.' });
   assert.match(next.userTurnMessage.content, ask, 'a finished list is let go and the new brief asks again');
 
+  const blocked = { ...agentSession, id: `${agentSession.id}_blocked`, todo: null };
+  executeTodoTool(blocked, { op: 'init', items: ['Wait for review'] });
+  executeTodoTool(blocked, { op: 'block', item: 'Wait for review', reason: 'needs sign-off' });
+  const reconcile = todoStartReminder(blocked);
+  assert.doesNotMatch(reconcile, /init the todo list/, 'a blocked-only list is not told to init');
+  assert.match(reconcile, /append[\s\S]*done, drop or unblock/);
+  assert.throws(() => executeTodoTool(blocked, { op: 'init', items: ['New ask'] }), /unfinished items/);
+
   assert.equal(todoStartReminder({ ...agentSession, todo: null, owner: 'user' }), null, 'the Lead is not asked');
   assert.equal(todoStartReminder({ ...agentSession, todo: null, agent: 'title-agent' }), null);
   assert.equal(todoStartReminder({ ...agentSession, todo: null, tools: [{ name: 'read' }] }), null);
