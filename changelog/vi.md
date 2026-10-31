@@ -46,6 +46,7 @@ Thêm phần cài đặt Worktree và dọn dẹp nhánh, thay thế tác vụ G
 - Sửa lỗi tìm kiếm ký ức bỏ sót từ nội dung tiếng Hàn trong các truy vấn đa ngữ, đồng thời tối ưu hóa quét từ khóa chính xác.
 - Sửa lỗi liên kết web và tab trình duyệt truyền trực tiếp trên điện thoại không vừa màn hình hoặc không mở trong Visualize.
 - Sửa lỗi các hàng chọn màu bị đè lên phần mô tả trong cửa sổ Cài đặt thu hẹp và tránh ghi đè các chỉnh sửa chỉ dẫn diễn ra đồng thời (#287).
+- Sửa lỗi việc chạy `npm ci` bên trong một worktree làm trống `node_modules` của checkout chính; nay mỗi worktree sẽ tự cài đặt các phụ thuộc riêng.
 
 ## v1.4.2 - 2026-10-29
 

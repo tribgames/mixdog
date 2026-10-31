@@ -46,6 +46,7 @@ Aggiunte le impostazioni per i Worktree e la pulizia dei branch, sostituite le a
 - Risolto il problema per cui le ricerche nella memoria perdevano le parole di contenuto in coreano nelle query miste e ottimizzata la scansione per termini esatti.
 - Risolto il problema dei link web e delle schede del browser trasmesse su smartphone che non si adattavano agli schermi mobili o non si aprivano in Visualize.
 - Risolta la sovrapposizione delle righe dei colori con le descrizioni nelle finestre strette di Impostazioni ed evitato che modifiche simultanee sovrascrivessero le istruzioni (#287).
+- Risolto il problema per cui l'esecuzione di `npm ci` all'interno di un worktree svuotava il `node_modules` del checkout principale; ora ogni worktree installa le proprie dipendenze.
 
 ## v1.4.2 - 2026-10-29
 

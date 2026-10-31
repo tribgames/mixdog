@@ -47,6 +47,7 @@ Ajout des paramètres Worktrees et du nettoyage des branches, remplacement des t
 - Correction de la recherche mémorielle qui perdait les mots de contenu coréens dans les requêtes mixtes et optimisation de la recherche de termes exacts.
 - Correction des liens web et des onglets de navigateur diffusés sur smartphone qui ne s'adaptaient pas aux écrans mobiles ou ne s'ouvraient pas dans Visualize.
 - Correction du chevauchement des sélecteurs de couleur avec leurs descriptions dans les fenêtres étroites et protection contre l'écrasement des instructions (#287).
+- Correction de l'exécution de `npm ci` dans un worktree qui vidait le `node_modules` du checkout principal ; chaque worktree installe désormais ses propres dépendances.
 
 ## v1.4.2 - 2026-10-29
 

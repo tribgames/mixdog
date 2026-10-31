@@ -46,6 +46,7 @@ Adicionadas as configurações de Worktrees e a limpeza de branches, substituíd
 - Corrigida a busca na memória que descartava palavras de conteúdo em coreano em consultas mistas e otimizada a varredura por termos exatos.
 - Corrigido o problema em que links da web e abas de navegador transmitidas em celulares não se ajustavam às telas móveis ou não abriam no Visualize.
 - Corrigida a sobreposição das opções de cores com descrições em janelas estreitas de Configurações e evitada a substituição de edições simultâneas de instruções (#287).
+- Corrigido o problema em que executar `npm ci` dentro de um worktree esvaziava o `node_modules` do checkout principal; agora cada worktree instala suas próprias dependências.
 
 ## v1.4.2 - 2026-10-29
 
