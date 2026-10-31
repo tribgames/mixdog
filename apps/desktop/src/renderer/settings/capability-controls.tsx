@@ -215,6 +215,7 @@ export function AutoSaveRow({
   disabled,
   actions,
   onSave,
+  onInput,
 }: {
   title: string;
   value: string;
@@ -224,6 +225,8 @@ export function AutoSaveRow({
   disabled?: boolean;
   actions?: ReactNode;
   onSave(value: string): void;
+  /** Every edit as typed (a live preview); saving still waits for blur / Enter. */
+  onInput?(value: string): void;
 }) {
   const commit = (input: HTMLInputElement) => {
     if (input.value === value) return;
@@ -244,6 +247,7 @@ export function AutoSaveRow({
           placeholder={placeholder}
           required={required}
           disabled={disabled}
+          onInput={onInput ? (event) => onInput(event.currentTarget.value) : undefined}
           onBlur={(event) => commit(event.currentTarget)}
           onKeyDown={(event) => {
             if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
@@ -252,6 +256,8 @@ export function AutoSaveRow({
             } else if (event.key === 'Escape') {
               event.preventDefault();
               event.currentTarget.value = value;
+              // A programmatic reset fires no input event: report the restored text.
+              onInput?.(value);
               event.currentTarget.blur();
             }
           }}

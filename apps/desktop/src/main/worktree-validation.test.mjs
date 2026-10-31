@@ -11,9 +11,7 @@ import {
 import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-validation.ts';
 import { worktreeErrorWithCode } from './worktree-validation.ts';
 import { WORKTREE_ERROR_CODES } from '../../../../src/runtime/shared/worktrees/contract.mjs';
-import {
-  WORKTREE_NEW_TASK_DEFAULTS,
-} from '../../../../src/runtime/shared/worktrees/settings.mjs';
+import { WORKTREE_NEW_TASK_DEFAULTS } from '../../../../src/runtime/shared/worktrees/settings.mjs';
 import { SESSION_CONFIGURE_ACTIONS, SESSION_READ_ACTIONS } from '../../../../src/standalone/session-protocol.mjs';
 import { createSessionWorktreeApi } from '../../../../src/tui/session/session-api/worktree.mjs';
 
@@ -63,6 +61,13 @@ test('worktree capability arguments are shape-checked', () => {
   assert.doesNotThrow(() => request('mergeWorkspace', { confirmed: true, target: 'main', cleanup: true }));
   assert.doesNotThrow(() => request('listWorktrees'));
   assert.doesNotThrow(() => request('pruneWorktrees'));
+  assert.doesNotThrow(() => request('pruneWorktrees', { repoCommonDir: '/p/.git' }));
+  assert.doesNotThrow(() => request('setWorktreeSettings', { branchPrefix: '' }));
+  assert.doesNotThrow(() =>
+    request('setWorktreeSettings', { maxWorktrees: 0, unusedDays: 30, cleanupArchived: false, deleteBranch: true })
+  );
+  assert.doesNotThrow(() => request('deleteWorktree', { entryId: 'fix-login' }));
+  assert.doesNotThrow(() => request('deleteWorktree', { entryId: 'fix-login', force: true }));
   for (const input of [
     { projectPath: '/p', branch: 'origin/x', remote: 'yes' },
     { projectPath: '/p', branch: 'origin/x', remote: true, create: true },
@@ -112,6 +117,16 @@ test('worktree capability arguments are shape-checked', () => {
     ['setWorktreeSettings', { sizeWarnBytes: 1.5 }],
     ['setWorktreeSettings', { autoCleanup: 1 }],
     ['setWorktreeSettings', { unknown: true }],
+    ['setWorktreeSettings', { branchPrefix: 3 }],
+    ['setWorktreeSettings', { maxWorktrees: -1 }],
+    ['setWorktreeSettings', { maxWorktrees: 1001 }],
+    ['setWorktreeSettings', { unusedDays: 1.5 }],
+    ['setWorktreeSettings', { cleanupArchived: 'yes' }],
+    ['setWorktreeSettings', { deleteBranch: 1 }],
+    ['deleteWorktree'],
+    ['deleteWorktree', {}],
+    ['deleteWorktree', { entryId: 'x', force: 'yes' }],
+    ['deleteWorktree', { entryId: 'x', sessionId: 's' }],
   ]) {
     assert.throws(() => request(capability, ...args), TypeError, `${capability} ${JSON.stringify(args)}`);
   }

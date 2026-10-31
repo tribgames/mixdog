@@ -3,6 +3,8 @@
 import {
   DESKTOP_WORKTREE_CAPABILITIES,
   DESKTOP_WORKTREE_ERROR_CODES,
+  DESKTOP_WORKTREE_MAX_WORKTREES_LIMIT,
+  DESKTOP_WORKTREE_UNUSED_DAYS_LIMIT,
   DESKTOP_WORKTREE_NEW_TASK_DEFAULTS,
   type DesktopCapability,
   type DesktopWorktreeCapability,
@@ -51,7 +53,9 @@ export const WORKTREE_CAPABILITY_ARITY = {
   mergeWorkspace: [1, 1],
   removeWorktree: [0, 1],
   listWorktrees: [0, 0],
-  pruneWorktrees: [0, 0],
+  pruneWorktrees: [0, 1],
+  previewWorktreeCleanup: [0, 1],
+  deleteWorktree: [1, 1],
   getWorktreeSettings: [0, 0],
   setWorktreeSettings: [1, 1],
 } as const satisfies Record<DesktopWorktreeCapability, readonly [number, number]>;
@@ -233,7 +237,20 @@ export function validateWorktreeCapabilityArgs(capability: DesktopWorktreeCapabi
     }
     case 'setWorktreeSettings': {
       const input = objectArg(args[0], 'worktree settings');
-      allowKeys(input, ['newTaskDefault', 'branchPrefix', 'sizeWarnBytes', 'autoCleanup'], 'worktree settings');
+      allowKeys(
+        input,
+        [
+          'newTaskDefault',
+          'branchPrefix',
+          'sizeWarnBytes',
+          'autoCleanup',
+          'maxWorktrees',
+          'unusedDays',
+          'cleanupArchived',
+          'deleteBranch',
+        ],
+        'worktree settings'
+      );
       if (!Object.keys(input).length) throw new TypeError('worktree settings require at least one setting.');
       if (
         input.newTaskDefault !== undefined &&
@@ -241,7 +258,13 @@ export function validateWorktreeCapabilityArgs(capability: DesktopWorktreeCapabi
       ) {
         throw new TypeError('worktree settings newTaskDefault must be branch or worktree.');
       }
-      if (input.branchPrefix !== undefined) refText(input.branchPrefix, 'worktree settings branchPrefix');
+      // "" (no prefix) is a valid choice; the runtime checks the ref shape.
+      if (
+        input.branchPrefix !== undefined &&
+        (typeof input.branchPrefix !== 'string' || input.branchPrefix.length > MAX_REF_LENGTH)
+      ) {
+        throw new TypeError('worktree settings branchPrefix must be a string.');
+      }
       if (
         input.sizeWarnBytes !== undefined &&
         (!Number.isSafeInteger(input.sizeWarnBytes) || (input.sizeWarnBytes as number) < 0)
@@ -249,12 +272,40 @@ export function validateWorktreeCapabilityArgs(capability: DesktopWorktreeCapabi
         throw new TypeError('worktree settings sizeWarnBytes must be a non-negative integer.');
       }
       optionalBoolean(input, 'autoCleanup', 'worktree settings');
+      optionalBoolean(input, 'cleanupArchived', 'worktree settings');
+      optionalBoolean(input, 'deleteBranch', 'worktree settings');
+      for (const [key, limit] of [
+        ['maxWorktrees', DESKTOP_WORKTREE_MAX_WORKTREES_LIMIT],
+        ['unusedDays', DESKTOP_WORKTREE_UNUSED_DAYS_LIMIT],
+      ] as const) {
+        const value = input[key];
+        if (
+          value !== undefined &&
+          (!Number.isSafeInteger(value) || (value as number) < 0 || (value as number) > limit)
+        ) {
+          throw new TypeError(`worktree settings ${key} must be an integer from 0 to ${limit}.`);
+        }
+      }
+      return;
+    }
+    case 'deleteWorktree': {
+      const input = objectArg(args[0], 'deleteWorktree input');
+      allowKeys(input, ['entryId', 'force'], 'deleteWorktree input');
+      refText(input.entryId, 'deleteWorktree input.entryId');
+      optionalBoolean(input, 'force', 'deleteWorktree input');
+      return;
+    }
+    case 'pruneWorktrees':
+    case 'previewWorktreeCleanup': {
+      if (args[0] === undefined) return;
+      const input = objectArg(args[0], `${capability} input`);
+      allowKeys(input, ['repoCommonDir'], `${capability} input`);
+      if (input.repoCommonDir !== undefined) projectPathText(input.repoCommonDir, `${capability} input.repoCommonDir`);
       return;
     }
     case 'getBranchMenu':
     case 'getWorktreeSettings':
     case 'listWorktrees':
-    case 'pruneWorktrees':
       return;
   }
 }

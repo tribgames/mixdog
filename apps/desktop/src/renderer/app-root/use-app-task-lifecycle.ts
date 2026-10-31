@@ -20,6 +20,8 @@ import type { Snapshot } from '../desktop-types';
 import type { useDesktopState } from '../app-desktop-state';
 import type { useAppShellPanels } from '../use-app-shell-panels';
 import { paneSize } from './workspace-targets';
+import { setBranchIntent } from '../worktree-branch-model';
+import { NEW_TASK_IN_WORKTREE_EVENT, type NewTaskInWorktreeDetail } from '../worktree-session-events';
 
 export const LAST_SESSION_KEY = 'mixdog.desktop-last-session.v1';
 
@@ -242,6 +244,32 @@ export function useAppTaskLifecycle({
   );
 
   const startProjectlessTask = useCallback(() => startTask(undefined, true, true), [startTask]);
+
+  // "Open new session here" (Settings → Worktrees): a New Task draft in the
+  // worktree's project with its branch chosen, so the first send joins that
+  // existing checkout.
+  const startTaskInWorktree = useStableEvent((projectPath: string, branch: string) => {
+    const draft = newDraftSelection();
+    const key = draft.kind === 'new' ? draft.draftId || 'default' : 'default';
+    draftPanePrefs.current.set(key, {
+      ...inheritedDraftPrefs(),
+      projectPath: effectiveDraftProjectPath(projectPath),
+    });
+    persistDraftPanePrefs();
+    setDraftPrefsVersion((value) => value + 1);
+    setBranchIntent(key, branch, false);
+    startTask(draft);
+  });
+  useEffect(() => {
+    const open = (event: Event) => {
+      const detail = (event as CustomEvent<Partial<NewTaskInWorktreeDetail>>).detail;
+      if (typeof detail?.projectPath === 'string' && typeof detail.branch === 'string' && detail.branch) {
+        startTaskInWorktree(detail.projectPath, detail.branch);
+      }
+    };
+    window.addEventListener(NEW_TASK_IN_WORKTREE_EVENT, open);
+    return () => window.removeEventListener(NEW_TASK_IN_WORKTREE_EVENT, open);
+  }, [startTaskInWorktree]);
 
   const clearSessionToNewTask = useCallback(
     (sessionId: string) => {

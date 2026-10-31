@@ -1,6 +1,8 @@
 import type React from 'react';
 import { lazy, Suspense, useCallback, useEffect, useRef, type ComponentProps } from 'react';
 import { OPEN_DOCTOR_EVENT } from '../command-surface-doctor-event';
+import { OPEN_TASK_SESSION_EVENT } from '../agent-task-events';
+import { NEW_TASK_IN_WORKTREE_EVENT } from '../worktree-session-events';
 import { sendTextToComposer } from '../composer-text-inbox';
 import type { SettingsSection as SlashSettingsSection } from '../slash-commands';
 import type { DesktopModelSelection, DesktopSessionSummary } from '../../shared/contract';
@@ -139,6 +141,17 @@ export function AppShellOverlays({
     window.addEventListener(OPEN_DOCTOR_EVENT, openDoctor);
     return () => window.removeEventListener(OPEN_DOCTOR_EVENT, openDoctor);
   }, [setCommandSurface, setCommandSurfaceSessionId, setSettingsOpen]);
+
+  // Settings → Worktrees opens a session or a New Task: the dialog closes so it shows.
+  useEffect(() => {
+    const close = () => setSettingsOpen(false);
+    window.addEventListener(OPEN_TASK_SESSION_EVENT, close);
+    window.addEventListener(NEW_TASK_IN_WORKTREE_EVENT, close);
+    return () => {
+      window.removeEventListener(OPEN_TASK_SESSION_EVENT, close);
+      window.removeEventListener(NEW_TASK_IN_WORKTREE_EVENT, close);
+    };
+  }, [setSettingsOpen]);
 
   const closeSettings = useCallback(() => setSettingsOpen(false), [setSettingsOpen]);
   const composeFromSettings = useCallback(

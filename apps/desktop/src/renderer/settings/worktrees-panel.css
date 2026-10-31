@@ -1,0 +1,126 @@
+/* Settings → Worktrees (design/mockups/retention-settings frame A). */
+
+/* The branch-menu look (design/mockups/branch-menu-groups): no rule between
+   rows, spacing separates them, and group labels are small and muted. Scoped
+   to this page; other pages keep the shared row rules. */
+.worktrees-page :is(.mixdog-settings__row, .settings-form-row, .settings-resource) {
+  border-bottom: 0;
+}
+.mixdog-settings-v2 .worktrees-page :is(.mixdog-settings__row, .settings-form-row) {
+  min-height: 0;
+  padding-block: 8px;
+}
+.worktrees-page .settings-group h3,
+.worktrees-page .worktree-advanced > summary {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: 600;
+}
+.worktrees-page .settings-group + .settings-group,
+.worktrees-page .settings-group + .worktree-cleanup-note + .settings-group {
+  margin-top: 20px;
+}
+
+/* The cleanup options under the master toggle: indented, dimmed while it is off. */
+.worktree-cleanup-sub .mixdog-settings__row {
+  padding-left: 16px;
+}
+.worktree-cleanup-sub.is-off {
+  opacity: 0.45;
+}
+.worktree-cleanup-note,
+.worktree-prefix-example {
+  margin: 8px 0 0;
+  color: var(--mx-text-faint);
+  font-size: var(--mx-font-meta);
+}
+.worktree-prefix-example {
+  margin: 0;
+  padding: 0 0 12px;
+}
+.worktree-prefix-example[role="alert"] {
+  color: var(--mx-warning);
+}
+
+.worktree-list .settings-group-head {
+  align-items: center;
+}
+.worktree-list-notice {
+  margin: 8px 0;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.worktree-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.worktree-table th,
+.worktree-table td {
+  padding: 6px 12px;
+  text-align: left;
+  border: 0;
+  vertical-align: middle;
+}
+.worktree-table thead th {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: 500;
+}
+.worktree-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+/* Project label above its rows: small and muted, spaced instead of ruled. */
+.worktree-table-project th {
+  padding-top: 14px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: 600;
+}
+.worktree-branch {
+  overflow-wrap: anywhere;
+}
+.worktree-session-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mx-accent);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.worktree-session-link:hover {
+  text-decoration: underline;
+}
+.worktree-session-other {
+  color: var(--mx-text-faint);
+}
+.worktree-state {
+  font-size: var(--mx-font-meta);
+}
+.worktree-state.is-dirty,
+.worktree-state.is-unmerged {
+  color: var(--mx-warning);
+}
+.worktree-state.is-busy {
+  color: var(--mx-accent);
+}
+.worktree-state.is-ok {
+  color: var(--mx-success);
+}
+.worktree-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+/* The collapsed "Advanced" group at the bottom of the page. */
+.worktree-advanced {
+  margin-top: 18px;
+}
+.worktree-advanced > summary {
+  cursor: pointer;
+  font-weight: 600;
+  margin-bottom: 8px;
+}

@@ -4,7 +4,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act, useLayoutEffect } from 'react';
-import { createRoot } from 'react-dom/client';
 import { installTestDom } from '../test-support/test-dom.mjs';
 
 installTestDom(null, {
@@ -18,7 +17,7 @@ installTestDom(null, {
 });
 window.matchMedia ??= () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
 
-let host = { newTaskDefault: 'branch', branchPrefix: 'mixdog/', sizeWarnBytes: 1024 ** 3, autoCleanup: false };
+let host = { newTaskDefault: 'branch', branchPrefix: 'team/', sizeWarnBytes: 1024 ** 3, autoCleanup: false };
 let reads = 0;
 window.mixdogDesktop = {
   invokeCapability: async ({ capability }) => {
@@ -27,7 +26,9 @@ window.mixdogDesktop = {
     return { value: { ...host } };
   },
 };
-const { WorktreeSettings } = await import('./worktree-settings.tsx');
+// After the DOM exists, so react-dom detects native input events.
+const { createRoot } = await import('react-dom/client');
+const { WorktreeAdvancedSettings: WorktreeSettings } = await import('./worktree-settings.tsx');
 const { SETUP_CHANGED_EVENT } = await import('../setup-change-refresh.ts');
 const { loadWorktreeSettings } = await import('./worktree-settings-store.ts');
 
@@ -54,13 +55,13 @@ test('a retained page revalidates on each opening and reads nothing while closed
     // Mounted hidden (the dialog is closed): the cached value, no read.
     await render(false);
     await settle();
-    assert.equal(prefix(), 'mixdog/');
+    assert.equal(prefix(), 'team/');
     assert.equal(reads, 1);
     // Opened: the cached value is there in the first commit, then revalidated.
     host = { ...host, branchPrefix: 'elsewhere/' };
     firstCommit = undefined;
     await render(true);
-    assert.equal(firstCommit, 'mixdog/');
+    assert.equal(firstCommit, 'team/');
     await settle();
     assert.equal(reads, 2);
     assert.equal(prefix(), 'elsewhere/');
@@ -81,6 +82,44 @@ test('a retained page revalidates on each opening and reads nothing while closed
     await settle();
     assert.equal(reads, 4);
     assert.equal(prefix(), 'while-closed/');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+test('a typed branch prefix is a git ref path; the trailing "/" is optional', async () => {
+  const { normalizeBranchPrefix } = await import('./worktree-settings.tsx');
+  assert.equal(normalizeBranchPrefix(''), '');
+  assert.equal(normalizeBranchPrefix(' team '), 'team/');
+  assert.equal(normalizeBranchPrefix('team/agents/'), 'team/agents/');
+  for (const bad of ['-x', 'a..b', 'x.lock', 'a//b', 'a b', '/x']) assert.equal(normalizeBranchPrefix(bad), null, bad);
+});
+
+test('the branch example follows a custom prefix while it is typed, before it is saved', async () => {
+  const root = createRoot(document.getElementById('root'));
+  const example = () => document.querySelector('.worktree-prefix-example')?.textContent ?? '';
+  try {
+    await act(async () => root.render(React.createElement(WorktreeSettings, { active: false })));
+    await settle();
+    const input = document.querySelector('input[name="worktreeBranchPrefix"]');
+    assert.ok(input, 'a saved custom prefix shows its text field');
+    assert.match(example(), /while-closed\/sidebar-fix/);
+    const type = (text) =>
+      act(async () => {
+        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set.call(input, text);
+        input.dispatchEvent(new window.Event('input', { bubbles: true }));
+      });
+    await type('agents');
+    assert.match(example(), /agents\/sidebar-fix/, 'normalized as typed (trailing "/" added)');
+    await type('team/ai/');
+    assert.match(example(), /team\/ai\/sidebar-fix/);
+    // Escape cancels the edit: the field and the example go back to the saved prefix.
+    await act(async () => {
+      input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    assert.equal(input.value, 'while-closed/');
+    assert.match(example(), /while-closed\/sidebar-fix/);
+    assert.equal(reads, 4, 'typing saved nothing and read nothing');
   } finally {
     await act(async () => root.unmount());
   }

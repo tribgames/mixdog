@@ -6,6 +6,7 @@ import {
   Brain,
   Cable,
   Code,
+  FolderGit2,
   GitBranch,
   Hammer,
   Heart,

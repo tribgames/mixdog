@@ -25,6 +25,7 @@ import { InstructionControlPanel } from './instruction-control-panel';
 import { SkinPanel } from './skin-panel';
 import { BotsPanel } from './desktop-pet-toggle';
 import { NotificationsPanel } from './notification-panel';
+import { WorktreesPanel } from './worktrees-panel';
 
 import { ActionButton, AutoSaveRow, Group, ListEmpty, ResourceRow, SelectRow, ToggleRow } from './capability-controls';
 import {
