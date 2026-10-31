@@ -651,11 +651,15 @@ test('plugin MCP enablement resolves the registered plugin by name', async () =>
   await assert.rejects(run(api, { action: 'enable_plugin_mcp', name: 'missing' }), /not found/);
 });
 
-test('Desktop schema accepts notification volume and appearance view options within their bounds', () => {
+test('Desktop schema accepts notification volume, session retention days and appearance view options within their bounds', () => {
   const { desktop, appearance } = SETUP_TOOL_DEFS[0].inputSchema.properties;
   assert.equal(schemaValueError({ notificationVolume: 400 }, desktop, 'desktop'), null);
   assert.match(schemaValueError({ notificationVolume: 401 }, desktop, 'desktop'), /at most 400/);
   assert.match(schemaValueError({ notificationVolume: 1.5 }, desktop, 'desktop'), /integer/);
+  const retention = { sessionAutoArchiveDays: 14, sessionAutoDeleteDays: 0 };
+  assert.equal(schemaValueError(retention, desktop, 'desktop'), null);
+  assert.match(schemaValueError({ sessionAutoDeleteDays: 14 }, desktop, 'desktop'), /must be one of/);
+  assert.match(schemaValueError({ sessionAutoArchiveDays: 3 }, desktop, 'desktop'), /must be one of/);
   const valid = { markdownDefaultView: 'rich', linkPreview: false, toolActivityExpansion: 'commands' };
   assert.equal(schemaValueError(valid, appearance, 'appearance'), null);
   assert.match(schemaValueError({ markdownDefaultView: 'raw' }, appearance, 'appearance'), /must be one of/);

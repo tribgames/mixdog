@@ -243,6 +243,16 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
       maximum: 400,
       description: 'Windows only: notification sound volume percent.',
     },
+    sessionAutoArchiveDays: {
+      type: 'integer',
+      enum: [0, 1, 7, 14, 30, 90],
+      description: 'Days without conversation before a session is archived; 0 = never (default 7).',
+    },
+    sessionAutoDeleteDays: {
+      type: 'integer',
+      enum: [0, 7, 30, 90],
+      description: 'Days archived before a session is deleted; 0 = never (default 90).',
+    },
     botOverlay: object(
       {
         enabled: {
