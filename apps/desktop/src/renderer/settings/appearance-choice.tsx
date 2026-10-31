@@ -184,7 +184,6 @@ export function AppearanceChoice({ onPreview }: { onPreview?(id: string | null):
   return (
     <>
       <div className="skin-cards">
-        {/* biome-ignore lint/a11y/useSemanticElements: a card grid of picture radios, not form radio inputs. */}
         <div
           ref={radios}
           className="skin-radios"

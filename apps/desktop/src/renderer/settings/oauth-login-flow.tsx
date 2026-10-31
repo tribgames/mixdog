@@ -17,7 +17,7 @@ import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { settingsStatus } from './capability-controls';
 import type { PanelContext, RecordValue } from './capability-data';
 
-export function openSignInPage(url: unknown) {
+function openSignInPage(url: unknown) {
   if (typeof url === 'string' && url) void window.mixdogDesktop?.openExternal?.(url).catch(() => undefined);
 }
 

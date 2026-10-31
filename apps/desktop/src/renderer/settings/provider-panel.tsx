@@ -56,7 +56,7 @@ function vertexSavedLocation(provider: RecordValue): string {
 }
 
 /** The Vertex AI gcloud-login status line, from the setup's detected login. */
-export function vertexAdcNote(provider: RecordValue): string | undefined {
+function vertexAdcNote(provider: RecordValue): string | undefined {
   const adc = record(provider.adc);
   if (adc.state === 'ready') {
     const account = typeof adc.account === 'string' && adc.account ? adc.account : t('gcloud user account');

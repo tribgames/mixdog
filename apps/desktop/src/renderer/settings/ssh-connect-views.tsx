@@ -89,7 +89,7 @@ export function CancelButton({ onCancel }: { onCancel(): void }) {
 }
 
 /** The link back to the address field. */
-export function EditAddressLink({ onEdit }: { onEdit(): void }) {
+function EditAddressLink({ onEdit }: { onEdit(): void }) {
   return (
     <button type="button" className="conn-link" onClick={onEdit}>
       {t('Edit address')}

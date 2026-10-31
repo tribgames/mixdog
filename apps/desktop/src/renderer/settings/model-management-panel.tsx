@@ -108,7 +108,7 @@ export function modelManagementProviders(data: Record<string, unknown>): Managed
 /** A provider that comes back with no models and no failure is a sweep still
  *  in flight (a deadline or partial answer), not a real empty list: it keeps
  *  its last good rows. A real failure carries `catalogError` and is shown. */
-export function holdLastGoodModels(
+function holdLastGoodModels(
   next: ManagedProvider[],
   previous: ReadonlyMap<string, ManagedProvider>
 ): ManagedProvider[] {
