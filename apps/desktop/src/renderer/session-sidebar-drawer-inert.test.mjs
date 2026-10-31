@@ -47,10 +47,10 @@ async function mount(t, { phone }) {
           React.createElement('nav', { className: 'activity-rail' }, [
             React.createElement('button', { key: 'r', 'data-side-view': 'sessions' }, 'rail'),
           ]),
-          // biome-ignore lint/correctness/noChildrenProp: props object passed through to createElement
           React.createElement(SessionSidebar, {
             ...props,
             open,
+            // biome-ignore lint/correctness/noChildrenProp: props object passed through to createElement
             children: React.createElement('button', { id: 'inside' }, 'in'),
           })
         )

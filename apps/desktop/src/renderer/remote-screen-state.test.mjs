@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { screenKeyChord, screenSpecialKeyInputs } from './remote-screen-keys.ts';
+import { screenKeyChord } from './remote-screen-keys.ts';
 import * as remoteScreenState from './remote-screen-state.ts';
 import {
   chooseScreenEntry,

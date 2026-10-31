@@ -152,7 +152,7 @@ const PAGE_MAX_FRAME_DEPTH = 2;
 /** `@import` chains followed inside stylesheets. */
 const CSS_MAX_IMPORT_DEPTH = 4;
 /** Largest file one page `fetch`/XHR may read through the bridge. */
-export const PAGE_FETCH_MAX_BYTES = 16 * 1024 * 1024;
+const PAGE_FETCH_MAX_BYTES = 16 * 1024 * 1024;
 
 const CSS_IMPORT = /@import\s+(?:url\(\s*)?(["']?)([^"')\s;]+)\1\s*\)?\s*([^;]*);/gi;
 const CSS_URL = /url\(\s*(["']?)([^"')]+?)\1\s*\)/gi;
@@ -300,7 +300,7 @@ async function replaceAsync(
 
 /** The URL and descriptor of each `srcset` candidate (HTML's parsing rules:
  *  a URL runs to whitespace; a trailing comma ends the candidate). */
-export function parseSrcset(value: string): { url: string; descriptor: string }[] {
+function parseSrcset(value: string): { url: string; descriptor: string }[] {
   const out: { url: string; descriptor: string }[] = [];
   let at = 0;
   while (at < value.length) {

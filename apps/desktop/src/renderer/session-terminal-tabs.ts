@@ -25,7 +25,7 @@ const STORAGE_KEY = 'mixdog.desktop-terminal-tabs.v1';
 /** The terminal a conversation session owns in its side dock (its first tab). */
 export const sessionTerminalId = (sessionId: string): string => `session-terminal:${sessionId}`;
 
-export const sessionTerminalTabId = (sessionId: string, n: number): string =>
+const sessionTerminalTabId = (sessionId: string, n: number): string =>
   n === 1 ? sessionTerminalId(sessionId) : `${sessionTerminalId(sessionId)}:${n}`;
 
 const states = new Map<string, SessionTerminalTabsState>();

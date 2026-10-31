@@ -39,14 +39,14 @@ function codeFromKey(key: string): string | null {
 
 /** The `code` a key press stands for: its own when the keyboard reports one,
  *  else the one its `key` names. */
-export function screenKeyCode(press: Pick<SendBarKey, 'key' | 'code' | 'keyCode'>): string | null {
+function screenKeyCode(press: Pick<SendBarKey, 'key' | 'code' | 'keyCode'>): string | null {
   if (press.code && press.keyCode !== 229 && remoteScreenKeyForCode(press.code)) return press.code;
   return codeFromKey(press.key);
 }
 
 /** A routed key or chord as pressed-and-lifted `screen-key` input; Ctrl, Alt,
  *  Win and Shift go down first and up last. A key with no code sends nothing. */
-export function screenKeyPress(press: SendBarKey): RemoteScreenInput[] {
+function screenKeyPress(press: SendBarKey): RemoteScreenInput[] {
   const code = screenKeyCode(press);
   if (!code) return [];
   const modifiers = [

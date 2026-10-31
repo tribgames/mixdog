@@ -65,7 +65,7 @@ export interface MediaLane {
 // How long one lane listing waits for a provider catalog before reporting it
 // as still loading (a gateway catalog such as NanoGPT's can take most of a
 // minute), and how soon a still-loading catalog is asked again.
-export const MEDIA_CATALOG_BUDGET_MS = 6_000;
+const MEDIA_CATALOG_BUDGET_MS = 6_000;
 export const MEDIA_CATALOG_POLL_MS = 1_000;
 
 /** Lane listing bounded by the catalog budget: slower lanes come back

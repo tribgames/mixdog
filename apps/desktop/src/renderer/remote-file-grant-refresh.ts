@@ -42,7 +42,7 @@ function grantRefused(error: unknown): boolean {
 }
 
 /** Records kept for this page only. */
-export function memoryGrantSources(): GrantSourceStore {
+function memoryGrantSources(): GrantSourceStore {
   const sources = new Map<string, GrantSource>();
   return { get: (token) => sources.get(token), set: (token, source) => remember(sources, token, source) };
 }

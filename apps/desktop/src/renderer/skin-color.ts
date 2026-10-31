@@ -6,7 +6,7 @@ export type SkinTheme = 'light' | 'dark';
 export type SkinCast = { hue: number; sat: number };
 
 export const TEXT_CONTRAST = 4.5;
-export const UI_CONTRAST = 3;
+const UI_CONTRAST = 3;
 
 /** Transparency sliders (0–100%; higher = more of the picture shows through).
     Two sliders: the outer one drives the frame (window frame, titlebar band,
@@ -173,7 +173,7 @@ export function minPlateAlpha(tint: string, ...inks: string[]): number {
 }
 
 /** Lowest opacity of the `tint` plate over `picture` that keeps every ink at 4.5:1. */
-export function minAlphaOver(tint: string, picture: string, inks: string[]): number {
+function minAlphaOver(tint: string, picture: string, inks: string[]): number {
   for (let alpha = 0; alpha <= 100; alpha++) {
     const plate = blend(tint, picture, alpha / 100);
     if (inks.every((ink) => contrastRatio(plate, ink) >= TEXT_CONTRAST)) return alpha / 100;

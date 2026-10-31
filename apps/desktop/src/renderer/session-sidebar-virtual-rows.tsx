@@ -10,7 +10,7 @@ import { useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react';
 
 /** Lists up to this many rows render whole; a longer one mounts only the rows
  *  near the scroller viewport. */
-export const VIRTUAL_ROWS_MIN = 40;
+const VIRTUAL_ROWS_MIN = 40;
 /** Rows kept mounted past each viewport edge: a fling and a Tab press past the
  *  edge land on rows that already exist. */
 const VIRTUAL_ROWS_OVERSCAN = 12;

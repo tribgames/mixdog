@@ -1,8 +1,7 @@
-/** Width ladder of the side file's footer. The path takes what is left;
- *  narrowing hides the language first, then the cursor. Problems counts always
- *  stay. */
+/** Width ladder of the side file's footer. Narrowing hides the language
+ *  first, then the cursor. Problems counts always stay. */
 export const SIDE_STATUS_PADDING = 12;
-/** The footer has no path any more. */
+/** The footer shows no path, so it reserves no width for one. */
 export const SIDE_STATUS_PATH_MIN_WIDTH = 0;
 export const SIDE_STATUS_PROBLEMS_WIDTH = 68;
 export const SIDE_STATUS_CURSOR_WIDTH = 52;

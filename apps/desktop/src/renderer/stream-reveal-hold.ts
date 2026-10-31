@@ -248,7 +248,7 @@ const FENCE_BEING_TYPED = /^[ \t>]*(?:`+|~+)$/;
 /** Start of the line holding `at` when the paced reveal may not stop at `at`:
  *  the line so far is only a list or heading marker, or, inside a code block,
  *  a fence still being typed. -1 when it may stop there. */
-export function pacedHoldStart(text: string, at: number): number {
+function pacedHoldStart(text: string, at: number): number {
   if (at <= 0) return -1;
   const start = text.lastIndexOf('\n', at - 1) + 1;
   if (start === at) return -1;

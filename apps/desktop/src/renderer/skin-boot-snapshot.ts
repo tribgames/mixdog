@@ -18,7 +18,7 @@
 //  - userTheme: the active theme's id and the injected style sheet's text.
 const SKIN_BOOT_KEY = 'mixdog.desktop.skin-boot.v1';
 /** desktop-skin.ts's key of the custom picture (a data URL, too large to copy). */
-export const SKIN_BOOT_CUSTOM_IMAGE_KEY = 'mixdog.desktop.skin-custom-image.v1';
+const SKIN_BOOT_CUSTOM_IMAGE_KEY = 'mixdog.desktop.skin-custom-image.v1';
 const USER_THEME_STYLE_ID = 'mixdog-user-theme';
 const SKIN_ATTRIBUTES = ['data-mixdog-skin', 'data-mixdog-skin-plate', 'data-mixdog-skin-photo'];
 const IMAGE_VAR = '--mx-skin-image';
@@ -29,7 +29,7 @@ type BootSkin = {
   image: { url: string } | { custom: string } | null;
 };
 type BootUserTheme = { id: string; css: string };
-export type SkinBootSnapshot = {
+type SkinBootSnapshot = {
   v: 1;
   sig: string;
   inputs: string;

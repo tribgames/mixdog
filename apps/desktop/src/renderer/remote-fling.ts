@@ -10,7 +10,7 @@ export const FLING_SCROLL_TIME_CONSTANT_MS = 250;
 export const FLING_STOP_SPEED = 0.01;
 /** A fling that would travel less than this is no fling: a slow lift-off
  *  must not drift. */
-export const FLING_MIN_DISTANCE_PX = 20;
+const FLING_MIN_DISTANCE_PX = 20;
 /** Velocity is read from the motion of this last stretch before lift-off. */
 export const FLING_SAMPLE_MS = 80;
 

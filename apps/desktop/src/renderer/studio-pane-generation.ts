@@ -100,9 +100,8 @@ export function createStudioGenerationActions({
         setJobs((current) => [{ ...started, request }, ...current]);
         return true;
       }
-      // An empty answer used to return silently, so Generate looked like a
-      // dead button with nothing to read anywhere (user: 생성이 안 되는데
-      // 오류도 안 뜬다).
+      // An empty answer must surface an error: silently returning would leave
+      // Generate looking like a dead button with nothing to read anywhere.
       setError(t('Generation did not start — the runtime returned no job.'));
     } catch (reason) {
       setError(errorText(reason));

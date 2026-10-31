@@ -145,7 +145,7 @@ export const SCREEN_HELPER_NOTICE_KEY = 'mixdog.remote-screen.access-notice.v1';
 
 export type ScreenHelperNoticeStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
-export function screenHelperNoticeKey(deviceId: string): string {
+function screenHelperNoticeKey(deviceId: string): string {
   return deviceId ? `${SCREEN_HELPER_NOTICE_KEY}@${deviceId}` : SCREEN_HELPER_NOTICE_KEY;
 }
 
