@@ -34,6 +34,30 @@ test('shell env points TEMP, TMP and TMPDIR at the session scratch directory und
   assert.equal(sessionScratchDir('../escape'), '');
 });
 
+// Under a 260-character path limit, Git refuses a $GIT_DIR past 220 characters
+// and LibreOffice crashes on a profile past ~150: a 77-character desktop id as
+// the folder name left a TEMP too long for either to run beneath it.
+test('a desktop session scratch directory stays short whatever the id length', () => {
+  const desktopId = `sess_desktop_${'a'.repeat(64)}`;
+  const dir = sessionScratchDir(desktopId);
+  assert.equal(relative(join(resolvePluginData(), 'scratch'), dir).length, 18);
+  assert.notEqual(sessionScratchDir(`sess_desktop_${'b'.repeat(64)}`), dir);
+});
+
+// Earlier versions named the folder after the id, and a delete still removes
+// that legacy folder: an id spelled like another session's folder name must
+// never take that session's scratch with it.
+test('deleting a session whose id spells another session folder name leaves that scratch alone', () => {
+  const victim = ensureSessionScratchDir('sess_review_victim');
+  writeFileSync(join(victim, 'note.txt'), 'x');
+  const lookalike = relative(join(resolvePluginData(), 'scratch'), victim).replace(/^s\./, '');
+  for (const id of [lookalike, `s${lookalike}`]) {
+    ensureSessionScratchDir(id);
+    deleteSession(id);
+  }
+  assert.equal(existsSync(join(victim, 'note.txt')), true);
+});
+
 test('deleting a session removes its scratch directory', () => {
   const id = 'sess_scratch_delete';
   const dir = ensureSessionScratchDir(id);
