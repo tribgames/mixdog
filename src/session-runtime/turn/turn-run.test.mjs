@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { createTurnRunner } from './turn-run.mjs';
+import { activeTurnControls } from '../boot/config.mjs';
 import { createMcpGlue } from '../mcp-glue.mjs';
 import { _registerMcpServerForTest, disconnectAll } from '../../runtime/agent/orchestrator/mcp/client.mjs';
 import { TOOL_SEARCH_TOOL } from '../../runtime/agent/orchestrator/runtime-core/tool-defs.mjs';
@@ -418,6 +419,27 @@ test('a hook-blocked prompt throws before askSession, reports the failure hooks 
   assert.deepEqual(h.named('snapshot.complete'), [['snapshot.complete', 'sess_new']]);
   assert.deepEqual(h.named('lead').at(-1), ['lead', 'sess_new', 'idle']);
   assert.equal(h.state.firstTurnCompleted, true, 'even a failed first turn completes the first-turn gate');
+});
+
+test('a turn opened after the runtime began closing never reaches askSession', async () => {
+  const rt = {
+    closeRequested: false,
+    activeTurnAbortControllers: new Set(),
+    session: null,
+    reservedSessionId: 'sess_r',
+  };
+  const controls = activeTurnControls(rt);
+  const h = makeHarness({ registerActiveTurnController: controls.registerActiveTurnController });
+  // The close's quiesce: close requested, then every registered turn aborted.
+  // This turn opens afterwards, as a queued Goal continuation already past the
+  // session's own checks does.
+  rt.closeRequested = true;
+  controls.abortActiveTurns(new Error('runtime close'));
+  await assert.rejects(h.runner.ask('next Goal step', {}), { name: 'SessionClosedError', reason: 'runtime-close' });
+  assert.deepEqual(h.named('askSession'), []);
+  assert.deepEqual(h.named('createSession'), []);
+  assert.equal(h.state.activeTurns, 0);
+  assert.equal(rt.activeTurnAbortControllers.size, 0);
 });
 
 test('an askSession failure classifies the StopFailure error type and rethrows', async () => {
