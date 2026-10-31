@@ -6,10 +6,13 @@ import test, { mock } from 'node:test';
 
 // The scheduler's store writes become spies; nothing reaches PostgreSQL.
 const writes = { done: [], failures: [] };
+// The stored rows a fire re-reads: name -> row.
+const rows = new Map();
 const realDb = await import('./schedules-db.mjs');
 mock.module('./schedules-db.mjs', {
   namedExports: {
     ...realDb,
+    getSchedule: async (name) => rows.get(name) ?? null,
     markDone: async (name) => writes.done.push(name),
     markFired: async () => {},
     markScheduleSuccess: async () => {},
@@ -75,6 +78,7 @@ test('a reload failing after the row moved drops the old name and reports the fa
 test('a one-shot blocked by the reservation fires once after a failed rename', async () => {
   const runs = [];
   const schedule = { name: 'a', prompt: 'go', whenAt: new Date(Date.now() - 1000).toISOString() };
+  rows.set('a', { ...schedule });
   const scheduler = bareScheduler([schedule], {
     tickTimer: true,
     scheduleRunner: async (s) => {

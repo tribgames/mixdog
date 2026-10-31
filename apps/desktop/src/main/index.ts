@@ -2942,6 +2942,13 @@ if (!app.requestSingleInstanceLock()) {
         .catch(() => {
           /* default stays enabled */
         });
+      // A desktop flag changed by any other writer (a hand edit of the config
+      // file included) applies here without a restart.
+      void settingsStore.watch(applyDesktopSettings).catch((error: unknown) => {
+        diagnostics?.write('desktop-settings-watch-failed', {
+          message: error instanceof Error ? error.message : String(error),
+        });
+      });
       watchPowerAndNetwork();
       app.on('child-process-gone', (_event, details) => {
         diagnostics?.write('child-process-gone', {

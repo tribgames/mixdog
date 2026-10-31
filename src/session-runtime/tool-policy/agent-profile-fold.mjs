@@ -13,10 +13,7 @@ import {
 } from '../../runtime/agent/orchestrator/session/manager/workflow-switch-notice.mjs';
 import { sessionTailCacheExpired } from '../../runtime/agent/orchestrator/agent-runtime/cache-strategy.mjs';
 import { mergePendingDeferredToolDelta } from '../../runtime/agent/orchestrator/runtime-core/deferred-tool-delta.mjs';
-import {
-  agentMcpToolPermission,
-  connectorPolicyAgentOf,
-} from '../../runtime/agent/orchestrator/mcp/agent-connectors.mjs';
+import { foldLateDeferredTools } from '../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
 import { agentListEntries } from '../../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { markToolSurfaceMigrated } from '../../runtime/agent/orchestrator/session/loop/tool-exposure-migration.mjs';
 import { resetBp2StableContext } from '../../runtime/agent/orchestrator/context/collect.mjs';
@@ -92,24 +89,14 @@ function cacheCold(session) {
   );
 }
 
-// The connector tools among `names` the session's agent may run now.
-function connectorTools(session, names) {
-  const agent = connectorPolicyAgentOf(session);
-  return [...names]
-    .filter((name) => name.startsWith('mcp__') && agentMcpToolPermission(agent, name) !== 'disabled')
-    .sort();
-}
-
-// A bot thread's tools that changed without its prompt: feature gates that
-// opened (or closed) and connectors added or removed. Nothing in the request
-// prefix moves. An opened tool joins the deferred catalog — reachable by
+// A bot thread's tools that changed without its prompt: workflow and
+// reaction gates that opened (or closed). Nothing in the request prefix
+// moves. An opened tool joins the late deferred catalog — reachable by
 // deferred loading, which brings its schema into the conversation — and a
 // gone one is refused at call time; the next turn's deferred_tools_delta
 // notice names both. Gate changes are folded into the prompt at the next
-// cold point (promptFoldPending). Connectors live in the bot's agent.json,
-// so they are compared only when its profile stamp moved (`edited`).
-// Returns true when anything changed.
-function stageLiveToolChanges({ liveDeniedTools, modelStandaloneTools }, session, workflow, { edited = false } = {}) {
+// cold point (promptFoldPending). Returns true when anything changed.
+function stageLiveToolChanges({ liveDeniedTools, modelStandaloneTools }, session, workflow) {
   const added = [];
   const removed = [];
   const known = new Map(schemaTools(session).map((tool) => [toolName(tool), tool]));
@@ -121,24 +108,17 @@ function stageLiveToolChanges({ liveDeniedTools, modelStandaloneTools }, session
     const fresh = modelStandaloneTools().filter(
       (tool) => opened.includes(toolName(tool)) && !known.has(toolName(tool))
     );
-    if (fresh.length) session.deferredToolCatalog = [...(session.deferredToolCatalog || []), ...fresh];
+    // The late pool, never the boot catalog a native request keeps byte-stable.
+    if (fresh.length) session.deferredLateToolCatalog = [...(session.deferredLateToolCatalog || []), ...fresh];
     for (const tool of fresh) known.set(toolName(tool), tool);
     session.disallowedTools = [...live];
     added.push(...opened.filter((name) => known.has(name)));
     removed.push(...closed);
     session.promptFoldPending = true;
   }
-  // Connectors gate MCP tools at call time only (pre-dispatch-deny.mjs).
-  const previous = session.agentConnectorTools;
-  const permitted = edited || !Array.isArray(previous) ? connectorTools(session, known.keys()) : previous;
-  session.agentConnectorTools = permitted;
-  if (edited && Array.isArray(previous)) {
-    added.push(...permitted.filter((name) => !previous.includes(name)));
-    removed.push(...previous.filter((name) => !permitted.includes(name)));
-  }
-  if (!added.length && !removed.length) {
-    return opened.length + closed.length > 0 || !Array.isArray(previous);
-  }
+  // Connector moves are staged at every turn start, for every session kind
+  // (tool-availability.mjs stageConnectorAvailability).
+  if (!added.length && !removed.length) return opened.length + closed.length > 0;
   mergePendingDeferredToolDelta(session, {
     added: added.map((name) => ({ name, description: known.get(name)?.description || '' })),
     removed,
@@ -162,7 +142,8 @@ function liftAgentDenial({ liveDeniedTools, modelStandaloneTools }, session) {
   if (!known.has('agent')) {
     const fresh = modelStandaloneTools().filter((tool) => toolName(tool) === 'agent');
     if (!fresh.length) return false;
-    session.deferredToolCatalog = [...(session.deferredToolCatalog || []), ...fresh];
+    // The late pool, never the boot catalog a native request keeps byte-stable.
+    session.deferredLateToolCatalog = [...(session.deferredLateToolCatalog || []), ...fresh];
     known.set('agent', fresh[0]);
   }
   session.disallowedTools = disallowed.filter((name) => name !== 'agent');
@@ -206,6 +187,8 @@ export function createAgentProfileFold({
     // re-appends its deferred manifest.
     if (typeof staged.stableContext === 'string') resetBp2StableContext(session, staged.stableContext);
     applyPolicy(session, staged);
+    // Late tools and MCP instructions join the rebuilt manifest: no notice.
+    foldLateDeferredTools(session);
     rewriteConversationBp3Core(session, staged.core);
     if (session.agentProfileRevision !== undefined) {
       session.agentProfileRevision = agentProfileRevision(identity.agent, { mixy: agentMode });
@@ -256,7 +239,7 @@ export function createAgentProfileFold({
    * release changed wait silently; both are folded in at the next cold point
    * (foldPromptIfCold). Returns true when the session changed (save it).
    */
-  async function refreshAgentProfile({ trigger = 'save' } = {}) {
+  async function refreshAgentProfile({ trigger = 'save', onlyIfEdited = false } = {}) {
     const session = getSession?.();
     const identity = session?.promptIdentity;
     const agent = identity?.agent;
@@ -276,15 +259,14 @@ export function createAgentProfileFold({
     const edited =
       recoverMode || session.agentProfileRevision !== revision || (agentMode && session.agentRosterRevision !== roster);
     // At a turn's start its own turn is the one counted; nothing runs yet.
+    if (onlyIfEdited && !edited) return false;
     const busy = () => getSession?.() !== session || (trigger !== 'turn' && turnInFlight(session));
     if (busy()) {
       agentProfilePending = true;
       return false;
     }
     const toolsChanged = agentMode
-      ? stageLiveToolChanges({ liveDeniedTools, modelStandaloneTools }, session, workflow, {
-          edited: session.agentProfileRevision !== revision,
-        })
+      ? stageLiveToolChanges({ liveDeniedTools, modelStandaloneTools }, session, workflow)
       : trigger === 'resume' && syncAgentListing(session);
     if (!edited) return (trigger === 'resume' && (await foldPromptIfCold())) || toolsChanged;
     // A coding session from before profile stamps keeps its prompt when it
@@ -315,14 +297,22 @@ export function createAgentProfileFold({
    *  fold pending prompt changes if the cache is cold anyway. */
   async function applyPendingAgentProfile() {
     let changed = false;
-    // A bot thread's connector baseline, before any edit can be compared to it.
     const session = getSession?.();
-    if (session?.id && sessionModeOf(session) === AGENT_MODE && !Array.isArray(session.agentConnectorTools)) {
-      session.agentConnectorTools = connectorTools(session, schemaTools(session).map(toolName));
-    }
-    if (agentProfilePending || orchestrationRecoveryNeeded(session)) {
+    // A bot thread compares its profile and roster stamps every turn, so hand
+    // edits and other processes' saves of AGENT.md, PERSONA.md and the roster
+    // reach it too.
+    // A thread from before profile stamps keeps its prompt until a save.
+    const botThread = Boolean(
+      session?.id &&
+        session.promptIdentity?.agent &&
+        sessionModeOf(session) === AGENT_MODE &&
+        session.agentProfileRevision !== undefined
+    );
+    const pending = agentProfilePending || orchestrationRecoveryNeeded(session);
+    if (pending || botThread) {
       agentProfilePending = false;
-      changed = await refreshAgentProfile({ trigger: 'turn' });
+      // A turn with nothing pending acts only on moved stamps.
+      changed = await refreshAgentProfile({ trigger: 'turn', onlyIfEdited: !pending });
     }
     changed = (await foldPromptIfCold()) || changed;
     return syncAgentListing(session) || changed;

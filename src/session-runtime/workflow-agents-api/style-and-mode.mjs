@@ -30,7 +30,9 @@ export function createStyleAndModeApi(deps) {
     scheduleOutputStyleSave(selected.id);
     const freshStatus = { configured: selected.id, current: selected, styles: before.styles };
     seedOutputStyleStatusCache(freshStatus);
-    const appliedToCurrentSession = !getSession()?.id;
+    // An empty session is rebuilt at its next turn start; a conversation is
+    // told then and folds the style in at its next cold point.
+    const appliedToCurrentSession = deps.settingsReachCurrentSession?.() ?? !getSession()?.id;
     invalidateContextStatusCache();
     return { ...freshStatus, appliedToCurrentSession };
   }
@@ -53,10 +55,9 @@ export function createStyleAndModeApi(deps) {
       }
     }
     saveConfigAndAdopt({ ...getConfig(), orchestrationMode: mode });
-    const applied = await deps.refreshEmptySessionToolPolicy?.();
-    deps.invalidatePreSessionToolSurface?.();
+    // An empty session takes it at its next turn start (reconcileTurnSettings).
     invalidateContextStatusCache();
-    return { mode, appliedToCurrentSession: applied?.appliedToCurrentSession !== false };
+    return { mode, appliedToCurrentSession: deps.settingsReachCurrentSession?.() !== false };
   }
 
   return {

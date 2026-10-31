@@ -340,10 +340,10 @@ test('a compaction that strips an announced late MCP tool re-arms it for the nex
   assert.equal(acknowledgePendingDeferredToolDelta(session, announced.revision), true);
   assert.equal(snapshotPendingDeferredToolDelta(session), null, 'delivered once: nothing pending, text stripped');
 
-  // Compaction: the boot manifest is not rebuilt, so only a re-arm can tell the model again.
+  // Compaction: a prompt that is never rebuilt is told again, by name only.
   assert.deepEqual(rearmLateDeferredTools(session), [late.name], 'boot-listed tools are not re-announced');
   const again = snapshotPendingDeferredToolDelta(session);
-  assert.deepEqual(again.added, [{ name: late.name, description: 'Two.' }]);
+  assert.deepEqual(again.added, [{ name: late.name, description: '' }]);
   assert.equal(acknowledgePendingDeferredToolDelta(session, again.revision), true);
   assert.equal(snapshotPendingDeferredToolDelta(session), null);
 
@@ -551,15 +551,28 @@ test('a native session whose tool is already active gets the server instructions
   assert.equal(load().mcpInstructions, undefined);
 });
 
-test('a compaction re-arms the server instructions for the next load', () => {
+test('server instructions are sent again only when their text changes, capped', () => {
   const session = leadSession('anthropic-oauth', { extraTools: [instructionTool('mcp__gmail__send')] });
   session.mcpServerInstructions = { gmail: GMAIL_TEXT };
   const load = () => JSON.parse(renderToolSearch({ names: ['mcp__gmail__send'] }, session, 'lead'));
   assert.ok(load().mcpInstructions);
+  rearmLateDeferredTools(session); // a compaction no longer forgets what was told
   assert.equal(load().mcpInstructions, undefined);
-  rearmLateDeferredTools(session); // the transcript that held the load result is gone
-  assert.equal(session.mcpInstructionsAnnounced, undefined);
-  assert.equal(load().mcpInstructions, `## gmail\n${GMAIL_TEXT}`);
+  // An account was added: the connector's text changed.
+  session.mcpServerInstructions = { gmail: `${GMAIL_TEXT}\nAccounts: a@x, b@y` };
+  assert.match(load().mcpInstructions, /Accounts: a@x, b@y/);
+  assert.equal(load().mcpInstructions, undefined);
+  session.mcpServerInstructions = { gmail: 'long line of text. '.repeat(400) };
+  assert.ok(Buffer.byteLength(load().mcpInstructions) <= 4096);
+});
+
+test('a resumed record that announced a server without a hash sends its current text once', () => {
+  const session = leadSession('anthropic-oauth', { extraTools: [instructionTool('mcp__gmail__send')] });
+  session.mcpServerInstructions = { gmail: `${GMAIL_TEXT}\nAccounts: a@x` };
+  session.mcpInstructionsAnnounced = ['gmail']; // saved before hashes were kept
+  const load = () => JSON.parse(renderToolSearch({ names: ['mcp__gmail__send'] }, session, 'lead'));
+  assert.match(load().mcpInstructions, /Accounts: a@x/);
+  assert.ok(session.mcpInstructionHashes.gmail, 'hashed from now on');
   assert.equal(load().mcpInstructions, undefined);
 });
 

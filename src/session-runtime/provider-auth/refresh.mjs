@@ -3,7 +3,7 @@
 import { resetProviderAdmissionCooldowns } from '../../runtime/agent/orchestrator/providers/admission-scheduler.mjs';
 
 export function createAuthRefresh({
-  reloadFullConfig,
+  applyConfigChange,
   invalidateProviderCaches,
   warmProviderModelCache,
   refreshProviderCatalogs,
@@ -42,14 +42,17 @@ export function createAuthRefresh({
     warmProviderModelCache();
   }
 
+  // The change step (reload + effects keyed by the config/secret change) runs
+  // here at once rather than on the notification that follows, so this
+  // runtime's notification finds the change already applied.
   function afterCredentialChange() {
-    reloadFullConfig();
+    applyConfigChange();
     adoptCredentials();
   }
 
   /** Usage-dashboard credentials affect no admission lane or catalog. */
   function afterUsageAuthChange() {
-    reloadFullConfig();
+    applyConfigChange();
     invalidateProviderCaches();
   }
 

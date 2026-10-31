@@ -19,9 +19,6 @@ test('media generation is attributed to the calling session and its source', asy
   const handlers = createFeatureToolHandlers({
     rt: { session: null },
     setupTool: {},
-    officeToolsEnabled: () => true,
-    mediaToolEnabled: () => true,
-    tidyToolEnabled: () => true,
   });
   await handlers.media({ action: 'generate' }, { callerCtx: { sessionId: 'caller-session' }, callerCwd: 'C:/work' });
   assert.equal(calls[0].sessionId, 'caller-session');

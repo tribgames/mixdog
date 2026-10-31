@@ -38,7 +38,7 @@ function runtime() {
     LAZY_SECRET_PROVIDERS: new Set(),
     clean: (value) => String(value || '').trim(),
     resolve,
-    onConfigReloaded: () => { reloads += 1; },
+    onConfigChanged: () => { reloads += 1; },
     STANDALONE_DATA_DIR: process.cwd(),
   });
   return { lifecycle, config: () => config, route: () => route, reloads: () => reloads };

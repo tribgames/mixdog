@@ -19,6 +19,7 @@ import {
 } from '../../../tools/builtin.mjs';
 import { executePatchTool } from '../../../tools/patch.mjs';
 import { executeInternalTool, isInternalTool } from '../../../internal-tools.mjs';
+import { settingDisabledTool } from '../../../runtime-core/tool-availability.mjs';
 import { buildSkillsListResponse, viewSkill } from '../tool-helpers.mjs';
 import { executeTodoTool } from '../../../runtime-core/todo-list.mjs';
 import { isOnDeferredToolSurface } from '../deferred-call-through.mjs';
@@ -121,6 +122,10 @@ function dispatchInternal(
  */
 export function dispatchToolCall({ name, args }, ctx) {
   const { cwd, callerSessionId, sessionRef, executeOpts, toolOpts, completionToolOpts } = ctx;
+  const disabled = settingDisabledTool(name, sessionRef?.mcpScopeId);
+  if (disabled) {
+    return `Error: tool "${disabled}" is disabled in settings by the user; do not retry unless the user turns it back on`;
+  }
   if (name === 'Skill' || name === 'skill_view') return viewSkill(cwd, args?.name, sessionRef);
   if (name === 'skills_list') return buildSkillsListResponse(cwd);
   // The step list belongs to the calling session itself (Lead or agent).

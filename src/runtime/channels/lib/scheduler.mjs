@@ -9,6 +9,7 @@ import { isPidAlive } from '../../shared/pid-liveness.mjs';
 import {
   advanceScheduleCursor,
   claimScheduleRun,
+  getSchedule,
   markFired,
   markDone,
   markScheduleFailure,
@@ -616,6 +617,24 @@ class Scheduler {
   }
   // ── Fire timed schedule ─────────────────────────────────────────────
   async fireTimed(schedule, opts = {}) {
+    // The armed copy may be stale (a reload that failed or has not arrived):
+    // the stored row decides whether, and with what prompt, it still fires.
+    let row;
+    try {
+      row = await getSchedule(schedule.name);
+    } catch (err) {
+      logSchedule(`${schedule.name}: not fired — schedule unreadable: ${err?.message || err}\n`);
+      this.notifyFailure(schedule, 'schedule unreadable — fire skipped');
+      return false;
+    }
+    const sameTime = (key) => (row?.[key] ?? null) === (schedule[key] ?? null);
+    if (!row || row.enabled === false || row.status === 'done' || !sameTime('whenAt') || !sameTime('whenCron')) {
+      logSchedule(`${schedule.name}: not fired — deleted or changed since it was armed\n`);
+      // A skip, not a failed run: the callers record no failure on its row.
+      schedule.lastSkippedAt = new Date().toISOString();
+      return false;
+    }
+    schedule.prompt = row.prompt;
     const prompt = this.resolvePrompt(schedule);
     if (!prompt) {
       process.stderr.write(`mixdog scheduler: prompt not found for "${schedule.name}"

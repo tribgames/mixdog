@@ -31,6 +31,7 @@ export function createAgentOps(deps) {
     subscribeRuntimeNotification,
     agentTool,
     activeToolSurface,
+    reconcileEmptySession,
     notificationListeners,
     getReservedSessionId,
   } = deps;
@@ -136,7 +137,14 @@ export function createAgentOps(deps) {
     return () => notificationListeners.delete(listener);
   }
 
-  function toolsStatus(query = '') {
+  // An empty session has nothing cached: it is brought to the settings first
+  // (the turn-start reconcile), so the list is what its first turn sends.
+  async function toolsStatus(query = '') {
+    await reconcileEmptySession?.();
+    return toolsStatusNow(query);
+  }
+
+  function toolsStatusNow(query = '') {
     const surface = activeToolSurface();
     let catalog = [];
     if (Array.isArray(surface?.deferredToolCatalog)) catalog = surface.deferredToolCatalog;
@@ -161,7 +169,7 @@ export function createAgentOps(deps) {
   function selectTools(names) {
     const list = Array.isArray(names) ? names : String(names || '').split(/[,\s]+/);
     const result = selectDeferredTools(activeToolSurface(), list, getMode());
-    return { ...result, status: toolsStatus() };
+    return { ...result, status: toolsStatusNow() };
   }
 
   return {

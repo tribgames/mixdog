@@ -82,7 +82,12 @@ export function createSessionActionCalls(ctx) {
     if (storedReview && !hosted) return storedReviewResult(id, name, args, baseRevision);
     const entry = hosted || (await entryForSession(id, openHints || {}));
     assertAvailable(entry);
-    const target = entry.runtime[name];
+    // A remote read of the context status waits for an empty session's
+    // settings reconcile; the local accessor stays synchronous.
+    const target =
+      name === 'contextStatus' && typeof entry.runtime.contextStatusSettled === 'function'
+        ? entry.runtime.contextStatusSettled
+        : entry.runtime[name];
     if (typeof target !== 'function') throw new TypeError(`session action ${name} is unavailable`);
     markPhase('load');
     const value = await target.apply(entry.runtime, Array.isArray(args) ? args : []);

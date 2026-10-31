@@ -2,12 +2,15 @@ import { clean } from './session-text.mjs';
 import { parseMcpToolName } from '../../../shared/tool-primitives.mjs';
 import { mcpServerLines } from '../context/deferred-tools.mjs';
 
+// A delta names tools; its description is a hint, the schema arrives on load.
+export const DELTA_DESCRIPTION_MAX = 80;
+
 function compactDescription(value) {
-  return String(value || '')
+  const text = String(value || '')
     .replace(/\s+/g, ' ')
     .replace(/[<>]/g, '')
-    .trim()
-    .slice(0, 240);
+    .trim();
+  return text.length > DELTA_DESCRIPTION_MAX ? `${text.slice(0, DELTA_DESCRIPTION_MAX - 1).trimEnd()}…` : text;
 }
 
 function addedEntry(entry) {
@@ -166,6 +169,17 @@ export function snapshotPendingDeferredToolDelta(session) {
     removed,
     content: lines.join('\n'),
   };
+}
+
+/** Drop pending additions the prompt now lists itself (`listed`). */
+export function dropPendingDeferredToolAdds(session, listed) {
+  const pending = session?.pendingDeferredToolDelta;
+  if (!pending || !Array.isArray(pending.added)) return;
+  const added = pending.added.filter((entry) => !listed.has(clean(entry?.name)));
+  if (added.length === pending.added.length) return;
+  if (!added.length && !(pending.removed || []).length) delete session.pendingDeferredToolDelta;
+  else session.pendingDeferredToolDelta = { ...pending, added };
+  session.updatedAt = Date.now();
 }
 
 export function acknowledgePendingDeferredToolDelta(session, revision) {

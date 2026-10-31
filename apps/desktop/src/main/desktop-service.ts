@@ -15,6 +15,7 @@ import { TERMINAL_RUN_REQUESTED_DESKTOP_EVENT } from '../shared/terminal-command
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
 import { SETTINGS_CHANGED_EVENT } from '../shared/settings-changed';
 import { watchConfiguredOrchestrationMode } from './orchestration-mode-watch';
+import { watchAgentSettings } from './agent-settings-watch';
 import { REMOTE_VISUALIZE_LANE, VISUALIZE_REMOTE_DESKTOP_EVENT } from '../shared/visualize';
 import { createRemoteVisualizeMirror } from './remote-visualize';
 import { randomUUID } from 'node:crypto';
@@ -1044,7 +1045,15 @@ export async function createDesktopService({
   // The configured orchestration default (a New Task's mode) is cached by every
   // client; its own narrow event, published only when the value changes, keeps
   // those caches current without waking any other settings reader.
-  const stopConfigChanges = watchConfiguredOrchestrationMode(await runtime.loadConfig(), publishDesktopEvent);
+  const configModule = await runtime.loadConfig();
+  const stopOrchestrationModeChanges = watchConfiguredOrchestrationMode(configModule, publishDesktopEvent);
+  // Every other persisted setting or stored key, from any writer: open settings
+  // pages (window, phones) re-read and the host's reused read caches drop.
+  const stopAgentSettingsChanges = watchAgentSettings(configModule, publishDesktopEvent);
+  const stopConfigChanges = (): void => {
+    stopOrchestrationModeChanges?.();
+    stopAgentSettingsChanges?.();
+  };
   // A deleted session takes its server-window upload staging folder with it.
   const deleteSessionWithUploads = async (sessionId: unknown): Promise<unknown> => {
     const result = await host.deleteSession(String(sessionId || ''));
@@ -1175,7 +1184,7 @@ export async function createDesktopService({
     },
     async dispose(): Promise<void> {
       unregisterRuntimeHosts();
-      stopConfigChanges?.();
+      stopConfigChanges();
       importProgress.dispose();
       stateSync.dispose();
       desktopEvents.clear();

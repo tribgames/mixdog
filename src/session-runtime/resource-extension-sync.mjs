@@ -7,7 +7,6 @@ export function createExtensionSync({
   connectConfiguredMcp,
   cancelMcpLogin,
   invalidatePreSessionToolSurface,
-  refreshEmptySessionToolPolicy,
   reloadFullConfig,
   invalidateSkills,
 }) {
@@ -19,14 +18,11 @@ export function createExtensionSync({
   // session.
   const mcpToggleChains = new Map(); // name -> { desired, running }
 
-  async function refreshSurface(kind) {
+  // The invalidation moves the surface generation: an empty session rebuilds
+  // at its next turn start (reconcileTurnSettings); MCP has its own
+  // first-turn/late-tool reconciliation against the live connection registry.
+  async function refreshSurface() {
     invalidatePreSessionToolSurface();
-    // Existing conversations retain their stable prompt/session identity.
-    // Empty sessions can safely rebuild their policy in place; MCP has its own
-    // first-turn/late-tool reconciliation against the live connection registry.
-    if ((kind === 'skills' || kind === 'plugins') && typeof refreshEmptySessionToolPolicy === 'function') {
-      await refreshEmptySessionToolPolicy();
-    }
   }
 
   // Apply per-server MCP changes in order, then reconcile: a configured server

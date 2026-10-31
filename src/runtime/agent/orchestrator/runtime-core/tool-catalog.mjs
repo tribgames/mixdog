@@ -1,8 +1,9 @@
 // Deferred-tool catalog: measured-usage ordering, kind/bucket classification,
 // tool_search ranking + auto-selection, and the session tool-surface
 // application/selection logic. Pure module (session objects passed in).
+import { createHash } from 'node:crypto';
 import { clean } from './session-text.mjs';
-import { mergePendingDeferredToolDelta } from './deferred-tool-delta.mjs';
+import { dropPendingDeferredToolAdds, mergePendingDeferredToolDelta } from './deferred-tool-delta.mjs';
 import { applyInitialDeferredToolManifestToBp2 } from '../context/collect.mjs';
 import {
   listedDeferredToolNames,
@@ -12,7 +13,11 @@ import {
 import { parseMcpToolName } from '../../../shared/tool-primitives.mjs';
 import { getMcpServerInstructionsMap, getMcpTools, getMcpToolGeneration } from '../mcp/client.mjs';
 import { filterMcpToolsForSession } from './extension-scopes.mjs';
-import { isDeferredToolAvailable, isToolPermittedBySessionPolicy } from './deferred-tool-availability.mjs';
+import {
+  isDeferredToolAvailable,
+  isToolPermittedBySessionPolicy,
+  sessionFeatureDenies,
+} from './deferred-tool-availability.mjs';
 import { routeToolExclusionReason } from '../session/loop/provider-tool-exclusions.mjs';
 import { isResponsesFreeformTool, toResponsesCustomTool } from '../providers/custom-tool-wire.mjs';
 import {
@@ -548,24 +553,30 @@ export function rebuildDeferredToolSurfaceForProvider(session, provider) {
 // <available-deferred-tools> manifest IN PLACE and pre-mark names announced;
 // bridge-v1 sessions do the same (roster + bridge guidance). Only a fixed
 // surface not yet on the bridge updates its scoped catalog alone. Fully sync
-// and idempotent: no genuinely-new MCP name => no-op / no mutation.
+// and idempotent: no MCP name added or gone => no-op / no mutation.
 export function refreshInitialDeferredMcpSurface(session, liveMcpTools) {
   if (!session || !Array.isArray(session.messages)) return false;
   if (session.deferredProviderMode === 'full') return false;
   const live = filterDisallowedTools(Array.isArray(liveMcpTools) ? liveMcpTools : [], session.disallowedTools);
+  const liveNames = new Set(live.map((tool) => clean(tool?.name)).filter(isMcpToolName));
   const byName = new Map();
+  // Nothing was sent yet: a server gone since create leaves the initial surface.
+  let changed = false;
   for (const tool of Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : []) {
     const name = clean(tool?.name);
+    if (isMcpToolName(name) && !liveNames.has(name)) {
+      changed = true;
+      continue;
+    }
     if (name && !byName.has(name)) byName.set(name, tool);
   }
-  let added = false;
   for (const tool of live) {
     const name = clean(tool?.name);
     if (!name || !isMcpToolName(name) || byName.has(name)) continue;
     byName.set(name, activeToolForSurface(tool));
-    added = true;
+    changed = true;
   }
-  if (!added) return false;
+  if (!changed) return false;
   session.deferredToolCatalog = sortedCatalogByMeasuredUsage([...byName.values()]);
   if (fixedSurfaceSession(session)) {
     session.updatedAt = Date.now();
@@ -720,10 +731,12 @@ function reconcileDeferredMcpToolCatalogUncached(session, liveMcpTools) {
   // connected OR the tool is already loaded, including native history-only
   // discoveries. Availability is determined by deferredMcpToolNames, not this pool.
   const nextByName = new Map();
+  // A built-in a settings gate opened (tool-availability.mjs) is no MCP tool:
+  // its availability is the session's deny set, so it stays.
   for (const tool of lateCatalog) {
     const name = clean(tool?.name);
     if (!name || nextByName.has(name)) continue;
-    if (!liveMcpByName.has(name) && !active.has(name)) continue;
+    if (isMcpToolName(name) && !liveMcpByName.has(name) && !active.has(name)) continue;
     nextByName.set(name, tool);
   }
   for (const [name, tool] of liveMcpByName) nextByName.set(name, tool);
@@ -776,23 +789,72 @@ function reconcileDeferredMcpToolCatalogUncached(session, liveMcpTools) {
  * Returns the re-armed names, or null when there are none.
  */
 export function rearmLateDeferredTools(session) {
-  // The compaction also drops the load results that carried a server's
-  // instruction text, so the next load of its tools delivers it again.
-  if (session) delete session.mcpInstructionsAnnounced;
   if (!session || !Array.isArray(session.tools) || fixedSurfaceSession(session)) return null;
-  if (!Array.isArray(session.deferredMcpToolNames) || !Array.isArray(session.deferredAnnouncedTools)) return null;
+  if (!Array.isArray(session.deferredAnnouncedTools)) return null;
   // Listed in the boot manifest, or already loaded/discovered: still visible.
   const listed = new Set([...session.deferredAnnouncedTools, ...persistentToolSurfaceNames(session)]);
-  const connected = new Set(session.deferredMcpToolNames);
+  const connected = new Set(Array.isArray(session.deferredMcpToolNames) ? session.deferredMcpToolNames : []);
   const added = [];
   for (const tool of Array.isArray(session.deferredLateToolCatalog) ? session.deferredLateToolCatalog : []) {
     const name = clean(tool?.name);
-    if (!name || !connected.has(name) || listed.has(name) || !rosterPermits(session, tool)) continue;
-    added.push({ name, description: lateAnnouncementDescription(tool?.description) });
+    if (!name || listed.has(name) || !rosterPermits(session, tool)) continue;
+    // MCP tools while connected; a built-in a settings gate opened while permitted.
+    if (isMcpToolName(name) ? !connected.has(name) : !isToolPermittedBySessionPolicy(session, name)) continue;
+    // Names only: the model was told the description before.
+    added.push({ name, description: '' });
   }
   if (!added.length) return null;
   mergePendingDeferredToolDelta(session, { added });
   return added.map((entry) => entry.name);
+}
+
+/**
+ * A cold point (a compaction, a rebuilt prompt): the late tools join the boot
+ * catalog and the rebuilt BP2 manifest lists them, with the MCP server
+ * instructions as they stand, so nothing about them rides a notice. Pending
+ * announcements the manifest now carries are dropped. Returns the folded names.
+ */
+export function foldLateDeferredTools(session) {
+  if (!session || !Array.isArray(session.tools) || fixedSurfaceSession(session)) return [];
+  const late = Array.isArray(session.deferredLateToolCatalog) ? session.deferredLateToolCatalog : [];
+  const connected = new Set(Array.isArray(session.deferredMcpToolNames) ? session.deferredMcpToolNames : []);
+  const byName = new Map();
+  for (const tool of Array.isArray(session.deferredToolCatalog) ? session.deferredToolCatalog : []) {
+    const name = clean(tool?.name);
+    if (name && !byName.has(name)) byName.set(name, tool);
+  }
+  const folded = [];
+  for (const tool of late) {
+    const name = clean(tool?.name);
+    if (!name || byName.has(name) || !rosterPermits(session, tool)) continue;
+    if (isMcpToolName(name) ? !connected.has(name) : !isToolPermittedBySessionPolicy(session, name)) continue;
+    byName.set(name, activeToolForSurface(tool));
+    folded.push(name);
+  }
+  session.deferredToolCatalog = sortedCatalogByMeasuredUsage([...byName.values()]);
+  // Whatever the boot catalog holds now (folded here, or by the rebuilt surface) leaves the late pool.
+  session.deferredLateToolCatalog = late.filter((tool) => !byName.has(clean(tool?.name)));
+  session.mcpServerInstructions = getMcpServerInstructionsMap(session.mcpScopeId);
+  if (Array.isArray(session.messages) && session.messages.some((m) => m?.role === 'system')) {
+    applyInitialDeferredToolManifestToBp2(session, deferredPoolToolNames(session), { rebuild: true });
+    session.deferredAnnouncedTools = listedDeferredToolNames(
+      session,
+      deferredPoolToolNames(session),
+      renderedDeferredManifest(session)
+    );
+  }
+  // The manifest carries the servers' instructions now; a load sends a
+  // server's text again only when it changes.
+  session.mcpInstructionsAnnounced = Object.keys(session.mcpServerInstructions || {});
+  session.mcpInstructionHashes = Object.fromEntries(
+    session.mcpInstructionsAnnounced.map((server) => [
+      server,
+      instructionHash(sanitizeMcpInstructionText(session.mcpServerInstructions[server])),
+    ])
+  );
+  const listed = new Set(Array.isArray(session.deferredAnnouncedTools) ? session.deferredAnnouncedTools : []);
+  dropPendingDeferredToolAdds(session, listed);
+  return folded;
 }
 
 export function scopedMcpToolsFor(session, config = null) {
@@ -916,24 +978,36 @@ function resolvableCatalog(session) {
   return filterSessionToolPolicy(tools, session);
 }
 
+const instructionHash = (text) => createHash('sha256').update(String(text || '')).digest('hex').slice(0, 16);
+
 // A server's instruction text rides the first load_tool naming any of its
-// tools (loaded now, already active, or described on the bridge), once until
-// compaction (`mcpInstructionsAnnounced`; rearmLateDeferredTools clears it with
-// the transcript that held the text): `## <server>` + body, sanitized and
-// capped like the BP2 block it replaces. No text, nothing sent or recorded.
+// tools (loaded now, already active, or described on the bridge), once per
+// text (`mcpInstructionsAnnounced`, `mcpInstructionHashes`: a connector whose
+// accounts changed sends its new text again; a cold-point rebuild puts the
+// current texts in BP2, foldLateDeferredTools): `## <server>` + body,
+// sanitized and capped (sanitizeMcpInstructionText, well under 4 KB). No
+// text, nothing sent or recorded.
 function pendingMcpInstructions(session, catalog, names) {
   const map = session?.mcpServerInstructions;
   if (!map || typeof map !== 'object' || !names.length) return [];
   const byName = new Map(catalog.map((tool) => [clean(tool?.name), tool]));
   const announced = new Set(Array.isArray(session.mcpInstructionsAnnounced) ? session.mcpInstructionsAnnounced : []);
+  const hashes = session.mcpInstructionHashes && typeof session.mcpInstructionHashes === 'object'
+    ? session.mcpInstructionHashes
+    : {};
+  const seen = new Set();
   const pending = [];
   for (const name of names) {
     const server = parseMcpToolName(byName.get(name) || name)?.server;
-    if (!server || announced.has(server) || !mcpServerManifestLabel(server)) continue;
+    if (!server || seen.has(server) || !mcpServerManifestLabel(server)) continue;
     const text = sanitizeMcpInstructionText(map[server]);
     if (!text) continue;
-    announced.add(server);
-    pending.push({ server, block: `## ${server}\n${text}` });
+    const hash = instructionHash(text);
+    // Told already, and the text is the one told. A record from before hashes
+    // were kept cannot tell which text it carried: sent once more, and hashed.
+    if (announced.has(server) && hashes[server] === hash) continue;
+    seen.add(server);
+    pending.push({ server, hash, block: `## ${server}\n${text}` });
   }
   return pending;
 }
@@ -943,6 +1017,10 @@ function announceMcpServers(session, pending) {
   session.mcpInstructionsAnnounced = [
     ...new Set([...(session.mcpInstructionsAnnounced || []), ...pending.map((entry) => entry.server)]),
   ];
+  session.mcpInstructionHashes = {
+    ...(session.mcpInstructionHashes || {}),
+    ...Object.fromEntries(pending.map((entry) => [entry.server, entry.hash])),
+  };
 }
 
 function claimMcpServerInstructions(session, catalog, names) {
@@ -1016,7 +1094,9 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
   ]);
   const loaded = toolSelection.added || [];
   const alreadyActive = toolSelection.already || [];
-  const missing = toolSelection.missing || [];
+  // A tool a settings gate closed is named as such, not as unknown.
+  const disabledInSettings = (toolSelection.missing || []).filter((name) => sessionFeatureDenies(session, name));
+  const missing = (toolSelection.missing || []).filter((name) => !disabledInSettings.includes(name));
   const blocked = toolSelection.blocked || [];
   // Native discovery is history-driven: an explicit re-selection must emit
   // the tool reference/spec again even when the callable registry already has
@@ -1040,6 +1120,9 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
     ? { ...nativeToolSearchBase, summary: nativeSummary || nativeToolSearchBase.summary }
     : null;
   const notes = [];
+  if (disabledInSettings.length) {
+    notes.push(`Disabled in settings: ${disabledInSettings.join(', ')}. Do not retry unless the user turns it on.`);
+  }
   if (missing.length && pendingMcpServers.length) {
     notes.push('Some requested names may belong to an MCP server still connecting — retry next turn.');
   }
@@ -1059,6 +1142,7 @@ export function renderToolSearch(args = {}, session, mode = 'full', options = {}
       alreadyActive,
       ...(alreadyActiveSchemas.length ? { alreadyActiveSchemas } : {}),
       missing,
+      ...(disabledInSettings.length ? { disabledInSettings } : {}),
       ...(blocked.length ? { blocked } : {}),
       ...mcpFields,
       activeTools: sortedNamesByMeasuredUsage(

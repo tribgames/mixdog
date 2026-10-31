@@ -21,6 +21,7 @@ export function createSettingsPicker({
   setSettingsPrompt,
   settingsHeavyCacheRef,
   settingsRequestRef,
+  settingsLiveRefreshRef,
   formatDuration,
   displayModelName,
   routeModelLabel,
@@ -116,6 +117,9 @@ export function createSettingsPicker({
         own.close();
       },
     });
+    // A settings change from elsewhere re-reads this panel while it is still
+    // the one on screen (the claim's epoch guards a closed or replaced panel).
+    if (settingsLiveRefreshRef) settingsLiveRefreshRef.current = own.defer(() => refreshSettings());
   };
 
   // Public entry point. NEVER rejects: callers fire it detached

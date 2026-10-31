@@ -68,8 +68,9 @@ export function createBridgeToolHandlers({ rt }) {
     if (environmentDisabled(callerCtx, 'MIXDOG_FEATURE_VISUALIZE')) {
       throw new Error('the visualize tool is disabled in this environment');
     }
-    // A conversation keeps its frozen tool list, so honor the Settings toggle
-    // at execution time too (an env override wins, as in builtinFeatureActive).
+    // The Settings toggle at execution time too: it reaches a turn already
+    // running and callers outside the session's deny set (an env override
+    // wins, as in builtinFeatureActive).
     if (!(featureEnvOverride('MIXDOG_FEATURE_VISUALIZE') ?? moduleEnabled(rt.config, 'visualize', true))) {
       return {
         content: [

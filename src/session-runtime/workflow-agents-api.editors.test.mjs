@@ -41,7 +41,7 @@ function fixture(t, extra = {}) {
     normalizeAgentPermissionOrNone,
   });
   const routeHelpers = createWorkflowRouteHelpers({ findPreset: () => null });
-  const state = { config: { workflow: { active: 'default' } }, refreshes: 0 };
+  const state = { config: { workflow: { active: 'default' } } };
   const api = createWorkflowAgentsApi({
     ...helpers,
     getConfig: () => state.config,
@@ -55,10 +55,6 @@ function fixture(t, extra = {}) {
     },
     lookupModelMeta: async () => ({}),
     ensureProvidersReady: async () => {},
-    refreshEmptySessionToolPolicy: async () => {
-      state.refreshes += 1;
-      return { appliedToCurrentSession: true };
-    },
     invalidateContextStatusCache() {},
     ...extra,
   });
@@ -1274,7 +1270,6 @@ test('workflow packs: create derives a free id, save/list/set round-trip, delete
   const applied = await api.setWorkflow(first.id);
   assert.equal(applied.appliedToCurrentSession, true);
   assert.equal(state.config.workflow.active, first.id);
-  assert.equal(state.refreshes, 1);
   await assert.rejects(api.setWorkflow('nope'), /workflow "nope" not found/);
 
   assert.deepEqual(await api.deleteWorkflow(first.id), { id: first.id, deleted: true, revertedToBuiltIn: false });

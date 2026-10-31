@@ -66,9 +66,8 @@ export function createWorkflowPacksApi(deps) {
       if (switched) return { ...switched.workflow, ...switched };
     }
     saveActiveWorkflow(id);
-    const applied = await deps.refreshEmptySessionToolPolicy?.();
-    deps.invalidatePreSessionToolSurface?.();
-    return { ...workflowSummary(pack), appliedToCurrentSession: applied?.appliedToCurrentSession !== false };
+    // An empty session takes it at its next turn start (reconcileTurnSettings).
+    return { ...workflowSummary(pack), appliedToCurrentSession: deps.settingsReachCurrentSession?.() !== false };
   }
 
   function getWorkflowPack(workflowId) {

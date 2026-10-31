@@ -78,7 +78,8 @@ export function createWorkflowOverlay({ liveDeniedTools, modelStandaloneTools })
     if (!loadableTools.length) return;
     const opened = session.workflowOpenedTools || [];
     session.workflowOpenedTools = [...new Set([...opened, ...loadableTools])];
-    if (fresh.length) session.deferredToolCatalog = [...(session.deferredToolCatalog || []), ...fresh];
+    // The late pool, never the boot catalog a native request keeps byte-stable.
+    if (fresh.length) session.deferredLateToolCatalog = [...(session.deferredLateToolCatalog || []), ...fresh];
     session.disallowedTools = (session.disallowedTools || []).filter((name) => !loadableTools.includes(String(name)));
     const byName = new Map(schemaTools(session).map((tool) => [toolName(tool), tool]));
     // Announced on every switch that opens them: a pending removal (a switch

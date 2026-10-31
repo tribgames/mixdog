@@ -23,6 +23,8 @@ export interface MixdogConfigModule {
   updateConfigAsync(updater: (current: Record<string, unknown>) => Record<string, unknown>): Promise<unknown>;
   /** Persisted config changes from this process or another; absent on an older daemon. */
   subscribeConfigChange?(listener: () => void): () => void;
+  /** account -> token of the last applied keychain change (no values); absent on an older daemon. */
+  secretChangeTokens?(): Record<string, string>;
 }
 
 interface DesktopSettingsStoreOptions {
@@ -189,6 +191,22 @@ export class DesktopSettingsStore {
   async read(): Promise<DesktopSettings> {
     const config = await this.loadConfig();
     return desktopSettingsFromConfig(config.readConfig());
+  }
+
+  /** Call `listener` with the desktop settings whenever a persisted change
+   *  (any writer: the daemon, another window, a hand edit) alters them.
+   *  Resolves to the unsubscribe; undefined on a config layer without change events. */
+  async watch(listener: (settings: DesktopSettings) => void): Promise<(() => void) | undefined> {
+    const config = await this.loadConfig();
+    const read = (): DesktopSettings => desktopSettingsFromConfig(config.readConfig());
+    let known = JSON.stringify(read());
+    return config.subscribeConfigChange?.(() => {
+      const next = read();
+      const serialized = JSON.stringify(next);
+      if (serialized === known) return;
+      known = serialized;
+      listener(next);
+    });
   }
 
   async readActivityRailPins(): Promise<ActivityRailPinsState | null> {

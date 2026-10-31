@@ -52,6 +52,11 @@ test('each new setup change announces once, from the App snapshot or a session l
     snapshot: { setupChanged: { action: 'set_route', seq: 1, at: Date.now() - 60_000 } },
   });
   assert.equal(announced, 3, 'a replayed change older than the TTL is history');
+  // A runtime's applied settings change arrives once through the host's
+  // settings-changed event, never once per open lane.
+  laneListener({ sessionId: 's4', snapshot: { setupChanged: { action: 'settings_changed', seq: 1, at: Date.now() } } });
+  await render({ action: 'settings_changed', seq: 3, at: Date.now() });
+  assert.equal(announced, 3);
 
   unsubscribe();
   await act(async () => root.unmount());
@@ -60,5 +65,6 @@ test('each new setup change announces once, from the App snapshot or a session l
 test('a permissions scope is a valid settings-changed broadcast', async () => {
   const { readSettingsChange } = await import('../shared/settings-changed.ts');
   assert.deepEqual(readSettingsChange({ scope: 'permissions' }), { scope: 'permissions' });
+  assert.deepEqual(readSettingsChange({ scope: 'agent' }), { scope: 'agent' });
   assert.equal(readSettingsChange({ scope: 'other' }), null);
 });

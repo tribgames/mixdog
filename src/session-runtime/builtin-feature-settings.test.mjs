@@ -26,7 +26,6 @@ function fixture({
   tidyInstallStatus: installStatus = null,
 } = {}) {
   let config = {};
-  let refreshes = 0;
   let catalogRefreshes = 0;
   let runtimeInstalled = false;
   let stopped = 0;
@@ -72,14 +71,10 @@ function fixture({
     syncLocalProviderRegistry: async (enabled) => {
       registrySyncs.push(enabled);
     },
-    refreshEmptySessionToolPolicy: async () => {
-      refreshes += 1;
-    },
   });
   return {
     api,
     config: () => config,
-    refreshes: () => refreshes,
     catalogRefreshes: () => catalogRefreshes,
     prepared,
     installedModels,
@@ -88,7 +83,7 @@ function fixture({
   };
 }
 
-test('built-in Git and Office settings persist and refresh empty-session tools', async () => {
+test('built-in Git and Office settings persist', async () => {
   const state = fixture();
   assert.deepEqual(state.api.getToolModuleSettings().git, { enabled: true, installed: false });
   assert.deepEqual(state.api.getToolModuleSettings().office, { enabled: true, installed: false });
@@ -96,7 +91,6 @@ test('built-in Git and Office settings persist and refresh empty-session tools',
   const result = await state.api.setBuiltinToolEnabled('git', false);
   assert.deepEqual(result.git, { enabled: false, installed: false });
   assert.equal(state.config().modules.git.enabled, false);
-  assert.equal(state.refreshes(), 1);
 });
 
 test('AI session titles default on, persist the top-level key and report the same shape', () => {
@@ -162,7 +156,7 @@ test('the shared bot order is host-stored ids: missing → empty, valid persists
   assert.deepEqual(state.api.getBotOrder(), { order: [] });
 });
 
-test('instruction files mode defaults to all, validates, persists and refreshes empty-session tools', async () => {
+test('instruction files mode defaults to all, validates and persists', async () => {
   const state = fixture();
   assert.equal(state.api.getToolModuleSettings().instructionFiles, 'off');
   for (const mode of ['agents', 'claude', 'all', 'off']) {
@@ -170,9 +164,7 @@ test('instruction files mode defaults to all, validates, persists and refreshes 
     assert.equal(result.instructionFiles, mode);
     assert.equal(state.config().instructionFiles, mode);
   }
-  assert.equal(state.refreshes(), 4);
   await assert.rejects(state.api.setInstructionFiles('everything'), /all, agents, claude, off/);
-  assert.equal(state.refreshes(), 4);
 });
 
 test('Auto reasoning base defaults to medium, validates and persists', () => {

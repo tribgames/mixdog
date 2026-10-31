@@ -5,6 +5,7 @@
 import { readFileSync, readdirSync, statSync, mkdirSync, existsSync, watch as fsWatch } from 'node:fs';
 import { basename, join, dirname } from 'node:path';
 import { createRequire } from 'node:module';
+import { randomUUID } from 'node:crypto';
 import { resolvePluginData } from './plugin-paths.mjs';
 import { hasOwn, isPlainObject } from './object.mjs';
 import {
@@ -13,6 +14,8 @@ import {
   renameWithRetrySync,
   writeJsonAtomicSync,
   writeJsonAtomicAsync,
+  updateJsonAtomicSync,
+  updateJsonAtomic,
   withFileLockSync,
   withFileLock,
 } from './atomic-file.mjs';
@@ -30,6 +33,7 @@ import { AGENT_PROVIDER_ENV, AGENT_PROVIDER_ENV_ALIASES, getAgentApiKey } from '
 export { AGENT_PROVIDER_ENV, AGENT_PROVIDER_ENV_ALIASES, getAgentApiKey };
 
 const _require = createRequire(import.meta.url);
+const _keychain = _require('../../lib/keychain-cjs.cjs');
 const {
   getSecret: _getSecret,
   setSecret: _setSecret,
@@ -42,7 +46,8 @@ const {
   retryKeychain: _retryKeychain,
   refreshKeychainStatus: _refreshKeychainStatus,
   onKeychainRecovered: _onKeychainRecovered,
-} = _require('../../lib/keychain-cjs.cjs');
+  prewarmSecrets: _prewarmSecrets,
+} = _keychain;
 const _setSecretAsync = _setSecretAsyncImpl ?? (async (account, value) => _setSecret(account, value));
 const _deleteSecretAsync = _deleteSecretAsyncImpl ?? (async (account) => _deleteSecret(account));
 
@@ -80,7 +85,9 @@ function withFreshDefaultsVersion(fresh, root) {
 // isolated, freely-mutable object (no shared-reference poisoning). Only the
 // non-RMW readAll() consults this; the RMW path (readAllForRmW) always reads
 // disk under the lock. Read errors and malformed JSON are never cached.
-let _configReadCache = null; // { raw, mtimeMs, size, atMs } | null
+let _configReadCache = null; // { raw, path, stat, atMs } | null
+// While a change notification runs its listeners (runConfigChangeListeners).
+let _inNotificationPass = false;
 // Optional coarse fast-path window (ms). Default 0 => the cached raw string is
 // validated against the file's mtime+size on EVERY read via a cheap statSync
 // (no content read, no whole-file JSON.parse), so a cross-process edit is
@@ -97,6 +104,12 @@ export function invalidateConfigReadCache() {
   _configReadCache = null;
 }
 
+// A replacement of the same size within the mtime's resolution still moves the
+// inode (atomic rename) or the change time.
+function statKey(st) {
+  return `${st.mtimeMs}:${st.ctimeMs}:${st.size}:${st.ino}`;
+}
+
 function readConfigRawCached() {
   const now = Date.now();
   if (_configReadCache && _configReadCache.path !== configPath()) _configReadCache = null;
@@ -106,12 +119,12 @@ function readConfigRawCached() {
     if (CONFIG_READ_TTL_MS > 0 && now - _configReadCache.atMs < CONFIG_READ_TTL_MS) {
       return _configReadCache.raw;
     }
-    // Freshness gate: metadata-only stat. Unchanged mtime+size => the cached
+    // Freshness gate: metadata-only stat. Unchanged mtime+ctime+size+inode => the cached
     // raw is still current, cross-process writes included — atomic writers land
     // a new inode with a fresh mtime, so this reliably detects them.
     try {
       const st = statSync(configPath());
-      if (st.mtimeMs === _configReadCache.mtimeMs && st.size === _configReadCache.size) {
+      if (statKey(st) === _configReadCache.stat) {
         _configReadCache.atMs = now;
         return _configReadCache.raw;
       }
@@ -146,7 +159,7 @@ function readConfigRawCached() {
     process.stderr.write(`[config] readJsonFile: unexpected read error for ${configPath()}: ${err.message}\n`);
     throw err;
   }
-  _configReadCache = { raw, path: configPath(), mtimeMs: st.mtimeMs, size: st.size, atMs: now };
+  _configReadCache = { raw, path: configPath(), stat: statKey(st), atMs: now };
   return raw;
 }
 
@@ -225,6 +238,7 @@ function readConfigFile() {
     // parse must not be re-served; drop it so the post-quarantine/restore read
     // hits disk fresh (malformed = never cached).
     invalidateConfigReadCache();
+    if (_inNotificationPass) throw configMidWriteError(err);
     quarantineMalformedConfig(err);
     return null;
   }
@@ -422,8 +436,145 @@ function readAllForRmW() {
     if (!isPlainObject(parsed)) throw new SyntaxError('config root must be a JSON object');
     return parsed;
   } catch (parseErr) {
+    if (_inNotificationPass) throw configMidWriteError(parseErr);
     return restoreAllForRmWOrThrow(parseErr.message, quarantineMalformedConfig(parseErr));
   }
+}
+
+// Secret change marker. Keychain writes never touch mixdog-config.json, so they
+// publish through this file beside it (account -> token of its last change):
+// it rides the same directory watch and notification as a config write. Each
+// process remembers the tokens it has applied and drops exactly the changed
+// accounts from its keychain read cache before listeners reload.
+// A deletion removes the account's entry (the marker holds live accounts only)
+// and moves this token: a process that never saw the account's entry (a secret
+// stored before the marker existed, or set and deleted between two of its
+// syncs) may still cache it, so it drops its whole keychain read cache.
+const SECRETS_MARKER_FILE = 'mixdog-secrets-changed.json';
+const SECRET_DELETED_KEY = '#deleted';
+let _secretsSeen = null;
+let _secretsSeenPath = '';
+let _secretsMarkerStat = '';
+
+function secretsMarkerPath() {
+  return join(dirname(configPath()), SECRETS_MARKER_FILE);
+}
+
+function secretsMarkerStat(path) {
+  try {
+    const stat = statSync(path);
+    return `${stat.mtimeMs}:${stat.size}:${stat.ino}`;
+  } catch {
+    return 'missing';
+  }
+}
+
+function readSecretsMarker() {
+  try {
+    const parsed = parseJsonText(readFileSync(secretsMarkerPath(), 'utf8'));
+    return isPlainObject(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Apply marker entries this process has not seen; answers the changed accounts. */
+function syncSecretsMarker() {
+  const path = secretsMarkerPath();
+  if (_secretsSeenPath !== path) {
+    _secretsSeen = null;
+    _secretsSeenPath = path;
+  }
+  _secretsMarkerStat = secretsMarkerStat(path);
+  const marker = readSecretsMarker();
+  if (_secretsSeen === null) {
+    _secretsSeen = marker;
+    return [];
+  }
+  const seen = _secretsSeen;
+  const changed = [...new Set([...Object.keys(seen), ...Object.keys(marker)])].filter(
+    (account) => seen[account] !== marker[account]
+  );
+  _secretsSeen = marker;
+  if (changed.includes(SECRET_DELETED_KEY)) _keychain.invalidateSecretCache?.();
+  else for (const account of changed) if (!account.startsWith('#')) _keychain.invalidateSecretCache?.(account);
+  return changed;
+}
+
+// The read path of a process that may have no config-change subscriber (an
+// injected config, a helper process): one stat, and a re-read only when the
+// marker moved, so a secret changed or forgotten elsewhere is never served
+// from this process's cache.
+function syncSecretsMarkerIfMoved() {
+  if (_secretsSeen !== null && _secretsSeenPath === secretsMarkerPath()) {
+    if (secretsMarkerStat(_secretsSeenPath) === _secretsMarkerStat) return;
+  }
+  syncSecretsMarker();
+}
+
+/** account -> token of the last change of that secret this process has
+ *  applied (its own writes and other processes'). Values are never included. */
+export function secretChangeTokens() {
+  if (_secretsSeen === null) syncSecretsMarker();
+  return { ..._secretsSeen };
+}
+
+const secretChangeToken = () => `${process.pid}:${Date.now()}:${randomUUID()}`;
+function withSecretChange(marker, account, token, deleted) {
+  const next = { ...(isPlainObject(marker) ? marker : {}) };
+  if (deleted) {
+    delete next[account];
+    next[SECRET_DELETED_KEY] = token;
+  } else {
+    next[account] = token;
+  }
+  return next;
+}
+
+function beginSecretChange() {
+  // Other processes' changes are applied first, so recording our own token
+  // never absorbs theirs unapplied.
+  syncSecretsMarker();
+  return secretChangeToken();
+}
+
+function finishSecretChange(account, token, deleted) {
+  // This process already holds the new value (the keychain module updated its
+  // cache), so its own change is recorded as applied.
+  _secretsSeen = withSecretChange(_secretsSeen, account, token, deleted);
+  _secretsMarkerStat = secretsMarkerStat(secretsMarkerPath());
+  notifyConfigChanged();
+}
+
+const secretMarkerFailure = (err) =>
+  process.stderr.write(`[config] secret change marker write failed: ${err?.message || err}\n`);
+
+// Never throws: the secret itself is already stored; a marker that could not
+// be written is reported and only delays what other processes see.
+function publishSecretChange(account, deleted = false) {
+  const token = beginSecretChange();
+  try {
+    mkdirSync(dirname(secretsMarkerPath()), { recursive: true, mode: 0o700 });
+    updateJsonAtomicSync(secretsMarkerPath(), (marker) => withSecretChange(marker, account, token, deleted), {
+      mode: 0o600,
+    });
+  } catch (err) {
+    secretMarkerFailure(err);
+  }
+  finishSecretChange(account, token, deleted);
+}
+
+async function publishSecretChangeAsync(account, deleted = false) {
+  const token = beginSecretChange();
+  try {
+    mkdirSync(dirname(secretsMarkerPath()), { recursive: true, mode: 0o700 });
+    await updateJsonAtomic(secretsMarkerPath(), (marker) => withSecretChange(marker, account, token, deleted), {
+      mode: 0o600,
+    });
+  } catch (err) {
+    secretMarkerFailure(err);
+  }
+  finishSecretChange(account, token, deleted);
 }
 
 // Config-change notification. In-process writes notify directly after the file
@@ -431,10 +582,18 @@ function readAllForRmW() {
 // directory watch (the atomic rename replaces the file, which would orphan a
 // file-level watch on POSIX). Bursts coalesce into one listener pass.
 const CONFIG_CHANGE_DEBOUNCE_MS = 100;
+// A watch that failed (or could not start) is re-established on this delay
+// while anyone listens; changes missed meanwhile are announced once it is back.
+const CONFIG_WATCH_RETRY_MS = 1000;
+const WATCHED_FILES = new Set(['mixdog-config.json', SECRETS_MARKER_FILE]);
 const _configChangeListeners = new Set();
 let _configChangeTimer = null;
 let _configWatcher = null;
 let _configWatchDir = '';
+let _configWatchRetryTimer = null;
+
+/** The directory watch implementation; tests substitute a failing watcher. */
+export const configWatchDeps = { watch: fsWatch };
 
 function stopConfigWatcher() {
   try {
@@ -444,19 +603,102 @@ function stopConfigWatcher() {
   _configWatchDir = '';
 }
 
-function notifyConfigChanged() {
-  if (!_configChangeListeners.size) return;
-  if (_configChangeTimer) clearTimeout(_configChangeTimer);
-  _configChangeTimer = setTimeout(() => {
-    _configChangeTimer = null;
-    invalidateConfigReadCache();
+// The watched files' bytes at the last listener pass (or the first subscribe).
+// A pass caused only by the watch finds nothing to do when they are unchanged,
+// e.g. another process rewriting a marker with identical content.
+let _configChangeForced = false;
+let _watchedContent = null;
+
+function watchedContent() {
+  const dir = dirname(configPath());
+  return [...WATCHED_FILES].map((file) => {
+    try {
+      return readFileSync(join(dir, file), 'latin1');
+    } catch {
+      return null;
+    }
+  });
+}
+
+// A config that does not parse while a notification pass runs its listeners
+// is usually a write in progress (a hand edit saved half-typed or torn, maybe
+// landing after the pass began): every read of the pass (readConfigFile,
+// readAllForRmW) then throws instead of quarantining it, so the listeners keep
+// their current config, and the pass runs again once shortly. Only reads
+// outside a pass (boot, explicit reads, writes) quarantine it.
+const CONFIG_SETTLE_RETRY_MS = 300;
+let _configSettleTimer = null;
+let _configSettleRetried = false;
+
+function configMidWriteError(parseErr) {
+  // The retry runs the listeners even when the bytes then equal the ones this
+  // pass saw (the save completed back to them).
+  _configChangeForced = true;
+  if (!_configSettleRetried && !_configSettleTimer && _configChangeListeners.size) {
+    _configSettleTimer = setTimeout(() => {
+      _configSettleTimer = null;
+      _configSettleRetried = true;
+      void runConfigChangeListeners();
+    }, CONFIG_SETTLE_RETRY_MS);
+    _configSettleTimer.unref?.();
+  }
+  const error = new Error(
+    `[config] mixdog-config.json does not parse yet (${parseErr.message}); keeping the current config`
+  );
+  error.code = 'ECONFIG_MID_WRITE';
+  return error;
+}
+
+async function runConfigChangeListeners() {
+  const forced = _configChangeForced;
+  _configChangeForced = false;
+  const content = watchedContent();
+  const last = _watchedContent;
+  if (!forced && Array.isArray(last) && last.every((value, index) => value === content[index])) return;
+  _watchedContent = content;
+  invalidateConfigReadCache();
+  // A Linux keyring is read only through a snapshot, which the invalidation
+  // dropped: re-take it so listeners reload the changed keys.
+  if (syncSecretsMarker().length && process.platform === 'linux') {
+    try {
+      await _prewarmSecrets?.();
+    } catch {}
+  }
+  _inNotificationPass = true;
+  try {
     for (const listener of [..._configChangeListeners]) {
       try {
         listener();
       } catch {}
     }
+  } finally {
+    _inNotificationPass = false;
+  }
+}
+
+// In-process writes and a re-established watch always run the listeners (a
+// secret stored while its marker write failed changes no watched byte).
+function notifyConfigChanged({ fromWatch = false } = {}) {
+  if (!_configChangeListeners.size) return;
+  if (!fromWatch) _configChangeForced = true;
+  _configSettleRetried = false;
+  if (_configChangeTimer) clearTimeout(_configChangeTimer);
+  _configChangeTimer = setTimeout(() => {
+    _configChangeTimer = null;
+    void runConfigChangeListeners();
   }, CONFIG_CHANGE_DEBOUNCE_MS);
   _configChangeTimer.unref?.();
+}
+
+function scheduleConfigWatchRetry() {
+  if (_configWatchRetryTimer || !_configChangeListeners.size) return;
+  _configWatchRetryTimer = setTimeout(() => {
+    _configWatchRetryTimer = null;
+    if (!_configChangeListeners.size) return;
+    ensureConfigWatcher();
+    if (_configWatcher) notifyConfigChanged();
+  }, CONFIG_WATCH_RETRY_MS);
+  _configWatchRetryTimer.unref?.();
 }
 
 function ensureConfigWatcher() {
@@ -464,26 +706,39 @@ function ensureConfigWatcher() {
   if (_configWatcher && _configWatchDir === dir) return;
   stopConfigWatcher();
   try {
-    _configWatcher = fsWatch(dir, (_event, filename) => {
-      if (!filename || String(filename) === 'mixdog-config.json') notifyConfigChanged();
+    const watcher = configWatchDeps.watch(dir, (_event, filename) => {
+      if (!filename || WATCHED_FILES.has(String(filename))) notifyConfigChanged({ fromWatch: true });
     });
-    _configWatcher.unref?.();
-    _configWatcher.on?.('error', stopConfigWatcher);
+    watcher.unref?.();
+    watcher.on?.('error', () => {
+      if (_configWatcher !== watcher) return;
+      stopConfigWatcher();
+      scheduleConfigWatchRetry();
+    });
+    _configWatcher = watcher;
     _configWatchDir = dir;
   } catch {
     _configWatcher = null;
+    scheduleConfigWatchRetry();
   }
 }
 
-/** Subscribe to persisted config changes (this process or another). Returns unsubscribe. */
+/** Subscribe to persisted config and secret changes (this process or another). Returns unsubscribe. */
 export function subscribeConfigChange(listener) {
+  if (!_configChangeListeners.size) _watchedContent = watchedContent();
   _configChangeListeners.add(listener);
+  // The first subscriber fixes the secret baseline this process applies from.
+  if (_secretsSeen === null) syncSecretsMarker();
   ensureConfigWatcher();
   return () => {
     _configChangeListeners.delete(listener);
     if (!_configChangeListeners.size) {
       if (_configChangeTimer) clearTimeout(_configChangeTimer);
       _configChangeTimer = null;
+      clearTimeout(_configSettleTimer);
+      _configSettleTimer = null;
+      if (_configWatchRetryTimer) clearTimeout(_configWatchRetryTimer);
+      _configWatchRetryTimer = null;
       stopConfigWatcher();
     }
   };
@@ -664,6 +919,7 @@ function _readSecret(account) {
   const envVal = process.env[_envKey(account)];
   if (envVal) return envVal;
   try {
+    syncSecretsMarkerIfMoved();
     return _getSecret(account);
   } catch {
     return null;
@@ -692,6 +948,7 @@ export function saveSecret(account, value) {
   } catch (err) {
     throw saveSecretError(account, err);
   }
+  publishSecretChange(account);
 }
 
 /** Non-blocking saveSecret: Linux secret-tool runs off the event loop. */
@@ -701,6 +958,7 @@ export async function saveSecretAsync(account, value) {
   } catch (err) {
     throw saveSecretError(account, err);
   }
+  await publishSecretChangeAsync(account);
 }
 
 function saveSecretError(account, err) {
@@ -725,11 +983,49 @@ function saveSecretError(account, err) {
 /** Remove a secret from the OS keychain (if present) and the Linux fallback file. */
 export function deleteSecret(account) {
   _deleteSecret(account);
+  publishSecretChange(account, true);
 }
 
 /** Non-blocking deleteSecret: Linux secret-tool runs off the event loop. */
 export async function deleteSecretAsync(account) {
   await _deleteSecretAsync(account);
+  await publishSecretChangeAsync(account, true);
+}
+
+/**
+ * The keychain as a credential store for modules that keep their own secrets
+ * in it (MCP OAuth tokens and client secrets, Gmail app passwords). Reads are
+ * the keychain's own; every write publishes the secret change marker exactly
+ * as saveSecret/deleteSecret do, so other processes learn of it. Write errors
+ * stay the keychain's: the provider-key environment hint of saveSecret does
+ * not apply to these accounts. Calls reach the keychain module at call time.
+ * `{ announce: false }` writes without the marker, for a change other
+ * processes observe by their own means (an MCP OAuth token refresh: its
+ * revision marker), so it does not reach every runtime as a settings change.
+ * Reads first apply the marker, so a process without a config-change
+ * subscriber never serves a secret changed or forgotten elsewhere.
+ */
+export const keychainSecretStore = Object.freeze({
+  getSecretAsync(account) {
+    syncSecretsMarkerIfMoved();
+    return _keychain.getSecretAsync(account);
+  },
+  invalidateSecretCache: (account) => _keychain.invalidateSecretCache?.(account),
+  async setSecretAsync(account, value, { announce = true } = {}) {
+    await _keychain.setSecretAsync(account, value);
+    if (announce) await publishSecretChangeAsync(account);
+  },
+  async deleteSecretAsync(account, { announce = true } = {}) {
+    await _keychain.deleteSecretAsync(account);
+    if (announce) await publishSecretChangeAsync(account, true);
+  },
+});
+
+/** Announce a change of state kept outside mixdog-config.json that settings
+ *  depend on (`plugins`: the plugin registry), under a reserved `#` key of the
+ *  secret change marker, so it reaches other processes on the same path. */
+export function announceStoredStateChange(key) {
+  publishSecretChange(`#${key}`);
 }
 
 /** Retry a failed Linux keyring read; true when it just recovered. */
@@ -763,6 +1059,7 @@ export function getKeychainStatus() {
  */
 export function hasStoredSecret(account) {
   try {
+    syncSecretsMarkerIfMoved();
     if (typeof _hasSecret === 'function') return !!_hasSecret(account);
     return !!_getSecret(account);
   } catch {

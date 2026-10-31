@@ -79,6 +79,7 @@ function fixture(overrides = {}) {
     saveConfigAndAdopt: () => {},
     displayConfig: () => ({ display: true }),
     reloadFullConfig: () => calls.push(['reload']),
+    applyConfigChange: () => calls.push(['apply']),
     awaitKeychainPrewarm: async () => calls.push(['keychain']),
     invalidateProviderCaches: () => calls.push(['invalidate']),
     warmProviderModelCache: () => calls.push(['warm']),
@@ -98,13 +99,10 @@ function fixture(overrides = {}) {
 
 // The catalog refresh is started before the cache warm; its own invalidate +
 // warm land once the refresh settles.
-const CREDENTIAL_CHANGE = [
-  ['reload'],
-  ['invalidate'],
-  ['resetCooldowns'],
-  ['refreshCatalogs', { force: true }],
-  ['warm'],
-];
+const ADOPT_CREDENTIALS = [['invalidate'], ['resetCooldowns'], ['refreshCatalogs', { force: true }], ['warm']];
+// A credential write runs the runtime's change step itself (reload + change
+// effects), so its own config-change notification finds nothing left to do.
+const CREDENTIAL_CHANGE = [['apply'], ...ADOPT_CREDENTIALS];
 const AFTER_CATALOGS = [['invalidate'], ['warm']];
 
 test('saving an API key reloads config, releases cooldowns and refreshes catalogs then caches', async () => {
@@ -166,7 +164,7 @@ test('custom provider save/remove refresh like credential changes; removal drops
 test('usage-only credentials reload and invalidate without touching admission cooldowns', async () => {
   const api = fixture();
   assert.equal(await api.saveOpenAIUsageSessionKey('usage-1'), 'saved-usage');
-  assert.deepEqual(calls, [['saveUsageKey', 'usage-1'], ['reload'], ['invalidate']]);
+  assert.deepEqual(calls, [['saveUsageKey', 'usage-1'], ['apply'], ['invalidate']]);
 });
 
 test('beginOAuthProviderLogin wraps the callback wait and the code completion with the refresh chain', async () => {
@@ -178,7 +176,7 @@ test('beginOAuthProviderLogin wraps the callback wait and the code completion wi
   pendingCallback.resolve(true);
   assert.equal(await login.waitForCallback, true);
   await setImmediate();
-  assert.deepEqual(calls, [['keychain'], ...CREDENTIAL_CHANGE, ...AFTER_CATALOGS]);
+  assert.deepEqual(calls, [['keychain'], ['reload'], ...ADOPT_CREDENTIALS, ...AFTER_CATALOGS]);
   calls.length = 0;
   assert.equal(await login.completeCode('1234'), true);
   await setImmediate();

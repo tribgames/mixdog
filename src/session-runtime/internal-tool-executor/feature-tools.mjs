@@ -1,19 +1,13 @@
-// Optional feature tools gated by settings for model-initiated calls: office,
-// media and tidy (each loaded on first use), and the setup tool.
+// Optional feature tools: office, media and tidy (each loaded on first use;
+// their settings gates apply in the executor), and the setup tool.
 import { standaloneDataDir } from '../runtime-paths.mjs';
 import { createCallerContextResolvers } from './caller-context.mjs';
 
-export function createFeatureToolHandlers({ rt, setupTool, officeToolsEnabled, mediaToolEnabled, tidyToolEnabled }) {
+export function createFeatureToolHandlers({ rt, setupTool }) {
   const { sessionIdFor, signalFor } = createCallerContextResolvers(rt);
-  const requireEnabled = (callerCtx, enabled, label) => {
-    if (callerCtx?.invocationSource === 'model-tool' && !enabled()) {
-      throw new Error(`${label} is disabled in settings; start a new session to refresh the tool list`);
-    }
-  };
 
   return {
     office: async (args, { callerCtx, callerCwd }) => {
-      requireEnabled(callerCtx, officeToolsEnabled, 'office');
       const { executeOfficeTool } = await import('../../runtime/office/index.mjs');
       return await executeOfficeTool(args, {
         cwd: callerCwd,
@@ -25,7 +19,6 @@ export function createFeatureToolHandlers({ rt, setupTool, officeToolsEnabled, m
       });
     },
     media: async (args, { callerCtx, callerCwd }) => {
-      requireEnabled(callerCtx, mediaToolEnabled, 'media');
       const { executeMediaTool } = await import('../../runtime/media/tool.mjs');
       const { getSession } = await import('../../runtime/agent/orchestrator/session/manager/session-crud.mjs');
       // Generation spend is attributed to the calling session in the usage ledger.
@@ -38,7 +31,6 @@ export function createFeatureToolHandlers({ rt, setupTool, officeToolsEnabled, m
       });
     },
     tidy: async (args, { callerCtx, callerCwd }) => {
-      requireEnabled(callerCtx, tidyToolEnabled, 'tidy');
       const { executeTidyTool } = await import('../../runtime/tidy/tool.mjs');
       return await executeTidyTool(args, {
         cwd: callerCwd,

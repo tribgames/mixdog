@@ -51,6 +51,8 @@ export function wireSessionLifecycle(boot) {
     schemaAllowedTools: modelToolSchemaAllowlist(rt.toolProfile),
     featureDisallowedTools: boot.featureDisallowedTools,
     applyPreSessionToolSelection: boot.applyPreSessionToolSelection,
+    // Late-bound: the tool policy refresh is wired with the API slices.
+    noteToolAvailability: (session, coreMemory) => boot.noteToolAvailability?.(session, coreMemory),
     statusRoutes: boot.statusRoutes,
     warmupTimers: boot.warmupTimers,
     providerModelCaches: boot.providerModelCaches,

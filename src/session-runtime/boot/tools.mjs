@@ -41,6 +41,7 @@ import {
 } from '../../runtime/agent/orchestrator/runtime-core/context-status.mjs';
 import { createInternalToolExecutor } from '../internal-tool-executor.mjs';
 import { registerWorktreeToolHost } from '../../runtime/shared/worktrees/tool-host.mjs';
+import { registerLiveFeatureGates } from '../../runtime/agent/orchestrator/runtime-core/tool-availability.mjs';
 import { createWorktreeToolHost } from '../workspace/worktree-tool.mjs';
 import { STANDALONE_ROOT, standaloneDataDir } from '../runtime-paths.mjs';
 import { dataDirOf, workflowHelpers } from './shared.mjs';
@@ -61,8 +62,14 @@ export function wireTools(boot) {
       })
     )
     .catch((error) => bootProfile('mcp:failed', { error: error?.message || String(error) }));
+  // A lost reload leaves the old timers armed; the scheduler re-reads each
+  // schedule before it fires (scheduler.mjs fireTimed), so it is only reported.
   boot.reloadChannelsSoon = () => {
-    boot.channels.execute('reload_config', {}).catch(() => {});
+    boot.channels
+      .execute('reload_config', {})
+      .catch((error) =>
+        process.stderr.write(`[channels] schedule reload failed: ${error?.message || String(error)}\n`)
+      );
   };
 }
 
@@ -183,8 +190,14 @@ function wireToolSurface(boot) {
     skillToolEnabled: !envFlag('MIXDOG_DISABLE_SKILLS'),
   });
   bootProfile('tools:ready', { ms: (performance.now() - toolsStartedAt).toFixed(1), count: standaloneTools.length });
-  const { modelStandaloneTools, invalidatePreSessionToolSurface, activeToolSurface, applyPreSessionToolSelection } =
-    createToolSurface({
+  const {
+    modelStandaloneTools,
+    invalidatePreSessionToolSurface,
+    activeToolSurface,
+    applyPreSessionToolSelection,
+    toolDefinitionsFor,
+    surfaceGeneration,
+  } = createToolSurface({
       mgr,
       mode: rt.mode,
       standaloneTools,
@@ -208,10 +221,15 @@ function wireToolSurface(boot) {
     invalidatePreSessionToolSurface,
     activeToolSurface,
     applyPreSessionToolSelection,
+    toolDefinitionsFor,
+    surfaceGeneration,
   });
 }
 
-function wireContextStatus(boot) {
+/** The setup-changed action of a context status an empty session's reconcile moved. */
+export const CONTEXT_STATUS_REFRESHED_ACTION = 'context_status_refreshed';
+
+export function wireContextStatus(boot) {
   const { rt } = boot;
   const { contextStatus: computeContextStatus, invalidateContextStatusCache } = createContextStatus({
     getSession: () => rt.session,
@@ -221,7 +239,33 @@ function wireContextStatus(boot) {
     getMode: () => rt.mode,
   });
   Object.assign(boot, {
-    computeContextStatus,
+    // The synchronous accessor (the local TUI): an empty session whose
+    // settings gates moved starts the shared turn-start reconcile
+    // (late-bound); when it rebuilt anything the cache is dropped and the
+    // attached surfaces are told to read again.
+    computeContextStatus: (...args) => {
+      if (boot.emptySessionStale?.()) {
+        boot
+          .reconcileEmptySession()
+          .then((result) => {
+            if (!result) return;
+            invalidateContextStatusCache();
+            boot.emitRuntimeNotification?.('Context status refreshed', {
+              kind: 'setup-changed',
+              action: CONTEXT_STATUS_REFRESHED_ACTION,
+            });
+          })
+          .catch(() => {});
+      }
+      return computeContextStatus(...args);
+    },
+    // Async boundaries (desktop, remote, IPC) wait for the same reconcile.
+    computeContextStatusSettled: async (...args) => {
+      if (boot.emptySessionStale?.()) {
+        if (await boot.reconcileEmptySession()) invalidateContextStatusCache();
+      }
+      return computeContextStatus(...args);
+    },
     invalidateContextStatusCache,
     computeContextStatusForSession: (session) =>
       contextStatusForSession(session, {
@@ -255,11 +299,7 @@ function wireInternalTools(boot) {
       goalRuntime: boot.goalRuntime,
       agentTool: boot.routedAgentTool,
       setupTool,
-      webSearchEnabled: boot.webSearchEnabled,
-      memoryToolsEnabled: boot.memoryToolsEnabledFn,
-      officeToolsEnabled: boot.officeToolsEnabledFn,
-      mediaToolEnabled: boot.mediaToolEnabledFn,
-      tidyToolEnabled: boot.tidyToolEnabledFn,
+      featureDisallowedTools: boot.featureDisallowedTools,
       getWebSearchModule: boot.getWebSearchModule,
       getMemoryModule: boot.getMemoryModule,
       getCodeGraphModule: boot.getCodeGraphModule,
@@ -288,9 +328,13 @@ function wireInternalTools(boot) {
       executeSessionControl: boot.params.executeSessionControl || null,
     }).run,
   });
+  // Dispatch refuses a model call of a tool a setting turned off from this
+  // runtime's live gates (a turn already running when it changed included).
+  const disposeLiveGates = registerLiveFeatureGates(rt.mcpScopeId, boot.featureDisallowedTools);
   Object.assign(boot, {
     setupTool,
     disposeInternalTools: () => {
+      disposeLiveGates();
       disposeWorktreeToolHost();
       // Its turn snapshot cleanups stop with the runtime (maintenance finishes them).
       boot.workspaceApi?.dispose();

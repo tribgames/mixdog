@@ -6,7 +6,7 @@
 //   - else the catalog connector's (connector-catalog.mjs `oauthClient`), with
 //     its scopes and the provider's offline-access parameter.
 import { createHash } from 'node:crypto';
-import keychain from '../../../../lib/keychain-cjs.cjs';
+import { keychainSecretStore as keychain } from '../../../shared/config.mjs';
 import { connectorById, connectorOfServer, gmailAppPasswordAccount } from '../../../shared/connector-catalog.mjs';
 import { GOOGLE_AUTH_PARAMS, googleOAuthClient } from '../../../shared/google-oauth-client.mjs';
 import { normalizeMcpTransportUrl } from './client-config.mjs';

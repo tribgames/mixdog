@@ -17,7 +17,7 @@ function modeLoadableTools(session, mode) {
     ...toolNames(session.deferredCallableTools),
     ...toolNames(session.deferredDiscoveredTools),
   ]);
-  const deferred = new Set(toolNames(session.deferredToolCatalog));
+  const deferred = new Set([...toolNames(session.deferredToolCatalog), ...toolNames(session.deferredLateToolCatalog)]);
   const denied = new Set(
     [...(session.disallowedTools || []), ...(session.workflowOverlay?.deniedTools || [])].map(String)
   );

@@ -67,7 +67,6 @@ export function createBuiltinToolSettings(
     webSearchEnabled,
     invalidateContextStatusCache,
     invalidatePreSessionToolSurface,
-    refreshEmptySessionToolPolicy,
   },
   localSettings
 ) {
@@ -201,19 +200,15 @@ export function createBuiltinToolSettings(
     async setWebSearchEnabled(enabled) {
       const config = getConfig();
       saveConfigAndAdopt(setModuleEnabledInConfig({ ...config }, 'webSearch', enabled !== false));
-      // Empty/reserved sessions rebuild now so session entry does not still
-      // advertise web_search. A conversation keeps its frozen schema.
-      await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
     },
     /** Which user instruction files (AGENTS.md / CLAUDE.md) new sessions load:
-     *  'all' | 'agents' | 'claude' | 'off'. The empty session rebuilds now. */
+     *  'all' | 'agents' | 'claude' | 'off'. An empty session rebuilds at its next turn. */
     async setInstructionFiles(mode) {
       if (!INSTRUCTION_FILES_MODES.includes(mode)) {
         throw new TypeError(`Instruction files must be one of ${INSTRUCTION_FILES_MODES.join(', ')}.`);
       }
       saveConfigAndAdopt({ ...getConfig(), instructionFiles: mode });
-      await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
     },
     /** The global "Auto reasoning base": the effort Auto works around. */
@@ -238,7 +233,6 @@ export function createBuiltinToolSettings(
       if (memoryEnabled) nextConfig = setBuiltinInstalledInConfig(nextConfig, 'memory', true);
       saveConfigAndAdopt(nextConfig);
       invalidateContextStatusCache();
-      await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
     },
     async setBuiltinToolEnabled(name, enabled) {
@@ -268,7 +262,6 @@ export function createBuiltinToolSettings(
       }
       // Turning Auto on loads nothing: the judge starts on its first turn.
       if (name === 'autoEffort' && enabled === false) await shutdownEffortJudge();
-      await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
     },
     /** Extensions → Built-in Install: run the feature's preparation adapter
@@ -300,7 +293,6 @@ export function createBuiltinToolSettings(
         await syncLocalProviderRegistry?.(true);
       }
       if (name === 'memory') invalidateContextStatusCache();
-      await refreshEmptySessionToolPolicy?.();
       return this.getToolModuleSettings();
     },
     /** Extensions → Code Tidy: which engines exist, where each one comes from,

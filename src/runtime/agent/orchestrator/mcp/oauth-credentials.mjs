@@ -145,11 +145,16 @@ export function createCredentialCache({ url, credentialStore, account }) {
         }
         exists = Boolean(saved);
       }
+      const signedIn = Boolean(creds.tokens);
       change();
       hold();
+      // Other processes follow a refresh through the revision marker; only a
+      // sign-in or sign-out is announced as a settings change (it may let a
+      // server that needed sign-in connect, or end its connection).
+      const announce = remove ? signedIn : Boolean(creds.tokens) !== signedIn;
       if (remove) {
         await writeRevisionMarker(account, null);
-        if (exists) await credentialStore.deleteSecretAsync(account);
+        if (exists) await credentialStore.deleteSecretAsync(account, { announce });
         await writeIdentityFile(account, null);
         creds.observed = null;
       } else {
@@ -158,7 +163,8 @@ export function createCredentialCache({ url, credentialStore, account }) {
         const { tokens, clientInformation, redirectUrl, discovery, identity } = creds;
         await credentialStore.setSecretAsync(
           account,
-          JSON.stringify({ url, revision, tokens, clientInformation, redirectUrl, discovery, identity })
+          JSON.stringify({ url, revision, tokens, clientInformation, redirectUrl, discovery, identity }),
+          { announce }
         );
         await writeIdentityFile(account, creds);
         creds.observed = revision;

@@ -37,6 +37,7 @@ export function createAgentJobFeed({
   displayedExecutionNotificationKeys,
   itemIndexById,
   pushNotice,
+  refreshContextStats = null,
   now = () => Date.now(),
   executionResumeTombstoneTtlMs = 30_000,
   executionResumeTombstoneLimit = 128,
@@ -79,6 +80,7 @@ export function createAgentJobFeed({
     statusRefresh,
     executionDelivery,
     modelNotification,
+    refreshContextStats,
     getAdmission,
   });
 

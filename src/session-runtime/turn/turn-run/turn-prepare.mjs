@@ -90,6 +90,7 @@ export function createTurnPreparation({
   applyPendingRoute,
   applyPendingAgentProfile,
   applyPendingSessionSwitches,
+  reconcileTurnSettings,
 }) {
   async function admitWorkspace(turn, prompt, options) {
     // Turn admission: waits while this session's workspace transitions or
@@ -149,6 +150,10 @@ export function createTurnPreparation({
     // An orchestration mode or workflow chosen while the previous turn ran
     // applies from this one (before a cold-cache fold can take it in).
     const sessionSwitches = applyPendingSessionSwitches?.();
+    // Settings saved since this session last ran (here or in any other
+    // runtime): an empty session is rebuilt, a conversation takes moved tool
+    // gates live — before a cold-cache fold below can take them in.
+    await reconcileTurnSettings?.();
     // An agent profile saved while the previous turn ran applies from this one.
     await applyPendingAgentProfile?.();
     options.onRouteApplied?.(getSession());

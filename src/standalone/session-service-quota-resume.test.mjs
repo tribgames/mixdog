@@ -160,6 +160,32 @@ for (const oldRouteUsable of [true, false]) {
   });
 }
 
+test('auto-resume switched off outside this process resumes nothing and clears what was pending', async (t) => {
+  isolateDataDir(t);
+  const { updateSection } = await import('../runtime/shared/config.mjs');
+  const fired = [];
+  const scheduler = createQuotaResumeScheduler({
+    store: quotaResumeStore,
+    materializeSession: async () => ({ fireQuotaResume: (options) => fired.push(options) && 'fired' }),
+    readQuotaUsable: async () => true,
+    now: () => PAST + 1000,
+    setTimer: () => null,
+    clearTimer: () => {},
+  });
+  quotaResumeStore.scheduleQuotaResumeEntry({
+    sessionId: SESSION,
+    turnKey: 'turn:u1',
+    provider: 'openai-oauth',
+    model: 'gpt-x',
+    resetAt: PAST,
+  });
+  // A hand edit or another process's write: setQuotaAutoResumeEnabled never ran here.
+  updateSection('quotaResume', (section) => ({ ...(section || {}), autoResume: false }));
+  await scheduler.tick();
+  assert.deepEqual(fired, []);
+  assert.equal(quotaResumeStore.quotaResumeEntry(SESSION), null);
+});
+
 test('failed asynchronous resume keeps and defers the same reservation', async (t) => {
   isolateDataDir(t);
   const clock = PAST + 1000;

@@ -18,7 +18,7 @@ import {
   cleanupInstanceRuntimeFiles,
   clearServerPid,
 } from './runtime-paths.mjs';
-import { invalidateConfigReadCache } from '../../shared/config.mjs';
+import { createConfigReloadWatch } from './config-reload-watch.mjs';
 import { bootProfile, utcTimestamp } from './boot-profile.mjs';
 import {
   isChannelsDegraded,
@@ -121,9 +121,6 @@ function writeBridgeState(active) {
 function isChannelBridgeActive() {
   return channelBridgeActive;
 }
-// Config hot-reload watcher (installed by start(); torn down by stop()).
-let _configWatcher = null;
-let _reloadDebounce = null;
 const STATUS_FILE = getStatusPath(INSTANCE_ID);
 const statusState = new JsonStateFile(STATUS_FILE, {});
 statusState.ensure();
@@ -253,24 +250,14 @@ const { handleToolCall } = createToolDispatch({
       }),
   },
 });
-function ensureConfigWatcher() {
-  if (_configWatcher) return;
-  try {
-    _configWatcher = fs.watch(path.join(DATA_DIR, 'mixdog-config.json'), () => {
-      invalidateConfigReadCache();
-      if (_reloadDebounce) clearTimeout(_reloadDebounce);
-      _reloadDebounce = setTimeout(() => {
-        reloadRuntimeConfig().catch(() => {});
-      }, 500);
-    });
-  } catch {}
-}
+// Config hot reload (started by start(); stopped by stop()).
+const configReloadWatch = createConfigReloadWatch(reloadRuntimeConfig);
 async function start(options = {}) {
   if (options?.bridge === false) {
     channelBridgeActive = false;
     writeBridgeState(false);
     await startAutomationRuntime();
-    ensureConfigWatcher();
+    configReloadWatch.start();
     return;
   }
   channelBridgeActive = true;
@@ -284,10 +271,9 @@ async function start(options = {}) {
   } catch {
     // Non-fatal: owned-runtime start errors degrade to automation-only mode.
   }
-  // Hot-reload config on file change (schedules/webhooks/events).
-  // Cross-process edits invalidate the raw config cache before the debounced
-  // reload so both bridge and automation-only daemon modes stay current.
-  ensureConfigWatcher();
+  // Hot-reload config on change (schedules/webhooks/events), in both bridge
+  // and automation-only daemon modes.
+  configReloadWatch.start();
   // Pre-warm the whisper-server manager once at owner startup so the first
   // voice transcription does not pay cold-start cost. Non-blocking: failures
   // (e.g. runtime not installed) are swallowed; per-request ensureReady retries.
@@ -315,16 +301,7 @@ async function stop() {
   } catch {}
   await stopOwnedRuntime('unified server stop');
   cleanupInstanceRuntimeFiles(INSTANCE_ID);
-  if (_reloadDebounce) {
-    clearTimeout(_reloadDebounce);
-    _reloadDebounce = null;
-  }
-  if (_configWatcher) {
-    try {
-      _configWatcher.close();
-    } catch {}
-    _configWatcher = null;
-  }
+  configReloadWatch.stop();
 }
 // ── IPC worker mode ──────────────────────────────────────────────
 // Skipped under the machine-global host (MIXDOG_DAEMON_HOST=1): the daemon
