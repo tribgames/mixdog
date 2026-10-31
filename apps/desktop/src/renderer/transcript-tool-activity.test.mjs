@@ -475,14 +475,14 @@ test('a bridge load_tool result reads as described / missing / blocked, never to
   assert.equal(view.title, 'Tool description');
   assert.equal(view.subject, 'web_fetch');
   assert.equal(view.resultLabel, 'Missing: nope · Blocked: shell');
-  assert.equal(desktopToolActivitySummary([describe]), 'Tool description 3');
+  assert.equal(desktopToolActivitySummary([describe]), 'Tool description ×3');
   const loader = {
     ...describe,
     id: 'loader',
     result: JSON.stringify({ selected: { tools: { added: ['web_fetch'] } }, loaded: ['web_fetch'] }),
   };
   assert.equal(desktopToolActivityItemPresentation(loader).title, 'Tool loading');
-  assert.equal(desktopToolActivitySummary([loader]), 'Tool loading 3');
+  assert.equal(desktopToolActivitySummary([loader]), 'Tool loading ×3');
 });
 
 test('a continued bridge describe and a retired search_tools call from an old transcript still present', async () => {
@@ -1245,7 +1245,7 @@ test('desktop labels name the operation actually called and its real outcome', a
       item('github', { action: 'pr.comments', number: 9 }),
       item('github', { action: 'pr.view', number: 7 }),
     ]),
-    'GitHub 4'
+    'GitHub ×4'
   );
 
   // Visualize, Browser and Computer calls of any action count as one unit each.
@@ -1255,7 +1255,7 @@ test('desktop labels name the operation actually called and its real outcome', a
       item('visualize', { action: 'open', input: { targets: ['a.html'] } }),
       item('visualize', { action: 'capture', input: { tab: 'v1' } }),
     ]),
-    'Visualize 3'
+    'Visualize ×3'
   );
   assert.equal(
     desktopToolActivitySummary([
