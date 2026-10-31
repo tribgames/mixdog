@@ -380,7 +380,7 @@ const scrollList = async (selector: string, top: number) => {
   return node;
 };
 
-/** Every control the deleted pagers used to render. */
+/** Count of "Show N more" / "Load more" pager controls; the lists must render none. */
 const pagerControls = () =>
   document.querySelectorAll('.dock-scm-load-more').length +
   [...document.querySelectorAll('button')].filter((button) =>

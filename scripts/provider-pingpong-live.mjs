@@ -10,7 +10,7 @@
 // stores. Only the API-key secrets (`secrets/agent.<provider>.apiKey.dpapi`) and the
 // `agent` section of mixdog-config.json are copied in. OAuth providers (`*-oauth`, whose
 // refresh tokens could be rotated) are skipped unless `--real-data` is passed, which
-// restores the old behaviour of running against the real data dir. The isolated dir is
+// runs against the real data dir instead. The isolated dir is
 // deleted at the end, after stopping only processes whose executable lives inside it.
 // Usage: node scripts/provider-pingpong-live.mjs [--suite extended] [--real-data] [case-name ...]
 import fs from 'node:fs';
