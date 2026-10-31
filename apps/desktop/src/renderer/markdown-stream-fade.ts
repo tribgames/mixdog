@@ -47,14 +47,14 @@ import type { MarkdownAstRoot } from './markdown-ast';
 /** How long a phrase fades in (the default duration in 22-markdown.css). */
 export const STREAM_FADE_DURATION_MS = 400;
 /** A phrase stays open at least this long; it closes when the text grows. */
-export const STREAM_FADE_CHUNK_OPEN_MS = 100;
+const STREAM_FADE_CHUNK_OPEN_MS = 100;
 /** At settle every running fade ends within this long, and the rest shown at
  *  once fades over it. */
 export const STREAM_FADE_SETTLE_FADE_MS = 120;
 /** Arrivals faster than this (characters per ms, over windows of at least
  *  STREAM_FADE_SPEED_WINDOW_MS) show unfaded. */
 export const STREAM_FADE_FAST_CHARS_PER_MS = 1.6;
-export const STREAM_FADE_SPEED_WINDOW_MS = 100;
+const STREAM_FADE_SPEED_WINDOW_MS = 100;
 /** Arrivals stay unfaded this long after the last fast window. */
 const FAST_HOLD_MS = 400;
 /** A reply keeps its wrappers this long after it stops streaming: the rest it

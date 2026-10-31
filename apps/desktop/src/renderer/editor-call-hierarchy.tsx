@@ -18,7 +18,6 @@ import {
   callHierarchyCalls,
   callHierarchyPreview,
   callHierarchyPreviewTarget,
-  failureText,
   hierarchyFailure,
   hierarchyLoading,
   hierarchyResults,
@@ -32,6 +31,7 @@ import {
   type EditorGraphContext,
 } from './editor-monaco-providers';
 import { readCallHierarchyLayout, type CallHierarchyPreview } from './editor-pane-model';
+import { errorMessage } from './editor-pane-session-errors';
 import { monaco } from './monaco-setup';
 import { t } from './i18n';
 
@@ -252,7 +252,7 @@ export function useEditorCallHierarchy({
       })
       .catch((reason) => {
         if (generation !== previewGeneration.current) return;
-        setPreview(callHierarchyPreview(item, target, { ranges: [], error: failureText(reason) }));
+        setPreview(callHierarchyPreview(item, target, { ranges: [], error: errorMessage(reason) }));
       });
   }, [accessToken, api, projectPath, selected?.key]);
 

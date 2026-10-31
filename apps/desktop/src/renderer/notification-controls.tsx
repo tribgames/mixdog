@@ -23,7 +23,7 @@ import './notification-controls.css';
 const HOUR_MS = 3_600_000;
 
 /** 08:00 local on the next day. */
-export function tomorrowMorning(now: number): number {
+function tomorrowMorning(now: number): number {
   const date = new Date(now);
   date.setDate(date.getDate() + 1);
   date.setHours(8, 0, 0, 0);
@@ -31,7 +31,7 @@ export function tomorrowMorning(now: number): number {
 }
 
 /** "until 9:00 PM", "until tomorrow 8:00 AM", a later day with its date; '' for no end. */
-export function notificationUntilLabel(until: number | null, now: number = Date.now()): string {
+function notificationUntilLabel(until: number | null, now: number = Date.now()): string {
   if (until === null) return '';
   const date = new Date(until);
   const locale = uiFormatLocale();

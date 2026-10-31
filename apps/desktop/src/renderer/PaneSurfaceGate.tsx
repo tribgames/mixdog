@@ -255,7 +255,7 @@ export function DesktopBootGate({
       (!remote && timedOut) ||
       // Surface barriers resolve after their first real paint. The opaque cover
       // can begin fading immediately; main's later two-visible-frame signal still
-      // owns deferred prewarms, but no longer serializes the visual handoff.
+      // owns deferred prewarms, but does not serialize the visual handoff.
       (armed && ready && surfaces.pending === 0));
   // Generic surface switches wait for fonts plus three composed frames. Every
   // boot surface has already crossed the paint barrier above, and the cover

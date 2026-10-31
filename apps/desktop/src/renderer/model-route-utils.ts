@@ -12,7 +12,7 @@ type ParsedModelRef = {
 
 /** `+noauto` route suffix: this route opts out of Auto reasoning (the stored
  *  form of `autoEffort: false`, next to `+fast`). */
-export const NO_AUTO_EFFORT_SUFFIX = '+noauto';
+const NO_AUTO_EFFORT_SUFFIX = '+noauto';
 
 export function parseModelRef(ref: string): ParsedModelRef {
   const raw = String(ref || '');
@@ -42,7 +42,7 @@ export function parseModelRef(ref: string): ParsedModelRef {
 }
 
 /** Effort picked for a model whose remembered choices it does not offer. */
-export const EFFORT_FALLBACK_ORDER = ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra'] as const;
+const EFFORT_FALLBACK_ORDER = ['high', 'medium', 'low', 'none', 'xhigh', 'max', 'ultra'] as const;
 
 /** Effort for choosing a model in the picker (not for picking an effort). The
  *  effort on screen for the same model wins, then the host's saved effort; the

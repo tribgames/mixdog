@@ -17,7 +17,7 @@ export type DiffItem =
   | { type: 'gap'; key: string; count: number };
 
 /** Context lines kept on each side of a change before a run folds. */
-export const DIFF_FOLD_KEEP = 2;
+const DIFF_FOLD_KEEP = 2;
 /** A run folds only when it hides at least this many lines. */
 const DIFF_FOLD_MIN_HIDDEN = 2;
 
@@ -112,7 +112,7 @@ export function hunkStats(hunks: readonly string[]): { additions: number; deleti
   return { additions, deletions };
 }
 
-export function unmodifiedLabel(count: number): string {
+function unmodifiedLabel(count: number): string {
   return count === 1 ? t('1 unmodified line') : t('{{count}} unmodified lines', { count });
 }
 

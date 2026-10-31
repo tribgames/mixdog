@@ -55,7 +55,7 @@ function FileLaunchDialog({ path, answer }: { path: string; answer(approved: boo
   );
 }
 
-export function confirmFileLaunch(path: string): Promise<boolean> {
+function confirmFileLaunch(path: string): Promise<boolean> {
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);

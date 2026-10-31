@@ -12,6 +12,7 @@ import {
 } from './editor-lsp-conversion';
 import type { EditorGraphContext } from './editor-monaco-providers';
 import type { CallHierarchyPreview } from './editor-pane-model';
+import { errorMessage } from './editor-pane-session-errors';
 import { monaco } from './monaco-setup';
 
 export type CallHierarchyDirection = 'incoming' | 'outgoing';
@@ -85,12 +86,7 @@ export const hierarchyFailure = (
   direction: CallHierarchyDirection,
   stack: EditorCallHierarchyItem[],
   reason: unknown
-): CallHierarchyState => hierarchyState(root, direction, stack, { error: failureText(reason) });
-
-/** What went wrong, as the panel prints it. */
-export function failureText(reason: unknown): string {
-  return reason instanceof Error ? reason.message : String(reason);
-}
+): CallHierarchyState => hierarchyState(root, direction, stack, { error: errorMessage(reason) });
 
 interface CallHierarchyPreviewTarget {
   relPath: string;

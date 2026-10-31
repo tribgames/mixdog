@@ -1,7 +1,7 @@
 // Pane strip dock toggles: ONE button per right-side dock child (session Diff,
 // Browser Use, Terminal, …) at the strip's right end. The strip is
-// the only place that names the pane's utility children now, so the dock header itself no longer
-// repeats them. A press opens the dock on that child; pressing the child that
+// the only place that names the pane's utility children; the dock header does
+// not repeat them. A press opens the dock on that child; pressing the child that
 // is already showing folds the unit.
 import { startTransition, useEffect, useState } from 'react';
 import { FolderTree } from 'lucide-react';

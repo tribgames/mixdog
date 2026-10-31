@@ -58,7 +58,7 @@ export function publishMixyStatus(value: unknown): void {
 /** Waits before each new read after a failed one (the last one repeats). A
  *  failed read once counted as created for the rest of the run: a profile
  *  without Mixy then showed it (its row, the desktop pet) until a restart. */
-export const READ_RETRY_MS = Object.freeze([2_000, 5_000, 15_000, 30_000]);
+const READ_RETRY_MS = Object.freeze([2_000, 5_000, 15_000, 30_000]);
 let failedReads = 0;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 /** Bumped by every reset: a read begun before it no longer answers, retries

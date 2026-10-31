@@ -17,7 +17,7 @@ import { ZoomFrame, ZoomImage, useImageSize } from './ZoomFrame';
 
 /** The host's OS app on the desktop; on a paired device the file downloads
  *  (openEditorFileExternally routes it) under the Download / Share label. */
-export function OpenExternallyLabel({ onOpen, disabled }: { onOpen(): void; disabled?: boolean }) {
+function OpenExternallyLabel({ onOpen, disabled }: { onOpen(): void; disabled?: boolean }) {
   const remote = isRemoteHostRenderer();
   const Icon = remote ? Download : ExternalLink;
   return (

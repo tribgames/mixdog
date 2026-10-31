@@ -7,7 +7,7 @@ import { isKnownProject } from './settings/import-conversations-model';
 
 type StoreApi = Partial<Pick<DesktopApi, 'subscribeConversationImportProgress' | 'listProjects' | 'addProject'>>;
 
-export function createImportJobStore(getApi: () => StoreApi | undefined) {
+function createImportJobStore(getApi: () => StoreApi | undefined) {
   let finished: ConversationImportJob | null = null;
   const handled = new Set<string>();
   const listeners = new Set<() => void>();

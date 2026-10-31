@@ -61,7 +61,7 @@ export class PushEnableError extends Error {
 
 /** The relay key this browser last subscribed with, for a browser that does
  *  not report `PushSubscription.options.applicationServerKey`. */
-export const PUSH_SERVER_KEY_STORAGE = 'mixdog.push-server-key';
+const PUSH_SERVER_KEY_STORAGE = 'mixdog.push-server-key';
 const RELAY_KEY = /^[A-Za-z0-9_-]{87}$/u;
 
 function hostFetch(environment: PushHostEnvironment): typeof fetch {
@@ -124,7 +124,7 @@ export async function relayWebPushKey(environment: PushHostEnvironment = {}): Pr
 }
 
 /** The key a subscription was made with, or '' when the browser does not say. */
-export function subscriptionServerKey(subscription: PushSubscription): string {
+function subscriptionServerKey(subscription: PushSubscription): string {
   return base64Url(subscription.options?.applicationServerKey ?? null);
 }
 
@@ -134,7 +134,7 @@ export function subscriptionServerKey(subscription: PushSubscription): string {
  * be delivered by that one PC, so it is replaced. Without a subscription one
  * is made only when `create` (the user turning notifications on).
  */
-export async function ensureRelaySubscription(
+async function ensureRelaySubscription(
   pushManager: PushManager,
   relayKey: string,
   create: boolean,
@@ -193,7 +193,7 @@ async function ensureKeyedSubscription(
 
 /** Every paired PC on this relay this browser holds a credential for: the
  *  saved PC list plus the PC this page drives. */
-export function pairedPushHosts(environment: PushHostEnvironment = {}): PairedPushHost[] {
+function pairedPushHosts(environment: PushHostEnvironment = {}): PairedPushHost[] {
   const storage = hostStorage(environment);
   const origin = hostOrigin(environment);
   if (!storage || !origin) return [];
@@ -273,7 +273,7 @@ async function sealedFor(
  *  now registered; `complete` is false when one could not be asked (retry on
  *  the next connection). A PC that refused the credential is skipped — its
  *  pairing is gone — as is one the relay says cannot deliver through it. */
-export async function registerRelayPushSubscription(
+async function registerRelayPushSubscription(
   subscription: PushSubscription,
   environment: PushHostEnvironment = {},
   only: readonly string[] | null = null
@@ -525,7 +525,7 @@ export async function publishUiLanguage(language: string, environment: AppStateE
 }
 
 /** Hand one browser subscription to the desktop that will push to it. */
-export async function registerBrowserPushSubscription(
+async function registerBrowserPushSubscription(
   api: PushRegistrationApi,
   subscription: PushSubscription
 ): Promise<void> {
