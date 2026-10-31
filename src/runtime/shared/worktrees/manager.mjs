@@ -1769,6 +1769,13 @@ function dependencyLinks(record) {
   return (record?.resources?.includes || []).filter((item) => item.mode === 'link' && item.dependency);
 }
 
+/** The links this worktree's .worktreeinclude asked for (rel from the worktree's top level). */
+function userIncludeLinks(record) {
+  return (record?.resources?.includes || []).filter(
+    (item) => item.mode === 'link' && item.status === 'created' && !item.dependency
+  );
+}
+
 /**
  * Unlink (never empty) the recorded dependency links of a worktree made by
  * an earlier version, through which a reset (`npm ci`) in the worktree
@@ -1793,7 +1800,8 @@ async function detachDependencyLinks(record) {
  * earlier version's dependency link has it detached at its next turn and is
  * claimed again (`prepared` null), so that turn installs in the worktree.
  * While one cannot be unlinked, or any other installed artefact in the
- * project folder is a link (linkedArtefacts), the claim is `{ prepared: null,
+ * project folder is a link (linkedArtefacts) that the worktree's
+ * .worktreeinclude did not ask for, the claim is `{ prepared: null,
  * blocked }` (the links, relative to the worktree's top level) instead:
  * nothing is installed, since an install reaches beyond its own folder
  * (`npm ci` at the root resets every workspace package's node_modules), and
@@ -1807,11 +1815,18 @@ export async function claimWorktreeSetup(entryId) {
     if (current?.state !== 'ready') return null;
     const pending = current.setup?.pending === true;
     const detached = await detachDependencyLinks(current);
-    let blocked = dependencyLinks(current).map((item) => item.rel);
+    const blocked = dependencyLinks(current).map((item) => item.rel);
     if (!blocked.length && !pending && !detached) return null;
+    // Links the user asked for in .worktreeinclude (relative to the project
+    // folder): shared folders on purpose, which the planner leaves alone.
+    const shared = [];
     if (!blocked.length) {
-      const links = await linkedArtefacts(sessionRootOf(current));
-      blocked = links.map((rel) => [current.projectSubdir, rel].filter(Boolean).join('/'));
+      const asked = new Set(userIncludeLinks(current).map((item) => item.rel));
+      for (const rel of await linkedArtefacts(sessionRootOf(current))) {
+        const topLevel = [current.projectSubdir, rel].filter(Boolean).join('/');
+        if (asked.has(topLevel)) shared.push(rel);
+        else blocked.push(topLevel);
+      }
     }
     if (blocked.length) {
       current.setup = { ...current.setup, pending: true };
@@ -1820,7 +1835,7 @@ export async function claimWorktreeSetup(entryId) {
     }
     current.setup = { ...current.setup, pending: false, claimedAt: Date.now() };
     await putRecord(current);
-    return { prepared: pending ? (current.setup.prepared ?? null) : null };
+    return { prepared: pending ? (current.setup.prepared ?? null) : null, shared };
   });
 }
 

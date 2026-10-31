@@ -69,7 +69,12 @@ export function createWorktreeSetup({ backend, newTxId, planWorktreeSetup, runWo
       return;
     }
     try {
-      const plan = await planWorktreeSetup({ worktreeDir: here.cwd, mainDir: here.projectPath, signal });
+      const plan = await planWorktreeSetup({
+        worktreeDir: here.cwd,
+        mainDir: here.projectPath,
+        shared: claimed.shared ?? [],
+        signal,
+      });
       report.dependencyNotes = plan.notes;
       if (plan.commands.length) {
         report.installs = await runWorktreeSetup({ commands: plan.commands, signal, onProgress: emit });

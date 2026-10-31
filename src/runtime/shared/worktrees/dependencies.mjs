@@ -371,6 +371,11 @@ export async function findLockfileFolders(projectDir, { mainDir = null, signal }
   return found.sort((a, b) => a.dir.split('/').length - b.dir.split('/').length || a.dir.localeCompare(b.dir));
 }
 
+const sharedClause = (count) =>
+  `${count > 1 ? 'are' : 'is'} shared from the main checkout by .worktreeinclude and not installed here`;
+
+const sharedNote = (artefact, where) => `${artefact} in ${where} ${sharedClause(1)}.`;
+
 /** Display text of a command (never run through a shell). */
 const displayLine = (tool, args) => `${tool} ${args.map(quote).join(' ')}`;
 
@@ -385,9 +390,12 @@ function commandLine(tool, { args, followUp }) {
  * is a link it must not install through).
  * `mainDir`: the same folder in the main checkout (findLockfileFolders).
  * `env`: where the tools are looked up (PATH).
- * @param {{ worktreeDir: string, mainDir?: string|null, signal?: AbortSignal, env?: NodeJS.ProcessEnv }} input
+ * `shared`: artefacts (forward-slash, relative to `worktreeDir`) that are links
+ * the user asked for in .worktreeinclude; they are never installed through or
+ * replaced, and are reported as shared rather than as a link to remove.
+ * @param {{ worktreeDir: string, mainDir?: string|null, shared?: string[], signal?: AbortSignal, env?: NodeJS.ProcessEnv }} input
  */
-export async function planDependencySetup({ worktreeDir, mainDir = null, signal, env = process.env }) {
+export async function planDependencySetup({ worktreeDir, mainDir = null, shared = [], signal, env = process.env }) {
   const folders = await findLockfileFolders(worktreeDir, { mainDir, signal });
   if (!folders.length) {
     return { commands: [], notes: ['No lockfile or dependency manifest found; nothing was installed.'] };
@@ -404,16 +412,25 @@ export async function planDependencySetup({ worktreeDir, mainDir = null, signal,
     const stack = STACKS.find((candidate) => candidate.stack === entry.stack);
     const named = await stack.install(entry, { cwd, signal });
     if (!named) continue;
+    if (info && shared.includes([entry.dir, entry.artefact].filter(Boolean).join('/'))) {
+      notes.push(sharedNote(entry.artefact, where));
+      continue;
+    }
     if (info) {
       notes.push(
         `${entry.artefact} in ${where} is a link, not an install of its own; ${where} was not prepared (replace it with \`${commandLine(named.tools[0], named)}\` there if tests need it).`
       );
       continue;
     }
-    if (links.length) {
+    const others = links.filter((rel) => !shared.includes(rel));
+    if (others.length) {
       notes.push(
-        `${where} was not prepared while ${links.join(', ')} ${links.length > 1 ? 'are links' : 'is a link'} an install could reach through (run \`${commandLine(named.tools[0], named)}\` there once replaced if tests need it).`
+        `${where} was not prepared while ${others.join(', ')} ${others.length > 1 ? 'are links' : 'is a link'} an install could reach through (run \`${commandLine(named.tools[0], named)}\` there once replaced if tests need it).`
       );
+      continue;
+    }
+    if (links.length) {
+      notes.push(`${where} was not prepared; ${links.join(', ')} ${sharedClause(links.length)}.`);
       continue;
     }
     const found = named.tools.find((candidate) => which(candidate, { env }));

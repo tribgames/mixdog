@@ -300,6 +300,39 @@ test('an unrecorded link in a workspace keeps the setup pending; the turn after 
   });
 });
 
+test('a node_modules link the user asked for in .worktreeinclude is shared: setup completes once, nothing installs through it', async () => {
+  await withManager(async () => {
+    const repo = jsRepo();
+    writeFile(repo, '.worktreeinclude', 'link node_modules\n');
+    const npm = fakeNpm(NPM_CI);
+    const h = harness(repo, npm);
+    const entered = await h.api.requestWorktree({
+      provision: true,
+      prompt: 'Shared deps',
+      txId: 'deps-shared',
+      carryChanges: 'leave',
+    });
+    const worktree = entered.workspace.cwd;
+    const entryId = entered.workspace.worktreeId;
+    assert.equal(lstatSync(join(worktree, 'node_modules')).isSymbolicLink(), true, 'linked at creation');
+    await h.api.prepareTurnWorkspace({ submissionId: 'turn-1', prompt: 'go' });
+    assert.equal((await getRecord(entryId)).setup.pending, false, 'the claim completed');
+    const note = h.session.pendingSetupNotice.content;
+    assert.doesNotMatch(note, /Remove the link/);
+    assert.match(
+      note,
+      /\nnode_modules in project root is shared from the main checkout by \.worktreeinclude and not installed here\.\n/
+    );
+    assert.doesNotMatch(note, /replace it|npm ci/);
+    delete h.session.pendingSetupNotice;
+    await h.api.prepareTurnWorkspace({ submissionId: 'turn-2', prompt: 'again' });
+    assert.equal(h.session.pendingSetupNotice, undefined, 'the note is given once');
+    assert.deepEqual(npm.calls(), [], 'no install through the shared link');
+    assert.equal(lstatSync(join(worktree, 'node_modules')).isSymbolicLink(), true, 'the link stays');
+    assertMainIntact(repo);
+  });
+});
+
 test('a lockfile that differs from the main checkout runs the frozen install in the worktree once', async () => {
   await withManager(async () => {
     const repo = jsRepo();
