@@ -114,6 +114,9 @@ export function createStandaloneAgent({
   });
   const sendFlow = createSendFlow({
     mgr,
+    cfgMod,
+    dataDir,
+    STANDALONE_SOURCE_ROOT,
     defaultCwd,
     sessionSurface,
     canUseSessionSurface,

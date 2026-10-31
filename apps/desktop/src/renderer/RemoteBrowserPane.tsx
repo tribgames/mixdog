@@ -1536,8 +1536,29 @@ export default function RemoteBrowserPane({
         fit: () => frameZoom.zoom.set(1),
         press: finishComposition,
       };
-  // Geometry is the host's; this device asks for another only when told to.
-  const [pageFitted, setPageFitted] = useState(false);
+  // Geometry is the host's; a phone takes the page at its own size on open
+  // (fitOnOpen), any other device only when told to.
+  const { awaitingFit, videoShown, fitView } = useRemoteBrowserStream({
+    onFrame: webrtc.relayFrame,
+    onPresented: webrtc.relayPresented,
+    api,
+    active,
+    ownerSessionId,
+    fitOnOpen: phone,
+    contentRef,
+    frameRef,
+    imageSize,
+    addressFocused,
+    resetDocumentInput,
+    setFrame,
+    setImageUrl,
+    setFailure,
+    setActionFailure,
+    setAddress,
+  });
+  // The menu's choice holds only while the stream's fit is the one it was made over.
+  const [explicitFit, setExplicitFit] = useState<{ fitted: boolean; basis: typeof fitView } | null>(null);
+  const pageFitted = explicitFit?.basis === fitView ? explicitFit.fitted : fitView.asked;
   const fitPage = webrtc.geometryLocked
     ? {
         fitted: pageFitted,
@@ -1555,27 +1576,10 @@ export default function RemoteBrowserPane({
                 }
               : { mode: 'page' }
           );
-          setPageFitted(!pageFitted);
+          setExplicitFit({ fitted: !pageFitted, basis: fitView });
         },
       }
     : null;
-  const { awaitingFit, videoShown } = useRemoteBrowserStream({
-    onFrame: webrtc.relayFrame,
-    onPresented: webrtc.relayPresented,
-    api,
-    active,
-    ownerSessionId,
-    contentRef,
-    frameRef,
-    imageSize,
-    addressFocused,
-    resetDocumentInput,
-    setFrame,
-    setImageUrl,
-    setFailure,
-    setActionFailure,
-    setAddress,
-  });
   // A promoted video carries the picture (no JPEG image comes): its frame of
   // the fitted page uncovers a take-over too. Checked as the viewer changes.
   useEffect(() => {

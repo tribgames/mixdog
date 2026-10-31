@@ -22,6 +22,7 @@ import { workspaceCwdLock } from '../../../workspace/admission-gate.mjs';
 import { isContactAgentId } from '../../../../runtime/agent/orchestrator/runtime-core/workflow-ids.mjs';
 import { assertBotChainTarget } from '../../../../runtime/shared/bot-hops.mjs';
 import { actingAgentOf, delegationChainOf } from '../../../bot-chain.mjs';
+import { flushPendingSessionConfigWrites } from '../../../config-lifecycle/config-writers.mjs';
 
 export function createSpawnPlanner({
   mgr = null,
@@ -36,6 +37,10 @@ export function createSpawnPlanner({
 }) {
   /** Shared spawn-prep validations (agent/preset/tag/cwd/prompt). */
   async function resolveSpawnPlan(args, callerCwd, context, prepState) {
+    // A setting a runtime of this process adopted (an agent's model picked a
+    // moment ago) is written behind a debounce: drain it so the read below
+    // sees what the runtimes hold in memory.
+    await flushPendingSessionConfigWrites();
     const config = cfgMod.loadConfig();
     const agent = normalizeAgentName(args.agent);
     if (!agent) throw new Error('agent spawn: agent is required');

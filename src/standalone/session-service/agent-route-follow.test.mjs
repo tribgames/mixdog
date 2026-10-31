@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createSessionRouteApi } from '../../tui/session/session-api/routes.mjs';
 import { createSessionSettingsApi } from '../../tui/session/session-api/settings.mjs';
-import { publishAgentRouteChange } from '../../session-runtime/agent-profile-changes.mjs';
+import { publishAgentRouteChange, publishStoredAgentRoute } from '../../session-runtime/agent-profile-changes.mjs';
 import { createAgentRouteFollow } from './agent-route-follow.mjs';
 
 const OLD = { provider: 'openai-oauth', model: 'gpt-old' };
@@ -122,6 +122,36 @@ test('overlapping publications reach every chat in publication order, even when 
   await Promise.all([first, second]);
   assert.deepEqual(seen.home, ['older', 'newer']);
   assert.deepEqual(seen.member, ['older', 'newer']);
+});
+
+test('a chat that refused a stored route gets it again from the retried publication', async (t) => {
+  const route = { provider: 'openai', model: 'gpt-retry' };
+  let refuse = true;
+  const taken = [];
+  const chat = {
+    entry: {
+      runtime: {
+        setRoute: async (pick) => {
+          if (refuse) throw new Error('signed out');
+          taken.push(pick.model);
+        },
+      },
+    },
+  };
+  const member = hostedChat();
+  const log = host(t, { sess_home_reviewer: chat, sess_rmem_room02_reviewer: member });
+  // The save path never fails, whatever a chat does.
+  await publishAgentRouteChange('reviewer', { provider: 'openai', model: 'gpt-saved' });
+  await assert.rejects(publishStoredAgentRoute('reviewer', route), (error) => {
+    assert.match(error.errors[0].message, /did not take the route/);
+    return true;
+  });
+  assert.match(log.at(-1), /sess_home_reviewer.*signed out/);
+  refuse = false;
+  await publishStoredAgentRoute('reviewer', route);
+  assert.deepEqual(taken, ['gpt-retry'], 'the retry reached the chat');
+  await publishStoredAgentRoute('reviewer', route);
+  assert.deepEqual(taken, ['gpt-retry'], 'taken, it is not sent again');
 });
 
 test('a route the chat refuses is logged and leaves the other chats alone', async (t) => {

@@ -44,6 +44,9 @@ export function createAskSteeringDrain({ sessionId, turn, askOpts }) {
     // nothing. Entries consumed here join the turn's pending entries: their
     // delivery/ack (and release on failure) rides this turn, and the
     // post-loop drain can no longer see them.
+    // A route saved while this turn runs (session.heldRoute) leaves the
+    // queued entries to the next turn, which opens on that route.
+    if (turn.session?.heldRoute) return out;
     if (drainOptions?.stage === 'terminal' || pendingQueueHoldsOnlyNotifications(sessionId)) {
       const pendingNow = drainPendingMessages(sessionId);
       if (pendingNow.length > 0) {

@@ -7,6 +7,7 @@ import { getProvider } from '../../providers/registry.mjs';
 import { invalidateContextUsageSnapshot, invalidateProviderContextBaseline } from '../loop/compact-policy.mjs';
 import { saveSession, saveSessionAsync, saveSessionAsyncDeferred, loadSession, setLiveSession } from '../store.mjs';
 import { _liveSessions } from '../store/live-state.mjs';
+import { _getRuntimeEntry } from './runtime-liveness.mjs';
 import { _recoverTurnCheckpointDurably } from './turn-checkpoint-recovery.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { AGENT_MODE, resolveSessionMode, sessionModeOf } from '../agent-mode.mjs';
@@ -520,6 +521,36 @@ export function updateSessionRoute(id, route = {}, options = {}) {
     } catch {}
   });
   return session;
+}
+
+/**
+ * A route saved for a session while its turn runs: held as
+ * `session.heldRoute` (on the object the running turn commits, so its save
+ * persists it) and applied at the session's next turn boundary
+ * (applyHeldSessionRoute). A later hold replaces an earlier one; `route`
+ * null drops the hold (the route was saved back to the running one).
+ */
+export function holdSessionRoute(id, route = {}) {
+  if (!id) return null;
+  const targets = new Set([_getRuntimeEntry(id)?.session, loadSession(id)]);
+  let held = null;
+  for (const session of targets) {
+    if (session?.id !== id || session.closed === true) continue;
+    if (route) session.heldRoute = { ...route };
+    else delete session.heldRoute;
+    held = session;
+  }
+  return held;
+}
+
+/** A held route takes effect before the turn opens on `session`. */
+export function applyHeldSessionRoute(session) {
+  const route = session?.heldRoute;
+  if (!route) return session;
+  delete session.heldRoute;
+  const crossProvider =
+    (route.provider && route.provider !== session.provider) || (route.model && route.model !== session.model);
+  return updateSessionRoute(session.id, route, { session, crossProvider }) || session;
 }
 
 // --- resume (reload tools for a stored session) ---

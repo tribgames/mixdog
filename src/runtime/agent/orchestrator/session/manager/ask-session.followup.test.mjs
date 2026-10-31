@@ -22,7 +22,7 @@ mock.module('./pending-messages.mjs', {
   },
 });
 
-const { createSession } = await import('./session-lifecycle.mjs');
+const { createSession, holdSessionRoute } = await import('./session-lifecycle.mjs');
 const { askSession } = await import('./ask-session.mjs');
 const { deleteSession, loadSession, saveSessionAsync } = await import('../store.mjs');
 const { enqueuePendingMessage } = await import('./pending-messages.mjs');
@@ -130,6 +130,48 @@ test('a queued turn and the background follow-up are told of an agent enabled me
     // The follow-up ask has settled (its own post-turn hydration ran) before
     // the next test counts hydrations.
     assert.ok(await waitFor(() => hydrateCalls >= 4), 'the follow-up ask settled');
+  });
+});
+
+test('a route saved while a worker turn runs applies to the queued work, not the running turn', async (t) => {
+  const providerName = 'ask-session-held-route-test';
+  const sends = [];
+  let onSend = () => {};
+  const provider = {
+    name: providerName,
+    contextWindow: 128000,
+    async send(messages, model) {
+      sends.push({ model, content: String(messages.at(-1).content) });
+      onSend();
+      return { content: 'ok', usage: { inputTokens: 1, outputTokens: 1 } };
+    },
+  };
+  await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
+    const session = createSession({
+      provider: providerName,
+      model: 'model-a',
+      cwd: root,
+      skipSkills: true,
+      schemaAllowedTools: modelToolSchemaAllowlist('headless'),
+      workflow: { id: 'headless', delegatesAgents: false },
+    });
+    t.after(() => deleteSession(session.id, { deferSummaryUpdate: true }));
+    // While the first turn runs: the agent's route moves to model-b and a send queues work.
+    onSend = () => {
+      onSend = () => {};
+      assert.ok(holdSessionRoute(session.id, { provider: providerName, model: 'model-b' }));
+      enqueuePendingMessage(session.id, 'queued work');
+    };
+    await askSession(session.id, 'first task');
+    assert.deepEqual(
+      sends.map((send) => send.model),
+      ['model-a', 'model-b'],
+      'the running turn kept A; the queued turn ran on B'
+    );
+    assert.match(sends[1].content, /queued work/);
+    const stored = loadSession(session.id);
+    assert.equal(stored.model, 'model-b');
+    assert.equal(stored.heldRoute, undefined, 'applied once');
   });
 });
 

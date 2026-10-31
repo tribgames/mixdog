@@ -265,6 +265,64 @@ test('watching never asks for a fit and shows the page as it is', async () => {
   }
 });
 
+test('a phone takes the page over at its own size on open, without a takeover', async () => {
+  const agent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
+  Object.defineProperty(window.navigator, 'userAgent', {
+    configurable: true,
+    value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+  });
+  const p = await fitPane();
+  try {
+    await p.mount();
+    await flush();
+    assert.deepEqual(p.state.streams[0], ['s', { maxWidth: 780, maxHeight: 1400, fit: opening }]);
+    await p.frame(1, 1280, 720);
+    await flush();
+    assert.ok(p.covered(), 'the PC-width page is not shown first');
+    await p.frame(2, 390, 700, true);
+    await flush();
+    assert.equal(p.covered(), false);
+    assert.ok(p.shown());
+    await act(async () => p.state.renew());
+    assert.deepEqual(p.state.streams.at(-1), ['s', { maxWidth: 780, maxHeight: 1400, fit: opening }]);
+  } finally {
+    await p.close();
+    if (agent) Object.defineProperty(window.navigator, 'userAgent', agent);
+    else delete window.navigator.userAgent;
+  }
+});
+
+test("the phone's Fit page check follows the fit actually asked for: on at open, off once it is given up", async () => {
+  const agent = Object.getOwnPropertyDescriptor(window.navigator, 'userAgent');
+  Object.defineProperty(window.navigator, 'userAgent', {
+    configurable: true,
+    value: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15',
+  });
+  const p = await fitPane();
+  const fitChecked = async () => {
+    await act(async () => document.querySelector('[aria-label="More actions"]').click());
+    const item = [...document.querySelectorAll('[role^="menuitem"]')].find((node) =>
+      /Fit page to screen/.test(node.textContent)
+    );
+    const checked = item.getAttribute('aria-checked');
+    await act(async () => document.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Escape' })));
+    return checked;
+  };
+  try {
+    await p.mount();
+    await flush();
+    assert.equal(await fitChecked(), 'true');
+    await p.expireFit();
+    await flush();
+    assert.ok(p.state.streams.at(-1)[1].fit === null, 'the fit is released');
+    assert.equal(await fitChecked(), 'false', 'the page is its own size again');
+  } finally {
+    await p.close();
+    if (agent) Object.defineProperty(window.navigator, 'userAgent', agent);
+    else delete window.navigator.userAgent;
+  }
+});
+
 test('a takeover that begins while watching fits at once and covers until the fitted page arrives', async () => {
   const p = await fitPane();
   let release = () => {};
