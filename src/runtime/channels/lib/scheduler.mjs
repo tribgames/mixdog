@@ -77,6 +77,14 @@ function isCronExpression(time) {
     return false;
   }
 }
+// Two one-shot times name the same instant. The database hands back a new
+// Date on every read, so identity would call an unchanged schedule changed.
+function sameInstant(left, right) {
+  if (left == null || right == null) return (left ?? null) === (right ?? null);
+  const at = (value) => (value instanceof Date ? value.getTime() : Date.parse(value));
+  const [a, b] = [at(left), at(right)];
+  return Number.isNaN(a) || Number.isNaN(b) ? String(left) === String(right) : a === b;
+}
 // True when this fire (started at `since`) ended in an overlap skip.
 function skippedSince(schedule, since) {
   const at = schedule.lastSkippedAt ? new Date(schedule.lastSkippedAt).getTime() : 0;
@@ -627,8 +635,14 @@ class Scheduler {
       this.notifyFailure(schedule, 'schedule unreadable — fire skipped');
       return false;
     }
-    const sameTime = (key) => (row?.[key] ?? null) === (schedule[key] ?? null);
-    if (!row || row.enabled === false || row.status === 'done' || !sameTime('whenAt') || !sameTime('whenCron')) {
+    const sameCron = (row?.whenCron ?? null) === (schedule.whenCron ?? null);
+    if (
+      !row ||
+      row.enabled === false ||
+      row.status === 'done' ||
+      !sameInstant(row.whenAt, schedule.whenAt) ||
+      !sameCron
+    ) {
       logSchedule(`${schedule.name}: not fired — deleted or changed since it was armed\n`);
       // A skip, not a failed run: the callers record no failure on its row.
       schedule.lastSkippedAt = new Date().toISOString();
