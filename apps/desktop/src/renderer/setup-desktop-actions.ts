@@ -1,5 +1,16 @@
 import type { DesktopApi, DesktopSettingKey, DesktopCapability, DesktopRemoteAccessInfo } from '../shared/contract';
-import { NOTIFICATION_VOLUME_MAX } from '../shared/contract-settings';
+import {
+  NOTIFICATION_VOLUME_MAX,
+  SESSION_AUTO_ARCHIVE_DAY_CHOICES,
+  SESSION_AUTO_DELETE_DAY_CHOICES,
+  isSessionRetentionDays,
+  isSessionRetentionSettingKey,
+} from '../shared/contract-settings';
+
+const SESSION_RETENTION_DAY_CHOICES = {
+  sessionAutoArchiveDays: SESSION_AUTO_ARCHIVE_DAY_CHOICES,
+  sessionAutoDeleteDays: SESSION_AUTO_DELETE_DAY_CHOICES,
+} as const;
 import { normalizeActivityRailPins } from '../shared/activity-rail-pins';
 import { DESKTOP_PET_SCALES, type DesktopPetConfig, type DesktopPetOption } from '../shared/desktop-pet';
 
@@ -200,6 +211,13 @@ async function setDesktopSettingsAction({ args, api, mutate, saved }: SetupActio
       }
       continue;
     }
+    if (isSessionRetentionSettingKey(key)) {
+      if (!isSessionRetentionDays(key, value)) {
+        throw new Error(`${key} must be one of ${SESSION_RETENTION_DAY_CHOICES[key].join(', ')} (0 = never)`);
+      }
+      hostMethod(api, 'setSessionRetention');
+      continue;
+    }
     if (
       ![
         'keepAwake',
@@ -225,8 +243,9 @@ async function setDesktopSettingsAction({ args, api, mutate, saved }: SetupActio
         applied.push(key);
         continue;
       }
-      const result =
-        key === 'notificationVolume'
+      const result = isSessionRetentionSettingKey(key)
+        ? await mutate(() => hostMethod(api, 'setSessionRetention')(key, value as number))
+        : key === 'notificationVolume'
           ? await mutate(() => hostMethod(api, 'setNotificationVolume')(value as number))
           : await mutate(() => api.updateSetting(key as DesktopSettingKey, value as boolean));
       if ((result as unknown as Values)[key] !== value) throw new Error('Persisted value differs');

@@ -1094,7 +1094,7 @@ export async function createDesktopService({
   // Settings → General → Sessions: archive and delete through the same paths
   // as the user's own actions, only while this PC's app reports it idle.
   // Recording the start date now dates archives from before this feature.
-  void host.sessionRetention
+  const sessionRetentionRecordLoaded = host.sessionRetention
     .load()
     .catch((error) => console.warn('[mixdog-session] Could not read the auto-retention record:', error));
   const sessionRetentionSchedule = startSessionRetentionSchedule({
@@ -1223,6 +1223,8 @@ export async function createDesktopService({
       sessionRetentionSchedule.stop();
       // The first load's migration may still be writing the preferences file.
       await notificationPreferencesLoaded;
+      // Likewise the retention record's first write into the profile folder.
+      await sessionRetentionRecordLoaded;
       await remote.close();
       await operations.dispose();
       await host.dispose();

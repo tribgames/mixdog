@@ -1,9 +1,14 @@
-import type { DesktopSettingKey } from './contract';
+import type { DesktopSettingKey, SessionRetentionSettingKey } from './contract-settings';
 
 /** Adding a Desktop setting requires a setup route or an explicit handoff.
  * Record<DesktopSettingKey, …> makes forgotten settings a typecheck failure. */
-export const DESKTOP_SETUP_SETTING_ACTIONS: Record<DesktopSettingKey | 'notificationVolume', string> = {
+export const DESKTOP_SETUP_SETTING_ACTIONS: Record<
+  DesktopSettingKey | 'notificationVolume' | SessionRetentionSettingKey,
+  string
+> = {
   notificationVolume: 'set_desktop_settings',
+  sessionAutoArchiveDays: 'set_desktop_settings',
+  sessionAutoDeleteDays: 'set_desktop_settings',
   autoClear: 'set_autoclear',
   autoCompact: 'set_compaction',
   keepAwake: 'set_desktop_settings',
