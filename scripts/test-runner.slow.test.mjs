@@ -443,12 +443,16 @@ test('CLI spawn preserves exact flags, reporters, selected paths, stdio, and chi
     'src/omega.slow.test.mjs': '',
   });
   const probe = `
+    import * as childProcess from 'node:child_process';
     import { EventEmitter } from 'node:events';
     import { Readable } from 'node:stream';
     import { mock } from 'node:test';
     const { runnerPath, runnerUrl, code, signal } = JSON.parse(process.argv[1]);
+    // Only spawn is faked; the runner's imports keep every other export.
+    const { default: _default, ...realExports } = childProcess;
     mock.module('node:child_process', {
       namedExports: {
+        ...realExports,
         spawn(executable, args, options) {
           // The runner's leftover-process probe finds nothing here.
           if (executable !== process.execPath) {
