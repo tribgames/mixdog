@@ -102,7 +102,10 @@ test('off selects nothing; one pass removes at most 20, oldest first', () => {
 test("preview (unverified): an over-limit worktree that might be dirty never displaces another repository's candidate", async () => {
   const { previewWorktreeCleanup } = await import('./maintenance.mjs');
   // Real cleanup: A's older worktree is dirty (skipped), so B's is the one that goes.
-  const rows = [row('repoA-old', { idleDays: 50 }), row('repoB', { idleDays: 40 })];
+  const rows = [
+    row('repoA-old', { idleDays: 50, repoCommonDir: '/repoA/.git' }),
+    row('repoB', { idleDays: 40, repoCommonDir: '/repoB/.git' }),
+  ];
   const settings = { ...WORKTREE_SETTINGS_DEFAULTS, maxWorktrees: 1, unusedDays: 0 };
   const options = { settings, now: NOW, activity: activityOf(rows), favoriteSessionIds: [] };
   assert.deepEqual(
@@ -133,6 +136,26 @@ test("preview (unverified): an over-limit worktree that might be dirty never dis
     readFavorites: async () => [],
     readActivity: async () => activityOf(rows),
   });
-  assert.deepEqual(asked.removeEntryIds.sort(), ['repoA-old', 'repoB']);
+  assert.deepEqual(asked.removeEntryIds, ['repoB'], 'scoped to B, A picks are not offered');
   assert.equal(result.hasCandidates, true);
+});
+
+test("a cleanup scoped to one repository reaches its own picks even when another repository's fill the per-pass cap", () => {
+  const rows = [
+    ...Array.from({ length: WORKTREE_CLEANUP_MAX_REMOVALS }, (_, i) =>
+      row(`a${String(i).padStart(2, '0')}`, { idleDays: 100 - i, repoCommonDir: '/repoA/.git' })
+    ),
+    row('b-old', { idleDays: 40, repoCommonDir: '/repoB/.git' }),
+  ];
+  const options = {
+    settings: { ...WORKTREE_SETTINGS_DEFAULTS, maxWorktrees: 0, unusedDays: 30 },
+    now: NOW,
+    activity: activityOf(rows),
+    favoriteSessionIds: [],
+  };
+  assert.ok(!selectWorktreeCleanup(rows, options).some((r) => r.id === 'b-old'), 'unscoped: the cap is spent on A');
+  assert.deepEqual(
+    selectWorktreeCleanup(rows, { ...options, repoCommonDir: '/repoB/.git' }).map((r) => [r.id, r.reason]),
+    [['b-old', 'age']]
+  );
 });

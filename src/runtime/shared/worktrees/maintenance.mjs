@@ -6,6 +6,7 @@
  */
 import { readdir } from 'node:fs/promises';
 import { isWorktreeError } from './contract.mjs';
+import { pathKey } from './paths.mjs';
 
 const loadManager = () => import('./manager.mjs');
 
@@ -101,7 +102,7 @@ function rowActivity(row, activity) {
  */
 export function selectWorktreeCleanup(
   rows,
-  { settings, now = Date.now(), activity = {}, favoriteSessionIds = [], potential = false }
+  { settings, now = Date.now(), activity = {}, favoriteSessionIds = [], potential = false, repoCommonDir = null }
 ) {
   if (settings?.autoCleanup !== true) return [];
   const favorites = new Set(favoriteSessionIds);
@@ -118,7 +119,7 @@ export function selectWorktreeCleanup(
         ![row.ownerSessionId].some((id) => id && favorites.has(id)) &&
         now - (Number(row.createdAt) || 0) >= WORKTREE_CLEANUP_MIN_AGE_MS
     )
-    .map((row) => ({ id: row.id, lastActiveAt: rowActivity(row, activity) }))
+    .map((row) => ({ id: row.id, repoCommonDir: row.repoCommonDir, lastActiveAt: rowActivity(row, activity) }))
     .sort((a, b) => a.lastActiveAt - b.lastActiveAt || a.id.localeCompare(b.id));
   const reasons = new Map();
   if (settings.unusedDays > 0) {
@@ -135,11 +136,18 @@ export function selectWorktreeCleanup(
       if (!potential) excess -= 1;
     }
   }
-  const picked = candidates.filter((row) => reasons.has(row.id));
-  return (potential ? picked : picked.slice(0, WORKTREE_CLEANUP_MAX_REMOVALS)).map((row) => ({
-    ...row,
-    reason: reasons.get(row.id),
-  }));
+  // The limits count every repository; a cleanup scoped to one repository
+  // drops the others' picks before the per-pass cap, so its own are reached.
+  const scope = repoCommonDir ? pathKey(repoCommonDir) : null;
+  const picked = candidates.filter(
+    (row) => reasons.has(row.id) && (!scope || pathKey(row.repoCommonDir || '') === scope)
+  );
+  return (potential ? picked : picked.slice(0, WORKTREE_CLEANUP_MAX_REMOVALS)).map(
+    ({ repoCommonDir: _repo, ...row }) => ({
+      ...row,
+      reason: reasons.get(row.id),
+    })
+  );
 }
 
 /**
@@ -150,7 +158,7 @@ export function selectWorktreeCleanup(
  */
 async function selectLimitCleanup(
   backend,
-  { settings, live, jobs, retainedSessionIds, now, readFavorites, readActivity, inspect }
+  { settings, live, jobs, retainedSessionIds, now, readFavorites, readActivity, inspect, repoCommonDir }
 ) {
   if (settings.autoCleanup !== true) return { selected: [], favorites: [], limits: 'off' };
   const known = await readFavorites();
@@ -173,6 +181,7 @@ async function selectLimitCleanup(
       activity: await readActivity(owners),
       favoriteSessionIds: favorites,
       potential: !inspect,
+      repoCommonDir,
     });
   }
   return { selected, favorites, limits };
@@ -214,6 +223,7 @@ export async function previewWorktreeCleanup({
     readFavorites,
     readActivity,
     inspect: false,
+    repoCommonDir,
   });
   const auto = settings.autoCleanup === true;
   const { ids, stale } = await backend.previewManagedWorktreeCleanup({
@@ -306,6 +316,7 @@ export async function runWorktreeCleanup({
     readFavorites,
     readActivity,
     inspect: true,
+    repoCommonDir,
   });
   const report = await backend.reconcileManagedWorktrees({
     liveSessionIds: [...live],
