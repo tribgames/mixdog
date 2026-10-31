@@ -59,7 +59,7 @@ export function useTranscriptActivity({ state }) {
   // the StatusLine effect only re-fires when the numbers actually change.
   const activeToolsSignature = useMemo(() => {
     // The engine maintains this signature incrementally (updated on tool
-    // start/early-complete/result/turn-end), so App no longer scans every
+    // start/early-complete/result/turn-end), so App does not scan every
     // transcript item on each change. Prefer it; fall back to the local scan
     // only when the engine did not publish it (older snapshot).
     if (state.activeToolSummary !== undefined) return state.activeToolSummary || '';

@@ -49,8 +49,8 @@ function applyAgentJobFields(ctx, patch, { itemId, group, text, rawText, isError
   const body = String(text || rawText || '').trim();
   if (body) patch.rawResult = text || rawText;
   if (parseAgentJob(rawText)) ctx.set(ctx.agentStatusState({ force: true }));
-  // The two calls previously wrote the same card back-to-back with different
-  // result/text strings, producing the visible L1/L2 flash. The agent fields
+  // Writing the same card back-to-back with different result/text strings
+  // produces a visible L1/L2 flash, so a single patch is written. The agent fields
   // win (final display) while patch keeps the completion metadata
   // (count/completedCount/completedAt/rawResult) for expand.
   Object.assign(patch, ctx.buildAgentJobCardPatch(itemId, rawText, isError));

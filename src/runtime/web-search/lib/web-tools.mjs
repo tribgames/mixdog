@@ -67,8 +67,8 @@ function _notifyPoolWaiter() {
 
 async function _acquirePoolSlot(signal) {
   const abortError = () => signal?.reason || new Error('aborted');
-  // Waiting for a pool slot used to be uncancellable: an aborted tool call kept
-  // queueing until a slot freed, then launched a page nobody was waiting for.
+  // Waiting for a pool slot is cancellable: otherwise an aborted tool call keeps
+  // queueing until a slot frees, then launches a page nobody was waiting for.
   while (_poolActive >= PUPPETEER_POOL_MAX_PAGES) {
     if (signal?.aborted) throw abortError();
     await new Promise((resolve, reject) => {

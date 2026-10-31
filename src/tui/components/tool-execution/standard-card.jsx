@@ -191,10 +191,9 @@ export function renderStandardToolCard(card) {
     summaryOut = truncatedSummary ? ` (${truncatedSummary})` : '';
   }
   // Keep trailing content (ctrl+o hint only; pending elapsed lives on the detail
-  // row) attached directly after the body for the whole lifecycle. The
-  // fixed-column pin previously used for elapsed is what made the trailing text
-  // jump to the right edge and snap back on the pending→done flip, so there is no
-  // pad. `avail` stays reserved (rightReserve) so the body clip point never reflows.
+  // row) attached directly after the body for the whole lifecycle. A
+  // fixed-column pin would make the trailing text jump to the right edge and
+  // snap back on the pending→done flip, so there is no pad. `avail` stays reserved (rightReserve) so the body clip point never reflows.
   return (
     <Box flexDirection="column" marginTop={attached ? 0 : 1} width={rowWidth} overflow="hidden">
       <Box flexDirection="row" width="100%">

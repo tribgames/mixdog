@@ -293,7 +293,7 @@ function requestReadRangeIndexPersist(key, job) {
   })();
 }
 
-export function scheduleReadRangeIndexPersist(index) {
+function scheduleReadRangeIndexPersist(index) {
   if (!READ_RANGE_INDEX_DISK_DIR || !currentReadRangeIndex(index)) return;
   const key = canonicalCachePath(index.fullPath);
   const inflight = READ_RANGE_INDEX_INFLIGHT.get(key);

@@ -255,15 +255,6 @@ export function cacheCapabilityForProvider(provider) {
   return PROVIDER_CACHE_CAPABILITY[provider] || 'none';
 }
 
-export function shouldMarkWarmForProvider(provider) {
-  const capability = cacheCapabilityForProvider(provider);
-  return capability === 'explicit-breakpoint' || capability === 'key-prefix' || capability === 'managed-explicit';
-}
-
-export function shouldRecordObservedForProvider(provider) {
-  return cacheCapabilityForProvider(provider) === 'implicit-observed';
-}
-
 // Stable provider namespaces, not final wire cache keys. The request builders
 // add session identity by default; explicit overrides can enable shared routing.
 // Anthropic/Gemini use content-keyed breakpoints / explicit cache objects instead.

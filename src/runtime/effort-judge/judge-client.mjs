@@ -83,7 +83,7 @@ function waitReady(ms) {
   });
 }
 
-export function effortJudgeModelDir() {
+function effortJudgeModelDir() {
   return process.env.MIXDOG_EFFORT_JUDGE_DIR || join(resolvePluginData(), 'models', 'effort-judge');
 }
 
@@ -280,7 +280,7 @@ async function runInstall() {
  * background. Runs on the first judged turn of the process, never at runtime
  * creation, so booting touches no network.
  */
-export function refreshEffortJudge() {
+function refreshEffortJudge() {
   if (!onnxRuntimeSupported()) return;
   installEffortJudge().catch((error) => {
     // An older complete install still works.

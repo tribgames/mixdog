@@ -20,7 +20,7 @@ export const PANEL_LAYOUT_SIG = {
   // Queued steering band rows (full wrapped height, see queuedBandRows).
   QUEUED: 10,
 };
-export const PROJECT_TEXT_ENTRY_KINDS = new Set(['project-new', 'project-create-confirm', 'project-rename']);
+const PROJECT_TEXT_ENTRY_KINDS = new Set(['project-new', 'project-create-confirm', 'project-rename']);
 export const CORE_MULTILINE_TEXT_ENTRY_KINDS = new Set(['core-add', 'core-edit']);
 
 export function panelSignatureFlags(signature) {

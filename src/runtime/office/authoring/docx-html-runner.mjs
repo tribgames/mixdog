@@ -17,7 +17,7 @@ import { renderPdfPages } from '../pdf/pdf-render.mjs';
 const PX_TO_PT = 0.75;
 
 /** Artifacts kept beside the document: its HTML and the browser's print of it. */
-export function docxHtmlArtifacts(target) {
+function docxHtmlArtifacts(target) {
   return {
     source: `${target}.mixdog-source.html`,
     print: `${target}.mixdog-html.pdf`,

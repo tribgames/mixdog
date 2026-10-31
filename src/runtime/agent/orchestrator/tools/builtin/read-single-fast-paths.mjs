@@ -11,7 +11,6 @@ import { invalidateBuiltinResultCache } from './cache-layers.mjs';
 import { getReadSnapshot } from './read-snapshot-runtime.mjs';
 import { snapshotCoversFullFile, statMatchesSnapshot } from './snapshot-helpers.mjs';
 import { canCacheReadFile, READ_PREFIX_HASH_BYTES } from './read-cache-policy.mjs';
-export { READ_PREFIX_HASH_BYTES } from './read-cache-policy.mjs';
 
 // A mutation snapshot claims the full file because it knows the bytes it
 // wrote; it proves the session holds the body only when bodyDelivered says so.

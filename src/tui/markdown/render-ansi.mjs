@@ -33,7 +33,7 @@ const MD_SYNTAX_RE = /[#*`|[>\-_~]|\n\n|(?:^|\n)\d+[.)] |(?:^|\n)\+ |(?:^|\n)={2
 
 // GFM strikethrough, pair-only. marked's default `del` also accepts a SINGLE
 // tilde, which turns approximation prose ("~100", "1~2개") into struck text —
-// the reason this tokenizer used to be disabled outright. Requiring `~~` keeps
+// so the default tokenizer cannot be used as is. Requiring `~~` keeps
 // real strikethrough working and lockstep with the desktop pipeline
 // (remark-gfm singleTilde:false).
 const DEL_RE = /^~~(?=[^\s~])([\s\S]*?[^\s~])~~(?!~)/;

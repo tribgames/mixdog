@@ -9,7 +9,7 @@ import { workerExecArgv } from '../../shared/worker-exec-argv.mjs';
 const ENGINE_URL = new URL('./ocr-engine-worker.mjs', import.meta.url);
 
 /** The start includes the first-use download; without network it fails or hangs. */
-export const OCR_ENGINE_START_TIMEOUT_MS = 90_000;
+const OCR_ENGINE_START_TIMEOUT_MS = 90_000;
 
 const engines = new Map();
 

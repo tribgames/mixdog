@@ -81,7 +81,7 @@ export const PDF_INTAKE_TIMEOUT_MS = 60_000;
 // least this many non-whitespace characters. A scan often keeps a stamped page
 // number or a few stray glyphs; those alone do not make its content readable
 // as text, so such a page still needs its image (or OCR).
-export const PDF_TEXT_LAYER_MIN_CHARS = 16;
+const PDF_TEXT_LAYER_MIN_CHARS = 16;
 
 /** Whether one page's extracted text is a real text layer (see above). */
 export function pageHasTextLayer(text) {

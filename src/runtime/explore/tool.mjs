@@ -8,8 +8,8 @@ import { runExplorer } from './explorer.mjs';
 
 // Hidden ids are reserved from user agents, so this one keeps the `-agent`
 // suffix: a plain `explorer` would hide a user's own Explorer agent.
-export const EXPLORER_AGENT = 'explore-agent';
-export const EXPLORE_TIMEOUT_MS = 120_000;
+const EXPLORER_AGENT = 'explore-agent';
+const EXPLORE_TIMEOUT_MS = 120_000;
 export const EXPLORE_OUTPUT_CAP = 24_000;
 const TRUNCATED = '\n[explore: answer truncated]';
 
@@ -17,7 +17,7 @@ function result(text, isError = false) {
   return { content: [{ type: 'text', text }], ...(isError ? { isError: true } : {}) };
 }
 
-export function normalizeExploreQueries(raw) {
+function normalizeExploreQueries(raw) {
   const list = Array.isArray(raw) ? raw : [raw];
   return list.map((q) => (typeof q === 'string' ? q.trim() : '')).filter(Boolean);
 }

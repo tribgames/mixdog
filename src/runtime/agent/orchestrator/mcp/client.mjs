@@ -51,22 +51,17 @@ import {
   startMcpOAuthSwitch,
   storedMcpOAuthIdentity,
 } from './oauth.mjs';
-export { probeMcpServerAuth } from './oauth-probe.mjs';
 
 // Config interpretation (transport kind, URL policy, env expansion, headers,
-// timeouts, log scrubbing) lives in client-config.mjs; re-exported so every
-// existing importer resolves unchanged.
+// timeouts, log scrubbing) lives in client-config.mjs; the names importers
+// use are re-exported here.
 export {
   normalizeMcpTransportUrl,
   mcpUrlForLog,
   scrubMcpConnectionMessage,
   resolveMcpStdioEnvironment,
   resolveMcpHttpHeaders,
-  resolveMcpTransportKind,
   resolveMcpStartupTimeoutMs,
-  resolveMcpCallTimeoutMs,
-  resolveMcpMaxTotalTimeoutMs,
-  resolveMcpRequestTimeouts,
 } from './client-config.mjs';
 const servers = new Map();
 const reconnects = createKeyedSingleflight();

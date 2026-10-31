@@ -724,7 +724,7 @@ const TOOLS = [
 
 /** The tool definitions (name, description, schema, annotations) the server
  *  lists: never the ones only the approval gate calls. */
-export function gmailAppPasswordTools() {
+function gmailAppPasswordTools() {
   return TOOLS.filter((tool) => !tool.hidden).map(({ run, hidden: _hidden, ...tool }) => tool);
 }
 

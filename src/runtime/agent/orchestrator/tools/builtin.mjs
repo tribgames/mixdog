@@ -97,30 +97,12 @@ import {
   streamSmartReadSummary as _streamSmartReadSummaryImpl,
 } from './builtin/read-streaming.mjs';
 export {
-  coerceShapeFlex,
   normalizeInputPath,
   normalizeOutputPath,
-  posixPathToWindowsPath,
   resolveAgainstCwd,
-  toDisplayPath,
 } from './builtin/path-utils.mjs';
-export {
-  buildGlobCacheKey,
-  buildGrepCacheKey,
-  buildGrepRgArgs,
-  buildListCacheKey,
-} from './builtin/search-builders.mjs';
-export {
-  analyzeShellCommandEffects,
-  preflightShellLargeFileProbe,
-} from './builtin/shell-analysis.mjs';
-export { BUILTIN_TOOLS } from './builtin/builtin-tools.mjs';
 export { withBuiltinPathLocks } from './builtin/path-locks.mjs';
-export {
-  getCachedReadOnlyStat,
-  invalidateBuiltinResultCache,
-} from './builtin/cache-layers.mjs';
-export { atomicWrite } from './builtin/atomic-write.mjs';
+export { invalidateBuiltinResultCache } from './builtin/cache-layers.mjs';
 // User-cwd persistence hook: writes user-cwd.txt on SessionStart so
 // the MCP server (spawned from cache dir) resolves the correct sandbox root.
 // Helper extracted to src/shared/user-cwd.mjs so server-main.mjs can import
@@ -616,8 +598,3 @@ export function clearReadSnapshotForPath(fullPath, _scope) {
     _deleteReadSnapshotPathEverywhere(fullPath);
   } catch {}
 }
-
-// Re-export from the side-effect-free code-graph definition source so callers that already import other
-// helpers from builtin.mjs (result-compression.mjs) can pick up the tool
-// def list from the same module without a parallel path.
-export { CODE_GRAPH_TOOL_DEFS } from './code-graph-tool-defs.mjs';

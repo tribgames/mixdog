@@ -139,7 +139,7 @@ export const routeCommands = {
 
   effort(ctx, arg) {
     const { state, store, openSlashPanel, deps } = ctx;
-    // A running turn no longer blocks the switch: the in-flight turn keeps
+    // A running turn does not block the switch: the in-flight turn keeps
     // the effort it started with, and the new level applies from the next
     // turn. Same for /fast below.
     const pendingTurn = state.busy ? ' (applies from the next turn)' : '';

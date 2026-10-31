@@ -407,12 +407,11 @@ export function _findSymbolHits(graph, symbol, { language = null } = {}) {
   return _findSymbolHitsOnNodes(graph, cleanSymbol, candidateNodes, { language });
 }
 
-// Declarations come from the native record ONLY. The regex declaration
-// matchers that used to run for files without symbols are gone: they marked
+// Declarations come from the native record ONLY. A regex fallback would mark
 // `declarationLike` on lines the extractor never called a declaration, so the
-// hit ranking (and, through it, the caller/callee anchors) depended on which
-// path produced the hit. A file with no symbols still yields reference hits —
-// it just declares nothing.
+// hit ranking (and, through it, the caller/callee anchors) would depend on
+// which path produced the hit. A file with no symbols still yields reference
+// hits — it just declares nothing.
 function _findSymbolHitsOnNodes(graph, cleanSymbol, candidateNodes, { language = null } = {}) {
   if (!cleanSymbol) return [];
   const escaped = _escapeRegExp(cleanSymbol);

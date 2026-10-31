@@ -10,25 +10,25 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { isForegroundWindowCapture, requiredCapabilities } from './linux-action-capabilities.mjs';
 
-export const UINPUT_HINT =
+const UINPUT_HINT =
   'input_unavailable: Wayland input needs write access to /dev/uinput; add the udev rule `KERNEL=="uinput", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"`, add your user to the input group, then sign in again';
 export const INPUT_GROUP_SECURITY_NOTE =
   'Security note: membership of the input group lets every program you run read and inject keyboard and mouse input system-wide. Grant it only on a machine and account you trust.';
 export const GNOME_EXTENSION_UUID = 'mixdog-windows@mixdog.io';
 /** The oldest helper interface this app can use (2 added Screenshot and StopRequested, 3 the in-shell indicator). */
 export const MIN_WINDOW_HELPER_VERSION = 3;
-export const WINDOW_HELPER_RELOGIN_HINT =
+const WINDOW_HELPER_RELOGIN_HINT =
   'wayland_window_control_unavailable: the Mixdog Windows GNOME extension is installed and enabled but GNOME Shell has not loaded it yet; the user must sign out and sign in again once';
-export const WINDOW_HELPER_ENABLE_HINT =
+const WINDOW_HELPER_ENABLE_HINT =
   'wayland_window_control_unavailable: the Mixdog Windows GNOME extension is not enabled; it could not be enabled automatically (run gnome-extensions enable mixdog-windows@mixdog.io)';
-export const WINDOW_CONTROL_UNSUPPORTED_HINT =
+const WINDOW_CONTROL_UNSUPPORTED_HINT =
   'wayland_window_control_unavailable: this desktop offers no window control to other programs (supported: GNOME with the Mixdog Windows extension, sway, Hyprland, or an X11 session); screen, pointer, keyboard and clipboard still work';
-export const ACCESSIBILITY_HINT = 'accessibility_unavailable: the AT-SPI bus is not running; install at-spi2-core';
+const ACCESSIBILITY_HINT = 'accessibility_unavailable: the AT-SPI bus is not running; install at-spi2-core';
 export const TESSERACT_HINT =
   'ocr_unavailable: install Tesseract (for example `sudo apt install tesseract-ocr tesseract-ocr-kor`) to read text from pixels';
 export const CLIPBOARD_HINT =
   'clipboard_unavailable: install wl-clipboard (`wl-copy`/`wl-paste`) for clipboard access on Wayland';
-export const DISPLAY_HINT =
+const DISPLAY_HINT =
   'display_unavailable: no graphical session to drive; run inside a desktop session with DISPLAY (X11) or WAYLAND_DISPLAY set';
 
 /** Stable code of the whole refusal; the per-capability codes are the native ones. */
@@ -301,14 +301,10 @@ function capabilityIssue(name, readiness) {
     return { code: 'display_unavailable', message: DISPLAY_HINT };
   // Semantic actions fail on whichever of their two prerequisites is missing.
   const gnomeWayland = readiness.session === 'wayland' && readiness.desktop === 'gnome';
-  const target =
-    name === 'semanticActions'
-      ? readiness.capabilities.windows.state === 'ready'
-        ? 'accessibility'
-        : 'windows'
-      : name === 'capture' && gnomeWayland
-        ? 'windows'
-        : name;
+  let target = name;
+  if (name === 'semanticActions')
+    target = readiness.capabilities.windows.state === 'ready' ? 'accessibility' : 'windows';
+  else if (name === 'capture' && gnomeWayland) target = 'windows';
   const capability = readiness.capabilities[target];
   switch (target) {
     case 'windows':

@@ -331,7 +331,7 @@ const SERVICES = {
 
 /** The tool definitions (name, description, schema, annotations) of built-in
  *  Google service `service` (`gmail`, `calendar`, `drive`). */
-export function googleMcpTools(service) {
+function googleMcpTools(service) {
   return (SERVICES[service]?.tools || []).map(({ run, ...tool }) => tool);
 }
 

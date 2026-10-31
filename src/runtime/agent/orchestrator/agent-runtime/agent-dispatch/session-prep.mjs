@@ -65,9 +65,9 @@ export function prepareDispatchSession({
   // unless a hidden role declares a narrow toolSchemaProfile. Per-role
   // differentiation lives in scoped role rules / stable session context;
   // raw role and permission labels are not repeated in the prompt.
-  // Runtime permission enforcement was removed (every tool call is
-  // trusted); schema profiles remain a routing-efficiency layer that
-  // narrows the advertised tool list, not a runtime safety gate.
+  // Every tool call is trusted at runtime; schema profiles are a
+  // routing-efficiency layer that narrows the advertised tool list, not a
+  // runtime safety gate.
   const hidden = getHiddenAgent(agent);
   const isPoolC = Boolean(hidden);
   // Permission: read-declared hidden roles are locked in

@@ -47,7 +47,7 @@ const LINUX_CLIPBOARD_HINT =
   'install wl-clipboard (Wayland) or xclip (X11), for example `sudo apt install wl-clipboard xclip`';
 
 /** A clipboard helper that is not installed, named with the package to add. */
-export function clipboardHelperError(cmd, error) {
+function clipboardHelperError(cmd, error) {
   if (error?.code !== 'ENOENT' || process.platform !== 'linux') return error;
   return new Error(`${cmd} is not installed; ${LINUX_CLIPBOARD_HINT}`);
 }

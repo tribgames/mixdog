@@ -132,8 +132,8 @@ export async function symbolSearch(ctx) {
   if (!keywords.length) throw new Error('code_graph symbol_search: "symbol" (or "symbols[]") is required.');
   // Native graph symbols answer without source text at all: nodes without
   // them have no keyword matches to contribute, so nothing is read here.
-  // Honour the file/directory anchor: symbol_search used to scan the whole
-  // graph even when the caller scoped the call.
+  // Honour the file/directory anchor: a scoped symbol_search must not scan
+  // the whole graph.
   if (rel && !node) return fileNotFound('symbol_search', ctx);
   const search = (kw) => _searchSymbolsByKeyword(graph, kw, cwd, { language, limit, fileRel: rel, scopeRelPrefix });
   if (keywords.length === 1) return search(keywords[0]);

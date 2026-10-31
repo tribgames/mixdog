@@ -290,7 +290,7 @@ const VALIDATION_CHOICE_RANGE = /^(?:'[^']+'!|[A-Za-z_][\w.]*!)?\$?[A-Z]{1,3}\$?
 
 // A dropdown names its choices — "서울,부산" — or points at the cells holding
 // them; anything that compares, calls, or tests is a rule the sheet evaluates.
-export function listValidationFormula(formula1) {
+function listValidationFormula(formula1) {
   const text = String(formula1 ?? '')
     .trim()
     .replace(/^=/, '');

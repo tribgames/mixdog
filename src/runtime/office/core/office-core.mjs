@@ -118,7 +118,7 @@ export async function ensureOfficeSessionDesign(
   session.designRequest = mergeOfficeDesignRequest(session.designRequest, args.design);
   // A native document stays native: the `design` a later call carries is the
   // page review (reviewed, reviewToken, critique) or content, not a request
-  // for a preset. Resolving it as one used to hand a Word or Excel file the
+  // for a preset. Resolving it as one would hand a Word or Excel file the
   // default profile's palette and art direction it never asked for, and put
   // the preset review's gates in front of finalize.
   session.design =

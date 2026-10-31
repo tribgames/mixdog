@@ -43,7 +43,6 @@ import { prepareDispatchSession } from './agent-dispatch/session-prep.mjs';
 import { runDispatchTurn } from './agent-dispatch/turn.mjs';
 import { startDispatchWatchdog } from './agent-dispatch/watchdog.mjs';
 
-export { resolveMaintenanceRoute } from './maintenance-route.mjs';
 export { resolveHiddenRoleSchemaAllowedTools } from './agent-dispatch/session-prep.mjs';
 export {
   resolveAgentDispatchLiveCallbacks,

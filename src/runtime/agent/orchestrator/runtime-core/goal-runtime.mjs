@@ -29,7 +29,6 @@ export {
   MAX_GOAL_TIME_LIMIT_MS,
   parseGoalDuration,
 };
-export { GOAL_STATUS_VALUES } from './goal-state.mjs';
 export { listStoredActiveGoalSessionIds, readStoredGoalSnapshot } from './goal-storage.mjs';
 
 export function createGoalRuntime({

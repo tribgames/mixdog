@@ -128,7 +128,7 @@ export async function callers(ctx) {
   const depth = Math.max(1, Math.min(5, Math.floor(Number(args?.depth) || 1)));
   if (depth > 1) {
     // Scope and limit are honoured at every level: a file/directory anchor
-    // and an explicit limit used to be dropped for depth>1.
+    // and an explicit limit apply for depth>1 too.
     return _formatTransitiveCallers(graph, symbol, cwd, {
       language: lang,
       depth,

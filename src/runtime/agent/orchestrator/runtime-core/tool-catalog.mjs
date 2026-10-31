@@ -52,21 +52,8 @@ import {
   toolExposureModeForProvider,
 } from './tool-exposure.mjs';
 import { TOOL_BRIDGE_TOOLS } from './tool-defs.mjs';
-export {
-  toolKind,
-  toolSchemaBucket,
-  estimateToolSchemaBreakdown,
-  measuredToolUsage,
-  parseToolSelection,
-  sortedCatalogByMeasuredUsage,
-} from './tool-catalog-schema.mjs';
+export { estimateToolSchemaBreakdown } from './tool-catalog-schema.mjs';
 export { snapshotProviderRequestTools } from './provider-request-snapshot.mjs';
-export {
-  DEFERRED_DEFAULT_FULL_TOOLS,
-  DEFERRED_DEFAULT_LEAD_TOOLS,
-  DEFERRED_DEFAULT_READONLY_TOOLS,
-  MEASURED_TOOL_USAGE,
-} from './tool-catalog-data.mjs';
 
 // Provider modes without native tool search. Their bridge-v1 sessions
 // (tool-exposure.mjs) get the native roster and late delta notices; only a

@@ -32,11 +32,6 @@ export const EXPLORER_SYSTEM_PROMPT = [
 const EXPLORER_TOOLS = readOnlyFilesystemTools();
 export const EXPLORER_TOOL_NAMES = Object.freeze(EXPLORER_TOOLS.map((tool) => tool.name));
 
-/** Exact provider prefix inputs, for cache-stability checks. */
-export function explorerPrefix() {
-  return { system: EXPLORER_SYSTEM_PROMPT, tools: EXPLORER_TOOLS };
-}
-
 /**
  * Answer `query` on `route` with `provider`. Resolves the answer text (on a
  * salvage-flagged abort, the text written so far); rejects on failure.

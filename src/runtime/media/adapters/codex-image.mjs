@@ -32,9 +32,9 @@ import {
 
 const REQUEST_TIMEOUT_MS = 400_000;
 const LABEL = 'ChatGPT image';
-export const CODEX_IMAGE_MODEL = 'gpt-image-2';
-export const CODEX_IMAGES_GENERATIONS_URL = new URL('images/generations', CODEX_RESPONSES_URL).href;
-export const CODEX_IMAGES_EDITS_URL = new URL('images/edits', CODEX_RESPONSES_URL).href;
+const CODEX_IMAGE_MODEL = 'gpt-image-2';
+const CODEX_IMAGES_GENERATIONS_URL = new URL('images/generations', CODEX_RESPONSES_URL).href;
+const CODEX_IMAGES_EDITS_URL = new URL('images/edits', CODEX_RESPONSES_URL).href;
 const BACKGROUNDS = new Set(['transparent', 'opaque', 'auto']);
 
 const dataUrl = (ref) => `data:${ref.mime || 'image/png'};base64,${ref.base64}`;

@@ -13,10 +13,10 @@ const HEADING_SIZES = Object.freeze({ 1: 16, 2: 13, 3: 12 });
 
 const FLOW_FIELDS = ['before', 'after', 'x', 'width', 'color', 'align'];
 
-// What each block actually takes. A block the writer cannot read used to flow
-// as an empty paragraph: a table or a list written under the wrong key left no
-// mark on the page and no word in the result, so the report shipped without
-// the evidence it was asked for.
+// What each block actually takes. A block the writer cannot read would flow
+// as an empty paragraph: a table or a list written under the wrong key would
+// leave no mark on the page and no word in the result, so the report would ship
+// without the evidence it was asked for.
 const BLOCK_FIELDS = Object.freeze({
   paragraph: Object.freeze({ required: ['text'], optional: [...FLOW_FIELDS, 'size', 'lineHeight'] }),
   heading: Object.freeze({ required: ['text'], optional: [...FLOW_FIELDS, 'size', 'lineHeight', 'level'] }),

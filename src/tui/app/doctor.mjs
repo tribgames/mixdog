@@ -23,10 +23,10 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const GLYPH = { ok: '✓', warn: '⚠', fail: '✗' };
-export const DOCTOR_CHECK_TIMEOUT_MS = 8000;
+const DOCTOR_CHECK_TIMEOUT_MS = 8000;
 // Per-process log siblings are pruned by the channel worker; far above its
 // cap means pruning is not running.
-export const DOCTOR_LOG_FILE_WARN = 300;
+const DOCTOR_LOG_FILE_WARN = 300;
 
 // Only the stable ^major.minor.patch and >=major.minor.patch alternatives
 // used by our Node engine contract are supported. Fail open to "unverified",

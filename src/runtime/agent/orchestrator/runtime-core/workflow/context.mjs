@@ -32,7 +32,7 @@ export function createWorkflowContext({ packs, agents }) {
   function workflowContextBlockFromPack(pack) {
     if (!pack) return '';
     // The pack body opens with its own `# <name>` title, so header + description
-    // + body used to repeat the workflow name three times in the prompt. Emit one
+    // + body would repeat the workflow name three times in the prompt. Emit one
     // header line and drop the body's duplicate title (only when it matches).
     const rawBody = String(pack.body || '');
     const firstBreak = rawBody.indexOf('\n');

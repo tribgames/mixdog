@@ -15,14 +15,14 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const LAG_PROFILE_FLAG_FILE = 'lag-profile.on';
-export const LAG_PROFILE_DIR_NAME = 'profiles';
-export const LAG_PROFILE_KEEP = 10;
-export const LAG_PROFILE_TOP = 15;
+const LAG_PROFILE_DIR_NAME = 'profiles';
+const LAG_PROFILE_KEEP = 10;
+const LAG_PROFILE_TOP = 15;
 export const LAG_PROFILE_SAMPLING_US = 1000;
-export const LAG_P99_THRESHOLD_MS = 1000;
+const LAG_P99_THRESHOLD_MS = 1000;
 // The owner lease's stall threshold: any window holding one logged
 // `event loop stalled` line is kept.
-export const LAG_MAX_THRESHOLD_MS = 1000;
+const LAG_MAX_THRESHOLD_MS = 1000;
 
 const PROFILE_FILE_RE = /^daemon-lag-.+\.cpuprofile$/;
 const SRC_ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -90,12 +90,12 @@ export function summarizeCpuProfile(profile, { limit = LAG_PROFILE_TOP, srcRoot 
     .slice(0, limit);
 }
 
-export function formatTopEntries(entries) {
+function formatTopEntries(entries) {
   return entries.map((entry) => `${entry.label}=${Math.round(entry.ms)}ms`).join(',');
 }
 
 /** Keep only the `keep` newest daemon-lag profiles (names sort by timestamp). */
-export async function pruneProfiles(dir, keep = LAG_PROFILE_KEEP) {
+async function pruneProfiles(dir, keep = LAG_PROFILE_KEEP) {
   const names = (await fsp.readdir(dir)).filter((name) => PROFILE_FILE_RE.test(name)).sort();
   const stale = names.slice(0, Math.max(0, names.length - keep));
   for (const name of stale) await fsp.rm(path.join(dir, name), { force: true });

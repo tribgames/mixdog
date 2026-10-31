@@ -9,7 +9,7 @@ import { resolveAgentStallThresholds } from '../../runtime/agent/orchestrator/st
 const QUIET_POLL_MS = 1_000;
 
 /** The lead's stall-watchdog warn point, in ms. */
-export function leadStallWarnMs() {
+function leadStallWarnMs() {
   return resolveAgentStallThresholds('lead').warn * 1000;
 }
 

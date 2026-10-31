@@ -12,7 +12,7 @@ const ENDINGS = {
 const INCOMPLETE = 'Some worktree dependencies were not installed; the agent has the details.';
 
 /** Notice text and tone for one install progress event. */
-export function worktreeSetupNotice(event) {
+function worktreeSetupNotice(event) {
   if (event.final) {
     const text = ENDINGS[event.status] ?? INCOMPLETE;
     return { text, tone: event.status === 'completed' ? 'info' : 'warn' };

@@ -825,8 +825,8 @@ function styledDocxCell(cell, op) {
 }
 
 // A merged cell keeps what it carried (its shading, its borders, the bottom alignment a header row sits on, as Word
-// keeps them) and takes the spans; its width becomes the widths it joins. The whole tcPr used to be replaced, and a
-// two-level header's merged labels rose to the top of their cells on this backend only. Children stay in schema
+// keeps them) and takes the spans; its width becomes the widths it joins. Replacing the whole tcPr would make a
+// two-level header's merged labels rise to the top of their cells on this backend only. Children stay in schema
 // order: cnfStyle, tcW, gridSpan, vMerge, then the rest.
 function mergedCellXml(joined, spans) {
   const existing = /<w:tcPr(?:\s[^>]*)?>([\s\S]*?)<\/w:tcPr>/.exec(joined[0])?.[1] || '';
