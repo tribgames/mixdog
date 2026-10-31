@@ -103,6 +103,83 @@ test('an open Settings panel re-reads on a settings change from elsewhere; a clo
   assert.equal(h.current(), null);
 });
 
+test('a settings change from elsewhere refreshes the MCP, plugin and skill rows, not only the light ones', async () => {
+  let heavy = { mcp: SNAPSHOT.mcp, plugins: SNAPSHOT.plugins, skills: SNAPSHOT.skills };
+  const { mcp: _mcp, plugins: _plugins, skills: _skills, ...light } = SNAPSHOT;
+  const liveRefresh = { current: null };
+  const h = createHarness(
+    { getSettingsSnapshot: async (opts) => (opts?.heavy === false ? light : { ...light, ...heavy }) },
+    liveRefresh
+  );
+  await h.openSettingsPicker();
+  assert.equal(h.row('mcp').description, '1/2 connected · 1 failed');
+  heavy = {
+    mcp: { connectedCount: 0, configuredCount: 4, failedCount: 0 },
+    plugins: { count: 5 },
+    skills: { count: 7 },
+  };
+  liveRefresh.current();
+  await flush();
+  assert.equal(h.row('mcp').description, '0/4 connected');
+  assert.equal(h.row('plugins').description, '5 detected');
+  assert.equal(h.row('skills').description, '7 available');
+});
+
+test('overlapping external changes share one heavy read, and a late older response never rolls the cache back', async () => {
+  const { mcp: _mcp, plugins: _plugins, skills: _skills, ...light } = SNAPSHOT;
+  // Heavy reads wait here until the test answers them with a configured-MCP count.
+  const pending = [];
+  const heavyRead = () =>
+    new Promise((resolve) =>
+      pending.push((n) =>
+        resolve({
+          ...light,
+          mcp: { connectedCount: 0, configuredCount: n, failedCount: 0 },
+          plugins: { count: n },
+          skills: { count: n },
+        })
+      )
+    );
+  const liveRefresh = { current: null };
+  const h = createHarness(
+    {
+      getSettingsSnapshot: (opts) => (opts?.heavy === false ? Promise.resolve(light) : heavyRead()),
+      setAutoClear: async () => ({ enabled: false }),
+    },
+    liveRefresh
+  );
+  const opening = h.openSettingsPicker();
+  pending.shift()(2);
+  await opening;
+
+  // Three external changes while the first heavy read is outstanding: one read in flight.
+  liveRefresh.current();
+  liveRefresh.current();
+  liveRefresh.current();
+  await flush();
+  assert.equal(pending.length, 1);
+
+  // A newer full open answers first (4); the older read settles later (3).
+  const reopening = h.openSettingsPicker();
+  await flush();
+  assert.equal(pending.length, 2);
+  pending[1](4);
+  await reopening;
+  assert.equal(h.row('mcp').description, '0/4 connected');
+  pending[0](3);
+  await flush();
+  assert.equal(h.row('mcp').description, '0/4 connected', 'the older response did not repaint');
+  // The three changes owe exactly one follow-up read.
+  assert.equal(pending.length, 3);
+
+  // The next light refresh reads the cache the older response must not have overwritten.
+  h.current().onLeft(h.row('autoclear'));
+  await flush();
+  assert.equal(h.row('mcp').description, '0/4 connected');
+  assert.equal(h.row('plugins').description, '4 detected');
+  assert.equal(h.row('skills').description, '4 available');
+});
+
 test('rows render the snapshot values in the parity order', async () => {
   const h = createHarness();
   await h.openSettingsPicker();

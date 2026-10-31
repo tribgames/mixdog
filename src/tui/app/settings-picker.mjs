@@ -13,6 +13,16 @@ import { settingsHandoffPanel, createSettingsNavigation } from './settings-picke
 import { buildSettingsItems, readSettingsView } from './settings-picker/settings-rows.mjs';
 import { createSettingsToggles } from './settings-picker/settings-toggles.mjs';
 
+// The factory is rebuilt every render, so the heavy-read gate lives beside the
+// App-owned cache ref it protects: `running` is the one heavy read in flight,
+// `queued` the single follow-up owed to changes that arrived meanwhile, and
+// `freshWrites` counts heavy reads that wrote the cache.
+const heavyGates = new WeakMap();
+const heavyGateOf = (cacheRef) => {
+  if (!heavyGates.has(cacheRef)) heavyGates.set(cacheRef, { running: false, queued: false, freshWrites: 0 });
+  return heavyGates.get(cacheRef);
+};
+
 export function createSettingsPicker({
   store,
   state,
@@ -52,16 +62,31 @@ export function createSettingsPicker({
     // destination synchronously before the daemon snapshot so the empty-chat
     // welcome logo cannot appear between the old panel and Settings.
     if (!light && !own.paint(settingsHandoffPanel())) return;
-    const heavyCache = light ? settingsHeavyCacheRef.current : null;
+    // `heavy` re-reads MCP/plugin/skill status even on a light (no handoff
+    // paint) build: the cached values would otherwise win over a fresh snapshot.
+    const heavyCache = light && opts.heavy !== true ? settingsHeavyCacheRef.current : null;
     // ONE round-trip for the whole panel: on a daemon-backed store each getter
     // below is a serialized remote call, and reading them synchronously handed
     // back promises (every row rendered its default). getSettingsSnapshot runs
     // the same getters engine-side and answers once.
+    const gate = heavyGateOf(settingsHeavyCacheRef);
+    const freshWritesAtStart = gate.freshWrites;
     const snapshot = (await store.getSettingsSnapshot?.({ heavy: !heavyCache })) || {};
-    const view = readSettingsView({ snapshot, heavyCache, state });
+    const view = readSettingsView({ snapshot, heavyCache, state }); // A superseded build (newer open/refresh) or one whose panel was already
+    // closed with Esc must never paint, clear prompts or write the cache: an
+    // older response settling late would otherwise roll the cache back for
+    // every later light refresh.
+    if (!isCurrentSettingsRequest(requestId)) {
+      // Its fresh heavy rows were dropped; unless a newer heavy read already
+      // refreshed the cache, owe the still-open panel one follow-up read.
+      if (!heavyCache && own.owns() && gate.freshWrites === freshWritesAtStart) gate.queued = true;
+      return;
+    }
+    if (!own.owns()) return;
     // Refresh the cache every build (light or full) so the next light
     // refresh reuses whatever was most recently known.
     settingsHeavyCacheRef.current = { mcp: view.mcp, plugins: view.plugins, skills: view.skills };
+    if (!heavyCache) gate.freshWrites += 1;
     const toggles = createSettingsToggles({
       store,
       view,
@@ -86,10 +111,6 @@ export function createSettingsPicker({
       routeModelLabel,
       workflowDisplayName,
     });
-    // A superseded build (newer open/refresh) or one whose panel was already
-    // closed with Esc must never paint or clear prompts.
-    if (!isCurrentSettingsRequest(requestId)) return;
-    if (!own.owns()) return;
     setProviderPrompt(null);
     setSettingsPrompt(null);
     own.paint({
@@ -119,7 +140,9 @@ export function createSettingsPicker({
     });
     // A settings change from elsewhere re-reads this panel while it is still
     // the one on screen (the claim's epoch guards a closed or replaced panel).
-    if (settingsLiveRefreshRef) settingsLiveRefreshRef.current = own.defer(() => refreshSettings());
+    // The change names no section (MCP servers, plugins and skills may have
+    // moved), so unlike a post-write refresh it re-reads the heavy rows too.
+    if (settingsLiveRefreshRef) settingsLiveRefreshRef.current = own.defer(() => refreshSettings({ heavy: true }));
   };
 
   // Public entry point. NEVER rejects: callers fire it detached
@@ -134,8 +157,26 @@ export function createSettingsPicker({
       store.pushNotice(`settings unavailable: ${error?.message || error}`, 'error');
     }
   };
-  const refreshSettings = () => {
-    void openSettingsPicker({ light: true });
+  // One heavy read at a time; changes arriving meanwhile share a single
+  // follow-up, which goes through the live-refresh callback so it is a no-op
+  // once the panel was closed or replaced.
+  const refreshHeavy = () => {
+    const gate = heavyGateOf(settingsHeavyCacheRef);
+    if (gate.running) {
+      gate.queued = true;
+      return;
+    }
+    gate.running = true;
+    void openSettingsPicker({ light: true, heavy: true }).finally(() => {
+      gate.running = false;
+      if (!gate.queued) return;
+      gate.queued = false;
+      settingsLiveRefreshRef?.current?.();
+    });
+  };
+  const refreshSettings = ({ heavy = false } = {}) => {
+    if (heavy) refreshHeavy();
+    else void openSettingsPicker({ light: true });
   };
   const navigation = createSettingsNavigation({ openers, openSettingsPicker, setSettingsPrompt });
 
