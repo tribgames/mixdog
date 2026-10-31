@@ -21,7 +21,6 @@ const PROMPTED = new Set([
   'midi',
   'midiSysex',
   'idle-detection',
-  'storage-access',
   'top-level-storage-access',
   'window-management',
   'speaker-selection',
@@ -34,6 +33,12 @@ const PROMPTED = new Set([
  *  media playback, and element fullscreen (Chromium only asks after a user
  *  gesture, and Esc always leaves it), so a video's own fullscreen button works. */
 const GRANTED_BY_DEFAULT = new Set(['mediaKeySystem', 'fullscreen']);
+
+/** Granted on request without asking, as Chrome grants it to a frame that can
+ *  already use its own cookies, which this partition never blocks (an
+ *  embedded sign-in or reCAPTCHA frame). Only the top page holds it
+ *  beforehand, as in Chrome; a frame still reads it as not granted. */
+const STORAGE_ACCESS = 'storage-access';
 
 /** Clipboard operations that reach beyond the page: reading, and writing
  *  without a gesture (which Chromium asks for as `clipboard-read` or
@@ -53,7 +58,6 @@ const ENGINE_KEYS: Record<string, string[]> = {
   midi: ['midi', 'midiSysex'],
   notifications: ['notifications'],
   speaker_selection: ['speaker-selection'],
-  'storage-access': ['storage-access'],
   'top-level-storage-access': ['top-level-storage-access'],
   'window-management': ['window-management'],
 };
@@ -221,13 +225,14 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
         if (NEEDS_ACTIVATION.has(permission)) return false;
         const origin = originOf(requestingOrigin);
         if (!origin || origin === 'null') return false;
+        if (permission === STORAGE_ACCESS) return details?.isMainFrame === true;
         const embedder = originOf(details?.embeddingOrigin ?? '') || origin;
         const key =
           permission === 'media' ? `media:${(details as { mediaType?: string } | undefined)?.mediaType}` : permission;
         return decisions.get(decisionKey(embedder, origin, key)) === true;
       });
       session.setPermissionRequestHandler((webContents, permission, callback, details) => {
-        if (GRANTED_BY_DEFAULT.has(permission)) {
+        if (GRANTED_BY_DEFAULT.has(permission) || permission === STORAGE_ACCESS) {
           callback(true);
           return;
         }

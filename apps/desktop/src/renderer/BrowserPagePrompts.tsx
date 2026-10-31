@@ -176,7 +176,6 @@ function permissionLabel(key: string): string {
       return t('Control and reprogram your MIDI devices');
     case 'idle-detection':
       return t('Know when you are actively using this device');
-    case 'storage-access':
     case 'top-level-storage-access':
       return t('Use info it has saved about you');
     case 'window-management':
