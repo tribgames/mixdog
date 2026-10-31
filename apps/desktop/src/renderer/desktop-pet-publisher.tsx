@@ -76,7 +76,7 @@ function setConfig(next: DesktopPetConfig) {
  *  (main), so only an explicit 'off' carries over, as a stored off. */
 const LEGACY_BUDDY_KEY = 'mixdog.desktop.skin-buddy.v1';
 
-export async function migrateLegacyPetSetting(api: PetApi): Promise<void> {
+async function migrateLegacyPetSetting(api: PetApi): Promise<void> {
   let stored: string | null = null;
   try {
     stored = window.localStorage.getItem(LEGACY_BUDDY_KEY);
@@ -335,7 +335,7 @@ export function floatingLayers(): DesktopPetLayers {
 }
 
 /** The app's chat look as resolved at `element` (the composer card). */
-export function composerTheme(element: Element): DesktopPetTheme {
+function composerTheme(element: Element): DesktopPetTheme {
   const style = window.getComputedStyle(element);
   const vars: Record<string, string> = {};
   for (const name of DESKTOP_PET_THEME_VARS) {
@@ -372,7 +372,7 @@ function islandElement(card: Element): HTMLElement | null {
 
 /** islandPillLine plus the pill's extent and top edge (DesktopPetComposer's
  *  islandSpan), or null when no capsule rests above `card`. */
-export function islandPill(card: Element): Pick<Required<DesktopPetComposer>, 'island' | 'islandSpan'> | null {
+function islandPill(card: Element): Pick<Required<DesktopPetComposer>, 'island' | 'islandSpan'> | null {
   const island = islandElement(card);
   const mode = island?.dataset.mode;
   if (!island || (mode !== 'pill' && mode !== 'flash')) return null;
@@ -389,7 +389,7 @@ export function islandPill(card: Element): Pick<Required<DesktopPetComposer>, 'i
  *  scroller's left and right, and the line its last row ends on (the
  *  scroller's bottom less its tail gap). Main sets the overlap flag from it
  *  (DesktopPetComposer.transcript). */
-export function transcriptColumn(card: Element): DesktopPetComposer['transcript'] {
+function transcriptColumn(card: Element): DesktopPetComposer['transcript'] {
   const scroller = card.closest('.conversation, .pane-cell')?.querySelector('.transcript');
   if (!scroller) return undefined;
   const box = scroller.getBoundingClientRect();

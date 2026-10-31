@@ -69,8 +69,6 @@ import type { BrowserPageElement } from './browser-page-client';
 import type { DesktopBrowserCredentialSuggestion, DesktopBrowserHistoryEntry } from '../shared/contract';
 import './desktop/32-browser-pane.css';
 
-export { normalizeAddressInput } from './browser-address';
-
 export interface BrowserPaneProps {
   sessionId: string;
   active: boolean;

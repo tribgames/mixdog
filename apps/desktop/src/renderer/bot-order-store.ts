@@ -88,7 +88,7 @@ let loaded = false;
 let loading: Promise<void> | null = null;
 
 /** Read the host's order. An older host has none: keep what is shown. */
-export async function readBotOrder(api: OrderApi): Promise<void> {
+async function readBotOrder(api: OrderApi): Promise<void> {
   generation += 1;
   const mine = generation;
   try {
@@ -120,7 +120,7 @@ function loadBotOrder(api: OrderApi): Promise<void> {
  *  as the bot order, as reserved `section:<id>` entries (no second setting, no
  *  second capability): bot ids never carry the prefix, and every bot reader
  *  already ignores ids it does not know. */
-export const PANE_SECTION_IDS = ['bots', 'rooms', 'agents'] as const;
+const PANE_SECTION_IDS = ['bots', 'rooms', 'agents'] as const;
 export type PaneSectionId = (typeof PANE_SECTION_IDS)[number];
 const SECTION_PREFIX = 'section:';
 
@@ -138,7 +138,6 @@ export function paneSectionOrder(order: readonly string[] = current): PaneSectio
  *  three sections. Hidden ones ride in the same stored list as reserved
  *  `hidden:<id>` entries (shown by default; synced like the section order). */
 export const PANE_GROUP_IDS = ['representative', ...PANE_SECTION_IDS] as const;
-export type PaneGroupId = (typeof PANE_GROUP_IDS)[number];
 /** Every hideable part of the page: the four list groups plus the connector bar at the foot. */
 export const PANE_TOGGLE_IDS = [...PANE_GROUP_IDS, 'connectors'] as const;
 export type PaneToggleId = (typeof PANE_TOGGLE_IDS)[number];
@@ -155,7 +154,7 @@ export function hiddenPaneGroups(order: readonly string[] = current): ReadonlySe
 }
 
 /** The stored list with group `id` shown or hidden; null when already so. */
-export function toggledGroupOrder(stored: readonly string[], id: PaneToggleId, hidden: boolean): string[] | null {
+function toggledGroupOrder(stored: readonly string[], id: PaneToggleId, hidden: boolean): string[] | null {
   if (hiddenPaneGroups(stored).has(id) === hidden) return null;
   const entry = `${HIDDEN_PREFIX}${id}`;
   return hidden ? [...stored, entry] : stored.filter((item) => item !== entry);
@@ -181,7 +180,7 @@ export function toggledPinOrder(stored: readonly string[], sessionId: string, pi
  *  entry in the stored list (none = the 1-hour default). */
 export const RETAIN_CHOICES = ['1h', '1d', '7d', 'forever'] as const;
 export type RetainChoice = (typeof RETAIN_CHOICES)[number];
-export const DEFAULT_RETAIN_CHOICE: RetainChoice = '1h';
+const DEFAULT_RETAIN_CHOICE: RetainChoice = '1h';
 const RETAIN_PREFIX = 'retain:';
 
 export function retainChoice(order: readonly string[] = current): RetainChoice {

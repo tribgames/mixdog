@@ -24,7 +24,7 @@ export interface ConfirmActionOptions {
 
 /** A window.confirm-style message as dialog text: the first line, or the
  *  first question of a one-line message, is the title; the rest the body. */
-export function splitConfirmMessage(message: string): { title: string; description: string } {
+function splitConfirmMessage(message: string): { title: string; description: string } {
   const lines = message.trim();
   const newline = lines.indexOf('\n');
   if (newline > 0) return { title: lines.slice(0, newline).trim(), description: lines.slice(newline + 1).trim() };

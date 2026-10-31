@@ -5,7 +5,7 @@ import { compareFileMatches, matchFile, normalizeFileQuery, type FileMatch } fro
 import type { DesktopGitStatus } from '../shared/contract';
 import { runtimeIsWindows } from './explorer-logic';
 
-export const RECENT_MENTION_LIMIT = 5;
+const RECENT_MENTION_LIMIT = 5;
 
 /** One comparison key for a project-relative path across mentions, git rows
  *  and search results: Windows file names ignore case. */

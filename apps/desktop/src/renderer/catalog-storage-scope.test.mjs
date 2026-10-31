@@ -3,7 +3,6 @@ import test from 'node:test';
 import { readCachedProjectCatalog, writeCachedProjectCatalog } from './project-catalog-cache.ts';
 import {
   readCachedSessionCatalog,
-  writeCachedSessionCatalog,
   scheduleCachedSessionCatalogWrite,
   flushCachedSessionCatalogWrite,
 } from './session-catalog-cache.ts';

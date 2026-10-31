@@ -11,7 +11,7 @@ export type AvatarMotionState = 'still' | 'idle' | 'typing' | 'message';
 
 /** Default claim strength by state; a caller may rank its own claim lower
  *  (a list row's typing yields to the chat's typing bubble). */
-export const AVATAR_MOTION_PRIORITY = { idle: 1, typing: 3, message: 4 } as const;
+const AVATAR_MOTION_PRIORITY = { idle: 1, typing: 3, message: 4 } as const;
 
 const claims = new Map<number, { priority: number; at: number }>();
 const listeners = new Set<() => void>();
@@ -124,7 +124,7 @@ export function useAvatarMotion(
 }
 
 /** How long a new message's bounce (or a custom message image) shows. */
-export const NEW_MESSAGE_MOTION_MS = 1600;
+const NEW_MESSAGE_MOTION_MS = 1600;
 
 /** True for a moment each time `count` (unread messages) grows; never on mount. */
 export function useNewMessagePulse(count: number): boolean {

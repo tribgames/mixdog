@@ -44,8 +44,8 @@ export interface SessionUsageTotals {
 //   a call's first burst is not a rate, and providers that deliver the reply
 //   in one burst would read several times their real speed. Until then the
 //   session figure stays.
-export const MIN_LIVE_MS = 1500;
-export const MIN_LIVE_TOKENS = 50;
+const MIN_LIVE_MS = 1500;
+const MIN_LIVE_TOKENS = 50;
 // - on a narrow line the readout gives up its parts rather than ellipsizing:
 //   cache hit first, then the token total; tok/s goes last, and the whole
 //   readout hides when not even that fits.

@@ -12,7 +12,7 @@ const ICON_SLUGS: Record<string, string> = {
   postgres: 'postgresql',
 };
 
-export function connectorBrandIcon(id: string) {
+function connectorBrandIcon(id: string) {
   return CONNECTOR_BRAND_ICONS[ICON_SLUGS[id] ?? id] ?? null;
 }
 

@@ -84,7 +84,7 @@ export interface AgentProfile {
 }
 
 /** A save refused because the stored agent changed since it was loaded. */
-export function isAgentDefinitionConflict(reason: unknown): boolean {
+function isAgentDefinitionConflict(reason: unknown): boolean {
   const code = (reason as { code?: unknown } | null)?.code;
   return code === 'AGENT_DEFINITION_CONFLICT' || /AGENT_DEFINITION_CONFLICT/.test(errorMessageText(reason));
 }

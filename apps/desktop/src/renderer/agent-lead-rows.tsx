@@ -200,7 +200,7 @@ export function AgentLeadRows({
   /** The existing tree rows of a Lead's sub-agents. */
   renderSubtree?(sessionId: string): React.ReactNode;
 }): React.ReactElement | null {
-  // The rows no longer wear the Lead face, but mounting the page still loads it
+  // The rows do not wear the Lead face, but mounting the page still loads it
   // (and moves a face this device kept locally to the host) for the approvals.
   useLeadAvatar();
   const nextExpiry = Math.min(Number.POSITIVE_INFINITY, ...rows.map((row) => row.expiresAt));

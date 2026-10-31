@@ -55,7 +55,7 @@ const AGENT_KEYS = ['agents'] as const;
 
 /** A face as its catalog row stores it for a bot (Mixy's from its identity);
  *  every other agent (a role, a Workflows agent) wears the shared Lead face. */
-export function useAgentFace(agentId: string): AgentAvatarValue {
+function useAgentFace(agentId: string): AgentAvatarValue {
   const api = typeof window === 'undefined' ? undefined : window.mixdogDesktop;
   const { values } = useSidebarReferences(api, AGENT_KEYS, Boolean(agentId) && agentId !== MIXY_AGENT_ID);
   const lead = useLeadAvatar();
@@ -284,7 +284,7 @@ const phoneSurface = () => document.documentElement.hasAttribute('data-mixdog-mo
  *  Only the composer of the card's own conversation (`scope`, the enclosing
  *  `.conversation`): a card in another pane leaves the typing pane alone.
  *  Returns the released composer so the card can hand focus back. */
-export function releaseIdleComposer(scope: Element | null): HTMLElement | null {
+function releaseIdleComposer(scope: Element | null): HTMLElement | null {
   const active = document.activeElement;
   if (!(active instanceof HTMLElement) || !scope?.contains(active) || !active.closest('.composer-input-row')) {
     return null;

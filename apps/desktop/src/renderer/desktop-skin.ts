@@ -362,7 +362,7 @@ export function skinVars(id: SkinId, settings: SkinSettings, theme: SkinTheme): 
   };
 }
 
-export function currentSkinSettings(): SkinSettings {
+function currentSkinSettings(): SkinSettings {
   return {
     outerTransparency: getSkinOuterTransparency(),
     mainTransparency: getSkinMainTransparency(),

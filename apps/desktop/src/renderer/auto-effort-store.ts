@@ -69,7 +69,7 @@ function subscribe(listener: () => void): () => void {
 }
 
 /** The route's own Auto flag: only an explicit `false` turns it off. */
-export function routeAutoEffortOn(routeAutoEffort: boolean | null | undefined): boolean {
+function routeAutoEffortOn(routeAutoEffort: boolean | null | undefined): boolean {
   return routeAutoEffort !== false;
 }
 

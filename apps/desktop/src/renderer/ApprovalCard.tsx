@@ -120,7 +120,7 @@ function useSaveChatLogins(enabled: boolean): boolean {
 }
 
 /** An agent's display name (its home tab title); its id until the catalog has it. */
-export function useAgentName(agentId: string): string {
+function useAgentName(agentId: string): string {
   const api = typeof window === 'undefined' ? undefined : window.mixdogDesktop;
   const { values } = useSidebarReferences(api, AGENT_KEYS, Boolean(agentId));
   return agentHomeTitle(agentHomeSessionId(agentId) || '', values.agents) || agentId;
@@ -152,7 +152,7 @@ export function useRequester(
  *  that chat (the runtime's `handoff`, tool-approval.mjs): its id, the name
  *  the chat gave it and the bot whose own chat it is ('' for a session). Null
  *  for any other request, and in that session's own pane. */
-export function approvalHandoffTarget(
+function approvalHandoffTarget(
   approval: Approval,
   hostSessionId: string
 ): { sessionId: string; title: string; agentId: string } | null {
@@ -176,7 +176,7 @@ function useHandoffChip(target: ReturnType<typeof approvalHandoffTarget>): { nam
  *  name (a bot's face and name, a sub-agent's chain, else its title), only
  *  where the card shows in another conversation (a copy in the chat that
  *  delegated the work); null in its own conversation, where the line is omitted. */
-export function useOwnerChip(
+function useOwnerChip(
   approval: Approval,
   hostSessionId: string,
   chain: string
@@ -196,7 +196,7 @@ const TAKEOVER_EXPIRY_MS = 15 * 60_000;
 
 /** When a secret or takeover card lapses: its own expiry, else a takeover's
  *  15 minutes from when it was asked; undefined when unknown. */
-export function approvalDeadline(approval: Approval): number | undefined {
+function approvalDeadline(approval: Approval): number | undefined {
   const expiresAt = Number(approval.expiresAt);
   if (Number.isFinite(expiresAt) && expiresAt > 0) return expiresAt;
   const requestedAt = Number(approval.requestedAt);
@@ -236,7 +236,7 @@ export function actionLabel(action: string): string {
 }
 
 /** What a built-in tool does, in a few words ("Run a command"); '' for any other tool. */
-export function toolActionNoun(name: string): string {
+function toolActionNoun(name: string): string {
   const tool = name.toLowerCase();
   if (['shell', 'bash', 'powershell', 'exec', 'run_command'].includes(tool)) return t('Run a command');
   if (['edit', 'write', 'multi_edit', 'apply_patch', 'patch', 'notebook_edit'].includes(tool)) return t('Edit files');
@@ -253,7 +253,7 @@ export function connectorToolLabel(name: string): string {
 /** The service a tool belongs to as the card names it: a connector's catalog
  *  name ("Gmail" for `mcp__gmail-2__send_email`), else the server's own name;
  *  '' for a tool that is no connector's. */
-export function connectorServiceLabel(name: string): string {
+function connectorServiceLabel(name: string): string {
   const match = /^mcp__(.+?)__.+$/.exec(name);
   if (!match) return '';
   return connectorById(match[1].replace(/-\d+$/, ''))?.name ?? match[1];
@@ -457,7 +457,7 @@ function connectorChange(connector: Record<string, unknown> | null) {
 }
 
 /** A connector tool's permission level as the UI names it. */
-export function connectorLevelLabel(level: string): string {
+function connectorLevelLabel(level: string): string {
   if (level === 'auto') return t('Auto');
   if (level === 'needs_approval') return t('Needs approval');
   return t('Disabled');
@@ -465,7 +465,7 @@ export function connectorLevelLabel(level: string): string {
 
 /** The connector card's sentence: which bot, which connector and tool, the
  *  level now and the one asked for. */
-export function connectorChangeText(
+function connectorChangeText(
   agentName: string,
   change: NonNullable<ReturnType<typeof connectorChange>>
 ): string {

@@ -70,7 +70,7 @@ export function customAvatarPayload(draft: AvatarStatesDraft): RecordValue {
 }
 
 /** A draft state's image, falling back to idle's. */
-export function draftImage(
+function draftImage(
   draft: AvatarStatesDraft,
   images: AvatarImages,
   state: AgentAvatarState

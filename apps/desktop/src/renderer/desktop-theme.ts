@@ -124,7 +124,7 @@ function desktopThemeStorage(): Storage | null {
 }
 
 /** A known preference for a raw stored/received value; null when unknown. */
-export function normalizeDesktopThemePreference(value: string): DesktopThemePreference | null {
+function normalizeDesktopThemePreference(value: string): DesktopThemePreference | null {
   // The retired Gray theme collapsed into Dark: its ramp IS the dark ramp now.
   if (value === 'gray') return 'dark';
   if (value === 'system' || value === 'dark' || value === 'white') return value;

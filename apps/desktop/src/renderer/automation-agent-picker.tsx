@@ -114,7 +114,7 @@ export function automationRunFields(agent: string): RecordValue {
 }
 
 /** Why a routine is paused for its bot (channel-admin `ownerProblem`); '' when it runs. */
-export function routineOwnerProblemText(row: RecordValue): string {
+function routineOwnerProblemText(row: RecordValue): string {
   if (row.ownerProblem === 'no-mixy') return t('Create the representative bot first.');
   if (row.ownerProblem === 'owner-deleted') return t('This bot was deleted.');
   return '';

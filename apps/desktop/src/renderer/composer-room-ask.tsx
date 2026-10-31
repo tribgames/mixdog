@@ -28,7 +28,7 @@ export function roomAskTargets(draft: string, members: readonly RoomMemberLabel[
 }
 
 /** The draft with `/ask <id>[, <id>…] ` in front of what it said (any earlier /ask dropped). */
-export function draftAsking(draft: string, agentIds: string | readonly string[]): string {
+function draftAsking(draft: string, agentIds: string | readonly string[]): string {
   const ids = typeof agentIds === 'string' ? [agentIds] : agentIds;
   return `/ask ${ids.join(', ')} ${draft.replace(/^\s*\/ask(?:\s+\S*)?\s*/i, '')}`;
 }
@@ -91,7 +91,7 @@ export function RoomAskPalette({
 
 /** Agent mode's `@` in a room: the members whose id or name starts with what
  *  follows the `@`. */
-export function roomMentionCandidates(query: string, members: readonly RoomMemberLabel[] | null): RoomMemberLabel[] {
+function roomMentionCandidates(query: string, members: readonly RoomMemberLabel[] | null): RoomMemberLabel[] {
   const lower = query.toLowerCase();
   return (members ?? []).filter(
     (member) => member.id.toLowerCase().startsWith(lower) || member.name.toLowerCase().startsWith(lower)
@@ -99,7 +99,7 @@ export function roomMentionCandidates(query: string, members: readonly RoomMembe
 }
 
 /** The picker's "Everyone" tag (`@all`): not a member id, resolved to the room's current members at send. */
-export const ROOM_EVERYONE = '@all';
+const ROOM_EVERYONE = '@all';
 
 function everyoneLabel(): RoomMemberLabel {
   return { id: ROOM_EVERYONE, name: t('Everyone'), avatar: agentAvatar(ROOM_EVERYONE, null) };

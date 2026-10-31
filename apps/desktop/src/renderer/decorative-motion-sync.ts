@@ -137,7 +137,7 @@ function signalHolds(target: Element, attribute: string | null): boolean {
  *  host repeated that for each one (81-97 ms locking the hosts of a phone
  *  back from the background). A loop runs on its host or the host's
  *  pseudo-element, and both report the host as their target. */
-export function syncDecorativeLoops(...elements: Element[]): void {
+function syncDecorativeLoops(...elements: Element[]): void {
   const hosts = new Set<Element>();
   for (const element of elements) {
     if (element.matches(DECORATIVE_LOOP_HOSTS)) hosts.add(element);

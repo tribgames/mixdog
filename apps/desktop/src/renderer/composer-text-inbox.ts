@@ -1,11 +1,11 @@
-// Text another surface hands to "the composer" (Settings → compose). Every
-// mounted composer used to hear one window event: retained sessions kept
-// mounted off screen heard it too (two drafts), and a guard that skipped
-// off-screen composers dropped it when the only conversation was parked
-// behind a file tab (none). The text now waits here until exactly one
-// composer takes it: the focused pane's shown composer (use-composer-external-
-// draft). Sending also asks the pane workspace to bring that conversation to
-// the front, so the user sees the text land.
+// Text another surface hands to "the composer" (Settings → compose). A window
+// event heard by every mounted composer would reach retained sessions kept
+// mounted off screen (two drafts), and a guard that skipped off-screen
+// composers would drop it when the only conversation is parked behind a file
+// tab (none). So the text waits here until exactly one composer takes it: the
+// focused pane's shown composer (use-composer-external-draft). Sending also
+// asks the pane workspace to bring that conversation to the front, so the user
+// sees the text land.
 
 let pending: string[] = [];
 const takers = new Set<() => void>();

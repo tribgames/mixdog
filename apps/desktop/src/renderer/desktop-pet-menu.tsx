@@ -84,7 +84,7 @@ interface PetMenuEntry {
 
 /** The menu's items, in order (the same options as Settings → Bots); the
  *  Size row stands between "Collapse bubble" and "Reset position". */
-export function petMenuEntries(state: PetMenuState): PetMenuEntry[] {
+function petMenuEntries(state: PetMenuState): PetMenuEntry[] {
   return [
     { command: 'open', label: t('Open chat') },
     { command: 'settings', label: t('Settings') },

@@ -71,7 +71,7 @@ export function connectionLinkView(): DesktopConnectionLinkView | null {
   return view;
 }
 
-export function subscribeConnectionLinkView(listener: () => void): () => void {
+function subscribeConnectionLinkView(listener: () => void): () => void {
   start();
   listeners.add(listener);
   return () => listeners.delete(listener);

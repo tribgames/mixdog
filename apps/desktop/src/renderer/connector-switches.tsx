@@ -37,7 +37,7 @@ const CAPABILITIES = {
 } as const;
 
 /** The host's `[{ id, enabled }]` rows, defensively typed. */
-export function connectorSwitches(value: unknown): ConnectorSwitch[] {
+function connectorSwitches(value: unknown): ConnectorSwitch[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter((row) => row && typeof row.id === 'string' && row.id)

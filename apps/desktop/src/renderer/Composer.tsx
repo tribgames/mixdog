@@ -1200,4 +1200,4 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   );
 });
 
-export { ModelSelector, WorkflowSelect, OrchestrationModeSelect } from './model-controls';
+export { WorkflowSelect, OrchestrationModeSelect } from './model-controls';

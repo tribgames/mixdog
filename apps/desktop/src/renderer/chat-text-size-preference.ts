@@ -7,7 +7,7 @@ export type ChatTextSize = 'small' | 'default' | 'large' | 'extra-large';
 
 const CHAT_TEXT_SIZE_KEY = 'mixdog.desktop.chat-text-size.v1';
 const CHANGE_EVENT = 'mixdog:chat-text-size-changed';
-export const CHAT_SCALE_PROPERTY = '--mx-chat-scale';
+const CHAT_SCALE_PROPERTY = '--mx-chat-scale';
 
 export const CHAT_TEXT_SCALES: Readonly<Record<ChatTextSize, number>> = {
   small: 0.9,
@@ -64,7 +64,7 @@ export function subscribeChatTextSize(listener: () => void): () => void {
   return () => window.removeEventListener(CHANGE_EVENT, onChange);
 }
 
-export function applyChatTextScale(): void {
+function applyChatTextScale(): void {
   document.documentElement.style.setProperty(CHAT_SCALE_PROPERTY, String(getChatTextScale()));
 }
 

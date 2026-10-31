@@ -527,7 +527,7 @@ export function PaneContextIndicator({
 }
 
 /** The composer line's speed and cache-hit readout, on the same lane read. */
-export function PaneUsageReadout({
+function PaneUsageReadout({
   sessionId,
   hidden,
   onOpenUsage,

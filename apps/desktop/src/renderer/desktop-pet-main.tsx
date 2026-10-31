@@ -93,7 +93,7 @@ function usePetPicture(view: DesktopPetView | null): PetPicture {
 }
 
 /** The bubble after this window's own dismissal of a finished reply. */
-export function shownBubble(view: DesktopPetView | null, dismissedKey: string): CompanionBubble {
+function shownBubble(view: DesktopPetView | null, dismissedKey: string): CompanionBubble {
   const bubble = view?.bubble ?? { kind: 'idle' as const };
   return 'key' in bubble && bubble.key === dismissedKey ? { kind: 'idle' } : bubble;
 }
@@ -102,7 +102,7 @@ export function shownBubble(view: DesktopPetView | null, dismissedKey: string): 
  *  sprite is lowered by them so its visible feet are the box's bottom, the
  *  line main stands the bot on. None under a picture (it fills the box),
  *  nor while it loads (the box stands empty in its geometry). */
-export function petFeetGap(view: DesktopPetView | null, picture: PetPicture = NO_PICTURE): number {
+function petFeetGap(view: DesktopPetView | null, picture: PetPicture = NO_PICTURE): number {
   if (picture.state === 'ready' || picture.state === 'loading') return 0;
   const rows = petMascotCells(view?.face, true).map((cell) => cell.y);
   return rows.length ? 11 - Math.max(...rows) : 0;
@@ -111,7 +111,7 @@ export function petFeetGap(view: DesktopPetView | null, picture: PetPicture = NO
 /** The pet's face: the room's avatar stack, or its one member's face: its
  *  custom picture once read, an empty box while it loads (never a mascot
  *  flashing first), its mascot look when the picture cannot be read. */
-export function petFace(view: DesktopPetView | null, picture: PetPicture) {
+function petFace(view: DesktopPetView | null, picture: PetPicture) {
   const members = (view?.face.members ?? []).map(memberLabel);
   if (view?.face.room) return <RoomAvatar members={members} className="skin-companion-face" />;
   if (picture.state === 'loading') return <span className="agent-room-face skin-companion-face" />;

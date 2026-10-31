@@ -14,7 +14,7 @@ function askUserArgs(item: TranscriptItem): Record<string, unknown> | null {
 }
 
 /** An ask_user call that has its result: it renders as a card, not a tool row. */
-export function isAnsweredAskUser(item: TranscriptItem): boolean {
+function isAnsweredAskUser(item: TranscriptItem): boolean {
   return askUserArgs(item) !== null && typeof toolActivityResultValue(item) === 'string';
 }
 

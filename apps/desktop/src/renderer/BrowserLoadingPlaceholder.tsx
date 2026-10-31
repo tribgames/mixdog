@@ -7,7 +7,7 @@ import { ProgressSpinner } from './ProgressSpinner';
 import { t } from './i18n';
 
 /** Host of an address, or '' when it has none (or is not an address). */
-export function browserHostLabel(url: string): string {
+function browserHostLabel(url: string): string {
   try {
     return new URL(url).host;
   } catch {

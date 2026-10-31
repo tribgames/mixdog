@@ -9,7 +9,7 @@ import './bot-reorder.css';
 /** Marks a list whose bot rows reorder by drag. The pane workspace leaves
  *  session drags over such a list to it (no split preview, no drop into the
  *  pane); a drag released anywhere else still opens the session in a pane. */
-export const BOT_ORDER_ZONE = 'bot-order';
+const BOT_ORDER_ZONE = 'bot-order';
 
 type DropMark = { id: string; edge: 'before' | 'after' };
 
@@ -78,7 +78,7 @@ function listReorder(
 }
 
 /** -1 / +1 for Alt+ArrowUp / Alt+ArrowDown (the event is claimed), else 0. */
-export function altArrowDelta(event: React.KeyboardEvent<HTMLElement>): -1 | 0 | 1 {
+function altArrowDelta(event: React.KeyboardEvent<HTMLElement>): -1 | 0 | 1 {
   if (!event.altKey || !['ArrowUp', 'ArrowDown'].includes(event.key)) return 0;
   event.preventDefault();
   return event.key === 'ArrowUp' ? -1 : 1;

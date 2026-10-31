@@ -258,7 +258,7 @@ export interface DetectedConnectorSource {
 }
 
 /** Shell-like split: quotes group, nothing is expanded or executed. */
-export function splitCommandLine(line: string): string[] {
+function splitCommandLine(line: string): string[] {
   return [...line.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)].map((match) => match[1] ?? match[2] ?? match[3] ?? '');
 }
 
