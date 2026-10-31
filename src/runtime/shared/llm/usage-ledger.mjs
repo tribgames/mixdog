@@ -274,6 +274,9 @@ export function makeUsageRecord(args) {
     rates = {
       requestedModel: priced.rates.requestedModel,
       pricingModel: priced.rates.pricingModel,
+      // Fast-mode calls are told apart by the tier, even when the price is the provider's.
+      ...(priced.rates.requestServiceTier ? { requestServiceTier: priced.rates.requestServiceTier } : {}),
+      ...(priced.rates.serviceTier ? { serviceTier: priced.rates.serviceTier } : {}),
       pricingProvider: provider,
       pricingSource: kind === 'local' ? 'local' : 'provider',
     };

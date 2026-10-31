@@ -76,6 +76,83 @@ test('output speed counts only timed requests with output, per model and per ses
   assert.equal(session.outputTokensPerSecond, 90);
 });
 
+test('a model used in Fast mode is a row of its own beside its normal row, each with its own figures', (t) => {
+  const ledger = store(t);
+  ledger.record([
+    row({ responseId: 'n1', outputTokens: 300, durationMs: 2000 }),
+    // Fast, no tier returned by the response: still Fast.
+    row({ responseId: 'f1', outputTokens: 600, durationMs: 2000, requestServiceTier: 'fast' }),
+    // Used only in Fast mode: only its Fast row.
+    row({
+      responseId: 'f2',
+      model: 'claude-sonnet-4-6',
+      outputTokens: 100,
+      durationMs: 1000,
+      requestServiceTier: 'fast',
+    }),
+    // Used only normally: one row, as before.
+    row({ responseId: 'n2', model: 'claude-fable-5-1', outputTokens: 50, durationMs: 1000 }),
+    // OpenAI API: a Priority request served as Standard ran normal; a served or unreported tier ran Fast.
+    ...[
+      ['p1', 100, { serviceTier: 'default' }],
+      ['p2', 300, { serviceTier: 'priority' }],
+      ['p3', 500, {}],
+    ].map(([responseId, outputTokens, tier]) =>
+      row({
+        responseId,
+        provider: 'openai',
+        model: 'gpt-5.5',
+        outputTokens,
+        durationMs: 1000,
+        requestServiceTier: 'priority',
+        ...tier,
+      })
+    ),
+  ]);
+  const shape = (rollup) => {
+    const stats = usageStatsSnapshot({ rollup, now, source: 'all' });
+    const rows = Object.fromEntries(
+      stats.providers.flatMap((provider) =>
+        provider.models.map((model) => [`${model.model}${model.fast ? ' · Fast' : ''}`, model])
+      )
+    );
+    return {
+      stats,
+      rows,
+      order: stats.providers
+        .find((p) => p.provider === 'anthropic-oauth')
+        .models.map((m) => m.model + (m.fast ? '+' : '')),
+    };
+  };
+  for (const rollup of [ledger.rollup(), ledger.rollup({ fromMs: now - 1000, toMs: now + 1000 })]) {
+    const { stats, rows, order } = shape(rollup);
+    assert.deepEqual(Object.keys(rows).sort(), [
+      'claude-fable-5-1',
+      'claude-opus-4-8',
+      'claude-opus-4-8 · Fast',
+      'claude-sonnet-4-6 · Fast',
+      'gpt-5.5',
+      'gpt-5.5 · Fast',
+    ]);
+    const figures = (name) => [rows[name].turns, rows[name].output, rows[name].outputTokensPerSecond];
+    assert.deepEqual(figures('claude-opus-4-8'), [1, 300, 150]);
+    assert.deepEqual(figures('claude-opus-4-8 · Fast'), [1, 600, 300]);
+    assert.deepEqual(figures('claude-sonnet-4-6 · Fast'), [1, 100, 100]);
+    assert.deepEqual(figures('claude-fable-5-1'), [1, 50, 50]);
+    assert.deepEqual(figures('gpt-5.5'), [1, 100, 100]);
+    assert.deepEqual(figures('gpt-5.5 · Fast'), [2, 800, 400]);
+    assert.equal('fast' in rows['claude-opus-4-8'], false);
+    assert.equal(rows['claude-opus-4-8 · Fast'].tokens, 1000 + 600 + 5000 + 300);
+    assert.equal(order.indexOf('claude-opus-4-8+'), order.indexOf('claude-opus-4-8') + 1);
+    // Providers and totals are the whole of both modes.
+    assert.equal(stats.totals.turns, 7);
+    const anthropic = stats.providers.find((p) => p.provider === 'anthropic-oauth');
+    assert.equal(anthropic.turns, 4);
+    assert.equal(anthropic.output, 1050);
+    assert.equal(anthropic.outputTokensPerSecond, 175);
+  }
+});
+
 test('zero provider price is known, missing price is unknown, subscriptions never become bills', () => {
   assert.equal(row({ provider: 'openai', model: 'unpriced-test', costUsd: 0 }).costSource, 'provider');
   assert.equal(row({ provider: 'openai', model: 'unpriced-test' }).costUsd, null);

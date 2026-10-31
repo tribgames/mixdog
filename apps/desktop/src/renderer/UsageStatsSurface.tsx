@@ -17,6 +17,7 @@ import { t } from './i18n';
 import { customProviderDisplayNames, resolveProviderDisplayName } from './model-catalog';
 import { modelDisplayName } from './provider-display';
 import { record, rows } from './record-utils';
+import { useMediaBand } from './use-responsive-shell-bands';
 import { type SidebarReferenceKey, useSidebarReferences } from './sidebar-reference-cache';
 import { usageNumber, usageProviderLabel } from './usage-format';
 import {
@@ -121,6 +122,52 @@ function TokenMix({ totals, loading }: { totals: Row; loading: boolean }) {
     </section>
   );
 }
+
+/** A model's name; its Fast-mode calls are a row of their own, marked in the app's Fast accent. */
+export function UsageModelName({ model, provider, fast }: { model: string; provider: string; fast: boolean }) {
+  const name = modelDisplayName(model, provider);
+  // The name alone truncates on a phone, so the Fast marker always stays readable.
+  return (
+    <span className="usage-model-label">
+      <span className="usage-model-name">{name}</span>
+      {fast && (
+        <span className="usage-model-fast">
+          {' · '}
+          <span className="model-route-label-fast">{t('Fast')}</span>
+        </span>
+      )}
+    </span>
+  );
+}
+
+/** The width below which the usage tables narrow (the stylesheet's 680px block); keep both in step. */
+const PHONE_TABLE_QUERY = '(max-width: 680px)';
+
+/** A model row's name cell. On a phone the name truncates, so a tap (or Enter/Space) unclips it in place. */
+export function ModelNameCell({ model, provider, fast }: { model: string; provider: string; fast: boolean }) {
+  const [expanded, setExpanded] = useState(false);
+  const phone = useMediaBand(PHONE_TABLE_QUERY);
+  const name = <UsageModelName model={model} provider={provider} fast={fast} />;
+  return (
+    <td className="stats-model-cell" title={usageModelTitle(model, provider, fast)} data-expanded={expanded}>
+      {phone ? (
+        <button
+          type="button"
+          className="usage-model-toggle"
+          aria-expanded={expanded}
+          onClick={() => setExpanded((value) => !value)}
+        >
+          {name}
+        </button>
+      ) : (
+        name
+      )}
+    </td>
+  );
+}
+
+export const usageModelTitle = (model: string, provider: string, fast: boolean) =>
+  fast ? `${modelDisplayName(model, provider)} · ${t('Fast')}` : modelDisplayName(model, provider);
 
 export function RouteCells({ route, costValue, speed }: { route: Row; costValue?: string; speed?: boolean }) {
   const incomplete = statsNumber(route.unmeasuredTurns) > 0;
@@ -399,11 +446,10 @@ export function UsageStatsBody({
                 {open &&
                   models.map((model) => {
                     const name = String(model.model || '');
+                    const fast = model.fast === true;
                     return (
-                      <tr className="stats-model-row" key={name}>
-                        <td className="stats-model-cell" title={modelDisplayName(name, id)}>
-                          {modelDisplayName(name, id)}
-                        </td>
+                      <tr className="stats-model-row" key={fast ? `${name}\u0000fast` : name}>
+                        <ModelNameCell model={name} provider={id} fast={fast} />
                         <td className="stats-share-cell" />
                         <RouteCells route={model} speed />
                       </tr>
