@@ -2414,6 +2414,7 @@
   "Sessions with no conversation for this long move to the archive. You can restore them from the archive at any time.": "Sitzungen ohne Unterhaltung in diesem Zeitraum werden ins Archiv verschoben. Du kannst sie jederzeit aus dem Archiv wiederherstellen.",
   "Delete archived sessions after": "Archivierte Sitzungen löschen nach",
   "Counted from the day a session was archived. Sessions already in the archive count from the day this feature was turned on.": "Gezählt ab dem Tag der Archivierung. Bereits archivierte Sitzungen zählen ab dem Tag, an dem diese Funktion aktiviert wurde.",
+  "Cowork": "Cowork",
   "Deleted sessions cannot be restored.": "Gelöschte Sitzungen können nicht wiederhergestellt werden.",
   "Favorite and bot sessions, sessions that are running or open on screen, scheduled-task targets, and sessions with unread replies are never archived.": "Favoriten- und Bot-Sitzungen, laufende oder auf dem Bildschirm geöffnete Sitzungen, Ziele geplanter Aufgaben und Sitzungen mit ungelesenen Antworten werden nie archiviert.",
   "Import failed": "Import fehlgeschlagen",

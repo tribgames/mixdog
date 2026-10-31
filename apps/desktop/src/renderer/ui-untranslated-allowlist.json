@@ -36,6 +36,7 @@
     "Claude": "product name",
     "Claude Code": "product name",
     "Codex": "product name",
+    "Cowork": "product name",
     "Conventional Commits": "specification name",
     "Cursor": "product name",
     "Cursor OAuth": "product name",
@@ -99,6 +100,7 @@
     ", Col": "editor status column abbreviation fragment",
     "Auto": "effort-tier name kept in English by design",
     "Worktree": "established Git CLI and feature term",
+    "Worktrees": "established Git CLI and feature term",
     "v{{value0}} / {{value1}}": "version counter, placeholders only",
     "name@gmail.com": "literal input placeholder for Gmail address",
     "xxxx xxxx xxxx xxxx": "literal input placeholder for app password",
@@ -199,6 +201,7 @@
       "Cookies {{count}}": "established web term in German UI"
     },
     "es": {
+      "Simple": "same spelling in Spanish",
       "Collar": "same spelling in Spanish (avatar accessory)",
       "1 error": "same spelling in Spanish",
       "Workflow": "established software term in Spanish UI",
@@ -250,6 +253,7 @@
       "Cookies {{count}}": "established web term in Spanish UI"
     },
     "fr": {
+      "Simple": "same spelling in French",
       "Position": "same spelling for a position in French UI",
       "30 minutes": "same spelling in French",
       "Ports": "same spelling for network ports in French UI",

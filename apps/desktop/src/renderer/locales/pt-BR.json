@@ -2466,6 +2466,7 @@
   "Sessions with no conversation for this long move to the archive. You can restore them from the archive at any time.": "Sessões sem conversa durante esse período vão para o arquivo. Você pode restaurá-las do arquivo a qualquer momento.",
   "Delete archived sessions after": "Excluir sessões arquivadas após",
   "Counted from the day a session was archived. Sessions already in the archive count from the day this feature was turned on.": "Contado a partir do dia em que a sessão foi arquivada. Sessões que já estavam no arquivo contam a partir do dia em que este recurso foi ativado.",
+  "Cowork": "Cowork",
   "Deleted sessions cannot be restored.": "Sessões excluídas não podem ser restauradas.",
   "Favorite and bot sessions, sessions that are running or open on screen, scheduled-task targets, and sessions with unread replies are never archived.": "Sessões favoritas e de bots, sessões em execução ou abertas na tela, alvos de tarefas agendadas e sessões com respostas não lidas nunca são arquivadas.",
   "Import failed": "Falha na importação",

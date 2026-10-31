@@ -2362,6 +2362,7 @@
   "Sessions with no conversation for this long move to the archive. You can restore them from the archive at any time.": "在此期间没有对话的会话会移入归档。你可以随时从归档中恢复。",
   "Delete archived sessions after": "自动删除已归档的会话",
   "Counted from the day a session was archived. Sessions already in the archive count from the day this feature was turned on.": "从会话归档当天开始计算。原本已在归档中的会话从此功能开启当天开始计算。",
+  "Cowork": "Cowork",
   "Deleted sessions cannot be restored.": "已删除的会话无法恢复。",
   "Favorite and bot sessions, sessions that are running or open on screen, scheduled-task targets, and sessions with unread replies are never archived.": "收藏和机器人会话、正在运行或在屏幕上打开的会话、计划任务的目标以及有未读回复的会话永远不会被归档。",
   "Import failed": "导入失败",
