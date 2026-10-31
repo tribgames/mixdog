@@ -36,7 +36,8 @@ import {
   resolveWorkerCompactPolicy,
   shouldCompactForRequestMedia,
 } from '../loop/compact-policy.mjs';
-import { snapshotProviderRequestTools } from '../../runtime-core/tool-catalog.mjs';
+import { rearmLateDeferredTools, snapshotProviderRequestTools } from '../../runtime-core/tool-catalog.mjs';
+import { rearmPromptSettingsNotice } from './prompt-settings.mjs';
 import { prepareCompactionArchive, stampCompactionMessageIds } from '../compaction-archive-capture.mjs';
 
 // 'compacting' is a transient in-flight stage written just before Compact
@@ -724,6 +725,16 @@ async function commitSessionCompaction(plan, run, compactStartedAt) {
   // break instead of logging an unexplained input_prefix_mismatch.
   if (changed) {
     session.pendingCacheBreakIntent = mode === 'auto' ? 'post_turn_compaction' : 'manual_compaction';
+    // The compacted history no longer holds the late-tool announcements
+    // (connected MCP tools, built-ins a setting opened); a worker gets no
+    // prompt fold to list them, so they ride the next prompt again, as the
+    // pre-send compaction does.
+    try {
+      rearmLateDeferredTools(session);
+      rearmPromptSettingsNotice(session);
+    } catch {
+      /* a tool reminder never fails the compaction */
+    }
   }
   recordCompactionTiming(plan, freshContextResult, { startedAt: compactStartedAt, commitStartedAt, afterTokens });
   return compactionResult(

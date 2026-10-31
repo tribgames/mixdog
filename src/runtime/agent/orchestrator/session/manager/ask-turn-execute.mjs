@@ -59,7 +59,13 @@ function retainedUserTurn(session, retained, transcriptMeta, currentAgents) {
     },
     currentAgents
   );
-  return { historyMessages, userTurnMessage, outgoing: [...historyMessages, userTurnMessage] };
+  const noticeRevision = retained.message.meta?.promptSettingsNoticeRevision;
+  return {
+    historyMessages,
+    userTurnMessage,
+    outgoing: [...historyMessages, userTurnMessage],
+    promptSettingsNotice: noticeRevision ? { revision: noticeRevision } : null,
+  };
 }
 
 // The turn's user message: the retained one of a retried failed turn, or a
@@ -147,7 +153,15 @@ function persistTurnPreflight(session, { turnToken, startedAt, checkpoint, askGe
 
 /** Resolves the provider, builds the user turn and pre-commits it; returns
  *  what the loop and the commit need from this preparation. */
-export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, transcriptMeta, currentAgents }) {
+export async function prepareAskTurn({
+  sessionId,
+  opened,
+  input,
+  cwdOverride,
+  transcriptMeta,
+  currentAgents,
+  agentConfig = null,
+}) {
   const { turn, runtime, turnSignal, askGeneration, checkpoint, turnToken, startedAt, codexTurnId } = opened;
   const session = turn.session;
   // Where the turn sits in a bot-to-bot chain (session-runtime/bot-hops.mjs).
@@ -167,7 +181,7 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
   // reads the session as the turn found it (synchronously, on this call).
   // The first request still carries its decision: it is awaited below,
   // together with the user turn, before the effort configuration is stamped.
-  const autoEffortPending = resolveTurnAutoEffort({ sessionId, session, provider, input });
+  const autoEffortPending = resolveTurnAutoEffort({ sessionId, session, provider, input, config: agentConfig });
   autoEffortPending.catch(() => {});
   applyTurnContextMeta(session, provider);
   const effectiveCwd = cwdOverride || session.cwd;
@@ -239,6 +253,7 @@ export async function prepareAskTurn({ sessionId, opened, input, cwdOverride, tr
     deferredToolDelta: userTurn.deferredToolDelta,
     goalReminder: userTurn.goalReminder,
     workflowNotice: userTurn.workflowNotice,
+    promptSettingsNotice: userTurn.promptSettingsNotice,
     orchestrationModeNotice: userTurn.orchestrationModeNotice,
     workspaceNotice: userTurn.workspaceNotice,
     setupNotice: userTurn.setupNotice,

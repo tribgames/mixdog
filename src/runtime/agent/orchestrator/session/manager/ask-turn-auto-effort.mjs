@@ -50,19 +50,21 @@ export function turnStepAutoEffort(autoEffort, effortConfiguration) {
     : null;
 }
 
-export function autoEffortMode() {
+// `config`: a session runtime's in-memory agent config (its file copy trails
+// it by a debounce); other callers read the file.
+export function autoEffortMode(config = null) {
   if (process.env.MIXDOG_AUTO_EFFORT) return normalizeAutoEffortMode(process.env.MIXDOG_AUTO_EFFORT);
   try {
-    return builtinFeatureActive(readSection('agent'), 'autoEffort') ? 'on' : 'off';
+    return builtinFeatureActive(config || readSection('agent'), 'autoEffort') ? 'on' : 'off';
   } catch {
     return 'off';
   }
 }
 
 /** The global "Auto reasoning base" setting; absent or unreadable is medium. */
-export function autoEffortBaseSetting() {
+export function autoEffortBaseSetting(config = null) {
   try {
-    return autoEffortBase(readSection('agent')?.autoEffortBase);
+    return autoEffortBase((config || readSection('agent'))?.autoEffortBase);
   } catch {
     return autoEffortBase(undefined);
   }
@@ -99,8 +101,8 @@ function lastText(messages, role) {
  * briefly (its first-use load is the longest wait): a missing, still-loading,
  * or slow model yields null and the default effort.
  */
-export async function resolveTurnAutoEffort({ sessionId, session, provider, input }) {
-  const mode = autoEffortMode();
+export async function resolveTurnAutoEffort({ sessionId, session, provider, input, config = null }) {
+  const mode = autoEffortMode(config);
   // promptSource marks runtime-injected turns (completion notices, queued work).
   // Agent sessions are judged like any other: their spawn brief and later Lead
   // `send` messages arrive as plain prompts.
@@ -113,7 +115,7 @@ export async function resolveTurnAutoEffort({ sessionId, session, provider, inpu
   if (!turnEffortConfigurationMode(session, provider)) return null;
   const chosen = String(session.effort || '').toLowerCase();
   const options = effortOptionsFor(session.provider, autoEffortModel(session.provider, provider, session.model));
-  const setting = autoEffortBaseSetting();
+  const setting = autoEffortBaseSetting(config);
   const base = clampAutoEffortBase({ base: setting, options }) ?? autoEffortBase(setting);
   const record = {
     at: new Date().toISOString(),

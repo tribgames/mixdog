@@ -111,6 +111,8 @@ export function sessionOptions(deps, coreMemoryContext) {
     cwd: rt.currentCwd,
     ...(rt.desktopSession && typeof rt.desktopSession === 'object' ? { desktopSession: rt.desktopSession } : {}),
     coreMemoryContext,
+    // Prompt settings from the in-memory config (its disk copy trails it).
+    promptConfig: rt.config,
     workflow,
     workflowContext,
     ...(leadWorkflowParts ? { leadWorkflowParts } : {}),

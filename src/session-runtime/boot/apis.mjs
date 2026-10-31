@@ -573,6 +573,9 @@ function modelRouteApiFor(boot) {
     getSession: () => rt.session,
     getSessionGeneration: () => rt.sessionGeneration,
     setSession: boot.adoptSession,
+    // A held model pick is saved with its session (a replaced one is not resurrected).
+    persistSession: (session) =>
+      saveSessionAsync(session, { expectedGeneration: session.generation }).catch(() => {}),
     getAddressedSessionId: () => rt.addressedSessionId,
     getConfigHasSecrets: () => rt.configHasSecrets,
     getWebSearchRouteState: () => rt.webSearchRoute,
@@ -665,7 +668,12 @@ function workspaceApiFor(boot) {
     // waits on the save worker, which may never come up.
     persistSession: (session) => saveSession(session, { sync: true }),
     refreshWorkspaceContext: (session, cwd, move) =>
-      refreshWorkspacePrompt(session, cwd, { loadCoreMemoryContext: boot.loadCoreMemoryContext, move }),
+      refreshWorkspacePrompt(session, cwd, {
+        loadCoreMemoryContext: boot.loadCoreMemoryContext,
+        move,
+        // The runtime's in-memory setting, not the debounced file.
+        instructionFilesMode: rt.config?.instructionFiles,
+      }),
     invalidateCaches: () => {
       boot.invalidateContextStatusCache();
       boot.invalidatePreSessionToolSurface();

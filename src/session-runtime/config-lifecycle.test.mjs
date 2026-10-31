@@ -191,6 +191,29 @@ test('an injected (headless) config never follows the disk: no subscription, no 
   assert.deepEqual(session.compaction, { auto: false, mainBufferTokens: 8000 });
 });
 
+test('an output style chosen during the save debounce survives a concurrent write and its reload', async () => {
+  const styles = [
+    { id: 'simple', label: 'Simple' },
+    { id: 'detailed', label: 'Detailed' },
+  ];
+  const f = fixture({
+    outputStyleStatus: () => ({ configured: f.disk().outputStyle, current: styles[0], styles }),
+  });
+  f.lifecycle.adoptConfig({ ...f.config(), outputStyle: 'detailed' });
+  f.lifecycle.scheduleOutputStyleSave('detailed');
+  // Another runtime's write lands inside the debounce window.
+  f.disk().agent.theme = 'peer';
+  f.lifecycle.reloadFullConfig();
+  assert.equal(f.config().outputStyle, 'detailed');
+  assert.equal(f.config().theme, 'peer');
+  const status = f.lifecycle.getOutputStyleStatusCached({ fresh: true });
+  assert.equal(status.configured, 'detailed');
+  assert.equal(status.current.id, 'detailed');
+  await f.lifecycle.flushAllConfigSavesAsync();
+  assert.equal(f.disk().outputStyle, 'detailed');
+  assert.equal(f.lifecycle.getOutputStyleStatusCached({ fresh: true }).configured, 'detailed');
+});
+
 test('the change step runs effects keyed by what changed, once per change, the writer included', () => {
   let tokens = {};
   let notify = null;

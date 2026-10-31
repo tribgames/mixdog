@@ -17,9 +17,19 @@ import {
 } from '../../runtime/agent/orchestrator/context/collect.mjs';
 import {
   _buildBaseRules,
+  _buildLeadLanguage,
+  _buildLeadLanguageContext,
   _buildLeadMetaContext,
 } from '../../runtime/agent/orchestrator/session/manager/rules-cache.mjs';
-import { sessionRolePromptFields } from '../../runtime/agent/orchestrator/session/manager/session-prompt-composition.mjs';
+import {
+  notePromptSettingsPresented,
+  promptConfigSlice,
+} from '../../runtime/agent/orchestrator/session/manager/prompt-settings.mjs';
+import { normalizeInstructionFilesMode } from '../../runtime/shared/instruction-files-mode.mjs';
+import {
+  buildWorkspacePromptContext,
+  sessionRolePromptFields,
+} from '../../runtime/agent/orchestrator/session/manager/session-prompt-composition.mjs';
 import {
   delegationDisabled,
   honoredSchemaAllowlist,
@@ -32,14 +42,19 @@ import { AGENT_MODE, sessionModeOf } from '../../runtime/agent/orchestrator/sess
 import { unusedModelEditToolName } from '../../runtime/shared/edit-tool-dialect.mjs';
 import {
   presentedAgentCatalogSlice,
+  refreshSessionBp3Environment,
+  replaceLanguageBlock,
+  replaceWorkspaceCoreSlices,
+  replaceWorkspaceEnvironment,
   withPresentedWorkspaceSlices,
 } from '../../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
-import { leadPartsFor, rewriteSystemHeading, toolNames } from './surface-helpers.mjs';
+import { leadPartsFor, rewriteConversationBp3Core, rewriteSystemHeading, toolNames } from './surface-helpers.mjs';
 
 export function createPolicyStage({
   getRoute,
   getMode,
   getDataDir,
+  getConfig,
   modelStandaloneTools,
   featureDisallowedTools,
   loadCoreMemoryContext,
@@ -96,17 +111,54 @@ export function createPolicyStage({
     }
   }
 
-  // The policy `config` gives `session`, computed without touching the
-  // session, so a turn that starts during the async rebuild cannot lose tools
-  // to it. `conversation`: the rebuilt BP3 core keeps the instruction files
-  // and core memory the prompt presents now (withPresentedWorkspaceSlices).
-  async function stagePolicy(session, identity, config, { conversation = false } = {}) {
+  // The prompt-shaping settings sections `session` renders from `config` (the
+  // runtime's in-memory config) and `coreMemoryContext`, as session creation
+  // composes them (session-prompt-composition.mjs composeSessionSystem).
+  // `language` is the response language block closing the environment.
+  function promptSettingsSections(session, identity, config, coreMemoryContext) {
     const ownerIsAgent = isAgentOwner(session);
     const schemaAllowedTools = honoredSchemaAllowlist(session.schemaAllowedTools, {
       ownerIsAgent,
       agent: identity.agent,
     });
     const toolFreeRole = ownerIsAgent && schemaAllowedTools?.length === 0;
+    const agentMode = sessionModeOf(session) === AGENT_MODE;
+    const lead = !identity.skipAgentRules && !toolFreeRole && !ownerIsAgent;
+    const slice = promptConfigSlice(config);
+    const skip = identity.profileSkip || {};
+    const skills = schemaAllowedTools?.length === 0 ? [] : collectPromptSkillsCached(session.cwd, config);
+    const { packContext, summary } = activeWorkflowContext(config, getDataDir());
+    return {
+      meta: lead ? _buildLeadMetaContext({ includeOutputStyle: !agentMode, config: slice }) : '',
+      // The workflow pack and the skill listing BP2 carries.
+      workflow: String(packContext || ''),
+      workflowName: summary?.name || summary?.id || null,
+      skills: buildSkillManifest(skills),
+      instructionFilesMode: normalizeInstructionFilesMode(slice?.instructionFiles),
+      language: lead ? _buildLeadLanguageContext({ includeOutputStyle: !agentMode, config: slice }) : '',
+      instructionFiles:
+        toolFreeRole || agentMode || skip.claudemd ? '' : String(loadInstructionFilesContext?.(session) || ''),
+      coreMemory: skip.memory ? '' : String(coreMemoryContext || ''),
+      // Not a section: the language per-request rules match (tail-reminder-rules.mjs).
+      responseLanguage: lead ? _buildLeadLanguage({ config: slice }) || null : null,
+    };
+  }
+
+  // The policy `config` gives `session`, computed without touching the
+  // session, so a turn that starts during the async rebuild cannot lose tools
+  // to it. `conversation`: the rebuilt BP3 core keeps the instruction files
+  // and core memory the prompt presents now (withPresentedWorkspaceSlices).
+  // `settings`: the prompt settings sections as they stand (a fold or an
+  // empty rebuild presents them); `coreMemoryContext` a snapshot already read.
+  async function stagePolicy(session, identity, config, { conversation = false, coreMemoryContext: memory } = {}) {
+    const ownerIsAgent = isAgentOwner(session);
+    const schemaAllowedTools = honoredSchemaAllowlist(session.schemaAllowedTools, {
+      ownerIsAgent,
+      agent: identity.agent,
+    });
+    const toolFreeRole = ownerIsAgent && schemaAllowedTools?.length === 0;
+    const freshMemory = memory ?? (await leadCoreMemoryContext());
+    const settings = promptSettingsSections(session, identity, config, freshMemory);
 
     const {
       summary: workflow,
@@ -139,12 +191,11 @@ export function createPolicyStage({
             provider: getRoute()?.provider,
             model: getRoute()?.model,
           });
-    const coreMemoryContext = conversation ? '' : await leadCoreMemoryContext();
+    const coreMemoryContext = conversation ? '' : freshMemory;
     // BP2's stable part as session creation composes it
     // (session-prompt-composition.mjs): the Lead meta context and the skill
     // manifest of the skills in scope now.
     const skipRules = identity.skipAgentRules || toolFreeRole;
-    const skills = schemaAllowedTools?.length === 0 ? [] : collectPromptSkillsCached(session.cwd);
     const { sessionMarkerCore, stableSystemContext } = composeSystemPrompt({
       ...sessionRolePromptFields(identity, {
         ownerIsAgent,
@@ -160,8 +211,8 @@ export function createPolicyStage({
       // setting; agent mode carries none.
       instructionFilesContext:
         conversation || toolFreeRole || agentMode ? null : loadInstructionFilesContext?.(session) || null,
-      metaContext: skipRules || ownerIsAgent ? undefined : _buildLeadMetaContext({ includeOutputStyle: !agentMode }),
-      skillManifest: buildSkillManifest(skills),
+      metaContext: settings.meta || undefined,
+      skillManifest: settings.skills,
     });
     return {
       workflow,
@@ -174,7 +225,42 @@ export function createPolicyStage({
       core: conversation ? withPresentedWorkspaceSlices(session, sessionMarkerCore) : sessionMarkerCore,
       // Without BP1 the BP2 block cannot be located: null leaves it as it is.
       stableContext: skipRules ? null : stableSystemContext,
+      settings,
     };
+  }
+
+  /**
+   * Make the prompt present `staged.settings` (an empty session's rebuild, a
+   * fold): the BP3 core's instruction files and core memory and the language
+   * block closing the environment; the caller has written BP2 and the core.
+   * A staged workspace re-root keeps the slices it will replace itself.
+   */
+  function presentPromptSettings(session, staged) {
+    const { settings } = staged;
+    if (!session.workspaceReroot) {
+      rewriteConversationBp3Core(
+        session,
+        replaceWorkspaceCoreSlices(staged.core, {
+          coreMemoryContext: settings.coreMemory,
+          instructionFilesContext: settings.instructionFiles,
+        })
+      );
+    }
+    if (typeof session.bp3EnvironmentContext === 'string') {
+      session.bp3EnvironmentContext = replaceLanguageBlock(session.bp3EnvironmentContext, settings.language);
+      refreshSessionBp3Environment(session, session.cwd);
+    }
+    notePromptSettingsPresented(session, settings);
+  }
+
+  /** An empty session's rebuild: the shell, git and listing facts as they stand. */
+  function refreshEnvironmentFacts(session) {
+    if (typeof session.bp3EnvironmentContext !== 'string' || !session.cwd || session.workspaceReroot) return;
+    const { environmentContext } = buildWorkspacePromptContext(session, session.cwd, {
+      instructionFilesMode: promptConfigSlice(getConfig?.())?.instructionFiles,
+    });
+    session.bp3EnvironmentContext = replaceWorkspaceEnvironment(session.bp3EnvironmentContext, environmentContext);
+    refreshSessionBp3Environment(session, session.cwd);
   }
 
   // Apply a staged policy synchronously; the BP3 core is the caller's. The
@@ -184,6 +270,7 @@ export function createPolicyStage({
     delete session.orchestrationModeOverlay;
     delete session.workflowOpenedTools;
     delete session.promptFoldPending;
+    delete session.compactionFoldPending;
     session.workflow = toSessionWorkflowMeta(staged.workflow);
     session.orchestrationMode = staged.orchestrationMode;
     session.sessionMode = staged.sessionMode;
@@ -197,5 +284,12 @@ export function createPolicyStage({
     session.updatedAt = Date.now();
   }
 
-  return { liveDeniedTools, stagePolicy, applyPolicy };
+  return {
+    liveDeniedTools,
+    stagePolicy,
+    applyPolicy,
+    promptSettingsSections,
+    presentPromptSettings,
+    refreshEnvironmentFacts,
+  };
 }

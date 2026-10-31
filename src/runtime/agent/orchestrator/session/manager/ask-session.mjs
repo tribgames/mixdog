@@ -98,6 +98,8 @@ async function runAskTurn({ sessionId, opened, input, askOpts, onToolCall, cwdOv
       // them with what the model was told. Asked again for every user turn
       // the ask runs, queued and background follow-ups included.
       currentAgents: askOpts?.agentsNow?.(),
+      // The session runtime's in-memory settings (the file trails them).
+      agentConfig: askOpts?.agentConfig?.() || null,
     });
     const result = await runAskAgentLoop({
       sessionId,

@@ -263,6 +263,24 @@ export function replaceWorkspaceEnvironment(environmentTail, environmentContext)
   return parts.filter((part) => part?.trim()).join(BP3_PART_SEPARATOR);
 }
 
+const LANGUAGE_HEADING = '# Language';
+
+/**
+ * Replace the response language block that closes the persisted environment
+ * tail (rules-builder buildLanguageSection, `# Language`); '' drops it. It
+ * stays the last part.
+ */
+export function replaceLanguageBlock(environmentTail, languageContext) {
+  const parts = (typeof environmentTail === 'string' && environmentTail ? environmentTail.split(BP3_PART_SEPARATOR) : [])
+    .filter((part) => {
+      const text = part.trim();
+      return text && text !== LANGUAGE_HEADING && !text.startsWith(`${LANGUAGE_HEADING}\n`);
+    });
+  const language = trimmedSlice(languageContext);
+  if (language) parts.push(language);
+  return parts.join(BP3_PART_SEPARATOR);
+}
+
 /**
  * Re-root a session's prompt at a workspace in place: environment facts,
  * project memory and instruction files are replaced (never appended), then

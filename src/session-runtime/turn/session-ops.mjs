@@ -6,6 +6,7 @@ import { normalizeToolMode } from '../../runtime/agent/orchestrator/runtime-core
 import { interruptTaskWaitForSession } from '../../runtime/agent/orchestrator/session/task-wait-control.mjs';
 import { markPendingGoalReminder } from '../../runtime/agent/orchestrator/runtime-core/goal-reminder.mjs';
 import { rearmLateDeferredTools } from '../../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
+import { rearmPromptSettingsNotice } from '../../runtime/agent/orchestrator/session/manager/prompt-settings.mjs';
 
 export function createSessionOps(deps) {
   const {
@@ -101,6 +102,7 @@ export function createSessionOps(deps) {
     // The same compaction strips late MCP tool announcements from older turns.
     try {
       rearmLateDeferredTools(getSession());
+      rearmPromptSettingsNotice(getSession());
     } catch {
       /* best-effort: a tool reminder must never break manual compact */
     }

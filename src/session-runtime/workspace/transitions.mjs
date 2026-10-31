@@ -62,12 +62,18 @@ async function defaultRegisteredProject(path) {
  * `move` ({ from, changes }: the session left the project folder `from` for
  * a worktree) adds the uncommitted-changes and path lines to that notice.
  */
-export async function refreshWorkspacePrompt(session, cwd, { loadCoreMemoryContext, move = null } = {}) {
+export async function refreshWorkspacePrompt(
+  session,
+  cwd,
+  { loadCoreMemoryContext, move = null, instructionFilesMode } = {}
+) {
   // A new checkout invalidates observed-file snapshots as well as read/search
   // results. Conversation text remains historical evidence, not a file cache.
   clearReadDedupSession(session?.id);
   resetReadStateAfterCompaction(session?.id);
-  const { environmentContext, instructionFilesContext } = buildWorkspacePromptContext(session, cwd);
+  const { environmentContext, instructionFilesContext } = buildWorkspacePromptContext(session, cwd, {
+    instructionFilesMode,
+  });
   const coreMemoryContext =
     session?.owner === AGENT_OWNER || typeof loadCoreMemoryContext !== 'function'
       ? undefined

@@ -41,6 +41,7 @@ import {
   snapshotPendingGoalReminder,
 } from '../runtime-core/goal-reminder.mjs';
 import { rearmLateDeferredTools } from '../runtime-core/tool-catalog.mjs';
+import { rearmPromptSettingsNotice } from './manager/prompt-settings.mjs';
 
 async function setStage(opts, stage) {
   try {
@@ -437,7 +438,12 @@ function adoptCompactedTranscript(ctx, run) {
   // The system prompt is rebuilt from current sources outside a running turn
   // (session-runtime agent-profile-fold.mjs): the next cold point folds it in
   // instead of adding a break to the turn that is already warm again.
-  if (sessionRef) sessionRef.promptFoldPending = true;
+  // The fold runs at the next turn start (compactionFoldPending): it lists the
+  // late tools and the settings this compaction dropped the notices of.
+  if (sessionRef) {
+    sessionRef.promptFoldPending = true;
+    sessionRef.compactionFoldPending = true;
+  }
   resetReadStateAfterCompaction(sessionId);
   // Cross-turn receipts reference tool results that compaction just removed
   // from context; a stub for them would point at nothing. Clear in place so
@@ -573,6 +579,7 @@ async function compactBeforeSend(ctx) {
     // The adopted compaction strips late MCP tool announcements from older turns.
     try {
       rearmLateDeferredTools(sessionRef);
+      rearmPromptSettingsNotice(sessionRef);
     } catch {
       /* best-effort, like the Goal reminder: a tool reminder never fails the compaction */
     }

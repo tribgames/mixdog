@@ -150,5 +150,6 @@ export function createConfigWriters({ cfgMod, sharedCfgMod }) {
     hasPendingConfigChanges: () => configWriter.hasPending(),
     pendingConfigChanges: () => pendingConfigChanges,
     pendingSkills: () => skillsWriter.getPending(),
+    pendingOutputStyle: () => outputStyleWriter.getPending(),
   };
 }

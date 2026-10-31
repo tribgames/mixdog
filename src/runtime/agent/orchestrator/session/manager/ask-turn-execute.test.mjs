@@ -56,6 +56,9 @@ mock.module('./ask-turn-prepare.mjs', {
         outgoing: [...historyMessages, userTurnMessage],
         userTurnMessage,
         explicitPrefetchResult: '',
+        promptSettingsNotice: args.session.promptSettingsNotice
+          ? { revision: args.session.promptSettingsNotice.revision, content: args.session.promptSettingsNotice.content }
+          : null,
       };
     },
   },
@@ -170,6 +173,23 @@ test('turn start overlaps the judgment with buildUserTurn and still stamps the f
   const message = prepared.outgoing[0];
   assert.equal(message.meta.effortConfiguration.effort, 'high');
   assert.deepEqual(Object.keys(message.meta), ['effortConfiguration', 'runtimeUserContext']);
+});
+
+test('a prepared turn carries the settings notice it sent, so its acceptance acknowledges it once', async () => {
+  const { acknowledgePendingPromptSettingsNotice } = await import('./prompt-settings.mjs');
+  const session = {
+    provider: 'custom-a',
+    model: 'm',
+    effort: 'medium',
+    messages: [],
+    cwd: process.cwd(),
+    sessionStartMetaInjected: true,
+    promptSettingsNotice: { revision: 3, record: { revision: 'r' }, content: '<system-reminder>x</system-reminder>' },
+  };
+  const prepared = await prepareAskTurn({ sessionId: 's9', opened: turnFor(session), input: { prompt: 'go' } });
+  assert.equal(prepared.promptSettingsNotice?.revision, 3);
+  assert.equal(acknowledgePendingPromptSettingsNotice(session, prepared.promptSettingsNotice.revision), true);
+  assert.equal(session.promptSettingsNotice, undefined, 'the next turn sends nothing');
 });
 
 test('the built turn carries its prompt origin and retry provenance; the pre-commit checkpoints before provider work', async () => {
