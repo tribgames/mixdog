@@ -331,18 +331,27 @@ export async function listWorktrees(cwd, { signal } = {}) {
 }
 
 /**
- * Paths reported by `git status --porcelain=v1 -z`.
+ * Entries `{ code, path }` reported by `git status --porcelain=v1 -z` (`!!`:
+ * an ignored path, a folder with a trailing slash).
  * @param {string} raw
  */
-export function parseStatusPaths(raw) {
+export function parseStatusEntries(raw) {
   const fields = String(raw || '').split('\0');
-  const paths = [];
+  const entries = [];
   for (let index = 0; index < fields.length; index++) {
     const field = fields[index];
     if (field.length < 4) continue;
     const code = field.slice(0, 2);
-    paths.push(field.slice(3));
+    entries.push({ code, path: field.slice(3) });
     if (code.includes('R') || code.includes('C')) index++;
   }
-  return paths;
+  return entries;
+}
+
+/**
+ * Paths reported by `git status --porcelain=v1 -z`.
+ * @param {string} raw
+ */
+export function parseStatusPaths(raw) {
+  return parseStatusEntries(raw).map((entry) => entry.path);
 }

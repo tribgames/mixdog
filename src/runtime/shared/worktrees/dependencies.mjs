@@ -83,6 +83,18 @@ async function yarnInstallFlag(tool, cwd, signal) {
  *   globs     committed basename globs it reads (`*` within a name), optional;
  *   artefact  the folder an install leaves: the main checkout having it
  *             admits a nested folder, the worktree having it skips the folder;
+ *   reinstallable  the artefact's whole contents come back from the install,
+ *             so an automatic worktree removal may drop it (dependencyArtefacts);
+ *             optional. node_modules is one by deliberate choice: hand edits
+ *             inside it (say, before patch-package saved them) are NOT
+ *             protected and go with the worktree — protecting it would stop
+ *             the cleanup of nearly every JS worktree, which only removes
+ *             merged, disposable or aged ones, and installs treat the folder
+ *             as their output (npm ci deletes and rebuilds it). Not so: .venv (pip reads a pip.conf inside it, index
+ *             credentials included), .bundle (local Bundler config, gem
+ *             source credentials), vendor and deps (dev and git dependencies
+ *             are git checkouts that can hold local commits), obj and
+ *             .dart_tool (build and tool state an install does not restore);
  *   pick(files)  the folder's committed basenames → { manager, lockfile?, … }
  *                or null;
  *   install(match, { cwd, tool, signal })
@@ -99,6 +111,7 @@ const STACKS = [
     stack: 'js',
     names: ['package.json', ...JS_LOCKFILES.map(([name]) => name)],
     artefact: 'node_modules',
+    reinstallable: true,
     pick(files) {
       if (!files.has('package.json')) return null;
       const match = JS_LOCKFILES.find(([name]) => files.has(name));
@@ -337,6 +350,22 @@ export async function linkedArtefacts(projectDir, { signal } = {}) {
     }
   }
   return links;
+}
+
+/**
+ * The artefacts an install restores whole in `projectDir` (forward-slash,
+ * relative to it): the artefact of every folder whose committed files a
+ * `reinstallable` stack installs from, wherever the folder is.
+ * @returns {Promise<string[]>}
+ */
+export async function dependencyArtefacts(projectDir, { signal } = {}) {
+  const artefacts = [];
+  for (const [dir, files] of await committedFolders(projectDir, signal)) {
+    for (const stack of STACKS) {
+      if (stack.reinstallable && stack.pick(files)) artefacts.push([dir, stack.artefact].filter(Boolean).join('/'));
+    }
+  }
+  return artefacts;
 }
 
 /** Whether `dir` holds the installed `artefact`: a real directory, never a link. */
