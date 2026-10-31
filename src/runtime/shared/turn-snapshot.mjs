@@ -98,6 +98,9 @@ let _writeSeq = 0;
 // `${sessionId}\0${checkpointId}` → seals in flight. A sealing turn's change
 // record is `pending` and its session refuses Undo/Reapply until it lands.
 const _pendingFreezes = new Map();
+// `${sessionId}\0${checkpointId}` → getTurnChanges reads in flight. A seal of
+// that checkpoint landing marks them: each may hold the record from before it.
+const _changeReads = new Map();
 // Per-session Undo/Reapply chain.
 const _changeMutations = new Map();
 // `${sessionId}\0${checkpointId}` → path keys whose worktree state is unknown
@@ -1241,6 +1244,7 @@ function sealTurn(ownerSessionId, tracker) {
     const count = (_pendingFreezes.get(key) || 1) - 1;
     if (count > 0) _pendingFreezes.set(key, count);
     else _pendingFreezes.delete(key);
+    for (const read of _changeReads.get(key) || []) read.sealLanded = true;
   });
   tracker.freezing = run;
   return run;
@@ -1788,9 +1792,26 @@ function requiredCheckpointId(value) {
 export async function getTurnChanges(sessionId, options = {}) {
   const ownerSessionId = clean(sessionId);
   const checkpointId = requiredCheckpointId(options?.checkpointId);
-  let record = ownerSessionId
-    ? withUnknownChangeStates(ownerSessionId, await loadTurnChangeRecord(ownerSessionId, checkpointId))
-    : null;
+  // Settled only when no seal of this checkpoint was in flight at any point of
+  // the record read: one in flight before or after it (a completion wake
+  // reopened the turn meanwhile), or one that landed during it, answers
+  // pending instead of the record from before that seal.
+  const inFlight = () => Boolean(ownerSessionId) && turnChangesPending(ownerSessionId, checkpointId);
+  const key = pendingFreezeKey(ownerSessionId, checkpointId);
+  const read = { sealLanded: false };
+  const reads = _changeReads.get(key) || new Set();
+  _changeReads.set(key, reads.add(read));
+  let pending = inFlight();
+  let record;
+  try {
+    record = ownerSessionId
+      ? withUnknownChangeStates(ownerSessionId, await loadTurnChangeRecord(ownerSessionId, checkpointId))
+      : null;
+  } finally {
+    reads.delete(read);
+    if (reads.size === 0 && _changeReads.get(key) === reads) _changeReads.delete(key);
+  }
+  pending ||= read.sealLanded || inFlight();
   // An old record's outside-root file kept no counts: measure it so the card
   // agrees with the session review and the island.
   if (record?.files?.length) {
@@ -1801,7 +1822,7 @@ export async function getTurnChanges(sessionId, options = {}) {
     };
   }
   let status = 'missing';
-  if (ownerSessionId && turnChangesPending(ownerSessionId, checkpointId)) status = 'pending';
+  if (pending) status = 'pending';
   else if (record) status = record.files?.length || record.outside?.length ? 'ready' : 'none';
   const reply = turnChangesReply({
     status,
@@ -2083,6 +2104,7 @@ export function _resetTurnSnapshotForTest() {
   _turnsBySession.clear();
   _diffTrackersBySession.clear();
   _pendingFreezes.clear();
+  _changeReads.clear();
   _changeMutations.clear();
   _unknownChangeStates.clear();
   _parkedWorkerReviews.clear();
