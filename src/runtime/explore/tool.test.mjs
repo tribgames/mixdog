@@ -47,8 +47,66 @@ function harness(respond, config = configured, extra = {}) {
   return { deps, requests, children };
 }
 
-const abortable = (signal) =>
-  new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(signal.reason), { once: true }));
+async function waitFor(condition, message) {
+  const deadline = Date.now() + 2_000;
+  do {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    if (condition()) return;
+  } while (Date.now() < deadline);
+  assert.fail(message);
+}
+
+function cancellationHarness(extra = {}) {
+  const controls = Object.fromEntries(
+    ['a', 'b'].map((query) => [query, { started: false, cleanup: Promise.withResolvers() }])
+  );
+  const h = harness(
+    async (q, _messages, opts) => {
+      if (q === 'a') opts.onTextDelta?.('partial src/a.mjs:2');
+      controls[q].started = true;
+      // Provider cleanup can outlive abort, and each request settles separately.
+      await controls[q].cleanup.promise;
+      throw opts.signal.reason || new Error('cleanup released before abort');
+    },
+    configured,
+    extra
+  );
+  return { ...h, controls };
+}
+
+async function settleCancelledExplorers(h, pending, cancel = () => {}) {
+  let returned = false;
+  pending.then(
+    () => {
+      returned = true;
+    },
+    () => {
+      returned = true;
+    }
+  );
+  try {
+    await waitFor(() => Object.values(h.controls).every((c) => c.started), 'both providers must start');
+    cancel();
+    await waitFor(() => h.children.every((c) => c.signal.aborted), 'both providers must receive abort');
+    const [a, b] = ['a', 'b'].map((query) => h.children.find((c) => c.query === query));
+    assert.deepEqual([a.open, b.open], [1, 1]);
+    assert.equal(returned, false, 'Explore returned while both providers were still cleaning up');
+
+    h.controls.a.cleanup.resolve();
+    await waitFor(() => a.open === 0, 'provider A must finish cleanup');
+    assert.equal(b.open, 1);
+    assert.equal(returned, false, 'Explore returned before provider B finished cleanup');
+
+    h.controls.b.cleanup.resolve();
+    const res = await pending;
+    assert.ok(h.children.every((c) => c.signal.aborted && c.open === 0));
+    return res;
+  } finally {
+    for (const c of Object.values(h.controls)) c.cleanup.resolve();
+    await waitFor(() => h.children.every((c) => c.open === 0), 'providers must finish cleanup after gate release');
+    await pending;
+  }
+}
 
 test('a string query runs one read-only explorer on the Explore route and returns its answer', async () => {
   const h = harness((q) => `answer to ${q}\nsrc/a.mjs:3 — here`);
@@ -217,16 +275,9 @@ async function leftovers() {
 
 test('timeout aborts every explorer, keeps salvaged text and leaves nothing behind', async () => {
   const before = await leftovers();
-  const h = harness(
-    (q, _messages, opts) => {
-      if (q === 'a') opts.onTextDelta?.('partial src/a.mjs:2');
-      return abortable(opts.signal);
-    },
-    configured,
-    { timeoutMs: 30 }
-  );
-  const res = await runExplore({ query: ['a', 'b'] }, {}, h.deps);
-  assert.ok(h.children.every((c) => c.signal.aborted && c.open === 0));
+  const h = cancellationHarness({ timeoutMs: 30 });
+  const pending = runExplore({ query: ['a', 'b'] }, {}, h.deps);
+  const res = await settleCancelledExplorers(h, pending);
   assert.match(text(res), /partial src\/a\.mjs:2\n\[explore: partial, timed out\]/);
   assert.match(text(res), /## Q2: b\n\[explore error\] timed out after 0s with no answer/);
   assert.deepEqual(await leftovers(), before);
@@ -234,16 +285,12 @@ test('timeout aborts every explorer, keeps salvaged text and leaves nothing behi
 
 test('caller cancellation aborts every explorer and returns only after they settled', async () => {
   const before = await leftovers();
-  const h = harness((_q, _messages, opts) => abortable(opts.signal));
+  const h = cancellationHarness();
   const controller = new AbortController();
   const pending = runExplore({ query: ['a', 'b'] }, { signal: controller.signal }, h.deps);
-  await new Promise((r) => setTimeout(r, 20));
-  assert.equal(h.children.length, 2);
-  controller.abort(new Error('esc'));
-  const res = await pending;
+  const res = await settleCancelledExplorers(h, pending, () => controller.abort(new Error('esc')));
   assert.equal(res.isError, true);
   assert.match(text(res), /cancelled/);
-  assert.ok(h.children.every((c) => c.signal.aborted && c.open === 0));
   assert.deepEqual(await leftovers(), before);
 });
 
