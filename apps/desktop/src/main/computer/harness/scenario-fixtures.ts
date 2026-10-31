@@ -61,7 +61,7 @@ $form.Add_KeyDown({
   );
 }
 
-export const WIN32_HELPER_TYPES = `
+const WIN32_HELPER_TYPES = `
 Add-Type -Namespace Mixdog -Name Native -MemberDefinition @'
 [DllImport("user32.dll")] public static extern IntPtr GetForegroundWindow();
 [DllImport("user32.dll")] public static extern IntPtr SendMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
@@ -74,7 +74,7 @@ const execFileAsync = promisify(execFile);
 /** Runs one PowerShell snippet in a helper process and returns its trimmed stdout.
  *  It never blocks this process: the fixture windows live on its UI thread, and a
  *  helper that sends them a message waits for that thread to answer. */
-export async function runWin32Helper(script: string): Promise<string> {
+async function runWin32Helper(script: string): Promise<string> {
   const { stdout } = await execFileAsync(
     'powershell.exe',
     ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-Command', `${WIN32_HELPER_TYPES}\n${script}`],

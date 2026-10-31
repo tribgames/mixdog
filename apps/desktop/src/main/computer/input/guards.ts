@@ -8,13 +8,13 @@ import { KEY_SEQUENCE_ACTIONS, normalizeComputerKeySequence } from './keyboard';
 import { MAX_COMPUTER_FOREGROUND_TEXT_CHARS } from '../../../../../../src/runtime/computer-bridge/limits.mjs';
 import { schemaStringLength } from '../../../../../../src/runtime/shared/schema-value-error.mjs';
 
-export const MAX_COMPUTER_TYPE_TEXT_LENGTH = 30_000;
-export const MAX_COMPUTER_KEY_SEQUENCE_LENGTH = 512;
-export const MAX_COMPUTER_POINTER_MODIFIERS_LENGTH = 32;
-export const MAX_COMPUTER_TARGET_TOKEN_LENGTH = 4_096;
-export const MAX_COMPUTER_MENU_LABEL_LENGTH = 512;
-export const MAX_COMPUTER_STRUCTURED_ITEMS = 8;
-export const MAX_COMPUTER_CLIPBOARD_TEXT_LENGTH = 50_000;
+const MAX_COMPUTER_TYPE_TEXT_LENGTH = 30_000;
+const MAX_COMPUTER_KEY_SEQUENCE_LENGTH = 512;
+const MAX_COMPUTER_POINTER_MODIFIERS_LENGTH = 32;
+const MAX_COMPUTER_TARGET_TOKEN_LENGTH = 4_096;
+const MAX_COMPUTER_MENU_LABEL_LENGTH = 512;
+const MAX_COMPUTER_STRUCTURED_ITEMS = 8;
+const MAX_COMPUTER_CLIPBOARD_TEXT_LENGTH = 50_000;
 
 export const BLOCKED_COMPUTER_KEY_PATTERN_SOURCE = [
   String.raw`(?=[%+^]*%)[%+^]*\{F4(?:\s+\d{1,3})?\}`,
@@ -37,12 +37,12 @@ const MACOS_BLOCKED_COMPUTER_KEY_PATTERN_SOURCE = [
   .map((source) => `(?:${source})`)
   .join('|');
 
-export const BLOCKED_COMPUTER_KEY_PATTERNS = [
+const BLOCKED_COMPUTER_KEY_PATTERNS = [
   new RegExp(BLOCKED_COMPUTER_KEY_PATTERN_SOURCE, 'i'),
   ...(process.platform === 'darwin' ? [new RegExp(MACOS_BLOCKED_COMPUTER_KEY_PATTERN_SOURCE, 'i')] : []),
 ];
 
-export const BLOCKED_COMPUTER_TYPE_PATTERNS = [
+const BLOCKED_COMPUTER_TYPE_PATTERNS = [
   /\bcurl\b[^|\r\n]*\|\s*(?:bash|sh)\b/i,
   /\bwget\b[^|\r\n]*\|\s*(?:bash|sh)\b/i,
   /\bsudo\s+rm\s+-[^\r\n]*[rf]/i,
@@ -50,8 +50,8 @@ export const BLOCKED_COMPUTER_TYPE_PATTERNS = [
   /:\s*\(\)\s*\{\s*:\|:\s*&\s*\}/,
 ];
 
-export const BLOCKED_COMPUTER_LAUNCH_ALWAYS_PATTERNS = [/[\r\n\0]|javascript:/i];
-export const BLOCKED_COMPUTER_NON_HTTP_LAUNCH_PATTERNS = [
+const BLOCKED_COMPUTER_LAUNCH_ALWAYS_PATTERNS = [/[\r\n\0]|javascript:/i];
+const BLOCKED_COMPUTER_NON_HTTP_LAUNCH_PATTERNS = [
   /&&|\|\|/,
   /(?:^|[\\/"'])\s*(?:cmd|powershell|pwsh|wt|wsl|bash|sh|zsh|fish|nu|wscript|cscript|mshta|rundll32|regsvr32)(?:\.exe)?(?:["'\s]|$)/i,
   /\.(?:bat|cmd|ps1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|url|appref-ms)(?:["']?\s*)$/i,

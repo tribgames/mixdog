@@ -94,7 +94,7 @@ export function createComputerAuthorizationSettings(options: {
       try {
         await options.stop();
         const windows = await options.windows();
-        for (const target of candidate.windows ?? []) {
+        for (const target of candidate.windows) {
           if (!windows.some((window) => window.id === target.id && window.pid === target.pid)) {
             throw new Error('computer_policy_denied: selected window is no longer available; refresh the list');
           }

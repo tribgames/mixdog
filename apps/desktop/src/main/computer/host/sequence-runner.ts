@@ -227,8 +227,11 @@ export function sequenceHoldReleaseError(error: unknown): Error {
 export function createSequenceRunner(host: SequenceRunnerHost) {
   const { sessionIdFor, freshObservedWindowScope, captureAfterAction, runCommand } = host;
 
-  function validateSteps(command: ComputerCommand, windowId: string): ComputerCommand[] {
-    const steps = Array.isArray(command.steps) ? command.steps : [];
+  function validateSteps(
+    command: ComputerCommand,
+    windowId: string,
+    steps: NonNullable<ComputerCommand['steps']>
+  ): ComputerCommand[] {
     const delivery = command.delivery || 'background';
     const stepCommands = steps.map((step, index) => {
       const stepAction = assertSequenceStep(step, index);
@@ -273,7 +276,7 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
           `${observedScope?.primaryWindowId || 'missing'}`
       );
     }
-    const stepCommands = validateSteps(command, windowId);
+    const stepCommands = validateSteps(command, windowId, steps);
     try {
       await host.preflightSteps?.(command, stepCommands);
     } catch (error) {

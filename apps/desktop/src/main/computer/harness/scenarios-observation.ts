@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { BrowserWindow } from 'electron';
+import { sleep } from '../shared/common';
 import type { CapturePayload } from './scenario-types';
 import { capturePayload, actionPayload, ocrMark } from './scenario-ocr';
 import { ScenarioSkip, runScenario } from './scenario-runtime';
@@ -195,7 +196,7 @@ export const observationScenarios: ScenarioGroup = {
       assert.ok(ctx.denseFixture && denseWindowId);
       try {
         ctx.denseFixture.minimize();
-        await new Promise((resolve) => setTimeout(resolve, 120));
+        await sleep(120);
         const result = await command(
           {
             action: 'capture',
@@ -218,7 +219,7 @@ export const observationScenarios: ScenarioGroup = {
         if (ctx.denseFixture && !ctx.denseFixture.isDestroyed()) {
           ctx.denseFixture.restore();
           ctx.denseFixture.showInactive();
-          await new Promise((resolve) => setTimeout(resolve, 120));
+          await sleep(120);
         }
       }
     });

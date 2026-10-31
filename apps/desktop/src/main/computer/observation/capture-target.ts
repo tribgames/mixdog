@@ -22,11 +22,7 @@ export interface CaptureTargetHost {
 const namesOwnTarget = (command: ComputerCommand, forcedWindowId?: string) =>
   !forcedWindowId && !command.window_id && !command.window && !command.app;
 
-export function assertCaptureTargetShape(
-  command: ComputerCommand,
-  forcedWindowId: string | undefined,
-  mode: CaptureMode
-) {
+function assertCaptureTargetShape(command: ComputerCommand, forcedWindowId: string | undefined, mode: CaptureMode) {
   if (mode === 'ax' && command.include_ocr) {
     throw new Error('include_ocr requires capture mode state, som, or vision');
   }
@@ -44,15 +40,11 @@ export function assertCaptureTargetShape(
 }
 
 /** A screen-only capture: vision mode aimed at a screen with no window named. */
-export function explicitScreenCapture(command: ComputerCommand, forcedWindowId: string | undefined, mode: CaptureMode) {
+function explicitScreenCapture(command: ComputerCommand, forcedWindowId: string | undefined, mode: CaptureMode) {
   return mode === 'vision' && command.screen !== undefined && namesOwnTarget(command, forcedWindowId);
 }
 
-export function assertScreenTargetMode(
-  command: ComputerCommand,
-  forcedWindowId: string | undefined,
-  mode: CaptureMode
-) {
+function assertScreenTargetMode(command: ComputerCommand, forcedWindowId: string | undefined, mode: CaptureMode) {
   if (mode !== 'vision' && command.screen !== undefined && namesOwnTarget(command, forcedWindowId)) {
     throw new Error('screen capture supports mode=vision only; use app or window_id for state/som/ax');
   }

@@ -118,7 +118,7 @@ export function settleInputObservation(
   return { inputObservation, foregroundReady, foregroundInputReason };
 }
 
-export function foregroundInputState(
+function foregroundInputState(
   before: ComputerInputObservation | undefined,
   after: ComputerInputObservation | undefined
 ): { foregroundReady: boolean; foregroundInputReason?: string } {
