@@ -632,61 +632,7 @@ function reorderTarget(props?: ReorderProps) {
   return target;
 }
 
-/** One execution location inside a project: its own folder (`worktreeId` '') or
- *  a managed worktree. Rows are a slice of the project's rows, same order. */
-export type ProjectSubgroup = { key: string; worktreeId: string; label: string; rows: DesktopSessionSummary[] };
-
-export type ProjectSessionGroup = {
-  key: string;
-  path: string;
-  name: string;
-  rows: DesktopSessionSummary[];
-  /** Only set when at least one session runs in a worktree. */
-  subgroups?: ProjectSubgroup[];
-};
-
-const rowWorktreeId = (session: DesktopSessionSummary) => session.workspace?.worktreeId || '';
-const rowActivity = (session: DesktopSessionSummary) => Number(session.activityAt) || session.updatedAt;
-
-/** Splits a project's rows by where they run: the project folder first, then
- *  worktrees by newest activity. `rows` may be in any order (custom order is
- *  kept within each subgroup); `activityRows` decides the subgroup order. */
-export function splitProjectSubgroups(
-  projectKey: string,
-  rows: readonly DesktopSessionSummary[],
-  activityRows: readonly DesktopSessionSummary[] = rows
-): ProjectSubgroup[] | undefined {
-  if (!activityRows.some(rowWorktreeId)) return undefined;
-  const subgroupKey = (worktreeId: string) => `${projectKey}\u0001${worktreeId}`;
-  const byWorktree = new Map<string, DesktopSessionSummary[]>();
-  for (const session of rows) {
-    const id = rowWorktreeId(session);
-    const list = byWorktree.get(id);
-    if (list) list.push(session);
-    else byWorktree.set(id, [session]);
-  }
-  const newest = new Map<string, number>();
-  for (const session of activityRows) {
-    const id = rowWorktreeId(session);
-    newest.set(id, Math.max(newest.get(id) ?? 0, rowActivity(session)));
-  }
-  const labelOf = (worktreeId: string, list: readonly DesktopSessionSummary[]) => {
-    if (worktreeId) {
-      return list.find((session) => session.workspace?.branch)?.workspace?.branch || worktreeId;
-    }
-    return (
-      list.find((session) => session.workspace?.branch)?.workspace?.branch ||
-      activityRows.find((session) => rowWorktreeId(session) && session.workspace?.mergeTarget)?.workspace
-        ?.mergeTarget ||
-      t('Project folder')
-    );
-  };
-  const ids = [...byWorktree.keys()].filter(Boolean).sort((a, b) => (newest.get(b) ?? 0) - (newest.get(a) ?? 0));
-  return ['', ...ids].flatMap((id) => {
-    const list = byWorktree.get(id);
-    return list ? [{ key: subgroupKey(id), worktreeId: id, label: labelOf(id, list), rows: list }] : [];
-  });
-}
+export type ProjectSessionGroup = { key: string; path: string; name: string; rows: DesktopSessionSummary[] };
 
 /** Registered projects as sidebar folders. A session belongs to the project
  *  the user moved it to, else the deepest project containing its projectPath,
@@ -707,7 +653,6 @@ export function groupProjectSessions(
   for (const session of activityOrderedRows) {
     byKey.get(sessionProjectKey(session, keys))?.rows.push(session);
   }
-  for (const group of byKey.values()) group.subgroups = splitProjectSubgroups(group.key, group.rows);
   const newest = (group: ProjectSessionGroup) =>
     group.rows.length ? Number(group.rows[0].activityAt) || group.rows[0].updatedAt : 0;
   return [...byKey.values()].sort((left, right) => newest(right) - newest(left));
@@ -872,57 +817,7 @@ function projectFolderGroup(
           </button>
         )}
       </div>
-      {expanded && group.subgroups && (
-        <div className="project-group-sessions">
-          {group.subgroups.map((sub) => {
-            const subOpen = isOpen(projectOpen, sub.key);
-            const subLimit = rowLimits.get(sub.key) ?? PROJECT_SESSION_PAGE_ROWS;
-            const subAttention = groupSessionAttention(
-              !subOpen,
-              sub.rows.map((session) => session.id),
-              attentionOf
-            );
-            return (
-              <div className="project-subgroup" key={sub.key} data-worktree-id={sub.worktreeId || undefined}>
-                <button
-                  type="button"
-                  className="session-row project-subgroup-toggle"
-                  aria-expanded={subOpen}
-                  data-tooltip={sub.label}
-                  onClick={() => onToggleProject(sub.key)}
-                >
-                  <span className="session-row-copy">
-                    <b>{sub.label}</b>
-                  </span>
-                  {subAttention === 'unread' && <SessionRowUnreadDot name={sub.label} />}
-                  {subAttention && subAttention !== 'unread' && (
-                    <span className="session-row-status">
-                      <SessionRowStatusIcon status={subAttention} name={sub.label} />
-                    </span>
-                  )}
-                </button>
-                {subOpen && (
-                  <div className="project-subgroup-sessions">
-                    {renderRows(sub.rows, subLimit, sub.key)}
-                    {sub.rows.length > subLimit && (
-                      <button
-                        type="button"
-                        className="session-row project-group-more"
-                        onClick={() => onShowMore(sub.key)}
-                      >
-                        <span className="session-row-copy">
-                          <b>{t('More')}</b>
-                        </span>
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
-      {expanded && !group.subgroups && (
+      {expanded && (
         <div className="project-group-sessions">
           {group.rows.length === 0 && <p className="sidebar-section-empty">{t('No sessions.')}</p>}
           {renderRows(group.rows, limit, group.key)}

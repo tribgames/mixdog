@@ -191,26 +191,10 @@ export function useCustomOrderSync({
     if (orderPrefs.sessions === 'custom') {
       lists.push({ key: 'recent', ids: activityRows.map((session) => session.id) });
       for (const group of activityProjectGroups) {
-        for (const list of group.subgroups ?? [group]) {
-          lists.push({ key: `project:${list.key}`, ids: list.rows.map((session) => session.id) });
-        }
+        lists.push({ key: `project:${group.key}`, ids: group.rows.map((session) => session.id) });
       }
     }
-    if (!lists.length) return;
-    updateCustomOrders((current) => {
-      // A project that just gained subgroups: each starts from the project's saved order.
-      let seeded = current;
-      for (const group of activityProjectGroups) {
-        const projectOrder = current[`project:${group.key}`];
-        for (const sub of group.subgroups ?? []) {
-          const subKey = `project:${sub.key}`;
-          if (!projectOrder || subKey in seeded) continue;
-          const ids = new Set(sub.rows.map((session) => session.id));
-          seeded = { ...seeded, [subKey]: projectOrder.filter((id) => ids.has(id)) };
-        }
-      }
-      return syncCustomOrders(seeded, lists);
-    });
+    if (lists.length) updateCustomOrders((current) => syncCustomOrders(current, lists));
   }, [activityFavoriteRows, activityProjectGroups, activityRows, orderPrefs, sessionsReady, updateCustomOrders]);
 }
 
@@ -242,14 +226,11 @@ export function useSessionRowReorder({
   orderLists.set('favorites', { rows: favoriteRows, visible: favoriteRows.length });
   orderLists.set('recent', { rows, visible: visibleRecentRowCount });
   for (const group of projectGroups) {
-    const groupOpen = isOpen(projectOpen, group.key);
-    for (const list of group.subgroups ?? [group]) {
-      const limit = projectRowLimits.get(list.key) ?? PROJECT_SESSION_PAGE_ROWS;
-      orderLists.set(`project:${list.key}`, {
-        rows: list.rows,
-        visible: groupOpen && isOpen(projectOpen, list.key) ? Math.min(limit, list.rows.length) : 0,
-      });
-    }
+    const limit = projectRowLimits.get(group.key) ?? PROJECT_SESSION_PAGE_ROWS;
+    orderLists.set(`project:${group.key}`, {
+      rows: group.rows,
+      visible: isOpen(projectOpen, group.key) ? Math.min(limit, group.rows.length) : 0,
+    });
   }
   // Reordering is group-aware like rendering: one id per fork group (its
   // original), over the same whole-group head the list renders.
