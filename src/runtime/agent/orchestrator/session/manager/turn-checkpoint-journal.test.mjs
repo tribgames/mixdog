@@ -109,6 +109,36 @@ test('first flush anchors the prompt synchronously', () => {
   assert.deepEqual(checkpoint.turnMessages, [{ role: 'user', content: 'do the thing' }]);
 });
 
+test('a header write that failed is written again, so the later answer is recoverable', async (t) => {
+  const sessionId = 'sess-header-retry';
+  const turn = startTurn(sessionId);
+  // The header's publish fails once (a transient storage fault) and storage
+  // then recovers.
+  t.mock.method(fs, 'renameSync', () => {
+    throw Object.assign(new Error('storage fault'), { code: 'EIO' });
+  });
+  syncBuiltinESMExports();
+  try {
+    assert.throws(() => turn.flush(), /storage fault/);
+  } finally {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  }
+  turn.outgoing.push({ role: 'assistant', content: 'the answer' });
+  const sealed = turn.recorder.record({
+    boundary: 1,
+    currentUserContent: turn.prompt,
+    turnOutgoing: turn.outgoing,
+    interruption: turn.tracker,
+    sealed: true,
+  });
+  assert.equal(sealed, true);
+  await settleTurnCheckpointWrites(sessionId);
+  const checkpoint = readTurnCheckpoint(sessionId);
+  assert.equal(checkpoint?.sealed, true);
+  assert.deepEqual(checkpoint.turnMessages, turn.outgoing.slice(1));
+});
+
 test('journal replay reproduces the full snapshot at bounded cost', async () => {
   const sessionId = 'sess-replay';
   const turn = startTurn(sessionId);

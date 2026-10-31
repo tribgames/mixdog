@@ -2,7 +2,7 @@
 // turn comes back exactly once, and a checkpoint is never spliced onto a
 // record it was not taken against.
 import assert from 'node:assert/strict';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
@@ -26,7 +26,8 @@ const { _recoverTurnCheckpointDurably } = await import('./turn-checkpoint-recove
 const { createTurnInterruptionTracker } = await import('./turn-interruption.mjs');
 const { readDurableSessionRecord, setTranscriptSnapshotHook } = await import('../store/transcript-durability.mjs');
 const { bumpSessionGeneration, setSessionSaveFault } = await import('../store.mjs');
-const { createSession } = await import('./session-lifecycle.mjs');
+const { createSession, holdSessionRoute } = await import('./session-lifecycle.mjs');
+const { enqueuePendingMessage } = await import('./pending-messages.mjs');
 const { askSession } = await import('./ask-session.mjs');
 const { _withRegisteredProviderForTestAsync } = await import('../../providers/registry.mjs');
 
@@ -438,6 +439,72 @@ test('a failed terminal save blocks the next turn with a clear error and keeps t
     assert.equal(stored.messages.filter((message) => message.content === 'answer').length, 2);
     assert.equal(readTurnCheckpoint(id), null);
   });
+});
+
+test('a report held back for queued input reaches the caller when the next turn cannot start', async () => {
+  await _withRegisteredProviderForTestAsync('anthropic-oauth', provider, async () => {
+    const session = createSession({
+      provider: 'anthropic-oauth',
+      model: 'claude-opus-5-5',
+      cwd: root,
+      skipSkills: true,
+      workflow: { id: 'headless', delegatesAgents: false },
+    });
+    const id = session.id;
+    // The Lead's message lands while the first turn answers, held for its own
+    // turn, so the answer is not relayed with the first turn. Every save after
+    // the provider answered fails: the terminal save and the gate's retry.
+    onSend = () => {
+      onSend = null;
+      assert.ok(holdSessionRoute(id, { provider: 'anthropic-oauth', model: 'claude-opus-5-5' }));
+      enqueuePendingMessage(id, 'Anything else?');
+      setSessionSaveFault({ ids: id });
+    };
+    try {
+      await assert.rejects(
+        askSession(id, 'first task', null, null, null, null, {}),
+        (error) => error.code === 'ETURNNOTDURABLE' && error.carriedReport === 'answer'
+      );
+    } finally {
+      onSend = null;
+      setSessionSaveFault(null);
+    }
+  });
+});
+
+test('a journal left without its header after a restart is deleted by recovery and by the startup sweep', async () => {
+  const { turnJournalPath } = await import('./turn-checkpoint-journal.mjs');
+  const { sweepOrphanTurnJournals } = await import('./turn-checkpoint-recovery.mjs');
+  const plaintext = `${JSON.stringify({ t: 'h', turnToken: 'gone', s: 0 })}\nverification code 682419\n`;
+  const history = [{ role: 'system', content: 'sys' }];
+
+  // A session that is reopened: its recovery finds no header and deletes the journal.
+  const reopened = 'durable_orphan_reopened';
+  writeFileSync(turnJournalPath(reopened), plaintext);
+  assert.equal(recoverTurnCheckpoint(record(reopened, history), record(reopened, history)).recovered, false);
+  await settleTurnCheckpointWrites(reopened);
+  assert.equal(existsSync(turnJournalPath(reopened)), false);
+
+  // Sessions never reopened: the startup sweep deletes theirs, and only theirs.
+  const orphan = 'durable_orphan_swept';
+  writeFileSync(turnJournalPath(orphan), plaintext);
+  const live = openTurn('durable_orphan_live', history, 'running turn');
+  const setAside = join(root, 'turn-checkpoints', 'durable_orphan_aside.unrecovered-0123456789abcdef.jsonl');
+  writeFileSync(setAside, plaintext);
+  await settleTurnCheckpointWrites('durable_orphan_live');
+  // The sweep belongs to the process that owns the daemon record.
+  const ownerPath = join(root, 'daemon-owner.json');
+  writeFileSync(ownerPath, JSON.stringify({ kind: 'daemon', pid: process.pid }));
+  try {
+    assert.ok((await sweepOrphanTurnJournals()) >= 1);
+  } finally {
+    rmSync(ownerPath, { force: true });
+  }
+  await settleTurnCheckpointWrites(orphan);
+  assert.equal(existsSync(turnJournalPath(orphan)), false);
+  assert.ok(existsSync(turnJournalPath('durable_orphan_live')), 'a turn with a header keeps its journal');
+  assert.equal(readTurnCheckpoint('durable_orphan_live')?.turnToken, live.token);
+  assert.ok(existsSync(setAside), 'a set-aside journal is not an orphan');
 });
 
 test('a turn whose save was refused because ownership moved is saved by the next turn, not stuck', async () => {

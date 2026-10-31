@@ -116,3 +116,106 @@ test('a dead owner turn is recovered once on read', async (t) => {
   assert.equal(readFileSync(sessionPath(id), 'utf8'), recovered, 'a second read recovers nothing more');
   assert.equal(again.messages.filter((message) => String(message.content).includes(PARTIAL)).length, 1);
 });
+
+test('the daemon owner sweeps orphan checkpoint journals when it starts, in worker mode; other processes do not', async (t) => {
+  const { existsSync } = await import('node:fs');
+  const { removeOrphanTurnJournals, turnJournalPath } = await import('./turn-checkpoint-journal.mjs');
+  const { startIdleCleanup, stopIdleCleanup } = await import('./idle-cleanup.mjs');
+  const { sweepOrphanTurnJournals } = await import('./turn-checkpoint-recovery.mjs');
+  // The environment daemon.mjs gives its own process.
+  const saved = { worker: process.env.MIXDOG_WORKER_MODE, host: process.env.MIXDOG_DAEMON_HOST };
+  process.env.MIXDOG_WORKER_MODE = '1';
+  process.env.MIXDOG_DAEMON_HOST = '1';
+  t.after(() => {
+    stopIdleCleanup();
+    rmSync(ownerPath, { force: true });
+    for (const [name, value] of [
+      ['MIXDOG_WORKER_MODE', saved.worker],
+      ['MIXDOG_DAEMON_HOST', saved.host],
+    ]) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+  const orphan = (id) => {
+    writeFileSync(
+      turnJournalPath(id),
+      `${JSON.stringify({ t: 'h', turnToken: 'gone', s: 0 })}\nverification code 682419\n`
+    );
+    return turnJournalPath(id);
+  };
+
+  // Another live process owns the daemon record: this one leaves the journal.
+  const foreign = orphan('startup_sweep_foreign');
+  writeFileSync(ownerPath, JSON.stringify({ kind: 'daemon', pid: process.ppid }));
+  assert.equal(await sweepOrphanTurnJournals(), 0);
+  assert.ok(existsSync(foreign));
+
+  // This process owns it (the daemon claims before its session runtime starts):
+  // starting the session runtime's cleanup sweeps the journal of a session
+  // that is never reopened.
+  writeFileSync(ownerPath, JSON.stringify({ kind: 'daemon', pid: process.pid }));
+  startIdleCleanup();
+  const deadline = Date.now() + 5000;
+  while (existsSync(foreign) && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(existsSync(foreign), false);
+
+  // No live owner at all (an inline `mixdog exec` run): it sweeps, but a live
+  // turn's journal (header written first) is left alone.
+  rmSync(ownerPath, { force: true });
+  const inline = orphan('startup_sweep_inline');
+  const live = createTurnCheckpointRecorder({
+    sessionId: 'startup_sweep_live',
+    generation: 1,
+    turnToken: 'tok-startup_sweep_live',
+    startedAt: 1,
+    base: { epoch: 'e0', refs: [] },
+  });
+  live.record({
+    boundary: 0,
+    currentUserContent: PROMPT,
+    turnOutgoing: [{ role: 'user', content: PROMPT }],
+    interruption: createTurnInterruptionTracker(),
+  });
+  assert.ok((await sweepOrphanTurnJournals()) >= 1);
+  assert.equal(existsSync(inline), false);
+  assert.equal(readTurnCheckpoint('startup_sweep_live')?.turnToken, 'tok-startup_sweep_live');
+  assert.ok(existsSync(turnJournalPath('startup_sweep_live')));
+
+  // The header check and the delete are one step under the session's
+  // checkpoint lock, exclusive with a turn's header publish plus journal open.
+  const { checkpointLockPath } = await import('./turn-checkpoint-journal.mjs');
+  const { withFileLockSync } = await import('../../../../shared/file-lock.mjs');
+  const racing = orphan('startup_sweep_racing');
+  // A turn in another process holds the lock (publishing its header and
+  // opening its journal): the sweep skips the session and never waits.
+  withFileLockSync(checkpointLockPath('startup_sweep_racing'), () => {
+    const startedAt = Date.now();
+    assert.equal(removeOrphanTurnJournals(), 0);
+    assert.ok(Date.now() - startedAt < 150, 'the sweep did not wait for the lock');
+    assert.ok(existsSync(racing), 'the held session was skipped');
+  });
+  // The reverse: the sweep holds the lock; a turn opening meanwhile is not
+  // failed or stalled for long by it, and its checkpoint is recoverable.
+  const opening = createTurnCheckpointRecorder({
+    sessionId: 'startup_sweep_racing',
+    generation: 1,
+    turnToken: 'tok-startup_sweep_racing',
+    startedAt: 1,
+    base: { epoch: 'e0', refs: [] },
+  });
+  withFileLockSync(checkpointLockPath('startup_sweep_racing'), () => {
+    const startedAt = Date.now();
+    opening.record({
+      boundary: 0,
+      currentUserContent: PROMPT,
+      turnOutgoing: [{ role: 'user', content: PROMPT }],
+      interruption: createTurnInterruptionTracker(),
+    });
+    assert.ok(Date.now() - startedAt < 2000, 'the turn is bounded by the lock wait');
+  });
+  assert.equal(readTurnCheckpoint('startup_sweep_racing')?.turnToken, 'tok-startup_sweep_racing');
+  // Header published: the journal is no longer an orphan.
+  assert.equal(removeOrphanTurnJournals(), 0);
+  assert.ok(existsSync(racing));
+});

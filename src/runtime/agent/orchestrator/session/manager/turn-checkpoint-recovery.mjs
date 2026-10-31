@@ -18,6 +18,7 @@ import {
 import {
   finishPendingSetAside,
   listUnrecoveredTurnCheckpoints,
+  removeOrphanTurnJournals,
   removeUnrecoveredTurnCheckpoint,
   setAsideTurnCheckpoint,
 } from './turn-checkpoint-journal.mjs';
@@ -131,6 +132,30 @@ export function _recoverTurnCheckpointDurably(session, sessionId, durable = unde
     clearTurnCheckpoint(sessionId, recovery.turnToken);
   }
   return recovery;
+}
+
+/** Startup sweep: delete every journal whose header is gone (a removal that
+ *  failed before a restart), including those of sessions that are never
+ *  reopened. Run by the process that owns the daemon record (the daemon claims
+ *  it before its session runtime starts; daemon.mjs) and by an ownerless
+ *  inline run (`mixdog exec`); skipped when a different live process owns the
+ *  daemon, whose turns share this directory. Only journals with no header are
+ *  removed, each under the session's checkpoint lock that a turn holds while
+ *  it publishes its header and opens its journal, so another process's live
+ *  turn is never swept (removeOrphanTurnJournal). Resolves to how many it
+ *  removed. */
+export async function sweepOrphanTurnJournals() {
+  const { owner, alive } = readSingletonOwner(join(dataDir(), 'daemon-owner.json'));
+  if (alive && Number(owner?.pid) !== process.pid) return 0;
+  const removed = removeOrphanTurnJournals();
+  if (removed > 0) {
+    try {
+      process.stderr.write(`[turn-checkpoint] removed ${removed} orphan journal(s) left without a header\n`);
+    } catch {
+      // stderr may be closed; the removal is done
+    }
+  }
+  return removed;
 }
 
 // Reconnect-safe historical read used by desktop pane peeks. Unlike a normal

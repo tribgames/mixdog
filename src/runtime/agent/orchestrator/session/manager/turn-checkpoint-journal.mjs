@@ -49,6 +49,7 @@ import { appendFile, unlink, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { getPluginData } from '../../config.mjs';
 import { writeFileAtomicSync } from '../../../../shared/atomic-file.mjs';
+import { withFileLockSync } from '../../../../shared/file-lock.mjs';
 import { sanitizeContentForStoredHistory } from '../../providers/media-normalization.mjs';
 import { redactSettledText, sensitiveValuesVersion } from '../sensitive-values.mjs';
 import { redactSensitiveContent, redactSensitiveMessage, redactSensitiveToolCall } from '../sensitive-projection.mjs';
@@ -444,11 +445,14 @@ function _drainJournalOpsSync(sessionId, entry) {
   const ops = entry.ops;
   entry.ops = [];
   entry.bytes = 0;
-  for (const op of ops) {
+  for (const [index, op] of ops.entries()) {
     try {
       _runJournalOpSync(op);
+      op.settle?.(true);
     } catch (error) {
       _warnJournalOnce(sessionId, error);
+      // The rest of the queue is dropped: a removal among it did not happen.
+      for (const dropped of ops.slice(index)) dropped.settle?.(false);
       break;
     }
   }
@@ -474,9 +478,13 @@ function _pumpJournal(sessionId) {
   entry.writing = true;
   entry.inFlight = op;
   _runJournalOpAsync(op)
-    .catch((error) => {
-      _warnJournalOnce(sessionId, error);
-    })
+    .then(
+      () => op.settle?.(true),
+      (error) => {
+        _warnJournalOnce(sessionId, error);
+        op.settle?.(false);
+      }
+    )
     .finally(() => {
       entry.writing = false;
       entry.inFlight = null;
@@ -557,10 +565,102 @@ export function openJournalForTurn(sessionId, openLines) {
  * the file behind it) and before any later turn's open, which the lane fences
  * behind it. A crash before it lands leaves a journal whose header is already
  * gone, which replay never reads; process exit re-runs it synchronously.
+ * Resolves true once the file is gone, false when the removal failed (or was
+ * dropped behind a failed older write) — it never rejects.
  */
 export function removeTurnJournal(sessionId) {
   cancelJournalWrites(sessionId);
-  _enqueueJournalOp(sessionId, { kind: 'remove', path: turnJournalReadPath(sessionId) });
+  return new Promise((settle) => {
+    _enqueueJournalOp(sessionId, { kind: 'remove', path: turnJournalReadPath(sessionId), settle });
+  });
+}
+
+// ── Header publish + journal open vs. the orphan sweep ──────────────────────
+// A journal is only read through its header, so one without a header is
+// removable. The sweep checks "no header" and then unlinks; a turn in another
+// process publishing its header and opening its journal in between would
+// lose the opening record, and its later appends would never replay. Both are
+// therefore done under one per-session cross-process lock (file-lock.mjs).
+const CHECKPOINT_LOCK_WAIT_MS = 200;
+
+export function checkpointLockPath(sessionId) {
+  return join(checkpointDir(), `${assertSessionId(sessionId)}.lock`);
+}
+
+/** Run `fn` (a header publish plus journal open) under the session's
+ *  checkpoint lock. A turn never fails or stalls on the lock: it waits at most
+ *  CHECKPOINT_LOCK_WAIT_MS (holders keep it for one existence check and one
+ *  unlink), and when the lock cannot be taken at all `fn` runs without it —
+ *  its own errors still propagate. */
+export function withCheckpointOpenLock(sessionId, fn) {
+  let ran = false;
+  try {
+    return withFileLockSync(
+      checkpointLockPath(sessionId),
+      () => {
+        ran = true;
+        return fn();
+      },
+      { timeoutMs: CHECKPOINT_LOCK_WAIT_MS }
+    );
+  } catch (error) {
+    if (ran) throw error;
+    return fn();
+  }
+}
+
+/**
+ * Remove `sessionId`'s journal when no header stands behind it. A journal is
+ * only ever read through its header, so one without it can never be
+ * recovered; it is a removal that failed once (or was cut short by a restart)
+ * and still holds whatever it held. The header check and the unlink run under
+ * the session's checkpoint lock, so a turn cannot publish its header and open
+ * its journal between them (withCheckpointOpenLock). A busy lock skips the
+ * session instead of waiting, and so does a write lane still active for it
+ * (that process is removing or recording it itself). A header being set aside
+ * counts as present (readTurnCheckpointHeaderState). True when it removed one.
+ */
+export function removeOrphanTurnJournal(sessionId) {
+  const journalPath = turnJournalReadPath(sessionId);
+  if (!existsSync(journalPath)) return false;
+  try {
+    return withFileLockSync(
+      checkpointLockPath(sessionId),
+      () => {
+        if (readTurnCheckpointHeaderState(sessionId).present) return false;
+        if (_journalWrites.has(sessionId)) return false;
+        try {
+          unlinkSync(journalPath);
+        } catch (error) {
+          if (error?.code === 'ENOENT') return false;
+          throw error;
+        }
+        return true;
+      },
+      { timeoutMs: 0 }
+    );
+  } catch {
+    // Contended or unremovable: the next recovery or start tries again.
+    return false;
+  }
+}
+
+/** removeOrphanTurnJournal for every primary journal in the checkpoint
+ *  directory (set-aside journals, `<id>.unrecovered-<key>.jsonl`, are not
+ *  primary). Returns how many were removed. */
+export function removeOrphanTurnJournals() {
+  let names;
+  try {
+    names = readdirSync(checkpointDirPath());
+  } catch {
+    return 0;
+  }
+  let removed = 0;
+  for (const name of names) {
+    const match = /^([A-Za-z0-9_-]+)\.jsonl$/.exec(name);
+    if (match && removeOrphanTurnJournal(match[1])) removed += 1;
+  }
+  return removed;
 }
 
 /** Test/shutdown helper: resolve once the write lane for a session is idle. */

@@ -9,6 +9,7 @@ import {
   evictIdleLiveSessions,
 } from '../store.mjs';
 import { sweepOrphanedPendingMessages } from './pending-messages.mjs';
+import { sweepOrphanTurnJournals } from './turn-checkpoint-recovery.mjs';
 import { applySessionSidebarChange, readSessionSidebarState } from '../../../../shared/session-sidebar-host.mjs';
 import {
   IN_FLIGHT_STAGES,
@@ -213,6 +214,10 @@ function _startCleanupInterval() {
 
 export function startIdleCleanup() {
   if (_cleanupTimer || _cleanupInitialTimer) return;
+  // Once per start, ahead of the first delayed cycle: checkpoint journals a
+  // previous run could not delete (their sessions may never be reopened).
+  // Only the daemon owner sweeps (it checks); the daemon runs in worker mode.
+  void sweepOrphanTurnJournals().catch(() => {});
   if (CLEANUP_INITIAL_DELAY_MS <= 0) {
     void _runCleanupCycle();
     _startCleanupInterval();

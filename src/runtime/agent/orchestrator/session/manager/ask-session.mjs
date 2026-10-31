@@ -274,23 +274,32 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         input.retryAttemptId = askOpts.retryAttemptId;
         retryTurnId = null;
       }
-      // The previous turn's save has landed and this turn's base is on disk
-      // before the turn touches the session (one unsettled turn per session).
-      await settleTurnBase(sessionId, { recoverCheckpoint: firstTurn });
-      // Synchronous pre-await setup (must happen before any await so
-      // closeSession() can't interleave between load and registration).
-      const claimed = claimTurnRuntime({
-        sessionId,
-        askOpts,
-        emitStart: firstTurn,
-      });
-      warmTurn = noteTurnForCacheWarm(sessionId, claimed, input);
-      firstTurn = false;
-      askGeneration = claimed.askGeneration;
-      const opened = {
-        ...claimed,
-        ...armTurnDurability({ sessionId, ...claimed, pendingEntries: input.pendingEntries }),
-      };
+      // The earlier turns of this ask relayed nothing (publishAskTurn relays
+      // only a turn no queued input follows): this turn failing before it
+      // runs (runAskTurn carries the report once it has) still hands them on.
+      const earlierReport = result ? turnReportText(result) : '';
+      let opened;
+      try {
+        // The previous turn's save has landed and this turn's base is on disk
+        // before the turn touches the session (one unsettled turn per session).
+        await settleTurnBase(sessionId, { recoverCheckpoint: firstTurn });
+        // Synchronous pre-await setup (must happen before any await so
+        // closeSession() can't interleave between load and registration).
+        const claimed = claimTurnRuntime({
+          sessionId,
+          askOpts,
+          emitStart: firstTurn,
+        });
+        warmTurn = noteTurnForCacheWarm(sessionId, claimed, input);
+        firstTurn = false;
+        askGeneration = claimed.askGeneration;
+        opened = {
+          ...claimed,
+          ...armTurnDurability({ sessionId, ...claimed, pendingEntries: input.pendingEntries }),
+        };
+      } catch (error) {
+        throw carryReportOnError(error, earlierReport);
+      }
       // From here the turn's own unwind (ask-turn-failure) acks or releases
       // its entries; the queue keeps owning only the not-yet-started ones.
       queue.markStarted();
@@ -303,7 +312,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         cwdOverride,
         transcript,
         askStartedAt,
-        earlierReport: result ? turnReportText(result) : '',
+        earlierReport,
       });
       result = turn.result;
       endCacheWarmTurn(sessionId, warmTurn);
