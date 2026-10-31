@@ -155,6 +155,9 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'checkCustomProviderKeyEnv',
   'discoverCustomProviderModels',
   'deleteSession',
+  // The desktop's auto-delete: configureSession routes it through the turn
+  // gate (session-action.mjs deleteIdleSession), never the generic lane.
+  'deleteSessionIfIdle',
   'deleteWebhook',
   'deleteWorkflow',
   'enablePluginMcp',

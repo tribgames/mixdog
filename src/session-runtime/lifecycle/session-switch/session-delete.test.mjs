@@ -286,6 +286,68 @@ for (const bulk of [false, true]) {
   });
 }
 
+test('the idle-only delete refuses, closing and deleting nothing, when a turn starts during its checks', async (t) => {
+  const { registerSessionSidebarHost } = await import('../../../runtime/shared/session-sidebar-host.mjs');
+  const { acquireSessionLock } = await import('../../../runtime/agent/orchestrator/session/manager/session-lock.mjs');
+  const root = isolateDataDir();
+  const record = { ...lead('lead_auto'), lastUsedAt: 50 };
+  await seed(root, [record]);
+  let onState = () => {};
+  let archived = { lead_auto: 1 };
+  let favorites = {};
+  const unregister = registerSessionSidebarHost(async () => {}, {
+    state: async () => {
+      onState();
+      return { archived, favorites };
+    },
+  });
+  t.after(unregister);
+  const api = makeApi();
+  const idle = { isHostedBusy: () => false };
+  const untouched = () => {
+    const stored = JSON.parse(readFileSync(fileOf(root, record.id), 'utf8'));
+    assert.equal(stored.closed, false);
+    assert.equal(stored.generation, record.generation);
+  };
+
+  // A daemon turn (a bot send, a schedule) reaches the session's ask lock
+  // while the delete reads the archive flag: the delete yields to it.
+  let turn = null;
+  onState = () => {
+    turn ??= acquireSessionLock(record.id);
+  };
+  assert.deepEqual(await api.deleteSessionIfIdle(record.id, { lastUsedAt: 50 }, idle), {
+    deleted: false,
+    reason: 'turn-waiting',
+  });
+  untouched();
+  // The turn then runs; while it holds the lock the delete refuses at once.
+  const unlock = await turn;
+  onState = () => {};
+  assert.equal((await api.deleteSessionIfIdle(record.id, { lastUsedAt: 50 }, idle)).reason, 'busy');
+  unlock();
+  untouched();
+
+  // A conversation that moved, queued input, a restore, a favorite, no guard.
+  assert.equal((await api.deleteSessionIfIdle(record.id, { lastUsedAt: 49 }, idle)).reason, 'changed');
+  assert.equal(
+    (await api.deleteSessionIfIdle(record.id, { lastUsedAt: 50 }, { isHostedBusy: () => true })).reason,
+    'queued'
+  );
+  favorites = { lead_auto: 1 };
+  assert.equal((await api.deleteSessionIfIdle(record.id, { lastUsedAt: 50 }, idle)).reason, 'favorite');
+  favorites = {};
+  archived = {};
+  assert.equal((await api.deleteSessionIfIdle(record.id, { lastUsedAt: 50 }, idle)).reason, 'not-archived');
+  archived = { lead_auto: 1 };
+  assert.equal((await api.deleteSessionIfIdle(record.id, { lastUsedAt: 50 })).reason, 'unguarded');
+  untouched();
+
+  // Idle, archived and unchanged: deleted.
+  assert.deepEqual(await api.deleteSessionIfIdle(record.id, { lastUsedAt: 50 }, idle), { deleted: true });
+  assert.equal(existsSync(fileOf(root, record.id)), false);
+});
+
 test('a deleted session whose turn is still running is not recreated when the turn settles', async () => {
   const root = isolateDataDir();
   const live = lead('lead_running');

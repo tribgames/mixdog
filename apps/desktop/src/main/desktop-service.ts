@@ -82,6 +82,12 @@ import { sessionSidebarChangeHandler } from './session-sidebar-actions';
 import { createNotificationCenter, type NotificationCenter, pairedDeviceInfo } from './notification-center';
 import { DESKTOP_ACTIVE_WINDOW_SECONDS } from './notification-decision';
 import {
+  runSessionRetentionPass,
+  sessionRetentionHostFor,
+  startSessionRetentionSchedule,
+} from './session-auto-retention';
+import { mixdogDataDirectory } from './computer/shared/common';
+import {
   createNotificationPreferencesStore,
   legacyAgentMutePath,
   notificationPreferencesPath,
@@ -1085,6 +1091,26 @@ export async function createDesktopService({
   const detachModelProxy =
     modelProxy?.attachPublisher((snapshot) => publishDesktopEvent(MODEL_PROXY_REQUEST_EVENT, snapshot)) ?? null;
   const notificationStatus = windowNotificationStatus(browserRemoteRequests);
+  // Settings → General → Sessions: archive and delete through the same paths
+  // as the user's own actions, only while this PC's app reports it idle.
+  // Recording the start date now dates archives from before this feature.
+  void host.sessionRetention
+    .load()
+    .catch((error) => console.warn('[mixdog-session] Could not read the auto-retention record:', error));
+  const sessionRetentionSchedule = startSessionRetentionSchedule({
+    idleSeconds: async () => (await notificationStatus()).idleSeconds,
+    run: () =>
+      runSessionRetentionPass(
+        sessionRetentionHostFor(host, {
+          readPolicy: () => settingsStore.readSessionRetention(),
+          // A delete takes its server-window upload staging folder, as deleteSessionWithUploads does.
+          onDeleted: (sessionId) => void operations.serverFiles.removeSessionUploads(sessionId).catch(() => {}),
+          dataDirectory: mixdogDataDirectory,
+          // The daemon's stderr is daemon.log.
+          log: (line) => console.warn(line),
+        })
+      ),
+  });
   // The direct carrier's peers run in the desktop app's hidden peer window:
   // commands go to the window only (never the in-process relay listeners).
   const transportPeers = createRemoteTransportPeerService({
@@ -1194,6 +1220,7 @@ export async function createDesktopService({
       transportPeers.standIn.dispose();
       detachModelProxy?.();
       stopUploadSweeps();
+      sessionRetentionSchedule.stop();
       // The first load's migration may still be writing the preferences file.
       await notificationPreferencesLoaded;
       await remote.close();

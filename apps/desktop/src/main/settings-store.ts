@@ -7,8 +7,13 @@ import { writeJsonAtomicSync } from '../../../../src/runtime/shared/atomic-file.
 import {
   NOTIFICATION_VOLUME_DEFAULT,
   NOTIFICATION_VOLUME_MAX,
+  SESSION_AUTO_ARCHIVE_DAYS_DEFAULT,
+  SESSION_AUTO_DELETE_DAYS_DEFAULT,
+  isSessionRetentionDays,
+  isSessionRetentionSettingKey,
   type DesktopSettingKey,
   type DesktopSettings,
+  type SessionRetentionSettingKey,
 } from '../shared/contract';
 import {
   DEFAULT_ACTIVITY_RAIL_PINS,
@@ -53,12 +58,39 @@ export function isNotificationVolume(value: unknown): value is number {
   return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= NOTIFICATION_VOLUME_MAX;
 }
 
+const SESSION_RETENTION_DEFAULTS: Readonly<Record<SessionRetentionSettingKey, number>> = {
+  sessionAutoArchiveDays: SESSION_AUTO_ARCHIVE_DAYS_DEFAULT,
+  sessionAutoDeleteDays: SESSION_AUTO_DELETE_DAYS_DEFAULT,
+};
+
+/** The stored session retention policy (absent = default), or null when a
+ *  stored value is not one of the offered choices: the retention pass then
+ *  does nothing rather than act on a guess. */
+export function sessionRetentionFromConfig(
+  value: unknown
+): { sessionAutoArchiveDays: number; sessionAutoDeleteDays: number } | null {
+  const desktop = record(record(value).desktop);
+  const read = (key: SessionRetentionSettingKey): number | null => {
+    if (!Object.hasOwn(desktop, key)) return SESSION_RETENTION_DEFAULTS[key];
+    const stored = desktop[key];
+    return isSessionRetentionDays(key, stored) ? stored : null;
+  };
+  const sessionAutoArchiveDays = read('sessionAutoArchiveDays');
+  const sessionAutoDeleteDays = read('sessionAutoDeleteDays');
+  if (sessionAutoArchiveDays === null || sessionAutoDeleteDays === null) return null;
+  return { sessionAutoArchiveDays, sessionAutoDeleteDays };
+}
+
 export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
   const config = record(value);
   const agent = record(config.agent);
   const autoClear = record(agent.autoClear);
   const compaction = record(agent.compaction);
   const desktop = record(config.desktop);
+  const retentionDays = (key: SessionRetentionSettingKey): number => {
+    const stored = desktop[key];
+    return isSessionRetentionDays(key, stored) ? stored : SESSION_RETENTION_DEFAULTS[key];
+  };
   return {
     autoClear: autoClear.enabled !== false,
     autoCompact: compaction.auto !== false && compaction.enabled !== false,
@@ -67,6 +99,8 @@ export function desktopSettingsFromConfig(value: unknown): DesktopSettings {
     notificationVolume: isNotificationVolume(desktop.notificationVolume)
       ? desktop.notificationVolume
       : NOTIFICATION_VOLUME_DEFAULT,
+    sessionAutoArchiveDays: retentionDays('sessionAutoArchiveDays'),
+    sessionAutoDeleteDays: retentionDays('sessionAutoDeleteDays'),
     // A fresh install starts pinned; an explicit unpin is kept.
     usagePinned: desktop.usagePinned !== false,
     usageRailShortLong: desktop.usageRailShortLong === true,
@@ -317,6 +351,27 @@ export class DesktopSettingsStore {
       return { ...current, desktop };
     });
     return desktopSettingsFromConfig(saved);
+  }
+
+  /** Settings → General → Sessions: one of the offered day choices (0 = never). */
+  async updateSessionRetention(key: SessionRetentionSettingKey, days: number): Promise<DesktopSettings> {
+    if (!isSessionRetentionSettingKey(key)) throw new TypeError('session retention setting is invalid.');
+    if (!isSessionRetentionDays(key, days)) throw new TypeError('session retention days are invalid.');
+    const config = await this.loadConfig();
+    const saved = await config.updateConfigAsync((current) => {
+      const desktop = { ...record(current.desktop) };
+      // Storage holds only a value that differs from the code default.
+      if (days === SESSION_RETENTION_DEFAULTS[key]) delete desktop[key];
+      else desktop[key] = days;
+      return { ...current, desktop };
+    });
+    return desktopSettingsFromConfig(saved);
+  }
+
+  /** The policy the retention pass may act on, or null when a stored value is invalid. */
+  async readSessionRetention(): Promise<ReturnType<typeof sessionRetentionFromConfig>> {
+    const config = await this.loadConfig();
+    return sessionRetentionFromConfig(config.readConfig());
   }
 
   /** Run once: back up the config, then drop `desktop` values that equal a

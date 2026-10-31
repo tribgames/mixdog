@@ -34,6 +34,14 @@ export function writeJsonAtomicSync(
   options?: AtomicFileOptions & { compact?: boolean }
 ): boolean;
 
+/** Locked read-modify-write: `mutator` gets the current value (null when
+ *  missing) and returns the next one, or undefined to leave the file as is. */
+export function updateJsonAtomic<T = unknown>(
+  filePath: string,
+  mutator: (current: unknown) => T | undefined,
+  options?: AtomicFileOptions & { compact?: boolean }
+): Promise<T | unknown>;
+
 export interface JsonStateOptions<T> {
   /** Maps the parsed value; throwing marks the file damaged. */
   validate?: (value: unknown) => T;

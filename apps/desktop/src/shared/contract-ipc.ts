@@ -165,6 +165,7 @@ export const DESKTOP_IPC = {
   readSettings: 'mixdog:read-settings',
   updateSetting: 'mixdog:update-setting',
   setNotificationVolume: 'mixdog:set-notification-volume',
+  setSessionRetention: 'mixdog:set-session-retention',
   previewNotificationSound: 'mixdog:preview-notification-sound',
   settingsChanged: 'mixdog:settings-changed',
   orchestrationModeChanged: 'mixdog:orchestration-mode-changed',

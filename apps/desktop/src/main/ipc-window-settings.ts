@@ -14,6 +14,7 @@ import {
   requiredDesktopCapabilityRequest,
   requiredDesktopSettingKey,
   requiredNotificationVolume,
+  requiredSessionRetentionSetting,
   requiredString,
   requiredZoomFactor,
 } from './ipc-validation';
@@ -27,7 +28,7 @@ interface WindowSettingsIpcOptions {
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
   settingsStore?: Pick<
     DesktopSettingsStore,
-    'read' | 'update' | 'updateNotificationVolume' | 'readZoom' | 'updateZoom'
+    'read' | 'update' | 'updateNotificationVolume' | 'updateSessionRetention' | 'readZoom' | 'updateZoom'
   >;
   /** Fires after a successful desktop-settings write (keep-awake wiring). */
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
@@ -231,6 +232,15 @@ export function registerWindowSettingsIpc({
     const saved = settingsStore
       ? await settingsStore.updateNotificationVolume(volume)
       : await invokeDesktopOperation<DesktopSettings>('updateNotificationVolume', [volume]);
+    onDesktopSettingsChanged?.(saved);
+    void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
+    return saved;
+  });
+  handle(DESKTOP_IPC.setSessionRetention, async (_event, key, days) => {
+    const setting = requiredSessionRetentionSetting(key, days);
+    const saved = settingsStore
+      ? await settingsStore.updateSessionRetention(setting.key, setting.days)
+      : await invokeDesktopOperation<DesktopSettings>('updateSessionRetention', [setting.key, setting.days]);
     onDesktopSettingsChanged?.(saved);
     void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
     return saved;

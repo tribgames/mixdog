@@ -223,6 +223,24 @@ export function createShellJobsPoller({ getEngineState, loadModule, onChange }: 
     }
   }
 
+  /** One session's own jobs plus the held shells of closed sessions its folder sees. */
+  function sessionStatus(
+    buckets: ReadonlyMap<string, ShellJobsStatus>,
+    held: readonly DesktopShellJobRow[],
+    module: StatuslineSegmentsModule | null,
+    sessionId: string,
+    sessionCwd: string
+  ): ShellJobsStatus {
+    const id = String(sessionId || '').trim();
+    const own = (id ? buckets.get(id) : undefined) ?? EMPTY_STATUS;
+    const visibleFrom = module?.shellJobVisibleFrom;
+    if (!id || !sessionCwd || !visibleFrom || held.length === 0) return own;
+    const extra = held.filter(
+      (job) => !own.jobs.some((row) => row.taskId === job.taskId) && visibleFrom(job, sessionCwd)
+    );
+    return extra.length ? { ...own, jobs: [...own.jobs, ...extra] } : own;
+  }
+
   return {
     /** Host-wide aggregate: keep-awake and the CLI statusline own the process,
      *  not one pane. */
@@ -232,14 +250,29 @@ export function createShellJobsPoller({ getEngineState, loadModule, onChange }: 
     /** One session's own jobs, plus the held shells of closed sessions that
      *  its folder (`sessionCwd`) sees. A blank id (New task pane) owns nothing. */
     statusFor(sessionId: string, sessionCwd = ''): ShellJobsStatus {
-      const id = String(sessionId || '').trim();
-      const own = (id ? sessions.get(id) : undefined) ?? EMPTY_STATUS;
-      const visibleFrom = loadedModule?.shellJobVisibleFrom;
-      if (!id || !sessionCwd || !visibleFrom || orphaned.length === 0) return own;
-      const extra = orphaned.filter(
-        (job) => !own.jobs.some((row) => row.taskId === job.taskId) && visibleFrom(job, sessionCwd)
-      );
-      return extra.length ? { ...own, jobs: [...own.jobs, ...extra] } : own;
+      return sessionStatus(sessions, orphaned, loadedModule, sessionId, sessionCwd);
+    },
+    /** statusFor from a scan made now (the poll's may be an interval old);
+     *  null when no scan can be made (no job owner known yet, or the module
+     *  failed). Leaves the published status to the poll. */
+    async freshStatusFor(sessionId: string, sessionCwd = ''): Promise<ShellJobsStatus | null> {
+      const ownerPid = currentOwnerPid();
+      if (!ownerPid) return null;
+      try {
+        const module = await loadOnce();
+        const value = module.shellJobsStatusFresh
+          ? await module.shellJobsStatusFresh({ clientHostPid: ownerPid })
+          : module.shellJobsStatus({ clientHostPid: ownerPid });
+        return sessionStatus(
+          normalizedSessions(value?.sessions),
+          normalizedJobs(value?.orphaned),
+          module,
+          sessionId,
+          sessionCwd
+        );
+      } catch {
+        return null;
+      }
     },
     start(): void {
       this.stop();

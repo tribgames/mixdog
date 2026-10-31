@@ -6,6 +6,9 @@ import {
   DESKTOP_LSP_REQUEST_METHODS,
   DESKTOP_READ_CAPABILITIES,
   NOTIFICATION_VOLUME_MAX,
+  isSessionRetentionDays,
+  isSessionRetentionSettingKey,
+  type SessionRetentionSettingKey,
   type DesktopAbortOptions,
   type DesktopCapability,
   type DesktopCapabilityReadRequest,
@@ -2027,6 +2030,15 @@ export function requiredNotificationVolume(value: unknown): number {
     throw new TypeError('notification volume is invalid.');
   }
   return value as number;
+}
+
+export function requiredSessionRetentionSetting(
+  key: unknown,
+  days: unknown
+): { key: SessionRetentionSettingKey; days: number } {
+  if (!isSessionRetentionSettingKey(key)) throw new TypeError('session retention setting is invalid.');
+  if (!isSessionRetentionDays(key, days)) throw new TypeError('session retention days are invalid.');
+  return { key, days };
 }
 
 export function requiredDesktopSettingKey(value: unknown): DesktopSettingKey {

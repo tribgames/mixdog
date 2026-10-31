@@ -5,6 +5,7 @@ import { SESSION_CONFIGURE_ACTION_SET, SESSION_READ_ACTION_SET } from '../../ses
 import { annotateSpan, markPhase } from '../../../runtime/shared/slow-span.mjs';
 import { sanitizeForWire } from '../../session-wire-values.mjs';
 import { botWorkBySession } from '../../../runtime/shared/bot-owned-work.mjs';
+import { createSessionTurnGate } from './turn-gate.mjs';
 
 /** Reads a session without a live runtime answers from disk (readStoredReview). */
 const STORED_REVIEW_ACTIONS = new Set([
@@ -43,6 +44,9 @@ export function createSessionActionCalls(ctx) {
   const { bodyForClient } = ctx.projection;
   const { retainUnwatched, awaitingApprovalSessionKinds, roomHandoffQuestions } = ctx.retention;
   const { assertAvailable, hostedEntryForSession, entryForSession } = ctx.entries;
+  const { stateBusy } = ctx.retention;
+  const sessionOwner = ctx.projection?.sessionOwner;
+  const turnGate = ctx.turnGate ?? createSessionTurnGate();
 
   /** A cold session's review, read from its durable turn record (the same
    *  source a runtime loaded only to answer it would read). Bodiless: the
@@ -167,9 +171,50 @@ export function createSessionActionCalls(ctx) {
     };
   }
 
+  /** The desktop's auto-delete through the control session (`sessionId`):
+   *  `args` = [target id, { lastUsedAt }]. The target is closed to service
+   *  turn starts while the runtime's idle-only delete checks and acts
+   *  (session-delete.mjs deleteSessionIfIdle); one being admitted refuses it. */
+  async function deleteIdleSession({ sessionId, args = [], open: openHints = {}, baseRevision = null } = {}) {
+    assertAvailable();
+    const controlId = String(sessionId || '');
+    if (!controlId) throw new TypeError('sessionId is required');
+    const [target, expected] = Array.isArray(args) ? args : [];
+    const id = String(target || '');
+    const entry = await entryForSession(controlId, openHints || {});
+    assertAvailable(entry);
+    if (typeof entry.runtime.deleteSessionIfIdle !== 'function') {
+      throw new TypeError('session action deleteSessionIfIdle is unavailable');
+    }
+    let value;
+    const reopen = id ? turnGate.fence(id) : null;
+    if (!reopen) value = { deleted: false, reason: id ? 'turn-starting' : 'invalid' };
+    else {
+      try {
+        value = await entry.runtime.deleteSessionIfIdle(id, expected ?? {}, {
+          isHostedBusy: (sessionIdToCheck) => {
+            const owner = sessionOwner?.(sessionIdToCheck);
+            return Boolean(owner) && stateBusy(owner.runtime?.getState?.());
+          },
+        });
+      } finally {
+        reopen();
+      }
+    }
+    log(`session action deleteSessionIfIdle session=${id} result=${resultSummary(value?.deleted ?? value)}`);
+    const step = advanceForCaller(entry);
+    retainUnwatched(entry);
+    return {
+      value: sanitizeForWire(value) ?? null,
+      sessionId: responseSessionId(entry, controlId),
+      ...bodyForClient(step, Number.isInteger(baseRevision) ? baseRevision : null),
+    };
+  }
+
   async function configureSession(params = {}, callCtx = null) {
     const revision = Math.max(0, Number(callCtx?.revision) || 0);
     const action = params?.action;
+    if (action === 'deleteSessionIfIdle') return deleteIdleSession(params);
     // Revision 0 desktop adapters routed some reads through configure because
     // their local read list lagged the session surface. A newer daemon accepts
     // those reads without weakening the current revision's finite lanes.

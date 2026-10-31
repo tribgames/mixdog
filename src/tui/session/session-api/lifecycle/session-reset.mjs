@@ -122,6 +122,13 @@ export function createSessionResetActions(bag) {
           throw error;
         }
       }),
+    // The desktop's auto-delete (session-delete.mjs deleteSessionIfIdle): never
+    // the current session, so no reset of this one's view.
+    deleteSessionIfIdle: async (id, expected, guards) => {
+      const result = await runtime.deleteSessionIfIdle(id, expected, guards);
+      if (result?.deleted === true) bag.supersedeQuotaResume?.(id);
+      return result;
+    },
     switchContext: (options) =>
       withResetLock(async () => {
         const rollbackSnapshot = beginTuiReset();

@@ -15,7 +15,9 @@ export { resolveResumeCwd } from './session-switch/resume.mjs';
 
 export function createSessionSwitching(deps, { ingestSessionIntoMemory, closeSurfaceSession, cancelBackgroundTasks }) {
   const { mgr, getMode } = deps;
-  const { releaseSessionWork, deleteSession } = createSessionDelete(deps, { cancelBackgroundTasks });
+  const { releaseSessionWork, deleteSession, deleteSessionIfIdle } = createSessionDelete(deps, {
+    cancelBackgroundTasks,
+  });
   const { switchContext, newSession } = createContextSwitch(deps, {
     ingestSessionIntoMemory,
     closeSurfaceSession,
@@ -41,5 +43,14 @@ export function createSessionSwitching(deps, { ingestSessionIntoMemory, closeSur
     return mgr.prefetchSession?.(id, toolSpecForMode(getMode())) === true;
   }
 
-  return { listSessions, sessionStoreDir, deleteSession, switchContext, newSession, prefetchSession, resume };
+  return {
+    listSessions,
+    sessionStoreDir,
+    deleteSession,
+    deleteSessionIfIdle,
+    switchContext,
+    newSession,
+    prefetchSession,
+    resume,
+  };
 }

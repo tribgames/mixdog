@@ -42,6 +42,8 @@ import { normalizeSessionTitle, promptTitle } from '../shared/session-title.mjs'
 import { TRANSCRIPT_READ_TIMEOUT_MS } from '../shared/transcript-read-policy';
 import { copyCapabilityValue, normalizedProviderModels } from './desktop-support';
 import type { DesktopSessionMetadata } from './desktop-session-metadata';
+import type { SessionRetentionState } from './session-auto-retention';
+import { SessionLifecycleLocks } from './session-lifecycle-locks';
 import type { NewTaskRequest, NewTaskRequests } from './new-task-requests';
 import { searchProjectDirectory } from './project-file-search';
 import type { SessionHostPublication } from './session-host-publication';
@@ -70,6 +72,8 @@ export interface SessionHostLifecycleOwner {
   readonly newTaskRequests: NewTaskRequests;
   readonly pendingCatalogSessionIds: Set<string>;
   readonly sessionMetadata: DesktopSessionMetadata;
+  /** Auto-retention's record of restores (session-auto-retention.ts). */
+  readonly sessionRetention?: Pick<SessionRetentionState, 'noteArchived' | 'forget'>;
   readonly transcriptWindows: SessionTranscriptWindows;
   /** agent-greetings.json in the app profile (mixy-first.ts). */
   readonly agentGreetingsPath: string;
@@ -137,6 +141,9 @@ const READ_CAPABILITIES: ReadonlySet<string> = new Set(DESKTOP_READ_CAPABILITIES
 const SHARED_CONTROL_READS = SLOW_READ_CAPABILITIES;
 
 export class SessionHostLifecycle {
+  /** Archive, restore, favorite, delete and turn starts of one session run
+   *  one at a time; the auto-retention pass confirms and acts inside it. */
+  readonly sessionLocks = new SessionLifecycleLocks();
   private readonly branchMenus = createBranchMenuCache();
   private readonly providerModels = createProviderModelsCache<DesktopModelOption[]>();
   private readonly controlReads = createInFlightJoin();
@@ -226,14 +233,17 @@ export class SessionHostLifecycle {
   /** Switch an existing session's model in place after its provider quota ran out. */
   async continueSessionInModel(sessionId: string, route: DesktopModelSelection): Promise<boolean> {
     const id = sessionIdOf(sessionId);
-    const { value } = await this.owner.invokeSession(id, 'continueSessionInModel', [id, route]);
+    // A turn start: serialized with archive and delete (sessionLocks).
+    const { value } = await this.sessionLocks.run(id, () =>
+      this.owner.invokeSession(id, 'continueSessionInModel', [id, route])
+    );
     return value === true;
   }
 
   /** Arm the auto-resume of a quota-stopped session at its reset time. */
   async scheduleQuotaResume(sessionId: string): Promise<boolean> {
     const id = sessionIdOf(sessionId);
-    const { value } = await this.owner.invokeSession(id, 'scheduleQuotaResume', [id]);
+    const { value } = await this.sessionLocks.run(id, () => this.owner.invokeSession(id, 'scheduleQuotaResume', [id]));
     return value === true;
   }
 
@@ -295,9 +305,11 @@ export class SessionHostLifecycle {
 
   async setSessionFavorite(sessionId: string, favorite: boolean): Promise<void> {
     const id = sessionIdOf(sessionId);
-    await this.owner.sessionMetadata.load();
-    if (!(await this.owner.sessionMetadata.setFavorite(id, favorite))) return;
-    await this.republishSessionCatalog();
+    await this.sessionLocks.run(id, async () => {
+      await this.owner.sessionMetadata.load();
+      if (!(await this.owner.sessionMetadata.setFavorite(id, favorite))) return;
+      await this.republishSessionCatalog();
+    });
   }
 
   /** The sidebar's "move to project": a real working-folder change through the
@@ -455,10 +467,26 @@ export class SessionHostLifecycle {
    *  changes that session alone. */
   async setSessionArchived(sessionId: string, archived: boolean, cascade = true): Promise<void> {
     const id = sessionIdOf(sessionId);
+    return this.sessionLocks.run(id, () => this.setSessionArchivedLocked(id, archived, cascade));
+  }
+
+  private async setSessionArchivedLocked(id: string, archived: boolean, cascade: boolean): Promise<void> {
     await this.owner.sessionMetadata.load();
     if (cascade && !this.owner.sessionCatalogLoaded()) await this.owner.listSessions();
     const descendants = cascade ? agentDescendantIds(this.owner.storedSessionRows(), id) : [];
     if (!(await this.owner.sessionMetadata.setArchived(id, archived, descendants))) return;
+    // A restore exempts the session from auto-archive until it is used again.
+    await this.owner.sessionRetention
+      ?.noteArchived(id, archived)
+      .catch((error) => console.warn(`[mixdog-session] Could not record the archive change of ${id}:`, error));
+    // Their managed worktrees follow (autoCleanup decides in the runtime): an
+    // archive lets the startup reconcile remove clean, merged ones, a restore
+    // keeps them again. Off the reply path; never fails the archive itself.
+    void Promise.resolve()
+      .then(() =>
+        this.owner.invokeControl('setArchivedSessionWorktrees', [{ sessionIds: [id, ...descendants], archived }])
+      )
+      .catch((error) => console.warn(`[mixdog-session] Could not update the worktrees of ${id}:`, error));
     // Archive metadata does not alter daemon sessions or the process-global
     // agent pool. Re-project the resident rows instead of paying for both
     // catalogs and a full session-store identity/stat scan before replying.
@@ -485,6 +513,10 @@ export class SessionHostLifecycle {
 
   async deleteSession(sessionId: string): Promise<SessionSnapshot> {
     const id = sessionIdOf(sessionId);
+    return this.sessionLocks.run(id, () => this.deleteSessionLocked(id));
+  }
+
+  private async deleteSessionLocked(id: string): Promise<SessionSnapshot> {
     // A deleted bot's archived chat deleted again: the bot goes for good too.
     const archivedBot = agentIdOfHomeSession(id);
     if (archivedBot && (await this.owner.sessionMetadata.isRetired(id))) {
@@ -504,13 +536,43 @@ export class SessionHostLifecycle {
         throw new Error('Session could not be deleted.');
       }
     }
+    await this.forgetDeletedSession(id);
+    return null;
+  }
+
+  /** Auto-retention's delete: the daemon deletes `sessionId` only if it is
+   *  still archived, not a favorite, idle and unchanged since `expected`
+   *  (session-delete.mjs deleteSessionIfIdle), checking and deleting with no
+   *  turn able to start in between; a refusal changes nothing. */
+  async deleteSessionIfIdle(
+    sessionId: string,
+    expected: { lastUsedAt: number }
+  ): Promise<{ deleted: boolean; reason?: string }> {
+    const id = sessionIdOf(sessionId);
+    return this.sessionLocks.run(id, async () => {
+      const value = (await this.owner.invokeControl('deleteSessionIfIdle', [id, expected])) as {
+        deleted?: unknown;
+        reason?: unknown;
+      } | null;
+      if (value?.deleted !== true) {
+        return { deleted: false, reason: typeof value?.reason === 'string' ? value.reason : 'refused' };
+      }
+      await this.forgetDeletedSession(id);
+      return { deleted: true };
+    });
+  }
+
+  /** A deleted session's local state: its subscription, views and records. */
+  private async forgetDeletedSession(id: string): Promise<void> {
     await this.unsubscribeQuietly(id);
     this.owner.visibleSessionIds.delete(id);
     for (const sessions of this.owner.visibleSessionSources.values()) sessions.delete(id);
     this.owner.publication.projections.delete(id);
     await this.owner.sessionMetadata.forget(id);
+    await this.owner.sessionRetention
+      ?.forget(id)
+      .catch((error) => console.warn(`[mixdog-session] Could not forget the retention record of ${id}:`, error));
     await this.owner.publishCatalogs();
-    return null;
   }
 
   /** Read a session's transcript window; a `transcriptItemLimit` beyond the
@@ -951,7 +1013,8 @@ export class SessionHostLifecycle {
     const key = `${id}:${submissionId}`;
     const existing = this.submissions.get(key);
     if (existing) return existing;
-    const run = (async () => {
+    // A turn start: serialized with archive and delete (sessionLocks).
+    const run = this.sessionLocks.run(id, async () => {
       // A deleted bot's chat is kept to read, never to talk to.
       if (agentIdOfHomeSession(id) && (await this.owner.sessionMetadata.isRetired(id))) {
         throw new Error('This bot was deleted.');
@@ -972,7 +1035,7 @@ export class SessionHostLifecycle {
       );
       this.owner.applySessionResult(id, result);
       return result.accepted === true;
-    })();
+    });
     this.submissions.set(key, run);
     while (this.submissions.size > 256) this.submissions.delete(this.submissions.keys().next().value as string);
     try {
@@ -1012,15 +1075,18 @@ export class SessionHostLifecycle {
 
   async resolveToolApprovalForSession(sessionId: string, id: string, decision: ToolApprovalDecision): Promise<boolean> {
     const target = sessionIdOf(sessionId);
-    const result = await this.owner.client.approve(
-      {
-        sessionId: target,
-        approvalId: id,
-        decision: { ...decision, device: decision.device || hostDeviceName() },
-        open: this.owner.openHints(target),
-        baseRevision: this.owner.publication.projections.get(target)?.revision ?? null,
-      },
-      this.owner.callOptions()
+    // An answer resumes the turn: serialized with archive and delete (sessionLocks).
+    const result = await this.sessionLocks.run(target, () =>
+      this.owner.client.approve(
+        {
+          sessionId: target,
+          approvalId: id,
+          decision: { ...decision, device: decision.device || hostDeviceName() },
+          open: this.owner.openHints(target),
+          baseRevision: this.owner.publication.projections.get(target)?.revision ?? null,
+        },
+        this.owner.callOptions()
+      )
     );
     this.owner.applySessionResult(target, result);
     return result.approved === true;

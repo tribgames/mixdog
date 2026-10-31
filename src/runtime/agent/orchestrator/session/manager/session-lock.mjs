@@ -29,7 +29,38 @@ export function acquireSessionLock(sessionId, signal = null) {
   };
   const unlock = () => releaseSlot();
   if (!signal) return previousReady.then(() => unlock);
+  return waitForSlot(sessionId, signal, previousReady, releaseSlot, unlock);
+}
 
+/** The lock only when nobody holds it or waits for it: the unlock now, or
+ *  null. Synchronous, so a caller can check and act with no turn starting
+ *  in between (askSession takes this lock for every turn). */
+export function tryAcquireSessionLock(sessionId) {
+  if (_sessionLocks.has(sessionId)) return null;
+  let release;
+  const entry = {
+    promise: new Promise((r) => {
+      release = r;
+    }),
+    count: 1,
+  };
+  _sessionLocks.set(sessionId, entry);
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    entry.count--;
+    if (entry.count === 0 && _sessionLocks.get(sessionId) === entry) _sessionLocks.delete(sessionId);
+    release();
+  };
+}
+
+/** Someone waits for the lock behind its holder (a turn about to start). */
+export function sessionLockContended(sessionId) {
+  return (_sessionLocks.get(sessionId)?.count ?? 0) > 1;
+}
+
+function waitForSlot(sessionId, signal, previousReady, releaseSlot, unlock) {
   // A cancelled waiter must reject immediately without opening a hole in the
   // mutex. Its reserved slot is skipped only after the previous holder exits,
   // so later waiters still cannot overlap the live owner.

@@ -139,7 +139,7 @@ interface DesktopIpcDependencies {
   powerMonitor?: Pick<PowerMonitor, 'on' | 'removeListener'>;
   settingsStore?: Pick<
     DesktopSettingsStore,
-    'read' | 'update' | 'updateNotificationVolume' | 'readZoom' | 'updateZoom'
+    'read' | 'update' | 'updateNotificationVolume' | 'updateSessionRetention' | 'readZoom' | 'updateZoom'
   >;
   /** Fires after a successful desktop-settings write (keep-awake wiring). */
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
