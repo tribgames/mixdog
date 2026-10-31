@@ -45,6 +45,11 @@ const RUNTIME_CONTROL_SOURCES = new Set([
   'task-notification',
 ]);
 const ENVELOPE_OPEN_RE = new RegExp(`^\\s*<${SYNTHETIC_USER_ENVELOPE_TAG}\\b`, 'i');
+// The stored crash marker reads like a user cancel ("Request interrupted ..."),
+// and models answered it with "stopped as you asked" and dropped the work.
+// On the wire it names the restart and asks to resume.
+const PROCESS_RESTART_MARKER = '[Request interrupted by process restart]';
+const PROCESS_RESTART_WIRE_TEXT = '[mixdog-runtime] The app restarted mid-turn. Continue from where you left off.';
 
 function messageText(message) {
   if (typeof message?.content === 'string') return message.content;
@@ -128,7 +133,8 @@ export function projectSyntheticUserEnvelopes(messages) {
   const projected = messages.map((message) => {
     const kind = classifySyntheticUserMessage(message);
     if (!kind) return message;
-    const content = envelopeContent(message.content, kind);
+    const source = messageText(message).trim() === PROCESS_RESTART_MARKER ? PROCESS_RESTART_WIRE_TEXT : message.content;
+    const content = envelopeContent(source, kind);
     if (content === message.content) return message;
     changed = true;
     stats.wrapped += 1;
