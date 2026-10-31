@@ -52,7 +52,7 @@ export function createProjectBranchOps({
     return {
       // Detached: branch null and the checked-out commit in baseCommit.
       workspace: project.currentBranch ? workspace : { ...workspace, baseCommit: project.headCommit ?? null },
-      branches: branchMenuEntries(menu.branches, menu.occupancy),
+      branches: branchMenuEntries(menu.branches, menu.occupancy, menu.committedAt),
       occupancy: menu.occupancy,
       retainedWorktree: null,
     };

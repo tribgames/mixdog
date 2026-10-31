@@ -18,6 +18,7 @@ import {
   makeRepo,
   prefixedBranches,
   tempDir,
+  TEST_BRANCH_PREFIX,
   useTempDataDir,
   writeFile,
 } from './test-support.mjs';
@@ -26,7 +27,10 @@ let restore = () => {};
 
 beforeEach(() => {
   useTempDataDir();
-  restore = configureWorktreeManager({ settings: {}, freeBytes: async () => Number.MAX_SAFE_INTEGER });
+  restore = configureWorktreeManager({
+    settings: { branchPrefix: TEST_BRANCH_PREFIX },
+    freeBytes: async () => Number.MAX_SAFE_INTEGER,
+  });
 });
 
 afterEach(() => restore());

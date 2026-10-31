@@ -3,6 +3,7 @@
 // project-branch moves, removal, worker retargeting and recovery refusal. The
 // managed-worktree backend and git facts are stubbed; paths are real temp dirs.
 import assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -1060,10 +1061,14 @@ test('list and prune pass the stored and live sessions; deleted-session cleanup 
     await h.api.listWorktrees();
     await h.api.pruneWorktrees();
     assert.deepEqual(seen[0], ['list', { liveSessionIds: [h.session.id], retainedSessionIds: ['stored-1'] }]);
-    assert.deepEqual(seen[1], [
-      'prune',
-      { liveSessionIds: [h.session.id], retainedSessionIds: ['stored-1'], removeOrphans: true },
-    ]);
+    const prune = seen[1][1];
+    assert.equal(seen[1][0], 'prune');
+    assert.deepEqual(prune.retainedSessionIds, ['stored-1']);
+    assert.ok(prune.liveSessionIds.includes(h.session.id));
+    assert.equal(prune.removeOrphans, true);
+    // No desktop reports favorites here: the count/age limits select nothing.
+    assert.deepEqual(prune.removeEntryIds, []);
+    assert.equal(prune.preserveBranch, true, 'deleteBranch is off by default');
     h.state.retained = h.entry;
     assert.deepEqual(await h.api.cleanupDeletedSession('gone'), { entryId: 'fix', removed: true });
     assert.deepEqual(seen[2], ['disposable', 'fix']);
@@ -1081,6 +1086,92 @@ test('list and prune pass the stored and live sessions; deleted-session cleanup 
     assert.equal(off.names().includes('remove'), false);
   } finally {
     off.cleanup();
+  }
+});
+
+test('its own worktree it does not work in is removed while its workers run elsewhere; never one it is in or another owns', async () => {
+  const h = harness();
+  try {
+    const row = { ...h.entry, id: 'side', path: join(h.entry.path, '..', 'side'), kind: undefined };
+    // The folder hold admits real checkouts only.
+    execFileSync('git', ['init', '-q', row.path], { windowsHide: true, stdio: 'ignore' });
+    const theirs = { ...row, id: 'theirs', ownerSessionId: 'sess_other' };
+    h.manager.listManagedWorktrees = async () => [row, theirs, { ...h.entry }];
+    // A running worker of this Lead blocks every transition (enter included), not this removal.
+    h.state.workers = [{ sessionId: 'w-1', status: 'running' }];
+    assert.deepEqual(await h.api.removeOwnedWorktree({ entryId: 'side' }), {
+      removed: { removed: true },
+      entryId: 'side',
+      path: row.path,
+    });
+    assert.deepEqual(h.calls.at(-1), ['remove', { entryId: 'side', force: false, sessionId: h.session.id }]);
+    await assert.rejects(h.api.removeOwnedWorktree({ entryId: 'theirs' }), { code: 'WORKTREE_BUSY_JOBS' });
+    h.session.workspace = { worktreeId: 'fix', cwd: h.entry.path };
+    await assert.rejects(h.api.removeOwnedWorktree({ entryId: 'fix' }), (error) => {
+      assert.equal(error.code, 'WORKTREE_BUSY_JOBS');
+      assert.equal(error.details.reason, 'folder-in-use');
+      return true;
+    });
+    await assert.rejects(h.api.removeOwnedWorktree({ entryId: 'missing' }), { code: 'WORKTREE_MISSING' });
+    assert.equal(h.calls.filter((call) => call[0] === 'remove').length, 1);
+  } finally {
+    h.cleanup();
+  }
+});
+
+test('archived sessions: their worktrees become disposable only with autoCleanup on; a restore unmarks', async () => {
+  const seen = [];
+  const h = harness();
+  const off = harness({ config: { worktree: { autoCleanup: false } } });
+  try {
+    for (const target of [h, off]) {
+      target.manager.setSessionWorktreesDisposable = async (ids, disposable) => {
+        seen.push([target === h ? 'on' : 'off', ids, disposable]);
+        return ids;
+      };
+    }
+    assert.deepEqual(await h.api.setArchivedSessionWorktrees({ sessionIds: ['a', 'b'], archived: true }), {
+      changed: ['a', 'b'],
+    });
+    assert.deepEqual(await off.api.setArchivedSessionWorktrees({ sessionIds: ['a'], archived: true }), {
+      changed: [],
+      reason: 'auto-cleanup-off',
+    });
+    await off.api.setArchivedSessionWorktrees({ sessionIds: ['a'], archived: false });
+    assert.deepEqual(seen, [
+      ['on', ['a', 'b'], true],
+      ['off', ['a'], false],
+    ]);
+  } finally {
+    h.cleanup();
+    off.cleanup();
+  }
+});
+
+test('session worktree work: only the asked owners whose worktree removal would be refused', async () => {
+  const h = harness();
+  try {
+    h.manager.listManagedWorktrees = async () => [
+      { id: 'dirty', ownerSessionId: 'sess_dirty', kind: undefined },
+      { id: 'clean', ownerSessionId: 'sess_clean', kind: undefined },
+      { id: 'other', ownerSessionId: 'sess_unasked', kind: undefined },
+    ];
+    h.manager.removableImpl = async ({ entryId }) => {
+      if (entryId !== 'clean') throw Object.assign(new Error('dirty'), { code: 'WORKTREE_DIRTY' });
+    };
+    assert.deepEqual(await h.api.getSessionWorktreeWork({ sessionIds: ['sess_dirty', 'sess_clean'] }), {
+      sessionIds: ['sess_dirty'],
+    });
+    assert.deepEqual(
+      h.calls.filter((call) => call[0] === 'removable').map((call) => call[1]),
+      [
+        { entryId: 'dirty', sessionId: 'sess_dirty' },
+        { entryId: 'clean', sessionId: 'sess_clean' },
+      ]
+    );
+    assert.deepEqual(await h.api.getSessionWorktreeWork({ sessionIds: [] }), { sessionIds: [] });
+  } finally {
+    h.cleanup();
   }
 });
 

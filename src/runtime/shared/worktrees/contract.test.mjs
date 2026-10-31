@@ -133,7 +133,7 @@ test('managed paths live under worktrees-v1/<repoHash>/<slug> with the branch pr
     managedWorktreePath('/repo/.git', 'fix', { dataDir, platform: 'linux' }),
     join(dataDir, 'worktrees-v1', repoHash('/repo/.git', 'linux'), 'fix')
   );
-  assert.equal(worktreeBranchName('fix'), 'mixdog/fix');
+  assert.equal(worktreeBranchName('fix'), 'fix');
   assert.equal(worktreeBranchName('fix', 'me/'), 'me/fix');
   for (const bad of ['', '-x', 'a/b', 'a..b', 'x.lock', 'x.', 'a b', 'x'.repeat(65)]) {
     assert.ok(worktreeNameError(bad), bad);

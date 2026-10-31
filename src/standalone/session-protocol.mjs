@@ -84,6 +84,8 @@ export const SESSION_READ_ACTIONS = Object.freeze([
   'getBranchMenu',
   'getProjectBranchMenu',
   'listWorktrees',
+  'previewWorktreeCleanup',
+  'getSessionWorktreeWork',
   'hooksStatus',
   'inheritancePreflight',
   'listAgents',
@@ -297,6 +299,8 @@ export const SESSION_CONFIGURE_ACTIONS = Object.freeze([
   'mergeWorkspace',
   'removeWorktree',
   'pruneWorktrees',
+  'deleteWorktree',
+  'setArchivedSessionWorktrees',
 ]);
 
 export const SESSION_READ_ACTION_SET = new Set(SESSION_READ_ACTIONS);

@@ -15,7 +15,9 @@
  *
  * Every operation but `list` belongs to the Lead: the session runtime that
  * hosts the caller registers its host (shared/worktrees/tool-host.mjs); a
- * caller no host claims (a delegated worker) is refused.
+ * caller no host claims (a delegated worker) is refused, except for a
+ * read-only `add --detach` snapshot held by its own session and removed when
+ * its turn settles (shared/worktrees/worker-snapshots.mjs).
  */
 import { basename, resolve } from 'node:path';
 import { isPlainObject } from '../../../../shared/object.mjs';
@@ -23,6 +25,7 @@ import { WORKTREE_REFUSAL_REASONS } from '../../../../shared/worktrees/contract.
 import { firstLine, listWorktrees, runGit } from '../../../../shared/worktrees/git.mjs';
 import { canonicalPath, samePath } from '../../../../shared/worktrees/paths.mjs';
 import { worktreeToolHost } from '../../../../shared/worktrees/tool-host.mjs';
+import { createWorkerSnapshot } from '../../../../shared/worktrees/worker-snapshots.mjs';
 
 export const WORKTREE_TOOL_ACTIONS = Object.freeze(['enter', 'return', 'merge', 'remove', 'list', 'prune']);
 const CARRY_CHOICES = ['leave', 'carry'];
@@ -327,7 +330,12 @@ async function rawAdd(plan, input, options) {
   const [path, commitish = null] = positional;
   if (!path || positional.length > 2) throw new Error('git worktree add requires <path> [<commit-ish>]');
   if (detach && branch) throw new Error('git worktree add: --detach excludes -b/-B');
-  const host = leadHost(options, 'git worktree add');
+  const host = worktreeToolHost(options?.sessionId);
+  if (!host && !detach) {
+    throw new Error(
+      'git worktree add belongs to the Lead session; a delegated worker may only make a read-only snapshot: git worktree add --detach <path> [<commit>]'
+    );
+  }
   const repo = await repositoryAt(plan.cwd);
   if (!repo) throw new Error(`git worktree add: ${plan.cwd} is not a git repository`);
   const confirmLarge = input.confirm_large === true;
@@ -340,11 +348,16 @@ async function rawAdd(plan, input, options) {
   if (snapshotCommit) {
     const commit = await commitIn(plan.cwd, snapshotCommit);
     if (!commit) throw new Error(`git worktree add: ${snapshotCommit} is not a commit`);
-    const entry = await runOn(
-      host,
-      { op: 'snapshot', commit, confirmLarge, txId, repoCommonDir: repo.repoCommonDir },
-      options
-    );
+    // A delegated worker's snapshot is held by its own session and removed when its turn settles.
+    const entry = host
+      ? await runOn(host, { op: 'snapshot', commit, confirmLarge, txId, repoCommonDir: repo.repoCommonDir }, options)
+      : await createWorkerSnapshot({
+          sessionId: options?.sessionId,
+          projectPath: plan.cwd,
+          commit,
+          txId,
+          confirmLarge,
+        });
     return okJson({
       ...mapped,
       snapshot: true,
@@ -512,7 +525,7 @@ function worktreeInputError(input) {
   const misplaced =
     only('session_id', ['enter', 'return', 'merge', 'remove']) ||
     only('name', ['enter']) ||
-    only('branch', ['enter']) ||
+    only('branch', ['enter', 'remove']) ||
     only('create', ['enter']) ||
     only('carry', ['enter']) ||
     only('confirm_large', ['enter']) ||
@@ -529,6 +542,9 @@ function worktreeInputError(input) {
     return 'branch excludes name and carry (the branch names the worktree; changes stay in the project folder)';
   }
   if (input.carry !== undefined && !CARRY_CHOICES.includes(input.carry)) return 'carry must be leave or carry';
+  if (action === 'remove' && input.branch !== undefined && input.session_id !== undefined) {
+    return "branch names one of this session's own worktrees; it excludes session_id";
+  }
   return null;
 }
 
@@ -554,7 +570,9 @@ export async function executeWorktreeAction(input, workDir, options = {}) {
             confirmLarge: input.confirm_large === true,
           }
         : {}),
-      ...(action === 'remove' ? { force: input.force === true } : {}),
+      ...(action === 'remove'
+        ? { force: input.force === true, ...(input.branch?.trim() ? { branch: input.branch.trim() } : {}) }
+        : {}),
       ...(action === 'prune'
         ? { repoCommonDir: (await repositoryAt(resolve(workDir || process.cwd())))?.repoCommonDir ?? null }
         : {}),

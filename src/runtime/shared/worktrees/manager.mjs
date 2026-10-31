@@ -59,7 +59,7 @@ import {
   restoreFromRecoveryRef,
   uncommittedChanges,
 } from './carry.mjs';
-import { freeBytesAt, requiredBytes, trackedCheckoutBytes } from './disk.mjs';
+import { cachedFolderBytes, forgetFolderSize, freeBytesAt, requiredBytes, trackedCheckoutBytes } from './disk.mjs';
 import {
   branchCommit,
   currentBranch,
@@ -68,6 +68,7 @@ import {
   inspectRepo,
   isDiskFullError,
   listWorktrees,
+  localBranchCommits,
   localBranches,
   parseStatusPaths,
   remoteDefaultBranches,
@@ -125,15 +126,23 @@ function sessionRootOf(record) {
 // ---------------------------------------------------------------------------
 // Host configuration (settings source, free-space probe); tests override it.
 
-const DEFAULT_CONFIG = Object.freeze({ settings: null, freeBytes: freeBytesAt, processAlive: isPidAlive });
+const DEFAULT_CONFIG = Object.freeze({
+  settings: null,
+  freeBytes: freeBytesAt,
+  processAlive: isPidAlive,
+  // The automatic cleanup's one deleting step (removeCheckoutVerified).
+  gitWorktreeRemove: (cwd, path) => runGit(cwd, ['worktree', 'remove', '--force', path], { allowFailure: true }),
+});
 let config = { ...DEFAULT_CONFIG };
 
 /**
  * Override host hooks. `settings`: stored worktree settings object or a
  * function returning it (default: agent config `worktree`). `freeBytes(dir)`:
- * free-space probe. `processAlive(pid)`: lease holder liveness. Returns a
- * restore function.
- * @param {{ settings?: unknown, freeBytes?: (dir: string) => Promise<number>, processAlive?: (pid: number) => boolean }} overrides
+ * free-space probe. `processAlive(pid)`: lease holder liveness.
+ * `gitWorktreeRemove(cwd, path)`: the automatic cleanup's `git worktree
+ * remove --force` ({ code, stderr }). Returns a restore function.
+ * @param {{ settings?: unknown, freeBytes?: (dir: string) => Promise<number>, processAlive?: (pid: number) => boolean,
+ *   gitWorktreeRemove?: (cwd: string, path: string) => Promise<{ code: number, stderr: string }> }} overrides
  */
 export function configureWorktreeManager(overrides = {}) {
   const previous = config;
@@ -291,16 +300,22 @@ async function keepRemovedTip(record) {
   return { tip, recoveryRef: ref };
 }
 
-/** Managed checkouts whose registration is stale (directory missing). */
-async function staleManagedRegistrations(repoCommonDir) {
-  const root = managedWorktreeRoot(repoCommonDir);
+/**
+ * Repository-wide `git worktree prune`: every registration whose folder is
+ * gone (managed or not — a deleted scratch checkout, a crashed tool's) is
+ * dropped; git keeps locked ones. Only bookkeeping: no folder is touched.
+ * @returns {Promise<string[]>} the checkout paths whose registration went
+ */
+async function pruneStaleRegistrations(repoCommonDir) {
   const stale = [];
-  for (const { worktreePath } of await adminRegistrations(repoCommonDir)) {
-    if (!(await isGone(worktreePath))) continue;
-    const rel = relative(pathKey(root), pathKey(worktreePath));
-    if (rel && !rel.startsWith('..') && !rel.includes(sep)) stale.push(worktreePath);
+  for (const registration of await adminRegistrations(repoCommonDir)) {
+    if (await isGone(registration.worktreePath)) stale.push(registration);
   }
-  return stale;
+  if (!stale.length) return [];
+  await runGit(repoCommonDir, ['--git-dir', repoCommonDir, 'worktree', 'prune'], { allowFailure: true });
+  return stale
+    .filter((registration) => !existsSync(registration.admin))
+    .map((registration) => canonicalPath(registration.worktreePath));
 }
 
 async function setResource(record, name, status) {
@@ -326,23 +341,125 @@ async function unmergedCommitCount(record) {
   const reference = (record.mergeTarget && (await branchCommit(cwd, record.mergeTarget))) || record.baseCommit;
   if (!reference) return 0;
   const result = await runGit(cwd, ['rev-list', '--count', tip, '--not', reference]);
-  return Number(firstLine(result.stdout)) || 0;
+  const count = Number(firstLine(result.stdout)) || 0;
+  if (count === 0 || (await changesContainedIn(cwd, tip, reference))) return 0;
+  return count;
+}
+
+/**
+ * A squash, rebase or cherry-pick merge leaves the branch's commits
+ * unreachable from `reference` although their changes are there. Merged only
+ * when merging `tip` into `reference` would leave `reference`'s tree exactly
+ * as it is: a change the target later reverted would come back, so it is
+ * unmerged work. A patch-equivalence test alone (`git cherry`) is not enough
+ * for that reason and is not used. An unreachable merge commit of the branch's
+ * own is unmerged as well (its resolution is work of its own), and anything
+ * git cannot decide (a conflict, an old git) counts as unmerged.
+ */
+async function changesContainedIn(cwd, tip, reference) {
+  const merges = await runGit(cwd, ['rev-list', '--count', '--merges', tip, '--not', reference], {
+    allowFailure: true,
+    readOnly: true,
+  });
+  if (merges.code !== 0 || Number(firstLine(merges.stdout)) !== 0) return false;
+  const merged = await runGit(cwd, ['merge-tree', '--write-tree', reference, tip], { allowFailure: true });
+  if (merged.code !== 0) return false;
+  const target = await runGit(cwd, ['rev-parse', `${reference}^{tree}`], { allowFailure: true, readOnly: true });
+  return target.code === 0 && firstLine(merged.stdout) === firstLine(target.stdout);
+}
+
+/**
+ * A cheap fingerprint of what the cleanup's slow checks (dirtyPaths,
+ * unmergedCommitCount) looked at: the checkout's HEAD, its index file (any
+ * add, commit, checkout or refresh rewrites it), the folder's own mtime, the
+ * branch tip and the merge target's tip. One git call and two stats.
+ */
+async function checkoutToken(record) {
+  const cwd = repoCwd(record);
+  const [paths, tip, target] = await Promise.all([
+    runGit(record.path, ['rev-parse', 'HEAD', '--git-path', 'index'], { allowFailure: true, readOnly: true }),
+    record.branch ? branchCommit(cwd, record.branch) : null,
+    record.mergeTarget ? branchCommit(cwd, record.mergeTarget) : null,
+  ]);
+  const [head = '', index = ''] = paths.stdout.split(/\r?\n/);
+  const stamp = (path) =>
+    stat(path).then(
+      (info) => `${info.mtimeMs}:${info.size}`,
+      () => 'none'
+    );
+  return JSON.stringify([
+    paths.code,
+    head.trim(),
+    index ? await stamp(resolve(record.path, index.trim())) : 'none',
+    await stamp(record.path),
+    tip,
+    target,
+  ]);
+}
+
+const DIRTY_STATUS_ARGS = ['status', '--porcelain=v1', '-z', '--untracked-files=all'];
+
+/** The status paths that are user work: not the session identity file, not an include copy. */
+function userStatusPaths(record, stdout) {
+  const includes = record.resources?.includes || [];
+  const identity = record.projectSubdir
+    ? `${record.projectSubdir}/${SESSION_PROJECT_ID_PATH}`
+    : SESSION_PROJECT_ID_PATH;
+  return parseStatusPaths(stdout).filter((path) => path !== identity && !coveredByIncludes(includes, path));
 }
 
 /** Uncommitted/untracked paths plus modified include copies. */
 async function dirtyPaths(record) {
   if (!existsSync(record.path)) return [];
-  const includes = record.resources?.includes || [];
-  const status = await runGit(record.path, ['status', '--porcelain=v1', '-z', '--untracked-files=all'], {
-    readOnly: true,
-  });
-  const identity = record.projectSubdir
-    ? `${record.projectSubdir}/${SESSION_PROJECT_ID_PATH}`
-    : SESSION_PROJECT_ID_PATH;
-  const dirty = parseStatusPaths(status.stdout).filter(
-    (path) => path !== identity && !coveredByIncludes(includes, path)
-  );
-  return [...dirty, ...(await modifiedIncludeCopies(includes))];
+  const status = await runGit(record.path, DIRTY_STATUS_ARGS, { readOnly: true });
+  return [...userStatusPaths(record, status.stdout), ...(await modifiedIncludeCopies(record.resources?.includes))];
+}
+
+/** How long the cleanup's last dirty check under the folder hold may take. */
+export const FINAL_DIRTY_CHECK_TIMEOUT_MS = 1_500;
+/** How long a timed-out final status is given to exit after its kill. */
+const FINAL_CHECK_EXIT_WAIT_MS = 2_000;
+
+/**
+ * The cleanup's last word before a removal, under the folder hold: the full
+ * status (untracked files at any depth, unstaged edits of tracked ones) and
+ * the include-copy check again, bounded by `timeoutMs`. null: clean, remove
+ * it. `{ reason: 'dirty' }`: something is uncommitted now. `{ reason: 'busy' }`:
+ * the check timed out, failed or could not finish — never read as clean. A
+ * timed-out git is killed and awaited (bounded) before this returns, so none
+ * keeps running in the folder; `gitRunning: true` reports one that outlived
+ * the wait.
+ */
+async function finalDirtyCheck(record, timeoutMs) {
+  if (!existsSync(record.path)) return null;
+  const started = Date.now();
+  let status;
+  try {
+    status = await runGit(record.path, DIRTY_STATUS_ARGS, {
+      readOnly: true,
+      timeoutMs,
+      waitForExitMs: FINAL_CHECK_EXIT_WAIT_MS,
+    });
+  } catch (error) {
+    return { reason: 'busy', ...(error?.childExited === false ? { gitRunning: true } : {}) };
+  }
+  if (userStatusPaths(record, status.stdout).length) return { reason: 'dirty' };
+  // The include copies: file reads only (no child), bounded by what is left.
+  let timer;
+  try {
+    const left = Math.max(0, timeoutMs - (Date.now() - started));
+    const modified = await Promise.race([
+      modifiedIncludeCopies(record.resources?.includes),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error('include check timed out')), left);
+      }),
+    ]);
+    return modified.length ? { reason: 'dirty' } : null;
+  } catch {
+    return { reason: 'busy' };
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 async function deleteBranchIfFree(record) {
@@ -506,6 +623,96 @@ async function removeCheckoutSafely(record) {
   return [];
 }
 
+/**
+ * Put back what an automatic removal attempt took apart in a checkout that
+ * survived (`undo` as recorded in `deleting.undo`): the recorded include
+ * links that are missing again, and Mixdog's worktree lock when the checkout
+ * is still registered but no longer locked. Never throws.
+ * @returns {Promise<object[]>} what could not be put back
+ */
+async function undoAutomaticAttempt(record, undo) {
+  if (!undo || !existsSync(record.path)) return [];
+  const failures = [];
+  try {
+    if (undo.links) {
+      for (const failure of await restoreIncludeLinks(record.resources?.includes)) {
+        failures.push({ kind: 'link', path: failure.path, error: failure.error });
+      }
+    }
+    const registration = undo.lock !== null && undo.lock !== undefined ? await registrationFor(record) : null;
+    if (registration && registration.locked === null) {
+      const locked = await runGit(repoCwd(record), ['worktree', 'lock', '--reason', String(undo.lock), record.path], {
+        allowFailure: true,
+      });
+      if (locked.code !== 0) failures.push({ kind: 'lock', path: record.path, error: firstLine(locked.stderr) });
+    }
+  } catch (error) {
+    failures.push({ kind: 'undo', path: record.path, error: String(error?.message || error) });
+  }
+  return failures;
+}
+
+/**
+ * The automatic cleanup's checkout removal (`deleting.automatic`): the caller
+ * verified the worktree under its folder hold just before (lease, live
+ * sessions, jobs, a full status). Only `git worktree remove --force` deletes
+ * here — there is no recursive fallback. When git fails or anything is left
+ * (or the checkout is not registered, or carries a lock that is not
+ * Mixdog's), it stops: the recorded links it unlinked are put back, its own
+ * lock is restored, and what is left is returned for the record to keep.
+ * @returns {Promise<object[]>} the remainder (empty when everything is gone)
+ */
+async function removeCheckoutVerified(record) {
+  await assertRecoveryStoresClear(record);
+  await assertManagedCheckoutPath(record);
+  await assertNoUnrecordedDirectoryLinks(record);
+  const cwd = repoCwd(record);
+  const registration = await registrationFor(record);
+  if (!registration) {
+    return existsSync(record.path) ? [{ kind: 'directory', path: record.path, error: 'not-registered' }] : [];
+  }
+  if (existsSync(record.path)) {
+    const lock = registration.locked ?? null;
+    if (lock !== null && !String(lock).startsWith('mixdog session=')) {
+      return [{ kind: 'lock', path: record.path, error: 'external-lock' }];
+    }
+    // What this attempt takes apart (the recorded links, Mixdog's lock) is
+    // written down first, so a failure here or a restart puts it back.
+    record.deleting = { ...record.deleting, undo: { links: true, lock } };
+    await putRecord(record);
+    let removed;
+    try {
+      const unlinked = await removeIncludeLinks(record.resources?.includes);
+      if (unlinked.length) {
+        return [
+          ...unlinked.map((path) => ({ kind: 'link', path })),
+          ...(await undoAutomaticAttempt(record, record.deleting.undo)),
+        ];
+      }
+      // A built-in fsmonitor daemon holds the folder open (Windows) until stopped.
+      await runGit(record.path, ['fsmonitor--daemon', 'stop'], { allowFailure: true });
+      if (lock !== null) await runGit(cwd, ['worktree', 'unlock', record.path], { allowFailure: true });
+      removed = await config.gitWorktreeRemove(cwd, record.path);
+    } catch (error) {
+      // A rejected git call (timeout, spawn failure) is a failed removal too.
+      removed = { code: null, stderr: String(error?.message || error) };
+    }
+    if (removed.code !== 0 || existsSync(record.path)) {
+      // Whatever git left stays as it is; put back what this attempt took apart.
+      return [
+        {
+          kind: 'git-remove',
+          path: record.path,
+          error: firstLine(removed.stderr) || (removed.code === 0 ? 'folder left behind' : `exit ${removed.code}`),
+        },
+        ...(await undoAutomaticAttempt(record, record.deleting.undo)),
+      ];
+    }
+  }
+  await pruneRegistration(record.repoCommonDir, record.path, { allowLocked: true });
+  return (await registrationFor(record)) ? [{ kind: 'registration', path: record.path }] : [];
+}
+
 /** Report what a failed safe removal could not put back on its error (never swallowed). */
 function withRollbackFailures(error, failures) {
   if (!failures.length) return error;
@@ -593,6 +800,21 @@ async function rollbackCreation(record, cause) {
   return { complete: false, remaining };
 }
 
+/**
+ * An automatic removal that did not finish (git refused, something was left,
+ * or it was interrupted) is not a decided deletion: the record goes back to
+ * `ready` with `removalIncomplete` ({ at, reason, remaining }), so only a
+ * later pass that verifies it afresh (lease, live sessions, jobs, the full
+ * dirty check) tries again — nothing resumes it blindly.
+ */
+async function keepIncompleteRemoval(record, remaining, reason = 'git-remove-failed') {
+  record.state = 'ready';
+  record.deleting = null;
+  record.removalIncomplete = { at: Date.now(), reason, remaining };
+  await putRecord(record);
+  return { removed: false, retryable: true, incomplete: true, remaining };
+}
+
 /** finishDeletion's folder step; what is left over goes to `remaining`. */
 async function removeFolder(record, remaining) {
   await removeOwnerLease(record);
@@ -604,7 +826,12 @@ async function removeFolder(record, remaining) {
   for (const result of results) {
     if (!result.ok) remaining.push({ kind: 'cleanup', name: result.name, error: result.error.message });
   }
-  remaining.push(...(await (record.deleting?.safeOnly ? removeCheckoutSafely(record) : removeCheckout(record))));
+  const remove = record.deleting?.automatic
+    ? removeCheckoutVerified
+    : record.deleting?.safeOnly
+      ? removeCheckoutSafely
+      : removeCheckout;
+  remaining.push(...(await remove(record)));
 }
 
 /**
@@ -629,6 +856,7 @@ async function finishDeletion(record) {
   } catch (error) {
     remaining.push({ kind: 'error', error: String(error?.message || error) });
   }
+  if (remaining.length && record.deleting?.automatic) return keepIncompleteRemoval(record, remaining);
   if (remaining.length) {
     record.deleting = { ...record.deleting, remaining, lastAttemptAt: Date.now() };
     await putRecord(record);
@@ -636,14 +864,21 @@ async function finishDeletion(record) {
   }
   let branch = { deleted: false, reason: 'kept' };
   let kept = { tip: null, recoveryRef: null };
-  const merged = (await unmergedCommitCount(record)) === 0;
+  // A cleanup decided the branch merged at `mergedTip`: no second commit walk
+  // while the tip is still that one.
+  const mergedTip = record.deleting?.mergedTip;
+  const merged =
+    (!!mergedTip && record.branch && (await branchCommit(repoCwd(record), record.branch)) === mergedTip) ||
+    (await unmergedCommitCount(record)) === 0;
   if (record.branch && !record.deleting?.preserveBranch && (record.deleting?.force || merged)) {
-    // Forced past unmerged commits: the tip stays reachable before `branch -D`.
-    if (!merged) kept = await keepRemovedTip(record);
+    // Forced past unmerged commits (or a cleanup that deletes branches): the
+    // tip stays reachable before `branch -D`.
+    if (!merged || record.deleting?.keepTip) kept = await keepRemovedTip(record);
     else kept.tip = await branchCommit(repoCwd(record), record.branch);
     branch = await deleteBranchIfFree(record);
   }
   await deleteRecord(record.id);
+  forgetFolderSize(record.path);
   await pruneEmptyRepoRoot(record.repoCommonDir);
   return {
     removed: true,
@@ -847,9 +1082,40 @@ export async function markWorktreeDisposable(entryId, disposable = true) {
     const current = await getRecord(entryId);
     if (!current) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
     current.disposable = disposable === true;
+    // A deleted session's mark: no archive rule applies to it.
+    delete current.disposableReason;
     await putRecord(current);
     return entryView(current);
   });
+}
+
+/**
+ * Mark (or unmark) every ready managed worktree `sessionIds` own disposable:
+ * an archived session's, so a removal pass deletes it once clean and merged.
+ * The mark carries `disposableReason: 'archived'`, so the automatic passes
+ * apply the archive rules to it (cleanupArchived, favorites, minimum age).
+ * Snapshots are left alone (they never outlive their turn anyway).
+ * @param {string[]} sessionIds
+ * @returns {Promise<string[]>} the entry ids whose mark changed
+ */
+export async function setSessionWorktreesDisposable(sessionIds, disposable = true) {
+  const owners = new Set((Array.isArray(sessionIds) ? sessionIds : []).filter((id) => typeof id === 'string' && id));
+  const changed = [];
+  if (!owners.size) return changed;
+  const want = disposable === true;
+  for (const record of Object.values((await readRegistry()).entries)) {
+    if (record.kind === WORKTREE_SNAPSHOT_KIND || !owners.has(record.ownerSessionId)) continue;
+    await withRepoLock(record.repoCommonDir, async () => {
+      const current = await getRecord(record.id);
+      if (current?.state !== 'ready' || !owners.has(current.ownerSessionId) || current.disposable === want) return;
+      current.disposable = want;
+      if (want) current.disposableReason = 'archived';
+      else delete current.disposableReason;
+      await putRecord(current);
+      changed.push(current.id);
+    });
+  }
+  return changed;
 }
 
 /**
@@ -1213,11 +1479,20 @@ export async function createManagedWorktree({
     });
     throwIfAborted(signal);
 
+    // Every existing local branch under the prefix (all of them with no
+    // prefix): a new worktree never takes over one, whoever made it.
     const branches = new Set(
       (await localBranches(repo.projectPath, { signal, prefix: settings.branchPrefix })).map((name) =>
         name.toLowerCase()
       )
     );
+    // `x` is also taken while a branch `x/...` exists (the ref would be a directory).
+    const branchTaken = (name) => {
+      const key = name.toLowerCase();
+      if (branches.has(key)) return true;
+      for (const existing of branches) if (existing.startsWith(`${key}/`)) return true;
+      return false;
+    };
     const base = slugFromHint(nameHint);
     const reserve = async () => {
       let reserved = null;
@@ -1282,10 +1557,12 @@ export async function createManagedWorktree({
         base,
         (candidate) =>
           ids.has(candidate.toLowerCase()) ||
-          branches.has(`${settings.branchPrefix}${candidate}`.toLowerCase()) ||
+          branchTaken(`${settings.branchPrefix}${candidate}`) ||
           existsSync(join(root, candidate))
       );
       const branch = requestedBranch ?? worktreeBranchName(slug, settings.branchPrefix);
+      // A new checkout at this path: no size measured for an earlier one counts.
+      forgetFolderSize(managedWorktreePath(repo.repoCommonDir, slug));
       if (!(await validBranchName(repo.projectPath, branch))) {
         throw worktreeError('WORKTREE_UNSUPPORTED_REPO', `Branch name ${branch} is not valid.`, { branch });
       }
@@ -1622,11 +1899,16 @@ export async function releaseWorktreeOwner(entryId, owner, { forgetReference = f
 export async function listBranchOccupancy({ projectPath, sessionId } = {}) {
   requireText(projectPath, 'projectPath');
   const repo = await inspectRepo(projectPath);
-  const [branches, worktrees, doc] = await Promise.all([
-    localBranches(repo.projectPath),
+  const [commits, worktrees, doc] = await Promise.all([
+    localBranchCommits(repo.projectPath),
     listWorktrees(repo.projectPath),
     readRegistry(),
   ]);
+  const branches = commits.map((commit) => commit.name);
+  // The tip's committer time per branch: the menu groups recent branches by it.
+  const committedAt = Object.fromEntries(
+    commits.filter((commit) => commit.committedAt).map((commit) => [commit.name, commit.committedAt])
+  );
   const managed = Object.values(doc.entries).filter((record) => samePath(record.repoCommonDir, repo.repoCommonDir));
   const occupancy = branches.map((branch) => {
     // A prunable registration (its folder is gone) holds nothing.
@@ -1640,7 +1922,7 @@ export async function listBranchOccupancy({ projectPath, sessionId } = {}) {
   const retained = sessionId
     ? managed.find((record) => record.ownerSessionId === sessionId && record.state === 'ready')
     : null;
-  return { branches, occupancy, retainedWorktree: retained ? entryView(retained) : null };
+  return { branches, occupancy, committedAt, retainedWorktree: retained ? entryView(retained) : null };
 }
 
 /**
@@ -1898,7 +2180,11 @@ export async function assertWorktreeRemovable({ entryId, force = false, sessionI
  * `expected` ({ kind, txId, holderSessionId }) pins the record the caller
  * selected: one that no longer matches under the repository lock (removed,
  * its slug reused) is left alone and reported `{ removed: false, skipped: true }`.
- * @param {{ entryId: string, force?: boolean, expected?: { kind?: string, txId?: string, holderSessionId?: string }|null }} input
+ * `automatic` (a deleted session's leftover): the cleanup's verified path
+ * (removeAutomatically): no force, no recursive delete; a keep is raised as
+ * WORKTREE_DIRTY / WORKTREE_UNMERGED / WORKTREE_BUSY_JOBS, and an incomplete
+ * git removal returns `{ removed: false, incomplete: true }` with the record ready again.
+ * @param {{ entryId: string, force?: boolean, expected?: { kind?: string, txId?: string, holderSessionId?: string }|null, automatic?: boolean }} input
  * @returns {Promise<{ removed: boolean, skipped?: boolean, retryable?: boolean, remaining?: object[], branchDeleted?: boolean }>}
  */
 export async function removeManagedWorktree({
@@ -1908,6 +2194,7 @@ export async function removeManagedWorktree({
   preserveBranch = false,
   safeOnly = false,
   expected = null,
+  automatic = false,
 } = {}) {
   const skipped = { removed: false, skipped: true };
   const matches = (record) =>
@@ -1926,13 +2213,30 @@ export async function removeManagedWorktree({
       if (!current && !expected) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
       return skipped;
     }
-    return removeLocked(current, { force, sessionId, preserveBranch, safeOnly });
+    return removeLocked(current, { force, sessionId, preserveBranch, safeOnly, automatic });
   });
 }
 
+/** Kept reasons of removeAutomatically as the typed refusals removeManagedWorktree raises. */
+function automaticRefusal(record, kept) {
+  if (kept.reason === 'dirty') return worktreeError('WORKTREE_DIRTY', undefined, { entryId: record.id });
+  if (kept.reason === 'unmerged') return worktreeError('WORKTREE_UNMERGED', undefined, { entryId: record.id });
+  return worktreeRefusal('folder-in-use', { entryId: record.id, kept: kept.reason });
+}
+
 /** The removal of `current`, under its repository lock. */
-async function removeLocked(current, { force, sessionId, preserveBranch = false, safeOnly = false }) {
+async function removeLocked(
+  current,
+  { force, sessionId, preserveBranch = false, safeOnly = false, automatic = false }
+) {
   assertNotShared(current, sessionId);
+  // A deleted session's leftover (cleanupDeletedSessionWorktree): the
+  // verified automatic path, never a forced or recursive one.
+  if (automatic && !force && current.state === 'ready' && current.kind !== WORKTREE_SNAPSHOT_KIND) {
+    const outcome = await removeAutomatically(current, { preserveBranch });
+    if (!outcome.result) throw automaticRefusal(current, outcome.kept);
+    return outcome.result;
+  }
   if (current.state === 'creating' || current.state === 'recovery') {
     const rollback = await rollbackCreation(current);
     return rollback.complete ? { removed: true } : { removed: false, retryable: true, remaining: rollback.remaining };
@@ -1953,13 +2257,17 @@ async function removeLocked(current, { force, sessionId, preserveBranch = false,
  * so an owner that came back (a live session, a running lease holder) or a
  * session the store still keeps it for refuses (WORKTREE_BUSY_JOBS). Then
  * the ordinary removal guards apply (dirty or unmerged work needs `force`).
- * @param {{ entryId: string, force?: boolean, liveSessionIds?: string[], retainedSessionIds?: string[] }} input
+ * `allowRetained` (the user deleting it from the worktree list): a session
+ * the store keeps no longer protects it, a live owner or another session's
+ * shared reference still does.
+ * @param {{ entryId: string, force?: boolean, liveSessionIds?: string[], retainedSessionIds?: string[], allowRetained?: boolean }} input
  */
 export async function removeOrphanedWorktree({
   entryId,
   force = false,
   liveSessionIds = [],
   retainedSessionIds = [],
+  allowRetained = false,
 } = {}) {
   const record = await getRecord(entryId);
   if (!record) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
@@ -1970,6 +2278,13 @@ export async function removeOrphanedWorktree({
     }
     const { ownerLive, removable } = await retentionOf(current, new Set(liveSessionIds), new Set(retainedSessionIds));
     if (ownerLive) throw worktreeRefusal('workspace-lease', { entryId });
+    // The owner was just checked (not live; retained only with allowRetained):
+    // only other sessions' shared references refuse below.
+    const sessionId = current.ownerSessionId;
+    if (allowRetained) {
+      await assertRecoveryStoresClear(current);
+      return removeLocked(current, { force, sessionId });
+    }
     if (!removable) {
       // Retained recovery data names itself; otherwise sessions still keep it.
       await assertRecoveryStoresClear(current);
@@ -1978,7 +2293,7 @@ export async function removeOrphanedWorktree({
         sessions: [current.ownerSessionId, ...(current.sharedSessionIds ?? [])].filter(Boolean),
       });
     }
-    return removeLocked(current, { force });
+    return removeLocked(current, { force, sessionId });
   });
 }
 
@@ -2005,21 +2320,48 @@ function leaseProcessAlive(lease) {
  * `retainedSessionIds`, i.e. still in the session store), `ownerLive` (a
  * live session or a running lease holder), and `removable` (what a prune
  * would remove: neither, or disposable and not live, with no retained recovery data).
- * @param {{ liveSessionIds?: string[], retainedSessionIds?: string[] }} input
+ * `inspect` adds, for a ready branch worktree, `dirty` (uncommitted paths)
+ * and `unmerged` (commits the merge target lacks; 0 when merged) — what the
+ * cleanup policies and the worktree list read; `size` adds `sizeBytes` and
+ * `sizeComplete` (cachedFolderBytes: a cached size returns at once and
+ * refreshes in the background after its TTL).
+ * @param {{ liveSessionIds?: string[], retainedSessionIds?: string[], inspect?: boolean, size?: boolean }} input
  */
-export async function listManagedWorktrees({ liveSessionIds = [], retainedSessionIds = [] } = {}) {
+export async function listManagedWorktrees({
+  liveSessionIds = [],
+  retainedSessionIds = [],
+  inspect = false,
+  size = false,
+} = {}) {
   const live = new Set(liveSessionIds);
   const retained = new Set(retainedSessionIds);
   const rows = [];
   for (const record of Object.values((await readRegistry()).entries)) {
     const { ownerLive, retained: isRetained, removable } = await retentionOf(record, live, retained);
-    rows.push({
+    const row = {
       ...entryView(record),
       projectPath: record.projectPath,
+      sharedSessionIds: [...(record.sharedSessionIds ?? [])],
       retained: isRetained,
       ownerLive,
       removable,
-    });
+    };
+    if (inspect && record.kind !== WORKTREE_SNAPSHOT_KIND && record.state === 'ready') {
+      try {
+        row.dirty = (await dirtyPaths(record)).length;
+        row.unmerged = await unmergedCommitCount(record);
+      } catch {
+        // Unreadable state counts as work to keep.
+        row.dirty = null;
+        row.unmerged = null;
+      }
+    }
+    if (size) {
+      const measured = existsSync(record.path) ? await cachedFolderBytes(record.path) : null;
+      row.sizeBytes = measured?.bytes ?? null;
+      row.sizeComplete = measured?.complete ?? true;
+    }
+    rows.push(row);
   }
   return rows;
 }
@@ -2048,6 +2390,142 @@ async function retentionOf(record, live, retained) {
 }
 
 /**
+ * One automatic removal of the ready worktree `record` (the cleanup's count,
+ * age, archive and orphan removals, and a deleted session's leftover), under
+ * its repository lock. The slow checks (full status with untracked files and
+ * include copies, the commit walk and merge-tree) run before the folder is
+ * held, so no turn waits through them. Then the folder's workspace admission
+ * is held (a turn, worker, shell or git command already in it refuses the
+ * hold; one starting now waits), and under it: the owner lease and
+ * `inUse(record)` (the caller's current live sessions and jobs), a cheap
+ * token (HEAD, index, tips) against the one taken before the checks, and one
+ * time-bounded full status (finalDirtyCheck). Only then is the deletion
+ * decided, `automatic`: removeCheckoutVerified deletes through git alone and
+ * an incomplete attempt goes back to `ready` (keepIncompleteRemoval).
+ * @returns {Promise<{ result: object } | { kept: { reason: string } & object }>}
+ */
+async function removeAutomatically(
+  record,
+  {
+    inUse = async () => false,
+    preserveBranch = false,
+    keepTip = false,
+    finalCheckTimeoutMs = FINAL_DIRTY_CHECK_TIMEOUT_MS,
+  } = {}
+) {
+  const token = await checkoutToken(record);
+  const dirty = await dirtyPaths(record);
+  const unmerged = await unmergedCommitCount(record);
+  if (dirty.length || unmerged > 0) return { kept: { reason: dirty.length ? 'dirty' : 'unmerged' } };
+  let release;
+  try {
+    release = await holdSnapshotFolder(record);
+  } catch (error) {
+    if (!snapshotInUse(error)) throw error;
+    return { kept: { reason: 'in-use' } };
+  }
+  try {
+    if (leaseProcessAlive(await readOwnerLease(record)) || (await inUse(record))) return { kept: { reason: 'in-use' } };
+    if ((await checkoutToken(record)) !== token) return { kept: { reason: 'changed' } };
+    // The token misses nested untracked files and unstaged edits: one
+    // bounded full status decides. Dirty, slow or failed → kept.
+    const finalCheck = await finalDirtyCheck(record, finalCheckTimeoutMs);
+    if (finalCheck) return { kept: finalCheck };
+    await assertRecoveryStoresClear(record);
+    record.state = 'deleting';
+    delete record.removalIncomplete;
+    record.deleting = {
+      force: false,
+      automatic: true,
+      ...(preserveBranch ? { preserveBranch: true } : keepTip ? { keepTip: true } : {}),
+      // Checked above; finishDeletion trusts it while the tip is this one.
+      mergedTip: record.branch ? await branchCommit(repoCwd(record), record.branch) : null,
+      startedAt: Date.now(),
+      remaining: [],
+    };
+    await putRecord(record);
+    return { result: await finishDeletion(record) };
+  } finally {
+    await release();
+  }
+}
+
+/**
+ * Whether the automatic pass would try to remove the ready, not-live
+ * worktree `record` (the archive/policy rules of reconcileManagedWorktrees);
+ * the verification (dirty, unmerged, in use) still decides at removal time.
+ */
+function cleanupWants(record, isRetained, { selected, favorites, minAgeMs, now, cleanupArchived }) {
+  const ruleAllows = () =>
+    ![record.ownerSessionId, ...(record.sharedSessionIds ?? [])].some((id) => id && favorites.has(id)) &&
+    now - (Number(record.createdAt) || 0) >= minAgeMs;
+  if (!isRetained) return true;
+  if (record.disposable === true) {
+    if (record.disposableReason !== 'archived') return true;
+    if (cleanupArchived && ruleAllows()) return true;
+  }
+  return selected.has(record.id) && ruleAllows();
+}
+
+/**
+ * Read-only counterpart of reconcileManagedWorktrees: what a prune with the
+ * same options could act on, from the registry, the retention and the git
+ * admin folders alone (no status, merge or lock). A candidate may still be
+ * kept at removal time after verification. Same options as the reconcile;
+ * `removeOrphans` is implied.
+ * @returns {Promise<{ ids: string[], stale: string[] }>} entry ids and the
+ *   checkout paths of registrations whose folder is gone
+ */
+export async function previewManagedWorktreeCleanup({
+  liveSessionIds = [],
+  retainedSessionIds = [],
+  repoCommonDir: onlyRepo = null,
+  removeEntryIds = [],
+  protectedSessionIds = [],
+  minAgeMs = 0,
+  now = Date.now(),
+  cleanupArchived = true,
+} = {}) {
+  const live = new Set(liveSessionIds);
+  const retained = new Set(retainedSessionIds);
+  const rules = {
+    selected: new Set(removeEntryIds),
+    favorites: new Set(protectedSessionIds),
+    minAgeMs,
+    now,
+    cleanupArchived,
+  };
+  const ids = [];
+  const repos = new Map();
+  for (const record of Object.values((await readRegistry()).entries)) {
+    const key = pathKey(record.repoCommonDir);
+    if (onlyRepo && key !== pathKey(onlyRepo)) continue;
+    repos.set(key, record.repoCommonDir);
+    if (record.sharedSessionIds?.length) continue;
+    const { ownerLive, retained: isRetained } = await retentionOf(record, live, retained);
+    if (record.kind === WORKTREE_SNAPSHOT_KIND) {
+      if (!ownerLive) ids.push(record.id);
+    } else if (record.state === 'deleting') {
+      ids.push(record.id);
+    } else if (record.state === 'creating' || record.state === 'recovery') {
+      if (!isRetained) ids.push(record.id);
+    } else if (!ownerLive && (record.removalIncomplete || cleanupWants(record, isRetained, rules))) {
+      ids.push(record.id);
+    }
+  }
+  const stale = [];
+  for (const [, repoCommonDir] of repos) {
+    if (!existsSync(repoCommonDir)) continue;
+    for (const registration of await adminRegistrations(repoCommonDir)) {
+      // git keeps a locked registration (a `locked` file) through prune.
+      if (existsSync(join(registration.admin, 'locked'))) continue;
+      if (await isGone(registration.worktreePath)) stale.push(canonicalPath(registration.worktreePath));
+    }
+  }
+  return { ids, stale };
+}
+
+/**
  * Conservative reconcile (daemon startup, and the manual prune). Always:
  * resumes interrupted deletions, rolls back interrupted creations of no
  * retained session, releases leases of owners that are neither live nor
@@ -2058,20 +2536,60 @@ async function retentionOf(record, live, retained) {
  * session in the store still references. A snapshot whose holder is neither
  * live nor running in another process is removed in either mode.
  * `repoCommonDir` limits the whole reconcile to that repository.
- * @param {{ liveSessionIds?: string[], retainedSessionIds?: string[], removeOrphans?: boolean, repoCommonDir?: string|null }} input
+ *
+ * The automatic cleanup (maintenance.mjs) adds, all with `removeOrphans`:
+ * `removeEntryIds` — worktrees its count/age limits selected, removed even
+ * though a stored session still names them; `protectedSessionIds` (favorite
+ * sessions) and `minAgeMs`/`now` (younger worktrees) exempt those and
+ * archived-session marks (`disposableReason: 'archived'`, which
+ * `cleanupArchived: false` ignores); a deleted session's mark and a true
+ * orphan are not subject to them. `preserveBranch` keeps the branch of every
+ * worktree it removes; otherwise `keepTip` writes the recovery ref before the
+ * branch goes. `maxRemovals` caps the count/age/archive removals of one pass
+ * together (`kept: budget` beyond it). Dirty, unmerged, live, shared or
+ * recovery-holding worktrees are always kept, and every removal first holds
+ * the folder's workspace admission (a turn, worker, shell or git command in
+ * it keeps it; one starting meanwhile waits) and asks `inUse(record)` again
+ * under that hold (the caller's current live sessions and running jobs).
+ * @param {{ liveSessionIds?: string[], retainedSessionIds?: string[], removeOrphans?: boolean,
+ *   repoCommonDir?: string|null, removeEntryIds?: string[], protectedSessionIds?: string[],
+ *   minAgeMs?: number, now?: number, cleanupArchived?: boolean, preserveBranch?: boolean, keepTip?: boolean,
+ *   maxRemovals?: number, inUse?: (record: object) => Promise<boolean>|boolean,
+ *   finalCheckTimeoutMs?: number }} input
+ *   `finalCheckTimeoutMs` bounds the last dirty check under the hold (FINAL_DIRTY_CHECK_TIMEOUT_MS);
+ *   a check that does not finish in time keeps the worktree (`kept: busy`).
  */
 export async function reconcileManagedWorktrees({
   liveSessionIds = [],
   retainedSessionIds = [],
   removeOrphans = false,
   repoCommonDir: onlyRepo = null,
+  removeEntryIds = [],
+  protectedSessionIds = [],
+  minAgeMs = 0,
+  now = Date.now(),
+  cleanupArchived = true,
+  preserveBranch = false,
+  keepTip = false,
+  maxRemovals = Infinity,
+  inUse = async () => false,
+  finalCheckTimeoutMs = FINAL_DIRTY_CHECK_TIMEOUT_MS,
 } = {}) {
   const live = new Set(liveSessionIds);
   const retained = new Set(retainedSessionIds);
+  const selected = new Set(removeEntryIds);
+  let budgetUsed = 0;
+  const rules = { selected, favorites: new Set(protectedSessionIds), minAgeMs, now, cleanupArchived };
+  const wanted = (record, isRetained) => cleanupWants(record, isRetained, rules);
   const report = { removed: [], recovered: [], kept: [], leasesReleased: [], pruned: [], missing: [], errors: [] };
   const reportDeletion = (record, result) => {
     if (result.removed) report.removed.push(record.id);
-    else report.kept.push({ id: record.id, reason: 'deleting', remaining: result.remaining });
+    else
+      report.kept.push({
+        id: record.id,
+        reason: result.incomplete ? 'incomplete' : 'deleting',
+        remaining: result.remaining,
+      });
   };
   const byRepo = new Map();
   for (const record of Object.values((await readRegistry()).entries)) {
@@ -2125,6 +2643,19 @@ export async function reconcileManagedWorktrees({
               }
               continue;
             }
+            if (record.state === 'deleting' && record.deleting?.automatic) {
+              // An automatic removal that was interrupted is never resumed
+              // blindly: what it took apart is put back (its recorded undo)
+              // and the record is ready again, verified afresh by a later pass.
+              const notRestored = await undoAutomaticAttempt(record, record.deleting.undo);
+              await keepIncompleteRemoval(
+                record,
+                [...(record.deleting.remaining ?? []), ...notRestored],
+                'interrupted'
+              );
+              report.kept.push({ id: record.id, reason: 'incomplete', remaining: record.removalIncomplete.remaining });
+              continue;
+            }
             if (record.state === 'deleting') {
               // A decided deletion: its session already left the folder.
               reportDeletion(record, await finishDeletion(record));
@@ -2164,26 +2695,31 @@ export async function reconcileManagedWorktrees({
               report.leasesReleased.push(record.id);
             }
             if (!existsSync(record.path)) report.missing.push(record.id);
-            if (removeOrphans === true && !ownerLive && (record.disposable === true || !isRetained)) {
-              const dirty = await dirtyPaths(record);
-              const unmerged = await unmergedCommitCount(record);
-              if (dirty.length || unmerged > 0) {
-                report.kept.push({ id: record.id, reason: dirty.length ? 'dirty' : 'unmerged' });
+            if (removeOrphans === true && !ownerLive && wanted(record, isRetained)) {
+              // Count, age and archive removals share one budget per pass.
+              const budgeted = isRetained && (selected.has(record.id) || record.disposableReason === 'archived');
+              if (budgeted && budgetUsed >= maxRemovals) {
+                report.kept.push({ id: record.id, reason: 'budget' });
                 continue;
               }
-              await assertRecoveryStoresClear(record);
-              record.state = 'deleting';
-              record.deleting = { force: false, startedAt: Date.now(), remaining: [] };
-              await putRecord(record);
-              reportDeletion(record, await finishDeletion(record));
+              const outcome = await removeAutomatically(record, {
+                inUse,
+                preserveBranch,
+                keepTip,
+                finalCheckTimeoutMs,
+              });
+              if (!outcome.result) {
+                report.kept.push({ id: record.id, ...outcome.kept });
+                continue;
+              }
+              reportDeletion(record, outcome.result);
+              if (budgeted && outcome.result.removed) budgetUsed += 1;
             }
           } catch (error) {
             report.errors.push({ id: record.id, error: String(error?.message || error) });
           }
         }
-        for (const stale of await staleManagedRegistrations(repoCommonDir)) {
-          if (await pruneRegistration(repoCommonDir, stale)) report.pruned.push(canonicalPath(stale));
-        }
+        report.pruned.push(...(await pruneStaleRegistrations(repoCommonDir)));
       });
     } catch (error) {
       report.errors.push({ repoCommonDir, error: String(error?.message || error) });

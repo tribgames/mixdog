@@ -28,6 +28,7 @@ import {
   nextIds,
   prefixedBranches,
   tempDir,
+  TEST_BRANCH_PREFIX,
   useTempDataDir,
   writeFile,
   writeHook,
@@ -40,7 +41,10 @@ let restore = () => {};
 
 beforeEach(() => {
   useTempDataDir();
-  restore = configureWorktreeManager({ settings: {}, freeBytes: async () => Number.MAX_SAFE_INTEGER });
+  restore = configureWorktreeManager({
+    settings: { branchPrefix: TEST_BRANCH_PREFIX },
+    freeBytes: async () => Number.MAX_SAFE_INTEGER,
+  });
 });
 
 afterEach(() => restore());
@@ -168,7 +172,10 @@ test('unsupported repositories, disk shortage and large repositories fail before
     assert.ok(error.details.requiredBytes > error.details.freeBytes);
     return true;
   });
-  configureWorktreeManager({ freeBytes: async () => Number.MAX_SAFE_INTEGER, settings: { sizeWarnBytes: 1000 } });
+  configureWorktreeManager({
+    freeBytes: async () => Number.MAX_SAFE_INTEGER,
+    settings: { branchPrefix: TEST_BRANCH_PREFIX, sizeWarnBytes: 1000 },
+  });
   await assert.rejects(create(repo), (error) => {
     assert.equal(error.code, 'WORKTREE_LARGE_REPO_CONFIRM');
     assert.ok(error.details.estimateBytes > 4096);
@@ -207,6 +214,10 @@ test('branch occupancy distinguishes current, session, external and free branche
   assert.equal(byBranch[entry.branch].kind, 'session');
   assert.equal(byBranch[entry.branch].sessionId, sessionId);
   assert.deepEqual(result.branches.sort(), ['elsewhere', 'idle', 'main', entry.branch].sort());
+  // Each branch's tip commit time, for the menu's recent group.
+  const tip = Date.parse(git(repo, 'log', '-1', '--format=%cI', 'main'));
+  assert.deepEqual(Object.keys(result.committedAt).sort(), [...result.branches].sort());
+  assert.equal(Date.parse(result.committedAt.main), tip);
   assert.equal(result.retainedWorktree?.id, entry.id);
   assert.equal((await listBranchOccupancy({ projectPath: repo, sessionId: 'other' })).retainedWorktree, null);
 

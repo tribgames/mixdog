@@ -5,10 +5,13 @@
 //      to background + task wait);
 //   2. a plain leading `cd <dir>` moves into the `cwd` argument;
 //   3. a shell file read (cat/Get-Content/grep/ls …) gets a pointer to the
-//      read / grep / list tools — a note now, a rejection when the mode flips.
+//      read / grep / list tools — a note now, a rejection when the mode flips;
+//   4. a command mentioning `git … worktree add` is rejected (worktrees go
+//      through the git tool; a textual check, so mentions as data are too).
 import { shellSplitPipelineSegments, shellSplitSegments, shellTokenize } from '../shell-analysis.mjs';
 import { resolveShellFor } from '../shell-runtime.mjs';
 import { formatShellToolFailure } from './result-format.mjs';
+import { addsUnmanagedWorktree } from './worktree-add-guard.mjs';
 
 /** `warn` runs the read with a note; `reject` returns the block without running. */
 export const SHELL_FILE_READ_MODE = 'warn';
@@ -194,6 +197,20 @@ function detectShellFileRead(command, shellType) {
   return operands.length >= minOperands ? { tool, command: name } : null;
 }
 
+// ── 4. unmanaged worktrees ───────────────────────────────────────────────────
+
+// A worktree added from the shell is invisible to the managed cleanup and
+// outlives the session that made it, so `git … worktree add` never runs here.
+// The check is textual (worktree-add-guard.mjs): a command that only mentions
+// the phrase is refused too, so the message says how to go on either way.
+const SHELL_WORKTREE_ADD_BLOCK =
+  'Blocked: this shell command mentions `git … worktree add`, which does not run from the shell; ' +
+  'Mixdog manages worktrees so they are cleaned up. To create one, use the git tool: command ' +
+  '"git worktree add --detach <path> [<commit>]" makes a read-only snapshot (removed when the turn ends; ' +
+  'delegated workers too), and the Lead uses "git worktree add -b <branch> <path>" or action:"worktree" for a ' +
+  'branch worktree. The check is textual: to search for that text use the grep tool, and keep the phrase out ' +
+  'of shell commands (echo, commit messages, heredocs).';
+
 // ── the guard ────────────────────────────────────────────────────────────────
 
 /** The syntax family of the shell a call asks for (`args.shell`, as foreign adapters set it), else the default shell's. */
@@ -209,7 +226,7 @@ function recordFileRead(telemetry, entry) {
 }
 
 /**
- * Apply the three guards to a shell call.
+ * Apply the four guards to a shell call.
  * @returns {{ failure: string } | { args: object, notes: string[] }} the
  *   rejection, or the call to run (a leading `cd` moved into `cwd`) with the
  *   lines to add to its result.
@@ -230,6 +247,7 @@ export function guardShellCall(
     const sleepFailure = leadingSleepFailure(guarded.command, shellType);
     if (sleepFailure) return { failure: sleepFailure };
   }
+  if (addsUnmanagedWorktree(guarded.command)) return { failure: formatShellToolFailure(SHELL_WORKTREE_ADD_BLOCK) };
   const read = detectShellFileRead(guarded.command, shellType);
   if (read) {
     recordFileRead(telemetry, { mode: fileReadMode, tool: read.tool, command: read.command, agent, sessionId });

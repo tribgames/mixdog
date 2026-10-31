@@ -14,8 +14,10 @@ import { resolvePluginData } from '../plugin-paths.mjs';
 
 /** Versioned directory under the data dir that holds every managed worktree. */
 export const WORKTREE_STORE_DIR = 'worktrees-v1';
-/** Default ref prefix for branches created for managed worktrees. */
-export const DEFAULT_WORKTREE_BRANCH_PREFIX = 'mixdog/';
+/** Default ref prefix for branches created for managed worktrees: none, the
+ *  branch is the task's name. Which branches Mixdog owns is the registry's
+ *  record, never this prefix. */
+export const DEFAULT_WORKTREE_BRANCH_PREFIX = '';
 
 export const WORKSPACE_TRANSITION_STATES = Object.freeze(['idle', 'provisioning', 'switching', 'removing', 'recovery']);
 const WORKTREE_ENTRY_STATES = Object.freeze(['creating', 'ready', 'deleting', 'recovery']);
@@ -347,13 +349,21 @@ export function normalizeWorktreeOwner(input) {
  * The branch menu's rows (the desktop DesktopGitBranch shape) for the local
  * branch names the manager lists: `current` marks the branch checked out in
  * the project folder; managed lists hold local branches only.
+ * `committedAt` (branch → ISO time of its tip) becomes `lastCommitAt`.
  * @param {string[]} names
  * @param {BranchOccupancy[]} occupancy
- * @returns {Array<{ name: string, current: boolean, remote: false, upstream: string }>}
+ * @param {Record<string, string>} [committedAt]
+ * @returns {Array<{ name: string, current: boolean, remote: false, upstream: string, lastCommitAt?: string }>}
  */
-export function branchMenuEntries(names, occupancy) {
+export function branchMenuEntries(names, occupancy, committedAt = {}) {
   const current = new Set(occupancy.filter((row) => row.kind === 'current').map((row) => row.branch));
-  return names.map((name) => ({ name, current: current.has(name), remote: false, upstream: '' }));
+  return names.map((name) => ({
+    name,
+    current: current.has(name),
+    remote: false,
+    upstream: '',
+    ...(committedAt[name] ? { lastCommitAt: committedAt[name] } : {}),
+  }));
 }
 
 // ---------------------------------------------------------------------------
@@ -416,7 +426,7 @@ export function managedWorktreePath(repoCommonDir, slug, options) {
 /**
  * @param {string} slug
  * @param {string} [prefix]
- * @returns {string} e.g. "mixdog/fix-login"
+ * @returns {string} e.g. "fix-login", or "mixdog/fix-login" with prefix "mixdog/"
  */
 export function worktreeBranchName(slug, prefix = DEFAULT_WORKTREE_BRANCH_PREFIX) {
   const error = worktreeNameError(slug);

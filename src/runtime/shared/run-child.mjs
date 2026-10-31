@@ -10,7 +10,8 @@ import { spawn } from 'node:child_process';
 
 /** Kills `child` with everything it started. On Windows a plain kill ends only
  *  the child itself: `git` there is a launcher whose git.exe (and the alias,
- *  hook or filter it runs) would live on, still holding the output pipes. */
+ *  hook or filter it runs) would live on, still holding the output pipes.
+ *  Settles once the kill was attempted (on Windows: once taskkill finished). */
 export function killChildTree(child) {
   if (process.platform === 'win32' && child.pid && child.exitCode === null) {
     const taskkill = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\taskkill.exe`;
@@ -19,22 +20,49 @@ export function killChildTree(child) {
         child.kill();
       } catch {}
     };
-    spawn(taskkill, ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
-      .once('error', fallback)
-      .once('exit', (code) => {
-        if (code !== 0) fallback();
-      });
-    return;
+    return new Promise((resolve) => {
+      spawn(taskkill, ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+        .once('error', () => {
+          fallback();
+          resolve();
+        })
+        .once('exit', (code) => {
+          if (code !== 0) fallback();
+          resolve();
+        });
+    });
   }
   try {
     child.kill();
   } catch {}
+  return Promise.resolve();
 }
 
-export function runChild({ command, args, cwd, input, env, timeoutMs, maxBytes, stdoutEncoding = 'utf8' }) {
+/** The child has exited (an exit code or the signal that ended it). */
+const childEnded = (child) => child.exitCode !== null || child.signalCode !== null;
+
+/**
+ * `waitForExitMs` (> 0): a timeout rejects only once the killed child has
+ * exited, or after that many more ms; the error then carries `pid` and
+ * `childExited` (false: it outlived the wait). 0 (default): the timeout
+ * rejects as soon as the kill was sent.
+ */
+export function runChild({
+  command,
+  args,
+  cwd,
+  input,
+  env,
+  timeoutMs,
+  maxBytes,
+  stdoutEncoding = 'utf8',
+  waitForExitMs = 0,
+  // Tests only: a stand-in for child_process.spawn (in-process callers; not serializable).
+  spawnChild = spawn,
+}) {
   return new Promise((resolvePromise, rejectPromise) => {
     const hasInput = (typeof input === 'string' || ArrayBuffer.isView(input)) && input.length > 0;
-    const child = spawn(command, args, {
+    const child = spawnChild(command, args, {
       cwd,
       ...(env ? { env } : {}),
       windowsHide: true,
@@ -45,6 +73,7 @@ export function runChild({ command, args, cwd, input, env, timeoutMs, maxBytes, 
     let outputBytes = 0;
     let stdinError = null;
     let settled = false;
+    let timedOut = false;
     const finish = (error, result) => {
       if (settled) return;
       settled = true;
@@ -52,17 +81,35 @@ export function runChild({ command, args, cwd, input, env, timeoutMs, maxBytes, 
       if (error) rejectPromise(error);
       else resolvePromise(result);
     };
+    const exited = new Promise((resolve) => child.once('exit', resolve));
     // timeoutMs 0: no deadline (the caller's own work bounds the child).
     const timer =
       timeoutMs > 0
         ? setTimeout(() => {
             const error = new Error(`${command} ${args.join(' ')} timed out after ${timeoutMs}ms`);
             error.code = 'ETIMEDOUT';
-            killChildTree(child);
-            finish(error);
+            timedOut = true;
+            const killed = killChildTree(child);
+            if (!(waitForExitMs > 0)) {
+              finish(error);
+              return;
+            }
+            let bound;
+            const wait = new Promise((resolve) => {
+              bound = setTimeout(resolve, waitForExitMs);
+            });
+            void Promise.race([Promise.all([exited, killed]), wait]).then(() => {
+              clearTimeout(bound);
+              error.pid = child.pid ?? null;
+              error.childExited = childEnded(child);
+              finish(error);
+            });
           }, timeoutMs)
         : null;
     const collect = (chunks, chunk) => {
+      // Once a timeout terminates the child, it alone settles: later output
+      // (or an overflow) neither settles early nor grows the buffers.
+      if (timedOut) return;
       const next = Buffer.from(chunk);
       outputBytes += next.length;
       if (outputBytes > maxBytes) {
@@ -78,8 +125,13 @@ export function runChild({ command, args, cwd, input, env, timeoutMs, maxBytes, 
     };
     child.stdout.on('data', (chunk) => collect(stdout, chunk));
     child.stderr.on('data', (chunk) => collect(stderr, chunk));
-    child.once('error', (error) => finish(error));
+    child.on('error', (error) => {
+      // An error while a timeout terminates the child (a failed kill) is the timeout's.
+      if (!timedOut) finish(error);
+    });
     child.once('close', (code) => {
+      // A timed-out child's close is the timeout's to report.
+      if (timedOut) return;
       const result = {
         code: Number(code ?? 1),
         // 'base64' keeps non-UTF-8 bytes (a replayable patch) intact across the thread hop.

@@ -24,9 +24,7 @@ after(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-const { guardShellCall, requestedShellType, SHELL_FILE_READ_NOTE } = await import(
-  './misuse-guard.mjs'
-);
+const { guardShellCall, requestedShellType, SHELL_FILE_READ_NOTE } = await import('./misuse-guard.mjs');
 const { executeBashTool, executeTaskTool } = await import('../bash-tool.mjs');
 const { executeTool } = await import('../../../session/loop/tool-exec.mjs');
 const { resolveShellFor } = await import('../shell-runtime.mjs');
@@ -113,6 +111,134 @@ test('a leading whole-second sleep of 2 s or more is refused with the Mixdog alt
     ]) {
       assert.ok(out.failure.includes(part), `${command}: ${part}`);
     }
+  }
+});
+
+test('git worktree add is refused in any form and points to the git tool; other worktree commands run', () => {
+  const refused = [
+    ['git worktree add ../x', POSIX],
+    ['git worktree add -b feature ../x', POWERSHELL],
+    ['git -C C:\\repo worktree add --detach $env:TEMP\\snap HEAD', POWERSHELL],
+    ['git -c core.longpaths=true --no-pager worktree add ../x', POSIX],
+    ['& git.exe worktree add ../x', POWERSHELL],
+    ["& 'C:\\Program Files\\Git\\cmd\\git.exe' worktree add ../x", POWERSHELL],
+    ['git status && git worktree add ../x', POSIX],
+    ['echo hi; git --git-dir=.git worktree add -f ../x', POSIX],
+    ['GIT_DIR=.git git worktree add ../x', POSIX],
+    ['env -i sudo git worktree add ../x', POSIX],
+    ['git -c alias.wa="worktree add" wa ../x', POSIX],
+    ['git --% worktree add ../x', POWERSHELL],
+    ['Start-Process git -ArgumentList "worktree","add","../x"', POWERSHELL],
+  ];
+  // What the shell runs after its own quote removal and escapes.
+  const escaped = [
+    ['git worktree a`dd ../x', POWERSHELL],
+    ['git wor`ktree "a`dd" ../x', POWERSHELL],
+    ["git worktree 'add' ../x", POWERSHELL],
+    ['git worktree \u201cadd\u201d ../x', POWERSHELL],
+    ['git worktree `\n add ../x', POWERSHELL],
+    ['git worktree a\\dd ../x', POSIX],
+    ["git 'work'tree a''dd ../x", POSIX],
+    ['git worktree "a"d"d" ../x', POSIX],
+    ["git worktree $'\\x61dd' ../x", POSIX],
+    ['git worktree \\\nadd ../x', POSIX],
+  ];
+  // Text a shell or interpreter executes: substitutions, blocks and -c style arguments.
+  const executed = [
+    ['echo $(git worktree add ../x)', POSIX],
+    ['echo "made: `git worktree add ../x`"', POSIX],
+    ['(git worktree add ../x)', POSIX],
+    ['{ git worktree add ../x; }', POSIX],
+    ['bash -c "git worktree add ../x"', POSIX],
+    ["sh -lc 'cd repo && git worktree a\\dd ../x'", POSIX],
+    ['eval "git worktree add ../x"', POSIX],
+    ['powershell -Command "cd repo; git worktree add ../x"', POWERSHELL],
+    ["pwsh -c 'git worktree a`dd ../x'", POSIX],
+    ['powershell "git worktree add ../x"', POWERSHELL],
+    [`pwsh -EncodedCommand ${Buffer.from('git worktree add ../x', 'utf16le').toString('base64')}`, POWERSHELL],
+    ['& { git worktree add ../x }', POWERSHELL],
+    ['Write-Output "$(git worktree add ../x)"', POWERSHELL],
+    ['iex "git worktree add ../x"', POWERSHELL],
+    ["Invoke-Expression -Command 'git worktree add ../x'", POWERSHELL],
+    ['cmd /c git worktree a^dd ../x', POWERSHELL],
+    ['cmd.exe /s /c "git worktree add ../x"', POSIX],
+    // Shell keywords, loops and functions around it.
+    ['if true; then git worktree add ../x; fi', POSIX],
+    ['for d in a b; do git worktree add "../$d"; done', POSIX],
+    ['f() { git worktree add ../x; }; f', POSIX],
+    ['if ($true) { git worktree add ../x }', POWERSHELL],
+    ['git status\ngit worktree add ../x', POSIX],
+  ];
+  for (const [command, shellType] of [...refused, ...escaped, ...executed]) {
+    const out = guard(command, shellType);
+    const label = `${shellType}: ${command}`;
+    assert.match(out.failure ?? '', /Blocked: this shell command mentions `git … worktree add`/, label);
+    assert.match(out.failure, /git worktree add --detach <path>/, label);
+    assert.match(out.failure, /to search for that text use the grep tool/, label);
+  }
+  const allowed = [
+    ['git worktree list --porcelain', POSIX],
+    ['git worktree remove ../x', POSIX],
+    ['git worktree remove ../add', POSIX],
+    ['git -C repo worktree prune', POWERSHELL],
+    ['git add worktree', POSIX],
+    ['git status && git add -A', POWERSHELL],
+    ["rg -n 'worktree add' src", POSIX],
+    ['echo "worktree add"', POWERSHELL],
+  ];
+  for (const [command, shellType] of allowed) {
+    assert.equal(guard(command, shellType).failure, undefined, `${shellType}: ${command}`);
+  }
+});
+
+test('accepted false positives: data that mentions git … worktree add is refused with the way forward', () => {
+  // The check is textual by decision: it never parses a shell, so a command that
+  // only carries the phrase as data is refused too. The message points to the
+  // grep tool for searching and to the git tool for creating a worktree.
+  const mentions = [
+    ['echo "git worktree add ../x"', POSIX],
+    ['echo git worktree add ../x', POSIX],
+    ['grep "git worktree add" README.md', POSIX],
+    ["Select-String -Pattern 'git worktree add' -Path README.md", POWERSHELL],
+    ['git commit -m "docs: never git worktree add from the shell"', POSIX],
+    ['git log --grep "worktree add"', POWERSHELL],
+    ["cat <<'EOF' > notes.md\nrun git worktree add ../x by hand\nEOF", POSIX],
+    ['Write-Output { git worktree add ../x }', POWERSHELL],
+    ['git -c alias.wa="worktree add" status', POSIX],
+    ['# git worktree add ../x\ngit status', POSIX],
+  ];
+  for (const [command, shellType] of mentions) {
+    const out = guard(command, shellType);
+    assert.match(out.failure ?? '', /use the grep tool/, `${shellType}: ${command}`);
+    assert.match(out.failure, /use the git tool/, `${shellType}: ${command}`);
+  }
+});
+
+test('the worktree check is linear: pathological commands finish in a few milliseconds', () => {
+  const pathological = [
+    `env ${'env '.repeat(10_000)}printf "%s\\n" x`,
+    `${'git '.repeat(10_000)}status`,
+    `git ${'worktree -x '.repeat(10_000)}list`,
+    `git worktree ${'-,'.repeat(10_000)}x`,
+    `${'"`^\\'.repeat(10_000)} git worktree remove x`,
+    `git worktree ${'-worktree '.repeat(10_000)}list`,
+  ];
+  for (const command of pathological) {
+    for (const shellType of [POSIX, POWERSHELL]) {
+      const started = performance.now();
+      const out = guard(command, shellType);
+      const elapsed = performance.now() - started;
+      assert.equal(out.failure, undefined, command.slice(0, 40));
+      assert.ok(elapsed < 50, `${command.slice(0, 40)}… took ${elapsed.toFixed(1)} ms`);
+    }
+  }
+  // Still caught at the end of a long command.
+  assert.match(guard(`env ${'env '.repeat(10_000)}git worktree add ../x`, POSIX).failure ?? '', /worktree add/);
+});
+
+test('a line continuation inside a word joins it, as POSIX does', () => {
+  for (const command of ['git worktree a\\\ndd ../x', 'git work\\\ntree add ../x', 'git worktree \\\nadd ../x']) {
+    assert.match(guard(command, POSIX).failure ?? '', /use the git tool/, JSON.stringify(command));
   }
 });
 
