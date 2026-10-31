@@ -67,3 +67,21 @@ test('a pg-spawn.lock held by a live owner still excludes the spawn', async () =
   await pending;
   assert.equal(startCalls.length, before + 1, 'the spawn proceeds once the owner releases');
 });
+
+test('an aged legacy JSON pg-spawn.lock naming a live owner excludes the lock', async () => {
+  const { withFileLock } = await import('../../../shared/file-lock.mjs');
+  const dataDir = newDataDir('legacy-json-lock');
+  const lockPath = join(dataDir, 'pg-spawn.lock');
+  // v1.4.2 writer format, aged past the 30s stale window, owner still alive.
+  writeFileSync(lockPath, JSON.stringify({ pid: process.pid, startedAt: Date.now() - 120_000 }));
+  const old = new Date(Date.now() - 120_000);
+  utimesSync(lockPath, old, old);
+
+  let entered = false;
+  await assert.rejects(
+    withFileLock(lockPath, () => { entered = true; }, { timeoutMs: 400 }),
+    { code: 'ELOCKTIMEOUT' }
+  );
+  assert.equal(entered, false, 'a second owner must not enter while the legacy owner is alive');
+  assert.equal(existsSync(lockPath), true, 'the live legacy lock is left in place');
+});
