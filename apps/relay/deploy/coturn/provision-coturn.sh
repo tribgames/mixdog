@@ -112,7 +112,10 @@ write_private() {
 	mv -f "$tmp" "$path"
 }
 
-install -d -m 0750 -o root -g root "$ENV_DIR"
+# The relay's own credentials (fcm.json, apns.p8; root:mixdog-relay 0640) live
+# here too, so the relay account must keep traversing this directory; turn.env
+# itself stays root 0600 (systemd reads it before dropping privileges).
+install -d -m 0750 -o root -g mixdog-relay "$ENV_DIR"
 install -d -m 0750 -o root -g turnserver "$CONF_DIR" "$TLS_DIR"
 
 # The secret is generated here and lives only in two root-owned files. systemd
