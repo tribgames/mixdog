@@ -70,6 +70,7 @@ import {
   listWorktrees,
   localBranchCommits,
   localBranches,
+  parseStatusEntries,
   parseStatusPaths,
   remoteDefaultBranches,
   runGit,
@@ -86,7 +87,7 @@ import {
   removeIncludeLinks,
   restoreIncludeLinks,
 } from './include.mjs';
-import { linkedArtefacts } from './dependencies.mjs';
+import { dependencyArtefacts, linkedArtefacts } from './dependencies.mjs';
 import { withRepoLock as withRepoMutationLock } from './lock.mjs';
 import { holdWorkspaceActivityAsync } from './activity-gate.mjs';
 import { withAdvisoryLocks } from '../../agent/orchestrator/tools/builtin/advisory-lock.mjs';
@@ -398,21 +399,112 @@ async function checkoutToken(record) {
 }
 
 const DIRTY_STATUS_ARGS = ['status', '--porcelain=v1', '-z', '--untracked-files=all'];
+// An automatic removal reads the ignored paths too; a folder an ignore
+// pattern matches is listed once, not its contents.
+const AUTOMATIC_STATUS_ARGS = [...DIRTY_STATUS_ARGS, '--ignored=matching'];
+// The Cache Directory Tagging signature a CACHEDIR.TAG starts with.
+const CACHEDIR_SIGNATURE = 'Signature: 8a477f597d28d172789f06886806bc55';
+
+function identityPath(record) {
+  return record.projectSubdir ? `${record.projectSubdir}/${SESSION_PROJECT_ID_PATH}` : SESSION_PROJECT_ID_PATH;
+}
 
 /** The status paths that are user work: not the session identity file, not an include copy. */
-function userStatusPaths(record, stdout) {
+function userStatusPaths(record, paths) {
   const includes = record.resources?.includes || [];
-  const identity = record.projectSubdir
-    ? `${record.projectSubdir}/${SESSION_PROJECT_ID_PATH}`
-    : SESSION_PROJECT_ID_PATH;
-  return parseStatusPaths(stdout).filter((path) => path !== identity && !coveredByIncludes(includes, path));
+  const identity = identityPath(record);
+  return paths.filter((path) => path !== identity && !coveredByIncludes(includes, path));
 }
 
 /** Uncommitted/untracked paths plus modified include copies. */
 async function dirtyPaths(record) {
   if (!existsSync(record.path)) return [];
   const status = await runGit(record.path, DIRTY_STATUS_ARGS, { readOnly: true });
-  return [...userStatusPaths(record, status.stdout), ...(await modifiedIncludeCopies(record.resources?.includes))];
+  return [
+    ...userStatusPaths(record, parseStatusPaths(status.stdout)),
+    ...(await modifiedIncludeCopies(record.resources?.includes)),
+  ];
+}
+
+/** AUTOMATIC_STATUS_ARGS output as the changed paths and the ignored entries. */
+function splitIgnored(stdout) {
+  const entries = parseStatusEntries(stdout);
+  return {
+    changed: entries.filter((entry) => entry.code !== '!!').map((entry) => entry.path),
+    ignored: entries.filter((entry) => entry.code === '!!').map((entry) => entry.path),
+  };
+}
+
+async function cacheDirTagged(dir) {
+  try {
+    return (await readFile(join(dir, 'CACHEDIR.TAG'), 'latin1')).startsWith(CACHEDIR_SIGNATURE);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Of the ignored status entries, the ones no install or rebuild restores:
+ * user data only this checkout holds (an env file, a dataset, build output).
+ * Left out as reproducible: the session identity file (or its folder holding
+ * nothing else), the recorded include items (links go with the removal, a
+ * changed copy is dirty already), the dependency artefacts a committed
+ * lockfile installs whole (`artefacts`, dependencyArtefacts: node_modules
+ * only, so hand edits inside node_modules are deliberately not protected —
+ * see the `reinstallable` flag there for why), `__pycache__`
+ * folders and folders a CACHEDIR.TAG marks as a cache.
+ */
+async function unreproducibleIgnored(record, entries, artefacts) {
+  const includes = record.resources?.includes || [];
+  const identity = identityPath(record);
+  const identityDir = identity.slice(0, identity.lastIndexOf('/'));
+  const tagged = new Map();
+  const isCache = (dir) => {
+    if (!tagged.has(dir)) tagged.set(dir, cacheDirTagged(join(record.path, ...dir.split('/'))));
+    return tagged.get(dir);
+  };
+  const kept = [];
+  for (const entry of entries) {
+    const path = entry.replace(/\/$/, '');
+    if (path === identity || coveredByIncludes(includes, path)) continue;
+    if (artefacts.some((artefact) => path === artefact || path.startsWith(`${artefact}/`))) continue;
+    if (path === identityDir) {
+      const names = await readdir(join(record.path, ...path.split('/'))).catch(() => null);
+      if (names?.length === 1 && names[0] === 'project.id') continue;
+    }
+    const parts = path.split('/');
+    const folders = entry.endsWith('/') ? parts : parts.slice(0, -1);
+    if (folders.includes('__pycache__')) continue;
+    let cache = false;
+    for (let depth = 1; depth <= folders.length && !cache; depth++) {
+      cache = await isCache(folders.slice(0, depth).join('/'));
+    }
+    if (!cache) kept.push(path);
+  }
+  return kept;
+}
+
+/** The keep reason of a worktree holding unreproducible ignored files (`files` capped to a preview). */
+function ignoredKeep(paths) {
+  return { reason: 'ignored', files: paths.slice(0, DIRTY_CHOICE_PREVIEW), count: paths.length };
+}
+
+/**
+ * What keeps `record` from an automatic removal: `dirty` (dirtyPaths) and
+ * `ignored` (unreproducibleIgnored), with the `artefacts` that decided it.
+ */
+async function automaticKeepPaths(record) {
+  if (!existsSync(record.path)) return { dirty: [], ignored: [], artefacts: [] };
+  const [status, artefacts] = await Promise.all([
+    runGit(record.path, AUTOMATIC_STATUS_ARGS, { readOnly: true }),
+    dependencyArtefacts(record.path),
+  ]);
+  const { changed, ignored } = splitIgnored(status.stdout);
+  return {
+    dirty: [...userStatusPaths(record, changed), ...(await modifiedIncludeCopies(record.resources?.includes))],
+    ignored: await unreproducibleIgnored(record, ignored, artefacts),
+    artefacts,
+  };
 }
 
 /** How long the cleanup's last dirty check under the folder hold may take. */
@@ -422,20 +514,22 @@ const FINAL_CHECK_EXIT_WAIT_MS = 2_000;
 
 /**
  * The cleanup's last word before a removal, under the folder hold: the full
- * status (untracked files at any depth, unstaged edits of tracked ones) and
- * the include-copy check again, bounded by `timeoutMs`. null: clean, remove
- * it. `{ reason: 'dirty' }`: something is uncommitted now. `{ reason: 'busy' }`:
+ * status (untracked files at any depth, unstaged edits of tracked ones,
+ * ignored files) and the include-copy check again, bounded by `timeoutMs`;
+ * `artefacts` are the dependency artefacts read before the hold. null:
+ * clean, remove it. `{ reason: 'dirty' }`: something is uncommitted now.
+ * `{ reason: 'ignored', files, count }`: unreproducibleIgnored. `{ reason: 'busy' }`:
  * the check timed out, failed or could not finish — never read as clean. A
  * timed-out git is killed and awaited (bounded) before this returns, so none
  * keeps running in the folder; `gitRunning: true` reports one that outlived
  * the wait.
  */
-async function finalDirtyCheck(record, timeoutMs) {
+async function finalDirtyCheck(record, timeoutMs, artefacts) {
   if (!existsSync(record.path)) return null;
   const started = Date.now();
   let status;
   try {
-    status = await runGit(record.path, DIRTY_STATUS_ARGS, {
+    status = await runGit(record.path, AUTOMATIC_STATUS_ARGS, {
       readOnly: true,
       timeoutMs,
       waitForExitMs: FINAL_CHECK_EXIT_WAIT_MS,
@@ -443,18 +537,23 @@ async function finalDirtyCheck(record, timeoutMs) {
   } catch (error) {
     return { reason: 'busy', ...(error?.childExited === false ? { gitRunning: true } : {}) };
   }
-  if (userStatusPaths(record, status.stdout).length) return { reason: 'dirty' };
-  // The include copies: file reads only (no child), bounded by what is left.
+  const { changed, ignored } = splitIgnored(status.stdout);
+  if (userStatusPaths(record, changed).length) return { reason: 'dirty' };
+  // The include copies and the ignored entries: file reads only (no child), bounded by what is left.
   let timer;
   try {
     const left = Math.max(0, timeoutMs - (Date.now() - started));
-    const modified = await Promise.race([
-      modifiedIncludeCopies(record.resources?.includes),
+    const [modified, unreproducible] = await Promise.race([
+      Promise.all([
+        modifiedIncludeCopies(record.resources?.includes),
+        unreproducibleIgnored(record, ignored, artefacts),
+      ]),
       new Promise((_, reject) => {
         timer = setTimeout(() => reject(new Error('include check timed out')), left);
       }),
     ]);
-    return modified.length ? { reason: 'dirty' } : null;
+    if (modified.length) return { reason: 'dirty' };
+    return unreproducible.length ? ignoredKeep(unreproducible) : null;
   } catch {
     return { reason: 'busy' };
   } finally {
@@ -2267,6 +2366,13 @@ export async function removeManagedWorktree({
 /** Kept reasons of removeAutomatically as the typed refusals removeManagedWorktree raises. */
 function automaticRefusal(record, kept) {
   if (kept.reason === 'dirty') return worktreeError('WORKTREE_DIRTY', undefined, { entryId: record.id });
+  if (kept.reason === 'ignored') {
+    return worktreeError('WORKTREE_DIRTY', 'The worktree holds ignored files no install restores.', {
+      entryId: record.id,
+      ignored: kept.files,
+      count: kept.count,
+    });
+  }
   if (kept.reason === 'unmerged') return worktreeError('WORKTREE_UNMERGED', undefined, { entryId: record.id });
   return worktreeRefusal('folder-in-use', { entryId: record.id, kept: kept.reason });
 }
@@ -2280,7 +2386,7 @@ async function removeLocked(
   // A deleted session's leftover (cleanupDeletedSessionWorktree): the
   // verified automatic path, never a forced or recursive one.
   if (automatic && !force && current.state === 'ready' && current.kind !== WORKTREE_SNAPSHOT_KIND) {
-    const outcome = await removeAutomatically(current, { preserveBranch });
+    const outcome = await removeAutomatically(current, { preserveBranch, keepTip: !preserveBranch });
     if (!outcome.result) throw automaticRefusal(current, outcome.kept);
     return outcome.result;
   }
@@ -2367,8 +2473,10 @@ function leaseProcessAlive(lease) {
  * `retainedSessionIds`, i.e. still in the session store), `ownerLive` (a
  * live session or a running lease holder), and `removable` (what a prune
  * would remove: neither, or disposable and not live, with no retained recovery data).
- * `inspect` adds, for a ready branch worktree, `dirty` (uncommitted paths)
- * and `unmerged` (commits the merge target lacks; 0 when merged) — what the
+ * `inspect` adds, for a ready branch worktree, `dirty` (uncommitted paths,
+ * and the ignored files no install restores, also counted as `ignored`:
+ * both keep it from the automatic cleanup) and `unmerged` (commits the
+ * merge target lacks; 0 when merged) — what the
  * cleanup policies and the worktree list read; `size` adds `sizeBytes` and
  * `sizeComplete` (cachedFolderBytes: a cached size returns at once and
  * refreshes in the background after its TTL).
@@ -2395,11 +2503,14 @@ export async function listManagedWorktrees({
     };
     if (inspect && record.kind !== WORKTREE_SNAPSHOT_KIND && record.state === 'ready') {
       try {
-        row.dirty = (await dirtyPaths(record)).length;
+        const { dirty, ignored } = await automaticKeepPaths(record);
+        row.dirty = dirty.length + ignored.length;
+        row.ignored = ignored.length;
         row.unmerged = await unmergedCommitCount(record);
       } catch {
         // Unreadable state counts as work to keep.
         row.dirty = null;
+        row.ignored = null;
         row.unmerged = null;
       }
     }
@@ -2439,8 +2550,8 @@ async function retentionOf(record, live, retained) {
 /**
  * One automatic removal of the ready worktree `record` (the cleanup's count,
  * age, archive and orphan removals, and a deleted session's leftover), under
- * its repository lock. The slow checks (full status with untracked files and
- * include copies, the commit walk and merge-tree) run before the folder is
+ * its repository lock. The slow checks (full status with untracked and
+ * ignored files and include copies, the commit walk and merge-tree) run before the folder is
  * held, so no turn waits through them. Then the folder's workspace admission
  * is held (a turn, worker, shell or git command already in it refuses the
  * hold; one starting now waits), and under it: the owner lease and
@@ -2461,9 +2572,10 @@ async function removeAutomatically(
   } = {}
 ) {
   const token = await checkoutToken(record);
-  const dirty = await dirtyPaths(record);
+  const { dirty, ignored, artefacts } = await automaticKeepPaths(record);
   const unmerged = await unmergedCommitCount(record);
   if (dirty.length || unmerged > 0) return { kept: { reason: dirty.length ? 'dirty' : 'unmerged' } };
+  if (ignored.length) return { kept: ignoredKeep(ignored) };
   let release;
   try {
     release = await holdSnapshotFolder(record);
@@ -2476,7 +2588,7 @@ async function removeAutomatically(
     if ((await checkoutToken(record)) !== token) return { kept: { reason: 'changed' } };
     // The token misses nested untracked files and unstaged edits: one
     // bounded full status decides. Dirty, slow or failed → kept.
-    const finalCheck = await finalDirtyCheck(record, finalCheckTimeoutMs);
+    const finalCheck = await finalDirtyCheck(record, finalCheckTimeoutMs, artefacts);
     if (finalCheck) return { kept: finalCheck };
     await assertRecoveryStoresClear(record);
     record.state = 'deleting';
@@ -2594,7 +2706,9 @@ export async function previewManagedWorktreeCleanup({
  * worktree it removes; otherwise `keepTip` writes the recovery ref before the
  * branch goes. `maxRemovals` caps the count/age/archive removals of one pass
  * together (`kept: budget` beyond it). Dirty, unmerged, live, shared or
- * recovery-holding worktrees are always kept, and every removal first holds
+ * recovery-holding worktrees are always kept, as are ones holding ignored
+ * files no install restores (`kept: ignored` with `files`, `count`:
+ * unreproducibleIgnored), and every removal first holds
  * the folder's workspace admission (a turn, worker, shell or git command in
  * it keeps it; one starting meanwhile waits) and asks `inUse(record)` again
  * under that hold (the caller's current live sessions and running jobs).
