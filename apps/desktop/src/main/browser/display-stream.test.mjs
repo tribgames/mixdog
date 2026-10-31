@@ -52,6 +52,18 @@ test('document and geometry transitions cannot relabel cached or old-sized pixel
   }
 });
 
+test('empty compositor paints are ignored until a usable frame arrives', async () => {
+  const { guest, stream, paint } = fixture();
+  try {
+    const waiting = stream(guest, 'document', { width: 600, height: 400 });
+    paint({ getSize: () => ({ width: 0, height: 0 }) });
+    paint(image('first-real-pixels'));
+    assert.equal((await waiting).data, 'first-real-pixels');
+  } finally {
+    guest.emit('destroyed');
+  }
+});
+
 test('a paint at another size releases the waiting read instead of holding it to its deadline', async () => {
   const { guest, stream, paint } = fixture();
   try {

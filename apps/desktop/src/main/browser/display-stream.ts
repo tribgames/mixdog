@@ -44,6 +44,9 @@ export function createBrowserDisplayStream(
       };
       const paint = (_event: unknown, _dirty: unknown, image: NativeImage) => {
         const size = image.getSize();
+        // An empty compositor paint is not a resize or a usable frame.
+        // Keep the pending read open for the next nonempty paint.
+        if (size.width <= 0 || size.height <= 0) return;
         if (entry.pixels && (size.width !== entry.pixels.width || size.height !== entry.pixels.height)) {
           // The compositor now paints another geometry (pane resize). A caller
           // waiting for the old size would otherwise wait until its deadline;
