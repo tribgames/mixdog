@@ -28,7 +28,6 @@ const webSearchArgsSchema = z.object({
     .union([z.string().min(1), z.array(z.string().min(1)).min(1)])
     .describe('Search query string or array of queries.'),
   site: z.string().optional().describe('Restrict results to a specific domain.'),
-  type: z.enum(['web', 'news', 'images']).optional().describe('Search type. Default: web.'),
   maxResults: z.number().int().min(1).max(20).optional().describe('Maximum number of results to return (1-20).'),
   locale: z
     .union([
@@ -65,7 +64,7 @@ const urlArgsSchema = z.object({
   cwd: z.string().optional(),
 });
 
-const WEB_SEARCH_EMPTY_STRING_FIELDS = ['keywords', 'site', 'type', 'locale', 'contextSize'];
+const WEB_SEARCH_EMPTY_STRING_FIELDS = ['keywords', 'site', 'locale', 'contextSize'];
 
 function normalizeWebSearchArgs(rawArgs) {
   if (!rawArgs || typeof rawArgs !== 'object' || Array.isArray(rawArgs)) return rawArgs;
@@ -153,17 +152,7 @@ function dropInvalidWebSearchResults(payload) {
   };
 }
 
-function getWebSearchCacheTtlMs(type = 'web') {
-  switch (type) {
-    case 'news':
-      return 20 * 60 * 1000;
-    case 'images':
-      return 60 * 60 * 1000;
-    // 'web' and any unknown type.
-    default:
-      return 30 * 60 * 1000;
-  }
-}
+const WEB_SEARCH_CACHE_TTL_MS = 30 * 60 * 1000;
 
 const SCRAPE_CACHE_TTL_MS = 60 * 60 * 1000;
 
@@ -207,7 +196,6 @@ function webSearchArgsForCacheKey(args) {
   return {
     keywords,
     site: args.site || null,
-    type: args.type || 'web',
     locale: args.locale || null,
     contextSize: args.contextSize || 'low',
     maxResults: clampMaxResults(args.maxResults),
@@ -222,7 +210,6 @@ function buildAgentWebSearchPrompt(args) {
     '',
     `Query: ${query}`,
     args.site ? `Site/domain restriction: ${args.site}` : null,
-    args.type ? `Search type: ${args.type}` : null,
     args.locale ? `Locale: ${localeLabel}` : null,
     `Max results: ${clampMaxResults(args.maxResults)}`,
     '',
@@ -326,7 +313,6 @@ function normalizeNativeWebSearchPayload(result, args, startedAt) {
       usage: result?.usage || null,
       results,
       warnings,
-      type: cacheArgs.type,
       site: cacheArgs.site,
       locale: cacheArgs.locale,
     },
@@ -360,12 +346,7 @@ async function _webSearchCore(args, { cacheState, nativeWebSearch, signal }) {
         signal: controller.signal,
       });
       const payload = normalizeNativeWebSearchPayload(result, { ...args, ...cacheArgs }, startedAt);
-      const cachedEntry = setCachedEntry(
-        cacheState,
-        webSearchCacheKey,
-        payload,
-        getWebSearchCacheTtlMs(cacheArgs.type)
-      );
+      const cachedEntry = setCachedEntry(cacheState, webSearchCacheKey, payload, WEB_SEARCH_CACHE_TTL_MS);
       flushCacheState();
       return { ...payload, cache: buildCacheMeta(cachedEntry, false) };
     }

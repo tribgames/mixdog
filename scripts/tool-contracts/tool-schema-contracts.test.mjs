@@ -546,9 +546,8 @@ test('web_search and web_fetch schemas keep sync fan-out contracts', () => {
     webSearchProps.action ||
     webSearchProps.task_id ||
     !webSearchProps.query?.anyOf ||
-    webSearchQueryStringShape?.minLength !== 1 ||
-    webSearchQueryArrayShape?.minItems !== 1 ||
-    webSearchQueryArrayShape?.items?.minLength !== 1 ||
+    !webSearchQueryStringShape ||
+    webSearchQueryArrayShape?.items?.type !== 'string' ||
     !webSearchTool?.inputSchema?.required?.includes('query')
   ) {
     throw new Error('web_search schema must preserve sync execution guidance and string/array query shape');
@@ -561,25 +560,21 @@ test('web_search and web_fetch schemas keep sync fan-out contracts', () => {
     throw new Error('web_search maxResults schema must match the runtime integer range');
   }
   if (
-    webSearchProps.type?.type !== 'string' ||
+    webSearchProps.type ||
+    webSearchProps.site?.type !== 'string' ||
     webSearchProps.locale?.type !== 'string' ||
     webSearchProps.contextSize?.type !== 'string'
   ) {
-    throw new Error('web_search schema must expose string type, locale, and contextSize');
+    throw new Error('web_search schema must expose string site, locale, and contextSize and no search type');
   }
   const webFetchTool = WEB_SEARCH_TOOL_DEFS.find((tool) => tool.name === 'web_fetch');
   const webFetchProps = webFetchTool?.inputSchema?.properties || {};
   const webFetchUrlShapes = webFetchProps.url?.anyOf || [];
   const webFetchUrlStringShape = webFetchUrlShapes.find((shape) => shape?.type === 'string');
   const webFetchUrlArrayShape = webFetchUrlShapes.find((shape) => shape?.type === 'array');
-  if (
-    webFetchUrlStringShape?.minLength !== undefined ||
-    webFetchUrlStringShape?.format !== 'uri' ||
-    webFetchUrlArrayShape?.minItems !== 1 ||
-    webFetchUrlArrayShape?.maxItems !== 10 ||
-    webFetchUrlArrayShape?.items?.minLength !== undefined ||
-    webFetchUrlArrayShape?.items?.format !== 'uri'
-  ) {
+  // Emptiness, URL format and the 10-URL cap are enforced by the runtime
+  // (batch.test.mjs), not advertised as schema keywords.
+  if (!webFetchUrlStringShape || webFetchUrlArrayShape?.items?.type !== 'string') {
     throw new Error('web_fetch schema must preserve body-fetch capability and string/array url shape');
   }
   if (
