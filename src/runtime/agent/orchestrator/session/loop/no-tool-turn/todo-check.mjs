@@ -63,7 +63,7 @@ export function todoStartReminder(session) {
   if (openTodoItems(session).length) return null;
   return [
     '<system-reminder>',
-    'If this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; a single step or a plain answer needs none. Do not mention this reminder.',
+    'If this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; each item the brief lists is its own todo item, never folded into one. A single step or a plain answer needs none. Do not mention this reminder.',
     '</system-reminder>',
   ].join('\n');
 }
