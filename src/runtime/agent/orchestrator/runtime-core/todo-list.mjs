@@ -5,6 +5,7 @@
 //
 // Every mutation replaces `session.todo` with a new object: the published
 // snapshot is memoized by that identity, and change listeners republish it.
+import { emitSessionActivityChange } from '../../../shared/session-activity-signal.mjs';
 import { MAX_TODO_ITEMS, MAX_TODO_TEXT_LENGTH, TODO_OPS, TODO_STATUSES } from './todo-tool-defs.mjs';
 
 export const DEFAULT_TODO_PHASE = 'Tasks';
@@ -133,6 +134,8 @@ function commitPhases(session, phases, at = Date.now()) {
 }
 
 function publish(session) {
+  // The Agents pool shows each agent's progress: it re-reads on this pulse.
+  emitSessionActivityChange(session.id || '');
   for (const listener of [...listeners]) {
     try {
       listener({ sessionId: session.id || null, todo: todoSnapshot(session) });

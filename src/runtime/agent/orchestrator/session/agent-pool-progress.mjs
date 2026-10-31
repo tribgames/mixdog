@@ -4,6 +4,22 @@
 // only — nothing here reads or changes the watchdog's abort policy.
 import { displayProgressStage, lastProgressAt } from '../../../shared/quiet-progress.mjs';
 import { resolveAgentStallThresholds } from '../stall-policy.mjs';
+import { todoProgress } from '../runtime-core/todo-list.mjs';
+
+/** `rows` with each agent's todo progress taken from its live session when
+ *  this process holds one: the list changes before the session is saved, and
+ *  the stored copy lags. A live session is authoritative, so one without a
+ *  list (cleared) drops the row's stored `todo`; rows with no live session
+ *  keep the stored one. */
+export function withLiveTodo(rows, liveSession) {
+  return rows.map((row) => {
+    const live = row?.sessionId ? liveSession(row.sessionId) : null;
+    if (!live) return row;
+    const { todo: _stored, ...rest } = row;
+    const todo = todoProgress(live);
+    return todo ? { ...rest, todo } : rest;
+  });
+}
 
 /** `rows` with progress fields on every row `runtimeEntry(sessionId)` reports
  *  in flight. `awaitingTask` marks a row whose agent waits on its background

@@ -154,6 +154,50 @@ test('an agent report carries its Not done list whether it succeeded, failed or 
   }
 });
 
+test('a todo change pulses session activity so the Agents pool re-reads', async () => {
+  const { onSessionActivityChange } = await import('../../../shared/session-activity-signal.mjs');
+  const pulses = [];
+  const off = onSessionActivityChange((sessionId) => pulses.push(sessionId));
+  try {
+    const session = { id: 'sess_todo_pulse' };
+    executeTodoTool(session, { op: 'init', items: ['One', 'Two'] });
+    executeTodoTool(session, { op: 'done', item: 'One' });
+    assert.deepEqual(pulses, ['sess_todo_pulse', 'sess_todo_pulse']);
+  } finally {
+    off();
+  }
+});
+
+test('pool rows take the live session todo over the stored one', async () => {
+  const { withLiveTodo } = await import('../session/agent-pool-progress.mjs');
+  const worker = { id: 'sess_pool_live' };
+  executeTodoTool(worker, { op: 'init', items: ['A', 'B', 'C'] });
+  executeTodoTool(worker, { op: 'done', item: 'A' });
+  executeTodoTool(worker, { op: 'drop', item: 'C' });
+  const rows = [
+    { sessionId: worker.id, todo: { completed: 0, total: 3 } },
+    { sessionId: 'sess_cold', todo: { completed: 3, total: 3 } },
+    { sessionId: 'sess_none' },
+  ];
+  const out = withLiveTodo(rows, (id) => (id === worker.id ? worker : undefined));
+  assert.deepEqual(out[0].todo, { completed: 1, total: 2, current: 'B' });
+  assert.equal(out[1], rows[1]);
+  assert.equal(out[2], rows[2]);
+});
+
+test('a live session whose list was cleared drops the stored pool todo', async () => {
+  const { withLiveTodo } = await import('../session/agent-pool-progress.mjs');
+  const { clearTodo } = await import('./todo-list.mjs');
+  const worker = { id: 'sess_pool_cleared' };
+  executeTodoTool(worker, { op: 'init', items: ['One', 'Two'] });
+  clearTodo(worker);
+  const stored = { sessionId: worker.id, status: 'running', todo: { completed: 0, total: 2, current: 'One' } };
+  const [row] = withLiveTodo([stored], () => worker);
+  assert.equal('todo' in row, false);
+  assert.equal(row.status, 'running');
+  assert.deepEqual(withLiveTodo([stored], () => undefined)[0], stored);
+});
+
 test('agent status rows carry the live agent session todo progress', async () => {
   const { liveAgentStatusRow } = await import(
     '../../../../session-runtime/services/agent-tool/job-views/session-progress.mjs'
