@@ -33,7 +33,11 @@ export function createWorktreeMaintenance({
    * desktop list (DesktopManagedWorktreeRow, a branch per row) never gets them.
    */
   async function listWorktrees({ includeSnapshots = false, details = false } = {}) {
-    const rows = await maintenance.listWorktreesWithRetention({ ...(await maintenanceScope()), details });
+    const rows = await maintenance.listWorktreesWithRetention({
+      ...(await maintenanceScope()),
+      details,
+      settings: worktreeSettings(),
+    });
     return includeSnapshots ? rows : rows.filter((row) => row.kind !== WORKTREE_SNAPSHOT_KIND);
   }
 

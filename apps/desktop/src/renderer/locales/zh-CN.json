@@ -5836,6 +5836,7 @@
   "Example: {{name}}": "例如: {{name}}",
   "{{count}} unmerged commits": "{{count}} 个未合并的提交",
   "Merged · deleted at next cleanup": "已合并 · 下次清理时删除",
+  "Merged · will be cleaned up": "已合并 · 将被清理",
   "Merged · kept": "已合并 · 保留",
   "Delete worktree {{branch}}?\nIts folder is deleted.": "删除工作树 {{branch}}?\n其文件夹将被删除。",
   "Delete anyway?\n{{branch}} has uncommitted or unmerged work. Uncommitted changes are lost; its last commit stays under refs/mixdog/removed/{{id}}.": "仍要删除?\n{{branch}} 有未提交或未合并的工作。未提交的更改会丢失；最后一次提交保留在 refs/mixdog/removed/{{id}}。",

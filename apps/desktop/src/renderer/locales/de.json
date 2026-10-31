@@ -5902,6 +5902,7 @@
   "Example: {{name}}": "Beispiel: {{name}}",
   "{{count}} unmerged commits": "{{count}} nicht zusammengeführte Commits",
   "Merged · deleted at next cleanup": "Zusammengeführt · beim nächsten Aufräumen gelöscht",
+  "Merged · will be cleaned up": "Zusammengeführt · wird aufgeräumt",
   "Merged · kept": "Zusammengeführt · behalten",
   "Delete worktree {{branch}}?\nIts folder is deleted.": "Worktree {{branch}} löschen?\nSein Ordner wird gelöscht.",
   "Delete anyway?\n{{branch}} has uncommitted or unmerged work. Uncommitted changes are lost; its last commit stays under refs/mixdog/removed/{{id}}.": "Trotzdem löschen?\n{{branch}} enthält nicht committete oder nicht zusammengeführte Arbeit. Nicht committete Änderungen gehen verloren; der letzte Commit bleibt unter refs/mixdog/removed/{{id}}.",

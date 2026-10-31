@@ -6034,6 +6034,7 @@
   "Example: {{name}}": "Пример: {{name}}",
   "{{count}} unmerged commits": "Неслитых коммитов: {{count}}",
   "Merged · deleted at next cleanup": "Слито · удалится при следующей очистке",
+  "Merged · will be cleaned up": "Слито · будет очищено",
   "Merged · kept": "Слито · сохранено",
   "Delete worktree {{branch}}?\nIts folder is deleted.": "Удалить worktree {{branch}}?\nЕго папка будет удалена.",
   "Delete anyway?\n{{branch}} has uncommitted or unmerged work. Uncommitted changes are lost; its last commit stays under refs/mixdog/removed/{{id}}.": "Всё равно удалить?\nВ {{branch}} есть незакоммиченная или неслитая работа. Незакоммиченные изменения будут потеряны; последний коммит останется в refs/mixdog/removed/{{id}}.",

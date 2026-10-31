@@ -292,6 +292,8 @@ export interface DesktopManagedWorktreeRow extends DesktopRetainedWorktree {
   /** The owner session's title and archive flag, when known. */
   ownerTitle?: string | null;
   ownerArchived?: boolean;
+  /** Which automatic-cleanup limit would delete it (maintenance selection); null/absent: neither. */
+  cleanupReason?: 'count' | 'age' | null;
   /** Last activity (owner session or creation), epoch ms. */
   lastActiveAt?: number | null;
 }
