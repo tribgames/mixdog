@@ -1,4 +1,4 @@
-import { ChevronDown, ChevronRight, type FolderPlus, Plus, Star } from 'lucide-react';
+import { ChevronDown, ChevronRight, FolderGit2, type FolderPlus, GitBranch, Plus, Star } from 'lucide-react';
 import { AgentAvatar } from './agent-avatar';
 import type { AgentContact } from './agent-contacts-model';
 import { RoomAvatar } from './agent-room-parts';
@@ -882,6 +882,10 @@ function projectFolderGroup(
               sub.rows.map((session) => session.id),
               attentionOf
             );
+            // A branch prefix ("mixdog/") reads quieter than the name after it.
+            const cut = sub.label.lastIndexOf('/') + 1;
+            const prefix = sub.label.slice(0, cut);
+            const name = sub.label.slice(cut);
             return (
               <div className="project-subgroup" key={sub.key} data-worktree-id={sub.worktreeId || undefined}>
                 <button
@@ -891,8 +895,19 @@ function projectFolderGroup(
                   data-tooltip={sub.label}
                   onClick={() => onToggleProject(sub.key)}
                 >
+                  {/* The branch glyph sits in the folder icon's column (the
+                      project folder's branch, or a worktree as in the branch
+                      menu); its name and sessions share the folder name's line. */}
+                  {sub.worktreeId ? (
+                    <FolderGit2 size={16} className="project-subgroup-icon" aria-hidden="true" />
+                  ) : (
+                    <GitBranch size={16} className="project-subgroup-icon" aria-hidden="true" />
+                  )}
                   <span className="session-row-copy">
-                    <b>{sub.label}</b>
+                    <b>
+                      {prefix && <span className="project-subgroup-prefix">{prefix}</span>}
+                      {name}
+                    </b>
                   </span>
                   {subAttention === 'unread' && <SessionRowUnreadDot name={sub.label} />}
                   {subAttention && subAttention !== 'unread' && (
@@ -900,6 +915,7 @@ function projectFolderGroup(
                       <SessionRowStatusIcon status={subAttention} name={sub.label} />
                     </span>
                   )}
+                  {!subOpen && !subAttention && <span className="project-subgroup-count">{sub.rows.length}</span>}
                 </button>
                 {subOpen && (
                   <div className="project-subgroup-sessions">

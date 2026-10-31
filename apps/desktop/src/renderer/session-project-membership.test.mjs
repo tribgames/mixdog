@@ -277,8 +277,19 @@ test('a subgroup collapses on its own and pages with More', async (t) => {
   await act(async () => more.click());
   assert.equal(subIds(document, 'wt1').length, 7);
   assert.equal(subgroupEl(document, 'wt1').querySelector('.project-group-more'), null);
+  assert.equal(
+    subgroupEl(document, 'wt1').querySelector('.project-subgroup-count'),
+    null,
+    'an open subgroup shows no count'
+  );
   await act(async () => subgroupEl(document, 'wt1').querySelector('.project-subgroup-toggle').click());
   assert.deepEqual(subIds(document, 'wt1'), []);
+  assert.equal(subgroupEl(document, 'wt1').querySelector('.project-subgroup-count').textContent, '7');
+  assert.ok(
+    subgroupEl(document, 'wt1').querySelector('.project-subgroup-icon'),
+    'a worktree subgroup carries its icon'
+  );
+  assert.equal(subgroupEl(document, 'wt1').querySelector('.project-subgroup-prefix').textContent, 'feat/');
   assert.deepEqual(subIds(document, ''), ['m1'], 'the folder subgroup stays open');
   assert.equal(JSON.parse(window.localStorage.getItem('mixdog:session-sidebar-project-open'))[subKey('wt1')], false);
 });
