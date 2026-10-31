@@ -172,7 +172,7 @@ export function createSendFlow({
       handoffMsgStart = resolveHandoffMessageStartIndex(mgr.getSession(sessionId));
       const turnHooks = buildTurnHooks({ sessionId, notifyContext, job, turnReview, completionValue });
       const result = await runTurn(prepared, turnHooks);
-      // Early preview no longer suppresses the canonical body notification;
+      // The early preview does not suppress the canonical body notification;
       // notifyTaskCompletion fires once with output via resolve/reconcile.
       const finalValue = completionValue(result);
       if (job?.status === 'cancelled') {

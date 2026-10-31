@@ -194,8 +194,8 @@ export function createSpawnRunner({
           : {}),
       };
       const result = await runTurn(prepared, turnHooks);
-      // The early preview no longer promises body suppression, so the canonical
-      // notifyTaskCompletion is left to fire exactly once with output via the
+      // The early preview does not promise body suppression, so the canonical
+      // notifyTaskCompletion fires exactly once with output via the
       // resolve/reconcile/finally path.
       const finalValue = completionValue(result);
       if (job?.status === 'cancelled') {

@@ -46,9 +46,9 @@ export function createWebSearchRouteCandidates({
     await awaitKeychainPrewarm();
     const cfg = ensureFullConfig();
     // An unset webSearchRoute IS the default ("follow the Main Model") — the
-    // sidebar has always presented it that way. Materialize it here instead of
-    // treating a missing key as "not configured", which used to fail the search
-    // before the Main Model was ever consulted.
+    // sidebar presents it that way. Materialize it here instead of treating a
+    // missing key as "not configured", which would fail the search before the
+    // Main Model is consulted.
     const webSearchRoute = webSearchRouteOrDefault(cfg.webSearchRoute, getWebSearchRoute());
     setWebSearchRoute(webSearchRoute);
     const candidates = [];

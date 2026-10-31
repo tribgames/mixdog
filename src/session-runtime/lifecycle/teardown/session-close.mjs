@@ -35,10 +35,10 @@ export async function dispatchSessionEnd(deps, reason) {
   }
 }
 
-// Runtime stop/exit (TUI Ctrl-C, process exit) previously always tombstoned
-// the current session, so a session you were mid-conversation in vanished
-// from the Resume list the instant you quit and was hard-deleted by the 24h
-// tombstone sweep. Only tombstone truly-empty scratch sessions.
+// Runtime stop/exit (TUI Ctrl-C, process exit) must not tombstone a session
+// you were mid-conversation in: it would vanish from the Resume list the
+// instant you quit and be hard-deleted by the 24h tombstone sweep. Only
+// tombstone truly-empty scratch sessions.
 export function closeOwnSession(deps, closeSurfaceSession, reason) {
   const {
     getSession,

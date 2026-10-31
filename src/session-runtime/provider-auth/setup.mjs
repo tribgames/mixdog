@@ -48,7 +48,7 @@ export function createSetupApi({
         return cachedProviderSetup({ force: force || options?.recheckKeychain === true });
       }
       // An unforced read never blocks: the authoritative setup waits on the OS
-      // keychain, which can take seconds on a cold start and used to stall the
+      // keychain, which can take seconds on a cold start and would stall the
       // whole settings sweep behind it. Serve
       // the no-secrets snapshot until the real one is cached — flagged, so the
       // caller shows "checking" instead of a wrong "not connected" — and let the

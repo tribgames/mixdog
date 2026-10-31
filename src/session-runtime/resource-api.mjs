@@ -31,7 +31,7 @@ export function createResourceApi(deps) {
         throw new Error(`extension scope kind must be one of ${EXTENSION_SCOPE_KINDS.join(', ')}`);
       }
       // A connector is on in every project unless a project switches it off
-      // (setProjectConnectorEnabled); "only in this project" no longer exists.
+      // (setProjectConnectorEnabled); there is no "only in this project" scope.
       if (scopeKind === 'mcp') {
         throw new Error('MCP servers are switched off per project in Project settings (setProjectConnectorEnabled)');
       }
