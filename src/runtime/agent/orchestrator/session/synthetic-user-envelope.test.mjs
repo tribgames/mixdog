@@ -57,6 +57,20 @@ test('runtime control rows are classified and wrapped on the wire', () => {
   assert.equal(nudge.content.startsWith('[mixdog-runtime]'), true, 'stored row is untouched');
 });
 
+test('a process-restart marker reads as an app restart to resume from, not a user stop', () => {
+  const marker = { role: 'user', content: '[Request interrupted by process restart]' };
+  const wired = projectSyntheticUserEnvelopes([marker]).messages[0].content;
+  assert.ok(wired.startsWith(OPEN('runtime-control')));
+  assert.match(wired, /app restarted mid-turn\. Continue from where you left off/);
+  assert.doesNotMatch(wired, /Request interrupted/);
+  assert.equal(marker.content, '[Request interrupted by process restart]', 'stored row is untouched');
+  const cancel = { role: 'user', content: '[Request interrupted by user]' };
+  assert.equal(
+    projectSyntheticUserEnvelopes([cancel]).messages[0].content,
+    `${OPEN('runtime-control')}${cancel.content}${CLOSE}`
+  );
+});
+
 test('stacked Goal and clock reminders are runtime context, without hiding intervening human instructions', () => {
   const goal = '<system-reminder>\n# Active Goal\nContinue approved work.\n</system-reminder>';
   const clock = '<system-reminder>\n# Current Time\n2026-09-13\n</system-reminder>';

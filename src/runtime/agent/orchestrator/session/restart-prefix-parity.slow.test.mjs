@@ -245,7 +245,7 @@ test('a turn killed with a request on the wire resumes on the whole prefix that 
   assert.ok(siblings.length > 0 && siblings.every((block) => block.type === 'text'), JSON.stringify(siblings));
   assert.match(
     siblings.map((block) => block.text).join('\n'),
-    /Request interrupted by process restart[\s\S]*third task/
+    /app restarted mid-turn\. Continue from where you left off[\s\S]*third task/
   );
   assert.ok(
     resumed.messages.slice(at + 1).every((next) => next.role !== 'user'),
