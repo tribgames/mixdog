@@ -13,6 +13,7 @@ import test from 'node:test';
 import {
   CONNECTOR_CATALOG,
   GMAIL_APP_PASSWORD,
+  connectorAccountId,
   connectorAccountServers,
   connectorAccountsUrl,
   connectorLiveAccountServers,
@@ -116,7 +117,23 @@ function harness(
     },
   });
   t.after(() => api.disposeGlobalExtensionSubscription());
-  return { api, glue, keychain, seen, config: () => config };
+  // `config()` reads the accounts without the random id each one is given
+  // when added (its identity); `storedConfig()` with it.
+  return { api, glue, keychain, seen, config: () => withoutAccountIds(config), storedConfig: () => config };
+}
+
+function withoutAccountIds(config) {
+  const servers = config?.mcpServers;
+  if (!servers) return config;
+  return {
+    ...config,
+    mcpServers: Object.fromEntries(
+      Object.entries(servers).map(([name, cfg]) => [
+        name,
+        Array.isArray(cfg?.accounts) ? { ...cfg, accounts: cfg.accounts.map(({ id: _id, ...account }) => account) } : cfg,
+      ])
+    ),
+  };
 }
 
 test('a verified app password goes to the keychain only; the config keeps the account', async (t) => {
@@ -1148,6 +1165,17 @@ test('every catalog connector holds several accounts in its one server; a second
     appPasswordAccount('gmail', EMAIL),
     appPasswordAccount('gmail-2', OTHER),
   ]);
+  // An edit of an account's transport (its address header) keeps its identity.
+  const gmailIds = h.storedConfig().mcpServers.gmail.accounts.map((account) => account.id);
+  await h.api.saveMcpServer({
+    ...gmailAppPasswordServerInput('gmail-2', 'third@gmail.com', OTHER_PASSWORD),
+    originalName: 'gmail-2',
+  });
+  assert.deepEqual(h.config().mcpServers.gmail.accounts[1], appPasswordAccount('gmail-2', 'third@gmail.com'));
+  assert.deepEqual(
+    h.storedConfig().mcpServers.gmail.accounts.map((account) => account.id),
+    gmailIds
+  );
   await assert.rejects(h.api.addConnectorAccount({ connector: 'gmail' }), /GMAIL_APP_PASSWORD_ADDRESS/);
   await assert.rejects(h.api.addConnectorAccount({ connector: 'stripe' }), /needs a key/);
   await assert.rejects(h.api.addConnectorAccount({ connector: 'nope' }), /Unknown connector/);
@@ -1163,16 +1191,25 @@ test('every catalog connector holds several accounts in its one server; a second
     ['notion', true],
     ['notion-2', false],
   ]);
-  const used = withConnectorAccountsMcp({
-    connector: 'notion',
-    accounts: ['notion', 'notion-2'].map((name) => ({
-      name,
-      email: '',
-      connect: async () => ({ instructions: '', tools: [] }),
-      callTool: async () => ({ content: [] }),
-      close() {},
-    })),
-  });
+  // The notion server's transport as client-transport.mjs builds it: each
+  // account carries its identity.
+  const transport = () => {
+    const stored = h.storedConfig().mcpServers.notion;
+    return withConnectorAccountsMcp({
+      connector: 'notion',
+      accounts: stored.accounts.map((account) => ({
+        name: account.name,
+        id: connectorAccountId(stored, account),
+        email: '',
+        connect: async () => ({ instructions: '', tools: [] }),
+        callTool: async () => ({ content: [] }),
+        close() {},
+      })),
+    });
+  };
+  const ids = h.storedConfig().mcpServers.notion.accounts.map((account) => account.id);
+  assert.ok(ids.every((id) => /^[0-9a-f-]{36}$/.test(id)) && ids[0] !== ids[1], 'each added account has its own id');
+  const used = transport();
   await used(connectorAccountsUrl('notion'), {
     method: 'POST',
     body: JSON.stringify({
@@ -1196,9 +1233,15 @@ test('every catalog connector holds several accounts in its one server; a second
   assert.deepEqual(rows(), [['notion', false]]);
   const added = await h.api.addConnectorAccount({ connector: 'notion' });
   assert.equal(added.account, 'notion-2');
+  assert.deepEqual(rows(), [
+    ['notion', false],
+    ['notion-2', false],
+  ]);
+  // The server reconnects with the new account under the old name.
+  const reconnected = transport();
   for (const conversation of ['conv-rows', 'conv-new']) {
     assert.throws(
-      () => used.connectorAccounts.choose({ tool: 'search', wanted: '', conversation }),
+      () => reconnected.connectorAccounts.choose({ tool: 'search', wanted: '', conversation }),
       /The Notion account used last \(notion-2 \(removed\)\) is not connected now/
     );
   }

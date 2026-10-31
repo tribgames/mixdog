@@ -11,17 +11,21 @@
 // conversation, else the connector's last-used account (connectorAccountInUse),
 // else the topmost connected account. A named or remembered account that is
 // switched off, removed or needs a sign-in fails the call with the usable
-// accounts listed; no other account ever stands in for it. A conversation's
+// accounts listed; no other account ever stands in for it, a new account
+// given a removed one's name included (a remembered account is bound to its
+// identity, not its name). A conversation's
 // call (`_meta[CONVERSATION_META]`) makes its account the last used, for the
 // conversation and the connector. Every result of a call made on an account,
 // errors included, says which account answered. A name binds a call to one
 // account; an address or label two accounts share binds none.
 // An account that fails stays listed with why (connectorAccountHealth); the
 // server only fails to start when no account can be used.
+import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { readJsonStateSync, updateJsonAtomicSync } from '../shared/atomic-file.mjs';
+import { readSection, updateSection } from '../shared/config.mjs';
 import { accountsOfInstructions, connectorAccountsInstructions } from '../shared/connector-accounts.mjs';
-import { connectorById } from '../shared/connector-catalog.mjs';
+import { connectorAccountsOf, connectorById, connectorOfServer } from '../shared/connector-catalog.mjs';
 import { resolvePluginData } from '../shared/plugin-paths.mjs';
 
 const PROTOCOL_VERSION = '2025-06-18';
@@ -49,8 +53,8 @@ export function forgetConnectorAccountHealth(name) {
 }
 
 // ── The last-used account ───────────────────────────────────────────────────
-// Per connector, in the data dir (every runtime reads the same one); per
-// conversation, in memory (the newest conversations kept).
+// Per connector and per conversation, in the data dir (every runtime and every
+// restart reads the same ones).
 const ACCOUNTS_IN_USE_FILE = 'connector-accounts-in-use.json';
 const inUseFile = () => join(resolvePluginData(), ACCOUNTS_IN_USE_FILE);
 const isRecord = (value) => Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -59,37 +63,146 @@ const validInUse = (value) => {
   return value;
 };
 
+// A remembered account is `{ name, id }`: the name it was called by and its
+// identity (connector-catalog.mjs connectorAccountId: the random id stored
+// with it). A name can be given to a new account once the old one is
+// removed; the identity cannot, so it binds the choice to the account.
+const readInUse = () => readJsonStateSync(inUseFile(), { validate: validInUse, fallback: {} });
+
+// Set in the accounts-in-use file once its name-only records (from before
+// identities) were bound to the accounts then under those names.
+const IDS_MIGRATED = '#ids';
+
+const hasId = (account) => typeof account?.id === 'string' && account.id !== '';
+const missingIds = (servers) =>
+  Object.values(isRecord(servers) ? servers : {}).some((cfg) => connectorAccountsOf(cfg).some((one) => !hasId(one)));
+
+/** Test seam: runs once the config lock that gave the ids is released, before
+ *  the binding (where another process's write may land). */
+export const accountIdsDeps = { afterIdsGiven: () => {} };
+
+/** `servers` with a random id given to every connector account stored
+ *  without one; null when every account has one. */
+function withAccountIds(servers) {
+  if (!missingIds(servers)) return null;
+  return Object.fromEntries(
+    Object.entries(servers).map(([name, cfg]) => {
+      if (!connectorAccountsOf(cfg).some((one) => !hasId(one))) return [name, cfg];
+      const accounts = cfg.accounts.map((account) =>
+        isRecord(account) && !hasId(account) ? { ...account, id: randomUUID() } : account
+      );
+      return [name, { ...cfg, accounts }];
+    })
+  );
+}
+
+/**
+ * Every stored connector account gets an identity, once, at every start and
+ * after a config change (an account written by hand has none). All under the
+ * accounts-in-use file's lock, so concurrent runs (processes, runtimes) and
+ * choices serialize: the config is changed only where an id is missing (an id
+ * once given is never replaced), and the first run also binds each name-only
+ * record (from before identities) to the account then under that name, which
+ * is where such a record routed until now, and marks that done. A name-only
+ * record found afterwards stays unbound (it fails closed). Records already
+ * holding an identity are never touched. True when it changed the config.
+ *
+ * The binding uses the accounts exactly as the ids were given or confirmed:
+ * the config is re-read nowhere after that, so an account replaced under the
+ * same name meanwhile (by another process) is never the one bound; it fails
+ * the identity check instead.
+ */
+export function ensureConnectorAccountIds() {
+  let changed = false;
+  updateJsonAtomicSync(inUseFile(), (current) => {
+    const stored = isRecord(current) ? current : {};
+    // The stored servers whose ids the binding below uses.
+    let snapshot = readSection('agent')?.mcpServers;
+    if (missingIds(snapshot)) {
+      updateSection('agent', (agent) => {
+        const servers = withAccountIds(agent.mcpServers);
+        snapshot = servers ?? agent.mcpServers;
+        if (!servers) return agent;
+        changed = true;
+        return { ...agent, mcpServers: servers };
+      });
+      accountIdsDeps.afterIdsGiven();
+    }
+    if (stored[IDS_MIGRATED]) return undefined;
+    const servers = Object.values(isRecord(snapshot) ? snapshot : {});
+    const next = { ...stored, [IDS_MIGRATED]: true };
+    for (const [connector, name] of Object.entries(stored)) {
+      if (typeof name !== 'string' || !name) continue;
+      const cfg = servers.find((one) => connectorOfServer(one) === connector && connectorAccountsOf(one).length);
+      const account = cfg && connectorAccountsOf(cfg).find((one) => one.name === name);
+      if (hasId(account)) next[connector] = { name, id: account.id };
+    }
+    return next;
+  });
+  return changed;
+}
+
+/** The account catalog connector `connector` used last, null when none was
+ *  recorded. A name-only record (from before identities, unbound) has an
+ *  empty `id`. */
+export function connectorAccountInUseRecord(connector) {
+  const value = readInUse()[connector];
+  if (typeof value === 'string') return value ? { name: value, id: '' } : null;
+  if (!isRecord(value) || typeof value.name !== 'string' || !value.name) return null;
+  return { name: value.name, id: typeof value.id === 'string' ? value.id : '' };
+}
+
 /** The name of the account catalog connector `connector` used last, '' when
  *  none was recorded. */
 export function connectorAccountInUse(connector) {
-  const stored = readJsonStateSync(inUseFile(), { validate: validInUse, fallback: {} });
-  return typeof stored[connector] === 'string' ? stored[connector] : '';
+  return connectorAccountInUseRecord(connector)?.name || '';
 }
 
-function rememberAccountInUse(connector, name) {
-  if (connectorAccountInUse(connector) === name) return;
-  updateJsonAtomicSync(inUseFile(), (current) => ({ ...(isRecord(current) ? current : {}), [connector]: name }));
+function rememberAccountInUse(connector, account) {
+  const current = connectorAccountInUseRecord(connector);
+  if (current?.name === account.name && current.id === account.id) return;
+  updateJsonAtomicSync(inUseFile(), (stored) => ({
+    ...(isRecord(stored) ? stored : {}),
+    [connector]: { name: account.name, id: account.id },
+  }));
 }
 
-const CONVERSATIONS_KEPT = 500;
-// conversation → (connector → account name), oldest first.
-const conversations = new Map();
+// Per conversation, in the data dir too, so a conversation resumed after a
+// restart keeps its own account: conversation (its session id) → { accounts:
+// (connector → { name, id }) }. A binding lives as long as its session: it is
+// dropped only when the session is deleted (forgetConversationConnectorAccounts,
+// a session purge hook), never to make room, so no live conversation falls
+// back to another conversation's choice.
+const CONVERSATION_ACCOUNTS_FILE = 'connector-accounts-by-conversation.json';
+const conversationsFile = () => join(resolvePluginData(), CONVERSATION_ACCOUNTS_FILE);
 
-/** Account `name` of `connector` was removed: wherever it is the last used it
- *  stays a removed account, so a call that would default to it keeps failing
- *  closed, even once a new account is given the same name. */
-export function retireConnectorAccount(connector, name) {
-  const removed = `${name} (removed)`;
-  for (const own of conversations.values()) if (own.get(connector) === name) own.set(connector, removed);
-  if (connectorAccountInUse(connector) === name) rememberAccountInUse(connector, removed);
+/** Drop the connector accounts conversation `conversation` used (its session
+ *  was deleted). */
+export function forgetConversationConnectorAccounts(conversation) {
+  const id = text(conversation);
+  if (!id || !Object.hasOwn(readJsonStateSync(conversationsFile(), { validate: validInUse, fallback: {} }), id)) return;
+  updateJsonAtomicSync(conversationsFile(), (stored) => {
+    const { [id]: _gone, ...rest } = isRecord(stored) ? stored : {};
+    return rest;
+  });
 }
 
-function rememberConversationAccount(conversation, connector, name) {
-  const own = conversations.get(conversation) || new Map();
-  conversations.delete(conversation);
-  own.set(connector, name);
-  conversations.set(conversation, own);
-  if (conversations.size > CONVERSATIONS_KEPT) conversations.delete(conversations.keys().next().value);
+/** The account conversation `conversation` used last on `connector`, or null. */
+function conversationAccount(conversation, connector) {
+  const own = readJsonStateSync(conversationsFile(), { validate: validInUse, fallback: {} })[conversation];
+  const value = isRecord(own?.accounts) ? own.accounts[connector] : null;
+  if (!isRecord(value) || typeof value.name !== 'string' || !value.name) return null;
+  return { name: value.name, id: typeof value.id === 'string' ? value.id : '' };
+}
+
+function rememberConversationAccount(conversation, connector, account) {
+  const current = conversationAccount(conversation, connector);
+  if (current?.name === account.name && current.id === account.id) return;
+  updateJsonAtomicSync(conversationsFile(), (stored) => {
+    const all = isRecord(stored) ? stored : {};
+    const accounts = isRecord(all[conversation]?.accounts) ? all[conversation].accounts : {};
+    return { ...all, [conversation]: { accounts: { ...accounts, [connector]: { name: account.name, id: account.id } } } };
+  });
 }
 
 const ACCOUNT_PROPERTY = Object.freeze({
@@ -146,7 +259,8 @@ const withAccountNote = (result, service, label) => ({
 
 /**
  * A `fetch` answering the accounts server of `connector` in-process. Each of
- * `accounts` is `{ name, email, connect(signal), callTool(params, { signal, onprogress }) }`:
+ * `accounts` is `{ name, id, email, connect(signal), callTool(params, { signal, onprogress }) }`
+ * (`id`: its identity, connector-catalog.mjs connectorAccountId):
  * `connect` resolves `{ instructions, tools }` of that account's own MCP
  * connection, `callTool` sends it one tools/call (reporting its progress to
  * `onprogress`, when given) and resolves the result; both
@@ -189,9 +303,23 @@ export function withConnectorAccountsMcp({ connector, accounts }) {
       [account] = matches;
     } else {
       const remembered =
-        (conversation && conversations.get(conversation)?.get(connector)) || connectorAccountInUse(connector);
-      account = remembered ? accounts.find((one) => one.name === remembered) : accounts[0];
-      if (!account) throw refuse(`The ${service} account used last (${remembered}) is not connected now.`);
+        (conversation && conversationAccount(conversation, connector)) || connectorAccountInUseRecord(connector);
+      if (remembered) {
+        account = accounts.find((one) => one.name === remembered.name);
+        // The name must still be the account it named: one removed and its
+        // name given to a new account, or a record without an identity (one
+        // ensureConnectorAccountIds did not bind, or an account picked before
+        // it had an id), fails closed until an account is picked again.
+        if (account && !remembered.id) {
+          throw refuse(`The ${service} account used last (${remembered.name}) cannot be confirmed as the same account.`);
+        }
+        if (account && account.id !== remembered.id) {
+          throw refuse(`The ${service} account used last (${remembered.name} (removed)) is not connected now.`);
+        }
+        if (!account) throw refuse(`The ${service} account used last (${remembered.name}) is not connected now.`);
+      } else {
+        account = accounts[0];
+      }
     }
     if (!usable(account)) throw refuse(`${labelOf(account)} needs a sign-in in Connectors.`);
     const has = toolsOf.get(account.name);
@@ -275,8 +403,8 @@ export function withConnectorAccountsMcp({ connector, accounts }) {
       try {
         account = choose({ tool: name, wanted, conversation });
         if (conversation) {
-          rememberConversationAccount(conversation, connector, account.name);
-          rememberAccountInUse(connector, account.name);
+          rememberConversationAccount(conversation, connector, account);
+          rememberAccountInUse(connector, account);
         }
       } catch (error) {
         return reply(errorResult(error?.message || String(error)));

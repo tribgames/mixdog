@@ -4,12 +4,13 @@
 import { clean } from '../../runtime/agent/orchestrator/runtime-core/session-text.mjs';
 import {
   connectorAccountEnabled,
+  connectorAccountId,
   connectorAccountServer,
   connectorAccountsOf,
   connectorOfServer,
   gmailAppPasswordAccount,
 } from '../../runtime/shared/connector-catalog.mjs';
-import { connectorAccountHealth, connectorAccountInUse } from '../../runtime/connectors/connector-accounts-mcp.mjs';
+import { connectorAccountHealth, connectorAccountInUseRecord } from '../../runtime/connectors/connector-accounts-mcp.mjs';
 import { googleOAuthClient } from '../../runtime/shared/google-oauth-client.mjs';
 import { envFlag } from '../../runtime/shared/env.mjs';
 import { resolveMcpServerCatalog } from './plugin-servers.mjs';
@@ -158,8 +159,15 @@ export function createMcpServerCatalog({
       const stored = entry.owner ? [] : connectorAccountsOf(cfg);
       // The connector's last-used account (none when that one was removed),
       // else its topmost switched-on one.
-      const recorded = stored.length ? connectorAccountInUse(connectorOfServer(cfg)) : '';
-      const inUse = recorded || stored.find(connectorAccountEnabled)?.name;
+      // A record names an account only while that account is still it (a new
+      // account given a removed one's name is not).
+      const record = stored.length ? connectorAccountInUseRecord(connectorOfServer(cfg)) : null;
+      const recorded = record
+        ? stored.find(
+            (account) => account.name === record.name && record.id && connectorAccountId(cfg, account) === record.id
+          )?.name
+        : '';
+      const inUse = record ? recorded : stored.find(connectorAccountEnabled)?.name;
       const accounts = stored.map((account) =>
         accountRow(connectorAccountServer(cfg, account), connectorAccountEnabled(account), account.name === inUse)
       );
