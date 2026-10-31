@@ -15,7 +15,8 @@ const pendingCount = (f, n) => waitUntil(() => f.pending.length === n, { message
 
 function fixture(t) {
   const dataDir = mkdtempSync(join(tmpdir(), 'goal-idle-lifecycle-'));
-  const runtime = createGoalRuntime({ dataDir, deadlineWarningMs: [] });
+  // The time-cap test fakes Date; a fake wall clock has no monotonic pair.
+  const runtime = createGoalRuntime({ dataDir, deadlineWarningMs: [], monotonicNow: null });
   const sessionId = 'goal-idle-lifecycle';
   const state = { sessionId, busy: true, commandBusy: false, goal: null };
   const pending = [];
@@ -132,7 +133,7 @@ test('a terminal compact error clears queued Goal work and remains blocked after
   assert.equal(f.controller.shouldRunGoalContinuation(queued), false);
 
   await f.runtime.close();
-  const restored = createGoalRuntime({ dataDir: f.dataDir });
+  const restored = createGoalRuntime({ dataDir: f.dataDir, monotonicNow: null });
   t.after(() => restored.close());
   assert.equal(restored.continuation(f.sessionId).reason, 'blocked');
   await restored.control(f.sessionId, { action: 'resume' });

@@ -44,12 +44,21 @@ export function createGoalDeadlines({
   // entry retired by armDeadline, and recording it again would leak.
   const observe = (id, at, goal) => {
     if (goal?.status !== 'active') return;
-    if (monotonicNow && suspendDetectable) anchors.set(id, { wall: at, mono: monotonicNow() });
+    const mono = suspendDetectable ? monotonicNow?.() : null;
+    if (mono == null) anchors.delete(id);
+    else anchors.set(id, { wall: at, mono });
   };
   const suspendedMs = (id, at) => {
     const anchor = anchors.get(id);
     if (!anchor) return 0;
-    const suspended = at - anchor.wall - (monotonicNow() - anchor.mono);
+    const mono = monotonicNow?.();
+    // No reading now: this interval has no evidence and is counted. The anchor
+    // goes too, or a later valid reading would discard time already counted.
+    if (mono == null) {
+      anchors.delete(id);
+      return 0;
+    }
+    const suspended = at - anchor.wall - (mono - anchor.mono);
     return suspended > MIN_SUSPEND_EVIDENCE_MS ? suspended : 0;
   };
   const dropSuspended = (id, goal, at) => discardSuspendedTime(goal, at, suspendedMs(id, at));

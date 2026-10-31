@@ -34,8 +34,9 @@ export { listStoredActiveGoalSessionIds, readStoredGoalSnapshot } from './goal-s
 export function createGoalRuntime({
   dataDir,
   now: injectedNow,
-  // Suspend evidence needs a monotonic clock paired with the wall clock; an
-  // injected `now` has no real pair, so a test supplies its own or none.
+  // Suspend evidence needs a monotonic clock paired with the wall clock. An
+  // injected `now` has no real pair, so a test supplies its own or none. A test
+  // that fakes `Date` must pass `monotonicNow: null` (undefined takes the default).
   monotonicNow = injectedNow ? null : () => performance.now(),
   suspendDetectable,
   defaultTimeLimitMs = DEFAULT_GOAL_TIME_LIMIT_MS,
