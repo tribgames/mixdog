@@ -222,7 +222,8 @@ test('the overlay follows the presented session composer when the previous one s
     region.className = 'composer-region';
     const card = document.createElement('form');
     card.className = 'composer';
-    const box = index === 0 ? { left: 300, top: 600, width: 700, height: 88 } : { left: 300, top: 640, width: 700, height: 48 };
+    const box =
+      index === 0 ? { left: 300, top: 600, width: 700, height: 88 } : { left: 300, top: 640, width: 700, height: 48 };
     card.getBoundingClientRect = () => box;
     region.append(card);
     host.append(region);
