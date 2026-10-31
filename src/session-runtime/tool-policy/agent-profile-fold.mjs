@@ -166,6 +166,7 @@ export function createAgentProfileFold({
   liveDeniedTools,
   stagePolicy,
   applyPolicy,
+  presentPromptSettings = () => {},
   turnInFlight,
 }) {
   // An agent profile edit that met a running turn: the next turn applies it.
@@ -190,6 +191,9 @@ export function createAgentProfileFold({
     // Late tools and MCP instructions join the rebuilt manifest: no notice.
     foldLateDeferredTools(session);
     rewriteConversationBp3Core(session, staged.core);
+    // Every prompt setting as it stands — style, profile, language, core
+    // memory, instruction files — so no part of the prompt contradicts another.
+    presentPromptSettings(session, staged);
     if (session.agentProfileRevision !== undefined) {
       session.agentProfileRevision = agentProfileRevision(identity.agent, { mixy: agentMode });
       const { leadPromptParts } = activeWorkflowContext(config, getDataDir());
@@ -214,7 +218,9 @@ export function createAgentProfileFold({
     // prompt they were created with; they are task-scoped, and their skill
     // bodies are still restored from current sources at Compact.
     if (!session?.id || !session.promptIdentity || isAgentOwner(session)) return false;
-    const compacted = COLD_INTENTS.has(session.pendingCacheBreakIntent);
+    // A compaction is a cold point: the prompt is rebuilt instead of the
+    // dropped notices being sent again (pre-send compaction marks it).
+    const compacted = COLD_INTENTS.has(session.pendingCacheBreakIntent) || session.compactionFoldPending === true;
     if (!compacted && !(foldPending(session) && cacheCold(session))) return false;
     return foldPrompt(session, PROMPT_FOLD_INTENT);
   }

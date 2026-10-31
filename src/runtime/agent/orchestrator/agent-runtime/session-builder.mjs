@@ -28,6 +28,9 @@ import {
   stageToolAvailability,
 } from '../runtime-core/tool-availability.mjs';
 import { COMPACTION_CONFIG_KEYS } from '../runtime-core/compaction-config-keys.mjs';
+import { stagePromptSettingsNotice } from '../session/manager/prompt-settings.mjs';
+import { loadInstructionFilesContext } from '../context/instruction-files.mjs';
+import { normalizeInstructionFilesMode } from '../../../shared/instruction-files-mode.mjs';
 import { finalizeSessionToolList, previewSessionTools } from '../session/manager/tool-resolution.mjs';
 
 function normalizeAgentCompactionConfig(value = {}) {
@@ -178,6 +181,17 @@ export function reconcileAgentSession(session) {
     session.compaction = { ...own, ...normalizeAgentCompactionConfig(cfg.compaction) };
   }
   const connectors = stageConnectorAvailability(session);
+  // The prompt settings a delegated worker's prompt carries: its instruction
+  // files (the rest are a Lead's). Told once, like a session runtime's turn start.
+  if (session.promptSettings && session.skipInstructionFiles !== true && session.cwd) {
+    const toolFree = Array.isArray(session.schemaAllowedTools) && session.schemaAllowedTools.length === 0;
+    const skip = toolFree || session.promptIdentity?.profileSkip?.claudemd;
+    stagePromptSettingsNotice(session, {
+      only: ['instructionFiles'],
+      instructionFiles: skip ? '' : loadInstructionFilesContext({ mode: cfg?.instructionFiles, cwd: session.cwd }),
+      instructionFilesMode: normalizeInstructionFilesMode(cfg?.instructionFiles),
+    });
+  }
   const tools = stageToolAvailability(session, liveFeatureDisallowedTools(cfg), (names) =>
     finalizeSessionToolList(
       previewSessionTools('full', [], {

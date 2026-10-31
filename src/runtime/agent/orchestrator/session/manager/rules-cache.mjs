@@ -183,7 +183,12 @@ export function promptRulesRevision() {
   return hash.digest('hex').slice(0, 24);
 }
 
-export function _buildLeadMetaContext({ includeOutputStyle = true } = {}) {
+// `config`: the prompt settings slice of the runtime's in-memory config
+// (prompt-settings.mjs promptConfigSlice); it keys the cache. Without it the
+// builders read the config file.
+const configVariant = (config) => (config ? JSON.stringify(config) : 'disk');
+
+export function _buildLeadMetaContext({ includeOutputStyle = true, config = null } = {}) {
   const PLUGIN_ROOT = mixdogRoot();
   const DATA_DIR = resolvePluginData();
   const RULES_DIR = join(PLUGIN_ROOT, 'rules');
@@ -196,8 +201,8 @@ export function _buildLeadMetaContext({ includeOutputStyle = true } = {}) {
       join(PLUGIN_ROOT, 'output-styles'),
       join(DATA_DIR, 'output-styles'),
     ],
-    { PLUGIN_ROOT, DATA_DIR, includeOutputStyle },
-    includeOutputStyle ? 'style' : 'no-style'
+    { PLUGIN_ROOT, DATA_DIR, CONFIG: config, includeOutputStyle },
+    `${includeOutputStyle ? 'style' : 'no-style'}\n${configVariant(config)}`
   );
 }
 
@@ -206,21 +211,25 @@ export function _buildLeadMetaContext({ includeOutputStyle = true } = {}) {
 // rules-builder.cjs buildLeadLanguageContent).
 // The configured response language as {id, name}, or null (a rule's `language`
 // condition compares the id; its text's {language} is the name).
-export function _buildLeadLanguage() {
+export function _buildLeadLanguage({ config = null } = {}) {
   const DATA_DIR = resolvePluginData();
-  return buildCachedRules('buildLeadLanguage', 'lead language', [join(DATA_DIR, 'mixdog-config.json')], {
-    DATA_DIR,
-  });
+  return buildCachedRules(
+    'buildLeadLanguage',
+    'lead language',
+    [join(DATA_DIR, 'mixdog-config.json')],
+    { DATA_DIR, CONFIG: config },
+    configVariant(config)
+  );
 }
 
-export function _buildLeadLanguageContext({ includeOutputStyle = true } = {}) {
+export function _buildLeadLanguageContext({ includeOutputStyle = true, config = null } = {}) {
   const PLUGIN_ROOT = mixdogRoot();
   const DATA_DIR = resolvePluginData();
   return buildCachedRules(
     'buildLeadLanguageContent',
     'lead language context',
     [join(DATA_DIR, 'mixdog-config.json'), join(PLUGIN_ROOT, 'output-styles'), join(DATA_DIR, 'output-styles')],
-    { PLUGIN_ROOT, DATA_DIR, includeOutputStyle },
-    includeOutputStyle ? 'style' : 'no-style'
+    { PLUGIN_ROOT, DATA_DIR, CONFIG: config, includeOutputStyle },
+    `${includeOutputStyle ? 'style' : 'no-style'}\n${configVariant(config)}`
   );
 }

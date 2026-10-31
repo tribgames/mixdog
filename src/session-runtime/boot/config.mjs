@@ -26,6 +26,7 @@ export async function resolveConfig(boot) {
   } = resolveInitialConfigState({
     initialConfig: params.initialConfig,
     loadConfig: () => cfgMod.loadConfig({ secrets: false }),
+    readStoredOutputStyle: () => sharedCfgMod.readConfig?.()?.outputStyle,
     resolveRoute,
     provider: params.provider,
     model: params.model,

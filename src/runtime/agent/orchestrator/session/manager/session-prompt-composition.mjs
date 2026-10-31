@@ -4,6 +4,8 @@
 // carry all four to the provider with their cache tiers.
 import { buildSkillManifest, composeSystemPrompt } from '../../context/collect.mjs';
 import { configuredInstructionFilesMode, loadInstructionFilesContext } from '../../context/instruction-files.mjs';
+import { normalizeInstructionFilesMode } from '../../../../shared/instruction-files-mode.mjs';
+import { promptConfigSlice, promptSettingsRecord } from './prompt-settings.mjs';
 import { agentModeIdentityLine } from '../../context/role-instructions.mjs';
 import { AGENT_MODE, sessionModeOf } from '../agent-mode.mjs';
 import { MIXY_AGENT_ID } from '../agent-home.mjs';
@@ -13,6 +15,7 @@ import {
   _buildAgentModeRules,
   _buildLeadRules,
   _buildLeadMetaContext,
+  _buildLeadLanguage,
   _buildLeadLanguageContext,
 } from './rules-cache.mjs';
 import {
@@ -88,7 +91,7 @@ function buildShellEnvironmentContext(opts, ownerIsAgent, toolsForRouting, sessi
  * none.
  * @returns {{ environmentContext: string|undefined, instructionFilesContext: string|undefined }}
  */
-export function buildWorkspacePromptContext(session, cwd) {
+export function buildWorkspacePromptContext(session, cwd, { instructionFilesMode } = {}) {
   const ownerIsAgent = session?.owner === 'agent';
   const toolFreeRole =
     ownerIsAgent && Array.isArray(session?.schemaAllowedTools) && session.schemaAllowedTools.length === 0;
@@ -103,7 +106,14 @@ export function buildWorkspacePromptContext(session, cwd) {
     instructionFilesContext:
       session?.skipInstructionFiles === true || sessionModeOf(session) === AGENT_MODE
         ? undefined
-        : loadInstructionFilesContext({ mode: configuredInstructionFilesMode(), cwd }),
+        : loadInstructionFilesContext({
+            // A session runtime passes its in-memory setting; others read the file.
+            mode:
+              instructionFilesMode === undefined
+                ? configuredInstructionFilesMode()
+                : normalizeInstructionFilesMode(instructionFilesMode),
+            cwd,
+          }),
   };
 }
 
@@ -184,10 +194,13 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
     sessionMode,
   });
   const leadOnly = !skipAgentRules && !ownerIsAgent;
-  const metaContext = leadOnly ? _buildLeadMetaContext({ includeOutputStyle: !agentMode }) : '';
+  // The runtime's in-memory settings (a session runtime passes its config;
+  // other callers read the config file).
+  const config = promptConfigSlice(opts.promptConfig);
+  const metaContext = leadOnly ? _buildLeadMetaContext({ includeOutputStyle: !agentMode, config }) : '';
   // Lead-only response language; closes the environment block so no English
   // system text (session/shell/git lines) follows it.
-  const languageContext = leadOnly ? _buildLeadLanguageContext({ includeOutputStyle: !agentMode }) : '';
+  const languageContext = leadOnly ? _buildLeadLanguageContext({ includeOutputStyle: !agentMode, config }) : '';
   // Cwd, shell and repository facts only serve tool calls; a tool-free role
   // gets none, which also keeps its prompt identical across projects.
   const shellEnvironmentContext = toolFreeRole
@@ -203,7 +216,10 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
   const instructionFilesContext =
     toolFreeRole || profile?.skip?.claudemd || agentMode
       ? ''
-      : loadInstructionFilesContext({ mode: configuredInstructionFilesMode(), cwd: opts.cwd });
+      : loadInstructionFilesContext({
+          mode: config ? normalizeInstructionFilesMode(config.instructionFiles) : configuredInstructionFilesMode(),
+          cwd: opts.cwd,
+        });
   const composed = composeSystemPrompt({
     ...roleFields,
     agentRules: injectedRules || undefined,
@@ -218,7 +234,18 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
     environmentContext: shellEnvironmentContext,
     provider: providerName || null,
   });
-  return { ...composed, environmentTailContext, promptIdentity };
+  // What the prompt presents of the prompt settings (prompt-settings.mjs).
+  const promptSettings = promptSettingsRecord({
+    meta: metaContext,
+    workflow: opts.workflowContext || '',
+    skills: buildSkillManifest(skills),
+    language: languageContext,
+    instructionFiles: profile?.skip?.claudemd ? '' : instructionFilesContext,
+    coreMemory: profile?.skip?.memory ? '' : opts.coreMemoryContext || '',
+    instructionFilesMode: config ? normalizeInstructionFilesMode(config.instructionFiles) : configuredInstructionFilesMode(),
+  });
+  const responseLanguage = leadOnly ? _buildLeadLanguage({ config }) || null : null;
+  return { ...composed, environmentTailContext, promptIdentity, promptSettings, responseLanguage };
 }
 
 // 4-BP layout (see composeSystemPrompt docs):

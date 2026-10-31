@@ -85,7 +85,7 @@ export function createTurnRunner(deps) {
           // The agents enabled now (coding Leads), asked for each user turn
           // the ask prepares, for its agent list reminder
           // (manager/agent-listing-notice.mjs).
-          { ...callbacks, agentsNow: currentAgents }
+          { ...callbacks, agentsNow: currentAgents, agentConfig: getConfig }
         );
       } finally {
         releaseWebSearchUsage?.();

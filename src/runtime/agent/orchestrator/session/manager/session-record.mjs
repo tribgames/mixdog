@@ -168,6 +168,8 @@ export function buildSessionRecord({ opts, route, presetObj, surface, prompt, me
     sessionMode: opts.sessionMode,
     bp3CoreContext: prompt.sessionMarkerCore,
     promptIdentity: prompt.promptIdentity,
+    ...(prompt.promptSettings ? { promptSettings: prompt.promptSettings } : {}),
+    ...(prompt.responseLanguage !== undefined ? { responseLanguage: prompt.responseLanguage } : {}),
     callerDisallowedTools: [...(opts.callerDisallowedTools ?? opts.disallowedTools ?? [])],
     bp3EnvironmentContext: prompt.environmentTailContext,
     // BP3 core and the volatile environment live in SEPARATE system

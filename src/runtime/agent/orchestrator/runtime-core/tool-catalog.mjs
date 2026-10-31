@@ -4,6 +4,7 @@
 import { createHash } from 'node:crypto';
 import { clean } from './session-text.mjs';
 import { dropPendingDeferredToolAdds, mergePendingDeferredToolDelta } from './deferred-tool-delta.mjs';
+import { isAgentOwner } from '../agent-owner.mjs';
 import { applyInitialDeferredToolManifestToBp2 } from '../context/collect.mjs';
 import {
   listedDeferredToolNames,
@@ -786,10 +787,15 @@ function reconcileDeferredMcpToolCatalogUncached(session, liveMcpTools) {
  * connected tool the boot manifest never listed and the session has not loaded
  * or discovered rides the next real prompt as one more delta, acknowledged
  * only once the provider accepts that turn.
+ * Only a session whose prompt is never rebuilt at a cold point (a delegated
+ * worker, or a prompt without a recorded identity) is re-armed, by name; any
+ * other session folds its late tools into the rebuilt manifest instead
+ * (foldLateDeferredTools).
  * Returns the re-armed names, or null when there are none.
  */
 export function rearmLateDeferredTools(session) {
   if (!session || !Array.isArray(session.tools) || fixedSurfaceSession(session)) return null;
+  if (session.promptIdentity && !isAgentOwner(session)) return null;
   if (!Array.isArray(session.deferredAnnouncedTools)) return null;
   // Listed in the boot manifest, or already loaded/discovered: still visible.
   const listed = new Set([...session.deferredAnnouncedTools, ...persistentToolSurfaceNames(session)]);

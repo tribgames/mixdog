@@ -65,7 +65,10 @@ function readMarkdownDirectory(dirPath) {
   }
 }
 
-function readUnifiedConfig(dataDir) {
+// `config`: the runtime's in-memory config (adopted at once; the disk copy
+// trails it by a debounce). Without it the file is read.
+function readUnifiedConfig(dataDir, config) {
+  if (config && typeof config === 'object') return config;
   try {
     const unified = JSON.parse(fs.readFileSync(path.join(dataDir, 'mixdog-config.json'), 'utf8'));
     return unified && typeof unified === 'object' ? unified : {};
@@ -73,8 +76,8 @@ function readUnifiedConfig(dataDir) {
   return {};
 }
 
-function readAgentConfig(dataDir) {
-  const unified = readUnifiedConfig(dataDir);
+function readAgentConfig(dataDir, config) {
+  const unified = readUnifiedConfig(dataDir, config);
   return unified.agent && typeof unified.agent === 'object' ? unified.agent : unified;
 }
 
@@ -106,8 +109,8 @@ function profileLanguagePrompt(language) {
   return { id, prompt, source: 'system-locale', locale };
 }
 
-function buildProfilePreferencesContent(dataDir) {
-  const profile = normalizeProfileConfig(readAgentConfig(dataDir).profile);
+function buildProfilePreferencesContent(dataDir, config) {
+  const profile = normalizeProfileConfig(readAgentConfig(dataDir, config).profile);
   const lines = [];
   if (profile.title) {
     lines.push(
@@ -128,8 +131,8 @@ function buildProfilePreferencesContent(dataDir) {
 // `sharedFormatActive`: the prompt carries the shared Output Format partial,
 // which already keeps literals verbatim (common.md), so the language block
 // need not repeat it.
-function buildLanguageSection(dataDir, sharedFormatActive = false) {
-  const profile = normalizeProfileConfig(readAgentConfig(dataDir).profile);
+function buildLanguageSection(dataDir, sharedFormatActive = false, config) {
+  const profile = normalizeProfileConfig(readAgentConfig(dataDir, config).profile);
   const language = profileLanguagePrompt(profile.language);
   if (!language?.prompt) return '';
   const lines = [
@@ -257,10 +260,10 @@ function readSharedFormatPartial({ PLUGIN_ROOT, DATA_DIR }) {
   );
 }
 
-function resolveOutputStyle({ PLUGIN_ROOT, DATA_DIR }) {
+function resolveOutputStyle({ PLUGIN_ROOT, DATA_DIR, CONFIG }) {
   // Root `outputStyle` is the only configured location; the retired
   // `agent.outputStyle` key is dropped by config canonicalization.
-  const configured = String(readUnifiedConfig(DATA_DIR).outputStyle || '').trim() || DEFAULT_OUTPUT_STYLE_ID;
+  const configured = String(readUnifiedConfig(DATA_DIR, CONFIG).outputStyle || '').trim() || DEFAULT_OUTPUT_STYLE_ID;
   const styles = listOutputStyleEntries({ PLUGIN_ROOT, DATA_DIR });
   const style = matchOutputStyle(configured, styles) || matchOutputStyle(DEFAULT_OUTPUT_STYLE_ID, styles) || styles[0];
   if (!style) return null;
@@ -432,10 +435,10 @@ function buildAgentModeContent({ PLUGIN_ROOT, part = 'conduct' }) {
   return body ? `${heading}${body}` : '';
 }
 
-function buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR, includeOutputStyle = true }) {
+function buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR, CONFIG, includeOutputStyle = true }) {
   const parts = [];
 
-  const profilePreferences = buildProfilePreferencesContent(DATA_DIR);
+  const profilePreferences = buildProfilePreferencesContent(DATA_DIR, CONFIG);
   if (profilePreferences) parts.push(profilePreferences);
 
   // The response-language section is NOT part of meta: it closes the session
@@ -444,7 +447,7 @@ function buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR, includeOutputStyle = true
   // first reply.
 
   // Agent mode answers by AGENT_MODE.md alone; the coding Output Style stays out.
-  const outputStyle = includeOutputStyle ? loadOutputStyle({ PLUGIN_ROOT, DATA_DIR }) : '';
+  const outputStyle = includeOutputStyle ? loadOutputStyle({ PLUGIN_ROOT, DATA_DIR, CONFIG }) : '';
   if (outputStyle) parts.push(outputStyle);
 
   return parts.join('\n\n');
@@ -457,17 +460,17 @@ function buildLeadMetaContent({ PLUGIN_ROOT, DATA_DIR, includeOutputStyle = true
  * preamble and progress lines follow the most recent instruction, so nothing
  * English (session/shell/git lines included) may trail it.
  */
-function buildLeadLanguageContent({ PLUGIN_ROOT, DATA_DIR, includeOutputStyle = true }) {
-  const resolved = includeOutputStyle ? resolveOutputStyle({ PLUGIN_ROOT, DATA_DIR }) : null;
+function buildLeadLanguageContent({ PLUGIN_ROOT, DATA_DIR, CONFIG, includeOutputStyle = true }) {
+  const resolved = includeOutputStyle ? resolveOutputStyle({ PLUGIN_ROOT, DATA_DIR, CONFIG }) : null;
   // Only the shipped partial is known to keep literals verbatim; a user
   // override of common.md may not, so it keeps the language guard.
   const shipped = stripFrontmatter(readOptional(path.join(PLUGIN_ROOT, 'output-styles', 'common.md')));
-  return buildLanguageSection(DATA_DIR, Boolean(shipped) && resolved?.common === shipped);
+  return buildLanguageSection(DATA_DIR, Boolean(shipped) && resolved?.common === shipped, CONFIG);
 }
 
 /** The configured response language as {id, name} (name = the language block's); null when none. */
-function buildLeadLanguage({ DATA_DIR }) {
-  const profile = normalizeProfileConfig(readAgentConfig(DATA_DIR).profile);
+function buildLeadLanguage({ DATA_DIR, CONFIG }) {
+  const profile = normalizeProfileConfig(readAgentConfig(DATA_DIR, CONFIG).profile);
   const language = profileLanguagePrompt(profile.language);
   return language?.prompt ? { id: language.id, name: language.prompt } : null;
 }

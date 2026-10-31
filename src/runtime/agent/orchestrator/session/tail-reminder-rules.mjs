@@ -119,7 +119,15 @@ export function matchTailReminder(context, rules = TAIL_REMINDER_RULES) {
 }
 
 /** `messages` plus the tail reminder for this request (a copy; the input is untouched). */
-export function withTailReminder(messages, { session, provider, model }, language = _buildLeadLanguage()) {
+// The session's own response language (as its prompt and settings notices
+// carry it, session/manager/prompt-settings.mjs); a session without one (an
+// agent, an older record) reads the config.
+export function withTailReminder(
+  messages,
+  { session, provider, model },
+  // null is a recorded "no language", not a missing record.
+  language = session?.responseLanguage !== undefined ? session.responseLanguage : _buildLeadLanguage()
+) {
   const text = matchTailReminder({
     provider: session?.provider || provider?.name || '',
     model,

@@ -25,7 +25,7 @@ import {
   diffConfigSnapshots,
   withConfigDomainPending,
 } from './config-change-effects.mjs';
-import { createConfigWriters } from './config-lifecycle/config-writers.mjs';
+import { configWithOutputStyle, createConfigWriters } from './config-lifecycle/config-writers.mjs';
 import { createLeadRouteSync } from './config-lifecycle/lead-route-sync.mjs';
 import { createOutputStyleStatusCache } from './config-lifecycle/output-style-cache.mjs';
 
@@ -52,9 +52,19 @@ function seedChanges(config, changes) {
     .map((key) => ({ path: [key], value: structuredClone(config[key]), ifAbsent: true }));
 }
 
+// The agent config load carries no root `outputStyle`; the stored root value
+// is laid on it (absent: the default style applies).
+function withStoredOutputStyle(config, storedOutputStyle) {
+  return typeof storedOutputStyle === 'string' && storedOutputStyle.trim()
+    ? { ...config, outputStyle: storedOutputStyle.trim() }
+    : config;
+}
+
 // The config just read from disk with this runtime's still-pending edits laid
 // back on it (the config and skills writers hold the only copy of them).
-function withPendingEdits(loaded, writers) {
+// The agent config load carries no root `outputStyle`: the stored root value
+// (`storedOutputStyle`) is laid on it, and this runtime's pending pick wins.
+function withPendingEdits(loaded, writers, storedOutputStyle) {
   let next = loaded;
   if (writers.hasPendingConfigChanges()) {
     // Preserve only our pending edits. Peer changes and fresh secret overlays
@@ -74,6 +84,9 @@ function withPendingEdits(loaded, writers) {
   if (pendingSkills !== null) {
     next = { ...next, skills: { ...(next.skills || {}), disabled: pendingSkills } };
   }
+  const pendingOutputStyle = writers.pendingOutputStyle();
+  if (pendingOutputStyle !== null) next = configWithOutputStyle(next, pendingOutputStyle);
+  else next = withStoredOutputStyle(next, storedOutputStyle);
   return next;
 }
 
@@ -92,6 +105,7 @@ function withPendingEdits(loaded, writers) {
 export function resolveInitialConfigState({
   initialConfig,
   loadConfig,
+  readStoredOutputStyle = null,
   resolveRoute,
   provider,
   model,
@@ -104,8 +118,12 @@ export function resolveInitialConfigState({
   selectedContextWindow,
   agentOwned = false,
 }) {
+  // An injected config is complete as given; a loaded one takes the stored
+  // root output style (`readStoredOutputStyle`) as every reload does.
   const config = withGrandfatheredBuiltins(
-    initialConfig && typeof initialConfig === 'object' ? initialConfig : loadConfig()
+    initialConfig && typeof initialConfig === 'object'
+      ? initialConfig
+      : withStoredOutputStyle(loadConfig(), readStoredOutputStyle?.())
   );
   // A requested percent replaces a saved token window; requested tokens
   // replace both (resolveRouteContextState lets tokens win).
@@ -252,7 +270,7 @@ export function createConfigLifecycle({
   function loadFullConfig() {
     writers.flushConfigSave();
     if (injectedConfig) return null;
-    return withPendingEdits(cfgMod.loadConfig(), writers);
+    return withPendingEdits(cfgMod.loadConfig(), writers, sharedCfgMod?.readConfig?.()?.outputStyle);
   }
 
   function reloadFullConfig() {
@@ -340,6 +358,16 @@ export function createConfigLifecycle({
     retryTimer.unref?.();
   }
 
+  // The output style this runtime selected but has not yet persisted wins over
+  // a status read from disk, so a concurrent write never shows the old style.
+  function getOutputStyleStatusCached(options) {
+    const status = outputStyleCache.getOutputStyleStatusCached(options);
+    const pending = writers.pendingOutputStyle();
+    if (pending === null || status?.configured === pending) return status;
+    const current = (status?.styles || []).find((style) => style.id === pending) || status?.current;
+    return { ...status, configured: pending, current };
+  }
+
   function ensureConfigForRouteProvider() {
     const config = getConfig();
     const providerId = clean(getRoute().provider);
@@ -365,6 +393,7 @@ export function createConfigLifecycle({
     },
     // output-style cache
     ...outputStyleCache,
+    getOutputStyleStatusCached,
     // adopt / save
     adoptConfig,
     saveConfigAndAdopt,

@@ -14,6 +14,12 @@ import {
   stageToolAvailability,
 } from '../runtime/agent/orchestrator/runtime-core/tool-availability.mjs';
 import { resetBp2StableContext } from '../runtime/agent/orchestrator/context/collect.mjs';
+import {
+  promptSettingsRecord,
+  stagePromptSettingsNotice,
+} from '../runtime/agent/orchestrator/session/manager/prompt-settings.mjs';
+import { isAgentOwner } from '../runtime/agent/orchestrator/agent-owner.mjs';
+import { configForSession, currentMode } from './tool-policy/surface-helpers.mjs';
 
 export function createToolPolicyRefresh({
   getSession,
@@ -32,10 +38,18 @@ export function createToolPolicyRefresh({
   toolDefinitionsFor = () => [],
   getSurfaceGeneration,
 }) {
-  const { liveDeniedTools, stagePolicy, applyPolicy } = createPolicyStage({
+  const {
+    liveDeniedTools,
+    stagePolicy,
+    applyPolicy,
+    promptSettingsSections,
+    presentPromptSettings,
+    refreshEnvironmentFacts,
+  } = createPolicyStage({
     getRoute,
     getMode,
     getDataDir,
+    getConfig,
     modelStandaloneTools,
     featureDisallowedTools,
     loadCoreMemoryContext,
@@ -84,9 +98,20 @@ export function createToolPolicyRefresh({
   const conversationEmpty = (session) =>
     !sessionHasConversationMessages(session) && !sessionHasConversationMessages({ messages: session.liveTurnMessages });
 
-  /** A session just built from the current settings. */
-  function noteToolAvailability(session) {
-    if (session) appliedKeys.set(session, { gates: availabilityKey() });
+  // The revision of the prompt settings `session` would be built from now.
+  function settingsRevision(session, coreMemory) {
+    const identity = session.promptIdentity;
+    if (!identity) return undefined;
+    const config = configForSession(getConfig(), session.workflow?.id, currentMode(session));
+    return promptSettingsRecord(promptSettingsSections(session, identity, config, coreMemory)).revision;
+  }
+
+  /** A session just built from the current settings (`coreMemory`: the
+   *  snapshot its prompt was composed with). */
+  function noteToolAvailability(session, coreMemory = '') {
+    if (session) {
+      appliedKeys.set(session, { gates: availabilityKey(), settings: settingsRevision(session, String(coreMemory || '')) });
+    }
   }
 
   /** Whether a settings change reaches the current session's whole prompt
@@ -96,35 +121,68 @@ export function createToolPolicyRefresh({
     return !session?.id || (Boolean(session.promptIdentity) && conversationEmpty(session));
   }
 
+  async function readCoreMemory() {
+    try {
+      return String((await loadCoreMemoryContext?.()) || '');
+    } catch {
+      return '';
+    }
+  }
+
   async function reconcileSession(session) {
     // Connector switches are read from their (stat-cached) files every turn.
     const connectors = stageConnectorAvailability(session);
+    const coreMemory = await readCoreMemory();
     const gates = availabilityKey();
     const identity = session.promptIdentity;
-    if (appliedKeys.get(session)?.gates === gates) {
+    // The prompt settings as they stand, file-based ones included (core
+    // memory, instruction files, output-style files, the workflow pack, the
+    // skill listing): their revision is part of the key.
+    const sections = identity
+      ? promptSettingsSections(
+          session,
+          identity,
+          configForSession(getConfig(), session.workflow?.id, currentMode(session)),
+          coreMemory
+        )
+      : null;
+    const settings = sections ? promptSettingsRecord(sections).revision : undefined;
+    const applied = appliedKeys.get(session);
+    if (applied?.gates === gates && applied.settings === settings && !session.promptSettingsRecheck) {
       return connectors ? { rebuilt: false, ...connectors } : null;
     }
     let rebuilt = false;
+    let settingsChanged = [];
     if (identity && conversationEmpty(session)) {
       // Nothing was sent: the whole prompt is rebuilt in place.
-      const staged = await stagePolicy(session, identity, getConfig());
+      const staged = await stagePolicy(session, identity, getConfig(), { coreMemoryContext: coreMemory });
       if (getSession?.() === session && conversationEmpty(session)) {
         if (typeof staged.stableContext === 'string') resetBp2StableContext(session, staged.stableContext);
         applyPolicy(session, staged);
         rewriteBp3Core(session, staged.core);
+        presentPromptSettings(session, staged);
+        refreshEnvironmentFacts(session);
         // The first-turn MCP fold may rebuild it in place too (an empty
         // session reopened from disk was never marked).
         session.deferredInitialRefreshPending = true;
         rebuilt = true;
       }
+    } else if (identity) {
+      // A conversation keeps its prefix: told once, folded at the next cold point.
+      settingsChanged = stagePromptSettingsNotice(session, sections);
+      // A delegated worker is never folded: after a compaction it is told
+      // again instead (rearmPromptSettingsNotice).
+      if (settingsChanged.length && !isAgentOwner(session)) session.promptFoldPending = true;
     }
     const staged = stageToolAvailability(session, featureDisallowedTools(), toolDefinitionsFor);
-    appliedKeys.set(session, { gates });
+    appliedKeys.set(session, { gates, settings: rebuilt ? session.promptSettings?.revision : settings });
     const tools = staged || connectors;
     const merged = staged && connectors
       ? { added: [...staged.added, ...connectors.added], removed: [...staged.removed, ...connectors.removed] }
       : tools;
-    return rebuilt || tools ? { rebuilt, ...(merged || {}) } : null;
+    return rebuilt || tools || settingsChanged.length
+      ? { rebuilt, ...(merged || {}), ...(settingsChanged.length ? { settingsChanged } : {}) }
+      : null;
   }
 
   // One reconcile per session at a time: a turn start and a surface read of
@@ -132,8 +190,8 @@ export function createToolPolicyRefresh({
   const inflight = new WeakMap();
 
   /** Turn start, any session kind: an empty session is rebuilt from current
-   *  settings; a conversation keeps its prefix and takes moved tool gates
-   *  live (stageToolAvailability). */
+   *  settings; a conversation keeps its prefix, takes moved tool gates live
+   *  (stageToolAvailability) and prompt settings as a one-time notice. */
   function reconcileTurnSettings() {
     const session = getSession?.();
     if (!session?.id) return Promise.resolve(null);
@@ -176,6 +234,8 @@ export function createToolPolicyRefresh({
     if (typeof staged.stableContext === 'string') resetBp2StableContext(session, staged.stableContext);
     applyPolicy(session, staged);
     rewriteBp3Core(session, staged.core);
+    presentPromptSettings(session, staged);
+    refreshEnvironmentFacts(session);
     return { appliedToCurrentSession: true };
   }
 
@@ -198,6 +258,7 @@ export function createToolPolicyRefresh({
     liveDeniedTools,
     stagePolicy,
     applyPolicy,
+    presentPromptSettings,
     turnInFlight,
   });
 

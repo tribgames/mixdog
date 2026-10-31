@@ -97,7 +97,9 @@ test('deferred selections leave history intact and apply only the latest route o
   const { api, state, routeUpdates } = fixture();
   const before = structuredClone(state.session);
   await api.setRoute(heirRoute, { deferUntilNextTurn: true, applyToCurrentSession: true });
-  assert.deepEqual(state.session, before);
+  const { pendingRoute, ...held } = state.session;
+  assert.deepEqual(held, before);
+  assert.equal(pendingRoute.model, heirRoute.model, 'the pick is held on the session');
   assert.deepEqual(routeUpdates, []);
   await api.setRoute({ ...heirRoute, effort: 'medium' }, { deferUntilNextTurn: true });
   const boundary = api.applyPendingRoute();
@@ -223,6 +225,19 @@ test('pending selection survives replacing the same durable session object', asy
   assert.equal(state.session.model, heirRoute.model);
 });
 
+test('a pick held across a restart applies at the next turn', async () => {
+  const before = fixture();
+  await before.api.setRoute(heirRoute, { deferUntilNextTurn: true });
+  // A new process: the same saved session, no in-memory selection.
+  const after = fixture({ pendingRoute: before.state.session.pendingRoute });
+  const boundary = after.api.applyPendingRoute();
+  assert.equal(boundary.modelId, heirRoute.model);
+  assert.equal(after.state.session.model, heirRoute.model);
+  assert.equal(after.state.session.contextPercent, heirRoute.contextPercent);
+  assert.equal(after.state.session.pendingRoute, undefined);
+  assert.equal(after.api.applyPendingRoute(), null, 'applied once');
+});
+
 test('pending selection cannot migrate to a different session', async () => {
   const { api, state } = fixture();
   await api.setRoute(heirRoute, { deferUntilNextTurn: true });
@@ -235,7 +250,8 @@ test('same-model context and effort edits stay deferred until send', async () =>
   const { api, state } = fixture();
   const before = structuredClone(state.session);
   await api.setRoute({ ...sourceRoute, effort: 'low', contextPercent: 50 }, { deferUntilNextTurn: true });
-  assert.deepEqual(state.session, before);
+  const { pendingRoute: _held, ...held } = state.session;
+  assert.deepEqual(held, before);
   assert.equal(api.applyPendingRoute(), null);
   assert.equal(state.session.effort, 'low');
   assert.equal(state.session.contextPercent, 50);

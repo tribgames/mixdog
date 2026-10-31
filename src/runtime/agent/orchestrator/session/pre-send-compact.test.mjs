@@ -60,6 +60,29 @@ test('an in-turn compaction re-arms a late MCP tool whose announcement it strips
   assert.deepEqual(snapshotPendingDeferredToolDelta(session)?.added, [{ name: late.name, description: '' }]);
 });
 
+test('an in-turn compaction of a Lead marks the prompt for its next-turn fold instead of re-arming', async (t) => {
+  isolatedData(t);
+  const late = { name: 'mcp__late__two', description: 'Two.' };
+  const session = {
+    ...lateToolSession(late, 'Original recoverable output.\n'.repeat(4_000)),
+    id: 'pre-send-lead',
+    owner: 'user',
+    promptIdentity: { agent: 'lead' },
+  };
+  const result = await runPreSendCompactPass({
+    sessionRef: session,
+    sessionId: session.id,
+    messages: session.messages.slice(),
+    requestTools: [],
+    // The provider rejected the request as too long: this send compacts.
+    reactiveOverflowRetryPending: true,
+    opts: {},
+  });
+  assert.equal(result.compactChanged, true);
+  assert.equal(snapshotPendingDeferredToolDelta(session), null, 'nothing re-sent');
+  assert.equal(session.compactionFoldPending, true, 'the next turn start rebuilds the prompt');
+});
+
 // A config reload lands while a pre-send compaction is running: the telemetry
 // the pass writes afterwards must keep the reloaded auto-compaction setting,
 // not restore the policy it resolved before the reload.

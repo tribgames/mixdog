@@ -136,6 +136,23 @@ function refreshSessionFallbacks(deps, session) {
   deps.mgr.updateSessionRoute?.(session.id, fields, { session });
 }
 
+/** The route fields a model pick held for the next turn keeps on its session. */
+function heldRoutePick(route) {
+  const pick = {
+    provider: route.provider,
+    model: route.model,
+    ...(route.preset ? { preset: route.preset } : {}),
+    ...(route.effort !== undefined ? { effort: route.effort } : {}),
+    fast: route.fast === true,
+    ...(route.autoEffort === false ? { autoEffort: false } : {}),
+    ...(route.modelParameters ? { modelParameters: route.modelParameters } : {}),
+    ...(route.contextPercent !== undefined ? { contextPercent: route.contextPercent } : {}),
+    ...(route.contextTokens ? { contextTokens: route.contextTokens } : {}),
+    ...(route.selectedContextWindow ? { selectedContextWindow: route.selectedContextWindow } : {}),
+  };
+  return pick;
+}
+
 /** Rewrite the addressed empty session to the route it was asked to run on. */
 function updateSessionInPlace(deps, session, updateOptions) {
   const { getRoute, getSession, setSession, mgr, statusRoutes } = deps;
@@ -386,9 +403,16 @@ export function createSetRoute(deps, persist) {
     const session = getSession();
     if (options.deferUntilNextTurn === true) {
       pending = session?.id ? { generation: lease.token } : null;
+      // Held on the session too (saved like a pending workflow switch), so a
+      // restart before the next turn still applies it.
+      if (session?.id) {
+        session.pendingRoute = heldRoutePick(getRoute());
+        deps.persistSession?.(session);
+      }
       return getRoute();
     }
     pending = null;
+    if (session?.pendingRoute) delete session.pendingRoute;
     // A session the user has already talked in or compacted keeps its route
     // unless the selection was addressed to it. A current session with no
     // model reply, no compaction summary and no in-flight first turn — empty,
@@ -436,21 +460,30 @@ export function createSetRoute(deps, persist) {
     return getRoute();
   }
   setRoute.applyPendingRoute = () => {
-    if (!pending) return null;
-    const selection = pending;
-    if (selection.generation !== getSessionGeneration()) {
+    const session = getSession();
+    const held = session?.pendingRoute;
+    if (session && held) delete session.pendingRoute;
+    if (pending) {
+      const selection = pending;
       pending = null;
+      if (selection.generation !== getSessionGeneration()) return null;
+      // The live route is the latest selection: effort/Fast tuned after the
+      // deferred model choice replace it.
+    } else if (held?.provider && held.model) {
+      // Held by an earlier process (a restart in between): the saved pick
+      // becomes the live route again.
+      deps.setRouteState(deps.resolveRoute(deps.getConfig(), held));
+    } else {
       return null;
     }
-    // The live route is the latest selection: effort/Fast tuned after the
-    // deferred model choice replace it, so no snapshot is kept.
-    const modelSwitch = switchSessionInPlace(deps, getSession());
+    const modelSwitch = switchSessionInPlace(deps, session);
     invalidateContextStatusCache();
-    pending = null;
     return modelSwitch;
   };
   setRoute.clearPendingRoute = () => {
     pending = null;
+    const session = getSession();
+    if (session?.pendingRoute) delete session.pendingRoute;
   };
   return setRoute;
 }

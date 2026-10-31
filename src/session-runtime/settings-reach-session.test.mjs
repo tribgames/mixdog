@@ -1,5 +1,5 @@
 // Settings that reach a live session without a new one: tool gates, connector
-// switches and compaction, read from the runtime's settings.
+// switches, compaction and the output style, read from the runtime's settings.
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,6 +16,7 @@ test.after(() => {
 });
 
 const { createToolPolicyRefresh } = await import('./tool-policy-refresh.mjs');
+const { createConfigLifecycle } = await import('./config-lifecycle.mjs');
 const { wireContextStatus } = await import('./boot/tools.mjs');
 const { mergePendingDeferredToolDelta, DELTA_DESCRIPTION_MAX } = await import(
   '../runtime/agent/orchestrator/runtime-core/deferred-tool-delta.mjs'
@@ -131,12 +132,101 @@ test('a reused in-process worker takes the saved compaction settings and keeps i
   rmSync(join(dataRoot, 'mixdog-config.json'));
 });
 
+test('a reused in-process worker is told once of an instruction file edited since its prompt', async (t) => {
+  const { loadInstructionFilesContext } = await import(
+    '../runtime/agent/orchestrator/context/instruction-files.mjs'
+  );
+  const { promptSettingsRecord } = await import('../runtime/agent/orchestrator/session/manager/prompt-settings.mjs');
+  const cwd = mkdtempSync(join(dataRoot, 'worker-cwd-'));
+  writeFileSync(join(dataRoot, 'mixdog-config.json'), JSON.stringify({ agent: { instructionFiles: 'all' } }));
+  // Written behind the config layer's back: drop its read cache.
+  (await import('../runtime/shared/config.mjs')).invalidateConfigReadCache();
+  // The test runner turns boot instruction files off; this test reads them.
+  const forced = process.env.MIXDOG_BOOT_INSTRUCTION_FILES;
+  delete process.env.MIXDOG_BOOT_INSTRUCTION_FILES;
+  t.after(() => {
+    if (forced !== undefined) process.env.MIXDOG_BOOT_INSTRUCTION_FILES = forced;
+    rmSync(join(dataRoot, 'mixdog-config.json'), { force: true });
+  });
+  writeFileSync(join(cwd, 'AGENTS.md'), '## Rules\nrule one');
+  const session = {
+    id: 'sess_worker_files',
+    owner: 'agent',
+    cwd,
+    tools: [],
+    disallowedTools: [],
+    promptSettings: promptSettingsRecord({ instructionFiles: loadInstructionFilesContext({ mode: 'all', cwd }) }),
+  };
+  writeFileSync(join(cwd, 'AGENTS.md'), '## Rules\nrule one\nrule two');
+  reconcileAgentSession(session);
+  const notice = session.promptSettingsNotice?.content || '';
+  assert.match(notice, /AGENTS\.md\n\+ rule two\nRead /, "the file's own headings are not files");
+  assert.doesNotMatch(notice, /No longer applies/);
+  assert.match(notice, /Read .*AGENTS\.md for the full file\./);
+  assert.doesNotMatch(notice, /# Workflow|# Skills|# Language/, 'only what a worker prompt carries');
+});
+
 test('a deferred tools delta names tools with at most an 80-character hint', () => {
   const session = {};
   mergePendingDeferredToolDelta(session, { added: [{ name: 'long', description: 'x '.repeat(200) }] });
   const [entry] = session.pendingDeferredToolDelta.added;
   assert.ok(entry.description.length <= DELTA_DESCRIPTION_MAX);
   assert.equal(DELTA_DESCRIPTION_MAX, 80);
+});
+
+test('a reload keeps the stored output style instead of falling back to the default', () => {
+  let current = { builtins: {} };
+  let root = { agent: { builtins: {} }, outputStyle: 'deep-dive' };
+  const lifecycle = createConfigLifecycle({
+    getConfig: () => current,
+    setConfig: (next) => {
+      current = next;
+    },
+    getWebSearchRoute: () => null,
+    setWebSearchRoute() {},
+    getConfigHasSecrets: () => false,
+    setConfigHasSecrets() {},
+    getRoute: () => ({ provider: 'demo' }),
+    getSession: () => null,
+    cfgMod: {
+      loadConfig: () => structuredClone(root.agent),
+      createConfigPatch: () => [],
+      saveConfigPatch() {},
+      saveConfigPatchAsync: async () => {},
+      patchSkillsDisabled() {},
+      patchSkillsDisabledAsync: async () => {},
+    },
+    sharedCfgMod: {
+      updateConfigAsync: async (update) => {
+        root = update(root);
+      },
+      pendingConfigWrites: async () => {},
+      readConfig: () => structuredClone(root),
+    },
+    setConfiguredShell() {},
+    normalizeSystemShellConfig: () => ({ command: '' }),
+    normalizeWebSearchRouteConfig: () => null,
+    outputStyleStatus: () => ({}),
+    LAZY_SECRET_PROVIDERS: new Set(),
+    clean: (value) => String(value || '').trim(),
+    resolve,
+    STANDALONE_DATA_DIR: dataRoot,
+  });
+  assert.equal(lifecycle.reloadFullConfig().outputStyle, 'deep-dive');
+});
+
+test('a runtime boots on the stored output style; an injected config keeps its own', async () => {
+  const { resolveInitialConfigState } = await import('./config-lifecycle.mjs');
+  const boot = (initialConfig) =>
+    resolveInitialConfigState({
+      initialConfig,
+      loadConfig: () => ({ builtins: {} }),
+      readStoredOutputStyle: () => 'deep-dive',
+      resolveRoute: () => ({ provider: 'demo', model: 'm' }),
+    }).config.outputStyle;
+  assert.equal(boot(undefined), 'deep-dive');
+  assert.equal(boot({ builtins: {}, outputStyle: 'terse' }), 'terse');
+  assert.equal(boot({ builtins: {} }), undefined, 'an injected config is complete as given');
 });
 
 test('an async context status read waits for the empty session reconcile; the sync one asks for a re-read', async () => {

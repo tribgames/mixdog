@@ -202,6 +202,12 @@ function leadSession({ conversation: withConversation = true } = {}) {
   };
 }
 
+const systemText = (session) =>
+  session.messages
+    .filter((m) => m.role === 'system')
+    .map((m) => m.content)
+    .join('\n');
+
 // Review P2: an empty session read before its first turn (tool status,
 // context status) shows the settings that turn will send.
 test('an empty session read before any turn reflects a feature just disabled', async () => {
@@ -227,6 +233,52 @@ test('an empty session read before any turn reflects a feature just disabled', a
   assert.equal(refresh.emptySessionStale(), false);
 });
 
+test('prompt settings changed mid-conversation are told once, prefix intact, and folded when cold', async () => {
+  const session = leadSession();
+  const state = { config: { profile: { language: 'en' } }, denied: [], memory: '- old fact' };
+  const refresh = refresher(session, state);
+  // The first look records what the prompt presents.
+  await refresh.reconcileTurnSettings();
+  assert.ok(session.promptSettings?.revision);
+  assert.equal(session.promptSettingsNotice, undefined);
+  const before = prefix(session);
+
+  // Another runtime saved a title and Korean; core memory was edited.
+  state.config = { profile: { title: 'Boss', language: 'ja' } };
+  state.memory = '- new fact';
+  const result = await refresh.reconcileTurnSettings();
+  assert.deepEqual(result.settingsChanged.sort(), ['coreMemory', 'language', 'meta']);
+  assert.equal(prefix(session), before, 'the cached prefix is byte-identical');
+  const notice = session.promptSettingsNotice.content;
+  assert.match(notice, /^<system-reminder>\nSettings changed during this conversation/);
+  // Changed fields, one line each; the language as one line; memory as a diff.
+  assert.match(notice, /# Profile\n\+ - Address the user as "Boss"/);
+  assert.match(notice, /# Language\nRespond in Japanese[^\n]* from now on\./);
+  assert.match(notice, /# Core Memory\nCore memory was updated:\n- - old fact\n\+ - new fact/);
+  assert.doesNotMatch(notice, /The user changed/);
+  assert.equal(session.promptFoldPending, true);
+
+  // The provider accepted the turn: told once.
+  const { acknowledgePendingPromptSettingsNotice } = await import(
+    '../runtime/agent/orchestrator/session/manager/prompt-settings.mjs'
+  );
+  assert.equal(acknowledgePendingPromptSettingsNotice(session, session.promptSettingsNotice.revision), true);
+  state.config = { ...state.config };
+  await refresh.reconcileTurnSettings();
+  assert.equal(session.promptSettingsNotice, undefined, 'no repeat for what was told');
+
+  // A compaction makes the cache cold: the prompt takes every setting.
+  session.pendingCacheBreakIntent = 'post_turn_compaction';
+  assert.equal(await refresh.applyPendingAgentProfile(), true);
+  const text = systemText(session);
+  assert.match(text, /Address the user as "Boss"/);
+  assert.match(text, /# Core Memory\n- new fact/);
+  const env = session.messages.find((m) => m.cacheTier === 'env').content;
+  assert.match(env, /- Always respond in Japanese[\s\S]*$/, 'the language block closes the environment');
+  assert.equal(session.promptFoldPending, undefined);
+  assert.equal(session.promptSettingsTold, undefined);
+});
+
 test('a compacted Lead lists its late tools in the rebuilt manifest instead of re-announcing them', async () => {
   const session = leadSession();
   const state = { config: {}, denied: [], memory: '' };
@@ -246,6 +298,22 @@ test('a compacted Lead lists its late tools in the rebuilt manifest instead of r
   assert.ok(session.deferredToolCatalog.some((t) => t.name === 'office'), 'folded into the boot catalog');
   assert.deepEqual(session.deferredLateToolCatalog, []);
   assert.equal(session.pendingDeferredToolDelta, undefined, 'the manifest lists it: no notice');
+});
+
+test('an empty session takes prompt settings into BP2, the core and the language block', async () => {
+  const session = leadSession({ conversation: false });
+  const state = { config: { profile: { language: 'en' } }, denied: [], memory: '' };
+  const refresh = refresher(session, state);
+  refresh.noteToolAvailability(session, '');
+  state.config = { profile: { title: 'Boss', language: 'ja' } };
+  state.memory = '- remembered';
+  const result = await refresh.reconcileTurnSettings();
+  assert.equal(result.rebuilt, true);
+  const text = systemText(session);
+  assert.match(text, /Address the user as "Boss"/, 'BP2 profile section rebuilt');
+  assert.match(text, /# Core Memory\n- remembered/);
+  assert.match(session.messages.find((m) => m.cacheTier === 'env').content, /Always respond in Japanese/);
+  assert.equal(session.promptSettingsNotice, undefined, 'nothing to tell: nothing was sent');
 });
 
 test('the first turn drops MCP tools whose server left after the session was made', () => {

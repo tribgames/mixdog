@@ -21,6 +21,7 @@ import {
   snapshotPendingSetupNotice,
 } from './prompt-utils.mjs';
 import { snapshotPendingWorkflowNotice } from './workflow-switch-notice.mjs';
+import { snapshotPendingPromptSettingsNotice } from './prompt-settings.mjs';
 import { snapshotPendingOrchestrationModeNotice } from './orchestration-mode-switch-notice.mjs';
 import { buildAgentListingNotice } from './agent-listing-notice.mjs';
 import { codexWireSendOpts } from './session-id.mjs';
@@ -196,8 +197,11 @@ export async function buildUserTurn({
   const orchestrationModeNotice = snapshotPendingOrchestrationModeNotice(session);
   // Agents enabled or switched off since the conversation was last told.
   const agentListingNotice = buildAgentListingNotice(session, currentAgents);
+  // Prompt-shaping settings changed since the prompt was built (told once).
+  const promptSettingsNotice = snapshotPendingPromptSettingsNotice(session);
   const reminderBlock = [
     workflowNotice?.content || '',
+    promptSettingsNotice?.content || '',
     orchestrationModeNotice?.content || '',
     agentListingNotice?.content || '',
     workspaceNotice?.content || '',
@@ -216,6 +220,8 @@ export async function buildUserTurn({
     ...(effortConfiguration ? { effortConfiguration } : {}),
     // What its reminder told, read back by later turns (agent-listing-notice.mjs).
     ...(agentListingNotice ? { agentListing: agentListingNotice.meta } : {}),
+    // A retry resubmits this message as is: it acknowledges the same notice.
+    ...(promptSettingsNotice ? { promptSettingsNoticeRevision: promptSettingsNotice.revision } : {}),
   };
   const userTurnMessage = withRuntimeUserContext(
     {
@@ -232,6 +238,7 @@ export async function buildUserTurn({
     goalReminder,
     workflowNotice,
     orchestrationModeNotice,
+    promptSettingsNotice,
     agentListingNotice,
     workspaceNotice,
     setupNotice,
