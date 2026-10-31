@@ -685,7 +685,9 @@ export function restoreTranscriptItems(messages, { sessionId = 'session', itemLi
 export function sessionContextSnapshotProjection(session, contextStatus) {
   if (!contextStatus) return {};
   return {
-    stats: contextMeasurementStats(contextStatus),
+    // The composer's usage readout reads the session totals from the same
+    // stats a live runtime publishes; a cold open has no runtime to add them.
+    stats: { ...contextMeasurementStats(contextStatus), usageReadout: contextStatus.usage?.usageReadout ?? null },
     contextWindow: Math.max(0, Number(session?.contextWindow || contextStatus.effectiveContextWindow || 0)),
     rawContextWindow: Math.max(0, Number(session?.rawContextWindow || contextStatus.rawContextWindow || 0)),
     effectiveContextWindowPercent: Number(

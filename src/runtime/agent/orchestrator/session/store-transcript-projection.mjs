@@ -81,9 +81,10 @@ export async function prepareStoredTranscriptBase(sessionId, doc, options) {
   }
   const messages = Array.isArray(session.messages) ? session.messages : [];
   const hasConversationActivity = messages.some((message) => message?.role === 'user');
-  const measuredStats = contextMeasurementStats({
-    measurement: sessionContextMeasurement(session, hasConversationActivity),
-  });
+  const measuredStats = {
+    ...contextMeasurementStats({ measurement: sessionContextMeasurement(session, hasConversationActivity) }),
+    usageReadout: session.usageReadout || null,
+  };
   const contextWindow = positiveNumber(session.contextWindow);
   const rawContextWindow = positiveNumber(session.rawContextWindow, contextWindow);
   const displayContextWindow = positiveNumber(session.compactBoundaryTokens, contextWindow);
