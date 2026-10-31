@@ -19,7 +19,8 @@ window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventL
 window.mixdogDesktop = { setTitleBarDimmed() {}, rendererDiagnostic() {} };
 
 const { createRoot } = await import('react-dom/client');
-const { InstructionControlPanel, instructionPreview } = await import('./instruction-control-panel.tsx');
+const { DelegationPanel, instructionPreview } = await import('./instruction-editor.tsx');
+const { CategoryPanel } = await import('./capability-panels.tsx');
 
 const file = (group, id, label, body, extra = {}) => ({
   group,
@@ -42,19 +43,36 @@ const FILES = [
   file('outputStyle', 'simple', 'Simple', '## Depth\n\n- Give a summary. Omit detail.'),
 ];
 
-async function mount(run, confirm = () => {}, notice = () => {}) {
+const STYLES = {
+  current: { id: 'simple' },
+  configured: 'simple',
+  styles: [
+    { id: 'simple', label: 'Simple', description: 'Short.' },
+    { id: 'default', label: 'Default', description: 'Normal.' },
+  ],
+};
+
+async function mount(run, confirm = () => {}, notice = () => {}, category = 'delegation', files = FILES) {
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
   await act(async () => {
+    const props = {
+      data: {
+        instructionFiles: files,
+        orchestrationMode: 'none',
+        outputStyles: STYLES,
+        __loadedSections: ['outputStyles'],
+      },
+      pending: '',
+      run,
+      confirm,
+      notice,
+    };
     root.render(
-      React.createElement(InstructionControlPanel, {
-        data: { instructionFiles: FILES, orchestrationMode: 'none', outputStyles: { current: { id: 'simple' } } },
-        pending: '',
-        run,
-        confirm,
-        notice,
-      })
+      category === 'delegation'
+        ? React.createElement(DelegationPanel, props)
+        : React.createElement(CategoryPanel, { category, context: props })
     );
   });
   return {
@@ -73,18 +91,47 @@ test('preview is the first sentence without headings or list markers', () => {
   assert.equal(instructionPreview('## Depth\n\n- Give a summary. Omit.'), 'Give a summary.');
 });
 
-test('rows: two groups, In use and Modified badges, preview text', async () => {
+test('Delegation page: mode rows with In use and Modified badges, preview text, Edit', async () => {
   const { host, unmount } = await mount(async () => undefined);
   assert.deepEqual(
     [...host.querySelectorAll('.settings-group > header h3')].map((node) => node.textContent),
-    ['Delegation', 'Output style']
+    ['Delegation mode']
   );
   const rows = [...host.querySelectorAll('.settings-resource')];
-  assert.equal(rows.length, 3);
+  assert.equal(rows.length, 2);
   assert.match(rows[0].textContent, /Solo.*In use.*Lead executes all work directly\./);
   assert.match(rows[1].textContent, /Swarm.*Modified/);
   assert.doesNotMatch(rows[1].textContent, /In use/);
-  assert.match(rows[2].textContent, /Simple.*In use/);
+  assert.equal(rows[0].querySelector('button').textContent, 'Edit');
+  await unmount();
+});
+
+test('Output style page: Edit on every row, the style in use has no Choose, Modified badge, same editor', async () => {
+  const files = [
+    file('outputStyle', 'simple', 'Simple', '## Depth\n\n- Give a summary.', { modified: true, userOverride: true }),
+    file('outputStyle', 'default', 'Default', '## Depth\n\n- Normal.'),
+  ];
+  const { host, click, unmount } = await mount(
+    async () => undefined,
+    () => {},
+    () => {},
+    'output-style',
+    files
+  );
+  const rows = [...host.querySelectorAll('.settings-resource')];
+  assert.deepEqual(
+    [...rows[0].querySelectorAll('button')].map((node) => node.textContent),
+    ['Edit']
+  );
+  assert.match(rows[0].textContent, /Modified/);
+  assert.deepEqual(
+    [...rows[1].querySelectorAll('button')].map((node) => node.textContent),
+    ['Edit', 'Choose']
+  );
+  await click(rows[1].querySelector('button'));
+  assert.match(host.querySelector('.instruction-subhead h2').textContent, /Default\s*· Output style instructions/);
+  await click(host.querySelector('.instruction-back'));
+  assert.equal(host.querySelectorAll('.settings-resource').length, 2, 'back returns to the list');
   await unmount();
 });
 

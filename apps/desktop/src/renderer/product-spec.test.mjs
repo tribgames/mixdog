@@ -60,7 +60,8 @@ test('the rail runs in Basics, AI behavior, Integrations and Support sections, B
       'output-style',
       'context',
       'work',
-      'instructions',
+      'delegation',
+      'worktrees',
       'providers',
       'models',
       'connection',
@@ -88,6 +89,19 @@ test('the rail runs in Basics, AI behavior, Integrations and Support sections, B
   }
   assert.equal(settingsCategoryForSurface('bots', false), 'bots');
   assert.equal(settingsCategoryForSurface('work', true), 'work');
+  // Delegation is listed on the phone/remote surface too; the retired
+  // Instruction control category lands on it.
+  for (const remote of [false, true]) {
+    assert.equal(
+      settingsCategoriesForSurface(remote, true).some((category) => category.value === 'delegation'),
+      true
+    );
+    assert.equal(
+      settingsCategoriesForSurface(remote, true).some((category) => category.value === 'instructions'),
+      false
+    );
+    assert.equal(settingsCategoryForSurface('instructions', remote), 'delegation');
+  }
 });
 
 test('a host with open access shows remote clients the Providers and Developer pages', () => {

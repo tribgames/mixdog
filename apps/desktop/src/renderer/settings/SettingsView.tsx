@@ -101,7 +101,8 @@ const CATEGORY_ICONS = {
   about: Heart,
   display: Palette,
   work: Hammer,
-  instructions: ScrollText,
+  worktrees: FolderGit2,
+  delegation: ScrollText,
 } satisfies Record<SettingsCategory, typeof Settings>;
 
 export const SettingsView = memo(function SettingsView({
