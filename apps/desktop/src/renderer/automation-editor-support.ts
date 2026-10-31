@@ -6,7 +6,7 @@ import { isTaskWorkspaceFolder } from '../shared/task-workspace';
 import { t } from './i18n';
 import { reportRendererFailure } from './RendererRecovery';
 
-export const AUTOMATION_NO_PROJECT = '__none__';
+const AUTOMATION_NO_PROJECT = '__none__';
 
 /** The host's exact task workspace path ('' until it answers, or when the host
  *  cannot say), read while the panel is active. */

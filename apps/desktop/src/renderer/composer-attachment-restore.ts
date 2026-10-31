@@ -5,7 +5,7 @@ import { asRecord } from './text-format';
 
 /** Ids for restored attachments: keep a stored id when it is free, otherwise
  *  allocate past every reserved id and advance the composer's sequence. */
-export function createRestoredIdAllocator(reservedIds: Set<number>, sequence: { current: number }) {
+function createRestoredIdAllocator(reservedIds: Set<number>, sequence: { current: number }) {
   return (rawId: number) => {
     let id = rawId > 0 ? rawId : sequence.current;
     while (reservedIds.has(id)) id = Math.max(id + 1, sequence.current++);

@@ -28,14 +28,14 @@ function agentDismissOwner(agent: DesktopAgentPoolRow): string {
 /** One settled outcome of one agent: its session plus the frozen moment it
  *  settled. New work settles at a new moment, so a cleared agent comes back
  *  as soon as it runs again. */
-export function agentDismissKey(agent: DesktopAgentPoolRow): string {
+function agentDismissKey(agent: DesktopAgentPoolRow): string {
   const sessionId = agentSessionId(agent);
   return sessionId ? `agent:${sessionId}@${timeMs(agent.idleSince)}` : '';
 }
 
 /** Whether "Clear finished" may remove this row. The owner's own Lead row is
  *  the group itself and always stays. */
-export function clearableAgentRow(agent: DesktopAgentPoolRow): boolean {
+function clearableAgentRow(agent: DesktopAgentPoolRow): boolean {
   const sessionId = agentSessionId(agent);
   return (
     Boolean(sessionId) &&
@@ -61,7 +61,7 @@ export function clearableAgentTreeRows(nodes: readonly AgentActivityNode[]): Des
     .map((node) => node.agent);
 }
 
-export function isDismissedAgentRow(agent: DesktopAgentPoolRow): boolean {
+function isDismissedAgentRow(agent: DesktopAgentPoolRow): boolean {
   return clearableAgentRow(agent) && dismissedShellJobs(agentDismissOwner(agent)).has(agentDismissKey(agent));
 }
 

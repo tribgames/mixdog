@@ -25,7 +25,7 @@ const PERMISSIONS: readonly ConnectorToolPermission[] = ['auto', 'needs_approval
 const RANK: Record<ConnectorToolPermission, number> = { disabled: 0, needs_approval: 1, auto: 2 };
 
 /** The host's `[{ connector, tool, permission, explicit }]` rows, defensively typed. */
-export function connectorToolRows(value: unknown): ConnectorToolRow[] {
+function connectorToolRows(value: unknown): ConnectorToolRow[] {
   if (!Array.isArray(value)) return [];
   return value
     .filter(

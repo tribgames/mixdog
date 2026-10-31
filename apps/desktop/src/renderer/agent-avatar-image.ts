@@ -44,7 +44,7 @@ function squarePng(source: CanvasImageSource, width: number, height: number, siz
 }
 
 /** A still picture as a cover-cropped square PNG data URL. */
-export async function rasterizeAgentAvatar(file: File): Promise<string> {
+async function rasterizeAgentAvatar(file: File): Promise<string> {
   const source = URL.createObjectURL(file);
   try {
     const image = new Image();

@@ -139,7 +139,7 @@ const placementCache = new WeakMap<readonly TranscriptRowModel[], Map<number, nu
 
 /** The row a line revealed at `at` follows: the last row recorded before it
  *  (ahead of the gap that opens the next turn), else the transcript's last. */
-export function childSurfacePeekRow(rows: readonly TranscriptRowModel[], at: number): number {
+function childSurfacePeekRow(rows: readonly TranscriptRowModel[], at: number): number {
   let cache = placementCache.get(rows);
   if (!cache) {
     cache = new Map();

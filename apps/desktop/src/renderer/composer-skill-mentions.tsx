@@ -101,7 +101,7 @@ const appliedReads = new Map<string, number>();
 // SKILL_CATALOG_MIN_AGE_MS is served as is. A skill-changing signal passes
 // `force` to start a fresh read regardless (so it is never answered by one
 // that began before the change).
-export const SKILL_CATALOG_MIN_AGE_MS = 2000;
+const SKILL_CATALOG_MIN_AGE_MS = 2000;
 const inflightReads = new Map<string, Promise<ComposerSkillCatalog>>();
 const readFinishedAt = new Map<string, number>();
 

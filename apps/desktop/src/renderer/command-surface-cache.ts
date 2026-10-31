@@ -19,7 +19,7 @@ export const LOADERS: Record<CommandSurfaceName, DesktopCapability[]> = {
 // The usage dashboard's first service pass probes live provider quotas and
 // can take seconds. Context payloads are session-scoped, so keep a bounded LRU:
 // reopening paints instantly without retaining every conversation forever.
-export const SURFACE_DATA_CACHE_LIMIT = 64;
+const SURFACE_DATA_CACHE_LIMIT = 64;
 
 const surfaceDataCache = new Map<string, Record<string, unknown>>();
 type StatsCache = {

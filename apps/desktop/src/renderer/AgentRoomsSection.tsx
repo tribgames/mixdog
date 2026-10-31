@@ -154,7 +154,7 @@ export function AgentRoomsSection({
 }
 
 /** "새 대화방": a name and two to six members from the contacts (Mixy too). */
-export function NewRoomDialog({ onClose, onCreated }: { onClose(): void; onCreated?: OpenSession }) {
+function NewRoomDialog({ onClose, onCreated }: { onClose(): void; onCreated?: OpenSession }) {
   const titleId = useId();
   const { contacts, label } = useRoomContacts();
   const [name, setName] = useState('');

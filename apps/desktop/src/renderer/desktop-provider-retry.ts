@@ -10,7 +10,7 @@ export const DESKTOP_PROVIDERS_RETRY_MS = 7_000;
 const DESKTOP_PROVIDERS_UNAVAILABLE = 'Desktop model providers are unavailable';
 
 /** The provider setup a server window answers while its desktop is away. */
-export function desktopProvidersUnavailable(setup: unknown): boolean {
+function desktopProvidersUnavailable(setup: unknown): boolean {
   const value = record(setup);
   return value.managedByClient === true && value.unavailable === true;
 }

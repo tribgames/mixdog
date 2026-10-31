@@ -132,7 +132,7 @@ export function isRoomTypingItem(item: TranscriptItem | undefined): boolean {
 
 /** The bot that sent a user-kind row (`fromAgent`, a bot's `session send`
  *  into this chat); '' for the user's own and a lead's message. */
-export function chatBotSenderOf(item: TranscriptItem | undefined): string {
+function chatBotSenderOf(item: TranscriptItem | undefined): string {
   return item?.kind === 'user' && typeof item.fromAgent === 'string' ? item.fromAgent : '';
 }
 

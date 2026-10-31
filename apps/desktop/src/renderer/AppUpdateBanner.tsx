@@ -26,12 +26,12 @@ const MB = 1024 * 1024;
 const formatMb = (bytes: number) => `${(bytes / MB).toFixed(1)} MB`;
 
 /** Which "hide for this session" slot a status belongs to. */
-export function sessionHideGroup(status: NativeAppUpdateState['status']): string {
+function sessionHideGroup(status: NativeAppUpdateState['status']): string {
   if (status === 'ready' || status === 'needs-permission' || status === 'installing') return 'ready';
   return status;
 }
 
-export function isAppUpdateState(value: unknown): value is NativeAppUpdateState {
+function isAppUpdateState(value: unknown): value is NativeAppUpdateState {
   return (
     typeof value === 'object' &&
     value !== null &&

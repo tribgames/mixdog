@@ -19,7 +19,7 @@ export interface AgentFollowView {
 /** Tries per page and turn before a failing selection is left alone. */
 export const AGENT_FOLLOW_TRIES = 3;
 /** Wait before a failed selection is tried again. */
-export const AGENT_FOLLOW_RETRY_MS = 250;
+const AGENT_FOLLOW_RETRY_MS = 250;
 
 const timerLater = (run: () => void, ms: number): (() => void) => {
   const handle = setTimeout(run, ms);

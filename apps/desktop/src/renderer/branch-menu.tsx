@@ -1003,7 +1003,7 @@ function CreateBranchButton({
 
 /** The New Task chip's popup: search · branches, then "New branch" ·
  *  "New worktree" · "Clean up". */
-export function BranchMenuPanel({
+function BranchMenuPanel({
   panel,
   panelId,
   position,

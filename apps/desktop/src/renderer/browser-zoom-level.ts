@@ -11,15 +11,11 @@ const BROWSER_ZOOM_STORAGE_PREFIX = 'mixdog.browser-zoom.v1:';
 
 type ZoomStorage = Pick<Storage, 'getItem' | 'setItem'>;
 
-export function clampBrowserZoom(value: unknown): number {
+function clampBrowserZoom(value: unknown): number {
   const level = Number(value);
   if (!Number.isFinite(level)) return 1;
   const clamped = Math.min(BROWSER_ZOOM_MAX, Math.max(BROWSER_ZOOM_MIN, level));
   return Math.round(clamped * 100) / 100;
-}
-
-export function stepBrowserZoom(level: number, direction: 1 | -1): number {
-  return clampBrowserZoom(level + BROWSER_ZOOM_STEP * direction);
 }
 
 function zoomStorageKey(sessionId: string): string | null {

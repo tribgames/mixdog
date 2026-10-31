@@ -1,10 +1,9 @@
 // Loader for the /context · /usage · /doctor · /inherit dialog.
 //
-// The chunk used to be reached only through App's own lazy() call, so the
-// FIRST open always paid a relay round trip before the dialog could paint —
-// on a phone there is no hover to warm it on and no idle pass ever touched it
-// (user: 컨텍스트 팝업 열 때가 많이 느리네). Sharing one promise lets the
-// idle warmup and the real open join the same load.
+// Reaching the chunk only through App's own lazy() call would make the FIRST
+// open pay a relay round trip before the dialog could paint — on a phone
+// there is no hover to warm it on and no idle pass would touch it. Sharing one
+// promise lets the idle warmup and the real open join the same load.
 type CommandSurfaceModule = typeof import('./CommandSurface');
 
 let commandSurfaceModulePromise: Promise<CommandSurfaceModule> | null = null;

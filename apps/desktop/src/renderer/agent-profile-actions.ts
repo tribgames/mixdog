@@ -130,7 +130,7 @@ async function askNewName(title: string, current: string, label: string, maxLeng
 /** Rename a bot: its display name in its definition, as the profile editor
  *  saves it (Mixy's through its identity, as the profile does). Other fields
  *  stay as stored. */
-export async function renameAgent(deps: AgentActionDeps, agentId: string, currentName: string): Promise<boolean> {
+async function renameAgent(deps: AgentActionDeps, agentId: string, currentName: string): Promise<boolean> {
   const api = deps.api ?? window.mixdogDesktop;
   if (!api?.invokeCapability) return false;
   const name = await askNewName(t('Rename bot'), currentName, t('Bot name'), BOT_NAME_MAX, `agent-rename:${agentId}`);
@@ -168,7 +168,7 @@ export async function renameAgent(deps: AgentActionDeps, agentId: string, curren
 
 /** Rename a group room through the room config update, which also retitles
  *  its log session (agent-rooms.ts update). */
-export async function renameRoom(roomId: string, currentName: string): Promise<boolean> {
+async function renameRoom(roomId: string, currentName: string): Promise<boolean> {
   const name = await askNewName(t('Rename room'), currentName, t('Room name'), ROOM_NAME_MAX, `room-rename:${roomId}`);
   if (!name) return false;
   try {
