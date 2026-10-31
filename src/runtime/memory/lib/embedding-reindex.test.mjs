@@ -1,7 +1,39 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { drainEmbeddingReindex } from './embedding-reindex.mjs';
+import { drainEmbeddingReindex, runRootEmbedSweep } from './embedding-reindex.mjs';
+
+test('the root text sweep rests between steps and stops when done or cancelled', async () => {
+  const steps = [
+    { claimed: 8, replaced: 8, done: false },
+    { claimed: 8, replaced: 7, done: false },
+    { claimed: 3, replaced: 3, done: true },
+  ];
+  const waits = [];
+  const summary = await runRootEmbedSweep({
+    sweepStep: async () => steps.shift(),
+    wait: async (ms) => waits.push(ms),
+  });
+  assert.deepEqual(summary, { steps: 3, replaced: 18 });
+  assert.equal(waits.length, 2);
+  assert.ok(waits.every((ms) => ms >= 4_000));
+
+  const controller = new AbortController();
+  const cancelled = new Error('memory service stopping');
+  let calls = 0;
+  await assert.rejects(
+    runRootEmbedSweep({
+      sweepStep: async () => {
+        calls += 1;
+        return { replaced: 8, done: false };
+      },
+      signal: controller.signal,
+      wait: async () => controller.abort(cancelled),
+    }),
+    (error) => error === cancelled
+  );
+  assert.equal(calls, 1);
+});
 
 test('embedding reindex resumes timed-out entry passes', async () => {
   const results = [

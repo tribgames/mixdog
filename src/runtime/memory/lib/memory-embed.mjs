@@ -2,7 +2,7 @@ import { __mixdogMemoryLog } from './memory-log.mjs';
 
 import { embedTexts, getEmbeddingModelId, holdEmbeddingWarm } from './embedding-provider.mjs';
 import { onnxRuntimeSupported } from '../../shared/onnx-runtime-support.mjs';
-import { embeddingToSql } from './memory.mjs';
+import { embeddingToSql, ROOT_EMBED_SWEEP_META_KEY } from './memory.mjs';
 import { createHash } from 'node:crypto';
 import { pruneEmbeddingCache, resolveEmbeddingCacheMaxRows } from './embedding-cache-retention.mjs';
 import { throwIfAborted, markStoreFault } from './memory-cycle-shared.mjs';
@@ -524,6 +524,18 @@ async function syncRawBatchEmbeddings(db, ids, options = {}) {
   return writtenIds;
 }
 
+// A chunk root is also the chunk's first message: cycle1 promotes that raw row
+// in place, and every other member keeps its own content vector. Embedding only
+// element/summary left the first message's own words with no vector, so its
+// details were reachable only through the lossy summary. The summary leads so a
+// long message truncated at the model window still keeps it.
+export function rootEmbedText(row) {
+  const head = [row?.element, row?.summary].filter(Boolean).join(' — ').trim();
+  if (!head) return '';
+  const content = isRawEmbeddable(row?.role, row?.content) ? row.content.trim() : '';
+  return content ? `${head}\n\n${content}` : head;
+}
+
 // Batch-embed all ids in one DB round-trip for fetching, one API call per unique text,
 // then one VALUES UPDATE for all results.
 // Returns the list of ids that were actually UPDATEd with a fresh embedding.
@@ -535,9 +547,10 @@ async function syncBatchEmbeddings(db, ids, options = {}) {
   throwIfAborted(signal);
   if (!onnxRuntimeSupported()) return [];
   const rows = (
-    await db.query(`SELECT id, element, summary FROM memory.entries WHERE id = ANY($1::bigint[]) AND is_root = 1`, [
-      ids,
-    ])
+    await db.query(
+      `SELECT id, element, summary, content, role FROM memory.entries WHERE id = ANY($1::bigint[]) AND is_root = 1`,
+      [ids]
+    )
   ).rows;
   throwIfAborted(signal);
   if (rows.length === 0) return [];
@@ -546,8 +559,9 @@ async function syncBatchEmbeddings(db, ids, options = {}) {
   throwIfAborted(signal);
   const expected = Number(dimsRow?.value ?? 0);
 
-  const texts = rows.map((row) => [row.element, row.summary].filter(Boolean).join(' — ').trim());
-  const vectors = await cachedEmbedTextBatch(db, texts.filter(Boolean), { signal });
+  const texts = rows.map(rootEmbedText);
+  const embedBatch = options.embedBatch ?? cachedEmbedTextBatch;
+  const vectors = await embedBatch(db, texts.filter(Boolean), { signal });
   throwIfAborted(signal);
   // Re-map: only non-empty texts were passed to cachedEmbedTextBatch
   let vecIdx = 0;
@@ -562,28 +576,29 @@ async function syncBatchEmbeddings(db, ids, options = {}) {
       __mixdogMemoryLog(`[embed] dim mismatch (id=${row.id} got=${vector.length} expected=${expected})\n`);
       continue;
     }
-    updates.push({ id: Number(row.id), element: row.element, summary: row.summary, vector });
+    updates.push({ id: Number(row.id), element: row.element, summary: row.summary, content: row.content, vector });
   }
 
   if (updates.length === 0) return [];
 
   // The VALUES update is one SQL batch; do not split it with an abort checkpoint.
   const valClauses = updates.map((_u, i) => {
-    const base = i * 4;
-    return `($${base + 1}::bigint, $${base + 2}::halfvec, $${base + 3}::text, $${base + 4}::text)`;
+    const base = i * 5;
+    return `($${base + 1}::bigint, $${base + 2}::halfvec, $${base + 3}::text, $${base + 4}::text, $${base + 5}::text)`;
   });
   const params = [];
   for (const u of updates) {
-    params.push(u.id, embeddingToSql(u.vector), u.element, u.summary);
+    params.push(u.id, embeddingToSql(u.vector), u.element, u.summary, u.content);
   }
   const res = await db.query(
     `UPDATE memory.entries AS e
      SET embedding = t.vector
-     FROM (VALUES ${valClauses.join(',')}) AS t(id, vector, element, summary)
+     FROM (VALUES ${valClauses.join(',')}) AS t(id, vector, element, summary, content)
      WHERE e.id = t.id AND e.is_root = 1
-       AND e.embedding IS NULL
+       AND e.embedding IS ${options.replace ? 'NOT ' : ''}NULL
        AND e.element IS NOT DISTINCT FROM t.element
        AND e.summary IS NOT DISTINCT FROM t.summary
+       AND e.content IS NOT DISTINCT FROM t.content
      RETURNING e.id`,
     params
   );
@@ -596,7 +611,7 @@ async function syncBatchEmbeddings(db, ids, options = {}) {
     const curRows = missedIds.length
       ? (
           await db.query(
-            `SELECT id, embedding IS NOT NULL AS has_embedding, element, summary
+            `SELECT id, embedding IS NOT NULL AS has_embedding, element, summary, content
            FROM memory.entries WHERE id = ANY($1::bigint[]) AND is_root = 1`,
             [missedIds]
           )
@@ -610,7 +625,8 @@ async function syncBatchEmbeddings(db, ids, options = {}) {
       if (!cur) continue;
       const textUnchanged =
         (cur.element === u.element || (cur.element == null && u.element == null)) &&
-        (cur.summary === u.summary || (cur.summary == null && u.summary == null));
+        (cur.summary === u.summary || (cur.summary == null && u.summary == null)) &&
+        (cur.content === u.content || (cur.content == null && u.content == null));
       if (!textUnchanged) {
         staleSkips++;
         continue;
@@ -629,6 +645,59 @@ async function syncBatchEmbeddings(db, ids, options = {}) {
     }
   }
   return writtenIds;
+}
+
+// One paced step of the root-text sweep (startRootEmbedSweep in memory.mjs).
+// Existing vectors stay searchable until replaced: the step claims the next
+// roots below the stored cursor that still HAVE a vector, embeds their current
+// text, replaces each vector only where the text is unchanged, and advances the
+// cursor in the same transaction. The meta row lock serializes concurrent
+// sweepers; any failure rolls back both vectors and cursor. Roots without a
+// vector are left to the ordinary flush, which already uses the new text.
+export const ROOT_SWEEP_BATCH = 8;
+export async function sweepRootEmbedText(db, options = {}) {
+  const { batchSize = ROOT_SWEEP_BATCH, signal, embedBatch } = options;
+  throwIfAborted(signal);
+  if (!onnxRuntimeSupported()) return { claimed: 0, replaced: 0, done: true };
+  await ensureEmbCacheTable(db);
+  const client = await db._pool.connect();
+  let committed = false;
+  try {
+    await client.query('BEGIN');
+    const state = await client.query(`SELECT value FROM memory.meta WHERE key = $1 FOR UPDATE`, [
+      ROOT_EMBED_SWEEP_META_KEY,
+    ]);
+    const value = state.rows[0]?.value;
+    const cursor = Number(value?.cursor);
+    if (!value || value.done === true || !Number.isFinite(cursor)) {
+      await client.query('COMMIT');
+      committed = true;
+      return { claimed: 0, replaced: 0, done: true };
+    }
+    const claim = await client.query(
+      `SELECT id FROM memory.entries
+       WHERE is_root = 1 AND id < $1 AND embedding IS NOT NULL
+         AND (element IS NOT NULL OR summary IS NOT NULL)
+       ORDER BY id DESC
+       LIMIT $2
+       FOR UPDATE`,
+      [cursor, batchSize]
+    );
+    const ids = claim.rows.map((r) => Number(r.id));
+    throwIfAborted(signal);
+    const written = ids.length ? await syncBatchEmbeddings(client, ids, { signal, replace: true, embedBatch }) : [];
+    const done = ids.length < batchSize;
+    await client.query(
+      `UPDATE memory.meta SET value = jsonb_build_object('cursor', $2::bigint, 'done', $3::boolean) WHERE key = $1`,
+      [ROOT_EMBED_SWEEP_META_KEY, ids.length ? Math.min(...ids) : cursor, done]
+    );
+    await client.query('COMMIT');
+    committed = true;
+    return { claimed: ids.length, replaced: written.length, done };
+  } finally {
+    if (!committed) await client.query('ROLLBACK').catch(() => {});
+    client.release();
+  }
 }
 
 // Explicit maintenance must propagate partial failures and caller cancellation,

@@ -1,7 +1,25 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { flushEmbeddingDirty, flushSearchEmbeddings } from './memory-embed.mjs';
+import { flushEmbeddingDirty, flushSearchEmbeddings, rootEmbedText } from './memory-embed.mjs';
+
+test('a chunk root vector covers its first message, not only the summary', () => {
+  const root = {
+    element: '웹 검색 규칙 비교',
+    summary: '세 앱의 규칙을 비교했다',
+    role: 'assistant',
+    content: '  웹 검색 도구가 처음부터 열려 있지 않아서 기억으로 답하기 쉬움  ',
+  };
+  assert.equal(
+    rootEmbedText(root),
+    '웹 검색 규칙 비교 — 세 앱의 규칙을 비교했다\n\n웹 검색 도구가 처음부터 열려 있지 않아서 기억으로 답하기 쉬움'
+  );
+  assert.equal(
+    rootEmbedText({ ...root, role: 'tool', content: '[tool_result] ok' }),
+    '웹 검색 규칙 비교 — 세 앱의 규칙을 비교했다'
+  );
+  assert.equal(rootEmbedText({ content: 'unsummarized' }), '');
+});
 
 // Cancellation must survive the transaction teardown: the batch finally block
 // runs COMMIT/ROLLBACK while the abort is already in flight, and a failure

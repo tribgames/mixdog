@@ -46,6 +46,7 @@ mock.module('./lib/memory.mjs', {
     setMetaValue: async () => {},
     mergeMetaValue: async () => {},
     embeddingToSql: (arr) => (Array.isArray(arr) ? `[${arr.join(',')}]` : null),
+    ROOT_EMBED_SWEEP_META_KEY: 'embedding.root_text_v2',
     cleanMemoryText,
     VALID_CATEGORY: new Set(['fact']),
   },
