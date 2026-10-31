@@ -7,7 +7,6 @@ import test from 'node:test';
 import {
   createGoalRuntime,
   DEFAULT_COMPLETED_GOAL_TTL_MS,
-  DEFAULT_GOAL_TIME_LIMIT_MS,
   GOAL_TOOL_DEFS,
   parseGoalDuration,
 } from './goal-runtime.mjs';
@@ -249,7 +248,7 @@ test('a legacy time-capped Goal loads as a finished duration, never as active wo
 
 test('Goal observations count turns without judging them', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-observe-'));
-  let clock = 1_800_000_000_000;
+  const clock = 1_800_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock });
   try {
     await runtime.control('sess_goal_observe', { action: 'create', objective: 'Observed work' });
