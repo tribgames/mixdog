@@ -8,7 +8,7 @@
 // instead of releasing it. A settled promise, an idle queue or a coalesced,
 // cancelled or dropped write is never an acknowledgement. Sessions are
 // independent: nothing here waits on another session's saves.
-import { saveSessionAsync } from '../store.mjs';
+import { readSessionLifecycleFromDisk, saveSessionAsync } from '../store.mjs';
 import { landedTranscript, landedTranscriptMatches, mintTranscriptEpoch } from '../store/transcript-durability.mjs';
 import { clearTurnCheckpoint } from './turn-checkpoint.mjs';
 
@@ -21,6 +21,25 @@ export class TurnPersistenceError extends Error {
     this.code = 'ETURNNOTDURABLE';
     this.sessionId = sessionId;
     if (cause) this.cause = cause;
+  }
+}
+
+// Split-brain re-adoption: another surface (e.g. desktop click-through
+// of a session still actively owned by this process) may have
+// resumed-and-detached this session, bumping the ON-DISK generation
+// while the conversation kept going here. Every save from this process
+// would then be silently dropped by _shouldDrop's ownership rule and
+// the on-disk transcript would freeze at the last landed save. A new
+// ask on a NON-closed session is an explicit ownership claim: adopt
+// the disk generation so this turn's commits land and heal the file.
+export function adoptDiskGeneration(session, sessionId) {
+  const diskLifecycle = readSessionLifecycleFromDisk(sessionId);
+  if (
+    diskLifecycle &&
+    diskLifecycle.closed !== true &&
+    diskLifecycle.generation > (typeof session.generation === 'number' ? session.generation : 0)
+  ) {
+    session.generation = diskLifecycle.generation;
   }
 }
 
@@ -69,10 +88,16 @@ export function forgetUnsettledTurn(sessionId) {
 /** Resolves once the previous turn of `sessionId` is durably covered (its
  *  checkpoint then deleted). When its own save did not land it, one fresh
  *  save of the finalized transcript is attempted; if that does not land
- *  either, throws TurnPersistenceError and the checkpoint stays. */
+ *  either, throws TurnPersistenceError and the checkpoint stays. A save the
+ *  ownership guard refused because another surface moved the disk generation
+ *  is retried under that generation: this ask is the ownership claim that
+ *  adoptDiskGeneration describes, and the retry stays guarded by it, so a
+ *  closed session or a further handoff still refuses it. */
 export async function awaitPreviousTurnDurable(sessionId) {
   const entry = _unsettled.get(sessionId);
   if (!entry || (await entry.ack)) return;
+  adoptDiskGeneration(entry.session, sessionId);
+  entry.generation = Math.max(entry.generation, entry.session.generation);
   try {
     await saveSessionAsync(entry.session, { expectedGeneration: entry.generation });
   } catch (error) {

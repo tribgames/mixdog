@@ -25,7 +25,7 @@ const { createTurnCheckpointRecorder, readTurnCheckpoint, recoverTurnCheckpoint,
 const { _recoverTurnCheckpointDurably } = await import('./turn-checkpoint-recovery.mjs');
 const { createTurnInterruptionTracker } = await import('./turn-interruption.mjs');
 const { readDurableSessionRecord, setTranscriptSnapshotHook } = await import('../store/transcript-durability.mjs');
-const { setSessionSaveFault } = await import('../store.mjs');
+const { bumpSessionGeneration, setSessionSaveFault } = await import('../store.mjs');
 const { createSession } = await import('./session-lifecycle.mjs');
 const { askSession } = await import('./ask-session.mjs');
 const { _withRegisteredProviderForTestAsync } = await import('../../providers/registry.mjs');
@@ -436,6 +436,47 @@ test('a failed terminal save blocks the next turn with a clear error and keeps t
     assert.equal(said('first task'), 1);
     assert.equal(said('second task'), 1);
     assert.equal(stored.messages.filter((message) => message.content === 'answer').length, 2);
+    assert.equal(readTurnCheckpoint(id), null);
+  });
+});
+
+test('a turn whose save was refused because ownership moved is saved by the next turn, not stuck', async () => {
+  await _withRegisteredProviderForTestAsync('anthropic-oauth', provider, async () => {
+    const { awaitPreviousTurnDurable, hasUnsettledTurn } = await import('./turn-durability.mjs');
+    const session = createSession({
+      provider: 'anthropic-oauth',
+      model: 'claude-opus-5-5',
+      cwd: root,
+      skipSkills: true,
+      workflow: { id: 'headless', delegatesAgents: false },
+    });
+    const id = session.id;
+    // Another surface resumes and detaches the session while the turn runs:
+    // the disk generation moves past the one this turn saves under.
+    onSend = () => assert.equal(bumpSessionGeneration(id, 'detach'), 1);
+    try {
+      await askSession(id, 'first task', null, null, null, null, {});
+    } finally {
+      onSend = null;
+    }
+    await settleTurnCheckpointWrites(id);
+    const handedOff = readDurableSessionRecord(id);
+    assert.equal(handedOff.generation, 1, 'the other surface owns the newer generation');
+    assert.ok(!handedOff.messages.some((message) => message.content === 'answer'), 'the refused save did not land');
+    assert.equal(hasUnsettledTurn(id), true);
+    assert.equal(readTurnCheckpoint(id)?.sealed, true, 'the unsaved turn is still recoverable');
+
+    // The next ask claims the session under the newer generation: it neither
+    // errors with ETURNNOTDURABLE nor drops the first turn.
+    await askSession(id, 'second task', null, null, null, null, {});
+    await awaitPreviousTurnDurable(id);
+    const stored = readDurableSessionRecord(id);
+    assert.equal(stored.generation, 1, "the other surface's generation is kept, never lowered");
+    const said = (text) => stored.messages.filter((message) => JSON.stringify(message.content).includes(text)).length;
+    assert.equal(said('first task'), 1);
+    assert.equal(said('second task'), 1);
+    assert.equal(stored.messages.filter((message) => message.content === 'answer').length, 2);
+    assert.equal(hasUnsettledTurn(id), false);
     assert.equal(readTurnCheckpoint(id), null);
   });
 });
