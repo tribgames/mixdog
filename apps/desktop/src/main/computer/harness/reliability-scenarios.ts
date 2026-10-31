@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { execFileSync, spawn } from 'node:child_process';
 import { mkdirSync, readdirSync, writeFileSync } from 'node:fs';
 import { basename, isAbsolute, join } from 'node:path';
+import { sleep } from '../shared/common';
 import { startManagedFixture } from './reliability-fixtures';
 import {
   childPid,
@@ -121,7 +122,7 @@ export async function excelIsolatedWorkbookInput(ctx: ReliabilityContext): Promi
       })
     );
     assert.equal(refused.code, 'value_write_ignored', summary(refused));
-    await new Promise((resolveWait) => setTimeout(resolveWait, 1_000));
+    await sleep(1_000);
     assert.equal(fixture.state(), 'fixture');
   } finally {
     fixture.stop();
@@ -157,7 +158,7 @@ export async function nativeObservationSoak(ctx: ReliabilityContext): Promise<Sc
       samples.push({ seconds: Math.round(elapsed / 1000), privateKiB: memory.private, workers });
       nextSample += 15_000;
     }
-    await new Promise((resolveWait) => setTimeout(resolveWait, 250));
+    await sleep(250);
   }
   return { commands, durationMs: Math.round(performance.now() - started), samples };
 }
@@ -238,7 +239,7 @@ export async function winuiForegroundInvoke(ctx: ReliabilityContext): Promise<Sc
     );
     assert.notEqual(radios(recaptured), radios(capture), `the swatch changed nothing; ${summary(acted)}`);
     // A late self-activation lands within tens of milliseconds; give it time.
-    await new Promise((resolveWait) => setTimeout(resolveWait, 1_000));
+    await sleep(1_000);
     assert.equal(await focusedWindow(), userWindow.id.toLowerCase(), 'the background toggle took the foreground');
   } finally {
     // Nothing was drawn, so the untouched canvas closes without a prompt.
@@ -319,7 +320,7 @@ export async function explorerRename(ctx: ReliabilityContext): Promise<void> {
       async () => readdirSync(folder).sort().join(','),
       (names) => names === 'alpha.txt,beta-renamed.txt'
     );
-    await new Promise((resolveWait) => setTimeout(resolveWait, 1_000));
+    await sleep(1_000);
     const focused = (await command({ action: 'list_windows' }, 'explorer-user')).text
       .split(/\r?\n/)
       .find((line) => / focused(\s|$)/.test(line));

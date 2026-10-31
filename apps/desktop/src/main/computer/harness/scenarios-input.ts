@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { sleep } from '../shared/common';
 import type { CapturePayload } from './scenario-types';
 import { capturePayload, actionPayload, ocrText, ocrConfusableKey, ocrMark } from './scenario-ocr';
 import { ScenarioSkip, progress, runScenario, skip } from './scenario-runtime';
@@ -721,7 +722,7 @@ export const inputScenarios: ScenarioGroup = {
           (value) => ({ value, error: null }),
           (error: unknown) => ({ value: null, error })
         );
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await sleep(200);
         const aborted = await command({ action: 'session_abort' }, sessionId);
         assert.match(aborted.text, /session aborted/i);
         const stopped = await pendingWait;

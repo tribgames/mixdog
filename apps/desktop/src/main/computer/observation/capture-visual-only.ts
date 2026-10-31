@@ -17,11 +17,11 @@ const VISUAL_ONLY_TIMEOUT_MAX_TTL_MS = 120_000;
 const VISUAL_ONLY_CACHE_MISS_THRESHOLD = 2;
 /** A cache hit asked no provider and restarted nothing, so it never repeats
  *  the stored timeout's account of what happened to that earlier read. */
-export const CACHED_ACCESSIBILITY_TIMEOUT_ERROR =
+const CACHED_ACCESSIBILITY_TIMEOUT_ERROR =
   'computer_command_timeout: cached result of an earlier accessibility timeout on this window; the provider was not asked again for this read';
 const VISUAL_ONLY_CACHE_MAX_ENTRIES = 128;
 
-export function visualOnlyCapabilityKey(sessionId: string, windowId: string) {
+function visualOnlyCapabilityKey(sessionId: string, windowId: string) {
   return `${sessionId}\u0000${windowId}`;
 }
 
@@ -29,7 +29,7 @@ export function visualOnlyCapabilityKey(sessionId: string, windowId: string) {
  *  mode="ax" capture always asks the provider again, but the observation that
  *  follows an action takes the cached answer instead of spending the whole
  *  timeout and returning nothing. */
-export function visualOnlyEligible(command: ComputerCommand, mode: CaptureMode, windowId: string) {
+function visualOnlyEligible(command: ComputerCommand, mode: CaptureMode, windowId: string) {
   return Boolean(
     windowId &&
       (mode === 'state' || mode === 'som' || (mode === 'ax' && command.observation_after === true)) &&

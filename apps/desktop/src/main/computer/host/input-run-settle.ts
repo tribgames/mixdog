@@ -293,7 +293,7 @@ export async function settleInputRun(
     (windowTransition?.opened_windows || []).map((window) => window.id)
   );
   if (isMutation && windowTransition?.next_target?.id) {
-    if (policy.restricted && host.sessionIdFor(command) !== CHROME_SETUP_SESSION_ID) {
+    if (restrictedReply) {
       policy.assertWindow(
         { ...command, window_id: windowTransition.next_target.id },
         await host.readComputerWindows(command)

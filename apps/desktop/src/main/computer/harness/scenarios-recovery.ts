@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { BrowserWindow, screen } from 'electron';
+import { sleep } from '../shared/common';
 import type { CapturePayload } from './scenario-types';
 import { capturePayload, actionPayload, ocrText, ocrMark } from './scenario-ocr';
 import { progress, eventually, readDiscovery, runScenario, dataDirectory } from './scenario-runtime';
@@ -385,7 +386,7 @@ export const recoveryScenarios: ScenarioGroup = {
       ctx.denseFixture.destroy();
       ctx.denseFixture = null;
       ctx.denseWindowId = '';
-      await new Promise((resolve) => setTimeout(resolve, 80));
+      await sleep(80);
       await assert.rejects(
         command({ action: 'screenshot', window_id: closedWindowId }, 'closed-target'),
         /stale or invalid|window_id is stale/
@@ -798,7 +799,7 @@ export const recoveryScenarios: ScenarioGroup = {
           await eventually(foregroundHwnd, (hwnd) => hwnd === nativeHwnd(peer));
           await command({ action: 'execution_end' }, sessionA);
           // Give a wrongly applied restore time to land before asserting nothing moved.
-          await new Promise((resolve) => setTimeout(resolve, 1000));
+          await sleep(1000);
           assert.equal(await foregroundHwnd(), nativeHwnd(peer));
           await command({ action: 'execution_end' }, sessionB);
           try {

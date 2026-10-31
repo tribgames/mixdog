@@ -11,9 +11,9 @@ export class ScenarioSkip extends Error {}
 
 export const progressPath = process.env.MIXDOG_COMPUTER_SCENARIO_LOG || '';
 export const reportPath = process.env.MIXDOG_COMPUTER_SCENARIO_REPORT || '';
-export const reportDirectory = process.env.MIXDOG_COMPUTER_SCENARIO_REPORT_DIR || '';
+const reportDirectory = process.env.MIXDOG_COMPUTER_SCENARIO_REPORT_DIR || '';
 export const sequencePerformancePath = process.env.MIXDOG_COMPUTER_SEQUENCE_REPORT || '';
-export const reportLabel = process.env.MIXDOG_COMPUTER_SCENARIO_LABEL || 'baseline';
+const reportLabel = process.env.MIXDOG_COMPUTER_SCENARIO_LABEL || 'baseline';
 export const scenarioOnly = new Set(
   String(process.env.MIXDOG_COMPUTER_SCENARIO_ONLY || '')
     .split(',')
@@ -21,8 +21,8 @@ export const scenarioOnly = new Set(
     .filter(Boolean)
 );
 export const skipForeground = process.env.MIXDOG_COMPUTER_SCENARIO_SKIP_FOREGROUND === '1';
-export let foregroundSkipped = false;
-export let userInterventionSeen = false;
+let foregroundSkipped = false;
+let userInterventionSeen = false;
 export const profile = String(process.env.MIXDOG_COMPUTER_SCENARIO_PROFILE || '');
 if (!profile) throw new Error('MIXDOG_COMPUTER_SCENARIO_PROFILE is required');
 export const dataDirectory = join(profile, 'data');
@@ -30,10 +30,10 @@ mkdirSync(dataDirectory, { recursive: true });
 process.env.MIXDOG_DATA_DIR = dataDirectory;
 app.setPath('userData', join(profile, 'user-data'));
 
-export let activeMetrics: ScenarioMetrics | null = null;
-export let previousCommandHadCaptureAfter = false;
+let activeMetrics: ScenarioMetrics | null = null;
+let previousCommandHadCaptureAfter = false;
 export const results: ScenarioResult[] = [];
-export const OBSERVATION_ACTIONS = new Set([
+const OBSERVATION_ACTIONS = new Set([
   'list_windows',
   'list_apps',
   'diagnose',
@@ -47,7 +47,7 @@ export const OBSERVATION_ACTIONS = new Set([
   'verify',
   'window_predicates',
 ]);
-export const MUTATION_ACTIONS = new Set([
+const MUTATION_ACTIONS = new Set([
   'invoke',
   'set_value',
   'toggle',
@@ -74,13 +74,13 @@ export const MUTATION_ACTIONS = new Set([
   'sequence',
   'invoke_menu',
 ]);
-export const declaredScenarioIds = new Set<string>();
+const declaredScenarioIds = new Set<string>();
 
 export function progress(message: string): void {
   if (progressPath) appendFileSync(progressPath, `${message}\n`);
 }
 
-export function emptyMetrics(): ScenarioMetrics {
+function emptyMetrics(): ScenarioMetrics {
   return {
     commands: 0,
     cleanup_commands: 0,
@@ -137,8 +137,7 @@ export async function runScenario(
     // it as unmeasured so a real failure stays visible next to it.
     const userControlled = isScenarioUserControl(computerErrorCode(error));
     userInterventionSeen ||= userControlled;
-    status =
-      error instanceof ScenarioSkip || foregroundSkipped || userControlled || userInterventionSeen ? 'skip' : 'fail';
+    status = error instanceof ScenarioSkip || foregroundSkipped || userInterventionSeen ? 'skip' : 'fail';
     metrics.false_positive = status === 'fail' && metrics.accepted_mutations > 0;
   } finally {
     activeMetrics = null;
@@ -171,7 +170,7 @@ export function skip(message: string): never {
  * duration accounting, then whatever the structured payload says about user
  * intervention, element budgets, phase timings and escalations.
  */
-export function recordCommandResponse(
+function recordCommandResponse(
   actionName: string,
   value: CommandResult,
   actionMetrics: ActionMetrics | null,

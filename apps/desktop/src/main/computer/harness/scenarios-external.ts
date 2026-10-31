@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { sleep } from '../shared/common';
 import { capturePayload, actionPayload, ocrMark } from './scenario-ocr';
 import { eventually, runScenario } from './scenario-runtime';
 import type { ScenarioGroup } from './scenario-context';
@@ -61,7 +62,7 @@ export const externalScenarios: ScenarioGroup = {
             'external-type'
           )
         );
-        await new Promise((resolve) => setTimeout(resolve, 400));
+        await sleep(400);
         const state = JSON.parse(readFileSync(externalStatePath, 'utf8')) as { value?: string };
         const semanticallyApplied = state.value === 'EXTERNAL42';
         const truthfulEscalation =

@@ -25,7 +25,7 @@ export function ocrConfusableKey(value: string): string {
 /** A mode that returns marks publishes each OCR word as an element and omits
  *  the duplicate word list, so the mark is read from whichever the capture
  *  actually carried. */
-export function ocrMarkCandidates(payload: CapturePayload): Array<{ text: string; mark?: number }> {
+function ocrMarkCandidates(payload: CapturePayload): Array<{ text: string; mark?: number }> {
   const words = (payload.ocr?.words || []).map((candidate) => ({
     text: String(candidate.text || ''),
     mark: candidate.mark,

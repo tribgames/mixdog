@@ -43,7 +43,7 @@ const RENDERER_BACKOFF_MAX_MS = 60_000;
  * where `__dirname` is the build output; runners that load the TypeScript
  * sources as ESM have no `__dirname` at all, and resolving it there threw
  * before the window was ever created. */
-export function overlayPreloadPath(): string {
+function overlayPreloadPath(): string {
   const directory =
     typeof __dirname === 'string' ? join(__dirname, '../preload') : join(app.getAppPath(), 'out/preload');
   return join(directory, 'computer-overlay.js');

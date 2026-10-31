@@ -2,6 +2,7 @@ import type { ChildProcess } from 'node:child_process';
 
 import { BrowserWindow } from 'electron';
 import type { ComputerHost } from '../index';
+import { sleep } from '../shared/common';
 import { actionPayload } from './scenario-ocr';
 import { ScenarioSkip } from './scenario-runtime';
 import { foregroundHwnd, nativeHwnd } from './scenario-fixtures';
@@ -61,7 +62,7 @@ export function createTurnEndHelpers(
       guard.focus();
       let home = 0n;
       for (let attempt = 0; attempt < 5 && home !== nativeHwnd(guard); attempt++) {
-        if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, 200));
+        if (attempt > 0) await sleep(200);
         home = await foregroundHwnd();
       }
       if (home === 0n) throw new ScenarioSkip('no window holds the OS foreground to hand focus back to');
