@@ -108,9 +108,9 @@ export function normalizeOfficeContentModel(value) {
     const id = safeId(claim.id, 'claim id', `claim ${index + 1}${claim?.text ? `: ${claim.text}` : ''}`);
     if (claimIds.has(id)) throw new Error(`Office content model has duplicate claim id ${id}`);
     claimIds.add(id);
-    // The references are the point of a claim: naming them "facts" instead of
-    // factIds would bind the claim to nothing at all, and the deck then
-    // reports the figure it carried as unsourced.
+    // The references are the point of a claim, so `facts` is accepted as an
+    // alias of `factIds`: a claim written with either name stays bound to its
+    // sources instead of reporting the figure it carried as unsourced.
     let references = [];
     if (Array.isArray(claim.factIds)) references = claim.factIds;
     else if (Array.isArray(claim.facts)) references = claim.facts;
