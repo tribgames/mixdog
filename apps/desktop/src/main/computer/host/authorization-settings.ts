@@ -28,9 +28,7 @@ function normalizeAuthorization(value: unknown): ComputerAuthorization {
  *  reliability harness: it can tighten, never replace, the host launch policy
  *  (`MIXDOG_COMPUTER_POLICY_FILE`). Nothing is persisted — a restriction lives
  *  only for this host's lifetime, so a fresh start is always the launch
- *  policy alone. The settings editor that used to write
- *  `computer-authorization.json` is gone (user: 표면에서 없애고 기본 전부
- *  허용): a saved file could only expire into a lock-out. */
+ *  policy alone: a saved file could only expire into a lock-out. */
 export function createComputerAuthorizationSettings(options: {
   base: ComputerExecutionPolicy;
   stop: () => Promise<void>;
