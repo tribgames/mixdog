@@ -67,13 +67,14 @@ function uniqueTarget(matches: ResolvedLocalLink[], name: string): ResolvedLocal
 }
 
 /** An absolute path opens wherever it is: through the deepest registered
- *  Project that contains it, otherwise with a one-off file grant, the same
- *  access the native file picker gives. */
+ *  Project that contains it, otherwise as its own root on this PC (a folder
+ *  is the root, a file is addressed in its folder). A paired device's or a
+ *  server's host answers with a one-off file grant instead. */
 async function resolveAbsolute(target: string, path: string, sessionId?: string): Promise<ResolvedLocalLink> {
   const resolvePaths = window.mixdogDesktop?.resolveLocalPaths;
   if (!resolvePaths) throw new Error(t('Local file links can only be opened in the desktop app.'));
   // The conversation lets a paired device's host find the reply that links it.
-  const [entry] = await (sessionId ? resolvePaths([target], sessionId) : resolvePaths([target])).catch(
+  const [entry] = await resolvePaths([target], sessionId, { chatLink: true }).catch(
     (error: unknown) => {
       if (missingFile(error)) return [];
       throw error;
@@ -160,9 +161,10 @@ export async function resolveLocalLink(project: string, path: string, sessionId?
 const VERIFIED_TTL_MS = 30_000;
 const MISSING_TTL_MS = 3_000;
 /** The target a click opens. A verified location is reused as is, but a file
- *  outside every Project carries a one-off access token that main may have
- *  dropped since (grants are capped): it is described again at click time, so
- *  a link reopened later never presents an expired token. */
+ *  outside every Project on a paired device or server carries a one-off access
+ *  token that its host may have dropped since (grants are capped): it is
+ *  described again at click time, so a link reopened later never presents an
+ *  expired token. This PC hands out no token for a chat link. */
 export function resolveLocalLinkForOpen(
   verified: ResolvedLocalLink | null | undefined,
   project: string,
@@ -207,8 +209,7 @@ export function verifyLocalLink(project: string, path: string, sessionId?: strin
     return cached.result;
   }
   const result = resolveLocalLink(project, path, sessionId).then(async (match) => {
-    // External folders were already statted by resolveLocalPaths and open
-    // in the file manager, without an editor access token.
+    // Folders were already statted by resolveLocalPaths and carry no token.
     if (!match.directory) await statProjectFile(match.project, match.path, match.accessToken);
     return match;
   });

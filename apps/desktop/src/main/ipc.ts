@@ -301,8 +301,12 @@ export function registerDesktopIpc(
     server
       ? server.grants.requireGrant(accessToken, projectPath, relPath)
       : selectedFiles.requireGrant(accessToken, projectPath, relPath);
-  const describeLocalPaths = (value: unknown) =>
-    server ? server.grants.describe(value) : selectedFiles.describe(value);
+  // A chat link opens wherever it is, so main hands back the file's folder as
+  // its root instead of a one-off grant. The picker and drop keep their grants.
+  const describeLocalPaths = (value: unknown, _sessionId?: unknown, options?: unknown) =>
+    server
+      ? server.grants.describe(value)
+      : selectedFiles.describe(value, (options as { chatLink?: unknown } | undefined)?.chatLink !== true);
   const stageAttachment = server
     ? async (dataUrl: unknown, name: unknown) => {
         const file = requiredAttachmentFile(dataUrl, name);

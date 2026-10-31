@@ -92,8 +92,9 @@ type MarkdownOpenFile = (
   column?: number
 ) => void;
 export const MarkdownOpenFileContext = createContext<MarkdownOpenFile | null>(null);
-/** Reveals a Project folder in the conversation pane's side-dock Files tree;
- *  absent where there is no dock, so folders keep the OS file manager. */
+/** Reveals a folder (inside a Project, or its own tree for one outside every
+ *  Project) in the conversation pane's side-dock Files tree; absent where
+ *  there is no dock, so folders keep the OS file manager. */
 export const MarkdownOpenFolderContext = createContext<((project: string, rel: string) => void) | null>(null);
 
 /** A directory the dock can reveal: a trailing separator names one, an
@@ -110,8 +111,8 @@ async function isProjectFolder(project: string, rel: string, kind: 'folder' | 'f
 }
 
 /** An absolute folder as the deepest registered Project containing it plus
- *  its path inside that Project; null when no registered Project owns it (the
- *  dock tree can only list registered Projects). */
+ *  its path inside that Project; null when no registered Project owns it (it
+ *  then shows as its own tree rooted at the folder). */
 async function owningProjectFolder(folder: string): Promise<{ project: string; rel: string } | null> {
   const projects = (await window.mixdogDesktop?.listProjects?.()) || [];
   let owner: { project: string; rel: string } | null = null;
@@ -331,8 +332,10 @@ export function createLinkPressIntent() {
 
 /** One opening rule for every local mention (chat links, tool subjects):
  *  text files go to Mixdog's editor at their line, documents launch the OS
- *  app, folders open in the file manager. Each file uses its owning Project,
- *  which may differ from the conversation's current Project. */
+ *  app, previewable files open in the Visualize panel, and folders open in
+ *  the dock's Files tree (the file manager where there is no dock). Wherever
+ *  the path is — the conversation's Project, another Project or outside every
+ *  Project — it opens the same way. */
 function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
   const projectPath = useContext(MarkdownProjectContext);
   const sessionId = useContext(MarkdownSessionContext);
@@ -405,10 +408,9 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
 
   // A filename-shaped mention is not an authored link. Keep it noninteractive
   // until the owning Project and actual file/folder are confirmed.
-  // Verification looks only in the conversation's Project (a bare name found
-  // in another Project stays text): searching every registered Project per
-  // rendered mention would flood the file service. Repeated mentions of one
-  // name share a single verification.
+  // Verification looks in the conversation's Project, then the other
+  // registered Projects (or the exact absolute path); a name found nowhere
+  // stays text. Repeated mentions of one name share a single verification.
   const attempt = retry.key === resolutionKey ? retry.attempt : 0;
   useEffect(() => {
     if (!verify || !local) return;
@@ -502,15 +504,14 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
         return;
       }
       const { project, path: file, accessToken, directory } = await resolveTarget();
-      // A previewable file inside the session's working directory opens in the
-      // session's Visualize panel through main's validated reopen. The target
-      // goes as an absolute path: main checks it against the session's own
-      // working directory (symlinks resolved) and a refusal, e.g. outside that
-      // directory, falls through to the regular opening below. A paired
-      // device sends only web pages there: its other previewable files keep
-      // the device's own viewer, while a page in the PC's browser pane shows
-      // a desktop-sized streamed tab instead of the phone-fitted panel.
-      const projectFile =
+      // A previewable file, wherever it is, opens in the session's Visualize
+      // panel through main's validated reopen. The target goes as an absolute
+      // path; main resolves it (symlinks resolved) and a refusal falls through
+      // to the regular opening below. A paired device sends only web pages
+      // there: its other previewable files keep the device's own viewer, while
+      // a page in the PC's browser pane shows a desktop-sized streamed tab
+      // instead of the phone-fitted panel.
+      const previewFile =
         !external &&
         (!remote || pageLink) &&
         !serverWindow &&
@@ -519,11 +520,11 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
         kind === 'file' &&
         sessionId &&
         window.mixdogDesktop?.visualizeCommand
-          ? projectRelativeFilePath(project, file)
+          ? file
           : null;
-      if (projectFile && visualizeKindForPath(projectFile) && (pageLink || !isLocalWebPage(projectFile))) {
+      if (previewFile && visualizeKindForPath(previewFile) && (pageLink || !isLocalWebPage(previewFile))) {
         try {
-          const absolute = `${project.replace(/\\/g, '/').replace(/\/+$/, '')}/${projectFile}`;
+          const absolute = `${project.replace(/\\/g, '/').replace(/\/+$/, '')}/${previewFile}`;
           await reopenVisualizeTargets(sessionId, 'preview', [absolute]);
           return;
         } catch {
@@ -554,12 +555,18 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
         openSandboxedPagePreview(await pageSource(project, file, accessToken), file);
         return;
       }
-      // A Project folder opens beside the conversation as the dock's Files
-      // tree with the folder revealed; folders outside any Project (or behind
-      // an access token) keep the file manager.
+      // A folder opens beside the conversation as the dock's Files tree with
+      // the folder revealed: inside a Project it is revealed there, outside
+      // every Project it is its own tree rooted at the folder. A paired device
+      // reaches only Project folders (its others download as a zip below) and
+      // a server window keeps its own route further down.
       if (openFolder && !accessToken) {
         let folder: Awaited<ReturnType<typeof owningProjectFolder>> = null;
-        if (directory) folder = await owningProjectFolder(project);
+        if (directory) {
+          folder =
+            (await owningProjectFolder(project)) ??
+            (remote || serverWindow ? null : { project, rel: '' });
+        }
         else if (await isProjectFolder(project, file, kind)) folder = { project, rel: file };
         if (folder) {
           openFolder(folder.project, folder.rel);

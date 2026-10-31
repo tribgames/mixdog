@@ -177,6 +177,38 @@ test('a held link whose grant was dropped past the cap is granted again and open
   await assert.rejects(api.readProjectFile(root, 'missing.txt', 'never-granted'), { code: 'ENOENT' });
 });
 
+test('a chat link outside every Project is described in its own folder: no token, no grant, no cap', async (t) => {
+  const { access, root, files, storePath } = await fixture(t);
+  const others = Array.from({ length: 150 }, (_, index) => join(root, `other-${index}.txt`));
+  await Promise.all(others.map((file) => fs.writeFile(file, 'other')));
+  const rows = await access.describe([...files, ...others].slice(0, 100), false);
+  for (const row of rows) {
+    assert.equal(row.accessToken, undefined);
+    assert.equal(row.projectPath, root);
+  }
+  assert.deepEqual(
+    (await access.describe(others.slice(100), false)).map((row) => row.relPath),
+    others.slice(100).map((file) => basename(file))
+  );
+  await assert.rejects(fs.readFile(storePath), { code: 'ENOENT' }, 'the grants file is never written for a chat link');
+  // A folder has no entry fields; it is its own root.
+  const [folder] = await access.describe([root], false);
+  assert.equal(folder.dir, true);
+  assert.equal(folder.projectPath, undefined);
+  // The picker and drop still get their one-off, persisted grants.
+  const [picked] = await access.describe([files[0]]);
+  assert.ok(picked.accessToken);
+});
+
+test('a chat link inside a registered Project is that Project file, as before', async (t) => {
+  const { root, files, storePath } = await fixture(t);
+  const access = new SelectedFileAccess({ storePath, listProjects: async () => [{ path: root }] });
+  const [row] = await access.describe([files[0]], false);
+  assert.equal(row.projectPath, root);
+  assert.equal(row.relPath, basename(files[0]));
+  assert.equal(row.accessToken, undefined);
+});
+
 test('concurrent successful selections remain authorized after reloading their persisted grants', async (t) => {
   const { access, files, create } = await fixture(t);
   const results = await Promise.all(files.map((file) => access.describe([file])));

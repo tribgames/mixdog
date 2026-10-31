@@ -1423,6 +1423,22 @@ test('a closed tab reopens from its card with the same targets, ids never reused
   }
 });
 
+test('a chat link reopens a page outside the session working directory, rooted in its own folder', async () => {
+  const { root, cwd, cleanup } = workspace();
+  const { deps, events } = fakeDeps({ sessionCwd: async () => cwd });
+  const service = createVisualizeService(deps);
+  try {
+    const outside = join(root, 'secret.html');
+    await service.command({ sessionId: 's1', tabId: 'v1', action: 'reopen', targets: [outside] });
+    const tab = events.filter((event) => event.state && event.sessionId === 's1').at(-1).state.tabs[0];
+    assert.equal(tab.panes[0].kind, 'html');
+    assert.equal(tab.panes[0].label, 'secret.html');
+  } finally {
+    service.dispose();
+    cleanup();
+  }
+});
+
 test('an absolute-path open puts no host path anywhere in the remote state', async () => {
   const { root, cwd, cleanup } = workspace();
   const hostEvents = [];

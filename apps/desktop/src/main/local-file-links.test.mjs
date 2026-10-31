@@ -16,9 +16,10 @@ async function fixture(t) {
   await mkdir(join(project, 'output'), { recursive: true });
   const handlers = new Map();
   const mainFrame = {};
-  const webContents = { mainFrame, isDestroyed: () => false, send() {}, on() {}, removeListener() {} };
+  const webContents = { mainFrame, isDestroyed: () => false, send() {}, on() {}, once() {}, removeListener() {} };
   const opened = [];
   const revealed = [];
+  const trashed = [];
   let failure = '';
   const remove = registerDesktopIpc(
     { webContents, isDestroyed: () => false },
@@ -26,6 +27,27 @@ async function fixture(t) {
       subscribe: () => () => {},
       subscribeSessionStates: () => () => {},
       listProjects: async () => [],
+      // No folder is a registered Project here.
+      ...Object.fromEntries(
+        [
+          'projectDirectory',
+          'listProjectDir',
+          'readProjectTextFile',
+          'writeProjectTextFile',
+          'statProjectFile',
+          'createProjectEntry',
+          'renameProjectEntry',
+          'moveProjectEntry',
+          'copyProjectEntry',
+          'projectEntryPath',
+        ].map((name) => [
+          name,
+          async () => {
+            // Uncoded, as an older runtime without listProjectsStrict refuses.
+            throw new Error('Project is not available.');
+          },
+        ])
+      ),
       invokeDesktopOperation: async (method, args) => projectFiles[method](...args),
     },
     {
@@ -44,6 +66,7 @@ async function fixture(t) {
         },
         openExternal: async () => {},
         showItemInFolder: (file) => revealed.push(file),
+        trashItem: async (file) => trashed.push(file),
       },
     }
   );
@@ -56,6 +79,7 @@ async function fixture(t) {
     project,
     opened,
     revealed,
+    trashed,
     handler,
     event,
     handlers,
@@ -164,6 +188,86 @@ test('external chat files use existing selected-file access for reading and savi
     /does not match/
   );
   assert.deepEqual(f.opened, []);
+});
+
+test('a folder outside every Project is a Project-like root for every tree operation, wherever it is', async (t) => {
+  const f = await fixture(t);
+  const folder = join(f.directory, 'outside-docs');
+  await mkdir(join(folder, 'nested'), { recursive: true });
+  await writeFile(join(folder, 'nested', 'note.md'), '# note\n');
+  await writeFile(join(f.directory, 'secret.txt'), 'not linked');
+  const invoke = (channel, ...args) => f.handlers.get(channel)(f.event, ...args);
+  const link = (path) => invoke(DESKTOP_IPC.resolveLocalPaths, [path], 's1', { chatLink: true });
+
+  // No registration, conversation or transcript is involved: the folder is
+  // its own root, and so a restored tree lists it with nothing re-clicked.
+  assert.deepEqual(await invoke(DESKTOP_IPC.listProjectDir, folder, ''), [{ name: 'nested', dir: true }]);
+  const [entry] = await link(folder);
+  assert.equal(entry.dir, true);
+  assert.deepEqual(await invoke(DESKTOP_IPC.listProjectDir, folder, 'nested'), [{ name: 'note.md', dir: false }]);
+
+  // A file of its tree opens by (folder, relative path), no token.
+  const [file] = await link(join(folder, 'nested', 'note.md'));
+  assert.equal(file.accessToken, undefined);
+  assert.equal(file.projectPath, join(folder, 'nested'));
+  const read = await invoke(DESKTOP_IPC.readProjectFile, file.projectPath, file.relPath);
+  assert.equal(read.content, '# note\n');
+  await invoke(DESKTOP_IPC.statProjectFile, file.projectPath, file.relPath);
+  await invoke(
+    DESKTOP_IPC.writeProjectFile,
+    file.projectPath,
+    file.relPath,
+    '# edited\n',
+    read.content,
+    undefined,
+    read.encoding
+  );
+  assert.equal((await invoke(DESKTOP_IPC.readProjectFile, folder, 'nested/note.md')).content, '# edited\n');
+
+  // Creating, renaming, moving, copying and trashing go through the same root.
+  await invoke(DESKTOP_IPC.createProjectEntry, folder, '', 'made', true);
+  await invoke(DESKTOP_IPC.createProjectEntry, folder, 'made', 'a.txt', false);
+  await invoke(DESKTOP_IPC.renameProjectEntry, folder, 'made/a.txt', 'b.txt');
+  await invoke(DESKTOP_IPC.moveProjectEntry, folder, 'made/b.txt', 'nested');
+  const copied = await invoke(DESKTOP_IPC.copyProjectEntry, folder, 'nested/b.txt', 'made');
+  assert.equal(copied.name, 'b.txt');
+  assert.deepEqual(
+    (await invoke(DESKTOP_IPC.listProjectDir, folder, 'nested')).map((entry) => entry.name),
+    ['b.txt', 'note.md']
+  );
+  await invoke(DESKTOP_IPC.trashProjectEntry, folder, 'made/b.txt');
+  assert.deepEqual(f.trashed, [join(folder, 'made', 'b.txt')]);
+  // A root is a boundary: traversal out of it, and a missing folder, are refused.
+  await assert.rejects(async () => invoke(DESKTOP_IPC.renameProjectEntry, folder, '../secret.txt', 'y.txt'));
+  await assert.rejects(async () => invoke(DESKTOP_IPC.readProjectFile, folder, '../secret.txt'), /outside the project/);
+  await assert.rejects(async () => invoke(DESKTOP_IPC.listProjectDir, join(f.directory, 'missing'), ''), /not available/);
+});
+
+test('an outside HTML page loads its relative assets like a Project page', async (t) => {
+  const f = await fixture(t);
+  const folder = join(f.directory, 'site');
+  await mkdir(folder);
+  await writeFile(join(folder, 'index.html'), '<link rel="stylesheet" href="app.css">');
+  await writeFile(join(folder, 'app.css'), 'p{}');
+  const invoke = (channel, ...args) => f.handlers.get(channel)(f.event, ...args);
+  const [entry] = await invoke(DESKTOP_IPC.resolveLocalPaths, [join(folder, 'index.html')], 's1', { chatLink: true });
+  assert.equal(entry.accessToken, undefined);
+  const url = await invoke(DESKTOP_IPC.localPageUrl, entry.projectPath, entry.relPath);
+  const status = (name) => fetch(new URL(name, url)).then((response) => response.status);
+  assert.equal(await status('index.html'), 200);
+  assert.equal(await status('app.css'), 200);
+});
+
+test('chat links to any number of outside files take no grant and nothing is persisted', async (t) => {
+  const f = await fixture(t);
+  const invoke = (channel, ...args) => f.handlers.get(channel)(f.event, ...args);
+  const names = Array.from({ length: 120 }, (_, index) => join(f.directory, `f-${index}.txt`));
+  await Promise.all(names.map((name) => writeFile(name, 'x')));
+  const [first] = await invoke(DESKTOP_IPC.resolveLocalPaths, [names[0]], 's1', { chatLink: true });
+  for (const name of names) await invoke(DESKTOP_IPC.resolveLocalPaths, [name], 's1', { chatLink: true });
+  // However many links were described, the first still reads with no token.
+  assert.equal((await invoke(DESKTOP_IPC.readProjectFile, first.projectPath, first.relPath)).content, 'x');
+  assert.equal(first.accessToken, undefined);
 });
 
 test('file IPC carries a structured refusal code through the envelope Electron would otherwise strip', async (t) => {

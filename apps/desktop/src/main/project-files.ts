@@ -125,19 +125,23 @@ function canonicalPathThroughExistingAncestor(path: string): string {
   return resolve(realpathSync(existing), ...missing);
 }
 
+/** `path` is `root` or under it. A drive or filesystem root already ends in a
+ *  separator, so none is appended to it. */
+function isWithinRoot(root: string, path: string): boolean {
+  return path === root || path.startsWith(root.endsWith(sep) ? root : root + sep);
+}
+
 /** Traversal- and symlink-guarded absolute path for a project-relative entry. */
 export function projectEntryPathIn(root: string, relPath: string): string {
   const absoluteRoot = resolve(root);
   const rel = String(relPath || '').replace(/\\/g, '/');
   const target = resolve(absoluteRoot, rel);
-  if (target !== absoluteRoot && !target.startsWith(absoluteRoot + sep)) {
+  if (!isWithinRoot(absoluteRoot, target)) {
     throw new Error('Path is outside the project.');
   }
   const canonicalRoot = realpathSync(absoluteRoot);
   const canonicalTarget = canonicalPathThroughExistingAncestor(target);
-  const rootKey = comparablePath(canonicalRoot);
-  const targetKey = comparablePath(canonicalTarget);
-  if (targetKey !== rootKey && !targetKey.startsWith(rootKey + sep)) {
+  if (!isWithinRoot(comparablePath(canonicalRoot), comparablePath(canonicalTarget))) {
     throw new Error('Path resolves outside the project.');
   }
   return target;

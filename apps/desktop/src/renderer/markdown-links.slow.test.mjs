@@ -297,41 +297,29 @@ test('previewable local files open in the session Visualize panel; the rest keep
   assert.deepEqual(f.opened.at(-1), [PROJECT, 'docs/a.pdf', undefined]);
 });
 
-test('Visualize targets are checked against the session cwd, a subfolder of the Project', async (t) => {
+test('Visualize gets the exact file wherever the session working directory is', async (t) => {
   const withSession = (text) =>
     React.createElement(MarkdownSessionContext.Provider, { value: 'sess-sub' }, renderers.settled(text));
   const stopReveal = onBrowserPageRevealRequested(() => {});
   t.after(stopReveal);
-  const sessionCwd = `${PROJECT}/sub`;
   const f = await mount(
     t,
     withSession,
-    '[root](a.pdf) [inner](sub/a.pdf) [outside](docs/b.pdf)',
+    '[root](a.pdf) [inner](sub/a.pdf) [elsewhere](docs/b.pdf)',
     PROJECT,
     (fixture) => {
       installProjectFiles(fixture, { [PROJECT]: ['a.pdf', 'sub/a.pdf', 'docs/b.pdf'] });
       fixture.sent = [];
-      // Main resolves an absolute target against the session cwd and refuses
-      // anything outside it.
       fixture.dom.window.mixdogDesktop.visualizeCommand = async (command) => {
-        const [target] = command.targets;
-        if (!target.startsWith(`${sessionCwd}/`)) throw new Error('target is outside the working directory');
-        fixture.sent.push(target);
+        fixture.sent.push(command.targets[0]);
       };
     }
   );
-  // Outside the session cwd: refused, so the regular route runs.
-  await f.click(0);
-  await f.click(2);
-  assert.deepEqual(f.sent, []);
-  assert.deepEqual(f.opened, [
-    [PROJECT, 'a.pdf', undefined],
-    [PROJECT, 'docs/b.pdf', undefined],
-  ]);
-  // Inside it: the exact file, not a same-named one at the Project root.
-  await f.click(1);
-  assert.deepEqual(f.sent, [`${PROJECT}/sub/a.pdf`]);
-  assert.equal(f.opened.length, 2);
+  // Main resolves the absolute target itself, so the renderer sends every file
+  // the same way: the exact one, not a same-named file at the Project root.
+  for (const index of [0, 1, 2]) await f.click(index);
+  assert.deepEqual(f.sent, [`${PROJECT}/a.pdf`, `${PROJECT}/sub/a.pdf`, `${PROJECT}/docs/b.pdf`]);
+  assert.deepEqual(f.opened, []);
 });
 
 test('previewable links of a paired device or behind an access token keep their old route', async (t) => {
@@ -384,10 +372,46 @@ test('a paired device opens a web page link in the session Visualize panel, else
   assert.deepEqual(f.pageUrls, ['site/index.html']);
 });
 
-test('a previewable file outside the session working directory (access token) is not reopened', async (t) => {
+test('a previewable file outside every Project opens in the Visualize panel like a Project file', async (t) => {
   const withSession = (text) =>
     React.createElement(MarkdownSessionContext.Provider, { value: 'sess-viz3' }, renderers.settled(text));
-  const outside = await mount(t, withSession, '[p](C:/private/report.pdf)', PROJECT, (fixture) => {
+  const stopReveal = onBrowserPageRevealRequested(() => {});
+  t.after(stopReveal);
+  const outside = await mount(
+    t,
+    withSession,
+    '[p](C:/private/report.pdf) [q](C:/other/deck/chart.png) [s](C:/private/source.ts)',
+    PROJECT,
+    (fixture) => {
+      fixture.sent = [];
+      fixture.dom.window.mixdogDesktop.visualizeCommand = async (command) => {
+        fixture.sent.push(command.targets);
+      };
+      // An outside file is addressed inside its own folder, with no token.
+      fixture.dom.window.mixdogDesktop.resolveLocalPaths = async ([absolutePath]) => [
+        {
+          absolutePath,
+          projectPath: absolutePath.slice(0, absolutePath.lastIndexOf('/')),
+          relPath: absolutePath.split('/').at(-1),
+          dir: false,
+        },
+      ];
+    }
+  );
+  await outside.click(0);
+  await outside.click(1);
+  assert.deepEqual(outside.sent, [['C:/private/report.pdf'], ['C:/other/deck/chart.png']]);
+  assert.deepEqual(outside.opened, []);
+  // A file that is not previewable keeps its route by type.
+  await outside.click(2);
+  assert.deepEqual(outside.opened, [['C:/private', 'source.ts', undefined]]);
+  assert.equal(outside.sent.length, 2);
+});
+
+test('a paired device keeps its own route for an outside previewable file', async (t) => {
+  const withSession = (text) =>
+    React.createElement(MarkdownSessionContext.Provider, { value: 'sess-viz4' }, renderers.settled(text));
+  const f = await mount(t, withSession, '[p](C:/private/report.pdf)', PROJECT, (fixture) => {
     fixture.sent = [];
     fixture.dom.window.mixdogDesktop.visualizeCommand = async (command) => {
       fixture.sent.push(command);
@@ -395,9 +419,11 @@ test('a previewable file outside the session working directory (access token) is
     fixture.dom.window.mixdogDesktop.resolveLocalPaths = async ([absolutePath]) => [
       { absolutePath, projectPath: 'C:/private', relPath: 'report.pdf', accessToken: 'grant', dir: false },
     ];
+    fixture.dom.window.mixdogRemoteServer = 'wss://relay.example';
   });
-  await outside.click();
-  assert.deepEqual(outside.sent, []);
+  t.after(() => delete f.dom.window.mixdogRemoteServer);
+  await f.click();
+  assert.deepEqual(f.sent, []);
 });
 
 test('a Project folder link reveals the dock Files tree, never the file manager', async (t) => {
@@ -445,25 +471,67 @@ test('an absolute folder opens the dock tree through its deepest registered Proj
   assert.deepEqual(f.local, []);
 });
 
-test('an absolute folder in no registered Project keeps the file manager', async (t) => {
-  const f = await mount(t, renderers.settled, '[x](C:/unregistered/docs/)', PROJECT, (fixture) => {
+test('an absolute folder in no registered Project opens as its own tree in the dock', async (t) => {
+  const asked = [];
+  const f = await mount(t, renderers.settled, '[x](C:/unregistered/docs/) [y](D:/elsewhere/)', PROJECT, (fixture) => {
     fixture.dockFolders = true;
     const api = fixture.dom.window.mixdogDesktop;
     api.listProjects = async () => [{ path: PROJECT, name: 'conversation' }];
-    api.resolveLocalPaths = async ([absolutePath]) => [{ absolutePath, dir: true, name: 'docs', size: 0 }];
+    api.resolveLocalPaths = async ([absolutePath], ...rest) => {
+      asked.push([absolutePath, ...rest]);
+      return [{ absolutePath: absolutePath.replace(/\/+$/, ''), dir: true, name: 'docs', size: 0 }];
+    };
+  });
+  await f.click(0);
+  await f.click(1);
+  assert.deepEqual(f.folders, [
+    ['C:/unregistered/docs', ''],
+    ['D:/elsewhere', ''],
+  ]);
+  assert.deepEqual(f.local, [], 'the OS file manager is not used');
+  // No conversation is needed: main only learns this is a chat link.
+  assert.deepEqual(asked[0], ['C:/unregistered/docs/', undefined, { chatLink: true }]);
+});
+
+test('a server window keeps its own route for a folder outside every Project', async (t) => {
+  const withSession = (text) =>
+    React.createElement(MarkdownSessionContext.Provider, { value: 'sess-ssh' }, renderers.settled(text));
+  const f = await mount(t, withSession, '[x](/srv/data/)', PROJECT, (fixture) => {
+    fixture.dockFolders = true;
+    const api = fixture.dom.window.mixdogDesktop;
+    api.connection = { kind: 'ssh' };
+    api.listProjects = async () => [{ path: '/srv/app', name: 'app' }];
+    api.resolveLocalPaths = async ([absolutePath]) => [
+      { absolutePath: absolutePath.replace(/\/+$/, ''), dir: true, name: 'data', size: 0 },
+    ];
+  });
+  await f.click();
+  // The server branch reveals the folder in the dock exactly once, as before;
+  // the standalone-root fallback is not what opened it.
+  assert.deepEqual(f.folders, [['/srv/data', '']]);
+  assert.deepEqual(f.local, []);
+});
+
+test('a folder link outside every Project with no dock keeps the file manager', async (t) => {
+  const f = await mount(t, renderers.settled, '[x](D:/elsewhere/)', PROJECT, (fixture) => {
+    fixture.dom.window.mixdogDesktop.resolveLocalPaths = async ([absolutePath]) => [
+      { absolutePath: absolutePath.replace(/\/+$/, ''), dir: true, name: 'elsewhere', size: 0 },
+    ];
   });
   await f.click();
   assert.deepEqual(f.folders, []);
   assert.equal(f.local.length, 1);
 });
 
-test('folders outside the Project, or without a dock, keep the file manager', async (t) => {
+test('a paired device keeps its own route for a folder outside every Project', async (t) => {
   const outside = await mount(t, renderers.settled, '[x](D:/elsewhere/)', PROJECT, (fixture) => {
     fixture.dockFolders = true;
     fixture.dom.window.mixdogDesktop.resolveLocalPaths = async ([absolutePath]) => [
       { absolutePath, dir: true, name: 'elsewhere', size: 0 },
     ];
+    fixture.dom.window.mixdogRemoteServer = 'wss://relay.example';
   });
+  t.after(() => delete outside.dom.window.mixdogRemoteServer);
   await outside.click();
   assert.deepEqual(outside.folders, []);
   assert.equal(outside.local.length, 1);
