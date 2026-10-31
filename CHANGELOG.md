@@ -51,6 +51,7 @@ Added Worktrees settings and branch cleanup, replaced Goal tasks with session to
 - Fixed running `npm ci` inside a worktree emptying the main checkout's `node_modules`; each worktree now installs its own dependencies.
 - Fixed resending a task that failed to start (such as in folders without worktree support) repeating "could not be resumed" until restart (#279).
 - Fixed Git and Office document tools failing on Windows when a session's temporary folder path grew too long.
+- Fixed Vertex AI models Gemini 4 Argon and Gemini 3.8 Flash missing the Reasoning effort control; the choice (Low, Medium, High) now appears and is sent with the request (#292).
 
 ## v1.4.2 - 2026-10-29
 

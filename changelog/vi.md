@@ -50,6 +50,7 @@ Thêm phần cài đặt Worktree và dọn dẹp nhánh, thay thế tác vụ G
 - Sửa lỗi việc chạy `npm ci` bên trong một worktree làm trống `node_modules` của checkout chính; nay mỗi worktree sẽ tự cài đặt các phụ thuộc riêng.
 - Sửa lỗi gửi lại tác vụ bị lỗi khởi động (như trong thư mục không hỗ trợ worktree) liên tục lặp lại thông báo "could not be resumed" cho đến khi khởi động lại (#279).
 - Sửa lỗi các công cụ Git và tài liệu Office gặp lỗi trên Windows khi đường dẫn thư mục tạm thời của phiên trở nên quá dài.
+- Sửa lỗi các mô hình Vertex AI Gemini 4 Argon và Gemini 3.8 Flash thiếu tùy chọn mức suy luận; giờ đây lựa chọn (Low, Medium, High) đã xuất hiện và được gửi kèm theo yêu cầu (#292).
 
 ## v1.4.2 - 2026-10-29
 

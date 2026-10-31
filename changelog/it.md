@@ -50,6 +50,7 @@ Aggiunte le impostazioni per i Worktree e la pulizia dei branch, sostituite le a
 - Risolto il problema per cui l'esecuzione di `npm ci` all'interno di un worktree svuotava il `node_modules` del checkout principale; ora ogni worktree installa le proprie dipendenze.
 - Risolto il problema per cui il rinvio di un'attività non avviata (ad esempio in cartelle senza supporto ai worktree) ripeteva «could not be resumed» fino al riavvio (#279).
 - Risolto il problema degli strumenti Git e documenti Office che fallivano su Windows quando il percorso della cartella temporanea della sessione diventava troppo lungo.
+- Risolta l'assenza del controllo dello sforzo di ragionamento per i modelli Vertex AI Gemini 4 Argon e Gemini 3.8 Flash; la scelta (Basso, Medio, Alto) viene ora visualizzata e inviata con la richiesta (#292).
 
 ## v1.4.2 - 2026-10-29
 
