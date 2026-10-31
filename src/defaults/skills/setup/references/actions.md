@@ -377,8 +377,10 @@ markers are read with `status desktop`.
   (an imported theme id from `status appearance` `colorThemes`, or `"builtin"`).
   Also `timeFormat` (system|12h|24h), `sidePanelPosition` (right|bottom|auto),
   `uiScale` (0.85–1.2, step 0.05), `codeSize` (10–20), `codeLigatures`
-  (bool) and `chatTextSize` (small|default|large|extra-large). The UI label
-  "Light" is `theme: "white"`.
+  (bool) and `chatTextSize` (small|default|large|extra-large). Also
+  `composerStyle` (simple|basic|detail; the UI label "Normal" is `basic`) and
+  `questionAnswerConfirm` (bool: a single-choice pick waits for Send/Next).
+  The UI label "Light" is `theme: "white"`.
   Importing, exporting or removing a theme file and choosing a skin picture
   or its plate/accent/photo stay in the UI.
 - `set_desktop_settings` `desktop.botOverlay` takes `enabled`, `position`

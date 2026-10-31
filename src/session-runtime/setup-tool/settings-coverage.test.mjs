@@ -5,7 +5,7 @@ import { join, resolve } from 'node:path';
 import test from 'node:test';
 import { createSetupToolExecutor } from './executor.mjs';
 import { SETUP_ACTION_FIELDS, SETUP_TOOL_DEFS } from './tool-defs.mjs';
-import { SETUP_EXTENDED_ACTION_FIELDS, SETUP_DESKTOP_ACTIONS } from './settings-contract.mjs';
+import { SETUP_EXTENDED_ACTION_FIELDS, SETUP_DESKTOP_ACTIONS, SETUP_HANDOFFS } from './settings-contract.mjs';
 import { EXTENDED_SETUP_HANDLERS } from './extended-actions.mjs';
 import { createModelRouteApi } from '../model-route-api.mjs';
 import { createWorkflowAgentsApi } from '../workflow-agents-api.mjs';
@@ -968,6 +968,13 @@ test('Desktop schema accepts font, skin transparency and color theme options', (
 
 test('Desktop schema accepts the device appearance and bot overlay options within their bounds', () => {
   const { appearance, desktop } = SETUP_TOOL_DEFS[0].inputSchema.properties;
+  assert.equal(
+    schemaValueError({ composerStyle: 'basic', questionAnswerConfirm: true }, appearance, 'appearance'),
+    null
+  );
+  assert.match(schemaValueError({ composerStyle: 'normal' }, appearance, 'appearance'), /must be one of/);
+  assert.match(schemaValueError({ questionAnswerConfirm: 'on' }, appearance, 'appearance'), /boolean/);
+  assert.match(SETUP_HANDOFFS.instructionTexts, /Delegation and Output style/);
   const valid = {
     timeFormat: '24h',
     sidePanelPosition: 'auto',

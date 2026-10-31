@@ -124,3 +124,26 @@ test('the branch example follows a custom prefix while it is typed, before it is
     await act(async () => root.unmount());
   }
 });
+
+// The setup tool accepts any integer within bounds, not only the offered choices.
+test('cleanup thresholds outside the offered choices show their saved value', async () => {
+  const { WorktreeSettings: Cleanup } = await import('./worktree-settings.tsx');
+  host = { ...host, autoCleanup: true, maxWorktrees: 45, unusedDays: 45 };
+  announce();
+  const root = createRoot(document.getElementById('root'));
+  const shown = (name) =>
+    document.querySelector(`[role="combobox"][aria-label="${name}"] .mx-select-value`)?.textContent;
+  try {
+    await act(async () => root.render(React.createElement(Cleanup, { active: true })));
+    await settle();
+    assert.equal(shown('Keep at most'), '45 worktrees');
+    assert.equal(shown('Clean up worktrees unused for'), '45 days');
+    host = { ...host, maxWorktrees: 0, unusedDays: 30 };
+    announce();
+    await settle();
+    assert.equal(shown('Keep at most'), 'No limit');
+    assert.equal(shown('Clean up worktrees unused for'), '30 days');
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
