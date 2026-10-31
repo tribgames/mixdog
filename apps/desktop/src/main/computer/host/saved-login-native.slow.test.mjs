@@ -90,7 +90,15 @@ $form.Controls.Add($plainBox)
 [System.Windows.Forms.Application]::DoEvents()
 $script:CurrentSession = Get-SessionState 'saved-login-probe'
 $windowId = [MixWin32]::WindowId($form.Handle)
-$foregroundBefore = [MixWin32]::Foreground()
+# The desktop's foreground is shared with every other process (concurrent test
+# files show and close windows), so it proves nothing here. What this probe owns
+# does: each worker step that brings a window forward or sends input records
+# itself and refuses, and the refused window counts its own activations.
+$touched = New-Object System.Collections.ArrayList
+function Do-Focus { [void]$touched.Add('Do-Focus'); throw 'probe: the window was focused' }
+function Invoke-ForegroundInput { [void]$touched.Add('Invoke-ForegroundInput'); throw 'probe: input was attempted' }
+$activations = New-Object System.Collections.ArrayList
+$form.add_Activated({ [void]$activations.Add(1) }.GetNewClosure())
 try {
     [void](Do-SavedLoginCheck ([pscustomobject]@{ window_id = $windowId; window = $null; field = 'password' }))
     $results.check = 'accepted'
@@ -106,9 +114,10 @@ try {
 catch { $results.typed = "$($_.Exception.Message)" }
 [System.Windows.Forms.Application]::DoEvents()
 $results.window = @{
-    secretText     = $secretBox.Text
-    plainText      = $plainBox.Text
-    foregroundKept = [MixWin32]::Foreground() -eq $foregroundBefore
+    secretText  = $secretBox.Text
+    plainText   = $plainBox.Text
+    touched     = @($touched)
+    activations = $activations.Count
 }
 try {
     [void](Get-SavedLoginDocument ($AE::FromHandle($plainBox.Handle)) ([MixWin32]::Info($form.Handle)))
@@ -221,8 +230,9 @@ test('the Windows worker refuses every saved-login target it cannot prove, befor
     assert.match(outcome, /^saved_login_refused: the window belongs to 'powershell', not a Chrome or Edge/);
     assert.match(outcome, /no input was sent$/);
   }
-  // No key reached either box and the foreground never moved.
-  assert.deepEqual(result.window, { secretText: '', plainText: '', foregroundKept: true });
+  // No key reached either box, no step that focuses or sends input was reached,
+  // and the refused window was never activated.
+  assert.deepEqual(result.window, { secretText: '', plainText: '', touched: [], activations: 0 });
   assert.equal(
     result.document,
     'saved_login_refused: focus is not on a web page of this browser window; no input was sent'
