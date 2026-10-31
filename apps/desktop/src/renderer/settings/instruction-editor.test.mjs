@@ -56,27 +56,30 @@ async function mount(run, confirm = () => {}, notice = () => {}, category = 'del
   const host = document.createElement('main');
   document.body.append(host);
   const root = createRoot(host);
-  await act(async () => {
-    const props = {
-      data: {
-        instructionFiles: files,
-        orchestrationMode: 'none',
-        outputStyles: STYLES,
-        __loadedSections: ['outputStyles'],
-      },
-      pending: '',
-      run,
-      confirm,
-      notice,
-    };
-    root.render(
-      category === 'delegation'
-        ? React.createElement(DelegationPanel, props)
-        : React.createElement(CategoryPanel, { category, context: props })
-    );
-  });
+  const render = (instructionFiles) =>
+    act(async () => {
+      const props = {
+        data: {
+          instructionFiles,
+          orchestrationMode: 'none',
+          outputStyles: STYLES,
+          __loadedSections: ['outputStyles'],
+        },
+        pending: '',
+        run,
+        confirm,
+        notice,
+      };
+      root.render(
+        category === 'delegation'
+          ? React.createElement(DelegationPanel, props)
+          : React.createElement(CategoryPanel, { category, context: props })
+      );
+    });
+  await render(files);
   return {
     host,
+    rerender: render,
     click: (node) => act(async () => node.dispatchEvent(new window.MouseEvent('click', { bubbles: true }))),
     unmount: () => act(async () => root.unmount()),
   };
@@ -170,6 +173,29 @@ test('edit opens the sub-page; save sends the draft; reset asks once and clears 
   assert.deepEqual(calls[1], ['resetInstructionFile', ['delegation', 'swarm', 'swarm-2']]);
   assert.equal(host.querySelector('.instruction-meta .settings-status'), null, 'Modified badge is gone');
   assert.equal(button(host, 'Reset to default').disabled, true);
+  await unmount();
+});
+
+test("a settings refresh carrying another device's save keeps the draft's base, so saving is refused, not overwriting", async () => {
+  const calls = [];
+  const run = async (capability, args) => {
+    calls.push([capability, args]);
+    return { ...FILES[1], body: args[0].body, revision: 'swarm-3' };
+  };
+  const { host, rerender, click, unmount } = await mount(run);
+  await click([...host.querySelectorAll('.settings-resource')][1].querySelector('button'));
+  const textarea = host.querySelector('textarea');
+  await act(async () => {
+    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value').set;
+    setter.call(textarea, 'My draft.');
+    textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }));
+  });
+  await rerender(
+    FILES.map((item) => (item.id === 'swarm' ? { ...item, body: 'Phone text.', revision: 'swarm-2' } : item))
+  );
+  assert.equal(host.querySelector('textarea').value, 'My draft.', 'the open draft is kept');
+  await click(button(host, 'Save'));
+  assert.equal(calls[0][1][0].expectedRevision, 'swarm-1', 'the write names the revision the draft started from');
   await unmount();
 });
 
