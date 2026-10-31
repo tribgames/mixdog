@@ -272,12 +272,38 @@ test('reordering the lines of an orchestration mode is told, not lost as an equa
   );
   assert.match(
     text,
-    /The Swarm orchestration mode instructions were edited: the same lines in a different order or count\./
+    /The Swarm orchestration mode instructions were edited:\nThe line order changed; the lines now run in this order:\n1\. rule three\n2\. rule one\n3\. rule two/
   );
   const mixed = promptSettingsNoticeContent(
     ['orchestration'],
     { orchestration: 'rule three\nrule one\nrule new', orchestrationMode: 'swarm' },
     before
   );
-  assert.match(mixed, /\+ rule new[\s\S]*\(line order also changed\)/);
+  assert.match(mixed, /\+ rule new[\s\S]*The line order changed[\s\S]*1\. rule three/);
+});
+
+test('reordering instruction file lines or the files themselves is told with the new order, never adopted silently', () => {
+  const fileSet = (a, b) => files(['/p/AGENTS.md', a], ['/p/CLAUDE.md', b]);
+  const original = { instructionFiles: fileSet('rule one\nrule two', 'x'), instructionFilesMode: 'all' };
+  for (const [reordered, expected] of [
+    [fileSet('rule two\nrule one', 'x'), /## \/p\/AGENTS\.md\nThe line order changed[\s\S]*1\. rule two\n2\. rule one/],
+    [
+      files(['/p/CLAUDE.md', 'x'], ['/p/AGENTS.md', 'rule one\nrule two']),
+      /apply in this order:\n\/p\/CLAUDE\.md\n\/p\/AGENTS\.md/,
+    ],
+  ]) {
+    const session = { promptSettings: promptSettingsRecord(original) };
+    assert.deepEqual(stagePromptSettingsNotice(session, { ...original, instructionFiles: reordered }), [
+      'instructionFiles',
+    ]);
+    assert.match(session.promptSettingsNotice.content, expected);
+    assert.deepEqual(session.promptSettingsNotice.emitted, ['instructionFiles']);
+    assert.ok(acknowledgePendingPromptSettingsNotice(session, session.promptSettingsNotice.revision));
+    stagePromptSettingsNotice(session, { ...original, instructionFiles: reordered });
+    assert.equal(session.promptSettingsNotice, undefined, 'told once');
+  }
+  // Unchanged settings stay silent.
+  const quiet = { promptSettings: promptSettingsRecord(original) };
+  assert.deepEqual(stagePromptSettingsNotice(quiet, original), []);
+  assert.equal(quiet.promptSettingsNotice, undefined);
 });

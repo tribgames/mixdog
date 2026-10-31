@@ -125,7 +125,31 @@ const contentLines = (text) =>
     .map((line) => line.trimEnd())
     .filter((line) => line.trim());
 
-/** Added (+) and removed (-) lines, capped at `max` bytes; '' when equal. */
+/** Whether the items both lists share run in a different order or count. */
+function orderChanged(was, now) {
+  const wasSet = new Set(was);
+  const nowSet = new Set(now);
+  return was.filter((item) => nowSet.has(item)).join('\n') !== now.filter((item) => wasSet.has(item)).join('\n');
+}
+
+// `lines` kept while they fit `max` bytes, then a `(N more <what>)` tail.
+function capped(lines, max, what) {
+  const kept = [];
+  let used = 0;
+  for (const line of lines) {
+    if (used + bytes(line) + 1 > max) {
+      kept.push(`(${lines.length - kept.length} more ${what})`);
+      break;
+    }
+    kept.push(line);
+    used += bytes(line) + 1;
+  }
+  return kept;
+}
+
+/** Added (+) and removed (-) lines, capped at `max` bytes; '' when equal.
+ *  Order is meaning in instructions: when the shared lines were moved or
+ *  repeated, the lines are listed again in their new order. */
 function lineDiff(before, after, max = DIFF_MAX_BYTES) {
   const was = contentLines(before);
   const now = contentLines(after);
@@ -135,17 +159,18 @@ function lineDiff(before, after, max = DIFF_MAX_BYTES) {
     ...was.filter((line) => !nowSet.has(line)).map((line) => `- ${line}`),
     ...now.filter((line) => !wasSet.has(line)).map((line) => `+ ${line}`),
   ];
-  const kept = [];
-  let used = 0;
-  for (const line of changes) {
-    if (used + bytes(line) + 1 > max) {
-      kept.push(`(${changes.length - kept.length} more changed lines)`);
-      break;
-    }
-    kept.push(line);
-    used += bytes(line) + 1;
+  const out = capped(changes, max, 'changed lines');
+  if (orderChanged(was, now)) {
+    out.push(
+      'The line order changed; the lines now run in this order:',
+      ...capped(
+        now.map((line, index) => `${index + 1}. ${line}`),
+        max,
+        'lines'
+      )
+    );
   }
-  return kept.join('\n');
+  return out.join('\n');
 }
 
 // --- records -----------------------------------------------------------------
@@ -204,6 +229,9 @@ function metaSections(before, sections) {
   return out;
 }
 
+// Files earlier in the block take precedence: their order is meaning too.
+const fileOrderChanged = (was, now) => orderChanged([...was.keys()], [...now.keys()]);
+
 function instructionFilesSection(told, sections) {
   const mode = sections.instructionFilesMode;
   if (mode && told.instructionFilesMode && mode !== told.instructionFilesMode) {
@@ -219,6 +247,7 @@ function instructionFilesSection(told, sections) {
       if (diff) parts.push(`## ${path}\n${diff}\nRead ${path} for the full file.`);
     }
   }
+  if (fileOrderChanged(was, now)) parts.push(`The files now apply in this order:\n${[...now.keys()].join('\n')}`);
   return parts.length ? `# Instruction Files\n${parts.join('\n\n')}` : '';
 }
 
@@ -230,6 +259,7 @@ function skillsSection(told, sections) {
   const lines = [
     ...(added.length ? [`Added: ${added.join(', ')}`] : []),
     ...(removed.length ? [`Removed: ${removed.join(', ')}`] : []),
+    ...(orderChanged(told.skills || [], now) ? [`Order now: ${now.join(', ')}`] : []),
   ];
   return lines.length ? `# Skills\n${lines.join('\n')}` : '';
 }
@@ -246,6 +276,9 @@ function changedInstructionFiles(told, sections) {
     else if (!was.has(path)) out.push({ path, line: `- added: ${path} (read it)` });
     else if (was.get(path) !== now.get(path)) out.push({ path, line: `- changed: ${path} (read it)` });
   }
+  // No path of its own: acknowledged only with the whole item.
+  // Listed first, so even the minimal form carries it.
+  if (fileOrderChanged(was, now)) out.unshift({ line: `- file order changed: ${[...now.keys()].join(', ')}` });
   return out;
 }
 
@@ -274,7 +307,7 @@ const INSTRUCTION_LIST_MAX_BYTES = 1024;
 function instructionFilesItem(full, told, sections) {
   const changed = changedInstructionFiles(told, sections);
   const heading = '# Instruction Files';
-  const all = changed.map((entry) => entry.path);
+  const all = changed.map((entry) => entry.path).filter(Boolean);
   const compact = [heading, ...changed.map((entry) => entry.line)].join('\n');
   const listed = [];
   let size = bytes(heading);
@@ -294,7 +327,7 @@ function instructionFilesItem(full, told, sections) {
     full,
     compact,
     minimal,
-    paths: { full: all, compact: all, minimal: listed.map((entry) => entry.path) },
+    paths: { full: all, compact: all, minimal: listed.map((entry) => entry.path).filter(Boolean) },
   };
 }
 
@@ -324,30 +357,17 @@ function noticeItems(keys, sections, told) {
       // nothing to diff.
       const mode = sections.orchestrationMode;
       if (told.orchestration === undefined || !mode || told.orchestrationMode !== mode) continue;
-      // Order is meaning in instructions: the line diff compares sets, so
-      // moved or repeated lines are caught by comparing the sequences.
-      const was = contentLines(told.orchestration);
-      const now = contentLines(sections.orchestration);
-      if (was.join('\n') === now.join('\n')) continue;
       const diff = lineDiff(told.orchestration, sections.orchestration);
-      const nowSet = new Set(now);
-      const wasSet = new Set(was);
-      const reordered =
-        was.filter((line) => nowSet.has(line)).join('\n') !== now.filter((line) => wasSet.has(line)).join('\n');
+      if (!diff) continue;
       const name = orchestrationModeName(mode);
       const head = `# Orchestration Mode\nThe ${name} orchestration mode instructions were edited`;
-      add(
-        key,
-        diff
-          ? `${head}:\n${diff}${reordered ? '\n(line order also changed)' : ''}`
-          : `${head}: the same lines in a different order or count.`,
-        `${head}; ${LATER}`
-      );
+      add(key, `${head}:\n${diff}`, `${head}; ${LATER}`);
     } else if (key === 'skills') {
       const full = skillsSection(told, sections);
       const added = skillNames(sections.skills).filter((name) => !(told.skills || []).includes(name)).length;
       const removed = (told.skills || []).filter((name) => !skillNames(sections.skills).includes(name)).length;
-      add(key, full, `# Skills\n${added} skills added, ${removed} removed; ${LATER}`);
+      const moved = orderChanged(told.skills || [], skillNames(sections.skills)) ? ', order changed' : '';
+      add(key, full, `# Skills\n${added} skills added, ${removed} removed${moved}; ${LATER}`);
     } else if (key === 'instructionFiles') {
       const full = instructionFilesSection(told, sections);
       if (!full) continue;
