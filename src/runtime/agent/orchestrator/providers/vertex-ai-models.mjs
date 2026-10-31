@@ -135,7 +135,18 @@ const REGIONAL_PREMIUM_GEMINI = new Set([
 // SKU suffix (model-catalog.mjs prices it from the base SKU).
 export const VERTEX_REGIONAL_PRICING_SUFFIX = '@regional';
 
-const google = (id, name, contextWindow) => ({ id, name, ...(contextWindow ? { contextWindow } : {}) });
+// The Gemini request builder already accepts this documented ladder, but the
+// desktop picker cannot offer any level unless the native provider publishes
+// it in listModels(). Do not infer it for unverified Gemini variants.
+const VERTEX_GEMINI_EFFORTS = new Set(['gemini-4-argon', 'gemini-3.8-flash']);
+const google = (id, name, contextWindow) => ({
+  id,
+  name,
+  ...(contextWindow ? { contextWindow } : {}),
+  ...(VERTEX_GEMINI_EFFORTS.has(id)
+    ? { supportsReasoning: true, reasoningOptions: [{ type: 'effort', values: ['low', 'medium', 'high'] }] }
+    : {}),
+});
 const claude = (id, name, family, contextWindow) => ({
   id,
   name,

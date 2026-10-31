@@ -409,6 +409,12 @@ test('Vertex lists the current Gemini, Claude and open-model roster with its ser
       ?.options.map((option) => option.value) || null;
   assert.deepEqual(tiers('gemini-3.8-flash'), ['standard', 'flex', 'priority']);
   assert.deepEqual(tiers('gemini-4-argon'), ['standard', 'priority']);
+  for (const id of ['gemini-4-argon', 'gemini-3.8-flash']) {
+    const row = models.find((model) => model.id === id);
+    assert.equal(row.supportsReasoning, true);
+    assert.deepEqual(row.reasoningOptions, [{ type: 'effort', values: ['low', 'medium', 'high'] }]);
+  }
+  assert.equal(models.find((model) => model.id === 'gemini-4-argon-cyber-permissive').reasoningOptions, undefined);
   assert.equal(tiers('claude-opus-5-5'), null);
   assert.equal(tiers('xai/grok-4.7'), null);
   assert.deepEqual(models.find((model) => model.id === 'minimaxai/minimax-m2-maas').locations, ['global']);
