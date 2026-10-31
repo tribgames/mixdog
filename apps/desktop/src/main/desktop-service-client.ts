@@ -996,9 +996,9 @@ export class DesktopServiceClient implements DesktopService {
   invokeDesktopOperation(method: string, args: unknown[] = []): Promise<unknown> {
     return this.invoke('invokeDesktopOperation', [method, wireArgs(args)], longRunningRequestTimeout(method, args));
   }
-  /** Fire-and-forget service call. Terminal keystrokes/resizes used to open a
-   *  pending request (with its 120s timer) per keypress and wait for a reply
-   *  behind whatever session traffic was in flight. */
+  /** Fire-and-forget service call: no pending request (with its 120s timer)
+   *  per terminal keystroke or resize, and no wait for a reply behind
+   *  whatever session traffic is in flight. */
   notifyDesktopOperation(method: string, args: unknown[] = []): void {
     const transport = this.transport;
     if (!transport) {

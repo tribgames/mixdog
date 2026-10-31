@@ -220,11 +220,11 @@ export const REMOTE_SERVER_LIBRARY = [
   STEPS_SOURCE,
 ].join('\n');
 
-export const REMOTE_SERVER_PROGRAM = `${REMOTE_SERVER_LIBRARY}\n${MAIN_SOURCE}`;
+const REMOTE_SERVER_PROGRAM = `${REMOTE_SERVER_LIBRARY}\n${MAIN_SOURCE}`;
 
 /** `node -e` decompresses and evaluates the program: the whole command line
  *  must stay under Windows' 32 KiB CreateProcess limit for ssh.exe. */
-export const REMOTE_PROGRAM_LOADER =
+const REMOTE_PROGRAM_LOADER =
   "eval(require('zlib').gunzipSync(Buffer.from(process.argv[1], 'base64')).toString('utf8'))";
 const PROGRAM_BASE64 = gzipSync(Buffer.from(REMOTE_SERVER_PROGRAM, 'utf8'), { level: 9 }).toString('base64');
 
@@ -233,18 +233,18 @@ export function shQuote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`;
 }
 
-export function encodeProgramArgs(args: RemoteProgramArgs): string {
+function encodeProgramArgs(args: RemoteProgramArgs): string {
   return Buffer.from(JSON.stringify(args), 'utf8').toString('base64');
 }
 
 /** argv for running the program with a local node (tests) or remotely. */
-export function remoteProgramArgv(args: RemoteProgramArgs): string[] {
+function remoteProgramArgv(args: RemoteProgramArgs): string[] {
   return ['-e', REMOTE_PROGRAM_LOADER, PROGRAM_BASE64, encodeProgramArgs(args)];
 }
 
 /** Non-interactive ssh sessions skip the rc files that usually put node on
  *  PATH (nvm, volta, fnm, ~/.local): look in the usual places once. */
-export const NODE_PATH_SHELL = `
+const NODE_PATH_SHELL = `
 if ! command -v node >/dev/null 2>&1; then
   for d in "$HOME/.local/bin" "$HOME/.volta/bin" "$HOME/.local/share/fnm/aliases/default/bin" /usr/local/bin /opt/homebrew/bin; do
     [ -x "$d/node" ] && PATH="$d:$PATH"

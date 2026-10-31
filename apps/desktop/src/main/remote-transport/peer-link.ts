@@ -180,7 +180,7 @@ const defaultSchedule = (run: () => void, ms: number): (() => void) => {
   return () => clearTimeout(timer);
 };
 
-export function createRemoteTransportPeerStandIn(deps: RemoteTransportPeerStandInDeps): RemoteTransportPeerStandIn {
+function createRemoteTransportPeerStandIn(deps: RemoteTransportPeerStandInDeps): RemoteTransportPeerStandIn {
   const schedule = deps.schedule ?? defaultSchedule;
   let attachment: string | null = null;
   let disposed = false;

@@ -1,8 +1,8 @@
 // Desktop byte lane: `mixdog-media://asset/<id>?variant=thumb`.
 //
-// The gallery used to pull every tile through the IPC surface as base64,
-// which meant re-transferring and re-decoding the whole grid on each visit.
-// A protocol handler makes tiles ordinary cacheable resources: Chromium
+// Pulling every gallery tile through the IPC surface as base64 would
+// re-transfer and re-decode the whole grid on each visit. A protocol handler
+// makes tiles ordinary cacheable resources: Chromium
 // fetches them in parallel, keeps them in its own cache, and asks for byte
 // ranges when a <video> seeks.
 import { createReadStream, statSync } from 'node:fs';

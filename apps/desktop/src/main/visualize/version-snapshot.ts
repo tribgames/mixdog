@@ -59,7 +59,7 @@ export interface CollectedSnapshot {
 
 /** Where a file at `rel` in root `index` of `count` sits in a version folder:
  *  at `rel` when the version has one root, else under the root's index. */
-export const keptPathOf = (count: number, index: number, rel: string): string => (count > 1 ? `${index}/${rel}` : rel);
+const keptPathOf = (count: number, index: number, rel: string): string => (count > 1 ? `${index}/${rel}` : rel);
 
 /** The files one version keeps, or null when a pane file does not fit
  *  `maxSnapshotBytes` (an asset that does not fit is left out). */

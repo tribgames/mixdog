@@ -210,9 +210,8 @@ async function measureForegroundScroll(window: BrowserWindow) {
   };
 }
 
-/** Warm New Task → long session re-entry is the path that used to pass DOM
- *  identity/geometry tests while still flashing during compositor raster
- *  upload. Measure both the DOM frame sequence and the actual presented
+/** Warm New Task → long session re-entry can pass DOM identity/geometry
+ *  tests while still flashing during compositor raster upload. Measure both the DOM frame sequence and the actual presented
  *  pixels from the click, without the streaming probe's entry exclusion. */
 async function measureWarmReentry(window: BrowserWindow) {
   await clickProbeSession(window, 'probe_switch_b', 900);

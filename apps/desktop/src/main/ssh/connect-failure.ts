@@ -16,7 +16,7 @@ const MAX_MESSAGE_LENGTH = 800;
 
 const boundedMessage = (message: string): string => message.trim().slice(-MAX_MESSAGE_LENGTH);
 
-export const NODE_INSTALL_COMMAND = `curl -fsSL https://fnm.vercel.app/install | bash && fnm install ${REMOTE_MIN_NODE_MAJOR}`;
+const NODE_INSTALL_COMMAND = `curl -fsSL https://fnm.vercel.app/install | bash && fnm install ${REMOTE_MIN_NODE_MAJOR}`;
 
 /** The two commands that put this PC's login key on the server. Windows has
  *  no ssh-copy-id, so its second command pipes the public key through ssh. */

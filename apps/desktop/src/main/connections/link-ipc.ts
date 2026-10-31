@@ -17,13 +17,6 @@ import type { ServerWindowRestore } from './window-restore';
 type LinkedConnection = Pick<DesktopConnection, 'id' | 'kind' | 'link' | 'reconnect'> &
   Partial<Pick<DesktopConnection, 'modelProxy'>>;
 
-/** What this PC's window needs to run a user's connect attempt for a server. */
-export interface ConnectionSignInRequest {
-  id: string;
-  name: string;
-  target: string;
-}
-
 export interface ConnectionLinkIpcDeps<T extends LinkedConnection> {
   ipcMain: Pick<IpcMain, 'handle' | 'removeHandler'>;
   routes: WindowRouteRegistry;

@@ -38,8 +38,8 @@ export const REMOTE_ENSURE_TIMEOUT_MS = 360_000;
 export const REMOTE_INSTALL_TIMEOUT_MS = 600_000;
 /** A remote client's default lease is 30 s and the daemon sweeps every 5 s:
  *  a desktop that quit is gone from /health within this window. */
-export const REMOTE_CLIENT_LEASE_WAIT_MS = 35_000;
-export const REMOTE_CLIENT_LEASE_POLL_MS = 3_000;
+const REMOTE_CLIENT_LEASE_WAIT_MS = 35_000;
+const REMOTE_CLIENT_LEASE_POLL_MS = 3_000;
 const CLIENT_LEASE_WAIT_DETAIL = '이전 연결이 끝나기를 기다리는 중';
 
 /** Modules the desktop service bundle loads at runtime that
@@ -113,7 +113,7 @@ export function isTerminalRemoteError(error: unknown): boolean {
  *  sends its model calls back to this PC; any other would run models with the
  *  server's credentials. With the server's own logins it is a daemon without
  *  the model proxy; one in proxy mode would run them on this PC's. */
-export function assertModelLoginMode(report: RemoteReport, modelLogin: SshModelLogin = 'pc'): void {
+function assertModelLoginMode(report: RemoteReport, modelLogin: SshModelLogin = 'pc'): void {
   if (!report.healthy || !report.discovery) return;
   const pid = report.discovery.pid;
   const version = report.packageVersion || 'unknown';
@@ -191,7 +191,7 @@ const text = (value: unknown): string | null => (typeof value === 'string' && va
 
 /** The platform line first (an unsupported server is named as such even when
  *  a later step failed), then the last MIXDOG_RESULT / MIXDOG_ERROR line. */
-export function parseRemoteResult(stdout: string): Record<string, unknown> {
+function parseRemoteResult(stdout: string): Record<string, unknown> {
   const platform = parsePlatformLine(stdout);
   if (platform) classifyRemotePlatform(platform.uname, platform.libc);
   const lines = stdout.split(/\r?\n/);
@@ -261,9 +261,9 @@ export interface RemoteScriptArgs {
 }
 
 /** How long a daemon outlives its last desktop (per saved server). */
-export const REMOTE_GRACE_DEFAULT_MINUTES = 30;
-export const REMOTE_GRACE_MIN_MINUTES = 1;
-export const REMOTE_GRACE_MAX_MINUTES = 7 * 24 * 60;
+const REMOTE_GRACE_DEFAULT_MINUTES = 30;
+const REMOTE_GRACE_MIN_MINUTES = 1;
+const REMOTE_GRACE_MAX_MINUTES = 7 * 24 * 60;
 
 /** The saved `graceMinutes` in ms: the default when absent or invalid,
  *  clamped to 1 minute .. 7 days. */

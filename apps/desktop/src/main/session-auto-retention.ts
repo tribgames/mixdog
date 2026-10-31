@@ -68,7 +68,7 @@ function rowActivity(row: Record<string, unknown>): number {
 /** Unread by the shared read cursor: messages past it (for a row listing its
  *  incoming messages, one of those). A session never read on any surface has
  *  no cursor and, as on the sidebar, reads as seen. */
-export function hasUnreadOutput(session: DesktopSessionSummary): boolean {
+function hasUnreadOutput(session: DesktopSessionSummary): boolean {
   const read = session.readMessageCount;
   if (typeof read !== 'number') return false;
   const count = Math.max(0, Number(session.messageCount) || 0);
@@ -160,10 +160,7 @@ export function planSessionRetention(input: SessionRetentionInput): SessionReten
 }
 
 /** What may happen to `sessionId` under `input`; null when nothing (or it is gone). */
-export function sessionRetentionVerdict(
-  sessionId: string,
-  input: SessionRetentionInput
-): SessionRetentionAction | null {
+function sessionRetentionVerdict(sessionId: string, input: SessionRetentionInput): SessionRetentionAction | null {
   const session = input.sessions.find((row) => row.id === sessionId);
   return session ? (retentionJudge(input)(session)?.[0] ?? null) : null;
 }

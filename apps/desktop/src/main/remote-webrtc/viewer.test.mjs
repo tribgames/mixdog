@@ -13,7 +13,6 @@ const HEX_B = Array.from({ length: 32 }, () => 'CD').join(':');
 const SDP = `v=0\r\no=- 1 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\na=fingerprint:sha-256 ${HEX_A}\r\n`;
 const TURN = [{ urls: ['turn:turn.example:3478'], username: 'u', credential: 'p' }];
 const BROWSER = { kind: 'browser', sessionId: 's1' };
-const source = BROWSER;
 const geometry = {
   generation: 1,
   cssWidth: 400,

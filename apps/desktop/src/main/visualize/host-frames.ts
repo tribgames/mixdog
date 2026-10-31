@@ -63,11 +63,7 @@ async function sessionBodyShownNow(window: BrowserWindow, sessionId: string): Pr
  *  one of a few points across it (inside the viewport) is the body or within
  *  it. False when a dialog, Settings or another overlay covers it, or a
  *  clipping ancestor hides it; null when the body is not there at all. */
-export async function bodyUncoveredNow(
-  window: BrowserWindow,
-  sessionId: string,
-  tabId: string
-): Promise<boolean | null> {
+async function bodyUncoveredNow(window: BrowserWindow, sessionId: string, tabId: string): Promise<boolean | null> {
   const query = `(() => {
     for (const node of document.querySelectorAll('[data-visualize-body]')) {
       if (node.dataset.visualizeSession !== ${JSON.stringify(sessionId)}) continue;

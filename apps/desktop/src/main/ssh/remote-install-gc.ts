@@ -3,7 +3,7 @@
 // staging directory it finds belongs to a dead installer.
 
 /** daemon.log is rotated past this size; one old generation is kept. */
-export const REMOTE_LOG_MAX_BYTES = 5 * 1024 * 1024;
+const REMOTE_LOG_MAX_BYTES = 5 * 1024 * 1024;
 
 export const REMOTE_GC_SOURCE = String.raw`
 const LOG_MAX_BYTES = ${REMOTE_LOG_MAX_BYTES};

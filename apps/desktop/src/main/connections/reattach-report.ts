@@ -15,7 +15,7 @@ import type { ModelProxyCallSettled } from '../model-proxy-host';
  *  report is made from the list already known. */
 export const REATTACH_SESSIONS_WAIT_MS = 5_000;
 /** How long a session with unanswered tool calls is watched for its turn to end. */
-export const OUTCOME_WATCH_MS = 10 * 60_000;
+const OUTCOME_WATCH_MS = 10 * 60_000;
 
 export interface ReattachReportSources {
   subscribeSessions(listener: (sessions: DesktopSessionSummary[]) => void): () => void;
@@ -32,7 +32,7 @@ export interface ReattachReportOptions {
 }
 
 /** A tool call that has neither a result nor a completion mark. */
-export function toolCallUnanswered(item: unknown): boolean {
+function toolCallUnanswered(item: unknown): boolean {
   if (!item || typeof item !== 'object') return false;
   const row = item as Record<string, unknown>;
   if (row.kind !== 'tool' || row.completedAt != null) return false;

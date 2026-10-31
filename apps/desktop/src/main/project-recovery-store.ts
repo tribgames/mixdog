@@ -241,12 +241,12 @@ async function requireDirectory(path: string): Promise<void> {
     throw new ProjectRecoveryError('RECOVERY_STORAGE', 'Recovery storage is not a regular private directory.');
   }
 }
-export async function validateRecoveryDirectory(directory: string): Promise<void> {
+async function validateRecoveryDirectory(directory: string): Promise<void> {
   await requireDirectory(dirname(dirname(directory)));
   await requireDirectory(dirname(directory));
   await requireDirectory(directory);
 }
-export async function recoveryLocations(userDataPath: string, root: string): Promise<string[]> {
+async function recoveryLocations(userDataPath: string, root: string): Promise<string[]> {
   const parent = projectRecoveryStorePath(userDataPath, root);
   try {
     await requireDirectory(dirname(parent));

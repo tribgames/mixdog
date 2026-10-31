@@ -3,9 +3,9 @@
 // available (the Electron main process) the picture is downscaled here; the
 // plain-Node service serving phones has none and hands over the original
 // (bounded), which the phone's renderer downscales before caching.
-export const ATTACHMENT_REF_PATTERN = /^[a-f0-9]{64}$/;
-export const THUMBNAIL_MAX_SIDE = 320;
-export const THUMBNAIL_FALLBACK_MAX_BYTES = 512 * 1024;
+const ATTACHMENT_REF_PATTERN = /^[a-f0-9]{64}$/;
+const THUMBNAIL_MAX_SIDE = 320;
+const THUMBNAIL_FALLBACK_MAX_BYTES = 512 * 1024;
 export const REMOTE_ORIGINAL_MAX_BYTES = 2 * 1024 * 1024;
 const JPEG_QUALITY = 82;
 
@@ -35,7 +35,7 @@ function sniffImageMime(bytes: Buffer): string | null {
   return null;
 }
 
-export function isAttachmentRef(value: unknown): value is string {
+function isAttachmentRef(value: unknown): value is string {
   return typeof value === 'string' && ATTACHMENT_REF_PATTERN.test(value);
 }
 

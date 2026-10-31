@@ -11,7 +11,7 @@ import { isRemoteActivated } from './remote-activation';
 import { writeSecretFile } from './secret-file';
 
 const SETTINGS_FILE = 'remote-access-settings.json';
-export const MAX_REMOTE_PC_NAME_LENGTH = 64;
+const MAX_REMOTE_PC_NAME_LENGTH = 64;
 
 interface StoredSettings {
   enabled?: boolean;
@@ -20,7 +20,7 @@ interface StoredSettings {
   deviceAliases?: Record<string, string>;
 }
 
-export const MAX_DEVICE_ALIAS_LENGTH = 80;
+const MAX_DEVICE_ALIAS_LENGTH = 80;
 
 export interface RemoteAccessSettingsStore {
   read(): Promise<DesktopRemoteAccessSettings>;

@@ -40,10 +40,7 @@ export function rosterDigest(value: unknown): string {
   return createHash('sha256').update(canonicalJson(value)).digest('hex');
 }
 
-export function createRosterLog<T>(
-  keyOf: (item: T, index: number) => string,
-  maxTombstones = MAX_TOMBSTONES
-): RosterLog<T> {
+function createRosterLog<T>(keyOf: (item: T, index: number) => string, maxTombstones = MAX_TOMBSTONES): RosterLog<T> {
   const epoch = randomBytes(12).toString('base64url');
   let version = 0;
   let order: string[] = [];

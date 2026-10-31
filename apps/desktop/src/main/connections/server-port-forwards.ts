@@ -11,7 +11,7 @@ import { freeLocalPort, localPortAccepts } from '../ssh/tunnel';
 import type { PortForwardStore, SavedPortForward } from './port-forward-store';
 
 /** How long a new forward may take before the panel shows it as failing. */
-export const FORWARD_READY_TIMEOUT_MS = 30_000;
+const FORWARD_READY_TIMEOUT_MS = 30_000;
 /** Ports below this on this PC are never bound (they need elevation). */
 export const LOWEST_LOCAL_PORT = 1024;
 
@@ -65,7 +65,7 @@ export type PortForwardErrorCode =
   | 'port-not-active'
   | 'window-closed';
 
-export class PortForwardError extends Error {
+class PortForwardError extends Error {
   override readonly name = 'PortForwardError';
   constructor(
     readonly code: PortForwardErrorCode,
@@ -75,12 +75,12 @@ export class PortForwardError extends Error {
   }
 }
 
-export function validPortNumber(value: unknown): value is number {
+function validPortNumber(value: unknown): value is number {
   return typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= 65_535;
 }
 
 /** Bindable on 127.0.0.1 and nothing answers there. */
-export async function loopbackPortFree(port: number): Promise<boolean> {
+async function loopbackPortFree(port: number): Promise<boolean> {
   if (await localPortAccepts(port)) return false;
   return new Promise((resolve) => {
     const server = createServer();

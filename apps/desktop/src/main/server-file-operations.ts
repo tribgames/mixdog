@@ -31,9 +31,9 @@ import { projectEntryPathIn } from './project-files';
 
 export { SERVER_UPLOAD_CHUNK_BYTES, SERVER_UPLOAD_MAX_BYTES };
 /** Raw bytes per ranged read. */
-export const SERVER_FILE_READ_MAX_BYTES = 4 * 1024 * 1024;
+const SERVER_FILE_READ_MAX_BYTES = 4 * 1024 * 1024;
 /** An upload nobody feeds for this long is abandoned and its partial file removed. */
-export const SERVER_UPLOAD_IDLE_MS = 2 * 60 * 1000;
+const SERVER_UPLOAD_IDLE_MS = 2 * 60 * 1000;
 
 type ServerFileOperationName =
   | 'serverUploadBegin'
@@ -73,7 +73,7 @@ function uploadScope(value: unknown): string {
 }
 
 /** One path segment that names the uploaded file on a POSIX server. */
-export function serverUploadFileName(value: unknown): string {
+function serverUploadFileName(value: unknown): string {
   const raw = typeof value === 'string' ? value : '';
   const name = basename(raw.replace(/\\/g, '/'))
     // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are what is replaced.

@@ -98,10 +98,10 @@ async function starGithub(): Promise<{ starred: boolean }> {
   return { starred: true };
 }
 
-// PTY output is bursty: node-pty emits one chunk per read, and each chunk
-// used to become its own daemon frame, SSE write, and renderer IPC message.
-// Joining the chunks that land inside one coalescing window collapses that
-// traffic without holding the first byte longer than a frame.
+// PTY output is bursty: node-pty emits one chunk per read, and an uncoalesced
+// chunk is its own daemon frame, SSE write, and renderer IPC message. Joining
+// the chunks that land inside one coalescing window collapses that traffic
+// without holding the first byte longer than a frame.
 const TERMINAL_COALESCE_MS = 8;
 
 /** Buffers one terminal's output for a frame and emits it as a single event.

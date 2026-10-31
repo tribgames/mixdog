@@ -54,7 +54,7 @@ export function settingsConfigModuleUrl(
   return pathToFileURL(configPath).href;
 }
 
-export function isNotificationVolume(value: unknown): value is number {
+function isNotificationVolume(value: unknown): value is number {
   return Number.isInteger(value) && (value as number) >= 0 && (value as number) <= NOTIFICATION_VOLUME_MAX;
 }
 
@@ -66,7 +66,7 @@ const SESSION_RETENTION_DEFAULTS: Readonly<Record<SessionRetentionSettingKey, nu
 /** The stored session retention policy (absent = default), or null when a
  *  stored value is not one of the offered choices: the retention pass then
  *  does nothing rather than act on a guess. */
-export function sessionRetentionFromConfig(
+function sessionRetentionFromConfig(
   value: unknown
 ): { sessionAutoArchiveDays: number; sessionAutoDeleteDays: number } | null {
   const desktop = record(record(value).desktop);
@@ -137,7 +137,7 @@ const DESKTOP_FLAG_KEYS: ReadonlySet<DesktopSettingKey> = new Set([
 
 /** Code defaults of the user-facing `desktop.<key>` toggles; storage holds
  *  only a value that differs. Install markers are system state: no default. */
-export const DESKTOP_FLAG_DEFAULTS: Readonly<Partial<Record<DesktopSettingKey, boolean>>> = {
+const DESKTOP_FLAG_DEFAULTS: Readonly<Partial<Record<DesktopSettingKey, boolean>>> = {
   keepAwake: true,
   runInBackground: true,
   usagePinned: true,
@@ -153,7 +153,7 @@ export const DESKTOP_FLAG_DEFAULTS: Readonly<Partial<Record<DesktopSettingKey, b
 };
 
 /** Marker in the `desktop` section: the one-time defaults separation ran. */
-export const DEFAULTS_SEPARATION_MARKER = 'defaultsSeparationVersion';
+const DEFAULTS_SEPARATION_MARKER = 'defaultsSeparationVersion';
 const DEFAULTS_SEPARATION_VERSION = 1;
 /** Every activity-rail default list ever shipped (order matters). */
 const HISTORICAL_ACTIVITY_RAIL_PINS: readonly (readonly string[])[] = [

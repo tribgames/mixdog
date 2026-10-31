@@ -18,12 +18,12 @@ import { insidePath } from './targets';
 import { evictVersions, floorBytes } from './version-eviction';
 import { collectSnapshot, relOf, type SnapshotSource, snapshotHash } from './version-snapshot';
 
-export { pageReferences, type SnapshotSource as VisualizeSnapshotSource } from './version-snapshot';
+export { pageReferences } from './version-snapshot';
 
-export const MAX_VERSIONS_PER_TAB = 20;
-export const MAX_SESSION_VERSION_BYTES = 128 * 1024 * 1024;
+const MAX_VERSIONS_PER_TAB = 20;
+const MAX_SESSION_VERSION_BYTES = 128 * 1024 * 1024;
 /** One version's files together; a larger pane is shown live but not kept. */
-export const MAX_SNAPSHOT_BYTES = 32 * 1024 * 1024;
+const MAX_SNAPSHOT_BYTES = 32 * 1024 * 1024;
 
 export interface VisualizeVersion extends VisualizeVersionView {
   /** The version's folder (resolved); files sit at their kept paths. */

@@ -23,7 +23,7 @@ const PROBE_ENV: Readonly<Record<string, string>> = {
 // Values that describe the probe shell process, not the user's configuration.
 const PROBE_PROCESS_KEYS = new Set(['PWD', 'OLDPWD', 'SHLVL', '_', ...Object.keys(PROBE_ENV)]);
 /** Whole-read budget across every candidate shell: the daemon waits for it. */
-export const LOGIN_SHELL_READ_BUDGET_MS = 5_000;
+const LOGIN_SHELL_READ_BUDGET_MS = 5_000;
 
 export interface LoginShellFailure {
   shell: string;
@@ -39,7 +39,7 @@ export interface LoginShellReadResult {
 
 /** The account's login shell (what `chsh` chose — a Dock launch's $SHELL
  *  comes from launchd, not the user), then the fixed system shells. */
-export function loginShellCandidates(): string[] {
+function loginShellCandidates(): string[] {
   let account = '';
   try {
     account = userInfo().shell || '';

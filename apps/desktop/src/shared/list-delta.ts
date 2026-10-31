@@ -178,8 +178,8 @@ export function createKeyedListDeltaEncoder<T>(keyOf: (item: T, index: number) =
       }
       // An unchanged row is not sent at all, and a changed one sends only its
       // changed FIELDS whenever that is smaller than the row. One `working`
-      // flag flipping used to re-send that session's preview, title, cwd
-      // and route every second — the flag itself is a few dozen bytes.
+      // flag flipping would otherwise re-send that session's preview, title,
+      // cwd and route every second — the flag itself is a few dozen bytes.
       const upsert: Array<ListUpsert<T>> = [];
       for (const [key, item] of rows) {
         const before = previous.get(key);

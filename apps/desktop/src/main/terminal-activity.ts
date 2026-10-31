@@ -10,7 +10,7 @@ import { TERMINAL_FOCUS_LEASE_MS, type TerminalActivityState } from '../shared/t
 
 export type TerminalMarker = { kind: 'prompt' } | { kind: 'start' } | { kind: 'done'; exitCode: number | null };
 
-export const TERMINAL_MARKER_PREFIX = '\x1b]697;';
+const TERMINAL_MARKER_PREFIX = '\x1b]697;';
 /** Longest marker body worth waiting for across chunks ("D;-2147483648"). */
 const MAX_MARKER_BODY = 24;
 

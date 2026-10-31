@@ -52,7 +52,7 @@ export const REMOTE_ONLY_ANNOTATE = 'the tab is shown only on a paired remote de
 
 /** inspect on a tab only a paired remote device is showing: the reading runs
  *  in the desktop window's panes. */
-export const REMOTE_ONLY_INSPECT =
+const REMOTE_ONLY_INSPECT =
   'inspect reads the page in the Mixdog desktop window, and this tab is shown only on a paired remote device; ask the user to open the visualize panel on the desktop, then retry';
 
 /** A card picture is taken once two captures this far apart match… */
@@ -153,7 +153,7 @@ export async function settledBodyImage(
 /** A downscaled PNG within the card thumbnail caps: the widest of a few steps
  *  (never above VISUALIZE_THUMBNAIL_MAX_WIDTH) that fits
  *  VISUALIZE_THUMBNAIL_MAX_BYTES; null when none does or the image is empty. */
-export function fitVisualizeThumbnail(image: NativeImage): Buffer | null {
+function fitVisualizeThumbnail(image: NativeImage): Buffer | null {
   if (image.isEmpty()) return null;
   // A tall picture (a whole page, stacked document pages) keeps its top at
   // the card's 16:10, which is what the card shows anyway.
