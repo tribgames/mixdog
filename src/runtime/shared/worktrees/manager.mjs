@@ -86,7 +86,7 @@ import {
   removeIncludeLinks,
   restoreIncludeLinks,
 } from './include.mjs';
-import { linkWorktreeDependencies } from './dependencies.mjs';
+import { linkedArtefacts } from './dependencies.mjs';
 import { withRepoLock as withRepoMutationLock } from './lock.mjs';
 import { holdWorkspaceActivityAsync } from './activity-gate.mjs';
 import { withAdvisoryLocks } from '../../agent/orchestrator/tools/builtin/advisory-lock.mjs';
@@ -1309,7 +1309,7 @@ function newCreationRecord({
 
 /**
  * Locks the fresh checkout, binds its owner lease, moves or leaves the
- * project folder's changes, applies the includes and links dependencies.
+ * project folder's changes and applies the includes.
  * `carry.moved` is set as soon as changes were carried, so a later failure
  * can put them back.
  */
@@ -1353,15 +1353,6 @@ async function populateCheckout({
   }
   const applied = await applyIncludes(includePlan, record.path, (ledger) => recordInclude(record, ledger));
   throwIfAborted(signal);
-  // After the includes: one that already brought a node_modules wins.
-  const linkedDependencies = await linkWorktreeDependencies({
-    mainDir: repo.projectPath,
-    worktreeDir: projectSubdir ? join(record.path, ...projectSubdir.split('/')) : record.path,
-    worktreeRel: projectSubdir,
-    signal,
-    record: (ledger) => recordInclude(record, ledger),
-  });
-  throwIfAborted(signal);
   record.warnings = [...record.warnings, ...applied.warnings];
   const made = (record.resources.includes || []).filter((item) => item.status === 'created');
   const rels = (predicate) => made.filter(predicate).map((item) => item.rel);
@@ -1369,13 +1360,12 @@ async function populateCheckout({
   const prepared = {
     root: repo.topLevel,
     copied: rels((item) => item.mode === 'copy'),
-    linked: rels((item) => item.mode === 'link' && !item.dependency),
-    dependencies: linkedDependencies,
+    linked: rels((item) => item.mode === 'link'),
     skipped: [...includePlan.warnings, ...applied.warnings],
   };
   // Whichever path made it (a worktree task, a branch selection, `git
-  // worktree add`), the first turn a session runs here prepares its
-  // dependencies (claimWorktreeSetup).
+  // worktree add`), the first turn a session runs here installs its
+  // dependencies in the worktree folder (claimWorktreeSetup).
   record.setup = { pending: true, prepared };
   record.state = 'ready';
   await putRecord(record);
@@ -1774,21 +1764,63 @@ export async function removeSessionSnapshots(sessionId, { txIds = null } = {}) {
   return report;
 }
 
+/** The node_modules links into the main checkout an earlier version recorded at creation. */
+function dependencyLinks(record) {
+  return (record?.resources?.includes || []).filter((item) => item.mode === 'link' && item.dependency);
+}
+
+/**
+ * Unlink (never empty) the recorded dependency links of a worktree made by
+ * an earlier version, through which a reset (`npm ci`) in the worktree
+ * empties the main checkout's node_modules, and forget those gone. One that
+ * cannot be unlinked stays recorded, so removal still unlinks it first, and
+ * blocks every install in the worktree (claimWorktreeSetup).
+ * @returns {Promise<boolean>} whether any is gone
+ */
+async function detachDependencyLinks(record) {
+  const links = dependencyLinks(record);
+  if (!links.length) return false;
+  const stuck = new Set(await removeIncludeLinks(links));
+  record.resources.includes = record.resources.includes.filter((item) => !links.includes(item) || stuck.has(item.path));
+  return stuck.size < links.length;
+}
+
 /**
  * The first turn a session runs in managed worktree `entryId` claims its
  * dependency preparation, once: `{ prepared }` (what creation did) while it
  * is still pending, else null. Claimed before it runs, so a failed or
- * cancelled preparation is never repeated.
+ * cancelled preparation is never repeated. A worktree that still holds an
+ * earlier version's dependency link has it detached at its next turn and is
+ * claimed again (`prepared` null), so that turn installs in the worktree.
+ * While one cannot be unlinked, or any other installed artefact in the
+ * project folder is a link (linkedArtefacts), the claim is `{ prepared: null,
+ * blocked }` (the links, relative to the worktree's top level) instead:
+ * nothing is installed, since an install reaches beyond its own folder
+ * (`npm ci` at the root resets every workspace package's node_modules), and
+ * the setup stays pending, so each later turn tries again.
  */
 export async function claimWorktreeSetup(entryId) {
   const record = await getRecord(entryId);
-  if (!record?.setup?.pending) return null;
+  if (!record?.setup?.pending && !dependencyLinks(record).length) return null;
   return withRepoLock(record.repoCommonDir, async () => {
     const current = await getRecord(entryId);
-    if (current?.state !== 'ready' || !current.setup?.pending) return null;
+    if (current?.state !== 'ready') return null;
+    const pending = current.setup?.pending === true;
+    const detached = await detachDependencyLinks(current);
+    let blocked = dependencyLinks(current).map((item) => item.rel);
+    if (!blocked.length && !pending && !detached) return null;
+    if (!blocked.length) {
+      const links = await linkedArtefacts(sessionRootOf(current));
+      blocked = links.map((rel) => [current.projectSubdir, rel].filter(Boolean).join('/'));
+    }
+    if (blocked.length) {
+      current.setup = { ...current.setup, pending: true };
+      await putRecord(current);
+      return { prepared: null, blocked };
+    }
     current.setup = { ...current.setup, pending: false, claimedAt: Date.now() };
     await putRecord(current);
-    return { prepared: current.setup.prepared ?? null };
+    return { prepared: pending ? (current.setup.prepared ?? null) : null };
   });
 }
 

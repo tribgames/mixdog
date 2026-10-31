@@ -20,24 +20,21 @@
  * Further stacks are one STACKS entry each (see there). Java (Gradle, Maven),
  * Rust and Go fetch on their own and need nothing.
  *
- * Only node_modules is ever linked: when the main checkout's same folder has
- * it installed (a real directory, never a link) and the lockfile is
- * byte-identical, the worktree's becomes a link to it (directory junction on
- * Windows, symlink elsewhere) at creation, recorded with the worktree's
- * include links so removal unlinks it before the checkout goes and never
- * traverses into the target. Everything else (a virtualenv is not
- * relocatable) is installed in the worktree folder at the start of the
- * session's first turn (setup-commands.mjs). A folder whose artefact already
- * exists in the worktree is left alone, so an install never runs through a
- * link into the main checkout; a link standing in for an artefact that is
- * never linked (a .venv) is noted as not prepared. A tool that is not on PATH
- * is skipped with a note.
+ * Nothing is shared with the main checkout: every artefact is installed in
+ * the worktree folder at the start of the session's first turn
+ * (setup-commands.mjs). A linked node_modules is never safe: `npm ci` lists
+ * the folder it finds and deletes each entry, which through a link (junction
+ * or symlink) are the main checkout's, and other installs prune or rebuild in
+ * place the same way. A folder whose artefact already exists in the worktree
+ * is left alone; while any is a link (made by hand, or by an earlier version
+ * and not yet detached, manager detachDependencyLinks), nothing in the
+ * worktree is installed, since an install can reach other folders than its
+ * own. A tool that is not on PATH is skipped with a note.
  */
 import { lstat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { which } from '../../tidy/process.mjs';
 import { runGit } from './git.mjs';
-import { linkDirectory } from './include.mjs';
 import { runWorktreeSetupCommands } from './setup-commands.mjs';
 
 /** JS lockfile → package manager, in the order a folder with several picks one. */
@@ -86,9 +83,6 @@ async function yarnInstallFlag(tool, cwd, signal) {
  *   globs     committed basename globs it reads (`*` within a name), optional;
  *   artefact  the folder an install leaves: the main checkout having it
  *             admits a nested folder, the worktree having it skips the folder;
- *   linkable  only when the main checkout's artefact works as is through a
- *             link (then an identical `lockfile` is required); never for an
- *             install that embeds its own path (a virtualenv);
  *   pick(files)  the folder's committed basenames → { manager, lockfile?, … }
  *                or null;
  *   install(match, { cwd, tool, signal })
@@ -105,7 +99,6 @@ const STACKS = [
     stack: 'js',
     names: ['package.json', ...JS_LOCKFILES.map(([name]) => name)],
     artefact: 'node_modules',
-    linkable: true,
     pick(files) {
       if (!files.has('package.json')) return null;
       const match = JS_LOCKFILES.find(([name]) => files.has(name));
@@ -289,6 +282,63 @@ function workspaceMatcher(patterns) {
   return (dir) => include.some((re) => re.test(dir)) && !exclude.some((re) => re.test(dir));
 }
 
+/**
+ * The folders (forward-slash, relative to `projectDir`, '' itself) holding
+ * committed files some stack reads, with those basenames; nothing inside
+ * node_modules. Empty when git cannot list them.
+ * @returns {Promise<Map<string, Set<string>>>}
+ */
+async function committedFolders(projectDir, signal) {
+  const pathspecs = [...STACK_NAMES, ...STACK_GLOBS].map((name) => `:(glob)**/${name}`);
+  const result = await runGit(projectDir, ['-c', 'core.quotePath=false', 'ls-files', '-z', '--', ...pathspecs], {
+    signal,
+    readOnly: true,
+    allowFailure: true,
+  });
+  const folders = new Map();
+  if (result.code !== 0) return folders;
+  for (const path of result.stdout.split('\0')) {
+    const parts = path.split('/');
+    const name = parts.pop();
+    if (!name || !relevantName(name) || parts.includes('node_modules')) continue;
+    const dir = parts.join('/');
+    if (!folders.has(dir)) folders.set(dir, new Set());
+    folders.get(dir).add(name);
+  }
+  return folders;
+}
+
+/** Whether `stack` reads the committed basename `name`. */
+function stackReads(stack, name) {
+  return stack.names.includes(name) || (stack.globs ?? []).some((glob) => matchesSegment(glob, name));
+}
+
+function matchesSegment(glob, name) {
+  return new RegExp(`^${segmentPattern(glob)}$`, 'i').test(name);
+}
+
+/**
+ * Every installed artefact in `projectDir` that is a link (forward-slash
+ * paths): the artefact of each folder with committed files of its stack, so
+ * a node_modules beside every committed package.json, the workspace packages
+ * that share the root lockfile too. Only the artefact itself is examined
+ * (lstat), never what a link points at. An install reaches beyond its own
+ * folder (`npm ci` at the root resets every workspace package's
+ * node_modules), so any one blocks every install in the worktree.
+ * @returns {Promise<string[]>}
+ */
+export async function linkedArtefacts(projectDir, { signal } = {}) {
+  const links = [];
+  for (const [dir, files] of await committedFolders(projectDir, signal)) {
+    for (const stack of STACKS) {
+      if (![...files].some((name) => stackReads(stack, name))) continue;
+      const info = await lstatOrNull(join(folderPath(projectDir, dir), stack.artefact));
+      if (info?.isSymbolicLink()) links.push([dir, stack.artefact].filter(Boolean).join('/'));
+    }
+  }
+  return links;
+}
+
 /** Whether `dir` holds the installed `artefact`: a real directory, never a link. */
 async function installedArtefact(dir, artefact) {
   const info = await lstatOrNull(join(dir, artefact));
@@ -300,26 +350,11 @@ async function installedArtefact(dir, artefact) {
  * project itself), root first: one entry per project folder and stack, with
  * the manager its committed files select. `mainDir`: the same folder in the
  * main checkout, whose installed artefacts admit nested folders.
- * @returns {Promise<Array<{ dir: string, stack: string, manager: string, artefact: string, linkable?: boolean,
+ * @returns {Promise<Array<{ dir: string, stack: string, manager: string, artefact: string,
  *   lockfile?: string, requirements?: string[] }>>}
  */
 export async function findLockfileFolders(projectDir, { mainDir = null, signal } = {}) {
-  const pathspecs = [...STACK_NAMES, ...STACK_GLOBS].map((name) => `:(glob)**/${name}`);
-  const result = await runGit(projectDir, ['-c', 'core.quotePath=false', 'ls-files', '-z', '--', ...pathspecs], {
-    signal,
-    readOnly: true,
-    allowFailure: true,
-  });
-  if (result.code !== 0) return [];
-  const folders = new Map();
-  for (const path of result.stdout.split('\0')) {
-    const parts = path.split('/');
-    const name = parts.pop();
-    if (!name || !relevantName(name) || parts.includes('node_modules')) continue;
-    const dir = parts.join('/');
-    if (!folders.has(dir)) folders.set(dir, new Set());
-    folders.get(dir).add(name);
-  }
+  const folders = await committedFolders(projectDir, signal);
   const isWorkspace = workspaceMatcher(await workspacePatterns(projectDir));
   const found = [];
   for (const [dir, files] of folders) {
@@ -329,55 +364,11 @@ export async function findLockfileFolders(projectDir, { mainDir = null, signal }
       const admitted =
         !dir || isWorkspace(dir) || (mainDir && (await installedArtefact(folderPath(mainDir, dir), stack.artefact)));
       if (admitted) {
-        found.push({ dir, stack: stack.stack, artefact: stack.artefact, linkable: stack.linkable === true, ...match });
+        found.push({ dir, stack: stack.stack, artefact: stack.artefact, ...match });
       }
     }
   }
   return found.sort((a, b) => a.dir.split('/').length - b.dir.split('/').length || a.dir.localeCompare(b.dir));
-}
-
-/** Whether the main checkout's installed artefact can stand in for the worktree's. */
-async function linkSource(mainDir, worktreeDir, { dir, lockfile, artefact }) {
-  if (!lockfile || !(await installedArtefact(folderPath(mainDir, dir), artefact))) return null;
-  const [mainLock, worktreeLock] = await Promise.all([
-    readOrNull(join(folderPath(mainDir, dir), lockfile)),
-    readOrNull(join(folderPath(worktreeDir, dir), lockfile)),
-  ]);
-  return mainLock && worktreeLock && mainLock.equals(worktreeLock) ? join(folderPath(mainDir, dir), artefact) : null;
-}
-
-/**
- * Link each linkable folder's artefact (node_modules) from the main checkout
- * where its lockfile is identical (creation time). `record(ledger)` is
- * awaited with status 'pending' before each link is made and 'created'
- * after, like an include link; a link that cannot be made is left to the
- * first-turn install.
- * @param {{ mainDir: string, worktreeDir: string, worktreeRel: string, signal?: AbortSignal,
- *   record: (ledger: object) => Promise<void> }} input `worktreeRel`: the project
- *   folder relative to the worktree's top level ('' at the top).
- * @returns {Promise<string[]>} The linked folders.
- */
-export async function linkWorktreeDependencies({ mainDir, worktreeDir, worktreeRel, signal, record }) {
-  const linked = [];
-  for (const folder of await findLockfileFolders(worktreeDir, { mainDir, signal })) {
-    if (!folder.linkable) continue;
-    const dest = join(folderPath(worktreeDir, folder.dir), folder.artefact);
-    if (await lstatOrNull(dest)) continue;
-    const source = await linkSource(mainDir, worktreeDir, folder);
-    if (!source) continue;
-    const rel = [worktreeRel, folder.dir, folder.artefact].filter(Boolean).join('/');
-    const ledger = { mode: 'link', rel, path: dest, status: 'pending', digest: null, source, dependency: true };
-    await record(ledger);
-    try {
-      await linkDirectory(source, dest);
-    } catch {
-      continue;
-    }
-    ledger.status = 'created';
-    await record(ledger);
-    linked.push(folder.dir);
-  }
-  return linked;
 }
 
 /** Display text of a command (never run through a shell). */
@@ -390,8 +381,8 @@ function commandLine(tool, { args, followUp }) {
 /**
  * What the first turn still has to do in the worktree folder `worktreeDir`:
  * the installs (`commands`, setup-commands entries) and one line per folder
- * it leaves alone (`notes`: linked, nothing found, tool not on PATH, an
- * artefact that is a link it must not install through).
+ * it leaves alone (`notes`: nothing found, tool not on PATH, an artefact that
+ * is a link it must not install through).
  * `mainDir`: the same folder in the main checkout (findLockfileFolders).
  * `env`: where the tools are looked up (PATH).
  * @param {{ worktreeDir: string, mainDir?: string|null, signal?: AbortSignal, env?: NodeJS.ProcessEnv }} input
@@ -403,23 +394,25 @@ export async function planDependencySetup({ worktreeDir, mainDir = null, signal,
   }
   const commands = [];
   const notes = [];
-  const linked = [];
+  // While any artefact is a link nothing is installed (linkedArtefacts).
+  const links = await linkedArtefacts(worktreeDir, { signal });
   for (const entry of folders) {
     const cwd = folderPath(worktreeDir, entry.dir);
     const where = folderLabel(entry.dir);
-    const present = await lstatOrNull(join(cwd, entry.artefact));
-    if (present && (!present.isSymbolicLink() || entry.linkable)) {
-      if (present.isSymbolicLink()) linked.push(where);
-      continue;
-    }
+    const info = await lstatOrNull(join(cwd, entry.artefact));
+    if (info && !info.isSymbolicLink()) continue;
     const stack = STACKS.find((candidate) => candidate.stack === entry.stack);
     const named = await stack.install(entry, { cwd, signal });
     if (!named) continue;
-    if (present) {
-      // A link where the stack needs its own install (a virtualenv): not
-      // prepared, and never installed through into whatever it points at.
+    if (info) {
       notes.push(
-        `${entry.artefact} in ${where} is a link, not an environment of its own; ${where} was not prepared (replace it with \`${commandLine(named.tools[0], named)}\` there if tests need it).`
+        `${entry.artefact} in ${where} is a link, not an install of its own; ${where} was not prepared (replace it with \`${commandLine(named.tools[0], named)}\` there if tests need it).`
+      );
+      continue;
+    }
+    if (links.length) {
+      notes.push(
+        `${where} was not prepared while ${links.join(', ')} ${links.length > 1 ? 'are links' : 'is a link'} an install could reach through (run \`${commandLine(named.tools[0], named)}\` there once replaced if tests need it).`
       );
       continue;
     }
@@ -451,6 +444,5 @@ export async function planDependencySetup({ worktreeDir, mainDir = null, signal,
       commands.push({ command: displayLine(`"${file}"`, args), file, args, cwd, label, ...specEnv });
     }
   }
-  if (linked.length) notes.unshift(`Linked node_modules from the main checkout: ${linked.join(', ')}.`);
   return { commands, notes };
 }
