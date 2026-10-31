@@ -12,7 +12,7 @@
 //                own: the card names the tool, its current level and the one
 //                asked for, and the person picks the level (`scope`: one of
 //                `choices`) or denies. Answered once, never remembered.
-// A response is one of HUMAN_RESPONSES plus a `remember` scope; a policy lists
+// A response is one of RESPONSES_BY_KIND for its kind plus a `remember` scope; a policy lists
 // the scopes it allows and can leave out `always`. Nothing here ever carries a
 // secret value: a decision that names one is stripped to its verdict.
 
@@ -20,7 +20,6 @@ const HUMAN_REQUEST_KINDS = Object.freeze(['approval', 'outbound', 'secret', 'ta
 /** The levels a connector card may raise a tool to. */
 export const CONNECTOR_WIDEN_LEVELS = Object.freeze(['needs_approval', 'auto']);
 const CONNECTOR_LEVELS = ['disabled', ...CONNECTOR_WIDEN_LEVELS];
-const HUMAN_RESPONSES = Object.freeze(['approve', 'deny', 'edit-and-approve', 'provide-secret', 'skip', 'done']);
 const REMEMBER_SCOPES = Object.freeze(['once', 'agent', 'always']);
 export const SECRET_REQUEST_TIMEOUT_MS = 120_000;
 /** What a secret's bound field is: a sign-in form (아이디 + 비밀번호), a lone

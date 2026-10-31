@@ -154,7 +154,7 @@ export function resolveSessionContextMeta(provider, model, seed = {}, { wholeWin
   // Legacy-data migration: old implementations derived autoCompactTokenLimit
   // from the full effective/raw window and persisted it onto the session.
   // A resumed session therefore re-seeds autoCompactTokenLimit == boundary
-  // (or the raw window), which compactTriggerForSession / loop policy used to
+  // (or the raw window), which compactTriggerForSession / loop policy would
   // honor as an explicit trigger, collapsing the compaction buffer to 0. Only
   // accept an explicit limit that is STRICTLY BELOW the boundary; a value at
   // or above the boundary is a derived full-window artifact and is dropped to

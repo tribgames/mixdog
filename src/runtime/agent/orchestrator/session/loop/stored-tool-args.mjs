@@ -6,12 +6,11 @@
 // copy `[mixdog compacted …]` back as literal patch input.
 //
 // Mutation bodies (patch / old_string / new_string / content / rewrite) are
-// never collapsed after the fact. The sweep that used to do it (deferBodies
-// plus a settled-body pass on the next push) rewrote a prefix the provider had
-// already cached, and every rewrite re-billed that whole request at the
-// uncached rate. Measured over one 89-task run: $1.20 lost to recover $0.16,
-// because the collapsed tokens only come back at the cached rate over the
-// REMAINING turns, and a task rarely has enough of them left. Bodies now stay
+// never collapsed after the fact. A later sweep would rewrite a prefix the
+// provider has already cached, and every rewrite re-bills that whole request at
+// the uncached rate. Measured over one 89-task run: $1.20 lost to recover
+// $0.16, because the collapsed tokens only come back at the cached rate over
+// the REMAINING turns, and a task rarely has enough of them left. Bodies stay
 // verbatim in history, so the prefix — and its cache — survives the session.
 import { createHash } from 'node:crypto';
 

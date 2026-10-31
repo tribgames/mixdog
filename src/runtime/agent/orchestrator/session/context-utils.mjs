@@ -55,14 +55,10 @@ export {
 // deployment recalibrate without a code change; values are clamped to a
 // plausible band.
 //
-// The Anthropic factor was 1.9 while opaque replay blobs were projected as a
-// fixed marker — that is, while a transcript's entire reasoning stream (15-35%
-// of it) was priced at zero, and the multiplier was silently covering the gap.
-// Now that those blobs carry their measured cost, the ratio was re-measured
-// against the provider's own token counter on twenty real transcripts:
-// 1.23-1.40, median 1.32 (previously 1.72-2.48 — a fifth of the spread, since
-// the multiplier no longer has to absorb a variable amount of reasoning).
-// 1.4 covers the measured maximum without double counting.
+// Opaque replay blobs carry their measured cost, so the Anthropic ratio does
+// not have to absorb a variable amount of reasoning. Measured against the
+// provider's own token counter on twenty real transcripts: 1.23-1.40, median
+// 1.32. 1.4 covers the measured maximum without double counting.
 //
 // Only Anthropic-style providers can be calibrated against reported usage at
 // all, because only they resend the whole transcript every turn. OpenAI/xAI
@@ -96,10 +92,10 @@ export { estimateRequestReserveTokens, estimateToolSchemaTokens, toolSchemaSigna
 
 // Opaque replay payloads (Anthropic thinking signatures, OpenAI encrypted
 // reasoning blobs, redacted data) are long base64-ish strings that ARE billed
-// proportionally to their serialized length — see the measurement below. They
-// were previously replaced with a fixed marker, which priced a provider's
-// entire reasoning stream at nearly zero. Project them at their measured cost
-// instead. Projection is KEY-SCOPED: only fields that structurally carry
+// proportionally to their serialized length — see the measurement below. A
+// fixed marker would price a provider's entire reasoning stream at nearly zero,
+// so they are projected at their measured cost. Projection is KEY-SCOPED: only
+// fields that structurally carry
 // opaque replay
 // material (signatures / encrypted / redacted / raw data blobs) are eligible,
 // so genuine long model text (e.g. Gemini thought text) keeps its real cost.

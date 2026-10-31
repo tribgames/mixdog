@@ -190,7 +190,7 @@ export function withdrawPendingOwnCommit(target, scratchStamp) {
 }
 
 /** Read-only lifecycle verdict of a pending peer commit whose identity `stamp` carries. */
-export function pendingOwnCommittedLifecycle(target, stamp) {
+function pendingOwnCommittedLifecycle(target, stamp) {
   _absorbPeerCommits();
   const pending = _pendingOwnCommits.get(target);
   return pending && _sameScratchIdentity(pending.stamp, stamp) ? pending.value : null;

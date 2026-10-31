@@ -79,7 +79,7 @@ export function unwrapClaudePastes(text) {
   return unwrapped.trim() ? unwrapped : text;
 }
 
-export function isClaudeEnvelopeText(text) {
+function isClaudeEnvelopeText(text) {
   const trimmed = String(text || '').trim();
   if (!trimmed) return true;
   return (

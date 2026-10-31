@@ -17,7 +17,7 @@ import { probePath, readTextFile, PROBE_PRESENT } from './fs-probe.mjs';
 export const LEGACY_MARKER_SUFFIXES = ['.hb', '.own'];
 // An older live owner rewrote `.hb` every ≤5s mid-turn and `.own` every ~20s
 // while holding the session open; one untouched this long holds nothing.
-export const LEGACY_MARKER_FRESH_MS = 2 * 60 * 1000;
+const LEGACY_MARKER_FRESH_MS = 2 * 60 * 1000;
 
 function processAlive(pid) {
   try {
@@ -47,7 +47,7 @@ export function readLegacyMarker(path, now = Date.now()) {
 
 /** Whether a legacy marker of the session names a live owner pid with a
  *  fresh heartbeat: that session is driven by another live process. */
-export function _legacyOwnerLivenessVeto(id, now = Date.now()) {
+function _legacyOwnerLivenessVeto(id, now = Date.now()) {
   if (typeof id !== 'string' || !/^[A-Za-z0-9_-]+$/.test(id)) return false;
   const dir = getStoreDir();
   return LEGACY_MARKER_SUFFIXES.some((suffix) => {

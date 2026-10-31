@@ -151,7 +151,7 @@ export function persistsConfirmedImageRejection(err, strip) {
   return strip.uniqueImages === 1;
 }
 
-export const PREPARATION_FAILED_CODE = 'anthropic_image_preparation_failed';
+const PREPARATION_FAILED_CODE = 'anthropic_image_preparation_failed';
 
 /** True for prepareAnthropicImages' local "this image is invalid" rejection. */
 export function isImagePreparationFailed(err) {

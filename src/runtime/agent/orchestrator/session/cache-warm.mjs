@@ -141,7 +141,7 @@ export function sessionReturnChance(gaps, elapsedMs, withinMs) {
 
 // A write below this many tokens is prompt growth, never a rewrite: 4096 is
 // the largest minimum cacheable prompt length of the supported models.
-export const CACHE_WARM_REWRITE_FLOOR_TOKENS = 4096;
+const CACHE_WARM_REWRITE_FLOOR_TOKENS = 4096;
 
 /** Whether a warm's `usage` shows a substantial rewrite with poor read
  *  coverage: the write reaches the floor and the read covers less than half
@@ -155,7 +155,7 @@ export function warmRewrote(usage) {
 /** Whether an entry last used at `touchAt` and living `ttlMs` will have
  *  expired by the time a warm sent at `now` reaches the provider (`latencyMs`
  *  later): a warm into an expired entry rewrites the whole prompt. */
-export function cacheEntryLapsed(touchAt, ttlMs, now, latencyMs = null) {
+function cacheEntryLapsed(touchAt, ttlMs, now, latencyMs = null) {
   return touchAt + ttlMs - now <= (Number(latencyMs) || 0);
 }
 

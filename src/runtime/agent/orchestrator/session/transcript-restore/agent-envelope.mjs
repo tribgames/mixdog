@@ -260,7 +260,7 @@ export function isStatusOnlyAgentCompletionNotification(text) {
   return !(hasAgentResponseResultText(result) || hasAgentResponseResultText(text));
 }
 
-export function hasAgentResponseResultText(text) {
+function hasAgentResponseResultText(text) {
   const value = String(text || '').trim();
   if (!value) return false;
   const notification = parseTaskNotification(value);

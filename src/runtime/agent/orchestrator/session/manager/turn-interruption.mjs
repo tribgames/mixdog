@@ -225,7 +225,7 @@ function textBufferMethods(state) {
       // The replayed attempt has started producing its OWN text, so the
       // retracted tail it replaces is no longer what the user is looking
       // at. Dropping it here keeps exactly one copy of the opening
-      // instead of one per retry (a 3-retry stall used to persist four
+      // instead of one per retry (a 3-retry stall would persist four
       // copies of the same first sentence). Reference agents never
       // commit a replayed attempt's discarded stream at all; the
       // tombstone exists only for the window between a retraction and

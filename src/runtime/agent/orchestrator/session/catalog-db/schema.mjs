@@ -127,7 +127,7 @@ export function byActivityThenId(left, right) {
 }
 
 /** Title normalized once at write: what a title lookup or sort compares. */
-export function normalizedTitle(row) {
+function normalizedTitle(row) {
   return String(row.title || row.preview || '')
     .normalize('NFKC')
     .toLowerCase()

@@ -20,7 +20,7 @@ export const AUTOMATION_GRANT_REASON =
 export const isGrantedRun = (run) => Boolean(run) && run.kind !== 'room';
 
 /** Whether an outbound request is a payment or permanent delete. */
-export function isForbiddenInRun(request) {
+function isForbiddenInRun(request) {
   const category = request?.kind === 'outbound' ? request.outbound?.category : '';
   return ACTION_KINDS.includes(category) && !isRememberableAction(category);
 }

@@ -11,7 +11,7 @@ import { imagePartAllowance, pdfPartAllowance } from './context-utils.mjs';
 // over the transcript. The rest stays for the conversation, tool results and
 // the answer; above it the read-what-you-need path costs far less than the
 // whole files.
-export const ATTACHMENT_INLINE_SHARE = 0.25;
+const ATTACHMENT_INLINE_SHARE = 0.25;
 
 /** The inline-attachment budget of a model window (0 when unknown). */
 export function attachmentInlineBudget(contextWindow) {

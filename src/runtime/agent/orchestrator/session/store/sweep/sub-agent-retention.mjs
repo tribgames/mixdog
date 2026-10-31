@@ -16,12 +16,12 @@ import { deleteSession } from '../session-delete.mjs';
 import { readSweepRecord } from './sweep-record.mjs';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-export const SUB_AGENT_ARCHIVE_AFTER_MS = 3 * DAY_MS;
-export const SUB_AGENT_DELETE_AFTER_MS = 30 * DAY_MS;
+const SUB_AGENT_ARCHIVE_AFTER_MS = 3 * DAY_MS;
+const SUB_AGENT_DELETE_AFTER_MS = 30 * DAY_MS;
 const PERMANENT_ID = /^sess_(?:home|room|rmem)_/;
 // The desktop change an automatic archive applies: that one session, no
 // cascade (an explicit archive of a parent takes its sub-agents along).
-export const SUB_AGENT_AUTO_ARCHIVE = Object.freeze({ archived: true, cascade: false });
+const SUB_AGENT_AUTO_ARCHIVE = Object.freeze({ archived: true, cascade: false });
 
 const positive = (value) => (Number(value) > 0 ? Number(value) : 0);
 

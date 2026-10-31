@@ -379,7 +379,7 @@ test('a user attachment is never superseded', () => {
 });
 
 test('only a plain terminal read is superseded by a later plain read of the same tab', () => {
-  const read = (id, tab, partial = false) =>
+  const read = (_id, tab, partial = false) =>
     `UNTRUSTED TERMINAL OUTPUT\nTerminal${partial ? ' (partial)' : ''}: session-terminal:s1${tab > 1 ? `:${tab}` : ''} · ${tab} pwsh running · cursor=5\nlines 1-1 of 1\nhello`;
   const messages = [
     call('t1', 'terminal'),
@@ -401,7 +401,7 @@ test('only a plain terminal read is superseded by a later plain read of the same
 });
 
 test('a disjoint older terminal tail is kept; a contained one is superseded', () => {
-  const read = (id, first, last) => {
+  const read = (_id, first, last) => {
     const rows = [];
     for (let n = first; n <= last; n += 1) rows.push(n === 5 ? 'ERROR boom' : `line ${n}`);
     return `UNTRUSTED TERMINAL OUTPUT\nTerminal: session-terminal:s1 · 1 pwsh running · cursor=9\nlines ${first}-${last} of ${last}\n${rows.join('\n')}`;
