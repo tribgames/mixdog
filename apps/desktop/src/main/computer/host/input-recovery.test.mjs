@@ -208,6 +208,37 @@ test('observer loss is unknown, not an assertion that the user took control', as
   }
 });
 
+test('a recovering input gap after dispatch is waited out; a persisting one stays unknown', async () => {
+  for (const gapReads of [1, Number.POSITIVE_INFINITY]) {
+    const calls = [];
+    const resolver = createInputResolution({
+      sessionIdFor: () => 'test',
+      assertExecutionNotAborted() {},
+      callPowerShell: async (request) => {
+        calls.push(request.action);
+        return {
+          ok: true,
+          result:
+            calls.length <= gapReads
+              ? { ...state, input_observer_ready: false, input_observer_reason: 'input_gap' }
+              : { ...state, input_observer_reason: '' },
+        };
+      },
+    });
+    const result = await resolver.verifyInputRecovery({ action: 'focus_window' }, 'hwnd:0x1', original, {});
+    if (gapReads === 1) {
+      assert.equal(result.ok, true);
+      assert.equal(result.focus_preserved_for_followup, true);
+      assert.deepEqual(calls, ['input_recovery_state', 'input_recovery_state']);
+    } else {
+      assert.equal(result.ok, false);
+      assert.equal(result.code, 'input_observation_unavailable');
+      assert.notEqual(result.user_control, true);
+      assert.equal(calls.length > 2, true, 'the gap was re-read before giving up');
+    }
+  }
+});
+
 test('refused input preserves pre-action focus rather than forcing the older session focus', async () => {
   const calls = [];
   const before = { ...original, foregroundWindowId: 'hwnd:0x3' };

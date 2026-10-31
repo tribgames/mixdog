@@ -23,6 +23,8 @@ export interface InputRecoveryState {
   cursorY: number;
   inputTick?: number;
   inputObserverReady?: boolean;
+  /** The native observer's metadata-only reason when it is not ready. */
+  inputObserverReason?: string;
   inputMonitorId?: string;
   inputUserSequence?: number;
   syntheticInput?: boolean;

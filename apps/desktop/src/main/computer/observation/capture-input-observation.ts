@@ -4,7 +4,30 @@
  * foreground stayed untouched.
  */
 import type { ComputerCommand, ComputerInputObservation } from '../shared/types';
-import { CAPTURE_ACCESSIBILITY_TIMEOUT_MS } from '../shared/common';
+import { CAPTURE_ACCESSIBILITY_TIMEOUT_MS, sleep } from '../shared/common';
+
+/** The native observer's reason while it recovers from input it could not
+ *  attribute: it is ready again after about 300 ms without input. */
+export const INPUT_GAP_REASON = 'input_gap';
+const INPUT_GAP_SETTLE_MS = 1_000;
+const INPUT_GAP_POLL_MS = 100;
+
+/** Re-reads while the observer is still recovering from an input gap, up to a
+ *  bounded wait. A gap that outlasts it means input is still arriving. */
+export async function settleInputGap<T>(
+  read: () => Promise<T>,
+  inGap: (value: T) => boolean,
+  assertNotAborted: () => void
+): Promise<T> {
+  const deadline = performance.now() + INPUT_GAP_SETTLE_MS;
+  let value = await read();
+  while (inGap(value) && performance.now() < deadline) {
+    await sleep(INPUT_GAP_POLL_MS);
+    assertNotAborted();
+    value = await read();
+  }
+  return value;
+}
 
 export interface InputObservationHost {
   callPowerShell(
@@ -16,7 +39,7 @@ export interface InputObservationHost {
 }
 
 export function createInputObservationReader(host: InputObservationHost, command: ComputerCommand) {
-  return async (): Promise<ComputerInputObservation | undefined> => {
+  const readOnce = async (): Promise<ComputerInputObservation | undefined> => {
     host.assertExecutionNotAborted();
     try {
       const response = await host.callPowerShell(
@@ -37,11 +60,32 @@ export function createInputObservationReader(host: InputObservationHost, command
         Number(result.sequence) < 0
       )
         return undefined;
-      return { ready: result.observer_ready === true, monitor: result.monitor, sequence: Number(result.sequence) };
+      const ready = result.observer_ready === true;
+      const reason = !ready && typeof result.observer_reason === 'string' ? result.observer_reason : '';
+      return { ready, monitor: result.monitor, sequence: Number(result.sequence), ...(reason ? { reason } : {}) };
     } catch {
       host.assertExecutionNotAborted();
       return undefined;
     }
+  };
+  return async (): Promise<ComputerInputObservation | undefined> => {
+    const reads: Array<ComputerInputObservation | undefined> = [];
+    const settled = await settleInputGap(
+      async () => {
+        const observation = await readOnce();
+        reads.push(observation);
+        return observation;
+      },
+      (observation) => observation?.ready === false && observation.reason === INPUT_GAP_REASON,
+      () => host.assertExecutionNotAborted()
+    );
+    // The observer counts a gap once, when it opens, so the gap read already
+    // carries that count and a clean recovery keeps it. Any later change is
+    // more input during the wait: the gap read stays the refused baseline.
+    const first = reads[0];
+    return first && settled && (first.monitor !== settled.monitor || first.sequence !== settled.sequence)
+      ? first
+      : settled;
   };
 }
 
@@ -84,9 +128,12 @@ export function foregroundInputState(
     before.monitor === after.monitor &&
     before.sequence === after.sequence;
   if (foregroundReady) return { foregroundReady };
+  // A gap that outlasted the settle wait is input still arriving, not a broken observer.
+  const unavailable = (observation: ComputerInputObservation | undefined) =>
+    observation?.ready !== true && observation?.reason !== INPUT_GAP_REASON;
   return {
     foregroundReady,
     foregroundInputReason:
-      before?.ready !== true || after?.ready !== true ? 'input_observer_unavailable' : 'user_input_during_capture',
+      unavailable(before) || unavailable(after) ? 'input_observer_unavailable' : 'user_input_during_capture',
   };
 }
