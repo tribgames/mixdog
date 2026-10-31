@@ -34,7 +34,10 @@ async function loadSessionStoreWithRuntimeActivity() {
       });
       const awaiting = tasks.activeBackgroundTaskSessionIds({ surface: 'shell', awaitedOnly: true });
       return progress.withTurnProgress(
-        progress.withLiveTodo(rows, (sessionId) => liveState._liveSessions.get(sessionId)),
+        progress.withLiveUsage(
+          progress.withLiveTodo(rows, (sessionId) => liveState._liveSessions.get(sessionId)),
+          (sessionId) => liveState._liveSessions.get(sessionId)
+        ),
         (sessionId) => runtime.runtimeState.get(sessionId),
         runtime.isTurnInFlight,
         (sessionId) => awaiting.has(sessionId)

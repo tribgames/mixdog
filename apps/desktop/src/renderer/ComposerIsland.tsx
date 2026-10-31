@@ -1347,8 +1347,14 @@ export const ComposerIsland = memo(function ComposerIsland({
   const [expanded, setExpanded] = useState<ComposerIslandTab>('');
   const toggle = (tab: 'agents' | 'shells') => setExpanded(expanded === tab ? '' : tab);
   const agentSessionIds = useMemo(() => agentRows.map(({ node }) => node.sessionId).filter(Boolean), [agentRows]);
-  // Pool pushes and lane updates are the refresh cue; the hook throttles them.
-  const usageRevision = useMemo(() => ({ agentRows, snapshot }), [agentRows, snapshot]);
+  // The refresh cue is what moves the ledger: an agent's running totals ride its
+  // pool row, the Lead's ride its usage readout (replaced on every model call),
+  // and a turn settling closes the last call. Any other lane frame (streamed
+  // text, spinner) leaves the ledger as it was; the hook throttles the cues.
+  const leadUsage = snapshot.stats?.usageReadout;
+  const leadBusy = snapshot.busy;
+  // biome-ignore lint/correctness/useExhaustiveDependencies: leadUsage and leadBusy are cues, not read
+  const usageRevision = useMemo(() => ({ agentRows }), [agentRows, leadUsage, leadBusy]);
   const sessionUsage = useIslandSessionUsage(sessionId, agentSessionIds, expanded === 'agents', usageRevision);
   const usageSummary = useMemo(
     () => islandUsageSummary(sessionUsage, agentSessionIds),

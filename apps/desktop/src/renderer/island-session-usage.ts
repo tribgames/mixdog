@@ -6,8 +6,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { record } from './record-utils';
 
-/** Re-read no more often than this while the agents panel stays open. */
-const ISLAND_USAGE_REFRESH_MS = 5_000;
+/** Re-read no more often than this while the agents panel stays open. A read
+ *  is one ledger query on the worker thread, and a burst of cues collapses
+ *  into one trailing read, so this bounds how late a figure can be after the
+ *  runtime's cue (a model call's usage landing) without polling. */
+const ISLAND_USAGE_REFRESH_MS = 1_000;
 /** Same bound the desktop main process enforces on the request. */
 const MAX_AGENT_SESSION_IDS = 64;
 const SESSION_ID = /^[A-Za-z0-9_-]+$/;
@@ -107,8 +110,8 @@ export function islandUsageSummary(value: unknown, agentSessionIds: readonly str
  * The Lead session's getSessionUsage with its agents' total and rows, read while the
  * agents panel is open: at once on opening or when the agent set changes,
  * otherwise at most every ISLAND_USAGE_REFRESH_MS, and only when `revision`
- * (the shared agent-pool and session-lane snapshots, already pushed and
- * polled) moved. The read
+ * (the agent pool, which carries each agent's running totals, and the Lead's
+ * own usage figures, both already pushed) moved. The read
  * runs on the ledger worker; a failed read keeps the last answer.
  */
 export function useIslandSessionUsage(

@@ -5,6 +5,7 @@
 import { displayProgressStage, lastProgressAt } from '../../../shared/quiet-progress.mjs';
 import { resolveAgentStallThresholds } from '../stall-policy.mjs';
 import { todoProgress } from '../runtime-core/todo-list.mjs';
+import { sessionUsageTotals } from '../../../shared/session-usage-totals.mjs';
 
 /** `rows` with each agent's todo progress taken from its live session when
  *  this process holds one: the list changes before the session is saved, and
@@ -18,6 +19,19 @@ export function withLiveTodo(rows, liveSession) {
     const { todo: _stored, ...rest } = row;
     const todo = todoProgress(live);
     return todo ? { ...rest, todo } : rest;
+  });
+}
+
+/** `rows` with each agent's running token and tool-call totals taken from its
+ *  live session when this process holds one: the counters advance with every
+ *  model response, while the stored copy follows a throttled save. A total the
+ *  live session does not know keeps the stored one. */
+export function withLiveUsage(rows, liveSession) {
+  return rows.map((row) => {
+    const live = row?.sessionId ? liveSession(row.sessionId) : null;
+    if (!live) return row;
+    const { usage, toolCalls } = sessionUsageTotals(live);
+    return { ...row, ...(usage ? { usage } : {}), ...(toolCalls === null ? {} : { toolCalls }) };
   });
 }
 
