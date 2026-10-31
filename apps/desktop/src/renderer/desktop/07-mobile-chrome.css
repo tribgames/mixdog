@@ -885,9 +885,8 @@ html[data-mixdog-mobile-tabs]
   .session-sidebar
   .session-list
   .project-group-sessions
-  .project-subgroup-sessions
-  .session-row:not(.editing) {
-  padding-left: calc(44px - var(--mx-drawer-bleed));
+  .project-subgroup-toggle:not(.editing) {
+  padding-left: calc(8px - var(--mx-drawer-bleed));
 }
 html[data-mixdog-mobile-tabs] .session-sidebar .session-list .sidebar-section-empty {
   padding-left: calc(8px - var(--mx-drawer-bleed));
