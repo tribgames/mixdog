@@ -240,6 +240,12 @@ function PetPublish({ quiet }: { quiet: boolean }) {
 
 // ---- The message box the pinned pet stands on ----------------------------------
 
+/** Frames the composer's box must hold still, after the last hint that it
+ *  moved, before it is taken as settled (a follow-up render or a transition
+ *  without an event), and the most frames one hint keeps measuring. */
+const SETTLE_STILL_FRAMES = 3;
+const SETTLE_MAX_FRAMES = 90;
+
 /** The focused pane's composer card. */
 const COMPOSER_SELECTOR = '.pane-cell.is-focused form.composer';
 
@@ -407,15 +413,66 @@ function watchComposerCard(
   /** The island pill observed with the card: its width follows its status
    *  text, and a wide one puts the pinned bot on top of it. */
   let island: Element | null = null;
-  const resize = new ResizeObserver(() => measure());
+  // The card can move or change height with no size change in anything
+  // observed (the one-line bar ⇄ two-row card flip, the style setting, a
+  // sibling in the dock swapping places) and without a transition event. Any
+  // such hint re-measures now and for a few frames after, until the box
+  // holds still.
+  let frame = 0;
+  let lastKey = '';
+  let still = 0;
+  let budget = 0;
+  const settle = () => {
+    frame = 0;
+    const key = measure();
+    still = key === lastKey ? still + 1 : 0;
+    lastKey = key;
+    budget += 1;
+    if (still < SETTLE_STILL_FRAMES && budget < SETTLE_MAX_FRAMES) frame = requestAnimationFrame(settle);
+  };
+  const hint = () => {
+    still = 0;
+    budget = 0;
+    if (!frame) frame = requestAnimationFrame(settle);
+  };
+  const resize = new ResizeObserver(() => {
+    measure();
+    hint();
+  });
+  // Not measured on the spot: a mutation callback runs right after a commit,
+  // before the island's fit lands, and would publish its pre-fit span. The
+  // frame measures it fitted.
+  const dock = new MutationObserver(() => {
+    observeDock();
+    hint();
+  });
+  let region: Element | null = null;
+  let members = new Set<Element>();
+  function observeDock() {
+    if (!region) return;
+    // Every member of the dock: one resizing slides the card without
+    // resizing the dock around it. A member that left the dock is released.
+    const next = new Set(Array.from(region.children));
+    for (const member of members) if (!next.has(member)) resize.unobserve(member);
+    for (const member of next) if (!members.has(member)) resize.observe(member);
+    members = next;
+  }
   const track = () => {
     const next = document.querySelector(COMPOSER_SELECTOR);
     if (next === card) return;
     resize.disconnect();
+    dock.disconnect();
     card = next;
     island = null;
+    region = null;
+    members = new Set();
     onCard(card);
     if (!card) return;
+    region = card.closest('.composer-region') ?? card.parentElement;
+    if (region) {
+      dock.observe(region, { attributes: true, childList: true, subtree: true });
+      observeDock();
+    }
     // The card, the dock around it (an approval card, the footer) and the
     // pane — and every ancestor up to the page: a box that only slides
     // (the side dock or the sidebar opening or closing beside a centred
@@ -423,11 +480,13 @@ function watchComposerCard(
     resize.observe(card);
     for (let ancestor = card.parentElement; ancestor; ancestor = ancestor.parentElement) resize.observe(ancestor);
   };
-  function measure() {
+  /** Measures and publishes; returns what it measured, to tell a box that
+   *  still moves from one that settled. */
+  function measure(): string {
     if (!card?.isConnected) track();
     if (!card || underBootCover(card)) {
       publish(null);
-      return;
+      return 'null';
     }
     const nextIsland = islandElement(card);
     if (nextIsland !== island) {
@@ -438,17 +497,28 @@ function watchComposerCard(
     const box = card.getBoundingClientRect();
     if (box.width <= 0 || box.height <= 0) {
       publish(null);
-      return;
+      return 'null';
     }
     const transcript = transcriptColumn(card);
-    publish({ ...roundedRect(box), ...(islandPill(card) ?? { island: null }), ...(transcript ? { transcript } : {}) });
+    const composer = {
+      ...roundedRect(box),
+      ...(islandPill(card) ?? { island: null }),
+      ...(transcript ? { transcript } : {}),
+    };
+    publish(composer);
+    return JSON.stringify(composer);
   }
   return {
     measure,
     card: () => card,
     /** An island pill mounted or replaced since the last measure. */
     islandMoved: () => card !== null && islandElement(card) !== island,
-    dispose: () => resize.disconnect(),
+    dispose: () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = 0;
+      resize.disconnect();
+      dock.disconnect();
+    },
   };
 }
 
