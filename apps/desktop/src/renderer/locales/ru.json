@@ -588,6 +588,7 @@
   "Agent {{agent}}": "Агент {{agent}}",
   "Agent calls": "Вызовы агентов",
   "Agent cancellations": "Отмены агентов",
+  "Ended agents": "Завершённые агенты",
   "Agent failures": "Сбои агентов",
   "Agent group actions": "Действия группы агентов",
   "Agent is in use": "Агент используется",

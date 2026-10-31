@@ -285,6 +285,8 @@ function localizedToolActivityUnit(category: string, done: string, noun: string)
       return t('Agent failures');
     case 'Agent|Cancelled|agent':
       return t('Agent cancellations');
+    case 'Agent|Ended|agent':
+      return t('Ended agents');
     case 'Task|Checked|task':
       return t('Task status');
     case 'Task|Waited for|task':
@@ -577,6 +579,7 @@ function toolActivityRowVerb(category: string, done: string, noun: string): stri
     case 'Agent|Completed|agent':
     case 'Agent|Failed|agent':
     case 'Agent|Cancelled|agent':
+    case 'Agent|Ended|agent':
       return t('Agent');
     case 'Task|Checked|task':
     case 'Task|Waited for|task':

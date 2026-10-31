@@ -474,6 +474,7 @@
   "Agent {{agent}}": "Tác nhân {{agent}}",
   "Agent calls": "Gọi agent",
   "Agent cancellations": "Hủy agent",
+  "Ended agents": "Kết thúc agent",
   "Agent failures": "Lỗi agent",
   "Agent group actions": "Thao tác nhóm agent",
   "Agent is in use": "Agent đang được sử dụng",

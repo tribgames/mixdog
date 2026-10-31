@@ -521,9 +521,13 @@ function agentUnit(a) {
   if (/^(?:status|read|list)$/.test(type)) {
     return unitDescriptor('Agent', { count, active: 'Checking', done: 'Checked', noun: 'agent' });
   }
-  // Stopping an agent is not calling it.
-  if (/^(?:cancel|close)$/.test(type)) {
+  // Stopping an agent is not calling it, and ending a finished agent's
+  // session (close) is not cancelling its work.
+  if (type === 'cancel') {
     return unitDescriptor('Agent', { count, active: 'Cancelling', done: 'Cancelled', noun: 'agent', effect: true });
+  }
+  if (type === 'close') {
+    return unitDescriptor('Agent', { count, active: 'Ending', done: 'Ended', noun: 'agent', effect: true });
   }
   return unitDescriptor('Agent', { count, noun: 'agent' });
 }
