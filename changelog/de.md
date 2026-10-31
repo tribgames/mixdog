@@ -9,7 +9,7 @@ Einstellungen für Worktrees und Bereinigung von Branches hinzugefügt, Ziel-Auf
 ### Neue Funktionen
 
 - **Worktrees-Einstellungen** — Einstellungen → Worktrees mit Speicherplatzanzeige, Aktionen zum Öffnen und Löschen sowie automatischer Bereinigung nach 15 Worktrees oder 30 ungenutzten Tagen hinzugefügt.
-- **Worktree-Branch-Aktionen** — Die Aktionen Neuer Branch, Neuer Worktree und Bereinigen mit Such-Hervorhebung und sicherer Vorschau zur Fußzeile des Branch-Menüs hinzugefügt.
+- **Worktree-Branch-Aktionen** — Die Aktionen Neuer Branch, Neuer Worktree und Bereinigen mit Such-Hervorhebung zur Fußzeile des Branch-Menüs hinzugefügt; Bereinigen bleibt deaktiviert, wenn nichts sicher gelöscht werden kann.
 - **Sitzungs-To-do-Liste** — Sitzungs-To-do-Liste als Ersatz für Ziel-Aufgaben hinzugefügt, die den Live-Fortschritt von Agenten anzeigt und letzte Aufgaben sowie Ziele beim Schließen bewahrt.
 - **Eingabefeld-Stile** — Eingabefeld-Stile Einfach, Standard und Ausführlich in den Einstellungen mit Live-Vorschau, responsiver Leiste und optionaler Bestätigung bei Antworten hinzugefügt (#270, #276).
 - **Delegationseinstellungen** — Dedizierte Seite Einstellungen → Delegation für Orchestrierungsanweisungen und direktes Bearbeiten der Ausgabestil-Anweisungen mit Zurücksetzen auf Standard hinzugefügt (#291).
@@ -29,6 +29,7 @@ Einstellungen für Worktrees und Bereinigung von Branches hinzugefügt, Ziel-Auf
 - Das Wischen zum Schließen des Remote-Browsers auf Smartphones greift nur noch am linken Randstreifen, um versehentliches Schließen bei Interaktionen zu verhindern.
 - Die Anzeige der Token-Nutzung des Agenten im Eingabefeld aktualisiert sich nun innerhalb von etwa einer Sekunde nach jedem Modellaufruf.
 - Die Garbage Collection im Leerlauf bereinigt nun auch externen Pufferspeicher, was den Speicherbedarf des Daemons senkt.
+- Das Zeitlimit eines Goals wurde auf eine reine Obergrenze umgestellt; Agenten beenden die Arbeit nach der Verifizierung, statt die gesamte Zeitspanne zu nutzen, und `--time-mode` wurde entfernt.
 
 ### Fehlerbehebungen
 
@@ -47,6 +48,8 @@ Einstellungen für Worktrees und Bereinigung von Branches hinzugefügt, Ziel-Auf
 - Fehler behoben, durch den Weblinks und gestreamte Browser-Tabs auf gekoppelten Smartphones nicht auf mobile Bildschirme passten oder nicht in Visualize öffneten.
 - Überlappung der Farbzeilen in den Einstellungen mit Beschreibungen auf schmalen Fenstern behoben und Überschreiben gleichzeitiger Anweisungsänderungen verhindert (#287).
 - Fehler behoben, durch den die Ausführung von `npm ci` in einem Worktree das `node_modules` des Haupt-Checkouts leert; jeder Worktree installiert nun eigene Abhängigkeiten.
+- Fehler behoben, durch den das erneute Senden einer fehlgeschlagenen Aufgabe (etwa in Ordnern ohne Worktree-Unterstützung) bis zum Neustart „could not be resumed“ wiederholte (#279).
+- Fehler behoben, durch den Git- und Office-Dokument-Tools unter Windows fehlschlugen, wenn der Pfad des temporären Sitzungsordners zu lang wurde.
 
 ## v1.4.2 - 2026-10-29
 

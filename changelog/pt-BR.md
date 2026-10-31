@@ -9,7 +9,7 @@ Adicionadas as configurações de Worktrees e a limpeza de branches, substituíd
 ### Novos recursos
 
 - **Configurações de Worktrees** — Adicionado Configurações → Worktrees com uso de disco, ações de abrir e excluir, e limpeza automática após 15 worktrees ou 30 dias sem uso.
-- **Ações de branches para worktrees** — Adicionadas as ações Novo branch, Novo worktree e Limpar no rodapé do menu de branches, com destaque na busca e prévia segura.
+- **Ações de branches para worktrees** — Adicionadas as ações Novo branch, Novo worktree e Limpar no rodapé do menu de branches, com destaque na busca; Limpar permanece desativado quando não há nada seguro para remover.
 - **Lista de tarefas da sessão** — Adicionada uma lista de tarefas da sessão que substitui as tarefas de Goal, exibindo o progresso do agente em tempo real e preservando tarefas e objetivos ao fechar.
 - **Estilos do campo de mensagem** — Adicionados os estilos Simples, Padrão e Detalhado nas Configurações com prévia, barra responsiva e confirmação opcional de respostas (#270, #276).
 - **Configurações de delegação** — Adicionada uma página dedicada em Configurações → Delegação para instruções de orquestração, e edição direta no Estilo de saída com restauração dos padrões (#291).
@@ -29,6 +29,7 @@ Adicionadas as configurações de Worktrees e a limpeza de branches, substituíd
 - O gesto de deslizar para fechar o navegador remoto no celular agora funciona apenas a partir da faixa da borda esquerda, evitando fechamentos acidentais.
 - A leitura de uso de tokens do agente no campo de mensagem agora é atualizada cerca de um segundo após cada chamada ao modelo.
 - A coleta de lixo em períodos ociosos agora também limpa a memória do buffer externo, reduzindo o consumo de memória do daemon.
+- O limite de tempo de um Goal foi alterado para ser apenas um teto máximo; os agentes concluem assim que o trabalho é verificado em vez de ocupar todo o período, removendo `--time-mode`.
 
 ### Correções de bugs
 
@@ -47,6 +48,8 @@ Adicionadas as configurações de Worktrees e a limpeza de branches, substituíd
 - Corrigido o problema em que links da web e abas de navegador transmitidas em celulares não se ajustavam às telas móveis ou não abriam no Visualize.
 - Corrigida a sobreposição das opções de cores com descrições em janelas estreitas de Configurações e evitada a substituição de edições simultâneas de instruções (#287).
 - Corrigido o problema em que executar `npm ci` dentro de um worktree esvaziava o `node_modules` do checkout principal; agora cada worktree instala suas próprias dependências.
+- Corrigido o problema em que reenviar uma tarefa que falhou ao iniciar (como em pastas sem suporte a worktrees) repetia "could not be resumed" até reiniciar (#279).
+- Corrigida a falha nas ferramentas do Git e de documentos do Office no Windows quando o caminho da pasta temporária da sessão ficava longo demais.
 
 ## v1.4.2 - 2026-10-29
 

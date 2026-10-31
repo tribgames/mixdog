@@ -9,7 +9,7 @@ Aggiunte le impostazioni per i Worktree e la pulizia dei branch, sostituite le a
 ### Nuove funzionalità
 
 - **Impostazioni Worktree** — Aggiunta la schermata Impostazioni → Worktree con spazio occupato, azioni per aprire ed eliminare, e pulizia automatica dopo 15 worktree o 30 giorni di inattività.
-- **Azioni per i branch dei worktree** — Aggiunte le azioni Nuovo branch, Nuovo worktree e Pulisci nel piè di pagina del menu dei branch, con evidenziazione della ricerca e anteprime sicure.
+- **Azioni per i branch dei worktree** — Aggiunte le azioni Nuovo branch, Nuovo worktree e Pulisci nel piè di pagina del menu dei branch, con evidenziazione della ricerca; Pulisci resta disabilitato quando non c'è nulla da rimuovere in sicurezza.
 - **Lista di cose da fare della sessione** — Aggiunta una lista di cose da fare della sessione che sostituisce le attività dei Goal, mostrando l'avanzamento dell'agente in tempo reale e conservando attività e Goal alla chiusura.
 - **Stili del campo di input** — Aggiunti gli stili Semplice, Standard e Dettagliato nelle Impostazioni con anteprima in tempo reale, barra reattiva e conferma opzionale delle risposte (#270, #276).
 - **Impostazioni di delega** — Aggiunta una pagina dedicata Impostazioni → Delega per le istruzioni di orchestrazione, e modifica diretta nelle istruzioni dello Stile di output con ripristino dei predefiniti (#291).
@@ -29,6 +29,7 @@ Aggiunte le impostazioni per i Worktree e la pulizia dei branch, sostituite le a
 - Il gesto di scorrimento per chiudere il browser remoto su smartphone ora funziona solo dal bordo sinistro per evitare chiusure accidentali durante l'interazione.
 - L'indicatore dell'utilizzo dei token dell'agente nel campo di input si aggiorna ora entro circa un secondo da ogni chiamata al modello.
 - La garbage collection nei momenti di inattività pulisce ora anche la memoria buffer esterna, riducendo l'ingombro di memoria del daemon.
+- Modificato il limite di tempo di un Goal impostandolo come solo tetto massimo; gli agenti terminano non appena il lavoro è verificato invece di occupare l'intero periodo, rimuovendo `--time-mode`.
 
 ### Correzioni di bug
 
@@ -47,6 +48,8 @@ Aggiunte le impostazioni per i Worktree e la pulizia dei branch, sostituite le a
 - Risolto il problema dei link web e delle schede del browser trasmesse su smartphone che non si adattavano agli schermi mobili o non si aprivano in Visualize.
 - Risolta la sovrapposizione delle righe dei colori con le descrizioni nelle finestre strette di Impostazioni ed evitato che modifiche simultanee sovrascrivessero le istruzioni (#287).
 - Risolto il problema per cui l'esecuzione di `npm ci` all'interno di un worktree svuotava il `node_modules` del checkout principale; ora ogni worktree installa le proprie dipendenze.
+- Risolto il problema per cui il rinvio di un'attività non avviata (ad esempio in cartelle senza supporto ai worktree) ripeteva «could not be resumed» fino al riavvio (#279).
+- Risolto il problema degli strumenti Git e documenti Office che fallivano su Windows quando il percorso della cartella temporanea della sessione diventava troppo lungo.
 
 ## v1.4.2 - 2026-10-29
 
