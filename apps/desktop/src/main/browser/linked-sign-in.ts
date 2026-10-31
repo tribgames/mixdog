@@ -86,7 +86,7 @@ export const LINKED_FIELD_READ = `function() {
   };
 }`;
 
-export const LINKED_SIGN_IN_PREFIX = 'Linked sign-in: ';
+const LINKED_SIGN_IN_PREFIX = 'Linked sign-in: ';
 /** How long an authorization request waits for its callback (a 2-step check included). */
 export const FLOW_TTL_MS = 30 * 60_000;
 const MAX_BODY = 64 * 1024;
@@ -103,7 +103,7 @@ const IDENTIFIER_AUTOCOMPLETE = /(?:^|\s)(?:username|email|webauthn)(?:\s|$)/;
  *  and it positively declares an identifier — type=email, an autocomplete
  *  of username / email / webauthn, or a textbox whose own name, id or
  *  autocomplete names a user, email, login, identifier, phone or account. */
-export function identifierField(ref: { role: string; sensitive?: boolean }, field: LinkedFieldFacts | null): boolean {
+function identifierField(ref: { role: string; sensitive?: boolean }, field: LinkedFieldFacts | null): boolean {
   if (!field || ref.sensitive || field.type === 'password' || field.type === 'hidden') return false;
   if (field.type === 'email' || IDENTIFIER_AUTOCOMPLETE.test(field.autocomplete)) return true;
   return (
@@ -237,7 +237,7 @@ function callbackParams(hop: Hop): URLSearchParams {
 }
 
 /** Electron-free flow tracking per tab `key`. */
-export function createLinkedSignInTracker(now: () => number = Date.now) {
+function createLinkedSignInTracker(now: () => number = Date.now) {
   const pages = new Map<unknown, PageTrack>();
   /** Requests older than FLOW_TTL_MS are dropped; a tab's whole entry goes
    *  with the tab (`forget`). */

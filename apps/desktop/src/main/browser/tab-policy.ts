@@ -4,10 +4,10 @@
  */
 /** Product limit: enough tabs for a research task to keep a few sources open,
  *  few enough that one session cannot starve the global cap below. */
-export const MAX_BACKGROUND_TABS_PER_SESSION = 6;
+const MAX_BACKGROUND_TABS_PER_SESSION = 6;
 /** Safety net across every session (four sessions at the per-session cap);
  *  a session can only free its own tabs. */
-export const MAX_BACKGROUND_TABS_GLOBAL = 24;
+const MAX_BACKGROUND_TABS_GLOBAL = 24;
 /** Fallback for pages of a live turn nobody has used for this long. */
 export const BACKGROUND_PAGE_IDLE_MS = 30 * 60_000;
 /** A session's agent pages are reclaimed this long after its turn finishes. */

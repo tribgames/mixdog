@@ -17,7 +17,7 @@ import type { WebContents } from 'electron';
 import type { BrowserSessionRegistry } from './session-registry';
 
 /** The longest a fold waits for the shell's confirmation. */
-export const PANEL_FOLD_MS = 1_500;
+const PANEL_FOLD_MS = 1_500;
 
 type Hold = { done: Promise<void>; end(): void };
 

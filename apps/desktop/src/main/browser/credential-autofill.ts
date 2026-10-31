@@ -293,7 +293,7 @@ export const BROWSER_SECRET_FIELD_FUNCTION = String.raw`async function(request) 
  *  picked here: unless every target is still an input of this document,
  *  usable and of the type it had then (`request.types`), it answers stale
  *  and types nothing. */
-export const BROWSER_SECRET_FILL_FUNCTION = String.raw`async function(request, ...targets) {
+export const BROWSER_SECRET_FILL_FUNCTION = `async function(request, ...targets) {
   const visible = (element) => {
     if (element.disabled || element.readOnly || element.getAttribute('aria-hidden') === 'true') return false;
     const style = getComputedStyle(element);
