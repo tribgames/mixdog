@@ -66,6 +66,10 @@ export function useInstructionEditor({ data, pending, run, confirm, notice }: Pa
   const [items, setItems] = useState<InstructionFile[]>(() => parseItems(data.instructionFiles));
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
+  // The revision the draft was started from. A settings refresh may replace
+  // the listed file with another device's save; a write still names this base
+  // so the host refuses it as a conflict instead of overwriting that save.
+  const [base, setBase] = useState('');
   useEffect(() => setItems(parseItems(data.instructionFiles)), [data.instructionFiles]);
 
   const fileFor = (id: string) => items.find((item) => item.group === group && item.id === id);
@@ -75,6 +79,7 @@ export function useInstructionEditor({ data, pending, run, confirm, notice }: Pa
     if (!next) return;
     setItems((previous) => previous.map((item) => (item.group === next.group && item.id === next.id ? next : item)));
     setDraft(next.body);
+    setBase(next.revision);
   };
   // A save or reset made against text that changed meanwhile (the phone saved
   // first) is refused by the host: reload the latest and say so, so nothing
@@ -98,6 +103,7 @@ export function useInstructionEditor({ data, pending, run, confirm, notice }: Pa
   };
   const edit = (item: InstructionFile) => {
     setDraft(item.body);
+    setBase(item.revision);
     setEditing(item.id);
   };
   const back = () => setEditing(null);
@@ -146,8 +152,7 @@ export function useInstructionEditor({ data, pending, run, confirm, notice }: Pa
                 }),
                 confirmLabel: t('Reset'),
                 danger: true,
-                onConfirm: () =>
-                  guarded(current, 'resetInstructionFile', [current.group, current.id, current.revision]),
+                onConfirm: () => guarded(current, 'resetInstructionFile', [current.group, current.id, base]),
               })
             }
           >
@@ -163,7 +168,7 @@ export function useInstructionEditor({ data, pending, run, confirm, notice }: Pa
               disabled={busy || unchanged || !draft.trim()}
               onClick={() =>
                 guarded(current, 'saveInstructionFile', [
-                  { group: current.group, id: current.id, body: draft, expectedRevision: current.revision },
+                  { group: current.group, id: current.id, body: draft, expectedRevision: base },
                 ])
               }
             >
