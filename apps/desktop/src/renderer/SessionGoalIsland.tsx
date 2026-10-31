@@ -519,8 +519,13 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
       {/* The Goal tab of the expanded island: the task drawer and its
           pause / edit / stop controls, or dismiss once the Goal has finished. */}
       <div className="session-goal-drawer" aria-hidden={open ? 'false' : 'true'} inert={!open}>
-        {/* biome-ignore lint/a11y/noRedundantRoles: the region role is spelled out for the drawer contract the Goal tests read. */}
-        <section id={drawerId} className="session-goal-panel" role="region" aria-label={t(goal ? 'Goal tasks' : 'To-do')}>
+        <section
+          id={drawerId}
+          className="session-goal-panel"
+          // biome-ignore lint/a11y/noRedundantRoles: the region role is spelled out for the drawer contract the Goal tests read.
+          role="region"
+          aria-label={t(goal ? 'Goal tasks' : 'To-do')}
+        >
           <div className="composer-island-phead">
             <span className="composer-island-tab" data-active="true">
               <GoalRing kind={kind} progress={progress} />
@@ -549,55 +554,55 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
             <div ref={contentRef} className="session-goal-content">
               {goal && (
                 <>
-              <div className="session-goal-details">
-                <p
-                  ref={showObjective ? undefined : longTextRef}
-                  className="session-goal-title"
-                  data-clamped={!showObjective && !objectiveExpanded ? 'true' : 'false'}
-                >
-                  {title}
-                </p>
-                {showObjective && (
-                  <p
-                    ref={longTextRef}
-                    className="session-goal-objective-full"
-                    data-clamped={objectiveExpanded ? 'false' : 'true'}
-                  >
-                    {objective}
-                  </p>
-                )}
-                {(objectiveOverflows || objectiveExpanded) && (
-                  <button
-                    type="button"
-                    className="session-goal-link"
-                    aria-expanded={objectiveExpanded}
-                    onClick={() => setObjectiveExpanded(!objectiveExpanded)}
-                  >
-                    {t(objectiveExpanded ? 'Show less' : 'Show more')}
-                  </button>
-                )}
-              </div>
-              <div className="session-goal-status" role="status">
-                <span className="session-goal-statusline">
-                  <span className="session-goal-statusline-state">{goalStatusLabel(goal)}</span>
-                  <span aria-hidden="true">·</span>
-                  <span>{goalDrawerTimeLabel(goal, clock)}</span>
-                </span>
-                {budget !== null && (
-                  <span className="session-goal-budget" aria-hidden="true">
-                    <i style={{ width: `${Math.round(budget * 100)}%` }} />
-                  </span>
-                )}
-              </div>
-              {error ? (
-                <p role="alert" className="session-goal-note" data-tone="error">
-                  {error}
-                </p>
-              ) : goal.blocker ? (
-                <p className="session-goal-note" data-tone={noteTone}>
-                  {String(goal.blocker)}
-                </p>
-              ) : null}
+                  <div className="session-goal-details">
+                    <p
+                      ref={showObjective ? undefined : longTextRef}
+                      className="session-goal-title"
+                      data-clamped={!showObjective && !objectiveExpanded ? 'true' : 'false'}
+                    >
+                      {title}
+                    </p>
+                    {showObjective && (
+                      <p
+                        ref={longTextRef}
+                        className="session-goal-objective-full"
+                        data-clamped={objectiveExpanded ? 'false' : 'true'}
+                      >
+                        {objective}
+                      </p>
+                    )}
+                    {(objectiveOverflows || objectiveExpanded) && (
+                      <button
+                        type="button"
+                        className="session-goal-link"
+                        aria-expanded={objectiveExpanded}
+                        onClick={() => setObjectiveExpanded(!objectiveExpanded)}
+                      >
+                        {t(objectiveExpanded ? 'Show less' : 'Show more')}
+                      </button>
+                    )}
+                  </div>
+                  <div className="session-goal-status" role="status">
+                    <span className="session-goal-statusline">
+                      <span className="session-goal-statusline-state">{goalStatusLabel(goal)}</span>
+                      <span aria-hidden="true">·</span>
+                      <span>{goalDrawerTimeLabel(goal, clock)}</span>
+                    </span>
+                    {budget !== null && (
+                      <span className="session-goal-budget" aria-hidden="true">
+                        <i style={{ width: `${Math.round(budget * 100)}%` }} />
+                      </span>
+                    )}
+                  </div>
+                  {error ? (
+                    <p role="alert" className="session-goal-note" data-tone="error">
+                      {error}
+                    </p>
+                  ) : goal.blocker ? (
+                    <p className="session-goal-note" data-tone={noteTone}>
+                      {String(goal.blocker)}
+                    </p>
+                  ) : null}
                 </>
               )}
               {todo && (
@@ -610,90 +615,92 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
             </div>
             {/* One row under the hairline: the stop confirmation takes the
                 controls' place, so nothing below the list moves or hides. */}
-            {goal && (<div className="session-goal-controls">
-              {confirming ? (
-                // biome-ignore lint/a11y/useSemanticElements: tag must stay a div; a fieldset would change layout and styling
-                <div className="session-goal-confirm" role="group" aria-label={t('Stop goal')}>
-                  <p className="session-goal-confirm-msg">
-                    {t('Stop this goal? Progress is kept, but it will not resume automatically.')}
-                  </p>
-                  <div className="session-goal-actions">
-                    <button
-                      type="button"
-                      className="session-goal-control"
-                      data-quiet="true"
-                      ref={cancelRef}
-                      disabled={pending}
-                      onClick={() => setConfirmStop(false)}
-                    >
-                      {t('Cancel')}
-                    </button>
-                    <button
-                      type="button"
-                      className="session-goal-control"
-                      data-danger="true"
-                      disabled={pending}
-                      onClick={async () => {
-                        if (await control('stop')) setConfirmStop(false);
-                      }}
-                    >
-                      {t('Confirm stop')}
-                    </button>
+            {goal && (
+              <div className="session-goal-controls">
+                {confirming ? (
+                  // biome-ignore lint/a11y/useSemanticElements: tag must stay a div; a fieldset would change layout and styling
+                  <div className="session-goal-confirm" role="group" aria-label={t('Stop goal')}>
+                    <p className="session-goal-confirm-msg">
+                      {t('Stop this goal? Progress is kept, but it will not resume automatically.')}
+                    </p>
+                    <div className="session-goal-actions">
+                      <button
+                        type="button"
+                        className="session-goal-control"
+                        data-quiet="true"
+                        ref={cancelRef}
+                        disabled={pending}
+                        onClick={() => setConfirmStop(false)}
+                      >
+                        {t('Cancel')}
+                      </button>
+                      <button
+                        type="button"
+                        className="session-goal-control"
+                        data-danger="true"
+                        disabled={pending}
+                        onClick={async () => {
+                          if (await control('stop')) setConfirmStop(false);
+                        }}
+                      >
+                        {t('Confirm stop')}
+                      </button>
+                    </div>
                   </div>
-                </div>
-              ) : terminal ? (
-                <button
-                  type="button"
-                  className="session-goal-control"
-                  data-primary="true"
-                  disabled={pending}
-                  onClick={() => void control('dismiss')}
-                >
-                  {t('Dismiss goal')}
-                </button>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    className="session-goal-control"
-                    data-quiet="true"
-                    disabled={pending}
-                    aria-label={t('Stop goal')}
-                    title={t('Stop goal')}
-                    ref={stopRef}
-                    onClick={() => setConfirmStop(true)}
-                  >
-                    {t('Stop')}
-                  </button>
-                  <button
-                    type="button"
-                    ref={editRef}
-                    className="session-goal-control"
-                    data-quiet="true"
-                    disabled={pending}
-                    aria-label={t('Edit goal')}
-                    title={t('Edit goal')}
-                    onClick={() => setEditing({ ...goal })}
-                  >
-                    {t('Edit')}
-                  </button>
+                ) : terminal ? (
                   <button
                     type="button"
                     className="session-goal-control"
                     data-primary="true"
                     disabled={pending}
-                    aria-label={t(active ? 'Pause' : 'Resume')}
-                    title={t(active ? 'Pause' : 'Resume')}
-                    onClick={() => {
-                      if (!active && exhausted) setEditing({ ...goal });
-                      else void control(primary);
-                    }}
+                    onClick={() => void control('dismiss')}
                   >
-                    {t(active ? 'Pause' : 'Resume')}
+                    {t('Dismiss goal')}
                   </button>
-                </>
-              )}
-            </div>)}
+                ) : (
+                  <>
+                    <button
+                      type="button"
+                      className="session-goal-control"
+                      data-quiet="true"
+                      disabled={pending}
+                      aria-label={t('Stop goal')}
+                      title={t('Stop goal')}
+                      ref={stopRef}
+                      onClick={() => setConfirmStop(true)}
+                    >
+                      {t('Stop')}
+                    </button>
+                    <button
+                      type="button"
+                      ref={editRef}
+                      className="session-goal-control"
+                      data-quiet="true"
+                      disabled={pending}
+                      aria-label={t('Edit goal')}
+                      title={t('Edit goal')}
+                      onClick={() => setEditing({ ...goal })}
+                    >
+                      {t('Edit')}
+                    </button>
+                    <button
+                      type="button"
+                      className="session-goal-control"
+                      data-primary="true"
+                      disabled={pending}
+                      aria-label={t(active ? 'Pause' : 'Resume')}
+                      title={t(active ? 'Pause' : 'Resume')}
+                      onClick={() => {
+                        if (!active && exhausted) setEditing({ ...goal });
+                        else void control(primary);
+                      }}
+                    >
+                      {t(active ? 'Pause' : 'Resume')}
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
           </div>
         </section>
       </div>
