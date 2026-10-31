@@ -36,8 +36,8 @@ export const WORKTREE_SETTINGS_DEFAULTS = Object.freeze({
   deleteBranch: false,
 });
 
-export const WORKTREE_MAX_WORKTREES_LIMIT = 1000;
-export const WORKTREE_UNUSED_DAYS_LIMIT = 3650;
+const WORKTREE_MAX_WORKTREES_LIMIT = 1000;
+const WORKTREE_UNUSED_DAYS_LIMIT = 3650;
 
 const KEYS = Object.keys(WORKTREE_SETTINGS_DEFAULTS);
 const PREFIX_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*(\/[A-Za-z0-9][A-Za-z0-9._-]*)*\/$/;

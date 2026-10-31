@@ -63,7 +63,7 @@ export function readInstructionFile(file) {
  * shipped one. `problem` says why a user file that exists was passed over
  * (empty, too-large, not-text, unreadable); `text` is the prompt text.
  */
-export function orchestrationModeSource(value) {
+function orchestrationModeSource(value) {
   const mode = normalizeOrchestrationMode(value);
   const user = readInstructionFile(userOrchestrationPath(mode));
   if (user?.text) return { mode, source: 'user', text: user.text };

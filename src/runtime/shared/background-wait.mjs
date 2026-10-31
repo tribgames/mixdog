@@ -38,7 +38,7 @@ const ACTIVE_AGENT_STATUSES = new Set([
 ]);
 
 /** A running agent among published status rows (`agentJobs` / `agentWorkers`). */
-export function runningAgentWork(agentStatus) {
+function runningAgentWork(agentStatus) {
   const jobs = Array.isArray(agentStatus?.agentJobs) ? agentStatus.agentJobs : [];
   if (jobs.some((job) => clean(job?.status).toLowerCase() === 'running')) return true;
   const workers = Array.isArray(agentStatus?.agentWorkers) ? agentStatus.agentWorkers : [];

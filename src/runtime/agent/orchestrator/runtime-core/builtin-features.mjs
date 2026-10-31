@@ -151,7 +151,7 @@ export const FEATURE_GATED_TOOL_NAMES = Object.freeze([
 ]);
 
 /** Gated by desktop bridge presence, not a setting. */
-export const BRIDGE_GATED_TOOL_NAMES = Object.freeze(['browser', 'browser_devtools', 'computer', 'terminal']);
+const BRIDGE_GATED_TOOL_NAMES = Object.freeze(['browser', 'browser_devtools', 'computer', 'terminal']);
 
 /** The tools a user setting turns off (react answers for itself: it gates
  *  non-model callers too). */

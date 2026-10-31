@@ -416,7 +416,7 @@ async function dirtyPaths(record) {
 }
 
 /** How long the cleanup's last dirty check under the folder hold may take. */
-export const FINAL_DIRTY_CHECK_TIMEOUT_MS = 1_500;
+const FINAL_DIRTY_CHECK_TIMEOUT_MS = 1_500;
 /** How long a timed-out final status is given to exit after its kill. */
 const FINAL_CHECK_EXIT_WAIT_MS = 2_000;
 

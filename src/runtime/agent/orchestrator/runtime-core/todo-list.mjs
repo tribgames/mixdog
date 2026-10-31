@@ -8,7 +8,7 @@
 import { emitSessionActivityChange } from '../../../shared/session-activity-signal.mjs';
 import { MAX_TODO_ITEMS, MAX_TODO_TEXT_LENGTH, TODO_OPS, TODO_STATUSES } from './todo-tool-defs.mjs';
 
-export const DEFAULT_TODO_PHASE = 'Tasks';
+const DEFAULT_TODO_PHASE = 'Tasks';
 const OPEN_STATUSES = new Set(['pending', 'in_progress']);
 const listeners = new Set();
 const snapshots = new WeakMap();
@@ -53,7 +53,7 @@ const allTasks = (phases) => phases.flatMap((phase) => phase.tasks);
 
 /** Exactly one in_progress while actionable work exists: several keep the
  *  earliest, none starts the earliest pending. Blocked never starts itself. */
-export function normalizeTodoPhases(phases) {
+function normalizeTodoPhases(phases) {
   const tasks = allTasks(phases);
   const active = tasks.filter((task) => task.status === 'in_progress');
   for (const task of active.slice(1)) task.status = 'pending';
@@ -64,7 +64,7 @@ export function normalizeTodoPhases(phases) {
   return phases.filter((phase) => phase.tasks.length > 0);
 }
 
-export function todoCounts(phases) {
+function todoCounts(phases) {
   const tasks = allTasks(phases);
   return {
     completed: tasks.filter((task) => task.status === 'completed').length,
@@ -80,7 +80,7 @@ export function openTodoItems(session) {
 
 /** Every item not completed or dropped (blocked included): what an agent
  *  leaves undone when it ends. */
-export function unfinishedTodoItems(session) {
+function unfinishedTodoItems(session) {
   return allTasks(todoPhases(session)).filter((task) => task.status !== 'completed' && task.status !== 'abandoned');
 }
 
@@ -153,7 +153,7 @@ function progressLabel(phases) {
 }
 
 /** The whole list as text: init/view replies and context re-injection. */
-export function renderTodoList(phases) {
+function renderTodoList(phases) {
   if (!phases.length) return 'todo: empty';
   const lines = [progressLabel(phases)];
   for (const phase of phases) {

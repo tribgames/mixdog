@@ -7,7 +7,7 @@
 // schedules arrive through the reload_config IPC, never through this watch.
 import { readSection, subscribeConfigChange } from '../../shared/config.mjs';
 
-export function channelsConfigSnapshot() {
+function channelsConfigSnapshot() {
   return JSON.stringify([readSection('channels') ?? null, readSection('voice') ?? null]);
 }
 
