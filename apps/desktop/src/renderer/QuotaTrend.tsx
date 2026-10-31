@@ -9,7 +9,7 @@
 import { curveMonotoneX, line as pathLine } from 'd3-shape';
 import { useId, type CSSProperties } from 'react';
 import { t, uiFormatLocale } from './i18n';
-import { modelDisplayName } from './provider-display';
+import { UsageModelName, usageModelTitle } from './UsageStatsSurface';
 import { quotaClock, quotaPercent, quotaValue, quotaValueBreakdown, quotaValueCaution } from './quota-usage-model';
 import { record, rows } from './record-utils';
 import { timeFormatOptions } from './time-format-preference';
@@ -286,7 +286,7 @@ export function QuotaTrend({
     return {
       key,
       ink: key ? seriesInk(key) : 'outside',
-      label: key ? modelDisplayName(key, provider) : t('Outside Mixdog'),
+      label: key ? usageModelTitle(String(entry.modelId || key), provider, entry.fast === true) : t('Outside Mixdog'),
       list: pointList(entry.points).map(([time, value]): [number, number] => [time, value]),
     };
   });
@@ -549,7 +549,11 @@ export function QuotaTrend({
                     <li key={String(row.model)}>
                       <span>
                         <i data-series={seriesInk(String(row.model || ''))} aria-hidden="true" />
-                        {modelDisplayName(String(row.model || ''), provider)}
+                        <UsageModelName
+                          model={String(row.modelId || row.model || '')}
+                          provider={provider}
+                          fast={row.fast === true}
+                        />
                       </span>
                       <b>{`+${quotaPercent(row.consumed)}`}</b>
                     </li>

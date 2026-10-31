@@ -508,6 +508,30 @@ test('models start expanded, request counts lead numeric columns, and cache hits
   assert.equal(document.querySelectorAll('.stats-model-row').length, 2);
 });
 
+test('a model used in Fast mode shows a second row marked Fast; a model used one way keeps one row', async (context) => {
+  const render = harness(context);
+  const stats = snapshot();
+  stats.providers[0].models = [
+    { ...stats.providers[0], model: 'both-modes', outputTokensPerSecond: 71.2 },
+    { ...stats.providers[0], model: 'both-modes', fast: true, turns: 3, outputTokensPerSecond: 148.6 },
+    { ...stats.providers[0], model: 'fast-only', fast: true, outputTokensPerSecond: 90 },
+    { ...stats.providers[0], model: 'normal-only', outputTokensPerSecond: 42.4 },
+  ];
+  await render({ data: { getUsageStats: stats }, request: async () => stats });
+  const rows = [...document.querySelectorAll('.stats-model-row')];
+  assert.deepEqual(
+    rows.map((row) => row.cells[0].textContent),
+    ['both-modes', `both-modes · ${t('Fast')}`, `fast-only · ${t('Fast')}`, 'normal-only']
+  );
+  assert.deepEqual(
+    rows.map((row) => row.cells[3].textContent),
+    ['71', '149', '90', '42']
+  );
+  assert.equal(rows[1].cells[2].textContent, '3');
+  assert.equal(rows[1].cells[0].querySelector('.model-route-label-fast').textContent, t('Fast'));
+  assert.equal(rows[1].cells[0].title, `both-modes · ${t('Fast')}`);
+  for (const index of [0, 3]) assert.equal(rows[index].cells[0].querySelector('.model-route-label-fast'), null);
+});
 test('cache hit rates show one decimal in the summary, provider and model rows', async (context) => {
   const render = harness(context);
   const stats = snapshot();

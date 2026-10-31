@@ -13,7 +13,7 @@
  * is an estimate: providers do not publish what a request costs the meter.
  */
 import { normalizeUsageMeasurement } from './usage-measurement.mjs';
-import { usageRollupDayKey } from './usage-rollup.mjs';
+import { FAST_KEY, fastRouteSql, sortFastBesideModel, usageRollupDayKey } from './usage-rollup.mjs';
 import { estimateOutsideQuota, estimateQuotaValue, outsideSpans } from './quota-value-estimate.mjs';
 
 export const QUOTA_SCHEMA = `
@@ -397,7 +397,8 @@ function readQuotaEvents(db, { provider, account, label = '', fromMs, toMs }) {
   const rows = db
     .prepare(`
       WITH routes AS (
-          SELECT id,json_extract(signature,'$[1]') AS model,json_extract(signature,'$[7]') AS rank
+          SELECT id,json_extract(signature,'$[1]') AS model,json_extract(signature,'$[7]') AS rank,
+              ${fastRouteSql('signature')} AS fast
           FROM usage_routes
           WHERE json_extract(signature,'$[0]')=? AND COALESCE(json_extract(signature,'$[8]'),'') IN (?,?)
       )
@@ -405,10 +406,11 @@ function readQuotaEvents(db, { provider, account, label = '', fromMs, toMs }) {
           SUM(e.input) AS input,SUM(e.output) AS output,SUM(e.cache_read) AS cacheRead,
           SUM(e.cache_write) AS cacheWrite,SUM(e.cost_usd) AS costUsd,COUNT(e.cost_usd) AS priced,
           SUM(CASE WHEN e.duration_ms>0 AND e.output>0 THEN e.output ELSE 0 END) AS speedOutput,
-          SUM(CASE WHEN e.duration_ms>0 AND e.output>0 THEN e.duration_ms ELSE 0 END) AS speedMs
+          SUM(CASE WHEN e.duration_ms>0 AND e.output>0 THEN e.duration_ms ELSE 0 END) AS speedMs,
+          r.fast
       FROM usage_events e JOIN routes r ON r.id=e.route
       WHERE e.ts>=? AND e.ts<=?
-      GROUP BY e.ts,e.day,r.model,r.rank
+      GROUP BY e.ts,e.day,r.model,r.rank,r.fast
       ORDER BY e.ts`)
     .all(provider, account, unlabeled, fromMs, toMs);
   const best = new Map();
@@ -433,7 +435,8 @@ function readQuotaEvents(db, { provider, account, label = '', fromMs, toMs }) {
     });
     const event = {
       ts: row.ts,
-      model: row.model,
+      // A model's Fast calls are keyed apart from its normal ones.
+      model: row.fast ? row.model + FAST_KEY : row.model,
       turns: row.turns,
       input: usage.input || 0,
       output: usage.output || 0,
@@ -686,7 +689,6 @@ function addUsage(target, event, share) {
 }
 
 const tokensOf = (usage) => usage.input + usage.output + usage.cacheRead + usage.cacheWrite;
-const byConsumption = (a, b) => b.consumed - a.consumed || b.tokens - a.tokens;
 
 /** Route-shaped totals, so the token table's cells render them unchanged. */
 function exportUsage(usage) {
@@ -707,6 +709,16 @@ function exportUsage(usage) {
     outputTokensPerSecond: usage.speedMs > 0 ? round((usage.speedOutput * 1000) / usage.speedMs, 1) : null,
   };
 }
+
+/** What a Fast key stands for: `modelId` is the model itself, never the internal key. */
+const modelIdentity = (key) => (key.endsWith(FAST_KEY) ? { fast: true, modelId: key.slice(0, -FAST_KEY.length) } : {});
+
+/** A model row: its key is unique per mode. */
+function exportModel(key, usage) {
+  return { model: key, ...modelIdentity(key), ...exportUsage(usage) };
+}
+
+const modelOfRow = (row) => row.modelId ?? row.model;
 
 function windowPeriod(listed, anchor) {
   if (!listed.length) return null;
@@ -750,7 +762,7 @@ function forecastFor(instance, points) {
 /** Each model's running share of its window, sampled at slot ends; the slot
  *  running now is sampled at now, as far as it has run. */
 function modelSeries(slots, instances, keys, now) {
-  const series = keys.map((key) => ({ key, points: [] }));
+  const series = keys.map((key) => ({ key, ...modelIdentity(key), points: [] }));
   const running = new Map();
   let owner;
   for (const slot of slots) {
@@ -933,7 +945,11 @@ export function readQuotaHistory(
       ? null
       : slots.reduce((sum, slot) => sum + slot.outsideCostUsd, 0);
 
-  const exportedModels = [...models].map(([model, usage]) => ({ model, ...exportUsage(usage) })).sort(byConsumption);
+  const exportedModels = sortFastBesideModel(
+    [...models].map(([key, usage]) => exportModel(key, usage)),
+    modelOfRow,
+    ['consumed', 'tokens']
+  );
   const seriesKeys = exportedModels
     .filter((model) => model.consumed > 0)
     .slice(0, SERIES_LIMIT)
@@ -995,14 +1011,17 @@ export function readQuotaHistory(
           : slot.outsideCostUsd,
         slot.usage.costKnownTurns < slot.usage.turns
       ),
-      models: [...slot.models]
-        .map(([model, usage]) => ({
+      models: sortFastBesideModel(
+        [...slot.models].map(([model, usage]) => ({
           model,
+          ...modelIdentity(model),
           consumed: round(usage.consumed),
           tokens: tokensOf(usage),
           costUsd: round(usage.costUsd, 6),
-        }))
-        .sort(byConsumption),
+        })),
+        modelOfRow,
+        ['consumed', 'tokens']
+      ),
     })),
     modelSeries: modelSeries(slots, shown, seriesKeys, now),
     // A period over several windows marks where each of them peaked.

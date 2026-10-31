@@ -14,7 +14,14 @@
  * here mutates stored rows. Storage, schema and inserts stay in
  * usage-ledger.mjs.
  */
-import { isConversationUsageSource, num, usageRollupDayKey } from './usage-rollup.mjs';
+import {
+  FAST_KEY,
+  fastRouteSql,
+  isConversationUsageSource,
+  num,
+  rollupRouteKey,
+  usageRollupDayKey,
+} from './usage-rollup.mjs';
 import { normalizeUsageMeasurement, normalizeLegacyUsageDay } from './usage-measurement.mjs';
 
 // A detail and its terminal summary can overlap on the SAME route.
@@ -49,7 +56,8 @@ const empty = () => ({
   sessionsComplete: true,
 });
 
-const add = (target, row) => {
+// `sign` -1 takes a row back out (a model's Fast calls leave its normal route).
+const add = (target, row, sign = 1) => {
   const usage = normalizeUsageMeasurement(row.provider, {
     turns: row.turns,
     input: row.input,
@@ -75,10 +83,10 @@ const add = (target, row) => {
     'costEstimated',
     'unmeasuredTurns',
   ]) {
-    target[field] += usage[field] || 0;
+    target[field] += sign * (usage[field] || 0);
   }
-  target.durationMs += row.duration_ms;
-  if (row.duration_ms > 0) target.durationTurns += row.turns;
+  target.durationMs += sign * row.duration_ms;
+  if (row.duration_ms > 0) target.durationTurns += sign * row.turns;
 };
 
 function readHourlyRows(db, { hourlyDay, fromDay, toDay, fromMs, toMs, fromTs, toTs }) {
@@ -138,7 +146,7 @@ function foldDailyAmounts(days, amounts) {
   for (const row of amounts) {
     days[row.day] ||= { ...empty(), models: {}, sessions: {}, conversation: empty() };
     const day = days[row.day];
-    const key = `${row.provider}/${row.model}`;
+    const key = rollupRouteKey(row.provider, row.model, false);
     day.models[key] ||= {
       ...empty(),
       provider: row.provider,
@@ -154,6 +162,71 @@ function foldDailyAmounts(days, amounts) {
       add(route.conversation, row);
     }
     if (row.imported) day.importedPartial = true;
+  }
+}
+
+// Fast-mode calls (the tier is on the route signature, not in the daily
+// totals) read from the retained originals, to become a route of their own.
+function readFastAmounts(db, { fromDay, toDay, fromTs, toTs }) {
+  const ts = fromTs > 0 || toTs < Number.MAX_SAFE_INTEGER ? 'e.ts' : '+e.ts';
+  // Routes are few and events many: a ledger with no Fast route (nearly all of
+  // them) skips the event scan, and the tier is read once per route, not per event.
+  const fastRoutes = `SELECT r.id,
+                    json_extract(r.signature,'$[0]') AS provider,
+                    json_extract(r.signature,'$[1]') AS model,
+                    json_extract(r.signature,'$[2]') AS kind,
+                    json_extract(r.signature,'$[3]') AS source_type,
+                    json_extract(r.signature,'$[4]') AS cost_source,
+                    json_extract(r.signature,'$[7]') AS rank
+                FROM usage_routes r WHERE ${fastRouteSql('r.signature')}`;
+  if (!db.prepare(`${fastRoutes} LIMIT 1`).get()) return [];
+  return db
+    .prepare(`
+            WITH fast_routes AS MATERIALIZED (${fastRoutes}), fast AS (
+                SELECT printf('%04d-%02d-%02d',e.day/10000,(e.day/100)%100,e.day%100) AS day,
+                    r.provider,r.model,r.kind,r.source_type,r.cost_source,r.rank,
+                    e.input,e.output,e.cache_read,e.cache_write,e.cost_usd,e.duration_ms
+                FROM usage_events e JOIN fast_routes r ON r.id=e.route
+                WHERE ${ts}>=? AND ${ts}<?
+            )
+            SELECT f.day,f.rank,f.provider,f.model,f.kind,f.cost_source,f.source_type,
+                COUNT(*) AS turns,SUM(f.input) AS input,SUM(f.output) AS output,
+                SUM(f.cache_read) AS cache_read,SUM(f.cache_write) AS cache_write,
+                SUM(f.cost_usd) AS cost_usd,SUM(f.duration_ms) AS duration_ms
+            FROM fast f JOIN (${best}) b USING(day,provider,model,rank)
+            GROUP BY f.day,f.rank,f.provider,f.model,f.kind,f.cost_source,f.source_type
+        `)
+    .all(fromTs, toTs, fromDay, toDay);
+}
+
+function foldFastAmounts(days, rows) {
+  for (const row of rows) {
+    const normal = days[row.day]?.models[rollupRouteKey(row.provider, row.model, false)];
+    if (!normal) continue;
+    const models = days[row.day].models;
+    const key = rollupRouteKey(row.provider, row.model, true);
+    models[key] ||= {
+      ...empty(),
+      provider: row.provider,
+      model: row.model,
+      kind: row.kind,
+      conversation: empty(),
+      fast: true,
+    };
+    const conversation = isConversationUsageSource(row.source_type);
+    for (const [target, sign] of [
+      [models[key], 1],
+      [normal, -1],
+    ]) {
+      add(target, row, sign);
+      if (conversation) add(target.conversation, row, sign);
+    }
+  }
+  // A model used only in Fast mode keeps just its Fast row.
+  for (const day of Object.values(days)) {
+    for (const [key, route] of Object.entries(day.models)) {
+      if (!route.fast && route.turns <= 0 && day.models[key + FAST_KEY]) delete day.models[key];
+    }
   }
 }
 
@@ -181,6 +254,7 @@ function readSessionAttribution(db, { fromDay, toDay, fromTs, toTs }) {
                     json_extract(r.signature,'$[3]') AS source_type,
                     json_extract(r.signature,'$[6]') AS origin,
                     json_extract(r.signature,'$[7]') AS rank,
+                    ${fastRouteSql('r.signature')} AS fast,
                     s.value AS session_id,e.input,e.output,e.cacheRead,e.cacheWrite
                 FROM grouped e JOIN usage_routes r ON r.id=e.route
                 JOIN usage_sessions s ON s.id=e.session
@@ -206,6 +280,7 @@ function readOutputSpeed(db, { fromDay, toDay, fromTs, toTs }) {
                     json_extract(r.signature,'$[0]') AS provider,
                     json_extract(r.signature,'$[1]') AS model,
                     json_extract(r.signature,'$[7]') AS rank,
+                    ${fastRouteSql('r.signature')} AS fast,
                     t.output,t.duration_ms
                 FROM timed t JOIN usage_routes r ON r.id=t.route
             )
@@ -216,7 +291,7 @@ function readOutputSpeed(db, { fromDay, toDay, fromTs, toTs }) {
 
 function foldOutputSpeed(days, rows) {
   for (const row of rows) {
-    const route = days[row.day]?.models[`${row.provider}/${row.model}`];
+    const route = days[row.day]?.models[rollupRouteKey(row.provider, row.model, row.fast)];
     if (!route) continue;
     route.speedOutput = (route.speedOutput || 0) + row.output;
     route.speedMs = (route.speedMs || 0) + row.duration_ms;
@@ -228,7 +303,7 @@ function foldSessionAttribution(days, sessions) {
     const classified = row.origin !== 'trace' || Boolean(row.source_type);
     if (classified && !isConversationUsageSource(row.source_type)) continue;
     const day = days[row.day];
-    const route = day.models[`${row.provider}/${row.model}`];
+    const route = day.models[rollupRouteKey(row.provider, row.model, row.fast)];
     for (const target of [day, route, day.conversation, route.conversation]) {
       // Old raw traces used session_id for account/socket scopes too.
       // Without source attribution they cannot establish a session count.
@@ -455,6 +530,7 @@ export function rollupUsage(
     hourly.rows = readHourlyRows(db, { hourlyDay, fromDay, toDay, fromMs, toMs, fromTs, toTs });
   }
   foldDailyAmounts(days, readDailyAmounts(db, { fromDay, toDay, fromMs, fromTs, toTs }));
+  foldFastAmounts(days, readFastAmounts(db, { fromDay, toDay, fromTs, toTs }));
   foldOutputSpeed(days, readOutputSpeed(db, { fromDay, toDay, fromTs, toTs }));
   foldSessionAttribution(days, readSessionAttribution(db, { fromDay, toDay, fromTs, toTs }));
   // Timeless legacy totals cannot establish membership in a 24-hour window.

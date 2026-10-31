@@ -29,6 +29,44 @@ export function isConversationUsageSource(sourceType) {
   return !BACKGROUND_SOURCES.has(id);
 }
 
+/**
+ * SQL: 1 when a route's requests ran in Fast mode (a Fast/Priority/Ultrafast
+ * tier was sent), read off the route signature's stored rates. Mirrors the
+ * pricing rule in cost.mjs: the OpenAI API reporting "default" means a
+ * Priority request was downgraded to Standard. Routes recorded before tiers
+ * were kept, or without one, are normal.
+ */
+export const fastRouteSql = (signature) => `(
+    COALESCE(json_extract(json_extract(${signature},'$[5]'),'$.requestServiceTier') IN ('fast','priority','ultrafast'),0)
+    AND NOT (COALESCE(json_extract(${signature},'$[2]'),'')='api'
+        AND COALESCE(json_extract(json_extract(${signature},'$[5]'),'$.serviceTier'),'')='default'))`;
+
+/** Marks a model key as that model's Fast-mode calls: a route of its own beside the normal one. */
+export const FAST_KEY = '\u0000fast';
+export const rollupRouteKey = (provider, model, fast) => `${provider}/${model}${fast ? FAST_KEY : ''}`;
+
+/**
+ * Orders model rows by each model's combined fields (descending, in order),
+ * keeping a model's Fast row directly under its normal row.
+ */
+export function sortFastBesideModel(rows, modelOf, fields) {
+  const sums = new Map();
+  for (const row of rows) {
+    const sum = sums.get(modelOf(row)) || fields.map(() => 0);
+    fields.forEach((field, index) => {
+      sum[index] += row[field];
+    });
+    sums.set(modelOf(row), sum);
+  }
+  return rows.sort((a, b) => {
+    const x = sums.get(modelOf(a));
+    const y = sums.get(modelOf(b));
+    const lead = fields.findIndex((_, index) => y[index] !== x[index]);
+    if (lead >= 0) return y[lead] - x[lead];
+    return modelOf(a).localeCompare(modelOf(b)) || Number(a.fast === true) - Number(b.fast === true);
+  });
+}
+
 /** Turns with a known cost: the recorded count, else every turn when the usage carries any cost at all. */
 export function knownCostTurns(usage, amount = num) {
   if (usage.costKnownTurns != null) return amount(usage.costKnownTurns);

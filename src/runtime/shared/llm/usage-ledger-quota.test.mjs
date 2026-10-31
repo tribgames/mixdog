@@ -93,6 +93,43 @@ test('subscription usage reports each model output speed over its timed requests
   assert.equal(history.totals.outputTokensPerSecond, 100);
 });
 
+test('subscription usage lists a model Fast calls as a row directly under its normal row', async (t) => {
+  const ledger = store(t);
+  ledger.record([
+    request(at(0, 10), 'model-a', { outputTokens: 300, durationMs: 2000 }),
+    request(at(0, 20), 'model-a', { outputTokens: 600, durationMs: 2000, requestServiceTier: 'fast' }),
+    request(at(0, 30), 'model-b', { outputTokens: 600, durationMs: 2000, requestServiceTier: 'fast' }),
+    request(at(0, 40), 'model-c', { outputTokens: 100, durationMs: 1000 }),
+  ]);
+  ledger.recordQuota([reading(opened, 0), reading(at(1), 10)]);
+  const history = await ledger.quotaHistoryAsync({ now: at(2) });
+  const label = (row) => (row.fast ? `${row.modelId} · Fast` : row.model);
+  const rows = Object.fromEntries(history.models.map((row) => [label(row), row]));
+  assert.deepEqual(Object.keys(rows).sort(), ['model-a', 'model-a · Fast', 'model-b · Fast', 'model-c']);
+  const figures = (name) => [rows[name].turns, rows[name].output, rows[name].outputTokensPerSecond];
+  assert.deepEqual(figures('model-a'), [1, 300, 150]);
+  assert.deepEqual(figures('model-a · Fast'), [1, 600, 300]);
+  assert.deepEqual(figures('model-b · Fast'), [1, 600, 300]);
+  assert.deepEqual(figures('model-c'), [1, 100, 100]);
+  const order = history.models.map(label);
+  assert.equal(order.indexOf('model-a · Fast'), order.indexOf('model-a') + 1);
+  // The chart's slot lists and series carry the display identity, never only the internal key.
+  const slotRows = history.slots.flatMap((slot) => slot.models);
+  const slotFast = slotRows.filter((row) => row.model.includes('\u0000'));
+  assert.ok(slotFast.length > 0);
+  assert.ok(slotFast.every((row) => row.fast === true && row.modelId && !row.modelId.includes('\u0000')));
+  const slotWith = history.slots.find(
+    (slot) => slot.models.some((row) => row.modelId === 'model-a') && slot.models.some((row) => row.model === 'model-a')
+  );
+  assert.ok(slotWith, 'one slot holds both modes of model-a');
+  const slotOrder = slotWith.models.map(label);
+  assert.equal(slotOrder.indexOf('model-a · Fast'), slotOrder.indexOf('model-a') + 1);
+  const series = history.modelSeries.find((entry) => entry.fast && entry.modelId === 'model-a');
+  assert.equal(series.key, rows['model-a · Fast'].model);
+  // Totals are the whole of both modes.
+  assert.equal(history.totals.turns, 4);
+  assert.equal(history.totals.outputTokensPerSecond, 228.6);
+});
 test('exact request timestamps stay on their own side of a quota reading', async (t) => {
   const ledger = store(t);
   ledger.record([

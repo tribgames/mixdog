@@ -1395,7 +1395,7 @@ button.quota-chart-slot[aria-expanded="true"] {
 }
 @media (max-width: 680px) {
   .command-surface[data-surface="stats"] .mixdog-settings__body {
-    padding: 14px;
+    padding: 10px;
   }
   .stats-controls {
     align-items: center;
@@ -1407,13 +1407,82 @@ button.quota-chart-slot[aria-expanded="true"] {
   .stats-cards {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-  .stats-table th.stats-optional,
-  .stats-table td.stats-optional {
+  /* TOK/S (the fourth column in the token and subscription tables) stays;
+     the other optional columns fold away. */
+  .stats-table th.stats-optional:not(:nth-child(4)),
+  .stats-table td.stats-optional:not(:nth-child(4)) {
     display: none;
+  }
+  /* The name column takes what the numbers leave and truncates with an
+     ellipsis; max-width 0 lets an auto-layout cell shrink below its text. */
+  .stats-table th:first-child,
+  .stats-table td:first-child {
+    width: 100%;
+    max-width: 0;
+  }
+  .stats-model-cell {
+    white-space: nowrap;
+  }
+  .stats-model-cell .usage-model-toggle {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    padding: 0;
+    border: 0;
+    color: inherit;
+    background: none;
+    font: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .stats-model-cell .usage-model-label {
+    display: flex;
+  }
+  .stats-model-cell .usage-model-name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .stats-model-cell .usage-model-fast {
+    flex: none;
+    white-space: pre;
+  }
+  /* A tap unclips the name in place; the Fast marker keeps its own line end. */
+  .stats-model-cell[data-expanded="true"] {
+    white-space: normal;
+  }
+  .stats-model-cell[data-expanded="true"] .usage-model-name {
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+  /* The share bar follows the narrowed name column instead of spilling over it. */
+  .stats-share {
+    width: 90px;
+    max-width: 100%;
+    flex: 0 1 auto;
+  }
+  .stats-provider-share {
+    min-width: 0;
+  }
+  /* Six columns share a phone: the numbers take the smaller body size and
+     tighter gutters, and a provider's plan badge may drop under its name. */
+  .stats-table th:not(:first-child),
+  .stats-table td:not(:first-child) {
+    padding-inline: 3px;
+    font-size: var(--mx-font-micro);
+  }
+  /* A two-word header ("Est. value") wraps rather than widening its column. */
+  .stats-table th:not(:first-child) {
+    letter-spacing: 0;
+    white-space: normal;
   }
   .stats-table th:first-child,
   .stats-table td:first-child {
-    width: 38%;
+    padding-inline: 8px 4px;
+  }
+  .stats-provider-toggle {
+    flex-wrap: wrap;
   }
 }
 

@@ -24,8 +24,10 @@
 import { billableInputTokensForProvider } from '../../runtime/shared/llm/cost.mjs';
 import { hourlySeries } from './usage-stats-hours.mjs';
 import {
+  FAST_KEY,
   isConversationUsageSource,
   knownCostTurns,
+  sortFastBesideModel,
   usageRollupDayKey,
 } from '../../runtime/shared/llm/usage-rollup.mjs';
 
@@ -132,11 +134,14 @@ function providerBucket(state, provider, kind) {
   return bucket;
 }
 
-function modelBucket(provider, model) {
-  let bucket = provider.models.get(model);
+// A model's Fast-mode calls are their own row beside its normal row.
+function modelBucket(provider, model, fast = false) {
+  const key = fast ? model + FAST_KEY : model;
+  let bucket = provider.models.get(key);
   if (!bucket) {
     bucket = {
       model,
+      fast,
       turns: 0,
       input: 0,
       output: 0,
@@ -146,7 +151,7 @@ function modelBucket(provider, model) {
       sessions: new Set(),
       sessionsComplete: true,
     };
-    provider.models.set(model, bucket);
+    provider.models.set(key, bucket);
   }
   return bucket;
 }
@@ -166,9 +171,9 @@ function addUsage(target, usage) {
   target.speedMs = (target.speedMs || 0) + (usage.speedMs || 0);
 }
 
-function foldRoute(state, providerId, modelId, kind, usage) {
+function foldRoute(state, providerId, modelId, kind, usage, fast = false) {
   const provider = providerBucket(state, providerId, kind);
-  const model = modelBucket(provider, modelId);
+  const model = modelBucket(provider, modelId, fast);
   for (const bucket of [provider, model]) {
     addUsage(bucket, usage);
     if (usage.turns > 0 && (!usage.sessions || usage.sessionsComplete === false)) {
@@ -258,7 +263,7 @@ function foldRollupDay(state, key, day, conversationOnly) {
       speedOutput: num(raw?.speedOutput),
       speedMs: num(raw?.speedMs),
     };
-    foldRoute(state, providerId, modelId, text(raw?.kind), usage);
+    foldRoute(state, providerId, modelId, text(raw?.kind), usage, raw?.fast === true);
     addDaily(state, key, usage, providerId);
   }
 
@@ -513,9 +518,12 @@ function exportRoute(bucket, totalTokens) {
 function exportProviders(state, { totalTokens, modelLimit }) {
   return [...state.providers.values()]
     .map((bucket) => {
-      const models = [...bucket.models.values()]
-        .map((model) => ({ model: model.model, ...exportRoute(model, totalTokens) }))
-        .sort((a, b) => b.tokens - a.tokens || b.costUsd - a.costUsd);
+      const exported = [...bucket.models.values()].map((model) => ({
+        model: model.model,
+        ...(model.fast ? { fast: true } : {}),
+        ...exportRoute(model, totalTokens),
+      }));
+      const models = sortFastBesideModel(exported, (row) => row.model, ['tokens', 'costUsd']);
       return {
         provider: bucket.provider,
         providerKind: bucket.providerKind,
@@ -535,7 +543,12 @@ function exportUnpricedModels(state) {
   const rows = [];
   for (const provider of state.providers.values()) {
     for (const model of provider.models.values()) {
-      if (model.turns > 0 && model.costKnownTurns < model.turns)
+      // A model's Fast bucket is the same identity as its normal one.
+      if (
+        model.turns > 0 &&
+        model.costKnownTurns < model.turns &&
+        !rows.some((row) => row.provider === provider.provider && row.model === model.model)
+      )
         rows.push({ provider: provider.provider, model: model.model });
     }
   }

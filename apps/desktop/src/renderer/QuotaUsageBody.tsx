@@ -12,7 +12,7 @@ import { ErrorNotice } from './ErrorNotice';
 import { t } from './i18n';
 import { OpenSelect } from './OpenSelect';
 import { customProviderDisplayNames, resolveProviderDisplayName } from './model-catalog';
-import { modelDisplayName, ProviderIcon } from './provider-display';
+import { ProviderIcon } from './provider-display';
 import { type SidebarReferenceKey, useSidebarReferences } from './sidebar-reference-cache';
 import { QuotaTrend } from './QuotaTrend';
 import {
@@ -37,7 +37,7 @@ import { record, rows } from './record-utils';
 import { usageMoney, usageProviderLabel } from './usage-format';
 import { UsagePeriodControls, usagePeriodOptions } from './UsagePeriodControls';
 import { formatUsageResetRemaining } from './usage-reset-time';
-import { RouteCells, StatCard } from './UsageStatsSurface';
+import { ModelNameCell, RouteCells, StatCard, usageModelTitle } from './UsageStatsSurface';
 import { subscriptionLabel, subscriptionRank } from './subscription-providers';
 import {
   StatsValue,
@@ -109,7 +109,7 @@ function QuotaMix({
       .map((row) => ({
         key: `model:${String(row.model)}`,
         ink: seriesInk(String(row.model || '')),
-        label: modelDisplayName(String(row.model || ''), provider),
+        label: usageModelTitle(String(row.modelId || row.model || ''), provider, row.fast === true),
         value: statsNumber(row.consumed),
       })),
     ...(outside > 0 ? [{ key: 'outside', ink: 'outside', label: t('Outside Mixdog'), value: outside }] : []),
@@ -239,12 +239,11 @@ function QuotaTable({
             </tr>
             {open &&
               models.map((row) => {
-                const name = modelDisplayName(String(row.model || ''), provider);
+                const fast = row.fast === true;
+                const id = String(row.modelId || row.model || '');
                 return (
                   <tr className="stats-model-row" key={String(row.model)}>
-                    <td className="stats-model-cell" title={name}>
-                      {name}
-                    </td>
+                    <ModelNameCell model={id} provider={provider} fast={fast} />
                     <td className="stats-share-cell">{quotaPercent(row.consumed)}</td>
                     <RouteCells route={row} speed />
                   </tr>

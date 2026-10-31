@@ -307,6 +307,69 @@ test('subscription values distinguish recorded money, inferred outside use and t
   assert.ok(!document.querySelector('.stats-trend-detail-totals').textContent.includes('≈'));
 });
 
+test('subscription usage lists Fast calls as a second model row marked Fast', async (context) => {
+  const render = harness(context);
+  const ledger = new UsageLedger(':memory:');
+  context.after(() => ledger.close());
+  const reading = (ts, usedPct) => ({
+    provider: 'anthropic-oauth',
+    account: 'default',
+    label: '5H',
+    ts,
+    usedPct,
+    resetAt,
+  });
+  const call = (minutes, model, extra) =>
+    makeUsageRecord({
+      ts: opened + minutes * MINUTE,
+      provider: 'anthropic-oauth',
+      account: 'default',
+      model,
+      sessionId: 'fast-session',
+      sourceType: 'lead',
+      inputTokens: 100,
+      outputTokens: 300,
+      durationMs: 2000,
+      ...extra,
+    });
+  ledger.record([
+    call(10, 'model-both'),
+    call(20, 'model-both', { outputTokens: 600, requestServiceTier: 'fast' }),
+    call(30, 'model-normal'),
+  ]);
+  ledger.recordQuota([reading(opened, 0), reading(opened + 40 * MINUTE, 10)]);
+  const { api } = usageHost(context, ledger, { viewedAt: at(2, 1) });
+  focusQuotaUsage('anthropic-oauth');
+  await render({ surface: 'stats', open: true, onClose() {}, api });
+  const rows = [...document.querySelectorAll('.quota-table .stats-model-row')].filter(
+    (row) => row.firstElementChild.textContent !== t('Outside Mixdog')
+  );
+  assert.equal(rows.length, 3);
+  const names = rows.map((row) => row.cells[0].textContent);
+  assert.equal(names.includes('model-both'), true);
+  assert.equal(names.indexOf(`model-both · ${t('Fast')}`), names.indexOf('model-both') + 1);
+  assert.equal(names.includes('model-normal'), true);
+  const speed = (name) => rows[names.indexOf(name)].cells[3].textContent;
+  // The chart legend and a slot's tooltip name the Fast entry too, never the internal key.
+  const fastName = `model-both · ${t('Fast')}`;
+  const legend = [...document.querySelectorAll('.quota-legend li')].map((li) => li.textContent);
+  assert.ok(legend.includes(fastName), `legend: ${legend}`);
+  let detail = '';
+  for (const slot of document.querySelectorAll('button.quota-chart-slot')) {
+    await act(async () => slot.click());
+    detail = document.querySelector('.quota-chart-detail, .stats-trend-detail')?.textContent ?? '';
+    if (detail.includes(fastName)) break;
+  }
+  assert.ok(detail.includes(fastName), `tooltip: ${detail}`);
+  assert.equal(document.body.textContent.includes('\u0000'), false);
+  assert.equal(speed('model-both'), '150');
+  assert.equal(speed(`model-both · ${t('Fast')}`), '300');
+  assert.equal(
+    rows[names.indexOf(`model-both · ${t('Fast')}`)].querySelector('.model-route-label-fast').textContent,
+    t('Fast')
+  );
+});
+
 test('a limit window is valued at Mixdog’s own rate over the whole limit, outside use excluded', () => {
   // $40 of Mixdog requests and $30 of outside use; Mixdog's rate is $2 per point.
   const summary = { costUsd: 40, outsideCostUsd: 30, estimatedTotalCostUsd: 70, costPerPercent: 2 };
