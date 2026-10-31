@@ -188,7 +188,8 @@ export function createAgentProfileFold({
     // re-appends its deferred manifest.
     if (typeof staged.stableContext === 'string') resetBp2StableContext(session, staged.stableContext);
     applyPolicy(session, staged);
-    // Late tools and MCP instructions join the rebuilt manifest: no notice.
+    // Late tools join the rebuilt manifest (MCP instructions return with the
+    // server's next tool load): no notice.
     foldLateDeferredTools(session);
     rewriteConversationBp3Core(session, staged.core);
     // Every prompt setting as it stands — style, profile, language, core

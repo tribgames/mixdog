@@ -556,14 +556,24 @@ test('server instructions are sent again only when their text changes, capped', 
   session.mcpServerInstructions = { gmail: GMAIL_TEXT };
   const load = () => JSON.parse(renderToolSearch({ names: ['mcp__gmail__send'] }, session, 'lead'));
   assert.ok(load().mcpInstructions);
-  rearmLateDeferredTools(session); // a compaction no longer forgets what was told
-  assert.equal(load().mcpInstructions, undefined);
+  assert.equal(load().mcpInstructions, undefined, 'an ordinary turn sends nothing again');
   // An account was added: the connector's text changed.
   session.mcpServerInstructions = { gmail: `${GMAIL_TEXT}\nAccounts: a@x, b@y` };
   assert.match(load().mcpInstructions, /Accounts: a@x, b@y/);
   assert.equal(load().mcpInstructions, undefined);
   session.mcpServerInstructions = { gmail: 'long line of text. '.repeat(400) };
   assert.ok(Buffer.byteLength(load().mcpInstructions) <= 4096);
+});
+
+test('a compaction re-arm brings the told server instructions back on the next load, once', () => {
+  const session = leadSession('anthropic-oauth', { extraTools: [instructionTool('mcp__gmail__send')] });
+  session.mcpServerInstructions = { gmail: GMAIL_TEXT };
+  const load = () => JSON.parse(renderToolSearch({ names: ['mcp__gmail__send'] }, session, 'lead'));
+  assert.equal(load().mcpInstructions, `## gmail\n${GMAIL_TEXT}`);
+  assert.equal(load().mcpInstructions, undefined);
+  rearmLateDeferredTools(session); // the compaction dropped the load result that carried the text
+  assert.equal(load().mcpInstructions, `## gmail\n${GMAIL_TEXT}`);
+  assert.equal(load().mcpInstructions, undefined, 'told again once, not on every load');
 });
 
 test('a resumed record that announced a server without a hash sends its current text once', () => {
