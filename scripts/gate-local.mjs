@@ -36,7 +36,9 @@ import {
   runPool,
   saveTimingHistory,
 } from './lib/gate-scheduler.mjs';
+import { FULL_LOG_LABEL } from './lib/run-node-tests.mjs';
 import { pruneStaleTempDirs, removeTempDirSync } from './lib/stale-temp.mjs';
+import { SUMMARY_TAG } from './lib/test-failure-summary.mjs';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const started = Date.now();
@@ -143,10 +145,36 @@ function run(command, args, options, fd) {
     const child = spawn(command, args, { ...options, env, windowsHide: true, stdio: ['ignore', fd, fd] });
     child.on('error', (error) => {
       fs.writeSync(fd, `${error.stack}\n`);
-      resolve(1);
+      resolve({ code: 1, signal: null });
     });
-    child.on('close', (code) => resolve(code ?? 1));
+    child.on('close', (code, signal) => resolve({ code, signal }));
   });
+}
+const passed = (exit) => exit.code === 0;
+const ending = (exit) => (exit.signal ? `signal ${exit.signal}` : `exit code ${exit.code}`);
+
+// A shard's runner ends every run with its failure summary
+// (scripts/lib/run-node-tests.mjs). One killed from outside (TerminateProcess,
+// SIGKILL) or crashed prints nothing more, and Windows ends its node --test
+// batch and test processes with it, so no reporter flushes either: name how it
+// ended and what its full test log last recorded.
+const DEAD_TAIL_LINES = 12;
+function deadShardReport(unit, exit, output) {
+  if (passed(exit) || output.includes(SUMMARY_TAG)) return '';
+  const fullLog = output
+    .split(/\r?\n/)
+    .find((line) => line.startsWith(FULL_LOG_LABEL))
+    ?.slice(FULL_LOG_LABEL.length);
+  const tail =
+    fullLog && fs.existsSync(fullLog)
+      ? fs.readFileSync(fullLog, 'utf8').trimEnd().split(/\r?\n/).slice(-DEAD_TAIL_LINES)
+      : [];
+  return [
+    `${SUMMARY_TAG} RUN FAILED: ${unit.id} runner ended by ${ending(exit)} before its failure summary (killed from outside or crashed)`,
+    `${SUMMARY_TAG} last ${tail.length} line(s) of ${fullLog ?? 'its full test log (never named)'}:`,
+    ...tail.map((line) => `    ${line}`),
+    '',
+  ].join('\n');
 }
 
 const TIMING_REPORTER = new URL('./lib/gate-timing-reporter.mjs', import.meta.url).href;
@@ -155,7 +183,7 @@ async function runShard(unit, fd) {
   const timings = path.join(logDir, `${unit.id}.timings.jsonl`);
   const args = [...lane.args, `--test-reporter=${TIMING_REPORTER}`, `--test-reporter-destination=${timings}`];
   fs.writeSync(fd, `\n$ (${lane.pkg}) node ${[...args, ...unit.files].join(' ')}\n`);
-  const code = await run(process.execPath, [...args, ...unit.files], { cwd: lane.dir }, fd);
+  const exit = await run(process.execPath, [...args, ...unit.files], { cwd: lane.dir }, fd);
   const reported = Object.fromEntries(
     (fs.existsSync(timings) ? fs.readFileSync(timings, 'utf8') : '')
       .split('\n')
@@ -169,20 +197,19 @@ async function runShard(unit, fd) {
   for (const [file, ms] of Object.entries(measuredFileTimes(unit.files, reported, Date.now() - unit.start))) {
     measured[lane.key(file)] = Math.round(ms);
   }
-  return code === 0;
+  return exit;
 }
 
+// The exit of the first command that failed, else of the last one.
 async function runCommands(unit, fd) {
-  let ok = true;
+  let exit = { code: 0, signal: null };
   for (const cmd of unit.cmds) {
     fs.writeSync(fd, `\n$ ${cmd}\n`);
-    if ((await run(cmd, [], { cwd: root, shell: true }, fd)) !== 0) {
-      ok = false;
-      break;
-    }
+    exit = await run(cmd, [], { cwd: root, shell: true }, fd);
+    if (!passed(exit)) break;
   }
   measured[unit.key] = Date.now() - unit.start;
-  return ok;
+  return exit;
 }
 
 let finished = 0;
@@ -190,18 +217,25 @@ async function runUnit(unit) {
   const part = path.join(logDir, `${unit.id}.part.log`);
   const fd = fs.openSync(part, 'w');
   unit.start = Date.now();
-  let ok = false;
+  let exit = { code: 1, signal: null };
+  let dead = '';
   try {
-    ok = await (unit.files ? runShard(unit, fd) : runCommands(unit, fd));
+    exit = await (unit.files ? runShard(unit, fd) : runCommands(unit, fd));
+    if (unit.files) {
+      dead = deadShardReport(unit, exit, fs.readFileSync(part, 'utf8'));
+      if (dead) fs.writeSync(fd, `\n${dead}`);
+    }
   } finally {
     fs.closeSync(fd);
     unit.end = Date.now();
     fs.appendFileSync(laneLog(unit.lane), fs.readFileSync(part));
     fs.rmSync(part);
   }
+  const ok = passed(exit);
   console.log(
-    `[gate:local] ${ok ? 'ok  ' : 'FAIL'} ${unit.id} ${((unit.end - unit.start) / 1000).toFixed(1)}s (${++finished}/${units.length})`
+    `[gate:local] ${ok ? 'ok  ' : 'FAIL'} ${unit.id} ${((unit.end - unit.start) / 1000).toFixed(1)}s (${++finished}/${units.length})${ok ? '' : ` ${ending(exit)}`}`
   );
+  if (dead) process.stdout.write(dead);
   return ok;
 }
 

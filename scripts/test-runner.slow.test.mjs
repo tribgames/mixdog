@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { getSystemErrorMap } from 'node:util';
 import { createFailureRecorder, failureRecord } from './lib/test-failure-records.mjs';
 import { classifyRerunOutcomes, formatFailureSummary, policyLine, SUMMARY_TAG } from './lib/test-failure-summary.mjs';
 import { discoverTestFiles, laneOf, laneSelected, parseArgs, selectTestFiles, USAGE } from './test.mjs';
@@ -705,6 +706,74 @@ test('the force-exit guard leaves CommonJS entries unobserved and keeps the exit
     const run = direct(file);
     assert.equal(run.status, 7, `${file}\n${run.stdout}${run.stderr}`);
   }
+});
+
+test('a test process never signals the pid of a child whose exit it already saw', async (t) => {
+  const cwd = await fixture(t, {
+    // Loaded before the ledger: records every signal the real kill sent.
+    'spy.mjs': `
+      const kill = process.kill;
+      globalThis.nativeKill = kill;
+      globalThis.signalled = [];
+      process.kill = (pid, signal) => { const sent = kill.call(process, pid, signal); globalThis.signalled.push([pid, signal]); return sent; };
+    `,
+    'probe.mjs': `
+      import { spawn } from 'node:child_process';
+      import { once } from 'node:events';
+      // The live child holds its pid first, so the exited one cannot share it.
+      const live = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)']);
+      const done = spawn(process.execPath, ['-e', '']);
+      await once(done, 'exit');
+      const outcome = (pid, signal) => {
+        try { process.kill(pid, signal); return 'sent'; } catch (error) {
+          return { name: error.name, message: error.message, code: error.code, errno: error.errno, syscall: error.syscall };
+        }
+      };
+      const refused = [outcome(done.pid, 0), outcome(done.pid, 'SIGKILL'), outcome(String(done.pid))];
+      // Arguments Node rejects are still Node's to reject.
+      const invalid = [outcome(done.pid, 'BOGUS'), outcome(done.pid + 0.5, 'SIGKILL')];
+      // An object pid reaches Node untouched: its valueOf runs exactly as often
+      // as under Node's own kill, so one that answers differently per call
+      // gets Node's own outcome.
+      const coercions = (killer) => {
+        let calls = 0;
+        const pid = { valueOf: () => (++calls <= 3 ? process.pid : 0.5) };
+        try { killer.call(process, pid, 0); return { calls, sent: true }; } catch (error) { return { calls, code: error.code }; }
+      };
+      const objectPid = [coercions(globalThis.nativeKill), coercions(process.kill)];
+      process.kill(live.pid, 'SIGKILL');
+      await once(live, 'exit');
+      console.log(JSON.stringify({ refused, invalid, objectPid, signalled: globalThis.signalled, live: live.pid }));
+    `,
+  });
+  const env = { ...process.env, MIXDOG_TEST_FAILURE_RECORDS: join(cwd, 'records.jsonl') };
+  delete env.NODE_TEST_CONTEXT;
+  const result = spawnSync(process.execPath, ['--import', './spy.mjs', '--import', spawnLedgerUrl, 'probe.mjs'], {
+    cwd,
+    env,
+    encoding: 'utf8',
+    timeout: 20_000,
+  });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr);
+  const { refused, invalid, objectPid, signalled, live } = JSON.parse(result.stdout);
+  const [native, guarded] = objectPid;
+  assert.equal(native.sent, true, JSON.stringify(native));
+  assert.deepEqual(guarded, native);
+  // Whatever holds the exited child's pid now is never signalled (a string pid
+  // included, as Node accepts one), and the refusal is Node's own failed kill.
+  const [esrch] = [...getSystemErrorMap()].find(([, [name]]) => name === 'ESRCH');
+  const gone = { name: 'Error', message: 'kill ESRCH', code: 'ESRCH', errno: esrch, syscall: 'kill' };
+  assert.deepEqual(refused, [gone, gone, gone]);
+  assert.deepEqual(
+    invalid.map(({ name, code }) => ({ name, code })),
+    [
+      { name: 'TypeError', code: 'ERR_UNKNOWN_SIGNAL' },
+      { name: 'TypeError', code: 'ERR_INVALID_ARG_TYPE' },
+    ]
+  );
+  // The object pid's signal 0 reached the real kill through the guard.
+  assert.deepEqual(signalled, [[{}, 0], [live, 'SIGKILL']]);
 });
 
 test('--rerun-failed reports a flaky test in its own category and states its exit policy', async (t) => {

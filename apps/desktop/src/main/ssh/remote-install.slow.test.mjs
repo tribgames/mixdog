@@ -35,6 +35,25 @@ import { REMOTE_SERVER_LIBRARY } from './remote-install-program.ts';
 import { REMOTE_PTY_PACKAGE } from './remote-install-versioned.ts';
 
 const require = createRequire(import.meta.url);
+
+// Every process this file starts and that has not exited yet. A pid is not
+// kept: once its process exits, Windows hands the number to whatever starts
+// next — often a parallel test unit's process — and a kill by pid ends that.
+const running = new Set();
+function track(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return child;
+  running.add(child);
+  child.once('exit', () => running.delete(child));
+  return child;
+}
+// The daemons the server program spawns itself are tracked through its require.
+const childProcess = require('child_process');
+const trackedChildProcess = {
+  ...childProcess,
+  spawn: (...args) => track(childProcess.spawn(...args)),
+};
+const libraryRequire = (id) => (id === 'child_process' ? trackedChildProcess : require(id));
+
 // The server program's functions, loaded the way the program runs them.
 const library = new Function(
   'require',
@@ -44,9 +63,9 @@ const library = new Function(
   return { acquireInstallLock, unpackPayload, verifyManifest, manifestBuildHash, decideDaemonAction,
     busyDaemonMessage, ensureDaemon, garbageCollect, rotateLog, installedState, ensureInstalled, remotePaths,
     stopOwnedDaemon, managedInstallOf, readDaemonState, inspectInstallLock, stealInstallLock, lockHolders, cleanupServer };`
-)(require, process, Buffer);
+)(libraryRequire, process, Buffer);
 
-const scratch = () => mkdtempSync(join(tmpdir(), 'mixdog-remote-install-'));
+const scratch =() => mkdtempSync(join(tmpdir(), 'mixdog-remote-install-'));
 const linkType = process.platform === 'win32' ? 'junction' : 'dir';
 
 async function rejectsWith(promiseOrFn, code, pattern) {
@@ -283,7 +302,7 @@ const [lockDir, inside, mode, rounds] = process.argv.slice(2);
   const run = (mode, rounds) =>
     new Promise((resolve) => {
       const child = spawn(process.execPath, [worker, lockDir, inside, mode, String(rounds)], { stdio: 'ignore' });
-      children.push(child.pid);
+      track(child);
       child.once('exit', (code, signal) => resolve({ mode, code, signal }));
     });
   const results = await Promise.all([
@@ -422,15 +441,14 @@ server.listen(Number(process.env.MIXDOG_SESSION_PORT || 0), '127.0.0.1', () => {
 });
 `;
 
-const children = [];
-after(() => {
-  for (const pid of children) {
-    try {
-      process.kill(pid, 'SIGKILL');
-    } catch {
-      // The process already exited.
-    }
-  }
+after(async () => {
+  await Promise.all(
+    [...running].map((child) => {
+      const exited = new Promise((resolve) => child.once('exit', resolve));
+      child.kill('SIGKILL');
+      return exited;
+    })
+  );
 });
 
 function serverHome() {
@@ -467,7 +485,7 @@ async function startFake(p, env, { unmanaged = false } = {}) {
     env: { ...process.env, MIXDOG_RUNTIME_ROOT: p.runtimeRoot, MIXDOG_MODEL_PROXY: 'client', ...env },
     stdio: 'ignore',
   });
-  children.push(child.pid);
+  track(child);
   const recorded = () => {
     try {
       return JSON.parse(readFileSync(p.discovery, 'utf8')).pid === child.pid;
@@ -498,7 +516,6 @@ test('an idle daemon of another build is stopped through /stop and the current b
     versionDir,
     0
   );
-  children.push(result.state.pid);
   assert.equal(result.started, true);
   assert.equal(result.replaced.pid, old.pid);
   assert.equal(result.replaced.version, '1.1.1');
@@ -535,7 +552,6 @@ test('a busy daemon of another build is refused unless forced', async () => {
   );
   assert.equal(alive(old.pid), true);
   const forced = await library.ensureDaemon(p, { ...args, forceRestart: true }, versionDir, 0);
-  children.push(forced.state.pid);
   assert.equal(forced.replaced.pid, old.pid);
   assert.equal(alive(old.pid), false);
 });
@@ -546,7 +562,6 @@ test('the daemon env follows the saved model login, and a daemon of the other mo
   const args = { ...want, installId: '1.1.2-aaaaaaaaaaaaaaaa' };
   // This PC's logins: the daemon starts in client proxy mode.
   const pc = await library.ensureDaemon(p, args, versionDir, 0);
-  children.push(pc.state.pid);
   assert.equal(pc.started, true);
   assert.equal(pc.state.health.modelProxy, 'client');
   // Server logins: the same build in proxy mode is stopped and a daemon
@@ -561,7 +576,6 @@ test('the daemon env follows the saved model login, and a daemon of the other mo
     if (inherited === undefined) delete process.env.MIXDOG_MODEL_PROXY;
     else process.env.MIXDOG_MODEL_PROXY = inherited;
   }
-  children.push(server.state.pid);
   assert.equal(server.started, true);
   assert.equal(server.replaced.pid, pc.state.pid);
   assert.equal(server.replaced.modelProxy, 'client');
@@ -573,7 +587,6 @@ test('the daemon env follows the saved model login, and a daemon of the other mo
   assert.equal(again.state.pid, server.state.pid);
   // Back to this PC's logins: the server-login daemon is replaced in turn.
   const back = await library.ensureDaemon(p, args, versionDir, 0);
-  children.push(back.state.pid);
   assert.equal(back.replaced.pid, server.state.pid);
   assert.equal(back.state.health.modelProxy, 'client');
 });
@@ -586,7 +599,7 @@ test('a busy daemon of the other model login is refused with its mode unless for
     env: { ...process.env, MIXDOG_RUNTIME_ROOT: p.runtimeRoot, MIXDOG_MODEL_PROXY: 'client', FAKE_BUSY: '1' },
     stdio: 'ignore',
   });
-  children.push(busy.pid);
+  track(busy);
   for (let i = 0; i < 100; i += 1) {
     try {
       if (JSON.parse(readFileSync(p.discovery, 'utf8')).pid === busy.pid) break;
@@ -603,7 +616,6 @@ test('a busy daemon of the other model login is refused with its mode unless for
   );
   assert.equal(alive(busy.pid), true);
   const forced = await library.ensureDaemon(p, { ...args, forceRestart: true }, versionDir, 0);
-  children.push(forced.state.pid);
   assert.equal(forced.replaced.pid, busy.pid);
   assert.equal(forced.state.health.modelProxy, null);
 });
@@ -641,7 +653,7 @@ test('defensive: a foreign live owner of the desktop data dir is left running an
   const { p } = serverHome();
   const versionDir = fakeVersion(p, '1.1.2-aaaaaaaaaaaaaaaa', { version: '1.1.2', buildHash: want.buildHash });
   const personal = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
-  children.push(personal.pid);
+  track(personal);
   mkdirSync(dirname(p.dataOwner), { recursive: true });
   writeFileSync(p.dataOwner, JSON.stringify({ kind: 'mixdog-daemon', pid: personal.pid }));
   await rejectsWith(
@@ -655,7 +667,6 @@ test('defensive: a foreign live owner of the desktop data dir is left running an
   personal.kill('SIGKILL');
   await new Promise((resolve) => personal.once('exit', resolve));
   const result = await library.ensureDaemon(p, { ...want, installId: '1.1.2-aaaaaaaaaaaaaaaa' }, versionDir, 0);
-  children.push(result.state.pid);
   assert.equal(result.started, true);
   assert.ok(result.state.port > 0);
 });
@@ -676,7 +687,6 @@ test('a busy preferred port falls back to another loopback port; daemon.json nam
   const versionDir = fakeVersion(p, '1.1.2-aaaaaaaaaaaaaaaa', { version: '1.1.2', buildHash: want.buildHash });
   try {
     const result = await library.ensureDaemon(p, { ...want, installId: '1.1.2-aaaaaaaaaaaaaaaa' }, versionDir, uid);
-    children.push(result.state.pid);
     assert.notEqual(result.state.port, preferred);
     assert.equal(JSON.parse(readFileSync(p.discovery, 'utf8')).endpoints.session.port, result.state.port);
   } finally {
@@ -742,7 +752,7 @@ test('cleanup removes nothing while an unproven daemon record or any process use
   mkdirSync(dirname(script), { recursive: true });
   writeFileSync(script, 'setInterval(() => {}, 1000);');
   const stray = spawn(process.execPath, [script], { stdio: 'ignore' });
-  children.push(stray.pid);
+  track(stray);
   await new Promise((resolve) => setTimeout(resolve, 300));
   await rejectsWith(
     library.cleanupServer(p, cleanupArgs),
@@ -754,7 +764,7 @@ test('cleanup removes nothing while an unproven daemon record or any process use
   await new Promise((resolve) => stray.once('exit', resolve));
   // A live owner of the desktop data dir blocks removal too.
   const holder = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });
-  children.push(holder.pid);
+  track(holder);
   mkdirSync(dirname(p.dataOwner), { recursive: true });
   writeFileSync(p.dataOwner, JSON.stringify({ kind: 'mixdog-daemon', pid: holder.pid }));
   await rejectsWith(library.cleanupServer(p, cleanupArgs), 'daemon-unproven', new RegExp(`pid ${holder.pid}`));

@@ -18,7 +18,14 @@ async function stubbedCheckout(t) {
   await mkdir(join(root, 'scripts', 'lib'), { recursive: true });
   await mkdir(join(root, 'apps', 'desktop'), { recursive: true });
   await copyFile(join(here, 'gate-local.mjs'), join(root, 'scripts', 'gate-local.mjs'));
-  for (const name of ['gate-scheduler.mjs', 'gate-timing-reporter.mjs', 'stale-temp.mjs'])
+  for (const name of [
+    'gate-scheduler.mjs',
+    'gate-timing-reporter.mjs',
+    'run-node-tests.mjs',
+    'stale-temp.mjs',
+    'test-failure-records.mjs',
+    'test-failure-summary.mjs',
+  ])
     await copyFile(join(here, 'lib', name), join(root, 'scripts', 'lib', name));
   for (const name of ['build-shipped-history', 'check-changelog-locales', 'check-model-recommendations'])
     await writeFile(join(root, 'scripts', `${name}.mjs`), '');

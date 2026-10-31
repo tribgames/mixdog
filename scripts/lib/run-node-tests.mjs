@@ -29,6 +29,8 @@ const TEST_LOG_PREFIX = 'mixdog-test-output-';
 const TEST_FAILURES_PREFIX = 'mixdog-test-failures-';
 const TEST_SCRATCH_PREFIX = 'mixdog-test-scratch-';
 export const RUNNER_TEMP_PREFIXES = [TEST_LOG_PREFIX, TEST_FAILURES_PREFIX, TEST_SCRATCH_PREFIX];
+// Printed first by every run; the local gate finds a dead unit's log by it.
+export const FULL_LOG_LABEL = 'Full test log: ';
 
 // Batches keep the file order Node was given; a single path larger than the
 // budget still gets its own batch rather than being dropped. An empty list
@@ -387,7 +389,7 @@ export async function runNodeTests(nodeArgs, fileArgs, options = {}) {
   pruneStaleTempDirs(RUNNER_TEMP_PREFIXES);
   const outputDir = await mkdtemp(join(tmpdir(), TEST_LOG_PREFIX));
   const logPath = join(outputDir, 'full.log');
-  console.error(`Full test log: ${logPath}`);
+  console.error(`${FULL_LOG_LABEL}${logPath}`);
   // Failure records live outside the log directory: the log directory holds
   // exactly one merged log, and these records are an internal artifact.
   const failureDir = await mkdtemp(join(tmpdir(), TEST_FAILURES_PREFIX));
