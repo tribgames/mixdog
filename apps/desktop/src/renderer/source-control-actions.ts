@@ -145,7 +145,7 @@ export function selectProjectBranch(
 }
 
 /** A history entry checked out detached, through the same guarded checkout. */
-export async function checkoutProjectCommit(projectPath: string, commit: string): Promise<string> {
+async function checkoutProjectCommit(projectPath: string, commit: string): Promise<string> {
   const result = await guardedProjectCheckout({ projectPath, detach: commit });
   return `HEAD is now at ${String(result.commit || commit).slice(0, 8)} (detached).`;
 }

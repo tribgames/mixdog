@@ -16,7 +16,7 @@ export type QuestionPrimary = 'skip' | 'next' | 'send' | 'close';
 
 export const emptyDraft = (): QuestionDraft => ({ selected: [], text: '' });
 
-export function isAnswered(draft: QuestionDraft | undefined): boolean {
+function isAnswered(draft: QuestionDraft | undefined): boolean {
   return Boolean(draft && (draft.selected.length > 0 || draft.text.trim()));
 }
 
@@ -80,12 +80,12 @@ export function buildAnswers(questions: Question[], drafts: QuestionDraft[]): Qu
 }
 
 /** The runtime's cap on a chat reply to a question. */
-export const ASK_USER_REPLY_MAX_CHARS = 4000;
+const ASK_USER_REPLY_MAX_CHARS = 4000;
 
 type Submit<R> = (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<R>;
 
 /** Plain text (no attachments, not a slash command, within the cap) is an answer. */
-export function isPlainAnswer(text: string, attached: boolean): boolean {
+function isPlainAnswer(text: string, attached: boolean): boolean {
   return Boolean(text) && text.length <= ASK_USER_REPLY_MAX_CHARS && !text.startsWith('/') && !attached;
 }
 

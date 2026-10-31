@@ -125,7 +125,7 @@ export function controllerKeyScopeFor(page: {
   return remotePairingKeys(page.origin, deviceId).token;
 }
 
-export function controllerKeyScope(): string {
+function controllerKeyScope(): string {
   let deviceLabel = '';
   try {
     deviceLabel = localStorage.getItem(REMOTE_PAIRING_STORAGE_KEYS.device) || '';

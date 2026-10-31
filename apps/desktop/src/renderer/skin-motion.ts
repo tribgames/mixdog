@@ -20,7 +20,7 @@ const REDUCED_MOTION = '(prefers-reduced-motion: reduce)';
 let layer: Layer | null = null;
 let watchedWindow: Window | null = null;
 
-export function prefersReducedMotion(): boolean {
+function prefersReducedMotion(): boolean {
   return window.matchMedia?.(REDUCED_MOTION).matches === true;
 }
 

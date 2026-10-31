@@ -6,8 +6,8 @@
 import { parseMarkdownToHast } from './markdown-ast';
 
 /** Reading pace: about fourteen characters a second, at least 2.5 s a page. */
-export const PAGE_MIN_MS = 2500;
-export const PAGE_CHARS_PER_SECOND = 14;
+const PAGE_MIN_MS = 2500;
+const PAGE_CHARS_PER_SECOND = 14;
 
 export function pageReadMs(page: string): number {
   return Math.max(PAGE_MIN_MS, Math.round(([...page].length / PAGE_CHARS_PER_SECOND) * 1000));

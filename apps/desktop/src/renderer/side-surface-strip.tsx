@@ -39,9 +39,9 @@ export interface SideFileChrome extends EditorViewControls {
   openDefault?(): void;
   /** Remote surfaces: download the host file to this device (and share it). */
   download?(): void;
-  /** Editor readout that used to live in the footer: problem counts (a ⋯ item
-   *  that toggles the Problems split), cursor and language (⋯ menu),
-   *  and the document formatter when the language server offers one. */
+  /** Editor readout for the footer row: problem counts (toggling the
+   *  Problems split), cursor and language, plus the document formatter
+   *  (a ⋯ action) when the language server offers one. */
   problems?: { errors: number; warnings: number; onToggle(): void };
   /** `short` is the compact "12:1"; `label` the full tooltip. */
   cursor?: { label: string; short: string; onGoto(): void };

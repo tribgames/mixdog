@@ -29,10 +29,10 @@ const NUDGE_FAR = 32;
 /** The soft drop and fold on close (desktop-pet.css skin-companion-fold). */
 const QUICK_FOLD_MS = 200;
 /** The reply bubble's fade before it is dismissed (desktop-pet.css). */
-export const REPLY_FADE_MS = 200;
-export const REPLY_HIDE_BASE_MS = 8000;
-export const REPLY_HIDE_PER_CHAR_MS = 50;
-export const REPLY_HIDE_MAX_MS = 20000;
+const REPLY_FADE_MS = 200;
+const REPLY_HIDE_BASE_MS = 8000;
+const REPLY_HIDE_PER_CHAR_MS = 50;
+const REPLY_HIDE_MAX_MS = 20000;
 
 /** How long a reply stays up untouched: 8 s plus a little per character, at most 20 s. */
 export function replyHideMs(text: string): number {
@@ -42,7 +42,7 @@ export function replyHideMs(text: string): number {
 const reducedMotion = () => window.matchMedia?.('(prefers-reduced-motion: no-preference)').matches !== true;
 
 /** What a screen reader hears for a state; idle says nothing (no bubble). */
-export function bubbleLabel(bubble: CompanionBubble): string {
+function bubbleLabel(bubble: CompanionBubble): string {
   switch (bubble.kind) {
     case 'working':
       return t('Companion: working');
@@ -262,7 +262,7 @@ const isContextMenuKey = (event: { key: string; shiftKey: boolean }) =>
  *  returns to the pet with its ring only when that was the keyboard (a
  *  mouse user who typed and pressed Enter or Esc gets no box). */
 let openedByKeyboard = false;
-export function notePetOpenedBy(keyboard: boolean): void {
+function notePetOpenedBy(keyboard: boolean): void {
   openedByKeyboard = keyboard;
 }
 
@@ -290,7 +290,7 @@ const PET_NAVIGATION_KEYS = new Set([
   'Escape',
   'ContextMenu',
 ]);
-export function isPetNavigationKey(event: { key: string; shiftKey: boolean }): boolean {
+function isPetNavigationKey(event: { key: string; shiftKey: boolean }): boolean {
   return PET_NAVIGATION_KEYS.has(event.key) || (event.key === 'F10' && event.shiftKey);
 }
 

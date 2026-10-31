@@ -25,7 +25,7 @@ export type ScreenGestureAction =
   | { type: 'scroll'; at: ScreenPoint; dx: number; dy: number };
 
 /** One wheel notch is 120 Windows units; a notch is about 100 picture pixels. */
-export const SCREEN_WHEEL_UNITS_PER_PIXEL = 1.2;
+const SCREEN_WHEEL_UNITS_PER_PIXEL = 1.2;
 /** The contract's bound: 40 notches. */
 const MAX_WHEEL_UNITS = 120 * 40;
 

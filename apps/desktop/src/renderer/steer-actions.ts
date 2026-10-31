@@ -71,7 +71,7 @@ type DraftOrigin = { scope: string; recoveryScope: string };
  *  words with their attachment tokens, the pasted images with their bytes
  *  (the content's image parts, in order), pasted / attached texts and the
  *  PDF / Office parts. */
-export function promptRestoreRecord(content: DesktopPromptContent, options?: DesktopSubmitOptions): RecordValue {
+function promptRestoreRecord(content: DesktopPromptContent, options?: DesktopSubmitOptions): RecordValue {
   const pastedTexts = options?.pastedTexts ? { pastedTexts: options.pastedTexts } : {};
   // A text-only message still carries its pasted texts and text files.
   if (typeof content === 'string') return { text: content, ...pastedTexts };

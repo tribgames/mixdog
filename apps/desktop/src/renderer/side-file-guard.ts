@@ -18,7 +18,7 @@ export { sideFileDirtyKey };
 
 export type SideFileTarget = { project: string; rel: string; accessToken?: string };
 
-export const sideFileTargetKey = sideFileKey;
+const sideFileTargetKey = sideFileKey;
 
 export type SideFileDockRequest = { preview?: boolean; from?: string; sidePreview?: boolean };
 

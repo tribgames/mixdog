@@ -1,10 +1,9 @@
 // One transcript contract for every renderer snapshot source.
 //
-// The focused mixdog:state stream and background mixdog:session-state lanes
-// used to decorate different shapes: only the focused stream carried failure
-// turn keys and stable row identities. Focus therefore changed visible rows
-// ("failed" ↔ "Failed · Retry") even though PaneConversation itself stayed
-// mounted. Both pipelines now pass through this same bounded decorator.
+// Background mixdog:session-state lanes pass through this bounded decorator so
+// they carry the same failure turn keys and stable row identities as the
+// focused mixdog:state stream. Without it, focus would change visible rows
+// ("failed" ↔ "Failed · Retry") even though PaneConversation stays mounted.
 import type { SessionSnapshot } from '../shared/contract';
 import { withStreamingPartial } from '../shared/streaming-partial';
 import { type Snapshot, type TranscriptItem, EMPTY_SNAPSHOT } from './desktop-types';

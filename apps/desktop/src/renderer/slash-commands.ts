@@ -285,7 +285,7 @@ const COMPOSER_SLASH_COMMANDS: ReadonlyArray<DesktopSlashCommand> = [
 
 /** A group room's own command (agent-room.mjs parseRoomAsk): not a runtime
  *  command, so it lives outside the shared registry and lists only in rooms. */
-export const ROOM_ASK_COMMAND: DesktopSlashCommand = {
+const ROOM_ASK_COMMAND: DesktopSlashCommand = {
   name: 'ask',
   usage: '/ask',
   params: '<agent> <message>',

@@ -2,11 +2,11 @@ import { X } from 'lucide-react';
 import { useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from 'react';
 import { t } from './i18n';
 
-export const SIDE_FILE_PROBLEMS_MIN_HEIGHT = 96;
-export const SIDE_FILE_PROBLEMS_MAX_HEIGHT = 640;
+const SIDE_FILE_PROBLEMS_MIN_HEIGHT = 96;
+const SIDE_FILE_PROBLEMS_MAX_HEIGHT = 640;
 export const SIDE_FILE_PROBLEMS_DEFAULT_HEIGHT = 200;
 
-export function clampSideFileProblemsHeight(height: number): number {
+function clampSideFileProblemsHeight(height: number): number {
   return Math.min(SIDE_FILE_PROBLEMS_MAX_HEIGHT, Math.max(SIDE_FILE_PROBLEMS_MIN_HEIGHT, Math.round(height)));
 }
 

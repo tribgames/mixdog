@@ -10,9 +10,9 @@ export interface SessionOrderPrefs {
 /** List key (`favorites`, `recent`, `project:<key>`) -> session ids, top first. */
 export type CustomSessionOrders = Readonly<Record<string, readonly string[]>>;
 
-export const SESSION_ORDER_PREFS_KEY = 'mixdog:session-sidebar-session-order-mode';
-export const SESSION_CUSTOM_ORDERS_KEY = 'mixdog:session-sidebar-session-custom-order';
-export const DEFAULT_SESSION_ORDER_PREFS: SessionOrderPrefs = { sessions: 'recent', favorites: 'custom' };
+const SESSION_ORDER_PREFS_KEY = 'mixdog:session-sidebar-session-order-mode';
+const SESSION_CUSTOM_ORDERS_KEY = 'mixdog:session-sidebar-session-custom-order';
+const DEFAULT_SESSION_ORDER_PREFS: SessionOrderPrefs = { sessions: 'recent', favorites: 'custom' };
 const MAX_STORED_IDS_PER_LIST = 2000;
 const LIST_ID_SEPARATOR = '\n';
 

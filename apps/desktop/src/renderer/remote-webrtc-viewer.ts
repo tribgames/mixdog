@@ -57,7 +57,7 @@ export interface RemoteWebrtcPresentedFrame {
 }
 
 export const REMOTE_WEBRTC_SWITCHING_MESSAGE = 'Remote Browser Use connection is switching; input was not sent.';
-export const REMOTE_WEBRTC_REJECTED_MESSAGE = 'Remote Browser Use did not apply the typed input.';
+const REMOTE_WEBRTC_REJECTED_MESSAGE = 'Remote Browser Use did not apply the typed input.';
 
 type Timers = {
   setTimeout(callback: () => void, ms: number): unknown;

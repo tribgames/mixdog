@@ -43,7 +43,7 @@ export const WEBHOOK_SORTS: readonly WebhookSort[] = ['recent', 'bot'];
 
 /** A cadence group: the editor's frequencies, then any other cron. */
 export type Cadence = FrequencyKind | 'custom';
-export const CADENCE_ORDER: readonly Cadence[] = ['hourly', 'daily', 'weekdays', 'weekly', 'once', 'custom'];
+const CADENCE_ORDER: readonly Cadence[] = ['hourly', 'daily', 'weekdays', 'weekly', 'once', 'custom'];
 
 /** One group of the list; a flat list is one group with an empty key. */
 export interface RoutineGroup {
@@ -62,7 +62,7 @@ const stamp = (value: unknown): number | null => {
 };
 
 /** The bot a row belongs to; ownerless rows are Mixy's. */
-export const routineOwnerOf = (row: RecordValue): string =>
+const routineOwnerOf = (row: RecordValue): string =>
   typeof row.owner === 'string' && row.owner ? row.owner : OWNER_DEFAULT;
 
 /** Paused: switched off, or its bot is missing (channel-admin `ownerProblem`). */
@@ -94,7 +94,7 @@ export function sortByNextRun(list: readonly RecordValue[]): RecordValue[] {
 }
 
 /** Latest event first; endpoints without one after, by name. */
-export function sortByLatestEvent(list: readonly RecordValue[]): RecordValue[] {
+function sortByLatestEvent(list: readonly RecordValue[]): RecordValue[] {
   return [...list].sort((a, b) => {
     const ea = stamp(a.lastEventAt);
     const eb = stamp(b.lastEventAt);

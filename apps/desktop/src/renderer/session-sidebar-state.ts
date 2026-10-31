@@ -54,7 +54,7 @@ export function useSidebarSessionFilter() {
   return { showAgents, updateShowAgents };
 }
 
-export const HIDDEN_SECTIONS_KEY = 'mixdog:session-sidebar-hidden-sections';
+const HIDDEN_SECTIONS_KEY = 'mixdog:session-sidebar-hidden-sections';
 
 /** Sidebar sections the user hid from the ⋯ menu (persisted; none by default). */
 export function useSidebarHiddenSections() {

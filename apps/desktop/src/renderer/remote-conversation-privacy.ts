@@ -7,7 +7,7 @@ export function isRemoteContentSurface(): boolean {
 }
 
 /** Process-lifetime stand-in for Storage on the remote surface. */
-export function createMemoryStorage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> {
+function createMemoryStorage(): Pick<Storage, 'getItem' | 'setItem' | 'removeItem'> {
   const values = new Map<string, string>();
   return {
     getItem: (key) => values.get(key) ?? null,
