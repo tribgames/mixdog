@@ -2362,6 +2362,7 @@
   "Sessions with no conversation for this long move to the archive. You can restore them from the archive at any time.": "在這段期間沒有對話的工作階段會移到封存區。你可以隨時從封存區還原。",
   "Delete archived sessions after": "自動刪除已封存的工作階段",
   "Counted from the day a session was archived. Sessions already in the archive count from the day this feature was turned on.": "從工作階段封存當天開始計算。原本已在封存區的工作階段從此功能開啟當天開始計算。",
+  "Cowork": "Cowork",
   "Deleted sessions cannot be restored.": "已刪除的工作階段無法還原。",
   "Favorite and bot sessions, sessions that are running or open on screen, scheduled-task targets, and sessions with unread replies are never archived.": "收藏與機器人工作階段、正在執行或在畫面上開啟的工作階段、排程工作的目標，以及有未讀回覆的工作階段絕不會被封存。",
   "Import failed": "匯入失敗",

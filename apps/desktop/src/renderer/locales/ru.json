@@ -2518,6 +2518,7 @@
   "Sessions with no conversation for this long move to the archive. You can restore them from the archive at any time.": "Сеансы без переписки в течение этого срока переносятся в архив. Их можно в любое время восстановить из архива.",
   "Delete archived sessions after": "Удалять архивированные сеансы через",
   "Counted from the day a session was archived. Sessions already in the archive count from the day this feature was turned on.": "Отсчитывается со дня архивации. Для сеансов, которые уже были в архиве, отсчёт идёт со дня включения этой функции.",
+  "Cowork": "Cowork",
   "Deleted sessions cannot be restored.": "Удалённые сеансы нельзя восстановить.",
   "Favorite and bot sessions, sessions that are running or open on screen, scheduled-task targets, and sessions with unread replies are never archived.": "Избранные сеансы и сеансы ботов, выполняющиеся или открытые на экране сеансы, цели запланированных задач и сеансы с непрочитанными ответами никогда не архивируются.",
   "Import failed": "Не удалось импортировать",

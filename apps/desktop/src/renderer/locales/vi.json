@@ -2362,6 +2362,7 @@
   "Sessions with no conversation for this long move to the archive. You can restore them from the archive at any time.": "Phiên không có trò chuyện trong khoảng thời gian này sẽ được chuyển vào kho lưu trữ. Bạn có thể khôi phục chúng từ kho lưu trữ bất cứ lúc nào.",
   "Delete archived sessions after": "Xóa phiên đã lưu trữ sau",
   "Counted from the day a session was archived. Sessions already in the archive count from the day this feature was turned on.": "Tính từ ngày phiên được lưu trữ. Các phiên đã có sẵn trong kho lưu trữ được tính từ ngày bật tính năng này.",
+  "Cowork": "Cowork",
   "Deleted sessions cannot be restored.": "Không thể khôi phục phiên đã xóa.",
   "Favorite and bot sessions, sessions that are running or open on screen, scheduled-task targets, and sessions with unread replies are never archived.": "Phiên yêu thích và phiên bot, phiên đang chạy hoặc đang mở trên màn hình, đích của tác vụ đã lên lịch và phiên có câu trả lời chưa đọc sẽ không bao giờ được lưu trữ.",
   "Import failed": "Nhập thất bại",

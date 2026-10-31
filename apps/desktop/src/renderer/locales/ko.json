@@ -2362,6 +2362,7 @@
   "Sessions with no conversation for this long move to the archive. You can restore them from the archive at any time.": "지정한 기간 동안 대화가 없는 세션은 보관함으로 이동합니다. 보관함에서 언제든 복원할 수 있습니다.",
   "Delete archived sessions after": "보관된 세션 삭제 기한",
   "Counted from the day a session was archived. Sessions already in the archive count from the day this feature was turned on.": "세션이 보관된 날부터 계산합니다. 이미 보관함에 있는 세션은 이 기능이 켜진 날부터 계산합니다.",
+  "Cowork": "Cowork",
   "Deleted sessions cannot be restored.": "삭제된 세션은 복원할 수 없습니다.",
   "Favorite and bot sessions, sessions that are running or open on screen, scheduled-task targets, and sessions with unread replies are never archived.": "즐겨찾기 및 봇 세션, 실행 중이거나 화면에 열려 있는 세션, 예약 작업 대상, 읽지 않은 답변이 있는 세션은 보관되지 않습니다.",
   "Import failed": "가져오기 실패",
