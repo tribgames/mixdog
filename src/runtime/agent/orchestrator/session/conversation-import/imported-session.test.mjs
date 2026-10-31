@@ -77,6 +77,18 @@ const codexText = [
   .map((record) => JSON.stringify(record))
   .join('\n');
 
+test('Cowork and Claude Code share one dedupe identity; Codex stays separate and Claude keys are unchanged', async () => {
+  const { importOriginKey } = await import('./imported-session.mjs');
+  assert.equal(importOriginKey('claude', 'abc', '/p'), 'claude:abc');
+  assert.equal(importOriginKey('cowork', 'abc', '/p'), 'claude:abc');
+  assert.equal(importOriginKey('cowork', null, '/p'), 'claude:path:/p');
+  assert.notEqual(importOriginKey('codex', 'abc', '/p'), importOriginKey('cowork', 'abc', '/p'));
+  assert.equal(
+    buildImportOrigin({ source: 'cowork', sourcePath: '/p', foreignSessionId: 'abc', importedAt: 1 }).key,
+    'claude:abc'
+  );
+});
+
 test('an imported session is a normal Lead session with its system layer followed by plain turns', async () => {
   await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
     const conversation = convertConversationText('codex', codexText);

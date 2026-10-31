@@ -3,6 +3,7 @@
  *
  *   codex   $CODEX_HOME/sessions/**\/rollout-*.jsonl[.zst]   (default ~/.codex)
  *   claude  $CLAUDE_CONFIG_DIR/projects/*\/*.jsonl      (default ~/.claude)
+ *   cowork  %APPDATA%\Claude\local-agent-mode-sessions  (Claude Desktop; Windows only)
  *
  * Enumeration is stat-only; per-file metadata (foreign id, cwd, title, and
  * the message count when the whole file fit the read) comes from a bounded
@@ -11,7 +12,7 @@
  * shares one cache, one candidate registry and one set of listing views.
  */
 import { createHash, randomUUID } from 'node:crypto';
-import { open, readdir, realpath, stat } from 'node:fs/promises';
+import { open, readdir, readFile, realpath, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { pipeline } from 'node:stream';
@@ -77,6 +78,11 @@ const envDir = (value) => (typeof value === 'string' && value.trim() ? resolve(v
 export function sourceRoot(source, env = process.env) {
   if (source === 'codex') return join(envDir(env.CODEX_HOME) || join(homedir(), '.codex'), 'sessions');
   if (source === 'claude') return join(envDir(env.CLAUDE_CONFIG_DIR) || join(homedir(), '.claude'), 'projects');
+  // Only Windows sets APPDATA; elsewhere Claude Desktop has no Cowork folder to search.
+  if (source === 'cowork') {
+    const appData = envDir(env.APPDATA);
+    return appData ? join(appData, 'Claude', 'local-agent-mode-sessions') : null;
+  }
   throw importError('unsupported');
 }
 
@@ -91,8 +97,8 @@ export function loadStoredTitles(source, env = process.env) {
 }
 
 /** The app's stored title of a conversation, else the one derived from its messages. */
-export function displayTitle(meta, titles) {
-  return (meta?.foreignSessionId && titles?.get(meta.foreignSessionId)) || meta?.title || null;
+export function displayTitle(meta, titles, manifestTitle = null) {
+  return manifestTitle || (meta?.foreignSessionId && titles?.get(meta.foreignSessionId)) || meta?.title || null;
 }
 
 const caseFold = (value) => (process.platform === 'win32' ? value.toLowerCase() : value);
@@ -215,6 +221,68 @@ async function walkClaude(rootReal, files) {
   }
 }
 
+// Cowork keeps one `local_<id>.json` manifest per conversation (the account/org folders hold
+// `local_*.json` directly, the agent variant under `agent/`), next to a `local_<id>/` folder whose
+// `.claude/projects/<project>/<cliSessionId>.jsonl` is the Claude Code transcript. The manifest also
+// holds the system prompt and account details, so only title / isStarred / cliSessionId are read.
+// The agent variant (`local_ditto_*`, sessionType "agent") is the user's own Claude desktop chat
+// (its initialMessage is user-typed), so it is listed like the others.
+const COWORK_MANIFEST_MAX_BYTES = 8 * 1024 * 1024;
+const COWORK_TITLE_MAX_CHARS = 200;
+const COWORK_SESSION_ID_RE = /^[\w-]+$/;
+
+async function coworkManifestPaths(rootReal) {
+  const manifests = [];
+  for (const account of await entriesOf(rootReal)) {
+    if (!account.isDirectory()) continue;
+    for (const org of await entriesOf(join(rootReal, account.name))) {
+      if (!org.isDirectory()) continue;
+      for (const dir of [join(rootReal, account.name, org.name), join(rootReal, account.name, org.name, 'agent')]) {
+        for (const file of await entriesOf(dir)) {
+          if (file.isFile() && /^local_.+\.json$/.test(file.name)) manifests.push(join(dir, file.name));
+        }
+      }
+    }
+  }
+  return manifests;
+}
+
+// The transcript a manifest names, with the manifest's title and star; null when it has none.
+async function coworkTranscript(rootReal, manifestPath) {
+  const real = await containedRealpath(rootReal, manifestPath);
+  const info = real ? await stat(real).catch(() => null) : null;
+  if (!info?.isFile() || info.size > COWORK_MANIFEST_MAX_BYTES) return null;
+  let manifest;
+  try {
+    manifest = JSON.parse(await readFile(real, 'utf8'));
+  } catch {
+    return null;
+  }
+  const cliSessionId = manifest?.cliSessionId;
+  if (typeof cliSessionId !== 'string' || !COWORK_SESSION_ID_RE.test(cliSessionId)) return null;
+  const projects = join(real.slice(0, -'.json'.length), '.claude', 'projects');
+  for (const project of await entriesOf(projects)) {
+    if (!project.isDirectory()) continue;
+    const path = join(projects, project.name, `${cliSessionId}.jsonl`);
+    if (await containedRealpath(rootReal, path)) {
+      const title = typeof manifest.title === 'string' ? manifest.title.trim().slice(0, COWORK_TITLE_MAX_CHARS) : '';
+      return { path, title: title || null, starred: manifest.isStarred === true };
+    }
+  }
+  return null;
+}
+
+async function walkCowork(rootReal, files, extras) {
+  const found = await mapBounded(await coworkManifestPaths(rootReal), STAT_CONCURRENCY, (path) =>
+    coworkTranscript(rootReal, path)
+  );
+  for (const entry of found) {
+    if (!entry) continue;
+    files.push(entry.path);
+    extras.set(entry.path, { title: entry.title, starred: entry.starred });
+  }
+}
+
 async function mapBounded(items, limit, fn) {
   const out = new Array(items.length);
   let next = 0;
@@ -231,6 +299,7 @@ async function mapBounded(items, limit, fn) {
 /** Regular files under the source root, canonical and contained, as candidates. */
 export async function enumerateCandidates(source, env = process.env) {
   const root = sourceRoot(source, env);
+  if (!root) return { root: '', candidates: [] };
   let rootReal;
   try {
     rootReal = await realpath(root);
@@ -238,13 +307,17 @@ export async function enumerateCandidates(source, env = process.env) {
     return { root, candidates: [] };
   }
   const paths = [];
+  const extras = new Map(); // transcript path → manifest title / star (Cowork)
   if (source === 'codex') await walkCodex(rootReal, rootReal, paths, new Set([caseFold(rootReal)]));
+  else if (source === 'cowork') await walkCowork(rootReal, paths, extras);
   else await walkClaude(rootReal, paths);
   const stamped = await mapBounded(paths, STAT_CONCURRENCY, async (path) => {
     const real = await containedRealpath(rootReal, path);
     if (!real) return null;
     const info = await stat(real).catch(() => null);
-    return info?.isFile() ? { path: real, size: info.size, mtimeMs: info.mtimeMs, fileId: fileIdentity(info) } : null;
+    return info?.isFile()
+      ? { path: real, size: info.size, mtimeMs: info.mtimeMs, fileId: fileIdentity(info), ...extras.get(path) }
+      : null;
   });
   const unique = new Map();
   for (const file of stamped) {
@@ -261,7 +334,9 @@ function compareCodeUnits(left, right) {
   return left < right ? -1 : 1;
 }
 
+// Starred conversations (Cowork) come first, then newest first.
 function byModifiedThenId(left, right) {
+  if (!left.starred !== !right.starred) return left.starred ? -1 : 1;
   if (right.mtimeMs !== left.mtimeMs) return right.mtimeMs - left.mtimeMs;
   return compareCodeUnits(left.id, right.id);
 }
@@ -418,7 +493,7 @@ async function readPrefixMeta(candidate) {
   // nothing but sidechain messages has been seen the scan streams on, line by
   // line, to EOF or to the import file-size limit. A file over that limit stays
   // unclassified (listed); importing it fails as tooLarge.
-  const claude = candidate.source === 'claude';
+  const claude = candidate.source === 'claude' || candidate.source === 'cowork';
   let read;
   try {
     read = await streamJsonlLines(handle, (line) => converter.pushLine(line), {
@@ -793,7 +868,8 @@ function rowFor(candidate, meta, cwdInfo, imported, titles) {
   return {
     id: candidate.id,
     source: candidate.source,
-    title: displayTitle(meta, titles),
+    title: displayTitle(meta, titles, candidate.title),
+    starred: candidate.starred === true,
     cwd: cwdInfo?.path ?? null,
     modifiedAt: candidate.mtimeMs,
     messageCount: meta?.messageCount ?? null,
@@ -946,7 +1022,10 @@ async function filterCandidates(candidates, filters, imported, titles) {
     const cwdInfo = meta.cwd ? await resolveSourceCwd(meta.cwd, cwdCache) : null;
     if (
       needle &&
-      !(foldText(displayTitle(meta, titles)).includes(needle) || foldText(cwdInfo?.path).includes(needle))
+      !(
+        foldText(displayTitle(meta, titles, candidate.title)).includes(needle) ||
+        foldText(cwdInfo?.path).includes(needle)
+      )
     ) {
       continue;
     }

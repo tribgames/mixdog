@@ -289,6 +289,48 @@ test('Claude Code discovery reads projects/*/*.jsonl under CLAUDE_CONFIG_DIR', a
   );
 });
 
+test('a transcript imported from Cowork is already imported when the same session is met as Claude Code', async () => {
+  await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
+    const fixture = fixtureHome();
+    const appData = join(fixture.home, 'appdata');
+    const org = join(appData, 'Claude', 'local-agent-mode-sessions', 'acct', 'org');
+    const projects = join(org, 'local_shared', '.claude', 'projects', '-sessions-shared');
+    mkdirSync(projects, { recursive: true });
+    writeFileSync(join(org, 'local_shared.json'), JSON.stringify({ cliSessionId: 'shared-cli', title: 'Shared' }));
+    const entry = (uuid, parentUuid, type, content) => ({
+      uuid,
+      parentUuid,
+      type,
+      isSidechain: false,
+      sessionId: 'shared-cli',
+      cwd: fixture.projectA,
+      message: { role: type, content },
+    });
+    const body = jsonl([
+      entry('u1', null, 'user', 'Shared question'),
+      entry('a1', 'u1', 'assistant', [{ type: 'text', text: 'Answer' }]),
+    ]);
+    writeFileSync(join(projects, 'shared-cli.jsonl'), body);
+    const picked = join(fixture.home, 'shared-cli.jsonl');
+    writeFileSync(picked, body);
+    const api = freshApi({ ...fixture.env, APPDATA: appData });
+    const page = await listUntilComplete(api, { source: 'cowork' });
+    const job = await waitForJob(
+      api,
+      (await api.startConversationImport({ requestId: 'cowork-first', selection: { ids: [page.rows[0].id] } })).jobId
+    );
+    assert.equal(job.results[0].status, 'imported');
+    const { row } = await api.registerConversationImportFile({ source: 'claude', path: picked });
+    assert.equal(row.importedSessionId, job.results[0].sessionId);
+    const again = await waitForJob(
+      api,
+      (await api.startConversationImport({ requestId: 'claude-second', selection: { ids: [row.id] } })).jobId
+    );
+    assert.equal(again.results[0].status, 'alreadyImported');
+    assert.equal(again.results[0].sessionId, job.results[0].sessionId);
+  });
+});
+
 test('an imported chat keeps the title it was listed under when the active branch starts later', async () => {
   await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
     const fixture = fixtureHome();

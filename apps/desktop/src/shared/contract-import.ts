@@ -16,13 +16,15 @@ export type DesktopImportCapability = (typeof DESKTOP_IMPORT_CAPABILITIES)[numbe
 /** Desktop event (main → renderer) carrying one ImportJob snapshot per change. */
 export const CONVERSATION_IMPORT_PROGRESS_EVENT = 'conversation-import-progress';
 
-export type ConversationImportSource = 'codex' | 'claude';
+export type ConversationImportSource = 'codex' | 'claude' | 'cowork';
 
 export interface ConversationImportRow {
   /** Opaque backend handle. */
   id: string;
   source: ConversationImportSource;
   title: string | null;
+  /** Starred in the source app (Claude Desktop Cowork). */
+  starred: boolean;
   cwd: string | null;
   modifiedAt: number;
   messageCount: number | null;

@@ -238,14 +238,14 @@ export function DisplayPanel({ pending }: PanelContext) {
   );
 }
 
-/** Opens the dialog that copies Codex / Claude Code conversations into new sessions. */
+/** Opens the dialog that copies Codex / Claude Code / Cowork conversations into new sessions. */
 function ImportConversationsRow({ pending }: Pick<PanelContext, 'pending'>) {
   const [open, setOpen] = useState(false);
   return (
     <>
       <ResourceRow
         title={t('Import conversations from other apps')}
-        meta={t('Bring in conversations from Codex or Claude Code and continue them here.')}
+        meta={t('Bring in conversations from Codex, Claude Code, or Cowork (Claude Desktop) and continue them here.')}
         actions={
           <ActionButton disabled={Boolean(pending)} onClick={() => setOpen(true)}>
             {t('Import…')}
