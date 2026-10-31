@@ -715,31 +715,14 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock {
 .session-sidebar .project-group-sessions .sidebar-section-empty {
   padding-left: 32px;
 }
-/* Worktree sub-groups: the branch glyph takes the folder icon's column and
-   the branch name and its sessions share the folder name's line (32px), so a
-   branch adds no indent step; muted ink sets it apart from the project. */
-.session-sidebar .project-group-sessions .project-subgroup-toggle {
-  gap: 8px;
-  padding-left: 8px;
-  color: var(--mx-text-muted);
-}
-.project-subgroup-toggle > .project-subgroup-icon {
-  flex: 0 0 auto;
-  color: var(--mx-icon-muted);
+/* Worktree sub-groups: the branch label sits at the session indent, its
+   sessions one hierarchy step (12px) deeper. */
+.session-sidebar .project-group-sessions .project-subgroup-sessions .session-row {
+  padding-left: 44px;
 }
 .session-sidebar .project-group-sessions .project-subgroup-toggle .session-row-copy b {
   color: var(--mx-text-muted);
   font-weight: var(--mx-weight-medium);
-}
-.project-subgroup-prefix {
-  opacity: 0.7;
-}
-.project-subgroup-count {
-  flex: none;
-  margin-left: auto;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  font-variant-numeric: tabular-nums;
 }
 .session-sidebar-panels .session-row,
 .utility-dock .session-row {
