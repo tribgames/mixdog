@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.4.3 - 2026-10-31
+
 Added Worktrees settings and branch cleanup, replaced Goal tasks with session todo lists, and introduced customizable composer styles.
 
 ### New features

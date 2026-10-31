@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.4.3 - 2026-10-31
+
 Einstellungen für Worktrees und Bereinigung von Branches hinzugefügt, Ziel-Aufgaben (Goals) durch Sitzungs-To-do-Listen ersetzt und anpassbare Eingabefeld-Stile eingeführt.
 
 ### Neue Funktionen

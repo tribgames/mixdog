@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.4.3 - 2026-10-31
+
 Thêm phần cài đặt Worktree và dọn dẹp nhánh, thay thế tác vụ Goal bằng danh sách việc cần làm của phiên, và ra mắt các kiểu ô nhập tùy chỉnh.
 
 ### Tính năng mới

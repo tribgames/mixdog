@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.4.3 - 2026-10-31
+
 Ajout des paramètres Worktrees et du nettoyage des branches, remplacement des tâches Goal par des listes de tâches de session, et ajout de styles personnalisables pour la zone de saisie.
 
 ### Nouvelles fonctionnalités
