@@ -8,7 +8,7 @@ import { createNoToolTurnResolver } from '../no-tool-turn.mjs';
 import { executeTodoTool, onTodoChange, todoSnapshot } from '../../../runtime-core/todo-list.mjs';
 import { createGoalRuntime } from '../../../runtime-core/goal-runtime.mjs';
 import { completeBackgroundTask, registerBackgroundTask } from '../../../../../shared/background-tasks.mjs';
-import { beginTodoTurn, noteTodoUserWait } from './todo-check.mjs';
+import { beginTodoTurn, noteTodoUserWait, todoStartReminder } from './todo-check.mjs';
 import { stampShellJobCycle } from '../../../../../shared/background-wait.mjs';
 
 let seq = 0;
@@ -221,4 +221,125 @@ test('a new prompt lets go of a finished list; automatic turns, blocked items an
   await goals.control(audited.session.id, { action: 'create', objective: 'Ship it' });
   beginTodoTurn(audited.session, { genuine: true });
   assert.equal(todoSnapshot(audited.session)?.completed, 1, 'an active Goal keeps its list for the audit');
+});
+
+let callSeq = 0;
+const edit = () => ({ id: `c${++callSeq}`, name: 'edit', arguments: {} });
+const staleBatch = (f, calls = [edit()], results = []) => {
+  f.resolver.noteToolBatchCompleted(calls, results);
+  return f.messages.filter((m) => m.role === 'user' && /todo/i.test(m.content));
+};
+
+test('ten mutating calls with no todo call append one hidden reminder, then ten more are needed', () => {
+  const f = fixture();
+  for (let i = 0; i < 9; i += 1) assert.equal(staleBatch(f).length, 0);
+  const [nudge] = staleBatch(f);
+  assert.match(nudge.content, /^<system-reminder>/);
+  assert.match(nudge.content, /- \[in_progress\] Find the cause\n- \[pending\] Fix the bug/);
+  assert.equal(nudge.meta, 'hook');
+  for (let i = 0; i < 9; i += 1) assert.equal(staleBatch(f).length, 1, 'no repeat before ten more');
+  assert.equal(staleBatch(f).length, 2);
+  assert.equal(f.session.todoCheck.reminders, 0, 'the end-of-turn budget is untouched');
+});
+
+test('read-only calls never age the list; a failed mutation and a read-only git do not count', () => {
+  const f = fixture();
+  const readOnly = ['read', 'grep', 'glob', 'find', 'list', 'code_graph', 'explore', 'web_search'];
+  for (let i = 0; i < 40; i += 1) {
+    assert.equal(staleBatch(f, [{ id: `r${i}`, name: readOnly[i % readOnly.length], arguments: {} }]).length, 0);
+  }
+  for (let i = 0; i < 20; i += 1) {
+    assert.equal(staleBatch(f, [{ id: `g${i}`, name: 'git', arguments: { command: 'git status' } }]).length, 0);
+  }
+  for (let i = 0; i < 20; i += 1) {
+    const call = edit();
+    const failed = [{ role: 'tool', toolCallId: call.id, toolKind: 'error', content: 'Error: no match' }];
+    assert.equal(staleBatch(f, [call], failed).length, 0);
+  }
+  for (let i = 0; i < 20; i += 1) {
+    const call = { id: `s${i}`, name: 'shell', arguments: { command: 'npm test' } };
+    const skipped = [
+      { role: 'tool', toolCallId: call.id, toolKind: 'skipped', content: 'Skipped: an earlier edit failed' },
+    ];
+    assert.equal(staleBatch(f, [call], skipped).length, 0, 'a skipped call never ran');
+  }
+});
+
+test('parallel mutating calls each count; shell and git mutations count', () => {
+  const f = fixture();
+  assert.equal(staleBatch(f, [edit(), edit(), edit(), edit()]).length, 0);
+  assert.equal(
+    staleBatch(f, [{ id: 's', name: 'shell', arguments: { command: 'npm test' } }, edit(), edit()]).length,
+    0
+  );
+  assert.equal(
+    staleBatch(f, [{ id: 'g', name: 'git', arguments: { command: 'git add -A' } }, edit(), edit()]).length,
+    1,
+    'a batch crossing ten fires once, after it'
+  );
+});
+
+test('a todo call resets the count (calls read in order); a closed list or a hidden agent is never nudged', () => {
+  const f = fixture();
+  for (let i = 0; i < 9; i += 1) staleBatch(f);
+  assert.equal(staleBatch(f, [{ id: 't', name: 'todo', arguments: {} }]).length, 0);
+  for (let i = 0; i < 9; i += 1) assert.equal(staleBatch(f).length, 0, 'counting restarted at the todo call');
+  assert.equal(staleBatch(f).length, 1);
+  const g = fixture();
+  assert.equal(
+    staleBatch(g, Array.from({ length: 12 }, edit).concat([{ id: 't2', name: 'todo', arguments: {} }])).length,
+    0
+  );
+
+  const closed = fixture({ items: ['Only step'] });
+  executeTodoTool(closed.session, { op: 'done', item: 'Only step' });
+  for (let i = 0; i < 12; i += 1) assert.equal(staleBatch(closed).length, 0);
+
+  const hidden = fixture({ agent: 'title-agent' });
+  for (let i = 0; i < 12; i += 1) assert.equal(staleBatch(hidden).length, 0);
+});
+
+test("an agent's brief or follow-up with no open list carries one hidden ask to make one", async () => {
+  const { buildUserTurn } = await import('../../manager/ask-turn-prepare.mjs');
+  seq += 1;
+  const agentSession = {
+    id: `sess_todo_start_${seq}`,
+    model: 'claude-x',
+    owner: 'agent',
+    agent: 'worker',
+    tools: [{ name: 'read' }, { name: 'todo' }],
+    messages: [{ role: 'system', content: 'rules' }],
+  };
+  const ask = /init the todo list with every ask/;
+  const brief = await buildUserTurn({ session: agentSession, prompt: 'Answer three questions.' });
+  assert.match(brief.userTurnMessage.content, ask);
+  assert.equal(brief.userTurnMessage.content.match(/<system-reminder>/g).length, 1, 'once per prompt');
+
+  const notification = await buildUserTurn({
+    session: agentSession,
+    prompt: 'A task finished.',
+    turnPromptSource: { source: 'task-notification' },
+  });
+  assert.doesNotMatch(notification.userTurnMessage.content, ask, 'automatic turns carry no ask');
+
+  executeTodoTool(agentSession, { op: 'init', items: ['One', 'Two', 'Three'] });
+  const followUp = await buildUserTurn({ session: agentSession, prompt: 'Also check a fourth.' });
+  assert.doesNotMatch(followUp.userTurnMessage.content, ask, 'an open list is kept, not re-asked');
+
+  for (const task of ['One', 'Two', 'Three']) executeTodoTool(agentSession, { op: 'done', item: task });
+  const next = await buildUserTurn({ session: agentSession, prompt: 'Now a new brief.' });
+  assert.match(next.userTurnMessage.content, ask, 'a finished list is let go and the new brief asks again');
+
+  assert.equal(todoStartReminder({ ...agentSession, todo: null, owner: 'user' }), null, 'the Lead is not asked');
+  assert.equal(todoStartReminder({ ...agentSession, todo: null, agent: 'title-agent' }), null);
+  assert.equal(todoStartReminder({ ...agentSession, todo: null, tools: [{ name: 'read' }] }), null);
+});
+
+test('work with no list at all counts the same mutations and is asked once per cycle to make one', () => {
+  const f = fixture({ items: [] });
+  for (let i = 0; i < 9; i += 1) staleBatch(f);
+  const [nudge] = staleBatch(f);
+  assert.match(nudge.content, /No todo list exists/);
+  for (let i = 0; i < 25; i += 1) staleBatch(f);
+  assert.equal(f.messages.filter((m) => /No todo list exists/.test(m.content ?? '')).length, 1);
 });
