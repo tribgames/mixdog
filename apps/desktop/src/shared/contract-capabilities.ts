@@ -159,6 +159,8 @@ export const DESKTOP_CAPABILITIES = [
   'createWorkflow',
   'deleteWorkflow',
   'getAgentDefinition',
+  'listInstructionFiles',
+  'getInstructionFile',
   'archivedAgentIdentities',
   'getAgentAvatarImage',
   'getAgentConnectors',
@@ -204,6 +206,9 @@ export const DESKTOP_CAPABILITIES = [
   'deleteAgentDefinition',
   // A deleted (archived) bot back as it was; its routines stay off.
   'restoreAgentDefinition',
+  // Orchestration-mode and output-style instruction texts: save / reset to default.
+  'saveInstructionFile',
+  'resetInstructionFile',
   'listProviders',
   'listProviderModels',
   'getProviderSetup',
@@ -316,6 +321,8 @@ export const DESKTOP_READ_CAPABILITIES = [
   'getOrchestrationMode',
   'getConfiguredOrchestrationMode',
   'getAgentDefinition',
+  'listInstructionFiles',
+  'getInstructionFile',
   'archivedAgentIdentities',
   'getAgentAvatarImage',
   'getAgentConnectors',

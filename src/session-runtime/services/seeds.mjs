@@ -127,6 +127,13 @@ export function retireSeededPackCopies({ rootDir, dataDir, backup = makeBackup(d
     if (![bundled, ...(history.outputStyles[name] || [])].includes(fileHash(copy))) continue;
     if (backup.move(copy)) retired.push(`output-styles/${name}`);
   }
+  for (const name of childNames(join(dataDir, 'orchestration'), 'md')) {
+    const bundled = fileHash(join(rootDir, 'orchestration', name));
+    if (!bundled) continue;
+    const copy = join(dataDir, 'orchestration', name);
+    if (![bundled, ...(history.orchestration[name] || [])].includes(fileHash(copy))) continue;
+    if (backup.move(copy)) retired.push(`orchestration/${name}`);
+  }
   return retired;
 }
 

@@ -27,6 +27,11 @@ export function createAgentDefinitionApi(runtime) {
     createWorkflow: async (payload) => runtime.createWorkflow?.(payload) ?? null,
     deleteWorkflow: async (workflowId) => runtime.deleteWorkflow?.(workflowId) ?? null,
     getAgentDefinition: (agentId) => runtime.getAgentDefinition?.(agentId) ?? null,
+    listInstructionFiles: () => runtime.listInstructionFiles?.() ?? [],
+    getInstructionFile: (group, id) => runtime.getInstructionFile?.(group, id) ?? null,
+    saveInstructionFile: async (payload) => runtime.saveInstructionFile?.(payload) ?? null,
+    resetInstructionFile: async (group, id, expectedRevision) =>
+      runtime.resetInstructionFile?.(group, id, expectedRevision) ?? null,
     getAgentAvatarImage: (agentId) => runtime.getAgentAvatarImage?.(agentId) ?? null,
     getAgentConnectors: (agentId) => runtime.getAgentConnectors?.(agentId) ?? [],
     listConnectors: () => runtime.listConnectors?.() ?? [],

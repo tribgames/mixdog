@@ -51,7 +51,13 @@ const PATCH_GATE_FILES = [
 // workflow, output-style and bundled-skill trees (scripts/build-shipped-history.mjs)
 // and committed under src/defaults/. Release re-checks it, so the gate checks
 // it first instead of letting a stale file fail the deploy late.
-const HISTORY_GATE_PREFIXES = ['src/agents/', 'src/workflows/', 'src/output-styles/', 'src/defaults/'];
+const HISTORY_GATE_PREFIXES = [
+  'src/agents/',
+  'src/workflows/',
+  'src/output-styles/',
+  'src/orchestration/',
+  'src/defaults/',
+];
 const HISTORY_GATE_FILES = [
   'scripts/build-shipped-history.mjs',
   'src/runtime/shared/shipped-definitions.mjs',

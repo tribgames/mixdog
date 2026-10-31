@@ -160,6 +160,8 @@ export const SECTION_READS: ReadonlyArray<readonly [string, DesktopCapability, u
   ['autoClear', 'getAutoClear'],
   ['compaction', 'getCompactionSettings'],
   ['outputStyles', 'listOutputStyles'],
+  ['instructionFiles', 'listInstructionFiles'],
+  ['orchestrationMode', 'getConfiguredOrchestrationMode'],
   ['providerSetup', 'getProviderSetup'],
   ['recap', 'getRecapSettings'],
   ['sessionTitles', 'getSessionTitleSettings'],

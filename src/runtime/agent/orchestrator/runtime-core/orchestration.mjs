@@ -1,23 +1,8 @@
+import { readFileSync, statSync } from 'node:fs';
+import { join } from 'node:path';
 import { normalizeOrchestrationMode } from '../../../shared/orchestration.mjs';
-
-const BATCHING = {
-  focused: `Lead executes the main scope directly. Delegate only substantial,
-self-contained supporting work, one agent per role; batch related tasks
-rather than splitting them for parallelism.`,
-  balanced: `Delegate independent work by coherent feature or module, one agent per
-scope; a scope is one verifiable deliverable. Batch related tasks within the
-same change scope rather than splitting every file or step.`,
-  swarm: `Delegate every independent scope to its own agent; a scope is one
-verifiable deliverable, not a bundle of steps. Treat disjoint file or
-module sets as independent and merge scopes only on a true output
-dependency.`,
-};
-
-const SOLO = `# Orchestration Mode: Solo
-
-Lead executes all work directly and never delegates on its own judgment.
-Only when the user explicitly asks for delegation, load the deferred \`agent\`
-tool and brief each agent as the Lead rules describe.`;
+import { mixdogRoot, resolvePluginData } from '../../../shared/plugin-paths.mjs';
+import { decodeInstructionFile } from '../../../../lib/instruction-text.cjs';
 
 /** Agent mode's fixed delegation block, in place of the orchestration mode. */
 export const AGENT_MODE_DELEGATION = `# Delegation
@@ -34,30 +19,63 @@ words. Promise a follow-up only when the session result allows it.`;
 export const MIXY_CONTACTS_INTRO = `The user's other bots. Hand one a request with \`session send\` to its chat and a
 self-contained brief.`;
 
-export function orchestrationInstructions(value) {
+const modeFileName = (mode) => `${normalizeOrchestrationMode(mode)}.md`;
+
+/** The shipped mode file (<root>/orchestration/<mode>.md). */
+export const shippedOrchestrationPath = (mode) => join(mixdogRoot(), 'orchestration', modeFileName(mode));
+/** The user's replacement (<data>/orchestration/<mode>.md). */
+export const userOrchestrationPath = (mode) => join(resolvePluginData(), 'orchestration', modeFileName(mode));
+
+// A file's text (CRLF → LF, trailing whitespace trimmed), null when it does not
+// exist, or { problem } when it cannot serve as the prompt (instruction-text.cjs).
+// promptRulesRevision reads every mode on each check, so a read is reused while
+// the file's identity (mtime, ctime, inode, size) is unchanged — but only once
+// the file is older than the timestamp granularity: a file written moments ago
+// can change again within the same tick without any of those moving.
+const SETTLED_MS = 2000;
+const fileCache = new Map();
+export function readInstructionFile(file) {
+  let stat;
+  try {
+    stat = statSync(file);
+  } catch (error) {
+    return error?.code === 'ENOENT' || error?.code === 'ENOTDIR' ? null : { problem: 'unreadable' };
+  }
+  const key = `${stat.mtimeMs}:${stat.ctimeMs}:${stat.ino}:${stat.size}`;
+  const hit = fileCache.get(file);
+  if (hit?.key === key && hit.settled) return hit.value;
+  let value;
+  try {
+    if (!stat.isFile()) value = { problem: 'unreadable' };
+    else {
+      const decoded = decodeInstructionFile(readFileSync(file));
+      value = decoded.problem ? decoded : { text: decoded.text.replace(/\r\n/g, '\n').trimEnd() };
+    }
+  } catch {
+    value = { problem: 'unreadable' };
+  }
+  fileCache.set(file, { key, value, settled: Date.now() - stat.mtimeMs > SETTLED_MS });
+  return value;
+}
+
+/**
+ * Where a mode's text comes from: the user's file when it is usable, else the
+ * shipped one. `problem` says why a user file that exists was passed over
+ * (empty, too-large, not-text, unreadable); `text` is the prompt text.
+ */
+export function orchestrationModeSource(value) {
   const mode = normalizeOrchestrationMode(value);
-  if (mode === 'none') return SOLO;
-  // Focused already says Lead executes the main scope directly.
-  const oneScope =
-    mode === 'focused' ? '' : '\nIf the plan has only one implementation scope, Lead executes it directly.';
-  return `# Orchestration Mode: ${mode[0].toUpperCase()}${mode.slice(1)}
+  const user = readInstructionFile(userOrchestrationPath(mode));
+  if (user?.text) return { mode, source: 'user', text: user.text };
+  const shipped = readInstructionFile(shippedOrchestrationPath(mode));
+  return {
+    mode,
+    source: 'default',
+    text: shipped?.text ?? '',
+    ...(user?.problem ? { problem: user.problem } : {}),
+  };
+}
 
-${BATCHING[mode]}
-
-The mode sets how work splits; an agent's description sets its role and when
-it runs. Splitting applies to every role alike — implementation, review,
-investigation, writing — by file, module, commit range or risk area.${oneScope}
-
-Delegation is for work whose size justifies a brief. When the brief would have
-to spell out the edits themselves — a few localized changes whose sites Lead
-already holds — Lead makes them directly in every mode; the number of files or
-scopes does not change this.
-
-Dispatch all ready independent scopes in one turn. Only a scope that requires
-another's output waits. At most two building or testing scopes run at
-once.
-A new independent need goes to a new agent. When scopes touch the same file, name one owner for
-that file in each brief.
-Use only available agents; when none fits a role, Lead does that work itself
-and never changes settings to enable one.`;
+export function orchestrationInstructions(value) {
+  return orchestrationModeSource(value).text;
 }

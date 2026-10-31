@@ -163,9 +163,10 @@ async function packHistory(dir, entry) {
   return out;
 }
 
-async function outputStyleHistory() {
+// Single-file definitions (output styles, orchestration modes): file name -> hashes.
+async function fileHistory(prefix) {
   const out = {};
-  for (const [name, versions] of await everVersions('src/output-styles')) {
+  for (const [name, versions] of await everVersions(prefix)) {
     const hashes = [];
     for (const files of versions) hashes.push(hashText(await blobOf([...files.values()][0])));
     if (hashes.length) out[name] = unique(hashes);
@@ -188,7 +189,8 @@ async function skillHistory() {
 const history = {
   agents: await packHistory('src/agents', 'AGENT.md'),
   workflows: await packHistory('src/workflows', 'WORKFLOW.md'),
-  outputStyles: await outputStyleHistory(),
+  outputStyles: await fileHistory('src/output-styles'),
+  orchestration: await fileHistory('src/orchestration'),
   skills: await skillHistory(),
 };
 catFile.stdin.end();

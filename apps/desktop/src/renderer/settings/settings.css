@@ -1883,3 +1883,83 @@ html[data-mixdog-mobile-tabs] .conn-qr-row {
   align-items: center;
   gap: 6px;
 }
+
+/* Instruction control: the edit sub-page (back arrow + title, override path,
+   full-text editor, footer) inside the settings panel. */
+.instruction-subhead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.instruction-subhead h2 {
+  margin: 0;
+  font-size: var(--mx-font-title, 16px);
+  font-weight: var(--mx-weight-semibold, 600);
+  min-width: 0;
+}
+.instruction-subhead h2 span {
+  color: var(--mx-text-muted);
+  font-weight: var(--mx-weight-regular, 400);
+}
+.instruction-back {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  margin-left: -8px;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  color: var(--mx-text-muted);
+}
+.instruction-back:hover {
+  background: var(--mx-hover);
+  color: var(--mx-text);
+}
+.instruction-meta {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}
+.instruction-meta:empty {
+  display: none;
+}
+.instruction-path {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-family: var(--mx-font-mono, monospace);
+}
+.instruction-note {
+  margin: 0 0 12px;
+  color: var(--mx-warning);
+  font-size: var(--mx-font-meta);
+}
+.instruction-editor textarea {
+  width: 100%;
+  min-height: 360px;
+  font-family: var(--mx-font-mono, monospace);
+  white-space: pre-wrap;
+}
+.instruction-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 14px;
+}
+.instruction-foot-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.instruction-hint {
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}

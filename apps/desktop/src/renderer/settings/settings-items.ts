@@ -111,7 +111,8 @@ export type SettingsCategory =
   | 'shortcuts'
   | 'about'
   | 'display'
-  | 'work';
+  | 'work'
+  | 'instructions';
 
 interface SettingsCategoryItem {
   value: SettingsCategory;
@@ -181,6 +182,13 @@ export const SETTINGS_CATEGORIES = [
     label: 'Work style',
     group: 'AI behavior',
     items: ['web-search-enabled'],
+  },
+  // The full text of each orchestration mode and output-style depth level.
+  {
+    value: 'instructions',
+    label: 'Instruction control',
+    group: 'AI behavior',
+    items: [],
   },
   {
     value: 'providers',
