@@ -70,7 +70,7 @@ function CardSample({ mic = false }: { mic?: boolean }) {
   );
 }
 
-export function ComposerStylePreview({ style }: { style: ComposerStyle }) {
+function ComposerStylePreview({ style }: { style: ComposerStyle }) {
   const route = style === 'detail';
   const simple = style === 'simple';
   return (

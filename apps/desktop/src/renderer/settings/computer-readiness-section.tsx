@@ -28,7 +28,7 @@ type ReadinessApi = Partial<
 
 /** While something is pending the dialog re-reads this often, so the section
  *  disappears by itself once the user (or the app) has finished the setup. */
-export const COMPUTER_READINESS_POLL_MS = 3000;
+const COMPUTER_READINESS_POLL_MS = 3000;
 
 /** Reads Computer Use readiness: once on mount, on every window focus (the
  *  user comes back from System Settings or a terminal), and every few seconds

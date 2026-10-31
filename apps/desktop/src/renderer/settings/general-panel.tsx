@@ -324,45 +324,43 @@ export function WorkPanel({ data, pending, run }: PanelContext) {
     : 'off';
   const busy = Boolean(pending);
   return (
-    <>
-      <Group title={t('Tools and instructions')}>
-        <ToggleRow
-          title={t('Web search')}
-          description={t('Expose web search and web fetch tools to new sessions.')}
-          checked={webSearchModule.enabled !== false}
-          disabled={busy}
-          onChange={(enabled) => void run('setWebSearchEnabled', [enabled])}
-        />
-        <SelectRow
-          title={t('Load instruction files')}
-          description={t(
-            'Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions. Enabled files are trusted as instructions, so only enable this for repositories you trust.'
-          )}
-          value={instructionFilesMode}
-          disabled={busy}
-          options={[
-            { value: 'all', label: t('All') },
-            { value: 'agents', label: 'AGENTS.md' },
-            { value: 'claude', label: 'CLAUDE.md' },
-            { value: 'off', label: t('Off') },
-          ]}
-          onChange={(mode) => void run('setInstructionFiles', [mode])}
-        />
-        <SelectRow
-          title={t('Auto reasoning base')}
-          description={t(
-            'The reasoning effort Auto works around: it goes lower for easy requests and higher for hard ones.'
-          )}
-          value={autoEffortBase}
-          disabled={busy}
-          options={[
-            { value: 'low', label: t('Low') },
-            { value: 'medium', label: t('Medium') },
-            { value: 'high', label: t('High') },
-          ]}
-          onChange={(level) => void run('setAutoEffortBase', [level])}
-        />
-      </Group>
-    </>
+    <Group title={t('Tools and instructions')}>
+      <ToggleRow
+        title={t('Web search')}
+        description={t('Expose web search and web fetch tools to new sessions.')}
+        checked={webSearchModule.enabled !== false}
+        disabled={busy}
+        onChange={(enabled) => void run('setWebSearchEnabled', [enabled])}
+      />
+      <SelectRow
+        title={t('Load instruction files')}
+        description={t(
+          'Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions. Enabled files are trusted as instructions, so only enable this for repositories you trust.'
+        )}
+        value={instructionFilesMode}
+        disabled={busy}
+        options={[
+          { value: 'all', label: t('All') },
+          { value: 'agents', label: 'AGENTS.md' },
+          { value: 'claude', label: 'CLAUDE.md' },
+          { value: 'off', label: t('Off') },
+        ]}
+        onChange={(mode) => void run('setInstructionFiles', [mode])}
+      />
+      <SelectRow
+        title={t('Auto reasoning base')}
+        description={t(
+          'The reasoning effort Auto works around: it goes lower for easy requests and higher for hard ones.'
+        )}
+        value={autoEffortBase}
+        disabled={busy}
+        options={[
+          { value: 'low', label: t('Low') },
+          { value: 'medium', label: t('Medium') },
+          { value: 'high', label: t('High') },
+        ]}
+        onChange={(level) => void run('setAutoEffortBase', [level])}
+      />
+    </Group>
   );
 }

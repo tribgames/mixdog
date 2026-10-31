@@ -16,8 +16,8 @@ import { useMobileBack } from '../mobile-back';
 import { acquireTitleBarDim } from '../titlebar-dim';
 import './feedback-dialog.css';
 
-export const FEEDBACK_MESSAGE_MAX = 8000;
-export const FEEDBACK_EMAIL_MAX = 254;
+const FEEDBACK_MESSAGE_MAX = 8000;
+const FEEDBACK_EMAIL_MAX = 254;
 
 type FeedbackKind = DesktopFeedbackInput['kind'];
 const FEEDBACK_KINDS: ReadonlyArray<{ value: FeedbackKind; label: string }> = [

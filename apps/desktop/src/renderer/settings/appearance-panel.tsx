@@ -42,7 +42,7 @@ const BUILTIN = 'builtin';
 /** Code sample under the font rows: ligature pairs and look-alike glyphs. */
 const CODE_SAMPLE = 'const ok = (a) => a !== 0 && a <= 10; // 0O il1|';
 
-export function themeProblemText(problem: ThemeProblem): string {
+function themeProblemText(problem: ThemeProblem): string {
   const detail = problem.detail ?? '';
   switch (problem.code) {
     case 'json':
