@@ -317,6 +317,17 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
     markdownDefaultView: { type: 'string', enum: ['preview', 'rich', 'source'] },
     linkPreview: boolean,
     toolActivityExpansion: { type: 'string', enum: ['collapsed', 'commands', 'all'] },
+    composerStyle: {
+      type: 'string',
+      enum: ['simple', 'basic', 'detail'],
+      description:
+        'How much the composer shows: simple = the model only; basic (UI label "Normal") = plus usage; detail = plus workflow and delegation (default detail).',
+    },
+    questionAnswerConfirm: {
+      ...boolean,
+      description:
+        'On: picking a single-choice question option only selects it until Send/Next; off: the pick answers at once (default off).',
+    },
     uiFont: { ...text, description: 'Installed font family for the UI; "" restores the built-in font.' },
     codeFont: { ...text, description: 'Installed font family for code; "" restores the built-in font.' },
     skinTransparency: {
@@ -392,4 +403,6 @@ export const SETUP_HANDOFFS = Object.freeze({
   notifications: 'Notification permission/subscription requires a user gesture on the device receiving notifications.',
   pairing: 'Pairing credentials and OS permission approvals remain in the visible UI.',
   memoryContent: 'Use the memory tool for Core Memory, not setup.',
+  instructionTexts:
+    'The Delegation and Output style instruction texts are edited in Settings → Delegation / Output style (revision-checked free text); choose the active output style with set_output_style.',
 });

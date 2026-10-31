@@ -121,6 +121,9 @@ The setup tool does not mutate:
   per-device view state;
 - MCP server OAuth sign-in and sign-out (Desktop MCP list/editor, TUI
   `/mcp login` and `/mcp logout`; remote windows paste the redirect address);
+- the Delegation and Output style instruction texts (Settings → Delegation /
+  Output style; revision-checked free text — `set_output_style` only chooses
+  the active style);
 - notification permission and subscription on the receiving device;
 - web-app pairing credentials and OS permission dialogs;
 - TUI-local theme palettes (use `/theme`; Desktop themes are separate);

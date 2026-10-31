@@ -301,6 +301,27 @@ test('appearance markdownDefaultView, linkPreview and toolActivityExpansion writ
   assert.equal(after.toolActivityExpansion, 'all');
 });
 
+test('appearance composerStyle and questionAnswerConfirm write, read back and reject bad values', async (t) => {
+  const { installTestDom } = await import('./test-support/test-dom.mjs');
+  installTestDom(t, { actEnvironment: false, expose: ['MutationObserver'] });
+  const { desktopSetupPreferences } = await import('./use-setup-desktop-request.ts');
+  const prefs = desktopSetupPreferences({});
+  const start = await prefs.read();
+  assert.deepEqual([start.composerStyle, start.questionAnswerConfirm], ['detail', false]);
+  const result = await prefs.write({ composerStyle: 'simple', questionAnswerConfirm: true });
+  assert.equal(result.saved, true);
+  assert.equal(window.localStorage.getItem('mixdog.desktop.composer-style.v1'), 'simple');
+  assert.equal(window.localStorage.getItem('mixdog.desktop.question-confirm.v1'), 'on');
+  const status = await prefs.read();
+  assert.deepEqual([status.composerStyle, status.questionAnswerConfirm], ['simple', true]);
+  await assert.rejects(prefs.write({ composerStyle: 'normal' }), /simple, basic, detail/);
+  await assert.rejects(prefs.write({ questionAnswerConfirm: 'on' }), /true or false/);
+  const after = await prefs.read();
+  assert.deepEqual([after.composerStyle, after.questionAnswerConfirm], ['simple', true]);
+  await prefs.write({ composerStyle: 'detail', questionAnswerConfirm: false });
+  assert.equal(window.localStorage.getItem('mixdog.desktop.question-confirm.v1'), 'off');
+});
+
 test('appearance timeFormat, sidePanelPosition, font sizes, ligatures and chatTextSize write, read back and reject bad values', async (t) => {
   const { installTestDom } = await import('./test-support/test-dom.mjs');
   installTestDom(t, { actEnvironment: false, expose: ['MutationObserver'] });

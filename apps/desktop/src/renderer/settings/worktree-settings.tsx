@@ -19,6 +19,19 @@ const PRESET_PREFIX = 'mixdog/';
 const MAX_WORKTREE_CHOICES = [5, 10, 15, 20, 30, 50];
 const UNUSED_DAY_CHOICES = [7, 14, 30, 60, 90];
 
+/** The offered choices, then the zero option. The setup tool and the config
+ *  accept any integer within the schema bounds, so a saved value outside the
+ *  choices gets its own option and the control shows what is really saved. */
+export function choiceOptions(
+  choices: readonly number[],
+  current: number,
+  label: (count: number) => string,
+  zeroLabel: string
+) {
+  const counts = current === 0 || choices.includes(current) ? choices : [...choices, current].sort((a, b) => a - b);
+  return [...counts.map((count) => ({ value: String(count), label: label(count) })), { value: '0', label: zeroLabel }];
+}
+
 /** The cached settings, revalidated while the dialog shows. */
 export function useWorktreeSettings(active: boolean): DesktopWorktreeSettings | null {
   const settings = useSyncExternalStore(subscribeWorktreeSettings, peekWorktreeSettings, peekWorktreeSettings);
@@ -49,14 +62,18 @@ export function WorktreeSettings({ active = true }: { active?: boolean }) {
   if (!settings) return null;
   const save = saveWorktreeSettings;
   const off = !settings.autoCleanup;
-  const countOptions = [
-    ...MAX_WORKTREE_CHOICES.map((count) => ({ value: String(count), label: t('{{count}} worktrees', { count }) })),
-    { value: '0', label: t('No limit') },
-  ];
-  const dayOptions = [
-    ...UNUSED_DAY_CHOICES.map((count) => ({ value: String(count), label: t('{{count}} days', { count }) })),
-    { value: '0', label: t('Never') },
-  ];
+  const countOptions = choiceOptions(
+    MAX_WORKTREE_CHOICES,
+    settings.maxWorktrees,
+    (count) => t('{{count}} worktrees', { count }),
+    t('No limit')
+  );
+  const dayOptions = choiceOptions(
+    UNUSED_DAY_CHOICES,
+    settings.unusedDays,
+    (count) => t('{{count}} days', { count }),
+    t('Never')
+  );
   return (
     <>
       <Group title={t('Create')}>

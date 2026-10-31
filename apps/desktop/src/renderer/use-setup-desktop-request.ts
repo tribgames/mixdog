@@ -16,6 +16,8 @@ import {
   type SidePanelPosition,
 } from './side-panel-preferences';
 import { getLinkPreview, setLinkPreview } from './link-preview-preference';
+import { COMPOSER_STYLES, getComposerStyle, setComposerStyle, type ComposerStyle } from './composer-style-preference';
+import { getQuestionConfirm, setQuestionConfirm } from './question-confirm-preference';
 import { getTimeFormat, setTimeFormat, type TimeFormat } from './time-format-preference';
 import { CHAT_TEXT_SCALES, getChatTextSize, setChatTextSize, type ChatTextSize } from './chat-text-size-preference';
 import {
@@ -53,6 +55,8 @@ async function readDesktopAppearance(api: DesktopApi) {
     markdownDefaultView: (await api.readMarkdownDefaultView?.()) ?? null,
     linkPreview: getLinkPreview(),
     toolActivityExpansion: storedToolActivityExpansion(),
+    composerStyle: getComposerStyle(),
+    questionAnswerConfirm: getQuestionConfirm(),
     theme: getDesktopThemePreference(),
     themes: desktopThemeOptions(),
     displayLanguage: getUiLanguagePreference(),
@@ -96,6 +100,10 @@ function assertAppearanceInput(
     !TOOL_ACTIVITY_EXPANSIONS.includes(String(input.toolActivityExpansion))
   )
     throw new Error('toolActivityExpansion must be collapsed, commands or all');
+  if (input.composerStyle !== undefined && !COMPOSER_STYLES.includes(input.composerStyle as ComposerStyle))
+    throw new Error(`composerStyle must be ${COMPOSER_STYLES.join(', ')}`);
+  if (input.questionAnswerConfirm !== undefined && typeof input.questionAnswerConfirm !== 'boolean')
+    throw new Error('questionAnswerConfirm must be true or false');
   if (input.theme !== undefined && !before.themes.some((entry) => entry.value === input.theme))
     throw new Error('Unknown Desktop theme');
   for (const field of Object.keys(FONT_FIELDS) as (keyof typeof FONT_FIELDS)[]) {
@@ -161,6 +169,17 @@ export function desktopSetupPreferences(
         setToolActivityExpansion(input.toolActivityExpansion as ToolActivityExpansion);
         if (storedToolActivityExpansion() !== input.toolActivityExpansion)
           throw new Error('Tool activity expansion was not persisted');
+      }
+      if (input.composerStyle !== undefined) {
+        if (!setComposerStyle(input.composerStyle as ComposerStyle) || getComposerStyle() !== input.composerStyle)
+          throw new Error('Composer style was not persisted');
+      }
+      if (input.questionAnswerConfirm !== undefined) {
+        if (
+          !setQuestionConfirm(input.questionAnswerConfirm as boolean) ||
+          getQuestionConfirm() !== input.questionAnswerConfirm
+        )
+          throw new Error('Question answer confirmation was not persisted');
       }
       if (input.theme !== undefined) {
         setDesktopThemePreference(String(input.theme));
