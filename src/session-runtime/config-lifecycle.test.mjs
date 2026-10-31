@@ -288,7 +288,10 @@ test('a notification that changes nothing keeps the config object; a real change
   assert.equal(f.config().theme, 'peer');
 });
 
-test('an effect that failed is applied again by the next step and by the retry, never left stale', async () => {
+test('an effect that failed is applied again by the next step and by the retry, never left stale', async (t) => {
+  // The retry fires only when the clock is ticked: on real timers a slow loop
+  // ran it before the notification below, which then found nothing to apply.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   let notify = null;
   const steps = [];
   let fail = null;
@@ -328,7 +331,9 @@ test('an effect that failed is applied again by the next step and by the retry, 
   fail = Promise.resolve(['mcp']);
   f.disk().agent.mcpServers = { docs: { command: 'docs-server-2' } };
   f.lifecycle.applyConfigChange();
-  await setTimeout(80);
+  await setImmediate();
+  assert.deepEqual(steps, [true]);
+  t.mock.timers.tick(20);
   assert.deepEqual(steps, [true, true]);
   // Applied, it is no change any more; the config object then stays put.
   const applied = f.config();

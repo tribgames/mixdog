@@ -1,6 +1,7 @@
 // Boot stage 3: the initial config/route state, the runtime scalars, the
 // timer/prewarm holders teardown sweeps, and the env-tunable boot delays.
 import { performance } from 'node:perf_hooks';
+import { SessionClosedError } from '../../runtime/agent/orchestrator/session/manager/session-errors.mjs';
 import { setConfiguredShell } from '../../runtime/agent/orchestrator/tools/builtin/shell-runtime.mjs';
 import { LOCAL_PROVIDER_ID, configureLocalProviderIdleTtl } from '../../runtime/local-provider/managed-runtime.mjs';
 import { normalizeToolMode } from '../../runtime/agent/orchestrator/runtime-core/effort.mjs';
@@ -98,9 +99,16 @@ function initRuntimeState(rt, params) {
   rt.startupProviderCatalogRefreshPending = false;
 }
 
-function activeTurnControls(rt) {
+export function activeTurnControls(rt) {
   return {
     registerActiveTurnController: (controller) => {
+      // Close aborts the turns registered when it starts; a turn opened after
+      // that (a caller already past its own checks) starts aborted, so a
+      // closing runtime never reaches the provider again.
+      if (rt.closeRequested && !controller.signal.aborted) {
+        const sessionId = rt.session?.id || rt.reservedSessionId || 'pending';
+        controller.abort(new SessionClosedError(sessionId, 'runtime is closing', 'runtime-close'));
+      }
       rt.activeTurnAbortControllers.add(controller);
       return () => rt.activeTurnAbortControllers.delete(controller);
     },
