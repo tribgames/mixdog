@@ -429,7 +429,11 @@ function useProjectGroups({
       ...document.querySelectorAll<HTMLElement>('.session-sidebar-sessions .session-row[data-session-id]'),
     ].some((row) => row.dataset.sessionId === selectedSessionId && row.getClientRects().length > 0);
     if (shown) return;
-    updateProjectOpen((current) => withOpen(current, group.key, true));
+    const subgroup = group.subgroups?.find((sub) => sub.rows.some((session) => session.id === selectedSessionId));
+    updateProjectOpen((current) => {
+      const projectOpened = withOpen(current, group.key, true);
+      return subgroup ? withOpen(projectOpened, subgroup.key, true) : projectOpened;
+    });
   }, [activityProjectGroups, selectedSessionId, updateProjectOpen]);
   // A project added from the Projects header menu opens and scrolls into view
   // once its folder exists in the grouping (the catalog refresh lands after the
@@ -460,6 +464,15 @@ function useProjectGroups({
             {
               ...group,
               rows: applySessionOrder(group.rows, orderPrefs.sessions, customOrders[`project:${key}`]),
+              subgroups: group.subgroups?.map((sub) => ({
+                ...sub,
+                // A subgroup with no order of its own starts from the project's saved order.
+                rows: applySessionOrder(
+                  sub.rows,
+                  orderPrefs.sessions,
+                  customOrders[`project:${sub.key}`] ?? customOrders[`project:${key}`]
+                ),
+              })),
             },
           ]
         : [];
