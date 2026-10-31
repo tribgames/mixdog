@@ -102,7 +102,15 @@ function rowActivity(row, activity) {
  */
 export function selectWorktreeCleanup(
   rows,
-  { settings, now = Date.now(), activity = {}, favoriteSessionIds = [], potential = false, repoCommonDir = null }
+  {
+    settings,
+    now = Date.now(),
+    activity = {},
+    favoriteSessionIds = [],
+    potential = false,
+    repoCommonDir = null,
+    maxRemovals = WORKTREE_CLEANUP_MAX_REMOVALS,
+  }
 ) {
   if (settings?.autoCleanup !== true) return [];
   const favorites = new Set(favoriteSessionIds);
@@ -142,12 +150,10 @@ export function selectWorktreeCleanup(
   const picked = candidates.filter(
     (row) => reasons.has(row.id) && (!scope || pathKey(row.repoCommonDir || '') === scope)
   );
-  return (potential ? picked : picked.slice(0, WORKTREE_CLEANUP_MAX_REMOVALS)).map(
-    ({ repoCommonDir: _repo, ...row }) => ({
-      ...row,
-      reason: reasons.get(row.id),
-    })
-  );
+  return (potential ? picked : picked.slice(0, maxRemovals)).map(({ repoCommonDir: _repo, ...row }) => ({
+    ...row,
+    reason: reasons.get(row.id),
+  }));
 }
 
 /**
@@ -158,7 +164,19 @@ export function selectWorktreeCleanup(
  */
 async function selectLimitCleanup(
   backend,
-  { settings, live, jobs, retainedSessionIds, now, readFavorites, readActivity, inspect, repoCommonDir }
+  {
+    settings,
+    live,
+    jobs,
+    retainedSessionIds,
+    now,
+    readFavorites,
+    readActivity,
+    inspect,
+    repoCommonDir,
+    listedRows = null,
+    maxRemovals,
+  }
 ) {
   if (settings.autoCleanup !== true) return { selected: [], favorites: [], limits: 'off' };
   const known = await readFavorites();
@@ -166,7 +184,8 @@ async function selectLimitCleanup(
   const limits = known ? 'applied' : 'favorites-unknown';
   let selected = [];
   if (known && (settings.maxWorktrees > 0 || settings.unusedDays > 0)) {
-    let rows = await backend.listManagedWorktrees({ liveSessionIds: [...live], retainedSessionIds, inspect });
+    let rows =
+      listedRows ?? (await backend.listManagedWorktrees({ liveSessionIds: [...live], retainedSessionIds, inspect }));
     if (!inspect) rows = rows.map((row) => ({ ...row, dirty: 0, unmerged: 0 }));
     for (const row of rows) {
       if (jobs.some((job) => within(row.path, job.cwd))) {
@@ -182,6 +201,7 @@ async function selectLimitCleanup(
       favoriteSessionIds: favorites,
       potential: !inspect,
       repoCommonDir,
+      ...(maxRemovals === undefined ? {} : { maxRemovals }),
     });
   }
   return { selected, favorites, limits };
@@ -365,22 +385,49 @@ export async function listWorktreesWithRetention({
   details = false,
   readActivity = storedSessionActivity,
   readArchived = storedArchivedSessionIds,
+  readFavorites = storedFavoriteSessionIds,
+  listJobs = runningShellJobs,
+  settings: given = null,
+  now = Date.now(),
 } = {}) {
   const backend = manager || (await loadManager());
+  const retainedSessionIds = await listSessionIds();
+  if (!details) return backend.listManagedWorktrees({ liveSessionIds, retainedSessionIds });
+  // An unreadable job record stops the cleanup itself (fail closed), so no limit applies then.
+  const jobs = await listJobs().catch(() => null);
+  const live = new Set(liveSessionIds);
+  for (const job of jobs ?? []) if (job.ownerSessionId) live.add(job.ownerSessionId);
   const rows = await backend.listManagedWorktrees({
-    liveSessionIds,
-    retainedSessionIds: await listSessionIds(),
-    ...(details ? { inspect: true, size: true } : {}),
+    liveSessionIds: [...live],
+    retainedSessionIds,
+    inspect: true,
+    size: true,
   });
-  if (!details) return rows;
   const owners = rows.flatMap((row) => [row.ownerSessionId, ...(row.sharedSessionIds ?? [])]).filter(Boolean);
   const activity = await readActivity(owners);
   const archived = new Set((await readArchived()) ?? []);
+  // The rows the automatic cleanup's count/age limits would delete: the same selection, uncapped.
+  const { selected } = jobs
+    ? await selectLimitCleanup(backend, {
+        settings: given ?? (await backend.currentWorktreeSettings()),
+        live,
+        jobs,
+        retainedSessionIds,
+        now,
+        readFavorites,
+        readActivity: async () => activity,
+        inspect: true,
+        listedRows: rows.map((row) => ({ ...row })),
+        maxRemovals: Infinity,
+      })
+    : { selected: [] };
+  const cleanup = new Map(selected.map((row) => [row.id, row.reason]));
   return rows.map((row) => ({
     ...row,
     ownerTitle: (row.ownerSessionId && activity[row.ownerSessionId]?.title) || null,
     ownerArchived: !!row.ownerSessionId && archived.has(row.ownerSessionId),
     lastActiveAt: rowActivity(row, activity) || null,
+    cleanupReason: cleanup.get(row.id) ?? null,
   }));
 }
 

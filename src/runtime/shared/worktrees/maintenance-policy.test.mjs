@@ -1,7 +1,12 @@
 // The count/age choice of the automatic worktree cleanup (pure: no git).
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { selectWorktreeCleanup, WORKTREE_CLEANUP_MAX_REMOVALS, WORKTREE_CLEANUP_MIN_AGE_MS } from './maintenance.mjs';
+import {
+  listWorktreesWithRetention,
+  selectWorktreeCleanup,
+  WORKTREE_CLEANUP_MAX_REMOVALS,
+  WORKTREE_CLEANUP_MIN_AGE_MS,
+} from './maintenance.mjs';
 import { WORKTREE_SETTINGS_DEFAULTS } from './settings.mjs';
 
 const DAY = 24 * 60 * 60_000;
@@ -158,4 +163,29 @@ test("a cleanup scoped to one repository reaches its own picks even when another
     selectWorktreeCleanup(rows, { ...options, repoCommonDir: '/repoB/.git' }).map((r) => [r.id, r.reason]),
     [['b-old', 'age']]
   );
+});
+
+test('the worktree list marks every clean row the limits would delete (beyond the per-pass cap) and none they spare', async () => {
+  const rows = [
+    ...Array.from({ length: WORKTREE_CLEANUP_MAX_REMOVALS + 2 }, (_, i) =>
+      row(`old${String(i).padStart(2, '0')}`, { idleDays: 100 - i })
+    ),
+    row('recent', { ageDays: 40, idleDays: 2 }),
+    row('fav', { idleDays: 90 }),
+  ];
+  const result = await listWorktreesWithRetention({
+    details: true,
+    now: NOW,
+    settings: { ...WORKTREE_SETTINGS_DEFAULTS, maxWorktrees: 0, unusedDays: 30 },
+    manager: { listManagedWorktrees: async () => rows },
+    listSessionIds: async () => [],
+    readActivity: async () => ({ ...activityOf(rows), 's-fav': { lastActiveAt: NOW - 90 * DAY } }),
+    readArchived: async () => [],
+    readFavorites: async () => ['s-fav'],
+    listJobs: async () => [],
+  });
+  const reasons = Object.fromEntries(result.map((r) => [r.id, r.cleanupReason]));
+  assert.equal(result.filter((r) => r.cleanupReason === 'age').length, WORKTREE_CLEANUP_MAX_REMOVALS + 2);
+  assert.equal(reasons.recent, null);
+  assert.equal(reasons.fav, null);
 });

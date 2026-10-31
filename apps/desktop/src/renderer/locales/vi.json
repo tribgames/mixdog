@@ -5836,6 +5836,7 @@
   "Example: {{name}}": "Ví dụ: {{name}}",
   "{{count}} unmerged commits": "{{count}} commit chưa hợp nhất",
   "Merged · deleted at next cleanup": "Đã hợp nhất · xóa ở lần dọn tới",
+  "Merged · will be cleaned up": "Đã hợp nhất · sẽ được dọn",
   "Merged · kept": "Đã hợp nhất · giữ lại",
   "Delete worktree {{branch}}?\nIts folder is deleted.": "Xóa worktree {{branch}}?\nThư mục của nó sẽ bị xóa.",
   "Delete anyway?\n{{branch}} has uncommitted or unmerged work. Uncommitted changes are lost; its last commit stays under refs/mixdog/removed/{{id}}.": "Vẫn xóa?\n{{branch}} còn thay đổi chưa commit hoặc chưa hợp nhất. Thay đổi chưa commit sẽ mất; commit cuối được giữ ở refs/mixdog/removed/{{id}}.",

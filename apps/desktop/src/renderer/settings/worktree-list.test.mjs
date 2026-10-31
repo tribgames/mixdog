@@ -59,12 +59,20 @@ window.mixdogDesktop = {
   },
 };
 const { overrideConfirmAction } = await import('../app-confirm.tsx');
-const { WorktreeList } = await import('./worktree-list.tsx');
+const { WorktreeList, worktreeRowState } = await import('./worktree-list.tsx');
 
 const settle = () => act(() => new Promise((resolve) => setImmediate(resolve)));
 const lists = () => calls.filter((name) => name === 'listWorktrees').length;
 const deleteButton = () =>
   [...document.querySelectorAll('.worktree-actions button')].find((button) => button.textContent === 'Delete');
+
+test('a retained clean worktree the limits would delete is not called kept', () => {
+  const settings = { autoCleanup: true, cleanupArchived: true };
+  assert.equal(worktreeRowState(row, settings).text, 'Merged · kept');
+  assert.equal(worktreeRowState({ ...row, cleanupReason: 'age' }, settings).text, 'Merged · will be cleaned up');
+  assert.equal(worktreeRowState({ ...row, ownerArchived: true }, settings).text, 'Merged · will be cleaned up');
+  assert.equal(worktreeRowState({ ...row, retained: false }, settings).text, 'Merged · deleted at next cleanup');
+});
 
 test('a cancelled delete reads nothing again; a confirmed one reloads the list once', async () => {
   const root = createRoot(document.getElementById('root'));

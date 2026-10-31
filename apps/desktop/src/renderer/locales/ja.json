@@ -5836,6 +5836,7 @@
   "Example: {{name}}": "例: {{name}}",
   "{{count}} unmerged commits": "未マージのコミット {{count}} 件",
   "Merged · deleted at next cleanup": "マージ済み · 次の整理で削除",
+  "Merged · will be cleaned up": "マージ済み · 整理の対象",
   "Merged · kept": "マージ済み · 保持",
   "Delete worktree {{branch}}?\nIts folder is deleted.": "ワークツリー {{branch}} を削除しますか?\nフォルダが削除されます。",
   "Delete anyway?\n{{branch}} has uncommitted or unmerged work. Uncommitted changes are lost; its last commit stays under refs/mixdog/removed/{{id}}.": "それでも削除しますか?\n{{branch}} に未コミットまたは未マージの作業があります。未コミットの変更は失われ、最後のコミットは refs/mixdog/removed/{{id}} に残ります。",

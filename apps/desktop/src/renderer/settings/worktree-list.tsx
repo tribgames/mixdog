@@ -31,11 +31,17 @@ export function worktreeRowState(row: DesktopManagedWorktreeRow, settings: Deskt
   if (row.dirty == null || row.unmerged == null) return { kind: 'unknown', text: '—' };
   if (row.dirty > 0) return { kind: 'dirty', text: t('{{count}} changes', { count: row.dirty }) };
   if (row.unmerged > 0) return { kind: 'unmerged', text: t('{{count}} unmerged commits', { count: row.unmerged }) };
-  const next =
-    settings?.autoCleanup === true &&
-    !row.sharedSessionIds?.length &&
-    (!row.retained || (row.ownerArchived === true && settings.cleanupArchived));
-  return { kind: 'ok', text: next ? t('Merged · deleted at next cleanup') : t('Merged · kept') };
+  const auto = settings?.autoCleanup === true && !row.sharedSessionIds?.length;
+  // Only unretained rows are exempt from the per-pass removal cap; limit and
+  // archived picks may wait behind it, so they promise no timing.
+  const eligible = row.cleanupReason || (row.retained && row.ownerArchived === true && settings?.cleanupArchived);
+  const text =
+    auto && !row.retained
+      ? t('Merged · deleted at next cleanup')
+      : (auto && eligible) || row.cleanupReason
+        ? t('Merged · will be cleaned up')
+        : t('Merged · kept');
+  return { kind: 'ok', text };
 }
 
 export function WorktreeList({ active = true }: { active?: boolean }) {
