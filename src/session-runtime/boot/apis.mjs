@@ -118,6 +118,8 @@ export function wireApis(boot) {
       console.warn(`[connectors] merging connector accounts failed: ${error?.message || error}`);
       bootProfile('connector-accounts:merge-failed', { error: error?.message || String(error) });
     }
+    // After the merge: every account has its identity before anything connects.
+    if (boot.ensureConnectorAccountIds()) boot.reloadFullConfig();
   }
   boot.disposeGlobalExtensionSubscription = () => {
     boot.disposeConfigSync?.();

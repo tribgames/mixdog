@@ -41,7 +41,15 @@ import { bootProfile } from '../boot-profile.mjs';
 import { standaloneDataDir } from '../runtime-paths.mjs';
 import { noteCacheWarmingEnabled } from '../../runtime/agent/orchestrator/session/cache-warm.mjs';
 import { refreshLiveSessionsProviderCacheOpts } from '../../runtime/agent/orchestrator/session/manager/session-lifecycle.mjs';
+import {
+  ensureConnectorAccountIds,
+  forgetConversationConnectorAccounts,
+} from '../../runtime/connectors/connector-accounts-mcp.mjs';
+import { registerSessionPurgeHook } from '../../runtime/agent/orchestrator/session/store/session-observers.mjs';
 import { outputStyleStatus, resolveRoute, webSearchCapableFor } from './shared.mjs';
+
+// A conversation's connector accounts go with its session (once per process).
+registerSessionPurgeHook((sessionId) => forgetConversationConnectorAccounts(sessionId));
 
 export function wireProviders(boot) {
   wireConfigLifecycle(boot);
@@ -56,6 +64,17 @@ export function wireProviders(boot) {
 // injection.
 function wireConfigLifecycle(boot) {
   const { rt, cfgMod, sharedCfgMod } = boot;
+  // Every stored connector account gets its identity (an injected config is
+  // not the stored one). True when the stored config changed.
+  boot.ensureConnectorAccountIds = () => {
+    if (usesInjectedConfig(boot.params)) return false;
+    try {
+      return ensureConnectorAccountIds();
+    } catch (error) {
+      console.warn(`[connectors] giving accounts their identity failed: ${error?.message || error}`);
+      return false;
+    }
+  };
   const lifecycle = createConfigLifecycle({
     getConfig: () => rt.config,
     setConfig: (next) => {
@@ -93,10 +112,21 @@ function wireConfigLifecycle(boot) {
       reinitProviders: () => boot.reinitProviders(),
       releaseAdmissionCooldowns: resetProviderAdmissionCooldowns,
       // Fails (so the change step retries it) when a server failed to connect
-      // (other than needing a sign-in, which waits on the user); the servers
-      // reconcile either way.
+      // (other than needing a sign-in, which waits on the user) or the
+      // identities failed; the servers reconcile either way.
       reconcileMcp: async () => {
+        // An account written by hand gets its identity; that write is one
+        // more change, reconciled in turn.
+        let idsError = null;
+        if (!usesInjectedConfig(boot.params)) {
+          try {
+            ensureConnectorAccountIds();
+          } catch (error) {
+            idsError = error;
+          }
+        }
         const status = await boot.connectConfiguredMcp?.({ reconcile: true });
+        if (idsError) throw idsError;
         const failed = (status?.servers || []).filter((row) => row.enabled !== false && row.status === 'failed');
         if (failed.length) {
           throw new Error(`MCP servers failed to connect: ${failed.map((row) => `${row.name} (${row.error})`).join(', ')}`);

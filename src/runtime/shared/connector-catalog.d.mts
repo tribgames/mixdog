@@ -54,6 +54,8 @@ export function gmailAppPasswordServerInput(name: string, email: string, passwor
 /** One stored account of a connector server. */
 export interface ConnectorAccountEntry {
   name: string;
+  /** Its identity, given when it was added (connectorAccountId). */
+  id?: string;
   /** Absent: http. */
   type?: string;
   url?: string;
@@ -73,6 +75,7 @@ export function connectorAccountServer(
   cfg: Record<string, unknown>,
   account: ConnectorAccountEntry
 ): Record<string, unknown>;
+export function connectorAccountId(cfg: Record<string, unknown>, account: ConnectorAccountEntry): string;
 export function connectorAccountServers(cfg: unknown): Record<string, unknown>[];
 export function connectorAccountEnabled(account: ConnectorAccountEntry): boolean;
 export function connectorLiveAccountServers(cfg: unknown): Record<string, unknown>[];

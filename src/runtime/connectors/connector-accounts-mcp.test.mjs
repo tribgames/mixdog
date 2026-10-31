@@ -12,8 +12,10 @@ import { connectorAccountServer, connectorAccountsUrl } from '../shared/connecto
 import { hasConfiguredMcpAuth } from '../agent/orchestrator/mcp/client-transport.mjs';
 import {
   CONVERSATION_META,
+  accountIdsDeps,
   connectorAccountHealth,
   connectorAccountInUse,
+  ensureConnectorAccountIds,
   forgetConnectorAccountHealth,
   withConnectorAccountsMcp,
 } from './connector-accounts-mcp.mjs';
@@ -25,12 +27,14 @@ const SEARCH = { name: 'search', description: 'Search', inputSchema: object({ qu
 const CREATE = { name: 'create', description: 'Create', inputSchema: object({ title: { type: 'string' } }) };
 
 /** An account whose own server lists `tools` and records every call it gets. */
-function fakeAccount(name, email, { tools = [SEARCH, CREATE], fail = null, instructions = '' } = {}) {
+// Its identity defaults to its name and address: the same pair is the same account.
+function fakeAccount(name, email, { tools = [SEARCH, CREATE], fail = null, instructions = '', id = `${name}|${email}` } = {}) {
   const calls = [];
   return {
     calls,
     account: {
       name,
+      id,
       email,
       async connect() {
         if (fail) throw fail;
@@ -64,6 +68,303 @@ function server(connector, accounts) {
   };
   return { fetchImpl, rpc, call };
 }
+
+test('a remembered account is its identity: a new account given its name is never used for it, whatever the shared record says', async () => {
+  const { writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { resolvePluginData } = await import('../shared/plugin-paths.mjs');
+  const inUseFile = join(resolvePluginData(), 'connector-accounts-in-use.json');
+  const both = server('linear', [fakeAccount('linear', A).account, fakeAccount('linear-2', B).account]);
+  await both.rpc('initialize');
+  await both.call('search', { account: B }, 'conv-l1');
+  // linear-2 is removed and a new account is given its name.
+  const reused = fakeAccount('linear-2', 'new@example.com', { id: 'added-later' });
+  const after = server('linear', [fakeAccount('linear', A).account, reused.account]);
+  await after.rpc('initialize');
+  const refused = /used last \(linear-2 \(removed\)\) is not connected now/;
+  // The shared record reset, rewritten by hand, or naming the old identity:
+  // the conversation's own choice still refuses, every time.
+  for (const stored of [{}, { linear: 'linear-2' }, { linear: { name: 'linear-2', id: 'linear-2|b@example.com' } }]) {
+    writeFileSync(inUseFile, JSON.stringify(stored));
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const call = await after.call('search', {}, 'conv-l1');
+      assert.equal(call.isError, true, JSON.stringify(stored));
+      assert.match(call.text, refused);
+    }
+  }
+  // A conversation with no choice of its own follows the shared record only to
+  // the account it names: an old identity or none at all is refused.
+  writeFileSync(inUseFile, JSON.stringify({ linear: { name: 'linear-2', id: 'linear-2|b@example.com' } }));
+  assert.match((await after.call('search', {}, 'conv-l2')).text, refused);
+  // A record without an identity is refused.
+  writeFileSync(inUseFile, JSON.stringify({ linear: 'linear-2' }));
+  assert.match((await after.call('search', {}, 'conv-l3')).text, /used last \(linear-2\) cannot be confirmed/);
+  assert.deepEqual(reused.calls, [], 'the new account is never called in the old one’s place');
+  // Picked explicitly, it becomes the conversation's account.
+  assert.match((await after.call('search', { account: 'new@example.com' }, 'conv-l1')).text, /^linear-2 did search/);
+  assert.match((await after.call('search', {}, 'conv-l1')).text, /^linear-2 did search/, 'chosen again, it is used');
+  for (const name of ['linear', 'linear-2']) forgetConnectorAccountHealth(name);
+});
+
+test('the one-time identity migration binds the records of before, keeps every id, and serializes with choices', async () => {
+  const { spawn } = await import('node:child_process');
+  const { readFileSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { resolvePluginData } = await import('../shared/plugin-paths.mjs');
+  const { readSection, updateSection } = await import('../shared/config.mjs');
+  const inUseFile = join(resolvePluginData(), 'connector-accounts-in-use.json');
+  const accountsServer = (connector, names) => ({
+    type: 'http',
+    url: connectorAccountsUrl(connector),
+    connector,
+    accounts: names.map((name) => ({ name, url: `https://${connector}.example.test/${name}` })),
+  });
+  const stored = (connector) => readSection('agent').mcpServers[connector].accounts;
+  // The transport the stored accounts make: each with its stored identity.
+  const transport = async (connector, calls = {}) => {
+    const live = server(
+      connector,
+      stored(connector).map((one) => {
+        const fake = fakeAccount(one.name, `${one.name}@example.com`, { id: one.id ?? '' });
+        calls[one.name] = fake.calls;
+        return fake.account;
+      })
+    );
+    await live.rpc('initialize');
+    return live;
+  };
+  // Before the upgrade: accounts without ids, records of names only.
+  updateSection('agent', (agent) => ({
+    ...agent,
+    mcpServers: { linear: accountsServer('linear', ['linear', 'linear-2']), notion: accountsServer('notion', ['notion']) },
+  }));
+  writeFileSync(inUseFile, JSON.stringify({ linear: 'linear-2', notion: 'notion' }));
+  // Two processes start at once while a third records a newer choice.
+  const module = JSON.stringify(new URL('./connector-accounts-mcp.mjs', import.meta.url).href);
+  const atomic = JSON.stringify(new URL('../shared/atomic-file.mjs', import.meta.url).href);
+  const run = (body) =>
+    new Promise((resolve, reject) => {
+      const child = spawn(process.execPath, ['--input-type=module', '-e', body], {
+        env: { ...process.env },
+        stdio: ['ignore', 'ignore', 'pipe'],
+      });
+      let stderr = '';
+      child.stderr.on('data', (chunk) => (stderr += chunk));
+      child.on('error', reject);
+      child.on('exit', (code) => (code === 0 ? resolve() : reject(new Error(stderr))));
+    });
+  const migrate = `const { ensureConnectorAccountIds } = await import(${module}); ensureConnectorAccountIds();`;
+  const choose = `const { updateJsonAtomicSync } = await import(${atomic});
+    updateJsonAtomicSync(${JSON.stringify(inUseFile)}, (s) => ({ ...s, notion: { name: 'notion', id: 'chosen-meanwhile' } }));`;
+  await Promise.all([run(migrate), run(migrate), run(choose)]);
+  const [linear, linear2] = stored('linear');
+  assert.ok(linear.id && linear2.id && linear.id !== linear2.id, 'every account has its own id');
+  const records = JSON.parse(readFileSync(inUseFile, 'utf8'));
+  assert.deepEqual(records.linear, { name: 'linear-2', id: linear2.id }, 'the record of before is bound');
+  assert.deepEqual(records.notion, { name: 'notion', id: 'chosen-meanwhile' }, 'the newer choice survives');
+  // Bound, it routes where it did before the upgrade.
+  assert.match((await (await transport('linear')).call('search', {}, 'conv-m1')).text, /^linear-2 did search/);
+  // Another start, and an edit of the account (its transport): the identity stays.
+  await run(migrate);
+  updateSection('agent', (agent) => {
+    const cfg = agent.mcpServers.linear;
+    const accounts = cfg.accounts.map((one) => (one.name === 'linear-2' ? { ...one, url: `${one.url}/v2` } : one));
+    return { ...agent, mcpServers: { ...agent.mcpServers, linear: { ...cfg, accounts } } };
+  });
+  await run(migrate);
+  assert.equal(stored('linear')[1].id, linear2.id);
+  assert.match((await (await transport('linear')).call('search', {}, 'conv-m2')).text, /^linear-2 did search/);
+  // linear-2 removed and written again by hand, name and connection the same:
+  // it is a new account (a new id on load), never the one remembered.
+  updateSection('agent', (agent) => {
+    const cfg = agent.mcpServers.linear;
+    const accounts = cfg.accounts.map((one) => (one.name === 'linear-2' ? { name: one.name, url: one.url } : one));
+    return { ...agent, mcpServers: { ...agent.mcpServers, linear: { ...cfg, accounts } } };
+  });
+  await run(migrate);
+  assert.notEqual(stored('linear')[1].id, linear2.id);
+  const calls = {};
+  const recreated = await transport('linear', calls);
+  for (const conversation of ['conv-m1', 'conv-m3']) {
+    assert.match(
+      (await recreated.call('search', {}, conversation)).text,
+      /used last \(linear-2 \(removed\)\) is not connected now/
+    );
+  }
+  // A name-only record found after the migration stays unbound.
+  writeFileSync(inUseFile, JSON.stringify({ ...JSON.parse(readFileSync(inUseFile, 'utf8')), linear: 'linear' }));
+  await run(migrate);
+  assert.equal(JSON.parse(readFileSync(inUseFile, 'utf8')).linear, 'linear');
+  assert.match((await recreated.call('search', {}, 'conv-m4')).text, /used last \(linear\) cannot be confirmed/);
+  assert.deepEqual(calls, { linear: [], 'linear-2': [] }, 'no account stood in');
+  for (const name of ['linear', 'linear-2', 'notion']) forgetConnectorAccountHealth(name);
+  writeFileSync(inUseFile, '{}');
+  updateSection('agent', ({ mcpServers: _servers, ...agent }) => agent);
+});
+
+test('the migration binds a record of before to the account its ids were given to, not one replacing it meanwhile', async () => {
+  const { readFileSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { resolvePluginData } = await import('../shared/plugin-paths.mjs');
+  const { readSection, updateSection } = await import('../shared/config.mjs');
+  const inUseFile = join(resolvePluginData(), 'connector-accounts-in-use.json');
+  const url = (name) => `https://linear.example.test/${name}`;
+  updateSection('agent', (agent) => ({
+    ...agent,
+    mcpServers: {
+      linear: {
+        type: 'http',
+        url: connectorAccountsUrl('linear'),
+        connector: 'linear',
+        accounts: ['linear', 'linear-2'].map((name) => ({ name, url: url(name) })),
+      },
+    },
+  }));
+  writeFileSync(inUseFile, JSON.stringify({ linear: 'linear-2' }));
+  // Right after the ids are given, another process removes linear-2 and adds
+  // a replacement under the same name (same connection, its own id).
+  let given = '';
+  accountIdsDeps.afterIdsGiven = () => {
+    updateSection('agent', (agent) => {
+      const cfg = agent.mcpServers.linear;
+      given = cfg.accounts[1].id;
+      const accounts = [cfg.accounts[0], { name: 'linear-2', url: url('linear-2'), id: 'replacement' }];
+      return { ...agent, mcpServers: { linear: { ...cfg, accounts } } };
+    });
+  };
+  try {
+    ensureConnectorAccountIds();
+  } finally {
+    accountIdsDeps.afterIdsGiven = () => {};
+  }
+  assert.ok(given && given !== 'replacement');
+  assert.deepEqual(JSON.parse(readFileSync(inUseFile, 'utf8')).linear, { name: 'linear-2', id: given });
+  const replacement = fakeAccount('linear-2', 'new@example.com', { id: 'replacement' });
+  const live = server('linear', [
+    fakeAccount('linear', A, { id: readSection('agent').mcpServers.linear.accounts[0].id }).account,
+    replacement.account,
+  ]);
+  await live.rpc('initialize');
+  assert.match((await live.call('search', {}, 'conv-r1')).text, /used last \(linear-2 \(removed\)\) is not connected now/);
+  assert.deepEqual(replacement.calls, [], 'the replacement never takes the old choice');
+  for (const name of ['linear', 'linear-2']) forgetConnectorAccountHealth(name);
+  writeFileSync(inUseFile, '{}');
+  updateSection('agent', ({ mcpServers: _servers, ...agent }) => agent);
+});
+
+test('a migration interrupted once the ids are stored completes at the next start with those ids', async () => {
+  const { readFileSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { resolvePluginData } = await import('../shared/plugin-paths.mjs');
+  const { readSection, updateSection } = await import('../shared/config.mjs');
+  const inUseFile = join(resolvePluginData(), 'connector-accounts-in-use.json');
+  updateSection('agent', (agent) => ({
+    ...agent,
+    mcpServers: {
+      linear: {
+        type: 'http',
+        url: connectorAccountsUrl('linear'),
+        connector: 'linear',
+        accounts: ['linear', 'linear-2'].map((name) => ({ name, url: `https://linear.example.test/${name}` })),
+      },
+    },
+  }));
+  writeFileSync(inUseFile, JSON.stringify({ linear: 'linear-2' }));
+  // The process dies between the config write (ids) and the records' write.
+  accountIdsDeps.afterIdsGiven = () => {
+    throw new Error('killed');
+  };
+  try {
+    assert.throws(() => ensureConnectorAccountIds(), /killed/);
+  } finally {
+    accountIdsDeps.afterIdsGiven = () => {};
+  }
+  const ids = readSection('agent').mcpServers.linear.accounts.map((one) => one.id);
+  assert.ok(ids.every(Boolean), 'the ids were stored');
+  assert.deepEqual(JSON.parse(readFileSync(inUseFile, 'utf8')), { linear: 'linear-2' }, 'the records were not');
+  // The next start keeps those ids and binds the records of before to them.
+  assert.equal(ensureConnectorAccountIds(), false);
+  assert.deepEqual(
+    readSection('agent').mcpServers.linear.accounts.map((one) => one.id),
+    ids
+  );
+  assert.deepEqual(JSON.parse(readFileSync(inUseFile, 'utf8')), {
+    linear: { name: 'linear-2', id: ids[1] },
+    '#ids': true,
+  });
+  writeFileSync(inUseFile, '{}');
+  updateSection('agent', ({ mcpServers: _servers, ...agent }) => agent);
+});
+
+test('a conversation resumed after a restart keeps its own account, not the one another conversation used last', async () => {
+  const accounts = () => [fakeAccount('notion', A).account, fakeAccount('notion-2', B).account];
+  const before = server('notion', accounts());
+  await before.rpc('initialize');
+  await before.call('search', { account: B }, 'conv-p1');
+  await before.call('search', { account: A }, 'conv-p2');
+  // A restart: a fresh module instance, nothing kept in memory.
+  const restarted = await import(`./connector-accounts-mcp.mjs?restart=${Date.now()}`);
+  const after = async (list) => {
+    const fetchImpl = restarted.withConnectorAccountsMcp({ connector: 'notion', accounts: list });
+    const rpc = async (method, params = {}) =>
+      (
+        await fetchImpl(connectorAccountsUrl('notion'), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }),
+        })
+      ).json();
+    await rpc('initialize');
+    const { result } = await rpc('tools/call', {
+      name: 'search',
+      arguments: {},
+      _meta: { [CONVERSATION_META]: 'conv-p1' },
+    });
+    return result.content.map((part) => part.text).join('\n');
+  };
+  assert.match(await after(accounts()), /^notion-2 did search/);
+  // Still bound to its identity: a new account given that name is refused.
+  const replaced = [fakeAccount('notion', A).account, fakeAccount('notion-2', B, { id: 'other' }).account];
+  assert.match(await after(replaced), /used last \(notion-2 \(removed\)\) is not connected now/);
+  for (const name of ['notion', 'notion-2']) forgetConnectorAccountHealth(name);
+  const { writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { resolvePluginData } = await import('../shared/plugin-paths.mjs');
+  for (const file of ['connector-accounts-in-use.json', 'connector-accounts-by-conversation.json']) {
+    writeFileSync(join(resolvePluginData(), file), '{}');
+  }
+});
+
+test('a conversation keeps its account however many others choose one, until its session is deleted', async () => {
+  const { readFileSync, writeFileSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { resolvePluginData } = await import('../shared/plugin-paths.mjs');
+  const file = join(resolvePluginData(), 'connector-accounts-by-conversation.json');
+  const inUseFile = join(resolvePluginData(), 'connector-accounts-in-use.json');
+  const bob = fakeAccount('notion', A);
+  const alice = fakeAccount('notion-2', B);
+  const live = server('notion', [bob.account, alice.account]);
+  await live.rpc('initialize');
+  await live.call('search', { account: B }, 'conv-alice');
+  // Thousands of later conversations, the newest on Bob's account.
+  const stored = JSON.parse(readFileSync(file, 'utf8'));
+  for (let index = 0; index < 2500; index += 1) {
+    stored[`conv-other-${index}`] = { accounts: { notion: { name: 'notion', id: bob.account.id } } };
+  }
+  writeFileSync(file, JSON.stringify(stored));
+  await live.call('search', { account: A }, 'conv-latest');
+  assert.match((await live.call('search', {}, 'conv-alice')).text, /^notion-2 did search/, 'Alice stays on hers');
+  // The session deleted: its binding goes with it (the session purge hook).
+  await import('../../session-runtime/boot/providers.mjs');
+  const { _runSessionPurgeHooks } = await import('../agent/orchestrator/session/store/session-observers.mjs');
+  _runSessionPurgeHooks('conv-alice', { cwds: [] });
+  const after = JSON.parse(readFileSync(file, 'utf8'));
+  assert.equal(Object.hasOwn(after, 'conv-alice'), false);
+  assert.ok(Object.hasOwn(after, 'conv-latest'));
+  for (const name of ['notion', 'notion-2']) forgetConnectorAccountHealth(name);
+  writeFileSync(file, '{}');
+  writeFileSync(inUseFile, '{}');
+});
 
 test('a connector server never signs in itself: each account carries its own authentication', () => {
   const cfg = {

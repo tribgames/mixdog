@@ -72,6 +72,7 @@ const connectorServer = (connector, accounts) => ({
   connector,
   accounts: accounts.map(([name, url, extra = {}]) => ({
     name,
+    id: `id-${name}`,
     url,
     headers: { 'x-api-key': `key-${name}` },
     ...extra,

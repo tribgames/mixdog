@@ -6,7 +6,7 @@ import {
   gmailAppPasswordValue,
   connectorAccountServers,
 } from '../runtime/shared/connector-catalog.mjs';
-import { forgetConnectorAccountHealth, retireConnectorAccount } from '../runtime/connectors/connector-accounts-mcp.mjs';
+import { forgetConnectorAccountHealth } from '../runtime/connectors/connector-accounts-mcp.mjs';
 import { oauthCredentialOf } from './resource-mcp-servers.mjs';
 
 /** Every config `servers` connects with, a multi-account server's accounts
@@ -79,7 +79,6 @@ export function createMcpServerSecrets({
   // does not share: `{ signIn, revoked }` as removeMcpServer reports it.
   const releaseAccount = async (accountCfg) => {
     forgetConnectorAccountHealth(accountCfg.name);
-    retireConnectorAccount(accountCfg.connector, accountCfg.name);
     const address = gmailAppPasswordAccount(accountCfg);
     if (address) {
       const forgotten = await forgetUnusedGmailAppPassword(address);

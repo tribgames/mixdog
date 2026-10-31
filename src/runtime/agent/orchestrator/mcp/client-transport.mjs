@@ -10,6 +10,8 @@ import { googleMcpService, withGoogleMcp } from '../../../connectors/google-mcp.
 import { gmailAppPasswordService, withGmailAppPasswordMcp } from '../../../connectors/gmail-app-password.mjs';
 import { withConnectorAccountsMcp } from '../../../connectors/connector-accounts-mcp.mjs';
 import {
+  connectorAccountEnabled,
+  connectorAccountId,
   connectorAccountsOf,
   connectorLiveAccountServers,
   gmailAppPasswordAccount,
@@ -271,9 +273,13 @@ function missingEnvWarnings(name, cfg, strictEnv, log) {
 // A connector server: one server, every account behind it (its account choice
 // on `connectorAccounts`); closing the transport closes every account client.
 function connectorAccountsTransport({ name, cfg, Transport, url, accountServers, sdk, oauthOptions, log }) {
-  const accounts = accountServers.map((accountCfg) =>
-    connectorAccountClient(name, accountCfg, { sdk, log, oauthOptions })
-  );
+  // `accountServers` are the switched-on stored accounts, in order.
+  const stored = connectorAccountsOf(cfg).filter(connectorAccountEnabled);
+  const accounts = accountServers.map((accountCfg, index) => {
+    const account = connectorAccountClient(name, accountCfg, { sdk, log, oauthOptions });
+    account.id = connectorAccountId(cfg, stored[index]);
+    return account;
+  });
   const fetchImpl = withConnectorAccountsMcp({ connector: cfg.connector, accounts });
   const transport = new Transport(new URL(url), { fetch: fetchImpl });
   transport.connectorAccounts = fetchImpl.connectorAccounts;

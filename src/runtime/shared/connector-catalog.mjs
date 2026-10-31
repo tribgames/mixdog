@@ -193,8 +193,9 @@ export function connectorMultiAccount(entry) {
 // A catalog connector is ONE MCP server (`gmail`, `notion`, `postgres`…)
 // holding its accounts:
 //   { type: 'http', url: connectorAccountsUrl(id), connector: id,
-//     accounts: [{ name, type?, url?, headers?, oauthClientId?, oauthKey?,
+//     accounts: [{ name, id?, type?, url?, headers?, oauthClientId?, oauthKey?,
 //                  command?, args?, env? }, …] }
+// (`id`: the account's random identity; connectorAccountId)
 // Each account keeps the transport it had as a server of its own (its remote
 // URL and sign-in, its key header, its app-password address, or its local
 // command and environment), so its keychain entries are untouched. A remote
@@ -239,6 +240,15 @@ export function connectorAccountServer(cfg, account) {
  *  server holding its accounts (timeouts, enabled…). */
 export function connectorServerSettings(cfg) {
   return Object.fromEntries(Object.entries(cfg).filter(([key]) => key !== 'accounts' && !ACCOUNT_FIELDS.includes(key)));
+}
+
+/** The identity of stored account `account`, which a chosen account is
+ *  remembered by: the random `id` stored with it (given when it is added, or
+ *  on load to one stored without: connector-accounts-mcp.mjs
+ *  ensureConnectorAccountIds). A new account given a removed one's name gets
+ *  a new id; an edit keeps it. '' while it has none (nothing is bound to it). */
+export function connectorAccountId(_cfg, account) {
+  return typeof account?.id === 'string' ? account.id : '';
 }
 
 /** Every account of `cfg` as its one-account server config. */

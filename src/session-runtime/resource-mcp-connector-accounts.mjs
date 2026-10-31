@@ -80,7 +80,9 @@ export function createConnectorAccountEdits({
       throw nameTakenError(servers, name);
     }
     const accountName = serverName ? freeName(servers, name) : name;
-    const account = connectorAccountEntry(accountName, accountCfg);
+    // A fresh identity: a conversation that used a removed account of this
+    // name never takes this one for it (connector-accounts-mcp.mjs).
+    const account = { ...connectorAccountEntry(accountName, accountCfg), id: randomUUID() };
     // A sign-in is stored per exact URL: another account signing in at the
     // same URL gets its own key, so the two never share tokens.
     const asServer = connectorAccountServer({ connector }, account);
@@ -141,6 +143,8 @@ export function createConnectorAccountEdits({
         entry.name === account.name
           ? {
               ...connectorAccountEntry(account.name, next),
+              // An edit keeps the account's identity.
+              ...(entry.id ? { id: entry.id } : {}),
               ...(connectorAccountEnabled(entry) ? {} : { enabled: false }),
             }
           : entry
