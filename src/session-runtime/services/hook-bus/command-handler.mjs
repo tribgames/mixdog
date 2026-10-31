@@ -1,9 +1,10 @@
 import { existsSync } from 'node:fs';
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { MAX_BUFFER_BYTES } from './constants.mjs';
 import { handlerTimeoutS } from './handler-timeout.mjs';
 import { abortReason, throwIfAborted } from '../../../runtime/shared/abort-race.mjs';
 import { scrubRuntimeRootVars } from '../../../runtime/agent/orchestrator/tools/env-scrub.mjs';
+import { spawnTreeKill } from '../../../runtime/agent/orchestrator/mcp/child-tree.mjs';
 
 function resolvePlaceholders(str, projectDir, pluginData, pluginRoot = null) {
   if (typeof str !== 'string') return str;
@@ -23,17 +24,13 @@ export function defaultShellKind() {
   return process.platform === 'win32' ? 'powershell' : 'bash';
 }
 
-// POSIX children share a detached process group; Windows taskkill owns the tree.
+// POSIX children share a detached process group; on Windows the shared
+// creation-checked tree kill owns the tree, off the event loop.
 function killProcessTree(child, signal = 'SIGTERM') {
   if (!child || child.pid == null) return;
   if (process.platform === 'win32') {
-    try {
-      spawnSync('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true });
-    } catch {
-      try {
-        child.kill(signal);
-      } catch {}
-    }
+    if (child.exitCode !== null || child.signalCode !== null) return;
+    spawnTreeKill([child.pid], { root: child });
     return;
   }
   try {
@@ -48,8 +45,7 @@ function killProcessTree(child, signal = 'SIGTERM') {
 const KILL_GRACE_MS = 2000;
 function terminateTree(child) {
   killProcessTree(child, 'SIGTERM');
-  // /F is already a hard termination. A later Windows retry could address a
-  // recycled PID instead of the process this handler created.
+  // The Windows tree kill is already a hard termination.
   if (process.platform === 'win32') return;
   const timer = setTimeout(() => killProcessTree(child, 'SIGKILL'), KILL_GRACE_MS);
   timer.unref?.();

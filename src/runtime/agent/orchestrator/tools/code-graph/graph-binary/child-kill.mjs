@@ -1,6 +1,7 @@
 // Kill escalation for a spawned native child: SIGTERM first, then after a
-// grace period a forced kill (taskkill /t /f on Windows, SIGKILL elsewhere).
-import { spawn } from 'node:child_process';
+// grace period a forced kill (the shared creation-checked tree kill on
+// Windows, SIGKILL elsewhere).
+import { spawnTreeKill } from '../../../mcp/child-tree.mjs';
 
 const KILL_GRACE_MS = 3000;
 
@@ -14,7 +15,7 @@ export function createChildKiller(proc) {
     if (!pid) return;
     try {
       if (process.platform === 'win32') {
-        spawn('taskkill', ['/pid', String(pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
+        spawnTreeKill([pid], { root: proc });
       } else {
         try {
           proc.kill('SIGKILL');

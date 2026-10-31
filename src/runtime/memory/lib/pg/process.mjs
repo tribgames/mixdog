@@ -400,7 +400,7 @@ async function startAndWaitReady({ pgctl, startArgs, env, pgdataDir, port }) {
   // so the postmaster is already reparented OUT of the Node process tree —
   // detached only isolated the short-lived pg_ctl. Shutdown/reuse target
   // pgdata/postmaster.pid (pg_ctl stop -D, tryReusePgInstance), not a
-  // Node-tree taskkill, so `windowsHide` alone is correct on all platforms.
+  // Node-tree kill, so `windowsHide` alone is correct on all platforms.
   const child = spawn(pgctl, startArgs, { env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
   child.unref?.();
   const run = { stdout: '', stderr: '', closed: false, exitCode: null };

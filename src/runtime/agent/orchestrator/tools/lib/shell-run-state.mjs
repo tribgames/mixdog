@@ -58,7 +58,7 @@ export function registerForegroundOwnedTree(run, ownerSessionId) {
 }
 
 // Treekill + exit confirmation. treeKill alone leaves settle() pending on
-// 'close'/'exit'; on Windows a taskkill miss or a grandchild holding stdio
+// 'close'/'exit'; on Windows a missed tree kill or a grandchild holding stdio
 // fds keeps the dispatch stalled until the upstream ceiling. Covers every
 // kill path (timeout / pre-aborted / abort / capture-error / size-watchdog)
 // so the hang risk does not live on outside the timeout branch.

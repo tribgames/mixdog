@@ -68,30 +68,33 @@ test('conversions launch in a private profile with first-start and recovery prom
   assert.deepEqual(args.slice(-5), ['--convert-to', 'xlsx', '--outdir', 'out', 'in.xls']);
 });
 
+// The tree kill runs as Windows PowerShell (child-tree.mjs treeKillCommand).
+const isTreeKill = (command) => /powershell\.exe$/i.test(command);
+
 // Loads the module under test with `spawn` replaced by fakes that never emit on
 // their own, so a test decides when (and whether) each process reports back.
-async function fakeProcessModule(t, tag, { platform = 'win32', spawnTaskkill } = {}) {
+async function fakeProcessModule(t, tag, { platform = 'win32', spawnTreeKill } = {}) {
   const { EventEmitter } = await import('node:events');
   const { PassThrough } = await import('node:stream');
   const events = [];
   const spawned = [];
   const fake = (command) => {
     const child = new EventEmitter();
-    const label = command === 'taskkill' ? 'taskkill' : 'launcher';
+    const label = isTreeKill(command) ? 'treekill' : 'launcher';
     child.pid = 4242;
     child.stderr = new PassThrough();
     child.kill = t.mock.fn(() => {
       events.push(`${label}.kill`);
     });
-    if (command === 'taskkill') {
-      events.push('taskkill.spawn');
-      spawnTaskkill?.();
+    if (isTreeKill(command)) {
+      events.push('treekill.spawn');
+      spawnTreeKill?.();
     }
     spawned.push({ command, child });
     return child;
   };
   const spawnSync = t.mock.fn(() => {
-    throw new Error('synchronous taskkill would block the event loop');
+    throw new Error('a synchronous tree kill would block the event loop');
   });
   t.mock.module('node:child_process', { namedExports: { spawn: fake, spawnSync, execFile: () => {} } });
   const original = Object.getOwnPropertyDescriptor(process, 'platform');
@@ -110,48 +113,48 @@ async function fakeProcessModule(t, tag, { platform = 'win32', spawnTaskkill } =
     state.result = value;
   });
   const launcher = spawned[0].child;
-  const killer = () => spawned.find((entry) => entry.command === 'taskkill')?.child;
+  const killer = () => spawned.find((entry) => isTreeKill(entry.command))?.child;
   return { controller, events, killer, launcher, pending, spawnSync, state };
 }
 
-test('Windows cancel kills the launcher only after taskkill has exited', async (t) => {
+test('Windows cancel kills the launcher only after the tree kill has exited', async (t) => {
   const { controller, events, killer, launcher, pending, spawnSync, state } = await fakeProcessModule(t, 'order');
   controller.abort();
-  assert.deepEqual(events, ['taskkill.spawn']);
+  assert.deepEqual(events, ['treekill.spawn']);
   assert.equal(spawnSync.mock.callCount(), 0);
   killer().emit('close', 0);
-  assert.deepEqual(events, ['taskkill.spawn', 'launcher.kill']);
-  // The finished taskkill's deadline is cleared: it neither kills the helper nor the launcher again.
+  assert.deepEqual(events, ['treekill.spawn', 'launcher.kill']);
+  // The finished tree kill's deadline is cleared: it neither kills the helper nor the launcher again.
   t.mock.timers.tick(5_000);
-  assert.deepEqual(events, ['taskkill.spawn', 'launcher.kill']);
+  assert.deepEqual(events, ['treekill.spawn', 'launcher.kill']);
   assert.equal(state.result, null);
   launcher.emit('close', null);
   await pending;
   assert.deepEqual(state.result, { ok: false, error: 'cancelled' });
 });
 
-test('a taskkill that fails to run still lets the launcher be killed once', async (t) => {
-  const { controller, events, killer, pending, state, launcher } = await fakeProcessModule(t, 'taskkill-error');
+test('a tree kill that fails to run still lets the launcher be killed once', async (t) => {
+  const { controller, events, killer, pending, state, launcher } = await fakeProcessModule(t, 'treekill-error');
   controller.abort();
-  killer().emit('error', new Error('spawn taskkill ENOENT'));
-  assert.deepEqual(events, ['taskkill.spawn', 'launcher.kill']);
+  killer().emit('error', new Error('spawn powershell.exe ENOENT'));
+  assert.deepEqual(events, ['treekill.spawn', 'launcher.kill']);
   killer().emit('close', 1);
   t.mock.timers.tick(5_000);
-  assert.deepEqual(events, ['taskkill.spawn', 'launcher.kill']);
+  assert.deepEqual(events, ['treekill.spawn', 'launcher.kill']);
   launcher.emit('close', null);
   await pending;
   assert.deepEqual(state.result, { ok: false, error: 'cancelled' });
 });
 
-test('a taskkill that never exits is stopped at its deadline and the launcher killed after it', async (t) => {
-  const { controller, events, killer, launcher, pending, state } = await fakeProcessModule(t, 'taskkill-hung');
+test('a tree kill that never exits is stopped at its deadline and the launcher killed after it', async (t) => {
+  const { controller, events, killer, launcher, pending, state } = await fakeProcessModule(t, 'treekill-hung');
   controller.abort();
   t.mock.timers.tick(4_999);
-  assert.deepEqual(events, ['taskkill.spawn']);
+  assert.deepEqual(events, ['treekill.spawn']);
   t.mock.timers.tick(1);
-  assert.deepEqual(events, ['taskkill.spawn', 'taskkill.kill', 'launcher.kill']);
+  assert.deepEqual(events, ['treekill.spawn', 'treekill.kill', 'launcher.kill']);
   killer().emit('close', null);
-  assert.deepEqual(events, ['taskkill.spawn', 'taskkill.kill', 'launcher.kill']);
+  assert.deepEqual(events, ['treekill.spawn', 'treekill.kill', 'launcher.kill']);
   launcher.emit('close', null);
   await pending;
   assert.deepEqual(state.result, { ok: false, error: 'cancelled' });
@@ -161,8 +164,8 @@ test('the grace deadline is armed before the tree kill begins', async (t) => {
   let armed = null;
   let tick = null;
   const harness = await fakeProcessModule(t, 'grace-first', {
-    spawnTaskkill: () => {
-      // Once taskkill is being launched, a grace timer that exists fires on this tick.
+    spawnTreeKill: () => {
+      // Once the tree kill is being launched, a grace timer that exists fires on this tick.
       tick();
       armed = true;
     },
@@ -174,20 +177,20 @@ test('the grace deadline is armed before the tree kill begins', async (t) => {
   assert.deepEqual(harness.state.result, { ok: false, error: 'cancelled' });
 });
 
-test('a taskkill that cannot be launched falls back to killing the launcher at once', async (t) => {
-  const { controller, events, launcher, pending, state } = await fakeProcessModule(t, 'taskkill-throws', {
-    spawnTaskkill: () => {
+test('a tree kill that cannot be launched falls back to killing the launcher at once', async (t) => {
+  const { controller, events, launcher, pending, state } = await fakeProcessModule(t, 'treekill-throws', {
+    spawnTreeKill: () => {
       throw new Error('spawn failed');
     },
   });
   controller.abort();
-  assert.deepEqual(events, ['taskkill.spawn', 'launcher.kill']);
+  assert.deepEqual(events, ['treekill.spawn', 'launcher.kill']);
   launcher.emit('close', null);
   await pending;
   assert.deepEqual(state.result, { ok: false, error: 'cancelled' });
 });
 
-test('off Windows the launcher is killed directly without taskkill', async (t) => {
+test('off Windows the launcher is killed directly without a tree kill', async (t) => {
   const { controller, events, launcher, pending, state } = await fakeProcessModule(t, 'posix', { platform: 'linux' });
   controller.abort();
   assert.deepEqual(events, ['launcher.kill']);

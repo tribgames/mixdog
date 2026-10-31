@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFile, execFileSync, spawn } from 'node:child_process';
+import { execFileSync, spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, readlinkSync, rmSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
@@ -8,6 +8,7 @@ import { dirname, join, resolve, sep } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import electronPath from 'electron';
+import { killProcessTreesSync, spawnTreeKill } from '../../../../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const captureEntry = join(here, '../../out/main/capture-window.js');
@@ -97,6 +98,7 @@ function captureProcessPath(pid) {
 // pg_ctl is unavailable, force-stop only a PID whose executable resolves
 // inside that exact profile.
 function stopCapturePostgresSync(userDataRoot) {
+  const provenAt = Date.now();
   const pid = capturePostmasterPid(userDataRoot);
   if (!pid) return false;
   const pgdata = join(userDataRoot, 'mixdog-home', 'data', 'pgdata');
@@ -113,16 +115,9 @@ function stopCapturePostgresSync(userDataRoot) {
   }
   const executable = captureProcessPath(pid);
   if (!executable || !pathIsInside(userDataRoot, executable)) return false;
+  if (process.platform === 'win32') return killProcessTreesSync([pid], { aliveAt: provenAt, timeoutMs: 8_000 }) === 0;
   try {
-    if (process.platform === 'win32') {
-      execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
-        timeout: 8_000,
-        windowsHide: true,
-        stdio: 'ignore',
-      });
-    } else {
-      process.kill(pid, 'SIGKILL');
-    }
+    process.kill(pid, 'SIGKILL');
     return true;
   } catch {
     return false;
@@ -201,14 +196,11 @@ const hardExitWatchdog = setTimeout(() => {
   console.error(`[capture-ui] hard-exit watchdog fired ${timeoutMs + 30_000}ms after start; forcing exit 3.`);
   clearInterval(ownerHeartbeat);
   stopCapturePostgresSync(userData);
-  if (activeCaptureChild?.pid) {
+  if (activeCaptureChild?.pid && activeCaptureChild.exitCode === null && activeCaptureChild.signalCode === null) {
     try {
       if (process.platform === 'win32') {
-        execFileSync('taskkill', ['/PID', String(activeCaptureChild.pid), '/T', '/F'], {
-          timeout: 8_000,
-          windowsHide: true,
-          stdio: 'ignore',
-        });
+        // Detached: the tree kill finishes after this process exits.
+        spawnTreeKill([activeCaptureChild.pid], { root: activeCaptureChild, detached: true });
       } else {
         activeCaptureChild.kill('SIGKILL');
       }
@@ -252,16 +244,11 @@ const startedAt = Date.now();
 function killCaptureTree(child) {
   if (child.exitCode !== null || child.signalCode !== null) return;
   if (process.platform === 'win32') {
+    // Bounded by the shared deadline; the child itself is killed after the pass.
+    const pass = spawnTreeKill([child.pid], { root: child });
+    if (!pass) return Promise.resolve();
     return new Promise((resolveKill) => {
-      execFile(
-        'taskkill',
-        ['/PID', String(child.pid), '/T', '/F'],
-        {
-          timeout: 8_000,
-          windowsHide: true,
-        },
-        () => resolveKill()
-      );
+      pass.once('error', resolveKill).once('exit', resolveKill);
     });
   }
   child.kill('SIGKILL');

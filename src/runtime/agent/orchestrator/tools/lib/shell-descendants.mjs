@@ -242,8 +242,8 @@ export function createContainedTreeTracker({ outcome, cancel }) {
  *  excepted: they are witnesses, never workers). These are processes of a tree
  *  that was KILLED — they escaped its process group (setsid, job control, a
  *  double fork that kept its parent link) or outlived the root on Windows —
- *  so the kill is not finished while they run. Windows: taskkill /T /F;
- *  POSIX: SIGTERM, then SIGKILL after a short grace. */
+ *  so the kill is not finished while they run. Windows: taskkill /F of each
+ *  and its descendants; POSIX: SIGTERM, then SIGKILL after a short grace. */
 export function sweepLiveIdentities(tracker) {
   const targets = tracker.live
     .filter((entry) => entry.token != null && !CONSOLE_HOST.test(entry.name))

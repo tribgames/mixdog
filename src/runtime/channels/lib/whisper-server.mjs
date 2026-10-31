@@ -40,6 +40,7 @@ import fs from 'node:fs';
 import { spawn, spawnSync } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { windowsSystemRoot } from '../../agent/orchestrator/tools/builtin/windows-roots.mjs';
+import { killProcessTrees } from '../../agent/orchestrator/mcp/child-tree.mjs';
 import { selectWhisperPort, whisperListenerOwned } from './whisper-port.mjs';
 
 // ── Tunables (deterministic; no ranges) ──────────────────────────────────────
@@ -217,16 +218,13 @@ function isOwnedWhisperServer(pid, { modelPath, port } = {}) {
   return modelMatch || portMatch;
 }
 
-function killPid(pid, force) {
+// `aliveAt`: when `pid` was last known to be the process meant (a live child
+// handle: now; a proven stale child: before its proof). Windows has no graceful
+// stop for a console server, so both steps run the shared tree kill.
+async function killPid(pid, force, aliveAt = Date.now()) {
   if (!pid) return;
   if (IS_WIN) {
-    const args = ['/PID', String(pid), '/T'];
-    if (force) args.push('/F');
-    try {
-      spawnSync('taskkill', args, { windowsHide: true });
-    } catch {
-      /* best-effort */
-    }
+    await killProcessTrees([pid], { aliveAt });
     return;
   }
   try {
@@ -325,10 +323,10 @@ async function teardown(reason) {
         resolve();
       }
     });
-    killPid(pid, false);
+    void killPid(pid, false);
     const raced = await Promise.race([exited, delay(STOP_GRACE_MS, 'timeout')]);
     if (raced === 'timeout') {
-      killPid(pid, true); // escalate
+      void killPid(pid, true); // escalate
       await Promise.race([exited, delay(STOP_GRACE_MS, 'timeout')]);
     }
   }
@@ -384,11 +382,13 @@ async function startServer(contract) {
   // Prefer the recorded meta's own contract fields; fall back to the contract we
   // are about to start. A non-positive match → never kill (fail closed).
   const ownArgs = { modelPath: meta?.modelPath ?? modelPath, port: meta?.port ?? FIXED_PORT };
+  const provenAt = Date.now();
   if (meta && isOwnedWhisperServer(meta.pid, ownArgs)) {
-    killPid(meta.pid, false);
+    await killPid(meta.pid, false, provenAt);
     await delay(500);
+    const reprovenAt = Date.now();
     if (isOwnedWhisperServer(meta.pid, ownArgs)) {
-      killPid(meta.pid, true);
+      await killPid(meta.pid, true, reprovenAt);
       await delay(500);
     }
     clearPidMeta();

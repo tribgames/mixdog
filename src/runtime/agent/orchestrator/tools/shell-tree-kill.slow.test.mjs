@@ -17,6 +17,7 @@ import { executeBashTool } from './builtin/bash-tool.mjs';
 import { executeTaskTool } from './builtin/task-tool.mjs';
 import { shutdownShellJobs } from './builtin/shell-jobs.mjs';
 import { cancelOwnedShellTrees } from './lib/owned-shell-trees.mjs';
+import { killProcessTreesSync } from '../mcp/child-tree.mjs';
 import {
   _resetNativeSpawnClientForTest,
   _setNativeSpawnBinaryForTest,
@@ -30,11 +31,12 @@ if (!skip) _setNativeSpawnBinaryForTest(binary);
 
 // Without an owner the runtime never exits on its own between steps.
 const keepAlive = setInterval(() => {}, 1_000);
-const started = new Set();
+// pid → when it was first seen recorded (its process ran then).
+const started = new Map();
 test.after(async () => {
   clearInterval(keepAlive);
   // Whatever a failed assertion left behind is still removed here.
-  for (const pid of started) hardKill(pid);
+  for (const [pid, seenAt] of started) hardKill(pid, seenAt);
   if (skip) return;
   await shutdownShellJobs('test-cleanup');
   await shutdownNativeSpawnServer('test-finish').catch(() => {});
@@ -109,7 +111,7 @@ function recorded(s) {
         })
     : [];
   if (!isWin) rows.push(...namedByToken(s));
-  for (const row of rows) started.add(row.pid);
+  for (const row of rows) if (!started.has(row.pid)) started.set(row.pid, Date.now());
   return rows;
 }
 
@@ -132,9 +134,11 @@ function alive(pid) {
   }
 }
 
-function hardKill(pid) {
+// Windows: only the process that held `pid` when it was recorded, never a
+// later holder of a reused pid, through the shared creation-checked tree kill.
+function hardKill(pid, seenAt) {
   if (!alive(pid)) return;
-  if (isWin) spawnSync('taskkill', ['/F', '/T', '/PID', String(pid)], { stdio: 'ignore', windowsHide: true });
+  if (isWin) killProcessTreesSync([pid], { aliveAt: seenAt });
   else {
     try {
       process.kill(pid, 'SIGKILL');

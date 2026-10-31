@@ -224,10 +224,10 @@ finally {
             [void]$appProcess.CloseMainWindow()
         }
         if (-not $appProcess.WaitForExit(20000)) {
-            $treeIds = Get-ProcessTreeIds $appProcess.Id
-            foreach ($id in ($treeIds | Sort-Object -Descending)) {
-                Stop-Process -Id $id -Force -ErrorAction SilentlyContinue
-            }
+            # The shared creation-checked tree kill: a parent-id walk alone can
+            # reach older processes that still name a reused pid as their parent.
+            $childTree = ([Uri](Join-Path $PSScriptRoot '..\..\..\src\runtime\agent\orchestrator\mcp\child-tree.mjs')).AbsoluteUri
+            & node.exe --input-type=module --eval 'const m = await import(process.argv[1]); process.exitCode = m.killProcessTreesSync([Number(process.argv[2])]) ?? 1;' $childTree $appProcess.Id
         }
     }
 

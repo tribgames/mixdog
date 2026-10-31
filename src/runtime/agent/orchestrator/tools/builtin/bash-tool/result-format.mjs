@@ -75,7 +75,7 @@ export function _finalizeShellResult(completedExit, text) {
 
 export function _shellFailureStatus(result, timeout) {
   // Prefer the signal reported by the process. `killed` is only a fallback
-  // for platforms (notably taskkill on Windows) that close without one.
+  // for platforms (notably a Windows tree kill) that close without one.
   const signal = result.signal || (result.killed ? 'SIGKILL' : null);
   const exitCode = signal ? null : result.exitCode;
   const shellToolFailed = result.failurePhase === 'tool' || !!result.outputCaptureError;
