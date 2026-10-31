@@ -249,6 +249,19 @@ const SETTLE_MAX_FRAMES = 90;
 /** The focused pane's composer card. */
 const COMPOSER_SELECTOR = '.pane-cell.is-focused form.composer';
 
+/** A retained session surface stays mounted and connected but is inert
+ *  (`data-retained`) or hidden: its composer is not the one shown. */
+const RETAINED_SELECTOR = '[inert], [data-retained], [hidden]';
+
+/** The focused pane's presented composer: the first not inside a retained,
+ *  inert or hidden surface. */
+function presentedComposer(): Element | null {
+  for (const candidate of document.querySelectorAll(COMPOSER_SELECTOR)) {
+    if (!candidate.closest(RETAINED_SELECTOR)) return candidate;
+  }
+  return null;
+}
+
 /** The app's floating layers, by role (every menu, listbox popup, dialog and
  *  tooltip carries one) plus the shared menu and dialog classes. */
 const FLOATING_SELECTOR =
@@ -458,8 +471,9 @@ function watchComposerCard(
     members = next;
   }
   const track = () => {
-    const next = document.querySelector(COMPOSER_SELECTOR);
+    const next = presentedComposer();
     if (next === card) return;
+    hint();
     resize.disconnect();
     dock.disconnect();
     card = next;
@@ -483,7 +497,9 @@ function watchComposerCard(
   /** Measures and publishes; returns what it measured, to tell a box that
    *  still moves from one that settled. */
   function measure(): string {
-    if (!card?.isConnected) track();
+    // Not only on disconnection: a retained session's composer stays
+    // connected while another one is presented.
+    track();
     if (!card || underBootCover(card)) {
       publish(null);
       return 'null';
@@ -511,6 +527,8 @@ function watchComposerCard(
   return {
     measure,
     card: () => card,
+    /** The followed card is the one now presented. */
+    current: () => card !== null && card.isConnected && presentedComposer() === card,
     /** An island pill mounted or replaced since the last measure. */
     islandMoved: () => card !== null && islandElement(card) !== island,
     dispose: () => {
@@ -648,7 +666,7 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
     const mutations = new MutationObserver((records) => {
       scheduleLayers();
       if (
-        cardWatch.card()?.isConnected &&
+        cardWatch.current() &&
         !cardWatch.islandMoved() &&
         !records.some((record) => record.attributeName === 'data-ready')
       )
@@ -660,7 +678,7 @@ function PetComposerAnchor({ focusKey }: { focusKey: string }) {
       childList: true,
       subtree: true,
       attributes: true,
-      attributeFilter: ['data-ready', 'data-open'],
+      attributeFilter: ['data-ready', 'data-open', 'inert', 'data-retained', 'hidden'],
     });
     // Such a popover turns visible or hidden only when its fade ends; a layer
     // also settles after its entrance animation or moves with a scroll.
