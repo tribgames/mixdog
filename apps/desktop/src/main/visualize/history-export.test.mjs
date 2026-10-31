@@ -168,7 +168,9 @@ test('the remote view of the list is path-free and sessions stay separate', asyn
   writeFileSync(join(cwd, 'page.html'), '<p>x</p>');
   const hosts = [];
   const { service, open } = setup(cwd, { publishHost: (event) => hosts.push(event) });
-  await open({ targets: [join(cwd, 'page.html')], label: `Page at ${cwd}` });
+  // A fixed absolute path in the label: the temp root under a test runner can
+  // push a label built from this project's path past the 120-character limit.
+  await open({ targets: [join(cwd, 'page.html')], label: 'Page at /home/someone/private/page.html' });
   await open({ content: { kind: 'svg', source: '<svg/>' } }, 's2');
   const host = service.hostSnapshot().find((state) => state.sessionId === 's1');
   assert.equal(host.history[0].label, 'page.html', 'a label naming a host path is replaced');

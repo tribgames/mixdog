@@ -7,7 +7,10 @@ import test from 'node:test';
 
 const gitAvailable = spawnSync('git', ['--version'], { encoding: 'utf8', windowsHide: true }).status === 0;
 
-const root = mkdtempSync(join(tmpdir(), 'mixdog-turn-worktree-forget-'));
+// Short prefix: git refuses a $GIT_DIR over ~219 characters on Windows, and the
+// shadow repository sits at <root>\data\turn-worktree-snapshots-v1\<24 hex>
+// under a temp root that can already be ~140 characters.
+const root = mkdtempSync(join(tmpdir(), 'tw-'));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
 process.on('exit', () => {
   rmSync(root, { recursive: true, force: true });
