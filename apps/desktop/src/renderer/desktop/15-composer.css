@@ -824,12 +824,6 @@
   gap: 10px;
   padding-block: 6px;
 }
-/* The divider is painted, not a border: a half-pixel border pushes every later
-   row's centered content onto a fractional pixel, where the icon, status word
-   and button label round to different device pixels. */
-.composer-island-row + .composer-island-row {
-  box-shadow: inset 0 var(--mx-hairline) 0 0 var(--composer-island-rule);
-}
 .composer-island-row > .composer-island-row-open,
 .composer-island-row > .schedules-row-copy {
   min-width: 0;
@@ -965,9 +959,6 @@
 }
 .composer-island-agent-item {
   position: relative;
-}
-.composer-island-agent-item + .composer-island-agent-item {
-  border-top: var(--mx-hairline) solid var(--composer-island-rule);
 }
 /* A row with its own ledger total: the state rides the name's line and the
    total the supporting line, both at the right edge. */
