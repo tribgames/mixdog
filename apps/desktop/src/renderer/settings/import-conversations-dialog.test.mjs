@@ -203,6 +203,24 @@ test('dialog: an empty scan names the searched folder', async (t) => {
   assert.match(host.textContent, /Choose file…/);
 });
 
+test('dialog: Cowork is a source and a starred row is marked', async (t) => {
+  const calls = [];
+  const rows = [
+    { ...row('a'), source: 'cowork', starred: true },
+    { ...row('b'), source: 'cowork', starred: false },
+  ];
+  const host = await mount(t, { rows, calls });
+  const button = [...host.querySelectorAll('.settings-import-seg button')].find((el) => el.textContent === 'Cowork');
+  assert.ok(button);
+  await click(button);
+  assert.equal(calls.filter((call) => call[1] === 'listImportableConversations').at(-1)[2].source, 'cowork');
+  const marks = [...host.querySelectorAll('.settings-import-item')].map((el) =>
+    el.querySelector('[aria-label="Starred"]')
+  );
+  assert.ok(marks[0]);
+  assert.equal(marks[1], null);
+});
+
 test('dialog: nothing selected reads "Import" and a null message count is omitted', async (t) => {
   const host = await mount(t, { rows: [row('a'), row('c')], calls: [] });
   assert.equal(primary(host).textContent, 'Import');

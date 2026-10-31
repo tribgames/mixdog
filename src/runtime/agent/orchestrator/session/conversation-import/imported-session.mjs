@@ -14,9 +14,13 @@ import { ingestSessionTurn } from '../../../../session-search/session-search-ing
 
 export const IMPORT_ORIGIN_VERSION = 1;
 
-/** Dedupe identity: the foreign session id, else the canonical source path. */
+/**
+ * Dedupe identity: the foreign session id, else the canonical source path.
+ * Cowork transcripts are Claude Code transcripts, so both share the `claude` namespace.
+ */
 export function importOriginKey(source, foreignSessionId, canonicalPath) {
-  return foreignSessionId ? `${source}:${foreignSessionId}` : `${source}:path:${canonicalPath}`;
+  const namespace = source === 'cowork' ? 'claude' : source;
+  return foreignSessionId ? `${namespace}:${foreignSessionId}` : `${namespace}:path:${canonicalPath}`;
 }
 
 export function buildImportOrigin({ source, sourcePath, foreignSessionId = null, sourceCwd = null, importedAt }) {

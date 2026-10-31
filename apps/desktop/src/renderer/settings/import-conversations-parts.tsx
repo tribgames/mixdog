@@ -28,7 +28,14 @@ const NEAR_END_PX = 240;
 const SOURCES: ReadonlyArray<{ value: ConversationImportSource; label: string }> = [
   { value: 'codex', label: 'Codex' },
   { value: 'claude', label: 'Claude Code' },
+  { value: 'cowork', label: 'Cowork' },
 ];
+
+const EMPTY_TITLES: Record<ConversationImportSource, () => string> = {
+  codex: () => t('No Codex conversations to import'),
+  claude: () => t('No Claude Code conversations to import'),
+  cowork: () => t('No Cowork conversations to import'),
+};
 
 export function importHeading(job: ConversationImportJob | null, running: boolean): string {
   if (!job) return t('Import conversations');
@@ -138,11 +145,7 @@ function ImportEmptyState({ listing, onChooseFile }: { listing: ImportListing; o
   const sourceName = SOURCES.find((entry) => entry.value === listing.source)?.label ?? '';
   return (
     <div className="settings-import-empty">
-      <b>
-        {listing.source === 'codex'
-          ? t('No Codex conversations to import')
-          : t('No Claude Code conversations to import')}
-      </b>
+      <b>{EMPTY_TITLES[listing.source]()}</b>
       <p>{t('No conversations were found in:')}</p>
       <code>{listing.list?.searchedRoot}</code>
       <p>{t('If you use {{app}} somewhere else, choose a file yourself.', { app: sourceName })}</p>
@@ -232,7 +235,14 @@ function ImportRow({
       title={row.warnings.length ? row.warnings.map(importCodeMessage).join('\n') : undefined}
     >
       <input type="checkbox" checked={checked} disabled={disabled} onChange={onToggle} />
-      <span className="settings-import-item-title">{row.title || t('Untitled session')}</span>
+      <span className="settings-import-item-title">
+        {row.starred && (
+          <span role="img" aria-label={t('Starred')} title={t('Starred')}>
+            ★{' '}
+          </span>
+        )}
+        {row.title || t('Untitled session')}
+      </span>
       <span className="settings-import-item-time">{relativeWhen(row.modifiedAt)}</span>
       <span className="settings-import-item-meta">
         <span className="settings-import-item-path" title={row.cwd ?? undefined}>

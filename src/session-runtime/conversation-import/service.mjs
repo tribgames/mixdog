@@ -143,7 +143,7 @@ const titlesFor = (candidate, context) => (candidate.source === 'codex' ? contex
 function describeCandidate(candidateId, context) {
   const candidate = getCandidate(candidateId);
   return {
-    title: candidate ? displayTitle(cachedMeta(candidate), titlesFor(candidate, context)) : null,
+    title: candidate ? displayTitle(cachedMeta(candidate), titlesFor(candidate, context), candidate.title) : null,
     sourceName: candidate ? basename(candidate.path) : null,
   };
 }
@@ -196,7 +196,8 @@ async function importOne(candidateId, context) {
   }
   const title = displayTitle(
     { foreignSessionId: conversion.foreignSessionId, title: listedTitle || conversion.title },
-    titlesFor(candidate, context)
+    titlesFor(candidate, context),
+    candidate.title
   );
   if (title) conversion = { ...conversion, title };
   recordConversion(candidate, conversion);
