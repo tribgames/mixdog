@@ -111,7 +111,7 @@ function busyPromptOptions(prompt: BusyPrompt) {
 const NO_PROJECTS: readonly DesktopProjectSummary[] = [];
 /** Default top-to-bottom order of the session categories; the user can drag
  *  any heading to reorder them. */
-const SIDEBAR_SECTIONS = ['favorites', 'projects', 'automations', 'recent', 'archived'] as const;
+const SIDEBAR_SECTIONS = ['agents', 'favorites', 'projects', 'automations', 'recent', 'archived'] as const;
 
 /** The sidebar's width: persisted, clamped, and flushed on pagehide mid-drag. */
 function useSidebarWidth() {
@@ -796,6 +796,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   const [recentRowLimit, setRecentRowLimit] = useState(RECENT_SESSION_INITIAL_ROWS);
   const sectionOrder = usePersistedListOrder('mixdog:session-sidebar-section-order', SIDEBAR_SECTIONS, {
     dropAnchor: ':scope > .sidebar-category-header',
+    // Bots joined the order later: a saved order keeps them on top, where they always were.
+    placeNewAtDefault: true,
   });
   const folders = useProjectFolderState();
   const { activityProjectGroups, projectOrder, projectGroups } = useProjectGroups({

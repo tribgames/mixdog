@@ -386,20 +386,6 @@ export function sessionsSurface({
         onDragLeave={sectionContext.gapDrop.onDragLeave}
         onDrop={sectionContext.gapDrop.onDrop}
       >
-        {!hiddenSections?.has('agents') &&
-          (sectionContext.agentContacts.length > 0 || sectionContext.agentRooms.length > 0) &&
-          agentsSection({
-            contacts: sectionContext.agentContacts,
-            rooms: sectionContext.agentRooms,
-            onOpenRoom: sectionContext.onOpenRoom,
-            open: sectionContext.openState.agentsOpen,
-            onToggleOpen: () => sectionContext.openState.toggleSection('agents'),
-            selectedSessionId: sectionContext.selection.kind === 'session' ? sectionContext.selection.id : '',
-            onOpenAgent: sectionContext.onOpenAgent,
-            onOpenMenu: sectionContext.onOpenAgentMenu,
-            onOpenRoomMenu: sectionContext.onOpenRoomMenu,
-            attentionOf: sectionContext.attentionOf,
-          })}
         {sectionIds
           .filter((section) => !hiddenSections?.has(section))
           .map((section) => (
@@ -533,6 +519,23 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
   const renderUnorderedRows: RenderForkRows = (list, limit, sentinelRef) =>
     renderForkRows(ctx, list, limit, undefined, section, sentinelRef);
   switch (section) {
+    case 'agents':
+      return (
+        (ctx.agentContacts.length > 0 || ctx.agentRooms.length > 0) &&
+        agentsSection({
+          contacts: ctx.agentContacts,
+          rooms: ctx.agentRooms,
+          onOpenRoom: ctx.onOpenRoom,
+          open: openState.agentsOpen,
+          onToggleOpen: () => openState.toggleSection('agents'),
+          selectedSessionId: ctx.selection.kind === 'session' ? ctx.selection.id : '',
+          onOpenAgent: ctx.onOpenAgent,
+          onOpenMenu: ctx.onOpenAgentMenu,
+          onOpenRoomMenu: ctx.onOpenRoomMenu,
+          attentionOf: ctx.attentionOf,
+          headerProps,
+        })
+      );
     case 'favorites':
       // With no favorites yet the section still appears while a session is
       // dragged, so the first one can be dropped onto it.

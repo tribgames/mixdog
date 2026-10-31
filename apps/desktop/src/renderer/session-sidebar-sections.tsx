@@ -295,6 +295,21 @@ interface AgentsSectionProps {
   onOpenAgent(contact: AgentContact): void;
   onOpenMenu?(contact: AgentContact, point: { x: number; y: number }): void;
   onOpenRoomMenu?(row: SidebarRoomRow, point: { x: number; y: number }): void;
+  headerProps?: ReorderProps;
+}
+
+/** The status a bot's row shows (running spinner, needs-you, failure, unread);
+ *  a running home thread the caller's signal missed still spins. */
+function contactAttention(
+  contact: AgentContact,
+  attentionOf?: (sessionId: string) => SessionAttention | ''
+): SessionAttention | '' {
+  return strongestSessionAttention([
+    contact.session ? (attentionOf?.(contact.session.id) ?? '') : '',
+    contact.indicator?.kind === 'attention' ? (contact.asking ? 'asking' : 'needs-you') : '',
+    contact.indicator?.kind === 'running' ? 'running' : '',
+    contact.indicator?.kind === 'unread' ? 'unread' : '',
+  ]);
 }
 
 /** One bot row: a session drag source (drop it on a pane to open it) and a
@@ -379,11 +394,21 @@ function AgentsSection({
   onOpenMenu,
   onOpenRoomMenu,
   attentionOf,
+  headerProps,
 }: AgentsSectionProps) {
   const botList = useBotReorder().bind(contacts);
+  const reorder = reorderTarget(headerProps);
+  const headingStatus = open
+    ? ''
+    : strongestSessionAttention([
+        ...contacts.map((contact) => contactAttention(contact, attentionOf)),
+        ...rooms.map(({ indicator }) =>
+          indicator?.kind === 'running' ? 'running' : indicator?.kind === 'unread' ? 'unread' : ''
+        ),
+      ]);
   return (
-    <section className="sidebar-recent sidebar-agents" aria-label={t('Bots')}>
-      <div className="sidebar-category-header">
+    <section className="sidebar-recent sidebar-agents" aria-label={t('Bots')} {...reorder}>
+      <div className="sidebar-category-header" {...reorderHandle(headerProps)}>
         <button
           type="button"
           className="sidebar-recent-heading sidebar-heading-toggle"
@@ -392,20 +417,18 @@ function AgentsSection({
         >
           <span>{t('Bots')}</span>
           {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <SectionHeadingStatus
+            status={headingStatus}
+            name={t('Bots')}
+            unreadLabel={t('{{name}} has new activity', { name: t('Bots') })}
+          />
         </button>
       </div>
       {open && (
         <nav className="session-list agent-session-list" aria-label={t('Bots')} {...botList.listProps}>
           {contacts.map((contact) => {
             const selected = Boolean(contact.session) && contact.session?.id === selectedSessionId;
-            // The status a session row shows (running spinner, needs-you, failure,
-            // unread); a running home thread the caller's signal missed still spins.
-            const status = strongestSessionAttention([
-              contact.session ? (attentionOf?.(contact.session.id) ?? '') : '',
-              contact.indicator?.kind === 'attention' ? (contact.asking ? 'asking' : 'needs-you') : '',
-              contact.indicator?.kind === 'running' ? 'running' : '',
-              contact.indicator?.kind === 'unread' ? 'unread' : '',
-            ]);
+            const status = contactAttention(contact, attentionOf);
             return (
               <AgentBotRow
                 key={contact.agentId}

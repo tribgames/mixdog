@@ -1,7 +1,29 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { dragEdgeScrollDelta } from './use-persisted-list-order.ts';
+import { dragEdgeScrollDelta, mergeNewAtDefault } from './use-persisted-list-order.ts';
+
+test('a saved order missing a newer id keeps that id at its default place', () => {
+  const ids = ['agents', 'favorites', 'projects', 'automations', 'recent', 'archived'];
+  // Bots joined the section order after users had saved one: they stay on top.
+  assert.deepEqual(mergeNewAtDefault(['recent', 'projects'], ids), [
+    'agents',
+    'recent',
+    'projects',
+    'favorites',
+    'automations',
+    'archived',
+  ]);
+  // A saved order that already places them keeps them there; other missing ids go last.
+  assert.deepEqual(mergeNewAtDefault(['projects', 'agents'], ids), [
+    'projects',
+    'agents',
+    'favorites',
+    'automations',
+    'recent',
+    'archived',
+  ]);
+});
 
 test('drag edge scrolling accelerates toward and beyond the top edge', () => {
   assert.equal(dragEdgeScrollDelta(148, 100, 500), 0);
