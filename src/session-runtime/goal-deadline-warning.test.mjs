@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import { createGoalRuntime } from '../runtime/agent/orchestrator/runtime-core/goal-runtime.mjs';
 import { waitUntil } from '../runtime/shared/wait-until.test-support.mjs';
@@ -19,6 +19,21 @@ const delivered = (runtime, sessionId, revision) =>
     message: `warning revision ${revision}`,
   });
 const drained = () => new Promise((resolve) => setImmediate(resolve));
+
+// A live runtime beats every minute; a jump of the injected clock with no beat is a
+// sleeping PC, whose time is not charged. Walk the clock a minute at a time so
+// the heartbeat observes it.
+let clock = 0;
+mock.timers.enable({ apis: ['setInterval'] });
+test.after(() => mock.timers.reset());
+async function advance(runtime, ms, sessionId) {
+  for (let left = ms; left > 0; left -= MINUTE_MS) {
+    const step = Math.min(MINUTE_MS, left);
+    clock += step;
+    mock.timers.tick(step);
+    await runtime.control(sessionId, { action: 'get' });
+  }
+}
 const warningRevisions = (events) =>
   events.map((event) => Number(event?.goal?.warningRevision) || 0).filter((revision) => revision > 0);
 
@@ -31,7 +46,7 @@ const writeGoalRecord = async (path, record) => {
 
 test('a requested duration warns once at each threshold before the budget stop', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-warning-'));
-  let clock = 1_950_000_000_000;
+  clock = 1_950_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock, writeGoalRecord });
   const events = [];
   runtime.subscribe((event) => events.push(event));
@@ -45,7 +60,7 @@ test('a requested duration warns once at each threshold before the budget stop',
 
     // Inside the ten-minute window: one warning, carrying the live remaining
     // time the session needs to phrase its reminder.
-    clock += HOUR_MS - 9 * MINUTE_MS;
+    await advance(runtime, HOUR_MS - 9 * MINUTE_MS, 'sess_goal_warning');
     await delivered(runtime, 'sess_goal_warning', 1);
     const tenMinute = runtime.snapshot('sess_goal_warning');
     assert.equal(tenMinute.warningRevision, 1);
@@ -53,12 +68,12 @@ test('a requested duration warns once at each threshold before the budget stop',
     assert.ok(tenMinute.remainingMs > 0 && tenMinute.remainingMs <= 10 * MINUTE_MS);
 
     // Crossing the five-minute threshold warns exactly once more.
-    clock += 5 * MINUTE_MS;
+    await advance(runtime, 5 * MINUTE_MS, 'sess_goal_warning');
     await delivered(runtime, 'sess_goal_warning', 2);
 
     // Repeated reads inside the same window never re-warn.
     for (let index = 0; index < 3; index += 1) {
-      clock += MINUTE_MS;
+      await advance(runtime, MINUTE_MS, 'sess_goal_warning');
       runtime.snapshot('sess_goal_warning');
       await drained();
     }
@@ -66,7 +81,7 @@ test('a requested duration warns once at each threshold before the budget stop',
     assert.deepEqual(warningRevisions(events), [1, 2]);
 
     // The hard stop still lands on the requested boundary.
-    clock += 5 * MINUTE_MS;
+    await advance(runtime, 5 * MINUTE_MS, 'sess_goal_warning');
     assert.equal(runtime.snapshot('sess_goal_warning').status, 'duration_reached');
     const readStored = () => JSON.parse(readFileSync(join(dataDir, 'goals', 'sess_goal_warning.json'), 'utf8')).goal;
     await waitUntil(() => readStored().status === 'duration_reached', { message: 'hard stop persisted' });
@@ -81,7 +96,7 @@ test('a requested duration warns once at each threshold before the budget stop',
 
 test('a Goal already inside a window at resume warns once at the most urgent threshold', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-warning-late-'));
-  let clock = 1_951_000_000_000;
+  clock = 1_951_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock, writeGoalRecord });
   try {
     await runtime.control('sess_goal_late', {
@@ -90,9 +105,9 @@ test('a Goal already inside a window at resume warns once at the most urgent thr
       timeLimitMs: HOUR_MS,
     });
     // Four minutes left with no warning ever delivered: one reminder, not two.
-    clock += HOUR_MS - 4 * MINUTE_MS;
+    await advance(runtime, HOUR_MS - 4 * MINUTE_MS, 'sess_goal_late');
     await delivered(runtime, 'sess_goal_late', 1);
-    clock += MINUTE_MS;
+    await advance(runtime, MINUTE_MS, 'sess_goal_late');
     runtime.snapshot('sess_goal_late');
     await drained();
     assert.equal(runtime.snapshot('sess_goal_late').warningRevision, 1);
@@ -105,7 +120,7 @@ test('a Goal already inside a window at resume warns once at the most urgent thr
 for (const action of ['time', 'edit']) {
   test(`a new duration commitment via ${action} re-earns its warnings`, async () => {
     const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-warning-extend-'));
-    let clock = 1_952_000_000_000;
+    clock = 1_952_000_000_000;
     const runtime = createGoalRuntime({ dataDir, now: () => clock, writeGoalRecord });
     try {
       await runtime.control('sess_goal_extend', {
@@ -113,7 +128,7 @@ for (const action of ['time', 'edit']) {
         objective: 'Finish the objective',
         timeLimitMs: HOUR_MS,
       });
-      clock += HOUR_MS - 9 * MINUTE_MS;
+      await advance(runtime, HOUR_MS - 9 * MINUTE_MS, 'sess_goal_extend');
       await delivered(runtime, 'sess_goal_extend', 1);
 
       const extended = await runtime.control('sess_goal_extend', {
@@ -123,7 +138,7 @@ for (const action of ['time', 'edit']) {
       });
       assert.equal(extended.goal.timeLimitMs, 3 * HOUR_MS);
       assert.equal(extended.goal.status, 'active');
-      clock += 3 * HOUR_MS - extended.goal.timeUsedMs - 9 * MINUTE_MS;
+      await advance(runtime, 3 * HOUR_MS - extended.goal.timeUsedMs - 9 * MINUTE_MS, 'sess_goal_extend');
       await delivered(runtime, 'sess_goal_extend', 2);
     } finally {
       runtime.close();
@@ -134,7 +149,7 @@ for (const action of ['time', 'edit']) {
 
 test('objective-only edits do not repeat an already delivered deadline warning', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-warning-edit-'));
-  let clock = 1_952_000_000_000;
+  clock = 1_952_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock, writeGoalRecord });
   try {
     await runtime.control('sess_goal_edit', {
@@ -142,7 +157,7 @@ test('objective-only edits do not repeat an already delivered deadline warning',
       objective: 'Finish the objective',
       timeLimitMs: HOUR_MS,
     });
-    clock += HOUR_MS - 9 * MINUTE_MS;
+    await advance(runtime, HOUR_MS - 9 * MINUTE_MS, 'sess_goal_edit');
     await delivered(runtime, 'sess_goal_edit', 1);
     await runtime.control('sess_goal_edit', {
       action: 'edit',
@@ -159,7 +174,7 @@ test('objective-only edits do not repeat an already delivered deadline warning',
 
 test('a paused or completed Goal never warns about a budget it is not spending', async () => {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-warning-paused-'));
-  let clock = 1_953_000_000_000;
+  clock = 1_953_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock, writeGoalRecord });
   try {
     await runtime.control('sess_goal_paused', {
@@ -167,7 +182,7 @@ test('a paused or completed Goal never warns about a budget it is not spending',
       objective: 'Finish the objective',
       timeLimitMs: HOUR_MS,
     });
-    clock += HOUR_MS - 9 * MINUTE_MS;
+    await advance(runtime, HOUR_MS - 9 * MINUTE_MS, 'sess_goal_paused');
     await runtime.control('sess_goal_paused', { action: 'pause' });
     runtime.snapshot('sess_goal_paused');
     await drained();

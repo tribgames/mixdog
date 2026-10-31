@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import test from 'node:test';
+import test, { mock } from 'node:test';
 
 import {
   createGoalRuntime,
@@ -149,6 +149,7 @@ test('Goals default to no deadline and active elapsed time stays synchronized ac
 });
 
 test('Goal continuation waits on running agents and background shells of this cycle, not earlier servers, and the deadline limits turns', async () => {
+  mock.timers.enable({ apis: ['setInterval'] });
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-limit-'));
   let clock = 1_900_000_000_000;
   const runtime = createGoalRuntime({ dataDir, now: () => clock });
@@ -180,11 +181,18 @@ test('Goal continuation waits on running agents and background shells of this cy
     completeBackgroundTask(build.taskId, { status: 'completed', notify: false });
     assert.equal(runtime.continuation('sess_goal_limit').run, true);
 
-    clock += limitMs + 1;
+    // A live runtime beats every minute; one silent jump would read as sleep.
+    for (let left = limitMs + 1; left > 0; left -= 60_000) {
+      const step = Math.min(60_000, left);
+      clock += step;
+      mock.timers.tick(step);
+      await runtime.control('sess_goal_limit', { action: 'get' });
+    }
     const limited = runtime.snapshot('sess_goal_limit');
     assert.equal(limited.status, 'duration_reached');
     assert.equal(runtime.continuation('sess_goal_limit').run, false);
   } finally {
+    mock.timers.reset();
     for (const task of shellTasks) completeBackgroundTask(task.taskId, { status: 'completed', notify: false });
     runtime.close();
     rmSync(dataDir, { recursive: true, force: true });

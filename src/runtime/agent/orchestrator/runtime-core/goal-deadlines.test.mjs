@@ -64,3 +64,37 @@ test('a closed Goal deadline controller cannot re-arm itself after an accepted w
   assert.equal(f.reads(), 0);
   assert.deepEqual(f.queued, []);
 });
+
+test('an expired Goal keeps no suspend anchor once its expiry commit has re-armed the deadline', async (t) => {
+  const record = {
+    goal: { id: 'goal-1', status: 'active', timeLimitMs: 60_000, timeUsedMs: 0, lastStartedAt: 1_000 },
+  };
+  let wall = 1_000;
+  let controller;
+  controller = createGoalDeadlines({
+    now: () => wall,
+    monotonicNow: () => wall,
+    suspendDetectable: true,
+    deadlineWarningMs: [],
+    readRecord: () => ({ goal: structuredClone(record.goal) }),
+    withMutation: (id, operation) => Promise.resolve().then(() => operation(id)),
+    // The real store re-arms the deadline on every commit.
+    commit: async (id, next) => {
+      record.goal = structuredClone(next);
+      controller.armDeadline(id);
+    },
+    stampLive: async () => {},
+    onStorageError: (error) => {
+      throw error;
+    },
+  });
+  t.after(() => controller.close());
+
+  controller.armDeadline('session-1');
+  assert.equal(controller.anchorCount(), 1);
+  wall = 100_000;
+  controller.limitIfExpired('session-1');
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(record.goal.status, 'duration_reached');
+  assert.equal(controller.anchorCount(), 0);
+});

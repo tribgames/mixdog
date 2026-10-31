@@ -124,7 +124,11 @@ function storedLegacyTasks(value) {
   return Array.isArray(tasks) && tasks.length
     ? tasks
         .filter((task) => task && typeof task === 'object' && clean(task.text ?? task.content))
-        .map((task) => ({ text: clean(task.text ?? task.content), status: clean(task.status) || 'pending' }))
+        .map((task) => ({
+          text: clean(task.text ?? task.content),
+          // A criterion written before task statuses carried `satisfied`.
+          status: clean(task.status) || (task.satisfied === true ? 'completed' : 'pending'),
+        }))
     : [];
 }
 
@@ -138,6 +142,9 @@ export function normalizeStoredGoal(value, sessionId, resumedAt = Date.now()) {
     sessionId,
     objective: validateObjective(value.objective),
     title: compactSessionTitle(value.title || value.objective),
+    // Advances on every objective edit, so a settlement can tell whether the
+    // turn it answers saw the current wording.
+    objectiveRevision: Math.max(0, Math.floor(Number(value.objectiveRevision) || 0)),
     status,
     legacyTasks: storedLegacyTasks(value),
     blocker: clean(value.blocker),
@@ -184,6 +191,19 @@ export function discardUnobservedTime(goal, at, toleranceMs = 0) {
   // after downtime passes none, so no closed-app interval is ever credited.
   if (gap <= toleranceMs) return false;
   goal.lastStartedAt = Number(goal.lastStartedAt) + gap;
+  goal.liveAt = at;
+  return true;
+}
+
+/** Drop `suspendedMs` — time a live runtime provably did not run (the OS was
+ *  suspended) — from an active Goal's open segment, never more than the gap
+ *  since it was last seen. Returns whether anything was dropped. */
+export function discardSuspendedTime(goal, at, suspendedMs) {
+  if (goal?.status !== 'active' || !(Number(goal.lastStartedAt) > 0)) return false;
+  const seenAt = Math.max(Number(goal.lastStartedAt), Number(goal.liveAt) || 0);
+  const dropped = Math.min(Math.floor(Number(suspendedMs) || 0), Math.max(0, at - seenAt));
+  if (!(dropped > 0)) return false;
+  goal.lastStartedAt = Number(goal.lastStartedAt) + dropped;
   goal.liveAt = at;
   return true;
 }

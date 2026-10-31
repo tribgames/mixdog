@@ -34,7 +34,11 @@ export { listStoredActiveGoalSessionIds, readStoredGoalSnapshot } from './goal-s
 
 export function createGoalRuntime({
   dataDir,
-  now = () => Date.now(),
+  now: injectedNow,
+  // Suspend evidence needs a monotonic clock paired with the wall clock; an
+  // injected `now` has no real pair, so a test supplies its own or none.
+  monotonicNow = injectedNow ? null : () => performance.now(),
+  suspendDetectable,
   defaultTimeLimitMs = DEFAULT_GOAL_TIME_LIMIT_MS,
   completedGoalTtlMs = DEFAULT_COMPLETED_GOAL_TTL_MS,
   deadlineWarningMs = DEFAULT_GOAL_DEADLINE_WARNING_MS,
@@ -42,6 +46,7 @@ export function createGoalRuntime({
   writeGoalRecord,
   onStorageError = reportGoalStorageError,
 } = {}) {
+  const now = injectedNow ?? (() => Date.now());
   const ctx = {
     dataDir,
     root: goalsRoot(dataDir),
@@ -55,6 +60,9 @@ export function createGoalRuntime({
     mutationChains: new Map(),
     turnGoalIds: new Map(),
     turnStartedAt: new Map(),
+    // Session -> the objective revision the current turn has seen (turn start,
+    // a status read, or a refusal that showed it). In memory like the turn.
+    turnObjectiveRevisions: new Map(),
     titleJobs: new Map(),
     // Session -> the Goal identity and turn an automatic turn answered with no
     // tool call. In memory on purpose: a restart is a new chance.
@@ -71,12 +79,14 @@ export function createGoalRuntime({
   Object.assign(ctx, createGoalStore(ctx));
   ctx.deadlines = createGoalDeadlines({
     now,
-    readRecord: ctx.readRecord,
+    readRecord: ctx.readStoredRecord,
     withMutation: ctx.withMutation,
     commit: ctx.commit,
     stampLive: ctx.stampLive,
     onStorageError,
     deadlineWarningMs,
+    monotonicNow,
+    ...(suspendDetectable !== undefined ? { suspendDetectable } : {}),
   });
   ctx.scheduleGoalTitle = createGoalTitleScheduler(ctx);
   Object.assign(ctx, createGoalMutations(ctx));
@@ -132,6 +142,7 @@ export function createGoalRuntime({
       deadlines.close();
       ctx.turnGoalIds.clear();
       ctx.turnStartedAt.clear();
+      ctx.turnObjectiveRevisions.clear();
       ctx.idleReviewTurns.clear();
       ctx.continuationTiers.clear();
       ctx.unsavedStops.clear();

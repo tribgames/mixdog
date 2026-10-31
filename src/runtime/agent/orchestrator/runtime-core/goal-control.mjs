@@ -70,6 +70,7 @@ const GOAL_CONTROL_ACTIONS = {
     } else if (args.timeLimitMs != null) {
       timeLimitMs = args.timeLimitMs === 0 ? 0 : parseGoalDuration(args.timeLimitMs);
     } else if (args.duration != null) timeLimitMs = parseGoalDuration(args.duration);
+    if (objective !== goal.objective) goal.objectiveRevision = (Number(goal.objectiveRevision) || 0) + 1;
     goal.objective = objective;
     goal.title = compactSessionTitle(goal.objective);
     if (timeLimitMs !== goal.timeLimitMs) goal.deadlineWarnedMs = NO_DEADLINE_WARNING_MS;
