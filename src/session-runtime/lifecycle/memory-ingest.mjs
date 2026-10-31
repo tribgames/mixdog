@@ -4,9 +4,9 @@
  */
 const INGEST_DEADLINE_MS = 2500;
 
-// Sessions that never compacted had NO session-sourced rows (ingest_session
-// previously ran only inside compaction), so recall could not reconstruct
-// the most recent conversations. Deadline-capped: the row inserts are fast
+// Sessions that never compacted have no session-sourced rows unless ingested
+// here, and recall could not reconstruct the most recent conversations
+// without them. Deadline-capped: the row inserts are fast
 // and committed even if the bounded wait elapses during the trailing
 // embedding flush (the raw-embedding backlog sweep embeds them later). Never
 // loads the memory runtime just for this — a null module promise means
