@@ -37,6 +37,20 @@ function readOrder(storageKey: string): string[] {
   }
 }
 
+/** `known` (the saved order, only current ids) with each id of `ids` it lacks
+ *  added last, except ids ahead of every listed one in `ids` (added at the
+ *  head of the list): those stay first. */
+export function mergeNewAtDefault(known: readonly string[], ids: readonly string[]): string[] {
+  const merged = [...known];
+  let lead = 0;
+  ids.forEach((id, index) => {
+    if (merged.includes(id)) return;
+    if (ids.slice(0, index).some((before) => merged.includes(before))) merged.push(id);
+    else merged.splice(lead++, 0, id);
+  });
+  return merged;
+}
+
 /** `dropAnchor`: a selector inside the drop target whose midpoint splits
  *  before/after (e.g. a section's heading), so a tall target reorders as soon
  *  as the pointer crosses its heading instead of its whole body's middle. */
@@ -50,9 +64,12 @@ export function usePersistedListOrder(
     onCommit?(next: string[], sourceId: string): void;
     /** Whether a drag of `sourceId` may drop on `targetId` (default: always). */
     accepts?(sourceId: string, targetId: string): boolean;
+    /** An id the saved order lacks that leads `ids` (added at the head) goes
+     *  first instead of last (mergeNewAtDefault). */
+    placeNewAtDefault?: boolean;
   } = {}
 ) {
-  const { dropAnchor, onCommit, accepts } = options;
+  const { dropAnchor, onCommit, accepts, placeNewAtDefault } = options;
   const [storedOrder, setStoredOrder] = useState<string[]>(() => (onCommit ? [] : readOrder(storageKey)));
   const [draggingId, setDraggingId] = useState('');
   const [dropTarget, setDropTarget] = useState<{ id: string; position: 'before' | 'after' } | null>(null);
@@ -65,8 +82,9 @@ export function usePersistedListOrder(
     const available = new Set(ids);
     const known = storedOrder.filter((id) => available.has(id));
     const knownSet = new Set(known);
-    return [...known, ...ids.filter((id) => !knownSet.has(id))];
-  }, [ids, storedOrder, onCommit]);
+    if (!placeNewAtDefault) return [...known, ...ids.filter((id) => !knownSet.has(id))];
+    return mergeNewAtDefault(known, ids);
+  }, [ids, storedOrder, onCommit, placeNewAtDefault]);
 
   const runEdgeScroll = useCallback(() => {
     scrollFrameRef.current = null;
