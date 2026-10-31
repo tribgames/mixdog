@@ -8,6 +8,7 @@
 import { providerInputExcludesCache } from '../../providers/registry.mjs';
 import { reasoningUsage, combineReasoningUsage } from '../../../../shared/llm/reasoning-usage.mjs';
 import { foldUsageReadout } from '../../../../shared/usage-readout-totals.mjs';
+import { emitSessionActivityChange } from '../../../../shared/session-activity-signal.mjs';
 import {
   loadSession,
   saveSessionAsync,
@@ -560,6 +561,9 @@ export async function persistIterationMetrics(delta) {
     // saved before this field began at their first call after it.
     session.usageReadout = foldUsageReadout(session.usageReadout, delta, delta.requestMs);
     recordLastContextTokens(session, iterationContext(delta));
+    // The Agents pool shows each agent's running totals from this live
+    // counter: it re-reads on this pulse instead of the next throttled save.
+    emitSessionActivityChange(sessionId);
   }
   session.lastIterationIndex = iterationIndex;
   session.updatedAt = ts || Date.now();
