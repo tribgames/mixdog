@@ -4,6 +4,50 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+Aggiunte le impostazioni per i Worktree e la pulizia dei branch, sostituite le attività dei Goal con le liste di cose da fare della sessione e introdotti stili personalizzabili del campo di input.
+
+### Nuove funzionalità
+
+- **Impostazioni Worktree** — Aggiunta la schermata Impostazioni → Worktree con spazio occupato, azioni per aprire ed eliminare, e pulizia automatica dopo 15 worktree o 30 giorni di inattività.
+- **Azioni per i branch dei worktree** — Aggiunte le azioni Nuovo branch, Nuovo worktree e Pulisci nel piè di pagina del menu dei branch, con evidenziazione della ricerca e anteprime sicure.
+- **Lista di cose da fare della sessione** — Aggiunta una lista di cose da fare della sessione che sostituisce le attività dei Goal, mostrando l'avanzamento dell'agente in tempo reale e conservando attività e Goal alla chiusura.
+- **Stili del campo di input** — Aggiunti gli stili Semplice, Standard e Dettagliato nelle Impostazioni con anteprima in tempo reale, barra reattiva e conferma opzionale delle risposte (#270, #276).
+- **Impostazioni di delega** — Aggiunta una pagina dedicata Impostazioni → Delega per le istruzioni di orchestrazione, e modifica diretta nelle istruzioni dello Stile di output con ripristino dei predefiniti (#291).
+- **Sub-agenti esecutori di routine** — Aggiunta la selezione di un sub-agente esecutore con il proprio modello per attività pianificate e webhook.
+- **Importazione da Claude Desktop Cowork** — Aggiunta l'importazione delle conversazioni da Claude Desktop Cowork, con le conversazioni speciali elencate per prime (#283).
+- **Link ai percorsi nella chat** — Aggiunta l'apertura dei link ai percorsi del PC dalla chat: le cartelle si aprono come radice nel pannello File e i file visualizzabili in Visualize (#277).
+- **Gesti per le immagini su smartphone** — Aggiunti pinch-to-zoom, panoramica e doppio tocco per ingrandire le immagini nella chat e in Visualize su smartphone (#275).
+- **Utilizzo delle chiamate Fast** — Aggiunta una riga di riepilogo dell'utilizzo per le chiamate Fast di un modello, con tabelle ottimizzate per gli schermi dei telefoni (#288).
+- **Automazione del ciclo di vita delle sessioni** — Aggiunta l'archiviazione automatica delle sessioni inattive dopo 7 giorni e la loro eliminazione dopo 90 giorni durante i periodi di inattività.
+- **Raggruppamento dei worktree nella barra laterale** — Aggiunto il raggruppamento delle sessioni dei worktree sotto la cartella di progetto principale nella barra laterale.
+- **Sospensione delle notifiche a PC attivo** — Aggiunta la sospensione delle notifiche push sullo smartphone mentre questo PC è attivamente in uso.
+
+### Modifiche
+
+- Le righe di attività degli strumenti ora raggruppano le operazioni ripetute in etichette con conteggio e nome dell'attività, come «Gestione worktree ×4».
+- Le impostazioni e le istruzioni modificate ovunque vengono ora applicate al turno successivo senza riavviare le sessioni né invalidare la cache dei prompt.
+- La ricerca web viene ora caricata immediatamente senza passaggi differiti di chiamata degli strumenti, rendendo più rapide le query.
+- Il gesto di scorrimento per chiudere il browser remoto su smartphone ora funziona solo dal bordo sinistro per evitare chiusure accidentali durante l'interazione.
+- L'indicatore dell'utilizzo dei token dell'agente nel campo di input si aggiorna ora entro circa un secondo da ogni chiamata al modello.
+- La garbage collection nei momenti di inattività pulisce ora anche la memoria buffer esterna, riducendo l'ingombro di memoria del daemon.
+
+### Correzioni di bug
+
+- Risolto il problema della perdita dei turni non salvati dopo crash o riavvii grazie al passaggio duraturo dei turni e al ripristino tramite checkpoint.
+- Risolto il crash del renderer desktop al rilascio del mouse dopo aver selezionato del testo trascinando.
+- Risolto il problema del cambio di sessione che ricostruiva la cronologia o rieseguiva le animazioni mantenendo montate le conversazioni recenti.
+- Risolto il problema dei Goal bloccati che conteggiavano il tempo di inattività nel budget, ripetevano le notifiche o sostituivano un Goal esistente senza conferma.
+- Risolta la scadenza degli accessi ai connettori dopo un'ora richiedendo token di aggiornamento ed evitato lo scambio di account con nomi riutilizzati (#285).
+- Risolto l'errore di aggiornamento dei plugin su Windows con errori di blocco file `EPERM` durante la ridenominazione delle cartelle (#284).
+- Risolti gli errori di installazione causati dalla rimozione degli script di onnxruntime-node durante la pulizia degli embedding (#282).
+- Risolto il blocco all'avvio del servizio di memoria dovuto a blocchi PostgreSQL orfani dopo la chiusura imprevista di un processo (#278).
+- Risolto il malfunzionamento di reCAPTCHA e dei widget di autenticazione nel browser integrato concedendo l'accesso all'archiviazione compatibile con Chrome.
+- Risolto il problema per cui i report dei sub-agenti non raggiungevano l'agente Lead in caso di promemoria, input in coda o errori successivi.
+- Risolto il problema di Computer Use che riavviava l'host di input in caso di letture lente dello schermo e segnalava osservatori guasti durante brevi pause di input.
+- Risolto il problema per cui le ricerche nella memoria perdevano le parole di contenuto in coreano nelle query miste e ottimizzata la scansione per termini esatti.
+- Risolto il problema dei link web e delle schede del browser trasmesse su smartphone che non si adattavano agli schermi mobili o non si aprivano in Visualize.
+- Risolta la sovrapposizione delle righe dei colori con le descrizioni nelle finestre strette di Impostazioni ed evitato che modifiche simultanee sovrascrivessero le istruzioni (#287).
+
 ## v1.4.2 - 2026-10-29
 
 Migliorato l'harness degli agenti con Explore, un agente dedicato all'esplorazione, e una verifica più solida grazie alla skill Test Suite, oltre al supporto per Vertex AI e per più account per connettore.

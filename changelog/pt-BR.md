@@ -4,6 +4,50 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Adicionadas as configurações de Worktrees e a limpeza de branches, substituídas as tarefas de Goal por listas de tarefas da sessão e introduzidos estilos personalizáveis para o campo de mensagem.
+
+### Novos recursos
+
+- **Configurações de Worktrees** — Adicionado Configurações → Worktrees com uso de disco, ações de abrir e excluir, e limpeza automática após 15 worktrees ou 30 dias sem uso.
+- **Ações de branches para worktrees** — Adicionadas as ações Novo branch, Novo worktree e Limpar no rodapé do menu de branches, com destaque na busca e prévia segura.
+- **Lista de tarefas da sessão** — Adicionada uma lista de tarefas da sessão que substitui as tarefas de Goal, exibindo o progresso do agente em tempo real e preservando tarefas e objetivos ao fechar.
+- **Estilos do campo de mensagem** — Adicionados os estilos Simples, Padrão e Detalhado nas Configurações com prévia, barra responsiva e confirmação opcional de respostas (#270, #276).
+- **Configurações de delegação** — Adicionada uma página dedicada em Configurações → Delegação para instruções de orquestração, e edição direta no Estilo de saída com restauração dos padrões (#291).
+- **Subagentes executores de rotinas** — Adicionada a seleção de um subagente executor com seu próprio modelo para tarefas agendadas e webhooks.
+- **Importação do Claude Desktop Cowork** — Adicionada a importação de conversas do Claude Desktop Cowork, listando as conversas com estrela primeiro (#283).
+- **Links de caminhos no chat** — Adicionada a abertura de links de caminhos do PC pelo chat: pastas abrem como raiz no painel Arquivos e arquivos visualizáveis no Visualize (#277).
+- **Gestos para imagens em celulares** — Adicionados gestos de pinça, deslocamento e toque duplo para aplicar zoom em imagens no chat e no Visualize em celulares (#275).
+- **Uso de chamadas Fast** — Adicionada uma linha de detalhamento de uso para chamadas Fast de um modelo, com tabelas responsivas adaptadas para celulares (#288).
+- **Automação do ciclo de vida das sessões** — Adicionado o arquivamento automático de sessões inativas após 7 dias e sua exclusão após 90 dias durante períodos de inatividade.
+- **Agrupamento de worktrees na barra lateral** — Adicionado o agrupamento de sessões de worktree sob sua pasta de projeto principal na barra lateral.
+- **Pausa de notificações com o PC em uso** — Adicionada a pausa de notificações push no celular enquanto este PC estiver em uso ativo.
+
+### Alterações
+
+- As linhas de atividade de ferramentas agora agrupam operações repetitivas em rótulos com contagem e nome da tarefa, como "Gerenciamento de worktree ×4".
+- As alterações de configurações e instruções feitas em qualquer lugar agora se aplicam no próximo turno, sem reiniciar sessões nem invalidar o cache de prompts.
+- A pesquisa na web agora carrega imediatamente sem a etapa de chamada adiada de ferramenta, acelerando as consultas.
+- O gesto de deslizar para fechar o navegador remoto no celular agora funciona apenas a partir da faixa da borda esquerda, evitando fechamentos acidentais.
+- A leitura de uso de tokens do agente no campo de mensagem agora é atualizada cerca de um segundo após cada chamada ao modelo.
+- A coleta de lixo em períodos ociosos agora também limpa a memória do buffer externo, reduzindo o consumo de memória do daemon.
+
+### Correções de bugs
+
+- Corrigida a perda de turnos não salvos após falhas ou reinicializações com a adição de transferência durável de turnos e recuperação por pontos de verificação.
+- Corrigida a falha do renderizador no computador ao soltar o mouse após arrastar para selecionar texto.
+- Corrigida a troca de sessões que reconstruía transcrições ou repetia animações, mantendo as conversas recentes montadas.
+- Corrigido o problema em que Goals travados contavam tempo ocioso no orçamento, repetiam notificações ou substituíam um Goal sem confirmação.
+- Corrigida a expiração do login em conectores após uma hora solicitando tokens de atualização e evitada a troca de contas ao reutilizar nomes excluídos (#285).
+- Corrigida a falha nas atualizações de plugins no Windows com erros de bloqueio de arquivo `EPERM` ao renomear pastas (#284).
+- Corrigidas as falhas de instalação causadas pela remoção de scripts do onnxruntime-node durante a limpeza de embeddings (#282).
+- Corrigido o travamento na inicialização do serviço de memória devido a bloqueios órfãos do PostgreSQL após o encerramento inesperado de processos (#278).
+- Corrigida a falha no reCAPTCHA e em widgets de autenticação no navegador integrado ao conceder acesso ao armazenamento compatível com o Chrome.
+- Corrigido o problema em que relatórios de subagentes não chegavam ao agente Lead quando interrompidos por lembretes, entradas na fila ou falhas posteriores.
+- Corrigido o Computer Use que reiniciava o host de entrada em leituras lentas de tela e relatava observadores corrompidos em breves pausas de entrada.
+- Corrigida a busca na memória que descartava palavras de conteúdo em coreano em consultas mistas e otimizada a varredura por termos exatos.
+- Corrigido o problema em que links da web e abas de navegador transmitidas em celulares não se ajustavam às telas móveis ou não abriam no Visualize.
+- Corrigida a sobreposição das opções de cores com descrições em janelas estreitas de Configurações e evitada a substituição de edições simultâneas de instruções (#287).
+
 ## v1.4.2 - 2026-10-29
 
 Melhoramos a estrutura de agentes com o Explore, um agente dedicado à exploração, e uma verificação mais rigorosa com a habilidade Test Suite, além do suporte ao Vertex AI e a várias contas por conector.
