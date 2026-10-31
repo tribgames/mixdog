@@ -1,7 +1,7 @@
 // Every supported stack against real git with fake tools on PATH: the
 // committed lockfile or manifest selects the install, a tool missing from
 // PATH is a skip with a note, nested folders count only when the main
-// checkout installed them, and only node_modules is ever linked.
+// checkout installed them, and nothing is ever linked from the main checkout.
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, lstatSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -171,7 +171,18 @@ test('a .venv that is a link does not count as prepared and is never installed t
   const plan = await planDependencySetup({ worktreeDir: repo, env: tools.env });
   assert.deepEqual(plan.commands, []);
   assert.deepEqual(plan.notes, [
-    '.venv in project root is a link, not an environment of its own; project root was not prepared (replace it with `uv sync --frozen` there if tests need it).',
+    '.venv in project root is a link, not an install of its own; project root was not prepared (replace it with `uv sync --frozen` there if tests need it).',
+  ]);
+});
+
+test('a node_modules that is a link is never installed through', async () => {
+  const repo = repoWith({ 'package.json': '{"name":"app"}\n', 'package-lock.json': '{"lockfileVersion":3}\n' });
+  const elsewhere = tempDir('mixdog-other-node-modules-');
+  symlinkSync(elsewhere, join(repo, 'node_modules'), process.platform === 'win32' ? 'junction' : 'dir');
+  const plan = await planDependencySetup({ worktreeDir: repo, env: fakeTools(['npm']).env });
+  assert.deepEqual(plan.commands, []);
+  assert.deepEqual(plan.notes, [
+    'node_modules in project root is a link, not an install of its own; project root was not prepared (replace it with `npm ci` there if tests need it).',
   ]);
 });
 
@@ -215,7 +226,48 @@ test('a nested Python project installed in main is admitted and installed in pla
   assert.ok(samePath(calls[0].cwd, join(entry.path, 'services', 'api')), 'run in the worktree folder');
 });
 
-test('in a mixed repository only node_modules is linked; removal leaves the main checkout intact', async () => {
+test('a workspace node_modules that is a link blocks every install, the root one too', async () => {
+  const lock = '{"lockfileVersion":3}\n';
+  const repo = repoWith({
+    'package.json': '{"name":"app","workspaces":["packages/*"]}\n',
+    'package-lock.json': lock,
+    'packages/a/package.json': '{"name":"a"}\n',
+    'packages/a/package-lock.json': lock,
+  });
+  const elsewhere = tempDir('mixdog-other-node-modules-');
+  symlinkSync(
+    elsewhere,
+    join(repo, 'packages', 'a', 'node_modules'),
+    process.platform === 'win32' ? 'junction' : 'dir'
+  );
+  const plan = await planDependencySetup({ worktreeDir: repo, env: fakeTools(['npm']).env });
+  assert.deepEqual(plan.commands, []);
+  assert.deepEqual(plan.notes, [
+    'project root was not prepared while packages/a/node_modules is a link an install could reach through (run `npm ci` there once replaced if tests need it).',
+    'node_modules in packages/a is a link, not an install of its own; packages/a was not prepared (replace it with `npm ci` there if tests need it).',
+  ]);
+});
+
+test('a linked workspace without its own lockfile blocks the root install', async () => {
+  const repo = repoWith({
+    'package.json': '{"name":"app","workspaces":["packages/*"]}\n',
+    'package-lock.json': '{"lockfileVersion":3}\n',
+    'packages/a/package.json': '{"name":"a"}\n',
+  });
+  const elsewhere = tempDir('mixdog-other-node-modules-');
+  symlinkSync(
+    elsewhere,
+    join(repo, 'packages', 'a', 'node_modules'),
+    process.platform === 'win32' ? 'junction' : 'dir'
+  );
+  const plan = await planDependencySetup({ worktreeDir: repo, env: fakeTools(['npm']).env });
+  assert.deepEqual(plan.commands, []);
+  assert.deepEqual(plan.notes, [
+    'project root was not prepared while packages/a/node_modules is a link an install could reach through (run `npm ci` there once replaced if tests need it).',
+  ]);
+});
+
+test('in a mixed repository nothing is linked; each stack installs in the worktree', async () => {
   const lock = '{"lockfileVersion":3}\n';
   const repo = repoWith({
     '.gitignore': 'node_modules\n.venv\n',
@@ -229,14 +281,14 @@ test('in a mixed repository only node_modules is linked; removal leaves the main
   const tools = fakeTools(['npm', 'uv']);
   await withManager(async () => {
     const { entry, sessionId } = await createTestWorktree(repo);
-    assert.equal(lstatSync(join(entry.path, 'node_modules')).isSymbolicLink(), true);
+    assert.equal(existsSync(join(entry.path, 'node_modules')), false, 'node_modules is never linked');
     assert.equal(existsSync(join(entry.path, '.venv')), false, 'a venv is never linked');
     const plan = await planDependencySetup({ worktreeDir: entry.path, mainDir: repo, env: tools.env });
     assert.deepEqual(
       plan.commands.map((command) => command.label),
-      ['uv (project root)']
+      ['npm (project root)', 'uv (project root)']
     );
-    assert.deepEqual(plan.notes, ['Linked node_modules from the main checkout: project root.']);
+    assert.deepEqual(plan.notes, []);
     const removed = await removeManagedWorktree({ entryId: entry.id, sessionId, safeOnly: true });
     assert.equal(removed.removed, true, JSON.stringify(removed));
     assert.equal(readFileSync(join(repo, 'node_modules', 'dep', 'index.js'), 'utf8'), 'module.exports = 1;\n');

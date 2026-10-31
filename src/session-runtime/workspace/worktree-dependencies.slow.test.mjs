@@ -1,15 +1,29 @@
 // A new managed worktree gets its JS dependencies prepared with nothing to
-// configure, against real git: an identical lockfile links the main
-// checkout's node_modules (a junction on Windows), a different one runs the
-// frozen install at the first turn, none does nothing; removing the worktree
-// never touches the main checkout's node_modules.
+// configure, against real git: a lockfile runs the frozen install in the
+// worktree at the first turn (never a link to the main checkout's
+// node_modules, which a reset there would empty), none does nothing; a link
+// an earlier version made is detached at the next turn, and removing the
+// worktree never touches the main checkout's node_modules.
 import assert from 'node:assert/strict';
-import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import fsp from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { join } from 'node:path';
-import { after, beforeEach, test } from 'node:test';
+import { after, beforeEach, mock, test } from 'node:test';
 import { findLockfileFolders, planDependencySetup } from '../../runtime/shared/worktrees/dependencies.mjs';
 import { configureWorktreeManager, removeManagedWorktree } from '../../runtime/shared/worktrees/manager.mjs';
 import { samePath } from '../../runtime/shared/worktrees/paths.mjs';
+import { getRecord, putRecord } from '../../runtime/shared/worktrees/registry.mjs';
 import {
   cleanupTempDirs,
   commitFile,
@@ -108,24 +122,180 @@ function assertMainIntact(repo) {
   assert.equal(lstatSync(join(repo, 'node_modules')).isSymbolicLink(), false);
 }
 
-test('an identical lockfile links node_modules from the main checkout and installs nothing, once', async () => {
+/**
+ * What `npm ci` does to the node_modules it finds in `cwd` before installing
+ * (npm lib/commands/ci.js): list the folder, through a link too, and delete
+ * each entry; then the fresh install.
+ */
+function npmCi(cwd, fs, path) {
+  const dir = path.join(cwd, 'node_modules');
+  for (const name of fs.existsSync(dir) ? fs.readdirSync(dir) : []) {
+    fs.rmSync(path.join(dir, name), { recursive: true, force: true });
+  }
+  fs.mkdirSync(path.join(dir, 'installed'), { recursive: true });
+}
+const NPM_CI = `(${npmCi})(process.cwd(), require('fs'), require('path'));`;
+
+/** `npm ci` run by hand in `cwd`. */
+function npmCiByHand(cwd) {
+  npmCi(cwd, { existsSync, readdirSync, rmSync, mkdirSync }, { join });
+}
+
+/** The node_modules link (at `rel`) a worktree made by an earlier version has, as it recorded it. */
+async function linkLikeAnEarlierVersion(entryId, worktree, repo, rel = 'node_modules') {
+  const path = join(worktree, ...rel.split('/'));
+  const source = join(repo, ...rel.split('/'));
+  symlinkSync(source, path, process.platform === 'win32' ? 'junction' : 'dir');
+  const record = await getRecord(entryId);
+  record.resources.includes.push({
+    mode: 'link',
+    rel,
+    path,
+    status: 'created',
+    digest: null,
+    source,
+    dependency: true,
+  });
+  await putRecord(record);
+  return path;
+}
+
+test('an identical lockfile installs in the worktree; a reset there never empties the main checkout', async () => {
   await withManager(async () => {
     const repo = jsRepo();
-    const npm = fakeNpm();
+    const npm = fakeNpm(NPM_CI);
     const h = harness(repo, npm);
-    const entered = await h.api.requestWorktree({ provision: true, prompt: 'Linked deps', txId: 'deps-link' });
-    const linked = join(entered.workspace.cwd, 'node_modules');
-    assert.equal(lstatSync(linked).isSymbolicLink(), true, 'a junction/symlink, made at creation');
-    assert.ok(samePath(realpathSync(linked), realpathSync(join(repo, 'node_modules'))));
+    const entered = await h.api.requestWorktree({ provision: true, prompt: 'Own deps', txId: 'deps-own' });
+    const worktree = entered.workspace.cwd;
+    assert.equal(existsSync(join(worktree, 'node_modules')), false, 'nothing is linked at creation');
+    // The user resets the dependencies before any turn ran there.
+    npmCiByHand(worktree);
+    assertMainIntact(repo);
+    rmSync(join(worktree, 'node_modules'), { recursive: true });
     await h.api.prepareTurnWorkspace({ submissionId: 'turn-1', prompt: 'go' });
     await h.api.prepareTurnWorkspace({ submissionId: 'turn-2', prompt: 'again' });
-    assert.deepEqual(npm.calls(), [], 'no install');
-    assert.equal(h.events.length, 0, 'nothing installs: the user sees nothing');
+    const calls = npm.calls();
+    assert.equal(calls.length, 1, 'the install runs once per new worktree');
+    assert.deepEqual(calls[0].args, ['ci']);
+    assert.ok(samePath(calls[0].cwd, worktree));
+    assert.equal(lstatSync(join(worktree, 'node_modules')).isSymbolicLink(), false);
     const note = h.session.pendingSetupNotice.content;
     assert.match(note, /^<system-reminder>\n# Worktree Preparation\nThis worktree was made from the main checkout at /);
     const [, mainPath] = /main checkout at (.+?); ignored files/.exec(note);
     assert.ok(samePath(mainPath, repo), 'the agent is told the main checkout path');
-    assert.match(note, /\nLinked node_modules from the main checkout: project root\.\n/);
+    assert.doesNotMatch(note, /Linked/);
+    npmCiByHand(worktree);
+    assertMainIntact(repo);
+    assert.equal(
+      existsSync(join(repo, 'node_modules', 'installed')),
+      false,
+      'the main checkout is never installed into'
+    );
+  });
+});
+
+test("an earlier version's node_modules link is detached at the next turn and installed in the worktree", async () => {
+  await withManager(async () => {
+    const repo = jsRepo();
+    const npm = fakeNpm(NPM_CI);
+    const h = harness(repo, npm);
+    const entered = await h.api.requestWorktree({ provision: true, prompt: 'Old link', txId: 'deps-legacy' });
+    const worktree = entered.workspace.cwd;
+    const entryId = entered.workspace.worktreeId;
+    const linked = await linkLikeAnEarlierVersion(entryId, worktree, repo);
+    // Its setup ran under the earlier version.
+    const record = await getRecord(entryId);
+    await putRecord({ ...record, setup: { ...record.setup, pending: false, claimedAt: 1 } });
+    await h.api.prepareTurnWorkspace({ submissionId: 'turn-1', prompt: 'go' });
+    await h.api.prepareTurnWorkspace({ submissionId: 'turn-2', prompt: 'again' });
+    const calls = npm.calls();
+    assert.equal(calls.length, 1, 'installed once, after the link was gone');
+    assert.ok(samePath(calls[0].cwd, worktree));
+    assert.equal(lstatSync(linked).isSymbolicLink(), false, 'its own node_modules');
+    assert.ok(existsSync(join(linked, 'installed')));
+    assert.deepEqual(
+      (await getRecord(entryId)).resources.includes.filter((item) => item.dependency),
+      [],
+      'the link is forgotten'
+    );
+    assertMainIntact(repo);
+  });
+});
+
+test("a workspace's earlier link that cannot be detached blocks the root install until it is gone", async () => {
+  await withManager(async () => {
+    const repo = jsRepo();
+    commitFile(repo, 'package.json', '{"name":"app","workspaces":["packages/*"]}\n');
+    commitFile(repo, 'packages/a/package.json', '{"name":"a"}\n');
+    writeFile(repo, 'packages/a/node_modules/dep/index.js', 'nested\n');
+    const npm = fakeNpm(NPM_CI);
+    const h = harness(repo, npm);
+    const entered = await h.api.requestWorktree({ provision: true, prompt: 'Stuck link', txId: 'deps-stuck' });
+    const worktree = entered.workspace.cwd;
+    const entryId = entered.workspace.worktreeId;
+    const root = await linkLikeAnEarlierVersion(entryId, worktree, repo);
+    const nested = await linkLikeAnEarlierVersion(entryId, worktree, repo, 'packages/a/node_modules');
+    const unlink = fsp.unlink;
+    mock.method(fsp, 'unlink', (path, ...rest) =>
+      samePath(path, nested)
+        ? Promise.reject(Object.assign(new Error('busy'), { code: 'EBUSY' }))
+        : unlink.call(fsp, path, ...rest)
+    );
+    syncBuiltinESMExports();
+    try {
+      await h.api.prepareTurnWorkspace({ submissionId: 'turn-1', prompt: 'go' });
+    } finally {
+      mock.restoreAll();
+      syncBuiltinESMExports();
+    }
+    assert.deepEqual(npm.calls(), [], 'no install while a link stays');
+    assert.equal(existsSync(root), false, 'the root link is gone');
+    assert.equal(lstatSync(nested).isSymbolicLink(), true);
+    assert.match(
+      h.session.pendingSetupNotice.content,
+      /\nDependencies were not installed: packages\/a\/node_modules is a link, and /
+    );
+    assert.equal(readFileSync(join(repo, 'packages', 'a', 'node_modules', 'dep', 'index.js'), 'utf8'), 'nested\n');
+    assertMainIntact(repo);
+    // Once the link can go, the next turn installs, once.
+    await h.api.prepareTurnWorkspace({ submissionId: 'turn-2', prompt: 'again' });
+    await h.api.prepareTurnWorkspace({ submissionId: 'turn-3', prompt: 'more' });
+    const calls = npm.calls();
+    assert.equal(calls.length, 1);
+    assert.ok(samePath(calls[0].cwd, worktree));
+    assert.equal(existsSync(nested), false);
+    assert.equal(readFileSync(join(repo, 'packages', 'a', 'node_modules', 'dep', 'index.js'), 'utf8'), 'nested\n');
+    assertMainIntact(repo);
+  });
+});
+
+test('an unrecorded link in a workspace keeps the setup pending; the turn after it is gone installs', async () => {
+  await withManager(async () => {
+    const repo = jsRepo();
+    commitFile(repo, 'package.json', '{"name":"app","workspaces":["packages/*"]}\n');
+    commitFile(repo, 'packages/a/package.json', '{"name":"a"}\n');
+    writeFile(repo, 'packages/a/node_modules/dep/index.js', 'nested\n');
+    const npm = fakeNpm(NPM_CI);
+    const h = harness(repo, npm);
+    const entered = await h.api.requestWorktree({ provision: true, prompt: 'Hand link', txId: 'deps-hand-link' });
+    const worktree = entered.workspace.cwd;
+    // Made by hand: the ledger does not know it.
+    const link = join(worktree, 'packages', 'a', 'node_modules');
+    symlinkSync(join(repo, 'packages', 'a', 'node_modules'), link, process.platform === 'win32' ? 'junction' : 'dir');
+    await h.api.prepareTurnWorkspace({ submissionId: 'turn-1', prompt: 'go' });
+    assert.deepEqual(npm.calls(), [], 'the root install would reach the workspace');
+    assert.match(
+      h.session.pendingSetupNotice.content,
+      /\nDependencies were not installed: packages\/a\/node_modules is a link, and /
+    );
+    assert.equal((await getRecord(entered.workspace.worktreeId)).setup.pending, true, 'still pending');
+    rmSync(link);
+    await h.api.prepareTurnWorkspace({ submissionId: 'turn-2', prompt: 'again' });
+    await h.api.prepareTurnWorkspace({ submissionId: 'turn-3', prompt: 'more' });
+    const calls = npm.calls();
+    assert.equal(calls.length, 1, 'installed once, after the link was gone');
+    assert.ok(samePath(calls[0].cwd, worktree));
+    assert.equal(readFileSync(join(repo, 'packages', 'a', 'node_modules', 'dep', 'index.js'), 'utf8'), 'nested\n');
     assertMainIntact(repo);
   });
 });
@@ -194,15 +364,15 @@ test('the root, declared workspaces and nested projects installed in main are pr
     const h = harness(repo, npm);
     const entered = await h.api.requestWorktree({ provision: true, prompt: 'Nested deps', txId: 'deps-nested' });
     const worktree = entered.workspace.cwd;
-    assert.equal(lstatSync(join(worktree, 'apps', 'x', 'node_modules')).isSymbolicLink(), true, 'apps/x is linked');
+    assert.equal(existsSync(join(worktree, 'apps', 'x', 'node_modules')), false, 'apps/x is not linked');
     assert.equal(existsSync(join(worktree, 'test', 'fixtures', 'app', 'node_modules')), false);
     const plan = await planDependencySetup({ worktreeDir: worktree, mainDir: repo, env: npm.env });
     assert.deepEqual(
       plan.commands.map((command) => command.label),
-      ['npm (project root)', 'npm (packages/a)'],
+      ['npm (project root)', 'npm (apps/x)', 'npm (packages/a)'],
       'the fixture gets no install'
     );
-    assert.deepEqual(plan.notes, ['Linked node_modules from the main checkout: apps/x.']);
+    assert.deepEqual(plan.notes, []);
   });
 
   const pnpm = makeRepo();
@@ -277,15 +447,14 @@ for (const [name, options, ignored] of [
   // Not git-ignored: the link is still never seen as a user change.
   ['folder-only cleanup of an unignored link', { safeOnly: true }, false],
 ]) {
-  test(`${name} unlinks the linked node_modules and leaves the main checkout's intact`, async () => {
+  test(`${name} unlinks an earlier version's node_modules link and leaves the main checkout's intact`, async () => {
     await withManager(async () => {
       const repo = jsRepo();
       if (!ignored) commitFile(repo, '.gitignore', '');
       mkdirSync(join(repo, 'node_modules', 'dep', 'nested'), { recursive: true });
       writeFileSync(join(repo, 'node_modules', 'dep', 'nested', 'deep.js'), 'deep\n');
       const { entry, sessionId } = await createTestWorktree(repo);
-      const linked = join(entry.path, 'node_modules');
-      assert.equal(lstatSync(linked).isSymbolicLink(), true);
+      await linkLikeAnEarlierVersion(entry.id, entry.path, repo);
       const result = await removeManagedWorktree({ entryId: entry.id, sessionId, ...options });
       assert.equal(result.removed, true, JSON.stringify(result));
       assert.equal(existsSync(entry.path), false, 'the worktree is gone');

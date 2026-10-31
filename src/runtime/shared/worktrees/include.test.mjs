@@ -9,6 +9,7 @@ import {
   planIncludes,
   readIncludeEntries,
   removeIncludeLinks,
+  restoreIncludeLinks,
   validateIncludePath,
 } from './include.mjs';
 import { cleanupTempDirs, git, makeRepo, tempDir, writeFile } from './test-support.mjs';
@@ -136,6 +137,20 @@ test('copies and links never overwrite, links are removed without traversal, and
   assert.deepEqual(await removeIncludeLinks(items), []);
   assert.equal(existsSync(join(worktree, 'linked')), false);
   assert.equal(readFileSync(join(repo, 'linked', 'keep.txt'), 'utf8'), 'keep\n');
+
+  // A failed removal puts include links back, never an earlier version's
+  // node_modules link into the main checkout.
+  const dependency = {
+    mode: 'link',
+    rel: 'node_modules',
+    path: join(worktree, 'node_modules'),
+    status: 'created',
+    source: join(repo, 'linked'),
+    dependency: true,
+  };
+  assert.deepEqual(await restoreIncludeLinks([...items, dependency]), []);
+  assert.equal(readFileSync(join(worktree, 'linked', 'keep.txt'), 'utf8'), 'keep\n');
+  assert.equal(existsSync(dependency.path), false);
 });
 
 test('sources reached through a link outside the repository are skipped with a warning, never copied', async () => {

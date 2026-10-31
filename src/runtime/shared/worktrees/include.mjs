@@ -135,7 +135,7 @@ async function exists(path) {
 }
 
 /** Link the directory `source` at `dest`: a directory junction on Windows, a symlink elsewhere. */
-export function linkDirectory(source, dest) {
+function linkDirectory(source, dest) {
   return symlink(source, dest, process.platform === 'win32' ? 'junction' : 'dir');
 }
 
@@ -559,14 +559,16 @@ export async function removeIncludeLinks(items) {
 /**
  * Put back the links removeIncludeLinks took away (those that record their
  * `source`) after a removal that did not go through, each with its recorded
- * `linkType` (a record without one — dependency links, older records — is a
- * directory link). A path that exists again is left alone.
+ * `linkType` (a record without one, an older record, is a directory link). A
+ * path that exists again is left alone. An earlier version's dependency link
+ * (node_modules into the main checkout) is never put back: a reset through
+ * it empties the main checkout's folder.
  * @returns {Promise<Array<{ path: string, error: string }>>} Links that could not be restored.
  */
 export async function restoreIncludeLinks(items) {
   const failures = [];
   for (const item of items || []) {
-    if (item.mode !== 'link' || !item.source || item.status !== 'created') continue;
+    if (item.mode !== 'link' || !item.source || item.status !== 'created' || item.dependency) continue;
     if (await exists(item.path)) continue;
     try {
       await makeLinkOfType(item.linkType || 'directory', item.source, item.path);

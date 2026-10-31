@@ -61,6 +61,13 @@ export function createWorktreeSetup({ backend, newTxId, planWorktreeSetup, runWo
         }
       }
     };
+    if (claimed.blocked?.length) {
+      report.notes.push(
+        `Dependencies were not installed: ${claimed.blocked.join(', ')} ${claimed.blocked.length > 1 ? 'are links' : 'is a link'}, and any install here could empty the folder it points at (such as the main checkout's) through it. Remove the link (never its target); the next turn installs.`
+      );
+      session.pendingSetupNotice = { revision: Date.now(), content: worktreePreparationNote(report) };
+      return;
+    }
     try {
       const plan = await planWorktreeSetup({ worktreeDir: here.cwd, mainDir: here.projectPath, signal });
       report.dependencyNotes = plan.notes;
