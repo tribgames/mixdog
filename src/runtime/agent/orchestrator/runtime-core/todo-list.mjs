@@ -80,7 +80,7 @@ export function openTodoItems(session) {
 
 /** Every item not completed or dropped (blocked included): what an agent
  *  leaves undone when it ends. */
-function unfinishedTodoItems(session) {
+export function unfinishedTodoItems(session) {
   return allTasks(todoPhases(session)).filter((task) => task.status !== 'completed' && task.status !== 'abandoned');
 }
 
@@ -286,6 +286,16 @@ export function executeTodoTool(session, args = {}) {
   if (!TODO_OPS.includes(op)) throw new Error(`todo: op must be one of ${TODO_OPS.join(', ')}`);
   if (op === 'view') return renderTodoList(todoPhases(session));
   if (op === 'init') {
+    // Replacing a list that still has unfinished work would silently erase it
+    // (a follow-up ask re-initing mid-request): make the model close each first.
+    const unfinished = unfinishedTodoItems(session);
+    if (unfinished.length) {
+      const named = unfinished.slice(0, 5).map((task) => `"${task.content}"`);
+      if (unfinished.length > named.length) named.push(`${unfinished.length - named.length} more`);
+      throw new Error(
+        `todo: init would erase unfinished items (${named.join(', ')}); done or drop each first, or append to add asks`
+      );
+    }
     const phases = normalizeTodoPhases(initPhases(args));
     commitPhases(session, phases);
     return renderTodoList(phases);

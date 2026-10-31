@@ -15,7 +15,13 @@
 import { resolvePluginData } from '../../../../../shared/plugin-paths.mjs';
 import { awaitingBackgroundWork, beginUserCycle } from '../../../../../shared/background-wait.mjs';
 import { readStoredGoalSnapshot } from '../../../runtime-core/goal-storage.mjs';
-import { clearTodo, openTodoItems, todoAllClosed, todoPhases } from '../../../runtime-core/todo-list.mjs';
+import {
+  clearTodo,
+  openTodoItems,
+  todoAllClosed,
+  todoPhases,
+  unfinishedTodoItems,
+} from '../../../runtime-core/todo-list.mjs';
 import { TODO_TOOL } from '../../../runtime-core/todo-tool-defs.mjs';
 import { HIDDEN_AGENT_NAMES } from '../hidden-agents.mjs';
 import { _isMutationTool, _isShellTool } from '../tool-classify.mjs';
@@ -61,6 +67,15 @@ export function todoStartReminder(session) {
   if (HIDDEN_AGENT_NAMES.has(session.agent)) return null;
   if (!session.tools?.some((tool) => tool?.name === TODO_TOOL.name)) return null;
   if (openTodoItems(session).length) return null;
+  // `init` refuses while any item is unfinished (blocked included), so such a
+  // list is reconciled or appended to, never re-initialized.
+  if (unfinishedTodoItems(session).length) {
+    return [
+      '<system-reminder>',
+      'The todo list still has blocked items. If this brief adds asks, append them; first done, drop or unblock each blocked item that this brief settles. Do not init over them. Do not mention this reminder.',
+      '</system-reminder>',
+    ].join('\n');
+  }
   return [
     '<system-reminder>',
     'If this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; each item the brief lists is its own todo item, never folded into one. A single step or a plain answer needs none. Do not mention this reminder.',
