@@ -47,6 +47,7 @@ Se añadieron los ajustes de Worktrees y la limpieza de ramas, se reemplazaron l
 - Se corrigió que las búsquedas de recuerdos perdieran palabras con contenido en coreano en consultas mixtas y se optimizó el escaneo de términos exactos.
 - Se corrigió que los enlaces web y pestañas del navegador en teléfonos vinculados no se adaptaran a pantallas móviles ni abrieran en Visualize.
 - Se corrigió la superposición de filas de color con descripciones en ventanas estrechas de Ajustes y se evitó sobrescribir cambios simultáneos de instrucciones (#287).
+- Se corrigió que ejecutar `npm ci` dentro de un worktree vaciara el `node_modules` del checkout principal; ahora cada worktree instala sus propias dependencias.
 
 ## v1.4.2 - 2026-10-29
 

@@ -46,6 +46,7 @@ Einstellungen für Worktrees und Bereinigung von Branches hinzugefügt, Ziel-Auf
 - Fehler behoben, durch den die Erinnerungssuche bei gemischten Abfragen koreanische Inhaltswörter verlor, und Scan nach exakten Begriffen optimiert.
 - Fehler behoben, durch den Weblinks und gestreamte Browser-Tabs auf gekoppelten Smartphones nicht auf mobile Bildschirme passten oder nicht in Visualize öffneten.
 - Überlappung der Farbzeilen in den Einstellungen mit Beschreibungen auf schmalen Fenstern behoben und Überschreiben gleichzeitiger Anweisungsänderungen verhindert (#287).
+- Fehler behoben, durch den die Ausführung von `npm ci` in einem Worktree das `node_modules` des Haupt-Checkouts leert; jeder Worktree installiert nun eigene Abhängigkeiten.
 
 ## v1.4.2 - 2026-10-29
 

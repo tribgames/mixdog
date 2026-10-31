@@ -47,6 +47,7 @@ Added Worktrees settings and branch cleanup, replaced Goal tasks with session to
 - Fixed recall searches dropping Korean content words in mixed queries, and optimized exact-term scanning.
 - Fixed web links and streamed browser tabs on paired phones failing to fit mobile screens or open in Visualize.
 - Fixed Settings color rows overlapping descriptions on narrow windows, and prevented instruction edits from overwriting concurrent changes (#287).
+- Fixed running `npm ci` inside a worktree emptying the main checkout's `node_modules`; each worktree now installs its own dependencies.
 
 ## v1.4.2 - 2026-10-29
 
