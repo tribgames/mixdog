@@ -8,13 +8,17 @@
  * never conflated with failed cleanup: the reply builder reports the refusal,
  * this only closes cleanup.
  */
+import { INPUT_GAP_REASON, settleInputGap } from '../observation/capture-input-observation';
 import { elapsedMs } from '../shared/common';
 import type { ComputerCommand } from '../shared/types';
 import type { InputRecoveryState } from './execution-state';
 import { readInputRecovery } from './input-recovery-read';
 import type { InputResolutionHost } from './input-resolution';
 
-export type InputRecoveryVerifyHost = Pick<InputResolutionHost, 'callPowerShell' | 'sessionIdFor'>;
+export type InputRecoveryVerifyHost = Pick<
+  InputResolutionHost,
+  'callPowerShell' | 'sessionIdFor' | 'assertExecutionNotAborted'
+>;
 
 type Verdict = Record<string, unknown>;
 
@@ -232,12 +236,20 @@ export async function verifyInputRecovery(
     holdDesktop,
     readbackError: '',
   };
-  let current: InputRecoveryState | undefined;
-  try {
-    current = await readInputRecovery(host, command, targetWindowId, false);
-  } catch (error) {
-    check.readbackError = (error as Error).message || String(error);
-  }
+  const readback = async (): Promise<InputRecoveryState | undefined> => {
+    try {
+      return await readInputRecovery(host, command, targetWindowId, false);
+    } catch (error) {
+      check.readbackError = (error as Error).message || String(error);
+      return undefined;
+    }
+  };
+  // A recovering input gap is waited out; one that persists stays unknown below.
+  let current = await settleInputGap(
+    readback,
+    (state) => state?.inputObserverReady !== true && state?.inputObserverReason === INPUT_GAP_REASON,
+    () => host.assertExecutionNotAborted()
+  );
   try {
     if (!current || !inputKnown(current, inputRecovery)) {
       return {

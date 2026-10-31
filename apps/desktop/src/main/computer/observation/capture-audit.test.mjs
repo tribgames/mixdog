@@ -777,6 +777,80 @@ test('unavailable input observers remain distinguishable from user intervention 
   }
 });
 
+// The native observer counts a gap once when it opens, so the gap read already
+// carries sequence 4; a clean recovery reports the same 4.
+function gapFixture(gapReads, recoveredSequence = 4) {
+  let reads = 0;
+  const f = fixture({
+    native: (request) => {
+      if (request.action !== 'input_idle_state') return;
+      const gap = ++reads <= gapReads;
+      return {
+        ok: true,
+        result: gap
+          ? { observer_ready: false, observer_reason: 'input_gap', monitor: 'worker-a', sequence: 4 }
+          : { observer_ready: true, observer_reason: '', monitor: 'worker-a', sequence: recoveredSequence },
+      };
+    },
+  });
+  const command = { action: 'capture', mode: 'vision', window_id: 'hwnd:0x1', session_id: 'a' };
+  const sent = [];
+  const dispatch = createInputDispatch(
+    {
+      ...f.host,
+      isObserveOnly: () => false,
+      readWindowIntegrity: async () => ({ known: true, higher: false }),
+      callPowerShell: async (request) => {
+        sent.push(request);
+        return { ok: true };
+      },
+    },
+    createComputerExecutionPolicy()
+  );
+  const send = (delivery) => {
+    const target = {
+      targetWindowId: 'hwnd:0x1',
+      allowedWindowIds: ['hwnd:0x1'],
+      observedScope: f.state.freshObservedWindowScope(command),
+    };
+    return dispatch({ action: 'key', keys: '{TAB}', delivery, session_id: 'a' }, 'key', target);
+  };
+  return { f, command, sent, send, reads: () => reads };
+}
+
+test('a recovering input gap settles before the capture is published, so foreground input proceeds', async () => {
+  const { f, command, sent, send } = gapFixture(1);
+  const result = await f.run(() => f.capture.captureComputer(command));
+  assert.equal(result.payload.foreground_input_ready, true);
+  assert.equal(result.payload.foreground_input_reason, undefined);
+  await send('foreground');
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].observed_input_monitor_id, 'worker-a');
+  assert.equal(sent[0].observed_input_user_sequence, 4);
+});
+
+test('input counted while a gap recovers refuses foreground input instead of becoming the baseline', async () => {
+  const { f, command, sent, send } = gapFixture(1, 5);
+  const result = await f.run(() => f.capture.captureComputer(command));
+  assert.equal(result.payload.foreground_input_ready, false);
+  assert.equal(result.payload.foreground_input_reason, 'user_input_during_capture');
+  assert.equal(f.state.freshObservedWindowScope(command).inputObservation.sequence, 4);
+  await assert.rejects(send('foreground'), /foreground_input_not_ready.*user_input_during_capture/);
+  assert.deepEqual(sent, [], 'foreground input is never sent on input that arrived during the wait');
+});
+
+test('a persisting input gap refuses foreground input as user input, not as a broken observer', async () => {
+  const { f, command, sent, send, reads } = gapFixture(Number.POSITIVE_INFINITY);
+  const result = await f.run(() => f.capture.captureComputer(command));
+  assert.equal(reads() > 2, true, 'the gap was re-read before giving up');
+  assert.equal(result.payload.foreground_input_ready, false);
+  assert.equal(result.payload.foreground_input_reason, 'user_input_during_capture');
+  await assert.rejects(send('foreground'), /foreground_input_not_ready.*user_input_during_capture/);
+  assert.deepEqual(sent, [], 'foreground input is never sent while input keeps arriving');
+  await send('background');
+  assert.equal(sent.length > 0, true, 'background input proceeds');
+});
+
 test('failed accessibility workers permit fresh pixels and OCR without replaying the failed provider', async () => {
   let monitor = 'worker-a';
   const f = fixture({

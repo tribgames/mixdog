@@ -78,6 +78,7 @@ function Get-InputRecoveryState($req) {
     return @{
         text                     = 'foreground input recovery state captured'
         input_observer_ready     = $inputEvidence.Ready
+        input_observer_reason    = [string]$inputEvidence.Reason
         input_monitor_id         = $inputEvidence.Generation
         input_user_sequence      = $inputEvidence.Sequence
         target_window_id         = [MixWin32]::WindowId($target)

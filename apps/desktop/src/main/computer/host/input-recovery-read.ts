@@ -37,6 +37,9 @@ export async function readInputRecovery(
     cursorY: Number(result.cursor_y),
     inputTick: Number(result.input_tick),
     inputObserverReady: result.input_observer_ready === true,
+    ...(typeof result.input_observer_reason === 'string' && result.input_observer_reason
+      ? { inputObserverReason: result.input_observer_reason }
+      : {}),
     inputMonitorId: typeof result.input_monitor_id === 'string' ? result.input_monitor_id : '',
     inputUserSequence: Number(result.input_user_sequence),
     syntheticInput: result.synthetic_input === true,
