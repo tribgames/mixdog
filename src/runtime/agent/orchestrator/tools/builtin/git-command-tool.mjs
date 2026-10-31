@@ -98,7 +98,7 @@ export const GIT_TOOL_DEF = {
     openWorldHint: true,
     compressible: true,
   },
-  description: `${GIT_DESCRIPTION_HEAD} Worktrees are managed only: action:worktree; git worktree add/remove/list/prune map to managed operations (add -b keeps the session in place; add --detach makes a read-only snapshot worktree, removed when its turn ends; list --porcelain stays raw git; move/lock/unlock/repair are refused). Merge or remove only when the user asks.`,
+  description: `${GIT_DESCRIPTION_HEAD} Worktrees are managed only: action:worktree; git worktree add/remove/list/prune map to managed operations (add -b keeps the session in place; add --detach makes a read-only snapshot worktree, removed when its turn ends, and is the one add a delegated worker may run; list --porcelain stays raw git; move/lock/unlock/repair are refused). Merge or remove only when the user asks.`,
   inputSchema: {
     type: 'object',
     properties: {
@@ -144,7 +144,10 @@ export const GIT_TOOL_DEF = {
         description: 'enter/return/merge/remove: another session (it must be idle); default the caller.',
       },
       name: { type: 'string', description: 'enter: the new worktree name (branch <prefix><name>).' },
-      branch: { type: 'string', description: 'enter: use the worktree of this branch instead.' },
+      branch: {
+        type: 'string',
+        description: "enter: use the worktree of this branch instead. remove: this session's worktree of that branch.",
+      },
       create: { type: 'boolean', description: 'enter with branch: create that branch.' },
       carry: {
         type: 'string',
@@ -580,7 +583,8 @@ function commandFailure(plan, result, limit = GIT_OUTPUT_LINES_DEFAULT) {
 function runGit(plan, argv, options = {}) {
   return startGit(
     gitToolEnvironment(!options.readOnly),
-    (command, env) => runProcess(command, [...plan.globalArgs, ...argv], { cwd: plan.cwd, signal: options.signal, env }),
+    (command, env) =>
+      runProcess(command, [...plan.globalArgs, ...argv], { cwd: plan.cwd, signal: options.signal, env }),
     (result) => result.error
   );
 }

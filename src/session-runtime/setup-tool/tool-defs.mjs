@@ -447,13 +447,38 @@ export const SETUP_TOOL_DEFS = Object.freeze([
               enum: [...WORKTREE_NEW_TASK_DEFAULTS],
               description: 'branch = new tasks use the current branch (default); worktree = a new worktree.',
             },
-            branchPrefix: { type: 'string', description: 'Ref prefix ending with "/"; default "mixdog/".' },
+            branchPrefix: {
+              type: 'string',
+              description:
+                'Optional ref prefix ending with "/", e.g. "mixdog/"; "" (default) names branches after the task alone.',
+            },
             sizeWarnBytes: {
               type: 'integer',
               minimum: 0,
               description: 'Repository size that asks for confirmation first; 0 never asks.',
             },
             autoCleanup: { type: 'boolean', description: 'Remove clean, merged worktrees when their task ends.' },
+            maxWorktrees: {
+              type: 'integer',
+              minimum: 0,
+              maximum: 1000,
+              description:
+                'With autoCleanup: keep at most this many worktrees, least recently used cleaned first; 0 = no limit. Default 15.',
+            },
+            unusedDays: {
+              type: 'integer',
+              minimum: 0,
+              maximum: 3650,
+              description: 'With autoCleanup: clean up worktrees unused this many days; 0 = never. Default 30.',
+            },
+            cleanupArchived: {
+              type: 'boolean',
+              description: 'With autoCleanup: archiving a session cleans up its worktrees. Default true.',
+            },
+            deleteBranch: {
+              type: 'boolean',
+              description: 'Cleanup also deletes the branch (its tip stays under a recovery ref). Default false.',
+            },
           },
           description: 'set_worktree_settings: only the given fields change.',
         },

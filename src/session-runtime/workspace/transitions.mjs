@@ -100,8 +100,13 @@ export function publicWorkspaceMethods(api) {
     requestWorktree: (input) => api.requestWorktree(input),
     mergeWorkspace: (input) => api.mergeWorkspace(input),
     removeWorktree: (input) => api.removeWorktree(input),
-    listWorktrees: () => api.listWorktrees(),
-    pruneWorktrees: () => api.pruneWorktrees(),
+    // External callers get the list with its details (Settings → Worktrees).
+    listWorktrees: () => api.listWorktrees({ details: true }),
+    pruneWorktrees: (input) => api.pruneWorktrees({ repoCommonDir: input?.repoCommonDir ?? null }),
+    previewWorktreeCleanup: (input) => api.previewWorktreeCleanup({ repoCommonDir: input?.repoCommonDir ?? null }),
+    deleteWorktree: (input) => api.deleteWorktree(input),
+    getSessionWorktreeWork: (input) => api.getSessionWorktreeWork(input),
+    setArchivedSessionWorktrees: (input) => api.setArchivedSessionWorktrees(input),
   };
 }
 
@@ -291,7 +296,12 @@ export function createWorkspaceTransitions({
     switchProject: runner.switchProject,
     listWorktrees: worktrees.listWorktrees,
     pruneWorktrees: worktrees.pruneWorktrees,
+    previewWorktreeCleanup: worktrees.previewWorktreeCleanup,
+    deleteWorktree: worktrees.deleteWorktree,
     removeOrphanWorktree: worktrees.removeOrphanWorktree,
+    removeOwnedWorktree: worktrees.removeOwnedWorktree,
+    getSessionWorktreeWork: worktrees.getSessionWorktreeWork,
+    setArchivedSessionWorktrees: worktrees.setArchivedSessionWorktrees,
     cleanupDeletedSession: worktrees.cleanupDeletedSession,
     onWorktreeSetup: setup.onWorktreeSetup,
     dispose: checkouts.dispose,

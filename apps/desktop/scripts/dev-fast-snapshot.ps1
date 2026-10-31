@@ -18,7 +18,8 @@
   node_modules is linked rather than installed: a junction costs nothing and the
   snapshot's dependency tree is identical by construction.
 
-  The worktree is always removed, success or failure.
+  The worktree is removed, success or failure, unless a link in it cannot be
+  severed first: then it is kept and named, never deleted through the link.
 #>
 [CmdletBinding()]
 param(
@@ -56,15 +57,36 @@ function New-DirectoryLink {
 # actual checkout's dependencies — instead of removing the link. Every deletion
 # path therefore severs the links first, by scanning the tree rather than
 # trusting a caller's bookkeeping, so a worktree orphaned by a crash (or by an
-# app restart that skipped `finally`) is just as safe to clean up.
+# app restart that skipped `finally`) is just as safe to clean up. A link
+# that cannot be severed (or a folder that cannot be searched for links)
+# skips that snapshot: nothing of it is deleted, a warning names it, and the
+# function returns $false. $true: removed, or nothing was there.
 function Remove-SnapshotWorktree {
     param([string]$Path)
-    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return }
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path)) { return $true }
     $leaf = Split-Path -Leaf $Path
     if ($leaf -notlike 'mxsnap-*') { throw "Refusing to delete $Path : not a snapshot worktree" }
 
-    foreach ($entry in Get-ChildItem -LiteralPath $Path -Recurse -Force -Directory -ErrorAction SilentlyContinue) {
-        if ($entry.LinkType) { try { $entry.Delete() } catch {} }
+    $links = Find-DirectoryLinks $Path
+    if ($null -eq $links) {
+        Write-Warning "Skipped $Path : a folder in it could not be searched for links; nothing was deleted."
+        return $false
+    }
+    $stuck = @(
+        foreach ($link in $links) {
+            try { [IO.Directory]::Delete($link) } catch {}
+            if (Test-LinkPresent $link) { $link }
+        }
+    )
+    if ($stuck.Count -gt 0) {
+        Write-Warning ("Skipped $Path : could not unlink " + ($stuck -join ', ') +
+            '; nothing was deleted. Remove those links (never their targets), then run -CleanupOnly again.')
+        return $false
+    }
+    $left = Find-DirectoryLinks $Path
+    if ($null -eq $left -or $left.Count -gt 0) {
+        Write-Warning "Skipped $Path : links are still present after unlinking; nothing was deleted."
+        return $false
     }
     # Both calls below are expected to fail sometimes — a directory that git never
     # registered, a path it considers dirty. Under ErrorActionPreference='Stop' a
@@ -105,6 +127,40 @@ function Remove-SnapshotWorktree {
     catch {
     }
     finally { $ErrorActionPreference = $previous }
+    return $true
+}
+
+# Every directory link (junction, directory symlink) under $Root, found
+# without ever entering one: a link is listed, never walked, so the real
+# dependency tree behind node_modules is never visited. $null when a folder
+# cannot be read: then the tree cannot be proven link-free.
+function Find-DirectoryLinks {
+    param([string]$Root)
+    $links = New-Object System.Collections.Generic.List[string]
+    $pending = New-Object System.Collections.Generic.Stack[string]
+    $pending.Push($Root)
+    while ($pending.Count -gt 0) {
+        $dir = $pending.Pop()
+        try {
+            foreach ($child in [IO.Directory]::GetDirectories($dir)) {
+                if ([IO.File]::GetAttributes($child) -band [IO.FileAttributes]::ReparsePoint) { $links.Add($child) }
+                else { $pending.Push($child) }
+            }
+        }
+        catch { return $null }
+    }
+    return , $links.ToArray()
+}
+
+# Whether the link itself is still there; a dangling junction counts, which
+# Test-Path (it follows the link) would miss.
+function Test-LinkPresent {
+    param([string]$Path)
+    try {
+        [void][IO.File]::GetAttributes($Path)
+        return $true
+    }
+    catch { return $false }
 }
 
 # A dependency tree can exist as a directory and still be useless: the junction
@@ -140,15 +196,59 @@ function Restore-DependencyTree {
     Write-Host "  restored $Label dependencies"
 }
 
+# Every snapshot an earlier run left. $env:TEMP differs between runs (a session
+# scratch folder, the user's temp), so the folder is no guide: the repository's
+# own registrations name every snapshot worktree wherever it was made, and
+# this run's TEMP adds the ones git no longer knows.
+function Get-SnapshotLeftovers {
+    $listing = @()
+    try {
+        $previous = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        $listing = @(& git -C $repoRoot worktree list --porcelain 2>$null)
+    }
+    catch {
+    }
+    finally { $ErrorActionPreference = $previous }
+    $paths = @(
+        foreach ($line in $listing) {
+            if ($line -like 'worktree *') { $line.Substring(9) -replace '/', '\' }
+        }
+        Get-ChildItem $env:TEMP -Directory -Filter 'mxsnap-*' -ErrorAction SilentlyContinue |
+            ForEach-Object { $_.FullName }
+    )
+    $seen = @{}
+    foreach ($path in $paths) {
+        if ((Split-Path -Leaf $path) -notlike 'mxsnap-*') { continue }
+        $key = $path.TrimEnd('\').ToLowerInvariant()
+        if ($seen.ContainsKey($key)) { continue }
+        $seen[$key] = $true
+        $path
+    }
+}
+
 function Remove-StaleSnapshots {
     param([string]$Except = '')
-    $stale = @(
-        Get-ChildItem $env:TEMP -Directory -Filter 'mxsnap-*' -ErrorAction SilentlyContinue |
-            Where-Object { $_.FullName -ne $Except }
-    )
-    if (-not $stale) { return 0 }
-    foreach ($dir in $stale) { Remove-SnapshotWorktree $dir.FullName }
-    return $stale.Count
+    $exceptKey = $Except.TrimEnd('\').ToLowerInvariant()
+    $stale = @(Get-SnapshotLeftovers | Where-Object { $_.TrimEnd('\').ToLowerInvariant() -ne $exceptKey })
+    # Remove-SnapshotWorktree severs the junctions into the real checkout first
+    # (and skips a snapshot it cannot sever); a registration whose folder is
+    # already gone is dropped by the prune.
+    $result = [pscustomobject]@{ Removed = 0; Skipped = 0 }
+    foreach ($path in $stale) {
+        if (Remove-SnapshotWorktree $path) { $result.Removed += 1 } else { $result.Skipped += 1 }
+    }
+    if ($stale) {
+        try {
+            $previous = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            & git -C $repoRoot worktree prune 2>&1 | Out-Null
+        }
+        catch {
+        }
+        finally { $ErrorActionPreference = $previous }
+    }
+    return $result
 }
 
 # This deploy ends by restarting the app, which kills the script before its
@@ -156,8 +256,13 @@ function Remove-StaleSnapshots {
 # Sweeping it here keeps the whole flow to one command: there is no separate
 # cleanup step to remember, and no way to reach for the unsafe manual one.
 if ($CleanupOnly) {
-    $removed = Remove-StaleSnapshots
-    Write-Step $(if ($removed) { "removed $removed snapshot worktree(s)" } else { 'no snapshot worktrees to remove' })
+    $swept = Remove-StaleSnapshots
+    Write-Step $(if ($swept.Removed) { "removed $($swept.Removed) snapshot worktree(s)" } else { 'no snapshot worktrees removed' })
+    # A skipped snapshot (its links could not be severed) was named above; it is still on disk.
+    if ($swept.Skipped) {
+        Write-Host "  skipped $($swept.Skipped) snapshot worktree(s); see the warnings above" -ForegroundColor Yellow
+        exit 1
+    }
     exit 0
 }
 
@@ -168,7 +273,8 @@ try {
     $stepTimer = [Diagnostics.Stopwatch]::StartNew()
     $swept = Remove-StaleSnapshots
     Save-Timing 'staleSnapshotCleanupMs' $stepTimer
-    if ($swept) { Write-Step "swept $swept snapshot worktree(s) left by an earlier restart" }
+    if ($swept.Removed) { Write-Step "swept $($swept.Removed) snapshot worktree(s) left by an earlier restart" }
+    if ($swept.Skipped) { Write-Host "  kept $($swept.Skipped) snapshot worktree(s) whose links could not be severed" -ForegroundColor Yellow }
 
     Restore-DependencyTree $repoRoot 'root'
     Restore-DependencyTree $desktopDir 'desktop'
@@ -273,7 +379,9 @@ try {
             throw 'The working tree did not compile in three snapshots; let the in-flight edit finish and retry.'
         }
         Write-Host '  frozen copy does not compile (an edit was mid-save); retaking in 20s' -ForegroundColor Yellow
-        Remove-SnapshotWorktree $snapshotRoot
+        if (-not (Remove-SnapshotWorktree $snapshotRoot)) {
+            throw "The snapshot $snapshotRoot could not be removed safely before retaking it."
+        }
         Start-Sleep -Seconds 20
     }
 
@@ -354,7 +462,8 @@ catch {
 finally {
     Pop-Location -ErrorAction SilentlyContinue
     if (Test-Path -LiteralPath $snapshotRoot) { Write-Step 'removing the snapshot worktree' }
-    Remove-SnapshotWorktree $snapshotRoot
+    # A skip warns by itself; the next run's sweep tries again.
+    [void](Remove-SnapshotWorktree $snapshotRoot)
 }
 if ($failure) {
     Write-Error $failure -ErrorAction Continue

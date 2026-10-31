@@ -841,6 +841,50 @@ async function startChannelFrontDoor({ channelsRuntime, bootPhases }) {
   return bootPhases.measure('channel-transport-start', () => transport.start());
 }
 
+async function startDaemonMaintenance() {
+  const [schedule, liveness, { IN_FLIGHT_STAGES }] = await Promise.all([
+    import('../runtime/shared/maintenance-schedule.mjs'),
+    import('../runtime/agent/orchestrator/session/manager/runtime-liveness.mjs'),
+    import('../runtime/agent/orchestrator/session/manager/runtime-state.mjs'),
+  ]);
+  const entries = () => [...liveness._runtimeEntries()];
+  schedule.registerMaintenanceIdleProbe(
+    () =>
+      !entries().some(
+        ([, entry]) => (entry?.controller && !entry.controller.signal?.aborted) || IN_FLIGHT_STAGES.has(entry?.stage)
+      )
+  );
+  schedule.registerMaintenanceTask(
+    'worktree-cleanup',
+    async () => {
+      const maintenance = await import('../runtime/shared/worktrees/maintenance.mjs');
+      // Every session with an open runtime entry here counts as live, read
+      // again right before each removal (one that opened meanwhile keeps its folder).
+      const liveSessionIds = () =>
+        entries()
+          .filter(([, entry]) => entry && entry.closed !== true)
+          .map(([id]) => id);
+      const report = await maintenance.runWorktreeCleanup({
+        liveSessionIds: liveSessionIds(),
+        currentLiveSessionIds: liveSessionIds,
+      });
+      const incomplete = report.kept.filter((item) => item.reason === 'incomplete');
+      if (report.removed.length || report.errors.length || incomplete.length) {
+        log(
+          `worktree cleanup: removed ${report.removed.length}, incomplete ${incomplete.length}` +
+            `${incomplete.length ? ` (${incomplete.map((item) => item.id).join(', ')})` : ''}, errors ${report.errors.length}`
+        );
+      }
+    },
+    {
+      intervalMs: 60 * 60_000,
+      initialDelayMs: 3 * 60_000,
+      onError: (error) => log(`worktree cleanup failed: ${error?.message || error}`),
+    }
+  );
+  schedule.startMaintenanceSchedule();
+}
+
 async function main() {
   const startedAt = performance.now();
   const bootPhases = createBootPhaseProfiler({ log, startedAt });
@@ -865,14 +909,19 @@ async function main() {
     .then((maintenance) => maintenance.reconcileWorktreesAtStartup())
     .then((report) => {
       const changed = report.removed.length + report.recovered.length + report.pruned.length;
-      if (changed || report.errors.length) {
+      const incomplete = report.kept.filter((item) => item.reason === 'incomplete').length;
+      if (changed || incomplete || report.errors.length) {
         log(
           `worktree reconcile: removed ${report.removed.length}, recovered ${report.recovered.length}, ` +
-            `pruned ${report.pruned.length}, errors ${report.errors.length}`
+            `pruned ${report.pruned.length}, incomplete ${incomplete}, errors ${report.errors.length}`
         );
       }
     })
     .catch((error) => log(`worktree reconcile failed: ${error?.message || error}`));
+  // Idle-time housekeeping (shared/maintenance-schedule.mjs): the worktree
+  // cleanup's count/age limits and archive rules once the desktop (favorites)
+  // is attached, then hourly while no session is mid-turn.
+  void startDaemonMaintenance().catch((error) => log(`maintenance schedule failed: ${error?.message || error}`));
   // The daemon owns prompt attachments; its census runs off the boot path
   // (first attempt after the store's start delay, then per its interval).
   void import('../runtime/attachments/store.mjs').then((store) => store.startAttachmentGc()).catch(() => {});
@@ -1045,7 +1094,8 @@ async function main() {
     abort: (sessionId) => sessionService.abortSession({ sessionId }),
     // A routine's executor sub-agent, run to its end before its bot is woken
     // (routine-executor.mjs); resolves `{ sessionId, content }`.
-    runAgent: (args, context, options) => agentControl.runForeground(args, context, options),  });
+    runAgent: (args, context, options) => agentControl.runForeground(args, context, options),
+  });
   // A bot's next turn, whatever starts it, first reads the progress updates
   // queued for its thread (they wake nobody on their own).
   setSessionTurnPrelude(postBeforeAgentTurn);

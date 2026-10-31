@@ -67,8 +67,15 @@ export function createWorkerRequestClient(url, { idleExitMs = 0, onEvent = null,
         created.unref();
         if (worker === created) armIdleTimer(created);
       }
-      if (error) entry.reject(Object.assign(new Error(error.message), { code: error.code }));
-      else entry.resolve(result);
+      if (error) {
+        entry.reject(
+          Object.assign(
+            new Error(error.message),
+            { code: error.code },
+            typeof error.childExited === 'boolean' ? { childExited: error.childExited, pid: error.pid } : {}
+          )
+        );
+      } else entry.resolve(result);
     });
     created.on('error', (error) => {
       if (worker === created) {
@@ -132,7 +139,14 @@ export function serveWorkerRequests(handler) {
         (error) =>
           parentPort.postMessage({
             id,
-            error: { message: String(error?.message || error), code: error?.code ?? null },
+            error: {
+              message: String(error?.message || error),
+              code: error?.code ?? null,
+              // A timed-out child's fate (run-child.mjs waitForExitMs).
+              ...(typeof error?.childExited === 'boolean'
+                ? { childExited: error.childExited, pid: error.pid ?? null }
+                : {}),
+            },
           })
       );
   });

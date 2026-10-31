@@ -106,7 +106,11 @@ export async function createTestWorktree(projectPath, extra = {}) {
   return { entry, ...id, ...extra };
 }
 
-/** The repository's branches under the default managed prefix. */
+/** The branch prefix the suites configure (the default is none), so their
+ *  managed branches are told apart from the repository's own. */
+export const TEST_BRANCH_PREFIX = 'mixdog/';
+
+/** The repository's branches under TEST_BRANCH_PREFIX. */
 export function prefixedBranches(repo) {
   return git(repo, 'for-each-ref', '--format=%(refname:short)', 'refs/heads/mixdog/').split('\n').filter(Boolean);
 }

@@ -23,7 +23,15 @@
  *     (expectedRevision: WORKTREE_REVISION_CONFLICT when the session moved on)
  *     (WORKTREE_REMOVAL_INCOMPLETE: partly removed; call again to finish)
  *   listWorktrees()                                → every managed worktree with its retention
- *   pruneWorktrees()                               → reconcile report (never a retained worktree) */
+ *   pruneWorktrees()                               → reconcile report (with autoCleanup on, also the
+ *     count/age limits and archive rules of the automatic cleanup)
+ *   previewWorktreeCleanup({ repoCommonDir? })     → { hasCandidates } (whether pruneWorktrees could act on
+ *     anything; read-only, no git verification)
+ *   deleteWorktree({ entryId, force? })          → { removed, entryId, path } (Settings → Worktrees;
+ *     refuses one in use, dirty or unmerged work unless `force`)
+ *   getSessionWorktreeWork({ sessionIds })          → { sessionIds } owning a worktree removal would refuse
+ *   setArchivedSessionWorktrees({ sessionIds, archived }) → { changed } (autoCleanup on: archived
+ *     sessions' worktrees become disposable for the startup reconcile / prune; a restore unmarks) */
 import { worktreeError } from '../../../runtime/shared/worktrees/contract.mjs';
 
 /** Session actions of the Lead worktree feature (settings live in settings.mjs). */
@@ -40,6 +48,10 @@ export const SESSION_WORKTREE_ACTIONS = Object.freeze([
   'removeWorktree',
   'listWorktrees',
   'pruneWorktrees',
+  'previewWorktreeCleanup',
+  'deleteWorktree',
+  'getSessionWorktreeWork',
+  'setArchivedSessionWorktrees',
 ]);
 
 export function createSessionWorktreeApi({ runtime, set, routeState } = {}) {

@@ -147,6 +147,11 @@ export function createWorktreeToolHost({ getSession, getWorkspaceApi, executeSes
     }
     const lane = laneFor(entry.ownerSessionId, callerSessionId, scope);
     const menu = await lane.menu();
+    // This session's worktree that it does not work in: removed where it is,
+    // without entering it (its own running workers elsewhere never block that).
+    if (lane.own && menu.workspace?.worktreeId !== entry.id) {
+      return workspaceApi().removeOwnedWorktree({ entryId: entry.id, force: request.force === true });
+    }
     if (menu.retainedWorktree?.id !== entry.id) {
       throw new Error(
         `git worktree remove: ${entry.path} is not the current worktree of session ${entry.ownerSessionId}; enter it (worktree_action enter, branch ${entry.branch}) first, then remove it`
@@ -174,6 +179,17 @@ export function createWorktreeToolHost({ getSession, getWorkspaceApi, executeSes
         return merge(lane());
       case 'remove': {
         const force = request.force === true;
+        if (request.branch) {
+          // By branch: the managed worktree of that branch this session owns.
+          const rows = await workspaceApi().listWorktrees();
+          const row = rows.find((item) => item.branch === request.branch && item.ownerSessionId === callerSessionId);
+          if (!row) {
+            throw new Error(
+              `git worktree remove: this session owns no managed worktree of branch ${request.branch}; git worktree list shows them`
+            );
+          }
+          return removePath({ path: row.path, force }, callerSessionId, scope);
+        }
         if (request.sessionId && request.sessionId !== callerSessionId) {
           const gone = await orphan((row) => row.ownerSessionId === request.sessionId);
           if (gone) return workspaceApi().removeOrphanWorktree({ entryId: gone.id, force });

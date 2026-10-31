@@ -32,6 +32,7 @@ import { cancelOwnedShellTrees } from '../../tools/lib/owned-shell-trees.mjs';
 import { noteShellOwnerSessionClosed } from '../../tools/builtin/lib/shell-job-records.mjs';
 import { forgetSideQuestion } from '../side-question-store.mjs';
 import { cancelBackgroundTasks } from '../../../../shared/background-tasks.mjs';
+import { releaseWorkerSnapshots } from '../../../../shared/worktrees/worker-snapshots.mjs';
 
 /**
  * Close a session. Plants a `closed=true` tombstone on disk with a bumped
@@ -379,6 +380,8 @@ export function unloadSessionRuntime(id, reason = 'runtime-unload') {
   closeProviderConnections(id, `runtime-unload:${reason}`);
   releaseSessionReadCaches(id);
   _clearSessionRuntime(id);
+  // A settled worker turn's read-only snapshots go with it (only ones it made).
+  void releaseWorkerSnapshots(id).catch(() => {});
   if (process.env.MIXDOG_DEBUG_SESSION_LOG) {
     try {
       process.stderr.write(`[agent-unload] session=${id} reason=${reason}\n`);

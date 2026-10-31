@@ -68,14 +68,16 @@ const READ_ONLY_FLAGS = ['--no-optional-locks', '-c', 'core.fsmonitor=false'];
 /**
  * @param {string} cwd
  * @param {string[]} args
- * @param {{ signal?: AbortSignal, timeoutMs?: number, maxBytes?: number, allowFailure?: boolean, readOnly?: boolean, env?: Record<string, string> }} [options]
+ * @param {{ signal?: AbortSignal, timeoutMs?: number, maxBytes?: number, allowFailure?: boolean, readOnly?: boolean, env?: Record<string, string>, waitForExitMs?: number }} [options]
  *   `env`: variables set on top of the pinned environment (a temporary GIT_INDEX_FILE, a commit identity).
+ *   `waitForExitMs`: a timeout rejects only once the killed git exited (or after that bound;
+ *   the error's `childExited` says which).
  * @returns {Promise<{ code: number, stdout: string, stderr: string }>}
  */
 export async function runGit(
   cwd,
   args,
-  { signal, timeoutMs, maxBytes, allowFailure = false, readOnly = false, env = null } = {}
+  { signal, timeoutMs, maxBytes, allowFailure = false, readOnly = false, env = null, waitForExitMs = 0 } = {}
 ) {
   throwIfAborted(signal);
   const result = await runGitOffThread([...(readOnly ? READ_ONLY_FLAGS : []), ...SCOPED_CONFIG, ...args], {
@@ -83,6 +85,7 @@ export async function runGit(
     env: env ? { ...gitEnvironment(), ...env } : gitEnvironment(),
     timeoutMs: timeoutMs ?? DEFAULT_TIMEOUT_MS,
     maxBytes: maxBytes ?? DEFAULT_MAX_BYTES,
+    waitForExitMs,
   });
   if (result.code !== 0 && !allowFailure) throw gitFailure(args, result);
   return result;
@@ -225,10 +228,14 @@ export async function branchCommit(cwd, branch, { signal } = {}) {
  *  answer is not exactly two commit ids: the caller then reads each with
  *  branchCommit(). */
 export async function branchCommitPair(cwd, first, second, { signal } = {}) {
-  const result = await runGit(cwd, ['rev-parse', `refs/heads/${first}^{commit}`, `refs/heads/${second}^{commit}`, '--'], {
-    signal,
-    allowFailure: true,
-  });
+  const result = await runGit(
+    cwd,
+    ['rev-parse', `refs/heads/${first}^{commit}`, `refs/heads/${second}^{commit}`, '--'],
+    {
+      signal,
+      allowFailure: true,
+    }
+  );
   const [a, b, dashes, ...rest] = String(result.stdout || '')
     .split(/\r?\n/)
     .map((line) => line.trim());
@@ -241,6 +248,23 @@ export async function branchCommitPair(cwd, first, second, { signal } = {}) {
 export async function localBranches(cwd, { signal, prefix = '' } = {}) {
   const result = await runGit(cwd, ['for-each-ref', '--format=%(refname:short)', `refs/heads/${prefix}`], { signal });
   return lines(result.stdout);
+}
+
+/**
+ * Every local branch with the committer time of its tip (ISO-8601), in
+ * refname order. Ref names cannot hold a tab, so it separates the fields.
+ * @returns {Promise<Array<{ name: string, committedAt: string }>>}
+ */
+export async function localBranchCommits(cwd, { signal } = {}) {
+  const result = await runGit(
+    cwd,
+    ['for-each-ref', '--format=%(refname:short)%09%(committerdate:iso-strict)', 'refs/heads/'],
+    { signal }
+  );
+  return lines(result.stdout).map((line) => {
+    const tab = line.indexOf('\t');
+    return tab < 0 ? { name: line, committedAt: '' } : { name: line.slice(0, tab), committedAt: line.slice(tab + 1) };
+  });
 }
 
 /** The local branch names the repository's remotes declare as their default (`refs/remotes/<remote>/HEAD`). */

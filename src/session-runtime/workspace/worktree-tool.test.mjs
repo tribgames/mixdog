@@ -36,7 +36,11 @@ function fixture({ entries = {}, session = ATTENDED } = {}) {
     mergeWorkspace: record('mergeWorkspace', { merged: true }),
     removeWorktree: record('removeWorktree', { removed: { removed: true } }),
     removeSnapshot: record('removeSnapshot', { removed: true }),
-    listWorktrees: record('listWorktrees', []),
+    removeOwnedWorktree: record('removeOwnedWorktree', { removed: { removed: true } }),
+    listWorktrees: async (...args) => {
+      calls.push(['listWorktrees', ...args]);
+      return state.rows ?? [];
+    },
     pruneWorktrees: record('pruneWorktrees', { removed: [] }),
   };
   const control = async (args, context) => {
@@ -171,7 +175,12 @@ test('a path removal resolves its managed owner: snapshot, own or other session,
       '/wt/snap': { id: 'snap', kind: 'snapshot', path: '/wt/snap', holderSessionId: LEAD },
       '/wt/fix': { id: 'fix', path: '/wt/fix', branch: 'mixdog/fix', ownerSessionId: LEAD },
       '/wt/theirs': { id: 'fix', path: '/wt/theirs', branch: 'mixdog/theirs', ownerSessionId: 'sess_other' },
-      '/wt/second': { id: 'second', path: '/wt/second', branch: 'dev', ownerSessionId: LEAD },
+      '/wt/their-second': {
+        id: 'their-second',
+        path: '/wt/their-second',
+        branch: 'dev',
+        ownerSessionId: 'sess_other',
+      },
       '/wt/orphan': { id: 'orphan', path: '/wt/orphan', branch: 'x', ownerSessionId: null },
     },
   });
@@ -186,5 +195,34 @@ test('a path removal resolves its managed owner: snapshot, own or other session,
   assert.deepEqual(h.calls[4][1].input, { force: false, expectedRevision: 9 });
   await assert.rejects(h.run({ op: 'remove-path', path: '/elsewhere' }), /not a Mixdog-managed worktree/);
   await assert.rejects(h.run({ op: 'remove-path', path: '/wt/orphan' }), /git worktree prune removes it/);
-  await assert.rejects(h.run({ op: 'remove-path', path: '/wt/second' }), /not the current worktree/);
+  await assert.rejects(h.run({ op: 'remove-path', path: '/wt/their-second' }), /not the current worktree/);
+});
+
+test('its own worktree it does not work in is removed directly, by path or branch, without entering it', async () => {
+  const h = fixture({
+    entries: {
+      '/wt/fix': { id: 'fix', path: '/wt/fix', branch: 'mixdog/fix', ownerSessionId: LEAD },
+      '/wt/second': { id: 'second', path: '/wt/second', branch: 'dev', ownerSessionId: LEAD },
+    },
+  });
+  h.state.rows = [
+    { id: 'fix', path: '/wt/fix', branch: 'mixdog/fix', ownerSessionId: LEAD },
+    { id: 'second', path: '/wt/second', branch: 'dev', ownerSessionId: LEAD },
+    { id: 'theirs', path: '/wt/theirs', branch: 'other', ownerSessionId: 'sess_other' },
+  ];
+  await h.run({ op: 'remove-path', path: '/wt/second' });
+  await h.run({ op: 'remove', branch: 'dev', force: true });
+  const removals = h.calls.filter((call) => call[0].startsWith('remove'));
+  assert.deepEqual(removals, [
+    ['removeOwnedWorktree', { entryId: 'second', force: false }],
+    ['removeOwnedWorktree', { entryId: 'second', force: true }],
+  ]);
+  // The one it works in still goes through the session's own transition.
+  await h.run({ op: 'remove', branch: 'mixdog/fix' });
+  assert.deepEqual(h.calls.at(-1), ['removeWorktree', { force: false, expectedRevision: 4 }, { ownTurn: true }]);
+  // Not its own branch: nothing is removed.
+  await assert.rejects(h.run({ op: 'remove', branch: 'other' }), /owns no managed worktree of branch other/);
+  // A refusal of the backend (dirty, unmerged) reaches the caller unchanged.
+  h.state.fail = { removeOwnedWorktree: worktreeError('WORKTREE_DIRTY') };
+  await assert.rejects(h.run({ op: 'remove-path', path: '/wt/second' }), { code: 'WORKTREE_DIRTY' });
 });

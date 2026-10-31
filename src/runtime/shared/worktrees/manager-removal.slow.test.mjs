@@ -16,7 +16,14 @@ import {
   reconcileManagedWorktrees,
   removeManagedWorktree,
 } from './manager.mjs';
-import { cleanupDeletedSessionWorktree, pruneWorktrees, reconcileWorktreesAtStartup } from './maintenance.mjs';
+import {
+  cleanupDeletedSessionWorktree,
+  previewWorktreeCleanup,
+  pruneWorktrees,
+  reconcileWorktreesAtStartup,
+  reconcileWorktreesAtStartup as reconcileAtStartup,
+  setArchivedSessionWorktrees,
+} from './maintenance.mjs';
 import { readOwnerLease } from './owner.mjs';
 import { canonicalPath, samePath } from './paths.mjs';
 import { getRecord, putRecord, readRegistry } from './registry.mjs';
@@ -27,6 +34,7 @@ import {
   git,
   makeRepo,
   prefixedBranches,
+  TEST_BRANCH_PREFIX,
   tempDir,
   useTempDataDir,
   writeFile,
@@ -42,7 +50,7 @@ beforeEach(() => {
   // Every lease here is written by this test process: treat its holders as gone
   // unless a test says otherwise.
   restore = configureWorktreeManager({
-    settings: {},
+    settings: { branchPrefix: TEST_BRANCH_PREFIX },
     freeBytes: async () => Number.MAX_SAFE_INTEGER,
     processAlive: () => false,
   });
@@ -408,7 +416,7 @@ test('startup reconcile recovers interrupted creations, resumes deletions and ke
 test('a lease held by a running process keeps its worktree through reconcile and prune', async () => {
   restore();
   restore = configureWorktreeManager({
-    settings: {},
+    settings: { branchPrefix: TEST_BRANCH_PREFIX },
     freeBytes: async () => Number.MAX_SAFE_INTEGER,
     processAlive: (pid) => pid === process.pid,
   });
@@ -450,7 +458,7 @@ test('maintenance: startup honors autoCleanup and stored sessions; prune and del
 
   restore();
   restore = configureWorktreeManager({
-    settings: { autoCleanup: false },
+    settings: { branchPrefix: TEST_BRANCH_PREFIX, autoCleanup: false },
     freeBytes: async () => Number.MAX_SAFE_INTEGER,
     processAlive: () => false,
   });
@@ -480,13 +488,197 @@ test('maintenance: startup honors autoCleanup and stored sessions; prune and del
   rmSync(join(stored.entry.path, 'wip.txt'));
   restore();
   restore = configureWorktreeManager({
-    settings: { autoCleanup: true },
+    settings: { branchPrefix: TEST_BRANCH_PREFIX, autoCleanup: true },
     freeBytes: async () => Number.MAX_SAFE_INTEGER,
     processAlive: () => false,
   });
   // Disposable (its session was deleted): startup removes it even though a tombstone is still stored.
   assert.deepEqual((await reconcileWorktreesAtStartup({ listSessionIds })).removed, [stored.entry.id]);
   assert.deepEqual((await readRegistry()).entries, {});
+});
+
+test('a squash- or cherry-merged branch counts as merged; partly merged, reverted-in-target or own-merge work refuses', async () => {
+  const repo = makeRepo();
+  // Two commits squashed into one on main.
+  const squashed = await create(repo, { nameHint: 'squashed' });
+  commitFile(squashed.entry.path, 'a.txt', 'a\n');
+  commitFile(squashed.entry.path, 'b.txt', 'b\n');
+  git(repo, 'merge', '--squash', squashed.entry.branch);
+  git(repo, 'commit', '-q', '-m', 'squash');
+  commitFile(repo, 'later.txt', 'later\n');
+  // One commit cherry-picked onto main.
+  const picked = await create(repo, { nameHint: 'picked' });
+  const pickedTip = commitFile(picked.entry.path, 'c.txt', 'c\n');
+  // -x: a pick within the same second onto the branch's own base would otherwise be the very same commit.
+  git(repo, 'cherry-pick', '-x', pickedTip);
+  // Two commits of which only the first reached main.
+  const partial = await create(repo, { nameHint: 'partial' });
+  const first = commitFile(partial.entry.path, 'd.txt', 'd\n');
+  commitFile(partial.entry.path, 'e.txt', 'e\n');
+  git(repo, 'cherry-pick', '-x', first);
+  // A change cherry-picked onto main and reverted there afterwards: patch-equivalent, but not in main.
+  const reverted = await create(repo, { nameHint: 'reverted' });
+  const revertedTip = commitFile(reverted.entry.path, 'f.txt', 'f\n');
+  git(repo, 'cherry-pick', '-x', revertedTip);
+  git(repo, 'revert', '--no-edit', 'HEAD');
+  // A merge commit of the branch's own that main never reached, though main has the merged change too.
+  const merging = await create(repo, { nameHint: 'merging' });
+  git(repo, 'checkout', '-q', '-b', 'side');
+  commitFile(repo, 'g.txt', 'g\n');
+  git(repo, 'checkout', '-q', 'main');
+  git(merging.entry.path, 'merge', '-q', '--no-ff', '-m', 'merge side here', 'side');
+  git(repo, 'merge', '-q', '--no-ff', '-m', 'merge side into main', 'side');
+
+  const refuses = async (entry, commits) =>
+    assert.rejects(removeManagedWorktree({ entryId: entry.id }), (error) => {
+      assert.equal(error.code, 'WORKTREE_UNMERGED');
+      assert.equal(error.details.commits, commits);
+      return true;
+    });
+  await refuses(partial.entry, 2);
+  await refuses(reverted.entry, 1);
+  await refuses(merging.entry, 1);
+  const report = await reconcileManagedWorktrees({ retainedSessionIds: [], removeOrphans: true });
+  assert.deepEqual(report.removed.sort(), [squashed.entry.id, picked.entry.id].sort());
+  for (const { entry } of [partial, reverted, merging]) {
+    assert.ok(
+      report.kept.some((item) => item.id === entry.id && item.reason === 'unmerged'),
+      entry.id
+    );
+    assert.ok(existsSync(entry.path), entry.id);
+  }
+  assert.deepEqual(
+    prefixedBranches(repo).sort(),
+    [partial.entry.branch, reverted.entry.branch, merging.entry.branch].sort()
+  );
+  assert.equal(git(reverted.entry.path, 'rev-parse', 'HEAD'), revertedTip, 'the reverted change is kept');
+});
+
+test('reconcile prunes every registration whose folder is gone, unmanaged ones too, but keeps locked ones', async () => {
+  const repo = makeRepo();
+  const managed = await create(repo, { nameHint: 'managed' });
+  const scratch = tempDir('mixdog-wt-scratch-');
+  const gone = join(scratch, 'gone');
+  const lockedGone = join(scratch, 'locked');
+  git(repo, 'worktree', 'add', '-q', '--detach', gone);
+  git(repo, 'worktree', 'add', '-q', '--detach', lockedGone);
+  git(repo, 'worktree', 'lock', lockedGone);
+  rmSync(gone, { recursive: true, force: true });
+  rmSync(lockedGone, { recursive: true, force: true });
+  assert.equal(worktreeCount(repo), 4);
+  // Bookkeeping only: it runs with autoCleanup off as well.
+  restore();
+  restore = configureWorktreeManager({
+    settings: { branchPrefix: TEST_BRANCH_PREFIX, autoCleanup: false },
+    freeBytes: async () => Number.MAX_SAFE_INTEGER,
+    processAlive: () => false,
+  });
+  const report = await reconcileWorktreesAtStartup({ listSessionIds: async () => [managed.sessionId] });
+  assert.deepEqual(report.pruned, [canonicalPath(gone)]);
+  assert.equal(worktreeCount(repo), 3, 'the locked registration and the managed checkout stay');
+  assert.ok(existsSync(managed.entry.path));
+});
+
+test('cleanup preview: candidates are unretained worktrees and gone registrations, nothing else, and it changes nothing', async () => {
+  const repo = makeRepo();
+  const stored = await create(repo, { nameHint: 'stored' });
+  const orphan = await create(repo, { nameHint: 'orphan' });
+  const listSessionIds = async () => [stored.sessionId];
+  restore();
+  restore = configureWorktreeManager({
+    settings: { branchPrefix: TEST_BRANCH_PREFIX, autoCleanup: false },
+    freeBytes: async () => Number.MAX_SAFE_INTEGER,
+    processAlive: () => false,
+  });
+  const preview = (extra = {}) =>
+    previewWorktreeCleanup({
+      listSessionIds,
+      listJobs: async () => [],
+      settings: { autoCleanup: false },
+      repoCommonDir: stored.entry.repoCommonDir,
+      ...extra,
+    });
+  assert.deepEqual(await preview(), { hasCandidates: true, ids: [orphan.entry.id], stale: [] });
+  assert.ok(existsSync(orphan.entry.path), 'a preview removes nothing');
+  // Another repository's worktrees are out of scope.
+  assert.equal((await preview({ repoCommonDir: join(tempDir('mixdog-wt-other-'), '.git') })).hasCandidates, false);
+  await pruneWorktrees({ listSessionIds });
+  assert.equal((await preview()).hasCandidates, false, 'only the retained worktree is left');
+
+  const scratch = tempDir('mixdog-wt-scratch-');
+  const gone = join(scratch, 'gone');
+  git(repo, 'worktree', 'add', '-q', '--detach', gone);
+  assert.equal((await preview()).hasCandidates, false, 'a registration whose folder exists is not stale');
+  rmSync(gone, { recursive: true, force: true });
+  assert.deepEqual((await preview()).stale, [canonicalPath(gone)]);
+  await pruneWorktrees({ listSessionIds });
+  assert.equal((await preview()).hasCandidates, false);
+
+  // autoCleanup on with a count limit selects the retained worktree without any git status check.
+  const limited = await preview({
+    settings: { autoCleanup: true, maxWorktrees: 0, unusedDays: 0 },
+    readFavorites: async () => [],
+  });
+  assert.equal(limited.hasCandidates, false, 'no limit set: nothing selected');
+  await putRecord({ ...(await getRecord(stored.entry.id)), createdAt: 1 });
+  const aged = await preview({
+    settings: { autoCleanup: true, maxWorktrees: 0, unusedDays: 1 },
+    readFavorites: async () => [],
+    readActivity: async () => ({}),
+  });
+  assert.deepEqual(aged.ids, [stored.entry.id]);
+});
+
+test("archiving marks a session's worktrees disposable only with autoCleanup on; startup then removes clean, merged ones", async () => {
+  const repo = makeRepo();
+  const clean = await create(repo, { nameHint: 'clean' });
+  const dirty = await create(repo, { nameHint: 'dirty' });
+  const unmerged = await create(repo, { nameHint: 'unmerged' });
+  writeFileSync(join(dirty.entry.path, 'wip.txt'), 'wip\n');
+  commitFile(unmerged.entry.path, 'work.txt', 'work\n');
+  const sessions = [clean.sessionId, dirty.sessionId, unmerged.sessionId];
+  // Older than the cleanup's one-hour minimum.
+  for (const { entry } of [clean, dirty, unmerged]) {
+    await putRecord({ ...(await getRecord(entry.id)), createdAt: Date.now() - 2 * 60 * 60_000 });
+  }
+  // Archived sessions stay in the store; a desktop reports no favorites.
+  const storedIds = async () => sessions;
+  const reconcileWorktreesAtStartup = (options) =>
+    reconcileAtStartup({ ...options, readFavorites: async () => [], listJobs: async () => [] });
+  const listSessionIds = storedIds;
+  const configure = (autoCleanup) => {
+    restore();
+    restore = configureWorktreeManager({
+      settings: { branchPrefix: TEST_BRANCH_PREFIX, autoCleanup },
+      freeBytes: async () => Number.MAX_SAFE_INTEGER,
+      processAlive: () => false,
+    });
+  };
+
+  // Off: nothing is marked and startup removes nothing.
+  configure(false);
+  assert.deepEqual(await setArchivedSessionWorktrees(sessions, true), { changed: [], reason: 'auto-cleanup-off' });
+  assert.deepEqual((await reconcileWorktreesAtStartup({ listSessionIds })).removed, []);
+  for (const { entry } of [clean, dirty, unmerged]) assert.equal((await getRecord(entry.id)).disposable, false);
+
+  // On: marked; a restore unmarks again.
+  configure(true);
+  assert.equal((await setArchivedSessionWorktrees(sessions, true)).changed.length, 3);
+  assert.equal((await setArchivedSessionWorktrees([clean.sessionId], false)).changed.length, 1);
+  assert.deepEqual((await reconcileWorktreesAtStartup({ listSessionIds })).removed, []);
+  assert.ok(existsSync(clean.entry.path));
+  await setArchivedSessionWorktrees([clean.sessionId], true);
+  // Marked while on, then the toggle goes off: startup removes nothing.
+  configure(false);
+  assert.deepEqual((await reconcileWorktreesAtStartup({ listSessionIds })).removed, []);
+  configure(true);
+  const report = await reconcileWorktreesAtStartup({ listSessionIds });
+  assert.deepEqual(report.removed, [clean.entry.id]);
+  assert.ok(report.kept.some((item) => item.id === dirty.entry.id && item.reason === 'dirty'));
+  assert.ok(report.kept.some((item) => item.id === unmerged.entry.id && item.reason === 'unmerged'));
+  assert.ok(existsSync(dirty.entry.path));
+  assert.ok(existsSync(join(dirty.entry.path, 'wip.txt')));
+  assert.ok(prefixedBranches(repo).includes(unmerged.entry.branch));
 });
 
 async function listManagedWorktreesRows(listSessionIds) {

@@ -130,7 +130,7 @@ export function createSessionWorkspaceView({
     return {
       workspace: view,
       pendingWorktree: pendingWorktree(),
-      branches: branchMenuEntries(menu.branches, menu.occupancy),
+      branches: branchMenuEntries(menu.branches, menu.occupancy, menu.committedAt),
       occupancy: menu.occupancy,
       retainedWorktree: selectedEntry ?? menu.retainedWorktree ?? null,
       // Creation notes of the retained worktree (submodules, include entries).
