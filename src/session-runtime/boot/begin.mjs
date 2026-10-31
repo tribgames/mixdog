@@ -35,6 +35,7 @@ export function beginBoot(params) {
   const {
     awaitKeychainPrewarm,
     invalidateProviderCaches,
+    reinitProviders,
     ensureProvidersReady,
     modelMetaByRoute,
     providerModelCaches,
@@ -54,6 +55,7 @@ export function beginBoot(params) {
   return Object.assign(boot, {
     awaitKeychainPrewarm,
     invalidateProviderCaches,
+    reinitProviders,
     ensureProvidersReady,
     modelMetaByRoute,
     providerModelCaches,

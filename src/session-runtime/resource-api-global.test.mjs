@@ -19,7 +19,6 @@ function resourceApi(overrides = {}) {
     saveConfigAndAdopt: () => {},
     connectConfiguredMcp: async () => ({ servers: [] }),
     invalidatePreSessionToolSurface: () => {},
-    refreshEmptySessionToolPolicy: async () => {},
     recreateCurrentSessionIfReady: async () => {},
     normalizeMcpServerInput: () => {
       throw new Error('not used');
@@ -217,13 +216,13 @@ test('global skill and plugin refreshes update empty surfaces without replacing 
   const writer = resourceApi({
     ...lifecycleOverrides,
     setDisabledSkills: (names) => ({ disabled: names }),
-    refreshEmptySessionToolPolicy: async () => {
+    invalidatePreSessionToolSurface: () => {
       writerRefreshes += 1;
     },
   });
   const peer = resourceApi({
     ...lifecycleOverrides,
-    refreshEmptySessionToolPolicy: async () => {
+    invalidatePreSessionToolSurface: () => {
       peerRefreshes += 1;
     },
   });

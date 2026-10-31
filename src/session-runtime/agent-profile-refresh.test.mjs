@@ -223,7 +223,8 @@ test("a gate that opened since a bot's thread was made reaches the thread with n
       invalidatePreSessionToolSurface: () => {},
     });
   const conversation = session.messages.slice(-2);
-  const sees = () => (session.deferredToolCatalog || []).some((tool) => tool.name === 'browser');
+  // The late pool: the boot catalog a native request keeps stays as it is.
+  const sees = () => (session.deferredLateToolCatalog || []).some((tool) => tool.name === 'browser');
 
   // Still gated: nothing moves.
   assert.equal(await refreshWith(['browser', 'browser_devtools']).refreshAgentProfile({ trigger: 'resume' }), false);
@@ -280,13 +281,14 @@ test('a connector added to a bot is reachable without a prefix change; a removed
   session.deferredToolCatalog = [mcp('alpha'), mcp('beta')];
   delete session.agentConnectorTools;
   const refresh = refresher(session);
-  await refresh.applyPendingAgentProfile();
+  // Connector switches are staged at every turn start (reconcileTurnSettings).
+  await refresh.reconcileTurnSettings();
   assert.deepEqual(session.agentConnectorTools, ['mcp__alpha__run'], 'the baseline');
   assert.match(String(preDispatchDenyForSession(session, { name: 'mcp__beta__run', arguments: {} })), /not available/);
   const before = prefix(session);
 
   connectors(['alpha', 'beta']);
-  await refresh.refreshAgentProfile();
+  await refresh.reconcileTurnSettings();
   assert.equal(prefix(session), before, 'the request prefix is byte-identical');
   assert.equal(session.pendingCacheBreakIntent, undefined);
   assert.deepEqual(
@@ -297,7 +299,7 @@ test('a connector added to a bot is reachable without a prefix change; a removed
 
   delete session.pendingDeferredToolDelta;
   connectors(['beta']);
-  await refresh.refreshAgentProfile();
+  await refresh.reconcileTurnSettings();
   assert.equal(prefix(session), before);
   assert.deepEqual(session.pendingDeferredToolDelta.removed, ['mcp__alpha__run']);
   assert.match(
@@ -338,6 +340,18 @@ test('a thread mid-turn keeps its prompt and takes the edit at its next turn', a
   assert.match(tier3(session), /MIDTURN_MARKER/);
   assert.equal(session.pendingCacheBreakIntent, 'agent_profile');
   assert.equal(await refresh.applyPendingAgentProfile(), false, 'applied once');
+});
+
+test('a hand edit of PERSONA.md reaches the bot thread at its next turn with no save published', async (t) => {
+  const { agentDir } = withDataDir(t);
+  const dir = agentDir('poet');
+  writeFileSync(join(dir, 'AGENT.md'), 'Write poems.');
+  const session = agentThread('poet');
+  const refresh = refresher(session);
+  assert.equal(await refresh.applyPendingAgentProfile(), false, 'stamps current: nothing to do');
+  writeFileSync(join(dir, 'PERSONA.md'), 'HAND_EDIT_MARKER');
+  assert.equal(await refresh.applyPendingAgentProfile(), true);
+  assert.match(tier3(session), /HAND_EDIT_MARKER/);
 });
 
 test("a release's rule change waits silently and is folded in at the next cold point", async (t) => {

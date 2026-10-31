@@ -129,6 +129,36 @@ export function builtinFeatureActive(configLike, id) {
   return false;
 }
 
+/** Every tool a settings gate of featureDisallowedToolsFor can deny (the
+ *  headless `load_tool` rule derives from these and is not a setting). */
+export const FEATURE_GATED_TOOL_NAMES = Object.freeze([
+  'web_search',
+  'web_fetch',
+  'memory',
+  'recall',
+  'git',
+  'github',
+  'browser',
+  'browser_devtools',
+  'computer',
+  'terminal',
+  'office',
+  'media',
+  'tidy',
+  'visualize',
+  'explore',
+  'react',
+]);
+
+/** Gated by desktop bridge presence, not a setting. */
+export const BRIDGE_GATED_TOOL_NAMES = Object.freeze(['browser', 'browser_devtools', 'computer', 'terminal']);
+
+/** The tools a user setting turns off (react answers for itself: it gates
+ *  non-model callers too). */
+export const SETTING_GATED_TOOL_NAMES = Object.freeze(
+  FEATURE_GATED_TOOL_NAMES.filter((name) => !BRIDGE_GATED_TOOL_NAMES.includes(name) && name !== 'react')
+);
+
 /** The session-surface exclusion list. Session build, the empty-session policy
  *  refresh, and the deferred tool catalog all consume THIS list, so an
  *  uninstalled or disabled feature never reaches a session's tool surface.

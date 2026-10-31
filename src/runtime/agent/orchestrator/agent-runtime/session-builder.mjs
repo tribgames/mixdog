@@ -22,6 +22,13 @@ import { traceAgentPreset } from '../agent-trace.mjs';
 import { resolveAgentSessionPermission } from '../internal-agents.mjs';
 import { loadConfig } from '../config.mjs';
 import { RETIRED_COMPACTION_FIELDS } from '../config-storage.mjs';
+import {
+  liveFeatureDisallowedTools,
+  stageConnectorAvailability,
+  stageToolAvailability,
+} from '../runtime-core/tool-availability.mjs';
+import { COMPACTION_CONFIG_KEYS } from '../runtime-core/compaction-config-keys.mjs';
+import { finalizeSessionToolList, previewSessionTools } from '../session/manager/tool-resolution.mjs';
 
 function normalizeAgentCompactionConfig(value = {}) {
   const raw = value && typeof value === 'object' ? value : {};
@@ -89,8 +96,12 @@ export function prepareAgentSession({
   const effectiveOwnerSessionId =
     ownerSessionId === undefined ? process.env.MIXDOG_OWNER_SESSION_ID || null : ownerSessionId;
   let compaction = null;
+  // The settings gates as they stand: a disabled feature (git and github
+  // included) never reaches the agent's schema or dispatch.
+  let featureDenied = [];
   try {
     const cfg = loadConfig({ secrets: false });
+    featureDenied = liveFeatureDisallowedTools(cfg);
     if (cfg?.compaction && typeof cfg.compaction === 'object') {
       compaction = normalizeAgentCompactionConfig(cfg.compaction);
     }
@@ -114,6 +125,8 @@ export function prepareAgentSession({
     clientHostPid: clientHostPid || null,
     compaction: compaction || undefined,
     mcpScopeId: mcpScopeId || null,
+    callerDisallowedTools: [],
+    disallowedTools: featureDenied,
   };
   if (contextPercent) sessionOpts.contextPercent = contextPercent;
   if (contextTokens) sessionOpts.contextTokens = contextTokens;
@@ -141,4 +154,44 @@ export function prepareAgentSession({
     /* telemetry best-effort */
   }
   return { session, effectiveCwd };
+}
+
+/**
+ * An in-process agent session reused for another turn (no session runtime
+ * turn start reconciles it): bring it to the settings as they stand without
+ * touching its request prefix — its settings-gated tools
+ * (stageToolAvailability), its connectors (stageConnectorAvailability) and
+ * its compaction settings. Returns the tool change, or null.
+ */
+export function reconcileAgentSession(session) {
+  if (!session?.id) return null;
+  let cfg;
+  try {
+    cfg = loadConfig({ secrets: false });
+  } catch {
+    return null;
+  }
+  if (cfg?.compaction && typeof cfg.compaction === 'object') {
+    // Config-owned keys follow the settings; the session's own state stays.
+    const own = { ...(session.compaction || {}) };
+    for (const key of COMPACTION_CONFIG_KEYS) delete own[key];
+    session.compaction = { ...own, ...normalizeAgentCompactionConfig(cfg.compaction) };
+  }
+  const connectors = stageConnectorAvailability(session);
+  const tools = stageToolAvailability(session, liveFeatureDisallowedTools(cfg), (names) =>
+    finalizeSessionToolList(
+      previewSessionTools('full', [], {
+        ownerIsAgentSession: true,
+        mcpScopeId: session.mcpScopeId || null,
+        modelName: session.model,
+        cwd: session.cwd || null,
+      }).filter((tool) => names.includes(tool?.name)),
+      { ownerIsAgent: true }
+    )
+  );
+  if (!tools && !connectors) return null;
+  return {
+    added: [...(tools?.added || []), ...(connectors?.added || [])],
+    removed: [...(tools?.removed || []), ...(connectors?.removed || [])],
+  };
 }

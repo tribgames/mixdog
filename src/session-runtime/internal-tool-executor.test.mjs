@@ -26,11 +26,7 @@ function harness(overrides = {}) {
     goalRuntime: { executeTool: record('goal') },
     agentTool: { execute: record('agent') },
     setupTool: { execute: record('setup') },
-    webSearchEnabled: () => false,
-    memoryToolsEnabled: () => false,
-    officeToolsEnabled: () => false,
-    mediaToolEnabled: () => false,
-    tidyToolEnabled: () => false,
+    featureDisallowedTools: () => ['web_search', 'web_fetch', 'memory', 'recall', 'office', 'media', 'tidy'],
     getWebSearchModule: async () => null,
     getMemoryModule: async () => ({ handleToolCall: record('memory') }),
     getCodeGraphModule: async () => ({ executeCodeGraphTool: record('code_graph') }),
@@ -47,11 +43,14 @@ function harness(overrides = {}) {
 test('model-tool calls to disabled features are refused before any dispatch', async () => {
   const { execute, calls } = harness();
   const source = { invocationSource: 'model-tool' };
-  await assert.rejects(execute('web_search', { q: 'x' }, source), /web search is disabled/);
-  await assert.rejects(execute('memory', {}, source), /memory tools are disabled/);
-  await assert.rejects(execute('office', {}, source), /office is disabled/);
-  await assert.rejects(execute('media', {}, source), /media is disabled/);
-  await assert.rejects(execute('tidy', {}, source), /tidy is disabled/);
+  await assert.rejects(execute('web_search', { q: 'x' }, source), /web_search is disabled in settings/);
+  // web_fetch routed to its transports keeps the web search gate.
+  await assert.rejects(execute('local_fetch', { url: 'http://127.0.0.1/' }, source), /web_fetch is disabled in settings/);
+  await assert.rejects(execute('image_fetch', { url: 'https://a/x.png' }, source), /web_fetch is disabled in settings/);
+  await assert.rejects(execute('memory', {}, source), /memory is disabled in settings/);
+  await assert.rejects(execute('office', {}, source), /office is disabled in settings/);
+  await assert.rejects(execute('media', {}, source), /media is disabled in settings/);
+  await assert.rejects(execute('tidy', {}, source), /tidy is disabled in settings/);
   const previous = process.env.MIXDOG_FEATURE_BROWSER;
   process.env.MIXDOG_FEATURE_BROWSER = '0';
   try {
@@ -65,7 +64,7 @@ test('model-tool calls to disabled features are refused before any dispatch', as
 });
 
 test('injected runtimes receive the caller context each tool expects', async () => {
-  const { execute, calls, rt } = harness({ memoryToolsEnabled: () => true });
+  const { execute, calls, rt } = harness({ featureDisallowedTools: () => [] });
   const signal = new AbortController().signal;
   const toolApprovalHook = async () => ({ approved: false });
   const ctx = {

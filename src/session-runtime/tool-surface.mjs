@@ -6,7 +6,10 @@ import {
   filterDisallowedTools,
   selectDeferredTools,
 } from '../runtime/agent/orchestrator/runtime-core/tool-catalog.mjs';
-import { AGENT_WORKER_DENIED_TOOLS } from '../runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
+import {
+  AGENT_WORKER_DENIED_TOOLS,
+  finalizeSessionToolList,
+} from '../runtime/agent/orchestrator/session/manager/tool-resolution.mjs';
 import { LEAD_DISALLOWED_TOOLS } from '../runtime/agent/orchestrator/runtime-core/tool-defs.mjs';
 import { deferredSurfaceModeForLead, toolSpecForMode } from '../runtime/agent/orchestrator/runtime-core/effort.mjs';
 import { loadSkillToolDependencies } from '../runtime/agent/orchestrator/runtime-core/skill-tool-loading.mjs';
@@ -39,6 +42,11 @@ export function createToolSurface({
   getFeatureDisallowedTools = () => [],
 }) {
   let preSessionSurface = null;
+  // The inputs the cached preview was built from (setters no longer
+  // invalidate it; a config adopt or reload replaces the config object).
+  let preSessionInputs = '';
+  let preSessionConfig = null;
+  let surfaceGeneration = 0;
 
   // A coding Lead keeps `agent` whichever agents exist (the agents reach it as
   // a listing reminder); Solo still offers it (deferred) for explicit user
@@ -122,16 +130,45 @@ export function createToolSurface({
     return selectDeferredTools(session, names, surfaceMode);
   }
 
+  /** Definitions the current session's kind may hold — built-ins included —
+   *  for tools a settings gate opened mid-conversation. */
+  function toolDefinitionsFor(names) {
+    const wanted = new Set((names || []).map(String));
+    const session = getSession();
+    const ownerIsAgent = isAgentOwner(session);
+    const previewTools =
+      typeof mgr.previewSessionTools === 'function'
+        ? mgr.previewSessionTools(toolSpecForMode(mode), [], {
+            mcpScopeId: getMcpScopeId(),
+            modelName: getRoute().model,
+            cwd: getCurrentCwd?.() || null,
+          })
+        : [];
+    const byName = new Map();
+    for (const tool of [...modelStandaloneTools(), ...filterModelToolsForProfile(previewTools, getToolProfile())]) {
+      const name = String(tool?.name || '');
+      if (wanted.has(name) && !byName.has(name)) byName.set(name, tool);
+    }
+    return finalizeSessionToolList([...byName.values()], { ownerIsAgent });
+  }
+
   return {
     modelStandaloneTools,
     activateTools,
+    toolDefinitionsFor,
+    surfaceGeneration: () => surfaceGeneration,
     invalidatePreSessionToolSurface() {
       preSessionSurface = null;
+      surfaceGeneration += 1;
     },
     /** The live session once it exists; the preview surface until then. */
     activeToolSurface() {
       const session = getSession();
       if (session) return session;
+      const inputs = getFeatureDisallowedTools().join(',');
+      if (preSessionConfig !== getConfig() || preSessionInputs !== inputs) preSessionSurface = null;
+      preSessionConfig = getConfig();
+      preSessionInputs = inputs;
       preSessionSurface ??= buildPreSessionSurface();
       return preSessionSurface;
     },

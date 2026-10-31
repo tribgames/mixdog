@@ -6,6 +6,7 @@
  * to channel tools.
  */
 import { clean } from '../runtime/agent/orchestrator/runtime-core/session-text.mjs';
+import { settingDisabledIn } from '../runtime/agent/orchestrator/runtime-core/tool-availability.mjs';
 import { createAskUserToolHandlers } from './internal-tool-executor/ask-user-tool.mjs';
 import { createBridgeToolHandlers } from './internal-tool-executor/bridge-tools.mjs';
 import { createFeatureToolHandlers } from './internal-tool-executor/feature-tools.mjs';
@@ -19,11 +20,7 @@ export function createInternalToolExecutor({
   goalRuntime,
   agentTool,
   setupTool,
-  webSearchEnabled,
-  memoryToolsEnabled,
-  officeToolsEnabled,
-  mediaToolEnabled,
-  tidyToolEnabled = () => true,
+  featureDisallowedTools = () => [],
   getWebSearchModule,
   getMemoryModule,
   getCodeGraphModule,
@@ -42,7 +39,7 @@ export function createInternalToolExecutor({
     ...createBridgeToolHandlers({ rt }),
     ...createAskUserToolHandlers({ rt }),
     ...createReactionToolHandlers({ rt }),
-    ...createFeatureToolHandlers({ rt, setupTool, officeToolsEnabled, mediaToolEnabled, tidyToolEnabled }),
+    ...createFeatureToolHandlers({ rt, setupTool }),
     ...createKnowledgeToolHandlers({
       rt,
       getWebSearchModule,
@@ -67,24 +64,20 @@ export function createInternalToolExecutor({
     }),
   };
 
-  // Settings-disabled features are refused for model-initiated calls before
-  // any handler runs; the tool list is refreshed by a new session.
-  const guardModelCall = (name) => {
-    if ((name === 'web_search' || name === 'web_fetch') && !webSearchEnabled()) {
-      throw new Error('web search is disabled in settings; start a new session to refresh the tool list');
-    }
-    if ((name === 'memory' || name === 'recall') && !memoryToolsEnabled()) {
-      throw new Error(
-        'memory tools are disabled in settings; background memory and manual core memory remain available'
-      );
-    }
-  };
+  // A model call of a tool a setting turned off is refused at dispatch
+  // (tool-exec/dispatch.mjs settingDisabledTool, built-ins such as git
+  // included); a model-tool call reaching this executor directly takes the
+  // same check against this runtime's live gate list.
 
   return async (name, args, callerCtx = {}) => {
     const callerCwd = clean(callerCtx?.callerCwd) || rt.currentCwd;
     // The Reactions setting gates the tool whoever calls it, not only the model.
     if (name === 'react' && rt.config?.reactions === false) throw new Error('reactions are turned off in settings');
-    if (callerCtx?.invocationSource === 'model-tool') guardModelCall(name);
+    const disabled =
+      callerCtx?.invocationSource === 'model-tool' ? settingDisabledIn(name, featureDisallowedTools()) : null;
+    if (disabled) {
+      throw new Error(`${disabled} is disabled in settings by the user; do not retry unless the user turns it back on`);
+    }
     if (Object.hasOwn(handlers, name)) return handlers[name](args, { name, callerCtx, callerCwd });
     if (channels.isChannelTool(name)) {
       return await channels.execute(name, args || {});

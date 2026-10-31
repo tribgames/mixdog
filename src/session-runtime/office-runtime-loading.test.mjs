@@ -30,7 +30,7 @@ test('ordinary session startup does not require PDF engines; explicit Office cal
     const { createInternalToolExecutor } = await import(${JSON.stringify(new URL('./internal-tool-executor.mjs', import.meta.url).href)});
     const execute = createInternalToolExecutor({
       rt: { currentCwd: process.env.MIXDOG_HOME, config: {}, session: {} },
-      officeToolsEnabled: () => officeEnabled,
+      featureDisallowedTools: () => (officeEnabled ? [] : ['office']),
     });
     await assert.rejects(
       execute('office', { action: 'transactions' }, { invocationSource: 'model-tool' }),

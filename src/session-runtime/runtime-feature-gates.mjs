@@ -6,13 +6,10 @@
 // deps, so the runtime can hand them straight through.
 import {
   builtinFeatureActive,
-  featureDisallowedToolsFor,
   localGitToolsActive,
 } from '../runtime/agent/orchestrator/runtime-core/builtin-features.mjs';
 import { recapEnabled } from '../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
-import { browserBridgeAvailableSync } from '../runtime/browser-bridge/client.mjs';
-import { computerBridgeAvailableSync } from '../runtime/computer-bridge/client.mjs';
-import { terminalBridgeAvailableSync } from '../runtime/terminal-bridge/client.mjs';
+import { liveFeatureDisallowedTools } from '../runtime/agent/orchestrator/runtime-core/tool-availability.mjs';
 
 export function createRuntimeFeatureGates({ getConfig, getToolProfile }) {
   return {
@@ -29,12 +26,6 @@ export function createRuntimeFeatureGates({ getConfig, getToolProfile }) {
     tidyToolEnabledFn: () => builtinFeatureActive(getConfig(), 'tidy'),
     // Browser/Computer activate on live desktop-bridge presence, so the probe
     // runs per call instead of being captured at boot.
-    featureDisallowedTools: () =>
-      featureDisallowedToolsFor(getConfig(), {
-        browserAvailable: browserBridgeAvailableSync(),
-        computerAvailable: computerBridgeAvailableSync(),
-        terminalAvailable: terminalBridgeAvailableSync(),
-        toolProfile: getToolProfile(),
-      }),
+    featureDisallowedTools: () => liveFeatureDisallowedTools(getConfig(), { toolProfile: getToolProfile() }),
   };
 }

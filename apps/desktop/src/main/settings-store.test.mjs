@@ -33,6 +33,37 @@ test('desktop zoom ignores legacy values and rejects changes without rewriting u
   assert.deepEqual(config, { desktop: { zoomFactor: 1.2, keepAwake: true } });
 });
 
+test('a desktop flag changed by another writer reaches the watcher once, unrelated writes do not', async () => {
+  let config = { desktop: { keepAwake: false } };
+  let listener = null;
+  const store = new DesktopSettingsStore({
+    loadConfig: async () => ({
+      readConfig: () => config,
+      updateConfigAsync: async () => config,
+      subscribeConfigChange: (next) => {
+        listener = next;
+        return () => {
+          listener = null;
+        };
+      },
+    }),
+  });
+  const applied = [];
+  const stop = await store.watch((settings) => applied.push(settings));
+  // A hand edit of the file: keepAwake and Browser Use flip on.
+  config = { desktop: { browserControl: true }, agent: { theme: 'x' } };
+  listener();
+  assert.equal(applied.length, 1);
+  assert.equal(applied[0].keepAwake, true);
+  assert.equal(applied[0].browserControl, true);
+  // An agent-only write leaves the desktop settings as they are.
+  config = { desktop: { browserControl: true }, agent: { theme: 'y' } };
+  listener();
+  assert.equal(applied.length, 1);
+  stop();
+  assert.equal(listener, null);
+});
+
 test('desktop zoom IPC returns native scale and cannot apply a different scale', async () => {
   const handlers = new Map();
   const applied = [];

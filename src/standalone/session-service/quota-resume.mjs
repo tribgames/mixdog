@@ -124,6 +124,15 @@ export function createQuotaResumeScheduler({
   function tick() {
     if (running) return running;
     running = (async () => {
+      // The setting turned off anywhere (another process, a hand edit), not
+      // only through setQuotaAutoResumeEnabled here: nothing pending resumes.
+      if (store.quotaAutoResumeEnabled?.() === false) {
+        if (store.listQuotaResumeEntries().length) {
+          store.cancelAllQuotaResumeEntries();
+          log('quota resume off: pending resumes cancelled');
+        }
+        return;
+      }
       for (const entry of store.listQuotaResumeEntries()) {
         if (isClosed()) return;
         if (entry.resetAt > now() || !isCurrent(store, entry)) continue;

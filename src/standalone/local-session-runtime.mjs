@@ -389,6 +389,12 @@ export async function createLocalSessionRuntime({
     displayedExecutionNotificationKeys,
     pushNotice,
     itemIndexById,
+    // The status line's context gauge after an empty session's settings reconcile.
+    refreshContextStats: () => {
+      if (flags.disposed || flags.pendingSessionReset) return;
+      syncContextStats({ allowEstimated: true });
+      set({ stats: { ...getState().stats } });
+    },
   });
   lifecycle.unsubscribeRuntimeNotifications = subscribeRuntimeNotifications();
   if (typeof runtime.onWorktreeSetup === 'function') {

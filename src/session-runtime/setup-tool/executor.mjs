@@ -92,7 +92,14 @@ const ACTION_APPLIES_TO = {
   set_heartbeat_interval:
     "Mixy's heartbeat from the next tick: the next check is due the new interval after the last one; no restart required",
   set_reactions_enabled:
-    "bots' chats; while off a reaction is refused at once and new chats are not offered the tool; reactions already left stay visible",
+    "bots' chats, this conversation included, from their next turn; while off a reaction is refused at once; reactions already left stay visible",
+  set_profile: 'every conversation, this one included, from its next turn',
+  set_instruction_files: 'every conversation, this one included, from its next turn',
+  set_memory_enabled: 'every conversation, this one included, from its next turn',
+  set_web_search_enabled: 'every conversation, this one included, from its next turn',
+  set_builtin_enabled: 'every conversation, this one included, from its next turn',
+  install_builtin: 'every conversation, this one included, from its next turn',
+  set_output_style: 'every conversation, this one included, from its next turn',
   set_worktree_settings: 'new tasks and worktrees created afterwards; existing worktrees are unchanged',
   set_system_shell: 'subsequent shell calls',
   save_automation: 'the automation worker; scheduled runs follow the saved timing',

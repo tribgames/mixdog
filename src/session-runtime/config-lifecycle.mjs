@@ -18,6 +18,13 @@ import {
   withDefaultPresets,
 } from '../runtime/agent/orchestrator/config-presets.mjs';
 import { syncSessionCompaction } from './session-compaction-sync.mjs';
+import {
+  configChangeDomains,
+  configChangeIsEmpty,
+  configChangeSnapshot,
+  diffConfigSnapshots,
+  withConfigDomainPending,
+} from './config-change-effects.mjs';
 import { createConfigWriters } from './config-lifecycle/config-writers.mjs';
 import { createLeadRouteSync } from './config-lifecycle/lead-route-sync.mjs';
 import { createOutputStyleStatusCache } from './config-lifecycle/output-style-cache.mjs';
@@ -135,10 +142,12 @@ export function createConfigLifecycle({
   getConfigHasSecrets,
   setConfigHasSecrets,
   getRoute,
-  // The live session follows the reloaded global compaction settings, unless
-  // the runtime runs on an injected (headless) config.
+  // The live session follows the reloaded global compaction settings.
   getSession,
-  fixedSessionCompaction = false,
+  // A headless caller injects a complete, deliberately isolated config: it
+  // never reloads from disk (no change subscription either), and its sessions
+  // keep the compaction they were created with.
+  injectedConfig = false,
   // Main route sync on reload (both optional: a lifecycle without them never syncs)
   setRouteState,
   resolveRoute,
@@ -153,9 +162,14 @@ export function createConfigLifecycle({
   clean,
   resolve,
   performanceNow = () => performance.now(),
-  onConfigReloaded,
+  // The runtime's change-driven effects (config-change-effects.mjs), given the
+  // diff against the snapshot this runtime last applied.
+  onConfigChanged,
+  // The backoff of a failed effect's retries; the last delay repeats.
+  effectRetryDelaysMs = [1000, 4000, 15000, 60000],
   STANDALONE_DATA_DIR,
 }) {
+  let disposed = false;
   const outputStyleCache = createOutputStyleStatusCache({
     cfgMod,
     STANDALONE_DATA_DIR,
@@ -217,23 +231,113 @@ export function createConfigLifecycle({
   }
 
   // --- reload / ensure --------------------------------------------------------
-  function reloadFullConfig() {
-    // A pending debounced write holds the only copy of the latest change.
-    // Flush it before re-reading from disk so loadConfig() observes (and the
-    // subsequent adopt preserves) that change instead of reverting to a stale
-    // on-disk snapshot.
+  const changeSnapshot = (config) =>
+    configChangeSnapshot({
+      config,
+      root: sharedCfgMod?.readConfig?.(),
+      secretTokens: sharedCfgMod?.secretChangeTokens?.(),
+    });
+  // What this runtime's effects last ran against, starting from the boot
+  // config (the snapshot does not depend on whether a load read secrets).
+  let appliedSnapshot = changeSnapshot(getConfig());
+  // The stored settings the current config object was taken from (never
+  // marked pending): the object is replaced only when they changed, so a
+  // retry of a failed effect alone keeps it.
+  let loadedSnapshot = appliedSnapshot;
+
+  // A pending debounced write holds the only copy of the latest change.
+  // Flush it before re-reading from disk so loadConfig() observes (and the
+  // subsequent adopt preserves) that change instead of reverting to a stale
+  // on-disk snapshot.
+  function loadFullConfig() {
     writers.flushConfigSave();
-    const next = withPendingEdits(cfgMod.loadConfig(), writers);
+    if (injectedConfig) return null;
+    return withPendingEdits(cfgMod.loadConfig(), writers);
+  }
+
+  function reloadFullConfig() {
+    return adoptFullConfig(loadFullConfig());
+  }
+
+  function adoptFullConfig(next) {
+    if (!next) return getConfig();
     const adopted = adoptConfig(next, { hasSecrets: true });
     configSaveBaseline = structuredClone(adopted);
     leadRoute.syncEmptyMainRoute(adopted);
-    if (!fixedSessionCompaction) syncSessionCompaction(getSession?.(), adopted);
+    syncSessionCompaction(getSession?.(), adopted);
     return adopted;
   }
 
   function ensureFullConfig() {
-    if (getConfigHasSecrets()) return getConfig();
+    if (injectedConfig || getConfigHasSecrets()) return getConfig();
     return reloadFullConfig();
+  }
+
+  /** The change step: reload, then run the effects keyed by what differs from
+   *  the last applied snapshot. A writer that runs it right after its own write
+   *  has applied the change, so the notification that follows finds nothing.
+   *  The config object is replaced only when the stored settings changed (a
+   *  retry of a failed effect alone keeps it): consumers key turn-start
+   *  reconciles on its identity. */
+  function applyConfigChange() {
+    // A load that throws changes nothing: pending domains stay pending.
+    const loaded = loadFullConfig();
+    // Every pending domain is in this step's diff, so it runs again here (and
+    // a scheduled retry is this step).
+    pendingDomains = new Set();
+    clearTimeout(retryTimer);
+    retryTimer = null;
+    outputStyleCache.invalidateOutputStyleStatusCache();
+    const next = changeSnapshot(loaded ?? getConfig());
+    const change = diffConfigSnapshots(appliedSnapshot, next);
+    appliedSnapshot = next;
+    const settingsChanged = !configChangeIsEmpty(diffConfigSnapshots(loadedSnapshot, next));
+    loadedSnapshot = next;
+    const config = settingsChanged ? adoptFullConfig(loaded) : getConfig();
+    let outcome;
+    try {
+      outcome = onConfigChanged?.(change, config);
+    } catch {
+      outcome = configChangeDomains(change);
+    }
+    void Promise.resolve(outcome).then(
+      (failedDomains) => settleConfigEffects(failedDomains),
+      () => settleConfigEffects(configChangeDomains(change))
+    );
+    return change;
+  }
+
+  // A domain whose effect failed is marked not applied, so the next change
+  // step (any notification, a writer's own step, or the retry below) runs it
+  // again; the applied snapshot otherwise advances as the step runs, which
+  // keeps a step overlapping an in-flight effect from repeating it. The retry
+  // backs off to the last delay and keeps going until the domain succeeds or
+  // the sync is disposed.
+  let pendingDomains = new Set();
+  let retryTimer = null;
+  let retryAttempt = 0;
+  function settleConfigEffects(failedDomains) {
+    for (const domain of Array.isArray(failedDomains) ? failedDomains : []) {
+      appliedSnapshot = withConfigDomainPending(appliedSnapshot, domain);
+      pendingDomains.add(domain);
+    }
+    if (!pendingDomains.size) {
+      retryAttempt = 0;
+      return;
+    }
+    if (retryTimer || disposed) return;
+    const delay = effectRetryDelaysMs[Math.min(retryAttempt, effectRetryDelaysMs.length - 1)];
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      retryAttempt += 1;
+      try {
+        applyConfigChange();
+      } catch {
+        // The reload failed (e.g. a config mid-write): still pending, retry later.
+        settleConfigEffects([]);
+      }
+    }, delay);
+    retryTimer.unref?.();
   }
 
   function ensureConfigForRouteProvider() {
@@ -246,17 +350,19 @@ export function createConfigLifecycle({
     return ensureFullConfig();
   }
 
-  // Settings persisted by any other runtime (or process) reach this runtime's
-  // in-memory config. reloadFullConfig keeps our own pending edits, and the
-  // shared layer coalesces bursts into one pass per subscriber.
-  const unsubscribeConfigChange = sharedCfgMod?.subscribeConfigChange?.(() => {
-    reloadFullConfig();
-    outputStyleCache.invalidateOutputStyleStatusCache();
-    onConfigReloaded?.();
-  });
+  // Settings and secrets persisted by this or any other runtime (or process)
+  // reach this runtime's config and effects. reloadFullConfig keeps our own
+  // pending edits, and the shared layer coalesces bursts into one pass per
+  // subscriber. An injected config never follows the disk.
+  const unsubscribeConfigChange = injectedConfig ? null : sharedCfgMod?.subscribeConfigChange?.(applyConfigChange);
 
   return {
-    disposeConfigSync: () => unsubscribeConfigChange?.(),
+    disposeConfigSync: () => {
+      disposed = true;
+      clearTimeout(retryTimer);
+      retryTimer = null;
+      unsubscribeConfigChange?.();
+    },
     // output-style cache
     ...outputStyleCache,
     // adopt / save
@@ -270,6 +376,7 @@ export function createConfigLifecycle({
     flushAllConfigSavesAsync: writers.flushAllConfigSavesAsync,
     // reload / ensure
     reloadFullConfig,
+    applyConfigChange,
     ensureFullConfig,
     displayConfig: () => getConfig(),
     ensureConfigForRouteProvider,

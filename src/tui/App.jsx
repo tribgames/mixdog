@@ -242,6 +242,13 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
   // it, so a slow (daemon) snapshot from a superseded build cannot re-open the
   // panel after it was closed.
   const settingsRequestRef = useRef(0);
+  // The open Settings panel's re-read (null-op once another panel took over or
+  // it closed): a settings change applied by the runtime (any writer) or the
+  // setup tool repaints it.
+  const settingsLiveRefreshRef = useRef(null);
+  useEffect(() => {
+    if (state.setupChanged) settingsLiveRefreshRef.current?.();
+  }, [state.setupChanged]);
   const [providerPrompt, setProviderPrompt] = useState(null);
   const oauthSubmitRef = useRef(false);
   const [settingsPrompt, setSettingsPrompt] = useState(null);
@@ -371,6 +378,7 @@ export function App({ store, initialStatusLine = '', forceOnboarding = false, on
     onboardingPrefetchSeqRef,
     settingsHeavyCacheRef,
     settingsRequestRef,
+    settingsLiveRefreshRef,
     livePickerRef,
     disabledSkills,
     setDisabledSkills,

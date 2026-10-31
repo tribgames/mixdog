@@ -118,6 +118,7 @@ function facadeGetters(boot) {
         : configuredOrchestrationMode(rt.config),
     getOutputStyle: () => boot.getOutputStyleStatusCached().current,
     getContextStatus: boot.computeContextStatus,
+    getContextStatusSettled: boot.computeContextStatusSettled,
     getContextStatusForSession: boot.computeContextStatusForSession,
     renameSessionTitle: (sessionId, title) => mgr.updateSessionManualTitle(sessionId, title),
   };

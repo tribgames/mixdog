@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import { setImmediate, setTimeout } from 'node:timers/promises';
 import test from 'node:test';
 import { createConfigLifecycle, resolveInitialConfigState } from './config-lifecycle.mjs';
+import { createConfigChangeEffects } from './config-change-effects.mjs';
 import { applyConfigPatch, diffConfig } from '../runtime/shared/config-patch.mjs';
 import { withStoredDisabledAgents } from '../runtime/shared/agent-route-config.mjs';
 import {
@@ -20,7 +21,17 @@ function deferred() {
   return { promise, resolve };
 }
 
-function fixture({ config = {}, disk, mainRoute, session = null, fixedSessionCompaction = false } = {}) {
+function fixture({
+  config = {},
+  disk,
+  mainRoute,
+  session = null,
+  injectedConfig = false,
+  outputStyleStatus = () => ({}),
+  sharedCfg = {},
+  onConfigChanged,
+  effectRetryDelaysMs,
+} = {}) {
   // mainRoute set: the lifecycle may sync the runtime Main route on reload.
   let route = mainRoute || { provider: 'demo' };
   let current = {
@@ -60,6 +71,8 @@ function fixture({ config = {}, disk, mainRoute, session = null, fixedSessionCom
       root = update(root);
     },
     pendingConfigWrites: async () => {},
+    readConfig: () => structuredClone(root),
+    ...sharedCfg,
   };
   const lifecycle = createConfigLifecycle({
     getConfig: () => current,
@@ -76,7 +89,9 @@ function fixture({ config = {}, disk, mainRoute, session = null, fixedSessionCom
     },
     getRoute: () => route,
     getSession: () => session,
-    fixedSessionCompaction,
+    injectedConfig,
+    onConfigChanged,
+    effectRetryDelaysMs,
     ...(mainRoute
       ? {
           setRouteState: (next) => {
@@ -90,7 +105,7 @@ function fixture({ config = {}, disk, mainRoute, session = null, fixedSessionCom
     setConfiguredShell() {},
     normalizeSystemShellConfig: () => ({ command: '' }),
     normalizeWebSearchRouteConfig: (value) => value || null,
-    outputStyleStatus: () => ({}),
+    outputStyleStatus,
     LAZY_SECRET_PROVIDERS: new Set(),
     clean: (value) => String(value || '').trim(),
     resolve,
@@ -152,15 +167,219 @@ test('removing a configured compaction value reverts the live session to the def
   assert.equal(session.compaction.summaryMode, 'smart');
 });
 
-test('a reload leaves the session compaction fixed on an injected (headless) config', () => {
+test('an injected (headless) config never follows the disk: no subscription, no reload, fixed compaction', () => {
   const session = { id: 's1', compaction: { auto: false, mainBufferTokens: 8000 } };
+  let subscriptions = 0;
+  const injected = { workflow: { active: 'headless' }, orchestrationMode: 'none' };
   const f = fixture({
+    config: injected,
     session,
-    fixedSessionCompaction: true,
-    disk: { compaction: { auto: true, mainBufferPercent: 20 } },
+    injectedConfig: true,
+    disk: { workflow: { active: 'default' }, orchestrationMode: 'balanced', compaction: { auto: true } },
+    sharedCfg: {
+      subscribeConfigChange: () => {
+        subscriptions += 1;
+        return () => {};
+      },
+    },
   });
+  assert.equal(subscriptions, 0);
+  f.lifecycle.ensureFullConfig();
   f.lifecycle.reloadFullConfig();
+  assert.equal(f.config().workflow.active, 'headless');
+  assert.equal(f.config().orchestrationMode, 'none');
   assert.deepEqual(session.compaction, { auto: false, mainBufferTokens: 8000 });
+});
+
+test('the change step runs effects keyed by what changed, once per change, the writer included', () => {
+  let tokens = {};
+  let notify = null;
+  const changes = [];
+  // The buckets this test exercises (config-change-effects.test.mjs covers the rest).
+  const pick = ({ providers, mcp, settings }) => ({ providers, mcp, settings });
+  const f = fixture({
+    // The boot config is loaded without secrets or credential probes; the
+    // stored config behind it is the same.
+    config: { providers: { demo: { enabled: false, credentialProbeUnavailable: true } }, mcpServers: {} },
+    disk: { providers: { demo: { enabled: true } }, mcpServers: {} },
+    sharedCfg: {
+      secretChangeTokens: () => ({ ...tokens }),
+      subscribeConfigChange: (listener) => {
+        notify = listener;
+        return () => {};
+      },
+    },
+    onConfigChanged: (change) => changes.push(change),
+  });
+  // The first notification after boot (a rewrite of identical content) is no
+  // change, although this full load reads secrets the boot load did not.
+  notify();
+  assert.deepEqual(pick(changes.pop()), { providers: false, mcp: false, settings: false });
+  // A key replaced in the keychain (any process): only its change token moves.
+  tokens = { 'agent.demo.apiKey': 't1' };
+  f.disk().agent.providers.demo.apiKey = 'new-key';
+  // The writer applies the change itself; its own notification then finds nothing.
+  assert.deepEqual(pick(f.lifecycle.applyConfigChange()), { providers: true, mcp: false, settings: true });
+  assert.equal(f.config().providers.demo.apiKey, 'new-key');
+  notify();
+  assert.deepEqual(pick(changes.pop()), { providers: false, mcp: false, settings: false });
+  // A non-provider secret is a settings change only.
+  tokens = { ...tokens, 'agent.openai.usageSessionKey': 't2' };
+  notify();
+  assert.deepEqual(pick(changes.pop()), { providers: false, mcp: false, settings: true });
+  // A hand edit of an MCP server reaches the reconcile.
+  f.disk().agent.mcpServers = { docs: { command: 'docs-server' } };
+  notify();
+  assert.deepEqual(pick(changes.pop()), { providers: false, mcp: true, settings: true });
+});
+
+test('a notification that changes nothing keeps the config object; a real change replaces it', () => {
+  let tokens = { 'agent.demo.apiKey': 't1' };
+  let notify = null;
+  const passed = [];
+  const f = fixture({
+    sharedCfg: {
+      secretChangeTokens: () => ({ ...tokens }),
+      subscribeConfigChange: (listener) => {
+        notify = listener;
+        return () => {};
+      },
+    },
+    onConfigChanged: (_change, config) => passed.push(config),
+  });
+  // A marker rewritten with identical content, then again: the same object
+  // throughout, so consumers keyed on it skip their reconcile.
+  const before = f.config();
+  notify();
+  notify();
+  assert.equal(f.config(), before);
+  assert.deepEqual(passed, [before, before]);
+  // A secret changed elsewhere, then a setting: each replaces it.
+  tokens = { 'agent.demo.apiKey': 't2' };
+  notify();
+  const afterSecret = f.config();
+  assert.notEqual(afterSecret, before);
+  f.disk().agent.theme = 'peer';
+  notify();
+  assert.notEqual(f.config(), afterSecret);
+  assert.equal(f.config().theme, 'peer');
+});
+
+test('an effect that failed is applied again by the next step and by the retry, never left stale', async () => {
+  let notify = null;
+  const steps = [];
+  let fail = null;
+  const f = fixture({
+    disk: { mcpServers: {} },
+    config: { mcpServers: {} },
+    effectRetryDelaysMs: [20],
+    sharedCfg: {
+      subscribeConfigChange: (listener) => {
+        notify = listener;
+        return () => {};
+      },
+    },
+    onConfigChanged: (change) => {
+      steps.push(change.mcp);
+      if (!change.mcp || !fail) return Promise.resolve([]);
+      const outcome = fail;
+      fail = null;
+      return outcome;
+    },
+  });
+  // The reconcile is still in flight when an identical notification arrives:
+  // that step does not repeat it; once it fails, the next step runs it again.
+  let rejectReconcile;
+  fail = new Promise((resolve) => {
+    rejectReconcile = () => resolve(['mcp']);
+  });
+  f.disk().agent.mcpServers = { docs: { command: 'docs-server' } };
+  notify();
+  notify();
+  rejectReconcile();
+  await setImmediate();
+  notify();
+  assert.deepEqual(steps, [true, false, true]);
+  // Failing again with no notification to follow: the retry applies it.
+  steps.length = 0;
+  fail = Promise.resolve(['mcp']);
+  f.disk().agent.mcpServers = { docs: { command: 'docs-server-2' } };
+  f.lifecycle.applyConfigChange();
+  await setTimeout(80);
+  assert.deepEqual(steps, [true, true]);
+  // Applied, it is no change any more; the config object then stays put.
+  const applied = f.config();
+  notify();
+  assert.deepEqual(steps, [true, true, false]);
+  assert.equal(f.config(), applied);
+  f.lifecycle.disposeConfigSync();
+});
+
+test('a failing effect is retried past the listed delays, at the last one, until it succeeds', async () => {
+  let failuresLeft = 5;
+  let attempts = 0;
+  const f = fixture({
+    disk: { mcpServers: { docs: { command: 'docs-server' } } },
+    config: { mcpServers: {} },
+    effectRetryDelaysMs: [5, 10],
+    onConfigChanged: (change) => {
+      if (!change.mcp) return Promise.resolve([]);
+      attempts += 1;
+      return Promise.resolve(failuresLeft-- > 0 ? ['mcp'] : []);
+    },
+  });
+  f.lifecycle.applyConfigChange();
+  for (let waited = 0; attempts < 6 && waited < 2000; waited += 10) await setTimeout(10);
+  assert.equal(attempts, 6, 'five failures, then the success');
+  await setTimeout(50);
+  assert.equal(attempts, 6, 'nothing retried once it succeeded');
+  f.lifecycle.disposeConfigSync();
+});
+
+test('an offline MCP server is retried without replacing the config object or repeating its warning', async () => {
+  const warnings = [];
+  const realWarn = console.warn;
+  console.warn = (line) => warnings.push(line);
+  let offline = true;
+  const reconciledWith = [];
+  const f = fixture({
+    disk: { mcpServers: { docs: { command: 'docs-server' } } },
+    config: { mcpServers: {} },
+    effectRetryDelaysMs: [5],
+    onConfigChanged: createConfigChangeEffects({
+      invalidateContextStatusCache() {},
+      reinitProviders() {},
+      releaseAdmissionCooldowns() {},
+      announceSettingsChange() {},
+      reconcileMcp: () => {
+        reconciledWith.push(f.config());
+        if (offline) throw new Error('docs: connect ECONNREFUSED');
+      },
+    }),
+  });
+  try {
+    f.lifecycle.applyConfigChange();
+    const adopted = f.config();
+    for (let waited = 0; reconciledWith.length < 5 && waited < 2000; waited += 10) await setTimeout(10);
+    assert.ok(reconciledWith.length >= 5, 'retried');
+    assert.equal(f.config(), adopted, 'the retries keep the config object');
+    assert.ok(reconciledWith.every((config) => config === adopted));
+    assert.equal(warnings.length, 1, 'one warning for the same failure');
+    offline = false;
+    const count = reconciledWith.length;
+    for (let waited = 0; reconciledWith.length === count && waited < 2000; waited += 10) await setTimeout(10);
+    await setTimeout(30);
+    const settled = reconciledWith.length;
+    await setTimeout(30);
+    assert.equal(reconciledWith.length, settled, 'recovered: no more retries');
+    // A real settings change still replaces it.
+    f.disk().agent.theme = 'peer';
+    f.lifecycle.applyConfigChange();
+    assert.notEqual(f.config(), adopted);
+  } finally {
+    console.warn = realWarn;
+    f.lifecycle.disposeConfigSync();
+  }
 });
 
 test('the first save seeds fresh-profile defaults no diff carries, never over stored values', async () => {

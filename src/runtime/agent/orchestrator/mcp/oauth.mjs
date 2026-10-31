@@ -1,6 +1,6 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
-import keychain from '../../../../lib/keychain-cjs.cjs';
+import { keychainSecretStore as keychain } from '../../../shared/config.mjs';
 import { openInBrowser } from '../../../shared/open-url.mjs';
 import { normalizeMcpTransportUrl } from './client-config.mjs';
 import {

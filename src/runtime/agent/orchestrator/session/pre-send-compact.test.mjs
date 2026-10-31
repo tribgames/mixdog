@@ -56,7 +56,8 @@ test('an in-turn compaction re-arms a late MCP tool whose announcement it strips
     opts: { cacheStrategy: { messages: '5m' } },
   });
   assert.equal(result.compactChanged, true);
-  assert.deepEqual(snapshotPendingDeferredToolDelta(session)?.added, [late]);
+  // A worker's prompt is never rebuilt: it is told again, by name.
+  assert.deepEqual(snapshotPendingDeferredToolDelta(session)?.added, [{ name: late.name, description: '' }]);
 });
 
 // A config reload lands while a pre-send compaction is running: the telemetry

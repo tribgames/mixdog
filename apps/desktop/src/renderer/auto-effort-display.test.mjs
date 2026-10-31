@@ -7,7 +7,7 @@ import { installTestDom } from './test-support/test-dom.mjs';
 const { dom } = installTestDom(null, {
   html: '<!doctype html><html><body></body></html>',
   jsdom: { url: 'https://mixdog.test/' },
-  expose: ['HTMLElement'],
+  expose: ['HTMLElement', 'Event', 'CustomEvent'],
   actEnvironment: false,
 });
 globalThis.React = React;
@@ -60,6 +60,71 @@ test('ModelRouteLabel follows the Auto switch live and respects capability and m
   assert.equal(await text({ effort: 'max', autoEffortCapable: false }), 'Opus Max');
   await setSwitch(false);
   assert.equal(await text({ effort: 'high', autoEffortCapable: true }), 'Opus High');
+});
+
+test('a shown Auto label re-reads the switch when a setting changes elsewhere', async (t) => {
+  const { announceSetupChange } = await import('./setup-change-refresh.ts');
+  let hostSwitch = true;
+  window.mixdogDesktop.invokeCapability = async ({ capability }) => {
+    assert.equal(capability, 'getToolModuleSettings');
+    return { value: { autoEffort: { installed: true, enabled: hostSwitch, supported: true } } };
+  };
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    delete window.mixdogDesktop.invokeCapability;
+    await setSwitch(false);
+  });
+  await setSwitch(true);
+  await act(async () =>
+    root.render(React.createElement(ModelRouteLabel, { model: 'Opus', effort: 'high', autoEffortCapable: true }))
+  );
+  assert.equal(host.textContent, 'Opus Auto');
+  // Switched off in another window, on the phone or by the setup tool.
+  hostSwitch = false;
+  await act(async () => {
+    announceSetupChange('settings_changed');
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  assert.equal(host.textContent, 'Opus High');
+});
+
+test('a change announced while the switch is being read is read again after it', async (t) => {
+  const { announceSetupChange } = await import('./setup-change-refresh.ts');
+  const answers = [];
+  window.mixdogDesktop.invokeCapability = () => {
+    const answer = Promise.withResolvers();
+    answers.push(answer);
+    return answer.promise;
+  };
+  const reply = (enabled) => ({ value: { autoEffort: { installed: true, enabled, supported: true } } });
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    delete window.mixdogDesktop.invokeCapability;
+    await setSwitch(false);
+  });
+  await setSwitch(true);
+  await act(async () =>
+    root.render(React.createElement(ModelRouteLabel, { model: 'Opus', effort: 'high', autoEffortCapable: true }))
+  );
+  const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+  // A first change starts a read; the switch is turned off elsewhere before it answers.
+  await act(async () => announceSetupChange('settings_changed'));
+  assert.equal(answers.length, 1);
+  await act(async () => announceSetupChange('settings_changed'));
+  answers[0].resolve(reply(true)); // read before the second change
+  await settle();
+  assert.equal(answers.length, 2, 'a follow-up read was queued');
+  answers[1].resolve(reply(false));
+  await settle();
+  assert.equal(host.textContent, 'Opus High');
 });
 
 test('Workflows sidebar rows (agents and default agents) show Auto for capable models only', async (t) => {

@@ -23,7 +23,7 @@ const SNAPSHOT = {
   updateSettings: { currentVersion: '1.0.0', latestVersion: '1.1.0', updateAvailable: true },
 };
 
-function createHarness(storeOverrides = {}) {
+function createHarness(storeOverrides = {}, settingsLiveRefreshRef = { current: null }) {
   supersedePanelEpoch();
   let live = null;
   const notices = [];
@@ -57,6 +57,7 @@ function createHarness(storeOverrides = {}) {
     setSettingsPrompt: (prompt) => prompts.push(prompt),
     settingsHeavyCacheRef: { current: null },
     settingsRequestRef: { current: 0 },
+    settingsLiveRefreshRef,
     formatDuration: (ms) => `${Math.round(ms / 60_000)}m`,
     displayModelName: (model, provider) => `${model}@${provider}`,
     routeModelLabel: (route) => (route ? `${route.model}@${route.provider}` : '(unset)'),
@@ -83,6 +84,24 @@ function createHarness(storeOverrides = {}) {
   const row = (value) => current().items.find((item) => item.value === value);
   return { openSettingsPicker, current, row, notices, prompts, opened };
 }
+
+test('an open Settings panel re-reads on a settings change from elsewhere; a closed one stays closed', async () => {
+  let snapshot = SNAPSHOT;
+  const liveRefresh = { current: null };
+  const h = createHarness({ getSettingsSnapshot: async () => snapshot }, liveRefresh);
+  await h.openSettingsPicker();
+  assert.equal(h.row('profile').meta, 'Jay · Vibe coder · Korean');
+  // Another writer (desktop, phone, setup tool, hand edit) changed the profile.
+  snapshot = { ...SNAPSHOT, profile: { ...SNAPSHOT.profile, title: 'Kim' } };
+  liveRefresh.current();
+  await flush();
+  assert.equal(h.row('profile').meta, 'Kim · Vibe coder · Korean');
+  h.current().onCancel();
+  assert.equal(h.current(), null);
+  liveRefresh.current();
+  await flush();
+  assert.equal(h.current(), null);
+});
 
 test('rows render the snapshot values in the parity order', async () => {
   const h = createHarness();

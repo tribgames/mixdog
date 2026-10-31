@@ -8,6 +8,9 @@ import { invalidatePresetsRequest, invalidateSidebarReferenceForMutation } from 
 export const SETUP_CHANGED_EVENT = 'mixdog:setup-changed';
 
 const SETUP_CHANGE_TTL_MS = 15_000;
+// The setup-changed action a session runtime announces after applying a
+// settings change from any writer (session-runtime/config-change-effects.mjs).
+const RUNTIME_SETTINGS_CHANGED_ACTION = 'settings_changed';
 
 // Setup actions whose shared sidebar caches have a settings-click twin: the
 // change invalidates exactly what that click invalidates.
@@ -69,7 +72,11 @@ export function useSetupChangeAnnouncer(
   const route = useRef<(changeSessionId: string, change: Snapshot['setupChanged']) => void>(() => {});
   route.current = (changeSessionId, change) => {
     const seq = Number(change?.seq) || 0;
-    if (!change?.action || seq <= (seen.current.get(changeSessionId) || 0)) return;
+    // A runtime's own "settings changed" announcement reaches the window once
+    // through the host's settings-changed event (useSettingsChangeSync), not
+    // once per open session lane.
+    if (!change?.action || change.action === RUNTIME_SETTINGS_CHANGED_ACTION) return;
+    if (seq <= (seen.current.get(changeSessionId) || 0)) return;
     seen.current.set(changeSessionId, seq);
     if (Number(change.at) > 0 && Date.now() - Number(change.at) > SETUP_CHANGE_TTL_MS) return;
     announceSetupChange(change.action);

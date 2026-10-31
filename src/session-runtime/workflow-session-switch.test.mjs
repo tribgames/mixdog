@@ -99,7 +99,7 @@ function harness(session, { activeTurns = () => 0, config = { workflow: { active
     loadWorkflowPack: (_dir, id) => (PACKS[id] ? { id, name: PACKS[id].summary.name } : null),
     workflowSummary: (pack) => ({ id: pack.id, name: pack.name }),
     cfgMod: { getPluginData: () => 'data' },
-    refreshEmptySessionToolPolicy: refresh.refreshEmptySessionToolPolicy,
+    settingsReachCurrentSession: refresh.settingsReachCurrentSession,
     switchSessionWorkflow: refresh.switchSessionWorkflow,
   });
   return { state, refresh, api };
@@ -302,6 +302,8 @@ test('an empty session keeps today\u2019s semantics: the pick becomes the defaul
   const result = await api.setWorkflow('beta', { scope: 'session' });
   assert.equal(result.appliedToCurrentSession, true);
   assert.deepEqual(state.saved, ['beta']);
+  // The setter only saves; the session's next turn start applies it.
+  await refresh.reconcileTurnSettings();
   assert.equal(session.workflow.id, 'beta');
   assert.equal(session.workflowSwitch, undefined, 'an empty session gets no notice');
   assert.match(bp3(session), /# Active Workflow: Beta/);

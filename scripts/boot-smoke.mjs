@@ -99,7 +99,7 @@ const rows = [
     if (typeof mod.createMixdogSessionRuntime !== 'function') throw new Error('runtime export missing');
     const runtime = await mod.createMixdogSessionRuntime({ toolMode: 'full' });
     try {
-      const status = runtime.toolsStatus();
+      const status = await runtime.toolsStatus();
       const active = new Set(status.activeTools || []);
       const catalog = new Map((status.tools || []).map((tool) => [tool.name, tool]));
       for (const name of ['read','code_graph','grep','find','glob','list','git','shell','task','Skill','load_tool']) {

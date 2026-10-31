@@ -117,10 +117,9 @@ test('a workflow delegates while agents are available and stops when none are', 
   assert.doesNotMatch(empty.context, /# Available Agents/);
 });
 
-test('mode API validates, persists, and refreshes without changing the workflow or agent configuration', async (t) => {
+test('mode API validates, and persists without changing the workflow or agent configuration', async (t) => {
   const { dataDir, helpers } = fixture(t);
   let config = { workflow: { active: 'default' }, orchestrationMode: 'none', agents: { worker: { model: 'test' } } };
-  let refreshes = 0;
   const api = createWorkflowAgentsApi({
     ...helpers,
     getConfig: () => config,
@@ -129,10 +128,6 @@ test('mode API validates, persists, and refreshes without changing the workflow 
     STANDALONE_DATA_DIR: dataDir,
     saveConfigAndAdopt: (value) => {
       config = value;
-    },
-    refreshEmptySessionToolPolicy: async () => {
-      refreshes++;
-      return { appliedToCurrentSession: true };
     },
     invalidateContextStatusCache() {},
   });
@@ -143,7 +138,6 @@ test('mode API validates, persists, and refreshes without changing the workflow 
     assert.deepEqual(config.workflow, { active: 'default' });
     assert.deepEqual(config.agents, { worker: { model: 'test' } });
   }
-  assert.equal(refreshes, 4);
   await assert.rejects(api.setOrchestrationMode('invalid'), /orchestration mode must be one of/);
   assert.equal(api.getOrchestrationMode(), 'swarm');
   await api.saveWorkflowPack({

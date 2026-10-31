@@ -17,6 +17,7 @@ mock.module('./schedules-db.mjs', {
   namedExports: {
     ...realDb,
     claimScheduleRun: (...args) => store.claim(...args),
+    getSchedule: async (name) => store.row(name),
     markScheduleSuccess: (...args) => store.success(...args),
     markFired: (...args) => store.fired(...args),
     markDone: async () => {},
@@ -28,6 +29,9 @@ mock.module('./schedules-db.mjs', {
 const { Scheduler } = await import('./scheduler.mjs');
 
 function scheduler(schedule, runs) {
+  // The stored row is the armed schedule as it was armed.
+  const row = { ...schedule };
+  store.row = (name) => (name === row.name ? row : null);
   return Object.assign(Object.create(Scheduler.prototype), {
     schedules: [schedule],
     promptsDir: makeTempDirSync('sched'),
@@ -122,6 +126,34 @@ test('a cron fire that finds the name being renamed claims its slot but never ru
   assert.deepEqual(runs, [], 'nothing runs under the old name');
   assert.ok(schedule.lastSkippedAt, 'the fire is recorded as a skip');
   assert.equal(s.running.size, 0);
+});
+
+test('a schedule deleted or re-timed after it was armed (its reload lost) never fires, and is no failure', async () => {
+  resetStore();
+  const failures = [];
+  store.success = async () => assert.fail('a stale fire never succeeds');
+  for (const stored of [null, { name: 'a', prompt: 'go', whenCron: '0 9 * * *' }, { name: 'a', prompt: 'go', enabled: false }]) {
+    const runs = [];
+    const schedule = { name: 'a', prompt: 'go', whenCron: '0 3 * * *' };
+    const s = scheduler(schedule, runs);
+    s.notifyFailure = (_schedule, why) => failures.push(why);
+    store.row = () => stored;
+    await s.onCronFire(schedule, new Date());
+    assert.deepEqual(runs, [], JSON.stringify(stored));
+    assert.ok(schedule.lastSkippedAt, 'recorded as a skip');
+    assert.equal(schedule.lastFailedAt, undefined);
+  }
+  assert.deepEqual(failures, []);
+  // Still stored as armed, with an edited prompt: it fires that prompt.
+  const runs = [];
+  const schedule = { name: 'a', prompt: 'go', whenCron: '0 3 * * *' };
+  const s = scheduler(schedule, runs);
+  const prompts = [];
+  s.scheduleRunner = async (_s, { prompt }) => prompts.push(prompt) && { sessionId: 's', result: '' };
+  store.success = async () => {};
+  store.row = () => ({ ...schedule, prompt: 'edited' });
+  await s.onCronFire(schedule, new Date());
+  assert.deepEqual(prompts, ['edited']);
 });
 
 test('a schedule runner that throws synchronously still releases the name', async () => {

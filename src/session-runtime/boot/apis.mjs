@@ -171,6 +171,11 @@ export function wireApis(boot) {
 function wireToolPolicyRefresh(boot) {
   const { rt, cfgMod } = boot;
   const {
+    reconcileTurnSettings,
+    reconcileEmptySession,
+    emptySessionStale,
+    noteToolAvailability,
+    settingsReachCurrentSession,
     refreshEmptySessionToolPolicy,
     switchSessionWorkflow,
     switchSessionOrchestrationMode,
@@ -197,7 +202,14 @@ function wireToolPolicyRefresh(boot) {
     // A switch is acknowledged only once saved; a session closed or replaced
     // since (its generation moved) is not resurrected.
     persistSession: (session) => saveSessionAsync(session, { expectedGeneration: session.generation }),
+    toolDefinitionsFor: boot.toolDefinitionsFor,
+    getSurfaceGeneration: boot.surfaceGeneration,
   });
+  boot.reconcileTurnSettings = reconcileTurnSettings;
+  boot.reconcileEmptySession = reconcileEmptySession;
+  boot.emptySessionStale = emptySessionStale;
+  boot.noteToolAvailability = noteToolAvailability;
+  boot.settingsReachCurrentSession = settingsReachCurrentSession;
   boot.refreshEmptySessionToolPolicy = refreshEmptySessionToolPolicy;
   boot.switchSessionWorkflow = switchSessionWorkflow;
   boot.switchSessionOrchestrationMode = switchSessionOrchestrationMode;
@@ -348,7 +360,6 @@ function settingsApiFor(boot) {
     getUpdateProcessState: () => selfUpdate.getProcessState(),
     invalidateContextStatusCache: (...a) => boot.invalidateContextStatusCache(...a),
     invalidatePreSessionToolSurface: (...a) => boot.invalidatePreSessionToolSurface(...a),
-    refreshEmptySessionToolPolicy: boot.refreshEmptySessionToolPolicy,
     scheduleChannelStart: (...a) => boot.scheduleChannelStart(...a),
     channels: boot.channels,
     clearChannelStartTimer: () => {
@@ -411,6 +422,7 @@ function providerAuthApiFor(boot) {
     saveConfigAndAdopt: boot.saveConfigAndAdopt,
     displayConfig: boot.displayConfig,
     reloadFullConfig: boot.reloadFullConfig,
+    applyConfigChange: boot.applyConfigChange,
     awaitKeychainPrewarm: boot.awaitKeychainPrewarm,
     isKeychainPrewarmReady: () => rt.keychainPrewarmWaitDone,
     hasProviderSetupCached: boot.hasProviderSetupCached,
@@ -528,7 +540,6 @@ function resourceApiFor(boot) {
     getMcpServerOAuthState: (cfg) => boot.mcpClient.getMcpServerOAuthState(cfg),
     probeMcpServerAuth: (cfg) => boot.mcpClient.probeMcpServerAuth(cfg),
     invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
-    refreshEmptySessionToolPolicy: boot.refreshEmptySessionToolPolicy,
     normalizeMcpServerInput: boot.normalizeMcpServerInput,
     mcpStatus: boot.mcpStatus,
     getMcpServerConfig: boot.getMcpServerConfig,
@@ -627,7 +638,7 @@ function workflowAgentsApiFor(boot) {
     scheduleOutputStyleSave: boot.scheduleOutputStyleSave,
     invalidateContextStatusCache: boot.invalidateContextStatusCache,
     invalidatePreSessionToolSurface: boot.invalidatePreSessionToolSurface,
-    refreshEmptySessionToolPolicy: boot.refreshEmptySessionToolPolicy,
+    settingsReachCurrentSession: () => boot.settingsReachCurrentSession(),
     switchSessionWorkflow: boot.switchSessionWorkflow,
     switchSessionOrchestrationMode: boot.switchSessionOrchestrationMode,
   });
@@ -672,6 +683,8 @@ function sessionTurnApiFor(boot) {
   return createSessionTurnApi({
     applyPendingRoute: () => boot.modelRouteApi.applyPendingRoute(),
     applyPendingAgentProfile: boot.applyPendingAgentProfile,
+    reconcileTurnSettings: boot.reconcileTurnSettings,
+    reconcileEmptySession: () => boot.reconcileEmptySession(),
     currentAgents: boot.currentAgents,
     applyPendingSessionSwitches: boot.applyPendingSessionSwitches,
     prepareTurnWorkspace: boot.workspaceApi.prepareTurnWorkspace,

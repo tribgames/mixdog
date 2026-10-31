@@ -414,7 +414,7 @@ export function buildLiveLeadDriver({
     `  cwd: ${JSON.stringify(taskCwd)}, toolMode: 'full' });`,
     effort ? `await rt.setEffort(${JSON.stringify(effort)});` : '',
     fast !== undefined ? `await rt.setFast(${JSON.stringify(fast)});` : '',
-    `const prePromptTools = rt.toolsStatus?.()?.activeTools || [];`,
+    `const prePromptTools = (await rt.toolsStatus?.())?.activeTools || [];`,
     `if (!prePromptTools.includes('agent')) throw new Error('Lead runtime agent tool is not active');`,
     `let busy = false; let kickDeferred = false; let wake = null;`,
     `rt.onNotification(() => { queueMicrotask(() => { kickDeferred = true; if (!busy && wake) wake(); }); return false; });`,

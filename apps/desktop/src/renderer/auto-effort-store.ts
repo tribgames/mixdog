@@ -1,10 +1,11 @@
 import { useEffect, useSyncExternalStore } from 'react';
 import type { RecordValue } from './desktop-types';
 import { readCachedModelCatalog } from './model-catalog-cache';
+import { subscribeSetupChanges } from './setup-change-refresh';
 
 // The app-wide Auto reasoning MASTER switch (Settings → Built-in). It is read
 // once on demand (only a model that supports it asks), re-read when a sheet
-// opens, and published by Settings when it changes. Each route keeps its own
+// opens or a setting changes anywhere, and published by Settings when it changes. Each route keeps its own
 // `autoEffort` flag (absent = on); the master gates whether routes show Auto.
 export type AutoEffortState = { installed: boolean; enabled: boolean; supported: boolean };
 
@@ -24,6 +25,10 @@ export function publishAutoEffort(settings: unknown): void {
   for (const listener of listeners) listener();
 }
 
+// A change announced while a read is out may postdate what that read answers:
+// one more read follows it.
+let rereadQueued = false;
+
 function refreshAutoEffort(): Promise<void> {
   reading ??= window.mixdogDesktop
     .invokeCapability<RecordValue>({ capability: 'getToolModuleSettings', args: [] })
@@ -33,13 +38,34 @@ function refreshAutoEffort(): Promise<void> {
     })
     .finally(() => {
       reading = null;
+      if (rereadQueued) {
+        rereadQueued = false;
+        void refreshAutoEffort();
+      }
     });
   return reading;
 }
 
+/** The setting may have changed: re-read what is known or being read. */
+function invalidateAutoEffort(): void {
+  if (reading) rereadQueued = true;
+  else if (current !== null) void refreshAutoEffort();
+}
+
+// While anything shows the switch, a setting changed elsewhere (another
+// window, the phone, the setup tool, a hand edit) is re-read.
+let stopSetupSync: (() => void) | null = null;
+
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  stopSetupSync ??= subscribeSetupChanges(invalidateAutoEffort);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) {
+      stopSetupSync?.();
+      stopSetupSync = null;
+    }
+  };
 }
 
 /** The route's own Auto flag: only an explicit `false` turns it off. */

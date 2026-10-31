@@ -14,6 +14,14 @@ export function sessionDisallows(session, name) {
   );
 }
 
+/** A settings gate denies `name` to the session (as last reconciled, tool-availability.mjs). */
+export function sessionFeatureDenies(session, name) {
+  return (
+    Array.isArray(session?.featureDeniedTools) &&
+    session.featureDeniedTools.some((denied) => lowerName(denied) === lowerName(name))
+  );
+}
+
 /**
  * The session's own tool policy permits `name`: discovery (load_tool by name
  * or query) shows, selects and describes only what execution would run.

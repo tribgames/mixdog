@@ -12,7 +12,7 @@ import { sessionOptions } from './session-options.mjs';
  *  time. A boot connect still mid-handshake is caught on the first user
  *  turn by refreshInitialDeferredMcpSurface (session-turn-api), which
  *  re-folds the live registry before the prompt renders. */
-function seedToolSurface(deps, reason) {
+function seedToolSurface(deps, reason, coreMemoryContext) {
   const { rt, mcpClient, modelStandaloneTools, applyPreSessionToolSelection } = deps;
   let connectedMcpTools = [];
   try {
@@ -37,6 +37,8 @@ function seedToolSurface(deps, reason) {
   // process-wide firstTurnCompleted.
   rt.session.deferredInitialRefreshPending = !/resume/i.test(String(reason || ''));
   applyPreSessionToolSelection();
+  // Built from the settings as they stand: its first turn need not rebuild it.
+  deps.noteToolAvailability?.(rt.session, coreMemoryContext);
 }
 
 /** Adopt the provider session and publish it to hooks and statusline. */
@@ -45,7 +47,7 @@ export function materializeSession(deps, reason, coreMemoryContext) {
   // adoptSession attaches the hook bridge (boot/infrastructure.mjs sessionAdopter).
   adoptSession(mgr.createSession(sessionOptions(deps, coreMemoryContext)));
   rt.reservedSessionId = null;
-  seedToolSurface(deps, reason);
+  seedToolSurface(deps, reason, coreMemoryContext);
   writeStatuslineRoute(statusRoutes, rt.session, rt.route);
   hooks.emit('session:create', {
     sessionId: rt.session.id,

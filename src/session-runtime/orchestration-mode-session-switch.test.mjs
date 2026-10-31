@@ -114,7 +114,7 @@ function harness(session, { config = { workflow: { active: 'alpha' }, orchestrat
     seedOutputStyleStatusCache: () => {},
     scheduleOutputStyleSave: () => {},
     invalidateContextStatusCache: () => {},
-    refreshEmptySessionToolPolicy: refresh.refreshEmptySessionToolPolicy,
+    settingsReachCurrentSession: refresh.settingsReachCurrentSession,
     switchSessionOrchestrationMode: refresh.switchSessionOrchestrationMode,
   });
   const workflows = createWorkflowPacksApi({
@@ -126,7 +126,7 @@ function harness(session, { config = { workflow: { active: 'alpha' }, orchestrat
     loadWorkflowPack: (_dir, id) => (PACKS[id] ? { id, name: PACKS[id].name } : null),
     workflowSummary: (pack) => ({ id: pack.id, name: pack.name }),
     cfgMod: { getPluginData: () => 'data' },
-    refreshEmptySessionToolPolicy: refresh.refreshEmptySessionToolPolicy,
+    settingsReachCurrentSession: refresh.settingsReachCurrentSession,
     switchSessionWorkflow: refresh.switchSessionWorkflow,
   });
   const switchMode = (mode) => modes.setOrchestrationMode(mode, { scope: 'session' });
@@ -474,6 +474,8 @@ test('an empty session keeps today’s semantics: the pick becomes the default a
     state.saved.map((entry) => entry.mode),
     ['none']
   );
+  // The setter only saves; the session's next turn start applies it.
+  await refresh.reconcileTurnSettings();
   assert.equal(session.orchestrationMode, 'none');
   assert.equal(session.orchestrationModeSwitch, undefined);
   assert.match(bp3(session), /# Orchestration Mode: Solo/);
@@ -636,6 +638,9 @@ test('legacy mode recovery does not infer modes from custom, ambiguous, or non-c
     },
     'agent mode': (session) => {
       session.sessionMode = 'agent';
+      // Its stamps are the coding Lead's; a bot thread compares them every
+      // turn, which is not the recovery this case is about.
+      delete session.agentProfileRevision;
     },
     worker: (session) => {
       session.owner = 'agent';
@@ -661,7 +666,11 @@ const ROSTER_WORKER = /# Available Agents\n\n- Worker \(worker\)/;
 
 const ADDED_WORKER = /# Available Agents Changed\n[\s\S]*New agents are now available[^\n]*\n- Worker \(worker\)/;
 const REMOVED_WORKER = /no longer available[^\n]*\n- Worker \(worker\)/;
-const loadable = (session) => (session.deferredToolCatalog || []).some((tool) => tool.name === 'agent');
+// Boot or late pool: load_tool resolves either (an opened tool joins the late one).
+const loadable = (session) =>
+  [...(session.deferredToolCatalog || []), ...(session.deferredLateToolCatalog || [])].some(
+    (tool) => tool.name === 'agent'
+  );
 
 /** A session saved before agents reached a coding Lead as a reminder: it
  *  started without agents, so the old rule denied `agent` and dropped it. */

@@ -2,6 +2,10 @@ import { parseAgentJob } from '../agent-envelope.mjs';
 import { notificationQueueKey, resolveTuiRuntimeNotificationDelivery } from '../notification-plan.mjs';
 import { isTerminalExecutionStatus } from './agent-status-refresh.mjs';
 
+// The runtime's setup-changed action after an empty session's settings
+// reconcile (session-runtime/boot/tools.mjs CONTEXT_STATUS_REFRESHED_ACTION).
+const CONTEXT_STATUS_REFRESHED = 'context_status_refreshed';
+
 // Routes one runtime notification by its delivery plan: UI-only kinds patch
 // the store or raise a notice, execution envelopes go through the execution
 // delivery, everything else becomes a model-visible task notification.
@@ -13,6 +17,7 @@ export function createNotificationRouter({
   statusRefresh,
   executionDelivery,
   modelNotification,
+  refreshContextStats = null,
   getAdmission = () => 'open',
 }) {
   let uiOpenSeq = 0;
@@ -20,6 +25,11 @@ export function createNotificationRouter({
   const uiActions = {
     'setup-ui': (delivery) => set({ setupUiRequest: { id: delivery.id, at: Date.now() } }),
     'setup-changed': (delivery) => {
+      // An empty session took moved settings: the context gauge re-reads.
+      if (delivery.setupAction === CONTEXT_STATUS_REFRESHED) {
+        refreshContextStats?.();
+        return;
+      }
       // Monotonic like ui-open: consecutive changes by the same action must
       // each refresh the attached surfaces.
       setupChangeSeq += 1;

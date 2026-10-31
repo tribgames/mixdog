@@ -51,6 +51,13 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
   const providerModelCaches = { ...emptyModelCaches(), providerModelsLoadSeq: 0 };
   const providerUsageCaches = emptyUsageCaches();
   const providerInitPromises = new Map();
+  // Whether this runtime has started its providers: a rebuild after a change
+  // follows it, a failed initialization (whose gate is dropped) included.
+  let providersStarted = false;
+  // Advances whenever the init gates are cleared (a provider config or
+  // credential change): an initialization registered before it is superseded
+  // and never writes the shared registry.
+  let providerInitGeneration = 0;
 
   function invalidateProviderCaches(options = {}) {
     // Auth/account/config changes alter what providers list: the process-wide
@@ -59,7 +66,10 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
     Object.assign(providerModelCaches, emptyModelCaches());
     providerModelCaches.providerModelsLoadSeq += 1;
     Object.assign(providerUsageCaches, emptyUsageCaches());
-    if (options.preserveProviderInit !== true) providerInitPromises.clear();
+    if (options.preserveProviderInit !== true) {
+      providerInitPromises.clear();
+      providerInitGeneration += 1;
+    }
     modelMetaByRoute.clear();
   }
 
@@ -67,19 +77,44 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
   // absent (provider setup, init gates) is stale.
   keychain.onKeychainRecovered?.(() => invalidateProviderCaches());
 
-  async function ensureProvidersReady(providerConfig = rt.config.providers || {}) {
+  // The one edit a caller makes to the provider config it passes is turning a
+  // route's provider on (ensureProviderEnabled); those providers, judged
+  // against the runtime's config when the request was made.
+  function forcedProviders(requested, base) {
+    return Object.keys(requested || {}).filter(
+      (name) => requested[name]?.enabled === true && base?.[name]?.enabled !== true
+    );
+  }
+
+  // Waits for the keychain, then initializes the registry with
+  // `providerConfig` unless a change superseded it meanwhile: a superseded
+  // request is replayed on the latest config (with the providers it turned on),
+  // so the latest config always wins.
+  async function initializeProviders(providerConfig) {
+    const generation = providerInitGeneration;
+    const forced = forcedProviders(providerConfig, rt.config.providers);
     await awaitKeychainPrewarm();
     if (rt.closeRequested) throw new Error('runtime is closing');
+    if (generation === providerInitGeneration) return getReg().initProviders(providerConfig);
+    const latest = { ...(rt.config.providers || {}) };
+    for (const name of forced) latest[name] = { ...(latest[name] || {}), enabled: true };
+    return ensureProvidersReady(latest);
+  }
+
+  async function ensureProvidersReady(providerConfig = rt.config.providers || {}) {
+    if (rt.closeRequested) throw new Error('runtime is closing');
+    providersStarted = true;
     const initKey = providerInitCacheKey(providerConfig);
     // Provider initialization is idempotent for one normalized config. Keep
     // the fulfilled promise, not only the in-flight one: session resume used
     // to rerun registry/keychain setup on every click even though neither the
     // provider config nor the registry had changed. Auth/config mutations call
     // invalidateProviderCaches(), which clears this gate and preserves the
-    // existing refresh semantics.
+    // existing refresh semantics. Registered before any await, so a change
+    // applied while it waits on the keychain sees (and supersedes) it.
     let providerInitPromise = providerInitPromises.get(initKey);
     if (!providerInitPromise) {
-      providerInitPromise = Promise.resolve().then(() => getReg().initProviders(providerConfig));
+      providerInitPromise = initializeProviders(providerConfig);
       providerInitPromises.set(initKey, providerInitPromise);
     }
     let result;
@@ -125,9 +160,23 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
     return result;
   }
 
+  // Provider config or secrets changed: drop everything keyed to the old ones
+  // and, when this runtime had initialized providers, rebuild the shared
+  // registry from its reloaded config now, so no runtime's stale copy is the
+  // last one to have initialized it. Rejects when that rebuild failed.
+  function reinitProviders() {
+    invalidateProviderCaches();
+    if (!providersStarted || rt.closeRequested) return Promise.resolve();
+    return ensureProvidersReady().catch((error) => {
+      bootProfile('providers:reinit-failed', { error: error?.message || String(error) });
+      throw error;
+    });
+  }
+
   return {
     awaitKeychainPrewarm,
     invalidateProviderCaches,
+    reinitProviders,
     ensureProvidersReady,
     modelMetaByRoute,
     providerModelCaches,

@@ -7,7 +7,7 @@
 // for each call. The password is checked with Gmail before it is saved, and
 // never appears in a config, log, error or tool result.
 import { createHash } from 'node:crypto';
-import keychain from '../../lib/keychain-cjs.cjs';
+import { keychainSecretStore as keychain } from '../shared/config.mjs';
 import { GMAIL_APP_PASSWORD, gmailAddress } from '../shared/connector-catalog.mjs';
 import { connectorAccountsInstructions } from '../shared/connector-accounts.mjs';
 

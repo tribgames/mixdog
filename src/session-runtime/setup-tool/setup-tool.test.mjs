@@ -545,8 +545,11 @@ test('mutations go through the runtime facade with validated input', async () =>
   assert.match(agentRoute.appliesTo, /chats from their next turn/);
   assert.doesNotMatch(agentRoute.appliesTo, /new sessions/);
 
-  await run(executor, { action: 'set_builtin_enabled', name: 'office', enabled: false });
+  const builtin = await run(executor, { action: 'set_builtin_enabled', name: 'office', enabled: false });
   assert.deepEqual(calls[2], ['setBuiltinToolEnabled', 'office', false]);
+  // The conversation that made the change takes it too, from its next turn.
+  assert.match(builtin.appliesTo, /this one included, from its next turn/);
+  assert.doesNotMatch(builtin.appliesTo, /new sessions/);
   await run(executor, { action: 'set_builtin_enabled', name: 'localProvider', enabled: true });
   assert.deepEqual(calls[3], ['setBuiltinToolEnabled', 'localProvider', true]);
   await assert.rejects(

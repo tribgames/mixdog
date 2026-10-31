@@ -4,6 +4,7 @@ import { basename, dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
 import { readJsonStateSync, updateJsonAtomicSync, withFileLockSync } from '../../runtime/shared/atomic-file.mjs';
+import { announceStoredStateChange } from '../../runtime/shared/config.mjs';
 import { resolvePluginData } from '../../runtime/shared/plugin-paths.mjs';
 import { pluginManifest } from '../../runtime/shared/plugin-manifest.mjs';
 import { pluginMetadata } from '../../runtime/shared/plugin-metadata.mjs';
@@ -60,6 +61,9 @@ function mutateRegistry(dataDir, mutator) {
     },
     { secret: true, fsyncDir: true, backup: true }
   );
+  // Other processes connect or drop the plugin's MCP servers on this (the
+  // live install's registry only; an explicit dataDir is a separate store).
+  if (resolve(dataDir) === resolve(resolvePluginData())) announceStoredStateChange('plugins');
   return result;
 }
 

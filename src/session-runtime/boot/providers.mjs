@@ -31,12 +31,16 @@ import {
 } from '../model-recency.mjs';
 import { createNativeWebSearch } from '../native-web-search.mjs';
 import { createConfigLifecycle } from '../config-lifecycle.mjs';
+import { createConfigChangeEffects, SETTINGS_CHANGED_SETUP_ACTION } from '../config-change-effects.mjs';
+import { resetProviderAdmissionCooldowns } from '../../runtime/agent/orchestrator/providers/admission-scheduler.mjs';
 import { usesInjectedConfig } from '../session-compaction-sync.mjs';
 import { createQuickModelRows } from '../quick-model-rows.mjs';
 import { createProviderModels } from '../provider-models.mjs';
 import { createProviderUsage } from '../provider-usage.mjs';
 import { bootProfile } from '../boot-profile.mjs';
 import { standaloneDataDir } from '../runtime-paths.mjs';
+import { noteCacheWarmingEnabled } from '../../runtime/agent/orchestrator/session/cache-warm.mjs';
+import { refreshLiveSessionsProviderCacheOpts } from '../../runtime/agent/orchestrator/session/manager/session-lifecycle.mjs';
 import { outputStyleStatus, resolveRoute, webSearchCapableFor } from './shared.mjs';
 
 export function wireProviders(boot) {
@@ -68,7 +72,7 @@ function wireConfigLifecycle(boot) {
     },
     getRoute: () => rt.route,
     getSession: () => rt.session,
-    fixedSessionCompaction: usesInjectedConfig(boot.params),
+    injectedConfig: usesInjectedConfig(boot.params),
     setRouteState: (next) => {
       rt.route = next;
     },
@@ -82,7 +86,31 @@ function wireConfigLifecycle(boot) {
     LAZY_SECRET_PROVIDERS,
     clean,
     resolve,
-    onConfigReloaded: () => boot.invalidateContextStatusCache?.(),
+    // Late-bound: the effect targets (notification bus, MCP connect, context
+    // status) are wired by later boot stages.
+    onConfigChanged: createConfigChangeEffects({
+      invalidateContextStatusCache: () => boot.invalidateContextStatusCache?.(),
+      reinitProviders: () => boot.reinitProviders(),
+      releaseAdmissionCooldowns: resetProviderAdmissionCooldowns,
+      // Fails (so the change step retries it) when a server failed to connect
+      // (other than needing a sign-in, which waits on the user); the servers
+      // reconcile either way.
+      reconcileMcp: async () => {
+        const status = await boot.connectConfiguredMcp?.({ reconcile: true });
+        const failed = (status?.servers || []).filter((row) => row.enabled !== false && row.status === 'failed');
+        if (failed.length) {
+          throw new Error(`MCP servers failed to connect: ${failed.map((row) => `${row.name} (${row.error})`).join(', ')}`);
+        }
+      },
+      noteCacheWarmingEnabled,
+      refreshLiveSessionsCacheOpts: (config) => refreshLiveSessionsProviderCacheOpts(config),
+      // Attached surfaces (TUI, desktop session lanes) re-read open settings.
+      announceSettingsChange: () =>
+        boot.emitRuntimeNotification?.('Settings changed', {
+          kind: 'setup-changed',
+          action: SETTINGS_CHANGED_SETUP_ACTION,
+        }),
+    }),
     STANDALONE_DATA_DIR: standaloneDataDir(),
   });
   const {
@@ -98,11 +126,13 @@ function wireConfigLifecycle(boot) {
     scheduleOutputStyleSave,
     flushAllConfigSavesAsync,
     reloadFullConfig,
+    applyConfigChange,
     ensureFullConfig,
     displayConfig,
     ensureConfigForRouteProvider,
   } = lifecycle;
   Object.assign(boot, {
+    applyConfigChange,
     disposeConfigSync,
     getOutputStyleStatusCached,
     invalidateOutputStyleStatusCache,

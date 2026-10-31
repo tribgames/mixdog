@@ -24,6 +24,7 @@ export function createRuntimeFacade({
   getOrchestrationMode,
   getOutputStyle,
   getContextStatus,
+  getContextStatusSettled = async (options) => getContextStatus(options),
   getContextStatusForSession,
   renameSessionTitle,
 }) {
@@ -143,6 +144,10 @@ export function createRuntimeFacade({
     },
     contextStatus(options) {
       return getContextStatus(options);
+    },
+    /** The context status once an empty session took moved settings (async callers). */
+    contextStatusSettled(options) {
+      return getContextStatusSettled(options);
     },
     contextStatusForSession(session) {
       return getContextStatusForSession(session);
