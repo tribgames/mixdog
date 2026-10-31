@@ -86,6 +86,12 @@ const CASES = [
     ['에이전트 취소', '에이전트 취소'],
   ],
   [
+    'closing a finished agent ends it, it does not cancel it',
+    [finished('agent', { type: 'close', tag: 'worker-a' })],
+    ['Ended agents', 'Ended agents'],
+    ['에이전트 종료', '에이전트 종료'],
+  ],
+  [
     'git worktree operations',
     [finished('git', { action: 'worktree', worktree_action: 'enter', worktree: 'x' })],
     ['Worktree management', 'Worktree management'],

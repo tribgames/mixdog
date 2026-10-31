@@ -474,6 +474,7 @@
   "Agent {{agent}}": "에이전트 {{agent}}",
   "Agent calls": "에이전트 호출",
   "Agent cancellations": "에이전트 취소",
+  "Ended agents": "에이전트 종료",
   "Agent failures": "에이전트 실패",
   "Agent group actions": "에이전트 그룹 메뉴",
   "Agent is in use": "에이전트 사용 중",

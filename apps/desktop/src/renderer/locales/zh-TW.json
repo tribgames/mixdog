@@ -474,6 +474,7 @@
   "Agent {{agent}}": "代理 {{agent}}",
   "Agent calls": "代理呼叫",
   "Agent cancellations": "代理取消",
+  "Ended agents": "代理結束",
   "Agent failures": "代理失敗",
   "Agent group actions": "代理群組動作",
   "Agent is in use": "代理使用中",

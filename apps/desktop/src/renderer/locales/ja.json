@@ -474,6 +474,7 @@
   "Agent {{agent}}": "エージェント {{agent}}",
   "Agent calls": "エージェント呼び出し",
   "Agent cancellations": "エージェント取り消し",
+  "Ended agents": "エージェント終了",
   "Agent failures": "エージェント失敗",
   "Agent group actions": "エージェントグループのアクション",
   "Agent is in use": "エージェントは使用中です",

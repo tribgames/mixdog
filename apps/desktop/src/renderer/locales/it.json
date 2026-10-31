@@ -549,6 +549,7 @@
   "Agent {{agent}}": "Agente {{agent}}",
   "Agent calls": "Chiamate agli agenti",
   "Agent cancellations": "Annullamenti degli agenti",
+  "Ended agents": "Agenti terminati",
   "Agent failures": "Errori degli agenti",
   "Agent group actions": "Azioni del gruppo di agenti",
   "Agent is in use": "L’agente è in uso",
