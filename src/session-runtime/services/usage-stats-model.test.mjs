@@ -193,6 +193,24 @@ test('usage is grouped by provider with a model drill-down beneath it', () => {
   assert.equal(Math.round(anthropic.share * 100), 92);
 });
 
+test("raw events put Fast-mode calls in the model's Fast row, as the rollup does", () => {
+  const api = { provider: 'openai', model: 'gpt-5.5', providerKind: 'api' };
+  const events = [
+    turn(api),
+    turn({ ...api, rates: { requestServiceTier: 'priority', serviceTier: 'priority' } }),
+    // A Priority request the API downgraded to Standard is a normal call.
+    turn({ ...api, rates: { requestServiceTier: 'priority', serviceTier: 'default' } }),
+  ];
+
+  const [openai] = usageStatsSnapshot({ events, now: NOW, source: 'all' }).providers;
+
+  const rows = openai.models.map(({ fast, turns }) => [fast === true, turns]).sort();
+  assert.deepEqual(rows, [
+    [false, 2],
+    [true, 1],
+  ]);
+});
+
 test('a day held by the rollup ignores the raw events for that same day', () => {
   const entries = [turn(), turn({ sessionId: 'session-b' })];
   const rollup = rollupOf(entries);

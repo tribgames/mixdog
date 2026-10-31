@@ -30,11 +30,21 @@ export function isConversationUsageSource(sourceType) {
 }
 
 /**
- * SQL: 1 when a route's requests ran in Fast mode (a Fast/Priority/Ultrafast
- * tier was sent), read off the route signature's stored rates. Mirrors the
- * pricing rule in cost.mjs: the OpenAI API reporting "default" means a
- * Priority request was downgraded to Standard. Routes recorded before tiers
- * were kept, or without one, are normal.
+ * Whether a call ran in Fast mode: a Fast/Priority/Ultrafast tier was sent,
+ * unless the OpenAI API reported "default", meaning a Priority request was
+ * downgraded to Standard. Mirrors the pricing rule in cost.mjs. Calls recorded
+ * before tiers were kept, or without one, are normal. `fastRouteSql` is this
+ * rule over a stored route signature; keep the two in step.
+ */
+export function isFastCall({ kind, requestServiceTier, serviceTier }) {
+  return (
+    ['fast', 'priority', 'ultrafast'].includes(requestServiceTier) && !(kind === 'api' && serviceTier === 'default')
+  );
+}
+
+/**
+ * SQL form of `isFastCall`: 1 when a route's requests ran in Fast mode, read
+ * off the route signature's stored kind and rates.
  */
 export const fastRouteSql = (signature) => `(
     COALESCE(json_extract(json_extract(${signature},'$[5]'),'$.requestServiceTier') IN ('fast','priority','ultrafast'),0)
