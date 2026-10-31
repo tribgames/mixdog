@@ -42,6 +42,7 @@ import {
 import { dataDir, storedAgentWorkerIndexPath, storedLeadWorkerIndexPath } from './store-summary-locations.mjs';
 import { cleanValue, isStoredSessionId, positiveNumber } from './store-summary-fields.mjs';
 import { sessionUsageTotals } from '../../../shared/session-usage-totals.mjs';
+import { todoProgress } from '../runtime-core/todo-list.mjs';
 
 const WORKING_AGENT_STATUS =
   /^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|cancelling)$/i;
@@ -327,6 +328,7 @@ const WORKER_HEADER_FIELDS = [
   'totalInputTokens',
   'totalOutputTokens',
   'totalToolCalls',
+  'todo',
   ...SESSION_CANCEL_FIELDS,
 ];
 
@@ -584,6 +586,7 @@ function projectChildWorkerRow(row, context) {
   // beside a header that records a cancel-unconfirmed (possibly running)
   // process. A new row may precede its first session save (null header).
   const session = readWorkerSessionHeader(sessionId);
+  const todo = todoProgress(session);
   const declaredStatus = cleanValue(row.status) || 'running';
   const declaredStage = cleanValue(row.stage || row.status) || 'running';
   const declaredWorking = WORKING_AGENT_STATUS.test(workerLifecycle(row) || 'running');
@@ -649,6 +652,8 @@ function projectChildWorkerRow(row, context) {
     clientHostPid: positiveNumber(row.clientHostPid || session?.clientHostPid, 0) || null,
     taskId: cleanValue(row.task_id || row.taskId) || null,
     ...sessionUsageTotals(session),
+    // The agent's own step list as counts only; a closed agent keeps its last.
+    ...(todo ? { todo } : {}),
   };
 }
 

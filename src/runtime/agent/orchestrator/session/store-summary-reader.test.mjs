@@ -378,6 +378,41 @@ test('a working child outlives its Lead row so live work stays visible', () => {
   });
 });
 
+test('pool rows carry the stored agent todo as counts, kept after the agent finishes', () => {
+  withAgentPoolRoot('mixdog-pool-todo-', (root) => {
+    const todo = {
+      phases: [
+        {
+          name: 'Tasks',
+          tasks: [
+            { content: 'One', status: 'completed' },
+            { content: 'Two', status: 'in_progress' },
+            { content: 'Three', status: 'abandoned' },
+          ],
+        },
+      ],
+    };
+    writeAgentChild(root, 'child-todo', { ownerSessionId: 'lead-a', status: 'running', stage: 'running', todo });
+    writeAgentChild(root, 'child-plain', { tag: 'plain', status: 'running', stage: 'running' });
+    const worker = (sessionId, tag) => ({
+      tag,
+      sessionId,
+      ownerSessionId: 'lead-a',
+      agent: 'reviewer',
+      status: 'running',
+      stage: 'running',
+    });
+    writeAgentWorkerIndex(root, { a: worker('child-todo', 'review'), b: worker('child-plain', 'plain') });
+    const rows = listStoredAgentWorkers({ runningSessionIds: new Set(['child-todo', 'child-plain']) });
+    assert.deepEqual(rows.find((row) => row.sessionId === 'child-todo')?.todo, {
+      completed: 1,
+      total: 2,
+      current: 'Two',
+    });
+    assert.equal('todo' in rows.find((row) => row.sessionId === 'child-plain'), false);
+  });
+});
+
 test('completed child sessions remain available across registry recreation without expiration', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-child-reap-persist-'));
   const sessions = new Map([
