@@ -794,6 +794,15 @@ function reconcileDeferredMcpToolCatalogUncached(session, liveMcpTools) {
  * Returns the re-armed names, or null when there are none.
  */
 export function rearmLateDeferredTools(session) {
+  // The compaction also drops the load results that carried a server's
+  // instruction text (the account and configuration guidance, which no prompt
+  // manifest carries), so the next load of its tools delivers it again. It
+  // rides a tool result, never the cached prefix, and ordinary turns still
+  // send it once.
+  if (session) {
+    delete session.mcpInstructionsAnnounced;
+    delete session.mcpInstructionHashes;
+  }
   if (!session || !Array.isArray(session.tools) || fixedSurfaceSession(session)) return null;
   if (session.promptIdentity && !isAgentOwner(session)) return null;
   if (!Array.isArray(session.deferredAnnouncedTools)) return null;
@@ -816,8 +825,8 @@ export function rearmLateDeferredTools(session) {
 
 /**
  * A cold point (a compaction, a rebuilt prompt): the late tools join the boot
- * catalog and the rebuilt BP2 manifest lists them, with the MCP server
- * instructions as they stand, so nothing about them rides a notice. Pending
+ * catalog and the rebuilt BP2 manifest lists them, so nothing about them rides
+ * a notice. Pending
  * announcements the manifest now carries are dropped. Returns the folded names.
  */
 export function foldLateDeferredTools(session) {
@@ -849,15 +858,8 @@ export function foldLateDeferredTools(session) {
       renderedDeferredManifest(session)
     );
   }
-  // The manifest carries the servers' instructions now; a load sends a
-  // server's text again only when it changes.
-  session.mcpInstructionsAnnounced = Object.keys(session.mcpServerInstructions || {});
-  session.mcpInstructionHashes = Object.fromEntries(
-    session.mcpInstructionsAnnounced.map((server) => [
-      server,
-      instructionHash(sanitizeMcpInstructionText(session.mcpServerInstructions[server])),
-    ])
-  );
+  // The manifest lists only short triggers, never a server's instruction text:
+  // what a load has told stays as recorded (a compaction clears it).
   const listed = new Set(Array.isArray(session.deferredAnnouncedTools) ? session.deferredAnnouncedTools : []);
   dropPendingDeferredToolAdds(session, listed);
   return folded;
@@ -993,8 +995,8 @@ const instructionHash = (text) =>
 // A server's instruction text rides the first load_tool naming any of its
 // tools (loaded now, already active, or described on the bridge), once per
 // text (`mcpInstructionsAnnounced`, `mcpInstructionHashes`: a connector whose
-// accounts changed sends its new text again; a cold-point rebuild puts the
-// current texts in BP2, foldLateDeferredTools): `## <server>` + body,
+// accounts changed sends its new text again; a compaction clears the record,
+// rearmLateDeferredTools): `## <server>` + body,
 // sanitized and capped (sanitizeMcpInstructionText, well under 4 KB). No
 // text, nothing sent or recorded.
 function pendingMcpInstructions(session, catalog, names) {
