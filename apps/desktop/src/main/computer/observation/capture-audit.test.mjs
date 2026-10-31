@@ -106,7 +106,7 @@ test('a timed-out provider stays an error while later captures use fresh pixels 
   let now = 10_000;
   t.mock.method(Date, 'now', () => now);
   let snapshots = 0;
-  const failure = 'computer_command_timeout: snapshot exceeded 2500ms';
+  const failure = 'computer_command_timeout: command exceeded 2500ms; the input host was restarted';
   const f = fixture({
     native: (request) => {
       if (request.action !== 'snapshot') return;
@@ -118,7 +118,12 @@ test('a timed-out provider stays an error while later captures use fresh pixels 
   for (let index = 0; index < 3; index++) {
     const result = await f.run(() => f.capture.captureComputer(command));
     assert.equal(result.payload.accessibility_status, 'error');
-    assert.equal(result.payload.accessibility_error, failure);
+    if (index === 0) assert.equal(result.payload.accessibility_error, failure);
+    else {
+      // Only the read that timed out restarted the host; a cache hit says so.
+      assert.match(result.payload.accessibility_error, /^computer_command_timeout: cached result of an earlier/);
+      assert.doesNotMatch(result.payload.accessibility_error, /restarted/);
+    }
     assert.equal(result.payload.accessibility_cache, 'timed_out_provider');
     assert.equal(result.payload.accessibility_retry_after_ms, 30_000);
     assert.equal(result.payload.pixel_status, 'available');

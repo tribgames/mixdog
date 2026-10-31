@@ -119,18 +119,16 @@ function Get-ObservationCacheProperties {
 
 # The on-screen lines of a text surface that has no value: a terminal buffer or
 # a document body exposes its content only through TextPattern.
-function Get-VisibleTextLines($el) {
+function Get-VisibleTextLines($el, $deadline = $null) {
     $lines = New-Object System.Collections.ArrayList
-    try {
-        $pattern = $el.GetCurrentPattern([System.Windows.Automation.TextPattern]::Pattern)
-        foreach ($range in $pattern.GetVisibleRanges()) {
-            foreach ($line in ([string]$range.GetText(20000) -split "\r?\n")) {
-                $text = ($line -replace '\s+', ' ').Trim()
-                if ($text) { [void]$lines.Add($text) }
-            }
+    $ranges = [MixBoundedUia]::VisibleText($deadline, $el)
+    if ($null -eq $ranges) { return $null }
+    foreach ($range in $ranges) {
+        foreach ($line in ([string]$range -split "\r?\n")) {
+            $text = ($line -replace '\s+', ' ').Trim()
+            if ($text) { [void]$lines.Add($text) }
         }
     }
-    catch { return $null }
     return , $lines
 }
 
@@ -152,7 +150,7 @@ function Get-CachedSupported($el, $property) {
     catch { return $null }
 }
 
-function Get-ElementObservation($el, [bool]$readText = $false) {
+function Get-ElementObservation($el, [bool]$readText = $false, $deadline = $null) {
     $observation = @{
         Name         = [string]$el.Cached.Name
         AutomationId = [string]$el.Cached.AutomationId
@@ -197,7 +195,7 @@ function Get-ElementObservation($el, [bool]$readText = $false) {
     if ($readText -and -not $observation.CanSetValue -and
         (Get-CachedFlag $el $AE::IsKeyboardFocusableProperty) -and
         (Get-CachedFlag $el $AE::IsTextPatternAvailableProperty)) {
-        $lines = Get-VisibleTextLines $el
+        $lines = Get-VisibleTextLines $el $deadline
         if ($null -ne $lines -and $lines.Count -gt 0) {
             # Reported values keep their start, but a terminal's newest output is
             # its last line, so a long surface is shown from its end.
@@ -252,7 +250,7 @@ function Format-StructuredObservationState($observation, $kind) {
 # This UIA client reports standard Win32 controls as plain panes in some
 # dialogs (Character Map's buttons, combo boxes and edits), so a window whose
 # UIA list looks complete can still hide its real controls; MSAA names them.
-function Test-UnproxiedNativeControls($win) {
+function Test-UnproxiedNativeControls($win, $deadline = $null) {
     $classes = foreach ($class in @('Button', 'ComboBox', 'ComboBoxEx32', 'Edit', 'ListBox', 'SysListView32',
             'SysTreeView32', 'SysTabControl32', 'ToolbarWindow32', 'msctls_trackbar32', 'msctls_updown32',
             'SysLink', 'SysDateTimePick32')) {
@@ -261,7 +259,7 @@ function Test-UnproxiedNativeControls($win) {
     $cond = New-Object System.Windows.Automation.AndCondition(
         (New-Object System.Windows.Automation.PropertyCondition($AE::ControlTypeProperty, [System.Windows.Automation.ControlType]::Pane)),
         (New-Object System.Windows.Automation.OrCondition([System.Windows.Automation.Condition[]]$classes)))
-    try { return $null -ne $win.FindFirst($TS::Descendants, $cond) } catch { return $false }
+    return [MixBoundedUia]::HasFirst($deadline, $win, $TS::Descendants, $cond)
 }
 
 function Get-InteractiveControlTypes {
@@ -299,46 +297,36 @@ function Probe-WindowAccessibility($req) {
     return @{ interactive = $false }
 }
 
-function Get-ElementStructure($el) {
-    $ancestors = New-Object System.Collections.ArrayList
-    $parentRuntimeId = ''
-    $inDocument = $false
-    $parent = $Walker.GetParent($el)
-    for ($depth = 0; $depth -lt 80 -and $null -ne $parent; $depth++) {
-        if ([System.Windows.Automation.Automation]::Compare($parent, $AE::RootElement)) { break }
-        $role = ''
-        $name = ''
-        try { $role = $parent.Current.ControlType.ProgrammaticName -replace 'ControlType\.', '' } catch {}
-        try { $name = [string]$parent.Current.Name } catch {}
-        $runtimeId = Get-ElRuntimeKey $parent
-        if ($depth -eq 0) { $parentRuntimeId = $runtimeId }
-        if ($role -eq 'Document') { $inDocument = $true }
-        [void]$ancestors.Add([ordered]@{
-                runtime_id = [string]$runtimeId
-                role       = [string]$role
-                name       = (Format-ObservationValue $name 200)
-            })
-        $parent = $Walker.GetParent($parent)
-    }
-    $className = ''
-    $hasKeyboardFocus = $false
-    try { $className = [string]$el.Current.ClassName } catch {}
-    try { $hasKeyboardFocus = [bool]$el.Current.HasKeyboardFocus } catch {}
+function Get-ElementStructure($el, $deadline = $null) {
+    $read = [MixBoundedUia]::Structure($deadline, $el)
+    $ancestors = @(foreach ($ancestor in $read.Ancestors) {
+            [ordered]@{
+                runtime_id = [string]$ancestor.RuntimeId
+                role       = [string]$ancestor.Role
+                name       = (Format-ObservationValue $ancestor.Name 200)
+            }
+        })
     return [ordered]@{
-        runtime_id         = [string](Get-ElRuntimeKey $el)
-        parent_runtime_id  = [string]$parentRuntimeId
-        class_name         = [string]$className
-        has_keyboard_focus = [bool]$hasKeyboardFocus
-        in_document        = [bool]$inDocument
-        ancestors          = @($ancestors)
+        runtime_id         = [string]$read.RuntimeId
+        parent_runtime_id  = [string]$read.ParentRuntimeId
+        class_name         = [string]$read.ClassName
+        has_keyboard_focus = [bool]$read.HasKeyboardFocus
+        in_document        = [bool]$read.InDocument
+        ancestors          = $ancestors
     }
 }
 
 function Snapshot-Window($req) {
     $snapshotClock = [System.Diagnostics.Stopwatch]::StartNew()
+    # With a deadline every provider call below shares one budget on
+    # MixBoundedUia, so a stalled provider abandons the read, not the worker.
+    $deadline = if ($null -ne $req.deadline_ms -and [int]$req.deadline_ms -gt 0) {
+        New-Object MixUiaDeadline ([int]$req.deadline_ms)
+    }
+    else { $null }
     $info = Resolve-WindowInfo $req.window $req.window_id
     Assert-AccessibleIntegrity $info
-    $win = Find-Window $req.window $req.window_id
+    $win = if ($null -ne $deadline) { $null } else { Find-Window $req.window $req.window_id }
     $state = Get-CurrentSession
     $expectedContinuation = $state.Continuation
     $state.Continuation = $null
@@ -410,9 +398,16 @@ function Snapshot-Window($req) {
     [void]$cr.Add($AE::IsEnabledProperty)
     [void]$cr.Add($AE::IsOffscreenProperty)
     foreach ($property in (Get-ObservationCacheProperties)) { [void]$cr.Add($property) }
-    $act = $cr.Activate()
     $uiaFindStarted = $snapshotClock.Elapsed.TotalMilliseconds
-    try { $els = $win.FindAll($TS::Descendants, $cond) } finally { $act.Dispose() }
+    if ($null -ne $deadline) {
+        $uiaRead = [MixBoundedUia]::FindAll($deadline, $info.Handle, "$($info.Id) $($info.Title)", $TS::Descendants, $cond, $cr)
+        $win = $uiaRead.Root
+        $els = $uiaRead.Elements
+    }
+    else {
+        $act = $cr.Activate()
+        try { $els = $win.FindAll($TS::Descendants, $cond) } finally { $act.Dispose() }
+    }
     $uiaFindMs = $snapshotClock.Elapsed.TotalMilliseconds - $uiaFindStarted
     if ($els.Count -gt 5000) {
         throw "accessibility candidate limit exceeded: $($els.Count) > 5000; narrow the role/query or use the interactive view"
@@ -432,7 +427,7 @@ function Snapshot-Window($req) {
         }
         $ct = $el.Cached.ControlType.ProgrammaticName -replace 'ControlType\.', ''
         if ($role -and $ct.ToLower() -ne $role) { continue }
-        $observation = Get-ElementObservation $el (-not $modernChromium)
+        $observation = Get-ElementObservation $el (-not $modernChromium) $deadline
         $search = @(
             $observation.Name
             $observation.AutomationId
@@ -473,8 +468,9 @@ function Snapshot-Window($req) {
     }
     # Chromium draws its own controls, so its large tree is never searched for
     # native ones.
-    if ($bounded -and ($modernChromium -or ($found.Count -gt 0 -and -not (Test-UnproxiedNativeControls $win)))) {
+    if ($bounded -and ($modernChromium -or ($found.Count -gt 0 -and -not (Test-UnproxiedNativeControls $win $deadline)))) {
         $msaaNodes = @()
+        $msaaCandidates = 0
         $msaaWarning = if ($found.Count -gt 0) {
             'MSAA enrichment skipped: UIA supplied the bounded capture'
         }
@@ -483,20 +479,15 @@ function Snapshot-Window($req) {
         }
     }
     else {
-        try {
-            $msaaNodes = @([MixMsaa]::Snapshot($info.Handle, $info.Id, $msaaMaximum))
-        }
-        catch {
-            throw "MSAA snapshot failed for $($info.Id): $([string]$_.Exception.Message)"
-        }
+        # The combined candidate limit is checked inside, before any refresh;
+        # only the nodes that answered their refresh come back.
+        $msaaRead = [MixBoundedUia]::MsaaSnapshot($deadline, $info.Handle, $info.Id, $msaaMaximum, $candidateCount)
+        $msaaNodes = @($msaaRead.Nodes)
+        $msaaCandidates = $msaaRead.Candidates
     }
     $msaaSnapshotMs = $snapshotClock.Elapsed.TotalMilliseconds - $msaaSnapshotStarted
-    $candidateCount += $msaaNodes.Count
-    if ($candidateCount -gt 5000) {
-        throw "accessibility candidate limit exceeded: $candidateCount > 5000; narrow the role/query"
-    }
+    $candidateCount += $msaaCandidates
     foreach ($node in $msaaNodes) {
-        if (-not $node.Refresh()) { continue }
         if ($visibleOnly) {
             if ($node.Offscreen) { continue }
             if ($node.X + $node.Width -le $info.X -or $node.X -ge $info.X + $info.Width -or
@@ -626,7 +617,7 @@ function Snapshot-Window($req) {
         if ($observation.Accelerator) { $elementOut.accelerator = (Format-ObservationValue $observation.Accelerator 40) }
         if ($observation.AccessKey) { $elementOut.access_key = (Format-ObservationValue $observation.AccessKey 40) }
         if ($includeStructure -and $record.Kind -eq 'uia') {
-            $structure = Get-ElementStructure $record.Element
+            $structure = Get-ElementStructure $record.Element $deadline
             $elementOut.runtime_id = $structure.runtime_id
             $elementOut.parent_runtime_id = $structure.parent_runtime_id
             $elementOut.class_name = $structure.class_name

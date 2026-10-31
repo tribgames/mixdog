@@ -20,3 +20,7 @@ export const MIXDOG_HOST_CSHARP = [
   loadComputerSource('TaggedKeys.cs').trimEnd(),
   loadComputerSource('CursorTheme.cs').trimEnd(),
 ].join('\n');
+
+/** Compiled into the worker's host assembly only: it needs the UIA client
+ *  assemblies, which the other compilers of MIXDOG_HOST_CSHARP do not reference. */
+export const MIXDOG_BOUNDED_UIA_CSHARP = loadComputerSource('BoundedUia.cs').trimEnd();

@@ -15,6 +15,10 @@ const VISUAL_ONLY_CACHE_TTL_MS = 30_000;
  *  caller keeps a way to ask the provider again immediately. */
 const VISUAL_ONLY_TIMEOUT_MAX_TTL_MS = 120_000;
 const VISUAL_ONLY_CACHE_MISS_THRESHOLD = 2;
+/** A cache hit asked no provider and restarted nothing, so it never repeats
+ *  the stored timeout's account of what happened to that earlier read. */
+export const CACHED_ACCESSIBILITY_TIMEOUT_ERROR =
+  'computer_command_timeout: cached result of an earlier accessibility timeout on this window; the provider was not asked again for this read';
 const VISUAL_ONLY_CACHE_MAX_ENTRIES = 128;
 
 export function visualOnlyCapabilityKey(sessionId: string, windowId: string) {
@@ -44,7 +48,7 @@ export function createVisualOnlyCache() {
     const { capability, cacheHit } = eligible
       ? store.resolve(key, Date.now())
       : { capability: undefined, cacheHit: false };
-    const cachedAccessibilityError = cacheHit ? capability?.error || '' : '';
+    const cachedAccessibilityError = cacheHit && capability?.error ? CACHED_ACCESSIBILITY_TIMEOUT_ERROR : '';
     return {
       capability,
       cacheHit,

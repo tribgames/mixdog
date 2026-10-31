@@ -45,7 +45,11 @@ export const OWNED_CAPTURE_TIMEOUT_MS = 750;
 
 export const DESKTOP_CAPTURE_TIMEOUT_MS = 2_000;
 
+/** Last-resort ceiling for a capture's snapshot round trip; reaching it kills
+ *  the worker. The read itself is abandoned in the worker at the deadline below. */
 export const CAPTURE_ACCESSIBILITY_TIMEOUT_MS = 2_500;
+
+export const CAPTURE_ACCESSIBILITY_DEADLINE_MS = 2_000;
 
 export function elapsedMs(startedAt: number): number {
   return Number((performance.now() - startedAt).toFixed(2));
