@@ -51,7 +51,7 @@ export function requiredBytes(contentBytes) {
  * walk stops after `maxEntries`, reporting `complete: false` (a lower bound).
  * @returns {Promise<{ bytes: number, complete: boolean }>}
  */
-export async function folderBytes(path, { maxEntries = 250_000 } = {}) {
+async function folderBytes(path, { maxEntries = 250_000 } = {}) {
   let bytes = 0;
   let seen = 0;
   const pending = [path];
@@ -79,7 +79,7 @@ export async function folderBytes(path, { maxEntries = 250_000 } = {}) {
 
 // path key → { bytes, complete, at, refresh }: the worktree list's sizes.
 const sizeCache = new Map();
-export const FOLDER_SIZE_TTL_MS = 5 * 60_000;
+const FOLDER_SIZE_TTL_MS = 5 * 60_000;
 // The repository's comparison key: canonical, case-folded only on Windows.
 const sizeKey = (path, platform) => pathKey(path, platform);
 

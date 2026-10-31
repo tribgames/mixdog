@@ -43,7 +43,7 @@ export const WORKTREE_CLEANUP_MAX_REMOVALS = 20;
 const DAY_MS = 24 * 60 * 60_000;
 
 /** Favorite session ids from the attached desktop; null when unknown (no desktop, or one without favorites). */
-export async function storedFavoriteSessionIds() {
+async function storedFavoriteSessionIds() {
   const { readSessionSidebarState } = await import('../session-sidebar-host.mjs');
   const state = await readSessionSidebarState();
   return state?.favorites ? Object.keys(state.favorites) : null;
@@ -53,7 +53,7 @@ export async function storedFavoriteSessionIds() {
  * `{ id → { lastActiveAt, title } }` for the given stored sessions (missing
  * ones are left out): the last conversation turn or heartbeat.
  */
-export async function storedSessionActivity(ids) {
+async function storedSessionActivity(ids) {
   const [{ loadSession }, { subAgentActivityAt }] = await Promise.all([
     import('../../agent/orchestrator/session/store/load-session.mjs'),
     import('../../agent/orchestrator/session/store/sweep/sub-agent-retention.mjs'),
@@ -67,7 +67,7 @@ export async function storedSessionActivity(ids) {
 }
 
 /** Running background shell jobs (`{ cwd, ownerSessionId }`); an unreadable record throws (fail closed). */
-export async function runningShellJobs() {
+async function runningShellJobs() {
   const { listShellJobRecords } = await import('../../agent/orchestrator/tools/builtin/lib/shell-job-records.mjs');
   return (await listShellJobRecords({ strict: true })).filter((job) => !job.terminal);
 }
@@ -385,7 +385,7 @@ export async function listWorktreesWithRetention({
 }
 
 /** Archived session ids from the attached desktop; null when none is attached. */
-export async function storedArchivedSessionIds() {
+async function storedArchivedSessionIds() {
   const { readSessionSidebarState } = await import('../session-sidebar-host.mjs');
   const state = await readSessionSidebarState();
   return state ? Object.keys(state.archived ?? {}) : null;

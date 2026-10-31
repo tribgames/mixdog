@@ -20,7 +20,7 @@ import { TODO_TOOL } from '../../../runtime-core/todo-tool-defs.mjs';
 import { HIDDEN_AGENT_NAMES } from '../hidden-agents.mjs';
 import { _isMutationTool, _isShellTool } from '../tool-classify.mjs';
 
-export const MAX_TODO_REMINDERS = 3;
+const MAX_TODO_REMINDERS = 3;
 
 // Sessions whose current turn waits on the user's decision (in memory: the
 // turn itself is in memory, and a new turn clears it).
@@ -80,7 +80,7 @@ export function noteTodoProgress(session) {
 // edits ages the list faster than a turn of reads; a batch of three edits is
 // three. What mutates is the work the list tracks: file edits, command
 // execution (shell, as a bash tool is) and mutating git/github requests.
-export const STALE_TODO_MUTATIONS = 10;
+const STALE_TODO_MUTATIONS = 10;
 
 function mutatingCall(call, results) {
   const name = call?.name ?? call?.function?.name;

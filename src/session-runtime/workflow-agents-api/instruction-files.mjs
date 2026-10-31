@@ -27,7 +27,7 @@ const STYLES = [
   ['minimal', 'Minimal'],
   ['extreme-minimal', 'Extreme Minimal'],
 ];
-export const INSTRUCTION_GROUPS = Object.freeze(['delegation', 'outputStyle']);
+const INSTRUCTION_GROUPS = Object.freeze(['delegation', 'outputStyle']);
 
 const FRONTMATTER = /^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)/;
 const bodyOfStyle = (text) =>

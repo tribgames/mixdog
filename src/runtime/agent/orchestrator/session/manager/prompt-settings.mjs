@@ -16,7 +16,7 @@ import { isAgentOwner } from '../../agent-owner.mjs';
 import { orchestrationModeName } from './orchestration-mode-switch-notice.mjs';
 
 /** The rendered sections a prompt carries, in prompt order, with their labels. */
-export const PROMPT_SETTING_SECTIONS = Object.freeze([
+const PROMPT_SETTING_SECTIONS = Object.freeze([
   ['meta', 'Profile Preferences and Output Style'],
   ['workflow', 'Workflow'],
   ['orchestration', 'Orchestration Mode'],
@@ -28,7 +28,7 @@ export const PROMPT_SETTING_SECTIONS = Object.freeze([
 
 export const NOTICE_MAX_BYTES = 4096;
 export const DIFF_MAX_BYTES = 2048;
-export const STYLE_BODY_MAX_BYTES = 1536;
+const STYLE_BODY_MAX_BYTES = 1536;
 
 const record = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : null);
 
@@ -377,7 +377,7 @@ const NOTICE_CLOSE = '</system-reminder>';
  * Returns `{ content, emitted }` (`emitted`: the keys whose every item was
  * sent); content '' when nothing is worth telling.
  */
-export function buildPromptSettingsNotice(keys, sections, told = {}, { compact = false } = {}) {
+function buildPromptSettingsNotice(keys, sections, told = {}, { compact = false } = {}) {
   const items = noticeItems(keys, sections, told);
   if (!items.length) return { content: '', emitted: [] };
   let used = bytes(NOTICE_OPEN) + bytes(NOTICE_CLOSE);

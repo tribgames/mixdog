@@ -654,7 +654,7 @@ async function syncBatchEmbeddings(db, ids, options = {}) {
 // cursor in the same transaction. The meta row lock serializes concurrent
 // sweepers; any failure rolls back both vectors and cursor. Roots without a
 // vector are left to the ordinary flush, which already uses the new text.
-export const ROOT_SWEEP_BATCH = 8;
+const ROOT_SWEEP_BATCH = 8;
 export async function sweepRootEmbedText(db, options = {}) {
   const { batchSize = ROOT_SWEEP_BATCH, signal, embedBatch } = options;
   throwIfAborted(signal);

@@ -45,5 +45,3 @@ export const TODO_TOOL = Object.freeze({
     additionalProperties: false,
   },
 });
-
-export const TODO_TOOL_DEFS = Object.freeze([TODO_TOOL]);

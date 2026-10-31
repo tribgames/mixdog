@@ -107,10 +107,3 @@ export function startMaintenanceSchedule({ tickMs = DEFAULT_TICK_MS } = {}) {
   current.timer = setInterval(() => void runMaintenanceTasks(), tickMs);
   current.timer.unref?.();
 }
-
-/** Stop ticking; registered tasks and probes stay. */
-export function stopMaintenanceSchedule() {
-  const current = state();
-  if (current.timer) clearInterval(current.timer);
-  current.timer = null;
-}
