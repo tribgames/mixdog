@@ -7,7 +7,7 @@
 // snapshot hook (armTurnDurability). Both are synchronous so closeSession()
 // cannot interleave between load and registration.
 import { randomUUID } from 'node:crypto';
-import { loadSession, readSessionLifecycleFromDisk } from '../store.mjs';
+import { loadSession } from '../store.mjs';
 import { durableTranscriptBase } from '../store/transcript-durability.mjs';
 import { createAbortController } from '../../../../shared/abort-controller.mjs';
 import { normalizeStaleCompactingStage } from './compaction-runner.mjs';
@@ -16,29 +16,10 @@ import { SessionClosedError } from './session-errors.mjs';
 import { ensureCodexWireSessionId, mintUuidV7 } from './session-id.mjs';
 import { createTurnInterruptionTracker } from './turn-interruption.mjs';
 import { _recoverTurnCheckpointDurably, setAsideUnrecoveredCheckpoint } from './turn-checkpoint-recovery.mjs';
-import { awaitPreviousTurnDurable, ensureDurableTranscript } from './turn-durability.mjs';
+import { adoptDiskGeneration, awaitPreviousTurnDurable, ensureDurableTranscript } from './turn-durability.mjs';
 import { emitAskSessionStart } from './ask-support.mjs';
 import { applyHeldSessionRoute } from './session-lifecycle.mjs';
 import { createAskTurnState, createCloseSnapshot, createTurnCheckpointScheduler } from './ask-turn-state.mjs';
-
-// Split-brain re-adoption: another surface (e.g. desktop click-through
-// of a session still actively owned by this process) may have
-// resumed-and-detached this session, bumping the ON-DISK generation
-// while the conversation kept going here. Every save from this process
-// would then be silently dropped by _shouldDrop's ownership rule and
-// the on-disk transcript would freeze at the last landed save. A new
-// ask on a NON-closed session is an explicit ownership claim: adopt
-// the disk generation so this turn's commits land and heal the file.
-function adoptDiskGeneration(session, sessionId) {
-  const diskLifecycle = readSessionLifecycleFromDisk(sessionId);
-  if (
-    diskLifecycle &&
-    diskLifecycle.closed !== true &&
-    diskLifecycle.generation > (typeof session.generation === 'number' ? session.generation : 0)
-  ) {
-    session.generation = diskLifecycle.generation;
-  }
-}
 
 /** Before a turn claims the session: the previous turn's finalized
  *  transcript is durably saved (its checkpoint deleted only then), a crashed
