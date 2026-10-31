@@ -175,6 +175,60 @@ test('a route saved while a worker turn runs applies to the queued work, not the
   });
 });
 
+test('a report followed by a queued message reaches the caller with the reply to that message', async (t) => {
+  const providerName = 'ask-session-queued-report-test';
+  const replies = ['Status: done\n\nFull report.', 'Nothing new since my report.'];
+  let onSend = () => {};
+  const provider = {
+    name: providerName,
+    contextWindow: 128000,
+    async send() {
+      onSend();
+      return { content: replies.shift(), usage: { inputTokens: 1, outputTokens: 1 } };
+    },
+  };
+  await _withRegisteredProviderForTestAsync(providerName, provider, async () => {
+    const session = createSession({
+      provider: providerName,
+      model: 'fake-model',
+      cwd: root,
+      skipSkills: true,
+      schemaAllowedTools: modelToolSchemaAllowlist('headless'),
+      workflow: { id: 'headless', delegatesAgents: false },
+    });
+    t.after(() => deleteSession(session.id, { deferSummaryUpdate: true }));
+    // The Lead's message lands while the report turn runs, with a route that
+    // holds it for its own turn (the turn does not fold it in).
+    onSend = () => {
+      onSend = () => {};
+      assert.ok(holdSessionRoute(session.id, { provider: providerName, model: 'fake-model-b' }));
+      enqueuePendingMessage(session.id, 'Anything else?');
+    };
+    const relayed = [];
+    const result = await askSession(session.id, 'do the work', null, null, null, null, {
+      onTerminalResult: (preview) => relayed.push(preview),
+    });
+    const expected = 'Status: done\n\nFull report.\n\nNothing new since my report.';
+    assert.equal(result.content, 'Nothing new since my report.');
+    assert.equal(result.reportContent, expected);
+    assert.equal(relayed.length, 1, 'one relay, for the last turn');
+    assert.equal(relayed[0].reportContent, expected);
+
+    // The queued work fails: the failure carries the report before it.
+    replies.push('Second report.');
+    onSend = () => {
+      onSend = () => {
+        throw new Error('queued work failed');
+      };
+      assert.ok(holdSessionRoute(session.id, { provider: providerName, model: 'fake-model' }));
+      enqueuePendingMessage(session.id, 'And this?');
+    };
+    const failure = await askSession(session.id, 'more work').catch((error) => error);
+    assert.equal(failure.message, 'queued work failed');
+    assert.equal(failure.carriedReport, 'Second report.');
+  });
+});
+
 test('hydration that completes after a retained-input retry runs the queued message', async (t) => {
   const providerName = 'ask-session-followup-test';
   const sends = [];

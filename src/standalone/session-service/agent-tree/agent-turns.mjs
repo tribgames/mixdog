@@ -6,6 +6,7 @@ import { createAgentChildFactory } from './agent-child.mjs';
 import { partialHandoffTextFromSession } from '../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { attachmentsForIntake } from '../../../runtime/attachments/store.mjs';
 import { producedFileLines } from '../../../runtime/shared/handoff-artifacts.mjs';
+import { carryReportOnError, turnReportText } from '../../../runtime/agent/orchestrator/session/loop/turn-report.mjs';
 import {
   collectUnreportedWrites,
   handoffContent,
@@ -130,7 +131,7 @@ export function createAgentTurns({
       };
       const detail = await target.call(entry.runtime, content, options);
       if (detail?.status === 'failed') {
-        throw new Error(String(detail.error || 'agent session turn failed'));
+        throw carryReportOnError(new Error(String(detail.error || 'agent session turn failed')), detail.carriedReport);
       }
       if (detail?.status === 'cancelled') {
         const stop = takeWatchdogStop(sessionId) || new Error('agent session turn cancelled');
@@ -144,11 +145,12 @@ export function createAgentTurns({
         const reason = String(detail?.reason || detail?.error || '').trim();
         throw new Error(`agent turn ${status}${reason ? `: ${reason}` : ''}`);
       }
-      let result = detail?.result || { content: '' };
-      // The files the turn produced reach the owner with its handoff.
-      const report = String(result.content || '');
+      const { reportContent, ...settled } = detail?.result || { content: '' };
+      // The owner gets the turn's whole report (turn-report.mjs), with the
+      // files the turn produced.
+      const report = turnReportText({ ...settled, reportContent });
       const files = await turnArtifactLines(entry.runtime, messageStart, descriptor, report);
-      if (files.length) result = { ...result, content: [report, files.join('\n')].join('\n\n') };
+      const result = { ...settled, content: files.length ? [report, files.join('\n')].join('\n\n') : report };
       descriptor.status = 'idle';
       descriptor.stage = 'idle';
       descriptor.lastHandoff = typeof result?.content === 'string' ? result.content : '';

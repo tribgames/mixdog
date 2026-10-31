@@ -236,7 +236,8 @@ export function publishAskTurn({ sessionId, opened, terminalResultPreview, askOp
   const isEmptyFinal =
     !terminalResultPreview.content &&
     !terminalResultPreview.reasoningContent &&
-    !terminalResultPreview.reactionCompleted;
+    !terminalResultPreview.reactionCompleted &&
+    !terminalResultPreview.reportContent;
   if (isEmptyFinal) {
     markSessionEmptyFinal(sessionId);
   }

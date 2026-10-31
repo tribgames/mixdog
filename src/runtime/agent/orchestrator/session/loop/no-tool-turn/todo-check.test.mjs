@@ -40,6 +40,75 @@ test('an ended turn with open items gets one hidden reminder listing them and co
   assert.equal(f.messages[0].role, 'assistant', 'the ended text is kept before the reminder');
 });
 
+test('the report a todo reminder or queued input followed still reaches the caller after the next tool batch', async () => {
+  const f = fixture();
+  assert.equal((await f.resolver.resolve({ content: 'Status: done\n\nFull report.' }, 1)).action, 'continue');
+  // The agent closes its items, then says only that the work was reported.
+  executeTodoTool(f.session, { op: 'done', item: 'Find the cause' });
+  executeTodoTool(f.session, { op: 'done', item: 'Fix the bug' });
+  f.resolver.noteToolBatchCompleted([], []);
+  const closed = await f.resolver.resolve({ content: 'Closed the items; nothing new.' }, 2);
+  assert.equal(closed.action, 'break');
+  assert.equal(closed.response.content, 'Closed the items; nothing new.', 'the live aggregate is unchanged');
+  assert.equal(closed.response.reportContent, 'Status: done\n\nFull report.\n\nClosed the items; nothing new.');
+
+  // Lead input queued as the agent finished: the answer it goes on past.
+  let queued = 1;
+  const session = { id: 'sess_todo_check_steered', agent: 'worker' };
+  const messages = [];
+  const resolver = createNoToolTurnResolver({
+    messages,
+    opts: { session },
+    sessionId: session.id,
+    sessionAgent: 'worker',
+    drainSteering: (_stage, { beforeAppend }) => {
+      if (queued === 0) return false;
+      queued -= 1;
+      beforeAppend();
+      messages.push({ role: 'user', content: 'One more thing from the Lead.' });
+      return true;
+    },
+  });
+  assert.equal((await resolver.resolve({ content: 'Full report.' }, 1)).action, 'continue');
+  resolver.noteToolBatchCompleted([], []);
+  const answered = await resolver.resolve({ content: 'Done with the extra.' }, 2);
+  assert.equal(answered.response.reportContent, 'Full report.\n\nDone with the extra.');
+  // An answer cut at the output limit and resumed is carried whole.
+  let pending = 1;
+  const cutSession = { id: 'sess_todo_check_cut', agent: 'worker' };
+  const cutMessages = [];
+  const cut = createNoToolTurnResolver({
+    messages: cutMessages,
+    opts: { session: cutSession },
+    sessionId: cutSession.id,
+    sessionAgent: 'worker',
+    drainSteering: (_stage, { beforeAppend }) => {
+      if (pending === 0) return false;
+      pending -= 1;
+      beforeAppend();
+      cutMessages.push({ role: 'user', content: 'One more thing from the Lead.' });
+      return true;
+    },
+  });
+  assert.equal((await cut.resolve({ content: 'Critical findings: ', stopReason: 'max_tokens' }, 1)).action, 'continue');
+  assert.equal((await cut.resolve({ content: 'details and conclusion.' }, 2)).action, 'continue');
+  cut.noteToolBatchCompleted([{ name: 'todo' }], []);
+  const closedCut = await cut.resolve({ content: 'Closed todo.' }, 3);
+  assert.equal(closedCut.response.reportContent, 'Critical findings: details and conclusion.\n\nClosed todo.');
+  assert.equal(
+    cutMessages.filter((message) => message.role === 'assistant').length,
+    2,
+    'history keeps the cut and its resumption once each'
+  );
+
+  // No tool batch between: the aggregate already holds the answer, once.
+  const kept = fixture();
+  assert.equal((await kept.resolver.resolve({ content: 'Full report.' }, 1)).action, 'continue');
+  const unchanged = await kept.resolver.resolve({ content: 'Still open.' }, 2);
+  assert.equal(unchanged.response.content, 'Full report.\n\nStill open.');
+  assert.equal(unchanged.response.reportContent, undefined);
+});
+
 test('a reminder that produced no progress stops the check; progress re-arms it up to 3 per cycle', async () => {
   const f = fixture();
   assert.equal((await f.end()).action, 'continue');

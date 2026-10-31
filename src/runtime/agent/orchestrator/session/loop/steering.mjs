@@ -198,7 +198,8 @@ function injectSteeringEntry(merged, { messages, opts, stage, onSkillPrompt }) {
 // The drain is synchronous (terminal guards depend on that) and returns whether
 // anything was injected. `onSkillPrompt` receives each typed entry so the loop
 // can run its policy-checked skill selection before the next provider snapshot.
-export function createSteeringDrain({ messages, opts, sessionId, onSkillPrompt }) {
+// `onInjected` learns of every drain that added input, whatever its stage.
+export function createSteeringDrain({ messages, opts, sessionId, onSkillPrompt, onInjected = () => {} }) {
   return function drainSteeringIntoMessages(stage = 'mid-turn', options = {}) {
     if (typeof opts.drainSteering !== 'function') return false;
     let steerMsgs = [];
@@ -232,6 +233,7 @@ export function createSteeringDrain({ messages, opts, sessionId, onSkillPrompt }
       totalTextLen += injected.textLength;
       maxQueueWaitMs = Math.max(maxQueueWaitMs, injected.queueWaitMs);
     }
+    onInjected(stage);
     if (sessionId) {
       try {
         process.stderr.write(

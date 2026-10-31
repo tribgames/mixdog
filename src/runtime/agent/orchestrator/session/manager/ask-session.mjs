@@ -18,6 +18,7 @@ import { createAskPromptQueue } from './ask-queue.mjs';
 import { armTurnDurability, claimTurnRuntime, settleTurnBase } from './ask-turn-open.mjs';
 import { prepareAskTurn, runAskAgentLoop } from './ask-turn-execute.mjs';
 import { commitAskTurn, publishAskTurn } from './ask-turn-settle.mjs';
+import { carryReportOnError, turnReportText, withEarlierReport } from '../loop/turn-report.mjs';
 import { finalizeAskTurnFailure } from './ask-turn-failure.mjs';
 import { armTurnTimeoutOnProviderError, reapTurnShellJobs } from './turn-reap.mjs';
 import { cacheWarmTurnKind, endCacheWarmTurn, failedTurnProvenance, noteCacheWarmTurn } from '../cache-warm.mjs';
@@ -78,7 +79,17 @@ export function createAskTranscriptMeta(rawTranscriptMeta) {
 /** One opened turn from provider call to terminal publish; a failure unwinds
  *  the turn state and rethrows. Returns the terminal result preview and the
  *  follow-ups drained right after the provider accepted the turn. */
-async function runAskTurn({ sessionId, opened, input, askOpts, onToolCall, cwdOverride, transcript, askStartedAt }) {
+async function runAskTurn({
+  sessionId,
+  opened,
+  input,
+  askOpts,
+  onToolCall,
+  cwdOverride,
+  transcript,
+  askStartedAt,
+  earlierReport,
+}) {
   let releaseWorkspace;
   try {
     releaseWorkspace = await admitWorkspaceActivity(
@@ -110,14 +121,19 @@ async function runAskTurn({ sessionId, opened, input, askOpts, onToolCall, cwdOv
       onToolCall,
       takeAssistantTranscriptMetadata: transcript.takeAssistant,
     });
-    const terminalResultPreview = await commitAskTurn({
-      sessionId,
-      opened,
-      prepared,
-      result,
-      rawTranscriptMeta: transcript.raw,
-      askStartedAt,
-    });
+    // The earlier turns of this ask relayed nothing (publishAskTurn relays
+    // only a turn no queued input follows): their reports lead this one's.
+    const terminalResultPreview = withEarlierReport(
+      await commitAskTurn({
+        sessionId,
+        opened,
+        prepared,
+        result,
+        rawTranscriptMeta: transcript.raw,
+        askStartedAt,
+      }),
+      earlierReport
+    );
     const drained = publishAskTurn({
       sessionId,
       opened,
@@ -145,7 +161,8 @@ async function runAskTurn({ sessionId, opened, input, askOpts, onToolCall, cwdOv
       askStartedAt,
     });
     reapTurnShellJobs(sessionId, opened.runtime);
-    throw err;
+    // Queued work that fails still hands on the reports of the turns before it.
+    throw carryReportOnError(err, earlierReport);
   } finally {
     // The result is already published; this only holds the session lock until
     // the reader lease is removed, so the next turn's admission follows it. A
@@ -286,6 +303,7 @@ export async function askSession(sessionId, prompt, context, onToolCall, cwdOver
         cwdOverride,
         transcript,
         askStartedAt,
+        earlierReport: result ? turnReportText(result) : '',
       });
       result = turn.result;
       endCacheWarmTurn(sessionId, warmTurn);
