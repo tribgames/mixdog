@@ -14,6 +14,7 @@ import { clearReactionTargets } from '../runtime-core/reaction-tool-defs.mjs';
 import { applyRetryAction, beginIteration, sendProviderRequest, settleSendResult } from './loop/send-phase.mjs';
 import { runToolPhase } from './loop/tool-phase.mjs';
 import { endedWithoutReply } from './loop/turn-limits.mjs';
+import { carryReportOnError } from './loop/turn-report.mjs';
 
 // Facade re-exports: these symbols live in ./loop/ modules and are part of
 // loop.mjs's public surface (imported by scripts/tests and other runtime
@@ -62,29 +63,34 @@ async function runAgentLoop(provider, messages, model, tools, onToolCall, cwd, s
   resetAccountProbePacing();
   const state = createLoopState({ provider, messages, model, tools, cwd, sendOpts });
   // Completion, cancellation, and terminal failures end execution.
-  while (true) {
-    const round = await beginIteration(state);
-    const sent = await sendProviderRequest(state, round);
-    if (applyRetryAction(state, sent.result)) continue;
-    settleSendResult(state, round, sent);
-    // A turn without client tool calls is not automatically the final answer:
-    // the provider may have hit its output ceiling, been cut by a safety
-    // classifier, declared the turn unfinished, or returned nothing. Each case
-    // owns a bounded recovery ladder in ./loop/no-tool-turn.mjs, which either
-    // appended a recovery turn ('continue') or produced the terminal response.
-    if (!state.response.toolCalls?.length) {
-      const outcome = await state.noToolTurn.resolve(state.response, state.iterations);
-      state.response = outcome.response;
-      if (outcome.action === 'continue') continue;
-      break;
+  try {
+    while (true) {
+      const round = await beginIteration(state);
+      const sent = await sendProviderRequest(state, round);
+      if (applyRetryAction(state, sent.result)) continue;
+      settleSendResult(state, round, sent);
+      // A turn without client tool calls is not automatically the final answer:
+      // the provider may have hit its output ceiling, been cut by a safety
+      // classifier, declared the turn unfinished, or returned nothing. Each case
+      // owns a bounded recovery ladder in ./loop/no-tool-turn.mjs, which either
+      // appended a recovery turn ('continue') or produced the terminal response.
+      if (!state.response.toolCalls?.length) {
+        const outcome = await state.noToolTurn.resolve(state.response, state.iterations);
+        state.response = outcome.response;
+        if (outcome.action === 'continue') continue;
+        break;
+      }
+      await runToolPhase(state, round, sent, onToolCall);
+      // A capped turn that kept calling tools after it was told to reply ends
+      // here with no reply (./loop/turn-limits.mjs), keeping the answers it
+      // went past.
+      if (state.turnLimitEnded) {
+        state.response = state.noToolTurn.finalize(endedWithoutReply(state.response));
+        break;
+      }
     }
-    await runToolPhase(state, round, sent, onToolCall);
-    // A capped turn that kept calling tools after it was told to reply ends
-    // here with no reply (./loop/turn-limits.mjs).
-    if (state.turnLimitEnded) {
-      state.response = endedWithoutReply(state.response);
-      break;
-    }
+  } catch (error) {
+    throw carryReportOnError(error, state.noToolTurn.endedReport());
   }
   return finishLoop(state);
 }

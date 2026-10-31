@@ -29,6 +29,7 @@ import { workerStageForStatus } from '../worker-rows.mjs';
 import { handoffContent } from '../../../handoff-attachments.mjs';
 import { whileTurnDispatched } from '../../../../runtime/agent/orchestrator/session/manager/runtime-state.mjs';
 import { takeStoppedShellJobs } from '../../../../runtime/agent/orchestrator/session/manager/turn-reap.mjs';
+import { turnReportText } from '../../../../runtime/agent/orchestrator/session/loop/turn-report.mjs';
 
 // Mid-turn worker persistence cadence. The watchdog sweep runs every second;
 // a transcript save is far more expensive than a bookkeeping stamp, so the
@@ -114,7 +115,7 @@ export function createSpawnRunner({
       tag,
       sessionId: session.id,
       ...presetDescriptor(agent, preset, presetName),
-      content: result?.content || '',
+      content: turnReportText(result),
       ...(sessionSurface?.canonical === true ? { handoffOnly: true } : {}),
       ...(abnormalError ? { error: abnormalError } : {}),
     };
@@ -233,7 +234,11 @@ export function createSpawnRunner({
       }
       finalStatus = 'error';
       noteStoppedShellJobsOnError(error, await takeStoppedShellJobs(session.id));
-      reconcileJobStreamStalled(job, error);
+      reconcileJobStreamStalled(job, error, {
+        tag,
+        sessionId: session.id,
+        ...presetDescriptor(agent, preset, presetName),
+      });
       throw error;
     } finally {
       turnReview.complete();

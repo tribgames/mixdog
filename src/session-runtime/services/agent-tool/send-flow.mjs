@@ -35,6 +35,7 @@ import { rebindDelegation } from '../../../runtime/agent/orchestrator/session/hu
 import { settledWorkerStatus } from './worker-index/row-liveness.mjs';
 import { whileTurnDispatched } from '../../../runtime/agent/orchestrator/session/manager/runtime-state.mjs';
 import { takeStoppedShellJobs } from '../../../runtime/agent/orchestrator/session/manager/turn-reap.mjs';
+import { turnReportText } from '../../../runtime/agent/orchestrator/session/loop/turn-report.mjs';
 
 function workerResultIdentity({ session, tag, sessionId }) {
   return { tag, sessionId, agent: session.agent || null, provider: session.provider, model: session.model };
@@ -86,7 +87,7 @@ export function createSendFlow({
       const abnormalError = abnormalEmptyFinishError(result, session.agent || sendAgent);
       return {
         ...workerResultIdentity({ session, tag, sessionId }),
-        content: result?.content || '',
+        content: turnReportText(result),
         ...(sessionSurface?.canonical === true ? { handoffOnly: true } : {}),
         ...(abnormalError ? { error: abnormalError } : {}),
       };
@@ -204,7 +205,7 @@ export function createSendFlow({
       }
       finalStatus = 'error';
       noteStoppedShellJobsOnError(error, await takeStoppedShellJobs(sessionId));
-      reconcileJobStreamStalled(job, error);
+      reconcileJobStreamStalled(job, error, workerResultIdentity({ session, tag, sessionId }));
       throw error;
     } finally {
       turnReview.complete();

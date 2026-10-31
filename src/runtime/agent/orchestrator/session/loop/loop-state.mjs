@@ -129,6 +129,8 @@ export function createLoopState({ provider, messages, model, tools, cwd, sendOpt
     opts,
     sessionId,
     onSkillPrompt: (content, message) => state.pendingSkillPrompts.push({ content, message }),
+    // Input taken into the turn at any boundary is new work to answer.
+    onInjected: () => state.noToolTurn.noteNewInput(),
   });
   // Bounded recovery for provider turns that returned no client tool calls
   // (max-output ladder, refusal retry, provider continuation, empty-turn
@@ -157,6 +159,9 @@ export function finishLoop(state) {
   // A reaction-only turn is a successful completion, never an empty finish.
   const terminationReason = classifyTerminationReason(response, { sessionAgent: state.sessionAgent });
   const reactionCompleted = terminationReason === 'empty' && state.noToolTurn.reactionCompleted;
+  // So is an empty end after a kept answer only todo bookkeeping followed:
+  // that answer is the turn's report (no-tool-turn.mjs).
+  const reportCompleted = terminationReason === 'empty' && state.noToolTurn.reportStands;
   return {
     ...response,
     usage: state.lastUsage || response.usage,
@@ -167,7 +172,7 @@ export function finishLoop(state) {
     toolCallsTotal: state.toolCallsTotal,
     providerState: state.providerState,
     providerStateUpdated: state.providerStateUpdated,
-    terminationReason: reactionCompleted ? undefined : terminationReason,
+    terminationReason: reactionCompleted || reportCompleted ? undefined : terminationReason,
     ...(reactionCompleted ? { reactionCompleted: true } : {}),
     providerContinuations: state.noToolTurn.providerContinuations,
     ...(state.routeUsageHops?.length

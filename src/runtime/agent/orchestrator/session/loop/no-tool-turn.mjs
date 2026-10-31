@@ -22,6 +22,8 @@ import { noteTodoProgress, todoCompletionReminder } from './no-tool-turn/todo-ch
 import { isReactionSuccess, reactionCallIds, takeReactionTarget } from '../../runtime-core/reaction-tool-defs.mjs';
 import { messageIdOf } from '../message-ids.mjs';
 import { isReactableMessage } from '../message-reactions.mjs';
+import { joinReports, withEarlierReport } from './turn-report.mjs';
+import { TODO_TOOL } from '../../runtime-core/todo-tool-defs.mjs';
 
 // `escalateMaxTokens()` asks the live provider for a higher one-shot max_tokens
 // (number) or reports none (null/undefined) — the loop stays provider-agnostic.
@@ -53,6 +55,14 @@ export function createNoToolTurnResolver({
     // Continuations since the last executed tool batch — bounds the text-only
     // continuation runaway (see PROVIDER_CONTINUATION_NO_TOOL_LIMIT).
     continuationsSinceToolBatch: 0,
+    // Answers the turn went on past (keepEndedAnswer): those still in the
+    // segments (parts before endedPartsEnd), and those a tool batch cleared
+    // from them.
+    endedPartsEnd: 0,
+    carriedAnswers: [],
+    // The newest kept answer was followed by nothing but todo bookkeeping:
+    // it is the turn's answer, and an empty end after it is no failure.
+    reportStands: false,
   };
   // The stable id (message-ids.mjs, kept across compaction) of the newest
   // real user input; runtime reminders and notices are not reactable.
@@ -114,70 +124,108 @@ export function createNoToolTurnResolver({
     };
   };
 
+  // An answer the turn goes on past (queued input or a todo reminder arrived
+  // after it) is committed like any segment and also kept as part of the
+  // turn's report: a tool batch clears the segments, and the caller (an
+  // agent's owner) must still receive that answer, not only the short reply
+  // that follows it. The answer is every part since the previous one or the
+  // last tool batch (an output-limit cut and its resumption included).
+  const keepEndedAnswer = (response, hasContent) => {
+    if (!segments.commitIntermediate(response) || !hasContent) return false;
+    segments.record(response.content, { committed: true });
+    state.endedPartsEnd = segments.parts.length;
+    return true;
+  };
+  const endedReport = () =>
+    joinReports([...state.carriedAnswers, segments.parts.slice(0, state.endedPartsEnd).join('')]);
+  // Answers still in the segments are in the response's own aggregate.
+  const finalize = (response) =>
+    state.carriedAnswers.length === 0 ? response : withEarlierReport(response, joinReports(state.carriedAnswers));
+
+  async function resolveTurn(response, iteration) {
+    const hasContent = typeof response.content === 'string' && response.content.trim().length > 0;
+    const stopReason = response.stopReason ?? response.stop_reason ?? null;
+    const isOutputLimitStop = isOutputLimitStopReason(stopReason);
+    if (isOutputLimitStop || (hasContent && response.streamCut === true)) {
+      return resolveOutputLimit(response, ladder);
+    }
+    if (stopReason === 'refusal') return resolveRefusal(response, hasContent, ladder);
+    // Output-limit stops keep the bounded max-output ladder above and
+    // refusals (already returned) keep the bounded refusal retry; both
+    // own their own continuation semantics. No lexical/progress-text
+    // heuristic is consulted.
+    const continuationSignal = isOutputLimitStop ? null : providerContinuationSignal(response);
+    if (
+      continuationSignal &&
+      resumeContinuation(response, { iteration, signal: continuationSignal, hasContent, stopReason }, ladder)
+    ) {
+      return { action: 'continue', response };
+    }
+    // Hidden roles are exempt from the empty-turn nudge: their own role
+    // rules define a different output contract (pipe-separated chunker
+    // output, …) and a text-only terminal turn is the correct shape —
+    // nudging them produces a contradictory user message that traps the
+    // model in a tool-call-blocked vs contract-required oscillation.
+    // A turn that left a reaction on the user's message may end with no
+    // text: the reaction is its answer (react tool), never an empty turn.
+    // Nor does a turn whose kept answer only todo bookkeeping followed: that
+    // answer is its reply.
+    if (!hasContent && !HIDDEN_AGENT_NAMES.has(sessionAgent) && !reactionAnswersLatest() && !state.reportStands) {
+      return nudgeEmptyTurn(
+        response,
+        { stopReason, isIncompleteStop: stopReason && INCOMPLETE_STOP_REASONS.has(stopReason) },
+        ladder
+      );
+    }
+    // Pending-input rule: queued user input is folded into
+    // needs_follow_up before terminal completion. Commit the terminal
+    // text first (beforeAppend), then resume.
+    if (
+      drainSteering('terminal', {
+        maxPriority: 'next',
+        beforeAppend: () => keepEndedAnswer(response, hasContent),
+      })
+    ) {
+      state.emptyNudgeStreak = 0;
+      resetOutputLimitRecovery(state);
+      return { action: 'continue', response };
+    }
+    const reminder = todoCompletionReminder(opts.session, {
+      sessionId,
+      sessionAgent,
+      turnLimited: turnLimited(),
+    });
+    if (reminder) {
+      if (keepEndedAnswer(response, hasContent)) state.reportStands = true;
+      messages.push({ role: 'user', content: reminder });
+      return { action: 'continue', response };
+    }
+    return finishTurn(response);
+  }
+
   return {
     // { action: 'continue' | 'break', response }. 'continue' means the
     // recovery appended to the transcript and the loop must re-send;
-    // 'break' returns the (possibly aggregated) terminal response.
+    // 'break' returns the (possibly aggregated) terminal response, with the
+    // ended answers a tool batch cleared from it as its report.
     async resolve(response, iteration) {
-      const hasContent = typeof response.content === 'string' && response.content.trim().length > 0;
-      const stopReason = response.stopReason ?? response.stop_reason ?? null;
-      const isOutputLimitStop = isOutputLimitStopReason(stopReason);
-      if (isOutputLimitStop || (hasContent && response.streamCut === true)) {
-        return resolveOutputLimit(response, ladder);
-      }
-      if (stopReason === 'refusal') return resolveRefusal(response, hasContent, ladder);
-      // Output-limit stops keep the bounded max-output ladder above and
-      // refusals (already returned) keep the bounded refusal retry; both
-      // own their own continuation semantics. No lexical/progress-text
-      // heuristic is consulted.
-      const continuationSignal = isOutputLimitStop ? null : providerContinuationSignal(response);
-      if (
-        continuationSignal &&
-        resumeContinuation(response, { iteration, signal: continuationSignal, hasContent, stopReason }, ladder)
-      ) {
-        return { action: 'continue', response };
-      }
-      // Hidden roles are exempt from the empty-turn nudge: their own role
-      // rules define a different output contract (pipe-separated chunker
-      // output, …) and a text-only terminal turn is the correct shape —
-      // nudging them produces a contradictory user message that traps the
-      // model in a tool-call-blocked vs contract-required oscillation.
-      // A turn that left a reaction on the user's message may end with no
-      // text: the reaction is its answer (react tool), never an empty turn.
-      if (!hasContent && !HIDDEN_AGENT_NAMES.has(sessionAgent) && !reactionAnswersLatest()) {
-        return nudgeEmptyTurn(
-          response,
-          { stopReason, isIncompleteStop: stopReason && INCOMPLETE_STOP_REASONS.has(stopReason) },
-          ladder
-        );
-      }
-      // Pending-input rule: queued user input is folded into
-      // needs_follow_up before terminal completion. Commit the terminal
-      // text first (beforeAppend), then resume.
-      if (
-        drainSteering('terminal', {
-          maxPriority: 'next',
-          beforeAppend: () => {
-            if (segments.commitIntermediate(response) && hasContent)
-              segments.record(response.content, { committed: true });
-          },
-        })
-      ) {
-        state.emptyNudgeStreak = 0;
-        resetOutputLimitRecovery(state);
-        return { action: 'continue', response };
-      }
-      const reminder = todoCompletionReminder(opts.session, {
-        sessionId,
-        sessionAgent,
-        turnLimited: turnLimited(),
-      });
-      if (reminder) {
-        if (segments.commitIntermediate(response) && hasContent) segments.record(response.content, { committed: true });
-        messages.push({ role: 'user', content: reminder });
-        return { action: 'continue', response };
-      }
-      return finishTurn(response);
+      const outcome = await resolveTurn(response, iteration);
+      if (outcome.action !== 'break') return outcome;
+      return { ...outcome, response: finalize(outcome.response) };
+    },
+    // The terminal response of a turn that ended any other way (a capped
+    // turn's overrun) gets the same report.
+    finalize,
+    // Every answer the turn went on past, for a turn that fails after them.
+    endedReport,
+    // Input the turn took in (steering at any boundary) is new work: its
+    // outcome is the turn's, not the kept answer's.
+    noteNewInput() {
+      state.reportStands = false;
+    },
+    // An empty end after the kept answer is that answer's turn ending.
+    get reportStands() {
+      return state.reportStands;
     },
     // A turn that produced tool calls is never an empty contract violation,
     // and it is real progress: a later output-limit cut starts a fresh ladder.
@@ -190,6 +238,9 @@ export function createNoToolTurnResolver({
     noteToolBatchCompleted(calls = [], results = []) {
       state.continuationsSinceToolBatch = 0;
       noteTodoProgress(opts.session);
+      if (state.endedPartsEnd > 0) state.carriedAnswers.push(segments.parts.slice(0, state.endedPartsEnd).join(''));
+      state.endedPartsEnd = 0;
+      if (calls.some((call) => (call?.name ?? call?.function?.name) !== TODO_TOOL.name)) state.reportStands = false;
       segments.clear();
       state.reactions.push(...batchReactions(calls, results));
     },

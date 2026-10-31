@@ -549,6 +549,8 @@ export function failTurn(ctx, error) {
   if (record.quota) turn.quota = record.quota;
   turn.failureDetail = record.detail;
   turn.failureDiagnostic = record.errorDetails;
+  // Answers the turn went on past before it failed (turn-report.mjs).
+  if (typeof error?.carriedReport === 'string') turn.carriedReport = error.carriedReport;
   pushNotice(turn.failureDetail, 'error', { owner: 'transcript' });
 }
 
@@ -661,6 +663,7 @@ async function settleTurn(ctx) {
     session: runtime.session || null,
     error: turn.failureDetail || null,
     errorKind: turn.failed ? turn.errorKind || null : null,
+    ...(turn.failed && turn.carriedReport ? { carriedReport: turn.carriedReport } : {}),
   };
   // Publish termination before optional Goal work can delay the caller.
   bag.settleSteeredSubmissions?.(turn.epoch, detail);

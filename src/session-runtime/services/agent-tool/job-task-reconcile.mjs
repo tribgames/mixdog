@@ -84,11 +84,16 @@ export function reconcileJobCancelled(job, value) {
   } catch {}
 }
 
-export function reconcileJobStreamStalled(job, error) {
+/** A turn that threw. `identity` is the owner-facing result shape: a failure
+ *  after answers the turn went on past (error.carriedReport, turn-report.mjs)
+ *  reports them with the failure. */
+export function reconcileJobStreamStalled(job, error, identity = {}) {
   if (!job?.taskId || job._terminalResultValue !== undefined) return;
+  const report = typeof error?.carriedReport === 'string' ? error.carriedReport : '';
   try {
     reconcileBackgroundTask(job.taskId, {
       status: 'failed',
+      ...(report ? { result: { ...identity, content: report } } : {}),
       error,
       terminalReason: 'agent-stream-stalled',
     });
