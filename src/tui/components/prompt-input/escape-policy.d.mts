@@ -1,4 +1,3 @@
-export const PROMPT_ESCAPE_CLEAR_WINDOW_MS: number;
 export const PROMPT_ESCAPE_HINT_TIMEOUT_MS: number;
 
 export type PromptEscapeAction =

@@ -109,8 +109,8 @@ export function normalizeOfficeContentModel(value) {
     if (claimIds.has(id)) throw new Error(`Office content model has duplicate claim id ${id}`);
     claimIds.add(id);
     // The references are the point of a claim: naming them "facts" instead of
-    // factIds used to bind the claim to nothing at all, and the deck then
-    // reported the figure it carried as unsourced.
+    // factIds would bind the claim to nothing at all, and the deck then
+    // reports the figure it carried as unsourced.
     let references = [];
     if (Array.isArray(claim.factIds)) references = claim.factIds;
     else if (Array.isArray(claim.facts)) references = claim.facts;

@@ -23,8 +23,7 @@ function _graphBinaryPath() {
   const moduleDir = dirname(fileURLToPath(import.meta.url));
   const binName = process.platform === 'win32' ? 'mixdog-graph.exe' : 'mixdog-graph';
   // Prefer a local cargo build, then a previously fetched/cached prebuilt.
-  // This module is one dir deeper than the legacy code-graph.mjs, so the
-  // relative walk to repo-root native/ needs six `../` hops
+  // The relative walk to repo-root native/ needs six `../` hops
   // (code-graph → tools → orchestrator → agent → runtime → src → root).
   const localBuild = pathResolve(moduleDir, '../../../../../../native/mixdog-graph/target/release', binName);
   if (existsSync(localBuild)) return localBuild;

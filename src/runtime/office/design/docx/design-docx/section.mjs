@@ -39,10 +39,10 @@ function writeSectionHeading(w, section) {
 function writeSectionList(w, section, sectionKind, blockFollows = false) {
   const { append, colors, type, bodySize, spacing } = w;
   const sectionBullets = strings(section.bullets);
-  // A section that names steps draws them. They used to reach the page only
-  // when the section also declared kind:'roadmap', so a plan section landed as
-  // a heading with nothing under it - and the audit reported the orphan heading
-  // the composer had just written.
+  // A section that names steps draws them. Reaching the page only with
+  // kind:'roadmap' would land a plan section as a heading with nothing under
+  // it - and the audit would report the orphan heading the composer had just
+  // written.
   const sectionSteps = Array.isArray(section.steps) ? section.steps : [];
   const stepSource = sectionSteps.length ? sectionSteps : sectionBullets;
   const drewSteps =
@@ -76,8 +76,8 @@ function writeSectionList(w, section, sectionKind, blockFollows = false) {
   });
 }
 
-// What a section can carry. A field outside this list used to vanish: a plan written as `roadmap:[…]` reached the
-// page as a heading with nothing under it, and the composer reported success.
+// What a section can carry. A field outside this list would vanish: a plan written as `roadmap:[…]` would reach the
+// page as a heading with nothing under it, and the composer would report success.
 const SECTION_FIELDS = new Set([
   'heading',
   'title',

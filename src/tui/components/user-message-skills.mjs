@@ -10,7 +10,7 @@
 import { skillMentions } from '../../runtime/shared/skill-mentions.mjs';
 
 /** The applied skill names of a row value: non-empty strings only. */
-export function appliedSkillNames(value) {
+function appliedSkillNames(value) {
   return (Array.isArray(value) ? value : []).filter((name) => typeof name === 'string' && name);
 }
 

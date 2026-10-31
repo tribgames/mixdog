@@ -21,7 +21,7 @@ test('a call without a signal reaches the service as before', async () => {
 
 test('an aborted call rejects with the abort reason while the service call is still pending', async () => {
   let seen;
-  const client = bridgeWith((name, args, ctx) => {
+  const client = bridgeWith((_name, _args, ctx) => {
     seen = ctx.signal;
     return new Promise(() => {});
   }).attach();

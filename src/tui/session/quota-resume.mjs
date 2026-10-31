@@ -57,7 +57,7 @@ export function latestQuotaFailure(items) {
 
 /** The turn key of the failed turndone that ends the transcript, when no
  *  later turn has begun; '' otherwise. */
-export function latestFailedTurnKey(items) {
+function latestFailedTurnKey(items) {
   const transcript = Array.isArray(items) ? items : [];
   for (let index = transcript.length - 1; index >= 0; index -= 1) {
     const item = transcript[index];

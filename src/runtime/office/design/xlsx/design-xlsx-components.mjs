@@ -197,7 +197,7 @@ export function addXlsxDecisionPanel(
       cursor += 1;
     });
   }
-  // The actions follow the gates rather than stand in for them: given both, the actions used to be dropped.
+  // The actions follow the gates rather than stand in for them: given both, the actions would be dropped.
   if (gateRows.length && strings(actions).length) cursor += 1;
   for (const action of strings(actions).slice(0, 4)) {
     mergedBlock(output, {

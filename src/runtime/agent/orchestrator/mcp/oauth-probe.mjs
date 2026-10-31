@@ -12,7 +12,7 @@ import {
 } from './client-config.mjs';
 import { hasConfiguredMcpAuth } from './client-transport.mjs';
 
-export const MCP_AUTH_PROBE_TIMEOUT_MS = 10_000;
+const MCP_AUTH_PROBE_TIMEOUT_MS = 10_000;
 
 const INITIALIZE_PROBE = JSON.stringify({
   jsonrpc: '2.0',

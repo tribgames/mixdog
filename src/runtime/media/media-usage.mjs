@@ -91,7 +91,7 @@ export function imageApiUsage(body) {
 }
 
 /** True when the provider reported something billable for the request. */
-export function hasReportedUsage(usage) {
+function hasReportedUsage(usage) {
   if (!usage) return false;
   // Seconds are only attached once a video generation completed (billed per second).
   return (

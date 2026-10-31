@@ -34,7 +34,7 @@ export function uniqueStrings(values) {
   return Array.from(new Set(values.filter((value) => typeof value === 'string' && value)));
 }
 
-export function coerceNonNegInt(value) {
+function coerceNonNegInt(value) {
   if (value === undefined || value === null || value === '') return null;
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) return NaN;
@@ -49,7 +49,7 @@ export function stringList(value) {
 
 // head_limit shared by the single-path flow and the path[] fan-out:
 // absent → the default cap, 0 → unlimited, otherwise the coerced integer.
-export function resolveHeadLimit(coerced, defaultLimit) {
+function resolveHeadLimit(coerced, defaultLimit) {
   if (coerced === null) return defaultLimit;
   return coerced === 0 ? Infinity : coerced;
 }

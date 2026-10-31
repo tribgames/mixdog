@@ -14,7 +14,7 @@ import { formatShellToolFailure } from './result-format.mjs';
 import { addsUnmanagedWorktree } from './worktree-add-guard.mjs';
 
 /** `warn` runs the read with a note; `reject` returns the block without running. */
-export const SHELL_FILE_READ_MODE = 'warn';
+const SHELL_FILE_READ_MODE = 'warn';
 export const SHELL_FILE_READ_NOTE = 'Note: use the read / grep / list tools for files instead of the shell.';
 const SHELL_FILE_READ_BLOCK =
   'Blocked: use read / grep / list for files instead of the shell (read takes offset/limit for a window of a large file).';

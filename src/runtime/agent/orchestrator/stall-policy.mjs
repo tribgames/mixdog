@@ -137,11 +137,9 @@ export const PROVIDER_SSE_IDLE_TIMEOUT_MS = resolveTimeoutMs('MIXDOG_PROVIDER_SS
 // silent-window token rate a steady ~92 tok/s, i.e. live generation, not a
 // wedge). So a "semantic-silent" stream is NOT necessarily dead.
 //
-// 2026-08-03 v3 postmortem: this window used to be DERIVED from the agent
-// stall budget (warn − tick ≈ 285s). A harness that tightened STALL_TIMEOUT_S
-// to 300s silently collapsed it to 135s, which deterministically beheaded
-// live long-thinking turns (regex-chess / circuit-fibsqrt: ttft ~1.5s, then
-// killed at exactly 135s of silent thinking, 4 attempts ≈ 552s per turn).
+// Deriving this window from the agent stall budget (warn − tick ≈ 285s) would
+// let a harness that tightens STALL_TIMEOUT_S to 300s collapse it to 135s,
+// which deterministically beheads live long-thinking turns.
 // Reference behavior: abort only after a 300s single-gap silence, and fall
 // back to non-streaming instead of killing the turn. The default is
 // therefore a FIXED 300s, decoupled from the warn math. The only remaining

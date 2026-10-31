@@ -33,7 +33,7 @@ function quotedName(name, fallback) {
 }
 
 /** How much of a PDF reads as text, in words the model can act on. */
-export function textLayerLabel(pageCount, textPages) {
+function textLayerLabel(pageCount, textPages) {
   const pages = Number(pageCount);
   const withText = Number(textPages);
   if (!(pages > 0) || !Number.isFinite(withText) || withText < 0) return 'text layer not checked';

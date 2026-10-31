@@ -86,8 +86,8 @@ export function usePromptQueueHistory({
 
   const recentPromptHistory = useMemo(() => {
     // The engine maintains this list incrementally (rebuilt only when a user
-    // item is appended or the transcript is bulk-swapped), so App no longer
-    // rescans all items on every transcript change. Fall back to a local scan
+    // item is appended or the transcript is bulk-swapped), so App does not
+    // rescan all items on every transcript change. Fall back to a local scan
     // only if the engine did not publish it (older snapshot).
     if (Array.isArray(state.promptHistoryList)) return state.promptHistoryList;
     return scanPromptHistory(Array.isArray(state.items) ? state.items : []);

@@ -253,13 +253,13 @@ export const PERSONA_MAX_CHARS = 4000;
 export const PERSONA_TRUNCATION_MARKER = '\n\n[persona truncated]';
 const PERSONA_AGENT_ID = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
-export function truncatePersona(text, max = PERSONA_MAX_CHARS) {
+function truncatePersona(text, max = PERSONA_MAX_CHARS) {
   const value = typeof text === 'string' ? text.trim() : '';
   if (value.length <= max) return value;
   return value.slice(0, max).trimEnd() + PERSONA_TRUNCATION_MARKER;
 }
 
-export function loadAgentPersonaSection(agent) {
+function loadAgentPersonaSection(agent) {
   if (typeof agent !== 'string' || !PERSONA_AGENT_ID.test(agent) || agent.includes('..')) return '';
   const isLead = agent === 'lead';
   // Mixy's persona is in its own folder; a store bot's in its bots/ folder.
@@ -304,7 +304,7 @@ function personaSection(persona) {
 // The user-editable 일하는 방식 of Mixy, framed like any agent's role section.
 // Agent mode only; empty or missing means no section. Re-read per
 // composition, so an edit applies to the next prompt build.
-export function loadMixyRoleSection() {
+function loadMixyRoleSection() {
   let raw = '';
   try {
     const dir = mixyDir();
@@ -381,7 +381,7 @@ export function agentModeIdentityLine(agent) {
 // invalid id. A coding Lead (`lead` outside Mixy's own thread) embeds no
 // profile file at all, so its stamp is a constant: editing Mixy never
 // rebuilds a coding session's prompt.
-export const CODING_LEAD_PROFILE_REVISION = 'coding-lead';
+const CODING_LEAD_PROFILE_REVISION = 'coding-lead';
 export function agentProfileRevision(agent, { mixy = true } = {}) {
   if (typeof agent !== 'string' || !PERSONA_AGENT_ID.test(agent) || agent.includes('..')) return '';
   if (agent === 'lead' && !mixy) return CODING_LEAD_PROFILE_REVISION;

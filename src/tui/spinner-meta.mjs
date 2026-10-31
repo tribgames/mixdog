@@ -17,7 +17,7 @@ const compactNumberFormatter = new Intl.NumberFormat('en-US', {
   minimumFractionDigits: 0,
 });
 
-export function formatSpinnerTokens(value) {
+function formatSpinnerTokens(value) {
   const tokens = Math.max(0, Number(value || 0));
   if (tokens >= 1000) return compactNumberFormatter.format(tokens).toLowerCase();
   return String(Math.round(tokens));
@@ -84,8 +84,8 @@ export function buildSpinnerMeta({
     thinkingParts,
     tokensText: tokens > 0 ? `${formatSpinnerTokens(tokens)} tokens` : '',
     // The count appears with the FIRST token (user: 30초가 아니라 바로).
-    // Elapsed was never gated, so the byline used to grow a second field
-    // mid-turn for no reason the reader could see; now both arrive together.
+    // Elapsed is never gated, so showing tokens with the first token keeps the
+    // byline from growing a second field mid-turn; both arrive together.
     showTokens: tokens > 0,
     thinkingText,
     thinkingActive: Boolean(thinking || Number(thinkingSince) > 0),

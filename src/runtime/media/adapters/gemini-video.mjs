@@ -83,7 +83,7 @@ async function generateViaVeo({ model, prompt, options, references = [], signal,
   if ([4, 6, 8].includes(duration)) parameters.durationSeconds = duration;
 
   // The budget starts at submission, not after it: a hung predictLongRunning
-  // POST used to run without any ceiling of its own.
+  // POST would otherwise run without any ceiling of its own.
   const deadline = Date.now() + TOTAL_TIMEOUT_MS;
   const started = await fetch(`${BASE_URL}/models/${encodeURIComponent(model)}:predictLongRunning`, {
     method: 'POST',

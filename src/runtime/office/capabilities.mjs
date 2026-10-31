@@ -430,7 +430,7 @@ function docxStyleDefinitionFault(format, name, operation, index) {
 
 // A Word table has two alignments that read alike: `alignment` places the
 // table on the page and `columnAlignments` sets the text of each column.
-// A list written into the first used to be serialized verbatim into the
+// A list written into the first would be serialized verbatim into the
 // table's justification and refused by Word's schema at finalize.
 function docxTableAlignmentFaults(format, name, operation, index) {
   const properties = operation.properties;

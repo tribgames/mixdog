@@ -17,7 +17,7 @@ const HEX = /(?<![0-9A-Za-z])[0-9a-fA-F]{12,}(?![0-9A-Za-z])/g;
 const SPACES = /[ \t]+/g;
 const BLANK_LINES = /\n[ \t]*\n[\n \t]*/g;
 
-export function cleanJudgeText(text) {
+function cleanJudgeText(text) {
   return String(text || '')
     .replace(/\r\n?/g, '\n')
     .replace(ANSI, '')
@@ -49,10 +49,10 @@ export function judgeInputClean(request, prev) {
 // continues), the previous reply's first line (its topic), then as much of the
 // reply's END (what a short approval answers) as remains. Training builds the
 // same id sequence (clean_text.pack_ids) with the identical tokenizer.
-export const PACK_BUDGET = Object.freeze({ request: 64, prevRequest: 24, replyHead: 16 });
+const PACK_BUDGET = Object.freeze({ request: 64, prevRequest: 24, replyHead: 16 });
 
 /** Split the cleaned previous reply into its first line and the remaining text. */
-export function splitReply(reply) {
+function splitReply(reply) {
   const at = reply.indexOf('\n');
   return at < 0 ? [reply, ''] : [reply.slice(0, at), reply.slice(at + 1)];
 }
@@ -63,7 +63,7 @@ export function splitReply(reply) {
 // A result keeps its start and end (where errors and summaries sit); the
 // stored window (2000 + 1000 code points) bounds the cleaning work on huge
 // outputs. Training builds the same text (clean_text.step_judge_text).
-export const STEP_CALLS = 3;
+const STEP_CALLS = 3;
 
 export function stepResultWindow(text) {
   const cps = Array.from(String(text ?? ''));

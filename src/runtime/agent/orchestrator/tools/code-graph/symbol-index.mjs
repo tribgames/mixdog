@@ -5,10 +5,9 @@
 // Symbols and tokens have NO text fallback. `node.symbols` (record v2:
 // {name, kind, startLine, endLine, startCol, endCol, exported?, sig?, parent?})
 // and `node.tokenSymbols` are the only sources; a node that carries neither
-// contributes nothing to an outline or a candidate set. The cheap regex outline
-// matchers and the JS identifier re-tokenizer that used to stand in for them
-// are gone — they disagreed with the extractor, so an answer's content depended
-// on which of the two produced it.
+// contributes nothing to an outline or a candidate set. A regex outline or JS
+// identifier re-tokenizer would disagree with the extractor, so an answer's
+// content would depend on which of the two produced it.
 import { _langUsesDollarInIdentifiers, _langAllowsBangQuestionSuffix } from './lang-predicates.mjs';
 import { EXTRACTION_SYMBOL_LANGS } from './constants.mjs';
 import { _getSourceTextForNode, _graphRel } from './source-access.mjs';

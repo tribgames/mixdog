@@ -12,8 +12,8 @@ const TIMEOUT_MS = 30_000;
 // Every digest is new and asked once: a cache write would cost more than any
 // read it could earn, so no layer is marked.
 const NO_PROMPT_CACHE = Object.freeze({ tools: 'none', system: 'none', tier3: 'none', messages: 'none' });
-export const HEARTBEAT_NOTHING = 'NOTHING';
-export const HEARTBEAT_WAKE = 'WAKE';
+const HEARTBEAT_NOTHING = 'NOTHING';
+const HEARTBEAT_WAKE = 'WAKE';
 const MAX_ITEMS = 5;
 const ITEM_LIMIT = 300;
 

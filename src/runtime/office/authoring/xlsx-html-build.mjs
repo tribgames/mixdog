@@ -140,7 +140,7 @@ function resolveRange(text, cells, notes) {
 }
 
 /** The operations that write one measured workbook; formulas and charts come after every sheet's values. */
-export function xlsxOperationsFromSheets(sheets, { captures = new Map(), notes = [] } = {}) {
+function xlsxOperationsFromSheets(sheets, { captures = new Map(), notes = [] } = {}) {
   const first = [];
   const later = [];
   const chartData = [];

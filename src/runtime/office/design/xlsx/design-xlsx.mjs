@@ -417,7 +417,7 @@ function metricLabelStyle({ colors, type, dashboard }) {
 // metric is the one the strip paints as the headline, so the wider card reads
 // as emphasis rather than as a card that ran out of room.
 // More cards than columns wrap onto a second strip rather than pulling the
-// canvas past the table: a three-metric strip over a two-column table used to
+// canvas past the table: a three-metric strip over a two-column table would
 // make every band half again as wide as the table under it.
 // The text a card's value shows under its number format ("47.0%" for 0.47 under 0.0%, "12명" for 12 under 0"명").
 function metricDisplayText(metric) {

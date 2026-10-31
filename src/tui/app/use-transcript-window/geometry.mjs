@@ -59,7 +59,7 @@ export function useTranscriptGeometry(state, props) {
     transcriptGeomRef,
     maxScrollRowsRef,
   } = refs;
-  // The settled array no longer changes during streaming. Geometry is keyed by
+  // The settled array does not change during streaming. Geometry is keyed by
   // the engine revision plus the live tail's resolved height, so same-height
   // text flushes do not copy/walk the settled prefix or rerun heavy memos.
   const streamingTailItem = streamingTail?.kind === 'assistant' && streamingTail.streaming ? streamingTail : null;

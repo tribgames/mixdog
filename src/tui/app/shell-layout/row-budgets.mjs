@@ -139,8 +139,8 @@ function floatingPanelBudget({
   else if (btwPanel) desiredFloatingPanelRows = btwPanelRows(btwPanel, frameColumns);
   const floatingPanelRows = desiredFloatingPanelRows > 0 ? Math.min(desiredFloatingPanelRows, maxFloatingPanelRows) : 0;
   // Give the list every content row the panel exposes. The panel already grew
-  // by OPTION_PANEL_EXTRA_ROWS; previously that growth was subtracted back out
-  // here, so the rows leaked into an empty flexGrow gap instead of the list.
+  // by OPTION_PANEL_EXTRA_ROWS; subtracting that growth back out would leak the
+  // rows into an empty flexGrow gap instead of the list.
   // Reserving only PICKER_CHROME_ROWS lets the list occupy the full interior
   // (the footer's own reservation is handled inside Picker).
   const pickerVisibleRows = picker ? Math.max(1, floatingPanelRows - PICKER_CHROME_ROWS) : PANEL_MAX_VISIBLE;

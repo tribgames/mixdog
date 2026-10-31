@@ -29,16 +29,13 @@ function earliestSubmittedAt(batch) {
 
 function renderBatchItems(batch, pushUserOrSyntheticItem) {
   for (const entry of batch) {
-    // Async-completion twins (queued model-visible wrapper) used to be
-    // display-skipped here on the assumption the live notification push
-    // already rendered a card. That push is event-ephemeral and can be
-    // missed (listener race, dedupe state from another surface, daemon
-    // restart), which left completions with NO transcript card at all
-    // (2026-08-17 field report: bench shell output never appeared).
-    // Render the wrapper through the synthetic path instead — the
-    // task_id upsert in upsertSyntheticToolItem patches an
-    // already-rendered card, so the double-delivery case stays
-    // duplicate-free. Non-wrapper entries keep the old skip.
+    // Async-completion twins (queued model-visible wrapper) are rendered
+    // through the synthetic path rather than display-skipped: the live
+    // notification push is event-ephemeral and can be missed (listener race,
+    // dedupe state from another surface, daemon restart), which would leave
+    // the completion with NO transcript card at all. The task_id upsert in
+    // upsertSyntheticToolItem patches an already-rendered card, so the
+    // double-delivery case stays duplicate-free. Non-wrapper entries are skipped.
     if (entry.mode === 'pending-resume' || entry.suppressDisplay) {
       const twin = typeof entry.content === 'string' ? entry.content : String(entry.text || '');
       if (parseModelVisibleCompletionWrapper(twin)) {

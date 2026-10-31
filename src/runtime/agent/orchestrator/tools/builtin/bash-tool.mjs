@@ -32,7 +32,6 @@ export {
   SURVIVING_DESCENDANTS_WARNING,
   SURVIVING_DESCENDANTS_UNREACHABLE_WARNING,
   _backgroundResultLines,
-  getDedupedDestructiveWarnings,
   _placeDestructiveWarningsAfterStatus,
   formatShellToolFailure,
   _shellFailureStatus,

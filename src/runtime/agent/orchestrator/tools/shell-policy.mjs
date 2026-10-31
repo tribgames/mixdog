@@ -1,5 +1,4 @@
 import { isDangerousDeleteTarget as _isDangerousDeleteTarget } from './shell-policy-danger-target.mjs';
-export { isDangerousDeleteTarget } from './shell-policy-danger-target.mjs';
 // Shell execution security policy — shared constants used by both
 // destructive-warning.mjs (heuristic classifier) and the shell command
 // runner (hard block list).

@@ -4,7 +4,7 @@
 // owner that never published, the newest candidate's exit and first stderr
 // error — so the desktop error card's details name the cause, not only the
 // symptom.
-export const DAEMON_UNAVAILABLE_MESSAGE = 'daemon session endpoint is unavailable';
+const DAEMON_UNAVAILABLE_MESSAGE = 'daemon session endpoint is unavailable';
 
 function exitCodeText(code) {
   // Windows reports NTSTATUS crash codes as large unsigned values.

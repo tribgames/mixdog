@@ -199,13 +199,13 @@ export const SPINNER_VERBS = [
 ];
 
 /** How long one phrase holds before the pool advances. */
-export const SPINNER_VERB_ROTATE_MS = 30_000;
+const SPINNER_VERB_ROTATE_MS = 30_000;
 
 /** Odds that a 30s boundary actually swaps the phrase (user: 바꿀지 말지만
  *  랜덤 돌리면 되잖아). Below 1 the window stretches: ~half the boundaries
  *  hold, so a phrase lives 30s, 60s, 90s… and the rhythm stops being a
  *  metronome. */
-export const SPINNER_VERB_CHANGE_ODDS = 0.5;
+const SPINNER_VERB_CHANGE_ODDS = 0.5;
 
 /**
  * Deterministic coin for ONE (turn, boundary) pair.

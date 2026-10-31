@@ -7,8 +7,8 @@ import wrapAnsi from 'wrap-ansi';
 import { truncatePanelText } from './panel-cell-text.mjs';
 
 export const CUSTOM_LABEL = '직접 입력…';
-export const RECOMMENDED_SUFFIX = ' (추천)';
-export const MULTI_HINT = ' (여러 개 선택 가능)';
+const RECOMMENDED_SUFFIX = ' (추천)';
+const MULTI_HINT = ' (여러 개 선택 가능)';
 // border(2) + title + blank + blank-after-question; question rows added separately.
 const FIXED_ROWS = 5;
 // Panel interior = frame − 2 border − 2 paddingX.
@@ -60,7 +60,7 @@ export function optionLayout(question, columns) {
   return { rows, prefixCells, avail, indexCells };
 }
 
-export const MAX_ANSWER_CHARS = 4000;
+const MAX_ANSWER_CHARS = 4000;
 const MIN_OPTION_ROWS = 3;
 
 // Append `text` to `base`, never exceeding MAX_ANSWER_CHARS UTF-16 units (the
@@ -74,7 +74,7 @@ export function appendCapped(base, text) {
   return out;
 }
 
-export function questionLines(question, columns) {
+function questionLines(question, columns) {
   const shown = `${question?.question ?? ''}${question?.multi_select ? MULTI_HINT : ''}`;
   return wrapAnsi(shown, Math.max(1, columns - CHROME_COLUMNS), { trim: false, hard: true }).split('\n');
 }

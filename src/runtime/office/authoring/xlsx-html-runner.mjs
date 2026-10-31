@@ -49,7 +49,7 @@ function fillRangeCharts() {
 }
 
 /** Artifacts kept beside the workbook: its HTML and the browser's picture of each sheet. */
-export function xlsxHtmlArtifacts(target) {
+function xlsxHtmlArtifacts(target) {
   return {
     source: `${target}.mixdog-source.html`,
     shot: (sheet) => `${target}.mixdog-html-sheet-${sheet}.png`,

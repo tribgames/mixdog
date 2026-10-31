@@ -8,11 +8,9 @@ import { rememberMcpToolIdentity } from '../../../shared/tool-primitives.mjs';
 
 /** Known auto-detect targets: the discovery-advert service name and the MCP
  *  endpoint path on its port.
- *  Note: `mixdog` used to self-loopback via active-instance.json's
- *  httpPort, but that path went through channels' owner HTTP server which
- *  only exposes a subset of tools. The plugin's own tools are now injected
- *  in-process through agent's toolExecutor (see orchestrator/internal-tools),
- *  so this registry is for genuinely external port-based MCP targets only. */
+ *  The plugin's own tools are injected in-process through agent's
+ *  toolExecutor (see orchestrator/internal-tools), so this registry is for
+ *  genuinely external port-based MCP targets only. */
 export const AUTO_DETECT_PORTS = {
   'mixdog-memory': { discovery: 'memory', endpoint: '/mcp' },
 };

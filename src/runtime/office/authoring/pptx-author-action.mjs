@@ -34,7 +34,7 @@ const PPTX_AUTHOR_NEEDS_SOURCE =
   'author requires script: HTML slides or a pptxgenjs script (without one it re-authors from <deck>.pptx.mixdog-source.html, and none is there). Load the `pptx` Skill first (Skill name:"pptx"): it carries the authoring workflow, the HTML contract, the composition grammar, and the device kit, then call author again with path and script.';
 
 // HTML opens with markup (a doctype, a comment, an element); a pptxgenjs script never does.
-export function isHtmlSource(source) {
+function isHtmlSource(source) {
   return /^\s*</.test(String(source || ''));
 }
 

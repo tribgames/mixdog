@@ -298,7 +298,7 @@ const ATTACHMENT_INTEGRITY = 'ATTACHMENT_INTEGRITY';
 
 // A referenced blob that is gone from disk (retention, manual cleanup, a
 // copied session) surfaces from readAttachmentBuffer as the stat ENOENT.
-export function isMissingAttachmentError(error) {
+function isMissingAttachmentError(error) {
   return error?.code === 'ENOENT';
 }
 

@@ -231,7 +231,7 @@ export function saveMediaAsset({ kind, lane, model, prompt, options = {}, mime, 
   // whose bytes are all NUL.
   writeFileAtomicSync(path, bytes);
   entry.file = file;
-  // The gallery is NOT capped (user). An entry-count trim used to unlink the
+  // The gallery is NOT capped (user). An entry-count trim would unlink the
   // oldest files here, which is data loss nobody asked for: a generated asset
   // leaves this store only through an explicit delete.
   mutateIndex((assets) => [entry, ...assets]);

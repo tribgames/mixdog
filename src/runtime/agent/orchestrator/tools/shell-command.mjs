@@ -21,10 +21,6 @@ import { spawnShellChild } from './lib/shell-run-spawn.mjs';
 import { createPromotedCaptureRelease, createSettle } from './lib/shell-run-settle.mjs';
 import { _abortReasonIsInterrupt, createAutoBackground } from './lib/shell-run-background.mjs';
 
-export {
-  _maybeEncodePowerShellCommand,
-  extractPowerShellCommandInner,
-} from './shell-powershell.mjs';
 export { stripAnsi, ExecResult } from './shell-exec-output.mjs';
 
 async function _execPolicyBlockMessage(command, elevationApproved = false) {

@@ -19,7 +19,7 @@ export function localProviderPlatformKey(platform = process.platform, arch = pro
  *  RAM — exactly what llama.cpp's Metal backend reports on a 16 GB M4; larger
  *  Macs may allow more, which this leaves unused. Metal reports that whole
  *  working set as free, so free equals total here as it does in llama.cpp. */
-export function appleSiliconGpu({ name, totalBytes, wiredLimitMb }) {
+function appleSiliconGpu({ name, totalBytes, wiredLimitMb }) {
   const memoryBytes = wiredLimitMb > 0 ? wiredLimitMb * 1024 ** 2 : Math.floor((totalBytes * 2) / 3);
   return { index: 0, uuid: 'MTL0', vendor: 'Apple', name, memoryBytes, freeMemoryBytes: memoryBytes };
 }
