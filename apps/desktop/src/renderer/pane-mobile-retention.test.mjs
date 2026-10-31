@@ -25,13 +25,14 @@ async function mountPhoneWorkspace(t, { phone = true } = {}) {
   };
   dom.window.cancelAnimationFrame = (id) => pendingFrames.delete(id);
   const host = document.getElementById('root');
-  const [{ PaneWorkspace }, { createPaneLeaf }, { useSurfaceActive }, { useComposerExternalDraft }] =
-    await Promise.all([
+  const [{ PaneWorkspace }, { createPaneLeaf }, { useSurfaceActive }, { useComposerExternalDraft }] = await Promise.all(
+    [
       import('./PaneWorkspace.tsx'),
       import('./pane-layout.ts'),
       import('./surface-activity.ts'),
       import('./use-composer-external-draft.ts'),
-    ]);
+    ]
+  );
   const noop = () => {};
   // Each conversation's draft, and what the workspace was asked to show.
   const drafts = new Map();
@@ -310,7 +311,11 @@ test('text sent to the composer lands only in the focused pane when both panes s
   t.after(() => takeComposerText());
   const left = view.leafOf('pane-1', [A], A);
   const right = view.leafOf('pane-2', [B], B);
-  await view.renderLayout({ type: 'split', direction: 'row', ratio: 0.5, first: left, second: right }, [left, right], right);
+  await view.renderLayout(
+    { type: 'split', direction: 'row', ratio: 0.5, first: left, second: right },
+    [left, right],
+    right
+  );
   await view.flushFrame();
   view.workspaceCalls.length = 0;
   await act(async () => sendTextToComposer('hello'));

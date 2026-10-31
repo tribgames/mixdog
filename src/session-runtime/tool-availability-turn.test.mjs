@@ -295,7 +295,10 @@ test('a compacted Lead lists its late tools in the rebuilt manifest instead of r
   };
   session.pendingCacheBreakIntent = 'post_turn_compaction';
   assert.equal(await refresh.applyPendingAgentProfile(), true);
-  assert.ok(session.deferredToolCatalog.some((t) => t.name === 'office'), 'folded into the boot catalog');
+  assert.ok(
+    session.deferredToolCatalog.some((t) => t.name === 'office'),
+    'folded into the boot catalog'
+  );
   assert.deepEqual(session.deferredLateToolCatalog, []);
   assert.equal(session.pendingDeferredToolDelta, undefined, 'the manifest lists it: no notice');
 });

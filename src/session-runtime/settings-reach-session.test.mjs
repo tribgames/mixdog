@@ -133,9 +133,7 @@ test('a reused in-process worker takes the saved compaction settings and keeps i
 });
 
 test('a reused in-process worker is told once of an instruction file edited since its prompt', async (t) => {
-  const { loadInstructionFilesContext } = await import(
-    '../runtime/agent/orchestrator/context/instruction-files.mjs'
-  );
+  const { loadInstructionFilesContext } = await import('../runtime/agent/orchestrator/context/instruction-files.mjs');
   const { promptSettingsRecord } = await import('../runtime/agent/orchestrator/session/manager/prompt-settings.mjs');
   const cwd = mkdtempSync(join(dataRoot, 'worker-cwd-'));
   writeFileSync(join(dataRoot, 'mixdog-config.json'), JSON.stringify({ agent: { instructionFiles: 'all' } }));

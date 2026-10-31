@@ -55,9 +55,7 @@
       }
     ],
     "store": false,
-    "include": [
-      "reasoning.encrypted_content"
-    ],
+    "include": ["reasoning.encrypted_content"],
     "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
     "tools": [
       {
@@ -148,9 +146,7 @@
       }
     ],
     "store": false,
-    "include": [
-      "reasoning.encrypted_content"
-    ],
+    "include": ["reasoning.encrypted_content"],
     "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
     "tools": [
       {
@@ -278,9 +274,7 @@
       }
     ],
     "store": false,
-    "include": [
-      "reasoning.encrypted_content"
-    ],
+    "include": ["reasoning.encrypted_content"],
     "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
     "tools": [
       {
@@ -400,9 +394,7 @@
       }
     ],
     "store": false,
-    "include": [
-      "reasoning.encrypted_content"
-    ],
+    "include": ["reasoning.encrypted_content"],
     "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
     "instructions": "sys",
     "tools": [
@@ -513,9 +505,7 @@
       }
     ],
     "store": false,
-    "include": [
-      "reasoning.encrypted_content"
-    ],
+    "include": ["reasoning.encrypted_content"],
     "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
     "tools": [
       {
@@ -626,9 +616,7 @@
       }
     ],
     "store": false,
-    "include": [
-      "reasoning.encrypted_content"
-    ],
+    "include": ["reasoning.encrypted_content"],
     "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
     "tools": [
       {
@@ -738,9 +726,7 @@
       }
     ],
     "store": false,
-    "include": [
-      "reasoning.encrypted_content"
-    ],
+    "include": ["reasoning.encrypted_content"],
     "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
     "tools": [
       {
@@ -865,9 +851,7 @@
       }
     ],
     "store": false,
-    "include": [
-      "reasoning.encrypted_content"
-    ],
+    "include": ["reasoning.encrypted_content"],
     "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
     "tools": [
       {
@@ -971,9 +955,7 @@
       }
     ],
     "store": false,
-    "include": [
-      "reasoning.encrypted_content"
-    ],
+    "include": ["reasoning.encrypted_content"],
     "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
     "tools": [
       {
@@ -1078,9 +1060,7 @@
       }
     ],
     "store": false,
-    "include": [
-      "reasoning.encrypted_content"
-    ],
+    "include": ["reasoning.encrypted_content"],
     "prompt_cache_key": "f0858c98-2db1-4764-9d18-e6e1ec2ea4c7",
     "tools": [
       {

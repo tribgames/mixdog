@@ -121,7 +121,10 @@ test('every widening asks again: no grant is remembered, whatever the answer car
   const store = createHumanGateStore(auditDir);
   assert.deepEqual(await store.listGrants(), [], 'no standing grant of any kind');
   const audit = await store.readAudit({ agentId: BOT });
-  assert.ok(audit.some((row) => row.kind === 'connector' && row.device === 'phone'), 'the answering device is audited');
+  assert.ok(
+    audit.some((row) => row.kind === 'connector' && row.device === 'phone'),
+    'the answering device is audited'
+  );
 });
 
 test('only a level the person picked on the card applies: a bare or text approval, or a model, changes nothing', async () => {
@@ -134,7 +137,11 @@ test('only a level the person picked on the card applies: a bare or text approva
   }
   // With no card to show (no approval hook), the call is refused as before.
   await assert.rejects(
-    AGENT_SETTINGS_HANDLERS.set_agent_connector_tool(api, { agent: BOT, name: 'mt5', tool: 'a', permission: 'auto' }, {}),
+    AGENT_SETTINGS_HANDLERS.set_agent_connector_tool(
+      api,
+      { agent: BOT, name: 'mt5', tool: 'a', permission: 'auto' },
+      {}
+    ),
     { message: NO_WIDEN_MESSAGE }
   );
   assert.equal(level('a'), 'disabled');
@@ -226,8 +233,7 @@ test('narrowing still applies at once, with no card', async () => {
 const accountsPolicy = (tools) =>
   writeFileSync(agentFile, JSON.stringify({ name: BOT, connectors: { off: [], tools } }));
 const stored = () => readConnectorsFile(agentFile)?.tools;
-const effective = (server) =>
-  connectorToolPermission(readConnectorsFile(agentFile), `mcp__${server}__send_email`);
+const effective = (server) => connectorToolPermission(readConnectorsFile(agentFile), `mcp__${server}__send_email`);
 const askOn = (server, permission, answer) =>
   AGENT_SETTINGS_HANDLERS.set_agent_connector_tool(
     api,
@@ -256,7 +262,7 @@ test('an approved widening on gmail-2 is stored under gmail, and the card names 
   assert.equal(effective('gmail-2'), 'needs_approval');
 });
 
-test('legacy per-account entries follow the topmost: the connector\'s own, else the lowest-numbered account', () => {
+test("legacy per-account entries follow the topmost: the connector's own, else the lowest-numbered account", () => {
   accountsPolicy({ gmail: { send_email: 'auto' }, 'gmail-2': { send_email: 'disabled' } });
   assert.equal(effective('gmail'), 'auto');
   assert.equal(effective('gmail-2'), 'auto');
@@ -291,7 +297,9 @@ test('an approved change lets only the approved tool rise, never a second tool o
   const before = { off: ['gmail-2'], tools: { gmail: { send_email: 'disabled', other: 'disabled' } } };
   const approved = { server: 'gmail', tool: 'send_email', from: 'disabled', to: 'needs_approval' };
   const judge = (tools) =>
-    withApprovedConnectorToolChange(approved, () => assertConnectorPolicyNotWidened(before, { off: before.off, tools }));
+    withApprovedConnectorToolChange(approved, () =>
+      assertConnectorPolicyNotWidened(before, { off: before.off, tools })
+    );
   assert.doesNotThrow(() => judge({ gmail: { send_email: 'needs_approval', other: 'disabled' } }));
   assert.throws(() => judge({ gmail: { send_email: 'needs_approval', other: 'auto' } }), {
     code: CONNECTOR_POLICY_WIDENS,

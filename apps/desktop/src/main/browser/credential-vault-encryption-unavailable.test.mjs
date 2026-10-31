@@ -87,7 +87,16 @@ test('a malformed pending record blocks every account read, and is left as it is
   const { dir, file, record } = await seededVault(t);
   const sealed = readFileSync(file);
   const expectedFiles = [...readdirSync(dir), basename(record)].sort();
-  for (const bad of ['', '\0\0\0', 'not json', '{"origins":', '{}', '{"origins":"https://shop.example.com"}', '{"origins":[1]}', 'null']) {
+  for (const bad of [
+    '',
+    '\0\0\0',
+    'not json',
+    '{"origins":',
+    '{}',
+    '{"origins":"https://shop.example.com"}',
+    '{"origins":[1]}',
+    'null',
+  ]) {
     writeFileSync(record, bad);
     const vault = new CredentialVault({ userDataDirectory: dir });
     const refusal = /^Error: The stored browser credential vault could not be opened\.$/;

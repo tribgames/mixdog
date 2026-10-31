@@ -317,7 +317,10 @@ test('a worktree refusal before submission leaves the same submission id resenda
       value: { workspace: { branch: 'main', worktreeId: null } },
     };
   };
-  await assert.rejects(f.host.submitNewTask('Accepted work', f.options, { worktree: {} }), /^Error: WORKTREE_UNSUPPORTED_REPO/);
+  await assert.rejects(
+    f.host.submitNewTask('Accepted work', f.options, { worktree: {} }),
+    /^Error: WORKTREE_UNSUPPORTED_REPO/
+  );
   assert.ok(f.state.dead.has(f.sessionId), 'the unclaimed reservation was destroyed');
   const reset = f.receipt();
   assert.equal(reset.phase, 'reserved');

@@ -201,7 +201,10 @@ function rememberConversationAccount(conversation, connector, account) {
   updateJsonAtomicSync(conversationsFile(), (stored) => {
     const all = isRecord(stored) ? stored : {};
     const accounts = isRecord(all[conversation]?.accounts) ? all[conversation].accounts : {};
-    return { ...all, [conversation]: { accounts: { ...accounts, [connector]: { name: account.name, id: account.id } } } };
+    return {
+      ...all,
+      [conversation]: { accounts: { ...accounts, [connector]: { name: account.name, id: account.id } } },
+    };
   });
 }
 
@@ -215,7 +218,9 @@ const ACCOUNT_PROPERTY = Object.freeze({
 const canonical = (value) => {
   if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`;
   if (isRecord(value)) {
-    const keys = Object.keys(value).filter((key) => value[key] !== undefined).sort();
+    const keys = Object.keys(value)
+      .filter((key) => value[key] !== undefined)
+      .sort();
     return `{${keys.map((key) => `${JSON.stringify(key)}:${canonical(value[key])}`).join(',')}}`;
   }
   return JSON.stringify(value) ?? 'null';
@@ -311,7 +316,9 @@ export function withConnectorAccountsMcp({ connector, accounts }) {
         // ensureConnectorAccountIds did not bind, or an account picked before
         // it had an id), fails closed until an account is picked again.
         if (account && !remembered.id) {
-          throw refuse(`The ${service} account used last (${remembered.name}) cannot be confirmed as the same account.`);
+          throw refuse(
+            `The ${service} account used last (${remembered.name}) cannot be confirmed as the same account.`
+          );
         }
         if (account && account.id !== remembered.id) {
           throw refuse(`The ${service} account used last (${remembered.name} (removed)) is not connected now.`);
@@ -417,7 +424,8 @@ export function withConnectorAccountsMcp({ connector, accounts }) {
       const progressToken = params?._meta?.progressToken;
       const onprogress =
         notify && progressToken !== undefined
-          ? (progress) => notify({ jsonrpc: '2.0', method: 'notifications/progress', params: { ...progress, progressToken } })
+          ? (progress) =>
+              notify({ jsonrpc: '2.0', method: 'notifications/progress', params: { ...progress, progressToken } })
           : undefined;
       try {
         // An unlisted tool (one only the approval gate calls) is the account's to answer.

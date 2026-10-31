@@ -37,11 +37,7 @@ export const CONNECTOR_IDS: readonly string[];
 export function connectorById(id: unknown): ConnectorCatalogEntry | null;
 export function connectorOfServer(cfg: unknown): string;
 export function connectorToolDefault(connectorId: string, tool: string): 'auto' | 'needs_approval';
-export function connectorServerInput(
-  entry: ConnectorCatalogEntry,
-  name: string,
-  key?: string
-): Record<string, unknown>;
+export function connectorServerInput(entry: ConnectorCatalogEntry, name: string, key?: string): Record<string, unknown>;
 export function connectorAppPasswordOnly(entry: ConnectorCatalogEntry | null | undefined): boolean;
 export function connectorUsesGoogleClient(entry: ConnectorCatalogEntry | null | undefined): boolean;
 export function connectorMultiAccount(entry: ConnectorCatalogEntry | null | undefined): boolean;

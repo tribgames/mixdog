@@ -15,7 +15,10 @@ function touchEvent(type, points, { lifted = [], at } = {}) {
 function watch(handlers) {
   const target = new EventTarget();
   const seen = { pinch: [], pan: [], doubleTap: [] };
-  const record = (name) => (...args) => seen[name].push(args);
+  const record =
+    (name) =>
+    (...args) =>
+      seen[name].push(args);
   const stop = watchTouchZoom(target, {
     pinch: record('pinch'),
     ...(handlers.pan ? { pan: record('pan') } : {}),
@@ -54,10 +57,11 @@ test('steps too small to report add up instead of being dropped', () => {
     [100, 0],
   ]);
   // A slow pinch: 0.1 px per event, each 0.1% of the spread.
-  for (let step = 1; step <= 50; step += 1) send('touchmove', [
-    [0, 0],
-    [100 + step / 10, 0],
-  ]);
+  for (let step = 1; step <= 50; step += 1)
+    send('touchmove', [
+      [0, 0],
+      [100 + step / 10, 0],
+    ]);
   assert.ok(Math.abs(product(seen.pinch) - 1.05) < 0.003, `reported ${product(seen.pinch)}`);
 });
 

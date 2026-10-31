@@ -12,7 +12,8 @@ export const GOAL_FILE_VERSION = 1;
 // A live runtime re-stamps an active Goal's `liveAt` this often; a longer gap
 // means nothing was running it (app closed, PC asleep).
 export const GOAL_LIVE_HEARTBEAT_MS = 60_000;
-export const GOAL_LIVE_STALE_MS = 3 * GOAL_LIVE_HEARTBEAT_MS;export const SESSION_ID = SESSION_ID_PATTERN;
+export const GOAL_LIVE_STALE_MS = 3 * GOAL_LIVE_HEARTBEAT_MS;
+export const SESSION_ID = SESSION_ID_PATTERN;
 export const GOAL_STATUS_VALUES = Object.freeze([
   'active',
   'paused',

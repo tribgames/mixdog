@@ -28,7 +28,11 @@ const CREATE = { name: 'create', description: 'Create', inputSchema: object({ ti
 
 /** An account whose own server lists `tools` and records every call it gets. */
 // Its identity defaults to its name and address: the same pair is the same account.
-function fakeAccount(name, email, { tools = [SEARCH, CREATE], fail = null, instructions = '', id = `${name}|${email}` } = {}) {
+function fakeAccount(
+  name,
+  email,
+  { tools = [SEARCH, CREATE], fail = null, instructions = '', id = `${name}|${email}` } = {}
+) {
   const calls = [];
   return {
     calls,
@@ -136,7 +140,10 @@ test('the one-time identity migration binds the records of before, keeps every i
   // Before the upgrade: accounts without ids, records of names only.
   updateSection('agent', (agent) => ({
     ...agent,
-    mcpServers: { linear: accountsServer('linear', ['linear', 'linear-2']), notion: accountsServer('notion', ['notion']) },
+    mcpServers: {
+      linear: accountsServer('linear', ['linear', 'linear-2']),
+      notion: accountsServer('notion', ['notion']),
+    },
   }));
   writeFileSync(inUseFile, JSON.stringify({ linear: 'linear-2', notion: 'notion' }));
   // Two processes start at once while a third records a newer choice.
@@ -245,7 +252,10 @@ test('the migration binds a record of before to the account its ids were given t
     replacement.account,
   ]);
   await live.rpc('initialize');
-  assert.match((await live.call('search', {}, 'conv-r1')).text, /used last \(linear-2 \(removed\)\) is not connected now/);
+  assert.match(
+    (await live.call('search', {}, 'conv-r1')).text,
+    /used last \(linear-2 \(removed\)\) is not connected now/
+  );
   assert.deepEqual(replacement.calls, [], 'the replacement never takes the old choice');
   for (const name of ['linear', 'linear-2']) forgetConnectorAccountHealth(name);
   writeFileSync(inUseFile, '{}');
@@ -451,7 +461,10 @@ test('two accounts sharing one address are bound and run by their unique names; 
   // The shared address fails closed, listing them by name.
   const ambiguous = await call('search', { account: SAME }, 'conv-same');
   assert.equal(ambiguous.isError, true);
-  assert.match(ambiguous.text, /^"same@example\.com" is more than one Sentry account \(workspace-a, workspace-b\); name one\./);
+  assert.match(
+    ambiguous.text,
+    /^"same@example\.com" is more than one Sentry account \(workspace-a, workspace-b\); name one\./
+  );
   assert.throws(
     () => fetchImpl.connectorAccounts.choose({ tool: 'search', wanted: SAME, conversation: '' }),
     /more than one Sentry account \(workspace-a, workspace-b\)/

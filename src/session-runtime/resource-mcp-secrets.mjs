@@ -73,7 +73,8 @@ export function createMcpServerSecrets({
     await forgetUnusedGmailAppPassword(gmailAppPasswordAccount(cfg));
     if (!cfg?.url || !cfg.oauthClientId) return;
     const servers = expandedConfigs(resolveConfiguredMcpCatalog().servers);
-    if (!servers.some((other) => other.url === cfg.url && other.oauthClientId)) await saveOAuthClientSecret(cfg.url, '');
+    if (!servers.some((other) => other.url === cfg.url && other.oauthClientId))
+      await saveOAuthClientSecret(cfg.url, '');
   };
   // A removed account keeps no sign-in another configured server or account
   // does not share: `{ signIn, revoked }` as removeMcpServer reports it.

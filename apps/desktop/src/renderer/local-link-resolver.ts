@@ -74,12 +74,10 @@ async function resolveAbsolute(target: string, path: string, sessionId?: string)
   const resolvePaths = window.mixdogDesktop?.resolveLocalPaths;
   if (!resolvePaths) throw new Error(t('Local file links can only be opened in the desktop app.'));
   // The conversation lets a paired device's host find the reply that links it.
-  const [entry] = await resolvePaths([target], sessionId, { chatLink: true }).catch(
-    (error: unknown) => {
-      if (missingFile(error)) return [];
-      throw error;
-    }
-  );
+  const [entry] = await resolvePaths([target], sessionId, { chatLink: true }).catch((error: unknown) => {
+    if (missingFile(error)) return [];
+    throw error;
+  });
   if (entry?.dir) return { project: entry.absolutePath, path: '.', directory: true };
   if (!entry?.projectPath || !entry.relPath) {
     throw Object.assign(new Error(t('File not found (it may have been deleted or moved): {{file}}', { file: path })), {

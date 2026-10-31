@@ -22,7 +22,8 @@ const probe = async (id) => AGENTS[id] || { listed: false, contact: false, disab
 test('an executor must be an enabled workflow sub-agent: unknown, disabled, bot and Mixy ids are refused', async () => {
   assert.equal(await assertRoutineExecutor('worker', probe), 'worker');
   assert.equal(await assertRoutineExecutor('  Worker ', probe), 'worker', 'stored in its normalized form');
-  for (const none of [null, undefined, '', '   ']) assert.equal(await assertRoutineExecutor(none, probe), null, String(none));
+  for (const none of [null, undefined, '', '   '])
+    assert.equal(await assertRoutineExecutor(none, probe), null, String(none));
   await assert.rejects(assertRoutineExecutor('ghost', probe), /executor agent "ghost" is not an available sub-agent/);
   await assert.rejects(assertRoutineExecutor('reviewer', probe), /executor agent "reviewer" is turned off/);
   await assert.rejects(assertRoutineExecutor('sales-bot', probe), /"sales-bot" is a bot, not a workflow sub-agent/);
@@ -53,7 +54,7 @@ const fire = (extra = {}) => ({
   kind: 'schedule',
   name: 'daily-news',
   ownerAgentId: 'reviewer',
-  prompt: 'Collect today\'s headlines.',
+  prompt: "Collect today's headlines.",
   ...extra,
 });
 

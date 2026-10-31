@@ -88,7 +88,11 @@ const ownershipTest = async () => {
   assert.match(call.sql, /owner_agent_id = EXCLUDED\.owner_agent_id/);
   assert.doesNotMatch(call.sql, /\b(model|workflow|run_as_agent)\b/, 'legacy columns are not written');
   assert.deepEqual(call.params.slice(-2), ['lead', null], 'no executor unless one is named');
-  assert.equal(legacy.executorAgentId, null, 'a row without an executor reads as none, whatever the legacy columns hold');
+  assert.equal(
+    legacy.executorAgentId,
+    null,
+    'a row without an executor reads as none, whatever the legacy columns hold'
+  );
   assert.match(ddl, /ADD COLUMN IF NOT EXISTS executor_agent_id text;/);
   assert.match(call.sql, /executor_agent_id = EXCLUDED\.executor_agent_id/);
 

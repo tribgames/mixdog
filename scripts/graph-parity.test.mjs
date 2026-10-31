@@ -58,10 +58,15 @@ function writeJsonl(dir, name, records) {
 
 function runCli(args, { timeoutMs = 30_000 } = {}) {
   return new Promise((resolvePromise, reject) => {
-    execFile(process.execPath, [SCRIPT, ...args], { windowsHide: true, timeout: timeoutMs }, (error, stdout, stderr) => {
-      if (error?.killed) reject(new Error(`CLI timed out after ${timeoutMs}ms\n${stderr}${stdout}`));
-      else resolvePromise({ code: error ? error.code : 0, stdout, stderr });
-    });
+    execFile(
+      process.execPath,
+      [SCRIPT, ...args],
+      { windowsHide: true, timeout: timeoutMs },
+      (error, stdout, stderr) => {
+        if (error?.killed) reject(new Error(`CLI timed out after ${timeoutMs}ms\n${stderr}${stdout}`));
+        else resolvePromise({ code: error ? error.code : 0, stdout, stderr });
+      }
+    );
   });
 }
 

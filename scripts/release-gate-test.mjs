@@ -34,7 +34,13 @@ import {
 // Product/workflow shape is intentionally non-blocking. Opt in from the
 // advisory runner when reviewing a deliberate specification change.
 const advisoryTest = (name, fn) =>
-  test(name, { skip: process.env.MIXDOG_TEST_ADVISORY !== '1' && 'requires MIXDOG_TEST_ADVISORY=1 (npm run test:spec-advisory)' }, fn);
+  test(
+    name,
+    {
+      skip: process.env.MIXDOG_TEST_ADVISORY !== '1' && 'requires MIXDOG_TEST_ADVISORY=1 (npm run test:spec-advisory)',
+    },
+    fn
+  );
 
 // ---- Release asset manifests ----
 const VERSION = '1.2.3';

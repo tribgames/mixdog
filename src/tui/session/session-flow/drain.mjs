@@ -148,9 +148,7 @@ export function turnOptionsForBatch(batch, steering) {
     // Only host code names a selection text (queue/entry-shape.mjs): a
     // routine turn, or a routine's executor sub-agent turn — its trusted
     // instructions, never a payload.
-    ...(typeof batch[0]?.skillSelection === 'string'
-      ? { skillSelection: batch[0].skillSelection }
-      : {}),
+    ...(typeof batch[0]?.skillSelection === 'string' ? { skillSelection: batch[0].skillSelection } : {}),
     context:
       batch
         .map((entry) => String(entry.context || '').trim())

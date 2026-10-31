@@ -52,7 +52,10 @@ function deliverAgentRoute(agentId, route) {
     if (publishingRoutes.get(agentId)?.done === done) publishingRoutes.delete(agentId);
     const failures = results.filter((one) => one.status === 'rejected').map((one) => one.reason);
     if (failures.length) {
-      throw new AggregateError(failures, `the ${agentId} route reached ${results.length - failures.length} of ${results.length} hosts`);
+      throw new AggregateError(
+        failures,
+        `the ${agentId} route reached ${results.length - failures.length} of ${results.length} hosts`
+      );
     }
     publishedRoutes.set(agentId, key);
   });

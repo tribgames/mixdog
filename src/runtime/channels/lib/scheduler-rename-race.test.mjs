@@ -132,7 +132,11 @@ test('a schedule deleted or re-timed after it was armed (its reload lost) never 
   resetStore();
   const failures = [];
   store.success = async () => assert.fail('a stale fire never succeeds');
-  for (const stored of [null, { name: 'a', prompt: 'go', whenCron: '0 9 * * *' }, { name: 'a', prompt: 'go', enabled: false }]) {
+  for (const stored of [
+    null,
+    { name: 'a', prompt: 'go', whenCron: '0 9 * * *' },
+    { name: 'a', prompt: 'go', enabled: false },
+  ]) {
     const runs = [];
     const schedule = { name: 'a', prompt: 'go', whenCron: '0 3 * * *' };
     const s = scheduler(schedule, runs);

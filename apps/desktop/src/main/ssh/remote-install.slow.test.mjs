@@ -235,11 +235,12 @@ test('a release whose lock root removal was refused retries it on the next call 
       return realFs.rmdirSync(target, ...rest);
     },
   };
-  const injected = new Function('require', 'process', 'Buffer', `${REMOTE_SERVER_LIBRARY}\nreturn { acquireInstallLock };`)(
-    (id) => (id === 'fs' ? fs : require(id)),
-    process,
-    Buffer
-  );
+  const injected = new Function(
+    'require',
+    'process',
+    'Buffer',
+    `${REMOTE_SERVER_LIBRARY}\nreturn { acquireInstallLock };`
+  )((id) => (id === 'fs' ? fs : require(id)), process, Buffer);
   const lockDir = join(scratch(), '.install-lock');
   const lock = await injected.acquireInstallLock(lockDir, { waitMs: 0 });
   assert.ok(process.listeners('exit').includes(lock.release));

@@ -57,7 +57,10 @@ test('/goal over a stalled Goal asks once, then sends the same command as a repl
   const { accepted, calls, notices, confirms } = await runGoal();
   assert.equal(accepted, true);
   assert.equal(confirms.length, 1);
-  assert.match(confirms[0].message, /^Replace the current goal\?\nVerify the markets \(Time budget reached\) will be replaced/);
+  assert.match(
+    confirms[0].message,
+    /^Replace the current goal\?\nVerify the markets \(Time budget reached\) will be replaced/
+  );
   assert.equal(confirms[0].options.danger, true);
   assert.deepEqual(calls, [
     ['goalControl', [{ command: 'New work --time 30m' }]],
@@ -79,4 +82,3 @@ test('/goal with no stalled Goal asks nothing', async () => {
   assert.deepEqual(confirms, []);
   assert.equal(calls.length, 1);
 });
-

@@ -177,10 +177,7 @@ export function createAgentConnectorsApi(deps, editor) {
       return [...names].map((tool) => ({
         connector,
         tool,
-        permission: connectorToolPermission(
-          { off: [], tools },
-          { mcpServerName: connector, mcpToolName: tool }
-        ),
+        permission: connectorToolPermission({ off: [], tools }, { mcpServerName: connector, mcpToolName: tool }),
         explicit: connectorToolEntries(tools, group, tool).length > 0,
       }));
     });

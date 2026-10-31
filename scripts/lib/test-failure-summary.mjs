@@ -50,14 +50,7 @@ export function policyLine(rerunFailed) {
 // never "0 failed". `pids` names the node --test processes that exited
 // non-zero, so a kill can be matched to the "Killing ... <pid>" line of
 // whatever killed them.
-export function formatFailureSummary({
-  failed = [],
-  flaky = [],
-  rerunFailed = 0,
-  hung = [],
-  exitCode = 0,
-  pids = [],
-}) {
+export function formatFailureSummary({ failed = [], flaky = [], rerunFailed = 0, hung = [], exitCode = 0, pids = [] }) {
   const hungCount = hung.length > 0 ? `, ${hung.length} hung batch(es)` : '';
   const unexplained = exitCode !== 0 && failed.length === 0 && hung.length === 0;
   const runner = pids.length > 0 ? `node --test pid ${pids.join(' ')}: ` : '';

@@ -265,7 +265,10 @@ export function hasActiveBackgroundTasks(options = {}) {
   const match = typeof options.match === 'function' ? options.match : null;
   const scope = normalizeTaskScope(options);
   for (const task of tasks.values()) {
-    if (countsAsActive(task, wanted, awaitedOnly, match) && taskMatchesScope(task, scope, { includeUnattributed: false })) {
+    if (
+      countsAsActive(task, wanted, awaitedOnly, match) &&
+      taskMatchesScope(task, scope, { includeUnattributed: false })
+    ) {
       return true;
     }
   }

@@ -240,7 +240,11 @@ async function progressServer(t, ms) {
         res.setHeader('Content-Type', 'application/json');
         const result =
           message.method === 'initialize'
-            ? { protocolVersion: message.params.protocolVersion, capabilities: { tools: {} }, serverInfo: { name: 'p', version: '1' } }
+            ? {
+                protocolVersion: message.params.protocolVersion,
+                capabilities: { tools: {} },
+                serverInfo: { name: 'p', version: '1' },
+              }
             : {
                 tools: ['work', 'quiet'].map((name) => ({ name, inputSchema: { type: 'object', properties: {} } })),
               };

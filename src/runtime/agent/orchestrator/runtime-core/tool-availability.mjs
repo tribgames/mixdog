@@ -6,11 +6,7 @@
 // prompt's deferred_tools_delta names both, and the prompt is folded at the
 // next cache-cold point (promptFoldPending).
 import { clean } from './session-text.mjs';
-import {
-  FEATURE_GATED_TOOL_NAMES,
-  SETTING_GATED_TOOL_NAMES,
-  featureDisallowedToolsFor,
-} from './builtin-features.mjs';
+import { FEATURE_GATED_TOOL_NAMES, SETTING_GATED_TOOL_NAMES, featureDisallowedToolsFor } from './builtin-features.mjs';
 import { mergePendingDeferredToolDelta } from './deferred-tool-delta.mjs';
 import { sessionAllowlistExcludes } from './deferred-tool-availability.mjs';
 import { isAgentOwner } from '../agent-owner.mjs';

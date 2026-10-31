@@ -268,15 +268,7 @@ async function sourceGitPath(root, suffix) {
 async function sourceGitPaths(state) {
   if (state.sourcePaths) return state.sourcePaths;
   const result = await runGit(
-    [
-      'rev-parse',
-      '--path-format=absolute',
-      '--git-path',
-      'info/exclude',
-      '--git-path',
-      'index',
-      '--git-common-dir',
-    ],
+    ['rev-parse', '--path-format=absolute', '--git-path', 'info/exclude', '--git-path', 'index', '--git-common-dir'],
     { cwd: state.root, allowFailure: true }
   );
   const lines = String(result.stdout || '')
@@ -695,7 +687,8 @@ async function hashBlobs(state, items, env) {
         // git ignores a symbolic-link .gitattributes, so only a regular file is carried over.
         ...[...directories].map(async (dir) => {
           const source = join(state.root, dir, '.gitattributes');
-          if ((await lstat(source).catch(() => null))?.isFile()) await copyFile(source, join(scratch, dir, '.gitattributes'));
+          if ((await lstat(source).catch(() => null))?.isFile())
+            await copyFile(source, join(scratch, dir, '.gitattributes'));
         }),
       ]);
       const options = { cwd: scratch, env };

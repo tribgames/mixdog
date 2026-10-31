@@ -520,7 +520,11 @@ function toldAfter(session, notice) {
   // Instruction files the notice named one by one: those paths alone.
   const paths = notice.partial?.instructionFiles;
   if (Array.isArray(paths)) {
-    texts.instructionFiles = instructionFilesAfter(texts.instructionFiles, notice.record.texts?.instructionFiles, paths);
+    texts.instructionFiles = instructionFilesAfter(
+      texts.instructionFiles,
+      notice.record.texts?.instructionFiles,
+      paths
+    );
     hashes.instructionFiles = hashOf(texts.instructionFiles);
   }
   const revision = hashOf(PROMPT_SETTING_SECTIONS.map(([key]) => hashes[key]).join('|'));

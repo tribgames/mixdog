@@ -218,14 +218,19 @@ for (const config of CONFIGS) {
       [...expected.oids].sort(([left], [right]) => (left < right ? -1 : 1))
     );
     // `-text` in nested/.gitattributes keeps the bytes as they are, whatever the root says.
-    assert.equal(actual.get('nested/deep/inner.txt'), git(repo, ['hash-object', '--no-filters', '--stdin'], { input: CRLF }));
+    assert.equal(
+      actual.get('nested/deep/inner.txt'),
+      git(repo, ['hash-object', '--no-filters', '--stdin'], { input: CRLF })
+    );
     if (!config.attributes && config.autocrlf !== 'false') {
       // The comparison above would pass if nothing were converted at all.
       const raw = git(repo, ['hash-object', '--no-filters', '--stdin'], { input: CRLF });
       assert.notEqual(actual.get('new-crlf.txt'), raw);
     }
     assert.deepEqual(
-      readdirSync(base.state.gitDir).filter((name) => name.startsWith('baseline-work') || name.startsWith('index.baseline')),
+      readdirSync(base.state.gitDir).filter(
+        (name) => name.startsWith('baseline-work') || name.startsWith('index.baseline')
+      ),
       []
     );
   });
@@ -278,12 +283,16 @@ test('a file and directory swap is decided by the per-file sequence, error inclu
     const expected = await attempt(async () => perFileResult(repo, base.state, base.baselineTree, entries).tree);
     assert.equal(Boolean(expected.failed), fails, `${name}: per-file outcome`);
     const { result: actual, verbs } = await tracedVerbs(() =>
-      attempt(async () => (await resumeTurnWorktreeSnapshot(repo, base.baselineTree, { baselineFiles: entries })).baselineTree)
+      attempt(
+        async () => (await resumeTurnWorktreeSnapshot(repo, base.baselineTree, { baselineFiles: entries })).baselineTree
+      )
     );
     assert.deepEqual(actual, expected, name);
     assert.equal(verbs.includes('check-attr'), false, `${name}: no batch`);
     assert.deepEqual(
-      readdirSync(base.state.gitDir).filter((entry) => entry.startsWith('baseline-work') || entry.startsWith('index.baseline')),
+      readdirSync(base.state.gitDir).filter(
+        (entry) => entry.startsWith('baseline-work') || entry.startsWith('index.baseline')
+      ),
       []
     );
   }

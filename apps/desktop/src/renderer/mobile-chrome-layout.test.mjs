@@ -19,7 +19,11 @@ test('phone drawer rail scrolls instead of clipping and keeps every item whole',
   const rail = dom.window.getComputedStyle(document.querySelector('.activity-rail'));
   assert.equal(rail.overflowY, 'auto', 'phone rail must scroll vertically');
   assert.equal(rail.overflowX, 'hidden');
-  assert.equal(dom.window.getComputedStyle(document.getElementById('item')).flexShrink, '0', 'rail items must not shrink into each other');
+  assert.equal(
+    dom.window.getComputedStyle(document.getElementById('item')).flexShrink,
+    '0',
+    'rail items must not shrink into each other'
+  );
 });
 
 // Source-text on purpose: the rule sits inside `@media (max-width: 640px)`, which jsdom's getComputedStyle does not

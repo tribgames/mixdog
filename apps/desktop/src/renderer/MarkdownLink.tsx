@@ -563,11 +563,8 @@ function useLocalLinkTarget(target: string, verify = false): LocalLinkTarget {
       if (openFolder && !accessToken) {
         let folder: Awaited<ReturnType<typeof owningProjectFolder>> = null;
         if (directory) {
-          folder =
-            (await owningProjectFolder(project)) ??
-            (remote || serverWindow ? null : { project, rel: '' });
-        }
-        else if (await isProjectFolder(project, file, kind)) folder = { project, rel: file };
+          folder = (await owningProjectFolder(project)) ?? (remote || serverWindow ? null : { project, rel: '' });
+        } else if (await isProjectFolder(project, file, kind)) folder = { project, rel: file };
         if (folder) {
           openFolder(folder.project, folder.rel);
           return;

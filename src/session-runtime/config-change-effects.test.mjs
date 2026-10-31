@@ -27,7 +27,10 @@ test('settings whose effect only the writer ran reach every runtime that applies
   const before = configChangeSnapshot({ config, root: { agent: config }, secretTokens: {} });
   const run = (next) => {
     const { calls, effects } = recorder();
-    effects(diffConfigSnapshots(before, configChangeSnapshot({ config: next, root: { agent: next }, secretTokens: {} })), next);
+    effects(
+      diffConfigSnapshots(before, configChangeSnapshot({ config: next, root: { agent: next }, secretTokens: {} })),
+      next
+    );
     return calls.filter((call) => call !== 'context' && call !== 'announce');
   };
   assert.deepEqual(run({ ...config, promptCacheWarming: true }), ['warming:true']);

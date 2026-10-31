@@ -81,8 +81,7 @@ const commonDir = spawnSync('git', ['rev-parse', '--path-format=absolute', '--gi
   cwd: root,
   encoding: 'utf8',
 });
-const historyPath =
-  commonDir.status === 0 ? path.join(commonDir.stdout.trim(), 'mixdog-gate-timings.json') : null;
+const historyPath = commonDir.status === 0 ? path.join(commonDir.stdout.trim(), 'mixdog-gate-timings.json') : null;
 if (!historyPath) console.warn(`[gate:local] warning: no git common dir, timings not kept: ${commonDir.stderr}`);
 const history = historyPath ? readTimingHistory(historyPath) : {};
 const measured = {};
@@ -99,7 +98,8 @@ const testLanes = [
   const dir = path.join(root, lane.pkg);
   const command = JSON.parse(fs.readFileSync(path.join(dir, 'package.json'), 'utf8')).scripts[lane.script];
   const [program, ...args] = command.split(/\s+/);
-  if (program !== 'node') throw new Error(`${lane.pkg}/package.json "${lane.script}" must be a node command: ${command}`);
+  if (program !== 'node')
+    throw new Error(`${lane.pkg}/package.json "${lane.script}" must be a node command: ${command}`);
   const list = spawnSync(process.execPath, [...args, '--list'], { cwd: dir, encoding: 'utf8' });
   if (list.status !== 0) throw new Error(`${command} --list failed: ${list.stderr}`);
   const files = list.stdout
@@ -107,7 +107,14 @@ const testLanes = [
     .filter(Boolean)
     .map((line) => line.replace(/^\S+\s+/, ''));
   const key = (file) => path.posix.join(lane.pkg, file);
-  return { ...lane, dir, args, files, key, estimateOf: (file) => history[key(file)] ?? DEFAULT_ESTIMATE_MS[lane.speed] };
+  return {
+    ...lane,
+    dir,
+    args,
+    files,
+    key,
+    estimateOf: (file) => history[key(file)] ?? DEFAULT_ESTIMATE_MS[lane.speed],
+  };
 });
 const lanesByName = new Map(testLanes.map((lane) => [lane.name, lane]));
 const commandUnits = [
@@ -209,7 +216,9 @@ try {
   // The next run plans from these; work this run did not reach keeps its old time.
   const keys = [...testLanes.flatMap((lane) => lane.files.map(lane.key)), ...commandUnits.map((unit) => unit.key)];
   const next = Object.fromEntries(
-    keys.filter((key) => (measured[key] ?? history[key]) !== undefined).map((key) => [key, measured[key] ?? history[key]])
+    keys
+      .filter((key) => (measured[key] ?? history[key]) !== undefined)
+      .map((key) => [key, measured[key] ?? history[key]])
   );
   const saveError = historyPath && saveTimingHistory(historyPath, next);
   if (saveError) console.warn(`[gate:local] warning: timings not saved (${saveError.message})`);
@@ -232,7 +241,10 @@ for (const name of laneNames) {
     .filter((l) => /\[failure-summary\] (?:RUN FAILED|HUNG|FAILED|FLAKY)/.test(l));
   for (const l of lines) console.log(`    ${l}`);
 }
-if (notStarted.length) console.log(`Stopped after a failed ${units.find((u) => u.stopOnFail && u.ok === false).lane} check: ${notStarted.length} unit(s) not run`);
+if (notStarted.length)
+  console.log(
+    `Stopped after a failed ${units.find((u) => u.stopOnFail && u.ok === false).lane} check: ${notStarted.length} unit(s) not run`
+  );
 console.log(
   'Not covered locally: runtime-macos, computer-backend, desktop-tests computer lane (Windows-only), relay, graph, patch, browser-import, mobile-scripts'
 );

@@ -45,7 +45,10 @@ test('model-tool calls to disabled features are refused before any dispatch', as
   const source = { invocationSource: 'model-tool' };
   await assert.rejects(execute('web_search', { q: 'x' }, source), /web_search is disabled in settings/);
   // web_fetch routed to its transports keeps the web search gate.
-  await assert.rejects(execute('local_fetch', { url: 'http://127.0.0.1/' }, source), /web_fetch is disabled in settings/);
+  await assert.rejects(
+    execute('local_fetch', { url: 'http://127.0.0.1/' }, source),
+    /web_fetch is disabled in settings/
+  );
   await assert.rejects(execute('image_fetch', { url: 'https://a/x.png' }, source), /web_fetch is disabled in settings/);
   await assert.rejects(execute('memory', {}, source), /memory is disabled in settings/);
   await assert.rejects(execute('office', {}, source), /office is disabled in settings/);

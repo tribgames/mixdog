@@ -110,6 +110,10 @@ export async function ensureDurableTranscript(session) {
     failure = error;
   }
   if (!landedTranscriptMatches(session)) {
-    throw new TurnPersistenceError(session.id, 'the conversation is not saved to disk, so the next turn cannot start', failure);
+    throw new TurnPersistenceError(
+      session.id,
+      'the conversation is not saved to disk, so the next turn cannot start',
+      failure
+    );
   }
 }

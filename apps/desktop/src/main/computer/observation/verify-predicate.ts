@@ -27,7 +27,7 @@ export function verifyUnknownReason(observation: {
   if (observation.providerError?.includes(INTEGRITY_BLOCK_CODE)) {
     return {
       reason: INTEGRITY_BLOCK_CODE,
-      hint: 'Windows hides this window\'s text from a lower-integrity host; capture it for pixels or OCR, or verify title_contains/window_exists instead',
+      hint: "Windows hides this window's text from a lower-integrity host; capture it for pixels or OCR, or verify title_contains/window_exists instead",
     };
   }
   if (observation.providerError?.includes('computer_command_timeout')) {

@@ -24,7 +24,9 @@ function storeImage(totalBytes) {
 }
 
 // readAttachmentImage keeps no per-instance state.
-const host = { readAttachmentImage: (ref, maxBytes) => SessionHost.prototype.readAttachmentImage.call(null, ref, maxBytes) };
+const host = {
+  readAttachmentImage: (ref, maxBytes) => SessionHost.prototype.readAttachmentImage.call(null, ref, maxBytes),
+};
 const phoneThumbnail = (ref) => sessionRemoteMethods(host, undefined, undefined).readAttachmentThumbnail([ref]);
 const storeReads = () => {
   const { hits, misses } = attachmentStoreCacheStats();

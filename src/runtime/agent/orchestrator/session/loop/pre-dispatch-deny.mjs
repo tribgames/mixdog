@@ -14,7 +14,11 @@
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { isOffReadonlySurface } from './deferred-call-through.mjs';
 import { BRIDGE_CALL_TOOL_NAME, bridgeErrorText, isToolBridgeEnabled } from '../../runtime-core/tool-bridge.mjs';
-import { sessionAllowlistExcludes, sessionDisallows, sessionFeatureDenies } from '../../runtime-core/deferred-tool-availability.mjs';
+import {
+  sessionAllowlistExcludes,
+  sessionDisallows,
+  sessionFeatureDenies,
+} from '../../runtime-core/deferred-tool-availability.mjs';
 import { providerToolExclusionReason } from './provider-tool-exclusions.mjs';
 import { workflowOverlayDenial } from '../manager/workflow-switch-notice.mjs';
 import { agentMcpToolPermission, connectorPolicyAgentOf, projectMcpToolDisabled } from '../../mcp/agent-connectors.mjs';

@@ -85,7 +85,10 @@ export function ConnectorSwitchList({
   const rows = useSyncExternalStore(subscribe, () => switchesCache.peek(key)) ?? null;
   // An agent's tool permissions (its connectors' tools), read beside the switches.
   const agentId = kind === 'agent' ? target : '';
-  const subscribeTools = useCallback((listener: () => void) => connectorToolsCache.subscribe(agentId, listener), [agentId]);
+  const subscribeTools = useCallback(
+    (listener: () => void) => connectorToolsCache.subscribe(agentId, listener),
+    [agentId]
+  );
   const toolRows = useSyncExternalStore(subscribeTools, () => connectorToolsCache.peek(agentId)) ?? NO_TOOLS;
   const [opened, setOpened] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState('');

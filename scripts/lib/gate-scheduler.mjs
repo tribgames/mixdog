@@ -31,7 +31,8 @@ export function gateTestBudget(argv = [], env = process.env, parallelism = avail
   if (index >= 0) explicit = argv[index].includes('=') ? argv[index].split('=')[1] : (argv[index + 1] ?? '');
   if (explicit === undefined) return Math.max(1, Math.min(DEFAULT_MAX_WORKERS, Math.floor(parallelism / 2)));
   const budget = Number(explicit);
-  if (!Number.isInteger(budget) || budget < 1) throw new Error(`gate test budget must be a positive integer (got "${explicit}")`);
+  if (!Number.isInteger(budget) || budget < 1)
+    throw new Error(`gate test budget must be a positive integer (got "${explicit}")`);
   return budget;
 }
 

@@ -48,11 +48,7 @@ async function inspect(projectPath, branch) {
     branch,
     commit,
     target: repo.currentBranch,
-    targetCommit: pair
-      ? pair[1]
-      : repo.currentBranch
-        ? await branchCommit(repo.projectPath, repo.currentBranch)
-        : null,
+    targetCommit: pair ? pair[1] : repo.currentBranch ? await branchCommit(repo.projectPath, repo.currentBranch) : null,
     path: holder?.path ?? null,
     worktreeId: entry?.id ?? null,
     kind: holder ? (samePath(holder.path, repo.topLevel) ? 'project' : entry ? 'managed' : 'external') : 'free',

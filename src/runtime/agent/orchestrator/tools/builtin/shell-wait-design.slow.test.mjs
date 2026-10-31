@@ -30,11 +30,7 @@ import {
 } from '../../../../shared/task-notification-envelope.mjs';
 import { escapeHarnessTags } from '../../../../shared/shell-output-summary.mjs';
 import { AGENT_TASK_WAIT_DEFAULT_MS, TASK_WAIT_DEFAULT_MS } from './wait-budgets.mjs';
-import {
-  TASK_WAIT_TIMEOUT_DEFAULT_MS,
-  BUILTIN_TOOLS,
-  bindAgentOwner,
-} from './builtin-tools.mjs';
+import { TASK_WAIT_TIMEOUT_DEFAULT_MS, BUILTIN_TOOLS, bindAgentOwner } from './builtin-tools.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'mixdog-shell-wait-'));
 test.after(async () => {

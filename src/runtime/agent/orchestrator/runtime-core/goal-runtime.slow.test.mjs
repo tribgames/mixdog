@@ -502,7 +502,12 @@ test('Goal tool schema is the minimal lifecycle surface within its size budget',
   assert.equal(GOAL_TOOL_DEFS.length, 1);
   const goalTool = GOAL_TOOL_DEFS[0];
   assert.deepEqual(goalTool.inputSchema.required, ['action']);
-  assert.deepEqual(Object.keys(goalTool.inputSchema.properties), ['action', 'objective', 'time_limit_minutes', 'blocker']);
+  assert.deepEqual(Object.keys(goalTool.inputSchema.properties), [
+    'action',
+    'objective',
+    'time_limit_minutes',
+    'blocker',
+  ]);
   assert.deepEqual(goalTool.inputSchema.properties.action.enum, ['status', 'create', 'complete', 'block']);
   assert.match(goalTool.description, /todo/);
   assert.doesNotMatch(goalTool.description, /goal-management/);

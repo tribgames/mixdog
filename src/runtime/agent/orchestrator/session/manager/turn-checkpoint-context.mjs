@@ -56,7 +56,8 @@ export function captureTurnCheckpointContextState(session, messages, boundary) {
   }
   if (!kind || anchorCount === null || anchorCount > messages.length) return null;
 
-  const committedPrefixCount = Number.isInteger(boundary) && boundary >= 0 && boundary <= messages.length ? boundary : 0;
+  const committedPrefixCount =
+    Number.isInteger(boundary) && boundary >= 0 && boundary <= messages.length ? boundary : 0;
   const canonicalTurnMessages = messages.slice(committedPrefixCount).map(checkpointMessage);
   const turnMessageCount = anchorCount - committedPrefixCount;
   if (turnMessageCount < 0 || turnMessageCount > canonicalTurnMessages.length) return null;

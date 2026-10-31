@@ -10,7 +10,10 @@ import {
   connectorOfServer,
   gmailAppPasswordAccount,
 } from '../../runtime/shared/connector-catalog.mjs';
-import { connectorAccountHealth, connectorAccountInUseRecord } from '../../runtime/connectors/connector-accounts-mcp.mjs';
+import {
+  connectorAccountHealth,
+  connectorAccountInUseRecord,
+} from '../../runtime/connectors/connector-accounts-mcp.mjs';
 import { googleOAuthClient } from '../../runtime/shared/google-oauth-client.mjs';
 import { envFlag } from '../../runtime/shared/env.mjs';
 import { resolveMcpServerCatalog } from './plugin-servers.mjs';

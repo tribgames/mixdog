@@ -60,7 +60,10 @@ function undescribedProperties(schema, path, out = []) {
 test('description walker reports a missing description inside every schema container', () => {
   const bare = { type: 'object', properties: { inner: { type: 'string' } } };
   for (const [container, schema] of [
-    ['properties', { properties: { outer: { type: 'object', description: 'd', properties: { inner: { type: 'string' } } } } }],
+    [
+      'properties',
+      { properties: { outer: { type: 'object', description: 'd', properties: { inner: { type: 'string' } } } } },
+    ],
     ['items', { items: bare }],
     ['anyOf', { anyOf: [bare] }],
     ['oneOf', { oneOf: [bare] }],
@@ -309,10 +312,7 @@ test('agent schema hides execution controls and rejects hidden fields', () => {
   if (agentProps.mode || agentProps.wait || agentProps.sessionId) {
     throw new Error('agent schema should not expose execution mode controls or raw session ids');
   }
-  if (
-    AGENT_TOOL.inputSchema?.required?.join(',') !== 'type' ||
-    agentProps.type?.type !== 'string'
-  ) {
+  if (AGENT_TOOL.inputSchema?.required?.join(',') !== 'type' || agentProps.type?.type !== 'string') {
     throw new Error('agent schema must require a string type');
   }
   for (const name of ['task_id', 'agent', 'tag', 'prompt', 'message', 'file', 'cwd', 'context']) {
@@ -706,7 +706,10 @@ function assertGlobLocatorSchema(globTool) {
 // find: fuzzy-lookup description, limit sentinel, and its nonblank query /
 // optional base-directory operands.
 function assertFindLocatorSchema(findTool) {
-  if (findTool?.inputSchema?.properties?.limit?.type !== 'integer' || findTool.inputSchema.properties.limit.minimum !== 0) {
+  if (
+    findTool?.inputSchema?.properties?.limit?.type !== 'integer' ||
+    findTool.inputSchema.properties.limit.minimum !== 0
+  ) {
     throw new Error('find limit must be an integer with 0 as the unlimited sentinel');
   }
   if (

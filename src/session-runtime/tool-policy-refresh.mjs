@@ -110,7 +110,10 @@ export function createToolPolicyRefresh({
    *  snapshot its prompt was composed with). */
   function noteToolAvailability(session, coreMemory = '') {
     if (session) {
-      appliedKeys.set(session, { gates: availabilityKey(), settings: settingsRevision(session, String(coreMemory || '')) });
+      appliedKeys.set(session, {
+        gates: availabilityKey(),
+        settings: settingsRevision(session, String(coreMemory || '')),
+      });
     }
   }
 
@@ -177,9 +180,10 @@ export function createToolPolicyRefresh({
     const staged = stageToolAvailability(session, featureDisallowedTools(), toolDefinitionsFor);
     appliedKeys.set(session, { gates, settings: rebuilt ? session.promptSettings?.revision : settings });
     const tools = staged || connectors;
-    const merged = staged && connectors
-      ? { added: [...staged.added, ...connectors.added], removed: [...staged.removed, ...connectors.removed] }
-      : tools;
+    const merged =
+      staged && connectors
+        ? { added: [...staged.added, ...connectors.added], removed: [...staged.removed, ...connectors.removed] }
+        : tools;
     return rebuilt || tools || settingsChanged.length
       ? { rebuilt, ...(merged || {}), ...(settingsChanged.length ? { settingsChanged } : {}) }
       : null;

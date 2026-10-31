@@ -92,11 +92,19 @@ function parseTree(body) {
 const treeCache = new Map();
 const blobCache = new Map();
 const treeOf = async (sha) => {
-  if (!treeCache.has(sha)) treeCache.set(sha, read(sha).then(({ body }) => parseTree(body)));
+  if (!treeCache.has(sha))
+    treeCache.set(
+      sha,
+      read(sha).then(({ body }) => parseTree(body))
+    );
   return treeCache.get(sha);
 };
 const blobOf = async (sha) => {
-  if (!blobCache.has(sha)) blobCache.set(sha, read(sha).then(({ body }) => body));
+  if (!blobCache.has(sha))
+    blobCache.set(
+      sha,
+      read(sha).then(({ body }) => body)
+    );
   return blobCache.get(sha);
 };
 
