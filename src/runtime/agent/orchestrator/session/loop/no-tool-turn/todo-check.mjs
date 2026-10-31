@@ -16,7 +16,9 @@ import { resolvePluginData } from '../../../../../shared/plugin-paths.mjs';
 import { awaitingBackgroundWork, beginUserCycle } from '../../../../../shared/background-wait.mjs';
 import { readStoredGoalSnapshot } from '../../../runtime-core/goal-storage.mjs';
 import { clearTodo, openTodoItems, todoAllClosed, todoPhases } from '../../../runtime-core/todo-list.mjs';
+import { TODO_TOOL } from '../../../runtime-core/todo-tool-defs.mjs';
 import { HIDDEN_AGENT_NAMES } from '../hidden-agents.mjs';
+import { _isMutationTool, _isShellTool } from '../tool-classify.mjs';
 
 export const MAX_TODO_REMINDERS = 3;
 
@@ -49,9 +51,83 @@ export function beginTodoTurn(session, { genuine = false } = {}) {
   }
 }
 
+/**
+ * A delegated agent received a new brief or follow-up (a genuine prompt) with
+ * no open list: the hidden reminder trailing that prompt, once per prompt, or
+ * null. The tool description alone was read past on short multi-ask briefs.
+ */
+export function todoStartReminder(session) {
+  if (!session || typeof session !== 'object' || session.owner !== 'agent') return null;
+  if (HIDDEN_AGENT_NAMES.has(session.agent)) return null;
+  if (!session.tools?.some((tool) => tool?.name === TODO_TOOL.name)) return null;
+  if (openTodoItems(session).length) return null;
+  return [
+    '<system-reminder>',
+    'If this brief has three or more steps or several asks, init the todo list with every ask as its own item in the same response as your first tool call; a single step or a plain answer needs none. Do not mention this reminder.',
+    '</system-reminder>',
+  ].join('\n');
+}
+
 /** A tool batch ran: the last reminder produced progress. */
 export function noteTodoProgress(session) {
   if (session?.todoCheck?.awaitingProgress) session.todoCheck.awaitingProgress = false;
+}
+
+// Mid-turn nudge: a long turn can finish items without ever touching the list,
+// leaving the progress shown to the user stale. After this many successful
+// mutating tool calls with no todo call (and no earlier nudge), one hidden
+// reminder is appended. Counted per call, not per batch, so a turn of parallel
+// edits ages the list faster than a turn of reads; a batch of three edits is
+// three. What mutates is the work the list tracks: file edits, command
+// execution (shell, as a bash tool is) and mutating git/github requests.
+export const STALE_TODO_MUTATIONS = 10;
+
+function mutatingCall(call, results) {
+  const name = call?.name ?? call?.function?.name;
+  const args = call?.arguments ?? call?.function?.arguments;
+  if (!_isMutationTool(name, args) && !_isShellTool(name)) return false;
+  const result = results.find((message) => message?.toolCallId === call.id);
+  // A call that failed or was skipped (a dependency guard after a failed edit) changed nothing.
+  return result?.toolKind !== 'error' && result?.toolKind !== 'skipped';
+}
+
+/**
+ * A tool batch ran with `calls` (and their result messages): the hidden
+ * stale-list reminder to append to the transcript, or null. Calls are read in
+ * order: a todo call restarts the count, a successful mutating call adds one.
+ * Outside the end-of-turn budget (`todoCheck.reminders`) and its progress gate.
+ */
+export function staleTodoReminder(session, calls = [], results = [], { sessionAgent = null } = {}) {
+  if (!session || typeof session !== 'object' || HIDDEN_AGENT_NAMES.has(sessionAgent)) return null;
+  const check = checkState(session);
+  for (const call of calls) {
+    if ((call?.name ?? call?.function?.name) === TODO_TOOL.name) check.staleMutations = 0;
+    else if (mutatingCall(call, results)) check.staleMutations = (check.staleMutations || 0) + 1;
+  }
+  const phases = todoPhases(session);
+  // A finished list needs nothing more; no list at all is nudged once per
+  // user cycle (long runs that never made one), an open list repeatedly.
+  if (phases.length && !openTodoItems(session).length) {
+    check.staleMutations = 0;
+    return null;
+  }
+  if (!phases.length && check.createNudged) return null;
+  if ((check.staleMutations || 0) < STALE_TODO_MUTATIONS) return null;
+  check.staleMutations = 0;
+  if (!phases.length) {
+    check.createNudged = true;
+    return [
+      '<system-reminder>',
+      'No todo list exists for this work yet. If it has three or more steps, init one now with the steps left and keep it current; if it is a single step, ignore this. Keep working; do not mention this reminder.',
+      '</system-reminder>',
+    ].join('\n');
+  }
+  return [
+    '<system-reminder>',
+    'The todo tool has not been used for a while. Mark finished items done now (one call each, never batched at the end) so the in-progress pointer is on what you are doing. Keep working; do not mention this reminder.',
+    ...phases.flatMap((phase) => phase.tasks.map((task) => `- [${task.status}] ${task.content}`)),
+    '</system-reminder>',
+  ].join('\n');
 }
 
 function activeGoal(sessionId) {

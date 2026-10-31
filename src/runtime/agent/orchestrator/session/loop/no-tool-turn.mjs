@@ -18,7 +18,7 @@ import { resetOutputLimitRecovery, resolveOutputLimit } from './no-tool-turn/out
 import { resolveRefusal } from './no-tool-turn/refusal.mjs';
 import { resumeContinuation } from './no-tool-turn/continuation.mjs';
 import { nudgeEmptyTurn } from './no-tool-turn/empty-nudge.mjs';
-import { noteTodoProgress, todoCompletionReminder } from './no-tool-turn/todo-check.mjs';
+import { noteTodoProgress, staleTodoReminder, todoCompletionReminder } from './no-tool-turn/todo-check.mjs';
 import { isReactionSuccess, reactionCallIds, takeReactionTarget } from '../../runtime-core/reaction-tool-defs.mjs';
 import { messageIdOf } from '../message-ids.mjs';
 import { isReactableMessage } from '../message-reactions.mjs';
@@ -238,6 +238,8 @@ export function createNoToolTurnResolver({
     noteToolBatchCompleted(calls = [], results = []) {
       state.continuationsSinceToolBatch = 0;
       noteTodoProgress(opts.session);
+      const stale = staleTodoReminder(opts.session, calls, results, { sessionAgent });
+      if (stale) messages.push({ role: 'user', content: stale, meta: 'hook' });
       if (state.endedPartsEnd > 0) state.carriedAnswers.push(segments.parts.slice(0, state.endedPartsEnd).join(''));
       state.endedPartsEnd = 0;
       if (calls.some((call) => (call?.name ?? call?.function?.name) !== TODO_TOOL.name)) state.reportStands = false;
