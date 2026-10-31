@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.4.3 - 2026-10-31
+
 Aggiunte le impostazioni per i Worktree e la pulizia dei branch, sostituite le attività dei Goal con le liste di cose da fare della sessione e introdotti stili personalizzabili del campo di input.
 
 ### Nuove funzionalità

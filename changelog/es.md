@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.4.3 - 2026-10-31
+
 Se añadieron los ajustes de Worktrees y la limpieza de ramas, se reemplazaron las tareas de Goal por listas de tareas de sesión y se introdujeron estilos de cuadro de mensaje personalizables.
 
 ### Nuevas funciones

@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.4.3 - 2026-10-31
+
 Adicionadas as configurações de Worktrees e a limpeza de branches, substituídas as tarefas de Goal por listas de tarefas da sessão e introduzidos estilos personalizáveis para o campo de mensagem.
 
 ### Novos recursos
