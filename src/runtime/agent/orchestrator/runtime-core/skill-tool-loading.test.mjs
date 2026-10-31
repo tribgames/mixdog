@@ -328,8 +328,8 @@ test('loading browser-use or computer-use makes the deferred handoff_user schema
   }
 });
 
-test('policy skills load their deferred tools while search stays independently deferred', () => {
-  const names = ['goal', 'recall', 'memory', 'web_search'];
+test('policy skills load their deferred tools while fetch stays independently deferred', () => {
+  const names = ['goal', 'recall', 'memory', 'web_fetch'];
   const tools = [
     skill,
     read,
@@ -372,10 +372,10 @@ test('policy skills load their deferred tools while search stays independently d
       }
     }
     assert.equal(
-      current.tools.some((tool) => tool.name === 'web_search'),
+      current.tools.some((tool) => tool.name === 'web_fetch'),
       false
     );
-    assert.ok(current.deferredToolCatalog.some((tool) => tool.name === 'web_search'));
+    assert.ok(current.deferredToolCatalog.some((tool) => tool.name === 'web_fetch'));
   }
   // Canonical/local-compatible surfaces expose the core plus the bridge; the
   // rest of the catalog stays reachable through call_tool.

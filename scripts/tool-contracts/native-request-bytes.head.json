@@ -3273,7 +3273,7 @@
    "first": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -3316,6 +3316,10 @@
      [
       "task",
       "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -3372,6 +3376,10 @@
       "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
      ],
      [
+      "web_search",
+      "b33047cf45e69cdb73cf18056209df860fc2575210e3c2f341709f8510ae5331"
+     ],
+     [
       "load_tool",
       "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
@@ -3395,7 +3403,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"
@@ -3422,6 +3430,7 @@
       "git",
       "shell",
       "task",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -3436,6 +3445,7 @@
       "git",
       "shell",
       "task",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -3444,7 +3454,6 @@
       "github",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",
@@ -3458,16 +3467,16 @@
     }
    },
    "loadToolResults": {
-    "load": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [\n        \"web_fetch\",\n        \"mcp__github__list_issues\"\n      ],\n      \"already\": [],\n      \"blocked\": [],\n      \"missing\": [],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"anthropic-oauth\",\n    \"toolReferences\": [\n      \"web_fetch\",\n      \"mcp__github__list_issues\"\n    ],\n    \"openaiTools\": [\n      {\n        \"type\": \"function\",\n        \"name\": \"web_fetch\",\n        \"description\": \"Fetch page/docs body from URL; batch known URLs with shared slice options.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"url\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\",\n                  \"format\": \"uri\"\n                },\n                {\n                  \"type\": \"array\",\n                  \"items\": {\n                    \"type\": \"string\",\n                    \"format\": \"uri\"\n                  },\n                  \"minItems\": 1,\n                  \"maxItems\": 10\n                }\n              ],\n              \"description\": \"Public or loopback HTTP(S) URL, or an array of up to 10; keep loopback and public URLs in separate calls.\"\n            },\n            \"startIndex\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Character offset; default 0.\"\n            },\n            \"maxLength\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Maximum characters; default 20000; 0 unlimited. A cut page ends with [output capped …; startIndex:N for more].\"\n            }\n          },\n          \"required\": [\n            \"url\"\n          ],\n          \"additionalProperties\": false\n        }\n      },\n      {\n        \"type\": \"function\",\n        \"name\": \"mcp__github__list_issues\",\n        \"description\": \"List repository issues.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"repo\": {\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"repo\"\n          ]\n        }\n      }\n    ],\n    \"summary\": \"Loaded deferred tools: web_fetch, mcp__github__list_issues\"\n  },\n  \"mcpInstructions\": \"## github\\nPrefer list_issues before create_issue.\",\n  \"loaded\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ],\n  \"alreadyActive\": [],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"edit\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"load_tool\",\n    \"mcp__github__list_issues\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
-    "again": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [],\n      \"already\": [\n        \"web_fetch\"\n      ],\n      \"blocked\": [],\n      \"missing\": [],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"anthropic-oauth\",\n    \"toolReferences\": [\n      \"web_fetch\"\n    ],\n    \"openaiTools\": [\n      {\n        \"type\": \"function\",\n        \"name\": \"web_fetch\",\n        \"description\": \"Fetch page/docs body from URL; batch known URLs with shared slice options.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"url\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\",\n                  \"format\": \"uri\"\n                },\n                {\n                  \"type\": \"array\",\n                  \"items\": {\n                    \"type\": \"string\",\n                    \"format\": \"uri\"\n                  },\n                  \"minItems\": 1,\n                  \"maxItems\": 10\n                }\n              ],\n              \"description\": \"Public or loopback HTTP(S) URL, or an array of up to 10; keep loopback and public URLs in separate calls.\"\n            },\n            \"startIndex\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Character offset; default 0.\"\n            },\n            \"maxLength\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Maximum characters; default 20000; 0 unlimited. A cut page ends with [output capped …; startIndex:N for more].\"\n            }\n          },\n          \"required\": [\n            \"url\"\n          ],\n          \"additionalProperties\": false\n        }\n      }\n    ],\n    \"summary\": \"Already active: web_fetch\"\n  },\n  \"loaded\": [],\n  \"alreadyActive\": [\n    \"web_fetch\"\n  ],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"edit\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"load_tool\",\n    \"mcp__github__list_issues\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
-    "missing": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [],\n      \"already\": [],\n      \"blocked\": [],\n      \"missing\": [\n        \"nope_tool\"\n      ],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"anthropic-oauth\",\n    \"toolReferences\": [],\n    \"openaiTools\": [],\n    \"summary\": \"\"\n  },\n  \"loaded\": [],\n  \"alreadyActive\": [],\n  \"missing\": [\n    \"nope_tool\"\n  ],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"edit\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"load_tool\",\n    \"mcp__github__list_issues\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
-    "empty": "{\n  \"error\": \"load_tool requires names:[\\\"exact_tool_name\\\", ...] (deferred tool names/aliases).\",\n  \"loaded\": [],\n  \"alreadyActive\": [],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"edit\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"load_tool\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
-    "query": "{\n  \"error\": \"load_tool is a loader, not a search: \\\"fetch a page\\\" is not an exact tool name. Pass names:[\\\"exact_tool_name\\\", ...] (deferred tool names/aliases). No keyword search.\",\n  \"loaded\": [],\n  \"alreadyActive\": [],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"edit\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"load_tool\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}"
+    "load": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [\n        \"web_fetch\",\n        \"mcp__github__list_issues\"\n      ],\n      \"already\": [],\n      \"blocked\": [],\n      \"missing\": [],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"anthropic-oauth\",\n    \"toolReferences\": [\n      \"web_fetch\",\n      \"mcp__github__list_issues\"\n    ],\n    \"openaiTools\": [\n      {\n        \"type\": \"function\",\n        \"name\": \"web_fetch\",\n        \"description\": \"Fetch page/docs body from URL; batch known URLs with shared slice options.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"url\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\",\n                  \"format\": \"uri\"\n                },\n                {\n                  \"type\": \"array\",\n                  \"items\": {\n                    \"type\": \"string\",\n                    \"format\": \"uri\"\n                  },\n                  \"minItems\": 1,\n                  \"maxItems\": 10\n                }\n              ],\n              \"description\": \"Public or loopback HTTP(S) URL, or an array of up to 10; keep loopback and public URLs in separate calls.\"\n            },\n            \"startIndex\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Character offset; default 0.\"\n            },\n            \"maxLength\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Maximum characters; default 20000; 0 unlimited. A cut page ends with [output capped …; startIndex:N for more].\"\n            }\n          },\n          \"required\": [\n            \"url\"\n          ],\n          \"additionalProperties\": false\n        }\n      },\n      {\n        \"type\": \"function\",\n        \"name\": \"mcp__github__list_issues\",\n        \"description\": \"List repository issues.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"repo\": {\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"repo\"\n          ]\n        }\n      }\n    ],\n    \"summary\": \"Loaded deferred tools: web_fetch, mcp__github__list_issues\"\n  },\n  \"mcpInstructions\": \"## github\\nPrefer list_issues before create_issue.\",\n  \"loaded\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ],\n  \"alreadyActive\": [],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"edit\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"web_search\",\n    \"load_tool\",\n    \"mcp__github__list_issues\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
+    "again": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [],\n      \"already\": [\n        \"web_fetch\"\n      ],\n      \"blocked\": [],\n      \"missing\": [],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"anthropic-oauth\",\n    \"toolReferences\": [\n      \"web_fetch\"\n    ],\n    \"openaiTools\": [\n      {\n        \"type\": \"function\",\n        \"name\": \"web_fetch\",\n        \"description\": \"Fetch page/docs body from URL; batch known URLs with shared slice options.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"url\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\",\n                  \"format\": \"uri\"\n                },\n                {\n                  \"type\": \"array\",\n                  \"items\": {\n                    \"type\": \"string\",\n                    \"format\": \"uri\"\n                  },\n                  \"minItems\": 1,\n                  \"maxItems\": 10\n                }\n              ],\n              \"description\": \"Public or loopback HTTP(S) URL, or an array of up to 10; keep loopback and public URLs in separate calls.\"\n            },\n            \"startIndex\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Character offset; default 0.\"\n            },\n            \"maxLength\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Maximum characters; default 20000; 0 unlimited. A cut page ends with [output capped …; startIndex:N for more].\"\n            }\n          },\n          \"required\": [\n            \"url\"\n          ],\n          \"additionalProperties\": false\n        }\n      }\n    ],\n    \"summary\": \"Already active: web_fetch\"\n  },\n  \"loaded\": [],\n  \"alreadyActive\": [\n    \"web_fetch\"\n  ],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"edit\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"web_search\",\n    \"load_tool\",\n    \"mcp__github__list_issues\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
+    "missing": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [],\n      \"already\": [],\n      \"blocked\": [],\n      \"missing\": [\n        \"nope_tool\"\n      ],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"anthropic-oauth\",\n    \"toolReferences\": [],\n    \"openaiTools\": [],\n    \"summary\": \"\"\n  },\n  \"loaded\": [],\n  \"alreadyActive\": [],\n  \"missing\": [\n    \"nope_tool\"\n  ],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"edit\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"web_search\",\n    \"load_tool\",\n    \"mcp__github__list_issues\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
+    "empty": "{\n  \"error\": \"load_tool requires names:[\\\"exact_tool_name\\\", ...] (deferred tool names/aliases).\",\n  \"loaded\": [],\n  \"alreadyActive\": [],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"edit\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_search\",\n    \"load_tool\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
+    "query": "{\n  \"error\": \"load_tool is a loader, not a search: \\\"fetch a page\\\" is not an exact tool name. Pass names:[\\\"exact_tool_name\\\", ...] (deferred tool names/aliases). No keyword search.\",\n  \"loaded\": [],\n  \"alreadyActive\": [],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"edit\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_search\",\n    \"load_tool\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}"
    },
    "afterLoad": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -3510,6 +3519,10 @@
      [
       "task",
       "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -3574,6 +3587,10 @@
       "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
      ],
      [
+      "web_search",
+      "b33047cf45e69cdb73cf18056209df860fc2575210e3c2f341709f8510ae5331"
+     ],
+     [
       "load_tool",
       "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
@@ -3605,7 +3622,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"
@@ -3633,6 +3650,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "mcp__github__list_issues",
       "Skill"
@@ -3649,6 +3667,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "mcp__github__list_issues",
       "Skill"
@@ -3661,7 +3680,6 @@
       "github",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",
@@ -3689,7 +3707,7 @@
     "request": {
      "system": [
       "# Base rules",
-      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
       "# Session"
      ],
      "tools": [
@@ -3732,6 +3750,10 @@
       [
        "task",
        "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+      ],
+      [
+       "web_search",
+       "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
       ],
       [
        "load_tool",
@@ -3796,6 +3818,10 @@
        "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
       ],
       [
+       "web_search",
+       "b33047cf45e69cdb73cf18056209df860fc2575210e3c2f341709f8510ae5331"
+      ],
+      [
        "load_tool",
        "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
       ],
@@ -3827,7 +3853,7 @@
       },
       {
        "type": "text",
-       "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+       "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
        "cache_control": {
         "type": "ephemeral",
         "ttl": "1h"
@@ -3855,6 +3881,7 @@
        "shell",
        "task",
        "web_fetch",
+       "web_search",
        "load_tool",
        "mcp__github__list_issues",
        "Skill"
@@ -3871,6 +3898,7 @@
        "shell",
        "task",
        "web_fetch",
+       "web_search",
        "load_tool",
        "mcp__github__list_issues",
        "Skill"
@@ -3883,7 +3911,6 @@
        "github",
        "recall",
        "web_fetch",
-       "web_search",
        "browser",
        "browser_devtools",
        "computer",
@@ -3900,7 +3927,7 @@
    "firstTurnFold": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- mcp__late: Look something up\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- mcp__late: Look something up\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -3943,6 +3970,10 @@
      [
       "task",
       "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -3999,6 +4030,10 @@
       "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
      ],
      [
+      "web_search",
+      "b33047cf45e69cdb73cf18056209df860fc2575210e3c2f341709f8510ae5331"
+     ],
+     [
       "load_tool",
       "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
@@ -4022,7 +4057,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- mcp__late: Look something up\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- mcp__late: Look something up\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"
@@ -4049,6 +4084,7 @@
       "git",
       "shell",
       "task",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -4063,6 +4099,7 @@
       "git",
       "shell",
       "task",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -4071,7 +4108,6 @@
       "github",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",
@@ -4091,7 +4127,7 @@
     "request": {
      "system": [
       "# Base rules",
-      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
       "# Session"
      ],
      "tools": [
@@ -4134,6 +4170,10 @@
       [
        "task",
        "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+      ],
+      [
+       "web_search",
+       "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
       ],
       [
        "load_tool",
@@ -4194,6 +4234,10 @@
        "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
       ],
       [
+       "web_search",
+       "b33047cf45e69cdb73cf18056209df860fc2575210e3c2f341709f8510ae5331"
+      ],
+      [
        "load_tool",
        "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
       ],
@@ -4221,7 +4265,7 @@
       },
       {
        "type": "text",
-       "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+       "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
        "cache_control": {
         "type": "ephemeral",
         "ttl": "1h"
@@ -4248,6 +4292,7 @@
        "git",
        "shell",
        "task",
+       "web_search",
        "load_tool",
        "office",
        "Skill"
@@ -4263,6 +4308,7 @@
        "git",
        "shell",
        "task",
+       "web_search",
        "load_tool",
        "office",
        "Skill"
@@ -4274,7 +4320,6 @@
        "github",
        "recall",
        "web_fetch",
-       "web_search",
        "browser",
        "browser_devtools",
        "computer",
@@ -4294,12 +4339,12 @@
     "loadToolAllowlist": "Error: tool \"load_tool\" is not available on this session's schema allowlist.",
     "disallowed": "Error: tool \"grep\" is not available in this session.",
     "allowed": null,
-    "deniedLoad": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [\n        \"web_fetch\"\n      ],\n      \"already\": [],\n      \"blocked\": [],\n      \"missing\": [\n        \"office\"\n      ],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"anthropic-oauth\",\n    \"toolReferences\": [\n      \"web_fetch\"\n    ],\n    \"openaiTools\": [\n      {\n        \"type\": \"function\",\n        \"name\": \"web_fetch\",\n        \"description\": \"Fetch page/docs body from URL; batch known URLs with shared slice options.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"url\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\",\n                  \"format\": \"uri\"\n                },\n                {\n                  \"type\": \"array\",\n                  \"items\": {\n                    \"type\": \"string\",\n                    \"format\": \"uri\"\n                  },\n                  \"minItems\": 1,\n                  \"maxItems\": 10\n                }\n              ],\n              \"description\": \"Public or loopback HTTP(S) URL, or an array of up to 10; keep loopback and public URLs in separate calls.\"\n            },\n            \"startIndex\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Character offset; default 0.\"\n            },\n            \"maxLength\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Maximum characters; default 20000; 0 unlimited. A cut page ends with [output capped …; startIndex:N for more].\"\n            }\n          },\n          \"required\": [\n            \"url\"\n          ],\n          \"additionalProperties\": false\n        }\n      }\n    ],\n    \"summary\": \"Loaded deferred tools: web_fetch\"\n  },\n  \"loaded\": [\n    \"web_fetch\"\n  ],\n  \"alreadyActive\": [],\n  \"missing\": [\n    \"office\"\n  ],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"code_graph\",\n    \"read\",\n    \"edit\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"load_tool\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\"\n  ]\n}"
+    "deniedLoad": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [\n        \"web_fetch\"\n      ],\n      \"already\": [],\n      \"blocked\": [],\n      \"missing\": [\n        \"office\"\n      ],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"anthropic-oauth\",\n    \"toolReferences\": [\n      \"web_fetch\"\n    ],\n    \"openaiTools\": [\n      {\n        \"type\": \"function\",\n        \"name\": \"web_fetch\",\n        \"description\": \"Fetch page/docs body from URL; batch known URLs with shared slice options.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"url\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\",\n                  \"format\": \"uri\"\n                },\n                {\n                  \"type\": \"array\",\n                  \"items\": {\n                    \"type\": \"string\",\n                    \"format\": \"uri\"\n                  },\n                  \"minItems\": 1,\n                  \"maxItems\": 10\n                }\n              ],\n              \"description\": \"Public or loopback HTTP(S) URL, or an array of up to 10; keep loopback and public URLs in separate calls.\"\n            },\n            \"startIndex\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Character offset; default 0.\"\n            },\n            \"maxLength\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Maximum characters; default 20000; 0 unlimited. A cut page ends with [output capped …; startIndex:N for more].\"\n            }\n          },\n          \"required\": [\n            \"url\"\n          ],\n          \"additionalProperties\": false\n        }\n      }\n    ],\n    \"summary\": \"Loaded deferred tools: web_fetch\"\n  },\n  \"loaded\": [\n    \"web_fetch\"\n  ],\n  \"alreadyActive\": [],\n  \"missing\": [\n    \"office\"\n  ],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"code_graph\",\n    \"read\",\n    \"edit\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"web_search\",\n    \"load_tool\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\"\n  ]\n}"
    },
    "allowlisted": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -4342,6 +4387,10 @@
      [
       "task",
       "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -4398,6 +4447,10 @@
       "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
      ],
      [
+      "web_search",
+      "b33047cf45e69cdb73cf18056209df860fc2575210e3c2f341709f8510ae5331"
+     ],
+     [
       "load_tool",
       "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
@@ -4421,7 +4474,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"
@@ -4448,6 +4501,7 @@
       "git",
       "shell",
       "task",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -4462,6 +4516,7 @@
       "git",
       "shell",
       "task",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -4470,7 +4525,6 @@
       "github",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",
@@ -4486,7 +4540,7 @@
    "denied": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -4525,6 +4579,10 @@
      [
       "task",
       "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -4581,6 +4639,10 @@
       "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
      ],
      [
+      "web_search",
+      "b33047cf45e69cdb73cf18056209df860fc2575210e3c2f341709f8510ae5331"
+     ],
+     [
       "load_tool",
       "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
@@ -4608,7 +4670,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"
@@ -4635,6 +4697,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -4649,6 +4712,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -4659,7 +4723,6 @@
       "github",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",
@@ -4674,7 +4737,7 @@
    "readonly": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- edit: Replace exact text in one file. old_string must match once unless replace_all is true. Every...\n- git: Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- shell: Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools...\n- task: Manage shell tasks. Completion is delivered automatically; wait only when you need the result now...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- edit: Replace exact text in one file. old_string must match once unless replace_all is true. Every...\n- git: Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- shell: Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools...\n- task: Manage shell tasks. Completion is delivered automatically; wait only when you need the result now...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -4701,6 +4764,10 @@
      [
       "read",
       "543ec4256817604476c71529e2179e6d983a3a21fd1453e393dec5b39fa38c9f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -4741,6 +4808,10 @@
       "6269333d47242e35df6bf4e0af4b3142ee9f5c511969a8754e8415be29773d6f"
      ],
      [
+      "web_search",
+      "b33047cf45e69cdb73cf18056209df860fc2575210e3c2f341709f8510ae5331"
+     ],
+     [
       "load_tool",
       "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
@@ -4764,7 +4835,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- edit: Replace exact text in one file. old_string must match once unless replace_all is true. Every...\n- git: Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- shell: Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools...\n- task: Manage shell tasks. Completion is delivered automatically; wait only when you need the result now...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- edit: Replace exact text in one file. old_string must match once unless replace_all is true. Every...\n- git: Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- shell: Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools...\n- task: Manage shell tasks. Completion is delivered automatically; wait only when you need the result now...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"
@@ -4787,6 +4858,7 @@
       "grep",
       "code_graph",
       "read",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -4797,6 +4869,7 @@
       "grep",
       "code_graph",
       "read",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -4809,7 +4882,6 @@
       "task",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",
@@ -4825,7 +4897,7 @@
    "switchSameFamily": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -4868,6 +4940,10 @@
      [
       "task",
       "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -4928,6 +5004,10 @@
       "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
      ],
      [
+      "web_search",
+      "b33047cf45e69cdb73cf18056209df860fc2575210e3c2f341709f8510ae5331"
+     ],
+     [
       "load_tool",
       "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
@@ -4955,7 +5035,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"
@@ -4983,6 +5063,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -4998,6 +5079,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -5008,7 +5090,6 @@
       "github",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",
@@ -5024,7 +5105,7 @@
    "switchOtherFamily": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -5067,6 +5148,10 @@
      [
       "task",
       "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -5119,6 +5204,10 @@
       "54ccf41031df5070ffc4629c990791a3eb37cdc4f4e468f3e12ec7e338ca6cef"
      ],
      [
+      "web_search",
+      "132fe0be8fb923362c61664183d7ab974ec8f670d6117c117adddaad8cd44205"
+     ],
+     [
       "tool_search",
       "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
@@ -5141,6 +5230,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -5156,6 +5246,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -5166,7 +5257,6 @@
       "github",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",
@@ -5184,7 +5274,7 @@
    "first": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -5223,6 +5313,10 @@
      [
       "task",
       "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -5271,6 +5365,10 @@
       "54ccf41031df5070ffc4629c990791a3eb37cdc4f4e468f3e12ec7e338ca6cef"
      ],
      [
+      "web_search",
+      "132fe0be8fb923362c61664183d7ab974ec8f670d6117c117adddaad8cd44205"
+     ],
+     [
       "tool_search",
       "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
@@ -5291,6 +5389,7 @@
       "git",
       "shell",
       "task",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -5304,6 +5403,7 @@
       "git",
       "shell",
       "task",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -5312,7 +5412,6 @@
       "github",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",
@@ -5326,16 +5425,16 @@
     }
    },
    "loadToolResults": {
-    "load": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [\n        \"web_fetch\",\n        \"mcp__github__list_issues\"\n      ],\n      \"already\": [],\n      \"blocked\": [],\n      \"missing\": [],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"openai-oauth\",\n    \"toolReferences\": [\n      \"web_fetch\",\n      \"mcp__github__list_issues\"\n    ],\n    \"openaiTools\": [\n      {\n        \"type\": \"function\",\n        \"name\": \"web_fetch\",\n        \"description\": \"Fetch page/docs body from URL; batch known URLs with shared slice options.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"url\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\",\n                  \"format\": \"uri\"\n                },\n                {\n                  \"type\": \"array\",\n                  \"items\": {\n                    \"type\": \"string\",\n                    \"format\": \"uri\"\n                  },\n                  \"minItems\": 1,\n                  \"maxItems\": 10\n                }\n              ],\n              \"description\": \"Public or loopback HTTP(S) URL, or an array of up to 10; keep loopback and public URLs in separate calls.\"\n            },\n            \"startIndex\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Character offset; default 0.\"\n            },\n            \"maxLength\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Maximum characters; default 20000; 0 unlimited. A cut page ends with [output capped …; startIndex:N for more].\"\n            }\n          },\n          \"required\": [\n            \"url\"\n          ],\n          \"additionalProperties\": false\n        }\n      },\n      {\n        \"type\": \"function\",\n        \"name\": \"mcp__github__list_issues\",\n        \"description\": \"List repository issues.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"repo\": {\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"repo\"\n          ]\n        }\n      }\n    ],\n    \"summary\": \"Loaded deferred tools: web_fetch, mcp__github__list_issues\"\n  },\n  \"mcpInstructions\": \"## github\\nPrefer list_issues before create_issue.\",\n  \"loaded\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ],\n  \"alreadyActive\": [],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"load_tool\",\n    \"mcp__github__list_issues\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
-    "again": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [],\n      \"already\": [\n        \"web_fetch\"\n      ],\n      \"blocked\": [],\n      \"missing\": [],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"openai-oauth\",\n    \"toolReferences\": [\n      \"web_fetch\"\n    ],\n    \"openaiTools\": [\n      {\n        \"type\": \"function\",\n        \"name\": \"web_fetch\",\n        \"description\": \"Fetch page/docs body from URL; batch known URLs with shared slice options.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"url\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\",\n                  \"format\": \"uri\"\n                },\n                {\n                  \"type\": \"array\",\n                  \"items\": {\n                    \"type\": \"string\",\n                    \"format\": \"uri\"\n                  },\n                  \"minItems\": 1,\n                  \"maxItems\": 10\n                }\n              ],\n              \"description\": \"Public or loopback HTTP(S) URL, or an array of up to 10; keep loopback and public URLs in separate calls.\"\n            },\n            \"startIndex\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Character offset; default 0.\"\n            },\n            \"maxLength\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Maximum characters; default 20000; 0 unlimited. A cut page ends with [output capped …; startIndex:N for more].\"\n            }\n          },\n          \"required\": [\n            \"url\"\n          ],\n          \"additionalProperties\": false\n        }\n      }\n    ],\n    \"summary\": \"Already active: web_fetch\"\n  },\n  \"loaded\": [],\n  \"alreadyActive\": [\n    \"web_fetch\"\n  ],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"load_tool\",\n    \"mcp__github__list_issues\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
-    "missing": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [],\n      \"already\": [],\n      \"blocked\": [],\n      \"missing\": [\n        \"nope_tool\"\n      ],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"openai-oauth\",\n    \"toolReferences\": [],\n    \"openaiTools\": [],\n    \"summary\": \"\"\n  },\n  \"loaded\": [],\n  \"alreadyActive\": [],\n  \"missing\": [\n    \"nope_tool\"\n  ],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"load_tool\",\n    \"mcp__github__list_issues\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
-    "empty": "{\n  \"error\": \"load_tool requires names:[\\\"exact_tool_name\\\", ...] (deferred tool names/aliases).\",\n  \"loaded\": [],\n  \"alreadyActive\": [],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"load_tool\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
-    "query": "{\n  \"error\": \"load_tool is a loader, not a search: \\\"fetch a page\\\" is not an exact tool name. Pass names:[\\\"exact_tool_name\\\", ...] (deferred tool names/aliases). No keyword search.\",\n  \"loaded\": [],\n  \"alreadyActive\": [],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"load_tool\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}"
+    "load": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [\n        \"web_fetch\",\n        \"mcp__github__list_issues\"\n      ],\n      \"already\": [],\n      \"blocked\": [],\n      \"missing\": [],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"openai-oauth\",\n    \"toolReferences\": [\n      \"web_fetch\",\n      \"mcp__github__list_issues\"\n    ],\n    \"openaiTools\": [\n      {\n        \"type\": \"function\",\n        \"name\": \"web_fetch\",\n        \"description\": \"Fetch page/docs body from URL; batch known URLs with shared slice options.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"url\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\",\n                  \"format\": \"uri\"\n                },\n                {\n                  \"type\": \"array\",\n                  \"items\": {\n                    \"type\": \"string\",\n                    \"format\": \"uri\"\n                  },\n                  \"minItems\": 1,\n                  \"maxItems\": 10\n                }\n              ],\n              \"description\": \"Public or loopback HTTP(S) URL, or an array of up to 10; keep loopback and public URLs in separate calls.\"\n            },\n            \"startIndex\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Character offset; default 0.\"\n            },\n            \"maxLength\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Maximum characters; default 20000; 0 unlimited. A cut page ends with [output capped …; startIndex:N for more].\"\n            }\n          },\n          \"required\": [\n            \"url\"\n          ],\n          \"additionalProperties\": false\n        }\n      },\n      {\n        \"type\": \"function\",\n        \"name\": \"mcp__github__list_issues\",\n        \"description\": \"List repository issues.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"repo\": {\n              \"type\": \"string\"\n            }\n          },\n          \"required\": [\n            \"repo\"\n          ]\n        }\n      }\n    ],\n    \"summary\": \"Loaded deferred tools: web_fetch, mcp__github__list_issues\"\n  },\n  \"mcpInstructions\": \"## github\\nPrefer list_issues before create_issue.\",\n  \"loaded\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ],\n  \"alreadyActive\": [],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"web_search\",\n    \"load_tool\",\n    \"mcp__github__list_issues\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
+    "again": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [],\n      \"already\": [\n        \"web_fetch\"\n      ],\n      \"blocked\": [],\n      \"missing\": [],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"openai-oauth\",\n    \"toolReferences\": [\n      \"web_fetch\"\n    ],\n    \"openaiTools\": [\n      {\n        \"type\": \"function\",\n        \"name\": \"web_fetch\",\n        \"description\": \"Fetch page/docs body from URL; batch known URLs with shared slice options.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"url\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\",\n                  \"format\": \"uri\"\n                },\n                {\n                  \"type\": \"array\",\n                  \"items\": {\n                    \"type\": \"string\",\n                    \"format\": \"uri\"\n                  },\n                  \"minItems\": 1,\n                  \"maxItems\": 10\n                }\n              ],\n              \"description\": \"Public or loopback HTTP(S) URL, or an array of up to 10; keep loopback and public URLs in separate calls.\"\n            },\n            \"startIndex\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Character offset; default 0.\"\n            },\n            \"maxLength\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Maximum characters; default 20000; 0 unlimited. A cut page ends with [output capped …; startIndex:N for more].\"\n            }\n          },\n          \"required\": [\n            \"url\"\n          ],\n          \"additionalProperties\": false\n        }\n      }\n    ],\n    \"summary\": \"Already active: web_fetch\"\n  },\n  \"loaded\": [],\n  \"alreadyActive\": [\n    \"web_fetch\"\n  ],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"web_search\",\n    \"load_tool\",\n    \"mcp__github__list_issues\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
+    "missing": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [],\n      \"already\": [],\n      \"blocked\": [],\n      \"missing\": [\n        \"nope_tool\"\n      ],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"openai-oauth\",\n    \"toolReferences\": [],\n    \"openaiTools\": [],\n    \"summary\": \"\"\n  },\n  \"loaded\": [],\n  \"alreadyActive\": [],\n  \"missing\": [\n    \"nope_tool\"\n  ],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"web_search\",\n    \"load_tool\",\n    \"mcp__github__list_issues\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
+    "empty": "{\n  \"error\": \"load_tool requires names:[\\\"exact_tool_name\\\", ...] (deferred tool names/aliases).\",\n  \"loaded\": [],\n  \"alreadyActive\": [],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_search\",\n    \"load_tool\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}",
+    "query": "{\n  \"error\": \"load_tool is a loader, not a search: \\\"fetch a page\\\" is not an exact tool name. Pass names:[\\\"exact_tool_name\\\", ...] (deferred tool names/aliases). No keyword search.\",\n  \"loaded\": [],\n  \"alreadyActive\": [],\n  \"missing\": [],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"grep\",\n    \"code_graph\",\n    \"read\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_search\",\n    \"load_tool\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\",\n    \"mcp__github__list_issues\"\n  ]\n}"
    },
    "afterLoad": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -5374,6 +5473,10 @@
      [
       "task",
       "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -5422,6 +5525,10 @@
       "54ccf41031df5070ffc4629c990791a3eb37cdc4f4e468f3e12ec7e338ca6cef"
      ],
      [
+      "web_search",
+      "132fe0be8fb923362c61664183d7ab974ec8f670d6117c117adddaad8cd44205"
+     ],
+     [
       "tool_search",
       "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
@@ -5443,6 +5550,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "mcp__github__list_issues",
       "Skill"
@@ -5458,6 +5566,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "mcp__github__list_issues",
       "Skill"
@@ -5470,7 +5579,6 @@
       "github",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",
@@ -5498,7 +5606,7 @@
     "request": {
      "system": [
       "# Base rules",
-      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
       "# Session"
      ],
      "tools": [
@@ -5537,6 +5645,10 @@
       [
        "task",
        "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+      ],
+      [
+       "web_search",
+       "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
       ],
       [
        "load_tool",
@@ -5585,6 +5697,10 @@
        "54ccf41031df5070ffc4629c990791a3eb37cdc4f4e468f3e12ec7e338ca6cef"
       ],
       [
+       "web_search",
+       "132fe0be8fb923362c61664183d7ab974ec8f670d6117c117adddaad8cd44205"
+      ],
+      [
        "tool_search",
        "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
       ],
@@ -5606,6 +5722,7 @@
        "shell",
        "task",
        "web_fetch",
+       "web_search",
        "load_tool",
        "mcp__github__list_issues",
        "Skill"
@@ -5621,6 +5738,7 @@
        "shell",
        "task",
        "web_fetch",
+       "web_search",
        "load_tool",
        "mcp__github__list_issues",
        "Skill"
@@ -5633,7 +5751,6 @@
        "github",
        "recall",
        "web_fetch",
-       "web_search",
        "browser",
        "browser_devtools",
        "computer",
@@ -5650,7 +5767,7 @@
    "firstTurnFold": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- mcp__late: Look something up\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- mcp__late: Look something up\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -5689,6 +5806,10 @@
      [
       "task",
       "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -5737,6 +5858,10 @@
       "54ccf41031df5070ffc4629c990791a3eb37cdc4f4e468f3e12ec7e338ca6cef"
      ],
      [
+      "web_search",
+      "132fe0be8fb923362c61664183d7ab974ec8f670d6117c117adddaad8cd44205"
+     ],
+     [
       "tool_search",
       "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
@@ -5757,6 +5882,7 @@
       "git",
       "shell",
       "task",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -5770,6 +5896,7 @@
       "git",
       "shell",
       "task",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -5778,7 +5905,6 @@
       "github",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",
@@ -5798,7 +5924,7 @@
     "request": {
      "system": [
       "# Base rules",
-      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+      "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
       "# Session"
      ],
      "tools": [
@@ -5837,6 +5963,10 @@
       [
        "task",
        "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+      ],
+      [
+       "web_search",
+       "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
       ],
       [
        "load_tool",
@@ -5885,6 +6015,10 @@
        "54ccf41031df5070ffc4629c990791a3eb37cdc4f4e468f3e12ec7e338ca6cef"
       ],
       [
+       "web_search",
+       "132fe0be8fb923362c61664183d7ab974ec8f670d6117c117adddaad8cd44205"
+      ],
+      [
        "tool_search",
        "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
       ],
@@ -5905,6 +6039,7 @@
        "git",
        "shell",
        "task",
+       "web_search",
        "load_tool",
        "office",
        "Skill"
@@ -5919,6 +6054,7 @@
        "git",
        "shell",
        "task",
+       "web_search",
        "load_tool",
        "office",
        "Skill"
@@ -5930,7 +6066,6 @@
        "github",
        "recall",
        "web_fetch",
-       "web_search",
        "browser",
        "browser_devtools",
        "computer",
@@ -5950,12 +6085,12 @@
     "loadToolAllowlist": "Error: tool \"load_tool\" is not available on this session's schema allowlist.",
     "disallowed": "Error: tool \"grep\" is not available in this session.",
     "allowed": null,
-    "deniedLoad": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [\n        \"web_fetch\"\n      ],\n      \"already\": [],\n      \"blocked\": [],\n      \"missing\": [\n        \"office\"\n      ],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"openai-oauth\",\n    \"toolReferences\": [\n      \"web_fetch\"\n    ],\n    \"openaiTools\": [\n      {\n        \"type\": \"function\",\n        \"name\": \"web_fetch\",\n        \"description\": \"Fetch page/docs body from URL; batch known URLs with shared slice options.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"url\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\",\n                  \"format\": \"uri\"\n                },\n                {\n                  \"type\": \"array\",\n                  \"items\": {\n                    \"type\": \"string\",\n                    \"format\": \"uri\"\n                  },\n                  \"minItems\": 1,\n                  \"maxItems\": 10\n                }\n              ],\n              \"description\": \"Public or loopback HTTP(S) URL, or an array of up to 10; keep loopback and public URLs in separate calls.\"\n            },\n            \"startIndex\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Character offset; default 0.\"\n            },\n            \"maxLength\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Maximum characters; default 20000; 0 unlimited. A cut page ends with [output capped …; startIndex:N for more].\"\n            }\n          },\n          \"required\": [\n            \"url\"\n          ],\n          \"additionalProperties\": false\n        }\n      }\n    ],\n    \"summary\": \"Loaded deferred tools: web_fetch\"\n  },\n  \"loaded\": [\n    \"web_fetch\"\n  ],\n  \"alreadyActive\": [],\n  \"missing\": [\n    \"office\"\n  ],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"code_graph\",\n    \"read\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"load_tool\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\"\n  ]\n}"
+    "deniedLoad": "{\n  \"selected\": {\n    \"mode\": \"select\",\n    \"tools\": {\n      \"added\": [\n        \"web_fetch\"\n      ],\n      \"already\": [],\n      \"blocked\": [],\n      \"missing\": [\n        \"office\"\n      ],\n      \"native\": true\n    }\n  },\n  \"nativeToolSearch\": {\n    \"provider\": \"openai-oauth\",\n    \"toolReferences\": [\n      \"web_fetch\"\n    ],\n    \"openaiTools\": [\n      {\n        \"type\": \"function\",\n        \"name\": \"web_fetch\",\n        \"description\": \"Fetch page/docs body from URL; batch known URLs with shared slice options.\",\n        \"defer_loading\": true,\n        \"parameters\": {\n          \"type\": \"object\",\n          \"properties\": {\n            \"url\": {\n              \"anyOf\": [\n                {\n                  \"type\": \"string\",\n                  \"format\": \"uri\"\n                },\n                {\n                  \"type\": \"array\",\n                  \"items\": {\n                    \"type\": \"string\",\n                    \"format\": \"uri\"\n                  },\n                  \"minItems\": 1,\n                  \"maxItems\": 10\n                }\n              ],\n              \"description\": \"Public or loopback HTTP(S) URL, or an array of up to 10; keep loopback and public URLs in separate calls.\"\n            },\n            \"startIndex\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Character offset; default 0.\"\n            },\n            \"maxLength\": {\n              \"type\": \"integer\",\n              \"minimum\": 0,\n              \"description\": \"Maximum characters; default 20000; 0 unlimited. A cut page ends with [output capped …; startIndex:N for more].\"\n            }\n          },\n          \"required\": [\n            \"url\"\n          ],\n          \"additionalProperties\": false\n        }\n      }\n    ],\n    \"summary\": \"Loaded deferred tools: web_fetch\"\n  },\n  \"loaded\": [\n    \"web_fetch\"\n  ],\n  \"alreadyActive\": [],\n  \"missing\": [\n    \"office\"\n  ],\n  \"activeTools\": [\n    \"find\",\n    \"glob\",\n    \"list\",\n    \"code_graph\",\n    \"read\",\n    \"git\",\n    \"shell\",\n    \"task\",\n    \"web_fetch\",\n    \"web_search\",\n    \"load_tool\",\n    \"Skill\"\n  ],\n  \"discoveredTools\": [\n    \"web_fetch\"\n  ]\n}"
    },
    "allowlisted": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -5994,6 +6129,10 @@
      [
       "task",
       "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -6042,6 +6181,10 @@
       "54ccf41031df5070ffc4629c990791a3eb37cdc4f4e468f3e12ec7e338ca6cef"
      ],
      [
+      "web_search",
+      "132fe0be8fb923362c61664183d7ab974ec8f670d6117c117adddaad8cd44205"
+     ],
+     [
       "tool_search",
       "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
@@ -6062,6 +6205,7 @@
       "git",
       "shell",
       "task",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -6075,6 +6219,7 @@
       "git",
       "shell",
       "task",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -6083,7 +6228,6 @@
       "github",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",
@@ -6099,7 +6243,7 @@
    "denied": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -6134,6 +6278,10 @@
      [
       "task",
       "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -6178,6 +6326,10 @@
       "54ccf41031df5070ffc4629c990791a3eb37cdc4f4e468f3e12ec7e338ca6cef"
      ],
      [
+      "web_search",
+      "132fe0be8fb923362c61664183d7ab974ec8f670d6117c117adddaad8cd44205"
+     ],
+     [
       "tool_search",
       "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
@@ -6198,6 +6350,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -6211,6 +6364,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -6221,7 +6375,6 @@
       "github",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",
@@ -6236,7 +6389,7 @@
    "readonly": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- git: Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- shell: Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools...\n- task: Manage shell tasks. Completion is delivered automatically; wait only when you need the result now...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- git: Run Git here, never through shell. An array (max 10) runs in order and stops on failure; batch...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- shell: Run programs, builds, tests and computation. Never use shell commands/scripts for work other tools...\n- task: Manage shell tasks. Completion is delivered automatically; wait only when you need the result now...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -6263,6 +6416,10 @@
      [
       "read",
       "543ec4256817604476c71529e2179e6d983a3a21fd1453e393dec5b39fa38c9f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -6299,6 +6456,10 @@
       "ec922ca1efbada50ea9fb8cac58c22886fcff7b1bbf649094c9f0badf0a5d425"
      ],
      [
+      "web_search",
+      "132fe0be8fb923362c61664183d7ab974ec8f670d6117c117adddaad8cd44205"
+     ],
+     [
       "tool_search",
       "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
@@ -6316,6 +6477,7 @@
       "grep",
       "code_graph",
       "read",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -6326,6 +6488,7 @@
       "grep",
       "code_graph",
       "read",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -6337,7 +6500,6 @@
       "task",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",
@@ -6353,7 +6515,7 @@
    "switchSameFamily": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -6392,6 +6554,10 @@
      [
       "task",
       "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -6440,6 +6606,10 @@
       "54ccf41031df5070ffc4629c990791a3eb37cdc4f4e468f3e12ec7e338ca6cef"
      ],
      [
+      "web_search",
+      "132fe0be8fb923362c61664183d7ab974ec8f670d6117c117adddaad8cd44205"
+     ],
+     [
       "tool_search",
       "ec1cf8fb8b8e4b695fe3f09b168f4992e91f097cef772ee42667e32504abebb1"
      ],
@@ -6461,6 +6631,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -6475,6 +6646,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -6485,7 +6657,6 @@
       "github",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",
@@ -6501,7 +6672,7 @@
    "switchOtherFamily": {
     "system": [
      "# Base rules",
-     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+     "# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
      "# Session"
     ],
     "tools": [
@@ -6540,6 +6711,10 @@
      [
       "task",
       "2a07eccf471f230c0f0070c9d35d039c9cb05547f7316ceaf10117664c43d51f"
+     ],
+     [
+      "web_search",
+      "e3fad758123d11cf0e41e33e04d6d7065ada122e55dfde058279df68065597c3"
      ],
      [
       "load_tool",
@@ -6596,6 +6771,10 @@
       "2e8baf3c742d5ed349c1bad56fcb4a304e7d5efd9ec455bf4139e11f00c531ae"
      ],
      [
+      "web_search",
+      "b33047cf45e69cdb73cf18056209df860fc2575210e3c2f341709f8510ae5331"
+     ],
+     [
       "load_tool",
       "46527906e7f6c792b2c1005d014d5accaf7df249f34b34dac3c7d8c80e84ce86"
      ],
@@ -6623,7 +6802,7 @@
      },
      {
       "type": "text",
-      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n- web_search: Unfamiliar names, products, models, recent or external facts; search before answering from memory.\n</available-deferred-tools>",
+      "text": "\n\n# Profile\n\n---\n\n<available-deferred-tools>\nDeferred tools; load_tool loads their schemas.\n- browser: Drive Mixdog's in-app Chromium directly for rendered, signed-in or interactive pages; public page...\n- browser_devtools: Live browser emulation, cookies and storage; not page interaction (browser).\n- computer: Operate local desktop apps (Windows, macOS, Linux), OS dialogs, and user-viewed or handed-over...\n- github: GitHub repos, issues, PRs, Actions, releases; not local Git history, diffs or staging (git).\n- mcp__github: GitHub issues, pull requests, Actions runs and repo code search; not local Git history.\n- media: Generate an image or a video through the Media Studio lanes the user signed in to, and write it to...\n- memory: Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact...\n- office: Office files: Word, Excel/CSV/TSV, PowerPoint, PDF. Inspect existing files directly...\n- recall: Stored session history: prior work, resumes, decisions. Semantic, not regex; period=time window...\n- session: Session lookup/control, bot status, agent task sessions and their initial location, title...\n- web_fetch: Page or docs body from a known URL; not discovery (web_search).\n</available-deferred-tools>",
       "cache_control": {
        "type": "ephemeral",
        "ttl": "1h"
@@ -6650,6 +6829,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -6664,6 +6844,7 @@
       "shell",
       "task",
       "web_fetch",
+      "web_search",
       "load_tool",
       "Skill"
      ],
@@ -6674,7 +6855,6 @@
       "github",
       "recall",
       "web_fetch",
-      "web_search",
       "browser",
       "browser_devtools",
       "computer",

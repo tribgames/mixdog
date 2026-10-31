@@ -45,6 +45,9 @@ export const DEFERRED_DEFAULT_FULL_TOOLS = Object.freeze([
   'read',
   'edit',
   'apply_patch',
+  // Loaded up front so looking something up never costs a load_tool hop;
+  // web_fetch stays deferred (it usually follows a search).
+  'web_search',
   // Every session's own step list: always loaded, never a load_tool hop.
   'todo',
   'Skill',
@@ -57,6 +60,7 @@ export const DEFERRED_DEFAULT_READONLY_TOOLS = Object.freeze([
   'grep',
   'code_graph',
   'read',
+  'web_search',
   'todo',
   'Skill',
   'load_tool',
@@ -86,6 +90,7 @@ export const DEFERRED_DEFAULT_LEAD_TOOLS = Object.freeze([
   // A bot's reaction, likewise: only a bot's chat with the user has it at all
   // (session-tool-surface.mjs reactionDisabled).
   'react',
+  'web_search',
   'todo',
   'Skill',
   'load_tool',

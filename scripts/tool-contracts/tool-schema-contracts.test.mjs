@@ -189,24 +189,35 @@ test('shell, edit, and task keep their execution contracts', () => {
 });
 
 test('default deferred tool surfaces per mode stay fixed and bounded', () => {
-  if (fullDefaults.size !== 10) {
+  if (fullDefaults.size !== 11) {
     throw new Error(
-      `full default catalog should contain both edit dialects (10 tools), got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`
+      `full default catalog should contain both edit dialects and web_search (11 tools), got ${fullDefaults.size}: ${[...fullDefaults].join(', ')}`
     );
   }
-  for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'apply_patch', 'Skill', 'load_tool']) {
+  for (const name of [
+    'read',
+    'code_graph',
+    'grep',
+    'find',
+    'glob',
+    'list',
+    'apply_patch',
+    'web_search',
+    'Skill',
+    'load_tool',
+  ]) {
     assertHas(fullDefaults, name);
   }
-  for (const name of ['shell', 'task', 'agent', 'recall', 'web_search', 'web_fetch', 'session', 'github']) {
+  for (const name of ['shell', 'task', 'agent', 'recall', 'web_fetch', 'session', 'github']) {
     assertLacks(fullDefaults, name);
   }
 
   const leadDefaults = defaultDeferredToolNames(smokeCatalog, 'lead');
-  // recall / web_search / goal left the lead defaults with cwd and web_fetch
-  // (2 measured calls each in the trace window); they auto-load on demand.
-  if (leadDefaults.size !== 14) {
+  // web_search is loaded up front so a lookup never costs a load_tool hop;
+  // recall / goal / cwd / web_fetch stay deferred and load on demand.
+  if (leadDefaults.size !== 15) {
     throw new Error(
-      `lead default catalog should contain both edit dialects and git (14 tools), got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`
+      `lead default catalog should contain both edit dialects, git and web_search (15 tools), got ${leadDefaults.size}: ${[...leadDefaults].join(', ')}`
     );
   }
   for (const name of [
@@ -221,12 +232,13 @@ test('default deferred tool surfaces per mode stay fixed and bounded', () => {
     'task',
     'apply_patch',
     'agent',
+    'web_search',
     'Skill',
     'load_tool',
   ]) {
     assertHas(leadDefaults, name);
   }
-  for (const name of ['recall', 'web_search', 'web_fetch', 'session', 'github', 'session_manage']) {
+  for (const name of ['recall', 'web_fetch', 'session', 'github', 'session_manage']) {
     assertLacks(leadDefaults, name);
   }
   if (TOOL_SEARCH_TOOL.annotations?.agentHidden !== true) {
@@ -257,12 +269,12 @@ test('default deferred tool surfaces per mode stay fixed and bounded', () => {
   }
 
   const readonlyDefaults = defaultDeferredToolNames(smokeCatalog, 'readonly');
-  if (readonlyDefaults.size !== 8) {
+  if (readonlyDefaults.size !== 9) {
     throw new Error(
-      `readonly default surface should stay 8 tools, got ${readonlyDefaults.size}: ${[...readonlyDefaults].join(', ')}`
+      `readonly default surface should stay 9 tools, got ${readonlyDefaults.size}: ${[...readonlyDefaults].join(', ')}`
     );
   }
-  for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'Skill', 'load_tool']) {
+  for (const name of ['read', 'code_graph', 'grep', 'find', 'glob', 'list', 'web_search', 'Skill', 'load_tool']) {
     assertHas(readonlyDefaults, name);
   }
   for (const name of ['apply_patch', 'agent', 'shell', 'git']) {
