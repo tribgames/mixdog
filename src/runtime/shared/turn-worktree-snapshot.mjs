@@ -713,7 +713,9 @@ async function hashBlobs(state, items, env) {
         });
         const oids = hashed.stdout.split('\n').filter(Boolean);
         if (oids.length !== plain.length) throw new Error('hash-object answered a different number of blobs');
-        plain.forEach((item, index) => ids.set(item, oids[index].trim()));
+        plain.forEach((item, index) => {
+          ids.set(item, oids[index].trim());
+        });
       }
     } finally {
       await rm(scratch, { recursive: true, force: true }).catch(() => {});
