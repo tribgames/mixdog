@@ -19,7 +19,6 @@ Einstellungen für Worktrees und Bereinigung von Branches hinzugefügt, Ziel-Auf
 - **Bildgesten auf Smartphones** — Zoom per Zusammendrücken, Verschieben und Doppeltippen für Bilder im Chat und in Visualize auf Smartphones hinzugefügt (#275).
 - **Fast-Aufruf-Nutzung** — Eigene Zeile zur Aufschlüsselung der Fast-Aufrufe eines Modells mit responsiven, für Smartphones optimierten Nutzungstabellen hinzugefügt (#288).
 - **Automatischer Sitzungslebenszyklus** — Automatische Archivierung inaktiver Sitzungen nach 7 Tagen und Löschung nach 90 Tagen während Leerlaufzeiten hinzugefügt.
-- **Worktree-Gruppierung in der Seitenleiste** — Gruppierung von Worktree-Sitzungen unter ihrem übergeordneten Projektordner in der Seitenleiste hinzugefügt.
 - **Benachrichtigungspause bei PC-Nutzung** — Pausieren von Smartphone-Push-Benachrichtigungen hinzugefügt, während dieser PC aktiv genutzt wird.
 
 ### Änderungen

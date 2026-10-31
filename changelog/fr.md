@@ -20,7 +20,6 @@ Ajout des paramètres Worktrees et du nettoyage des branches, remplacement des t
 - **Gestes sur images sur mobile** — Ajout du zoom par pincement, du panoramique et du double tapotement pour les images du chat et de Visualize sur smartphone (#275).
 - **Utilisation des appels Fast** — Ajout d'une ligne dédiée à l'utilisation des appels Fast d'un modèle, avec des tableaux adaptés aux écrans de smartphones (#288).
 - **Cycle de vie automatique des sessions** — Ajout de l'archivage automatique des sessions inactives après 7 jours et de leur suppression après 90 jours pendant les périodes d'inactivité.
-- **Regroupement des worktrees dans la barre latérale** — Ajout du regroupement des sessions de worktrees sous leur dossier de projet parent dans la barre latérale.
 - **Pause des notifications sur PC actif** — Ajout de la mise en pause des notifications push sur smartphone pendant que vous utilisez activement ce PC.
 
 ### Modifications

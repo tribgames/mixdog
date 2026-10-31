@@ -20,7 +20,6 @@ Added Worktrees settings and branch cleanup, replaced Goal tasks with session to
 - **Phone image gestures** — Added pinch, pan, and double-tap zoom for images in chat and Visualize on phones (#275).
 - **Fast call usage** — Added a dedicated usage breakdown row for a model's Fast calls, with responsive tables formatted for phone screens (#288).
 - **Session lifecycle automation** — Added automatic archival of inactive sessions after 7 days and deletion after 90 days during idle periods.
-- **Sidebar worktree grouping** — Added grouping of worktree sessions under their parent project folder in the sidebar.
 - **Active PC notification pause** — Added pausing phone push notifications while you are actively using this PC.
 
 ### Changes

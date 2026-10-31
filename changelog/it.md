@@ -19,7 +19,6 @@ Aggiunte le impostazioni per i Worktree e la pulizia dei branch, sostituite le a
 - **Gesti per le immagini su smartphone** — Aggiunti pinch-to-zoom, panoramica e doppio tocco per ingrandire le immagini nella chat e in Visualize su smartphone (#275).
 - **Utilizzo delle chiamate Fast** — Aggiunta una riga di riepilogo dell'utilizzo per le chiamate Fast di un modello, con tabelle ottimizzate per gli schermi dei telefoni (#288).
 - **Automazione del ciclo di vita delle sessioni** — Aggiunta l'archiviazione automatica delle sessioni inattive dopo 7 giorni e la loro eliminazione dopo 90 giorni durante i periodi di inattività.
-- **Raggruppamento dei worktree nella barra laterale** — Aggiunto il raggruppamento delle sessioni dei worktree sotto la cartella di progetto principale nella barra laterale.
 - **Sospensione delle notifiche a PC attivo** — Aggiunta la sospensione delle notifiche push sullo smartphone mentre questo PC è attivamente in uso.
 
 ### Modifiche
