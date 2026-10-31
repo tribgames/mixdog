@@ -79,7 +79,13 @@ test('an aged legacy JSON pg-spawn.lock naming a live owner excludes the lock', 
 
   let entered = false;
   await assert.rejects(
-    withFileLock(lockPath, () => { entered = true; }, { timeoutMs: 400 }),
+    withFileLock(
+      lockPath,
+      () => {
+        entered = true;
+      },
+      { timeoutMs: 400 }
+    ),
     { code: 'ELOCKTIMEOUT' }
   );
   assert.equal(entered, false, 'a second owner must not enter while the legacy owner is alive');
