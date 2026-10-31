@@ -218,6 +218,29 @@ test('Chrome defaults hold without a prompt: protected media and element fullscr
   }
 });
 
+test('storage access is granted as Chrome grants it, never asked of a person', () => {
+  const { handlers, permissions, page, ask, askFrame } = fixture();
+  const top = page('https://search.google.com/search-console', [
+    'https://www.google.com/recaptcha/enterprise/anchor',
+    'https://www.recaptcha.net/recaptcha/api2/anchor',
+  ]);
+  for (const frame of top.mainFrame.framesInSubtree.slice(1)) {
+    assert.equal(askFrame(top, 'storage-access', frame.url).granted, true, frame.url);
+  }
+  assert.equal(permissions.pending(top), undefined, 'nobody is asked');
+  const embedded = { isMainFrame: false, embeddingOrigin: 'https://search.google.com' };
+  const own = { isMainFrame: true, embeddingOrigin: 'https://search.google.com' };
+  assert.equal(handlers.check(top, 'storage-access', 'https://search.google.com', own), true, 'the top page holds it');
+  assert.equal(handlers.check(top, 'storage-access', 'https://www.google.com', embedded), false, 'a frame does not');
+  assert.equal(
+    handlers.check(top, 'storage-access', 'https://search.google.com', embedded),
+    false,
+    'nor a same-origin one'
+  );
+  assert.equal(ask(top, 'top-level-storage-access').granted, undefined, 'top-level storage access is still asked');
+  assert.deepEqual(permissions.pending(top).keys, ['top-level-storage-access']);
+});
+
 test('only a person refusal reads as refused to a page', () => {
   const { permissions, page, ask } = fixture();
   const guest = page('https://site.test/');
