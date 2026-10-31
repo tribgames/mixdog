@@ -26,6 +26,7 @@ import { hourlySeries } from './usage-stats-hours.mjs';
 import {
   FAST_KEY,
   isConversationUsageSource,
+  isFastCall,
   knownCostTurns,
   sortFastBesideModel,
   usageRollupDayKey,
@@ -318,7 +319,14 @@ function foldEvent(state, key, event, conversationOnly) {
     speedOutput: timed ? output : 0,
     speedMs: timed ? durationMs : 0,
   };
-  foldRoute(state, providerId, modelId, text(event?.providerKind), usage);
+  // Tiers are kept on the record's rates (see makeUsageRecord), not top level.
+  const kind = text(event?.providerKind);
+  const fast = isFastCall({
+    kind,
+    requestServiceTier: event?.rates?.requestServiceTier,
+    serviceTier: event?.rates?.serviceTier,
+  });
+  foldRoute(state, providerId, modelId, kind, usage, fast);
   addDaily(state, key, usage, providerId);
 
   if (durationMs > 0) {
