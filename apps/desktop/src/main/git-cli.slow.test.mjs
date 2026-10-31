@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { execFile, execFileSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import {
   chmod,
   copyFile,
@@ -19,6 +19,7 @@ import { join, resolve } from 'node:path';
 import { describe, test as nodeTest } from 'node:test';
 
 import { requiredReviewSource } from './git-contract.mjs';
+import { killProcessTrees, killProcessTreesSync } from '../../../../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
 import { buildGhPrCreateArgs } from './gh-cli.ts';
 import {
   GIT_RESET_DIRTY_CODE,
@@ -2286,26 +2287,13 @@ describe('git cli', { concurrency: 4 }, () => {
     return join(cwd, '.git', 'park-live');
   }
 
-  // Every kill is BOUNDED: `taskkill` is itself a child, and one that never
-  // returns (a wedged handle, a hung filter) would hang the test run forever
-  // with the parked process still holding the repository. POSIX's group kill is
-  // a syscall and returns on its own.
+  // Every kill is BOUNDED: the Windows tree kill is itself a child, and one that
+  // never returned (a wedged handle, a hung filter) would hang the test run
+  // forever with the parked process still holding the repository; the shared
+  // helper ends it at its own deadline. POSIX's group kill is a syscall and
+  // returns on its own.
   const KILL_TIMEOUT_MS = 15_000;
   const EXIT_TIMEOUT_MS = 30_000;
-
-  function taskkillTree(pid) {
-    return new Promise((settle) =>
-      execFile(
-        'taskkill',
-        ['/PID', String(pid), '/T', '/F'],
-        {
-          timeout: KILL_TIMEOUT_MS,
-          windowsHide: true,
-        },
-        (failure) => settle(failure)
-      )
-    );
-  }
 
   // A kill that did not take is a live process still holding this repository, so
   // it FAILS the test instead of being ignored: waiting on `done` afterwards
@@ -2322,8 +2310,9 @@ describe('git cli', { concurrency: 4 }, () => {
       }
       return;
     }
-    const error = await taskkillTree(child.pid);
-    if (error && !state.exited) throw new Error(`taskkill failed: ${error.message}`);
+    if (state.exited) return;
+    const status = await killProcessTrees([child.pid]);
+    if (status !== 0 && !state.exited) throw new Error(`the tree kill failed (status ${status})`);
   }
 
   function timeoutAfter(ms, message) {
@@ -2335,20 +2324,15 @@ describe('git cli', { concurrency: 4 }, () => {
   // The LAST resort, and the only one that can actually reap a Windows tree:
   // `child.kill()` signals the Node parent alone, so the git, sh and `sleep`
   // descendants outlive it and keep holding the repository the cleanup is about
-  // to delete. A BLOCKING `taskkill /T /F` cannot be lost to a timeout the way
-  // the two async attempts can — and whatever it reports, the pid is CHECKED
+  // to delete. A BLOCKING tree kill cannot be lost to a timeout the way the two
+  // async attempts can — and whatever it reports, the pid is CHECKED
   // afterwards, so a survivor is failed loudly instead of leaked.
-  function reapTreeSync(pid) {
-    try {
-      execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], {
-        stdio: 'ignore',
-        windowsHide: true,
-      });
-      return null;
-    } catch (error) {
-      // 128 is taskkill's "there is no such process" — the outcome this wanted.
-      return error?.status === 128 ? null : error;
-    }
+  function reapTreeSync(child) {
+    // An exited child's pid may already name another process.
+    if (child.exitCode !== null || child.signalCode !== null) return null;
+    const status = killProcessTreesSync([child.pid]);
+    // 128: no such process any more — the outcome this wanted.
+    return status === 0 || status === 128 ? null : new Error(`the tree kill failed (status ${status})`);
   }
 
   function processAlive(pid) {
@@ -2365,7 +2349,7 @@ describe('git cli', { concurrency: 4 }, () => {
   async function reapTree(child, state, done) {
     let failure = null;
     if (process.platform === 'win32') {
-      failure = reapTreeSync(child.pid);
+      failure = reapTreeSync(child);
     } else {
       try {
         process.kill(-child.pid, 'SIGKILL');

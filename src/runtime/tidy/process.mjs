@@ -5,6 +5,7 @@
 // parser.
 import { spawn } from 'node:child_process';
 import { existsSync, readdirSync, statSync } from 'node:fs';
+import { spawnTreeKill } from '../agent/orchestrator/mcp/child-tree.mjs';
 import { delimiter, extname, isAbsolute, join } from 'node:path';
 
 const DEFAULT_PROCESS_TIMEOUT_MS = 90_000;
@@ -166,7 +167,7 @@ export function runProcess(
       if (child.exitCode != null || child.signalCode != null) return;
       try {
         if (process.platform === 'win32' && child.pid) {
-          spawn('taskkill', ['/pid', String(child.pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
+          spawnTreeKill([child.pid], { root: child });
         } else {
           child.kill('SIGKILL');
         }

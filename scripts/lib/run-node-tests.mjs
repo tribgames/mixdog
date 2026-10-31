@@ -3,6 +3,7 @@ import { appendFile, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { availableParallelism, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
+import { killProcessTrees } from '../../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
 import { pruneStaleTempDirs } from './stale-temp.mjs';
 import { FAILURE_RECORDS_ENV, spawnLedgerPath } from './test-failure-records.mjs';
 import { classifyRerunOutcomes, formatFailureSummary } from './test-failure-summary.mjs';
@@ -144,11 +145,12 @@ function capture(command, args) {
   });
 }
 
-// Kills a process and every descendant still linked to it. On POSIX a batch
-// leads its own process group (spawned detached), so the group goes with it.
+// Kills a live batch and every descendant still linked to it (on Windows the
+// shared creation-checked tree kill). On POSIX a batch leads its own process
+// group (spawned detached), so the group goes with it.
 async function killTree(pid) {
   if (process.platform === 'win32') {
-    await capture('taskkill', ['/T', '/F', '/PID', String(pid)]);
+    await killProcessTrees([pid]);
     return;
   }
   for (const target of [-pid, pid]) {
@@ -286,12 +288,14 @@ async function reapLeftovers(child, { batch, ledger, scratchDir }) {
 }
 
 async function killOwned(anchors, { scratchDir }) {
+  // Every owned process ran when the snapshot was taken.
+  const snapshotAt = Date.now();
   const leftovers = ownedProcesses(await processSnapshot(), anchors, { scratchDir });
   if (leftovers.length === 0) return;
   const pids = leftovers.map((entry) => entry.pid);
   console.error(`Killing ${pids.length} process(es) a test left running: ${pids.join(' ')}`);
   if (process.platform === 'win32') {
-    await capture('taskkill', ['/T', '/F', ...pids.flatMap((pid) => ['/PID', String(pid)])]);
+    await killProcessTrees(pids, { aliveAt: snapshotAt });
     return;
   }
   for (const pid of pids) {

@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 import test from 'node:test';
 import { MIXDOG_HOST_CSHARP } from './native-source.ts';
+import { TREE_KILL_SCRIPT } from '../../../../../../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
 
 test('real Windows cursor changes and restores after normal completion and worker-tree termination', {
   skip:
@@ -35,6 +36,8 @@ public static class CursorDigest {
 }
 `
     );
+    // The worker tree is ended by the shared creation-checked tree kill.
+    await writeFile(join(directory, 'kill-tree.ps1'), TREE_KILL_SCRIPT);
     await writeFile(
       join(directory, 'worker.ps1'),
       `
@@ -75,7 +78,7 @@ try {
     Start-Sleep -Milliseconds 50
   }
   if ([CursorDigest]::Read() -eq $original) { throw 'worker theme not visible in OS cursor resource' }
-  & taskkill.exe /PID $worker.Id /T /F | Out-Null
+  & powershell.exe -NoProfile -NonInteractive -File (Join-Path $env:CURSOR_TEST_DIRECTORY 'kill-tree.ps1') -Pids $worker.Id -AliveAt ([DateTime]::UtcNow.ToFileTimeUtc()) | Out-Null
   if ($LASTEXITCODE -ne 0) { throw 'test worker termination failed' }
   $clock.Restart()
   while ([CursorDigest]::Read() -ne $original -and $clock.ElapsedMilliseconds -lt 5000) { Start-Sleep -Milliseconds 50 }

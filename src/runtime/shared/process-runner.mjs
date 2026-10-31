@@ -27,12 +27,16 @@ function processClient() {
 
 /**
  * Resolves to { code, stdout, stderr } (a non-zero exit is the caller's to
- * judge). Rejects with code ETIMEDOUT after timeoutMs (the child is killed;
- * 0 sets no deadline),
+ * judge). Rejects with code ETIMEDOUT after timeoutMs (the child is killed,
+ * with its tree unless `killTree` is false; 0 sets no deadline),
  * EMAXBUFFER once stdout+stderr exceed maxBytes, or the spawn error itself.
  */
-export function runProcessOffThread(command, args, { cwd, input = '', env = null, timeoutMs, maxBytes }) {
+export function runProcessOffThread(
+  command,
+  args,
+  { cwd, input = '', env = null, timeoutMs, maxBytes, killTree = true }
+) {
   const request = processClient();
-  const payload = { command, args, cwd, input, env, timeoutMs, maxBytes };
+  const payload = { command, args, cwd, input, env, timeoutMs, maxBytes, killTree };
   return request ? request(payload) : runChild(payload);
 }

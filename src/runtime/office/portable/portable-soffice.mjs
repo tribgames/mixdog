@@ -1,6 +1,7 @@
 import { basename, dirname, extname, join } from 'node:path';
 import { homedir, tmpdir } from 'node:os';
 import { execFile, spawn } from 'node:child_process';
+import { treeKillCommand } from '../../agent/orchestrator/mcp/child-tree.mjs';
 import { redactDirectories } from '../../shared/redact-directories.mjs';
 import { removeDirectoryWithRetry } from '../../shared/remove-directory.mjs';
 import { constants as fsConstants, rmSync } from 'node:fs';
@@ -53,11 +54,11 @@ const SOFFICE_KILL_GRACE_MS = 10_000;
 // launcher leaves running (and holding the files it was given); Windows needs
 // the whole tree stopped.
 // The tree is stopped asynchronously and the helper itself is bounded, so a
-// cancellation never blocks the event loop or waits on a stuck taskkill.
-const SOFFICE_TASKKILL_TIMEOUT_MS = 5_000;
+// cancellation never blocks the event loop or waits on a stuck tree kill.
+const SOFFICE_TREE_KILL_TIMEOUT_MS = 5_000;
 
-// The launcher is killed only once taskkill is done (or out of time): a launcher
-// that exits first leaves taskkill with no descendants to find.
+// The launcher is killed only once the tree kill is done (or out of time): a
+// launcher that exits first leaves the tree kill with no descendants to find.
 function killProcessTree(child) {
   if (process.platform !== 'win32' || !child.pid) {
     killQuietly(child);
@@ -71,7 +72,8 @@ function killProcessTree(child) {
   };
   let killer = null;
   try {
-    killer = spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true, stdio: 'ignore' });
+    const { command, args } = treeKillCommand([child.pid]);
+    killer = spawn(command, args, { windowsHide: true, stdio: 'ignore' });
   } catch {
     killLauncher();
     return;
@@ -79,7 +81,7 @@ function killProcessTree(child) {
   const bound = setTimeout(() => {
     killQuietly(killer);
     killLauncher();
-  }, SOFFICE_TASKKILL_TIMEOUT_MS);
+  }, SOFFICE_TREE_KILL_TIMEOUT_MS);
   bound.unref?.();
   const settle = () => {
     clearTimeout(bound);

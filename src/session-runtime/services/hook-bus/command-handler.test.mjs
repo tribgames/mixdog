@@ -230,12 +230,17 @@ test('Windows timeout cleanup does not target an already-closed child again', {
   skip: process.platform !== 'win32' && 'Windows only',
 }, async (t) => {
   const child = controlledChild(t);
-  child.pid = 246810;
+  Object.assign(child, { pid: 246810, exitCode: null, signalCode: null });
   const addressed = [];
-  t.mock.method(childProcess, 'spawnSync', (_command, args) => {
+  let spawns = 0;
+  // The first spawn is the hook command; every later one is a tree kill of it.
+  t.mock.method(childProcess, 'spawn', (_command, args) => {
+    spawns += 1;
+    if (spawns === 1) return child;
     addressed.push(args);
+    child.exitCode = 1;
     child.emit('close', 1, null);
-    return { status: 0 };
+    return new EventEmitter();
   });
   syncBuiltinESMExports();
   t.mock.timers.enable({ apis: ['setTimeout'] });

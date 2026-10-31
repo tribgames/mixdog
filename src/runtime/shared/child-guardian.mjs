@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
+import { TREE_KILL_DEADLINE_MS, treeKillCommand } from '../agent/orchestrator/mcp/child-tree.mjs';
 import { positiveInt } from './numbers.mjs';
 import { isPidAlive } from './pid-liveness.mjs';
 import { detachedSpawnOpts } from './spawn-flags.mjs';
@@ -46,15 +47,18 @@ function alive(pid) {
   try { process.kill(pid, 0); return true; }
   catch (error) { return error && error.code === 'EPERM'; }
 }
+// Windows: the owner's creation-checked tree kill (child-tree.mjs), built when
+// the child was registered. A signal there is a forced kill either way.
 function killTarget(target, force) {
   if (platform === 'win32') {
-    const systemRoot = process.env.SystemRoot || process.env.WINDIR || 'C:\\\\Windows';
-    const taskkill = systemRoot + '\\\\System32\\\\taskkill.exe';
-    if (force) {
-      try { spawnSync(taskkill, ['/PID', String(target.childPid), '/T', '/F'], { stdio: 'ignore', windowsHide: true }); } catch {}
-    } else {
-      try { process.kill(target.childPid, 'SIGTERM'); } catch {}
-      try { spawnSync(taskkill, ['/PID', String(target.childPid), '/T'], { stdio: 'ignore', windowsHide: true }); } catch {}
+    if (target.killCommand) {
+      try {
+        spawnSync(target.killCommand.command, target.killCommand.args, {
+          stdio: 'ignore',
+          windowsHide: true,
+          timeout: target.killCommand.timeoutMs,
+        });
+      } catch {}
     }
     return;
   }
@@ -84,6 +88,8 @@ function accept(message) {
     orphanGraceMs: Math.max(100, Number(message.orphanGraceMs) || 3000),
     forceGraceMs: Math.max(100, Number(message.forceGraceMs) || 3000),
     receiptPath: typeof message.receiptPath === 'string' ? message.receiptPath : null,
+    killCommand: message.killCommand && typeof message.killCommand.command === 'string'
+      && Array.isArray(message.killCommand.args) && message.killCommand.timeoutMs > 0 ? message.killCommand : null,
     orphanedAt: 0,
     lastPolledAt: 0,
     killing: false,
@@ -255,6 +261,10 @@ export function startChildGuardian({
     orphanGraceMs: Math.max(100, Math.floor(Number(orphanGraceMs) || Number(graceMs) || 3000)),
     forceGraceMs: Math.max(100, Math.floor(Number(forceGraceMs) || Number(graceMs) || 3000)),
     receiptPath: typeof receiptPath === 'string' && receiptPath ? receiptPath : null,
+    // The child runs now, so its creation time bounds every later kill.
+    // Held to the shared deadline, so a hung pass never stalls the guardian.
+    killCommand:
+      process.platform === 'win32' ? { ...treeKillCommand([child]), timeoutMs: TREE_KILL_DEADLINE_MS } : null,
     onRemoved: () => {
       stopped = true;
     },

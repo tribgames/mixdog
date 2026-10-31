@@ -7,29 +7,19 @@
 // timeoutMs (the child is killed), EMAXBUFFER once stdout+stderr exceed
 // maxBytes, or the spawn error itself.
 import { spawn } from 'node:child_process';
+import { spawnTreeKill } from '../agent/orchestrator/mcp/child-tree.mjs';
 
 /** Kills `child` with everything it started. On Windows a plain kill ends only
  *  the child itself: `git` there is a launcher whose git.exe (and the alias,
  *  hook or filter it runs) would live on, still holding the output pipes.
- *  Settles once the kill was attempted (on Windows: once taskkill finished). */
+ *  Settles once the kill was attempted (on Windows: once the tree kill finished). */
 export function killChildTree(child) {
   if (process.platform === 'win32' && child.pid && child.exitCode === null) {
-    const taskkill = `${process.env.SystemRoot || 'C:\\Windows'}\\System32\\taskkill.exe`;
-    const fallback = () => {
-      try {
-        child.kill();
-      } catch {}
-    };
+    // The shared pass kills `child` itself once it ends or runs out of time.
+    const pass = spawnTreeKill([child.pid], { root: child });
+    if (!pass) return Promise.resolve();
     return new Promise((resolve) => {
-      spawn(taskkill, ['/PID', String(child.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
-        .once('error', () => {
-          fallback();
-          resolve();
-        })
-        .once('exit', (code) => {
-          if (code !== 0) fallback();
-          resolve();
-        });
+      pass.once('error', resolve).once('exit', resolve);
     });
   }
   try {
@@ -46,6 +36,9 @@ const childEnded = (child) => child.exitCode !== null || child.signalCode !== nu
  * exited, or after that many more ms; the error then carries `pid` and
  * `childExited` (false: it outlived the wait). 0 (default): the timeout
  * rejects as soon as the kill was sent.
+ * `killTree` (default true): a timeout kills the child's whole tree. false:
+ * only the child, directly — for the process-table and tree-kill helpers,
+ * whose own tree kill would be one more pass on the same stuck table read.
  */
 export function runChild({
   command,
@@ -57,6 +50,7 @@ export function runChild({
   maxBytes,
   stdoutEncoding = 'utf8',
   waitForExitMs = 0,
+  killTree = true,
   // Tests only: a stand-in for child_process.spawn (in-process callers; not serializable).
   spawnChild = spawn,
 }) {
@@ -89,7 +83,13 @@ export function runChild({
             const error = new Error(`${command} ${args.join(' ')} timed out after ${timeoutMs}ms`);
             error.code = 'ETIMEDOUT';
             timedOut = true;
-            const killed = killChildTree(child);
+            let killed = Promise.resolve();
+            if (killTree) killed = killChildTree(child);
+            else {
+              try {
+                child.kill();
+              } catch {}
+            }
             if (!(waitForExitMs > 0)) {
               finish(error);
               return;

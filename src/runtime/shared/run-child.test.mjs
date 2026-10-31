@@ -1,13 +1,16 @@
 import assert from 'node:assert/strict';
+import childProcess from 'node:child_process';
 import { EventEmitter } from 'node:events';
+import { syncBuiltinESMExports } from 'node:module';
 import test from 'node:test';
+import { TREE_KILL_DEADLINE_MS } from '../agent/orchestrator/mcp/child-tree.mjs';
 import { runChild } from './run-child.mjs';
 
 /** A child that keeps writing (and fails once) after its kill, and exits only when told. */
 function stubbornChild() {
   const child = new EventEmitter();
   Object.assign(child, {
-    pid: undefined, // no taskkill: the kill is child.kill()
+    pid: undefined, // no tree kill: the kill is child.kill()
     exitCode: null,
     signalCode: null,
     stdin: null,
@@ -56,6 +59,37 @@ test('once a timeout terminates the child it owns completion: later output or er
   assert.equal(error.code, 'ETIMEDOUT');
   assert.equal(error.childExited, true);
   assert.ok(settledAt >= exitedAt, 'settled only after the exit');
+});
+
+test('killTree false: a hung tree-kill helper is killed directly at its own deadline, with no second pass', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  // Any tree kill of the helper would be a pass that hangs like the helper did.
+  const passes = t.mock.method(childProcess, 'spawn', () =>
+    Object.assign(new EventEmitter(), { kill() {}, unref() {} })
+  );
+  syncBuiltinESMExports();
+  t.after(() => {
+    passes.mock.restore();
+    syncBuiltinESMExports();
+  });
+  const helper = Object.assign(stubbornChild(), { pid: 4242 });
+  const run = runChild({
+    command: 'powershell.exe',
+    args: [],
+    timeoutMs: TREE_KILL_DEADLINE_MS,
+    maxBytes: 10,
+    killTree: false,
+    spawnChild: () => helper,
+  }).then(
+    () => assert.fail('a timeout never resolves'),
+    (error) => error
+  );
+  t.mock.timers.tick(TREE_KILL_DEADLINE_MS - 1);
+  assert.equal(helper.killed, 0);
+  t.mock.timers.tick(1);
+  assert.equal(helper.killed, 1, 'killed at the first deadline, not after another pass');
+  assert.equal(passes.mock.callCount(), 0);
+  assert.equal((await run).code, 'ETIMEDOUT');
 });
 
 const alive = (pid) => {

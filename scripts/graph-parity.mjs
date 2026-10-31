@@ -6,6 +6,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { performance } from 'node:perf_hooks';
 import { pathToFileURL } from 'node:url';
+import { spawnTreeKill } from '../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
 import { median, sortedFinite } from './lib/trace-stats.mjs';
 
 const USAGE = `usage: node scripts/graph-parity.mjs --old <binary> --new <binary> [--root <dir>] [--files <rel>...] [--json <out>] [--kind-map <path.json>] [--tokens] [--allow-new-languages <ids>] [--max-symbol-loss N] [--max-import-diff N] [--max-token-loss N] [--max-time-ratio 1.10] [--runs 3]
@@ -925,14 +926,18 @@ function reusedMetaLine(rec) {
   });
 }
 
+// Windows: the shared, bounded creation-checked tree kill finds the
+// descendants while the root still runs; the root, owned and alive, is then
+// killed directly once that pass ends or runs out of time (spawnTreeKill).
 function killProcessTree(proc) {
+  if (process.platform === 'win32' && proc.pid && proc.exitCode === null && proc.signalCode === null) {
+    spawnTreeKill([proc.pid], { root: proc });
+    return;
+  }
   try {
     proc.kill();
   } catch {
     /* ignore */
-  }
-  if (process.platform === 'win32' && proc.pid) {
-    spawn('taskkill', ['/pid', String(proc.pid), '/t', '/f'], { windowsHide: true, stdio: 'ignore' });
   }
 }
 
