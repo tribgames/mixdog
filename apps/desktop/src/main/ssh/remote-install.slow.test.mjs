@@ -226,7 +226,7 @@ test('a release removes only its own token dir, never a second creator inside th
 });
 
 test('a release whose lock root removal was refused retries it on the next call before letting go', async () => {
-  const realFs = require('fs');
+  const realFs = require('node:fs');
   let refusedRoot = null;
   const fs = {
     ...realFs,

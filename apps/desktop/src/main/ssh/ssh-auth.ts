@@ -59,7 +59,7 @@ export interface AskpassOptions {
   now?: () => number;
 }
 
-export const ASKPASS_TIMEOUT_MS = 120_000;
+const ASKPASS_TIMEOUT_MS = 120_000;
 const RETRY_WINDOW_MS = 2_000;
 const MAX_REQUEST_BYTES = 64 * 1024;
 

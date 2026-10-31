@@ -17,7 +17,7 @@ interface Claim {
 const pending = new Set<Claim>();
 const pendingFiles = new Set<Claim>();
 
-export function mutationPathKey(path: string): string {
+function mutationPathKey(path: string): string {
   // Case-fold only for scheduling, NOT file identity. Even a case-sensitive
   // host can mount a case-insensitive volume; unnecessary serialization of
   // A/a is safe, conflating them as duplicate files is not.

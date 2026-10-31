@@ -11,7 +11,7 @@ import { packagedRuntimeSourceRoot } from '../runtime-layout';
 import { RemoteBootstrapError } from './remote-install-errors';
 import { encodePayloadArchive, manifestBuildHash, sha256Hex, type PayloadFile } from './remote-install-manifest';
 
-export const REMOTE_BUNDLE_PATH = 'apps/desktop/out/main/daemon.cjs';
+const REMOTE_BUNDLE_PATH = 'apps/desktop/out/main/daemon.cjs';
 /** out/server/deps file → its name under the payload's server-deps/. The
  *  lockfile is not built as `package-lock.json`: electron-builder drops that
  *  name from the packaged app by default (scripts/remote-server-deps.mjs). */
@@ -179,7 +179,7 @@ export function runtimeSources(layout: LocalPayloadLayout): PayloadSource[] {
 export type ServerPayloadResolver = (bundle: Buffer) => Promise<RemoteServerPayload>;
 
 /** This desktop's payload: its runtime plus the given desktop service bundle. */
-export const resolveLocalServerPayload: ServerPayloadResolver = async (bundle) => {
+const resolveLocalServerPayload: ServerPayloadResolver = async (bundle) => {
   const layout = localPayloadLayout(import.meta.dirname);
   const sources = runtimeSources(layout);
   const manifest = JSON.parse(await readFile(join(layout.runtimePackageDir, 'package.json'), 'utf8')) as {

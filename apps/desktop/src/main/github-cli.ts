@@ -195,7 +195,7 @@ const NO_OP_BROWSER = process.platform === 'win32' ? 'cmd /c exit 0' : 'true';
  *  git-protocol / git-credentials questions (and skips its press-Enter stop),
  *  and its browser launcher is a no-op: the renderer opens the device page
  *  itself, on the browser the user actually sits at. */
-export function githubLoginEnvironment(): Record<string, string> {
+function githubLoginEnvironment(): Record<string, string> {
   return {
     ...(childEnvironment() as Record<string, string>),
     GH_PROMPT_DISABLED: '1',

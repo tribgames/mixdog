@@ -54,7 +54,7 @@ export type VisualizeSessionReach = 'shown' | 'background' | 'hidden' | 'not-ope
 
 /** The line a result run for another session's work ends with: chat cards
  *  of that work read the owner session from it. */
-export function visualizeOwnerNote(ownerSessionId: string): string {
+function visualizeOwnerNote(ownerSessionId: string): string {
   return `Shown in the side panel of session ${ownerSessionId} (the conversation this agent works for).`;
 }
 

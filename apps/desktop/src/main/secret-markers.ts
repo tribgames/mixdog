@@ -13,7 +13,7 @@ export const REDACTED_MARKER = '[redacted]';
 /** What replaces a Computer Use saved-login password wherever it later appears. */
 export const SAVED_LOGIN_MARKER = '[saved login]';
 /** Every marker any redactor writes. */
-export const SECRET_MARKERS: readonly string[] = [REDACTED_MARKER, SAVED_LOGIN_MARKER];
+const SECRET_MARKERS: readonly string[] = [REDACTED_MARKER, SAVED_LOGIN_MARKER];
 
 /** [start, end) of every marker in `text`, in order. */
 function markerSpans(text: string): [number, number][] {

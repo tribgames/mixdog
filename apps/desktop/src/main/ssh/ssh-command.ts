@@ -44,7 +44,7 @@ export const SSH_COMMON_OPTIONS: readonly string[] = [
 /** Seconds between tunnel restarts; the last entry repeats. */
 export const TUNNEL_BACKOFF_SECONDS: readonly number[] = [1, 2, 5, 5, 10, 10, 10, 30, 30];
 /** A tunnel that stayed up this long starts the schedule over. */
-export const TUNNEL_HEALTHY_RESET_MS = 60_000;
+const TUNNEL_HEALTHY_RESET_MS = 60_000;
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are exactly what is refused.
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f-\u009f]/;

@@ -279,7 +279,7 @@ async function measureScrollToTop(
   const { sessionB, tail } = live;
   // Freeze the jitter samples BEFORE the scroll-to-top passes: phase 4
   // scrolls away from the bottom on purpose, which must not pollute the
-  // entry/stream/settlement metrics (it used to count as partial/off-bottom
+  // entry/stream/settlement metrics (it would count as partial/off-bottom
   // frames and fail the probe assertions spuriously).
   await window.webContents.executeJavaScript(
     '(() => { const w = window; w.__jitter.stop(); return w.__jitter.samples.length; })()'

@@ -17,7 +17,7 @@ type ToolRun = (
 
 const TOOL_TIMEOUT_MS = 8_000;
 /** Printable ASCII without spaces. */
-export const PLAIN_PATH = /^[\x21-\x7e]+$/;
+const PLAIN_PATH = /^[\x21-\x7e]+$/;
 
 export interface PrivatePlace {
   platform?: NodeJS.Platform;
@@ -56,7 +56,7 @@ export async function createPrivateDir(
 }
 
 /** The 8.3 short form of an existing Windows folder, or null when the volume has none. */
-export async function shortWindowsPath(run: ToolRun, dir: string): Promise<string | null> {
+async function shortWindowsPath(run: ToolRun, dir: string): Promise<string | null> {
   const literal = dir.replace(/'/g, "''");
   const result = await run(
     'powershell.exe',

@@ -14,12 +14,12 @@ import { projectEntryPathIn } from './project-files';
 
 export const SNAPSHOT_TIMEOUT_MS = 4_000;
 /** Time for scripts, fonts and images to settle after the load event. */
-export const SNAPSHOT_SETTLE_MS = 300;
-export const SNAPSHOT_MAX_WIDTH = 640;
+const SNAPSHOT_SETTLE_MS = 300;
+const SNAPSHOT_MAX_WIDTH = 640;
 /** Largest file rendered; a bigger one keeps its placeholder. */
-export const SNAPSHOT_MAX_FILE_BYTES = 8 * 1024 * 1024;
+const SNAPSHOT_MAX_FILE_BYTES = 8 * 1024 * 1024;
 /** Largest result returned; a PNG over this is re-encoded as JPEG. */
-export const SNAPSHOT_MAX_RESULT_BYTES = 400 * 1024;
+const SNAPSHOT_MAX_RESULT_BYTES = 400 * 1024;
 const CACHE_LIMIT = 48;
 const QUEUE_LIMIT = 16;
 
@@ -161,7 +161,7 @@ export const fileSnapshots = createFileSnapshotService({ confine: projectEntryPa
 /** The production renderer: a hidden, off-screen, sandboxed window with its
  *  own in-memory session. No preload, no dialogs, no new windows or
  *  navigation; only `file:` resources of the project load. */
-export async function renderFileSnapshot({ fileUrl, root, onlyFile, signal }: SnapshotRenderInput): Promise<string> {
+async function renderFileSnapshot({ fileUrl, root, onlyFile, signal }: SnapshotRenderInput): Promise<string> {
   signal.throwIfAborted();
   const { BrowserWindow } = await import('electron');
   const window = new BrowserWindow({

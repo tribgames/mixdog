@@ -21,7 +21,7 @@
 // prebuilt binary is fetched with prebuild-install (still no compiler).
 
 export const REMOTE_PTY_PACKAGE = '@homebridge/node-pty-prebuilt-multiarch';
-export const REMOTE_NPM_TIMEOUT_MS = 300_000;
+const REMOTE_NPM_TIMEOUT_MS = 300_000;
 
 export const REMOTE_VERSIONED_SOURCE = String.raw`
 const PTY_PACKAGE = ${JSON.stringify(REMOTE_PTY_PACKAGE)};

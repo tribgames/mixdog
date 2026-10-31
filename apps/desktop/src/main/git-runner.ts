@@ -86,7 +86,7 @@ export const GIT_READ_TIMEOUT_MS = 60_000;
 
 /** Code of a git deadline. Not ETIMEDOUT: the session transport reads that as a
  *  dead daemon connection and re-attaches, dropping every subscription. */
-export const GIT_TIMEOUT_CODE = 'EGITTIMEOUT';
+const GIT_TIMEOUT_CODE = 'EGITTIMEOUT';
 
 function runOffThread(
   runner: GitProcessRunner,

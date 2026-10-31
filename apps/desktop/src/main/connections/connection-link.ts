@@ -11,11 +11,11 @@ export const LINK_HEALTH_INTERVAL_MS = 15_000;
 export const LINK_PROBE_TIMEOUT_MS = 5_000;
 /** This many failed probes inside the window replace the tunnel's ssh child. */
 export const LINK_FAILURE_LIMIT = 3;
-export const LINK_FAILURE_WINDOW_MS = 60_000;
+const LINK_FAILURE_WINDOW_MS = 60_000;
 /** A link that stayed healthy this long starts its backoff over. */
 export const LINK_STABLE_RESET_MS = 60_000;
 /** After sleep the link is probed this many times before it is called dead. */
-export const RESUME_PROBE_ATTEMPTS = 2;
+const RESUME_PROBE_ATTEMPTS = 2;
 export const RECONNECT_BASE_DELAY_MS = 1_000;
 export const RECONNECT_MAX_DELAY_MS = 30_000;
 /** How long the server keeps an idle daemon for a remote client that went

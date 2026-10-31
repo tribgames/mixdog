@@ -36,7 +36,7 @@ import { MAX_ICE_SERVERS, MAX_ICE_URLS } from '../shared/remote-webrtc';
  *  credential handed out with less than this left could not carry one
  *  allocation lifetime. This is the margin before expiry at which the cache
  *  stops serving a credential and fetches a new one. */
-export const ICE_ALLOCATION_LIFETIME_MS = 3_600_000;
+const ICE_ALLOCATION_LIFETIME_MS = 3_600_000;
 
 const ICE_URL = /^(stun|turn|turns):\S+$/u;
 

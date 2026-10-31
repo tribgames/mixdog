@@ -32,7 +32,7 @@ interface CleanupResult {
   kept: string[];
 }
 
-export const REMOTE_CLEANUP_TIMEOUT_MS = 330_000;
+const REMOTE_CLEANUP_TIMEOUT_MS = 330_000;
 
 /** Without node the server program cannot take the install lock or prove
  *  which daemon it may stop, so cleanup refuses instead of deleting blind. */

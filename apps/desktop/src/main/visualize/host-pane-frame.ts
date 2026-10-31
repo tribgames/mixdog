@@ -12,7 +12,7 @@ import { visualizeOverlayScript } from './overlay-script';
  *  or `scrollbar-width` / `scrollbar-color`) beats a layered one whatever its
  *  specificity or source order. The thumb is a neutral translucent grey that
  *  reads on a dark mockup and on a white page alike. */
-export const PANE_SCROLLBAR_CSS = `@layer mixdog-scrollbar {
+const PANE_SCROLLBAR_CSS = `@layer mixdog-scrollbar {
   *::-webkit-scrollbar { width: 8px; height: 8px; }
   *::-webkit-scrollbar-track { background: transparent; }
   *::-webkit-scrollbar-thumb {

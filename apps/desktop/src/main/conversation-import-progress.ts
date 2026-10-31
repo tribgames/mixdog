@@ -6,7 +6,7 @@ import {
   type ConversationImportJob,
 } from '../shared/contract-import';
 
-export const CONVERSATION_IMPORT_POLL_MS = 750;
+const CONVERSATION_IMPORT_POLL_MS = 750;
 
 interface Options {
   fetchJobs(): Promise<ConversationImportJob[]>;

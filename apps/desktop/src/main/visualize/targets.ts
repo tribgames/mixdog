@@ -15,7 +15,7 @@ import {
   visualizeKindForPath,
 } from '../../shared/visualize';
 
-export const MAX_VISUALIZE_TARGETS = 3;
+const MAX_VISUALIZE_TARGETS = 3;
 const MAX_LABEL_CHARS = 120;
 const MAX_SELECTOR_CHARS = 500;
 const MAX_MARK_LABEL_CHARS = 80;
@@ -26,10 +26,10 @@ const CALL_ID = /^[\w.:|-]{1,200}$/;
 export type VisualizeAction = 'open' | 'close' | 'annotate' | 'capture' | 'export' | 'check' | 'inspect';
 
 /** Viewport bounds `inspect` accepts, in CSS px. */
-export const INSPECT_VIEWPORT_MIN = 200;
-export const INSPECT_VIEWPORT_MAX_WIDTH = 3000;
-export const INSPECT_VIEWPORT_MAX_HEIGHT = 4000;
-export const INSPECT_VIEWPORT_DEFAULT_HEIGHT = 800;
+const INSPECT_VIEWPORT_MIN = 200;
+const INSPECT_VIEWPORT_MAX_WIDTH = 3000;
+const INSPECT_VIEWPORT_MAX_HEIGHT = 4000;
+const INSPECT_VIEWPORT_DEFAULT_HEIGHT = 800;
 
 export interface VisualizeMark {
   selector: string;

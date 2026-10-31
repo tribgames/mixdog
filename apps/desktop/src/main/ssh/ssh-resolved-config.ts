@@ -22,7 +22,7 @@ const TOOL_TIMEOUT_MS = 8_000;
 const MAX_CHAIN = 6;
 
 /** What forwards something or runs a local command: never carried into Mixdog's config. */
-export const FORWARDING_KEYS: ReadonlySet<string> = new Set([
+const FORWARDING_KEYS: ReadonlySet<string> = new Set([
   'localforward',
   'remoteforward',
   'dynamicforward',

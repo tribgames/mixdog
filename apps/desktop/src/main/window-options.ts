@@ -14,7 +14,7 @@ export const DESKTOP_TITLEBAR_HEIGHT = 35;
 
 /* Windows 11 22H2+ (build 22621) draws the Mica system backdrop behind a
    clear window; older builds and other platforms keep the opaque band. */
-export const DESKTOP_WINDOW_MICA = process.platform === 'win32' && Number(release().split('.')[2]) >= 22621;
+const DESKTOP_WINDOW_MICA = process.platform === 'win32' && Number(release().split('.')[2]) >= 22621;
 /* Windows and Linux draw min/max/close through Electron's titleBarOverlay
    (Window Controls Overlay); macOS keeps its native traffic lights. */
 const HAS_TITLEBAR_OVERLAY = process.platform === 'win32' || process.platform === 'linux';

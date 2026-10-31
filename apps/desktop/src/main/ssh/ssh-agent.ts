@@ -5,10 +5,9 @@ import type { RunTool } from './host-key';
 
 const TIMEOUT_MS = 6_000;
 
-export const WINDOWS_AGENT_START_COMMAND =
-  'Set-Service ssh-agent -StartupType Manual; Start-Service ssh-agent; ssh-add';
-export const WINDOWS_AGENT_STARTED_COMMAND = 'Start-Service ssh-agent; ssh-add';
-export const POSIX_AGENT_COMMAND = 'eval "$(ssh-agent -s)" && ssh-add';
+const WINDOWS_AGENT_START_COMMAND = 'Set-Service ssh-agent -StartupType Manual; Start-Service ssh-agent; ssh-add';
+const WINDOWS_AGENT_STARTED_COMMAND = 'Start-Service ssh-agent; ssh-add';
+const POSIX_AGENT_COMMAND = 'eval "$(ssh-agent -s)" && ssh-add';
 
 const attempt = async (
   run: RunTool,

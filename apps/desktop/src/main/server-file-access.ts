@@ -19,7 +19,7 @@ import { LocalAccessDeniedError } from './local-access-denied';
 export type ServerInvoke = <T>(method: string, args: unknown[]) => Promise<T>;
 
 /** Raw bytes per ranged read (the daemon's own ceiling). */
-export const SERVER_READ_CHUNK_BYTES = 4 * 1024 * 1024;
+const SERVER_READ_CHUNK_BYTES = 4 * 1024 * 1024;
 export { SERVER_DOWNLOAD_MAX_BYTES, SERVER_UPLOAD_CHUNK_BYTES };
 const DOWNLOAD_IDLE_MS = 2 * 60 * 1000;
 const MAX_GRANTS = 1_000;
@@ -30,7 +30,7 @@ const MAX_PREVIEWS = 256;
 // checked before this PC decodes, allocates or writes anything because of it.
 
 /** A server answer that breaks the file-transfer protocol. */
-export class ServerResponseError extends Error {
+class ServerResponseError extends Error {
   constructor(what: string) {
     super(`The server sent an invalid response: ${what}.`);
     this.name = 'ServerResponseError';

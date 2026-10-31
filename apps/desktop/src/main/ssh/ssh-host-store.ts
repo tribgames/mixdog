@@ -44,8 +44,8 @@ const cleanName = (name: unknown): string =>
 const MAX_PATH_LENGTH = 512;
 /** How long the server keeps its work after the connection drops (daemon client grace and the reconnect backoff cap). */
 export const DEFAULT_GRACE_MINUTES = 30;
-export const MIN_GRACE_MINUTES = 1;
-export const MAX_GRACE_MINUTES = 10_080;
+const MIN_GRACE_MINUTES = 1;
+const MAX_GRACE_MINUTES = 10_080;
 const MAX_PROVIDER_ID_LENGTH = 64;
 const MAX_ALLOWED_PROVIDERS = 64;
 // biome-ignore lint/suspicious/noControlCharactersInRegex: control characters are exactly what is refused.

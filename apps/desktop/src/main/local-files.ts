@@ -15,7 +15,7 @@ export function absoluteLocalPath(value: unknown): string {
 }
 
 /** Attachment/drag lane cap shared by every host that reads a local file. */
-export const MAX_LOCAL_FILE_BYTES = 20 * 1024 * 1024;
+const MAX_LOCAL_FILE_BYTES = 20 * 1024 * 1024;
 
 /** One absolute path described for the file-tab / attachment lanes. */
 export async function statLocalEntryAbs(path: string): Promise<{

@@ -1,11 +1,11 @@
-// The phone's persisted sessions roster. A cold open used to receive the whole
-// roster (~1,800 rows, ~822KB JSON) although almost nothing changed since the
-// last visit. The phone now keeps the rows its decoder last held under the
-// desktop's roster version (main/remote-roster-log.ts) and, on a sync, claims
-// that version with its row count and a digest of its id set — never a row
-// list. The desktop answers with only what changed (`__listCatch`) or with
-// today's baseline; the phone then checks the rebuilt rows against the
-// desktop's digest and resynchronizes from a baseline on any difference.
+// The phone's persisted sessions roster. Sending the whole roster on a cold
+// open (~1,800 rows, ~822KB JSON) would repeat almost everything from the last
+// visit. The phone keeps the rows its decoder last held under the desktop's
+// roster version (main/remote-roster-log.ts) and, on a sync, claims that
+// version with its row count and a digest of its id set — never a row list.
+// The desktop answers with only what changed (`__listCatch`) or with a full
+// baseline; the phone then checks the rebuilt rows against the desktop's
+// digest and resynchronizes from a baseline on any difference.
 //
 // Wire: the optional fourth `synchronizeViews` parameter,
 //   { v: 1 }                                   (can hold a roster, holds none)

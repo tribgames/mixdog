@@ -5,7 +5,7 @@ import { posix, win32 } from 'node:path';
 
 export type SshToolName = 'ssh' | 'ssh-keygen' | 'ssh-keyscan' | 'ssh-add';
 
-export const SSH_TOOL_NAMES: readonly string[] = ['ssh', 'ssh-keygen', 'ssh-keyscan', 'ssh-add'];
+const SSH_TOOL_NAMES: readonly string[] = ['ssh', 'ssh-keygen', 'ssh-keyscan', 'ssh-add'];
 
 /** Installs the Windows OpenSSH client (run in an administrator PowerShell). */
 export const WINDOWS_SSH_CLIENT_COMMAND = 'Add-WindowsCapability -Online -Name OpenSSH.Client~~~~0.0.1.0';

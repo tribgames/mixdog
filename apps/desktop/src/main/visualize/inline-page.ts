@@ -12,7 +12,7 @@ const HTML = 'text/html; charset=utf-8';
 
 /** The ECharts library as bundled with the app (a build-time virtual module,
  *  loaded on first use). */
-export async function bundledEchartsSource(): Promise<string> {
+async function bundledEchartsSource(): Promise<string> {
   return (await import('virtual:mixdog-echarts-source')).default;
 }
 

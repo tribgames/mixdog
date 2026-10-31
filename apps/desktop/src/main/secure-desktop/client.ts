@@ -231,7 +231,7 @@ export class SecureDesktopClient {
   }
 
   private onData(chunk: Buffer): void {
-    let frames;
+    let frames: ReturnType<FrameParser['push']>;
     try {
       frames = this.parser.push(chunk);
     } catch (error) {
