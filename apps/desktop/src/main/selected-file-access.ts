@@ -77,7 +77,11 @@ export class SelectedFileAccess {
     return token && this.#grants.has(selectedFileGrantKey(token)) ? token : undefined;
   }
 
-  async describe(paths: unknown): Promise<DesktopLocalPathEntry[]> {
+  /** `grant: false` describes a chat link's path: a file outside every
+   *  Project is addressed as its own folder's file with no token, which the
+   *  file IPCs open as a standalone root, so nothing is granted, persisted or
+   *  capped. The picker and drop keep their one-off grants. */
+  async describe(paths: unknown, grant = true): Promise<DesktopLocalPathEntry[]> {
     if (!Array.isArray(paths) || paths.length === 0 || paths.length > 100) {
       throw new TypeError('paths are invalid.');
     }
@@ -100,6 +104,9 @@ export class SelectedFileAccess {
         if (owner) {
           row.projectPath = owner.project.path;
           row.relPath = relative(owner.root, absolutePath).replace(/\\/g, '/');
+        } else if (!grant) {
+          row.projectPath = dirname(absolutePath);
+          row.relPath = basename(absolutePath);
         } else {
           // Every link verification and hover describes its file again. A
           // fresh token each time evicted the grants of open editors and

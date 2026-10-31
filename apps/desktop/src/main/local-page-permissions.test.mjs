@@ -3,12 +3,13 @@ import { EventEmitter } from 'node:events';
 import { request } from 'node:http';
 import { mkdir, mkdtemp, readdir, rename, rm, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { basename, dirname, join } from 'node:path';
+import { basename, dirname, join, sep } from 'node:path';
 import test from 'node:test';
 import * as pages from './local-page-server.ts';
 import { registerProjectFileIpc } from './ipc-project-files.ts';
 import { LocalAccessDeniedError } from './local-access-denied.ts';
 import { DESKTOP_IPC } from '../shared/contract';
+import { PROJECT_UNAVAILABLE } from '../shared/file-error-codes';
 import { withSandboxStorageShim } from '../shared/sandbox-storage-shim.ts';
 
 // Exercise the real registrar and HTTP server. Only its existing authority
@@ -76,9 +77,11 @@ function harness(t, root) {
       throw new Error('preview must not dispatch a file mutation');
     },
     host: {
+      async listProjects() {
+        return authority.project ? [{ path: root }] : [];
+      },
       async projectDirectory(path) {
         authority.projectCalls++;
-        if (authority.projectError) throw authority.projectError;
         if (path !== root || !authority.project) throw new LocalAccessDeniedError('project is not registered');
         return authority.project;
       },
@@ -120,6 +123,117 @@ test('selected-file IPC serves only the selected HTML, never neighboring assets 
   for (const path of Object.keys(files).filter((file) => file !== 'page.html')) {
     assert.equal((await get(url, pathFor(url, path))).status, 404, path);
   }
+});
+
+test('a page in a folder outside every Project is served by its own folder, with no token', async (t) => {
+  const { root, files } = await fixture(t);
+  const handlers = new Map();
+  const sender = owner();
+  t.after(() => sender.close());
+  registerProjectFileIpc({
+    app: {},
+    shell: {},
+    handle: (name, run) => handlers.set(name, run),
+    invokeDesktopOperation: async () => {
+      throw new Error('preview must not dispatch a file mutation');
+    },
+    host: {
+      // An older runtime's refusal carries no code: the folder is still a root.
+      async listProjects() {
+        return [];
+      },
+      async projectDirectory() {
+        throw new LocalAccessDeniedError('project is not registered');
+      },
+    },
+    async grantedFile() {
+      throw new Error('a folder page needs no grant');
+    },
+  });
+  const open = (project, rel = 'page.html') => handlers.get(DESKTOP_IPC.localPageUrl)({ sender }, project, rel);
+  const url = await open(root);
+  assert.equal((await get(url)).body, files['page.html']);
+  assert.equal((await get(url, pathFor(url, 'assets/style.css'))).body, files['assets/style.css']);
+  // A folder that does not exist is not a root.
+  await assert.rejects(open(join(root, 'missing-folder')), /not registered/);
+});
+
+function listingHarness(listProjects, listProjectDir) {
+  const handlers = new Map();
+  registerProjectFileIpc({
+    app: {},
+    shell: {},
+    handle: (name, run) => handlers.set(name, run),
+    invokeDesktopOperation: async () => {
+      throw new Error('no operation expected');
+    },
+    host: { listProjects, listProjectDir },
+    async grantedFile() {
+      throw new Error('no grant');
+    },
+  });
+  return (project) => handlers.get(DESKTOP_IPC.listProjectDir)({}, project, '');
+}
+
+test('a registry lookup failure is an error, never a reason to read the folder from disk', async (t) => {
+  const { root } = await fixture(t);
+  const list = listingHarness(
+    async () => {
+      throw new Error('registry down');
+    },
+    async () => {
+      throw new Error('Project is not available.');
+    }
+  );
+  await assert.rejects(list(root), /registry down/);
+});
+
+test('a registered Project spelled differently keeps the host route', async (t) => {
+  const { root } = await fixture(t);
+  const hostFailure = async () => {
+    throw new Error('host failure');
+  };
+  // The registry spells the Project with a trailing separator (and, on
+  // Windows, the caller with other slashes); neither makes it a standalone folder.
+  const list = listingHarness(async () => [{ path: `${root}${sep}` }], hostFailure);
+  await assert.rejects(list(root), /host failure/);
+  await assert.rejects(list(process.platform === 'win32' ? root.replace(/\\/g, '/') : `${root}${sep}.`), /host failure/);
+});
+
+test('a registered Project does not wait for a registry lookup', async (t) => {
+  const { root } = await fixture(t);
+  let lookups = 0;
+  const list = listingHarness(
+    async () => {
+      lookups++;
+      return [];
+    },
+    async () => [{ name: 'ok', dir: false }]
+  );
+  assert.deepEqual(await list(root), [{ name: 'ok', dir: false }]);
+  assert.equal(lookups, 0);
+});
+
+test('a server window never treats an unregistered folder as a root of this PC', async (t) => {
+  const { root } = await fixture(t);
+  const handlers = new Map();
+  const unregistered = async () => {
+    throw new LocalAccessDeniedError('project is not registered', PROJECT_UNAVAILABLE);
+  };
+  registerProjectFileIpc({
+    app: {},
+    shell: {},
+    handle: (name, run) => handlers.set(name, run),
+    invokeDesktopOperation: async () => {
+      throw new Error('a server window must not read this PC');
+    },
+    host: { projectDirectory: unregistered, listProjectDir: unregistered },
+    async grantedFile() {
+      throw new Error('no grant');
+    },
+    server: { previews: {}, grants: {} },
+  });
+  await assert.rejects(handlers.get(DESKTOP_IPC.listProjectDir)({}, root, ''), /not registered/);
 });
 
 test('registered-project IPC retains relative styles, scripts, fonts, media and data', async (t) => {
@@ -178,11 +292,14 @@ test('invalid or expired file tokens never fall back to a registered project', a
   assert.equal(h.authority.projectCalls, 0);
 });
 
-test('omitting a file token cannot authorize an unregistered parent directory', async (t) => {
+test('an unregistered existing folder is its own root without a token; a missing one is refused', async (t) => {
   const { root } = await fixture(t);
   const h = harness(t, root);
   h.authority.project = null;
-  await assert.rejects(h.url(undefined), /not registered/);
+  assert.equal((await get(await h.url(undefined))).status, 200);
+  const missing = harness(t, join(root, 'missing-folder'));
+  missing.authority.project = null;
+  await assert.rejects(missing.url(undefined), /not registered/);
   const url = await h.url('selected-secret-token');
   assert.equal((await get(url)).status, 200);
 });
@@ -200,23 +317,16 @@ test('selected grant revocation invalidates an issued URL without exposing diagn
   assert.equal((await get(await h.url('selected-secret-token'))).status, 200);
 });
 
-test('project removal revokes its assets and re-registration does not revive that URL', async (t) => {
-  const { root } = await fixture(t);
+test('a page stays served from the folder it was opened in, whatever its Project registration does', async (t) => {
+  const { root, files } = await fixture(t);
+  const other = await fixture(t);
+  await writeFile(join(other.root, 'assets/style.css'), 'other folder');
   const h = harness(t, root);
   const url = await h.url(undefined);
   h.authority.project = null;
-  assert.equal((await get(url, pathFor(url, 'private.json'))).status, 404);
-  h.authority.project = root;
-  assert.equal((await get(url)).status, 404);
-});
-
-test('a changed project registry root cannot redirect an existing URL', async (t) => {
-  const { root } = await fixture(t);
-  const other = await fixture(t);
-  const h = harness(t, root);
-  const url = await h.url(undefined);
+  assert.equal((await get(url, pathFor(url, 'assets/style.css'))).body, files['assets/style.css']);
   h.authority.project = other.root;
-  assert.equal((await get(url)).status, 404);
+  assert.equal((await get(url, pathFor(url, 'assets/style.css'))).body, files['assets/style.css']);
 });
 
 test('closing one renderer revokes its URLs without affecting another owner', async (t) => {
@@ -428,12 +538,11 @@ test('the server requires explicit permission and only mints HTML preview entrie
   assert.ok(!(await readdir(root)).some((name) => name.includes('preview')));
 });
 
-for (const token of ['selected-secret-token', undefined]) {
-  test(`${token ? 'file' : 'project'} lookup failures return 503 and preserve the same preview URL`, async (t) => {
+test('file lookup failures return 503 and preserve the same preview URL', async (t) => {
     const { root } = await fixture(t);
     const h = harness(t, root);
-    const url = await h.url(token);
-    const key = token ? 'grantError' : 'projectError';
+    const url = await h.url('selected-secret-token');
+    const key = 'grantError';
     for (const error of [
       Object.assign(new Error('private timeout diagnostic'), { code: 'ETIMEDOUT' }),
       Object.assign(new Error('private filesystem diagnostic'), { code: 'EACCES' }),
@@ -448,22 +557,21 @@ for (const token of ['selected-secret-token', undefined]) {
       h.authority[key] = null;
       assert.equal((await get(url)).status, 200, 'recovery must not require a new URL');
     }
-    if (token) assert.equal(h.authority.projectCalls, 0, 'failure must not widen file authority');
-  });
-}
+    assert.equal(h.authority.projectCalls, 0, 'failure must not widen file authority');
+});
 
 test('an explicit denial survives the desktop-service error envelope without parsing its message', async (t) => {
   const { root } = await fixture(t);
   const h = harness(t, root);
-  const url = await h.url(undefined);
+  const url = await h.url('selected-secret-token');
   const denial = new LocalAccessDeniedError('not for the page to see');
   // The service transports name/message/code, not an Error prototype.
-  h.authority.projectError = Object.assign(
+  h.authority.grantError = Object.assign(
     new Error('changed diagnostic wording'),
     JSON.parse(JSON.stringify({ code: denial.code }))
   );
   assert.equal((await get(url)).status, 404);
-  h.authority.projectError = null;
+  h.authority.grantError = null;
   assert.equal((await get(url)).status, 404, 'a definite denial stays revoked after recovery');
 });
 

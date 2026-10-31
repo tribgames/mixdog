@@ -422,8 +422,14 @@ export interface DesktopApi {
   /** Resolve trusted local paths for file-tab opening and internal drag/drop.
    *  On a remote surface a path outside every registered project resolves
    *  only when an assistant reply links it: in `sessionId`'s transcript when
-   *  given, otherwise in a conversation this device currently views. */
-  resolveLocalPaths?(paths: string[], sessionId?: string): Promise<DesktopLocalPathEntry[]>;
+   *  given, otherwise in a conversation this device currently views.
+   *  On the desktop `chatLink` describes a chat link's path: a file outside
+   *  every Project is addressed in its own folder with no one-off grant. */
+  resolveLocalPaths?(
+    paths: string[],
+    sessionId?: string,
+    options?: { chatLink?: boolean }
+  ): Promise<DesktopLocalPathEntry[]>;
   /** Remote surfaces only: downloads of host files to this device
    *  (shared/file-downloads.ts). Absent on the desktop app. */
   fileDownloads?: FileDownloadApi;

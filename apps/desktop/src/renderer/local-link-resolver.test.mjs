@@ -80,6 +80,31 @@ test('a click on a verified outside-file link describes it again instead of reus
   assert.deepEqual([...calls], []);
 });
 
+test('an outside path is described as a chat link: its folder is the root, the file carries no token', async (t) => {
+  const calls = installApi(t, { [PROJECT]: ['src/app.ts'] });
+  const asked = [];
+  calls.window.mixdogDesktop.resolveLocalPaths = async (...args) => {
+    asked.push(args);
+    const [[path]] = args;
+    return path.endsWith('/docs')
+      ? [{ absolutePath: path, dir: true, name: 'docs', size: 0 }]
+      : [{ absolutePath: path, projectPath: 'C:/Outside/docs', relPath: 'note.txt' }];
+  };
+  assert.deepEqual(await resolveLocalLink(PROJECT, 'C:/Outside/docs', 'sess'), {
+    project: 'C:/Outside/docs',
+    path: '.',
+    directory: true,
+  });
+  const file = await resolveLocalLink(PROJECT, 'C:/Outside/docs/note.txt');
+  assert.deepEqual(file, { project: 'C:/Outside/docs', path: 'note.txt' });
+  // A verified outside file is reused on click like any other.
+  assert.equal(await resolveLocalLinkForOpen(file, PROJECT, 'x'), file);
+  assert.deepEqual(asked, [
+    [['C:/Outside/docs'], 'sess', { chatLink: true }],
+    [['C:/Outside/docs/note.txt'], undefined, { chatLink: true }],
+  ]);
+});
+
 test('an explicit open resolves the same way as verification', async (t) => {
   installApi(t, { [PROJECT]: ['src/app.ts'], [OTHER]: ['lib/other.ts'] });
   assert.deepEqual(await resolveLocalLink(PROJECT, 'other.ts'), { project: OTHER, path: 'lib/other.ts' });

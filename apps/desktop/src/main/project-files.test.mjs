@@ -15,7 +15,7 @@ import fs, {
 } from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { join, parse, sep } from 'node:path';
 import test from 'node:test';
 
 import {
@@ -60,6 +60,18 @@ test('project file operations reject symlink and junction escapes', async (t) =>
   await assert.rejects(listProjectDirIn(root, 'escape'), /resolves outside/);
   await assert.rejects(readProjectTextFileIn(root, 'escape/secret.txt'), /resolves outside/);
   await assert.rejects(createProjectEntryIn(root, '', 'escape/created.txt', false), /resolves outside/);
+});
+
+test('a drive or filesystem root accepts its children, and a folder root still refuses escapes', async (t) => {
+  const driveRoot = parse(tmpdir()).root;
+  const top = tmpdir().slice(driveRoot.length).split(sep)[0];
+  // A root already ends in a separator: no second one is appended to it.
+  assert.equal(projectEntryPathIn(driveRoot, top), join(driveRoot, top));
+  assert.equal(projectEntryPathIn(driveRoot, ''), driveRoot);
+  assert.equal((await statProjectFileIn(driveRoot, top)).directory, true);
+  const fixture = await mkdtemp(join(tmpdir(), 'mixdog-project-driveroot-'));
+  t.after(() => rm(fixture, { recursive: true, force: true }));
+  assert.throws(() => projectEntryPathIn(fixture, '../elsewhere'), /outside the project/);
 });
 
 test('the project-root guard holds when the caller passes an unresolved root', async (t) => {

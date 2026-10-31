@@ -159,7 +159,7 @@ const api: DesktopApi = {
       return '';
     }
   },
-  resolveLocalPaths: (paths) => invokeIpc(DESKTOP_IPC.resolveLocalPaths, paths),
+  resolveLocalPaths: (paths, sessionId, options) => invokeIpc(DESKTOP_IPC.resolveLocalPaths, paths, sessionId, options),
   readLocalFile: (path) => invokeIpc(DESKTOP_IPC.readLocalFile, path),
   folderWatch: (dir, recursive) => invokeIpc(DESKTOP_IPC.folderWatch, dir, recursive === true),
   folderUnwatch: (dir, recursive) => invokeIpc(DESKTOP_IPC.folderUnwatch, dir, recursive === true),

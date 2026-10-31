@@ -26,7 +26,7 @@ interface FileDialogIpcOptions {
   handle: Handle;
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
   nativeT: (key: string) => string;
-  describeLocalPaths: (value: unknown) => Promise<unknown[]>;
+  describeLocalPaths: (value: unknown, sessionId?: unknown, options?: unknown) => Promise<unknown[]>;
 }
 
 const SAVE_DOWNLOAD_MAX_BYTES = 512 * 1024 * 1024;
@@ -124,7 +124,9 @@ export function registerFileDialogIpc({
   });
   // A server window's "local" paths (its file tree, agent output links) are
   // the server's: they are described and read there by the daemon.
-  handle(DESKTOP_IPC.resolveLocalPaths, (_event, paths) => describeLocalPaths(paths));
+  handle(DESKTOP_IPC.resolveLocalPaths, (_event, paths, sessionId, options) =>
+    describeLocalPaths(paths, sessionId, options)
+  );
   handle(DESKTOP_IPC.readLocalFile, (_event, rawPath) =>
     connectionKind === 'ssh'
       ? invokeDesktopOperation('readLocalFileAbs', [absoluteServerPath(rawPath)])
