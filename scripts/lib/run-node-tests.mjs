@@ -3,7 +3,6 @@ import { appendFile, mkdtemp, readFile, rm } from 'node:fs/promises';
 import { availableParallelism, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
-import { killProcessTrees } from '../../src/runtime/agent/orchestrator/mcp/child-tree.mjs';
 import { pruneStaleTempDirs } from './stale-temp.mjs';
 import { FAILURE_RECORDS_ENV, spawnLedgerPath } from './test-failure-records.mjs';
 import { classifyRerunOutcomes, formatFailureSummary } from './test-failure-summary.mjs';
@@ -148,9 +147,16 @@ function capture(command, args) {
 // Kills a live batch and every descendant still linked to it (on Windows the
 // shared creation-checked tree kill). On POSIX a batch leads its own process
 // group (spawned detached), so the group goes with it.
+// Loaded only when a Windows kill runs, so importers that need just this
+// module's constants (the local gate) do not pull in the runtime.
+async function loadKillProcessTrees() {
+  const { killProcessTrees } = await import('../../src/runtime/agent/orchestrator/mcp/child-tree.mjs');
+  return killProcessTrees;
+}
+
 async function killTree(pid) {
   if (process.platform === 'win32') {
-    await killProcessTrees([pid]);
+    await (await loadKillProcessTrees())([pid]);
     return;
   }
   for (const target of [-pid, pid]) {
@@ -295,7 +301,7 @@ async function killOwned(anchors, { scratchDir }) {
   const pids = leftovers.map((entry) => entry.pid);
   console.error(`Killing ${pids.length} process(es) a test left running: ${pids.join(' ')}`);
   if (process.platform === 'win32') {
-    await killProcessTrees(pids, { aliveAt: snapshotAt });
+    await (await loadKillProcessTrees())(pids, { aliveAt: snapshotAt });
     return;
   }
   for (const pid of pids) {
