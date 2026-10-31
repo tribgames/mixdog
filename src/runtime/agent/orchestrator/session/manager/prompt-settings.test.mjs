@@ -218,3 +218,53 @@ test('a compaction re-tells a worker what it was told; a Lead folds instead', ()
   acknowledgePendingPromptSettingsNotice(lead, lead.promptSettingsNotice.revision);
   assert.equal(rearmPromptSettingsNotice(lead), false);
 });
+
+test('an edited orchestration mode text is told as a capped line diff of that mode, never the whole file', () => {
+  const text = (extra) => `# Orchestration Mode: Balanced\n\nrule one\nrule two${extra}`;
+  const before = told({ orchestration: text(''), orchestrationMode: 'balanced' });
+  const edited = promptSettingsNoticeContent(
+    ['orchestration'],
+    { orchestration: text('\nrule three'), orchestrationMode: 'balanced' },
+    before
+  );
+  assert.match(
+    edited,
+    /# Orchestration Mode\nThe Balanced orchestration mode instructions were edited:\n\+ rule three/
+  );
+  assert.doesNotMatch(edited, /rule one/);
+  // Another mode is the mode-switch notice's, not an edit.
+  assert.equal(
+    promptSettingsNoticeContent(
+      'orchestration'.split(','),
+      { orchestration: 'other', orchestrationMode: 'swarm' },
+      before
+    ),
+    ''
+  );
+  const many = Array.from({ length: 600 }, (_, i) => `line ${i}`).join('\n');
+  const big = promptSettingsNoticeContent(
+    ['orchestration'],
+    { orchestration: many, orchestrationMode: 'balanced' },
+    before
+  );
+  assert.ok(bytes(big) <= NOTICE_MAX_BYTES);
+});
+
+test('reordering the lines of an orchestration mode is told, not lost as an equal line set', () => {
+  const before = told({ orchestration: 'rule one\nrule two\nrule three', orchestrationMode: 'swarm' });
+  const text = promptSettingsNoticeContent(
+    ['orchestration'],
+    { orchestration: 'rule three\nrule one\nrule two', orchestrationMode: 'swarm' },
+    before
+  );
+  assert.match(
+    text,
+    /The Swarm orchestration mode instructions were edited: the same lines in a different order or count\./
+  );
+  const mixed = promptSettingsNoticeContent(
+    ['orchestration'],
+    { orchestration: 'rule three\nrule one\nrule new', orchestrationMode: 'swarm' },
+    before
+  );
+  assert.match(mixed, /\+ rule new[\s\S]*\(line order also changed\)/);
+});

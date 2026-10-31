@@ -16,6 +16,7 @@ import {
   Palette,
   PenLine,
   Plug,
+  ScrollText,
   type Settings,
   SlidersHorizontal,
   Smartphone,
@@ -99,6 +100,7 @@ const CATEGORY_ICONS = {
   about: Heart,
   display: Palette,
   work: Hammer,
+  instructions: ScrollText,
 } satisfies Record<SettingsCategory, typeof Settings>;
 
 export const SettingsView = memo(function SettingsView({

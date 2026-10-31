@@ -9,7 +9,13 @@ import { dirname, join, relative } from 'node:path';
 import { readMarkdownDocument } from './markdown-frontmatter.mjs';
 
 export const SHIPPED_HISTORY_FILE = ['defaults', 'shipped-history.json'];
-export const EMPTY_HISTORY = Object.freeze({ agents: {}, workflows: {}, outputStyles: {}, skills: {} });
+export const EMPTY_HISTORY = Object.freeze({
+  agents: {},
+  workflows: {},
+  outputStyles: {},
+  orchestration: {},
+  skills: {},
+});
 
 // Leftovers from hand edits or editors that never belong to a definition.
 const IGNORABLE_STRAY = /(\.(bak|orig|tmp)|~)$/i;

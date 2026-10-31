@@ -21,6 +21,7 @@ import { ConnectionPanel } from './connection-panel';
 import { DeveloperPanel } from './developer-panel';
 import { getCachedDesktopStatus, readDesktopStatus, storeDesktopStatus } from './desktop-status-cache';
 import { DisplayPanel, GeneralPanel, WorkPanel } from './general-panel';
+import { InstructionControlPanel } from './instruction-control-panel';
 import { SkinPanel } from './skin-panel';
 import { BotsPanel } from './desktop-pet-toggle';
 import { NotificationsPanel } from './notification-panel';
@@ -68,6 +69,7 @@ export function CategoryPanel({ category, context }: { category: CapabilityCateg
   if (category === 'skin') return <SkinPanel {...context} />;
   if (category === 'bots') return <BotsPanel {...context} />;
   if (category === 'work') return <WorkPanel {...context} />;
+  if (category === 'instructions') return <InstructionControlPanel {...context} />;
   return <GeneralPanel {...context} />;
 }
 

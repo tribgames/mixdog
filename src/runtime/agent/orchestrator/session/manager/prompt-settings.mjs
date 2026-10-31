@@ -13,11 +13,13 @@
 // promptSettingsNoticeContent is the one builder of that text.
 import { createHash } from 'node:crypto';
 import { isAgentOwner } from '../../agent-owner.mjs';
+import { orchestrationModeName } from './orchestration-mode-switch-notice.mjs';
 
 /** The rendered sections a prompt carries, in prompt order, with their labels. */
 export const PROMPT_SETTING_SECTIONS = Object.freeze([
   ['meta', 'Profile Preferences and Output Style'],
   ['workflow', 'Workflow'],
+  ['orchestration', 'Orchestration Mode'],
   ['skills', 'Skills'],
   ['instructionFiles', 'Instruction Files'],
   ['coreMemory', 'Core Memory'],
@@ -159,6 +161,8 @@ export function promptSettingsRecord(sections = {}) {
     hashes,
     texts: {
       meta: String(sections.meta || ''),
+      orchestration: String(sections.orchestration || ''),
+      orchestrationMode: String(sections.orchestrationMode || ''),
       instructionFiles: String(sections.instructionFiles || ''),
       coreMemory: String(sections.coreMemory || ''),
       skills: skillNames(sections.skills),
@@ -314,6 +318,31 @@ function noticeItems(keys, sections, told) {
     } else if (key === 'workflow') {
       const name = sections.workflowName ? `"${sections.workflowName}"` : 'active';
       add(key, `# Workflow\nThe ${name} workflow pack changed; ${LATER}`);
+    } else if (key === 'orchestration') {
+      // The text of the active mode was edited. A switch to another mode is
+      // the mode-switch notice's, and a record that predates the text has
+      // nothing to diff.
+      const mode = sections.orchestrationMode;
+      if (told.orchestration === undefined || !mode || told.orchestrationMode !== mode) continue;
+      // Order is meaning in instructions: the line diff compares sets, so
+      // moved or repeated lines are caught by comparing the sequences.
+      const was = contentLines(told.orchestration);
+      const now = contentLines(sections.orchestration);
+      if (was.join('\n') === now.join('\n')) continue;
+      const diff = lineDiff(told.orchestration, sections.orchestration);
+      const nowSet = new Set(now);
+      const wasSet = new Set(was);
+      const reordered =
+        was.filter((line) => nowSet.has(line)).join('\n') !== now.filter((line) => wasSet.has(line)).join('\n');
+      const name = orchestrationModeName(mode);
+      const head = `# Orchestration Mode\nThe ${name} orchestration mode instructions were edited`;
+      add(
+        key,
+        diff
+          ? `${head}:\n${diff}${reordered ? '\n(line order also changed)' : ''}`
+          : `${head}: the same lines in a different order or count.`,
+        `${head}; ${LATER}`
+      );
     } else if (key === 'skills') {
       const full = skillsSection(told, sections);
       const added = skillNames(sections.skills).filter((name) => !(told.skills || []).includes(name)).length;
@@ -470,6 +499,7 @@ export function stagePromptSettingsNotice(session, sections) {
 // carried, the earlier told state for the rest.
 const TEXTS_OF = {
   meta: ['meta'],
+  orchestration: ['orchestration', 'orchestrationMode'],
   instructionFiles: ['instructionFiles', 'instructionFilesMode'],
   coreMemory: ['coreMemory'],
   skills: ['skills'],

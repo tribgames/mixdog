@@ -60,6 +60,7 @@ test('the rail runs in Basics, AI behavior, Integrations and Support sections, B
       'output-style',
       'context',
       'work',
+      'instructions',
       'providers',
       'models',
       'connection',

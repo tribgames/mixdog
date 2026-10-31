@@ -4,6 +4,7 @@ import { createAgentConnectorsApi } from './workflow-agents-api/agent-connectors
 import { createAgentRouteApi } from './workflow-agents-api/agent-route.mjs';
 import { createWorkflowPacksApi } from './workflow-agents-api/workflow-packs.mjs';
 import { createStyleAndModeApi } from './workflow-agents-api/style-and-mode.mjs';
+import { createInstructionFilesApi } from './workflow-agents-api/instruction-files.mjs';
 
 // Onboarding + agents/workflows/output-style selection surface. Stateless
 // helpers are imported by the phase modules under workflow-agents-api/; the
@@ -20,5 +21,6 @@ export function createWorkflowAgentsApi(deps) {
     ...routeApi,
     ...createWorkflowPacksApi(deps),
     ...createStyleAndModeApi(deps),
+    ...createInstructionFilesApi(deps),
   };
 }

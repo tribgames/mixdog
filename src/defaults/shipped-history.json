@@ -179,6 +179,20 @@
       "d5f205f3b57c0b9541b8acc237069287"
     ]
   },
+  "orchestration": {
+    "balanced.md": [
+      "ad1683ff1626ebabd4e027abe03fe29a"
+    ],
+    "focused.md": [
+      "e73b0d71f544900611b2d06f963472d4"
+    ],
+    "none.md": [
+      "9be4bf61f9ba91c4caf53296adff2e8a"
+    ],
+    "swarm.md": [
+      "7fa3e68e0c53d16203384f5ca645765d"
+    ]
+  },
   "skills": {
     "browser-use": [
       "00085086a7649ec6631f5cf0a3bbbf60",
@@ -378,7 +392,9 @@
       "242f11864abdef90fa0cc9cb4599a579",
       "29a347c4d3a2f773fa92c627260301ba",
       "336ced846a9e4f774cbb109417856c3b",
+      "34c5f8fcb6292b8cc5239667d2119e83",
       "3716b2d2c2d973ae022694ed5cb756ad",
+      "398958b6f815bf8ad3f96dd288844333",
       "3dc990c29cdce1aca4b112d735ad5917",
       "3f72247651ad9d777b6754bfd46732aa",
       "50bdf35d06913236855080fdea6b50dc",
@@ -397,6 +413,7 @@
       "8b829db6b0675b62a71a1432dbd25490",
       "99d76213e70c6900d6af48ffa4045886",
       "9a2188ce201e4394bc18182131b7a3e1",
+      "9b10b59b27497a126b212df083ace020",
       "9f90d3872b1ecd312977ce661b770b31",
       "ade615dd0f6ae6ed1601023e5b9cb692",
       "b21681ecfeb523c0d7dd89a299ec05a9",
@@ -420,6 +437,7 @@
       "633e15b84dbe22f2b578b67cc35853d4",
       "72e474711ecd18cfcae6c8365e08286e",
       "920d5b29ccfe6c88f623cf0892b29285",
+      "dbe3d22991ad4dff6e3906f9101c9b5f",
       "ec88a82ab5e511c0afb1738162150648",
       "fa355d4ea5f1823e4b75219ab842c34a"
     ],

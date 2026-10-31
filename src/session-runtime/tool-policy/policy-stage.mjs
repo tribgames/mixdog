@@ -127,12 +127,16 @@ export function createPolicyStage({
     const slice = promptConfigSlice(config);
     const skip = identity.profileSkip || {};
     const skills = schemaAllowedTools?.length === 0 ? [] : collectPromptSkillsCached(session.cwd, config);
-    const { packContext, summary } = activeWorkflowContext(config, getDataDir());
+    const { packContext, summary, leadPromptParts, orchestrationMode } = activeWorkflowContext(config, getDataDir());
+    // A coding Lead's mode text, as session creation records it.
+    const codingLead = !ownerIsAgent && !agentMode;
     return {
       meta: lead ? _buildLeadMetaContext({ includeOutputStyle: !agentMode, config: slice }) : '',
       // The workflow pack and the skill listing BP2 carries.
       workflow: String(packContext || ''),
       workflowName: summary?.name || summary?.id || null,
+      orchestration: codingLead ? String(leadPartsFor(session, leadPromptParts).orchestrationContext || '') : '',
+      orchestrationMode: codingLead ? orchestrationMode || '' : '',
       skills: buildSkillManifest(skills),
       instructionFilesMode: normalizeInstructionFilesMode(slice?.instructionFiles),
       language: lead ? _buildLeadLanguageContext({ includeOutputStyle: !agentMode, config: slice }) : '',

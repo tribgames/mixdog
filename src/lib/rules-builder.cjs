@@ -36,6 +36,7 @@ const {
   outputStyleMetaFromMarkdown,
   sortOutputStyles,
 } = require('./output-style-meta.cjs');
+const { decodeInstructionFile } = require('./instruction-text.cjs');
 const {
   PROFILE_EXPERIENCE_PROMPTS,
   normalizeProfileConfig,
@@ -244,9 +245,19 @@ function listOutputStyleEntries({ PLUGIN_ROOT, DATA_DIR }) {
         .sort();
     } catch {}
     for (const name of files) {
-      const raw = readOptional(path.join(dir, name));
-      const meta = raw ? outputStyleMetaFromMarkdown(raw, name) : null;
-      if (meta) byId.set(meta.id, { ...meta, source, raw });
+      // A file the editor reports as unusable (empty, over 256 KB, not text) or
+      // without a body would leave the style empty or corrupt: it is passed over
+      // and the built-in applies (instruction-text.cjs is the one check).
+      let decoded;
+      try {
+        decoded = decodeInstructionFile(fs.readFileSync(path.join(dir, name)));
+      } catch {
+        continue;
+      }
+      if (decoded.problem) continue;
+      const raw = decoded.text.trim();
+      const meta = outputStyleMetaFromMarkdown(raw, name);
+      if (meta && stripFrontmatter(raw)) byId.set(meta.id, { ...meta, source, raw });
     }
   }
   return sortOutputStyles([...byId.values()]);

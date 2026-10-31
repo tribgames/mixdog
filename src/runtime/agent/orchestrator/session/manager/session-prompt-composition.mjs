@@ -238,6 +238,13 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
   const promptSettings = promptSettingsRecord({
     meta: metaContext,
     workflow: opts.workflowContext || '',
+    // A coding Lead's mode text (an agent-mode Lead's delegation block is fixed).
+    ...(ownerIsAgent || agentMode
+      ? {}
+      : {
+          orchestration: String(opts.leadWorkflowParts?.orchestrationContext || ''),
+          orchestrationMode: opts.orchestrationMode || '',
+        }),
     skills: buildSkillManifest(skills),
     language: languageContext,
     instructionFiles: profile?.skip?.claudemd ? '' : instructionFilesContext,
