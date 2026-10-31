@@ -29,6 +29,9 @@ test('panel color segmented group never overlaps its description and drops below
           import React from "react";
           import { createRoot } from "react-dom/client";
           import { SkinPanel } from "./settings/skin-panel";
+          // The shipped UI font: labels measure the same on every OS, not in
+          // whatever Korean font (or none, on a CI runner) the system has.
+          import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
           createRoot(document.getElementById("root")).render(<SkinPanel />);
         `,
       },
@@ -85,13 +88,14 @@ test('panel color segmented group never overlaps its description and drops below
     });
     seg.closest('.skin-row').querySelector('.skin-row-desc').textContent =
       '사이드바와 메시지 패널의 색상입니다. 밝은 유리 효과는 밝은 이미지에 잘 어울립니다.';
-    document.body.style.fontFamily = '"Malgun Gothic", "Noto Sans CJK KR", sans-serif';
   });
 
   const measure = () =>
     page.evaluate(async () => {
-      await document.fonts.ready;
       const row = document.querySelector('.skin-seg[aria-label="Panel color"]').closest('.skin-row');
+      // Pretendard loads its Hangul in unicode-range slices on first use.
+      await document.fonts.load('14px "Pretendard Variable"', row.textContent);
+      await document.fonts.ready;
       const seg = row.querySelector('.skin-seg').getBoundingClientRect();
       const descNode = row.querySelector('.skin-row-desc');
       const range = document.createRange();
@@ -104,6 +108,8 @@ test('panel color segmented group never overlaps its description and drops below
       }));
       const box = (r) => ({ left: r.left, right: r.right, top: r.top, bottom: r.bottom });
       return {
+        font: getComputedStyle(row.querySelector('.skin-seg > button')).fontFamily,
+        fontLoaded: document.fonts.check('14px "Pretendard Variable"', row.textContent),
         seg: box(seg),
         text,
         row: box(row.getBoundingClientRect()),
@@ -116,6 +122,10 @@ test('panel color segmented group never overlaps its description and drops below
   await page.setViewport({ width: 1210, height: 800 });
   await page.addStyleTag({ content: '#root { width: 680px; }' });
   const wide = await measure();
+  assert.ok(
+    wide.font.startsWith('"Pretendard Variable"') && wide.fontLoaded,
+    `labels use the shipped font: ${wide.font}`
+  );
   assert.ok(wide.seg.right - wide.seg.left > 220, 'Korean labels are wider than the shared control column');
   for (const line of wide.text)
     assert.ok(

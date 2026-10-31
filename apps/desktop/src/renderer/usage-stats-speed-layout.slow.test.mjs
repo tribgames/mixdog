@@ -78,15 +78,23 @@ test('TOK/S, Share and every kept column fit 375px and 390px in both usage table
         contents: `
           import "./process-shim";
           import React from "react";
+          import { flushSync } from "react-dom";
           import { createRoot } from "react-dom/client";
           import { CommandSurface } from "./CommandSurface";
           import { focusQuotaUsage } from "./usage-surface-mode";
+          // The shipped UI font, so every OS measures the same column widths.
+          import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
 
+          // Each render commits before it returns. Otherwise the previous
+          // width's rows (a name tapped open there) still satisfy the row wait
+          // and get measured in place of the new render.
           let generation = 0;
           window.renderQuota = (value) => {
             focusQuotaUsage("anthropic-oauth");
             const api = { invokeCapability: () => Promise.resolve({ value }) };
-            root.render(<CommandSurface key={"quota" + generation++} surface="stats" open onClose={() => {}} api={api} />);
+            flushSync(() =>
+              root.render(<CommandSurface key={"quota" + generation++} surface="stats" open onClose={() => {}} api={api} />)
+            );
           };
           const root = createRoot(document.getElementById("root"));
           const period = ${JSON.stringify(
@@ -116,7 +124,7 @@ test('TOK/S, Share and every kept column fit 375px and 390px in both usage table
               totals: route, providers: [provider], daily: [], hourly: [], coverage: {},
             };
             const api = { invokeCapability: () => Promise.resolve({ value }) };
-            root.render(<CommandSurface surface="stats" open onClose={() => {}} api={api} />);
+            flushSync(() => root.render(<CommandSurface surface="stats" open onClose={() => {}} api={api} />));
           };
         `,
       },
@@ -125,6 +133,7 @@ test('TOK/S, Share and every kept column fit 375px and 390px in both usage table
       outfile: 'usage-stats-speed-layout.js',
       format: 'iife',
       jsx: 'automatic',
+      loader: { '.woff2': 'dataurl' },
       define: {
         'process.env.NODE_ENV': '"production"',
         'import.meta.url': '"http://mixdog.test/assets/index.js"',
@@ -160,8 +169,9 @@ test('TOK/S, Share and every kept column fit 375px and 390px in both usage table
 
   const measure = () =>
     page.evaluate(async () => {
-      await document.fonts.ready;
       const table = document.querySelector('.stats-table');
+      await document.fonts.load('14px "Pretendard Variable"', table.textContent);
+      await document.fonts.ready;
       const rect = (node) => node.getBoundingClientRect();
       const headers = [...table.querySelectorAll('thead th')].map((th) => ({
         text: th.textContent,
@@ -192,6 +202,7 @@ test('TOK/S, Share and every kept column fit 375px and 390px in both usage table
         cellRight: rect(cell).right - Number.parseFloat(getComputedStyle(cell).paddingRight),
       }));
       return {
+        fontLoaded: document.fonts.check('14px "Pretendard Variable"', table.textContent),
         bars,
         headers,
         rows,
@@ -227,6 +238,7 @@ test('TOK/S, Share and every kept column fit 375px and 390px in both usage table
         });
       const layout = await measure();
       const label = `${kind} at ${width}px`;
+      assert.ok(layout.fontLoaded, `the shipped UI font is loaded ${label}`);
       widths[label] = {
         table: layout.tableWidth,
         wrap: layout.wrapClientWidth,
