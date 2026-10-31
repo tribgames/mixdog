@@ -76,6 +76,7 @@ function cancellationHarness(extra = {}) {
 
 async function settleCancelledExplorers(h, pending, cancel = () => {}) {
   let returned = false;
+  let completed = false;
   pending.then(
     () => {
       returned = true;
@@ -98,13 +99,20 @@ async function settleCancelledExplorers(h, pending, cancel = () => {}) {
     assert.equal(returned, false, 'Explore returned before provider B finished cleanup');
 
     h.controls.b.cleanup.resolve();
+    await waitFor(() => returned, 'Explore must return after both providers finish cleanup');
     const res = await pending;
     assert.ok(h.children.every((c) => c.signal.aborted && c.open === 0));
+    completed = true;
     return res;
   } finally {
     for (const c of Object.values(h.controls)) c.cleanup.resolve();
-    await waitFor(() => h.children.every((c) => c.open === 0), 'providers must finish cleanup after gate release');
-    await pending;
+    await waitFor(
+      () => h.children.every((c) => c.open === 0) && returned,
+      'providers and Explore must settle after gate release'
+    ).catch((error) => {
+      // Keep the original test failure if bounded teardown also times out.
+      if (completed) throw error;
+    });
   }
 }
 
