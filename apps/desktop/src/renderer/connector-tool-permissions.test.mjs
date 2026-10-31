@@ -41,11 +41,16 @@ function host(policy, { second = false } = {}) {
       return stored;
     },
   };
-  const connectors = createAgentConnectorsApi({ mcpStatus: () => ({ servers: SERVERS }), getMcpTools: () => TOOLS }, editor);
+  const connectors = createAgentConnectorsApi(
+    { mcpStatus: () => ({ servers: SERVERS }), getMcpTools: () => TOOLS },
+    editor
+  );
   const api = {
     invokeCapability: async ({ capability, args }) => {
       if (capability === 'getAgentDefinition') {
-        return { value: { id: args[0], name: args[0], body: 'Work.', route: { provider: 'openai', model: 'm' }, persona: '' } };
+        return {
+          value: { id: args[0], name: args[0], body: 'Work.', route: { provider: 'openai', model: 'm' }, persona: '' },
+        };
       }
       if (typeof connectors[capability] === 'function') {
         if (capability === 'setAgentConnectorToolPermission') state.writes.push(args);
@@ -71,7 +76,9 @@ async function open(t, agentId, policy, { remote = false, second = false } = {})
     el.remove();
   });
   await act(async () =>
-    root.render(React.createElement(AgentProfilePane, { sessionId: `sess_home_${agentId}`, active: true, api, models: [] }))
+    root.render(
+      React.createElement(AgentProfilePane, { sessionId: `sess_home_${agentId}`, active: true, api, models: [] })
+    )
   );
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   return { state };
@@ -83,12 +90,19 @@ const expand = async (id) => {
   await act(async () => row(id).querySelector('button[aria-expanded]').click());
 };
 const choice = (connector, tool, permission) =>
-  document.querySelector(`[data-connector-tools="${connector}"] [data-connector-tool="${tool}"] [data-permission="${permission}"]`);
+  document.querySelector(
+    `[data-connector-tools="${connector}"] [data-connector-tool="${tool}"] [data-permission="${permission}"]`
+  );
 const pressed = (connector, tool) =>
-  ['auto', 'needs_approval', 'disabled'].filter((p) => choice(connector, tool, p).getAttribute('aria-pressed') === 'true');
+  ['auto', 'needs_approval', 'disabled'].filter(
+    (p) => choice(connector, tool, p).getAttribute('aria-pressed') === 'true'
+  );
 
 test('choosing Needs approval on a disabled tool changes exactly that tool and leaves other overrides', async (t) => {
-  const { state } = await open(t, 'seed-bot', { off: [], tools: { gmail: { send_email: 'disabled', delete_thing: 'auto' } } });
+  const { state } = await open(t, 'seed-bot', {
+    off: [],
+    tools: { gmail: { send_email: 'disabled', delete_thing: 'auto' } },
+  });
   assert.match(row('gmail').textContent, /· 2 changed/);
   assert.equal(document.querySelector('[data-connector-tools]'), null, 'collapsed');
   await expand('gmail');
@@ -113,7 +127,11 @@ test('legacy per-account data follows the topmost entry and converges to one ent
   assert.deepEqual(pressed('gmail', 'send_email'), ['auto'], "the connector's own entry wins over gmail-2's");
   await act(async () => choice('gmail', 'send_email', 'needs_approval').click());
   await settle();
-  assert.deepEqual(state.writes, [['accounts-bot', 'gmail', 'send_email', 'needs_approval']], 'one write; the host fans out');
+  assert.deepEqual(
+    state.writes,
+    [['accounts-bot', 'gmail', 'send_email', 'needs_approval']],
+    'one write; the host fans out'
+  );
   assert.deepEqual(state.policy.tools, { gmail: { send_email: 'needs_approval' } }, 'one entry under the connector');
   assert.deepEqual(pressed('gmail', 'send_email'), ['needs_approval']);
 });
@@ -127,7 +145,10 @@ test('a tool with no override shows its effective permission', async (t) => {
 });
 
 test('while the connector is off its tools are dimmed and cannot be changed, and keep their values', async (t) => {
-  const { state } = await open(t, 'off-bot', { off: ['notion'], tools: { notion: { search_pages: 'needs_approval' } } });
+  const { state } = await open(t, 'off-bot', {
+    off: ['notion'],
+    tools: { notion: { search_pages: 'needs_approval' } },
+  });
   await expand('notion');
   const panel = document.querySelector('[data-connector-tools="notion"]');
   assert.ok(panel.hasAttribute('data-dim'));
@@ -145,8 +166,7 @@ test('on a remote surface the choices that would widen are disabled; narrowing s
     { remote: true }
   );
   await expand('gmail');
-  const disabled = (tool) =>
-    ['auto', 'needs_approval', 'disabled'].filter((p) => choice('gmail', tool, p).disabled);
+  const disabled = (tool) => ['auto', 'needs_approval', 'disabled'].filter((p) => choice('gmail', tool, p).disabled);
   assert.deepEqual(disabled('send_email'), ['auto']);
   assert.deepEqual(disabled('delete_thing'), ['auto', 'needs_approval']);
   assert.deepEqual(disabled('search_emails'), [], "a tool's default auto is not an override: it can only narrow");

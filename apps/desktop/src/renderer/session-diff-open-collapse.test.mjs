@@ -105,7 +105,11 @@ test('closing the last diff tab with an editor tab left selects that editor tab,
   await act(async () => requestSessionDiffFile('sd-last-diff', 'note.txt'));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 30)));
   assert.ok(view.document.querySelector('[data-session-diff-tab="note.txt"]'), 'the file opened in its own Diff tab');
-  assert.equal(view.document.querySelector('.side-file-status-row'), null, 'an individual Diff tab draws no editor footer');
+  assert.equal(
+    view.document.querySelector('.side-file-status-row'),
+    null,
+    'an individual Diff tab draws no editor footer'
+  );
   // Close Changes (a diff tab is open), then the last diff tab.
   await act(async () => view.document.querySelector('[data-session-diff-changes-tab] .browser-tab-close').click());
   calls.length = 0;

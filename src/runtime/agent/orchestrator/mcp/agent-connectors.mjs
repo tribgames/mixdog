@@ -277,7 +277,9 @@ function connectorPolicyWidens(before, after) {
   // Judged per connector and tool: the accounts of one connector share them.
   const pairs = new Set(
     [toolsBefore, toolsAfter].flatMap((tools) =>
-      Object.entries(tools).flatMap(([id, own]) => Object.keys(own || {}).map((tool) => `${connectorGroupId(id)}\0${tool}`))
+      Object.entries(tools).flatMap(([id, own]) =>
+        Object.keys(own || {}).map((tool) => `${connectorGroupId(id)}\0${tool}`)
+      )
     )
   );
   for (const pair of pairs) {

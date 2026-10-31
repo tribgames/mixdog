@@ -24,7 +24,6 @@ import {
 import { createInspection } from '../observation/inspect.ts';
 import { appendComputerRunRecord, computerRunRecord } from '../session/run-log.ts';
 
-
 function windowRecord(id, overrides = {}) {
   return {
     id,

@@ -333,7 +333,9 @@ test('the browser nav row ends with Import after the address field, then the ⋯
     const kids = [...toolbar.children];
     const address = kids.findIndex((child) => child.querySelector('input') || child.matches('input'));
     const importAt = kids.findIndex((child) => child.classList.contains('browser-pane-import-button'));
-    const moreAt = kids.findIndex((child) => child.querySelector('.dock-header-more') || child.matches('.dock-header-more'));
+    const moreAt = kids.findIndex(
+      (child) => child.querySelector('.dock-header-more') || child.matches('.dock-header-more')
+    );
     assert.ok(address >= 0 && importAt > address, 'Import follows the address field');
     assert.ok(moreAt > importAt, 'the ⋯ menu stays last');
     assert.ok(toolbar.querySelector('[aria-label="Forward"]'));
@@ -351,7 +353,16 @@ test('the browser nav row ends with Import after the address field, then the ⋯
   }
   // A narrow row hides Forward first, then Import; Back, Reload and the address stay.
   t.mock.method(window.Element.prototype, 'getBoundingClientRect', function () {
-    return { x: 0, y: 0, left: 0, top: 0, right: 120, bottom: 30, width: this.classList?.contains('browser-pane-toolbar') ? 120 : 0, height: 30 };
+    return {
+      x: 0,
+      y: 0,
+      left: 0,
+      top: 0,
+      right: 120,
+      bottom: 30,
+      width: this.classList?.contains('browser-pane-toolbar') ? 120 : 0,
+      height: 30,
+    };
   });
   view = await mountPane(props, { current: frame() }, importApi);
   try {

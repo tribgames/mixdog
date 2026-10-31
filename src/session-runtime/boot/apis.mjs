@@ -576,8 +576,7 @@ function modelRouteApiFor(boot) {
     getSessionGeneration: () => rt.sessionGeneration,
     setSession: boot.adoptSession,
     // A held model pick is saved with its session (a replaced one is not resurrected).
-    persistSession: (session) =>
-      saveSessionAsync(session, { expectedGeneration: session.generation }).catch(() => {}),
+    persistSession: (session) => saveSessionAsync(session, { expectedGeneration: session.generation }).catch(() => {}),
     getAddressedSessionId: () => rt.addressedSessionId,
     getConfigHasSecrets: () => rt.configHasSecrets,
     getWebSearchRouteState: () => rt.webSearchRoute,

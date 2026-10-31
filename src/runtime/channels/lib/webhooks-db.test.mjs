@@ -82,8 +82,14 @@ const ownershipTest = async () => {
   assert.deepEqual(call.params.slice(-2), ['lead', null], 'no executor unless one is named');
   assert.match(ddl, /ADD COLUMN IF NOT EXISTS executor_agent_id text;/);
   assert.match(call.sql, /executor_agent_id = EXCLUDED\.executor_agent_id/);
-  assert.equal(legacy.executorAgentId, null, 'a row without an executor reads as none, whatever the legacy columns hold');
-  queryRows = [{ name: 'issues', instructions: 'p', enabled: true, owner_agent_id: 'reviewer', executor_agent_id: 'worker' }];
+  assert.equal(
+    legacy.executorAgentId,
+    null,
+    'a row without an executor reads as none, whatever the legacy columns hold'
+  );
+  queryRows = [
+    { name: 'issues', instructions: 'p', enabled: true, owner_agent_id: 'reviewer', executor_agent_id: 'worker' },
+  ];
   const named = await upsertEndpoint(
     { name: 'issues', instructions: 'p', ownerAgentId: 'reviewer', executorAgentId: 'worker', model: 'x/y' },
     { dataDir: '/hooks-owner' }

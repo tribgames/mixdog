@@ -77,7 +77,10 @@ test('timing saves use their own temp file, leave none behind, and report failur
   mkdirSync(blocked);
   const error = saveTimingHistory(blocked, { a: 3 });
   assert.ok(error instanceof Error);
-  assert.deepEqual(readdirSync(dir).filter((name) => name.startsWith('blocked.')), []);
+  assert.deepEqual(
+    readdirSync(dir).filter((name) => name.startsWith('blocked.')),
+    []
+  );
   assert.equal(saveTimingHistory(join(dir, 'missing', 'timings.json'), { a: 4 }) instanceof Error, true);
 });
 
@@ -106,7 +109,11 @@ test('shards cover every lane file once, keep their lane, run a long file alone 
   assert.equal(fastShards.length, Math.round(400_000 / 35_000));
   const sizes = fastShards.map((shard) => shard.estimate);
   assert.ok(Math.max(...sizes) - Math.min(...sizes) <= 2_000);
-  for (const shard of shards) assert.equal(shard.estimate, shard.files.reduce((s, f) => s + { ...fast, ...slow }[f], 0));
+  for (const shard of shards)
+    assert.equal(
+      shard.estimate,
+      shard.files.reduce((s, f) => s + { ...fast, ...slow }[f], 0)
+    );
 });
 
 test('more workers cut smaller shards, down to a floor that bounds per-shard start-up', () => {

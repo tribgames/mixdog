@@ -41,7 +41,14 @@ const realPlatform = Object.getOwnPropertyDescriptor(process, 'platform');
 Object.defineProperty(process, 'platform', { value: 'linux' });
 
 const configModule = path.join(path.dirname(fileURLToPath(import.meta.url)), 'config.mjs');
-const oauthClientModule = path.join(path.dirname(configModule), '..', 'agent', 'orchestrator', 'mcp', 'oauth-client.mjs');
+const oauthClientModule = path.join(
+  path.dirname(configModule),
+  '..',
+  'agent',
+  'orchestrator',
+  'mcp',
+  'oauth-client.mjs'
+);
 const gmailModule = path.join(path.dirname(configModule), '..', 'connectors', 'gmail-app-password.mjs');
 const pluginAdminModule = path.join(
   path.dirname(configModule),
@@ -272,7 +279,8 @@ test('a process with no change subscriber never serves a secret forgotten elsewh
   const cache = new Map();
   const real = { ...keychain };
   Object.assign(keychain, {
-    getSecretAsync: async (key) => (cache.has(key) ? cache.get(key) : (cache.set(key, shared.get(key) ?? null), shared.get(key) ?? null)),
+    getSecretAsync: async (key) =>
+      cache.has(key) ? cache.get(key) : (cache.set(key, shared.get(key) ?? null), shared.get(key) ?? null),
     setSecretAsync: async (key, value) => void (shared.set(key, value), cache.delete(key)),
     invalidateSecretCache: (key) => (key == null ? cache.clear() : cache.delete(key)),
   });

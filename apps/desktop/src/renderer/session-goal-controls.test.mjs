@@ -220,11 +220,13 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
   const tasks = [
     {
       status: 'in_progress',
-      content: 'Preserve prior measurements and inspect costly traces to identify a bounded change, then verify the result without weakening the approved requirements.',
+      content:
+        'Preserve prior measurements and inspect costly traces to identify a bounded change, then verify the result without weakening the approved requirements.',
     },
     {
       status: 'pending',
-      content: '기존 측정 결과와 작업 기록을 보존하고 Goal UI의 긴 한글·영문 문장이 좁은 화면에서도 편하게 읽히는지 확인합니다.',
+      content:
+        '기존 측정 결과와 작업 기록을 보존하고 Goal UI의 긴 한글·영문 문장이 좁은 화면에서도 편하게 읽히는지 확인합니다.',
     },
   ];
   for (const width of [900, 320]) {
@@ -244,7 +246,9 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
                 remainingMs: 3_540_000,
                 blocker: '승인 대기 — waiting for approval',
               },
-              todo: empty ? null : { phases: [{ name: 'Plan', tasks }], completed: 0, abandoned: 0, total: tasks.length },
+              todo: empty
+                ? null
+                : { phases: [{ name: 'Plan', tasks }], completed: 0, abandoned: 0, total: tasks.length },
             },
           })
         )
@@ -274,13 +278,13 @@ test('expanded Goal separates title, task copy, and supporting text with the exi
         };
         return {
           title: typography(island.querySelector('.session-goal-title')),
-          supporting: [
-            ...island.querySelectorAll('.session-goal-meta-time, .session-goal-objective-full'),
-          ].map((element) => ({
-            ...typography(element),
-            time: element.matches('.session-goal-meta-time'),
-            objective: element.matches('.session-goal-objective-full'),
-          })),
+          supporting: [...island.querySelectorAll('.session-goal-meta-time, .session-goal-objective-full')].map(
+            (element) => ({
+              ...typography(element),
+              time: element.matches('.session-goal-meta-time'),
+              objective: element.matches('.session-goal-objective-full'),
+            })
+          ),
           tasks: [...island.querySelectorAll('.session-goal-tasks li')].map((row) => {
             const copy = row.querySelector('div > span');
             const icon = row.querySelector(':scope > span');

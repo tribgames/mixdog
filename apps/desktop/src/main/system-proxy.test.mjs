@@ -2,11 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import * as daemonProxy from '../../../../src/runtime/shared/llm/system-proxy.mjs';
-import {
-  answerSystemProxyRequest,
-  createSystemProxyLease,
-  SYSTEM_PROXY_REQUEST_EVENT,
-} from './system-proxy.ts';
+import { answerSystemProxyRequest, createSystemProxyLease, SYSTEM_PROXY_REQUEST_EVENT } from './system-proxy.ts';
 
 const { adoptSystemProxy, systemProxyRoute } = daemonProxy;
 
@@ -22,7 +18,11 @@ test('the window answers a lookup with Chromium’s answer for its origin, and f
     asked.push(url);
     return 'PROXY proxy.corp:8080';
   };
-  await answerSystemProxyRequest({ id: 'r1', method: 'resolveProxy', args: ['https://api.openai.com'] }, resolveProxy, settle);
+  await answerSystemProxyRequest(
+    { id: 'r1', method: 'resolveProxy', args: ['https://api.openai.com'] },
+    resolveProxy,
+    settle
+  );
   await answerSystemProxyRequest({ id: 'r2', args: ['file:///etc/passwd'] }, resolveProxy, settle);
   await answerSystemProxyRequest({ args: ['https://a.test'] }, resolveProxy, settle);
   await answerSystemProxyRequest(

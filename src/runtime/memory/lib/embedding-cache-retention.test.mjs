@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  pruneEmbeddingCache,
-  resolveEmbeddingCacheMaxRows,
-} from './embedding-cache-retention.mjs';
+import { pruneEmbeddingCache, resolveEmbeddingCacheMaxRows } from './embedding-cache-retention.mjs';
 
 test('embedding cache defaults to ten thousand rows with a positive override', () => {
   assert.equal(resolveEmbeddingCacheMaxRows(undefined), 10_000);

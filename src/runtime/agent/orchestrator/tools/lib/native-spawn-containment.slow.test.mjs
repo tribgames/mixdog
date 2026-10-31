@@ -142,42 +142,50 @@ function recorded(pidFile) {
   return roles;
 }
 async function running(pidFile, roles) {
-  assert.ok(
-    await within(30_000, () => roles.every((role) => recorded(pidFile)[role])),
-    `${roles.join(', ')} started`
-  );
+  assert.ok(await within(30_000, () => roles.every((role) => recorded(pidFile)[role])), `${roles.join(', ')} started`);
   return roles.map((role) => recorded(pidFile)[role]);
 }
 const treeGoneAtOnce = (pids) => within(AT_ONCE_MS, () => pids.every((pid) => !alive(pid)));
 
-test('a cancel kills the whole tree at once and releases the workspace without a process-table read', opts, async () => {
-  const repo = makeRepo();
-  const pidFile = pidFileFor('cancel');
-  const abort = new AbortController();
-  const result = command([fixture, 'root', pidFile], { cwd: repo, abortSignal: abort.signal });
-  const pids = await running(pidFile, ['root', 'mid', 'leaf']);
-  reads.count = 0;
-  reads.delayMs = SLOW_READ_MS;
-  abort.abort();
-  assert.ok(await treeGoneAtOnce(pids), 'root, mid and the detached leaf died at once');
-  assert.equal((await result).killed, true);
-  assert.ok(await within(AT_ONCE_MS, () => workspaceFree(repo)), 'the workspace is released on the verified-empty job');
-  assert.equal(reads.count, 0, 'no process-table read gated the kill or the release');
-});
+test(
+  'a cancel kills the whole tree at once and releases the workspace without a process-table read',
+  opts,
+  async () => {
+    const repo = makeRepo();
+    const pidFile = pidFileFor('cancel');
+    const abort = new AbortController();
+    const result = command([fixture, 'root', pidFile], { cwd: repo, abortSignal: abort.signal });
+    const pids = await running(pidFile, ['root', 'mid', 'leaf']);
+    reads.count = 0;
+    reads.delayMs = SLOW_READ_MS;
+    abort.abort();
+    assert.ok(await treeGoneAtOnce(pids), 'root, mid and the detached leaf died at once');
+    assert.equal((await result).killed, true);
+    assert.ok(
+      await within(AT_ONCE_MS, () => workspaceFree(repo)),
+      'the workspace is released on the verified-empty job'
+    );
+    assert.equal(reads.count, 0, 'no process-table read gated the kill or the release');
+  }
+);
 
-test('a timeout kills the whole tree at once and releases the workspace without a process-table read', opts, async () => {
-  const repo = makeRepo();
-  const pidFile = pidFileFor('timeout');
-  reads.count = 0;
-  reads.delayMs = SLOW_READ_MS;
-  const result = command([fixture, 'root', pidFile], { cwd: repo, timeoutMs: 6_000 });
-  const pids = await running(pidFile, ['root', 'mid', 'leaf']);
-  const settled = await result;
-  assert.equal(settled.timedOut, true);
-  assert.ok(await treeGoneAtOnce(pids), 'the timed-out tree died at once');
-  assert.ok(await within(AT_ONCE_MS, () => workspaceFree(repo)), 'the workspace is released');
-  assert.equal(reads.count, 0);
-});
+test(
+  'a timeout kills the whole tree at once and releases the workspace without a process-table read',
+  opts,
+  async () => {
+    const repo = makeRepo();
+    const pidFile = pidFileFor('timeout');
+    reads.count = 0;
+    reads.delayMs = SLOW_READ_MS;
+    const result = command([fixture, 'root', pidFile], { cwd: repo, timeoutMs: 6_000 });
+    const pids = await running(pidFile, ['root', 'mid', 'leaf']);
+    const settled = await result;
+    assert.equal(settled.timedOut, true);
+    assert.ok(await treeGoneAtOnce(pids), 'the timed-out tree died at once');
+    assert.ok(await within(AT_ONCE_MS, () => workspaceFree(repo)), 'the workspace is released');
+    assert.equal(reads.count, 0);
+  }
+);
 
 test('closing the owning session kills a running foreground tree at once', opts, async () => {
   const repo = makeRepo();
@@ -211,17 +219,21 @@ test('runtime shutdown kills a promoted background tree at once and confirms it 
   assert.ok(await within(AT_ONCE_MS, () => workspaceFree(repo)));
 });
 
-test('a command that finishes on its own reports a clean exit from the empty job, without a table read', opts, async () => {
-  const repo = makeRepo();
-  reads.count = 0;
-  reads.delayMs = SLOW_READ_MS;
-  const result = await command(['-e', 'console.log("contained-ok")'], { cwd: repo });
-  assert.equal(result.exitCode, 0, result.stderr);
-  assert.match(result.stdout, /contained-ok/);
-  assert.equal(result.descendants ?? null, null);
-  assert.equal(workspaceFree(repo), true);
-  assert.equal(reads.count, 0, 'the verified-empty job replaces the survivor probe');
-});
+test(
+  'a command that finishes on its own reports a clean exit from the empty job, without a table read',
+  opts,
+  async () => {
+    const repo = makeRepo();
+    reads.count = 0;
+    reads.delayMs = SLOW_READ_MS;
+    const result = await command(['-e', 'console.log("contained-ok")'], { cwd: repo });
+    assert.equal(result.exitCode, 0, result.stderr);
+    assert.match(result.stdout, /contained-ok/);
+    assert.equal(result.descendants ?? null, null);
+    assert.equal(workspaceFree(repo), true);
+    assert.equal(reads.count, 0, 'the verified-empty job replaces the survivor probe');
+  }
+);
 
 test('a process a finished command started on purpose keeps running and holds the workspace', opts, async () => {
   const repo = makeRepo();
@@ -238,27 +250,31 @@ test('a process a finished command started on purpose keeps running and holds th
   assert.ok(await within(10_000, () => !alive(survivor)), 'the survivor stopped itself');
 });
 
-test('a command opted out in its own environment keeps the conservative capture; the next one is contained', opts, async () => {
-  const repo = makeRepo();
-  const pidFile = pidFileFor('opt-out');
-  reads.delayMs = 0;
-  const abort = new AbortController();
-  const result = command([fixture, 'root', pidFile], {
-    cwd: repo,
-    abortSignal: abort.signal,
-    env: { ...process.env, [client.ALLOW_BREAKAWAY_ENV]: '1' },
-  });
-  const pids = await running(pidFile, ['root', 'mid', 'leaf']);
-  reads.count = 0;
-  abort.abort();
-  assert.equal((await result).killed, true);
-  assert.ok(reads.count >= 1, 'the identities were read before the kill');
-  assert.ok(await within(60_000, () => pids.every((pid) => !alive(pid))), 'the tree is still killed');
-  assert.ok(await within(60_000, () => workspaceFree(repo)), 'and released once confirmed gone');
-  // The opt-out was that command's alone.
-  reads.count = 0;
-  reads.delayMs = SLOW_READ_MS;
-  const next = await command(['-e', 'console.log("contained-again")'], { cwd: repo });
-  assert.equal(next.exitCode, 0, next.stderr);
-  assert.equal(reads.count, 0, 'an unrelated command stays contained');
-});
+test(
+  'a command opted out in its own environment keeps the conservative capture; the next one is contained',
+  opts,
+  async () => {
+    const repo = makeRepo();
+    const pidFile = pidFileFor('opt-out');
+    reads.delayMs = 0;
+    const abort = new AbortController();
+    const result = command([fixture, 'root', pidFile], {
+      cwd: repo,
+      abortSignal: abort.signal,
+      env: { ...process.env, [client.ALLOW_BREAKAWAY_ENV]: '1' },
+    });
+    const pids = await running(pidFile, ['root', 'mid', 'leaf']);
+    reads.count = 0;
+    abort.abort();
+    assert.equal((await result).killed, true);
+    assert.ok(reads.count >= 1, 'the identities were read before the kill');
+    assert.ok(await within(60_000, () => pids.every((pid) => !alive(pid))), 'the tree is still killed');
+    assert.ok(await within(60_000, () => workspaceFree(repo)), 'and released once confirmed gone');
+    // The opt-out was that command's alone.
+    reads.count = 0;
+    reads.delayMs = SLOW_READ_MS;
+    const next = await command(['-e', 'console.log("contained-again")'], { cwd: repo });
+    assert.equal(next.exitCode, 0, next.stderr);
+    assert.equal(reads.count, 0, 'an unrelated command stays contained');
+  }
+);

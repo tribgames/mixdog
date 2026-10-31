@@ -21,7 +21,10 @@ const bytes = (text) => Buffer.byteLength(text);
 const told = (sections) => promptSettingsRecord(sections).texts;
 
 test('a language change is one line', () => {
-  const text = promptSettingsNoticeContent(['language'], { language: 'x', responseLanguage: { id: 'ko', name: 'Korean' } });
+  const text = promptSettingsNoticeContent(['language'], {
+    language: 'x',
+    responseLanguage: { id: 'ko', name: 'Korean' },
+  });
   assert.match(text, /# Language\nRespond in Korean from now on\.\n/);
 });
 
@@ -84,12 +87,19 @@ test('a workflow pack change is its name and one line, never the pack body', () 
 });
 
 test('a skill listing change names added and removed skills only', () => {
-  const manifest = (...names) => ['# available-skills', '<available_skills>', ...names.map((n) => `- ${n}: does ${n}`), '</available_skills>'].join('\n');
+  const manifest = (...names) =>
+    ['# available-skills', '<available_skills>', ...names.map((n) => `- ${n}: does ${n}`), '</available_skills>'].join(
+      '\n'
+    );
   const before = told({ skills: manifest('pdf', 'docx') });
   const text = promptSettingsNoticeContent(['skills'], { skills: manifest('pdf', 'xlsx') }, before);
   assert.match(text, /# Skills\nAdded: xlsx\nRemoved: docx/);
   assert.doesNotMatch(text, /does xlsx/);
-  const bodyOnly = promptSettingsNoticeContent(['skills'], { skills: manifest('pdf', 'docx').replace('does pdf', 'new') }, before);
+  const bodyOnly = promptSettingsNoticeContent(
+    ['skills'],
+    { skills: manifest('pdf', 'docx').replace('does pdf', 'new') },
+    before
+  );
   assert.equal(bodyOnly, '', 'a trigger edit tells nothing');
 });
 
@@ -173,7 +183,10 @@ test('200 instruction files replaced by 200 others drain over several notices, e
   assert.equal(session.promptSettingsNotice, undefined, 'it drains');
   assert.equal(added.size, 200);
   assert.equal(gone.size, 200);
-  assert.ok([...added.values(), ...gone.values()].every((count) => count === 1), 'each path named once');
+  assert.ok(
+    [...added.values(), ...gone.values()].every((count) => count === 1),
+    'each path named once'
+  );
 });
 
 test("a worker's first notice stripped by a mid-turn compaction is told again, compact", () => {

@@ -137,8 +137,14 @@ test('a slow sample is retried instead of ending the wait', async (t) => {
     },
   };
   const payload = JSON.parse(
-    (await verifyWindowState(host, { action: 'verify', window_id: 'hwnd:0x1', expect: [{ title_contains: 'Saved' }], timeout_ms: 30_000 }))
-      .text
+    (
+      await verifyWindowState(host, {
+        action: 'verify',
+        window_id: 'hwnd:0x1',
+        expect: [{ title_contains: 'Saved' }],
+        timeout_ms: 30_000,
+      })
+    ).text
   );
   assert.equal(payload.decision, 'satisfied');
   assert.ok(budgets.length > 1, 'the sample after the timeout was made');
@@ -162,8 +168,14 @@ test('when every sample times out the wait lasts until the deadline', async (t) 
     },
   };
   const payload = JSON.parse(
-    (await verifyWindowState(host, { action: 'verify', window_id: 'hwnd:0x1', expect: [{ title_contains: 'Saved' }], timeout_ms: 30_000 }))
-      .text
+    (
+      await verifyWindowState(host, {
+        action: 'verify',
+        window_id: 'hwnd:0x1',
+        expect: [{ title_contains: 'Saved' }],
+        timeout_ms: 30_000,
+      })
+    ).text
   );
   assert.ok(performance.now() - started >= 30_000, 'waited out the full budget');
   assert.equal(payload.decision, 'unknown');
@@ -185,8 +197,14 @@ test('repeated ordinary provider errors end at the deadline with a reason', asyn
     },
   };
   const payload = JSON.parse(
-    (await verifyWindowState(host, { action: 'verify', window_id: 'hwnd:0x1', expect: [{ title_contains: 'Saved' }], timeout_ms: 5_000 }))
-      .text
+    (
+      await verifyWindowState(host, {
+        action: 'verify',
+        window_id: 'hwnd:0x1',
+        expect: [{ title_contains: 'Saved' }],
+        timeout_ms: 5_000,
+      })
+    ).text
   );
   assert.ok(calls > 1, 'kept sampling');
   assert.ok(performance.now() - started >= 5_000, 'waited out the budget');
@@ -212,8 +230,14 @@ test('an integrity block fails on the first sample without waiting', async (t) =
     },
   };
   const payload = JSON.parse(
-    (await verifyWindowState(host, { action: 'verify', window_id: 'hwnd:0x1', expect: [{ absent: 'Error' }], timeout_ms: 30_000 }))
-      .text
+    (
+      await verifyWindowState(host, {
+        action: 'verify',
+        window_id: 'hwnd:0x1',
+        expect: [{ absent: 'Error' }],
+        timeout_ms: 30_000,
+      })
+    ).text
   );
   assert.equal(calls, 1);
   assert.equal(payload.decision, 'unknown');
@@ -233,6 +257,11 @@ test('a tiny budget still gives the provider its 2 s floor', async () => {
       return { ok: true, result: { exists: true, title: 'Docs', elements: [] } };
     },
   };
-  await verifyWindowState(host, { action: 'verify', window_id: 'hwnd:0x1', expect: [{ title_contains: 'Docs' }], timeout_ms: 0 });
+  await verifyWindowState(host, {
+    action: 'verify',
+    window_id: 'hwnd:0x1',
+    expect: [{ title_contains: 'Docs' }],
+    timeout_ms: 0,
+  });
   assert.deepEqual(budgets, [2_000]);
 });

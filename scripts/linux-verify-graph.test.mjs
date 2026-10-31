@@ -286,7 +286,13 @@ test('release graph (reusable call simulated): publish runs only when every inne
   // The packagers start beside build-desktop-once (they wait for its artifact
   // in-step), so publish must block on the build itself.
   const buildFailed = releaseRun({}, { 'desktop-build': 'failure' });
-  for (const job of ['desktop-windows', 'desktop-darwin-arm64', 'desktop-darwin-x64', 'desktop-linux-x64', 'desktop-linux-arm64'])
+  for (const job of [
+    'desktop-windows',
+    'desktop-darwin-arm64',
+    'desktop-darwin-x64',
+    'desktop-linux-x64',
+    'desktop-linux-arm64',
+  ])
     assert.ok(!needsOf(release.jobs[job]).includes('desktop-build'), job);
   assert.equal(buildFailed.results.publish, 'skipped');
   const relay = runWorkflow(release, { outcomes: { 'desktop-build': 'failure' }, inputs: { mobile_version: '' } });

@@ -5,7 +5,11 @@ import { SCENARIO_GROUPS, SCENARIO_IDS, SCENARIO_RUN_ORDER, unknownScenarioIds }
 
 test('scenario groups partition the ids and the run order is a permutation of them', () => {
   const ids = [...SCENARIO_IDS];
-  assert.deepEqual(ids, ids.map((_, index) => `S${String(index + 1).padStart(2, '0')}`), 'ids are contiguous from S01');
+  assert.deepEqual(
+    ids,
+    ids.map((_, index) => `S${String(index + 1).padStart(2, '0')}`),
+    'ids are contiguous from S01'
+  );
   assert.deepEqual([...SCENARIO_RUN_ORDER].sort(), ids);
   assert.deepEqual(Object.values(SCENARIO_GROUPS).flat().sort(), ids, 'every id is in exactly one group');
 });

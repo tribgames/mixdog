@@ -198,7 +198,13 @@ function failDispatch(handler, error) {
   else handler.onError?.(error);
 }
 
-const RESPONSE_CALLBACKS = ['onRequestUpgrade', 'onResponseStart', 'onResponseData', 'onResponseEnd', 'onResponseError'];
+const RESPONSE_CALLBACKS = [
+  'onRequestUpgrade',
+  'onResponseStart',
+  'onResponseData',
+  'onResponseEnd',
+  'onResponseError',
+];
 
 /**
  * Start a request whose leg is not known yet: its handler gets a controller at
@@ -309,10 +315,7 @@ export function createRoutedProxyDispatcher({
     }
 
     async destroy(error) {
-      await Promise.all([
-        directLeg().destroy(error),
-        ...[...this.#proxied.values()].map((leg) => leg.destroy(error)),
-      ]);
+      await Promise.all([directLeg().destroy(error), ...[...this.#proxied.values()].map((leg) => leg.destroy(error))]);
     }
   }
   return new SystemProxyRouter();

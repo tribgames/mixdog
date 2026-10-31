@@ -268,7 +268,9 @@ test('getAgentConnectorTools gives each tool its own effective permission and wh
   const { id } = await api.saveAgentDefinition({ name: 'Scribe', body: 'Write.' });
   const of = (connector) =>
     Object.fromEntries(
-      api.getAgentConnectorTools(id).flatMap((row) => (row.connector === connector ? [[row.tool, [row.permission, row.explicit]]] : []))
+      api
+        .getAgentConnectorTools(id)
+        .flatMap((row) => (row.connector === connector ? [[row.tool, [row.permission, row.explicit]]] : []))
     );
   assert.deepEqual(of('github'), {
     list_issues: ['auto', false],
@@ -284,7 +286,11 @@ test('getAgentConnectorTools gives each tool its own effective permission and wh
     create_issue: ['disabled', true],
     send_email: ['auto', true],
   });
-  assert.deepEqual(of('notion'), { search: ['auto', false], gone: ['needs_approval', true] }, 'an override stays listed');
+  assert.deepEqual(
+    of('notion'),
+    { search: ['auto', false], gone: ['needs_approval', true] },
+    'an override stays listed'
+  );
 });
 
 test('legacy allow lists and MCP project scopes migrate to the equivalent switched-off lists, once', async (t) => {

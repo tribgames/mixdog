@@ -121,9 +121,7 @@ function replayCheckpoint(durable, checkpoint, boundary, routeChanged) {
   // state, which the saved route's provider must not receive.
   const turnMessages = routeChanged ? stripProviderReplayMessages(finalized.messages) : finalized.messages;
   const messages =
-    checkpoint.fullTranscript === true
-      ? turnMessages
-      : [...durable.messages.slice(0, boundary), ...turnMessages];
+    checkpoint.fullTranscript === true ? turnMessages : [...durable.messages.slice(0, boundary), ...turnMessages];
   return { messages, responsePreserved: finalized.responsePreserved };
 }
 
@@ -171,7 +169,14 @@ export function projectTurnCheckpointMessages(session, checkpoint) {
 // ONE self-contained replacement of the whole context under a new transcript
 // epoch — atomically, before any session record can carry that epoch — and
 // the journal restarts under it. A bare index move is never journaled.
-export function createTurnCheckpointRecorder({ session = null, sessionId, generation, turnToken, startedAt, base = null }) {
+export function createTurnCheckpointRecorder({
+  session = null,
+  sessionId,
+  generation,
+  turnToken,
+  startedAt,
+  base = null,
+}) {
   const encoder = createTurnJournalEncoder({ turnToken, sessionId });
   let opened = false;
   let stopped = false;

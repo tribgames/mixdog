@@ -53,7 +53,11 @@ test('containment is asked only of a Windows server that advertises it, unless b
   assert.equal(nativeSpawnContainmentRequested(caps, {}, win), false, 'only callers that ask');
   assert.equal(nativeSpawnContainmentRequested(caps, { contain: true }, { platform: 'linux', env: {} }), false);
   assert.equal(
-    nativeSpawnContainmentRequested(caps, { contain: true }, { platform: 'win32', env: { MIXDOG_SHELL_ALLOW_BREAKAWAY: '1' } }),
+    nativeSpawnContainmentRequested(
+      caps,
+      { contain: true },
+      { platform: 'win32', env: { MIXDOG_SHELL_ALLOW_BREAKAWAY: '1' } }
+    ),
     false,
     'the emergency switch in Mixdog’s environment'
   );

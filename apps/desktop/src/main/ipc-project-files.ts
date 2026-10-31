@@ -71,7 +71,12 @@ export function registerProjectFileIpc({
     const key = normalizedProjectKey(folder);
     const registered = await host.listProjects();
     if (registered.some((entry) => normalizedProjectKey(entry.path) === key)) return null;
-    return (await stat(folder).then((info) => info.isDirectory(), () => false)) ? folder : null;
+    return (await stat(folder).then(
+      (info) => info.isDirectory(),
+      () => false
+    ))
+      ? folder
+      : null;
   };
   const onRoot = async <T>(
     projectPath: string,
@@ -377,14 +382,7 @@ function registerEditorFileIpc({
   });
 }
 
-function registerEntryIpc({
-  handle,
-  host,
-  invokeDesktopOperation,
-  shell,
-  server,
-  onRoot,
-}: ProjectFileContext): void {
+function registerEntryIpc({ handle, host, invokeDesktopOperation, shell, server, onRoot }: ProjectFileContext): void {
   handle(DESKTOP_IPC.createProjectEntry, (_event, projectPath, relDir, name, dir) => {
     const project = requiredString(projectPath, 'projectPath');
     const dirRel = typeof relDir === 'string' ? relDir : '';

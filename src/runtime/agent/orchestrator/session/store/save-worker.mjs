@@ -311,7 +311,11 @@ function _settleLandedWrite(
   }
   // Callers that act only on a durable write (e.g. a migration deleting its
   // source) read this outcome; every other resolution leaves it undefined.
-  const settled = saved ? SAVE_OUTCOME_SAVED : outcome === SAVE_OUTCOME_STALE ? SAVE_OUTCOME_STALE : SAVE_OUTCOME_DROPPED;
+  const settled = saved
+    ? SAVE_OUTCOME_SAVED
+    : outcome === SAVE_OUTCOME_STALE
+      ? SAVE_OUTCOME_STALE
+      : SAVE_OUTCOME_DROPPED;
   for (const w of waiters) w.resolve(settled);
 }
 

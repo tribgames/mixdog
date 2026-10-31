@@ -101,7 +101,14 @@ test('a schedule shows its executor on the row and writes it back untouched', as
     SchedulesPane,
     {
       schedules: [
-        { name: 'daily', whenCron: '0 9 * * *', instructions: 'Report', enabled: true, owner: 'lead', executorAgentId: 'worker' },
+        {
+          name: 'daily',
+          whenCron: '0 9 * * *',
+          instructions: 'Report',
+          enabled: true,
+          owner: 'lead',
+          executorAgentId: 'worker',
+        },
       ],
       webhooks: [],
     },
@@ -120,7 +127,14 @@ test('a schedule clears its executor by picking None', async (t) => {
     SchedulesPane,
     {
       schedules: [
-        { name: 'daily', whenCron: '0 9 * * *', instructions: 'Report', enabled: true, owner: 'lead', executorAgentId: 'worker' },
+        {
+          name: 'daily',
+          whenCron: '0 9 * * *',
+          instructions: 'Report',
+          enabled: true,
+          owner: 'lead',
+          executorAgentId: 'worker',
+        },
       ],
       webhooks: [],
     },

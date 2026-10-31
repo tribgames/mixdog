@@ -249,7 +249,9 @@ export function composeSessionSystem(opts, { profile, providerName, modelName, s
     language: languageContext,
     instructionFiles: profile?.skip?.claudemd ? '' : instructionFilesContext,
     coreMemory: profile?.skip?.memory ? '' : opts.coreMemoryContext || '',
-    instructionFilesMode: config ? normalizeInstructionFilesMode(config.instructionFiles) : configuredInstructionFilesMode(),
+    instructionFilesMode: config
+      ? normalizeInstructionFilesMode(config.instructionFiles)
+      : configuredInstructionFilesMode(),
   });
   const responseLanguage = leadOnly ? _buildLeadLanguage({ config }) || null : null;
   return { ...composed, environmentTailContext, promptIdentity, promptSettings, responseLanguage };

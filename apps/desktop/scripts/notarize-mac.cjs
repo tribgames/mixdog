@@ -49,7 +49,9 @@ module.exports = async function notarizeMac(context) {
     if (stapled.status !== STAPLER_NO_HOST || attempt === STAPLE_ATTEMPTS) {
       throw new Error(`stapler staple failed with code ${stapled.status} (attempt ${attempt})`);
     }
-    console.log(`stapler could not reach Apple (attempt ${attempt}/${STAPLE_ATTEMPTS}); retrying in ${STAPLE_PAUSE_SECONDS}s`);
+    console.log(
+      `stapler could not reach Apple (attempt ${attempt}/${STAPLE_ATTEMPTS}); retrying in ${STAPLE_PAUSE_SECONDS}s`
+    );
     await new Promise((resolve) => setTimeout(resolve, STAPLE_PAUSE_SECONDS * 1000));
   }
 };

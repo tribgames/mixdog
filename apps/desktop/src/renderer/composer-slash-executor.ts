@@ -357,7 +357,11 @@ async function runGoal(run: SlashRun, argument: string): Promise<boolean | undef
       { danger: true, confirmLabel: t('Replace') }
     );
     if (!replace) return false;
-    result = asRecord(await commandCapability<unknown>(run, 'goalControl', [{ command: argument, replace: true, expectedGoalId: String(stalled.id || '') }]));
+    result = asRecord(
+      await commandCapability<unknown>(run, 'goalControl', [
+        { command: argument, replace: true, expectedGoalId: String(stalled.id || '') },
+      ])
+    );
   }
   if (!run.failed) deps.showNotice(String(result?.message || 'Goal updated.'));
   return undefined;

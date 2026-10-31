@@ -272,7 +272,10 @@ test("with an executor, the sub-agent does the fire first and the bot's turn hol
     event: 'issues · opened',
   });
   const text = String(turn.content);
-  assert.match(text, /^\[Routine trigger\] Your webhook "issues" fired and its sub-agent "worker" already carried it out/);
+  assert.match(
+    text,
+    /^\[Routine trigger\] Your webhook "issues" fired and its sub-agent "worker" already carried it out/
+  );
   assert.equal(stripRoutineTriggerHeader(text), 'Triaged 3 issues: #1 bug, #2 docs, #3 question.');
   assert.doesNotMatch(text, /UNTRUSTED|Triage the issue/, 'neither the instructions nor the payload reach the bot');
   assert.equal(turn.options.skillSelection, '', 'the report, derived from the payload, selects no skill');
@@ -330,7 +333,10 @@ test('a routine with no executor never starts one', async () => {
   const thread = homeThread();
   const { executor, calls } = executorStub('unused');
   for (const executorAgentId of [undefined, null, '']) {
-    const run = runRoutineTurn({ kind: 'schedule', name: 'daily', executorAgentId, prompt: 'Go.' }, deps(thread, { executor }));
+    const run = runRoutineTurn(
+      { kind: 'schedule', name: 'daily', executorAgentId, prompt: 'Go.' },
+      deps(thread, { executor })
+    );
     await tick();
     thread.settle();
     await run;

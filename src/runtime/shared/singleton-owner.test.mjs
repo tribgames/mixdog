@@ -151,7 +151,16 @@ test('the async refresh keeps the claim-lock verdicts of the sync one', async ()
  *  write, link, rename, unlink, mkdir, directory listing or removal under `root`, and any
  *  blocking Atomics.wait (the sync lock's retry sleep, which throws here so a regression ends). */
 function rejectSyncLockIo(root) {
-  const names = ['writeFileSync', 'linkSync', 'renameSync', 'unlinkSync', 'mkdirSync', 'readdirSync', 'rmSync', 'rmdirSync'];
+  const names = [
+    'writeFileSync',
+    'linkSync',
+    'renameSync',
+    'unlinkSync',
+    'mkdirSync',
+    'readdirSync',
+    'rmSync',
+    'rmdirSync',
+  ];
   const originals = new Map(names.map((name) => [name, fs[name]]));
   const attempts = [];
   for (const [name, original] of originals) {

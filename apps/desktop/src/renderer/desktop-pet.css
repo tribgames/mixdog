@@ -413,7 +413,7 @@ button.skin-companion-req-pager {
   border-radius: 8px;
   background: var(--mx-bg-layer-2, transparent);
   color: var(--mx-text);
-  font: 600 13px/1 var(--mx-font-sans, inherit);
+  font: 600 13px / 1 var(--mx-font-sans, inherit);
   cursor: pointer;
 }
 .skin-companion-req-btn[data-primary] {

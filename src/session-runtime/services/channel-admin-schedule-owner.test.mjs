@@ -228,7 +228,10 @@ test('a webhook saves, lists and clears its executor the same way', async () => 
   assert.equal(cleared.executorAgentId, null);
   assert.equal((await channelSetup()).webhooks.find((row) => row.name === 'exec-hook').executorAgentId, null);
   const before = endpointUpserts.length;
-  await assert.rejects(saveWebhook({ ...hook, name: 'bad-hook', executorAgentId: 'ghost' }), /not an available sub-agent/);
+  await assert.rejects(
+    saveWebhook({ ...hook, name: 'bad-hook', executorAgentId: 'ghost' }),
+    /not an available sub-agent/
+  );
   await assert.rejects(saveWebhook({ ...hook, name: 'bad-hook', executorAgentId: 'sales-bot' }), /is a bot/);
   assert.equal(endpointUpserts.length, before);
 });

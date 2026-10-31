@@ -984,7 +984,11 @@ function resolvableCatalog(session) {
   return filterSessionToolPolicy(tools, session);
 }
 
-const instructionHash = (text) => createHash('sha256').update(String(text || '')).digest('hex').slice(0, 16);
+const instructionHash = (text) =>
+  createHash('sha256')
+    .update(String(text || ''))
+    .digest('hex')
+    .slice(0, 16);
 
 // A server's instruction text rides the first load_tool naming any of its
 // tools (loaded now, already active, or described on the bridge), once per
@@ -998,9 +1002,10 @@ function pendingMcpInstructions(session, catalog, names) {
   if (!map || typeof map !== 'object' || !names.length) return [];
   const byName = new Map(catalog.map((tool) => [clean(tool?.name), tool]));
   const announced = new Set(Array.isArray(session.mcpInstructionsAnnounced) ? session.mcpInstructionsAnnounced : []);
-  const hashes = session.mcpInstructionHashes && typeof session.mcpInstructionHashes === 'object'
-    ? session.mcpInstructionHashes
-    : {};
+  const hashes =
+    session.mcpInstructionHashes && typeof session.mcpInstructionHashes === 'object'
+      ? session.mcpInstructionHashes
+      : {};
   const seen = new Set();
   const pending = [];
   for (const name of names) {

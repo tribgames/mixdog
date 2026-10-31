@@ -30,10 +30,7 @@ export function connectorToolRows(value: unknown): ConnectorToolRow[] {
   return value
     .filter(
       (row) =>
-        row &&
-        typeof row.connector === 'string' &&
-        typeof row.tool === 'string' &&
-        PERMISSIONS.includes(row.permission)
+        row && typeof row.connector === 'string' && typeof row.tool === 'string' && PERMISSIONS.includes(row.permission)
     )
     .map((row) => ({
       connector: row.connector,

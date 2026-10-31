@@ -3,11 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import test from 'node:test';
 
-import {
-  createCustomProvider,
-  effectiveCustomModelRows,
-  normalizeCustomProviderConfig,
-} from './custom-provider.mjs';
+import { createCustomProvider, effectiveCustomModelRows, normalizeCustomProviderConfig } from './custom-provider.mjs';
 import { initProviders, getProvider, getProviderInitErrors, providerInputExcludesCache } from './registry.mjs';
 import { mergeStoredProviders } from '../config-providers-merge.mjs';
 import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
@@ -197,15 +193,7 @@ test('v2 validation rejects invalid overrides and canonicalizes levels', () => {
     ...v2,
     modelOverrides: { m: { reasoning: { levels: ['max', 'medium', 'none', 'xhigh', 'low', 'minimal', 'high'] } } },
   });
-  assert.deepEqual(all.modelOverrides.m.reasoning.levels, [
-    'none',
-    'minimal',
-    'low',
-    'medium',
-    'high',
-    'xhigh',
-    'max',
-  ]);
+  assert.deepEqual(all.modelOverrides.m.reasoning.levels, ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']);
   const bad = (patch, re) => assert.throws(() => normalizeCustomProviderConfig({ ...v2, ...patch }), re);
   const ov = (override, extra = {}) => bad({ modelOverrides: { m: override }, ...extra });
   // v2 rejects unknown fields, numeric strings and unsafe integers.

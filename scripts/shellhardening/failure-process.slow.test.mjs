@@ -141,4 +141,3 @@ test('implicit test traces are isolated while ship failures remain queryable', (
     rmSync(dir, { recursive: true, force: true });
   }
 });
-

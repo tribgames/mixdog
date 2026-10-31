@@ -29,7 +29,9 @@ function tree(t, files) {
 const INSTALL = ['Git/cmd/git.exe', 'Git/bin/git.exe', 'Git/git-bash.exe', 'Git/usr/bin/', 'Git/mingw64/bin/git.exe'];
 const win = (pathValue) => resolveGitLaunch({ platform: 'win32', pathValue });
 
-test('Git for Windows launchers resolve to the real binary of their install', { skip: process.platform !== 'win32' }, (t) => {
+test('Git for Windows launchers resolve to the real binary of their install', {
+  skip: process.platform !== 'win32',
+}, (t) => {
   const root = tree(t, INSTALL);
   for (const launcher of ['cmd', 'bin']) {
     const launch = win(join(root, 'Git', launcher));
@@ -112,7 +114,9 @@ test("each environment's own PATH decides the git it starts", { skip: process.pl
 
 const enoent = () => Object.assign(new Error('spawn ENOENT'), { code: 'ENOENT' });
 
-test('a resolved binary that is gone is resolved again, and that spawn retried once', { skip: process.platform !== 'win32' }, async (t) => {
+test('a resolved binary that is gone is resolved again, and that spawn retried once', {
+  skip: process.platform !== 'win32',
+}, async (t) => {
   const root = tree(t, INSTALL);
   const env = { PATH: join(root, 'Git', 'cmd') };
   const binary = join(root, 'Git', 'mingw64', 'bin', 'git.exe');
@@ -126,7 +130,11 @@ test('a resolved binary that is gone is resolved again, and that spawn retried o
     return 'ran';
   });
   assert.equal(result, 'ran');
-  assert.deepEqual(calls.map((call) => call.command), [binary, 'git'], 'the fresh resolution is plain `git`');
+  assert.deepEqual(
+    calls.map((call) => call.command),
+    [binary, 'git'],
+    'the fresh resolution is plain `git`'
+  );
   assert.equal(calls[1].childEnv, env, "with the caller's environment, as before");
   assert.equal(gitCommand(env), 'git', 'the stale resolution is gone for later spawns');
 
@@ -187,7 +195,9 @@ test('only a missing binary retries, and only once', { skip: process.platform !=
 
 // The real install behind a stale one: the shared runner's worker resolved a
 // Git that was then uninstalled, and the next git child runs the one PATH names now.
-test('the git runner falls back to the git PATH names once the resolved one is removed', { skip: gitCommand() === 'git' }, async (t) => {
+test('the git runner falls back to the git PATH names once the resolved one is removed', {
+  skip: gitCommand() === 'git',
+}, async (t) => {
   const real = resolveGitLaunch();
   const root = tree(t, INSTALL);
   const env = { ...process.env, PATH: `${join(root, 'Git', 'cmd')}${delimiter}${join(real.root, 'cmd')}` };

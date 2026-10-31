@@ -45,7 +45,10 @@ test('duplicate wordings and unknown items are refused without changing the list
 test('every op keeps exactly one item in progress, blocked never starts and completed never reopens', () => {
   const session = { id: 'sess_todo_normalize' };
   executeTodoTool(session, { op: 'init', items: ['One', 'Two', 'Three'] });
-  assert.equal(executeTodoTool(session, { op: 'done', item: 'One', note: 'root cause in parser' }), '1/3 · done: One · next: Two');
+  assert.equal(
+    executeTodoTool(session, { op: 'done', item: 'One', note: 'root cause in parser' }),
+    '1/3 · done: One · next: Two'
+  );
   executeTodoTool(session, { op: 'block', item: 'Two', reason: 'waiting on the review agent' });
   assert.deepEqual(statuses(session), ['completed', 'blocked', 'in_progress']);
   executeTodoTool(session, { op: 'start', item: 'Three' });

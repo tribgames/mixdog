@@ -60,7 +60,8 @@ function startTurn(sessionId) {
     startedAt: 1,
     base: { epoch: 'e0', refs: [] },
   });
-  const flush = () => recorder.record({ boundary: 0, currentUserContent: prompt, turnOutgoing: outgoing, interruption: tracker });
+  const flush = () =>
+    recorder.record({ boundary: 0, currentUserContent: prompt, turnOutgoing: outgoing, interruption: tracker });
   return { tracker, outgoing, flush };
 }
 

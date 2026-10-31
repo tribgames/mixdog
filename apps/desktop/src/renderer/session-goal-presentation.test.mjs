@@ -6,7 +6,13 @@ import { installTestDom } from './test-support/test-dom.mjs';
 import { SessionGoalIsland } from './SessionGoalIsland.tsx';
 import { PaneGoalIsland } from './app-snapshot-views.tsx';
 import { defaultSessionLaneStore } from './session-lane-store.ts';
-import { goalDisplayStatus, goalElapsedLabel, goalStateKind, todoProgress, todoStateKind } from './session-goal-presentation.ts';
+import {
+  goalDisplayStatus,
+  goalElapsedLabel,
+  goalStateKind,
+  todoProgress,
+  todoStateKind,
+} from './session-goal-presentation.ts';
 import { t } from './i18n.ts';
 
 installTestDom(null, {
@@ -212,7 +218,10 @@ test('a Goal segment carries the ring, n/m and a label from the step list', asyn
 
 test('a list without a Goal shows a To-do segment and panel with no time or controls', async () => {
   const tasks = Array.from({ length: 7 }, (_, index) => ({ content: `Step ${index}`, status: 'pending' }));
-  tasks.push({ content: 'Done step', status: 'completed', note: 'ok' }, { content: 'Dropped step', status: 'abandoned' });
+  tasks.push(
+    { content: 'Done step', status: 'completed', note: 'ok' },
+    { content: 'Dropped step', status: 'abandoned' }
+  );
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -260,7 +269,9 @@ test('a list without a Goal shows a To-do segment and panel with no time or cont
       '0/0',
       'a list whose steps were all dropped still shows its count'
     );
-    await render({ todo: todoOf([{ content: 'Ship it', status: 'blocked', blocker: 'No token', note: 'asked owner' }]) });
+    await render({
+      todo: todoOf([{ content: 'Ship it', status: 'blocked', blocker: 'No token', note: 'asked owner' }]),
+    });
     assert.equal(host.querySelector('.session-goal-task-note').textContent, 'asked owner', 'a note shows on any step');
   } finally {
     await act(async () => root.unmount());

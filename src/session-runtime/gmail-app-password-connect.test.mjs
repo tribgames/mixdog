@@ -130,7 +130,9 @@ function withoutAccountIds(config) {
     mcpServers: Object.fromEntries(
       Object.entries(servers).map(([name, cfg]) => [
         name,
-        Array.isArray(cfg?.accounts) ? { ...cfg, accounts: cfg.accounts.map(({ id: _id, ...account }) => account) } : cfg,
+        Array.isArray(cfg?.accounts)
+          ? { ...cfg, accounts: cfg.accounts.map(({ id: _id, ...account }) => account) }
+          : cfg,
       ])
     ),
   };
@@ -797,7 +799,11 @@ test('a store that fails to migrate stays pending and is retried on the next sta
   }
   // The config is merged for good, but the failed stores are remembered.
   assert.deepEqual(Object.keys(h.config().mcpServers), ['gmail']);
-  assert.deepEqual(read('agents', 'ok', 'agent.json'), { connectors: { off: ['gmail'] } }, 'an independent store migrated');
+  assert.deepEqual(
+    read('agents', 'ok', 'agent.json'),
+    { connectors: { off: ['gmail'] } },
+    'an independent store migrated'
+  );
   assert.equal(read('hooks.json').hooks.PreToolUse[0].matcher, 'mcp__gmail__send');
   assert.deepEqual(read('agents', 'blocked', 'agent.json').connectors.off, ['gmail-2'], 'not migrated yet');
   assert.deepEqual(read(PENDING_MERGE_FILE), {
@@ -1112,7 +1118,10 @@ test('an account whose config cannot be saved leaves no secret behind', async (t
     [NOTION_URL, ''],
   ]);
   failing = false;
-  assert.equal((await h.api.addConnectorAccount({ connector: 'gmail', email: EMAIL, appPassword: PASSWORD })).account, 'gmail');
+  assert.equal(
+    (await h.api.addConnectorAccount({ connector: 'gmail', email: EMAIL, appPassword: PASSWORD })).account,
+    'gmail'
+  );
   assert.equal(h.keychain.get(EMAIL), PASSWORD);
 });
 

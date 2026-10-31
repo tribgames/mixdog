@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 // the defaults (watchdog on, transport idle below the semantic idle), and the
 // host's values are put back afterwards.
 const POLICY_ENV = Object.keys(process.env).filter((name) =>
-  /^(MIXDOG_PROVIDER_|MIXDOG_STALL_|MIXDOG_ENABLE_STREAM_WATCHDOG$|STALL_TIMEOUT_S$)/.test(name),
+  /^(MIXDOG_PROVIDER_|MIXDOG_STALL_|MIXDOG_ENABLE_STREAM_WATCHDOG$|STALL_TIMEOUT_S$)/.test(name)
 );
 const hostPolicy = POLICY_ENV.map((name) => [name, process.env[name]]);
 for (const name of POLICY_ENV) delete process.env[name];

@@ -65,7 +65,19 @@ function watchedPluginFixture(t) {
     join(dataDir, 'plugins', 'registry.json'),
     JSON.stringify({
       version: 1,
-      plugins: [{ id, name: id, title: id, source: GIT_URL, url: GIT_URL, sourceType: 'git', root, managed: true, enabled: true }],
+      plugins: [
+        {
+          id,
+          name: id,
+          title: id,
+          source: GIT_URL,
+          url: GIT_URL,
+          sourceType: 'git',
+          root,
+          managed: true,
+          enabled: true,
+        },
+      ],
     })
   );
 

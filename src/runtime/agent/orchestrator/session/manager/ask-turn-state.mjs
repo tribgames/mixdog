@@ -36,7 +36,15 @@ export function createAskTurnState(session) {
  *  transcript the turn opens on (store/transcript-durability.mjs). Every
  *  save of the session flushes first, so a history rewrite is in the
  *  checkpoint before any record carries its new epoch. */
-export function createTurnCheckpointScheduler({ sessionId, generation, turnToken, startedAt, turn, interruption, base }) {
+export function createTurnCheckpointScheduler({
+  sessionId,
+  generation,
+  turnToken,
+  startedAt,
+  turn,
+  interruption,
+  base,
+}) {
   let timer = null;
   let stopped = false;
   let lastAt = 0;

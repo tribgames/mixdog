@@ -240,7 +240,10 @@ test('a folder outside every Project is a Project-like root for every tree opera
   // A root is a boundary: traversal out of it, and a missing folder, are refused.
   await assert.rejects(async () => invoke(DESKTOP_IPC.renameProjectEntry, folder, '../secret.txt', 'y.txt'));
   await assert.rejects(async () => invoke(DESKTOP_IPC.readProjectFile, folder, '../secret.txt'), /outside the project/);
-  await assert.rejects(async () => invoke(DESKTOP_IPC.listProjectDir, join(f.directory, 'missing'), ''), /not available/);
+  await assert.rejects(
+    async () => invoke(DESKTOP_IPC.listProjectDir, join(f.directory, 'missing'), ''),
+    /not available/
+  );
 });
 
 test('an outside HTML page loads its relative assets like a Project page', async (t) => {

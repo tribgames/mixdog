@@ -197,7 +197,10 @@ test('a registered Project spelled differently keeps the host route', async (t) 
   // Windows, the caller with other slashes); neither makes it a standalone folder.
   const list = listingHarness(async () => [{ path: `${root}${sep}` }], hostFailure);
   await assert.rejects(list(root), /host failure/);
-  await assert.rejects(list(process.platform === 'win32' ? root.replace(/\\/g, '/') : `${root}${sep}.`), /host failure/);
+  await assert.rejects(
+    list(process.platform === 'win32' ? root.replace(/\\/g, '/') : `${root}${sep}.`),
+    /host failure/
+  );
 });
 
 test('a registered Project does not wait for a registry lookup', async (t) => {
@@ -539,25 +542,25 @@ test('the server requires explicit permission and only mints HTML preview entrie
 });
 
 test('file lookup failures return 503 and preserve the same preview URL', async (t) => {
-    const { root } = await fixture(t);
-    const h = harness(t, root);
-    const url = await h.url('selected-secret-token');
-    const key = 'grantError';
-    for (const error of [
-      Object.assign(new Error('private timeout diagnostic'), { code: 'ETIMEDOUT' }),
-      Object.assign(new Error('private filesystem diagnostic'), { code: 'EACCES' }),
-      // Denial-like prose from an unknown/older producer is not proof.
-      new Error('Project is not available.'),
-    ]) {
-      h.authority[key] = error;
-      const response = await get(url);
-      assert.equal(response.status, 503);
-      assert.equal(response.body, '503');
-      assert.equal(response.headers['cache-control'], 'no-store');
-      h.authority[key] = null;
-      assert.equal((await get(url)).status, 200, 'recovery must not require a new URL');
-    }
-    assert.equal(h.authority.projectCalls, 0, 'failure must not widen file authority');
+  const { root } = await fixture(t);
+  const h = harness(t, root);
+  const url = await h.url('selected-secret-token');
+  const key = 'grantError';
+  for (const error of [
+    Object.assign(new Error('private timeout diagnostic'), { code: 'ETIMEDOUT' }),
+    Object.assign(new Error('private filesystem diagnostic'), { code: 'EACCES' }),
+    // Denial-like prose from an unknown/older producer is not proof.
+    new Error('Project is not available.'),
+  ]) {
+    h.authority[key] = error;
+    const response = await get(url);
+    assert.equal(response.status, 503);
+    assert.equal(response.body, '503');
+    assert.equal(response.headers['cache-control'], 'no-store');
+    h.authority[key] = null;
+    assert.equal((await get(url)).status, 200, 'recovery must not require a new URL');
+  }
+  assert.equal(h.authority.projectCalls, 0, 'failure must not widen file authority');
 });
 
 test('an explicit denial survives the desktop-service error envelope without parsing its message', async (t) => {

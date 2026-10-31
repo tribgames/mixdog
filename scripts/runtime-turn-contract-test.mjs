@@ -29,7 +29,13 @@ import { isTranscriptCancelledStatusText } from '../src/runtime/shared/tool-exec
 import { resolveToolCompletionSessionId } from '../src/runtime/agent/orchestrator/session/loop/tool-exec.mjs';
 
 const advisoryTest = (name, fn) =>
-  test(name, { skip: process.env.MIXDOG_TEST_ADVISORY !== '1' && 'requires MIXDOG_TEST_ADVISORY=1 (npm run test:spec-advisory)' }, fn);
+  test(
+    name,
+    {
+      skip: process.env.MIXDOG_TEST_ADVISORY !== '1' && 'requires MIXDOG_TEST_ADVISORY=1 (npm run test:spec-advisory)',
+    },
+    fn
+  );
 
 const failAfter = (ms, message) =>
   new Promise((_, reject) => {

@@ -64,11 +64,13 @@ export function installTestDom(t, options = {}) {
     // boxes, and an observer only reports a box that is rendered with a
     // non-zero size, so this one never delivers. A suite that drives resizes
     // installs its own, before this call or through `globals`.
-    ResizeObserver: globalThis.ResizeObserver ?? class {
-      observe() {}
-      unobserve() {}
-      disconnect() {}
-    },
+    ResizeObserver:
+      globalThis.ResizeObserver ??
+      class {
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
     ...Object.fromEntries(expose.map((key) => [key, window[key]])),
     ...globals,
   };

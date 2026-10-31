@@ -209,8 +209,7 @@ async function trackShellJobRecord(task, options) {
     // settle does. A killed one relies on the snapshot taken before the kill.
     const killed = entry.killed || detail.killed || detail.timedOut || String(detail.status) === 'cancelled';
     if (!killed) tracker.acceptExitObservation();
-    const watched =
-      contained && (killed || detail.treeOutcome === 'empty') ? containedJobTracker(jobId) : tracker;
+    const watched = contained && (killed || detail.treeOutcome === 'empty') ? containedJobTracker(jobId) : tracker;
     // The completion notice is already on its way (watchBackgroundShellJob);
     // the record — and with it the workspace admission — completes only once
     // every process is confirmed gone, or the user releases it explicitly.

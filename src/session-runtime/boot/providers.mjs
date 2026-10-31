@@ -131,7 +131,9 @@ function wireConfigLifecycle(boot) {
         if (idsError) throw idsError;
         const failed = (status?.servers || []).filter((row) => row.enabled !== false && row.status === 'failed');
         if (failed.length) {
-          throw new Error(`MCP servers failed to connect: ${failed.map((row) => `${row.name} (${row.error})`).join(', ')}`);
+          throw new Error(
+            `MCP servers failed to connect: ${failed.map((row) => `${row.name} (${row.error})`).join(', ')}`
+          );
         }
       },
       noteCacheWarmingEnabled,

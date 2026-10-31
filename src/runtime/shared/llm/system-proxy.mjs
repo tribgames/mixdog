@@ -280,7 +280,8 @@ export function routeFromChromium(answer) {
       socks = true;
       continue;
     }
-    const url = (kind === 'PROXY' || kind === 'HTTPS') && proxyUrl(`${kind === 'HTTPS' ? 'https' : 'http'}://${hostPort}`);
+    const url =
+      (kind === 'PROXY' || kind === 'HTTPS') && proxyUrl(`${kind === 'HTTPS' ? 'https' : 'http'}://${hostPort}`);
     if (url) return { proxy: url, socks: false };
   }
   return { proxy: null, socks };

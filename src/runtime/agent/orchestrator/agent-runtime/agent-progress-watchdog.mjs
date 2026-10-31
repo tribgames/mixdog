@@ -154,7 +154,8 @@ export function noteStoppedShellJobsOnError(error, shellJobs) {
 function resolveWatchdogAbortClock({ snapshot, policy, anchorTs, lastProgressAt }) {
   if (snapshot && policy) {
     if (snapshot.waitingForFirstSemantic) {
-      if (snapshot.modelRequestStartedAt) return { at: snapshot.modelRequestStartedAt, field: 'model_request_started_at' };
+      if (snapshot.modelRequestStartedAt)
+        return { at: snapshot.modelRequestStartedAt, field: 'model_request_started_at' };
       if (snapshot.askStartedAt) return { at: snapshot.askStartedAt, field: 'ask_started_at' };
     }
     if (snapshot.lastProgressAt) return { at: snapshot.lastProgressAt, field: 'last_progress_at' };
@@ -170,7 +171,8 @@ function resolveWatchdogAbortClock({ snapshot, policy, anchorTs, lastProgressAt 
 function watchdogAbortKind(message) {
   const limit = Number(/\((\d+)ms/.exec(message)?.[1]) || null;
   if (/^agent first transport stale/.test(message)) return { window: 'first_response', form: 'first_transport', limit };
-  if (/^agent first semantic response stale/.test(message)) return { window: 'first_output', form: 'first_semantic', limit };
+  if (/^agent first semantic response stale/.test(message))
+    return { window: 'first_output', form: 'first_semantic', limit };
   if (/^agent task stale \(\d+ms without stream\/tool progress\)/.test(message)) {
     return { window: 'idle', form: 'idle_progress', limit };
   }

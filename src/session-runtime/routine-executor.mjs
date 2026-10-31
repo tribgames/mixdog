@@ -46,11 +46,13 @@ export function normalizeExecutorAgentId(value) {
 }
 
 async function defaultProbe(id) {
-  const [{ workflowHelpers }, { getPluginData, loadConfig }, { isAgentDisabled, isContactAgentId }] = await Promise.all([
-    import('./boot/shared.mjs'),
-    import('../runtime/agent/orchestrator/config.mjs'),
-    import('../runtime/shared/agent-route-config.mjs'),
-  ]);
+  const [{ workflowHelpers }, { getPluginData, loadConfig }, { isAgentDisabled, isContactAgentId }] = await Promise.all(
+    [
+      import('./boot/shared.mjs'),
+      import('../runtime/agent/orchestrator/config.mjs'),
+      import('../runtime/shared/agent-route-config.mjs'),
+    ]
+  );
   const dataDir = getPluginData();
   // The fresh scan: an agent made a moment ago counts.
   const listed = workflowHelpers.listCustomAgentIds(dataDir).includes(id) && !BUILTIN_SLOT_AGENT_IDS.has(id);
@@ -116,10 +118,7 @@ export async function runRoutineExecutor(
   const header = routineExecutorHeader({ kind, name, project: cwd ? String(cwd) : '' });
   const content = automationPromptContent(`${header}\n\n${prompt}`, attachments);
   const parts = Array.isArray(content) ? content : [{ type: 'text', text: content }];
-  const attachmentParts = parts
-    .slice(1)
-    .map(referencePart)
-    .filter(Boolean);
+  const attachmentParts = parts.slice(1).map(referencePart).filter(Boolean);
   // The id the executor is created under: marked as this routine's unattended
   // run for as long as it works (its record keeps the run stamp afterwards).
   const parentSessionId = `routine_exec_${randomUUID()}`;

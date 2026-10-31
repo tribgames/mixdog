@@ -310,7 +310,10 @@ test('a set-aside interrupted at any step is finished, never replayed, orphaned 
   const { setAsideUnrecoveredCheckpoint } = await import('./turn-checkpoint-recovery.mjs');
   const dir = join(root, 'turn-checkpoints');
   const prefix = [{ role: 'system', content: 'sys' }, user('earlier'), assistant('earlier answer')];
-  const files = (id) => readdirSync(dir).filter((name) => name.startsWith(`${id}.`)).sort();
+  const files = (id) =>
+    readdirSync(dir)
+      .filter((name) => name.startsWith(`${id}.`))
+      .sort();
   for (const step of ['intent', 'journal', 'header', 'done']) {
     for (const outcome of ['crash', 'refused-again']) {
       const id = `durable_setaside_${step}_${outcome.replace('-', '_')}`;
@@ -342,7 +345,10 @@ test('a set-aside interrupted at any step is finished, never replayed, orphaned 
         assert.deepEqual(texts(session.messages), texts(prefix));
         assert.deepEqual(texts(readDurableSessionRecord(id).messages), texts(prefix));
         if (failing) {
-          assert.throws(() => setAsideUnrecoveredCheckpoint(session, id), (error) => error.code === 'ETURNNOTDURABLE');
+          assert.throws(
+            () => setAsideUnrecoveredCheckpoint(session, id),
+            (error) => error.code === 'ETURNNOTDURABLE'
+          );
           // Once the intent exists, even a header write past the guard refuses.
           if (step !== 'intent') {
             const next = openTurn.bind(null, id, prefix, 'next turn', { token: `next-${id}` });

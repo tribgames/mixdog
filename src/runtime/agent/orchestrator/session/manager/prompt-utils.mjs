@@ -271,11 +271,12 @@ const LANGUAGE_HEADING = '# Language';
  * stays the last part.
  */
 export function replaceLanguageBlock(environmentTail, languageContext) {
-  const parts = (typeof environmentTail === 'string' && environmentTail ? environmentTail.split(BP3_PART_SEPARATOR) : [])
-    .filter((part) => {
-      const text = part.trim();
-      return text && text !== LANGUAGE_HEADING && !text.startsWith(`${LANGUAGE_HEADING}\n`);
-    });
+  const parts = (
+    typeof environmentTail === 'string' && environmentTail ? environmentTail.split(BP3_PART_SEPARATOR) : []
+  ).filter((part) => {
+    const text = part.trim();
+    return text && text !== LANGUAGE_HEADING && !text.startsWith(`${LANGUAGE_HEADING}\n`);
+  });
   const language = trimmedSlice(languageContext);
   if (language) parts.push(language);
   return parts.join(BP3_PART_SEPARATOR);
