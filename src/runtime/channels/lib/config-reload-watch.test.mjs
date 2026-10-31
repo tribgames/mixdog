@@ -88,3 +88,39 @@ test('changes outside the channels and voice sections never restart the listener
     watch.stop();
   }
 });
+
+test('a slower load of an older config never overwrites a newer one', async () => {
+  const { createConfigReloader } = await import('./owned-runtime/config-reload.mjs');
+  const loads = new Map();
+  let calls = 0;
+  let config = null;
+  const reload = createConfigReloader({
+    state: { automationRunning: true },
+    getConfig: () => config,
+    setConfig: (value) => {
+      config = value;
+    },
+    getBridgeRuntimeConnected: () => false,
+    scheduler: { reloadConfig() {} },
+    services: { syncWebhookAndEventRuntime() {}, stopWebhookAndEventRuntime: async () => {} },
+    load: () => {
+      calls += 1;
+      return new Promise((resolve) => loads.set(calls, resolve));
+    },
+  });
+  const watch = createConfigReloadWatch(reload);
+  watch.start();
+  try {
+    updateSection('channels', (section) => ({ ...section, revision: 101 }));
+    assert.ok(await waitFor(() => loads.size === 1), 'revision 1 load started');
+    updateSection('channels', (section) => ({ ...section, revision: 102 }));
+    assert.ok(await waitFor(() => loads.size === 2), 'revision 2 load started');
+    loads.get(2)({ revision: 2 });
+    assert.ok(await waitFor(() => config?.revision === 2), 'revision 2 applied');
+    loads.get(1)({ revision: 1 });
+    await sleep(100);
+    assert.equal(config.revision, 2, 'the older load resolving last is discarded');
+  } finally {
+    watch.stop();
+  }
+});
