@@ -1,10 +1,5 @@
 import { memo, useCallback, type ReactNode, type RefObject } from 'react';
-import {
-  ComposerRouteLabel,
-  useComposerStyle,
-  useRouteLabelParts,
-  type RouteLabelParts,
-} from './composer-route-label';
+import { ComposerRouteLabel, useComposerStyle, useRouteLabelParts, type RouteLabelParts } from './composer-route-label';
 import { useStableCallback } from './use-stable-callback';
 import type { ComposerProps } from './Composer';
 import { ComposerAddMenu } from './ComposerAddMenu';
@@ -119,8 +114,8 @@ export const ComposerModelControls = memo(function ComposerModelControls({
  *  picker and the context gauge on the right. Under the card (`card`: the
  *  model controls sit in the card's row) the line holds the readout alone,
  *  centred, or in the "detail" style the readout at the left and the route
- *  label at the right end; the "simple" style shows no readout, so the line is
- *  there only for the pre-chat `pickers`. */
+ *  label at the right end; the "simple" style shows no readout, so its line
+ *  holds the model alone, and under the card only the pre-chat `pickers`. */
 export const ComposerModelLine = memo(function ComposerModelLine({
   usageReadout,
   pickers,

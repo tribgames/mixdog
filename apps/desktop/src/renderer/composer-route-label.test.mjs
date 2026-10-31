@@ -17,13 +17,15 @@ const { restore } = installTestDom(null, {
     ResizeObserver: class {
       constructor(callback) {
         this.callback = callback;
+        this.targets = new Set();
       }
-      observe() {
-        resizeCallbacks.add(this.callback);
+      observe(target) {
+        this.targets.add(target);
+        resizeCallbacks.add(this);
       }
       unobserve() {}
       disconnect() {
-        resizeCallbacks.delete(this.callback);
+        resizeCallbacks.delete(this);
       }
     },
   },
@@ -60,12 +62,17 @@ async function mount(props) {
   return { host, unmount: () => act(async () => root.unmount()) };
 }
 
-test('route label: off by default, so the line renders nothing extra', async () => {
+test('composer style: "detail" by default, so the route label shows; "Normal" leaves it out', async (t) => {
+  t.after(() => setComposerStyle('basic'));
   window.localStorage.clear();
-  assert.equal(getComposerStyle(), 'basic');
-  const view = await mount({ choices: BOTH });
-  assert.equal(view.host.querySelector('.composer-route-label'), null);
-  await view.unmount();
+  assert.equal(getComposerStyle(), 'detail');
+  const detail = await mount({ choices: BOTH });
+  assert.ok(detail.host.querySelector('.composer-route-label'));
+  await detail.unmount();
+  setComposerStyle('basic');
+  const normal = await mount({ choices: BOTH });
+  assert.equal(normal.host.querySelector('.composer-route-label'), null);
+  await normal.unmount();
 });
 
 test('route label: on shows "workflow · mode", mode alone for one workflow, nothing without a mode', async (t) => {
@@ -83,10 +90,9 @@ test('route label: on shows "workflow · mode", mode alone for one workflow, not
   await none.unmount();
 });
 
-test('composer style: a device that had the route label on starts on "detail"', () => {
+test('composer style: the earlier route-label switch is cleared on the first save', () => {
   window.localStorage.clear();
   window.localStorage.setItem('mixdog.desktop.route-label.v1', 'on');
-  assert.equal(getComposerStyle(), 'detail');
   setComposerStyle('simple');
   assert.equal(window.localStorage.getItem('mixdog.desktop.route-label.v1'), null);
   assert.equal(getComposerStyle(), 'simple');
@@ -153,7 +159,17 @@ test('card layout: the card takes over past the items, and gives the line back w
 // a 120 route label, and a 150 model pill whose 130 label an ellipsis cut to
 // 100: 200 + 120 + 5 + 150 + 30 = 505.
 const ONE_LINE_ITEMS = 505;
-function Bar({ width, active = true, label = true, controlsInLine = true, pickers = false }) {
+// `readout` false is the "simple" style (no usage readout); `lineShown` false is
+// its card, which has no line under it, so the form's own width is measured.
+function Bar({
+  width,
+  active = true,
+  label = true,
+  controlsInLine = true,
+  pickers = false,
+  readout = true,
+  lineShown = true,
+}) {
   const form = React.useRef(null);
   const overflow = useOneLineOverflow(form, active);
   const sized = (box) => (element) => {
@@ -180,31 +196,40 @@ function Bar({ width, active = true, label = true, controlsInLine = true, picker
     null,
     React.createElement(
       'form',
-      { ref: form, className: 'composer', 'data-overflow': String(overflow) },
-      React.createElement('div', { className: 'composer-footer' }, !controlsInLine && controls)
-    ),
-    React.createElement(
-      'div',
       {
-        className: 'composer-model-line',
-        style: { padding: '0px' },
         ref: (element) => {
-          if (element) Object.defineProperty(element, 'clientWidth', { configurable: true, get: () => width });
+          form.current = element;
+          // The line's 16px of side padding come off the form's width.
+          if (element) Object.defineProperty(element, 'clientWidth', { configurable: true, get: () => width + 16 });
         },
+        className: 'composer',
+        'data-overflow': String(overflow),
       },
-      pickers
-        ? // Before the first message the pickers stand in the readout's place;
-          // they shrink with the line, so their content is 260 wide.
-          React.createElement('div', {
-            className: 'composer-model-line-context',
-            ref: (element) => {
-              if (element) Object.defineProperty(element, 'scrollWidth', { configurable: true, value: 260 });
-            },
-          })
-        : React.createElement('button', { className: 'composer-usage-readout', 'data-full-width': '200' }),
-      label && React.createElement('button', { className: 'composer-route-label', ref: sized(120) }),
-      controlsInLine && controls
-    )
+      React.createElement('div', { className: 'composer-footer' }, (!controlsInLine || !lineShown) && controls)
+    ),
+    lineShown &&
+      React.createElement(
+        'div',
+        {
+          className: 'composer-model-line',
+          style: { padding: '0px' },
+          ref: (element) => {
+            if (element) Object.defineProperty(element, 'clientWidth', { configurable: true, get: () => width });
+          },
+        },
+        pickers
+          ? // Before the first message the pickers stand in the readout's place;
+            // they shrink with the line, so their content is 260 wide.
+            React.createElement('div', {
+              className: 'composer-model-line-context',
+              ref: (element) => {
+                if (element) Object.defineProperty(element, 'scrollWidth', { configurable: true, value: 260 });
+              },
+            })
+          : readout && React.createElement('button', { className: 'composer-usage-readout', 'data-full-width': '200' }),
+        label && React.createElement('button', { className: 'composer-route-label', ref: sized(120) }),
+        controlsInLine && controls
+      )
   );
 }
 
@@ -216,7 +241,10 @@ async function renderBar(props) {
   const show = async (next) => {
     await act(async () => root.render(React.createElement(Bar, { ...props, ...next })));
     await act(async () => {
-      for (const callback of resizeCallbacks) callback();
+      // Like the browser, only an observed element still in the page reports.
+      for (const observer of resizeCallbacks) {
+        if ([...observer.targets].some((target) => target.isConnected)) observer.callback();
+      }
     });
   };
   await show({});
@@ -264,8 +292,38 @@ test('card layout: without the route label the items need less room, and an inac
   await bar.unmount();
 });
 
-// The line under the card follows the style: nothing for "simple" (no reserved
-// line), the readout alone for "basic", readout and route label for "detail".
+// The "simple" style measures the Standard layout minus the usage readout: its
+// card has no line under it, so the form's width stands in for the line's.
+// (No route label either: that is the "detail" style's.)
+const SIMPLE_ITEMS = ONE_LINE_ITEMS - 200 - (120 + 5);
+test('card layout: simple measures like standard without the readout, and returns from its line-less card with room to spare', async () => {
+  const bar = await renderBar({ width: SIMPLE_ITEMS, readout: false, label: false });
+  assert.equal(bar.card(), false, 'the model alone fits exactly');
+  await bar.show({ width: SIMPLE_ITEMS - 1 });
+  assert.equal(bar.card(), true, 'one pixel short is the card');
+  await bar.show({ width: SIMPLE_ITEMS + CARD_RETURN_ROOM - 1, lineShown: false });
+  assert.equal(bar.card(), true, 'the card, with no line to measure, still waits for the room');
+  await bar.show({ width: SIMPLE_ITEMS + CARD_RETURN_ROOM, lineShown: false });
+  assert.equal(bar.card(), false);
+  await bar.show({ width: SIMPLE_ITEMS, lineShown: true });
+  assert.equal(bar.card(), false, 'the line is back and the items still fit');
+  await bar.unmount();
+});
+
+test('card layout: switching Standard to Simple inside the card removes the line, and widening still returns to one line', async () => {
+  // In the card the model controls already sit in the footer, so removing the
+  // line changes nothing the mutation observer would notice.
+  const bar = await renderBar({ width: 100, controlsInLine: false });
+  assert.equal(bar.card(), true, 'Standard in a narrow window is the card');
+  await bar.show({ readout: false, label: false, lineShown: false });
+  assert.equal(bar.card(), true, 'Simple in the same window is the card, with no line under it');
+  await bar.show({ width: 1000 });
+  assert.equal(bar.card(), false, 'widened, the line-less card is observed and gives the line back');
+  await bar.unmount();
+});
+
+// The line under the card follows the style: nothing for "simple" under the card
+// (no reserved line; the model alone on the one-line layout's), the readout alone for "basic", readout and route label for "detail".
 test('card line: simple shows nothing, basic the readout alone, detail the readout and the route label', async (t) => {
   t.after(() => setComposerStyle('basic'));
   const props = {
@@ -285,6 +343,10 @@ test('card line: simple shows nothing, basic the readout alone, detail the reado
     return { line: Boolean(line), shown };
   };
   assert.deepEqual(await render('simple'), { line: false, shown: null });
+  // The one-line layout: the model alone on the line, no readout (Standard has it).
+  const oneLine = await render('simple', { card: false });
+  assert.equal(oneLine.line, true);
+  assert.ok(!oneLine.shown.includes('composer-usage-readout'));
   assert.deepEqual(await render('basic'), { line: true, shown: ['composer-usage-readout'] });
   assert.deepEqual(await render('detail'), {
     line: true,

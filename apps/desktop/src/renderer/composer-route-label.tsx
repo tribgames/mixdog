@@ -7,7 +7,7 @@ export type RouteLabelParts = { workflow: string; mode: string };
 
 /** This device's Display → Composer style. */
 export function useComposerStyle() {
-  return useSyncExternalStore(subscribeComposerStyle, getComposerStyle, () => 'basic' as const);
+  return useSyncExternalStore(subscribeComposerStyle, getComposerStyle, () => 'detail' as const);
 }
 
 /** The label's parts when the composer style is "detail" and the conversation
@@ -57,4 +57,3 @@ export function ComposerRouteLabel({ parts }: { parts: RouteLabelParts }) {
     </button>
   );
 }
-

@@ -92,7 +92,6 @@ import {
 } from './ComposerFooter';
 import { useMobileRemoteSurface } from './mobile-surface';
 import { useOneLineOverflow } from './composer-card-layout';
-import { useComposerStyle } from './composer-route-label';
 import { CapabilityIcon } from './CapabilityIcon';
 import { shouldRemoveSelectedSkill, skillTitle, useComposerSkill } from './composer-skill';
 import { VisualizeFeedbackCards } from './VisualizeFeedbackCards';
@@ -973,12 +972,11 @@ export const Composer = memo(function Composer(props: ComposerProps) {
   const goalDisabled = turnBusy || commandBusy || submitting;
   // The coding composer's two-row card: the typing band, then the +, the model
   // with its gauge, the mic and send; a bot's 1:1 chat too. A phone always
-  // has it; the PC, in the "simple" style or once its one-line bar cannot show
-  // every item in full. A group room keeps its one-line bar.
+  // has it; the PC, once its one-line bar cannot show every item in full. A
+  // group room keeps its one-line bar.
   const phone = useMobileRemoteSurface() && !roomMembers;
-  const style = useComposerStyle();
-  const oneLineOverflows = useOneLineOverflow(paletteAnchor, !phone && !roomMembers && style !== 'simple');
-  const card = !roomMembers && (phone || style === 'simple' || oneLineOverflows);
+  const oneLineOverflows = useOneLineOverflow(paletteAnchor, !phone && !roomMembers);
+  const card = !roomMembers && (phone || oneLineOverflows);
   const modelControlProps: ComposerModelControlProps = {
     modelAside,
     agentMode,

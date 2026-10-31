@@ -38,8 +38,33 @@ test('composer style: hover previews a style, a press applies it', async () => {
   await act(async () => button('simple').click());
   assert.equal(getComposerStyle(), 'simple');
   assert.equal(preview().dataset.style, 'simple');
-  assert.equal(host.querySelector('.csp-bar'), null, 'simple draws the PC as the two-row card');
-  assert.equal(host.querySelector('.csp-under'), null, 'and nothing under the card');
+  assert.ok(host.querySelector('.csp-pc .csp-bar'), 'simple draws the PC as the one-line bar');
+  assert.equal(host.querySelector('.csp-pc .csp-card'), null);
+  assert.ok(host.querySelector('.csp-pc .csp-line .csp-model'), 'with the model on the line under it');
+  assert.equal(host.querySelector('.csp-usage'), null, 'and no usage readout');
   await act(async () => root.unmount());
   setComposerStyle('basic');
+});
+
+// Hovering Simple used to shrink the preview, moving the style control out from
+// under the pointer: hover cleared, the preview grew back, and it looped.
+test('composer style: the room the preview takes does not depend on the previewed style', async () => {
+  setComposerStyle('basic');
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  await act(async () => root.render(React.createElement(ComposerStyleGroup, { pending: null })));
+  const button = (value) => host.querySelector(`.skin-seg button[data-value="${value}"]`);
+  // jsdom has no layout, so compare what reserves height: each frame's blocks.
+  const reserved = () =>
+    [...host.querySelectorAll('.csp-pc, .csp-phone')].map((frame) =>
+      [...frame.children].map((child) => child.className).join(' ')
+    );
+  const basic = reserved();
+  for (const value of ['simple', 'detail']) {
+    await act(async () => button(value).focus());
+    assert.deepEqual(reserved(), basic, `${value} reserves the same blocks as standard in both frames`);
+    await act(async () => button(value).blur());
+  }
+  await act(async () => root.unmount());
 });
