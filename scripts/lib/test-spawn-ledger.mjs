@@ -5,8 +5,10 @@
 // nothing.
 import { ChildProcess } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
+import { constants } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { getSystemErrorMap } from 'node:util';
 import { FAILURE_RECORDS_ENV, spawnLedgerPath } from './test-failure-records.mjs';
 
 // --test-force-exit ends a test file's process once every test registered so
@@ -60,14 +62,43 @@ if (ledger) {
   // comes before the child's handle is closed, so the pid is still this
   // child's when the exit is written: from then on another process may hold it.
   const spawn = ChildProcess.prototype.spawn;
+  const exited = new Set();
   ChildProcess.prototype.spawn = function recordedSpawn(...args) {
     const before = Date.now();
     const result = spawn.apply(this, args);
     if (this.pid) {
-      const spawned = `${this.pid} ${before} ${Date.now()}`;
+      const { pid } = this;
+      exited.delete(pid);
+      const spawned = `${pid} ${before} ${Date.now()}`;
       appendFileSync(ledger, `${spawned}\n`);
-      this.once('exit', () => appendFileSync(ledger, `${spawned} ${Date.now()}\n`));
+      this.once('exit', () => {
+        exited.add(pid);
+        appendFileSync(ledger, `${spawned} ${Date.now()}\n`);
+      });
     }
     return result;
+  };
+  // Once a child's exit is seen its pid is free, and Windows hands it to the
+  // next process started within moments — on a loaded gate often a parallel
+  // unit's test runner, node --test batch or test file process. A cleanup that
+  // signals every pid it recorded (e.g. `after(() => process.kill(pid))`, or a
+  // kill(pid, 0) liveness poll) then terminates that process instead, and the
+  // whole unit dies without output. Such a signal fails ESRCH here, as for a
+  // gone process, and never reaches whatever holds the pid now. Arguments Node
+  // rejects (a non-integer pid, an unknown signal) still go to Node, which
+  // throws before any signal is sent; this rejects only what it would send.
+  const kill = process.kill;
+  const [ESRCH] = [...getSystemErrorMap()].find(([, [name]]) => name === 'ESRCH');
+  const sendable = (signal) => signal === (signal | 0) || Boolean(constants.signals[signal || 'SIGTERM']);
+  process.kill = function killLiveChildOnly(pid, signal) {
+    // Only a primitive pid is checked: coercing an object would run its
+    // valueOf before Node's own coercion does. Number(pid) === (pid | 0) is
+    // Node's `pid == (pid | 0)` integer check.
+    const primitive = typeof pid === 'number' || typeof pid === 'string';
+    if (primitive && Number(pid) === (pid | 0) && exited.has(pid | 0) && sendable(signal)) {
+      // The shape of Node's own failed kill (an ErrnoException).
+      throw Object.assign(new Error('kill ESRCH'), { errno: ESRCH, code: 'ESRCH', syscall: 'kill' });
+    }
+    return kill.call(process, pid, signal);
   };
 }
