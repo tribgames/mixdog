@@ -130,7 +130,12 @@ export function mergeRecallConceptTokens(text, conceptTokens, limit = 24) {
   const entityConcepts = concepts.filter(isEntityConcept);
   const rankingEntityConcepts = entityConcepts.filter((token) => !isStructuralTimeToken(token));
   const useEntityConcepts = rankingEntityConcepts.some(isIdentifierToken) || rankingEntityConcepts.length > 2;
-  const rankingConcepts = useEntityConcepts ? entityConcepts : concepts;
+  // Entity-heavy queries rank their entities first, but the Korean content
+  // words stay: dropping them left a mixed query ("웹 검색 원인 Claude Codex
+  // Hermes 비교") matching only on product names that half the history shares.
+  const rankingConcepts = useEntityConcepts
+    ? [...entityConcepts, ...concepts.filter((token) => !isEntityConcept(token))]
+    : concepts;
   const source =
     concepts.length > 0
       ? [...raw.filter((token) => isIdentifierToken(token) || isConceptCompound(token, concepts)), ...rankingConcepts]

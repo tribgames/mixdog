@@ -13,6 +13,13 @@ test('light Korean normalization strips particles and high-confidence predicate 
   assert.deepEqual(lightKoMorphStems('메모리를 최적화했던 계획'), ['메모리', '최적화', '계획']);
 });
 
+test('a query with several product names keeps its Korean content words', () => {
+  const tokens = tokenizeRecallQuery('웹 검색을 적게 하는 원인 Claude Code Codex Hermes 비교');
+  assert.deepEqual(tokens.slice(0, 4), ['claude', 'code', 'codex', 'herm']);
+  for (const word of ['검색', '원인', '비교']) assert.ok(tokens.includes(word), word);
+  assert.match(buildFtsPrefixQuery('웹 검색을 적게 하는 원인 Claude Code Codex Hermes 비교').query, /검색:\*/);
+});
+
 test('production recall uses light stems in prefix queries by default', () => {
   assert.deepEqual(tokenizeRecallQuery('PowerShell 코드를 분리했던 작업'), ['powershell', '코드', '분리', '작업']);
   assert.deepEqual(buildFtsPrefixQuery('임베딩 모델을 해제했던 결과'), {

@@ -309,6 +309,22 @@ async function removeReviewAndPromotionCycleState(db) {
   }
 }
 
+// Root vectors now cover the chunk's first message as well as its summary
+// (memory-embed.mjs rootEmbedText). Vectors written under the older text stay
+// in place and are replaced by a paced background sweep (sweepRootEmbedText)
+// that walks roots below this starting cursor, newest first. One statement, so
+// the start is atomic; ON CONFLICT keeps an existing sweep's progress.
+export const ROOT_EMBED_SWEEP_META_KEY = 'embedding.root_text_v2';
+export async function startRootEmbedSweep(db) {
+  await db.query(
+    `INSERT INTO meta(key, value)
+     SELECT $1, jsonb_build_object('cursor', COALESCE(MAX(id), 0) + 1, 'done', false)
+     FROM entries WHERE is_root = 1
+     ON CONFLICT (key) DO NOTHING`,
+    [ROOT_EMBED_SWEEP_META_KEY]
+  );
+}
+
 export async function ensureCurrentSchemaExtensions(db, dims, embeddingIdentity = null) {
   await removeAttachmentPlaceholderRows(db);
   await removeRuntimeNotificationRowsOnce(db);
@@ -413,6 +429,7 @@ export async function openDatabase(dataDir, dims, embeddingIdentity = null) {
     }
     await ensureCurrentSchemaExtensions(db, Number(dims), embeddingIdentity);
     await validateEmbeddingDims(db, Number(dims));
+    await withSchemaBootstrapLock(pool, () => startRootEmbedSweep(db));
 
     dbs.set(key, db);
     return db;

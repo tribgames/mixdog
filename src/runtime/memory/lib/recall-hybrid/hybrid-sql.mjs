@@ -119,6 +119,11 @@ exact AS (
   WHERE false
 ),`;
   }
+  // Each row is lowercased once (OFFSET 0 keeps the subquery from being
+  // inlined into the per-term condition) and every term is a literal strpos
+  // on that text. Per-term ILIKE re-lowercased the whole content for every
+  // term, so a natural-language query's 10+ terms multiplied the scan cost.
+  // Terms arrive lowercased from buildExactTerms.
   return `
 exact_matches AS (
   SELECT ee.id,
@@ -126,10 +131,14 @@ exact_matches AS (
          q.term,
          COUNT(*) OVER (PARTITION BY q.term)::float8 AS term_df
   FROM entries ee
+  CROSS JOIN LATERAL (
+    SELECT lower(ee.content) AS content, lower(ee.element) AS element, lower(ee.summary) AS summary
+    OFFSET 0
+  ) lc
   JOIN LATERAL unnest($${exactTermsParam}::text[]) AS q(term) ON (
-       ee.content ILIKE '%' || q.term || '%'
-       OR ${recallSubstringPredicate('ee.element', 'q.term')}
-       OR ${recallSubstringPredicate('ee.summary', 'q.term')}
+       strpos(lc.content, q.term) > 0
+       OR strpos(lc.element, q.term) > 0
+       OR strpos(lc.summary, q.term) > 0
   )
   WHERE true
     ${filters.exactFilterClause}

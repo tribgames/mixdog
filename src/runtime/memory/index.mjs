@@ -59,7 +59,8 @@ import {
   resolveCoalesceMaxRetries,
   scheduleCoalescedCycleRetry,
 } from './lib/memory-cycle-requests.mjs';
-import { drainEmbeddingReindex } from './lib/embedding-reindex.mjs';
+import { drainEmbeddingReindex, runRootEmbedSweep } from './lib/embedding-reindex.mjs';
+import { sweepRootEmbedText } from './lib/memory-embed.mjs';
 import { refreshCoreMemoryFile } from './lib/core-memory-file.mjs';
 import { resolveProjectId, resolveProjectScope } from './lib/project-id-resolver.mjs';
 import {
@@ -431,6 +432,15 @@ function _startEmbeddingReindex() {
           `[memory-service] embedding reindex passes=${summary.passes} attempted=${summary.attempted} ` +
             `ok=${summary.succeeded} failed=${summary.failed}\n`
         );
+      }
+      return runRootEmbedSweep({
+        sweepStep: ({ signal }) => sweepRootEmbedText(db, { signal }),
+        signal: controller.signal,
+      });
+    })
+    .then((sweep) => {
+      if (sweep.replaced > 0) {
+        __mixdogMemoryLog(`[memory-service] root text sweep steps=${sweep.steps} replaced=${sweep.replaced}\n`);
       }
     })
     .catch((error) => {

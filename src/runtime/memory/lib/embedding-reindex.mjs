@@ -46,3 +46,30 @@ export async function drainEmbeddingReindex({
 
   return { passes, attempted, succeeded, failed };
 }
+
+// The root-text sweep replaces vectors that still work, so it has no urgency:
+// small steps with long rests keep a ~62k-root backfill in the background of a
+// working session instead of competing with it.
+const ROOT_SWEEP_PAUSE_MS = 4_000;
+
+export async function runRootEmbedSweep({
+  sweepStep,
+  signal,
+  pauseMs = ROOT_SWEEP_PAUSE_MS,
+  wait = waitForNextPass,
+} = {}) {
+  if (typeof sweepStep !== 'function') {
+    throw new TypeError('runRootEmbedSweep: sweepStep required');
+  }
+  let steps = 0;
+  let replaced = 0;
+  while (true) {
+    throwIfAborted(signal);
+    const result = await sweepStep({ signal });
+    steps += 1;
+    replaced += Number(result?.replaced ?? 0);
+    if (result?.done) break;
+    await wait(pauseMs, signal);
+  }
+  return { steps, replaced };
+}
