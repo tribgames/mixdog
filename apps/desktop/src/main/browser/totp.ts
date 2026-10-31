@@ -77,7 +77,7 @@ export function parseTotpSecret(input: string): TotpParameters {
 }
 
 /** RFC 4226 HOTP value for `counter`. */
-export function hotpCode(secret: Buffer, counter: number, digits: 6 | 8, algorithm: TotpAlgorithm = 'SHA1'): string {
+function hotpCode(secret: Buffer, counter: number, digits: 6 | 8, algorithm: TotpAlgorithm = 'SHA1'): string {
   const message = Buffer.alloc(8);
   message.writeBigUInt64BE(BigInt(counter));
   const hash = createHmac(algorithm.toLowerCase(), secret).update(message).digest();

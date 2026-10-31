@@ -40,7 +40,7 @@ function registrableDomain(hostname: string): string {
 /** Whether agent URL `raw` is exactly the https link `link` names, read within
  *  the window, on the registrable domain of the mail's sender: the one agent
  *  URL that may carry a token. Where the page redirects afterwards is its own. */
-export function mailLinkAdmits(raw: string, link: BrowserMailLink | undefined, now = Date.now()): boolean {
+function mailLinkAdmits(raw: string, link: BrowserMailLink | undefined, now = Date.now()): boolean {
   if (!link || typeof link !== 'object' || !/^[\p{L}\p{N}.-]+$/u.test(String(link.from_domain))) return false;
   let parsed: URL;
   let sender: string;

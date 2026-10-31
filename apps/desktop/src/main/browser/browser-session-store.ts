@@ -2,7 +2,7 @@
  * Sign-ins across restarts. Chromium keeps the partition's persistent
  * cookies and storage on disk by itself, but a cookie without an expiry —
  * the shape most sign-in sessions take — dies with the process, so a
- * relaunch used to land the agent back on a login page. This store snapshots
+ * relaunch would land the agent back on a login page. This store snapshots
  * those cookies, sealed with the OS keychain, and puts them back on the next
  * start. Nothing here reads cookie values into a reply.
  */
@@ -202,7 +202,7 @@ export function createBrowserSessionStore(host: BrowserSessionStoreHost) {
 type CookieChangeListener = (event: unknown, cookie: { session?: boolean }, cause: string, removed: boolean) => void;
 
 /** A sign-in (or sign-out) is written within a second of the cookie change,
- *  not at the next minute's autosave: a crash right after a login used to
+ *  not at the next minute's autosave: a crash right after a login would
  *  lose its session cookies, and Chromium's own lazily flushed store could
  *  lose the persistent ones. Session cookies go through the sealed store,
  *  persistent ones are flushed to Chromium's profile. */

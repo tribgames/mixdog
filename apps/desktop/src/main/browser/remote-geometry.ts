@@ -69,16 +69,6 @@ export function lockRemoteGeometry(
   };
 }
 
-/** Whether the page still lays out as `locked` describes. */
-export function remoteGeometryHolds(locked: RemoteLockedGeometry, metrics: RemotePageMetrics): boolean {
-  const { geometry } = locked;
-  return (
-    Math.round(metrics.cssWidth) === geometry.cssWidth &&
-    Math.round(metrics.cssHeight) === geometry.cssHeight &&
-    metrics.devicePixelRatio === geometry.deviceScaleFactor
-  );
-}
-
 /** The page's device pixel ratio from its layout metrics: the deprecated
  *  `visualViewport` is in device pixels, `cssVisualViewport` in CSS pixels
  *  (both exclude scrollbars, so their ratio is exact). Null when unreadable,

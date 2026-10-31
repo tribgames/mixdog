@@ -35,7 +35,7 @@ export async function writeVaultFile(file: string, sealed: Buffer, unseal: Unsea
 /** The origins whose auto sign-in was paused while the vault could not be
  *  opened (no OS encryption): a plain, secret-free record next to the vault,
  *  folded into the sealed file the next time it opens. */
-export const pendingPausesFile = (vaultFile: string): string => `${vaultFile}.pending-pauses.json`;
+const pendingPausesFile = (vaultFile: string): string => `${vaultFile}.pending-pauses.json`;
 
 /** The recorded origins: `[]` when there is no record, `null` when it exists
  *  but cannot be trusted (unreadable, not JSON, not the record's shape). An

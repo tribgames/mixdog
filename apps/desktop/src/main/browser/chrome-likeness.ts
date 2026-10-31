@@ -21,7 +21,7 @@
  *  the query names for some: `camera` is `video_capture`). Any other (one
  *  Chrome grants by default, or one it does not know) keeps the engine's
  *  answer. */
-export const BROWSER_PROMPT_PERMISSIONS = [
+const BROWSER_PROMPT_PERMISSIONS = [
   'audio_capture',
   'captured_surface_control',
   'clipboard_read',
@@ -43,7 +43,7 @@ export const BROWSER_PROMPT_PERMISSIONS = [
 ] as const;
 
 const PERMISSION_STATE_HOST = 'mixdog-permission-state.invalid';
-export const PERMISSION_STATE_PATH = '/.well-known/mixdog-permission-state';
+const PERMISSION_STATE_PATH = '/.well-known/mixdog-permission-state';
 export const PERMISSION_STATE_PATTERN = `*://*${PERMISSION_STATE_PATH}*`;
 
 /** The permission name a page's state question asks about, or null for any

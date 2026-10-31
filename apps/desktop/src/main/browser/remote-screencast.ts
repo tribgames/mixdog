@@ -12,7 +12,7 @@ const PAGE_EVENTS = [
   'did-stop-loading',
   'zoom-changed',
 ] as const;
-export const STREAM_JPEG_QUALITY = 50;
+const STREAM_JPEG_QUALITY = 50;
 /** A static page may never repaint; the first frame is then captured directly. */
 const STREAM_FIRST_FRAME_MS = 300;
 

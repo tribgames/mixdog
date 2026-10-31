@@ -22,7 +22,7 @@ export type BrowserCdpSend = ReturnType<typeof createBrowserCdpExecution>['sendC
 
 /** How long a page keeps its driving domains after the last agent command,
  *  so a task's next step does not pay to bring them back up. */
-export const BROWSER_DRIVE_LINGER_MS = 60_000;
+const BROWSER_DRIVE_LINGER_MS = 60_000;
 
 interface BrowserCdpSessionInitHost {
   state: BrowserGuestStateStore;

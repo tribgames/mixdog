@@ -121,7 +121,7 @@ function submitKinds(command: BrowserCommand): Array<'submit' | 'post'> {
 }
 
 /** Whether a command submits a form or posts: confirmed by default. */
-export function browserCommandSubmits(command: BrowserCommand): boolean {
+function browserCommandSubmits(command: BrowserCommand): boolean {
   return stepSubmits(command) || (command.steps || []).some((step) => stepSubmits(step as ApprovalStep));
 }
 

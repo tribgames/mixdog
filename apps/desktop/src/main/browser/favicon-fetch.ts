@@ -5,14 +5,14 @@
  *  a byte cap and the whole read runs under one timeout. Electron-free so the
  *  limits can be tested directly. */
 
-export const FAVICON_MAX_BYTES = 128 * 1024;
-export const FAVICON_TIMEOUT_MS = 5000;
+const FAVICON_MAX_BYTES = 128 * 1024;
+const FAVICON_TIMEOUT_MS = 5000;
 const FAVICON_MAX_REDIRECTS = 3;
 
 type FaviconFetch = (url: string, init: RequestInit) => Promise<Response>;
 
 /** scheme+host+port of an http(s) URL; null for anything else. */
-export function httpOrigin(url: string): string | null {
+function httpOrigin(url: string): string | null {
   try {
     const parsed = new URL(url);
     return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? parsed.origin : null;

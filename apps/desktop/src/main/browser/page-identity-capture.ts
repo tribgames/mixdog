@@ -8,7 +8,7 @@ import type { BrowserPageIdentityPatch } from './page-identity';
 import { fetchPagePreviewMarkup, PREVIEW_IMAGE_MAX_BYTES } from './page-preview';
 
 /** 2x of the 104×66 card thumbnail. */
-export const PAGE_THUMBNAIL_SIZE = { width: 208, height: 132 } as const;
+const PAGE_THUMBNAIL_SIZE = { width: 208, height: 132 } as const;
 const FAVICON_PIXELS = 32;
 const DATA_FAVICON_MAX_CHARS = 16 * 1024;
 const CAPTURE_TIMEOUT_MS = 4000;

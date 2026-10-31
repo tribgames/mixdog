@@ -22,7 +22,7 @@ export interface NewTabWatch {
 }
 
 /** How long a request waits for the pane to create its tab. */
-export const NEW_TAB_WAIT_MS = 3_000;
+const NEW_TAB_WAIT_MS = 3_000;
 
 interface Waiter {
   sessionId: string;
