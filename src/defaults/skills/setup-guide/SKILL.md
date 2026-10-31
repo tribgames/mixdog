@@ -174,6 +174,9 @@ step; do not insist.
   permissions, memory and model. Without a bot they cannot be used. A routine
   can also name an executor sub-agent (`executorAgentId`, e.g. Worker): that
   sub-agent does each run on its own model and the bot only relays its report.
+  In the Schedules/Webhooks editor this is the "Executor" field (Korean UI:
+  "실행 에이전트"); its default "The bot itself" ("직접 처리") means the bot
+  does the run itself.
 - Approval cards: when a tool needs permission it waits in the chat until the
   user approves or declines.
 - Phone remote access: pair a phone under Settings → Connection to follow and
