@@ -6,11 +6,21 @@ Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 Add-Type -AssemblyName Accessibility
 Add-Type -AssemblyName System.Runtime.WindowsRuntime
+Add-Type -AssemblyName WindowsBase
 $AccessibilityAssemblyPath = [Accessibility.IAccessible].Assembly.Location
 $MixdogHostSource = @'
 @@MIXDOG_HOST_CSHARP@@
 '@
-$MixdogHostRefs = @('System.dll', 'System.Core.dll', 'System.Drawing.dll', $AccessibilityAssemblyPath)
+# Kept apart from $MixdogHostSource: elevated cleanup compiles that source alone
+# without the UIA client assemblies.
+$MixdogBoundedUiaSource = @'
+@@MIXDOG_BOUNDED_UIA_CSHARP@@
+'@
+$MixdogWorkerSource = $MixdogHostSource + "`n" + $MixdogBoundedUiaSource
+$MixdogHostRefs = @('System.dll', 'System.Core.dll', 'System.Drawing.dll', $AccessibilityAssemblyPath,
+    [System.Windows.Automation.AutomationElement].Assembly.Location,
+    [System.Windows.Automation.TreeScope].Assembly.Location,
+    [System.Windows.Rect].Assembly.Location)
 $MixdogHostCacheDir = [string]$env:MIXDOG_COMPUTER_HOST_CACHE
 $MixdogHostBuild = [string]$env:MIXDOG_COMPUTER_HOST_BUILD
 $MixdogHostAssembly = ''
@@ -27,7 +37,7 @@ if (-not $MixdogHostLoaded -and $MixdogHostAssembly) {
     try {
         New-Item -ItemType Directory -Force -Path $MixdogHostCacheDir | Out-Null
         $MixdogHostStaging = $MixdogHostAssembly + '.' + [string]$PID + '.tmp'
-        Add-Type -ReferencedAssemblies $MixdogHostRefs -TypeDefinition $MixdogHostSource -OutputAssembly $MixdogHostStaging
+        Add-Type -ReferencedAssemblies $MixdogHostRefs -TypeDefinition $MixdogWorkerSource -OutputAssembly $MixdogHostStaging
         # A concurrent worker may publish the same build first; either file works.
         Move-Item -LiteralPath $MixdogHostStaging -Destination $MixdogHostAssembly -Force -ErrorAction SilentlyContinue
         if (Test-Path -LiteralPath $MixdogHostStaging) {
@@ -41,7 +51,7 @@ if (-not $MixdogHostLoaded -and $MixdogHostAssembly) {
     catch { $MixdogHostLoaded = $false }
 }
 if (-not $MixdogHostLoaded) {
-    Add-Type -ReferencedAssemblies $MixdogHostRefs -TypeDefinition $MixdogHostSource
+    Add-Type -ReferencedAssemblies $MixdogHostRefs -TypeDefinition $MixdogWorkerSource
 }
 [void][MixWin32]::MakeDpiAware()
 $AE = [System.Windows.Automation.AutomationElement]
