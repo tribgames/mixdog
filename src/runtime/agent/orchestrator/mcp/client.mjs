@@ -51,16 +51,19 @@ import {
   startMcpOAuthSwitch,
   storedMcpOAuthIdentity,
 } from './oauth.mjs';
+export { probeMcpServerAuth } from './oauth-probe.mjs';
 
 // Config interpretation (transport kind, URL policy, env expansion, headers,
 // timeouts, log scrubbing) lives in client-config.mjs; the names importers
-// use are re-exported here.
+// use (including through namespace loads such as boot.mcpClient) are
+// re-exported here.
 export {
   normalizeMcpTransportUrl,
   mcpUrlForLog,
   scrubMcpConnectionMessage,
   resolveMcpStdioEnvironment,
   resolveMcpHttpHeaders,
+  resolveMcpTransportKind,
   resolveMcpStartupTimeoutMs,
 } from './client-config.mjs';
 const servers = new Map();

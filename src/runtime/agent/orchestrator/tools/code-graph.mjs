@@ -4,14 +4,16 @@
 // build, search, dispatch).
 //
 // Public surface:
-//   _buildCodeGraph and _postCodeGraphWorkerSuccess (worker-only),
-//   executeCodeGraphTool.
+//   prewarmCodeGraphIfProject (read through the lazy module namespace in
+//   session-runtime/prewarm), _buildCodeGraph and _postCodeGraphWorkerSuccess
+//   (worker-only), executeCodeGraphTool.
 //
 // NOTE: code-graph-prewarm-worker.mjs imports { _buildCodeGraph } from THIS
 // facade; the facade re-exports it from ./code-graph/build.mjs, and the async
 // build path spawns that worker via a path RELATIVE to build.mjs — so no
 // module dynamically imports its own path.
 export {
+  prewarmCodeGraphIfProject,
   _buildCodeGraph,
   _postCodeGraphWorkerSuccess,
 } from './code-graph/build.mjs';
