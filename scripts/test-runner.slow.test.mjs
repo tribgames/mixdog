@@ -773,7 +773,10 @@ test('a test process never signals the pid of a child whose exit it already saw'
     ]
   );
   // The object pid's signal 0 reached the real kill through the guard.
-  assert.deepEqual(signalled, [[{}, 0], [live, 'SIGKILL']]);
+  assert.deepEqual(signalled, [
+    [{}, 0],
+    [live, 'SIGKILL'],
+  ]);
 });
 
 test('--rerun-failed reports a flaky test in its own category and states its exit policy', async (t) => {

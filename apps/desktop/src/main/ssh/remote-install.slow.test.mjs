@@ -47,7 +47,7 @@ function track(child) {
   return child;
 }
 // The daemons the server program spawns itself are tracked through its require.
-const childProcess = require('child_process');
+const childProcess = require('node:child_process');
 const trackedChildProcess = {
   ...childProcess,
   spawn: (...args) => track(childProcess.spawn(...args)),
@@ -65,7 +65,7 @@ const library = new Function(
     stopOwnedDaemon, managedInstallOf, readDaemonState, inspectInstallLock, stealInstallLock, lockHolders, cleanupServer };`
 )(libraryRequire, process, Buffer);
 
-const scratch =() => mkdtempSync(join(tmpdir(), 'mixdog-remote-install-'));
+const scratch = () => mkdtempSync(join(tmpdir(), 'mixdog-remote-install-'));
 const linkType = process.platform === 'win32' ? 'junction' : 'dir';
 
 async function rejectsWith(promiseOrFn, code, pattern) {
