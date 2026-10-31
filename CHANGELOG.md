@@ -10,7 +10,7 @@ Added Worktrees settings and branch cleanup, replaced Goal tasks with session to
 ### New features
 
 - **Worktrees settings** — Added Settings → Worktrees with disk usage, open and delete actions, and automatic cleanup after 15 worktrees or 30 unused days.
-- **Worktree branch actions** — Added New branch, New worktree, and Clean up actions to the branch menu footer, with search highlights and safe cleanup previews.
+- **Worktree branch actions** — Added New branch, New worktree, and Clean up actions to the branch menu footer, with search highlights; Clean up stays disabled when nothing is safe to remove.
 - **Session todo list** — Added a session todo list replacing goal tasks, showing live agent progress, and preserving the last todo and Goal when an agent closes.
 - **Composer styles** — Added Simple, Normal, and Detailed composer styles in Settings with live preview, responsive toolbar layouts, and optional question-answer confirmation (#270, #276).
 - **Delegation settings** — Added a dedicated Settings → Delegation page for orchestration instructions, and inline prompt editing in Output style with reset to defaults (#291).
@@ -30,6 +30,7 @@ Added Worktrees settings and branch cleanup, replaced Goal tasks with session to
 - Changed remote browser streaming on phones to swipe shut only from the left edge strip, preventing accidental closes during web page interactions.
 - Changed the composer bar's agent token usage readout to update within about a second of each model call.
 - Adjusted idle garbage collection to sweep external buffer memory, reducing daemon memory footprint.
+- Changed a Goal's time limit to an upper bound only; agents finish once work is verified rather than working through the whole period, removing `--time-mode`.
 
 ### Bug fixes
 
@@ -48,6 +49,8 @@ Added Worktrees settings and branch cleanup, replaced Goal tasks with session to
 - Fixed web links and streamed browser tabs on paired phones failing to fit mobile screens or open in Visualize.
 - Fixed Settings color rows overlapping descriptions on narrow windows, and prevented instruction edits from overwriting concurrent changes (#287).
 - Fixed running `npm ci` inside a worktree emptying the main checkout's `node_modules`; each worktree now installs its own dependencies.
+- Fixed resending a task that failed to start (such as in folders without worktree support) repeating "could not be resumed" until restart (#279).
+- Fixed Git and Office document tools failing on Windows when a session's temporary folder path grew too long.
 
 ## v1.4.2 - 2026-10-29
 

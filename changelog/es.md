@@ -10,7 +10,7 @@ Se añadieron los ajustes de Worktrees y la limpieza de ramas, se reemplazaron l
 ### Nuevas funciones
 
 - **Ajustes de Worktrees** — Se añadió Ajustes → Worktrees con uso de disco, acciones para abrir y eliminar, y limpieza automática tras 15 worktrees o 30 días sin uso.
-- **Acciones de ramas para worktrees** — Se añadieron las acciones Nueva rama, Nuevo worktree y Limpiar al pie del menú de ramas, con resaltado de búsqueda y vista previa segura.
+- **Acciones de ramas para worktrees** — Se añadieron las acciones Nueva rama, Nuevo worktree y Limpiar al pie del menú de ramas, con resaltado de búsqueda; Limpiar permanece deshabilitado si no hay nada seguro que eliminar.
 - **Lista de tareas de sesión** — Se añadió una lista de tareas de sesión que reemplaza las tareas de Goal, mostrando el progreso del agente en vivo y conservando tareas y objetivos al cerrar.
 - **Estilos del cuadro de mensaje** — Se añadieron los estilos Simple, Estándar y Detallado en Ajustes con vista previa, barra responsiva y confirmación opcional de respuestas (#270, #276).
 - **Ajustes de delegación** — Se añadió una página dedicada en Ajustes → Delegación para instrucciones de orquestación, y edición directa en Estilo de salida con restablecimiento (#291).
@@ -30,6 +30,7 @@ Se añadieron los ajustes de Worktrees y la limpieza de ramas, se reemplazaron l
 - El gesto de deslizar para cerrar el navegador remoto en teléfonos ahora solo funciona desde el borde izquierdo para evitar cierres accidentales al interactuar.
 - La lectura de uso de tokens del agente en el cuadro de mensaje ahora se actualiza en aproximadamente un segundo tras cada llamada al modelo.
 - La recolección de basura en reposo ahora también limpia la memoria de búfer externo, reduciendo el consumo de memoria del demonio.
+- Se cambió el límite de tiempo de un Goal para que sea solo un tope máximo; los agentes terminan cuando el trabajo se verifica en vez de agotar todo el período, eliminando `--time-mode`.
 
 ### Correcciones de errores
 
@@ -48,6 +49,8 @@ Se añadieron los ajustes de Worktrees y la limpieza de ramas, se reemplazaron l
 - Se corrigió que los enlaces web y pestañas del navegador en teléfonos vinculados no se adaptaran a pantallas móviles ni abrieran en Visualize.
 - Se corrigió la superposición de filas de color con descripciones en ventanas estrechas de Ajustes y se evitó sobrescribir cambios simultáneos de instrucciones (#287).
 - Se corrigió que ejecutar `npm ci` dentro de un worktree vaciara el `node_modules` del checkout principal; ahora cada worktree instala sus propias dependencias.
+- Se corrigió que reenviar una tarea que falló al iniciar (como en carpetas sin soporte para worktrees) repitiera «could not be resumed» hasta reiniciar (#279).
+- Se corrigió que las herramientas de Git y documentos de Office fallaran en Windows cuando la ruta de la carpeta temporal de la sesión era demasiado larga.
 
 ## v1.4.2 - 2026-10-29
 

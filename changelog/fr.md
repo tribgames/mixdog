@@ -10,7 +10,7 @@ Ajout des paramètres Worktrees et du nettoyage des branches, remplacement des t
 ### Nouvelles fonctionnalités
 
 - **Paramètres Worktrees** — Ajout de Paramètres → Worktrees avec l'utilisation du disque, les actions d'ouverture et suppression, et un nettoyage automatique après 15 worktrees ou 30 jours d'inactivité.
-- **Actions de branches pour worktrees** — Ajout des actions Nouvelle branche, Nouveau worktree et Nettoyer au pied du menu des branches, avec surbrillance de recherche et aperçu sécurisé.
+- **Actions de branches pour worktrees** — Ajout des actions Nouvelle branche, Nouveau worktree et Nettoyer au pied du menu des branches, avec surbrillance de recherche ; Nettoyer reste désactivé lorsqu'il n'y a rien à supprimer en toute sécurité.
 - **Liste de tâches de session** — Ajout d'une liste de tâches de session remplaçant les tâches Goal, affichant la progression en direct et conservant tâches et objectifs à la fermeture.
 - **Styles de zone de saisie** — Ajout des styles Simple, Standard et Détaillé dans les Paramètres avec aperçu en direct, barre réactive et confirmation facultative des réponses (#270, #276).
 - **Paramètres de délégation** — Ajout d'une page Paramètres → Délégation pour les instructions d'orchestration, et modification directe dans Style de sortie avec réinitialisation (#291).
@@ -30,6 +30,7 @@ Ajout des paramètres Worktrees et du nettoyage des branches, remplacement des t
 - Le balayage pour fermer le navigateur distant sur smartphone ne fonctionne plus que depuis le bord gauche pour éviter les fermetures accidentelles lors des interactions.
 - L'affichage de l'utilisation des tokens par l'agent dans la zone de saisie se met désormais à jour environ une seconde après chaque appel au modèle.
 - Le ramasse-miettes en période d'inactivité nettoie désormais aussi la mémoire tampon externe, réduisant l'empreinte mémoire du démon.
+- Modification de la limite de temps d'un Goal pour n'être qu'un plafond maximal ; les agents se terminent dès le travail vérifié au lieu d'occuper toute la période, et suppression de `--time-mode`.
 
 ### Corrections de bugs
 
@@ -48,6 +49,8 @@ Ajout des paramètres Worktrees et du nettoyage des branches, remplacement des t
 - Correction des liens web et des onglets de navigateur diffusés sur smartphone qui ne s'adaptaient pas aux écrans mobiles ou ne s'ouvraient pas dans Visualize.
 - Correction du chevauchement des sélecteurs de couleur avec leurs descriptions dans les fenêtres étroites et protection contre l'écrasement des instructions (#287).
 - Correction de l'exécution de `npm ci` dans un worktree qui vidait le `node_modules` du checkout principal ; chaque worktree installe désormais ses propres dépendances.
+- Correction du renvoi d'une tâche dont le démarrage a échoué (comme dans des dossiers sans prise en charge des worktrees) qui répétait « could not be resumed » jusqu'au redémarrage (#279).
+- Correction des outils Git et documents Office qui échouaient sous Windows lorsque le chemin du dossier temporaire de session devenait trop long.
 
 ## v1.4.2 - 2026-10-29
 

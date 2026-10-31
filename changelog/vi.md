@@ -9,7 +9,7 @@ Thêm phần cài đặt Worktree và dọn dẹp nhánh, thay thế tác vụ G
 ### Tính năng mới
 
 - **Cài đặt Worktree** — Thêm Cài đặt → Worktree hiển thị dung lượng đĩa, thao tác mở và xóa, cùng quy tắc tự động dọn dẹp sau 15 worktree hoặc 30 ngày không dùng.
-- **Thao tác nhánh cho worktree** — Thêm thao tác Nhánh mới, Worktree mới và Dọn dẹp ở chân menu nhánh, kèm làm nổi bật kết quả tìm kiếm và xem trước an toàn.
+- **Thao tác nhánh cho worktree** — Thêm thao tác Nhánh mới, Worktree mới và Dọn dẹp ở chân menu nhánh, kèm làm nổi bật kết quả tìm kiếm; Dọn dẹp sẽ bị vô hiệu hóa khi không có mục nào an toàn để xóa.
 - **Danh sách việc cần làm của phiên** — Thêm danh sách việc cần làm thay thế tác vụ Goal, hiển thị tiến độ trực tiếp của agent và giữ lại việc cùng Goal khi đóng.
 - **Kiểu ô nhập** — Thêm các kiểu ô nhập Đơn giản, Tiêu chuẩn và Chi tiết trong Cài đặt với xem trước trực tiếp, thanh công cụ thích ứng và xác nhận câu trả lời (#270, #276).
 - **Cài đặt cách giao việc** — Thêm trang Cài đặt → Cách giao việc cho chỉ dẫn điều phối, cùng tính năng sửa trực tiếp chỉ dẫn Kiểu đầu ra với nút khôi phục mặc định (#291).
@@ -29,6 +29,7 @@ Thêm phần cài đặt Worktree và dọn dẹp nhánh, thay thế tác vụ G
 - Thao tác vuốt để đóng trình duyệt từ xa trên điện thoại nay chỉ nhận diện ở dải mép trái nhằm tránh vô tình đóng khi tương tác trang web.
 - Số liệu sử dụng token của agent trên ô nhập cập nhật trong khoảng một giây sau mỗi lượt gọi mô hình.
 - Tiến trình dọn rác khi rảnh nay thu hồi cả bộ nhớ đệm ngoài, giúp giảm dung lượng bộ nhớ của daemon.
+- Giới hạn thời gian của Goal nay chỉ đóng vai trò là mức chặn trên; agent sẽ kết thúc ngay khi công việc được xác minh thay vì chạy hết toàn bộ thời gian, và loại bỏ `--time-mode`.
 
 ### Sửa lỗi
 
@@ -47,6 +48,8 @@ Thêm phần cài đặt Worktree và dọn dẹp nhánh, thay thế tác vụ G
 - Sửa lỗi liên kết web và tab trình duyệt truyền trực tiếp trên điện thoại không vừa màn hình hoặc không mở trong Visualize.
 - Sửa lỗi các hàng chọn màu bị đè lên phần mô tả trong cửa sổ Cài đặt thu hẹp và tránh ghi đè các chỉnh sửa chỉ dẫn diễn ra đồng thời (#287).
 - Sửa lỗi việc chạy `npm ci` bên trong một worktree làm trống `node_modules` của checkout chính; nay mỗi worktree sẽ tự cài đặt các phụ thuộc riêng.
+- Sửa lỗi gửi lại tác vụ bị lỗi khởi động (như trong thư mục không hỗ trợ worktree) liên tục lặp lại thông báo "could not be resumed" cho đến khi khởi động lại (#279).
+- Sửa lỗi các công cụ Git và tài liệu Office gặp lỗi trên Windows khi đường dẫn thư mục tạm thời của phiên trở nên quá dài.
 
 ## v1.4.2 - 2026-10-29
 
