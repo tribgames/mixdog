@@ -1071,6 +1071,13 @@ html[data-mixdog-mobile-tabs]
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+/* The header is a flex row, so every child lands on its own line when the
+   line is copied: a running group read "질문 3개 탐색" / "실행 중" (the
+   screen-reader status) / "27초". Only the summary text is the line. */
+.tool-header .tool-working,
+.tool-header > .sr-only {
+  user-select: none;
+}
 /* The disclosure arrow sits right after the text, so it stays visible: a
    small 14px caret in the line's own quiet ink. */
 .tool-activity-item-header .tool-chevron,

@@ -521,6 +521,10 @@ function agentUnit(a) {
   if (/^(?:status|read|list)$/.test(type)) {
     return unitDescriptor('Agent', { count, active: 'Checking', done: 'Checked', noun: 'agent' });
   }
+  // Stopping an agent is not calling it.
+  if (/^(?:cancel|close)$/.test(type)) {
+    return unitDescriptor('Agent', { count, active: 'Cancelling', done: 'Cancelled', noun: 'agent', effect: true });
+  }
   return unitDescriptor('Agent', { count, noun: 'agent' });
 }
 
@@ -621,6 +625,28 @@ function cwdUnit(a) {
     noun: 'working directory',
     pluralNoun: 'working directories',
   });
+}
+
+/** The `session` tool: its session actions are about sessions, not the legacy
+ *  `cwd` tool's working directory (which cwdUnit's fallback names). */
+function sessionUnit(a) {
+  const action = String(a.action || a.type || '').toLowerCase();
+  if (action === 'create') {
+    return unitDescriptor('Setup', { active: 'Creating', done: 'Created', noun: 'session', effect: true });
+  }
+  if (action === 'send') {
+    return unitDescriptor('Setup', { active: 'Sending to', done: 'Sent to', noun: 'session', effect: true });
+  }
+  if (action === 'cancel') {
+    return unitDescriptor('Setup', { active: 'Cancelling', done: 'Cancelled', noun: 'session', effect: true });
+  }
+  if (action === 'delete') {
+    return unitDescriptor('Setup', { active: 'Deleting', done: 'Deleted', noun: 'session', effect: true });
+  }
+  if (/^(?:list|bots|read|suggest)$/.test(action)) {
+    return unitDescriptor('Setup', { active: 'Checking', done: 'Checked', noun: 'session' });
+  }
+  return cwdUnit(a);
 }
 
 const TOOL_UNITS = new Map([
@@ -742,7 +768,7 @@ const TOOL_UNITS = new Map([
     () => unitDescriptor('Setup', { active: 'Listing', done: 'Listed', noun: 'MCP resource template' }),
   ],
   ['cwd', cwdUnit], // legacy: old transcripts
-  ['session', cwdUnit],
+  ['session', sessionUnit],
 ]);
 
 function mcpUnit(name, a) {

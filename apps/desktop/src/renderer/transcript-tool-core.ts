@@ -327,6 +327,24 @@ function localizedToolActivityUnit(category: string, done: string, noun: string)
       return t('MCP resource listing');
     case 'Setup|Listed|MCP resource template':
       return t('MCP template listing');
+    case 'Git|Managed|worktree':
+      return t('Worktree management');
+    case 'Setup|Created|session':
+      return t('Session creation');
+    case 'Setup|Sent to|session':
+      return t('Session message');
+    case 'Setup|Checked|session':
+      return t('Session status');
+    case 'Setup|Renamed|session':
+    case 'Setup|Forked|session':
+    case 'Setup|Cancelled|session':
+    case 'Setup|Deleted|session':
+    case 'Setup|Favorited|session':
+    case 'Setup|Unfavorited|session':
+    case 'Setup|Archived|session':
+    case 'Setup|Unarchived|session':
+    case 'Setup|Scheduled|compaction':
+      return t('Session management');
     default:
       return localizedToolActivityCategory(category);
   }
@@ -354,7 +372,7 @@ function namedToolActivityUnit(
     if (skill) return { unitKey: `Skill|${skill}`, label: `${t('Skill')} ${skill}` };
   }
   // One unit per step whatever the action (open, close, capture…), so the
-  // summary reads "Visualize 3" rather than one entry per action.
+  // summary reads "Visualize ×3" rather than one entry per action.
   if (category === 'Browser' || category === 'Computer' || category === 'Visualize') {
     return { unitKey: category, label: localizedToolActivityCategory(category) };
   }
@@ -744,8 +762,6 @@ export function desktopToolComputerWindowSuccessAt(items: readonly TranscriptIte
 function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, count: number, past: boolean): string {
   switch (unit.unitKey) {
     case 'Read|Read|file':
-    case 'Read|Read|image':
-    case 'Read|Read|resource':
       return count === 1 ? t('Read file') : t('Read {{count}} files', { count });
     case 'Search|Searched|pattern':
       if (count === 1) return past ? t('Searched code') : t('Search code');
@@ -805,20 +821,38 @@ function toolActivitySummaryPhrase(unit: { unitKey: string; label: string }, cou
     case 'Tidy|Tidied|cleanup pass':
       return count === 1 ? t('Tidy code') : t('Tidy code {{count}} times', { count });
     case 'Agent|Called|agent':
-      return count === 1 ? t('Call agent') : t('Call {{count}} agents', { count });
+      if (count === 1) return past ? t('Called agent') : t('Call agent');
+      return past ? t('Called {{count}} agents', { count }) : t('Call {{count}} agents', { count });
     case 'Agent|Completed|agent':
-      return count === 1 ? t('Agent response') : `${unit.label} ${count}`;
+      return count === 1 ? t('Agent response') : countedUnitLabel(unit.label, count);
     case 'Task|Checked|task':
-      return count === 1 ? t('Check task') : t('Check {{count}} tasks', { count });
+      if (count === 1) return past ? t('Checked task') : t('Check task');
+      return past ? t('Checked {{count}} tasks', { count }) : t('Check {{count}} tasks', { count });
     case 'Task|Waited for|task':
-      return count === 1 ? t('Wait for task') : t('Wait for {{count}} tasks', { count });
+      if (count === 1) return past ? t('Waited for task') : t('Wait for task');
+      return past ? t('Waited for {{count}} tasks', { count }) : t('Wait for {{count}} tasks', { count });
     case 'Task|Listed|task':
-      return t('List tasks');
+      return past ? t('Listed tasks') : t('List tasks');
     case 'Task|Cancelled|task':
-      return count === 1 ? t('Cancel task') : t('Cancel {{count}} tasks', { count });
+      if (count === 1) return past ? t('Cancelled task') : t('Cancel task');
+      return past ? t('Cancelled {{count}} tasks', { count }) : t('Cancel {{count}} tasks', { count });
     default:
-      return count > 1 ? `${unit.label} ${count}` : unit.label;
+      return countedUnitLabel(unit.label, count);
   }
+}
+
+/** A unit without a count phrase of its own: its name, then how many it covers
+ *  ("Visualize ×3", Korean "워크트리 관리 4회" like the other counted labels).
+ *  A bare trailing number read as part of the name. */
+function countedUnitLabel(label: string, count: number): string {
+  return count > 1 ? t('{{label}} ×{{count}}', { label, count }) : label;
+}
+
+/** Units that read as one phrase share one summary entry: a viewed image and a
+ *  read MCP resource are files read, so they join "Read N files" instead of
+ *  repeating it. */
+function summaryUnitKey(unitKey: string): string {
+  return unitKey === 'Read|Read|image' || unitKey === 'Read|Read|resource' ? 'Read|Read|file' : unitKey;
 }
 
 /** The group summary: each work unit summarized as a natural verb phrase, file
@@ -841,12 +875,13 @@ export function desktopToolActivitySummary(items: readonly TranscriptItem[], set
     ) {
       failedCommands += 1;
     }
-    const prev = groups.get(unit.unitKey);
+    const unitKey = summaryUnitKey(unit.unitKey);
+    const prev = groups.get(unitKey);
     const added = Math.max(1, Math.round(Number(item.count || 1))) * unit.count;
     if (prev) {
       prev.count += added;
     } else {
-      groups.set(unit.unitKey, { unit, count: added });
+      groups.set(unitKey, { unit: { ...unit, unitKey }, count: added });
     }
   }
   const changesFiles = (unitKey: string) => (unitKey.startsWith('Patch|') ? 0 : 1);
