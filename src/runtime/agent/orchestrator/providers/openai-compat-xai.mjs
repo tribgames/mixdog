@@ -264,15 +264,12 @@ export function _shouldFallbackXaiWsToHttp(err, signal) {
   });
 }
 
-// No `config` argument: the single caller (xaiResponsesCacheRouting) never had
-// one to pass, so the provider-config lane aliases this used to read were dead
-// operands. Lane selection on this route is opts + env only.
+// No `config` argument: the single caller (xaiResponsesCacheRouting) has none
+// to pass. Lane selection on this route is opts + env only.
 function xaiResponsesPromptCacheLane(opts, cacheRouting) {
-  // Lane SHARDS only, for xAI/Grok. The `*CacheMaxParallel` /
-  // *_CACHE_MAX_PARALLEL knobs that used to bound the lane's in-flight
-  // admission were removed with the lane queue itself (admission is the
-  // shared provider scheduler's job now). They are deliberately NOT accepted
-  // here as shard aliases — on this route they never selected shards, and a
+  // Lane SHARDS only, for xAI/Grok. Admission is the shared provider
+  // scheduler's job, so the `*CacheMaxParallel` / *_CACHE_MAX_PARALLEL knobs
+  // are deliberately NOT accepted here as shard aliases — on this route they never selected shards, and a
   // setting named "max parallel" silently deciding prompt-cache key fan-out
   // is a different control with different consequences. An xAI operator who
   // set one gets the documented default until they opt into
