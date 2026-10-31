@@ -32,7 +32,9 @@ function gate() {
   };
 }
 
-test('web query schema and Gemini wire reject inputs the runtime cannot search', async () => {
+// The advertised schemas carry no minLength/pattern/minItems/format/maxItems to
+// keep the model-facing text small, so the runtime alone must reject these.
+test('web query runtime rejects inputs it cannot search; schema and Gemini wire accept valid ones', async () => {
   const tool = TOOL_DEFS.find((tool) => tool.name === 'web_search');
   const original = structuredClone(tool);
   const wire = toGeminiTools([tool]).functionDeclarations[0];
@@ -40,7 +42,6 @@ test('web query schema and Gemini wire reject inputs the runtime cannot search',
   const validators = [ajv.compile(tool.inputSchema), ajv.compile(wire.parametersJsonSchema || wire.parameters)];
   for (const query of [undefined, '', ' \t\n', [], ['valid', ''], ['valid', ' '], ['valid', 7]]) {
     const args = query === undefined ? {} : { query };
-    for (const validate of validators) assert.equal(validate(args), false, JSON.stringify(args));
     const result = await handleToolCall('web_search', args, {
       nativeWebSearch: async () => assert.fail('invalid queries must not reach the provider'),
     });
@@ -52,23 +53,25 @@ test('web query schema and Gemini wire reject inputs the runtime cannot search',
   assert.deepEqual(tool, original);
 });
 
-test('web_fetch rejects an empty URL array in the schema, wire and runtime', async () => {
+test('web_fetch runtime rejects empty and non-URL input; schema and wire accept a valid URL', async () => {
   const tool = TOOL_DEFS.find((tool) => tool.name === 'web_fetch');
   const wire = toGeminiTools([tool]).functionDeclarations[0];
   const ajv = new Ajv({ strict: false, validateFormats: false });
   for (const schema of [tool.inputSchema, wire.parametersJsonSchema || wire.parameters]) {
     const validate = ajv.compile(schema);
-    assert.equal(validate({ url: [] }), false);
     assert.equal(validate({ url: ['https://example.invalid'] }), true);
   }
-  const result = await handleToolCall('web_fetch', { url: [] });
-  assert.equal(result.isError, true);
+  for (const url of [[], 'not a url', ['https://example.invalid', 'nope']]) {
+    const result = await handleToolCall('web_fetch', { url });
+    assert.equal(result.isError, true, JSON.stringify(url));
+    assert.equal(JSON.parse(text(result)).error, 'Invalid arguments', JSON.stringify(url));
+  }
 });
 
 test('web array searches overlap, preserve filters and return in input order', async () => {
   const hold = gate();
   const started = [];
-  const args = { query: ['slow-query', 'fast-query'], site: 'example.invalid', type: 'news', maxResults: 3 };
+  const args = { query: ['slow-query', 'fast-query'], site: 'example.invalid', maxResults: 3 };
   const original = structuredClone(args);
   const pending = handleToolCall('web_search', args, {
     nativeWebSearch: async (input) => {
@@ -85,7 +88,7 @@ test('web array searches overlap, preserve filters and return in input order', a
     );
     for (const row of started) {
       assert.equal(row.site, args.site);
-      assert.equal(row.type, args.type);
+      assert.equal('type' in row, false);
       assert.equal(row.maxResults, args.maxResults);
     }
   } finally {
@@ -96,6 +99,24 @@ test('web array searches overlap, preserve filters and return in input order', a
   assert.ok(text(result).indexOf('Answer for slow-query') < text(result).indexOf('Answer for fast-query'));
   assert.match(text(result), /Answer for fast-query/);
   assert.deepEqual(args, original);
+});
+
+test('web_search has no search type: a stray type argument is ignored, never forwarded or prompted', async () => {
+  const seen = [];
+  const result = await handleToolCall(
+    'web_search',
+    { query: 'stray-type-query', type: 'news' },
+    {
+      nativeWebSearch: async (input) => {
+        seen.push(input);
+        return success(input.keywords);
+      },
+    }
+  );
+  assert.notEqual(result.isError, true);
+  assert.equal(seen.length, 1);
+  assert.equal('type' in seen[0], false);
+  assert.doesNotMatch(seen[0].prompt, /Search type/);
 });
 
 test('scalar provider failures remain tool errors', async () => {

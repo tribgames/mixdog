@@ -1,5 +1,8 @@
-import { TOOL_SYNC_EXECUTION_CONTRACT } from '../shared/tool-execution-contract.mjs';
-
+// Model-facing text is kept minimal: every constraint dropped from these schemas
+// (minLength, pattern, minItems, maxItems, format) is enforced by the zod
+// schemas in index.mjs, which trim blanks and reject empty or non-URL input.
+// `trigger` shows only in the deferred listing, so `description` carries the
+// when-to-use guidance itself.
 const TOOL_DEFS_PLACEHOLDER = Symbol('web-fetch-schema');
 
 export const TOOL_DEFS = [
@@ -7,21 +10,18 @@ export const TOOL_DEFS = [
     name: 'web_search',
     title: 'Mixdog Web Search',
     trigger: 'Unfamiliar names, products, models, recent or external facts; search before answering from memory.',
-    description: `Cached web/docs/current-info search; batch queries sharing filters. ${TOOL_SYNC_EXECUTION_CONTRACT}`,
+    description:
+      'Search the web for recent, external or unfamiliar facts (names, products, models) before answering from memory.',
     inputSchema: {
       type: 'object',
       properties: {
         query: {
-          anyOf: [
-            { type: 'string', minLength: 1, pattern: '\\S' },
-            { type: 'array', minItems: 1, items: { type: 'string', minLength: 1, pattern: '\\S' } },
-          ],
-          description: 'Non-empty query or array for lossless fan-out.',
+          anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+          description: 'One query, or an array run as a batch.',
         },
-        site: { type: 'string', description: 'Site/domain filter.' },
-        type: { type: 'string', enum: ['web', 'news', 'images'], description: 'Default web.' },
-        maxResults: { type: 'integer', minimum: 1, maximum: 20, description: 'Result count; default 10; 1-20.' },
-        locale: { type: 'string', description: 'Optional locale hint, e.g. ko-KR or a city/region name.' },
+        site: { type: 'string', description: 'Domain filter.' },
+        maxResults: { type: 'integer', minimum: 1, maximum: 20, description: 'Default 10.' },
+        locale: { type: 'string', description: 'e.g. ko-KR.' },
         contextSize: { type: 'string', enum: ['low', 'medium', 'high'], description: 'Default low.' },
       },
       required: ['query'],
@@ -39,25 +39,16 @@ export const TOOL_DEFS = [
     name: 'web_fetch',
     title: 'Mixdog Web Fetch',
     trigger: 'Page or docs body from a known URL; not discovery (web_search).',
-    description: 'Fetch page/docs body from URL; batch known URLs with shared slice options.',
+    description: 'Fetch the page or docs body of known URLs; to find pages, use web_search.',
     inputSchema: {
       type: 'object',
       properties: {
         url: {
-          anyOf: [
-            { type: 'string', format: 'uri' },
-            { type: 'array', items: { type: 'string', format: 'uri' }, minItems: 1, maxItems: 10 },
-          ],
-          description:
-            'Public or loopback HTTP(S) URL, or an array of up to 10; keep loopback and public URLs in separate calls.',
+          anyOf: [{ type: 'string' }, { type: 'array', items: { type: 'string' } }],
+          description: 'URL, or an array of up to 10; loopback and public URLs in separate calls.',
         },
-        startIndex: { type: 'integer', minimum: 0, description: 'Character offset; default 0.' },
-        maxLength: {
-          type: 'integer',
-          minimum: 0,
-          description:
-            'Maximum characters; default 20000; 0 unlimited. A cut page ends with [output capped …; startIndex:N for more].',
-        },
+        startIndex: { type: 'integer', minimum: 0, description: 'Character offset.' },
+        maxLength: { type: 'integer', minimum: 0, description: 'Default 20000; 0 unlimited.' },
       },
       required: ['url'],
       additionalProperties: false,
