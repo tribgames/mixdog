@@ -51,6 +51,7 @@ Se añadieron los ajustes de Worktrees y la limpieza de ramas, se reemplazaron l
 - Se corrigió que ejecutar `npm ci` dentro de un worktree vaciara el `node_modules` del checkout principal; ahora cada worktree instala sus propias dependencias.
 - Se corrigió que reenviar una tarea que falló al iniciar (como en carpetas sin soporte para worktrees) repitiera «could not be resumed» hasta reiniciar (#279).
 - Se corrigió que las herramientas de Git y documentos de Office fallaran en Windows cuando la ruta de la carpeta temporal de la sesión era demasiado larga.
+- Se corrigió la falta del control de esfuerzo de razonamiento en los modelos Gemini 4 Argon y Gemini 3.8 Flash de Vertex AI; ahora se muestra la opción (Low, Medium, High) y se envía con la solicitud (#292).
 
 ## v1.4.2 - 2026-10-29
 

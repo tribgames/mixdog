@@ -50,6 +50,7 @@ Einstellungen für Worktrees und Bereinigung von Branches hinzugefügt, Ziel-Auf
 - Fehler behoben, durch den die Ausführung von `npm ci` in einem Worktree das `node_modules` des Haupt-Checkouts leert; jeder Worktree installiert nun eigene Abhängigkeiten.
 - Fehler behoben, durch den das erneute Senden einer fehlgeschlagenen Aufgabe (etwa in Ordnern ohne Worktree-Unterstützung) bis zum Neustart „could not be resumed“ wiederholte (#279).
 - Fehler behoben, durch den Git- und Office-Dokument-Tools unter Windows fehlschlugen, wenn der Pfad des temporären Sitzungsordners zu lang wurde.
+- Fehler behoben, durch den bei den Vertex AI-Modellen Gemini 4 Argon und Gemini 3.8 Flash die Steuerung für den Reasoning-Aufwand fehlte; die Auswahl (Low, Medium, High) wird nun angezeigt und mit der Anfrage gesendet (#292).
 
 ## v1.4.2 - 2026-10-29
 
