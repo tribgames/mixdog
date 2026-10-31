@@ -41,12 +41,14 @@ import { bootProfile } from '../boot-profile.mjs';
 import { standaloneDataDir } from '../runtime-paths.mjs';
 import { noteCacheWarmingEnabled } from '../../runtime/agent/orchestrator/session/cache-warm.mjs';
 import { refreshLiveSessionsProviderCacheOpts } from '../../runtime/agent/orchestrator/session/manager/session-lifecycle.mjs';
+import { publishStoredAgentRoute } from '../agent-profile-changes.mjs';
 import {
   ensureConnectorAccountIds,
   forgetConversationConnectorAccounts,
 } from '../../runtime/connectors/connector-accounts-mcp.mjs';
 import { registerSessionPurgeHook } from '../../runtime/agent/orchestrator/session/store/session-observers.mjs';
-import { outputStyleStatus, resolveRoute, webSearchCapableFor } from './shared.mjs';
+import { effectiveAgentRoute } from '../workflow-agents-api/shared.mjs';
+import { agentRouteFromConfig, outputStyleStatus, resolveRoute, webSearchCapableFor } from './shared.mjs';
 
 // A conversation's connector accounts go with its session (once per process).
 registerSessionPurgeHook((sessionId) => forgetConversationConnectorAccounts(sessionId));
@@ -134,6 +136,9 @@ function wireConfigLifecycle(boot) {
       },
       noteCacheWarmingEnabled,
       refreshLiveSessionsCacheOpts: (config) => refreshLiveSessionsProviderCacheOpts(config),
+      // A bot whose stored route was cleared follows Main.
+      publishAgentRoute: (id, config) =>
+        publishStoredAgentRoute(id, effectiveAgentRoute({ agentRouteFromConfig, resolveRoute }, config, id)),
       // Attached surfaces (TUI, desktop session lanes) re-read open settings.
       announceSettingsChange: () =>
         boot.emitRuntimeNotification?.('Settings changed', {

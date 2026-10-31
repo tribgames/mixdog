@@ -18,6 +18,7 @@ import { createTurnInterruptionTracker } from './turn-interruption.mjs';
 import { _recoverTurnCheckpointDurably, setAsideUnrecoveredCheckpoint } from './turn-checkpoint-recovery.mjs';
 import { awaitPreviousTurnDurable, ensureDurableTranscript } from './turn-durability.mjs';
 import { emitAskSessionStart } from './ask-support.mjs';
+import { applyHeldSessionRoute } from './session-lifecycle.mjs';
 import { createAskTurnState, createCloseSnapshot, createTurnCheckpointScheduler } from './ask-turn-state.mjs';
 
 // Split-brain re-adoption: another surface (e.g. desktop click-through
@@ -77,6 +78,8 @@ function loadTurnSession(sessionId) {
   // path runs (it will overwrite lastStage with real telemetry).
   normalizeStaleCompactingStage(session);
   adoptDiskGeneration(session, sessionId);
+  // A route saved while the previous turn ran applies from this turn.
+  applyHeldSessionRoute(session);
   return { session, codexWireSessionId };
 }
 

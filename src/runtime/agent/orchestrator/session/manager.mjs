@@ -96,6 +96,7 @@ export { prewarmAgentLoop } from './manager/runtime-loaders.mjs';
 export {
   createSession,
   updateSessionRoute,
+  holdSessionRoute,
   prefetchSession,
   prepareSessionProjection,
   resumeSession,

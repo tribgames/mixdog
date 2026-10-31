@@ -1,7 +1,7 @@
 // Settings that reach a live session without a new one: tool gates, connector
 // switches, compaction and the output style, read from the runtime's settings.
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
@@ -164,6 +164,16 @@ test('a reused in-process worker is told once of an instruction file edited sinc
   assert.doesNotMatch(notice, /No longer applies/);
   assert.match(notice, /Read .*AGENTS\.md for the full file\./);
   assert.doesNotMatch(notice, /# Workflow|# Skills|# Language/, 'only what a worker prompt carries');
+});
+
+test('a reused worker takes the permission its agent definition grants now', async () => {
+  const { followAgentPermission } = await import('./services/agent-tool/send-flow.mjs');
+  const dir = join(dataRoot, 'agents', 'scribe');
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, 'AGENT.md'), '---\npermission: read\n---\nTake notes.');
+  const session = { agent: 'scribe', permission: 'full' };
+  followAgentPermission(session, { dataDir: dataRoot, sourceRoot: dataRoot });
+  assert.equal(session.permission, 'read');
 });
 
 test('a deferred tools delta names tools with at most an 80-character hint', () => {

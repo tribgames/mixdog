@@ -91,14 +91,15 @@ async function decodeImage(url: string): Promise<void> {
 
 /** The live frame stream of one remote page: subscription, decode/present/ACK,
  *  and the start/renew/stop lifecycle. A take-over view (a browser takeover of
- *  the session waits on the user) asks the host to fit the page to this pane
- *  once, and shows no frame until one of the fitted page arrives
- *  (`awaitingFit`: the pane stays covered meanwhile); a watching view keeps
- *  the page's own geometry. */
+ *  the session waits on the user, or `fitOnOpen`) asks the host to fit the
+ *  page to this pane once, and shows no frame until one of the fitted page
+ *  arrives (`awaitingFit`: the pane stays covered meanwhile); a watching view
+ *  keeps the page's own geometry. */
 export function useRemoteBrowserStream({
   api,
   active,
   ownerSessionId,
+  fitOnOpen = false,
   contentRef,
   frameRef,
   imageSize,
@@ -119,6 +120,9 @@ export function useRemoteBrowserStream({
   api: typeof window.mixdogDesktop;
   active: boolean;
   ownerSessionId: string;
+  /** Take the page over from the start: a phone lays the page out at its own
+   *  size rather than watching a shrunken PC-width picture. */
+  fitOnOpen?: boolean;
   contentRef: MutableRefObject<HTMLDivElement | null>;
   /** Geometry of the newest displayed frame; the input adapter reads it. */
   frameRef: MutableRefObject<RemoteInputFrame | null>;
@@ -137,6 +141,10 @@ export function useRemoteBrowserStream({
   /** While waiting: the viewport the newest `fitSettled` frame described. */
   const settledRef = useRef<{ viewportWidth: number; viewportHeight: number } | null>(null);
   const [awaitingFit, setAwaitingFit] = useState(false);
+  /** Whether this subscription asks the host for its take-over fit; a new
+   *  object whenever that or the stream itself starts over, so an explicit
+   *  resize the host has since dropped is not taken as still applied. */
+  const [fitView, setFitView] = useState({ asked: false });
   /** The bound on the cover (FIT_WAIT_MS); 0: none armed. */
   const fitTimerRef = useRef(0);
   /** This subscription's take-over: `fit` is the opening box sent on every
@@ -168,6 +176,7 @@ export function useRemoteBrowserStream({
       takeover.fit = null;
       takeover.serial += 1;
       takeover.release = takeover.serial;
+      setFitView({ asked: false });
     }
     takeover.abandoned = giveUp;
   };
@@ -249,6 +258,7 @@ export function useRemoteBrowserStream({
     let timer = 0;
     let running = false;
     const takeover = takeoverRef.current;
+    const wantsFit = () => fitOnOpen || browserTakeoverPending(ownerSessionId);
     /** Cover the pane until `fit` settles, for at most FIT_WAIT_MS. */
     const cover = (fit: DesktopRemoteBrowserViewport) => {
       fitRef.current = fit;
@@ -275,7 +285,7 @@ export function useRemoteBrowserStream({
       // the capability changes: a fit is kept, and so is a pending release,
       // which is resent once the host is back.
       const fitState = remoteBrowserFitState(api);
-      const waiting = browserTakeoverPending(ownerSessionId);
+      const waiting = wantsFit();
       if (!waiting || fitState === 'unsupported') {
         // The take-over ended (or the host does not fit): watching again;
         // the host restores the page and its next frames show it.
@@ -289,6 +299,7 @@ export function useRemoteBrowserStream({
         if (fit) {
           takeover.fit = fit;
           takeover.release = 0;
+          setFitView({ asked: true });
           cover(fit);
         }
       }
@@ -307,7 +318,7 @@ export function useRemoteBrowserStream({
     // A takeover beginning or ending switches the view at once, not at the next renewal.
     const offTakeover = onBrowserTakeoverChange((sessionId) => {
       if (sessionId !== ownerSessionId) return;
-      const pending = browserTakeoverPending(sessionId);
+      const pending = wantsFit();
       // A given-up fit belongs to the takeover that ended; the next may fit.
       if (!pending) takeover.abandoned = false;
       if (running && Boolean(takeover.fit) !== pending) renew();
@@ -318,9 +329,11 @@ export function useRemoteBrowserStream({
       // A new stream (the host ended the last one): a take-over keeps its
       // opening box and waits for it again; one that ended while hidden is
       // abandoned by `renew`.
-      if (takeover.fit && remoteBrowserFitState(api) !== 'unsupported' && browserTakeoverPending(ownerSessionId)) {
+      if (takeover.fit && remoteBrowserFitState(api) !== 'unsupported' && wantsFit()) {
         cover(takeover.fit);
       }
+      // The host restarts the page's layout with a new stream.
+      setFitView({ asked: Boolean(takeover.fit) });
       renew();
       timer = window.setInterval(renew, STREAM_RENEW_MS);
     };
@@ -349,10 +362,12 @@ export function useRemoteBrowserStream({
       uncover();
       // Ending the subscription ends its take-over: nothing left to release.
       takeoverRef.current = { fit: null, abandoned: false, release: 0, serial: takeover.serial };
+      setFitView({ asked: false });
     };
-  }, [active, api, ownerSessionId]);
+  }, [active, api, ownerSessionId, fitOnOpen]);
   return {
     awaitingFit,
+    fitView,
     /** The WebRTC video (promoted, so no JPEG image comes) shows a frame of
      *  this geometry: once it is the settled layout a `fitSettled` frame
      *  described, the pane uncovers. */
