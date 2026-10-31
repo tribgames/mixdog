@@ -185,10 +185,10 @@ test('presence: on screen skips, except the result of a schedule or a webhook', 
 });
 
 test('a paired device holding pushes skips while this PC is in use', () => {
-  const hold = prefs({ holdWhileDesktopActive: true });
-  assert.deepEqual(decide({ preferences: hold, desktopActive: true }), { notify: false, reason: 'desktop-active' });
-  assert.equal(decide({ preferences: hold, desktopActive: false }).notify, true);
-  assert.equal(decide({ desktopActive: true }).notify, true, 'not held by default');
+  const noHold = prefs({ holdWhileDesktopActive: false });
+  assert.deepEqual(decide({ desktopActive: true }), { notify: false, reason: 'desktop-active' }, 'held by default');
+  assert.equal(decide({ desktopActive: false }).notify, true);
+  assert.equal(decide({ preferences: noHold, desktopActive: true }).notify, true, 'turned off: not held');
 });
 
 test('the steps run in order: quiet hours before a mute, a mute before the scope', () => {
