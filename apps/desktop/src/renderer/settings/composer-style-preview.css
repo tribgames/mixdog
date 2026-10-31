@@ -141,6 +141,9 @@
   min-height: 20px;
   white-space: nowrap;
 }
+.csp-under[data-spacer] {
+  visibility: hidden;
+}
 .csp-under[data-centred] {
   justify-content: center;
 }

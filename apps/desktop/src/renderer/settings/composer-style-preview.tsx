@@ -17,6 +17,9 @@ import './composer-style-preview.css';
 // Sample figures: the preview shows the layout, not this device's usage.
 const SAMPLE_USAGE = '27.4M · 87 tok/s · 98.1%';
 
+// The built-in workflow's own name, which the composer shows untranslated.
+const BUILTIN_WORKFLOW = 'Default';
+
 function RouteSample() {
   return (
     <span className="csp-route">
@@ -28,8 +31,7 @@ function RouteSample() {
           <path d="M8 5.3v2.7M8 8L4.6 10.9M8 8l3.4 2.9" />
         </g>
       </svg>
-      {/* The built-in workflow's own name, which is not translated. */}
-      <span className="csp-workflow">Default · </span>
+      <span className="csp-workflow">{BUILTIN_WORKFLOW} · </span>
       {t('Swarm')}
     </span>
   );
@@ -70,6 +72,7 @@ function CardSample({ mic = false }: { mic?: boolean }) {
 
 export function ComposerStylePreview({ style }: { style: ComposerStyle }) {
   const route = style === 'detail';
+  const simple = style === 'simple';
   return (
     <div className="csp" role="img" aria-label={t('Composer style preview')} data-style={style}>
       <div className="csp-frame">
@@ -77,26 +80,20 @@ export function ComposerStylePreview({ style }: { style: ComposerStyle }) {
         <div className="csp-pc">
           <div className="csp-bubble" data-me="true" />
           <div className="csp-bubble" />
-          {style === 'simple' ? (
-            <CardSample />
-          ) : (
-            <>
-              <div className="csp-bar">
-                <span className="csp-plus">＋</span>
-                <span className="csp-input" />
-                <span className="csp-send">↑</span>
-              </div>
-              <div className="csp-line">
-                <span className="csp-usage">{SAMPLE_USAGE}</span>
-                <span className="csp-controls">
-                  {route && <RouteSample />}
-                  {route && <span className="csp-divider" />}
-                  <ModelSample />
-                  <span className="csp-gauge" />
-                </span>
-              </div>
-            </>
-          )}
+          <div className="csp-bar">
+            <span className="csp-plus">＋</span>
+            <span className="csp-input" />
+            <span className="csp-send">↑</span>
+          </div>
+          <div className="csp-line">
+            {!simple && <span className="csp-usage">{SAMPLE_USAGE}</span>}
+            <span className="csp-controls">
+              {route && <RouteSample />}
+              {route && <span className="csp-divider" />}
+              <ModelSample />
+              <span className="csp-gauge" />
+            </span>
+          </div>
         </div>
       </div>
       <div className="csp-frame">
@@ -105,12 +102,13 @@ export function ComposerStylePreview({ style }: { style: ComposerStyle }) {
           <div className="csp-bubble" data-me="true" />
           <div className="csp-bubble" />
           <CardSample mic />
-          {style !== 'simple' && (
-            <div className="csp-under" data-centred={route ? undefined : ''}>
-              <span className="csp-usage">{SAMPLE_USAGE}</span>
-              {route && <RouteSample />}
-            </div>
-          )}
+          {/* Simple's phone card has no line, but keeps its room: the previewed
+              style must never change the preview's height, or the style control
+              below it would move out from under a hovering pointer. */}
+          <div className="csp-under" data-centred={route ? undefined : ''} data-spacer={simple ? '' : undefined}>
+            {!simple && <span className="csp-usage">{SAMPLE_USAGE}</span>}
+            {route && <RouteSample />}
+          </div>
         </div>
       </div>
     </div>
@@ -119,7 +117,7 @@ export function ComposerStylePreview({ style }: { style: ComposerStyle }) {
 
 /** The Composer group: the preview, then the style row. Saved on this device. */
 export function ComposerStyleGroup({ pending }: Pick<PanelContext, 'pending'>) {
-  const style = useSyncExternalStore<ComposerStyle>(subscribeComposerStyle, getComposerStyle, () => 'basic');
+  const style = useSyncExternalStore<ComposerStyle>(subscribeComposerStyle, getComposerStyle, () => 'detail');
   const [hover, setHover] = useState<ComposerStyle | null>(null);
   return (
     <Group title={t('Composer')}>
@@ -128,7 +126,7 @@ export function ComposerStyleGroup({ pending }: Pick<PanelContext, 'pending'>) {
         <div className="mixdog-settings__copy">
           <span className="mixdog-settings__row-title">{t('Composer style')}</span>
           <span className="mixdog-settings__row-desc">
-            {t('Simple: the model inside the input card only. Standard: usage too. Detailed: usage, workflow and delegation.')}
+            {t('Simple: the model only. Normal: usage too. Detailed: usage, workflow and delegation.')}
           </span>
         </div>
         <div className="settings-row-control">
@@ -138,7 +136,7 @@ export function ComposerStyleGroup({ pending }: Pick<PanelContext, 'pending'>) {
             disabled={Boolean(pending)}
             options={[
               { value: 'simple', label: t('Simple') },
-              { value: 'basic', label: t('Standard') },
+              { value: 'basic', label: t('Normal') },
               { value: 'detail', label: t('Detailed') },
             ]}
             onChange={setComposerStyle}

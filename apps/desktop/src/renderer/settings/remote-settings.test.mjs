@@ -101,7 +101,7 @@ test('main PC settings: one nav in four headed sections, no badge, display setti
   }
   assert.ok(
     document.body.textContent.includes(
-      'Simple: the model inside the input card only. Standard: usage too. Detailed: usage, workflow and delegation.'
+      'Simple: the model only. Normal: usage too. Detailed: usage, workflow and delegation.'
     ),
     'the composer style shows its description'
   );

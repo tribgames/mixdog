@@ -2000,8 +2000,8 @@ html[data-mixdog-mobile-tabs] .composer-island-flash {
 .composer-model-line[data-card] > .composer-route-label {
   margin-left: auto;
 }
-/* The card (Composer.tsx `card`: a phone, the "simple" style, or a PC bar too
-   narrow for its items): the typing band, then the + and the model with its
+/* The card (Composer.tsx `card`: a phone, or a PC bar too narrow for its
+   items): the typing band, then the + and the model with its
    gauge at the left, the mic and send at the right. 88 in all: a 44 band whose
    24 line sits centred over the 44 control row, its text on the same edge as
    the transcript and the + glyph below it. */

@@ -1,15 +1,14 @@
 // "Composer style" (Settings → Display → Composer): a per-device renderer
-// preference for how much the composer shows. simple: the two-row card from
-// the start, nothing under it; basic (default): the usage readout under the
-// composer; detail: the readout and the conversation's workflow and delegation.
+// preference for how much the composer shows. simple: the model only; basic
+// ("Normal"): the usage readout too; detail (default): the readout and the
+// conversation's workflow and delegation.
 export type ComposerStyle = 'simple' | 'basic' | 'detail';
 
 const STYLE_KEY = 'mixdog.desktop.composer-style.v1';
-// The earlier "Show workflow and delegation" switch: a device that turned it
-// on starts on "detail".
+// The earlier "Show workflow and delegation" switch, cleared on the first save.
 const LEGACY_ROUTE_LABEL_KEY = 'mixdog.desktop.route-label.v1';
 const CHANGE_EVENT = 'mixdog:composer-style-changed';
-let fallbackStyle: ComposerStyle = 'basic';
+let fallbackStyle: ComposerStyle = 'detail';
 
 function isStyle(value: unknown): value is ComposerStyle {
   return value === 'simple' || value === 'basic' || value === 'detail';
@@ -19,7 +18,6 @@ export function getComposerStyle(): ComposerStyle {
   try {
     const stored = window.localStorage.getItem(STYLE_KEY);
     if (isStyle(stored)) fallbackStyle = stored;
-    else if (window.localStorage.getItem(LEGACY_ROUTE_LABEL_KEY) === 'on') fallbackStyle = 'detail';
   } catch {
     // Desktop-local preferences degrade to the in-memory value.
   }
