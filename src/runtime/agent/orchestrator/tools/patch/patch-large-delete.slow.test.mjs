@@ -177,6 +177,13 @@ async function holdWindowsLock(t, path, share) {
   return holder;
 }
 
+// The handle closes only once the holder has exited; a kill alone returns
+// first, and the directory cleanup then meets the lock (EBUSY).
+async function releaseWindowsLock(holder) {
+  holder.kill();
+  if (holder.exitCode === null && holder.signalCode === null) await new Promise((done) => holder.once('exit', done));
+}
+
 async function patch(body, cwd, basePath = cwd, options = {}) {
   return String(await executePatchTool('apply_patch', { base_path: basePath, patch: body }, cwd, options));
 }
@@ -293,7 +300,7 @@ test('a locked file that cannot be moved aside fails the batch and rolls everyth
     ].join('\n'),
     dir
   );
-  holder.kill();
+  await releaseWindowsLock(holder);
   assert.match(result, /^Error/);
   assert.match(result, /z-locked\.bin failed — it could not be moved aside/);
   assert.match(result, /rolled back: every touched path was restored/);
@@ -438,10 +445,7 @@ test('replay capture marks a target it cannot open as unreadable, not absent or 
   let release;
   if (process.platform === 'win32') {
     const holder = await holdWindowsLock(t, locked, 'None'); // no sharing: every open fails
-    release = async () => {
-      holder.kill();
-      if (holder.exitCode === null) await new Promise((done) => holder.once('exit', done));
-    };
+    release = () => releaseWindowsLock(holder);
   } else {
     chmodSync(locked, 0o000);
     release = async () => chmodSync(locked, 0o600);

@@ -15,6 +15,7 @@ import {
   git,
   makeRepo,
   tempDir,
+  TEST_BRANCH_PREFIX,
   useTempDataDir,
   writeFile,
 } from '../../runtime/shared/worktrees/test-support.mjs';
@@ -26,7 +27,10 @@ after(() => cleanupTempDirs());
 
 test('lazy provisioning, branch return, re-entry and removal against a real repository', async () => {
   useTempDataDir();
-  const restore = configureWorktreeManager({ settings: {}, freeBytes: async () => Number.MAX_SAFE_INTEGER });
+  const restore = configureWorktreeManager({
+    settings: { branchPrefix: TEST_BRANCH_PREFIX },
+    freeBytes: async () => Number.MAX_SAFE_INTEGER,
+  });
   try {
     const repo = makeRepo();
     commitFile(repo, '.gitignore', '.mixdog/\n');
@@ -81,10 +85,16 @@ test('lazy provisioning, branch return, re-entry and removal against a real repo
     );
     assert.equal(menu.occupancy.find((row) => row.branch === 'dev').kind, 'session');
     assert.equal(menu.occupancy.find((row) => row.branch === 'mixdog/fix-the-login-page').kind, 'session');
+    const { lastCommitAt, ...devRow } = menu.branches.find((row) => row.name === 'dev');
     assert.deepEqual(
-      menu.branches.find((row) => row.name === 'dev'),
+      devRow,
       { name: 'dev', current: false, remote: false, upstream: '' },
       'branch rows carry the DesktopGitBranch shape'
+    );
+    assert.equal(
+      Date.parse(lastCommitAt),
+      Date.parse(git(repo, 'log', '-1', '--format=%cI', 'dev')),
+      'the row dates its tip commit'
     );
 
     // The session-less (draft) menu and checkout read and guard the same folder.
