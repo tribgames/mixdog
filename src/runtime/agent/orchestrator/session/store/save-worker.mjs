@@ -35,6 +35,7 @@ import {
   _sessionStoreTestMode,
 } from './save-fault.mjs';
 import { connectOwnCommitPeer } from './canonical-reader.mjs';
+import { getPluginData } from '../../config.mjs';
 import { captureTranscriptSnapshot, recordLandedTranscript } from './transcript-durability.mjs';
 
 // ── Worker-thread async save ──────────────────────────────────────────────────
@@ -578,7 +579,12 @@ function _postAsyncWrite(
     // Cheap key compare; posts only when the fault config/env moved.
     _syncFaultToWorker(w);
     const { attempt: _attempt, ...wireForPost } = wire;
-    w.postMessage({ ...wireForPost, id, opts, reqId });
+    // The worker's process.env is a copy taken at spawn, so a data dir that
+    // moved since (a pristine headless run per page) would otherwise keep
+    // receiving writes in the first run's removed directory. The dir current
+    // at POST time travels with the write: a write still queued in the worker
+    // when the env flips lands where its own session lives.
+    w.postMessage({ ...wireForPost, id, opts, reqId, dataDir: getPluginData() });
     // Ref AFTER successful postMessage so a queue/throw failure path does
     // not leave the worker held alive with no pending message. Paired with
     // the unref in the message handler when count hits 0.

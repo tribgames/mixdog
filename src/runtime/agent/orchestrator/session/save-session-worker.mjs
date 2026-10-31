@@ -60,9 +60,13 @@ parentPort.on('message', (message) => {
     }
     return;
   }
-  const { session, delta, id, opts, reqId } = message || {};
+  const { session, delta, id, opts, reqId, dataDir } = message || {};
   let full = session;
   try {
+    // This realm's env was copied when the worker spawned; the parent's data
+    // dir may have moved since (save-worker.mjs _postAsyncWrite), and every
+    // path below resolves it from the env at call time.
+    if (dataDir) process.env.MIXDOG_DATA_DIR = dataDir;
     const sessionId = id ?? session?.id;
     if (!full && delta) {
       const base = _baseMessages.get(sessionId);
