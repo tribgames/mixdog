@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { controlTookForeground, describeWatchedInput, focusExcursions, judgeFocusLock } from './scenario-focus-input.ts';
+import {
+  controlTookForeground,
+  describeWatchedInput,
+  focusExcursions,
+  judgeFocusLock,
+} from './scenario-focus-input.ts';
 import { userControlDetail } from './scenario-user-control.ts';
 
 test('a refusal names the check: the host readback carries its verdict, a native check does not', () => {
@@ -64,7 +69,10 @@ test('the target taking the foreground is judged from the OS watch, not the fixt
   ]);
   assert.deepEqual(tooLong.notes, []);
   assert.equal(tooLong.failures.length, 1);
-  assert.match(tooLong.failures[0], /the foreground went to the target .* 50 ms after the toggle request .* for 500 ms, over the 400 ms bound/);
+  assert.match(
+    tooLong.failures[0],
+    /the foreground went to the target .* 50 ms after the toggle request .* for 500 ms, over the 400 ms bound/
+  );
   // Within the bound the same excursion passes, and the claim inside it is covered.
   assert.deepEqual(
     judge([
@@ -80,8 +88,26 @@ test('the control counts only when the OS foreground moved to the target', () =>
   // The fixture said focused, but the OS foreground stayed on the sentinel;
   // the target holding only the focus root is not the foreground either.
   assert.equal(controlTookForeground([], T), false);
-  assert.equal(controlTookForeground([{ at: 10, foreground: S, focus: S }, { at: 20, foreground: S, focus: T }], T), false);
-  assert.equal(controlTookForeground([{ at: 10, foreground: S, focus: S }, { at: 20, foreground: T, focus: T }], T), true);
+  assert.equal(
+    controlTookForeground(
+      [
+        { at: 10, foreground: S, focus: S },
+        { at: 20, foreground: S, focus: T },
+      ],
+      T
+    ),
+    false
+  );
+  assert.equal(
+    controlTookForeground(
+      [
+        { at: 10, foreground: S, focus: S },
+        { at: 20, foreground: T, focus: T },
+      ],
+      T
+    ),
+    true
+  );
 });
 
 test('the watched-input line counts only what fell inside the step and lists injected input', () => {

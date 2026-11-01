@@ -125,7 +125,9 @@ type LeaseLine =
   | { op: 'release'; action: number; seq: number; lease: number };
 
 const boundedId = (value: unknown, min: number): number | undefined =>
-  Number.isSafeInteger(value) && (value as number) >= min && (value as number) <= MAX_ID ? (value as number) : undefined;
+  Number.isSafeInteger(value) && (value as number) >= min && (value as number) <= MAX_ID
+    ? (value as number)
+    : undefined;
 
 /** A well-formed request line, or undefined for anything else. */
 function parseLeaseLine(payload: string): LeaseLine | undefined {
@@ -171,7 +173,10 @@ export function createHostForegroundLock(runtime: ForegroundLeaseRuntime): HostF
   const fallbackUnlock = (): LeaseFacts => {
     try {
       const result = runtime.fallbackUnlock();
-      return { fallback_unlock: result.outcome, ...(result.error === undefined ? {} : { fallback_error: result.error }) };
+      return {
+        fallback_unlock: result.outcome,
+        ...(result.error === undefined ? {} : { fallback_error: result.error }),
+      };
     } catch (error) {
       return { fallback_unlock: 'failed', fallback_error: error instanceof Error ? error.message : String(error) };
     }
@@ -270,12 +275,23 @@ export function createHostForegroundLock(runtime: ForegroundLeaseRuntime): HostF
             });
             return;
           }
-          file(worker.instance, line.action, { lease: 0, answer: 'unavailable', host_pid: process.pid, reason: threadDown });
+          file(worker.instance, line.action, {
+            lease: 0,
+            answer: 'unavailable',
+            host_pid: process.pid,
+            reason: threadDown,
+          });
           answer(worker.instance, line.action, line.seq, 0, 'unavailable', 0);
           return;
         }
         if (active) {
-          active.post({ type: 'release', instance: worker.instance, action: line.action, seq: line.seq, lease: line.lease });
+          active.post({
+            type: 'release',
+            instance: worker.instance,
+            action: line.action,
+            seq: line.seq,
+            lease: line.lease,
+          });
           return;
         }
         // A thread that ended holding the lock got main's one unlock call, whose

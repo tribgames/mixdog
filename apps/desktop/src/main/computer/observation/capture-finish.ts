@@ -117,7 +117,11 @@ export async function finishCapture(
     generation: state.generation,
     recordable: mode !== 'vision' && captureOk && !state.visualOnlyCacheHit && !state.accessibilityError,
     deltaAllowed:
-      command.observation_delta === true && mode !== 'som' && !ocrContent && !state.continuation && !command.continuation,
+      command.observation_delta === true &&
+      mode !== 'som' &&
+      !ocrContent &&
+      !state.continuation &&
+      !command.continuation,
   });
   if (elementsDelta) {
     delete payload.elements;

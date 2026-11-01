@@ -554,7 +554,8 @@ export async function watchSentinel(
       const complete = stdout.lastIndexOf('\n') + 1;
       for (const line of stdout.slice(parsed, complete).split(/\r?\n/)) {
         const input = /^input (\d+)$/.exec(line);
-        if (input) lastInputAt = Number.isFinite(lastInputAt) ? Math.max(lastInputAt, Number(input[1])) : Number(input[1]);
+        if (input)
+          lastInputAt = Number.isFinite(lastInputAt) ? Math.max(lastInputAt, Number(input[1])) : Number(input[1]);
         const sampled = /^front (-?\d+) (-?\d+)$/.exec(line);
         if (sampled) {
           front = { foreground: Number(sampled[1]), focus: Number(sampled[2]) };

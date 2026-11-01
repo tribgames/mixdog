@@ -155,7 +155,9 @@ export function CommandSurface({
             <h1 id="command-surface-title" className={surface === 'stats' ? 'sr-only' : undefined}>
               {title}
             </h1>
-            {surface === 'stats' && <UsageModeTabs mode={usageMode} onChange={setUsageMode} requests={requestsSupported} />}
+            {surface === 'stats' && (
+              <UsageModeTabs mode={usageMode} onChange={setUsageMode} requests={requestsSupported} />
+            )}
             <div className="command-surface-header-actions">
               {surface === 'context' && (
                 <ContextReading status={data.contextStatus} snapshot={commandSurfaceDisplaySnapshot(data, snapshot)} />

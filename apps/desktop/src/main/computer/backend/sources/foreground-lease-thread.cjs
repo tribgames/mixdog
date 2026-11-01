@@ -33,9 +33,7 @@ function koffiNative(koffiPath) {
   const lockSetForegroundWindow = user32.func('bool __stdcall LockSetForegroundWindow(uint32_t code)');
   const getLastError = kernel32.func('uint32_t __stdcall GetLastError()');
   const queryPerformanceCounter = kernel32.func('bool __stdcall QueryPerformanceCounter(_Out_ int64_t *count)');
-  const queryPerformanceFrequency = kernel32.func(
-    'bool __stdcall QueryPerformanceFrequency(_Out_ int64_t *frequency)'
-  );
+  const queryPerformanceFrequency = kernel32.func('bool __stdcall QueryPerformanceFrequency(_Out_ int64_t *frequency)');
   const frequency = [0];
   queryPerformanceFrequency(frequency);
   const ticksPerMs = Number(frequency[0]) / 1000;

@@ -181,7 +181,11 @@ async function describeRequestSessions(requests, sessionMetadata) {
   const metadata = new Map();
   const read = async (id) => {
     if (!id) return null;
-    if (!metadata.has(id)) metadata.set(id, Promise.resolve(sessionMetadata(id)).catch(() => null));
+    if (!metadata.has(id))
+      metadata.set(
+        id,
+        Promise.resolve(sessionMetadata(id)).catch(() => null)
+      );
     return metadata.get(id);
   };
   const labels = new Map();

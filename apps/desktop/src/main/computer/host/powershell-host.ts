@@ -32,7 +32,11 @@ import { createCaptureAuthorizer, listAuthorizationWindows } from './host-author
 import { createSequenceHoldRelease, killSessionWorkers, retireBridgeWorkers } from './worker-control';
 import { nativeDisplayGeometry } from '../shared/native-coordinates';
 import { createWorkerPool } from '../backend/worker-pool';
-import { createHostForegroundLock, type ForegroundLeaseRuntime, koffiForegroundLease } from '../backend/foreground-lock-host';
+import {
+  createHostForegroundLock,
+  type ForegroundLeaseRuntime,
+  koffiForegroundLease,
+} from '../backend/foreground-lock-host';
 import { createCaptureEngine } from '../observation/capture';
 import { electronWindowForNativeId } from '../observation/window-handles';
 import { createInspection } from '../observation/inspect';

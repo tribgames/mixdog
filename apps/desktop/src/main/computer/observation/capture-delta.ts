@@ -226,15 +226,25 @@ export function recordObservation(
     !previous.held.some((held) => liveRefs.has(held.ref))
   ) {
     const pairs = alignRows(
-      pairableKeys(previous.held.map((held) => held.fingerprint), rows.map((row) => row.fingerprint), 'held'),
-      pairableKeys(rows.map((row) => row.fingerprint), previous.held.map((held) => held.fingerprint), 'live')
+      pairableKeys(
+        previous.held.map((held) => held.fingerprint),
+        rows.map((row) => row.fingerprint),
+        'held'
+      ),
+      pairableKeys(
+        rows.map((row) => row.fingerprint),
+        previous.held.map((held) => held.fingerprint),
+        'live'
+      )
     );
     const heldIndexByLive = new Map(pairs.map(([heldIndex, liveIndex]) => [liveIndex, heldIndex]));
     const keptHeld = new Set(heldIndexByLive.values());
     const added = rows.flatMap((row, index) => (heldIndexByLive.has(index) ? [] : [deltaRow(row.row)]));
     const removed = previous.held.flatMap((held, index) => (keptHeld.has(index) ? [] : [held.ref]));
     const delta: ElementRow = {
-      unchanged: pairRuns(pairs.map(([heldIndex, liveIndex]) => ({ held: previous.held[heldIndex].ref, live: rows[liveIndex].ref }))),
+      unchanged: pairRuns(
+        pairs.map(([heldIndex, liveIndex]) => ({ held: previous.held[heldIndex].ref, live: rows[liveIndex].ref }))
+      ),
       ...(added.length ? { added } : {}),
       ...(removed.length ? { removed } : {}),
     };

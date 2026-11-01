@@ -382,7 +382,8 @@ function normalizeRequestBody(raw, label) {
     fail(`${label} must be JSON-serializable`);
   }
   if (!Number.isInteger(size)) fail(`${label} must be JSON-serializable`);
-  if (size > CUSTOM_REQUEST_BODY_MAX_CHARS) fail(`${label} must be at most ${CUSTOM_REQUEST_BODY_MAX_CHARS} characters`);
+  if (size > CUSTOM_REQUEST_BODY_MAX_CHARS)
+    fail(`${label} must be at most ${CUSTOM_REQUEST_BODY_MAX_CHARS} characters`);
   const out = {};
   for (const key of Object.keys(raw)) {
     if (UNSAFE_KEYS.has(key)) fail(`${label} has an unsafe key: ${key}`);
@@ -400,7 +401,8 @@ function normalizeRequestBody(raw, label) {
  * the model layer only: the provider's ride the engine's default headers.
  */
 export function resolveCustomRequestExtras(config, model) {
-  const override = config?.modelOverrides && Object.hasOwn(config.modelOverrides, model) ? config.modelOverrides[model] : null;
+  const override =
+    config?.modelOverrides && Object.hasOwn(config.modelOverrides, model) ? config.modelOverrides[model] : null;
   const body = {};
   for (const layer of [config?.requestBody, override?.requestBody]) {
     for (const [key, value] of Object.entries(layer || {})) {

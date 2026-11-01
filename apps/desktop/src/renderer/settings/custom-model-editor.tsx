@@ -278,7 +278,11 @@ export function CustomModelEditor({
   const idp = `${uid}-`;
   const numberField = (key: 'contextWindow' | 'maxOutputTokens', label: string) => (
     <>
-      {head(label, idp + key, reset(() => set(key, null), overrides(patch, ov, key), label))}
+      {head(
+        label,
+        idp + key,
+        reset(() => set(key, null), overrides(patch, ov, key), label)
+      )}
       <input
         id={idp + key}
         inputMode="numeric"

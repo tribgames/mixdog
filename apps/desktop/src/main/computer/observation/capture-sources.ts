@@ -4,11 +4,7 @@ import type { ComputerCommand, PixelUnavailable } from '../shared/types';
 import { pixelUnavailable } from './analysis';
 import type { CaptureEngineHost } from './capture';
 import { nativeWindowSurface } from './capture-native-surface';
-import {
-  captureBackendKey,
-  createCaptureBackendMemory,
-  type CaptureBackendMemory,
-} from './capture-backend-memory';
+import { captureBackendKey, createCaptureBackendMemory, type CaptureBackendMemory } from './capture-backend-memory';
 import { attemptCapture, CaptureSourceError, RECOVERABLE_CAPTURE_CODES, type Surface } from './capture-source-attempt';
 import { buildCapturePlan, type CaptureSourceRequest } from './capture-source-plan';
 import { frameQualityIssue } from './frame-quality';

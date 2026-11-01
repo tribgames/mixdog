@@ -1032,7 +1032,7 @@ const progressRunId = (sessionId, answerId) => `${sessionId}_progress_${answerId
  *  converged send already reported under its old name. That one-time
  *  duplicate is accepted: matching old rows by their text would drop genuinely
  *  new answers that happen to read the same. */
-const turnReportRunId =(sessionId, id, status, { approvalId = '', answerId = '' } = {}) => {
+const turnReportRunId = (sessionId, id, status, { approvalId = '', answerId = '' } = {}) => {
   if (status === 'blocked') return `${sessionId}_${approvalId}_blocked`;
   if (status === 'working') return progressRunId(sessionId, answerId);
   return answerId ? `${sessionId}_${answerId}_end` : `${id}_end`;
@@ -1041,8 +1041,7 @@ const turnReportRunId =(sessionId, id, status, { approvalId = '', answerId = '' 
 /** The report fields naming the progress update that may have carried the
  *  final answer of turn `answerId` already (the queue then does not repeat
  *  it); none for a report of no turn. */
-const progressOf = (sessionId, answerId) =>
-  answerId ? { progressRunId: progressRunId(sessionId, answerId) } : {};
+const progressOf = (sessionId, answerId) => (answerId ? { progressRunId: progressRunId(sessionId, answerId) } : {});
 
 /** The handler of send `id`'s task-session state: a wait for the user's
  *  approval reports blocked once; a later, different one reports again. */

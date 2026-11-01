@@ -263,10 +263,7 @@ function recordCommandResponse(
  * round trip, and the response folded back into the active metrics. The
  * discovery accessor is read per call because a bridge restart republishes it.
  */
-export function createScenarioCommand(
-  session: string,
-  discovery: () => BridgeDiscovery
-): ScenarioCommand {
+export function createScenarioCommand(session: string, discovery: () => BridgeDiscovery): ScenarioCommand {
   return async (
     input: Record<string, unknown>,
     sessionId = session,

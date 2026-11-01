@@ -918,7 +918,8 @@ function validateCustomModelOverride(value: unknown, patch: boolean, protocol?: 
     }
   }
   // Shape only; the runtime normalizer refuses the app-owned keys and headers.
-  if (row.requestBody !== undefined && !nullable(row.requestBody)) plainRecord(row.requestBody, 'custom provider requestBody');
+  if (row.requestBody !== undefined && !nullable(row.requestBody))
+    plainRecord(row.requestBody, 'custom provider requestBody');
   if (row.requestHeaders !== undefined && !nullable(row.requestHeaders)) {
     const headers = plainRecord(row.requestHeaders, 'custom provider requestHeaders');
     const values = Object.values(headers);
@@ -1451,10 +1452,13 @@ function validateUsageRequestsArgs(options: unknown): void {
     throw new TypeError('request log status is unknown.');
   }
   if (request.model !== undefined) requiredString(request.model, 'request log model', MAX_USAGE_REQUEST_MODEL_LENGTH);
-  if (request.cursor !== undefined) requiredString(request.cursor, 'request log cursor', MAX_USAGE_REQUEST_CURSOR_LENGTH);
+  if (request.cursor !== undefined)
+    requiredString(request.cursor, 'request log cursor', MAX_USAGE_REQUEST_CURSOR_LENGTH);
   if (
     request.limit !== undefined &&
-    (!Number.isInteger(request.limit) || (request.limit as number) < 1 || (request.limit as number) > MAX_USAGE_REQUEST_PAGE)
+    (!Number.isInteger(request.limit) ||
+      (request.limit as number) < 1 ||
+      (request.limit as number) > MAX_USAGE_REQUEST_PAGE)
   ) {
     throw new TypeError(`request log limit must be an integer from 1 to ${MAX_USAGE_REQUEST_PAGE}.`);
   }
