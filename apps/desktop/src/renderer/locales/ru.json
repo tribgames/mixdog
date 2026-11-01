@@ -831,7 +831,6 @@
   "Automatic reconnection is off for this server.": "Для этого сервера автоматическое переподключение отключено.",
   "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions. Enabled files are trusted as instructions, so only enable this for repositories you trust.": "Автоматически включать правила из AGENTS.md / CLAUDE.md в домашней папке и папке проекта в новые сессии. Включённые файлы считаются доверенными инструкциями, поэтому включайте это только для репозиториев, которым вы доверяете.",
   "Automations": "Автоматизации",
-  "Automations have new activity": "В автоматизациях новая активность",
   "Available GPU memory": "Доступная память GPU",
   "Available models": "Доступные модели",
   "Available runtime": "Доступный рантайм",

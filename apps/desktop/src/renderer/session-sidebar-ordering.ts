@@ -7,7 +7,6 @@ import {
 } from '../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { listsAsSession } from './session-sidebar-agents';
-import { isAutomationRow } from './session-sidebar-sections';
 
 export interface SessionOrderingProjection {
   /** The sessions the projection was computed from; compared field-wise next time. */
@@ -30,7 +29,6 @@ function sameOrderingFields(left: DesktopSessionSummary, right: DesktopSessionSu
     left.archived === right.archived &&
     left.classification === right.classification &&
     left.favorite === right.favorite &&
-    left.sourceType === right.sourceType &&
     left.activityAt === right.activityAt &&
     left.updatedAt === right.updatedAt
   );
@@ -86,8 +84,8 @@ export function projectSessionOrdering(
     showAgents,
     contactHomeIds,
     allIds: idsOf(listed),
-    favoriteIds: idsOf(listed.filter((session) => session.favorite && !session.archived && !isAutomationRow(session))),
-    activityIds: idsOf(listed.filter((session) => !session.archived && !session.favorite && !isAutomationRow(session))),
+    favoriteIds: idsOf(listed.filter((session) => session.favorite && !session.archived)),
+    activityIds: idsOf(listed.filter((session) => !session.archived && !session.favorite)),
   };
 }
 

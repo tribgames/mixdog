@@ -40,7 +40,6 @@ import {
   clampSidebarWidth,
   storedSidebarWidth,
   persistSidebarWidth,
-  isAutomationRow,
   SidebarPanelHeaderSlot,
   sidebarResizeHandle,
   type SidebarResizeStart,
@@ -111,7 +110,7 @@ function busyPromptOptions(prompt: BusyPrompt) {
 const NO_PROJECTS: readonly DesktopProjectSummary[] = [];
 /** Default top-to-bottom order of the session categories; the user can drag
  *  any heading to reorder them. */
-const SIDEBAR_SECTIONS = ['agents', 'favorites', 'projects', 'automations', 'recent', 'archived'] as const;
+const SIDEBAR_SECTIONS = ['agents', 'favorites', 'projects', 'recent', 'archived'] as const;
 
 /** The sidebar's width: persisted, clamped, and flushed on pagehide mid-drag. */
 function useSidebarWidth() {
@@ -310,15 +309,9 @@ function useBulkArchiveActions(
   onDeleteSession: (sessionId: string) => Promise<void>,
   guardBusy: BusyGuard
 ) {
-  const [bulkAction, setBulkAction] = useState<'' | 'archive-automations' | 'archive-recent' | 'restore' | 'delete'>(
-    ''
-  );
+  const [bulkAction, setBulkAction] = useState<'' | 'archive-recent' | 'restore' | 'delete'>('');
   const updateSessionArchives = useCallback(
-    async (
-      action: 'archive-automations' | 'archive-recent' | 'restore',
-      targets: readonly DesktopSessionSummary[],
-      archived: boolean
-    ) => {
+    async (action: 'archive-recent' | 'restore', targets: readonly DesktopSessionSummary[], archived: boolean) => {
       if (bulkAction || targets.length === 0) return;
       const run = async () => {
         setBulkAction(action);
@@ -403,7 +396,7 @@ function useProjectGroups({
         ? []
         : groupProjectSessions(
             projects,
-            allRows.filter((session) => !session.archived && !isAutomationRow(session))
+            allRows.filter((session) => !session.archived)
           ),
     [allRows, projects]
   );
@@ -787,12 +780,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     updateOrderPrefs,
     updateCustomOrders,
   } = useSessionOrdering(sessions, hasSessionSurface, showAgents, agents.contactHomeIds);
-  const openState = useSidebarOpenState(allRows);
+  const openState = useSidebarOpenState();
   const archivedRows = useMemo(() => allRows.filter((session) => session.archived), [allRows]);
-  const automationRows = useMemo(
-    () => openState.automationGroups.flatMap(({ runs }) => runs),
-    [openState.automationGroups]
-  );
   const [recentRowLimit, setRecentRowLimit] = useState(RECENT_SESSION_INITIAL_ROWS);
   const sectionOrder = usePersistedListOrder('mixdog:session-sidebar-section-order', SIDEBAR_SECTIONS, {
     dropAnchor: ':scope > .sidebar-category-header',
@@ -872,8 +861,6 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     archivedRowLimit,
     setArchivedRowLimit,
     allRows,
-    automationsOpen: openState.automationsOpen,
-    collapsedAutomations: openState.collapsedAutomations,
     projectOpen: folders.projectOpen,
     projectGroups,
     projectRowLimits: folders.projectRowLimits,
@@ -1002,7 +989,6 @@ export const SessionSidebar = React.memo(function SessionSidebar({
     sessionDrop,
     favoriteDrop,
     gapDrop,
-    automationRows,
     archivedRows,
     visibleArchivedRows,
     hasMoreArchivedRows,

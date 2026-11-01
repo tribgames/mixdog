@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
 import { beginBootSurface, reportBootSurfaceReady, reportBootSurfaceStage } from './boot-metrics';
 import { commitForkGroupOrder, visibleForkRootIds } from './session-fork-groups';
@@ -10,18 +10,12 @@ import {
   type SessionOrderPrefs,
 } from './session-order';
 import { RECENT_SESSION_PAGE_ROWS } from './session-sidebar-scroll';
+import { PROJECT_SESSION_PAGE_ROWS, type ProjectSessionGroup } from './session-sidebar-sections';
 import {
-  groupAutomationSessions,
-  PROJECT_SESSION_PAGE_ROWS,
-  type ProjectSessionGroup,
-} from './session-sidebar-sections';
-import {
-  AUTOMATION_OPEN_KEY,
   FORK_OPEN_KEY,
   PROJECT_OPEN_KEY,
   SECTION_OPEN_DEFAULTS,
   SECTION_OPEN_KEY,
-  closedKeys,
   isOpen,
   readOpenMap,
   readProjectOpenMap,
@@ -100,9 +94,8 @@ function usePersistedOpenMap(
   return [map, update];
 }
 
-/** Open/collapsed state of the session categories and of the automation
- *  groups (grouped here from the activity-ordered rows). */
-export function useSidebarOpenState(allRows: DesktopSessionSummary[]) {
+/** Open/collapsed state of the session categories and of the fork groups. */
+export function useSidebarOpenState() {
   // Open/collapsed choices persist; an absent entry falls back to its default
   // (everything open except Archived).
   const [sectionOpen, updateSectionOpen] = usePersistedOpenMap(SECTION_OPEN_KEY, readOpenMap);
@@ -113,20 +106,7 @@ export function useSidebarOpenState(allRows: DesktopSessionSummary[]) {
   const favoritesOpen = sectionIsOpen('favorites');
   const recentOpen = sectionIsOpen('recent');
   const projectsOpen = sectionIsOpen('projects');
-  const automationsOpen = sectionIsOpen('automations');
   const archivedOpen = sectionIsOpen('archived');
-  // allRows is activity-desc, which is the order the grouped runs keep.
-  const automationGroups = useMemo(() => groupAutomationSessions(allRows), [allRows]);
-  // Only explicit choices are stored, so every automation group — including one
-  // that appears after a fresh fire — renders expanded by default (user
-  // decision: opening the app on a collapsed list buried the runs behind an
-  // extra click).
-  const [automationOpen, updateAutomationOpen] = usePersistedOpenMap(AUTOMATION_OPEN_KEY, readOpenMap);
-  const collapsedAutomations = useMemo(() => closedKeys(automationOpen), [automationOpen]);
-  const toggleAutomationGroup = useCallback(
-    (key: string) => updateAutomationOpen((current) => toggleOpen(current, key)),
-    [updateAutomationOpen]
-  );
   const [forkOpen, updateForkOpen] = usePersistedOpenMap(FORK_OPEN_KEY, readOpenMap);
   const toggleFork = useCallback(
     (sessionId: string) => updateForkOpen((current) => toggleOpen(current, sessionId)),
@@ -139,12 +119,8 @@ export function useSidebarOpenState(allRows: DesktopSessionSummary[]) {
     favoritesOpen,
     recentOpen,
     projectsOpen,
-    automationsOpen,
     archivedOpen,
     toggleSection,
-    automationGroups,
-    collapsedAutomations,
-    toggleAutomationGroup,
   };
 }
 

@@ -714,7 +714,6 @@
   "Automatic reconnection is off for this server.": "此服务器已设置为不自动重新连接。",
   "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions. Enabled files are trusted as instructions, so only enable this for repositories you trust.": "在新会话中自动包含主目录和项目文件夹中的 AGENTS.md / CLAUDE.md 规则。启用的文件会被视为可信指令，因此请仅对你信任的仓库启用。",
   "Automations": "自动化",
-  "Automations have new activity": "自动化有新活动",
   "Available GPU memory": "可用 GPU 内存",
   "Available models": "可用模型",
   "Available runtime": "可用运行时",

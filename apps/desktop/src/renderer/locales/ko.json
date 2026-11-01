@@ -714,7 +714,6 @@
   "Automatic reconnection is off for this server.": "이 서버는 자동으로 다시 연결하지 않도록 설정되어 있습니다.",
   "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions. Enabled files are trusted as instructions, so only enable this for repositories you trust.": "홈 폴더와 프로젝트 폴더의 AGENTS.md / CLAUDE.md 규칙을 새 세션에 자동으로 포함합니다. 활성화된 파일은 지침으로 신뢰되므로 신뢰하는 저장소에서만 사용하세요.",
   "Automations": "자동화",
-  "Automations have new activity": "자동화에 새로운 실행 내역이 있습니다",
   "Available GPU memory": "사용 가능한 GPU 메모리",
   "Available models": "사용 가능한 모델",
   "Available runtime": "설치 가능 런타임",

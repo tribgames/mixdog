@@ -89,7 +89,6 @@ test('the ⋯ menu Show sections submenu toggles section visibility and persists
       ['Bots', 'true'],
       ['Favorites', 'true'],
       ['Projects', 'true'],
-      ['Automations', 'true'],
       ['Recent', 'true'],
       ['Archived', 'true'],
     ]

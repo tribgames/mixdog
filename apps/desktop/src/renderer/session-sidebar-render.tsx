@@ -18,7 +18,6 @@ import type { SidebarRoomRow } from './session-sidebar-agents';
 import {
   agentsSection,
   archivedSection,
-  automationsSection,
   favoritesSection,
   projectsSection,
   recentSection,
@@ -132,7 +131,7 @@ function stableRowReorder(
   return result;
 }
 
-/** Recent, Automations, Archived, Favorites and the project folders all render
+/** Recent, Archived, Favorites and the project folders all render
  *  the same row with the same rename/confirm wiring; only the session and its
  *  reorder list (none for unordered lists) differ. The row key (list + session)
  *  tells apart the copies of a session shown in more than one list. */
@@ -409,7 +408,6 @@ export function sessionOrderMenuItems(
     ['agents', t('Bots')],
     ['favorites', t('Favorites')],
     ['projects', t('Projects')],
-    ['automations', t('Automations')],
     ['recent', t('Recent')],
     ['archived', t('Archived')],
   ];
@@ -476,7 +474,6 @@ export interface SidebarSectionContext {
   sessionDrop: ProjectsSectionProps['sessionDrop'];
   favoriteDrop: FavoriteSessionDrop;
   gapDrop: SessionGapDrop;
-  automationRows: readonly DesktopSessionSummary[];
   archivedRows: readonly DesktopSessionSummary[];
   visibleArchivedRows: DesktopSessionSummary[];
   hasMoreArchivedRows: boolean;
@@ -484,7 +481,7 @@ export interface SidebarSectionContext {
   setArchivedRowLimit(limit: number): void;
   bulkAction: string;
   updateSessionArchives(
-    action: 'archive-automations' | 'archive-recent' | 'restore',
+    action: 'archive-recent' | 'restore',
     targets: readonly DesktopSessionSummary[],
     archived: boolean
   ): Promise<void>;
@@ -513,7 +510,7 @@ export interface SidebarSectionContext {
 /** One session category through its section builder; the heading row is its
  *  drag handle for the persisted category order. */
 function renderSidebarSection(section: string, ctx: SidebarSectionContext): React.ReactNode {
-  const { openState, folders, rows, automationRows, archivedRows, bulkAction } = ctx;
+  const { openState, folders, rows, archivedRows, bulkAction } = ctx;
   const { onAddProject, onNewProjectTask, onNewTask } = ctx;
   const headerProps = ctx.sectionOrder.getReorderProps(section);
   const renderUnorderedRows: RenderForkRows = (list, limit, sentinelRef) =>
@@ -571,35 +568,6 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
           renderRows: (list, limit, groupKey) => renderForkRows(ctx, list, limit, `project:${groupKey}`),
           onFolderMenu: ctx.openProjectMenu,
           rename: ctx.projectRenameEditor,
-        })
-      );
-    case 'automations':
-      return (
-        openState.automationGroups.length > 0 &&
-        automationsSection({
-          groups: openState.automationGroups,
-          open: openState.automationsOpen,
-          onToggleOpen: () => openState.toggleSection('automations'),
-          headingStatus: groupSessionAttention(
-            !openState.automationsOpen,
-            automationRows.map((session) => session.id),
-            ctx.attentionOf
-          ),
-          archiveAllDisabled: Boolean(bulkAction) || automationRows.length === 0,
-          onArchiveAll: () => {
-            void ctx.updateSessionArchives('archive-automations', automationRows, true);
-          },
-          collapsedGroups: openState.collapsedAutomations,
-          onToggleGroup: openState.toggleAutomationGroup,
-          attentionOf: ctx.attentionOf,
-          headerProps,
-          renderRuns: (runs) =>
-            renderSessionItems(
-              ctx,
-              runs.map((session) => ({ key: session.id, sessionId: session.id, session })),
-              undefined,
-              section
-            ),
         })
       );
     case 'recent':

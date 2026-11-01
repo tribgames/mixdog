@@ -180,8 +180,6 @@ interface SidebarListScrollInput {
   archivedRowLimit: number;
   setArchivedRowLimit: React.Dispatch<React.SetStateAction<number>>;
   allRows: readonly DesktopSessionSummary[];
-  automationsOpen: boolean;
-  collapsedAutomations: ReadonlySet<string>;
   projectOpen: OpenMap;
   projectGroups: readonly ProjectSessionGroup[];
   projectRowLimits: ReadonlyMap<string, number>;
@@ -206,8 +204,6 @@ export function useSidebarListScroll({
   archivedRowLimit,
   setArchivedRowLimit,
   allRows,
-  automationsOpen,
-  collapsedAutomations,
   projectOpen,
   projectGroups,
   projectRowLimits,
@@ -329,9 +325,7 @@ export function useSidebarListScroll({
   }, [
     allRows,
     archivedOpen,
-    automationsOpen,
     captureRecentScrollAnchor,
-    collapsedAutomations,
     projectOpen,
     projectGroups,
     projectRowLimits,

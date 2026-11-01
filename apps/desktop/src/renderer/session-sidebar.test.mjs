@@ -293,6 +293,53 @@ test('double-clicking a captured session row starts rename without action-button
   }
 });
 
+test('a legacy schedule run session lists in Recent, and saved prefs naming automations still load', async () => {
+  const { restore } = installDom();
+  window.localStorage.setItem(
+    'mixdog:session-sidebar-section-order',
+    JSON.stringify(['automations', 'recent', 'archived'])
+  );
+  window.localStorage.setItem('mixdog:session-sidebar-hidden-sections', JSON.stringify(['automations']));
+  const { SessionSidebar } = await import('./session-sidebar.tsx');
+  const root = createRoot(document.getElementById('root'));
+  const run = {
+    id: 'legacy-run',
+    title: 'Nightly run',
+    preview: '',
+    updatedAt: 1,
+    activityAt: 1,
+    messageCount: 1,
+    cwd: '',
+    classification: 'task',
+    projectPath: null,
+    working: false,
+    sourceType: 'schedule',
+    sourceName: 'Nightly',
+  };
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(SessionSidebar, {
+          open: true,
+          sessions: [run],
+          sessionsReady: true,
+          selection: { kind: 'new' },
+          onNewTask() {},
+          onResumeSession() {},
+          async onRenameSession() {},
+          async onArchiveSession() {},
+          async onDeleteSession() {},
+        })
+      )
+    );
+    const recent = document.querySelector('section[aria-label="Recent sessions"]');
+    assert.ok(recent?.querySelector('[data-session-id="legacy-run"]'));
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
 test('the Recent actions menu archives recent sessions and confirms archived deletion', async () => {
   const { restore } = installDom();
 
@@ -320,14 +367,9 @@ test('the Recent actions menu archives recent sessions and confirms archived del
       root.render(
         React.createElement(SessionSidebar, {
           open: true,
-          sessions: [
-            session('automation-one', false, { sourceType: 'schedule', sourceName: 'Nightly' }),
-            session('recent-one'),
-            session('recent-two'),
-            session('archived-one', true),
-          ],
+          sessions: [session('recent-one'), session('recent-two'), session('archived-one', true)],
           sessionsReady: true,
-          unreadSessionIds: new Set(['automation-one', 'recent-one']),
+          unreadSessionIds: new Set(['recent-one']),
           selection: { kind: 'new' },
           onNewTask() {},
           onResumeSession() {},
@@ -342,24 +384,12 @@ test('the Recent actions menu archives recent sessions and confirms archived del
       )
     );
 
-    const automationSection = document.querySelector('.sidebar-automations');
     const recentSection = document.querySelector('section[aria-label="Recent sessions"]');
     const archivedSection = document.querySelector('.sidebar-archived');
-    const automationTrigger = automationSection?.querySelector('.row-overflow-trigger');
     const recentTrigger = recentSection?.querySelector('.row-overflow-trigger');
     const archivedTrigger = archivedSection?.querySelector('.row-overflow-trigger');
-    assert.ok(automationTrigger);
     assert.ok(recentTrigger);
     assert.ok(archivedTrigger);
-
-    await act(async () => automationTrigger.click());
-    const archiveAll = document.querySelector('[data-action-id="archive-all"]');
-    assert.ok(archiveAll);
-    await act(async () => {
-      archiveAll.click();
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    assert.deepEqual(archivedCalls, [['automation-one', true]]);
 
     await act(async () => recentTrigger.click());
     const archiveAllRecent = document.querySelector('[data-action-id="archive-all"]');
@@ -369,7 +399,6 @@ test('the Recent actions menu archives recent sessions and confirms archived del
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     assert.deepEqual(archivedCalls, [
-      ['automation-one', true],
       ['recent-one', true],
       ['recent-two', true],
     ]);
@@ -396,16 +425,10 @@ test('the Recent actions menu archives recent sessions and confirms archived del
     });
     assert.deepEqual(deletedCalls, ['archived-one']);
 
-    const automationToggle = automationSection.querySelector('.sidebar-heading-toggle');
     const recentToggle = recentSection.querySelector('.sidebar-heading-toggle');
-    await act(async () => {
-      automationToggle.click();
-      recentToggle.click();
-    });
-    assert.ok(automationSection.querySelector('.sidebar-heading-dot'));
+    await act(async () => recentToggle.click());
     assert.ok(recentSection.querySelector('.sidebar-heading-dot'));
     // A collapsed section's status never takes its actions away.
-    assert.ok(automationSection.querySelector('.row-overflow-trigger'));
     assert.ok(recentSection.querySelector('.row-overflow-trigger'));
     assert.ok(archivedSection.querySelector('.row-overflow-trigger'));
 

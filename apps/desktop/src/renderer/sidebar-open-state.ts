@@ -1,11 +1,10 @@
 /** Persisted open/collapsed state of sidebar sections, project folders and
- *  automation groups. Each map stores only explicit choices (the resolved value
+ *  fork groups. Each map stores only explicit choices (the resolved value
  *  of a toggle); an absent key falls back to its default. */
 export type OpenMap = Readonly<Record<string, boolean>>;
 
 export const SECTION_OPEN_KEY = 'mixdog:session-sidebar-section-open';
 export const PROJECT_OPEN_KEY = 'mixdog:session-sidebar-project-open';
-export const AUTOMATION_OPEN_KEY = 'mixdog:session-sidebar-automation-open';
 /** Fork groups, keyed by the original session id; absent = expanded. */
 export const FORK_OPEN_KEY = 'mixdog:session-sidebar-fork-open';
 /** Pre-map storage: ids of the expanded folders (everything else was closed). */
@@ -17,7 +16,6 @@ export const SECTION_OPEN_DEFAULTS: Readonly<Record<string, boolean>> = {
   projects: true,
   favorites: true,
   recent: true,
-  automations: true,
   archived: false,
 };
 
@@ -87,9 +85,4 @@ export function readProjectOpenMap(storage: OpenStateStorage): Record<string, bo
   } catch {
     return {};
   }
-}
-
-/** Keys of an open map whose explicit value is closed. */
-export function closedKeys(map: OpenMap): Set<string> {
-  return new Set(Object.keys(map).filter((key) => map[key] === false));
 }

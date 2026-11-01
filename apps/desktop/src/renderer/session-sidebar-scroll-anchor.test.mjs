@@ -52,8 +52,6 @@ async function mountList(t) {
       archivedRowLimit: 0,
       setArchivedRowLimit() {},
       allRows: rows,
-      automationsOpen: false,
-      collapsedAutomations: new Set(),
       projectOpen: {},
       projectGroups: [],
       projectRowLimits: new Map(),
