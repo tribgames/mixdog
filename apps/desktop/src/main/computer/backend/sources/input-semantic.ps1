@@ -47,15 +47,46 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
     # Neither the style nor the shield stops a target that calls
     # SetForegroundWindow itself after the call returns, and a restore after
     # the fact lets the user's keystrokes reach the target in between. The
-    # foreground lock refuses that call outright. Its hold is counted from
-    # acquisition and ends on its own, even while the call below still blocks;
-    # a self-activating host gets longer, since a Chromium renderer acts on the
-    # call only after it returns.
+    # foreground lock refuses that call. Its hold is counted from acquisition
+    # and ends on its own, even while the call below still blocks; a
+    # self-activating host gets longer, since a Chromium renderer acts on the
+    # call only after it returns. The caller finished any pointer travel before
+    # this, so the hold starts with the action itself. The lock does not stop
+    # an activation Windows itself performs: on a Chromium window a UIA pattern
+    # call can raise it during the call and lift the lock, which the watch
+    # below then answers with the one restore.
     $lockMs = if ($shielded) { 250 } else { 100 }
+    # The watch covers at least the hold's window from dispatch, so a steal
+    # after a lock that was refused or lifted early still gets the restore.
+    $settleMs = $lockMs
+    $locked = $false
+    $sinceDispatch = $null
+    $canRestore = $inputBefore.Ready -and
+    $foregroundBefore -ne [IntPtr]::Zero -and
+    $foregroundBefore -ne $target -and
+    [MixWin32]::IsWindowHandle($foregroundBefore)
+    $restored = 'not_needed'
     try {
-        if ($userElsewhere) { [void][MixForegroundLock]::Acquire($lockMs) }
+        if ($userElsewhere) {
+            $locked = [MixForegroundLock]::Acquire($lockMs, [long]$script:CurrentRequest.id)
+            # The host's answer can take a moment, and the user may act in it: a
+            # restore must not later undo a choice made before the action began.
+            if ($locked -and $canRestore) {
+                $superseded = Test-RestoreBaseline $inputBefore $target
+                if (-not $superseded -and [MixWin32]::Foreground() -ne $foregroundBefore) { $superseded = 'foreground_moved' }
+                if ($superseded) {
+                    $canRestore = $false
+                    $restored = "skipped:$superseded"
+                }
+            }
+            [MixForegroundLock]::Mark('dispatched_at')
+        }
+        $sinceDispatch = [System.Diagnostics.Stopwatch]::StartNew()
         if ($shielded) { $wasEnabled = [MixWin32]::SetWindowEnabled($target, $false) }
         $result = & $operation
+        if ($userElsewhere) {
+            [MixForegroundLock]::Mark('returned_at')
+        }
     }
     finally {
         try {
@@ -64,57 +95,94 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
             # foreground lock held through the watch below refuses that.
             if ($shielded -and $wasEnabled) { [void][MixWin32]::SetWindowEnabled($target, $true) }
             $tookFocus = { Test-TargetWindow ([MixWin32]::Foreground()) $target }
-            # False once user input superseded the observation: nothing is restored then.
-            # One guarded attempt each time: a retrying focus would sleep and relax the
-            # system-wide foreground lock timeout with no input check in between.
-            $restore = {
-                try {
-                    [MixInputObservation]::BeginExpected($inputBefore.Generation, $inputBefore.Sequence)
-                    try {
-                        [MixInputObservation]::AssertContinue()
-                        # A steal that got past the lock (a system activation) is undone
-                        # only once the lock no longer refuses this restore as well.
-                        [MixForegroundLock]::Release()
-                        [void][MixWin32]::RestoreForeground($foregroundBefore)
-                    }
-                    finally { [MixInputObservation]::End() }
-                    return $true
-                }
-                catch {
-                    if ($_.Exception.Message -notmatch 'user_input_active|input_observation_unavailable') { throw }
-                    return $false
-                }
-            }
-            $canRestore = $inputBefore.Ready -and
-            $foregroundBefore -ne [IntPtr]::Zero -and
-            $foregroundBefore -ne $target -and
-            [MixWin32]::IsWindowHandle($foregroundBefore)
             # Measured on Windows 11 Settings: the frame raised itself 5-30 ms after
             # the accessibility call returned, disabled or not, so one check made
             # right away saw nothing to restore. Every restorable target, shielded
-            # or not and Chromium included, is watched for that short window; one that
-            # takes the foreground again after a restore is restored once more.
-            # The watch lasts as long as the lock still holds, and at least 100 ms
-            # after the call for a restorable target.
+            # or not and Chromium included, is watched for that short window, and
+            # a steal is answered with one restore attempt at most.
+            # The watch covers the same settle window as the hold, whether or not
+            # the lock was granted or lasted, so a steal that lands after the lock
+            # ended still gets the one restore; and at least 100 ms after the call
+            # for a restorable target.
             $watching = $canRestore -or [MixForegroundLock]::Held
-            $restores = 0
             $watch = [System.Diagnostics.Stopwatch]::StartNew()
             while ($true) {
-                if ($canRestore -and $restores -lt 2 -and (& $tookFocus)) {
-                    $restores++
-                    if (-not (& $restore)) { break }
+                if ($canRestore -and (& $tookFocus)) {
+                    [MixForegroundLock]::Mark('steal_seen_at')
+                    $restored = Restore-UserForeground $target $foregroundBefore $inputBefore $tookFocus
+                    break
                 }
-                if (-not $watching -or $restores -ge 2) { break }
-                if ($watch.ElapsedMilliseconds -ge 100 -and -not [MixForegroundLock]::Held) { break }
+                if (-not $watching) { break }
+                $settled = $null -eq $sinceDispatch -or $sinceDispatch.ElapsedMilliseconds -ge $settleMs
+                if ($settled -and $watch.ElapsedMilliseconds -ge 100 -and -not [MixForegroundLock]::Held) { break }
                 Start-Sleep -Milliseconds 10
             }
         }
         finally {
-            try { [MixForegroundLock]::Release() }
+            # Unconditional, failures and cancellation included; a second call
+            # after the restore's own release only reads how that one ended.
+            try { $null = [MixForegroundLock]::Release() }
             finally { [MixWin32]::ReleaseInactive($inactive) }
         }
     }
+    # Who took the lock, or why nobody could, and how the hold and any restore
+    # ended: the reply proves it rather than leaving it to be inferred.
+    if ($userElsewhere -and $result -is [System.Collections.IDictionary]) {
+        [MixForegroundLock]::Note('restore', $restored)
+        $result.foreground_lock = [MixForegroundLock]::LastFacts
+    }
+    # Without the lock the target could take the foreground from the user's
+    # window, so delivered input must not read as protected from that.
+    if ($userElsewhere -and -not $locked -and $result -is [System.Collections.IDictionary] -and
+        $result.delivery_accepted -eq $true) {
+        $result.activation_protection = 'unavailable'
+        $result.text = "$($result.text); the foreground lock was unavailable, so background delivery had less protection against the target taking the foreground"
+    }
     return $result
+}
+
+# Why the user's window must not be put back, or '' when nothing says so: the
+# observation is lost or replaced, or input since it could have reached the
+# target or moved the pointer. A click anywhere, or keys that reached the
+# target, may be the user choosing it, and a restore must not fight that; keys
+# the user typed into their own window say the opposite, so they do not count.
+function Test-RestoreBaseline($inputBefore, $target) {
+    try { [MixInputObservation]::BeginRestore($inputBefore.Generation, $inputBefore.Sequence, $target) }
+    catch {
+        if ($_.Exception.Message -match '(user_input_active|input_observation_unavailable)') { return $Matches[1] }
+        throw
+    }
+    [MixInputObservation]::End()
+    return ''
+}
+
+# One guarded attempt to give the user back the window the target took. The
+# lock comes off first, whatever else happens, so it cannot refuse the restore
+# too; the restore runs only once that release neither failed nor went
+# unanswered by the host, which may then still hold it (an unknown end means no
+# lock is held any more: a false unlock is Windows having lifted it) and, after
+# its wait, nothing says the user moved on: the observation still holds, the user's window
+# still exists, and the target, not a third window the user picked meanwhile,
+# is in front. No retry: a retrying focus would sleep and relax the system-wide
+# foreground lock timeout with no input check in between.
+function Restore-UserForeground($target, $foregroundBefore, $inputBefore, [scriptblock]$tookFocus) {
+    $superseded = ''
+    try { $superseded = Test-RestoreBaseline $inputBefore $target }
+    finally { $released = [MixForegroundLock]::Release() }
+    if ($superseded) { return "skipped:$superseded" }
+    if ($released -eq 'failed' -or $released -eq 'no_ack') { return "skipped:release_$released" }
+    if (-not [MixWin32]::IsWindowHandle($foregroundBefore)) { return 'skipped:window_gone' }
+    try { [MixInputObservation]::BeginRestore($inputBefore.Generation, $inputBefore.Sequence, $target) }
+    catch {
+        if ($_.Exception.Message -match '(user_input_active|input_observation_unavailable)') { return "skipped:$($Matches[1])" }
+        throw
+    }
+    try {
+        if (-not (& $tookFocus)) { return 'skipped:foreground_moved' }
+        if ([MixWin32]::RestoreForeground($foregroundBefore)) { return 'restored' }
+        return 'refused'
+    }
+    finally { [MixInputObservation]::End() }
 }
 
 # The window itself, a window inside it, or one it owns or hosts in its process.

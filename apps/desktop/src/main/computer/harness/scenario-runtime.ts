@@ -3,11 +3,31 @@ import { join } from 'node:path';
 import { app, screen } from 'electron';
 import { createPolling } from '../../host-harness-poll';
 import { SCENARIO_IDS } from './scenario-ids';
-import { isScenarioUserControl } from './scenario-user-control';
+import { isScenarioUserControl, userControlDetail } from './scenario-user-control';
 import { computerErrorCode } from '../../../../../../src/runtime/computer-bridge/error-code.mjs';
-import type { CommandResult, ScenarioMetrics, ScenarioResult, BridgeDiscovery, ActionMetrics } from './scenario-types';
+import type {
+  CommandResult,
+  ScenarioCommand,
+  ScenarioCommandOptions,
+  ScenarioMetrics,
+  ScenarioResult,
+  BridgeDiscovery,
+  ActionMetrics,
+} from './scenario-types';
 
 export class ScenarioSkip extends Error {}
+
+/** A reply that said the user has the desktop, with what it said. */
+export class ScenarioUserControl extends ScenarioSkip {
+  constructor(
+    message: string,
+    readonly action: string,
+    readonly session: string,
+    readonly reply: Record<string, unknown>
+  ) {
+    super(message);
+  }
+}
 
 export const progressPath = process.env.MIXDOG_COMPUTER_SCENARIO_LOG || '';
 export const reportPath = process.env.MIXDOG_COMPUTER_SCENARIO_REPORT || '';
@@ -165,6 +185,14 @@ export function skip(message: string): never {
   throw new ScenarioSkip(message);
 }
 
+/** Foreground delivery takes the user's pointer and foreground window; a run
+ *  with --skip-foreground skips the scenario that needs it, before any of it. */
+export function assertForegroundAllowed(): void {
+  if (!skipForeground) return;
+  foregroundSkipped = true;
+  throw new ScenarioSkip('foreground delivery takes the real pointer; skipped by request');
+}
+
 /**
  * Folds one command response into the active scenario metrics: byte and
  * duration accounting, then whatever the structured payload says about user
@@ -238,17 +266,26 @@ function recordCommandResponse(
 export function createScenarioCommand(
   session: string,
   discovery: () => BridgeDiscovery
-): (input: Record<string, unknown>, sessionId?: string) => Promise<CommandResult> {
-  return async (input: Record<string, unknown>, sessionId = session): Promise<CommandResult> => {
+): ScenarioCommand {
+  return async (
+    input: Record<string, unknown>,
+    sessionId = session,
+    options: ScenarioCommandOptions = {}
+  ): Promise<CommandResult> => {
     const body = JSON.stringify({ session_id: sessionId, ...input });
     const actionName = String(input.action || '');
     // Sequence steps carry their delivery in the same body, so one check covers them.
-    if (skipForeground && body.includes('"delivery":"foreground"')) {
-      foregroundSkipped = true;
-      throw new ScenarioSkip('foreground delivery takes the real pointer; skipped by request');
-    }
+    if (body.includes('"delivery":"foreground"')) assertForegroundAllowed();
     const isCleanup =
       actionName === 'session_release' || actionName === 'session_abort' || actionName === 'execution_end';
+    const mayFollowUserInput = isCleanup || options.restoresUserDesktop === true;
+    // Once the user has the desktop nothing more goes out, so a later command
+    // neither acts against them nor reads as a second detection.
+    if (userInterventionSeen && !mayFollowUserInput) {
+      throw new ScenarioSkip(
+        `user input was seen earlier in this scenario; ${actionName} on ${sessionId} was not sent`
+      );
+    }
     const isObservation = OBSERVATION_ACTIONS.has(actionName);
     const isMutation = MUTATION_ACTIONS.has(actionName);
     if (!isCleanup && isObservation === isMutation) {
@@ -309,8 +346,19 @@ export function createScenarioCommand(
       ...(payload.value?.image ? { image: payload.value.image } : {}),
     };
     recordCommandResponse(actionName, value, actionMetrics, Math.round(performance.now() - commandStartedAt));
-    if (userInterventionSeen && !isCleanup) {
-      throw new ScenarioSkip('user input interrupted the command; no further input is authorized');
+    if (userInterventionSeen && !mayFollowUserInput) {
+      let reply: Record<string, unknown> = {};
+      try {
+        reply = JSON.parse(value.text) as Record<string, unknown>;
+      } catch {
+        // Only a structured reply can carry the user-control code.
+      }
+      throw new ScenarioUserControl(
+        `user input interrupted ${actionName} on ${sessionId}; no further input is authorized (${userControlDetail(reply)})`,
+        actionName,
+        sessionId,
+        reply
+      );
     }
     return value;
   };

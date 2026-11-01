@@ -8,7 +8,13 @@ import electron from 'electron';
 import { build } from 'esbuild';
 
 export function electronProcessEnv(extra = {}) {
-  const env = { ...process.env, ...extra };
+  // A harness bundle runs from a temp directory, where native modules such as
+  // koffi do not resolve; this names the app they resolve from.
+  const env = {
+    ...process.env,
+    MIXDOG_HARNESS_MODULES_FROM: fileURLToPath(new URL('../package.json', import.meta.url)),
+    ...extra,
+  };
   delete env.ELECTRON_RUN_AS_NODE;
   return env;
 }

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { app, BrowserWindow, screen } from 'electron';
 import { createComputerHost, type ComputerHost } from '../index';
+import { harnessForegroundLease } from './harness-foreground-lock';
 import { createPolling } from '../../host-harness-poll';
 import { actionPayload, capturePayload, ocrMark, ocrText } from './scenario-ocr';
 import type { CommandResult } from './scenario-types';
@@ -586,7 +587,7 @@ async function run(): Promise<void> {
     blankFixture.showInactive();
     progress('custom renderer fixture ready');
 
-    host = createComputerHost();
+    host = createComputerHost({ foregroundLease: harnessForegroundLease() });
     const discovery = await readDiscovery(join(dataDirectory, 'computer-bridge.json'), 45_000);
     progress('resident computer bridge ready');
 

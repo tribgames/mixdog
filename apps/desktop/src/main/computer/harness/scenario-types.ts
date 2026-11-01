@@ -3,6 +3,18 @@ export interface CommandResult {
   image?: { mimeType?: string; data?: string };
 }
 
+export interface ScenarioCommandOptions {
+  /** Puts back what the scenario itself took from the user, such as the
+   *  foreground window; it still goes out once user input has been seen. */
+  restoresUserDesktop?: boolean;
+}
+
+export type ScenarioCommand = (
+  input: Record<string, unknown>,
+  sessionId?: string,
+  options?: ScenarioCommandOptions
+) => Promise<CommandResult>;
+
 export interface CapturePayload {
   ok?: boolean;
   mode?: string;

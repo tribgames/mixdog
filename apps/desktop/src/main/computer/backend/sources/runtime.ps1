@@ -61,7 +61,7 @@ function Add-ActivationProtection($req, $res) {
     if ($annotated -is [System.Collections.IDictionary] -and
         $annotated.delivery_accepted -eq $true -and $annotated.delivery -eq 'background') {
         $annotated.activation_protection = 'unavailable'
-        $annotated.text = "$($annotated.text); the target refused the no-activate hold, so background delivery could not keep it from coming forward"
+        $annotated.text = "$($annotated.text); the target refused the no-activate hold, so background delivery had less protection against it coming forward"
     }
 }
 
@@ -200,9 +200,10 @@ function Handle($req) {
 [MixNativeInput]::InitializeOwnership([MixInputObservation]::Marker)
 # Read stdin as UTF-8 explicitly: [Console]::In follows the console code page
 # (CP949 etc.), which corrupts multibyte command payloads (e.g. Korean window
-# titles) and breaks JSON parsing. A StreamReader over the raw handle is code-
-# page independent.
-$__stdin = New-Object System.IO.StreamReader([Console]::OpenStandardInput(), [System.Text.Encoding]::UTF8)
+# titles) and breaks JSON parsing. A reader over the raw handle is code-page
+# independent; it runs on its own thread so the bridge host's foreground-lock
+# answers reach a command that is still running (MixWorkerInput).
+$__stdin = New-Object MixWorkerInput ([Console]::OpenStandardInput())
 while ($true) {
     $line = $__stdin.ReadLine()
     if ($null -eq $line) { break }

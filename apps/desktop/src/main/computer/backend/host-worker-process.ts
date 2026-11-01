@@ -6,6 +6,7 @@ import type { spawn, ChildProcessWithoutNullStreams } from 'node:child_process';
 import { join } from 'node:path';
 
 import { HOST_ASSEMBLY_CACHE_DIRECTORY, type createHostScriptPublisher } from './host-script';
+import { FOREGROUND_LOCK_LINE_PREFIX } from './foreground-lock-host';
 import { RESPONSE_MARKER } from './program';
 import { computerNativeBinary, computerNativeEnvironment } from './native-host';
 import type { WorkerLedgers } from './worker-ledgers';
@@ -22,6 +23,8 @@ export function launchHostProcess(options: {
   inputMarker: string;
   nativeEnvironment: () => Record<string, string> | undefined;
   spawnProcess: typeof spawn;
+  /** The bridge host leases the foreground lock to a worker that asks. */
+  hostForegroundLock: boolean;
 }): ChildProcessWithoutNullStreams {
   const { dataDirectory, hostScript, ledgers, inputMarker, spawnProcess } = options;
   if (process.platform !== 'win32') {
@@ -46,6 +49,7 @@ export function launchHostProcess(options: {
         MIXDOG_COMPUTER_HOST_BUILD: hostScript.build(),
         MIXDOG_COMPUTER_INPUT_MARKER: inputMarker,
         MIXDOG_COMPUTER_INACTIVE_LEDGER: ledgerPath,
+        MIXDOG_COMPUTER_HOST_FOREGROUND_LOCK: options.hostForegroundLock ? '1' : '',
       },
     }
   );
@@ -59,6 +63,8 @@ export function watchHostWorker(
   child: ChildProcessWithoutNullStreams,
   events: {
     pointerProgress(payload: string): void;
+    /** A request for the bridge host's foreground lock (foreground-lock-host.ts). */
+    foregroundLock(payload: string): void;
     reply(json: string): void;
     retire(error: Error): void;
     unstarted(): void;
@@ -68,6 +74,10 @@ export function watchHostWorker(
   const receive = createComputerLineDecoder((line) => {
     if (line.startsWith(POINTER_LINE_PREFIX)) {
       events.pointerProgress(line.slice(POINTER_LINE_PREFIX.length));
+      return;
+    }
+    if (line.startsWith(FOREGROUND_LOCK_LINE_PREFIX)) {
+      events.foregroundLock(line.slice(FOREGROUND_LOCK_LINE_PREFIX.length));
       return;
     }
     const marker = line.indexOf(RESPONSE_MARKER);

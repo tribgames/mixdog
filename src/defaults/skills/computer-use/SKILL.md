@@ -70,6 +70,9 @@ GNOME with Mixdog's own shell extension, which the app sets up); prefer accessib
   decorates the real pointer. Visual feedback is not proof of action success.
   A background semantic action may queue behind foreground work to protect
   focus; waiting for that guard never switches its delivery mode.
+  On Chromium and Electron targets a background semantic action can briefly
+  bring the target forward; one guarded attempt then tries to put the user's
+  window back, and it is skipped when the user has acted meanwhile.
 - **Foreground (explicit):** use when the target/gesture requires real pointer
   or keyboard focus, background is known unsupported, or the user requests a
   visible demonstration. A click or drag is not automatically foreground:
