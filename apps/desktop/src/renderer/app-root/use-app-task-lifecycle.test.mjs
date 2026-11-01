@@ -4,6 +4,7 @@ import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from '../test-support/test-dom.mjs';
 import { useAppTaskLifecycle } from './use-app-task-lifecycle.ts';
+import { createNavigationHistory } from '../navigation-history.ts';
 
 test('useAppTaskLifecycle manages selection, tabs, task start, and session clear', async () => {
   const { dom } = installTestDom(null, {
@@ -22,6 +23,7 @@ test('useAppTaskLifecycle manages selection, tabs, task start, and session clear
   const lastNewTaskPrefs = { current: null };
   const draftPanePrefs = { current: new Map() };
   const openSessionRef = { current: async () => {} };
+  const navigationHistory = { current: createNavigationHistory() };
   const resetCalls = [];
 
   let focusedSelection = null;
@@ -55,6 +57,7 @@ test('useAppTaskLifecycle manages selection, tabs, task start, and session clear
       focusedLeafIdRef: { current: 'leaf-1' },
       viewedSessionRef,
       unreadViewedSessionRef,
+      navigationHistory,
       pendingConversationHandoff,
       setConversationHandoff: () => {},
       navigationEpoch,

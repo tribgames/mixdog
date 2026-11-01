@@ -232,7 +232,7 @@ test('a focused code editor keeps Ctrl+Arrow for word jumps and line scrolling',
   assert.deepEqual(vertical, ['down']);
 });
 
-test('Alt+Left/Right walks history except in the browser page, the terminal and text on a Mac', async (t) => {
+test('Alt+Left/Right walks history except in the browser page, the terminal, the code editor and text fields', async (t) => {
   const host = document.createElement('main');
   const plain = document.createElement('textarea');
   const terminal = document.createElement('div');
@@ -282,8 +282,8 @@ test('Alt+Left/Right walks history except in the browser page, the terminal and 
     });
     return event.defaultPrevented;
   };
-  assert.equal(await press(plain, 'ArrowLeft'), true);
-  assert.equal(await press(plain, 'ArrowRight'), true);
+  assert.equal(await press(host, 'ArrowLeft'), true);
+  assert.equal(await press(host, 'ArrowRight'), true);
   assert.equal(await press(terminal, 'ArrowLeft'), false);
   assert.equal(await press(browser, 'ArrowLeft'), false);
   assert.deepEqual(calls, ['back', 'forward']);
@@ -299,21 +299,19 @@ test('Alt+Left/Right walks history except in the browser page, the terminal and 
   Object.defineProperty(editable, 'isContentEditable', { value: true });
   host.append(input, checkbox, editor, editable);
 
-  for (const [platform, mac] of [
-    ['MacIntel', true],
-    ['Win32', false],
-    ['Linux x86_64', false],
-  ]) {
+  // The composer is a textarea: Alt+Left there keeps its native meaning on
+  // every platform, so it never switches sessions.
+  for (const platform of ['MacIntel', 'Win32', 'Linux x86_64']) {
     Object.defineProperty(navigator, 'platform', { configurable: true, value: platform });
     for (const [name, target, textTarget] of [
-      ['textarea', plain, true],
+      ['composer textarea', plain, true],
       ['input', input, true],
       ['contenteditable', editable, true],
       ['Monaco', editorInput, true],
       ['workspace', host, false],
       ['checkbox', checkbox, false],
     ]) {
-      const yields = mac && textTarget;
+      const yields = textTarget;
       const label = `${platform}/${name}`;
       let delivered = 0;
       const onKey = () => delivered++;
@@ -326,6 +324,107 @@ test('Alt+Left/Right walks history except in the browser page, the terminal and 
       target.removeEventListener('keydown', onKey);
     }
   }
+});
+
+/** Renders the keymap over a plain area, the browser pane, a terminal and a code editor. */
+async function mountHistorySurfaces(t) {
+  const host = document.createElement('main');
+  const composer = document.createElement('textarea');
+  const surfaces = {};
+  for (const [name, className] of [
+    ['browser', 'browser-pane'],
+    ['isolated', 'browser-isolated-view'],
+    ['terminal', 'xterm'],
+    ['editor', 'monaco-editor'],
+  ]) {
+    const surface = document.createElement('div');
+    surface.className = className;
+    const inner = document.createElement('div');
+    surface.append(inner);
+    surfaces[name] = inner;
+  }
+  document.body.append(host, composer, ...Object.values(surfaces).map((inner) => inner.parentElement));
+  const root = createRoot(host);
+  const calls = [];
+  const noop = () => {};
+  t.after(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+    composer.remove();
+    for (const inner of Object.values(surfaces)) inner.parentElement.remove();
+  });
+  await act(async () => {
+    root.render(
+      React.createElement(Harness, {
+        actions: {
+          tabs: [],
+          activeTabKey: '',
+          navigateTab: noop,
+          startTask: noop,
+          startProjectlessTask: noop,
+          openSettings: noop,
+          toggleSidebar: noop,
+          toggleDock: noop,
+          togglePanel: noop,
+          openQuickAccess: noop,
+          openCommandPalette: noop,
+          openFindInFiles: noop,
+          openTabSwitcher: noop,
+          focusSiblingPane: noop,
+          focusVerticalPane: noop,
+          navigateBack: () => calls.push('back'),
+          navigateForward: () => calls.push('forward'),
+        },
+      })
+    );
+  });
+  return { host, composer, surfaces, calls };
+}
+
+test('Ctrl+[ / ] walks history in the app and the composer but stays with the browser page, terminal and code editor', async (t) => {
+  const { host, composer, surfaces, calls } = await mountHistorySurfaces(t);
+  const press = async (target, code) => {
+    const event = new window.KeyboardEvent('keydown', {
+      key: code === 'BracketLeft' ? '[' : ']',
+      code,
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    let delivered = false;
+    target.addEventListener('keydown', () => (delivered = true), { once: true });
+    await act(async () => target.dispatchEvent(event));
+    return { claimed: event.defaultPrevented, delivered };
+  };
+  assert.deepEqual(await press(host, 'BracketLeft'), { claimed: true, delivered: false });
+  assert.deepEqual(await press(composer, 'BracketRight'), { claimed: true, delivered: false });
+  assert.deepEqual(calls, ['back', 'forward']);
+  calls.length = 0;
+  for (const [name, target] of Object.entries(surfaces)) {
+    assert.deepEqual(await press(target, 'BracketLeft'), { claimed: false, delivered: true }, name);
+    assert.deepEqual(await press(target, 'BracketRight'), { claimed: false, delivered: true }, name);
+  }
+  assert.deepEqual(calls, [], 'the browser page keeps its own back/forward');
+});
+
+test('mouse buttons 3/4 walk back/forward except over the browser page, terminal and code editor', async (t) => {
+  const { host, composer, surfaces, calls } = await mountHistorySurfaces(t);
+  const click = async (target, button) => {
+    const event = new window.MouseEvent('mouseup', { button, bubbles: true, cancelable: true });
+    await act(async () => target.dispatchEvent(event));
+    return event.defaultPrevented;
+  };
+  assert.equal(await click(host, 3), true);
+  assert.equal(await click(composer, 4), true);
+  assert.equal(await click(host, 0), false);
+  assert.equal(await click(host, 1), false);
+  assert.deepEqual(calls, ['back', 'forward']);
+  calls.length = 0;
+  for (const [name, target] of Object.entries(surfaces)) {
+    assert.equal(await click(target, 3), false, name);
+    assert.equal(await click(target, 4), false, name);
+  }
+  assert.deepEqual(calls, []);
 });
 
 test('Ctrl+Alt+N starts a task without a project; Ctrl+N is unchanged; AltGr is not claimed', async (t) => {

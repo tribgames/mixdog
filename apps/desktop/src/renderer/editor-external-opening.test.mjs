@@ -30,6 +30,7 @@ after(() => hooks.deregister());
 
 const { createRoot } = await import('react-dom/client');
 const { useEditorNavigation } = await import('./use-editor-navigation.ts');
+const { createNavigationHistory } = await import('./navigation-history.ts');
 const { EditorBreadcrumbs } = await import('./editor-breadcrumbs.tsx');
 const { DESKTOP_TOAST_EVENT } = await import('./desktop-toasts.tsx');
 
@@ -38,10 +39,14 @@ async function mountNavigation(t, api) {
   const opened = [];
   const tabs = [];
   const current = { value: null };
+  const navigationHistory = { current: createNavigationHistory() };
   function Harness() {
     current.value = useEditorNavigation({
       setTabs: (update) => tabs.push(update),
       openSelectionInFocusedPane: (...args) => opened.push(args),
+      navigationHistory,
+      openSession() {},
+      sessionAvailable: () => true,
     });
     return null;
   }

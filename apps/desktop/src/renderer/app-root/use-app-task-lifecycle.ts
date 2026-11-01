@@ -22,6 +22,7 @@ import type { useAppShellPanels } from '../use-app-shell-panels';
 import { paneSize } from './workspace-targets';
 import { setBranchIntent } from '../worktree-branch-model';
 import { NEW_TASK_IN_WORKTREE_EVENT, type NewTaskInWorktreeDetail } from '../worktree-session-events';
+import { recordNavigationVisit, type NavigationHistory } from '../navigation-history';
 
 export const LAST_SESSION_KEY = 'mixdog.desktop-last-session.v1';
 
@@ -47,6 +48,7 @@ export interface UseAppTaskLifecycleOptions {
   focusedLeafIdRef: React.MutableRefObject<string>;
   viewedSessionRef: React.MutableRefObject<string>;
   unreadViewedSessionRef: React.MutableRefObject<string>;
+  navigationHistory: React.MutableRefObject<NavigationHistory>;
   pendingConversationHandoff: React.MutableRefObject<ConversationHandoff | null>;
   setConversationHandoff: React.Dispatch<React.SetStateAction<ConversationHandoff | null>>;
   navigationEpoch: React.MutableRefObject<number>;
@@ -84,6 +86,7 @@ export function useAppTaskLifecycle({
   focusedLeafIdRef,
   viewedSessionRef,
   unreadViewedSessionRef,
+  navigationHistory,
   pendingConversationHandoff,
   setConversationHandoff,
   navigationEpoch,
@@ -164,6 +167,12 @@ export function useAppTaskLifecycle({
       } catch {
         /* startup restoration remains best-effort */
       }
+      // Every session switch passes here (sidebar, agent link, tab strip), so
+      // this is the one place Back/Forward history learns of it. Drafts,
+      // projects and Settings are not history entries.
+      if (nextSelection.kind === 'session') {
+        recordNavigationVisit(navigationHistory.current, { kind: 'session', id: nextSelection.id });
+      }
       selectionRef.current = nextSelection;
       viewedSessionRef.current = nextSelection.kind === 'session' ? nextSelection.id : '';
       unreadViewedSessionRef.current = viewedSessionRef.current;
@@ -172,6 +181,7 @@ export function useAppTaskLifecycle({
       registerWorkspaceSelection(nextSelection, title, replaceKey);
     },
     [
+      navigationHistory,
       openSelectionInFocusedPane,
       registerWorkspaceSelection,
       selectionRef,

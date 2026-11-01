@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
+import { useCallback, useState, type Dispatch, type MutableRefObject, type SetStateAction } from 'react';
 import type { NavigationSelection, WorkspaceSelection, WorkspaceTab } from './navigation';
 import { getEditorLanguageSnapshot, subscribeEditorLanguageStore, type EditorProblem } from './editor-language-store';
 import { primeEditorFileLoad } from './editor-file-loader';
@@ -8,28 +8,30 @@ import { navigationKey } from './text-format';
 import { editorFileOpener } from '../shared/file-preview';
 import { openEditorFileExternally } from './editor-external-file';
 import { isRemoteHostRenderer } from './remote-ui-projection';
+import {
+  recordNavigationVisit,
+  walkNavigationHistory,
+  type EditorNavigationLocation,
+  type NavigationHistory,
+} from './navigation-history';
 
-export interface EditorNavigationLocation {
-  project: string;
-  rel: string;
-  line: number;
-  accessToken?: string;
-}
-
-interface EditorNavigationHistory {
-  entries: EditorNavigationLocation[];
-  index: number;
-}
+export type { EditorNavigationLocation } from './navigation-history';
 
 interface UseEditorNavigationOptions {
   setTabs: Dispatch<SetStateAction<WorkspaceTab[]>>;
   openSelectionInFocusedPane(selection: WorkspaceSelection, replaceKey?: string, options?: { preview?: boolean }): void;
+  /** The window's Back/Forward history, shared with session activation. */
+  navigationHistory: MutableRefObject<NavigationHistory>;
+  /** Re-opens a session entry through the normal open path. */
+  openSession(sessionId: string): void | Promise<void>;
+  /** False for a session that no longer exists: Back/Forward skip it. */
+  sessionAvailable(sessionId: string): boolean;
 }
 
 export interface EditorNavigationState {
   fileReveal: { key: string; line: number; nonce: number } | null;
   latestEditorLocation: MutableRefObject<EditorNavigationLocation | null>;
-  editorNavigationHistory: MutableRefObject<EditorNavigationHistory>;
+  editorNavigationHistory: MutableRefObject<NavigationHistory>;
   openFileTab(
     project: string,
     rel: string,
@@ -39,39 +41,28 @@ export interface EditorNavigationState {
     openMode?: 'preview' | 'pinned'
   ): void;
   openProblemQuickFix(problem: EditorProblem): void;
+  /** Back (-1) / Forward (1) through the window's history: sessions and editor locations. */
   navigateEditorHistory(offset: -1 | 1): void;
 }
 
 export function useEditorNavigation({
   setTabs,
   openSelectionInFocusedPane,
+  navigationHistory,
+  openSession,
+  sessionAvailable,
 }: UseEditorNavigationOptions): EditorNavigationState {
   const [fileReveal, setFileReveal] = useState<{ key: string; line: number; nonce: number } | null>(null);
-  const latestEditorLocation = useRef<EditorNavigationLocation | null>(null);
-  const editorNavigationHistory = useRef<EditorNavigationHistory>({ entries: [], index: -1 });
+  const latestEditorLocation = navigationHistory.current.editorLocation;
   const [, setEditorNavigationRevision] = useState(0);
 
-  const recordEditorNavigation = useCallback((target: EditorNavigationLocation) => {
-    const history = editorNavigationHistory.current;
-    const entries = history.entries.slice(0, history.index + 1);
-    const same = (left: EditorNavigationLocation | undefined, right: EditorNavigationLocation) =>
-      Boolean(
-        left &&
-          left.project === right.project &&
-          left.rel === right.rel &&
-          left.line === right.line &&
-          left.accessToken === right.accessToken
-      );
-    const append = (location: EditorNavigationLocation | null) => {
-      if (location && !same(entries.at(-1), location)) entries.push(location);
-    };
-    append(latestEditorLocation.current);
-    append(target);
-    history.entries = entries.slice(-200);
-    history.index = history.entries.length - 1;
-    latestEditorLocation.current = target;
-    setEditorNavigationRevision((revision) => revision + 1);
-  }, []);
+  const recordEditorNavigation = useCallback(
+    (target: EditorNavigationLocation) => {
+      recordNavigationVisit(navigationHistory.current, { kind: 'editor', location: target });
+      setEditorNavigationRevision((revision) => revision + 1);
+    },
+    [navigationHistory]
+  );
 
   const openFileTab = useCallback(
     (
@@ -144,7 +135,7 @@ export function useEditorNavigation({
         setFileReveal({ key, line, nonce: Date.now() });
       }
     },
-    [openSelectionInFocusedPane, recordEditorNavigation, setTabs]
+    [latestEditorLocation, openSelectionInFocusedPane, recordEditorNavigation, setTabs]
   );
 
   const openProblemQuickFix = useCallback(
@@ -191,22 +182,21 @@ export function useEditorNavigation({
 
   const navigateEditorHistory = useCallback(
     (offset: -1 | 1) => {
-      const history = editorNavigationHistory.current;
-      const nextIndex = history.index + offset;
-      const target = history.entries[nextIndex];
-      if (!target) return;
-      history.index = nextIndex;
-      latestEditorLocation.current = target;
-      setEditorNavigationRevision((revision) => revision + 1);
-      openFileTab(target.project, target.rel, target.line, target.accessToken, false);
+      void walkNavigationHistory(navigationHistory.current, offset, {
+        available: (entry) => entry.kind === 'editor' || sessionAvailable(entry.id),
+        openSession,
+        openEditor: ({ project, rel, line, accessToken }) => openFileTab(project, rel, line, accessToken, false),
+      }).then((moved) => {
+        if (moved) setEditorNavigationRevision((revision) => revision + 1);
+      });
     },
-    [openFileTab]
+    [navigationHistory, openFileTab, openSession, sessionAvailable]
   );
 
   return {
     fileReveal,
     latestEditorLocation,
-    editorNavigationHistory,
+    editorNavigationHistory: navigationHistory,
     openFileTab,
     openProblemQuickFix,
     navigateEditorHistory,
