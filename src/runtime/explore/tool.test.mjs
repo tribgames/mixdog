@@ -251,6 +251,33 @@ test('caller cancellation aborts every explorer and returns only after they sett
   assert.deepEqual(await leftovers(), before);
 });
 
+// #298: one explorer finishing its abort cleanup must not end the call while another is still pending.
+for (const [name, timeoutMs, expected] of [
+  ['caller cancellation', undefined, /cancelled/],
+  ['timeout', 30, /## Q1: a\n\[explore error\] timed out/],
+]) {
+  test(`${name} waits for a slower explorer to settle`, async () => {
+    const before = await leftovers();
+    let release;
+    const gate = new Promise((r) => (release = r));
+    const h = harness((q, _m, opts) => (q === 'a' ? abortable(opts.signal) : gate), configured, { timeoutMs });
+    const controller = new AbortController();
+    let done = false;
+    const pending = runExplore({ query: ['a', 'b'] }, { signal: controller.signal }, h.deps).finally(
+      () => (done = true)
+    );
+    await new Promise((r) => setTimeout(r, 20));
+    if (!timeoutMs) controller.abort(new Error('esc'));
+    await new Promise((r) => setTimeout(r, 80));
+    assert.equal(done, false);
+    release('late');
+    const res = await pending;
+    assert.match(text(res), expected);
+    assert.ok(h.children.every((c) => c.signal.aborted && c.open === 0));
+    assert.deepEqual(await leftovers(), before);
+  });
+}
+
 test('without an Explore model the tool is off the surface and refuses to run', async () => {
   assert.ok(featureDisallowedToolsFor({}).includes('explore'));
   assert.ok(featureDisallowedToolsFor({ ...configured, disabledAgents: ['explore'] }).includes('explore'));
