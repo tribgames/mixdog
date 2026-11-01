@@ -12,9 +12,48 @@ import { accountProviderSend } from './usage-accounting.mjs';
 import { noteAbandonedUsage } from './usage-context.mjs';
 import { normalizeServedModelId, servedModelSubstituted, usageRequestStatus } from './usage-request-status.mjs';
 import { createUsageStatsApi } from '../../../session-runtime/usage-stats-api.mjs';
+import { parseSSEStream } from '../../agent/orchestrator/providers/anthropic-sse.mjs';
+import { createHttpSseResponseState } from '../../agent/orchestrator/providers/openai-http-sse-response-state.mjs';
+import { _streamResponse } from '../../agent/orchestrator/providers/openai-ws-stream.mjs';
+import { consumeCompatChatCompletionStream } from '../../agent/orchestrator/providers/openai-compat-stream.mjs';
+import { EventEmitter } from 'node:events';
 import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
 
 after(() => closeUsageLedgers());
+
+// Older writers this ledger must stay compatible with, each at a fixed
+// commit (never HEAD, which moves with every commit). ad4c2593e predates the
+// request log (#300): no usage_requests table. e544d62a5 is the deployed #300
+// build: it writes usage_requests with seven positional values and times
+// only visible text, so its `ttft_ms` is never trusted.
+const PRE_REQUEST_LOG_COMMIT = 'ad4c2593e';
+const REQUEST_LOG_COMMIT = 'e544d62a5';
+
+/** That commit's ledger module (and its request-log module, when it had
+ *  one), beside this one so the rest of its imports resolve. */
+async function previousLedgerModule(t, commit) {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const show = (file) =>
+    execFileSync('git', ['show', `${commit}:src/runtime/shared/llm/${file}`], { cwd: here, encoding: 'utf8' });
+  const requestsName = `usage-ledger-requests.${commit}-${process.pid}.mjs`;
+  const ledgerPath = join(here, `usage-ledger.${commit}-${process.pid}.mjs`);
+  let ledger = show('usage-ledger.mjs');
+  if (ledger.includes("'./usage-ledger-requests.mjs'")) {
+    writeFileSync(join(here, requestsName), show('usage-ledger-requests.mjs'));
+    t.after(() => rmSync(join(here, requestsName), { force: true }));
+    ledger = ledger.replace("'./usage-ledger-requests.mjs'", `'./${requestsName}'`);
+  }
+  writeFileSync(ledgerPath, ledger);
+  t.after(() => rmSync(ledgerPath, { force: true }));
+  return import(pathToFileURL(ledgerPath).href);
+}
+const completedResponse = (outputTokens) => ({
+  id: 'r',
+  model: 'gpt-5',
+  status: 'completed',
+  output: [],
+  usage: { input_tokens: 1, output_tokens: outputTokens },
+});
 
 const everything = (db, extra = {}) => readUsageRequests(db, { fromMs: 0, toMs: Date.now() + 1000, ...extra });
 
@@ -111,9 +150,15 @@ test('a send records its answering model, substitution, attempts and first-outpu
     async (opts) => {
       noteAbandonedUsage({ inputTokens: 5, outputTokens: 1 }, 'gpt-5');
       await new Promise((resolve) => setTimeout(resolve, 20));
+      const firstOutputAt = Date.now();
       opts.onStreamDelta('text');
-      await new Promise((resolve) => setTimeout(resolve, 40));
-      return { content: 'x', model: 'gpt-5-mini-2026-01-01', usage: { inputTokens: 100, outputTokens: 400 } };
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      return {
+        content: 'x',
+        model: 'gpt-5-mini-2026-01-01',
+        usage: { inputTokens: 100, outputTokens: 400 },
+        generationMs: Date.now() - firstOutputAt,
+      };
     },
     'gpt-5',
     { sessionId: 's', onStreamDelta: (kind) => deltas.push(kind) }
@@ -131,6 +176,192 @@ test('a send records its answering model, substitution, attempts and first-outpu
     'speed runs from the first output, not the whole request'
   );
   assert.equal(read().length, 1);
+});
+
+test('a stream whose first output is silent thinking times generation from the thinking item', async (t) => {
+  const read = useLedger(t);
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const THINKING_MS = 200;
+  const frame = (event) => `event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`;
+  // Anthropic with thinking display "updates": the thinking block opens, then
+  // nothing but its signature arrives once the thinking is done.
+  const anthropic = async (opts) => {
+    const encoder = new TextEncoder();
+    const parts = [
+      [0, frame({ type: 'message_start', message: { model: 'claude-opus-5-5', usage: { input_tokens: 1 } } })],
+      [0, frame({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } })],
+      [THINKING_MS, frame({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 's' } })],
+      [0, frame({ type: 'content_block_stop', index: 0 })],
+      [0, frame({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 't1', name: 'list', input: {} } })],
+      [0, frame({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{}' } })],
+      [0, frame({ type: 'content_block_stop', index: 1 })],
+      [0, frame({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 400 } })],
+      [0, frame({ type: 'message_stop' })],
+    ];
+    const body = new ReadableStream({
+      async start(controller) {
+        for (const [delay, text] of parts) {
+          if (delay) await sleep(delay);
+          controller.enqueue(encoder.encode(text));
+        }
+        controller.close();
+      },
+    });
+    const result = await parseSSEStream(
+      new Response(body, { status: 200 }),
+      new AbortController().signal,
+      () => {},
+      opts.onStreamDelta,
+      () => {},
+      {},
+      null,
+      new Set(['list']),
+      { onStreamItemStart: opts.onStreamItemStart }
+    );
+    return { ...result, usage: { inputTokens: 1, outputTokens: 400 } };
+  };
+  // Codex / Responses: the reasoning item opens, its summary and the answer
+  // follow once the hidden reasoning is done.
+  const responses = async (opts) => {
+    const state = createHttpSseResponseState({
+      body: { tools: [] },
+      onStreamItemStart: opts.onStreamItemStart,
+      meaningful: (kind) => opts.onStreamDelta(kind),
+      lifecycle() {},
+      onServerEvent() {},
+      label: 'test',
+    });
+    state.handleEvent({ type: 'response.created', response: { id: 'r1', model: 'gpt-5' } });
+    state.handleEvent({ type: 'response.output_item.added', item: { type: 'reasoning', id: 'rs1', summary: [] } });
+    await sleep(THINKING_MS);
+    state.handleEvent({ type: 'response.reasoning_summary_text.delta', item_id: 'rs1', delta: 'Plan' });
+    state.handleEvent({ type: 'response.output_item.added', item: { type: 'message', id: 'm1', content: [] } });
+    state.handleEvent({ type: 'response.output_text.delta', item_id: 'm1', delta: 'ok' });
+    state.handleEvent({ type: 'response.completed', response: completedResponse(400) });
+    return state.finish({ useModel: 'gpt-5', poolKey: null, iteration: null, sseStartedAt: Date.now(), ttftMs: null });
+  };
+  for (const [provider, model, send] of [
+    ['anthropic-oauth', 'claude-opus-5-5', anthropic],
+    ['openai-oauth', 'gpt-5', responses],
+  ]) {
+    await accountProviderSend(provider, {}, send, model, { sessionId: provider, onStreamDelta: () => {} });
+  }
+  for (const row of read()) {
+    assert.ok(
+      row.durationMs - row.ttftMs >= THINKING_MS - 10,
+      `${row.provider}: first output at the thinking item, so the thinking is generation time (${row.ttftMs}ms)`
+    );
+    const speed = row.outputTokensPerSecond;
+    assert.ok(speed > 0 && speed < 400 / ((THINKING_MS - 10) / 1000), `${row.provider}: a true rate (${speed})`);
+  }
+});
+
+test('a WebSocket retry whose abandoned attempt reported no usage is timed by the answering stream', async (t) => {
+  const read = useLedger(t);
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  const ANSWER_MS = 120;
+  const attempt = async (opts, { fail }) => {
+    const socket = new EventEmitter();
+    socket.readyState = 1;
+    socket.close = () => {
+      socket.readyState = 3;
+    };
+    socket.terminate = socket.close;
+    const pending = _streamResponse({
+      entry: { socket, ephemeral: true },
+      externalSignal: null,
+      onStreamDelta: opts.onStreamDelta,
+      state: { sessionId: 'ws-retry' },
+      logSuppressedReasoningDeltas: false,
+    });
+    const emit = (event) => socket.emit('message', Buffer.from(JSON.stringify(event)));
+    emit({ type: 'response.created', response: { id: 'r', model: 'gpt-5' } });
+    emit({ type: 'response.output_item.added', item: { type: 'reasoning', id: 'rs' } });
+    await sleep(ANSWER_MS);
+    if (fail) {
+      // The connection drops mid-reasoning: no terminal frame, no usage.
+      socket.emit('error', Object.assign(new Error('socket reset'), { code: 'ECONNRESET' }));
+      return pending;
+    }
+    emit({ type: 'response.completed', response: completedResponse(300) });
+    return pending;
+  };
+  await accountProviderSend(
+    'openai-oauth',
+    {},
+    async (opts) => {
+      // The abandoned attempt and the reconnect backoff that follows it.
+      await attempt(opts, { fail: true }).catch(() => {});
+      opts.onStageChange?.('reconnecting', { attempt: 1, max: 3 });
+      await sleep(150);
+      return attempt(opts, { fail: false });
+    },
+    'gpt-5',
+    { sessionId: 'ws', onStreamDelta: () => {} }
+  );
+  const [row] = read();
+  const generationMs = row.durationMs - row.ttftMs;
+  assert.ok(
+    generationMs >= ANSWER_MS - 10 && generationMs < ANSWER_MS + 100,
+    `only the answering stream's generation is timed (${generationMs}ms of ${row.durationMs}ms)`
+  );
+  assert.ok(row.outputTokensPerSecond > 300 / ((ANSWER_MS + 100) / 1000), `a true rate (${row.outputTokensPerSecond})`);
+});
+
+test('a provider whose stream may hide reasoning records no first-output time; a local one does', async (t) => {
+  const read = useLedger(t);
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+  // A chat stream: its result times the first visible delta.
+  const chat = async (opts) => {
+    const chunks = async function* () {
+      await sleep(20);
+      yield { choices: [{ delta: { content: 'Hel' } }] };
+      await sleep(150);
+      yield { choices: [{ delta: { content: 'lo' }, finish_reason: 'stop' }] };
+    };
+    const assembled = await consumeCompatChatCompletionStream(chunks(), {
+      label: 'chat',
+      providerName: 'chat',
+      onStreamDelta: opts.onStreamDelta,
+      parseToolCalls: () => [],
+    });
+    return { ...assembled, usage: { inputTokens: 1, outputTokens: 300 } };
+  };
+  // A gateway may have reasoned, hidden, before that first delta.
+  await accountProviderSend('openrouter', {}, chat, 'some/model', { sessionId: 'gateway', onStreamDelta: () => {} });
+  // The local server streams every generated token, reasoning included.
+  await accountProviderSend('mixdog-local', {}, chat, 'local', { sessionId: 'local', onStreamDelta: () => {} });
+  const rows = Object.fromEntries(read().map((row) => [row.sessionId, row]));
+  assert.deepEqual([rows.gateway.ttftMs, rows.gateway.outputTokensPerSecond], [null, null]);
+  assert.ok(rows.local.durationMs - rows.local.ttftMs >= 140, 'timed from the first delta');
+  assert.ok(rows.local.outputTokensPerSecond > 0);
+});
+
+test('only a provider re-send of the same send answers its requested model', async (t) => {
+  const read = useLedger(t);
+  const answer = (model) => async () => ({ content: 'x', model, usage: { inputTokens: 1, outputTokens: 1 } });
+  await accountProviderSend(
+    'anthropic-oauth',
+    {},
+    async (leadOpts) => {
+      // An agent started by a tool dispatched while the lead's stream is live
+      // runs inside the lead's async context, on its own model.
+      await accountProviderSend('anthropic-oauth', {}, answer('claude-sonnet-5-5'), 'claude-sonnet-5-5', {
+        sessionId: 'worker',
+      });
+      // The provider's own fallback re-send is built from the lead's options.
+      return accountProviderSend('anthropic-oauth', {}, answer('claude-sonnet-5-5'), 'claude-sonnet-5-5', {
+        ...leadOpts,
+        _fallbackTriggered: true,
+      });
+    },
+    'claude-opus-5-5',
+    { sessionId: 'lead' }
+  );
+  const rows = Object.fromEntries(read().map((row) => [row.sessionId, row]));
+  assert.deepEqual(Object.keys(rows).sort(), ['lead', 'worker']);
+  assert.deepEqual([rows.worker.status, rows.worker.requestedModel], ['completed', 'claude-sonnet-5-5']);
+  assert.deepEqual([rows.lead.status, rows.lead.requestedModel], ['substituted', 'claude-opus-5-5']);
 });
 
 test('a retried send with a dated id of its model reads as retried', async (t) => {
@@ -382,16 +613,7 @@ test('each request log page reads an index in time order and looks routes up by 
   assert.match(lookup, /usage_routes_model/);
 });
 
-test('statistics and quota views read the same tokens, cost and speed as before the request log', async (t) => {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const previous = join(here, `usage-accounting.previous-${process.pid}.mjs`);
-  writeFileSync(
-    previous,
-    execFileSync('git', ['show', 'HEAD:src/runtime/shared/llm/usage-accounting.mjs'], { cwd: here, encoding: 'utf8' })
-  );
-  t.after(() => rmSync(previous, { force: true }));
-  const { accountProviderSend: previousSend } = await import(pathToFileURL(previous).href);
-
+test('statistics and quota views count every reported token once, time only the answer and list failed sends', async (t) => {
   const provider = 'anthropic-oauth';
   const model = 'claude-opus-4-8';
   const usage = (input, output) => ({ inputTokens: input, outputTokens: output });
@@ -439,59 +661,59 @@ test('statistics and quota views read the same tokens, cost and speed as before 
       }, model, { sessionId: 'g', signal: controller.signal });
     }),
   ];
-  const read = async (send) => {
-    useLedger(t);
-    const ledger = getUsageLedger();
-    for (const scenario of scenarios(send)) await scenario().catch(() => {});
-    const now = Date.now();
-    ledger.recordQuota([
-      { provider, account: 'default', label: '5H', ts: now - 60_000, usedPct: 10, resetAt: now + 3_600_000 },
-      { provider, account: 'default', label: '5H', ts: now, usedPct: 30, resetAt: now + 3_600_000 },
-    ]);
-    const api = createUsageStatsApi({ ledger: () => ledger, importHistory: async () => {} });
-    const { totals, providers } = await api.getUsageStats({ view: 'hour' });
-    const quota = await api.getQuotaHistory({ provider, account: 'default', window: '5H' });
-    // Speed divides by recorded wall time, which differs run to run: what
-    // must hold is which records are timed.
-    const timed = ledger.db.prepare('SELECT output,duration_ms FROM events WHERE duration_ms>0').all();
-    const speed = (value) => Math.round(value);
-    return {
-      tokens: totals.tokens,
-      costUsd: totals.costUsd,
-      timed: timed.map((row) => row.output),
-      speedFromTimed: [speed(providers[0].outputTokensPerSecond), speed(200 / (timed[0].duration_ms / 1000))],
-      turns: totals.turns,
-      quota: {
-        summary: quota.summary,
-        models: quota.models.map(({ outputTokensPerSecond, turns, ...row }) => row),
-      },
-    };
-  };
-  const before = await read(previousSend);
-  const after = await read(accountProviderSend);
-  assert.equal(after.tokens, before.tokens);
-  assert.equal(after.tokens, 330 + 1200 + 440 + 550 + 660 + 770 + 880, 'every reported token once');
-  assert.equal(after.costUsd, before.costUsd);
-  assert.deepEqual(after.timed, [200], 'only the completed answer is timed, as before');
-  assert.deepEqual(before.timed, [200]);
-  assert.equal(after.speedFromTimed[0], after.speedFromTimed[1]);
-  assert.equal(before.speedFromTimed[0], before.speedFromTimed[1]);
-  // The only difference: the two failures that reported nothing are requests now.
-  assert.equal(after.turns, before.turns + 2);
-  assert.ok(after.quota.models.length, 'the quota window attributes the sends');
-  assert.deepEqual(after.quota, before.quota);
+  useLedger(t);
+  const ledger = getUsageLedger();
+  for (const scenario of scenarios(accountProviderSend)) await scenario().catch(() => {});
+  const now = Date.now();
+  ledger.recordQuota([
+    { provider, account: 'default', label: '5H', ts: now - 60_000, usedPct: 10, resetAt: now + 3_600_000 },
+    { provider, account: 'default', label: '5H', ts: now, usedPct: 30, resetAt: now + 3_600_000 },
+  ]);
+  const api = createUsageStatsApi({ ledger: () => ledger, importHistory: async () => {} });
+  const { totals, providers } = await api.getUsageStats({ view: 'hour' });
+  const quota = await api.getQuotaHistory({ provider, account: 'default', window: '5H' });
+
+  // Every reported attempt once (the response-keyed cancel recorded twice is
+  // one record), plus one zero-token record per failure that reported nothing.
+  const input = 300 + 1000 + 400 + 500 + 600 + 700 + 800;
+  const output = 30 + 200 + 40 + 50 + 60 + 70 + 80;
+  assert.equal(totals.tokens, input + output, 'every reported token once');
+  assert.equal(totals.turns, 9, '7 billed attempts and 2 failures that reported nothing');
+  // Priced at the model's own rates, per token, once.
+  const rates = JSON.parse(ledger.db.prepare('SELECT signature FROM usage_routes LIMIT 1').get().signature)[5];
+  const { inputCostPerM, outputCostPerM } = JSON.parse(rates);
+  assert.ok(inputCostPerM > 0 && outputCostPerM > 0, 'the model is priced');
+  const cost = (input * inputCostPerM + output * outputCostPerM) / 1e6;
+  assert.ok(Math.abs(totals.costUsd - cost) < 1e-6, `cost ${totals.costUsd} is the tokens' price ${cost}`);
+
+  // Only the completed answer is timed; its speed is output over its time.
+  const timed = ledger.db.prepare('SELECT output,duration_ms FROM events WHERE duration_ms>0').all();
+  assert.deepEqual(
+    timed.map((row) => row.output),
+    [200]
+  );
+  assert.equal(Math.round(providers[0].outputTokensPerSecond), Math.round(200 / (timed[0].duration_ms / 1000)));
+
+  // The quota window attributes the same sends to the model.
+  assert.equal(quota.models.length, 1, 'the quota window attributes the sends');
+  const [quotaModel] = quota.models;
+  assert.deepEqual(
+    [quotaModel.model, quotaModel.turns, quotaModel.input, quotaModel.output, quotaModel.tokens],
+    [model, 9, input, output, input + output]
+  );
+  assert.ok(Math.abs(quotaModel.costUsd - cost) < 1e-6);
+  assert.equal(Math.round(quotaModel.outputTokensPerSecond), Math.round(providers[0].outputTokensPerSecond));
+
+  // The request log lists the sends, failures included; cancels are not requests.
+  const requests = everything(ledger.db).requests;
+  assert.deepEqual(requests.map((row) => row.status).sort(), ['failed', 'failed', 'failed', 'failed', 'retried']);
 });
 
 test('a ledger this build touched is opened and written by the previous build', async (t) => {
-  const here = dirname(fileURLToPath(import.meta.url));
-  // The previous build's ledger module, beside this one so its imports resolve.
-  const previous = join(here, `usage-ledger.previous-${process.pid}.mjs`);
-  writeFileSync(
-    previous,
-    execFileSync('git', ['show', 'HEAD:src/runtime/shared/llm/usage-ledger.mjs'], { cwd: here, encoding: 'utf8' })
+  const { UsageLedger: PreviousLedger, makeUsageRecord: previousRecord } = await previousLedgerModule(
+    t,
+    PRE_REQUEST_LOG_COMMIT
   );
-  t.after(() => rmSync(previous, { force: true }));
-  const { UsageLedger: PreviousLedger, makeUsageRecord: previousRecord } = await import(pathToFileURL(previous).href);
 
   const path = join(makeTempDirSync('request-log-downgrade'), 'ledger.sqlite');
   const current = new UsageLedger(path);
@@ -522,6 +744,52 @@ test('a ledger this build touched is opened and written by the previous build', 
       ],
       "the previous build's record reads as completed"
     );
+  } finally {
+    reopened.close();
+  }
+});
+
+test('the deployed request-log build still writes this ledger, and only this build’s first-output times count', async (t) => {
+  const { UsageLedger: DeployedLedger, makeUsageRecord: deployedRecord } = await previousLedgerModule(
+    t,
+    REQUEST_LOG_COMMIT
+  );
+  const path = join(makeTempDirSync('request-log-deployed'), 'ledger.sqlite');
+  const ts = Date.now() - 1000;
+  const fields = { provider: 'anthropic-oauth', model: 'claude-opus-5-5', sessionId: 's', sourceType: 'lead' };
+  const current = new UsageLedger(path);
+  current.record([
+    makeUsageRecord({ ...fields, id: 'trusted', ts, outputTokens: 500, durationMs: 6000, ttftMs: 1000 }),
+  ]);
+  current.close();
+
+  // The deployed build opens the changed schema and writes with its own
+  // insert shape, a first-output time measured from visible text included.
+  const deployed = new DeployedLedger(path);
+  try {
+    assert.equal(
+      deployed.record([
+        deployedRecord({ ...fields, id: 'deployed', ts: ts + 1, outputTokens: 408, durationMs: 4524, ttftMs: 4517 }),
+        deployedRecord({ ...fields, id: 'deployed-failed', ts: ts + 2, inputTokens: 1, status: 'failed', ttftMs: 3 }),
+      ]),
+      2
+    );
+  } finally {
+    deployed.close();
+  }
+
+  const reopened = new UsageLedger(path);
+  try {
+    const rows = everything(reopened.db).requests;
+    const byTokens = Object.fromEntries(rows.map((row) => [row.output || row.status, row]));
+    assert.equal(rows.length, 3);
+    assert.deepEqual([byTokens[500].ttftMs, byTokens[500].outputTokensPerSecond], [1000, 100], 'this build’s row');
+    assert.deepEqual(
+      [byTokens[408].ttftMs, byTokens[408].outputTokensPerSecond],
+      [null, null],
+      'the deployed build’s first-output time is never a speed'
+    );
+    assert.equal(byTokens.failed.status, 'failed', 'its request facts still read');
   } finally {
     reopened.close();
   }

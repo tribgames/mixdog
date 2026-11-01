@@ -26,6 +26,4 @@ export const noteAbandonedUsage = (usage, model) => {
   notedUsage.add(stored);
   identity.abandonedUsage ||= [];
   identity.abandonedUsage.push({ usage: stored, model, source: usage });
-  // The next attempt's first output is the one the answer's speed runs from.
-  identity.firstOutputAt = 0;
 };

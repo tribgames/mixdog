@@ -916,25 +916,37 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
   gap: 8px;
   margin-inline-start: auto;
 }
+/* Session has no width: it takes whatever the fixed columns leave, so
+   dropping a column later (e.g. speed) hands its space to Session. */
+.request-log-table {
+  min-width: 760px;
+}
 .request-log-table .request-log-col-time {
+  width: 120px;
+}
+.request-log-table .request-log-col-model {
+  width: 136px;
+}
+.request-log-table .request-log-col-tokens {
   width: 72px;
 }
-.request-log-table .request-log-col-session {
-  width: 160px;
-}
-.request-log-table :is(.request-log-col-tokens, .request-log-col-duration) {
-  width: 84px;
+.request-log-table .request-log-col-duration {
+  width: 64px;
 }
 .request-log-table :is(.request-log-col-cost, .request-log-col-status) {
-  width: 72px;
+  width: 76px;
 }
 .request-log-table .request-log-col-speed {
-  width: 92px;
+  width: 104px;
 }
 .request-log-table td {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.request-log-table td:not(.request-log-session, .request-log-model) {
+  overflow: visible;
+  text-overflow: clip;
 }
 .request-log-table .request-log-num {
   text-align: right;

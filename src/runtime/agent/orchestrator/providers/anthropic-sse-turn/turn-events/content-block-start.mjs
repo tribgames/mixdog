@@ -63,6 +63,10 @@ export function createContentBlockStart({ turn, blocks, state, progress, seedTex
       // The call opened; its input still streams before onToolCall.
       reportStreamItemStart(onStreamItemStart, { kind: 'tool' });
     }
+    // Any output block opening starts the generation (generation-window.mjs),
+    // a thinking block above all: under omitted or "updates" thinking display
+    // it streams nothing until its signature at the end.
+    if (block?.type && !fallback) turn.firstOutputAt ||= Date.now();
     if (block?.type === 'text') {
       // Seed the ordered text slot. An empty block still needs its slot (it
       // separates thinking runs); a non-empty opening `text` is model output

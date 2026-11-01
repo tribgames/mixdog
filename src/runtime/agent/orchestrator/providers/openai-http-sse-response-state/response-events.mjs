@@ -44,6 +44,9 @@ export function createResponseEvents({
         }
         break;
       case 'response.output_item.added':
+        // An encrypted reasoning item opens as the model starts thinking:
+        // the first item starts the generation (generation-window.mjs).
+        state.firstOutputAt ||= Date.now();
         output.onOutputItemAdded(event.item);
         reportStreamItemStart(onStreamItemStart, responsesItemStart(event.item));
         break;

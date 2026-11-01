@@ -83,6 +83,8 @@ export function buildAnthropicTurnResult(parseResult, { provider, useModel, opts
     ...(parseResult.providerMetadata && typeof parseResult.providerMetadata === 'object'
       ? { providerMetadata: parseResult.providerMetadata }
       : {}),
+    // The answering stream's own generation window (generation-window.mjs).
+    ...(parseResult.generationMs != null ? { generationMs: parseResult.generationMs } : {}),
     usage: {
       inputTokens: input,
       outputTokens: output,

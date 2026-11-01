@@ -176,7 +176,7 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
           <colgroup>
             <col className="request-log-col-time" />
             <col className="request-log-col-session" />
-            <col />
+            <col className="request-log-col-model" />
             <col className="request-log-col-tokens" />
             <col className="request-log-col-cost" />
             <col className="request-log-col-duration" />

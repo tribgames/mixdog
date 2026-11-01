@@ -15,6 +15,7 @@ import { createWsToolCalls } from './openai-ws-response-state/tool-calls.mjs';
 import { normalizeWsUsage } from './openai-ws-response-state/usage.mjs';
 import { createRefusals, refusalResultFields } from './openai-ws-response-state/refusals.mjs';
 import { isIncompleteToolItem } from './lib/responses-terminal-fields.mjs';
+import { generationWindow } from './lib/generation-window.mjs';
 
 export { parseToolSearchArgs } from './openai-ws-response-state/tool-calls.mjs';
 
@@ -27,6 +28,7 @@ export { parseToolSearchArgs } from './openai-ws-response-state/tool-calls.mjs';
  */
 export function createWsResponseState({ onToolCall, onStreamDelta, midState, traceProvider }) {
   let content = '';
+  let firstOutputAt = 0;
   let model = '';
   let responseId = '';
   let responseServiceTier = '';
@@ -152,8 +154,12 @@ export function createWsResponseState({ onToolCall, onStreamDelta, midState, tra
       if (response?.model) model = response.model;
       if (response?.id) responseId = response.id;
     },
-    /** response.output_item.added */
-    noteItemAdded: tools.noteItemAdded,
+    /** response.output_item.added: an encrypted reasoning item opens as the
+     *  model starts thinking, so the first one starts the generation. */
+    noteItemAdded(item) {
+      firstOutputAt ||= Date.now();
+      return tools.noteItemAdded(item);
+    },
     /** response.function_call_arguments.delta / custom_tool_call_input.delta */
     noteToolInputDelta: tools.noteToolInputDelta,
     /** response.function_call_arguments.done */
@@ -257,6 +263,7 @@ export function createWsResponseState({ onToolCall, onStreamDelta, midState, tra
         serviceTier: responseServiceTier || undefined,
         // A refused turn: typed stop reason and the refusal text.
         ...refusalResultFields(refusals, content),
+        ...generationWindow(firstOutputAt),
       };
     },
   };

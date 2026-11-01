@@ -10,6 +10,7 @@ import { _displayCodexModel } from '../openai-codex-model.mjs';
 import { createProviderReplay } from '../lib/provider-replay.mjs';
 import { createResponseStamps } from './response-stamps.mjs';
 import { refusalResultFields } from '../openai-ws-response-state/refusals.mjs';
+import { generationWindow } from '../lib/generation-window.mjs';
 
 export function createResponseOutcome({ state }) {
   const { stampToolSafety, stampOutcome, stallPartial, stampStreamError, attachStreamPartial, endedEarlyError } =
@@ -87,6 +88,7 @@ export function createResponseOutcome({ state }) {
       serviceTier: state.serviceTier || undefined,
       // A refused turn: typed stop reason and the refusal text.
       ...refusalResultFields(state.refusals, state.content),
+      ...generationWindow(state.firstOutputAt),
     };
   };
 
