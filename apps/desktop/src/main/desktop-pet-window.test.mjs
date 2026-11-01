@@ -206,7 +206,9 @@ function setup({
   pageLoaded = Promise.resolve(),
   avatarImage,
 } = {}) {
-  let stored = normalizeDesktopPetPrefs(prefs);
+  // The overlay is off by default; these tests exercise it, so they start on
+  // unless a test passes `enabled` itself (`enabled: undefined` = never chosen).
+  let stored = normalizeDesktopPetPrefs({ enabled: true, ...prefs });
   const screen = fakeScreen(displays);
   const windows = [];
   const calls = { submit: [], open: [], read: [], copy: [], decide: [], writes: 0 };
@@ -282,9 +284,21 @@ const command = (window, name) => window.webContents.emit(DESKTOP_PET_IPC.comman
 
 // ---- Life -----------------------------------------------------------------------
 
-test('the overlay is on by default; off persists across a restart; on and quit', async () => {
-  const fresh = await started();
-  assert.deepEqual(fresh.pet.config(), {
+test('an unset overlay preference is off and opens no window; a stored true stays on', async () => {
+  const unset = await started({ prefs: { enabled: undefined } });
+  assert.equal(unset.pet.config().enabled, false);
+  assert.equal(unset.windows.length, 0, 'never chosen: no overlay');
+  unset.pet.dispose();
+  const chosen = await started({ prefs: { enabled: true } });
+  assert.equal(chosen.pet.config().enabled, true);
+  assert.equal(chosen.windows.length, 1, 'an explicit on keeps showing it');
+  chosen.pet.dispose();
+});
+
+test('the overlay turned on persists; off persists across a restart; on and quit', async () => {
+  const fresh = await started({ prefs: { enabled: undefined } });
+  assert.equal(fresh.windows.length, 0);
+  assert.deepEqual(await fresh.app.webContents.invoke(DESKTOP_PET_IPC.setEnabled, true), {
     enabled: true,
     pinned: true,
     pinnedHere: false,
@@ -295,7 +309,8 @@ test('the overlay is on by default; off persists across a restart; on and quit',
     autoClose: true,
     scale: 100,
   });
-  assert.equal(fresh.windows.length, 1, 'opens at start by default');
+  await tick();
+  assert.equal(fresh.windows.length, 1);
   assert.deepEqual(await fresh.app.webContents.invoke(DESKTOP_PET_IPC.setEnabled, false), {
     enabled: false,
     pinned: true,
@@ -307,7 +322,7 @@ test('the overlay is on by default; off persists across a restart; on and quit',
     autoClose: true,
     scale: 100,
   });
-  assert.equal(fresh.window.destroyed, true);
+  assert.equal(fresh.windows[0].destroyed, true);
   assert.equal(fresh.stored().enabled, false, 'an explicit off is written');
   fresh.pet.dispose();
   const { pet, windows, app, screen } = await started({ prefs: fresh.stored() });
@@ -1872,7 +1887,7 @@ test('stored prefs: malformed fields read as defaults', () => {
       positions: { 1: { x: 'a' }, abc: { x: 1, y: 2 }, 7: { x: 1.4, y: 2 } },
     }),
     {
-      enabled: true,
+      enabled: false,
       keepAbove: false,
       collapsed: false,
       autoAdvance: true,
