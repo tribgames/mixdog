@@ -336,6 +336,73 @@ test('a worktree refusal before submission leaves the same submission id resenda
   assert.deepEqual(f.receipt(), { signature: reset.signature, sessionId: reset.sessionId, phase: 'accepted' });
 });
 
+test('outside a git repository a default worktree runs as a normal task; an explicit one is still refused', async (t) => {
+  const f = await fixture(t);
+  let requests = 0;
+  f.state.onConfigure = async (params) => {
+    assert.equal(params.action, 'requestWorktree');
+    requests++;
+    throw Object.assign(new Error('This folder does not support worktrees.'), { code: 'WORKTREE_UNSUPPORTED_REPO' });
+  };
+  await assert.rejects(
+    f.host.submitNewTask('Explicit work', { id: 'explicit-draft' }, { worktree: {} }),
+    /^Error: WORKTREE_UNSUPPORTED_REPO/
+  );
+  assert.deepEqual(f.state.submits, []);
+  const accepted = await f.host.submitNewTask('Accepted work', f.options, { worktree: { fromDefault: true } });
+  assert.equal(accepted.accepted, true);
+  assert.equal(requests, 2, 'the default was attempted');
+  assert.deepEqual(f.state.submits, [{ sessionId: f.sessionId, id: f.options.id }]);
+});
+
+test('other draft settings after a refusal start on a fresh session that carries none of the refused draft', async (t) => {
+  const f = await fixture(t);
+  const applied = [];
+  f.state.onConfigure = async (params) => {
+    if (params.action === 'requestWorktree') {
+      throw Object.assign(new Error('This folder does not support worktrees.'), { code: 'WORKTREE_UNSUPPORTED_REPO' });
+    }
+    applied.push([params.sessionId, params.action, params.args[0]]);
+    return { sessionId: f.state.current, revision: 1, full: { sessionId: f.state.current, items: [] }, value: null };
+  };
+  // Settings A are applied, then the worktree is refused before anything is sent.
+  await assert.rejects(
+    f.host.submitNewTask('Accepted work', f.options, { workflowId: 'alpha', orchestrationMode: 'swarm', worktree: {} }),
+    /^Error: WORKTREE_UNSUPPORTED_REPO/
+  );
+  const refused = f.receipt();
+  assert.equal(refused.phase, 'reserved');
+  assert.equal(refused.refused, true, 'the refusal is recorded');
+  // Settings B (worktree off, another workflow): the same text keeps the same submission id.
+  const accepted = await f.host.submitNewTask('Accepted work', f.options, { workflowId: 'beta' });
+  assert.equal(accepted.accepted, true);
+  // Neither A's session nor the refusal's recorded address (a resend of A may configure that one).
+  assert.ok(![f.sessionId, refused.sessionId].includes(accepted.sessionId), 'B starts on a fresh address');
+  assert.deepEqual(
+    applied.filter(([id]) => id === accepted.sessionId).map(([, action, value]) => [action, value]),
+    [['setWorkflow', 'beta']],
+    "B's session carries none of A's settings"
+  );
+  assert.deepEqual(f.state.submits, [{ sessionId: accepted.sessionId, id: f.options.id }]);
+  await assert.rejects(f.host.submitNewTask('Accepted work', f.options, {}), /different content/);
+});
+
+for (const phase of ['reserved', 'configured']) {
+  test(`a ${phase} receipt left by an interrupted attempt (no recorded refusal) still refuses other content`, async (t) => {
+    const f = await fixture(t);
+    // Interrupted after the draft was applied (before or after `configured` was recorded).
+    await fsp.mkdir(join(f.receiptPath, '..'), { recursive: true });
+    await fsp.writeFile(
+      f.receiptPath,
+      JSON.stringify({ signature: 'other-draft-settings', sessionId: f.sessionId, phase })
+    );
+    await assert.rejects(f.submit(), /different content/);
+    assert.deepEqual(f.state.creates, []);
+    assert.deepEqual(f.state.submits, []);
+    assert.equal(f.receipt().signature, 'other-draft-settings');
+  });
+}
+
 for (const create of [false, true]) {
   test(`a branch draft resolves its checkout before first send (create=${create})`, async (t) => {
     const f = await fixture(t, `branch-${create}`);

@@ -459,6 +459,7 @@ export function BranchIslandSegment({
           notice={notice}
           intent={intent}
           busy={actions.busy}
+          worktreeUnavailable={actions.worktreeUnavailable}
           pending={actions.pending}
           loading={!menu}
           locked={locked}

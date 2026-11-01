@@ -1277,11 +1277,15 @@ export function requiredNewTaskDraft(value: unknown): DesktopNewTaskDraft {
     const value = input.worktree;
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new TypeError('worktree is invalid.');
     const record = value as Record<string, unknown>;
-    requireAllowedKeys(record, new Set(['confirmLarge', 'branch', 'create']), 'new task worktree');
+    requireAllowedKeys(record, new Set(['confirmLarge', 'branch', 'create', 'fromDefault']), 'new task worktree');
     if (record.confirmLarge !== undefined && typeof record.confirmLarge !== 'boolean') {
       throw new TypeError('worktree.confirmLarge must be a boolean.');
     }
+    if (record.fromDefault !== undefined && typeof record.fromDefault !== 'boolean') {
+      throw new TypeError('worktree.fromDefault must be a boolean.');
+    }
     worktree = record.confirmLarge === true ? { confirmLarge: true } : {};
+    if (record.fromDefault === true) worktree.fromDefault = true;
     if (record.branch !== undefined) worktree.branch = requiredString(record.branch, 'worktree.branch');
     if (record.create !== undefined) {
       if (typeof record.create !== 'boolean' || !worktree.branch) {

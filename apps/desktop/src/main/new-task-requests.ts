@@ -14,14 +14,18 @@ interface Receipt {
   signature: string;
   sessionId: string;
   phase: Phase;
+  /** Set by reset: the attempt was refused before anything was sent, so the
+   * submission id may be resent with other content. */
+  refused?: true;
 }
 export interface NewTaskRequest {
   readonly sessionId: string;
   readonly phase: Phase;
   commit(phase: 'configured' | 'accepted'): Promise<void>;
-  /** Back to `reserved` on a fresh session address, for an attempt that failed
-   * before anything that could have been accepted was sent: the old
-   * reservation is destroyed unclaimed, so a resend must not resume it. */
+  /** Back to `reserved` on a fresh session address, marked refused, for an
+   * attempt that failed before anything that could have been accepted was
+   * sent: the old reservation is destroyed unclaimed, so a resend must not
+   * resume it. */
   reset(): Promise<void>;
 }
 
@@ -67,14 +71,17 @@ async function secureReceiptFolder(folder: string): Promise<void> {
  * `configured` only re-applies the same draft. An atomic rename is enough for
  * both (a process crash never loses it). `accepted` is what
  * recovery answers from without resubmitting, so it is fsynced together with
- * its folder entry before acceptance is reported. */
-async function writeReceipt(path: string, receipt: Receipt): Promise<void> {
+ * its folder entry before acceptance is reported; so are a refusal (it frees
+ * the id for other content) and the write that clears one before the next
+ * attempt may send: a power cut must never bring a cleared refusal back. */
+async function writeReceipt(path: string, receipt: Receipt, durable = receipt.phase === 'accepted'): Promise<void> {
   await secureReceiptFolder(dirname(path));
-  const durable = receipt.phase === 'accepted';
   await receiptWrites(path, () =>
     writeFileAtomicAsync(path, JSON.stringify(receipt), durable ? { fsyncDir: true } : { fsync: false })
   );
 }
+
+const freshSessionId = () => `sess_desktop_${randomBytes(32).toString('hex')}`;
 
 const RECEIPT_MAX_BYTES = 4096;
 const PHASES: readonly string[] = ['reserved', 'configured', 'accepted'];
@@ -155,9 +162,30 @@ export class NewTaskRequests {
     const promise = (async () => {
       await secureReceiptFolder(dirname(path));
       const stored = await readReceipt(path);
-      if (stored && stored.signature !== signature) throw new Error('Submission id was reused for different content.');
-      let receipt: Receipt = stored ?? { signature, sessionId: `sess_desktop_${key}`, phase: 'reserved' };
-      if (!stored) await writeReceipt(path, receipt);
+      // Only a recorded refusal (reset) frees the id for other content, such
+      // as a resend with changed draft settings. Any other receipt, a
+      // `reserved` one left by an interrupted attempt included, keeps it.
+      const refused = stored?.refused === true;
+      if (stored && stored.signature !== signature && !refused)
+        throw new Error('Submission id was reused for different content.');
+      // The next attempt runs unmarked again: once it may have configured or
+      // sent, it is not replaceable. The same content resumes the refusal's
+      // address; other content starts on a fresh one, so nothing the refused
+      // address may hold (draft settings only overwrite what a draft sets)
+      // carries over.
+      let receipt: Receipt =
+        stored && !refused
+          ? stored
+          : {
+              signature,
+              sessionId: !stored
+                ? `sess_desktop_${key}`
+                : stored.signature === signature
+                  ? stored.sessionId
+                  : freshSessionId(),
+              phase: 'reserved',
+            };
+      if (receipt !== stored) await writeReceipt(path, receipt, refused);
       return execute({
         get sessionId() {
           return receipt.sessionId;
@@ -171,12 +199,8 @@ export class NewTaskRequests {
           receipt = next;
         },
         async reset() {
-          const next: Receipt = {
-            signature,
-            sessionId: `sess_desktop_${randomBytes(32).toString('hex')}`,
-            phase: 'reserved',
-          };
-          await writeReceipt(path, next);
+          const next: Receipt = { signature, sessionId: freshSessionId(), phase: 'reserved', refused: true };
+          await writeReceipt(path, next, true);
           receipt = next;
         },
       });

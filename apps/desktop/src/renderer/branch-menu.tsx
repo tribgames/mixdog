@@ -42,7 +42,8 @@ import {
   largeRepoPrompt,
   nothingToCleanUp,
   pruneReportText,
-  setWorktreeIntent,
+  applyDefaultWorktreeIntent,
+  chooseWorktreeIntent,
   setBranchIntent,
   getBranchIntent,
   worktreeFailure,
@@ -224,18 +225,21 @@ export function useBranchMenuData({
     };
   }, [eager, readKey, refreshKey]);
   // A New Task starts in the user's configured default; an explicit choice
-  // later wins because the default applies once per draft.
+  // later wins because the default applies once per draft. It waits for a
+  // menu read showing a git repository: no project or a non-git folder has
+  // no worktree to default to.
+  const repository = Boolean(menu?.workspace.repoCommonDir);
   useEffect(() => {
-    if (!draft || defaultApplied.has(intentKey)) return;
+    if (!draft || !repository || defaultApplied.has(intentKey)) return;
     defaultApplied.add(intentKey);
     void invokeWorktree<{ newTaskDefault?: string }>('getWorktreeSettings')
       .then((settings) => {
-        if (settings?.newTaskDefault === 'worktree') setWorktreeIntent(intentKey, true);
+        if (settings?.newTaskDefault === 'worktree') applyDefaultWorktreeIntent(intentKey);
       })
       .catch(() => {
         // Settings are optional chrome: the branch default stays.
       });
-  }, [draft, intentKey]);
+  }, [draft, intentKey, repository]);
 
   // Nothing read or cached for this key yet: the menu is still loading.
   return { menu, recovery, loading: shown === null, notice, setNotice, load };
@@ -430,10 +434,12 @@ export function useBranchMenuActions({
   };
 
   const revision = menu?.workspace.revision;
+  // A folder that is not a git repository has no worktree to offer.
+  const worktreeUnavailable = Boolean(menu) && !menu?.workspace.repoCommonDir;
   const pickWorktree = async () => {
-    if (!menu || busy || locked) return;
+    if (!menu || worktreeUnavailable || busy || locked) return;
     if (draft) {
-      setWorktreeIntent(intentKey, !intent);
+      chooseWorktreeIntent(intentKey, !intent);
       close();
       return;
     }
@@ -533,6 +539,7 @@ export function useBranchMenuActions({
     },
     busy,
     pending,
+    worktreeUnavailable,
     pickWorktree,
     pickRow,
     createBranch,
@@ -736,6 +743,8 @@ type BranchMenuContentsProps = {
   notice: string;
   intent: boolean;
   busy: boolean;
+  /** The folder is not a git repository: "New worktree" is shown disabled. */
+  worktreeUnavailable?: boolean;
   /** The chosen transition, marked with a spinner until its result arrives. */
   pending?: BranchMenuPending | null;
   /** No branch list has been read yet (none cached): a subtle loading line. */
@@ -942,18 +951,21 @@ function PruneWorktreesButton({
 }
 
 /** "New worktree": the next turn starts on a new branch in its own folder.
- *  Pressed while chosen; not offered to a session already in its worktree. */
+ *  Pressed while chosen; not offered to a session already in its worktree;
+ *  disabled with the reason as its tooltip outside a git repository. */
 function NewWorktreeButton({
   className,
   intent,
   pending,
   disabled,
+  unavailable = false,
   onPick,
 }: {
   className: string;
   intent: boolean;
   pending: boolean;
   disabled: boolean;
+  unavailable?: boolean;
   onPick(): void;
 }) {
   return (
@@ -964,8 +976,8 @@ function NewWorktreeButton({
       data-selected={intent || undefined}
       data-pending={pending || undefined}
       aria-pressed={intent}
-      aria-disabled={disabled || undefined}
-      title={t('New branch · separate folder')}
+      aria-disabled={disabled || unavailable || undefined}
+      title={unavailable ? t('This folder does not support worktrees.') : t('New branch · separate folder')}
       onClick={onPick}
     >
       {pending ? <ProgressSpinner size={14} aria-hidden="true" /> : <FolderGit2 size={14} aria-hidden="true" />}
@@ -1047,6 +1059,7 @@ function BranchMenuPanel({
           intent={contents.intent}
           pending={contents.pending?.kind === 'worktree'}
           disabled={contents.busy || Boolean(contents.locked)}
+          unavailable={contents.worktreeUnavailable}
           onPick={contents.onPickWorktree}
         />
         {contents.management?.prune && (
@@ -1138,6 +1151,7 @@ export function BranchIslandPanel({
                 intent={contents.intent}
                 pending={contents.pending?.kind === 'worktree'}
                 disabled={contents.busy || Boolean(contents.locked)}
+                unavailable={contents.worktreeUnavailable}
                 onPick={contents.onPickWorktree}
               />
             </>
@@ -1395,6 +1409,7 @@ export function BranchMenuLayer({
               notice={notice}
               intent={intent}
               busy={busy}
+              worktreeUnavailable={actions.worktreeUnavailable}
               pending={pending}
               base={base}
               rows={rows}
