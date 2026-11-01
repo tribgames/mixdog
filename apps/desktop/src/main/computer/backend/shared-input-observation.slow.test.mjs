@@ -45,8 +45,30 @@ test('one-shot senders retain the original observer across processes, through ga
         /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern bool CloseDesktop\(System\.IntPtr desktop\);/,
         'static bool CloseDesktop(System.IntPtr desktop) { return true; }',
       ],
+      // Fixture windows: the window under a point is its x coordinate, and
+      // window n belongs to process n.
+      [
+        /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern System\.IntPtr GetForegroundWindow\(\);/,
+        'static System.IntPtr GetForegroundWindow() { return new System.IntPtr(ObserverFixture.Foreground); }',
+      ],
+      [
+        /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern System\.IntPtr WindowFromPoint\(POINT point\);/,
+        'static System.IntPtr WindowFromPoint(POINT point) { return new System.IntPtr(point.x); }',
+      ],
+      [
+        /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern System\.IntPtr GetAncestor\(System\.IntPtr window, uint flags\);/,
+        'static System.IntPtr GetAncestor(System.IntPtr window, uint flags) { return ObserverFixture.Root == 0 ? window : new System.IntPtr(ObserverFixture.Root); }',
+      ],
+      [
+        /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern uint GetWindowThreadProcessId\(System\.IntPtr window, out uint process\);/,
+        'static uint GetWindowThreadProcessId(System.IntPtr window, out uint process) { process = (uint)window.ToInt64(); return 1; }',
+      ],
+      [
+        /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern bool GetGUIThreadInfo\(uint thread, ref GUITHREADINFO info\);/,
+        'static bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info) { if (ObserverFixture.CaptureUnreadable) return false; info.capture = new System.IntPtr(ObserverFixture.Capture); return true; }',
+      ],
     ]) {
-      assert.match(source, declaration, 'The fixture must replace desktop reads before compiling');
+      assert.match(source, declaration, 'The fixture must replace desktop and window reads before compiling');
       source = source.replace(declaration, stub);
     }
     await writeFile(
@@ -64,14 +86,44 @@ public static class MixNativeInput {
 public static class ObserverFixture {
   public static volatile bool HooksFail, Held, Desktop = true;
   public static volatile int Installs;
+  public static long Foreground, Root, Capture;
+  public static bool CaptureUnreadable;
   [System.Runtime.InteropServices.DllImport("user32.dll")]
   static extern bool PostThreadMessage(uint thread, uint message, System.UIntPtr wp, System.IntPtr lp);
   const System.Reflection.BindingFlags Hidden = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
   static void Record(bool own, uint tick) {
-    typeof(MixInputObservation).GetMethod("Record", Hidden)
-      .Invoke(null, new object[] {own, own ? MixInputObservation.Marker : System.IntPtr.Zero, tick});
+    typeof(MixInputObservation).GetMethod("Record", Hidden).Invoke(null, new object[] {own, tick, false, null});
   }
   public static void Foreign() { Record(false, (uint)MixWin32.InputTick()); }
+  static object Struct(string name) {
+    return System.Activator.CreateInstance(typeof(MixInputObservation).GetNestedType(name, System.Reflection.BindingFlags.NonPublic));
+  }
+  static void Set(object value, string field, object content) { value.GetType().GetField(field).SetValue(value, content); }
+  // Calls the low-level hook itself with a physical (unmarked) event.
+  static void Hook(string hook, int message, object value) {
+    System.IntPtr data = System.Runtime.InteropServices.Marshal.AllocHGlobal(System.Runtime.InteropServices.Marshal.SizeOf(value));
+    try {
+      System.Runtime.InteropServices.Marshal.StructureToPtr(value, data, false);
+      typeof(MixInputObservation).GetMethod(hook, Hidden).Invoke(null, new object[] {0, new System.IntPtr(message), data});
+    } finally { System.Runtime.InteropServices.Marshal.FreeHGlobal(data); }
+  }
+  public static void Key(long foreground) {
+    Foreground = foreground;
+    object key = Struct("KEY");
+    Set(key, "vk", 0x41u);
+    Set(key, "time", (uint)MixWin32.InputTick());
+    Hook("OnKey", 0x100, key);
+  }
+  // A mouse message over window hit, whose top level is root (0: itself).
+  public static void Mouse(int message, int hit, long root) {
+    Root = root;
+    object point = Struct("POINT");
+    Set(point, "x", hit);
+    object mouse = Struct("MOUSE");
+    Set(mouse, "point", point);
+    Set(mouse, "time", (uint)MixWin32.InputTick());
+    Hook("OnMouse", message, mouse);
+  }
   // Hook callbacks run on the observer thread; a posted drain puts the event there.
   public static void Own(long tick) { System.Threading.Interlocked.Exchange(ref MixWin32.Tick, tick); Record(true, (uint)tick); }
   public static void Gap(long tick) { System.Threading.Interlocked.Exchange(ref MixWin32.Tick, tick); }
@@ -112,6 +164,14 @@ while (($line=[Console]::ReadLine()) -ne $null) {
   $extra = $null
   switch ($command) {
     'foreign' { [ObserverFixture]::Foreign() }
+    'foreground' { [ObserverFixture]::Foreground = [long]$argument }
+    'capture' { [ObserverFixture]::Capture = [long]$argument }
+    'capture-unreadable' { [ObserverFixture]::CaptureUnreadable = $argument -eq '1' }
+    'key' { [ObserverFixture]::Key([long]$argument) }
+    'mouse' {
+      $message, $hit, $root = $argument -split ':'
+      [ObserverFixture]::Mouse([int]$message, [int]$hit, [long]$root)
+    }
     'gap' { [ObserverFixture]::Gap([long]$argument) }
     'own' { [ObserverFixture]::Own([long]$argument) }
     'held' { [ObserverFixture]::Held = $argument -eq '1' }
@@ -128,7 +188,14 @@ while (($line=[Console]::ReadLine()) -ne $null) {
       $extra = @{ RecoveredMs = $clock.ElapsedMilliseconds }
     }
     'begin' {
-      try { [MixInputObservation]::Begin(); $extra = @{ Action = 'begun' } } catch { $extra = @{ Action = $_.Exception.InnerException.Message } }
+      try {
+        if ($argument) {
+          $target, $pointer = $argument -split ':'
+          [MixInputObservation]::Begin([IntPtr][long]$target, $pointer -eq '1')
+        }
+        else { [MixInputObservation]::Begin() }
+        $extra = @{ Action = 'begun' }
+      } catch { $extra = @{ Action = $_.Exception.InnerException.Message } }
     }
     'assert' {
       try { [MixInputObservation]::AssertContinue(); $extra = @{ Action = 'continued' } } catch { $extra = @{ Action = $_.Exception.InnerException.Message } }
@@ -165,7 +232,7 @@ while (($line=[Console]::ReadLine()) -ne $null) {
     assert.equal(original.Reason, '');
     assert.equal(original.Sequence, 0);
     // A probe process shares the fixture's system clock through FIXTURE_TICK.
-    const probe = async (sequence = 0, tick = 1000) => {
+    const probe = async (sequence = 0, tick = 1000, { target = 0, pointer = false } = {}) => {
       const { stdout } = await promisify(execFile)(
         'powershell.exe',
         [
@@ -176,7 +243,7 @@ while (($line=[Console]::ReadLine()) -ne $null) {
             `
 [MixWin32]::Tick = [long]$env:FIXTURE_TICK
 try {
-  [MixInputObservation]::BeginExpected($env:ORIGINAL_OBSERVER,[long]$env:EXPECTED_SEQUENCE)
+  [MixInputObservation]::BeginExpected($env:ORIGINAL_OBSERVER,[long]$env:EXPECTED_SEQUENCE,[IntPtr][long]$env:PROBE_TARGET,$env:PROBE_POINTER -eq '1')
   [MixInputObservation]::End()
   [Console]::WriteLine('accepted')
 } catch { [Console]::WriteLine($_.Exception.ToString()) }
@@ -189,6 +256,8 @@ try {
             ORIGINAL_OBSERVER: original.Generation,
             EXPECTED_SEQUENCE: String(sequence),
             FIXTURE_TICK: String(tick),
+            PROBE_TARGET: String(target),
+            PROBE_POINTER: pointer ? '1' : '0',
           },
         }
       );
@@ -242,6 +311,78 @@ try {
     const rehooked = await send('recover');
     assert.equal(rehooked.Ready, true, `observer did not recover within ${rehooked.RecoveredMs}ms`);
     assert.equal(rehooked.Sequence, 3);
+
+    // Input reaches an action only through its target's process, or through
+    // the shared pointer while the action itself drives it. Window n belongs
+    // to process n; the target is 55 and the user works in 77.
+    const scoped = (sequence, target, pointer = false) => probe(sequence, 1002, { target, pointer });
+    assert.equal((await send('key:77')).Sequence, 4);
+    assert.equal(await scoped(3, 55), 'accepted', 'typing into another process refused the target action');
+    assert.match(await scoped(3, 77), /user_input_active/, 'typing into the target process was missed');
+    assert.match(await probe(3, 1002), /user_input_active/, 'an action with no known target ignored input');
+    assert.equal((await send('mouse:512:77:0')).Sequence, 5);
+    assert.equal(await scoped(3, 55, true), 'accepted', 'pointer input before the action drove the pointer refused it');
+    await send('foreground:55');
+    assert.equal((await send('mouse:522:77:0')).Sequence, 6);
+    assert.match(await scoped(5, 55), /user_input_active/, 'a wheel the foreground target may receive was missed');
+    await send('foreground:77');
+    assert.equal((await send('mouse:513:66:55')).Sequence, 7);
+    assert.match(await scoped(6, 55), /user_input_active/, 'a click into the target through a child window was missed');
+    // While a foreground action drives the pointer, any pointer input stops it.
+    assert.equal((await send('begin:55:1')).Action, 'begun');
+    await send('key:77');
+    assert.equal((await send('assert')).Action, 'continued', 'typing elsewhere stopped a pointer action');
+    await send('mouse:512:77:0');
+    assert.match(
+      (await send('assert')).Action,
+      /^user_input_active:/,
+      'pointer input during a pointer action was missed'
+    );
+    await send('end');
+    // An action that does not drive the pointer is stopped only by input into its target.
+    assert.equal((await send('begin:55:0')).Action, 'begun');
+    await send('mouse:512:77:0');
+    assert.equal((await send('assert')).Action, 'continued', 'pointer input elsewhere stopped a keyboard action');
+    await send('key:55');
+    assert.match(
+      (await send('assert')).Action,
+      /^user_input_active:/,
+      'typing into the target during the action was missed'
+    );
+    await send('end');
+    // A target holding mouse capture receives moves and releases over other processes.
+    await send('capture:55');
+    for (const message of [512, 514]) {
+      const delivered = await send(`mouse:${message}:77:0`);
+      assert.match(
+        await scoped(delivered.Sequence - 1, 55),
+        /user_input_active/,
+        `captured mouse ${message} was missed`
+      );
+    }
+    await send('capture:0');
+    assert.equal(
+      await scoped((await send('mouse:512:77:0')).Sequence - 1, 55),
+      'accepted',
+      'an uncaptured move elsewhere reached the target'
+    );
+    // Unreadable capture: a held button reaches the foreground; with nothing readable the event reaches every target.
+    await send('capture-unreadable:1');
+    await send('foreground:55');
+    await send('held:1');
+    assert.match(
+      await scoped((await send('mouse:512:77:0')).Sequence - 1, 55),
+      /user_input_active/,
+      'a held drag into the foreground was missed'
+    );
+    await send('held:0');
+    await send('foreground:77');
+    assert.match(
+      await scoped((await send('mouse:512:77:0')).Sequence - 1, 55),
+      /user_input_active/,
+      'unattributable mouse input passed'
+    );
+    await send('capture-unreadable:0');
 
     // A dead observer thread is replaced under a fresh generation; nothing
     // authorized against the original carries over.

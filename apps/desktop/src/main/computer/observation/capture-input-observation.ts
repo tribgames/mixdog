@@ -38,8 +38,12 @@ export interface InputObservationHost {
   assertExecutionNotAborted(): void;
 }
 
-export function createInputObservationReader(host: InputObservationHost, command: ComputerCommand) {
-  const readOnce = async (): Promise<ComputerInputObservation | undefined> => {
+/** A read scoped to the captured window: `targetSequence` is the last foreign
+ *  input sequence that could reach that window's process. */
+export type CaptureInputObservation = ComputerInputObservation & { targetSequence?: number };
+
+export function createInputObservationReader(host: InputObservationHost, command: ComputerCommand, windowId?: string) {
+  const readOnce = async (): Promise<CaptureInputObservation | undefined> => {
     host.assertExecutionNotAborted();
     try {
       const response = await host.callPowerShell(
@@ -47,6 +51,7 @@ export function createInputObservationReader(host: InputObservationHost, command
           action: 'input_idle_state',
           session_id: host.sessionIdFor(command),
           read_only: true,
+          ...(windowId ? { input_target_window_id: windowId } : {}),
         },
         CAPTURE_ACCESSIBILITY_TIMEOUT_MS
       );
@@ -62,14 +67,21 @@ export function createInputObservationReader(host: InputObservationHost, command
         return undefined;
       const ready = result.observer_ready === true;
       const reason = !ready && typeof result.observer_reason === 'string' ? result.observer_reason : '';
-      return { ready, monitor: result.monitor, sequence: Number(result.sequence), ...(reason ? { reason } : {}) };
+      const targetSequence = Number.isSafeInteger(result.target_sequence) ? Number(result.target_sequence) : undefined;
+      return {
+        ready,
+        monitor: result.monitor,
+        sequence: Number(result.sequence),
+        ...(reason ? { reason } : {}),
+        ...(targetSequence === undefined ? {} : { targetSequence }),
+      };
     } catch {
       host.assertExecutionNotAborted();
       return undefined;
     }
   };
-  return async (): Promise<ComputerInputObservation | undefined> => {
-    const reads: Array<ComputerInputObservation | undefined> = [];
+  return async (): Promise<CaptureInputObservation | undefined> => {
+    const reads: Array<CaptureInputObservation | undefined> = [];
     const settled = await settleInputGap(
       async () => {
         const observation = await readOnce();
@@ -97,12 +109,13 @@ export function inputMonitorChanged(
   return Boolean(before && after && before.monitor !== after.monitor);
 }
 
-/** User input during the capture never fails it: the capture is published
- *  without a foreground-ready observation, so foreground input refuses it and
- *  background input proceeds. */
+/** User input into the captured window during the capture never fails it: the
+ *  capture is published without a foreground-ready observation, so foreground
+ *  input refuses it and background input proceeds. Input into other processes
+ *  leaves it ready; the action's own check judges everything since `before`. */
 export function settleInputObservation(
-  before: ComputerInputObservation | undefined,
-  after: ComputerInputObservation | undefined
+  before: CaptureInputObservation | undefined,
+  after: CaptureInputObservation | undefined
 ): {
   inputObservation: ComputerInputObservation | undefined;
   foregroundReady: boolean;
@@ -110,23 +123,25 @@ export function settleInputObservation(
 } {
   const { foregroundReady, foregroundInputReason } = foregroundInputState(before, after);
   if (!before) return { inputObservation: before, foregroundReady, foregroundInputReason };
-  const inputObservation = {
-    ...before,
+  const inputObservation: ComputerInputObservation = {
     ready: foregroundReady,
+    monitor: before.monitor,
+    sequence: before.sequence,
     ...(foregroundReady ? {} : { reason: foregroundInputReason || 'unknown' }),
   };
   return { inputObservation, foregroundReady, foregroundInputReason };
 }
 
 function foregroundInputState(
-  before: ComputerInputObservation | undefined,
-  after: ComputerInputObservation | undefined
+  before: CaptureInputObservation | undefined,
+  after: CaptureInputObservation | undefined
 ): { foregroundReady: boolean; foregroundInputReason?: string } {
   const foregroundReady =
     before?.ready === true &&
     after?.ready === true &&
     before.monitor === after.monitor &&
-    before.sequence === after.sequence;
+    after.sequence >= before.sequence &&
+    (after.targetSequence ?? after.sequence) <= before.sequence;
   if (foregroundReady) return { foregroundReady };
   // A gap that outlasted the settle wait is input still arriving, not a broken observer.
   const unavailable = (observation: ComputerInputObservation | undefined) =>

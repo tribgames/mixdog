@@ -6,8 +6,17 @@ function Release-HeldInput($state) {
     $releaseFailure = $null
     try { Release-HeldPointerButtons $state } catch { $releaseFailure = $_ }
     try { Release-HeldKeys $state } catch { if ($null -eq $releaseFailure) { $releaseFailure = $_ } }
+    # A background release a busy target never acknowledged is sent again. Only
+    # its acknowledgement here lets the host lift the pause that failure raised.
+    # A window that closed first never acknowledged it, so that stays unconfirmed.
+    if ([MixWin32]::RetryPendingReleases() -gt 0 -and $null -eq $releaseFailure) {
+        $releaseFailure = if ([MixWin32]::PendingReleaseTargetsGone -gt 0) {
+            'input_cleanup_unconfirmed: background_target_gone|the target window closed before it acknowledged a background input release'
+        }
+        else { 'input_cleanup_unconfirmed: background input release was not acknowledged' }
+    }
     if ($null -ne $releaseFailure) { throw $releaseFailure }
-    return @{ text = 'held input released' }
+    return @{ text = 'held input released'; background_release_confirmed = $true }
 }
 
 function Release-SessionState {
@@ -67,11 +76,16 @@ function Handle($req) {
     # Activating a window moves the desktop whatever the delivery field says.
     $inputScope = ($req.delivery -eq 'foreground' -or [string]$req.action -eq 'focus_window') -and -not ($readActions -contains [string]$req.action)
     if ($inputScope) {
+        # Only input that can reach this action counts against it: input into the
+        # target window's process, and any pointer input once foreground input
+        # drives the one shared pointer. Activation alone never moves the pointer.
+        $inputTarget = [MixWin32]::ParseWindowId([string]$req.window_id)
+        $drivesPointer = $req.delivery -eq 'foreground' -and [string]$req.action -ne 'focus_window'
         if ($req.observed_input_monitor_id -and $null -ne $req.observed_input_user_sequence) {
-            [MixInputObservation]::BeginExpected([string]$req.observed_input_monitor_id, [long]$req.observed_input_user_sequence)
+            [MixInputObservation]::BeginExpected([string]$req.observed_input_monitor_id, [long]$req.observed_input_user_sequence, $inputTarget, $drivesPointer)
         }
         else {
-            [MixInputObservation]::Begin()
+            [MixInputObservation]::Begin($inputTarget, $drivesPointer)
         }
     }
     try {
@@ -133,7 +147,9 @@ function Handle($req) {
             'window_integrity' { return Get-WindowIntegrity $req }
             'input_recovery_state' { return Get-InputRecoveryState $req }
             'input_idle_state' {
-                $state = [MixInputObservation]::Read()
+                # A capture names its window, so input into other processes
+                # during it can be told apart from input into the target.
+                $state = [MixInputObservation]::ReadFor([MixWin32]::ParseWindowId([string]$req.input_target_window_id))
                 # Each cause is reported on its own: the input desktop's
                 # accessibility does not depend on the observer, and the
                 # observer's reason is metadata only.
@@ -145,6 +161,7 @@ function Handle($req) {
                     desktop_ready   = $desktop
                     monitor         = $state.Generation
                     sequence        = $state.Sequence
+                    target_sequence = $state.RelevantSequence
                     idleMs          = [Math]::Max(0, ([long][Environment]::TickCount - [long]$state.Tick + 4294967296) % 4294967296)
                     held            = [MixInputObservation]::AnyInputHeld()
                 }

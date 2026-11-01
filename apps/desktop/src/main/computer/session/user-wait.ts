@@ -12,9 +12,20 @@ export interface IdleObservation {
 }
 
 /** Pauses the host may end by itself once the desktop has been quiet: a
- *  recovery that could not be verified, whose sessions the takeover already
- *  stopped and whose input its confirmed cleanup released. */
-const IDLE_RESUME_REASONS = ['input_recovery_unconfirmed'];
+ *  recovery that could not be verified, an input observer that failed, or a
+ *  release a busy target did not acknowledge in time. The takeover already
+ *  stopped their sessions, and only a cleanup that confirmed the release
+ *  (`cleanupState === 'ready'`) makes them eligible. A user's own Pause, Stop
+ *  or takeover always waits for the user. */
+const IDLE_RESUME_REASONS = [
+  'input_recovery_unconfirmed',
+  'input_observation_unavailable',
+  'input_cleanup_unconfirmed',
+];
+
+/** Sampling slows to this once observation keeps failing, instead of giving
+ *  the desktop back to the user for good. */
+const FAILING_OBSERVATION_INTERVAL_MS = 5_000;
 
 function isIdleResumePause(snapshot: ComputerUseSnapshot): boolean {
   return (
@@ -66,10 +77,9 @@ export function createComputerUserWait(options: {
     reset();
     observationFailures++;
     options.diagnostic?.(code, elapsedMs);
+    // A valid sample never restores time accrued before an uncertain sample,
+    // so a failing observer can delay the resume but never cause it.
     publish(seconds);
-    // At most two retries per takeover, including failures at the final check.
-    // A valid sample never restores time accrued before an uncertain sample.
-    if (observationFailures >= 3) options.coordinator.pauseForUser('input_observation_unavailable');
   };
 
   async function sample(): Promise<void> {
@@ -89,6 +99,7 @@ export function createComputerUserWait(options: {
         observationFailed(!valid(value) ? 'idle_observation_invalid' : 'idle_observation_slow', now() - sampledAt);
         return;
       }
+      observationFailures = 0;
       if (value.held) {
         reset();
         publish(seconds);
@@ -130,10 +141,13 @@ export function createComputerUserWait(options: {
   }
   function schedule(): void {
     if (timer || inFlight || !eligible()) return;
-    timer = setTimeout(() => {
-      timer = undefined;
-      void sample();
-    }, 500);
+    timer = setTimeout(
+      () => {
+        timer = undefined;
+        void sample();
+      },
+      observationFailures >= 3 ? FAILING_OBSERVATION_INTERVAL_MS : 500
+    );
     timer.unref?.();
   }
   const unsubscribe = options.coordinator.subscribe((snapshot) => {

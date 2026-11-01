@@ -27,15 +27,22 @@ test('native dispatch rejects old observations, clipped cursors, and stale messa
       join(directory, 'fixture.cs'),
       `
 using System;
-public class MixInputSnapshot { public bool Ready; public string Generation; public long Sequence; public string Reason = ""; }
+public class MixInputSnapshot {
+  public bool Ready; public string Generation; public long Sequence; public string Reason = "";
+  public long RelevantSequence { get { return Sequence; } }
+}
+public static class MixWin32 { public static IntPtr ParseWindowId(string id) { return IntPtr.Zero; } }
 public static class MixInputObservation {
   static int actionDepth;
   static long? actionSequence;
   static string actionGeneration;
+  static uint actionProcess;
+  static bool actionPointer;
   public static Action DispatchAuthorization;
   public static MixInputSnapshot Snapshot = new MixInputSnapshot { Ready=true, Generation="original", Sequence=3 };
-  public static MixInputSnapshot Read() { return Snapshot; }
-  static MixInputSnapshot ReadMonitor(string id) { return new MixInputSnapshot { Ready=false, Generation=id }; }
+  static uint ProcessOf(IntPtr window) { return 0; }
+  static MixInputSnapshot Read(uint process, bool pointer) { return Snapshot; }
+  static MixInputSnapshot ReadMonitor(string id, uint process, bool pointer) { return new MixInputSnapshot { Ready=false, Generation=id }; }
 ${stateMethods}
 public static class NativeFixture {
   public struct POINT { public int x,y; }

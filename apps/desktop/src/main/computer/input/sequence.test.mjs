@@ -179,8 +179,20 @@ test('an unconfirmed input cleanup in a step aborts the sequence instead of beco
   assert.deepEqual(checkpoints, [1]);
 });
 
+test('an observer outage in a step fails that row instead of taking the desktop', async () => {
+  const result = await executeComputerSequenceSteps([{ action: 'click' }, { action: 'key' }], 'hwnd:0x1', async () => ({
+    ok: false,
+    code: 'input_observation_unavailable',
+    message: 'observer lost',
+  }));
+  assert.deepEqual(
+    result.rows.map((row) => row.status),
+    ['failed', 'skipped']
+  );
+});
+
 test('every global-takeover code in a step reaches the takeover, thrown or returned', async () => {
-  for (const code of ['input_cleanup_unconfirmed', 'input_observation_unavailable']) {
+  for (const code of ['input_cleanup_unconfirmed']) {
     for (const thrown of [true, false]) {
       await assert.rejects(
         executeComputerSequenceSteps([{ action: 'click' }, { action: 'key' }], 'hwnd:0x1', async (_, index) => {

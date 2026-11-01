@@ -8,6 +8,7 @@ import { PassThrough } from 'node:stream';
 import test from 'node:test';
 import { createWorkerPool } from './worker-pool.ts';
 import { RESPONSE_MARKER } from './program.ts';
+import { createWorkerRequests } from './worker-requests.ts';
 import { createSessionLifecycle } from '../host/session-lifecycle.ts';
 import { createExecutionState } from '../host/execution-state.ts';
 import { ComputerUseCoordinator } from '../session/coordinator.ts';
@@ -221,4 +222,61 @@ test('capture cleanup failure unpublishes the worker before resolving its origin
       await rm(directory, { recursive: true, force: true });
     }
   }
+});
+
+test('only the worker that sent an unacknowledged background release can later confirm it', async () => {
+  const requests = createWorkerRequests();
+  const worker = () =>
+    Object.assign(new EventEmitter(), {
+      killed: false,
+      exitCode: null,
+      signalCode: null,
+      stdin: new PassThrough(),
+      kill() {
+        this.killed = true;
+        return true;
+      },
+    });
+  const sender = worker();
+  const replacement = worker();
+  let id = 0;
+  const reply = (child, body) => {
+    const requestId = ++id;
+    const pending = requests.dispatch(
+      child,
+      requestId,
+      '{}\n',
+      { sessionId: 'a', pointerFeedback: false, mode: 'background', input: true, backgroundPressRelease: true },
+      1000
+    );
+    requests.handleReply(JSON.stringify({ id: requestId, ...body }), child);
+    return pending;
+  };
+  const unacknowledged =
+    'input_cleanup_unconfirmed: background input release was not acknowledged; do not replay input';
+  const confirmed = { ok: true, result: { text: 'held input released', background_release_confirmed: true } };
+  await reply(sender, { ok: false, error: unacknowledged });
+  assert.equal(requests.hasUnconfirmedBackgroundInput('a'), true);
+  await reply(sender, { ok: true, result: { text: 'clicked' } });
+  assert.equal(requests.hasUnconfirmedBackgroundInput('a'), true, 'an ordinary reply proves nothing');
+  await reply(replacement, confirmed);
+  assert.equal(requests.hasUnconfirmedBackgroundInput('a'), true, 'another worker never sent that release');
+  await reply(sender, { ok: false, error: unacknowledged });
+  assert.equal(requests.hasUnconfirmedBackgroundInput('a'), true, 'the resend was not acknowledged either');
+  await reply(sender, confirmed);
+  assert.equal(requests.hasUnconfirmedBackgroundInput('a'), false);
+  // A release whose window closed first was never acknowledged, whatever comes after.
+  await reply(sender, { ok: false, error: unacknowledged });
+  await reply(sender, {
+    ok: false,
+    error:
+      'input_cleanup_unconfirmed: background_target_gone|the target window closed before it acknowledged a background input release',
+  });
+  await reply(sender, confirmed);
+  assert.equal(requests.hasUnconfirmedBackgroundInput('a'), true, 'a closed window keeps the release unconfirmed');
+  requests.clearUnconfirmedBackgroundInput();
+  // A held key or button whose release failed is not a release the worker keeps to resend.
+  await reply(sender, { ok: false, error: 'input_cleanup_unconfirmed: a held key could not be released' });
+  await reply(sender, confirmed);
+  assert.equal(requests.hasUnconfirmedBackgroundInput('a'), true);
 });

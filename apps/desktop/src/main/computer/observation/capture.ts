@@ -106,7 +106,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
     assertExecutionNotAborted();
     const observationGuard = host.beginObservation(windowId);
     try {
-      const readInputObservation = createInputObservationReader(host, command);
+      const readInputObservation = createInputObservationReader(host, command, windowId);
       let inputObservation = await readInputObservation();
       const visualOnlyCapture = resolveVisualOnlyCapture(visualOnly, sessionIdFor(command), command, mode, windowId);
       const { cacheHit: visualOnlyCacheHit, cachedAccessibilityError } = visualOnlyCapture;

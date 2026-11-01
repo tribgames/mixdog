@@ -99,7 +99,7 @@ test('held keys/buttons wait without treating ordinary input as an observation f
   assert.equal(f.counts().resumes, 1);
 });
 
-for (const reason of ['user_stop', 'user_pause', 'user_takeover', 'input_observation_unavailable', 'screen_locked']) {
+for (const reason of ['user_stop', 'user_pause', 'user_takeover', 'screen_locked']) {
   test(`${reason} cannot auto-resume from elapsed time`, async (t) => {
     const f = fixture(t, reason);
     assert.equal(
@@ -132,17 +132,60 @@ test('an unverified recovery whose cleanup failed waits for the user', async (t)
   assert.equal(f.coordinator.snapshot().userControlActive, true);
 });
 
-test('cleanup must finish before observing and failed observation requires confirmation', async (t) => {
+test('cleanup must finish before observing, and a failing observer delays the resume without causing it', async (t) => {
   const f = fixture(t);
   const finish = f.coordinator.beginCleanup('a');
   await f.advance(6000);
   assert.equal(f.counts().reads, 0);
   finish(true);
   f.fail();
-  await f.advance(1500);
-  assert.equal(f.coordinator.snapshot().takeoverReason, 'input_observation_unavailable');
-  await f.advance(6000);
+  await f.advance(12000);
+  assert.equal(f.coordinator.snapshot().takeoverReason, 'input_recovery_unconfirmed');
   assert.equal(f.counts().resumes, 0);
+  f.recover();
+  await f.advance(11000);
+  assert.equal(f.counts().resumes, 1);
+});
+
+for (const reason of ['input_observation_unavailable', 'input_cleanup_unconfirmed']) {
+  test(`${reason} with a confirmed cleanup resumes once input has been quiet for five seconds`, async (t) => {
+    const f = fixture(t, reason);
+    const pending = f.manager.wait('a');
+    await f.advance(4500);
+    assert.equal(f.coordinator.snapshot().userControlActive, true);
+    await f.advance(1500);
+    assert.equal(await pending, 'resumed');
+    assert.equal(f.counts().resumes, 1);
+  });
+}
+
+test('an unacknowledged release waits while its cleanup is unconfirmed and resumes only after it is verified', async (t) => {
+  const f = fixture(t, 'input_cleanup_unconfirmed');
+  f.coordinator.beginCleanup('a')(false);
+  await f.advance(10000);
+  assert.deepEqual(f.counts(), { reads: 0, resumes: 0 });
+  assert.equal(f.coordinator.snapshot().userControlActive, true);
+  // The verified recovery clears the barrier; the quiet interval starts then.
+  assert.equal(f.coordinator.clearFailedCleanup(), true);
+  await f.advance(4500);
+  assert.equal(f.counts().resumes, 0);
+  await f.advance(1500);
+  assert.equal(f.counts().resumes, 1);
+  assert.equal(f.coordinator.snapshot().userControlActive, false);
+});
+
+test('after an automatic resume, a pause the user starts still waits for the user', async (t) => {
+  const f = fixture(t, 'input_cleanup_unconfirmed');
+  await f.advance(6000);
+  assert.equal(f.counts().resumes, 1);
+  f.coordinator.beginCommand({ sessionId: 'a', action: 'click', mode: 'background' });
+  f.coordinator.pauseForUser('user_pause');
+  const reads = f.counts().reads;
+  await f.advance(15000);
+  assert.equal(f.counts().reads, reads);
+  assert.equal(f.counts().resumes, 1);
+  assert.equal(f.coordinator.snapshot().takeoverReason, 'user_pause');
+  assert.equal(f.coordinator.snapshot().userControlActive, true);
 });
 
 test('transient observation loss restarts a full quiet interval without input replay', async (t) => {
@@ -158,18 +201,15 @@ test('transient observation loss restarts a full quiet interval without input re
   assert.equal(f.counts().resumes, 1);
 });
 
-test('intermittent observation failures have a finite per-takeover retry budget', async (t) => {
+test('a persistently failing observer is sampled more slowly instead of handing the pause to the user', async (t) => {
   const f = fixture(t);
-  for (let i = 0; i < 3; i++) {
-    f.fail();
-    await f.tick();
-    f.recover();
-    await f.tick();
-  }
-  assert.equal(f.coordinator.snapshot().takeoverReason, 'input_observation_unavailable');
+  f.fail();
+  await f.advance(1500);
   const reads = f.counts().reads;
+  assert.equal(reads, 3);
   await f.advance(10000);
-  assert.equal(f.counts().reads, reads);
+  assert.equal(f.counts().reads - reads, 2, 'one sample per five seconds');
+  assert.equal(f.coordinator.snapshot().takeoverReason, 'input_recovery_unconfirmed');
   assert.equal(f.counts().resumes, 0);
 });
 

@@ -544,16 +544,15 @@ test('background commands run through user input while only the touched action i
   );
 });
 
-test('a read whose observer changed fails alone; only input takes the desktop back', {
+test('an input observer outage refuses only that call; the next call runs once it recovers, with no resume', {
   timeout: 3000,
 }, async (t) => {
-  for (const [action, takesOver] of [
-    ['capture', false],
-    ['click', true],
-  ]) {
+  for (const action of ['capture', 'click']) {
+    let observerReady = false;
     const f = fixture(t, {
-      runCommand: async () => {
-        throw new Error('input_observation_unavailable: observation worker changed during capture');
+      runCommand: async (command) => {
+        if (!observerReady) throw new Error('input_observation_unavailable: input observation lost (input_gap)');
+        return { text: `ran ${command.action}` };
       },
       recaptureRequiredReply: async () => null,
     });
@@ -562,8 +561,11 @@ test('a read whose observer changed fails alone; only input takes the desktop ba
       /input_observation_unavailable/
     );
     await f.host.waitForCleanup();
-    assert.equal(f.coordinator.snapshot().userControlActive, takesOver, action);
-    if (!takesOver) f.coordinator.assertAutomationAllowed();
+    assert.equal(f.coordinator.snapshot().userControlActive, false, action);
+    f.coordinator.assertAutomationAllowed();
+    observerReady = true;
+    const next = await f.host.executeSerialized({ action, session_id: 'a', window_id: 'hwnd:0x1' });
+    assert.equal(next.text, `ran ${action}`);
     f.coordinator.reset();
   }
 });
@@ -573,8 +575,7 @@ test('a returned takeover code is classified like a thrown one', {
 }, async (t) => {
   for (const [code, action, takesOver] of [
     ['input_cleanup_unconfirmed', 'click', true],
-    ['input_observation_unavailable', 'click', true],
-    ['input_observation_unavailable', 'capture', false],
+    ['input_cleanup_unconfirmed', 'capture', false],
   ]) {
     const f = fixture(t, {
       runCommand: async () => ({ text: JSON.stringify({ ok: false, code, message: 'reported by native' }) }),

@@ -16,14 +16,49 @@ public sealed class MixInputLedger
     uint quietTick;
     long quietStart;
     bool quietConfirmed;
+    // The sequence of the last foreign event per process it went to, of the
+    // last foreign pointer event, and of the last one nobody can attribute (a
+    // gap, or an event with no window), so an action can ask whether input
+    // since its baseline could have reached it.
+    readonly System.Collections.Generic.Dictionary<uint, long> lastByProcess = new System.Collections.Generic.Dictionary<uint, long>();
+    long lastPointer;
+    long lastUnattributed;
     public MixInputLedger(uint initialTick) { LatestTick = initialTick; }
-    public void Record(bool own, uint tick)
+    public void Record(bool own, uint tick) { Record(own, tick, false, null); }
+    public void Record(bool own, uint tick, bool pointer, uint[] processes)
     {
         LatestTick = tick;
         LatestOwn = own;
         if (own) LastOwnTick = tick;
-        else ForeignSequence++;
+        else
+        {
+            ForeignSequence++;
+            if (pointer) lastPointer = ForeignSequence;
+            bool attributed = false;
+            if (processes != null)
+            {
+                foreach (uint process in processes)
+                {
+                    if (process == 0) continue;
+                    lastByProcess[process] = ForeignSequence;
+                    attributed = true;
+                }
+            }
+            if (!attributed) lastUnattributed = ForeignSequence;
+        }
         ResetQuiet();
+    }
+    /// The last foreign sequence that could reach an action on `process`.
+    /// Process 0 is an unknown target, which every foreign event reaches; an
+    /// action driving the one shared pointer is reached by any pointer event.
+    public long LastRelevant(uint process, bool pointer)
+    {
+        if (process == 0) return ForeignSequence;
+        long last = lastUnattributed;
+        if (pointer && lastPointer > last) last = lastPointer;
+        long reached;
+        if (lastByProcess.TryGetValue(process, out reached) && reached > last) last = reached;
+        return last;
     }
     /// Input nobody typed (a reserved key Windows injects during activation)
     /// still moves the system's last-input clock, so the ledger keeps pace with
@@ -47,6 +82,7 @@ public sealed class MixInputLedger
         {
             Gap = true;
             ForeignSequence++;
+            lastUnattributed = ForeignSequence;
         }
         ResetQuiet();
     }
@@ -100,6 +136,9 @@ public sealed class MixInputSnapshot
     public bool Ready;
     public string Generation;
     public long Sequence;
+    /// The last foreign sequence that could reach the target the read was
+    /// scoped to; equal to Sequence for an unscoped read.
+    public long RelevantSequence;
     public bool LastOwn;
     public uint Tick;
     public uint OwnTick;
@@ -136,6 +175,19 @@ public static class MixInputObservation
     struct KEY { public uint vk; public uint scan; public uint flags; public uint time; public System.IntPtr extra; }
     [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
     struct MSG { public System.IntPtr hwnd; public uint message; public System.UIntPtr wp; public System.IntPtr lp; public uint time; public POINT point; public uint unused; }
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern System.IntPtr GetForegroundWindow();
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern System.IntPtr WindowFromPoint(POINT point);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern System.IntPtr GetAncestor(System.IntPtr window, uint flags);
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(System.IntPtr window, out uint process);
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    struct GUITHREADINFO { public uint size; public uint flags; public System.IntPtr active, focus, capture, menuOwner, moveSize, caret; public int left, top, right, bottom; }
+    [System.Runtime.InteropServices.DllImport("user32.dll")] static extern bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info);
+    static uint ProcessOf(System.IntPtr window)
+    {
+        uint process = 0;
+        if (window != System.IntPtr.Zero) GetWindowThreadProcessId(window, out process);
+        return process;
+    }
     delegate System.IntPtr Hook(int code, System.IntPtr message, System.IntPtr data);
     [System.Runtime.InteropServices.DllImport("user32.dll", SetLastError = true)]
     static extern System.IntPtr SetWindowsHookEx(int kind, Hook callback, System.IntPtr module, uint thread);
@@ -189,6 +241,8 @@ public static class MixInputObservation
     [System.ThreadStatic] static long? actionSequence;
     [System.ThreadStatic] static string actionGeneration;
     [System.ThreadStatic] static int actionDepth;
+    [System.ThreadStatic] static uint actionProcess;
+    [System.ThreadStatic] static bool actionPointer;
     [System.ThreadStatic] public static System.Action DispatchAuthorization;
     public static readonly System.IntPtr Marker = CreateMarker();
     static System.IntPtr CreateMarker()
@@ -203,17 +257,48 @@ public static class MixInputObservation
         }
         return new System.IntPtr(unchecked((int)value));
     }
-    static void Record(bool injected, System.IntPtr marker, uint tick)
+    static void Record(bool own, uint tick, bool pointer, uint[] processes)
     {
-        lock (sync) { if (ledger != null) ledger.Record(injected && marker == Marker, tick); }
+        lock (sync) { if (ledger != null) ledger.Record(own, tick, pointer, processes); }
+    }
+    static bool MouseButtonHeld()
+    {
+        foreach (int button in new int[] { 1, 2, 4, 5, 6 })
+        {
+            if ((GetAsyncKeyState(button) & 0x8000) != 0) return true;
+        }
+        return false;
+    }
+    /// A mouse event reaches the window under it and, through a cross-process
+    /// child, that window's top level; a wheel may also go to the foreground.
+    /// A window holding mouse capture receives moves and releases wherever the
+    /// pointer is, and while a button is down the foreground may hold it. Null
+    /// (unattributed, so it reaches every target) when neither can be read.
+    static uint[] MouseProcesses(long kind, POINT point)
+    {
+        System.IntPtr hit = WindowFromPoint(point);
+        System.IntPtr root = hit == System.IntPtr.Zero ? hit : GetAncestor(hit, 2);
+        System.IntPtr foreground = GetForegroundWindow();
+        uint foregroundProcess = 0;
+        uint thread = foreground == System.IntPtr.Zero ? 0 : GetWindowThreadProcessId(foreground, out foregroundProcess);
+        var gui = new GUITHREADINFO();
+        gui.size = (uint)System.Runtime.InteropServices.Marshal.SizeOf(typeof(GUITHREADINFO));
+        bool captureKnown = thread != 0 && GetGUIThreadInfo(thread, ref gui);
+        bool held = MouseButtonHeld();
+        if (!captureKnown && !held) return null;
+        bool wheel = kind == 0x20A || kind == 0x20E;
+        return new uint[] {
+            ProcessOf(hit), ProcessOf(root), wheel || held ? foregroundProcess : 0, captureKnown ? ProcessOf(gui.capture) : 0
+        };
     }
     static System.IntPtr OnMouse(int code, System.IntPtr message, System.IntPtr data)
     {
         if (code >= 0)
         {
             var value = (MOUSE)System.Runtime.InteropServices.Marshal.PtrToStructure(data, typeof(MOUSE));
-            Record((value.flags & 1) != 0, value.extra, value.time);
-            if (MixNativeInput.ObserveForeignOwnership && ((value.flags & 1) == 0 || value.extra != Marker))
+            bool own = (value.flags & 1) != 0 && value.extra == Marker;
+            Record(own, value.time, true, own ? null : MouseProcesses(message.ToInt64(), value.point));
+            if (MixNativeInput.ObserveForeignOwnership && !own)
             {
                 long kind = message.ToInt64();
                 int key = 0;
@@ -247,8 +332,10 @@ public static class MixInputObservation
                 lock (sync) { if (ledger != null) ledger.RecordNeutral(value.time); }
                 return CallNextHookEx(System.IntPtr.Zero, code, message, data);
             }
-            Record(injected, value.extra, value.time);
-            if (MixNativeInput.ObserveForeignOwnership && ((value.flags & 0x10) == 0 || value.extra != Marker))
+            bool own = injected && value.extra == Marker;
+            // Keys go to the foreground window's process.
+            Record(own, value.time, false, own ? null : new uint[] { ProcessOf(GetForegroundWindow()) });
+            if (MixNativeInput.ObserveForeignOwnership && !own)
             {
                 MixNativeInput.RecordForeignKey((int)value.vk, (value.flags & 0x80) == 0);
             }
@@ -317,7 +404,8 @@ public static class MixInputObservation
                 bool timerTick = message.message == TimerMessage && message.hwnd == System.IntPtr.Zero && message.wp == timer;
                 if (message.message == DrainMessage)
                 {
-                    PublishSnapshot(run);
+                    // A reader names the target process and pointer scope it asks about.
+                    PublishSnapshot(run, unchecked((uint)message.wp.ToUInt64()), message.lp != System.IntPtr.Zero);
                     run.Drained.Set();
                 }
                 bool gap, installed;
@@ -355,7 +443,7 @@ public static class MixInputObservation
             lock (sync) alive = false;
             if (run.Receipt != null)
             {
-                PublishSnapshot(run);
+                PublishSnapshot(run, 0, false);
                 run.Receipt.Dispose();
             }
             run.Drained.Set();
@@ -391,7 +479,7 @@ public static class MixInputObservation
             if (!desktop || held || now < 0 || unchecked((uint)now) != ledger.LatestTick) ledger.Latch();
         }
     }
-    static void PublishSnapshot(ObserverRun run)
+    static void PublishSnapshot(ObserverRun run, uint process, bool pointer)
     {
         long tick = MixWin32.InputTick();
         bool matches;
@@ -423,13 +511,14 @@ public static class MixInputObservation
                 view.Write(16, unchecked((uint)tick));
                 view.Write(20, ledger == null ? 0u : ledger.LastOwnTick);
                 view.Write(28, reason);
+                view.Write(32, ledger == null ? 0L : ledger.LastRelevant(process, pointer));
             }
         }
     }
     // A one-shot elevated sender must compare against the original resident
     // observer, not reinterpret its foreign sequence as a new local baseline.
     // Drain that observer's own message queue before reading its volatile receipt.
-    static MixInputSnapshot ReadMonitor(string id)
+    static MixInputSnapshot ReadMonitor(string id, uint process, bool pointer)
     {
         var unavailable = new MixInputSnapshot { Generation = id, Ready = false, Reason = ReasonName(ReasonUnresponsive) };
         System.Guid parsed;
@@ -452,7 +541,7 @@ public static class MixInputObservation
                     for (int attempt = 1; ; attempt++)
                     {
                         completed.Reset();
-                        if (!PostThreadMessage(ownerThread, DrainMessage, System.UIntPtr.Zero, System.IntPtr.Zero)
+                        if (!PostThreadMessage(ownerThread, DrainMessage, new System.UIntPtr(process), pointer ? new System.IntPtr(1) : System.IntPtr.Zero)
                           || !completed.WaitOne(1000)) return unavailable;
                         long tick = MixWin32.InputTick();
                         bool current = tick >= 0 && view.ReadUInt32(16) == unchecked((uint)tick);
@@ -468,6 +557,7 @@ public static class MixInputObservation
                             Reason = ready ? "" : ReasonName(failure),
                             Generation = id,
                             Sequence = view.ReadInt64(8),
+                            RelevantSequence = view.ReadInt64(32),
                             LastOwn = view.ReadBoolean(4),
                             Tick = view.ReadUInt32(16),
                             OwnTick = view.ReadUInt32(20)
@@ -483,7 +573,10 @@ public static class MixInputObservation
             return unavailable;
         }
     }
-    public static MixInputSnapshot Read()
+    public static MixInputSnapshot Read() { return Read(0, false); }
+    /// RelevantSequence counts only input that could reach the process owning `target`.
+    public static MixInputSnapshot ReadFor(System.IntPtr target) { return Read(ProcessOf(target), false); }
+    static MixInputSnapshot Read(uint process, bool pointer)
     {
         lock (reads)
         {
@@ -505,30 +598,52 @@ public static class MixInputObservation
             {
                 return new MixInputSnapshot { Generation = run.Generation, Ready = false, Reason = ReasonName(ReasonUnresponsive) };
             }
-            return ReadMonitor(run.Generation);
+            return ReadMonitor(run.Generation, process, pointer);
         }
     }
     public static void Begin()
     {
+        Begin(System.IntPtr.Zero, false);
+    }
+    /// An action on `target` (zero: unknown, so any input counts) is
+    /// interrupted only by input that can reach it: input into the target's
+    /// process, and any pointer input while the action drives the shared pointer.
+    public static void Begin(System.IntPtr target, bool pointer)
+    {
         if (actionDepth > 0) { AssertContinue(); actionDepth++; return; }
-        var value = Read();
+        uint process = ProcessOf(target);
+        var value = Read(process, false);
         if (!value.Ready) throw new System.Exception("input_observation_unavailable: input origin cannot be observed (" + value.Reason + ")");
         actionSequence = value.Sequence;
         actionGeneration = value.Generation;
+        actionProcess = process;
+        actionPointer = pointer;
         actionDepth = 1;
     }
     public static void BeginExpected(string expectedGeneration, long expectedSequence)
     {
-        var value = Read();
-        var expected = value.Generation == expectedGeneration ? value : ReadMonitor(expectedGeneration);
+        BeginExpected(expectedGeneration, expectedSequence, System.IntPtr.Zero, false);
+    }
+    /// Input since the observation counts only when it went to the target's
+    /// process; the pointer joins the scope once the action itself drives it.
+    public static void BeginExpected(string expectedGeneration, long expectedSequence, System.IntPtr target, bool pointer)
+    {
+        uint process = ProcessOf(target);
+        var value = Read(process, false);
+        var expected = value.Generation == expectedGeneration ? value : ReadMonitor(expectedGeneration, process, false);
         if (!value.Ready || !expected.Ready)
         {
             throw new System.Exception("input_observation_unavailable: original observation is unavailable ("
               + (value.Ready ? expected.Reason : value.Reason) + ")");
         }
-        if (expected.Sequence != expectedSequence) throw new System.Exception("user_input_active: observation was superseded by external input");
+        if (expectedSequence > expected.Sequence || expected.RelevantSequence > expectedSequence)
+        {
+            throw new System.Exception("user_input_active: observation was superseded by external input");
+        }
         actionSequence = value.Sequence;
         actionGeneration = value.Generation;
+        actionProcess = process;
+        actionPointer = pointer;
         actionDepth = 1;
         try { AssertContinue(); }
         catch { End(); throw; }
@@ -536,13 +651,13 @@ public static class MixInputObservation
     public static void AssertContinue()
     {
         if (DispatchAuthorization != null) DispatchAuthorization();
-        var value = Read();
+        var value = Read(actionProcess, actionPointer);
         if (!value.Ready) throw new System.Exception("input_observation_unavailable: input observation lost (" + value.Reason + ")");
         if (actionSequence.HasValue && value.Generation != actionGeneration)
         {
             throw new System.Exception("input_observation_unavailable: input observation was replaced during this action");
         }
-        if (actionSequence.HasValue && value.Sequence != actionSequence.Value)
+        if (actionSequence.HasValue && (value.Sequence < actionSequence.Value || value.RelevantSequence > actionSequence.Value))
         {
             throw new System.Exception("user_input_active: external input interrupted this action");
         }
@@ -554,6 +669,8 @@ public static class MixInputObservation
         {
             actionSequence = null;
             actionGeneration = null;
+            actionProcess = 0;
+            actionPointer = false;
         }
     }
 }

@@ -207,6 +207,123 @@ public static class InactiveFixture {
 );
 
 test(
+  'a background release a busy target timed out is resent until acknowledged; a press never is',
+  windowsOnly,
+  async () => {
+    const rows = await runFixture(
+      `
+$ErrorActionPreference = 'Stop'
+Add-Type -AssemblyName Accessibility
+Add-Type -AssemblyName System.Drawing
+Add-Type -ReferencedAssemblies @('System.dll','System.Core.dll','System.Drawing.dll',[Accessibility.IAccessible].Assembly.Location) -TypeDefinition (
+  [IO.File]::ReadAllText((Join-Path $env:FIXTURE_DIRECTORY 'native.cs')))
+$rows = @([ReleaseFixture]::Run())
+# The turn-end/abort release resends the release whose window is gone: it must
+# not report the release confirmed.
+${LOAD_FUNCTIONS}
+Import-Functions 'runtime.ps1' @('Release-HeldInput')
+function Release-HeldPointerButtons($state) {}
+function Release-HeldKeys($state) {}
+try { $reply = Release-HeldInput @{}; $rows += 'held_input=confirmed:' + $reply.background_release_confirmed }
+catch { $rows += 'held_input=' + $_.Exception.Message }
+[Console]::WriteLine((ConvertTo-Json @($rows) -Compress))
+`,
+      {
+        'native.cs':
+          MIXDOG_HOST_CSHARP +
+          `
+public static class ReleaseFixture {
+  static string Outcome(System.Action action) {
+    try { action(); return "ok"; }
+    catch (System.Exception error) { return error.Message.Split(':')[0]; }
+  }
+  static System.Exception Hung() { return new System.InvalidOperationException("background_target_hung|fixture"); }
+  public static string[] Run() {
+    // The waits between attempts are recorded, not slept through: the same
+    // retry logic runs, and the production interval is asserted below.
+    var waits = new System.Collections.Generic.List<int>();
+    MixWin32.ReleaseRetrySleep = delegate (int ms) { waits.Add(ms); };
+    var rows = new System.Collections.Generic.List<string>();
+    int presses = 0, releases = 0;
+    // One timeout, then the target acknowledges: no cleanup failure at all.
+    string once = Outcome(delegate {
+      MixWin32.WithBackgroundRelease(delegate { presses++; }, delegate { },
+        delegate { releases++; if (releases == 1) throw Hung(); });
+    });
+    rows.Add("once=" + once + "," + presses + "," + releases + "," + MixWin32.RetryPendingReleases());
+    // Never acknowledged: three attempts, then today's cleanup failure, and the
+    // release stays pending until a later resend is acknowledged.
+    presses = 0; releases = 0;
+    bool acknowledges = false;
+    string never = Outcome(delegate {
+      MixWin32.WithBackgroundRelease(delegate { presses++; }, delegate { },
+        delegate { releases++; if (!acknowledges) throw Hung(); });
+    });
+    rows.Add("never=" + never + "," + presses + "," + releases);
+    acknowledges = true;
+    int remaining = MixWin32.RetryPendingReleases();
+    rows.Add("acknowledged=" + remaining + "," + releases);
+    // A press that timed out is not resent; its release still goes out once.
+    presses = 0; releases = 0;
+    string press = Outcome(delegate {
+      MixWin32.WithBackgroundRelease(delegate { presses++; throw Hung(); }, delegate { }, delegate { releases++; });
+    });
+    rows.Add("press=" + press + "," + presses + "," + releases);
+    // Only a timeout is retried, about a second apart.
+    var sleeps = new System.Collections.Generic.List<int>();
+    int attempts = 0;
+    string rejected = Outcome(delegate {
+      MixWin32.ConfirmBackgroundRelease(delegate { attempts++; throw new System.InvalidOperationException("background_message_rejected|fixture"); },
+        delegate (int ms) { sleeps.Add(ms); });
+    });
+    rows.Add("rejected=" + rejected + "," + attempts + "," + sleeps.Count);
+    attempts = 0;
+    string hung = Outcome(delegate {
+      MixWin32.ConfirmBackgroundRelease(delegate { attempts++; throw Hung(); }, delegate (int ms) { sleeps.Add(ms); });
+    });
+    rows.Add("hung=" + hung + "," + attempts + "," + sleeps.Count + "," + (sleeps.TrueForAll(ms => ms > 900 && ms <= 1000)));
+    // A target gone before any release reached it holds nothing, as before.
+    string goneFirst = Outcome(delegate {
+      MixWin32.WithBackgroundRelease(delegate { }, delegate { }, delegate { throw new MixWin32.BackgroundTargetGoneException(); });
+    });
+    rows.Add("gone_first=" + goneFirst + "," + MixWin32.RetryPendingReleases());
+    // Gone after an unanswered release: nothing was sent, so nothing is confirmed,
+    // and the session's later resend keeps it unconfirmed with its own reason.
+    bool gone = false;
+    string goneAfter = "";
+    try {
+      MixWin32.WithBackgroundRelease(delegate { }, delegate { },
+        delegate { if (gone) throw new MixWin32.BackgroundTargetGoneException(); gone = true; throw Hung(); });
+    } catch (System.Exception error) { goneAfter = error.Message; }
+    rows.Add("gone_after=" + goneAfter);
+    rows.Add("gone_retry=" + MixWin32.RetryPendingReleases() + "," + MixWin32.PendingReleaseTargetsGone);
+    // One wait after each timed-out attempt that is followed by another: once (1),
+    // never (2), gone after a timeout (1); each fills out about a second.
+    rows.Add("waits=" + waits.Count + "," + waits.TrueForAll(ms => ms > 900 && ms <= 1000));
+    return rows.ToArray();
+  }
+}
+`,
+        'runtime.ps1': PS_RUNTIME,
+      }
+    );
+    assert.deepEqual(rows, [
+      'once=ok,1,2,0',
+      'never=input_cleanup_unconfirmed,1,3',
+      'acknowledged=0,4',
+      'press=background_target_hung|fixture,1,1',
+      'rejected=background_message_rejected|fixture,1,0',
+      'hung=background_target_hung|fixture,3,2,True',
+      'gone_first=ok,0',
+      'gone_after=input_cleanup_unconfirmed: background_target_gone|the target window closed before it acknowledged a background input release',
+      'gone_retry=1,1',
+      'waits=4,True',
+      'held_input=input_cleanup_unconfirmed: background_target_gone|the target window closed before it acknowledged a background input release',
+    ]);
+  }
+);
+
+test(
   'a background semantic call releases its hold even when cleanup fails, and restores a repeated steal',
   windowsOnly,
   async () => {

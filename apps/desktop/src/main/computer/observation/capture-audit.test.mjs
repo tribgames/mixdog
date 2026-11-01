@@ -759,6 +759,37 @@ test('stable captures carry the original watermark; input during a capture publi
     }
   }
 });
+test('input into other processes during a capture keeps it foreground-ready; input into the target does not', async () => {
+  for (const intoTarget of [false, true]) {
+    let reads = 0;
+    const f = fixture({
+      native: (request) => {
+        if (request.action !== 'input_idle_state') return undefined;
+        const later = ++reads > 1;
+        // The user typed elsewhere (sequence 4); only input into the target moves its own sequence.
+        const result = { observer_ready: true, monitor: 'worker-a', sequence: later ? 4 : 3, target_sequence: 3 };
+        if (later && intoTarget) result.target_sequence = 4;
+        return { ok: true, result };
+      },
+    });
+    const command = { action: 'capture', mode: 'vision', window_id: 'hwnd:0x1', session_id: 'a' };
+    const observation = await f.run(() => f.capture.captureComputer(command));
+    const idleReads = f.requests.filter((request) => request.action === 'input_idle_state');
+    assert.equal(idleReads.length > 1, true);
+    for (const request of idleReads) assert.equal(request.input_target_window_id, 'hwnd:0x1');
+    assert.equal(observation.payload.foreground_input_ready, !intoTarget);
+    assert.equal(observation.payload.foreground_input_reason, intoTarget ? 'user_input_during_capture' : undefined);
+    const scope = f.state.freshObservedWindowScope(command);
+    assert.deepEqual(
+      scope.inputObservation,
+      intoTarget
+        ? { ready: false, monitor: 'worker-a', sequence: 3, reason: 'user_input_during_capture' }
+        : { ready: true, monitor: 'worker-a', sequence: 3 },
+      'the token stays the sequence before the capture'
+    );
+  }
+});
+
 test('unavailable input observers remain distinguishable from user intervention in usable captures', async () => {
   for (const failed of [false, true]) {
     const f = fixture({

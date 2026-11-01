@@ -2,7 +2,8 @@
  * Which worker serves each session, and the requests in flight on them: their
  * dispatch, replies, timeouts, and the retirement of a worker together with
  * everything it still owed. Background input whose release a retirement or
- * reply left unproven is latched here until the user acknowledges it.
+ * reply left unproven is latched here until the user acknowledges it, or the
+ * worker that sent it reports the release acknowledged after all.
  */
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 
@@ -39,7 +40,19 @@ export function createWorkerRequests(
   const workerLastUsedAt = new Map<string, number>();
   // A killed message sender has no receipt proving that its finally block ran.
   // Keep this uncertainty latched even after the child and observation are gone.
-  const unconfirmedBackgroundSessions = new Set<string>();
+  // Only the worker that sent an unacknowledged release still knows it, so only
+  // that worker's later acknowledgement of it (`confirmable`) clears the latch.
+  const unconfirmedBackgroundSessions = new Map<
+    string,
+    { child: ChildProcessWithoutNullStreams; confirmable: boolean }
+  >();
+  const latchUnconfirmed = (sessionId: string, child: ChildProcessWithoutNullStreams, confirmable: boolean) => {
+    const existing = unconfirmedBackgroundSessions.get(sessionId);
+    unconfirmedBackgroundSessions.set(sessionId, {
+      child,
+      confirmable: confirmable && (!existing || (existing.child === child && existing.confirmable)),
+    });
+  };
 
   function retire(child: ChildProcessWithoutNullStreams, error: Error): void {
     const retiredSessionIds: string[] = [];
@@ -57,7 +70,7 @@ export function createWorkerRequests(
         // An uncertain mutation is not necessarily an unacknowledged key/button
         // release. Semantic actions and WM_CHAR alone cannot leave one held.
         if (entry.mode === 'background' && entry.backgroundPressRelease) {
-          unconfirmedBackgroundSessions.add(entry.sessionId);
+          latchUnconfirmed(entry.sessionId, child, false);
         }
       }
       clearTimeout(entry.timer);
@@ -89,8 +102,18 @@ export function createWorkerRequests(
     }
     const entry = pending.get(parsed.id);
     if (!entry || entry.child !== child) return;
-    if (entry.input && entry.mode === 'background' && /input_cleanup_unconfirmed/.test(String(parsed.error || ''))) {
-      unconfirmedBackgroundSessions.add(entry.sessionId);
+    const failure = String(parsed.error || '');
+    if (entry.input && entry.mode === 'background' && /input_cleanup_unconfirmed/.test(failure)) {
+      latchUnconfirmed(entry.sessionId, child, /background input release was not acknowledged/.test(failure));
+    }
+    const latched = unconfirmedBackgroundSessions.get(entry.sessionId);
+    if (
+      latched?.confirmable &&
+      latched.child === child &&
+      parsed.ok !== false &&
+      parsed.result?.background_release_confirmed === true
+    ) {
+      unconfirmedBackgroundSessions.delete(entry.sessionId);
     }
     const feedback = (
       parsed as PowerShellResponse & {
