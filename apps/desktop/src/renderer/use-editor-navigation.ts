@@ -7,6 +7,9 @@ import { reportEditorLoadStage } from './renderer-load-metrics';
 import { navigationKey } from './text-format';
 import { editorFileOpener } from '../shared/file-preview';
 import { openEditorFileExternally } from './editor-external-file';
+import { showDesktopToast } from './desktop-toasts';
+import { errorMessageText } from './ErrorNotice';
+import { t } from './i18n';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import {
   recordNavigationVisit,
@@ -186,9 +189,14 @@ export function useEditorNavigation({
         available: (entry) => entry.kind === 'editor' || sessionAvailable(entry.id),
         openSession,
         openEditor: ({ project, rel, line, accessToken }) => openFileTab(project, rel, line, accessToken, false),
-      }).then((moved) => {
-        if (moved) setEditorNavigationRevision((revision) => revision + 1);
-      });
+      })
+        .then((moved) => {
+          if (moved) setEditorNavigationRevision((revision) => revision + 1);
+        })
+        .catch((error: unknown) => {
+          // Every candidate failed to open: the index stayed, so tell the user.
+          showDesktopToast(t('Could not open · {{reason}}', { reason: errorMessageText(error) }), 'error');
+        });
     },
     [navigationHistory, openFileTab, openSession, sessionAvailable]
   );

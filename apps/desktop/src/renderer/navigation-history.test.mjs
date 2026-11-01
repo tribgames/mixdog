@@ -222,7 +222,7 @@ async function mountNavigation(t, sessions) {
       setTabs: lifecycle.setTabs,
       openSelectionInFocusedPane: paneWorkspace.openInFocused,
       navigationHistory,
-      openSession,
+      openSession: (id) => (view.failOpens ? Promise.reject(new Error(`${id} failed to open`)) : openSession(id)),
       sessionAvailable: (id) => sessionStillExists(id, view.sessions, paneWorkspace.leaves),
     });
     Object.assign(view, {
@@ -268,6 +268,21 @@ test('an agent-link open is recorded and walkable', async (t) => {
   // An unlisted worker stays reachable while its tab is open.
   await view.run(view.forward);
   assert.equal(view.shown(), 'worker-1');
+});
+
+test('a Back step where every candidate fails to open is reported, not an unhandled rejection, and keeps the index', async (t) => {
+  const view = await mountNavigation(t, [{ id: 'A' }, { id: 'B' }]);
+  for (const id of ['A', 'B']) await view.run(() => view.openSession(id));
+  const unhandled = [];
+  const onUnhandled = (reason) => unhandled.push(reason);
+  process.on('unhandledRejection', onUnhandled);
+  t.after(() => process.off('unhandledRejection', onUnhandled));
+  view.failOpens = true;
+  await view.run(view.back);
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(unhandled, []);
+  assert.equal(view.history.index, 1);
+  assert.equal(view.shown(), 'B');
 });
 
 test('Back skips a session that no longer exists', async (t) => {

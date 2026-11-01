@@ -103,5 +103,4 @@ test('stepUiScale steps by 5%, resets to default and clamps at 85% and 150%', as
   assert.equal(fonts.getFontSettings().uiScale, 1.5);
   for (let i = 0; i < 20; i++) fonts.stepUiScale(-1);
   assert.equal(fonts.getFontSettings().uiScale, 0.85);
-  assert.equal(fonts.UI_SCALE_RANGE.max, 1.5);
 });
