@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import {
+  chmodSync,
   existsSync,
   mkdirSync,
   mkdtempSync,
@@ -8,6 +9,7 @@ import {
   readdirSync,
   rmSync,
   statSync,
+  symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -78,6 +80,51 @@ test('managed plugin publish rolls back the previous install on replacement fail
     assert.equal(readFileSync(join(root, 'version.txt'), 'utf8'), 'new');
     assert.equal(existsSync(`${root}.backup`), false);
   } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('managed plugin publish removes a backup holding read-only git pack files', () => {
+  const base = mkdtempSync(join(tmpdir(), 'mixdog-plugin-readonly-'));
+  const root = join(base, 'plugin');
+  const pack = join(root, '.git', 'objects', 'pack', 'pack-x.pack');
+  const outside = join(base, 'outside');
+  const outsideFile = join(outside, 'keep.txt');
+  const makeNext = (name) => {
+    const next = join(base, name);
+    mkdirSync(next);
+    writeFileSync(join(next, 'version.txt'), name);
+    return next;
+  };
+  try {
+    mkdirSync(join(root, '.git', 'objects', 'pack'), { recursive: true });
+    writeFileSync(pack, 'pack');
+    chmodSync(pack, 0o444);
+    // A link to a read-only file outside the plugin must not have its mode changed.
+    mkdirSync(outside);
+    writeFileSync(outsideFile, 'outside');
+    chmodSync(outsideFile, 0o444);
+    symlinkSync(outside, join(root, 'link'), 'junction');
+    const outsideMode = statSync(outsideFile).mode;
+
+    _publishManagedPluginRoot(root, makeNext('first'));
+    assert.equal(existsSync(`${root}.backup`), false);
+    assert.equal(statSync(outsideFile).mode, outsideMode);
+    assert.equal(readFileSync(outsideFile, 'utf8'), 'outside');
+    assert.equal(readFileSync(join(root, 'version.txt'), 'utf8'), 'first');
+
+    assert.doesNotThrow(() => _publishManagedPluginRoot(root, makeNext('second')));
+    assert.equal(readFileSync(join(root, 'version.txt'), 'utf8'), 'second');
+  } finally {
+    try {
+      chmodSync(outsideFile, 0o666);
+    } catch {}
+    try {
+      chmodSync(pack, 0o666);
+    } catch {}
+    try {
+      chmodSync(join(`${root}.backup`, '.git', 'objects', 'pack', 'pack-x.pack'), 0o666);
+    } catch {}
     rmSync(base, { recursive: true, force: true });
   }
 });
