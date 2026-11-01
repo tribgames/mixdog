@@ -2131,7 +2131,7 @@ test('a hand-off line stays until that send’s own report, per send', async (t)
   assert.equal(open().length, 1, 'nor a later send without an id');
 });
 
-test('a hand-off line shows the latest progress update in place of Working, never a card per update', async (t) => {
+test('a hand-off line keeps Working and shows the latest progress update only on hover, never a card per update', async (t) => {
   const render = rowHarness(t);
   const DEV = 'sess_dev_progress';
   const sent = {
@@ -2190,26 +2190,25 @@ test('a hand-off line shows the latest progress update in place of Working, neve
     await render(React.createElement(Rows));
   };
   const lines = () => [...document.querySelectorAll('main .mx-handoff-line')];
+  const hover = () => lines()[0].querySelector('.mx-handoff-state[title]')?.getAttribute('title') ?? null;
   const cards = () => document.querySelectorAll('main .mx-task-card').length;
 
   await show([sent]);
   assert.match(lines()[0].textContent, / · Working/, 'no update yet: Working');
-  // The first update replaces Working on the same line; no card, no row of its own.
+  assert.equal(hover(), null);
+  // An update rides Working's hover; the line itself stays short. No card, no row of its own.
   const first = [sent, update('p1', 'Worker is on the parser.')];
   await show(first);
   assert.equal(lines().length, 1);
-  assert.match(lines()[0].textContent, /· Worker is on the parser\./);
-  assert.equal(lines()[0].textContent.includes('Working'), false);
-  assert.equal(lines()[0].textContent.includes('more detail'), false, 'its first line only');
-  const shown = lines()[0].querySelectorAll('.mx-handoff-name');
-  assert.equal(shown[shown.length - 1].textContent, 'Worker is on the parser.', 'ellipsizes like the name');
+  assert.match(lines()[0].textContent, / · Working/);
+  assert.equal(lines()[0].textContent.includes('Worker is on the parser'), false, 'off the line');
+  assert.equal(hover(), 'Worker is on the parser.', 'its first line only, on hover');
   assert.equal(cards(), 0, 'no card per update');
   assert.equal(document.querySelector('main [data-status="working"]'), null, 'the update row paints nothing');
   // A later update replaces it.
   await show([...first, update('p2', 'Reviewer asked for a fix.')]);
   assert.equal(lines().length, 1);
-  assert.match(lines()[0].textContent, /· Reviewer asked for a fix\./);
-  assert.equal(lines()[0].textContent.includes('Worker is on the parser'), false);
+  assert.equal(hover(), 'Reviewer asked for a fix.');
   assert.equal(cards(), 0);
   // The final report ends the line (and the update with it); its card shows once.
   await show([
