@@ -159,11 +159,7 @@ function HandoffLineView({
         </span>
       </span>
       <span aria-hidden="true">·</span>
-      <button
-        type="button"
-        aria-describedby={update ? updateId : undefined}
-        onClick={() => openTaskSession(sessionId)}
-      >
+      <button type="button" aria-describedby={update ? updateId : undefined} onClick={() => openTaskSession(sessionId)}>
         {t('Open')}
       </button>
       {update && (

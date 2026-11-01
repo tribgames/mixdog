@@ -2190,8 +2190,7 @@ test('a hand-off line keeps Working and shows the latest progress update only on
     await render(React.createElement(Rows));
   };
   const lines = () => [...document.querySelectorAll('main .mx-handoff-line')];
-  const hover = () =>
-    lines()[0].querySelector('.mx-handoff-state[data-tooltip]')?.getAttribute('data-tooltip') ?? null;
+  const hover = () => lines()[0].querySelector('.mx-handoff-state[data-tooltip]')?.getAttribute('data-tooltip') ?? null;
   const visibleText = () => {
     const line = lines()[0].cloneNode(true);
     for (const hidden of line.querySelectorAll('.sr-only')) hidden.remove();
