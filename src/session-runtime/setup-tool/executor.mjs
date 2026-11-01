@@ -79,7 +79,7 @@ const ACTION_APPLIES_TO = {
   set_agent_connector: "that agent's next connector tool call, in every session",
   set_agent_connector_tool: "that agent's next call of the tool, in every session",
   set_project_connector: 'the next connector tool call of sessions in that Project',
-  restore_definition: 'now: the bot and its chat return; its routines stay off',
+  restore_definition: 'now: the bot, its chat and its routines (as they were) return',
   set_bot_order: 'the Bots page and the Sessions bot section on every device',
   set_orchestration_mode:
     "new sessions and an empty current one (the default mode); a conversation keeps its own mode until it is switched with the composer's mode selector",

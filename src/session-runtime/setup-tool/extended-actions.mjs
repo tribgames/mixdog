@@ -284,7 +284,7 @@ export const EXTENDED_SETUP_HANDLERS = Object.freeze({
       recovery:
         args.definitionKind === 'workflow'
           ? 'User-authored definition files are deleted. A built-in override may revert to its built-in definition.'
-          : 'A custom agent or bot is archived with its chat and its routines are switched off; the user can restore it from Sessions → Archived, or delete it there for good. A built-in override reverts to its built-in definition.',
+          : 'A custom agent or bot is archived with its chat; its schedules and webhooks are paused and hidden, unchanged. The user can restore it, routines included, from Sessions → Archived, or delete it there for good, which deletes its routines too. A built-in override reverts to its built-in definition.',
     };
   },
   async save_automation(rt, args, context = {}) {

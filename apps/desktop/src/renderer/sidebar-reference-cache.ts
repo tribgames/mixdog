@@ -135,8 +135,9 @@ const MUTATION_KEYS: Partial<Record<string, readonly SidebarReferenceKey[]>> = {
   deleteWorkflow: ['workflows', 'agents'],
   saveAgentDefinition: ['agents'],
   saveLeadIdentity: ['agents'],
-  deleteAgentDefinition: ['agents'],
-  restoreAgentDefinition: ['agents'],
+  // A deleted bot's routines hide until its restore shows them again.
+  deleteAgentDefinition: ['agents', 'channelSetup'],
+  restoreAgentDefinition: ['agents', 'channelSetup'],
   setAgentRoute: ['agents'],
   setWebSearchRoute: ['webSearchRoute'],
   addProject: ['projects'],

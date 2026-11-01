@@ -673,6 +673,7 @@ function createAgentArchiveApi({
   shippedDir,
   announceBotChange,
   getAgentDefinition,
+  deleteOwnedRoutines,
 }) {
   // A removed custom agent must not leave a dangling route/preset or a
   // disabled-roster entry that would silently disable a later agent of the
@@ -714,7 +715,9 @@ function createAgentArchiveApi({
     // tombstone keeps the packaged copy of a starter from coming back, and the
     // rest (agent.json: name and face, persona, memory, its model and on/off)
     // stays for its archived chat — until restoreAgentDefinition brings it back
-    // or purgeAgentDefinition.
+    // or purgeAgentDefinition. Its schedules and webhooks are left exactly as
+    // they are: while it is archived they neither fire nor list
+    // (routine-owner.mjs), and a restore brings them back as they were.
     // AGENT.md always moves aside; an AGENT.md over an existing archive is
     // refused, since the move would overwrite it. Another selected entry
     // moves too when its own archive is free, and otherwise stays in place
@@ -739,7 +742,8 @@ function createAgentArchiveApi({
 
   /** An archived agent back as it was, under its own id: its AGENT.md moved
    *  back (a starter without a copy of its own returns to the packaged one)
-   *  and the tombstone gone. Its routines stay off (the host). */
+   *  and the tombstone gone. Its routines, never touched by the archive, list
+   *  and fire again as they were. */
   async function restoreAgentDefinition(agentId) {
     const id = agentEditorId(agentId);
     if (!id || isHiddenAgent(id) || isFixedAgent(id)) throw new Error(`unknown agent "${agentId}"`);
@@ -769,14 +773,18 @@ function createAgentArchiveApi({
     return getAgentDefinition(id);
   }
 
-  /** Deleting an archived agent again: everything it left goes for good. A
-   *  starter keeps only its tombstone, so its packaged copy stays gone. */
+  /** Deleting an archived agent again: everything it left goes for good, its
+   *  schedules and webhooks first (one statement, all or none): a purge that
+   *  fails aborts this with the agent still archived and nothing lost, to be
+   *  retried. A starter keeps only its tombstone, so its packaged copy stays
+   *  gone. */
   async function purgeAgentDefinition(agentId) {
     const id = agentEditorId(agentId);
     if (!id || isHiddenAgent(id) || isFixedAgent(id)) throw new Error(`unknown agent "${agentId}"`);
     const dataDir = dataDirOf();
     // Never a live agent; one deleted before archiving existed left nothing.
     if (!isArchivedAgent(dataDir, id)) return { id, purged: false };
+    const routines = await deleteOwnedRoutines(id);
     const dir = userDir(dataDir, id);
     rmSync(dir, { recursive: true, force: true });
     clearAgentDefinitionCache(id);
@@ -786,7 +794,19 @@ function createAgentArchiveApi({
       writeFileAtomicSync(join(dir, AGENT_DELETED_MARKER), 'deleted\n');
       clearAgentDefinitionCache(id);
     }
-    return { id, purged: true };
+    // A save that passed its owner check while the bot was still archived can
+    // land after the first purge: swept again now that the bot is gone (a
+    // later one is refused by the save itself, channel-admin.mjs). A failure
+    // here leaves at most such a row, listed as its bot deleted, deletable.
+    const late = await deleteOwnedRoutines(id).catch((error) => error);
+    const names = (kind) => [...routines[kind], ...(late instanceof Error ? [] : late[kind])];
+    const removed = { schedules: names('schedules'), webhooks: names('webhooks') };
+    return {
+      id,
+      purged: true,
+      ...(removed.schedules.length + removed.webhooks.length > 0 ? { routines: removed } : {}),
+      ...(late instanceof Error ? { routinesError: late.message } : {}),
+    };
   }
 
   return { dropAgentRoute, deleteAgentDefinition, restoreAgentDefinition, purgeAgentDefinition };
@@ -972,6 +992,9 @@ export function createAgentEditorApi(deps) {
       shippedDir,
       announceBotChange,
       getAgentDefinition,
+      // The runtime wires the store (boot/apis.mjs); a read-only editor (the
+      // routine owner and delivery probes) never deletes an agent.
+      deleteOwnedRoutines: deps.deleteOwnedRoutines ?? (async () => ({ schedules: [], webhooks: [] })),
     }
   );
 

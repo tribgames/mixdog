@@ -32,7 +32,6 @@ import { MIXY_AGENT_ID } from '../shared/agent-contacts';
 import { agentGreetingKickoff } from '../shared/agent-greeting';
 import { createAgentHomeSessions, startSessionOver } from './agent-home-sessions';
 import { agentGreetingsFileStore, createAgentGreetings, resolveMixyCreated } from './mixy-first';
-import { disableAgentSchedules } from './agent-schedules';
 import { createBranchMenuCache } from './branch-menu-cache';
 import { createInFlightJoin, createProviderModelsCache } from './provider-models-cache';
 import { SLOW_READ_CAPABILITIES } from './remote-call-queue';
@@ -374,8 +373,6 @@ export class SessionHostLifecycle {
     agentPresence: (agentIds) => this.owner.invokeControl('agentDefinitionPresence', [agentIds]),
     taskWorkspace: () => this.owner.taskWorkspace(),
     forgetRoomMember: (agentId) => this.owner.forgetRoomMember(agentId),
-    disableAgentSchedules: (agentId) =>
-      disableAgentSchedules((method, args) => this.owner.invokeControl(method, args), agentId),
     clearSession: (sessionId, archiveAs) => this.resetSessionConversation(sessionId, { archiveAs }),
     mintArchiveId,
   });

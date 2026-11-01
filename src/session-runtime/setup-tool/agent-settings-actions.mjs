@@ -66,7 +66,7 @@ export const AGENT_SETTINGS_HANDLERS = {
     }
     const name = requireText(args.name, 'name');
     await rt.restoreAgentDefinition(name);
-    return { restored: name, note: 'Its chat is back; its routines stay off until they are turned on.' };
+    return { restored: name, note: 'Its chat is back, and its routines run again as they were.' };
   },
   set_bot_order: (rt, args) => ({ botOrder: rt.setBotOrder(args.botOrder).order }),
   set_cache_warming_enabled: (rt, args) => ({

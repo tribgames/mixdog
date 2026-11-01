@@ -2,8 +2,10 @@
  * Routines are bot-based: a schedule or webhook runs in its owner bot's home
  * thread (routine-home-turn.mjs) and nowhere else. An owner that does not
  * exist — Mixy before the representative bot was created, a bot archived or
- * deleted — makes the routine paused: it does not fire, the lists show why,
- * and a new routine cannot name it.
+ * deleted — makes the routine paused: it does not fire and a new routine
+ * cannot name it. An archived bot's routines are also hidden from the lists
+ * and come back, untouched, when it is restored; deleting it for good deletes
+ * them (agent-editor.mjs). The lists show why any other one is paused.
  */
 import { MIXY_AGENT_ID } from '../runtime/agent/orchestrator/session/agent-home.mjs';
 import { mixyExists } from '../runtime/shared/mixy-presence.mjs';
@@ -12,6 +14,7 @@ import { scheduleOwnerAgentId } from './agent-home-delivery.mjs';
 /** `ownerProblem` codes and the error each one raises. */
 export const ROUTINE_OWNER_PROBLEMS = Object.freeze({
   'no-mixy': 'Create the representative bot first.',
+  'owner-archived': 'The bot that owns this routine is deleted (in Archived). Restore it, or pick another bot.',
   'owner-deleted': 'The bot that owns this routine no longer exists. Pick another bot.',
 });
 
@@ -56,6 +59,7 @@ async function defaultProbe() {
   return {
     mixyExists: (ownsRoutine) => readMixyExists(null, { ownsRoutine }),
     presence: (agentId) => api.agentDefinitionPresence([agentId])[agentId],
+    archived: (agentId) => Boolean(api.archivedAgentIdentities([agentId])[agentId]),
   };
 }
 
@@ -69,7 +73,9 @@ export async function routineOwnerProblem(ownerAgentId, probe = null, { stored =
   const owner = scheduleOwnerAgentId({ ownerAgentId });
   const check = probe || (await defaultProbe());
   if (owner === MIXY_AGENT_ID) return (await check.mixyExists(stored)) ? '' : 'no-mixy';
-  return check.presence(owner) === 'deleted' ? 'owner-deleted' : '';
+  if (check.presence(owner) !== 'deleted') return '';
+  // Archived (restorable): its routines wait, hidden, for the restore.
+  return check.archived?.(owner) ? 'owner-archived' : 'owner-deleted';
 }
 
 /** Rejects with the owner's problem; resolves when it can own a routine. */

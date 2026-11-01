@@ -24,7 +24,8 @@ import {
   setEndpointEnabled as dbSetEndpointEnabled,
 } from '../../runtime/channels/lib/webhooks-db.mjs';
 import { normalizeAutomationAttachments } from '../../runtime/shared/automation-attachments.mjs';
-import { assertRoutineOwner, routineOwnerProblem } from '../routine-owner.mjs';
+import { ROUTINE_OWNER_PROBLEMS, assertRoutineOwner, routineOwnerProblem } from '../routine-owner.mjs';
+import { MIXY_BOT_ID } from '../../runtime/shared/agent-store.mjs';
 import { assertRoutineExecutor } from '../routine-executor.mjs';
 import { hasEnabledAutomation } from '../../runtime/shared/automation-presence.mjs';
 import { resolveScheduleTimezone, validateScheduleCron } from '../../runtime/shared/schedule-time.mjs';
@@ -278,8 +279,12 @@ function ownerProblems() {
 export async function listSchedules() {
   const rows = await dbListSchedules();
   const problemOf = ownerProblems();
-  return Promise.all(rows.map(async (row) => scheduleToDisplay(row, await problemOf(row.ownerAgentId))));
+  const listed = await Promise.all(rows.map(async (row) => scheduleToDisplay(row, await problemOf(row.ownerAgentId))));
+  return listed.filter(shownRoutine);
 }
+
+// An archived bot's routines are hidden until it is restored (routine-owner.mjs).
+const shownRoutine = (row) => row.ownerProblem !== 'owner-archived';
 
 /**
  * Run `step` (the move of schedule `name`'s row) with `name` reserved against
@@ -380,6 +385,7 @@ export async function saveSchedule(
     saved = await upsertSchedule(def);
   }
   automationProbe.invalidate();
+  await refuseIfOwnerDeleted(ownerAgentId);
   return scheduleToDisplay(saved);
 }
 
@@ -406,7 +412,7 @@ async function listWebhooks() {
   const endpoints = await dbListEndpoints();
   const problemOf = ownerProblems();
   const problems = await Promise.all(endpoints.map((ep) => problemOf(ep.ownerAgentId)));
-  return endpoints.map((ep, index) => ({
+  const listed = endpoints.map((ep, index) => ({
     name: ep.name,
     description: ep.description || '',
     parser: ep.parser || 'github',
@@ -430,6 +436,7 @@ async function listWebhooks() {
     hasLastPayload: ep.hasLastPayload === true,
     ...routineHealth(ep),
   }));
+  return listed.filter(shownRoutine);
 }
 
 export async function saveWebhook({
@@ -483,6 +490,7 @@ export async function saveWebhook({
     executorAgentId: executor,
   });
   automationProbe.invalidate();
+  await refuseIfOwnerDeleted(ownerAgentId);
   return {
     name: id,
     owner: saved.ownerAgentId || ownerAgentId,
@@ -502,6 +510,39 @@ export async function deleteWebhook(name) {
   await dbDeleteEndpoint(id);
   automationProbe.invalidate();
   return { name: id, deleted: true };
+}
+
+/**
+ * Delete every schedule and webhook `agentId` currently owns, as its bot is
+ * deleted for good (agent-editor.mjs): all of them in one statement, or none
+ * (routines-db.mjs). Resolves the names removed. Mixy is never a target.
+ * Without a PostgreSQL cluster none exists, and none is started.
+ */
+export async function deleteOwnedRoutines(agentId) {
+  if (!agentHomeSessionId(agentId) || agentId === MIXY_AGENT_ID || agentId === MIXY_BOT_ID) {
+    throw new Error(`the routines of "${agentId}" cannot be deleted with a bot`);
+  }
+  if (!pgClusterExists(resolvePluginData())) return { schedules: [], webhooks: [] };
+  // Loaded on use: the stores' own modules stay the only imports of every reader.
+  const { deleteRoutinesOwnedBy } = await import('../../runtime/channels/lib/routines-db.mjs');
+  const removed = await deleteRoutinesOwnedBy(agentId);
+  automationProbe.invalidate();
+  return removed;
+}
+
+/**
+ * After a save: the owner it checked may have been deleted for good meanwhile,
+ * its routines purged before this row landed. Then the row goes the way of
+ * the bot's others (deleteOwnedRoutines) and the save is refused. The delete
+ * purges again once the bot's folder is gone, so either a purge sees this row
+ * or this check sees the bot gone. An owner archived meanwhile keeps the row,
+ * hidden with its others until a restore, as if saved just before.
+ */
+async function refuseIfOwnerDeleted(ownerAgentId) {
+  const problem = await routineOwnerProblem(ownerAgentId).catch(() => '');
+  if (problem !== 'owner-deleted') return;
+  await deleteOwnedRoutines(ownerAgentId);
+  throw new Error(ROUTINE_OWNER_PROBLEMS[problem]);
 }
 
 export async function setWebhookEnabled(name, enabled) {

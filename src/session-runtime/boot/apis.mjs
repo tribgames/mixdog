@@ -36,6 +36,7 @@ import { createSettingsApi } from '../settings-api.mjs';
 import { createSessionTitleController } from '../../runtime/agent/orchestrator/runtime-core/session-title.mjs';
 import { closeNativeToolTransports, closePatchRuntimeIfLoaded, withTeardownDeadline } from '../native-teardown.mjs';
 import { createChannelConfigApi } from '../channel-config-api.mjs';
+import { deleteOwnedRoutines } from '../services/channel-admin.mjs';
 import { createMediaApi } from '../media-api.mjs';
 import { createProviderAuthApi } from '../provider-auth-api.mjs';
 import { createUsageStatsApi } from '../usage-stats-api.mjs';
@@ -645,6 +646,13 @@ function workflowAgentsApiFor(boot) {
     settingsReachCurrentSession: () => boot.settingsReachCurrentSession(),
     switchSessionWorkflow: boot.switchSessionWorkflow,
     switchSessionOrchestrationMode: boot.switchSessionOrchestrationMode,
+    // A bot deleted for good takes its schedules and webhooks; the channels worker
+    // drops their cron jobs and endpoints on its reload.
+    deleteOwnedRoutines: async (agentId) => {
+      const removed = await deleteOwnedRoutines(agentId);
+      if (removed.schedules.length || removed.webhooks.length) boot.reloadChannelsSoon();
+      return removed;
+    },
   });
 }
 

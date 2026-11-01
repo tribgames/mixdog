@@ -75,13 +75,14 @@ export async function resetConversation(
 /** Fired on this window when the user deleted a bot here: its chat's tabs close. */
 export const BOT_DELETED_EVENT = 'mixdog:bot-deleted';
 
-/** Delete a (non-Mixy) agent: the host archives its chat under its name and
- *  switches off its routines (agent-home-sessions.ts); its open tabs close. */
+/** Delete a (non-Mixy) agent: the host archives its chat under its name
+ *  (agent-home-sessions.ts), its schedules and webhooks wait, paused and
+ *  hidden, for a restore (routine-owner.mjs); its open tabs close. */
 export async function deleteAgent(deps: AgentActionDeps, agentId: string, name: string): Promise<boolean> {
   const api = deps.api ?? window.mixdogDesktop;
   if (agentId === MIXY_AGENT_ID || !api?.invokeCapability) return false;
   const question = t(
-    'Delete {{name}}? The bot is archived with its chat, and all its routines stop. Delete it again from Archived to remove it for good.',
+    'Delete {{name}}? The bot is archived with its chat, and its schedules and webhooks are paused until it is restored. Delete it again from Archived to remove it for good.',
     { name }
   );
   if (!(await ask(deps, question, t('Delete'), `agent-delete:${agentId}`))) return false;
@@ -99,7 +100,7 @@ export async function deleteAgent(deps: AgentActionDeps, agentId: string, name: 
 }
 
 /** 복원 of a deleted bot's archived chat: the bot comes back as it was under
- *  its own id and its chat leaves 보관됨; its routines stay off. */
+ *  its own id, its chat leaves 보관됨 and its routines return as they were. */
 export async function restoreAgent(deps: AgentActionDeps, agentId: string, name: string): Promise<boolean> {
   const api = deps.api ?? window.mixdogDesktop;
   if (agentId === MIXY_AGENT_ID || !api?.invokeCapability) return false;
@@ -107,7 +108,7 @@ export async function restoreAgent(deps: AgentActionDeps, agentId: string, name:
     await api.invokeCapability({ capability: 'restoreAgentDefinition', args: [agentId] });
     invalidateSidebarReferenceForMutation('restoreAgentDefinition');
     forgetArchivedBotIdentity(agentId);
-    showDesktopToast(t('Restored bot "{{name}}". Its routines stay off until you turn them on.', { name }), 'success');
+    showDesktopToast(t('Restored bot "{{name}}". Its routines are back as they were.', { name }), 'success');
     return true;
   } catch (reason) {
     showDesktopToast(errorMessageText(reason), 'error', { scope: `agent:restore:${agentId}` });

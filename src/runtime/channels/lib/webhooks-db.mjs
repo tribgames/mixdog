@@ -82,6 +82,10 @@ const getDb = createPgSchemaDb({
   withLock: withSchemaBootstrapLock,
 });
 
+/** The store's handle, its tables created: for a statement that spans the
+ *  routine stores (routines-db.mjs). */
+export const openWebhooksDb = ({ dataDir } = {}) => getDb(dataDir);
+
 // ---------------------------------------------------------------------------
 // Row <-> def mapping
 // ---------------------------------------------------------------------------
