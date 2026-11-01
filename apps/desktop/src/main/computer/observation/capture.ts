@@ -86,9 +86,10 @@ function replacedWorkerOcr() {
 
 export function createCaptureEngine(host: CaptureEngineHost) {
   const { sessionIdFor, assertExecutionNotAborted, lastCaptureBySession } = host;
-  const { visualOnly, ocrPreferences, imageDedup, releaseCaptureSession } = createCaptureSessionStores();
+  const { visualOnly, ocrPreferences, imageDedup, backendMemory, ocrCache, releaseCaptureSession } =
+    createCaptureSessionStores();
 
-  const { captureScreenshot, captureZoom } = createPixelCapture(host);
+  const { captureScreenshot, captureZoom } = createPixelCapture(host, backendMemory);
 
   async function captureComputer(
     command: ComputerCommand,
@@ -181,6 +182,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
             semanticAccessibilityAvailable,
             observationWindowId,
             timings,
+            ocrCache,
           });
       host.assertExecutionNotAborted();
       const inputAfter = await readInputObservation();

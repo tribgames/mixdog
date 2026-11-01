@@ -1,5 +1,5 @@
 /** The ordered backends one capture may try for its target: the app's own
- *  window, the compositor, then the window-owned native surfaces. */
+ *  window, the window-owned native surfaces, then the compositor. */
 import { desktopCapturer, type NativeImage } from 'electron';
 import { DESKTOP_CAPTURE_TIMEOUT_MS, OWNED_CAPTURE_TIMEOUT_MS, withTimeout } from '../shared/common';
 import type { CaptureAttempt, CaptureBackend } from '../shared/capture-attempts';
@@ -92,7 +92,28 @@ async function compositedSurface(request: CaptureSourceRequest): Promise<Surface
   return { image: source.thumbnail, sourceId: source.id, sourceName: source.name, route: 'composited' };
 }
 
-export function buildCapturePlan(host: NativeSurfaceHost, request: CaptureSourceRequest): CapturePlanEntry[] {
+/** The default order, then the window's remembered winner moved to the front.
+ *  Nothing is dropped or repeated, so every backend and frame check the full
+ *  order applies still applies to the survivors of a failed preference.
+ *
+ *  A Windows window is read through its own surface first (PrintWindow, then
+ *  WGC when that frame is black), as the cua reference does, and the
+ *  compositor last: its thumbnail enumeration of every window failed on 66% of
+ *  captures (~420 ms unavailable, or the 2 s timeout) and, when it worked,
+ *  averaged ~550 ms against ~50 ms for PrintWindow and ~310 ms for WGC. Screens
+ *  and platforms without native surfaces keep the compositor as the only path. */
+export function buildCapturePlan(
+  host: NativeSurfaceHost,
+  request: CaptureSourceRequest,
+  preferred?: CaptureBackend
+): CapturePlanEntry[] {
+  const plan = defaultCapturePlan(host, request);
+  const index = preferred ? plan.findIndex((entry) => entry.backend === preferred) : -1;
+  if (index > 0) plan.unshift(...plan.splice(index, 1));
+  return plan;
+}
+
+function defaultCapturePlan(host: NativeSurfaceHost, request: CaptureSourceRequest): CapturePlanEntry[] {
   const { command, sourceTitle, windowId, maxWidth, preserveResolution = false, attempts } = request;
   const owned = windowId ? electronWindowForNativeId(windowId) : null;
   const plan: CapturePlanEntry[] = [];
@@ -114,7 +135,6 @@ export function buildCapturePlan(host: NativeSurfaceHost, request: CaptureSource
       },
     });
   }
-  plan.push({ backend: 'composited', acquire: () => compositedSurface(request) });
   if (windowId)
     for (const backend of host.nativeSurfaceBackends) {
       plan.push({
@@ -122,5 +142,6 @@ export function buildCapturePlan(host: NativeSurfaceHost, request: CaptureSource
         acquire: () => nativeWindowSurface(host, command, windowId, backend, attempts, request.client),
       });
     }
+  plan.push({ backend: 'composited', acquire: () => compositedSurface(request) });
   return plan;
 }

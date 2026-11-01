@@ -346,7 +346,6 @@ test('unusable PrintWindow pixels fall through to WGC and zoom retains that exac
   assert.deepEqual(
     shot.captureAttempts.map(({ backend, status, code }) => [backend, status, code]),
     [
-      ['composited', 'failed', 'capture_source_unavailable'],
       ['print_window', 'unavailable', 'blank_black_frame'],
       ['wgc', 'captured', undefined],
     ]
@@ -404,7 +403,6 @@ test('a rendered title bar cannot make a blank native client surface usable', as
   assert.deepEqual(
     shot.captureAttempts.map(({ backend, status, code }) => [backend, status, code]),
     [
-      ['composited', 'failed', 'capture_source_unavailable'],
       ['print_window', 'unavailable', 'blank_white_frame'],
       ['wgc', 'captured', undefined],
     ]
@@ -438,6 +436,44 @@ test('native capture denial, geometry changes and minimized targets do not switc
     );
     assert.ok(f.requests.every((request) => !request.window_id || request.window_id === 'hwnd:0x1'));
   }
+});
+
+test('a native geometry change falls to a working compositor, whose frame is still validated, and skips WGC', async () => {
+  const f = fixture({
+    native: (request) =>
+      request.action === 'window_capture' ? { ok: false, error: 'capture_geometry_changed|resized' } : undefined,
+  });
+  const shot = await f.run(() =>
+    f.capture.captureScreenshot({ action: 'screenshot', window_id: 'hwnd:0x1', session_id: 'a' })
+  );
+  assert.ok(shot.image);
+  assert.equal(shot.route, 'composited');
+  assert.equal(shot.frame.physicalWidth, 800);
+  assert.equal(shot.frame.physicalHeight, 600);
+  assert.deepEqual(
+    shot.captureAttempts.map(({ backend, status, code }) => [backend, status, code]),
+    [
+      ['print_window', 'failed', 'capture_geometry_changed'],
+      ['composited', 'captured', undefined],
+    ]
+  );
+  assert.deepEqual(
+    f.requests.filter((request) => request.action === 'window_capture').map((request) => request.capture_backend),
+    ['print_window']
+  );
+
+  // The compositor frame faces the same checks: a mismatched shape is refused
+  // and the geometry change is what the caller hears.
+  const wrong = fixture({
+    native: (request) =>
+      request.action === 'window_capture' ? { ok: false, error: 'capture_geometry_changed|resized' } : undefined,
+  });
+  globalThis.captureFixture.sources = async () => [{ id: 'window:1:0', name: 'fixture', thumbnail: image(300, 600) }];
+  const refused = await wrong.run(() =>
+    wrong.capture.captureScreenshot({ action: 'screenshot', window_id: 'hwnd:0x1', session_id: 'a' })
+  );
+  assert.equal(refused.image, undefined);
+  assert.match(refused.pixelUnavailable.message, /capture_geometry_changed/);
 });
 
 test('macOS captures through the per-window composited source and names a missing Screen Recording grant', async () => {
@@ -539,22 +575,24 @@ test('native cleanup failure remains separate from the primary failure and stops
 
 test('capture payload retains earlier failures after successful fallback', async () => {
   const f = fixture({
-    native: (request) =>
-      request.action === 'window_capture'
-        ? {
-            ok: true,
-            result: {
-              window_id: 'hwnd:0x1',
-              capture_source: 'window_surface',
-              x: 0,
-              y: 0,
-              width: 800,
-              height: 600,
-              image_base64: 'fixture',
-              capture_cleanup: { status: 'confirmed' },
-            },
-          }
-        : undefined,
+    native: (request) => {
+      if (request.action !== 'window_capture') return undefined;
+      if (request.capture_backend === 'print_window')
+        return { ok: false, error: 'capture_source_unavailable|fixture failure' };
+      return {
+        ok: true,
+        result: {
+          window_id: 'hwnd:0x1',
+          capture_source: 'window_surface',
+          x: 0,
+          y: 0,
+          width: 800,
+          height: 600,
+          image_base64: 'fixture',
+          capture_cleanup: { status: 'confirmed' },
+        },
+      };
+    },
   });
   globalThis.captureFixture.sources = async () => [];
   globalThis.captureFixture.decode = () => image(800, 600);
@@ -567,8 +605,11 @@ test('capture payload retains earlier failures after successful fallback', async
     })
   );
   assert.deepEqual(
-    capture.payload.capture_attempts.map((row) => row.backend),
-    ['composited', 'print_window']
+    capture.payload.capture_attempts.map((row) => [row.backend, row.status]),
+    [
+      ['print_window', 'failed'],
+      ['wgc', 'captured'],
+    ]
   );
   assert.equal(capture.payload.capture_attempts[1].cleanup.status, 'confirmed');
 });
