@@ -577,6 +577,7 @@ test('a close refused by its lifecycle barrier leaves the turn running and check
   const { closeSession } = await import('./session-close.mjs');
   const { readTurnCheckpoint } = await import('./turn-checkpoint.mjs');
   const { sessionPath } = await import('../store/session-paths.mjs');
+  const { saveSessionAsync } = await import('../store.mjs');
   const { existsSync, readFileSync, unlinkSync, writeFileSync } = await import('node:fs');
   const until = async (predicate) => {
     const deadline = Date.now() + 5_000;
@@ -587,8 +588,14 @@ test('a close refused by its lifecycle barrier leaves the turn running and check
     let checkpointed = null;
     setReply(async (_messages, sendOpts) => {
       sendOpts.onTextDelta?.('before');
-      // Let the turn's preflight save land before replacing the record.
-      await until(() => existsSync(sessionPath(session.id)));
+      // The turn's preflight save is fire-and-forget on the save worker, and
+      // earlier saves may already have created the record, so its existing
+      // proves nothing: a rename still pending in the worker would land on the
+      // foreign record below and let the close succeed. A save of the live
+      // session queues behind any in-flight write of its id, so once it
+      // resolves no worker write of this session can rename over the record.
+      const live = loadSession(session.id);
+      await saveSessionAsync(live, { expectedGeneration: live.generation });
       const path = sessionPath(session.id);
       const original = existsSync(path) ? readFileSync(path) : null;
       // Another session's record renamed onto this path: the barrier refuses it.
