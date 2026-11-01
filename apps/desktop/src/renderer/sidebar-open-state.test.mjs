@@ -5,7 +5,6 @@ import {
   LEGACY_EXPANDED_PROJECTS_KEY,
   PROJECT_OPEN_KEY,
   SECTION_OPEN_DEFAULTS,
-  closedKeys,
   isOpen,
   normalizeOpenMap,
   readOpenMap,
@@ -28,7 +27,7 @@ function memoryStorage(initial = {}) {
 test('absent entries use the default: open, except Archived', () => {
   assert.equal(isOpen({}, 'c:/work/alpha'), true);
   assert.equal(isOpen({}, 'archived', SECTION_OPEN_DEFAULTS.archived), false);
-  for (const id of ['projects', 'favorites', 'recent', 'automations']) {
+  for (const id of ['projects', 'favorites', 'recent']) {
     assert.equal(isOpen({}, id, SECTION_OPEN_DEFAULTS[id]), true);
   }
   assert.equal(isOpen({ toString: false }, 'constructor'), true);
@@ -55,7 +54,6 @@ test('maps round-trip through storage and drop junk', () => {
   assert.deepEqual(normalizeOpenMap({ a: 1, '': true, c: false }), { c: false });
   assert.deepEqual(normalizeOpenMap([true]), {});
   assert.deepEqual(readOpenMap(memoryStorage({ k: '{bad' }), 'k'), {});
-  assert.deepEqual([...closedKeys({ a: false, b: true, c: false })], ['a', 'c']);
 });
 
 test('legacy expanded-only set migrates once into the map and is removed', () => {

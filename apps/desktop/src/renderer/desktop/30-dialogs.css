@@ -700,15 +700,10 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock {
 .session-sidebar-panels .schedules-row .session-panel-action {
   margin-right: calc(var(--mx-rail-trailing-center) - var(--mx-rail-gutter) - 12px);
 }
-/* Recent/Automations/Remote/Archived rows share one inner frame inset while
+/* Recent/Remote/Archived rows share one inner frame inset while
    the trailing gutter stays reserved for spinner/unread/actions. */
 .session-sidebar .session-row {
   padding-inline: 8px var(--mx-rail-gutter);
-}
-/* Automation run rows are the second level beneath their disclosure group:
-   8px base inset + 12px hierarchy step. */
-.session-sidebar .automation-group-past .session-row {
-  padding-left: 20px;
 }
 /* Project sessions align with their folder's name (see .project-folder). */
 .session-sidebar .project-group-sessions .session-row,
@@ -744,11 +739,6 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock {
 }
 .session-sidebar-panels .workflows-models h2 {
   padding: 0;
-}
-/* Grouped rows keep the shared axis instead of stacking a second gutter. */
-.session-sidebar .automation-group-past,
-.session-sidebar .automation-group > div {
-  padding-left: 0;
 }
 .session-sidebar-panels .schedules-page {
   gap: var(--mx-rail-gap);

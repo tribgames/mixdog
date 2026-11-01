@@ -20,10 +20,8 @@ import {
   DESKTOP_SIDEBAR_DEFAULT_WIDTH,
   DESKTOP_SIDEBAR_MIN_WIDTH,
 } from '../shared/window-layout';
-import { t, uiFormatLocale } from './i18n';
-import { timeFormatOptions } from './time-format-preference';
+import { t } from './i18n';
 import { RowOverflowMenu, rowOverflowHostProps } from './RowOverflowMenu';
-import { sessionLabel } from './session-sidebar-rows';
 import { projectIdentity, sessionProjectKey } from './project-catalog-cache';
 import { isOpen, type OpenMap } from './sidebar-open-state';
 
@@ -75,49 +73,6 @@ export type SidebarResizeStart = {
   pendingWidth: number;
 };
 
-/** Automation runner sessions (schedule/webhook fires) live in their own
- *  Automations section and are excluded from Recent (user decision: fires
- *  must not flood the list). */
-export function isAutomationRow(session: DesktopSessionSummary) {
-  return session.sourceType === 'schedule' || session.sourceType === 'webhook';
-}
-
-type AutomationGroup = { key: string; name: string; runs: DesktopSessionSummary[] };
-
-/** One GROUP per automation name: the newest session is the visible row and
- *  older fires stay reachable behind a per-group "Past runs" toggle (user
- *  decision — fires are full sessions now, so history must not vanish).
- *  Expects activity-desc rows, which is the order the runs keep. */
-export function groupAutomationSessions(activityOrderedRows: DesktopSessionSummary[]): AutomationGroup[] {
-  const groups = new Map<string, { name: string; runs: DesktopSessionSummary[] }>();
-  for (const session of activityOrderedRows) {
-    if (session.archived || !isAutomationRow(session)) continue;
-    const key = `${session.sourceType}:${
-      String(session.sourceName || '')
-        .trim()
-        .toLowerCase() || session.id
-    }`;
-    let entry = groups.get(key);
-    if (!entry) {
-      entry = { name: String(session.sourceName || sessionLabel(session)), runs: [] };
-      groups.set(key, entry);
-    }
-    // Runs keep activity order and show their fire time as the row label —
-    // every run reads the same name.
-    entry.runs.push({
-      ...session,
-      title: new Date(Number(session.activityAt) || session.updatedAt).toLocaleString(uiFormatLocale(), {
-        month: 'short',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-        ...timeFormatOptions(),
-      }),
-    });
-  }
-  return [...groups.entries()].map(([key, group]) => ({ key, ...group }));
-}
-
 /** Renders `rows` as fork groups, covering at most `limit` rows (all by default).
  *  With `sentinelRef`, the list's paging sentinel follows them, standing in for
  *  the rows past `limit`. */
@@ -166,113 +121,6 @@ export function SidebarPanelAction({
   // unit tests): keep the action inline so the surface stays complete.
   if (!slot) return button;
   return active ? createPortal(button, slot) : null;
-}
-
-/** Automations section: one disclosure per automation name over its runs.
- *  Separate from Recent because a group header is a PURE disclosure (user
- *  decision) — it never renames and never opens a session itself. */
-export function automationsSection({
-  groups,
-  open,
-  onToggleOpen,
-  headingStatus,
-  archiveAllDisabled,
-  onArchiveAll,
-  collapsedGroups,
-  onToggleGroup,
-  attentionOf,
-  headerProps,
-  renderRuns,
-}: {
-  headerProps?: ReorderProps;
-  groups: AutomationGroup[];
-  open: boolean;
-  onToggleOpen(): void;
-  /** The collapsed heading's status (groupSessionAttention). */
-  headingStatus: SessionAttention | '';
-  archiveAllDisabled: boolean;
-  onArchiveAll(): void;
-  collapsedGroups: ReadonlySet<string>;
-  onToggleGroup(key: string): void;
-  attentionOf(sessionId: string): SessionAttention | '';
-  renderRuns(runs: readonly DesktopSessionSummary[]): React.ReactNode;
-}) {
-  return (
-    <section
-      className="sidebar-recent sidebar-automations"
-      aria-label={t('Automations')}
-      {...reorderTarget(headerProps)}
-    >
-      <div className="sidebar-category-header" {...reorderHandle(headerProps)} {...rowOverflowHostProps()}>
-        <button
-          type="button"
-          className="sidebar-recent-heading sidebar-heading-toggle"
-          aria-expanded={open}
-          onClick={toggleHeading(onToggleOpen)}
-        >
-          <span>{t('Automations')}</span>
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          {/* Collapsed sections still have to announce their runs' status. */}
-          <SectionHeadingStatus
-            status={headingStatus}
-            name={t('Automations')}
-            unreadLabel={t('Automations have new activity')}
-          />
-        </button>
-        <RowOverflowMenu
-          label={t('Actions')}
-          items={[
-            {
-              id: 'archive-all',
-              label: t('Archive all'),
-              disabled: archiveAllDisabled,
-              onSelect: onArchiveAll,
-            },
-          ]}
-        />
-      </div>
-      {open && (
-        <nav className="session-list automation-session-list" aria-label={t('Automations')}>
-          {groups.map(({ key, name, runs }) => {
-            const expanded = !collapsedGroups.has(key);
-            const attention = groupSessionAttention(
-              !expanded,
-              runs.map((run) => run.id),
-              attentionOf
-            );
-            const working = attention !== '' && attention !== 'unread';
-            const ExpandGlyph = expanded ? ChevronDown : ChevronRight;
-            return (
-              <div className="automation-group" key={key}>
-                {/* The chevron LEADS in the fixed status cell (one aligned
-                    column); a collapsed group's live status (running, needs
-                    you, failure) takes that cell over. */}
-                <button
-                  type="button"
-                  className="session-row automation-group-header"
-                  aria-expanded={expanded}
-                  onClick={() => onToggleGroup(key)}
-                >
-                  <span className="session-row-status" data-working={attention === 'running' || undefined}>
-                    {working ? (
-                      <SessionRowStatusIcon status={attention} name={name} />
-                    ) : (
-                      <ExpandGlyph size={14} aria-hidden="true" />
-                    )}
-                  </span>
-                  <span className="session-row-copy">
-                    <b>{name}</b>
-                  </span>
-                  {attention === 'unread' && <SessionRowUnreadDot name={name} />}
-                </button>
-                {expanded && <div className="automation-group-past">{renderRuns(runs)}</div>}
-              </div>
-            );
-          })}
-        </nav>
-      )}
-    </section>
-  );
 }
 
 /** Agents section: one single-line row per agent (face + name, a dot for an

@@ -875,9 +875,6 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-list .session-row:not(.e
   padding-left: calc(8px - var(--mx-drawer-bleed));
   padding-right: calc(var(--mx-rail-gutter) + var(--mx-drawer-bleed));
 }
-html[data-mixdog-mobile-tabs] .session-sidebar .session-list .automation-group-past .session-row:not(.editing) {
-  padding-left: calc(20px - var(--mx-drawer-bleed));
-}
 html[data-mixdog-mobile-tabs] .session-sidebar .session-list .project-group-sessions .session-row:not(.editing) {
   padding-left: calc(32px - var(--mx-drawer-bleed));
 }

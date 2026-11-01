@@ -714,7 +714,6 @@
   "Automatic reconnection is off for this server.": "Máy chủ này đã tắt tự động kết nối lại.",
   "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions. Enabled files are trusted as instructions, so only enable this for repositories you trust.": "Tự động đưa các quy tắc AGENTS.md / CLAUDE.md từ thư mục chính và thư mục dự án vào các phiên mới. Các tệp được bật sẽ được tin cậy như hướng dẫn, vì vậy chỉ bật cho kho lưu trữ mà bạn tin tưởng.",
   "Automations": "Tự động hóa",
-  "Automations have new activity": "Tự động hóa có hoạt động mới",
   "Available GPU memory": "Bộ nhớ GPU khả dụng",
   "Available models": "Mô hình khả dụng",
   "Available runtime": "Runtime khả dụng",

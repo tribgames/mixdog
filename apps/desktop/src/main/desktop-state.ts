@@ -190,8 +190,7 @@ export function desktopSessionSummaries(
         : [];
       const updatedAt = Number(row.updatedAt) || 0;
       const activityAt = Number(row.lastUsedAt) || updatedAt;
-      // Automation origin survives into the summary so the sidebar can group
-      // schedule/webhook runner sessions under Automations instead of Recent.
+      // Automation origin of a pre-bot-chat schedule/webhook runner session.
       const sourceType = String(row.sourceType || '')
         .trim()
         .toLowerCase();

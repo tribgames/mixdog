@@ -791,7 +791,6 @@
   "Automatic reconnection is off for this server.": "La reconexión automática está desactivada para este servidor.",
   "Automatically include AGENTS.md / CLAUDE.md rules from your home folder and the project folder in new sessions. Enabled files are trusted as instructions, so only enable this for repositories you trust.": "Incluir automáticamente las reglas de AGENTS.md / CLAUDE.md de tu carpeta personal y de la carpeta del proyecto en las nuevas sesiones. Los archivos activados se tratan como instrucciones de confianza, así que actívalo solo en repositorios en los que confíes.",
   "Automations": "Automatizaciones",
-  "Automations have new activity": "Las automatizaciones tienen nueva actividad",
   "Available GPU memory": "Memoria GPU disponible",
   "Available models": "Modelos disponibles",
   "Available runtime": "Runtime disponible",

@@ -180,31 +180,6 @@
   flex-wrap: wrap;
   padding: 8px 12px 0;
 }
-/* Automations group: the header row is a PURE disclosure button — clicking
-   anywhere toggles the run list. The chevron leads in the fixed status cell
-   so every group's disclosure sits in ONE column (user: 정렬이 안 맞는다);
-   expanded runs indent one step and read one size smaller. */
-.automation-group-header {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-.automation-group-header .session-row-status svg {
-  color: var(--mx-icon-muted);
-}
-.automation-group-past {
-  padding-left: 14px;
-}
-/* Past runs are CHILD items: one size and one ink step under their group,
-   so the group names carry the list (importance = ink, user rule). */
-.automation-group-past .session-row-copy b {
-  font-size: var(--mx-font-meta);
-  color: var(--mx-text-soft);
-}
 /* The editor's composer-footer clone uses the same flat chip skin as the
    chat composer (model/effort/fast/workflow read as quiet text triggers). */
 .schedules-composer-footer .mx-select-trigger,

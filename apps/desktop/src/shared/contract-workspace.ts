@@ -190,10 +190,10 @@ export interface DesktopSessionSummary {
   /** Set when that line is a schedule's or webhook's result
    *  (routine-result.mjs): the row labels it from this, never from its text. */
   lastMessageRoutine?: RoutineProvenance;
-  /** Automation origin: present on schedule/webhook runner sessions so the
-   *  sidebar groups them under Automations instead of Recent. */
+  /** Automation origin: present on schedule/webhook runner sessions made
+   *  before routines ran as bot-chat turns; they list like any session. */
   sourceType?: 'schedule' | 'webhook';
-  /** Schedule/webhook name — the Automations row label. */
+  /** Schedule/webhook name of such a runner session. */
   sourceName?: string;
   /** Last known route of this session. The catalog row is the FIRST-FRAME
    *  source for pane chrome: naming the model must not wait for a lane

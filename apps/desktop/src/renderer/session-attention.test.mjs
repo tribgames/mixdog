@@ -692,7 +692,7 @@ test('sidebar rows and collapsed project groups use the same status set', async 
 });
 
 const { groupSessionAttention } = await import('../shared/session-attention.ts');
-const { recentSection, automationsSection } = await import('./session-sidebar-sections.tsx');
+const { recentSection } = await import('./session-sidebar-sections.tsx');
 
 test('group status: priority attention > failed > running > unread, and finished shows nothing', () => {
   const states = { a: 'unread', b: 'running', c: 'failed', d: 'needs-you', e: '' };
@@ -745,50 +745,9 @@ test('a collapsed section shows running (not the finished dot) when a child runs
   }
 });
 
-test('a collapsed automation group and project section header follow the same rule', async () => {
+test('a collapsed project section header follows the same rule', async () => {
   const runs = [{ id: 'r1', title: 'r1', preview: '', updatedAt: 1, messageCount: 2 }];
-  const states = { r1: 'unread' };
-  const automations = await render(
-    automationsSection({
-      groups: [{ key: 'g', name: 'job', runs }],
-      open: true,
-      onToggleOpen: noop,
-      headingStatus: '',
-      archiveAllDisabled: false,
-      onArchiveAll: noop,
-      collapsedGroups: new Set(['g']),
-      onToggleGroup: noop,
-      attentionOf: (id) => states[id] || '',
-      renderRuns: () => null,
-    })
-  );
-  try {
-    assert.ok(automations.host.querySelector('.automation-group-header .session-row-unread-dot'));
-  } finally {
-    await automations.unmount();
-  }
-  states.r1 = 'running';
-  const running = await render(
-    automationsSection({
-      groups: [{ key: 'g', name: 'job', runs }],
-      open: true,
-      onToggleOpen: noop,
-      headingStatus: '',
-      archiveAllDisabled: false,
-      onArchiveAll: noop,
-      collapsedGroups: new Set(['g']),
-      onToggleGroup: noop,
-      attentionOf: (id) => states[id] || '',
-      renderRuns: () => null,
-    })
-  );
-  try {
-    const header = running.host.querySelector('.automation-group-header');
-    assert.ok(header.querySelector('.session-row-spinner'));
-    assert.equal(header.querySelector('.session-row-unread-dot'), null);
-  } finally {
-    await running.unmount();
-  }
+  const states = { r1: 'running' };
   const projects = await render(
     projectsSection({
       groups: [{ key: 'p', name: 'p', path: '/p', rows: runs }],
