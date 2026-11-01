@@ -90,7 +90,7 @@ test("a deleted bot's archived chat: its face and name, restored with its bot, a
   assert.equal(dialog().querySelector('h3').textContent, 'Delete Probe for good?');
   assert.match(
     dialog().querySelector('p').textContent,
-    /^Its conversation history and the bot's remaining data are deleted/
+    /^Its conversation history, its schedules and webhooks, and the bot's remaining data are deleted/
   );
   await press('Cancel');
   await settle();

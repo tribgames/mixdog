@@ -31,7 +31,7 @@ export function sessionLabel(session: DesktopSessionSummary) {
 /** The question before a deleted bot's archived chat is deleted for good. */
 export function permanentBotDeleteMessage(name: string): string {
   return t(
-    "Delete {{name}} for good? Its conversation history and the bot's remaining data are deleted and cannot be restored.",
+    "Delete {{name}} for good? Its conversation history, its schedules and webhooks, and the bot's remaining data are deleted and cannot be restored.",
     { name }
   );
 }

@@ -45,8 +45,6 @@ export interface AgentHomeDeps {
   taskWorkspace(): Promise<string>;
   /** An agent proven deleted leaves every room's members. */
   forgetRoomMember?(agentId: string): Promise<void>;
-  /** Switch off (never delete) the schedules and webhooks a deleted agent owns. */
-  disableAgentSchedules?(agentId: string): Promise<void>;
   /** Clear `sessionId` in place, its transcript first copied (durably) to the
    *  fresh `archiveAs`, its prompt rebuilt from the current rules; rejects
    *  while the session runs a turn. */
@@ -194,12 +192,8 @@ export function createAgentHomeSessions(deps: AgentHomeDeps) {
         await deps.setArchived(sessionId, true);
         await deps.setRetired(sessionId, true);
       }
-      // Tracked apart from `retired`: the record is the schedules themselves
-      // (one still on and owned by this agent means not done), so a failed
-      // switch-off is retried by every later check without archiving again.
-      await deps
-        .disableAgentSchedules?.(id)
-        .catch((error) => console.warn('[mixdog-session] Could not switch off the deleted agent schedules:', error));
+      // Its schedules and webhooks are left as they are: they wait, hidden,
+      // for a restore (routine-owner.mjs) and go with a delete for good.
       // Its membership goes with it: the one place a deletion is proven here,
       // whether the delete came through this host or a chat's setup tool.
       await deps.forgetRoomMember?.(id);
@@ -225,7 +219,7 @@ export function createAgentHomeSessions(deps: AgentHomeDeps) {
   }
 
   /** A restored bot: its home is no longer a deleted bot's chat and leaves
-   *  보관됨. Its routines stay off until the user turns them back on. */
+   *  보관됨. Its routines come back with it, as they were. */
   async function restore(agentId: string): Promise<void> {
     const sessionId = agentHomeSessionId(agentId);
     if (!sessionId || agentId === MIXY_AGENT_ID) return;

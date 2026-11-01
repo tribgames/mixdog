@@ -204,7 +204,7 @@ export const DESKTOP_CAPABILITIES = [
   'saveLeadIdentity',
   'saveAgentDefinition',
   'deleteAgentDefinition',
-  // A deleted (archived) bot back as it was; its routines stay off.
+  // A deleted (archived) bot back as it was, its routines with it.
   'restoreAgentDefinition',
   // Orchestration-mode and output-style instruction texts: save / reset to default.
   'saveInstructionFile',

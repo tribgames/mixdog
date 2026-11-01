@@ -367,6 +367,107 @@ test('routines keep their owners across the split: migrated bots, Mixy and recla
   assert.equal(await routineOwnerProblem('tool-bot', probe), 'owner-deleted');
 });
 
+// The routine store as the runtime wires it (channel-admin.mjs deleteOwnedRoutines):
+// owner-keyed, all or nothing, with each row's own on/off.
+function routineStore(api) {
+  const store = {
+    rows: [
+      { kind: 'schedule', name: 'mail-review', owner: 'tool-bot', enabled: true },
+      { kind: 'schedule', name: 'weekly-off', owner: 'tool-bot', enabled: false },
+      { kind: 'webhook', name: 'tool-hook', owner: 'tool-bot', enabled: true },
+      { kind: 'schedule', name: 'metrics', owner: 'dialog-bot', enabled: true },
+    ],
+    calls: [],
+    failure: null,
+    deleteOwnedRoutines: async (agentId) => {
+      // What the bot looked like when its routines were purged.
+      store.calls.push([agentId, api().agentDefinitionPresence([agentId])[agentId]]);
+      if (store.failure) throw store.failure;
+      const owned = store.rows.filter((row) => row.owner === agentId);
+      store.rows = store.rows.filter((row) => row.owner !== agentId);
+      const names = (kind) => owned.filter((row) => row.kind === kind).map((row) => row.name);
+      return { schedules: names('schedule'), webhooks: names('webhook') };
+    },
+  };
+  return store;
+}
+
+test('archiving a bot pauses and hides its routines untouched; a restore brings back exactly the ones that were on', async (t) => {
+  let api;
+  const store = routineStore(() => api);
+  const made = fixture(t, { deleteOwnedRoutines: store.deleteOwnedRoutines });
+  api = made.api;
+  seed(made.dataDir);
+  api.migrateBotStore();
+  const probe = {
+    mixyExists: () => true,
+    presence: (agentId) => api.agentDefinitionPresence([agentId])[agentId],
+    archived: (agentId) => Boolean(api.archivedAgentIdentities([agentId])[agentId]),
+  };
+  const before = structuredClone(store.rows);
+
+  assert.deepEqual(await api.deleteAgentDefinition('tool-bot'), {
+    id: 'tool-bot',
+    deleted: true,
+    revertedToBuiltIn: false,
+  });
+  // Archived: paused (never fires, owned-automation-run.mjs) and hidden from the
+  // lists (channel-admin.mjs), every row as it was.
+  assert.equal(await routineOwnerProblem('tool-bot', probe, { stored: true }), 'owner-archived');
+  assert.deepEqual(store.calls, [], 'the archive deletes nothing');
+  assert.deepEqual(store.rows, before);
+
+  await api.restoreAgentDefinition('tool-bot');
+  assert.equal(await routineOwnerProblem('tool-bot', probe, { stored: true }), '');
+  assert.deepEqual(
+    store.rows.filter((row) => row.owner === 'tool-bot').map((row) => [row.name, row.enabled]),
+    [
+      ['mail-review', true],
+      ['weekly-off', false],
+      ['tool-hook', true],
+    ],
+    'on stays on, off stays off'
+  );
+
+  // A refused archive leaves the bot live and its routines as they are.
+  writeFileSync(join(made.dataDir, 'bots', 'dialog-bot', 'AGENT.md.archived'), 'older archive\n');
+  await assert.rejects(api.deleteAgentDefinition('dialog-bot'), /cannot be deleted/);
+  assert.equal(api.agentDefinitionPresence(['dialog-bot'])['dialog-bot'], 'present');
+  assert.deepEqual(store.rows, before);
+});
+
+test('deleting a bot for good deletes only its routines, before its folder; a failed purge keeps it archived with every routine', async (t) => {
+  let api;
+  const store = routineStore(() => api);
+  const made = fixture(t, { deleteOwnedRoutines: store.deleteOwnedRoutines });
+  api = made.api;
+  seed(made.dataDir);
+  api.migrateBotStore();
+  await api.deleteAgentDefinition('tool-bot');
+  const before = structuredClone(store.rows);
+
+  store.failure = new Error('connection terminated');
+  await assert.rejects(api.purgeAgentDefinition('tool-bot'), /connection terminated/);
+  assert.ok(api.archivedAgentIdentities(['tool-bot'])['tool-bot'], 'still in Archived, restorable');
+  assert.deepEqual(store.rows, before, 'nothing lost');
+
+  // The retry goes through: the routines go while the bot's folder is still there.
+  store.failure = null;
+  store.calls.length = 0;
+  const purged = await api.purgeAgentDefinition('tool-bot');
+  assert.deepEqual(purged, {
+    id: 'tool-bot',
+    purged: true,
+    routines: { schedules: ['mail-review', 'weekly-off'], webhooks: ['tool-hook'] },
+  });
+  assert.deepEqual(store.calls[0], ['tool-bot', 'deleted']);
+  assert.equal(existsSync(join(made.dataDir, 'bots', 'tool-bot')), false);
+  assert.deepEqual(
+    store.rows.map((row) => row.name),
+    ['metrics'],
+    "the other bot's routine stays"
+  );
+});
 test('2: an id lives in one store only: explicit, generated and restored ids never cross stores', async (t) => {
   const { dataDir, api } = fixture(t);
   seed(dataDir);

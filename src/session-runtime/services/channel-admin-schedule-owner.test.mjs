@@ -3,19 +3,39 @@ import test, { mock } from 'node:test';
 
 const rows = new Map();
 const upserts = [];
+// Runs inside a save after its owner check, before its row lands.
+let beforeWrite = async () => {};
 mock.module('../../runtime/channels/lib/schedules-db.mjs', {
   namedExports: {
     listSchedules: async () => [...rows.values()],
     getSchedule: async (name) => rows.get(name) ?? null,
     upsertSchedule: async (def) => {
+      await beforeWrite();
       upserts.push(def);
       const row = { ...def, ownerAgentId: def.ownerAgentId || 'lead' };
       rows.set(def.name, row);
       return row;
     },
     renameSchedule: async () => null,
-    deleteSchedule: async () => true,
+    deleteSchedule: async (name) => rows.delete(name),
     setEnabled: async () => null,
+  },
+});
+// The store's one statement (routines-db.mjs): every row its owner currently has.
+const purges = [];
+mock.module('../../runtime/channels/lib/routines-db.mjs', {
+  namedExports: {
+    deleteRoutinesOwnedBy: async (ownerAgentId) => {
+      purges.push(ownerAgentId);
+      const take = (store) =>
+        [...store.values()]
+          .filter((row) => row.ownerAgentId === ownerAgentId)
+          .map((row) => {
+            store.delete(row.name);
+            return row.name;
+          });
+      return { schedules: take(rows), webhooks: take(endpoints) };
+    },
   },
 });
 
@@ -34,6 +54,7 @@ mock.module('../../runtime/channels/lib/webhooks-db.mjs', {
     loadEndpointConfig: async (name) => endpoints.get(name) ?? null,
     readEndpointSecret: async () => 'kept-secret',
     upsertEndpoint: async (def) => {
+      await beforeWrite();
       endpointUpserts.push(def);
       const row = { ...def, ownerAgentId: def.ownerAgentId || 'lead' };
       endpoints.set(def.name, row);
@@ -43,10 +64,12 @@ mock.module('../../runtime/channels/lib/webhooks-db.mjs', {
 });
 
 // Which bots exist: Mixy (created or not) and each bot's presence.
-const bots = { mixy: true, deleted: new Set() };
+// An archived bot is deleted too, but restorable.
+const bots = { mixy: true, deleted: new Set(), archived: new Set() };
 const probe = {
   mixyExists: () => bots.mixy,
-  presence: (id) => (bots.deleted.has(id) ? 'deleted' : 'present'),
+  presence: (id) => (bots.deleted.has(id) || bots.archived.has(id) ? 'deleted' : 'present'),
+  archived: (id) => bots.archived.has(id),
 };
 const owner = await import('../routine-owner.mjs');
 mock.module('../routine-owner.mjs', {
@@ -73,7 +96,128 @@ mock.module('../routine-executor.mjs', {
   },
 });
 
-const { channelSetup, listSchedules, saveSchedule, saveWebhook } = await import('./channel-admin.mjs');
+const { channelSetup, deleteOwnedRoutines, listSchedules, saveSchedule, saveWebhook } = await import(
+  './channel-admin.mjs'
+);
+
+test("deleting a bot's routines removes its schedules and webhooks; another bot's stay", async () => {
+  await saveSchedule({ time: '0 9 * * *', instructions: 'Review mail', name: 'mail-review', owner: 'clerk' });
+  await saveWebhook({ instructions: 'Triage', parser: 'github', name: 'clerk-hook', owner: 'clerk' });
+  await saveSchedule({ time: '0 9 * * *', instructions: 'Daily metrics', name: 'metrics', owner: 'analyst' });
+  await saveWebhook({ instructions: 'Triage', parser: 'github', name: 'analyst-hook', owner: 'analyst' });
+
+  assert.deepEqual(await deleteOwnedRoutines('clerk'), { schedules: ['mail-review'], webhooks: ['clerk-hook'] });
+  const { schedules, webhooks } = await channelSetup();
+  assert.equal(
+    schedules.some((row) => row.owner === 'clerk'),
+    false
+  );
+  assert.equal(
+    webhooks.some((row) => row.owner === 'clerk'),
+    false
+  );
+  assert.equal(schedules.find((row) => row.name === 'metrics')?.owner, 'analyst');
+  assert.equal(webhooks.find((row) => row.name === 'analyst-hook')?.owner, 'analyst');
+  // A bot that owns nothing removes nothing.
+  assert.deepEqual(await deleteOwnedRoutines('clerk'), { schedules: [], webhooks: [] });
+});
+
+test("an archived bot's routines are hidden, untouched, and listed again once it is restored", async (t) => {
+  t.after(() => {
+    bots.archived.clear();
+    for (const name of ['nightly-sync', 'sync-hook', 'late-sync']) {
+      rows.delete(name);
+      endpoints.delete(name);
+    }
+  });
+  await saveSchedule({
+    time: '0 3 * * *',
+    instructions: 'Sync',
+    name: 'nightly-sync',
+    owner: 'syncer',
+    enabled: false,
+  });
+  await saveWebhook({ instructions: 'Sync', parser: 'github', name: 'sync-hook', owner: 'syncer' });
+  bots.archived.add('syncer');
+  const hidden = await channelSetup();
+  assert.equal(
+    hidden.schedules.some((row) => row.owner === 'syncer'),
+    false
+  );
+  assert.equal(
+    hidden.webhooks.some((row) => row.owner === 'syncer'),
+    false
+  );
+  await assert.rejects(
+    saveSchedule({ time: '0 4 * * *', instructions: 'Sync', name: 'late-sync', owner: 'syncer' }),
+    /in Archived/
+  );
+  assert.deepEqual(
+    purges.filter((id) => id === 'syncer'),
+    [],
+    'nothing of an archived bot is deleted'
+  );
+  // A save that passed its check just before the archive keeps its row, hidden with the others.
+  bots.archived.clear();
+  beforeWrite = async () => {
+    beforeWrite = async () => {};
+    bots.archived.add('syncer');
+  };
+  await saveSchedule({ time: '0 4 * * *', instructions: 'Sync', name: 'late-sync', owner: 'syncer' });
+  assert.equal(rows.get('late-sync')?.ownerAgentId, 'syncer');
+
+  bots.archived.clear();
+  const shown = await channelSetup();
+  assert.deepEqual(
+    shown.schedules.filter((row) => row.owner === 'syncer').map((row) => [row.name, row.enabled]),
+    [
+      ['nightly-sync', false],
+      ['late-sync', true],
+    ]
+  );
+  assert.equal(shown.webhooks.find((row) => row.name === 'sync-hook')?.enabled, true);
+});
+
+test("Mixy's routines are never a bot delete's target", async () => {
+  await saveSchedule({ time: '0 9 * * *', instructions: 'Brief me', name: 'mixy-brief' });
+  const before = purges.length;
+  for (const id of ['lead', 'mixy', '', 'Not An Id']) {
+    await assert.rejects(deleteOwnedRoutines(id), /cannot be deleted with a bot/);
+  }
+  assert.equal(purges.length, before, 'the store is never asked');
+  assert.equal(rows.get('mixy-brief')?.ownerAgentId, 'lead');
+  rows.delete('mixy-brief');
+});
+
+test('a save racing its bot’s delete for good leaves no routine of the deleted bot: the save is refused', async (t) => {
+  t.after(() => {
+    beforeWrite = async () => {};
+    bots.deleted.clear();
+  });
+  // The delete for good lands between the save's owner check and its write:
+  // the bot's routines purged and its folder gone — before this row exists.
+  beforeWrite = async () => {
+    beforeWrite = async () => {};
+    bots.deleted.add('courier');
+    await deleteOwnedRoutines('courier');
+  };
+  await assert.rejects(
+    saveSchedule({ time: '0 9 * * *', instructions: 'Ship it', name: 'courier-run', owner: 'courier' }),
+    /no longer exists/
+  );
+  assert.equal(rows.has('courier-run'), false);
+  bots.deleted.clear();
+  beforeWrite = async () => {
+    beforeWrite = async () => {};
+    bots.deleted.add('courier');
+    await deleteOwnedRoutines('courier');
+  };
+  await assert.rejects(
+    saveWebhook({ instructions: 'Triage', parser: 'github', name: 'courier-hook', owner: 'courier' }),
+    /no longer exists/
+  );
+  assert.equal(endpoints.has('courier-hook'), false);
+});
 
 test('a new webhook defaults its owner to Mixy; an edit keeps it; a list row never carries the payload', async () => {
   const hook = { instructions: 'Triage the issue', parser: 'github' };
