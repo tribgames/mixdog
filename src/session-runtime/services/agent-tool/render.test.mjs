@@ -80,7 +80,13 @@ test('list rows show the hung-tool diagnostic with its action, and omit other di
         tool_silent_for: '23m (shell job job_1 no output)',
         diagnostic: 'tool possibly hung: shell job job_1 no output for 23m; inspect or cancel it',
       },
-      { tag: 'fine', status: 'running', worker_stage: 'tool_running', last_progress: 'tool: task', diagnostic: 'tool running' },
+      {
+        tag: 'fine',
+        status: 'running',
+        worker_stage: 'tool_running',
+        last_progress: 'tool: task',
+        diagnostic: 'tool running',
+      },
     ],
     jobs: [],
   });

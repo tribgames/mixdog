@@ -285,8 +285,16 @@ export function makeUsageRecord(args) {
   else if (reported) costUsd = Number(args.costUsd);
   // A request that measured no tokens at all (a failure that reported
   // nothing) cost nothing, priced model or not: it must not read as unpriced.
-  else if (costUsd === null && args.status === 'failed' && args.inputTokensKnown !== false && priced.input === 0 &&
-    !num(args.outputTokens) && !num(args.cacheReadTokens) && !num(args.cacheWriteTokens)) costUsd = 0;
+  else if (
+    costUsd === null &&
+    args.status === 'failed' &&
+    args.inputTokensKnown !== false &&
+    priced.input === 0 &&
+    !num(args.outputTokens) &&
+    !num(args.cacheReadTokens) &&
+    !num(args.cacheWriteTokens)
+  )
+    costUsd = 0;
   let rates = priced.rates;
   if (reported || kind === 'local') {
     rates = {

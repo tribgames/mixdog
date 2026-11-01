@@ -63,7 +63,10 @@ export interface FocusExcursion {
   typed: number;
 }
 
-export function focusExcursions(watch: Pick<FocusWatch, 'armed_at' | 'changes' | 'typed'>, sentinel: number): FocusExcursion[] {
+export function focusExcursions(
+  watch: Pick<FocusWatch, 'armed_at' | 'changes' | 'typed'>,
+  sentinel: number
+): FocusExcursion[] {
   const excursions: FocusExcursion[] = [];
   let open: FocusExcursion | undefined;
   for (const change of watch.changes) {
@@ -117,7 +120,12 @@ export function judgeFocusLock(input: {
   settleMs: number;
   boundMs: number;
   claims: FocusClaim[];
-}): { excursions: Array<FocusExcursion & { run: number | undefined }>; exposure: string; notes: string[]; failures: string[] } {
+}): {
+  excursions: Array<FocusExcursion & { run: number | undefined }>;
+  exposure: string;
+  notes: string[];
+  failures: string[];
+} {
   const { watch, sentinel, target, runs } = input;
   const name = (hwnd: number) =>
     hwnd === sentinel ? 'the sentinel' : hwnd === target ? 'the target' : `0x${hwnd.toString(16)}`;
@@ -125,7 +133,10 @@ export function judgeFocusLock(input: {
     const index = runs.findIndex((run) => at >= run.sentAt && at <= run.repliedAt + input.settleMs);
     return index < 0 ? undefined : index;
   };
-  const excursions = focusExcursions(watch, sentinel).map((excursion) => ({ ...excursion, run: runIndex(excursion.from) }));
+  const excursions = focusExcursions(watch, sentinel).map((excursion) => ({
+    ...excursion,
+    run: runIndex(excursion.from),
+  }));
   const lengthOf = (excursion: FocusExcursion) =>
     excursion.to === undefined ? Number.POSITIVE_INFINITY : excursion.to - excursion.from;
   const describeExcursion = (excursion: (typeof excursions)[number]) => {
@@ -149,7 +160,8 @@ export function judgeFocusLock(input: {
   for (const claim of input.claims) {
     const inside = excursions.some(
       (excursion) =>
-        claim.at >= excursion.from - CLOCK_SLACK_MS && claim.at <= (excursion.to ?? Number.POSITIVE_INFINITY) + CLOCK_SLACK_MS
+        claim.at >= excursion.from - CLOCK_SLACK_MS &&
+        claim.at <= (excursion.to ?? Number.POSITIVE_INFINITY) + CLOCK_SLACK_MS
     );
     if (inside) continue;
     // The OS state at the claim: the last change before it, and any within the slack.
@@ -163,7 +175,9 @@ export function judgeFocusLock(input: {
         `${claim.label}: the OS watch shows the target holding the foreground or focus at ${held.at} outside any excursion`
       );
     } else {
-      notes.push(`${claim.label}: the fixture reported the target focused, but the OS foreground and focus did not move to it`);
+      notes.push(
+        `${claim.label}: the fixture reported the target focused, but the OS foreground and focus did not move to it`
+      );
     }
   }
   const exposure =
@@ -190,7 +204,9 @@ export function describeForegroundLock(facts: unknown): string {
   const acquiredAt = number(held.acquired_at);
   const since = (label: string, value: unknown) => {
     const at = number(value);
-    return acquiredAt === undefined || at === undefined ? `${label} n/a` : `${label} +${(at - acquiredAt).toFixed(1)} ms`;
+    return acquiredAt === undefined || at === undefined
+      ? `${label} n/a`
+      : `${label} +${(at - acquiredAt).toFixed(1)} ms`;
   };
   const asked = worker.host_answer === undefined ? [] : [`host ${String(host.answer ?? worker.host_answer)}`];
   const lease = number(host.lease) ? [`lease ${host.lease}`] : [];
@@ -239,7 +255,9 @@ export function describeLockTimeline(
   const attempts = activations
     .filter((attempt) => window(attempt.at))
     .map((attempt) => `${rel(attempt.at)} ${attempt.focused ? 'got the foreground' : 'refused'}`);
-  const changes = watch.changes.filter((change) => window(change.at)).map((change) => `${rel(change.at)} 0x${change.foreground.toString(16)}`);
+  const changes = watch.changes
+    .filter((change) => window(change.at))
+    .map((change) => `${rel(change.at)} 0x${change.foreground.toString(16)}`);
   const typed = watch.typed.filter((at) => at >= acquiredEpoch && at <= ended);
   return (
     `lock ${rel(acquiredEpoch)} to ${rel(ended)}; target activations [${attempts.join('; ')}]; ` +
@@ -248,11 +266,7 @@ export function describeLockTimeline(
   );
 }
 
-export function describeWatchedInput(
-  watch: Pick<FocusWatch, 'inputs' | 'clock'>,
-  from: number,
-  to: number
-): string {
+export function describeWatchedInput(watch: Pick<FocusWatch, 'inputs' | 'clock'>, from: number, to: number): string {
   const inside = watch.inputs.filter((input) => input.at >= from && input.at <= to);
   const keys = inside.filter((input) => input.kind === 'key' && !input.injected).length;
   const pointer = inside.filter((input) => input.kind === 'pointer' && !input.injected).length;

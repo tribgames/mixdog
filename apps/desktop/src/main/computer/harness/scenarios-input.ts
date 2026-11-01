@@ -12,7 +12,12 @@ import {
   skip,
 } from './scenario-runtime';
 import { userControlDetail } from './scenario-user-control';
-import { describeForegroundLock, describeLockTimeline, describeWatchedInput, judgeFocusLock } from './scenario-focus-input';
+import {
+  describeForegroundLock,
+  describeLockTimeline,
+  describeWatchedInput,
+  judgeFocusLock,
+} from './scenario-focus-input';
 import { foregroundHwnd, nativeHwnd, imeConversionMode } from './scenario-fixtures';
 import type { ScenarioGroup } from './scenario-context';
 import {
@@ -851,7 +856,12 @@ export const inputScenarios: ScenarioGroup = {
           // so the user's window is away only for the control and the three actions.
           const userForeground = await foregroundHwnd();
           const watch = await watchSentinel(home);
-          const runs: Array<{ step: (typeof FOCUS_LOCK_STEPS)[number]; reply: Record<string, unknown>; sentAt: number; repliedAt: number }> = [];
+          const runs: Array<{
+            step: (typeof FOCUS_LOCK_STEPS)[number];
+            reply: Record<string, unknown>;
+            sentAt: number;
+            repliedAt: number;
+          }> = [];
           let watched: Awaited<ReturnType<typeof watch.stop>> | undefined;
           let watchFailure: unknown;
           let startedAt = 0;
@@ -872,7 +882,9 @@ export const inputScenarios: ScenarioGroup = {
             };
           // Mixdog stops foreground input on any keyboard or mouse input, the
           // user's included; the foreground is taken only on a quiet desktop.
-          progress(`S48 waiting for ${FOCUS_LOCK_QUIET_MS} ms without keyboard or mouse input before taking the foreground`);
+          progress(
+            `S48 waiting for ${FOCUS_LOCK_QUIET_MS} ms without keyboard or mouse input before taking the foreground`
+          );
           try {
             await watch.quiet(FOCUS_LOCK_QUIET_MS, FOCUS_LOCK_QUIET_TIMEOUT_MS);
           } catch (error) {
@@ -928,11 +940,20 @@ export const inputScenarios: ScenarioGroup = {
               const element = capture.elements?.find(
                 (candidate) => candidate.source === 'uia' && candidate.name === step.name
               );
-              assert.ok(element?.ref, `${step.action}: no UIA element named ${step.name}: ${JSON.stringify(capture.elements)}`);
+              assert.ok(
+                element?.ref,
+                `${step.action}: no UIA element named ${step.name}: ${JSON.stringify(capture.elements)}`
+              );
               const sentAt = Date.now();
               const reply = actionPayload(
                 await stepCommand(`background ${step.action}`)(
-                  { action: step.action, ref: element.ref, delivery: 'background', capture_after: false, ...step.input },
+                  {
+                    action: step.action,
+                    ref: element.ref,
+                    delivery: 'background',
+                    capture_after: false,
+                    ...step.input,
+                  },
                   sessionId
                 )
               );
@@ -963,7 +984,12 @@ export const inputScenarios: ScenarioGroup = {
                     : `; the input recorder failed: ${String(watchFailure)}`)
               );
             }
-            await handBackForeground(stepCommand('hand the foreground back'), homeSession, userForeground, sentinelHwnd);
+            await handBackForeground(
+              stepCommand('hand the foreground back'),
+              homeSession,
+              userForeground,
+              sentinelHwnd
+            );
           }
           if (!watched) throw watchFailure;
           const seen = watched;
@@ -1017,7 +1043,9 @@ export const inputScenarios: ScenarioGroup = {
               ...state.activations
                 .filter((attempt) => attempt.focused && attempt.at >= startedAt)
                 .map((attempt) => ({ label: `${attempt.kind} activation at ${attempt.at}`, at: attempt.at })),
-              ...state.focus_events.filter((at) => at >= startedAt).map((at) => ({ label: `focus event at ${at}`, at })),
+              ...state.focus_events
+                .filter((at) => at >= startedAt)
+                .map((at) => ({ label: `focus event at ${at}`, at })),
             ],
           });
           // The measured exposure, on every run.
@@ -1065,15 +1093,20 @@ export const inputScenarios: ScenarioGroup = {
             // leaves nothing to restore.
             const own = verdict.excursions.filter((excursion) => excursion.run === index);
             const lock = (reply.foreground_lock ?? {}) as Record<string, unknown>;
-            assert.ok(own.length <= 1, `${step.action}: ${own.length} excursions, but the guard restores once: ${label}`);
+            assert.ok(
+              own.length <= 1,
+              `${step.action}: ${own.length} excursions, but the guard restores once: ${label}`
+            );
             assert.equal(lock.restore, own.length ? 'restored' : 'not_needed', `${step.action} restore: ${label}`);
             // The release is never misreported: released only after an unlock
             // that succeeded, unknown only after unlocks that all answered false.
             const held = (lock.holder === 'host' ? lock.host : lock) as Record<string, unknown> | undefined;
             const errors = Array.isArray(held?.unlock_errors) ? (held.unlock_errors as unknown[]) : [];
             assert.ok(lock.release === 'released' || lock.release === 'unknown', `${step.action} release: ${label}`);
-            if (lock.holder === 'host') assert.equal(held?.release, lock.release, `${step.action} host release: ${label}`);
-            if (lock.release === 'released') assert.equal(errors.at(-1), 0, `${step.action} released without a successful unlock: ${label}`);
+            if (lock.holder === 'host')
+              assert.equal(held?.release, lock.release, `${step.action} host release: ${label}`);
+            if (lock.release === 'released')
+              assert.equal(errors.at(-1), 0, `${step.action} released without a successful unlock: ${label}`);
             else {
               assert.ok(
                 errors.length > 0 && errors.every((error) => typeof error === 'number' && error !== 0),

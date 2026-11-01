@@ -16,7 +16,16 @@ import { modelDisplayName } from './provider-display';
 import { record, rows } from './record-utils';
 import { type SidebarReferenceKey, useSidebarReferences } from './sidebar-reference-cache';
 import { usageMoney, usageProviderLabel } from './usage-format';
-import { localDayKey, periodLabel, statsNumber, statsPlan, statsSpeed, statsTokens, type Row, type StatsView } from './usage-stats-model';
+import {
+  localDayKey,
+  periodLabel,
+  statsNumber,
+  statsPlan,
+  statsSpeed,
+  statsTokens,
+  type Row,
+  type StatsView,
+} from './usage-stats-model';
 import { UsagePeriodControls, usagePeriodOptions } from './UsagePeriodControls';
 
 const DAY_MS = 24 * 60 * 60 * 1000;

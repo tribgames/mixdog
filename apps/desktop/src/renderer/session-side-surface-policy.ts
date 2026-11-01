@@ -151,11 +151,7 @@ export function withSessionDiff(
 export type SessionSidePanelView = 'session-diff' | 'visualize' | 'routines' | 'room' | 'agent-session';
 
 export const isSessionSidePanelView = (view: unknown): view is SessionSidePanelView =>
-  view === 'session-diff' ||
-  view === 'visualize' ||
-  view === 'routines' ||
-  view === 'room' ||
-  view === 'agent-session';
+  view === 'session-diff' || view === 'visualize' || view === 'routines' || view === 'room' || view === 'agent-session';
 
 /** The sub-agent session a chat's `agent-session` panel view shows (an Agents
  *  row opened beside the chat), with the row's title for its header. */

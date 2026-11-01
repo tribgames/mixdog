@@ -114,9 +114,7 @@ async function fillNativeTextFields(ctx: ScenarioContext, native: NativeTextApp)
   );
   assert.equal(typed.path, 'win32_message', JSON.stringify(typed));
   const typedElements = elementsAfter(setValueElements, typed.capture_after as CapturePayload | undefined);
-  const typedEditor = typedElements.find(
-    (element) => element.role === 'Edit' && element.name === 'Native text editor'
-  );
+  const typedEditor = typedElements.find((element) => element.role === 'Edit' && element.name === 'Native text editor');
   assert.match(String(typedEditor?.value ?? ''), /L1\s+L2/, JSON.stringify(typed));
   // One act fills two fields of the same observation: the second step's
   // ref outlives the first delivery and is re-proved before its own.

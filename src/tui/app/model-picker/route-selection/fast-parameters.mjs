@@ -116,5 +116,13 @@ export function createFastParameterSelection({ state, currentRoute, isCurrentRou
       (model.modelParameterOptions || []).find((parameter) => parameter.id === OPENROUTER_SORT_PARAMETER)
     );
 
-  return { modelParametersFor, fastAvailableFor, getSelectedFast, isUltrafast, toggleFast, cycleThinking, cycleRouting };
+  return {
+    modelParametersFor,
+    fastAvailableFor,
+    getSelectedFast,
+    isUltrafast,
+    toggleFast,
+    cycleThinking,
+    cycleRouting,
+  };
 }

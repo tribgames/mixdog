@@ -10,7 +10,10 @@ import { STALL_ABORT_S, resolveTimeoutMs } from '../../../stall-policy.mjs';
 
 // Defaults to the agent stall budget (600 s): a quiet job past the point where
 // a silent model turn would be reaped is worth a look.
-export const SHELL_OUTPUT_SILENCE_WARN_MS = resolveTimeoutMs('MIXDOG_SHELL_OUTPUT_SILENCE_WARN_MS', STALL_ABORT_S * 1000);
+export const SHELL_OUTPUT_SILENCE_WARN_MS = resolveTimeoutMs(
+  'MIXDOG_SHELL_OUTPUT_SILENCE_WARN_MS',
+  STALL_ABORT_S * 1000
+);
 
 /** Milliseconds since the job last wrote to stdout/stderr (or started), or null
  *  when silence is unknown. The spawner creates both capture files before the
@@ -52,7 +55,8 @@ export function waitedJobSilence(taskIds, { now = Date.now(), warnMs = SHELL_OUT
     const task = getBackgroundTask(taskId);
     if (task?.surface !== 'shell' || task.status !== 'running') continue;
     const silentMs = shellOutputSilenceMs(task, { now });
-    if (silentMs != null && (!worst || silentMs > worst.silentMs)) worst = { taskId, silentMs, hung: silentMs >= warnMs };
+    if (silentMs != null && (!worst || silentMs > worst.silentMs))
+      worst = { taskId, silentMs, hung: silentMs >= warnMs };
   }
   return worst;
 }

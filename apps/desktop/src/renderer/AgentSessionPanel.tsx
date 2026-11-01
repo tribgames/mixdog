@@ -63,9 +63,7 @@ export function AgentSessionPanel({
         ]}
         onClose={onClose}
       />
-      <div className="agent-session-panel-body">
-        {renderConversation(target.sessionId, target.title, held)}
-      </div>
+      <div className="agent-session-panel-body">{renderConversation(target.sessionId, target.title, held)}</div>
     </section>
   );
 }

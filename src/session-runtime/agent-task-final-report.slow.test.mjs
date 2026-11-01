@@ -810,7 +810,11 @@ test("a send steered into a running turn re-attaches to that turn's chain: no ol
   const steer = await sentRequest(w, first, 'also check MaxHP');
   // The turn spawned its agent, then took the steered send, then answered.
   const rows = turnRows(owner.options.id, 'OLD', { spawns: ['task_agent_1'] });
-  rows.splice(3, 0, { role: 'user', content: 'also check MaxHP', meta: { source: 'steering', submissionIds: [steer.options.id] } });
+  rows.splice(3, 0, {
+    role: 'user',
+    content: 'also check MaxHP',
+    meta: { source: 'steering', submissionIds: [steer.options.id] },
+  });
   w.task().messages.push(...rows);
   w.pool.push(worker('running'));
   const detail = { status: 'done', result: { content: 'OLD' } };
@@ -880,7 +884,13 @@ test('a later answer reading the same as an old send-named end still posts its o
   await post({ runId: 'send1_end', status: 'completed', text: 'Done.', watchId: 'send1' });
   await waitFor(p.delivery, () => w.wakes.length >= 1);
   // Later, an independent request answers "Done." too, with a file of its own.
-  await p.delivery.watchTask({ runId: 'send2', agentId: 'bot1', homeSessionId: HOME, taskSessionId: TASK, title: 'Coding' });
+  await p.delivery.watchTask({
+    runId: 'send2',
+    agentId: 'bot1',
+    homeSessionId: HOME,
+    taskSessionId: TASK,
+    title: 'Coding',
+  });
   await post({
     runId: `${TASK}_turn2_end`,
     status: 'completed',
@@ -893,11 +903,20 @@ test('a later answer reading the same as an old send-named end still posts its o
   const ends = w.ended();
   assert.equal(ends.length, 2, 'its own row');
   assert.equal(reportText(ends[1]), 'Done.');
-  assert.deepEqual(ends[1].meta.routine.files.map((entry) => entry.path), [file.path], 'with its files');
+  assert.deepEqual(
+    ends[1].meta.routine.files.map((entry) => entry.path),
+    [file.path],
+    'with its files'
+  );
   assert.equal(w.wakes.length, 2, 'and its wake');
   assert.deepEqual(await w.watchIds(), []);
   // A different answer of the session still posts.
-  await post({ runId: `${TASK}_turn3_end`, status: 'completed', text: 'Another answer.', progressRunId: `${TASK}_progress_turn3` });
+  await post({
+    runId: `${TASK}_turn3_end`,
+    status: 'completed',
+    text: 'Another answer.',
+    progressRunId: `${TASK}_progress_turn3`,
+  });
   assert.equal(w.ended().length, 3);
 });
 

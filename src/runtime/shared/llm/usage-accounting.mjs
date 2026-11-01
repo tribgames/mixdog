@@ -102,15 +102,15 @@ export async function accountProviderSend(provider, instance, send, model, opts 
     if (outcome?.cancelled) status = 'cancelled';
     else if (outcome)
       status = usageRequestStatus({
-          failed: outcome.failed,
-          attempts,
-          substituted: servedModelSubstituted({
-            provider,
-            requestedModel: identity.requestedModel,
-            servedModel,
-            fallback: Boolean(result.providerMetadata?.anthropicFallbacks?.length),
-          }),
-        });
+        failed: outcome.failed,
+        attempts,
+        substituted: servedModelSubstituted({
+          provider,
+          requestedModel: identity.requestedModel,
+          servedModel,
+          fallback: Boolean(result.providerMetadata?.anthropicFallbacks?.length),
+        }),
+      });
     // The one measured request time: the loop's speed figures read it, so
     // the composer and the ledger show the same span.
     if (timed && result && typeof result === 'object') {

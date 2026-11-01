@@ -206,7 +206,8 @@ export async function buildAnthropicApiRequest({
     effortProjection,
   });
   const appHeaders = requestHeadersFor(betas, { config, opts });
-  const requestHeaders = isCustom && customConfig ? customRequestHeaders(customConfig, useModel, appHeaders) : appHeaders;
+  const requestHeaders =
+    isCustom && customConfig ? customRequestHeaders(customConfig, useModel, appHeaders) : appHeaders;
 
   // `betas`: the selected beta names, whether or not this route sends them as a header.
   return { params, requestHeaders, betas, knownToolNames, fastModeLatched: fastLatched };
