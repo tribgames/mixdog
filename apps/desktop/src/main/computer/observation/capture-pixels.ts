@@ -3,6 +3,7 @@ import { attachCaptureAttempts, type CaptureAttempt } from '../shared/capture-at
 import type { ComputerCommand, ScreenshotCapture } from '../shared/types';
 import { pixelUnavailable } from './analysis';
 import type { CaptureEngineHost } from './capture';
+import type { CaptureBackendMemory } from './capture-backend-memory';
 import { createCaptureSources, fitCaptureImage } from './capture-sources';
 import { createZoomCapture } from './capture-zoom';
 import { frameQualityIssue } from './frame-quality';
@@ -31,10 +32,10 @@ export type PixelCaptureHost = Pick<
   | 'readPermissions'
 >;
 
-export function createPixelCapture(host: PixelCaptureHost) {
+export function createPixelCapture(host: PixelCaptureHost, backendMemory?: CaptureBackendMemory) {
   const { sessionIdFor, assertExecutionNotAborted, rememberFrame, allocateFrameId } = host;
 
-  const sources = createCaptureSources(host);
+  const sources = createCaptureSources(host, backendMemory);
 
   /** A child window whose surface could not be read is retried once through
    *  its owner, whose composited surface includes the child. */
@@ -108,9 +109,13 @@ export function createPixelCapture(host: PixelCaptureHost) {
         geometry.width || target.sourceWidth,
         geometry.height || target.sourceHeight
       );
-      if (qualityIssue) return unavailableCapture(captureAttempts, target.windowId, qualityIssue);
+      if (qualityIssue) {
+        sources.forgetBackend(command, target.windowId);
+        return unavailableCapture(captureAttempts, target.windowId, qualityIssue);
+      }
       const jpeg = capturedImage.toJPEG(quality);
       if (!jpeg || jpeg.length === 0) {
+        sources.forgetBackend(command, target.windowId);
         return unavailableCapture(
           captureAttempts,
           target.windowId,
