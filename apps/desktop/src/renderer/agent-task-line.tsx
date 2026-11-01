@@ -6,7 +6,7 @@
 // (AgentTaskLine, at the report row). Its details (reply, files) stay in the
 // session, which the line and the card open.
 import { ArrowUpRight, SquareTerminal } from 'lucide-react';
-import { type ReactNode, createContext, useContext, useState } from 'react';
+import { type ReactNode, createContext, useContext, useId, useState } from 'react';
 import type { ToolApprovalDecision } from '../shared/contract';
 import type { Handoff } from './agent-chat-place';
 import { collapseHandoffs, taskReportIsQuiet } from './agent-chat-place';
@@ -142,8 +142,11 @@ function HandoffLineView({
   if (waiting) state = asking ? 'question' : 'approval';
   const label = { working: t('Working'), approval: t('Approval needed'), question: t('Answer needed') }[state];
   // The session's latest progress update stays off the line (it would stretch
-  // it across the pane); hovering the state shows it.
+  // it across the pane); hovering or focusing the state shows it in the
+  // tooltip layer's bubble. Screen readers get the same text: Open describes
+  // itself with it, and the line's status region announces it as it changes.
   const update = state === 'working' ? handoffProgressText(progress) : '';
+  const updateId = useId();
   return (
     <div className="mx-chat-routine-failed mx-handoff-line" role="status" data-state={state}>
       <span className="mx-bot-sent-dot" aria-hidden="true" />
@@ -151,12 +154,23 @@ function HandoffLineView({
       <span className="mx-handoff-what">
         <span className="mx-handoff-name">{what}</span>
         {count > 1 && <span className="mx-handoff-state">{` ${t('×{{n}}', { n: count })}`}</span>}
-        <span className="mx-handoff-state" title={update || undefined}>{` · ${label}`}</span>
+        <span className="mx-handoff-state" data-tooltip={update || undefined} tabIndex={update ? 0 : undefined}>
+          {` · ${label}`}
+        </span>
       </span>
       <span aria-hidden="true">·</span>
-      <button type="button" onClick={() => openTaskSession(sessionId)}>
+      <button
+        type="button"
+        aria-describedby={update ? updateId : undefined}
+        onClick={() => openTaskSession(sessionId)}
+      >
         {t('Open')}
       </button>
+      {update && (
+        <span id={updateId} className="sr-only">
+          {update}
+        </span>
+      )}
     </div>
   );
 }

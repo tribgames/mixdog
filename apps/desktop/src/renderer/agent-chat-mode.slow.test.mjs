@@ -2190,7 +2190,13 @@ test('a hand-off line keeps Working and shows the latest progress update only on
     await render(React.createElement(Rows));
   };
   const lines = () => [...document.querySelectorAll('main .mx-handoff-line')];
-  const hover = () => lines()[0].querySelector('.mx-handoff-state[title]')?.getAttribute('title') ?? null;
+  const hover = () =>
+    lines()[0].querySelector('.mx-handoff-state[data-tooltip]')?.getAttribute('data-tooltip') ?? null;
+  const visibleText = () => {
+    const line = lines()[0].cloneNode(true);
+    for (const hidden of line.querySelectorAll('.sr-only')) hidden.remove();
+    return line.textContent;
+  };
   const cards = () => document.querySelectorAll('main .mx-task-card').length;
 
   await show([sent]);
@@ -2201,8 +2207,16 @@ test('a hand-off line keeps Working and shows the latest progress update only on
   await show(first);
   assert.equal(lines().length, 1);
   assert.match(lines()[0].textContent, / · Working/);
-  assert.equal(lines()[0].textContent.includes('Worker is on the parser'), false, 'off the line');
+  assert.equal(visibleText().includes('Worker is on the parser'), false, 'off the visible line');
   assert.equal(hover(), 'Worker is on the parser.', 'its first line only, on hover');
+  assert.equal(lines()[0].querySelector('.mx-handoff-state[data-tooltip]').tabIndex, 0, 'focusable for the keyboard');
+  const open = lines()[0].querySelector('button');
+  assert.equal(
+    document.getElementById(open.getAttribute('aria-describedby'))?.textContent,
+    'Worker is on the parser.',
+    'Open is described by the progress for screen readers'
+  );
+  assert.equal(open.hasAttribute('data-tooltip'), false, 'no second bubble on Open');
   assert.equal(cards(), 0, 'no card per update');
   assert.equal(document.querySelector('main [data-status="working"]'), null, 'the update row paints nothing');
   // A later update replaces it.
@@ -2221,6 +2235,8 @@ test('a hand-off line keeps Working and shows the latest progress update only on
   // An update stored before this send belongs to an earlier one: never shown.
   await show([update('p0', 'Old news.'), sent]);
   assert.match(lines()[0].textContent, / · Working/);
+  assert.equal(hover(), null, 'the stale update is not shown');
+  assert.equal(lines()[0].querySelector('button').hasAttribute('aria-describedby'), false);
 });
 
 test('only an accepted send draws a hand-off line; a bot’s reports are cards, never its bubble', async (t) => {

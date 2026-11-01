@@ -55,7 +55,6 @@ interface SessionRowEditor {
 export interface SessionRowContext {
   selection: NavigationSelection;
   workingSessionIds?: ReadonlySet<string>;
-  unreadSessionIds?: ReadonlySet<string>;
   /** The strongest status of one session (needs you > failed > running > unread). */
   attentionOf(sessionId: string): SessionAttention | '';
   editor: SessionRowEditor;
@@ -500,7 +499,6 @@ export interface SidebarSectionContext {
   ): React.ReactNode;
   sessionsReady: boolean;
   workingSessionIds?: ReadonlySet<string>;
-  unreadSessionIds?: ReadonlySet<string>;
   attentionOf(sessionId: string): SessionAttention | '';
   onAddProject?(onAdded?: (projectPath: string) => void): void;
   onNewProjectTask?(projectPath: string): void;

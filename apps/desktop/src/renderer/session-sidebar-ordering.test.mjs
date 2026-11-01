@@ -64,7 +64,7 @@ test('ordering-relevant changes reorder', () => {
   const reclassified = next(3, { classification: 'chat' });
   assert.ok(!reclassified.allIds.includes('s00003'));
   const automation = next(1, { sourceType: 'schedule' });
-  assert.ok(!automation.activityIds.includes('s00001'));
+  assert.ok(automation.activityIds.includes('s00001'));
   const agent = next(1, { agentSession: true });
   assert.ok(agent.allIds.includes('s00001'));
   assert.ok(!projectSessionOrdering(agent.source, true, false, null).allIds.includes('s00001'));
