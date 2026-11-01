@@ -309,7 +309,10 @@ export function FontsGroup() {
           onCommit={(mono) => setFontSettings({ mono })}
         />
       </Row>
-      <Row title={t('UI size')} description={t('Scales all text in the app.')}>
+      <Row
+        title={t('UI size')}
+        description={`${t('Scales all text in the app.')} ${t('Ctrl/⌘ + = larger, Ctrl/⌘ + − smaller, Ctrl/⌘ + 0 reset.')}`}
+      >
         <div className="skin-slider">
           <input
             type="range"

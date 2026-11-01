@@ -16,7 +16,7 @@ export type FontSettings = {
   ligatures: boolean;
 };
 
-export const UI_SCALE_RANGE = { min: 0.85, max: 1.2, step: 0.05 } as const;
+export const UI_SCALE_RANGE = { min: 0.85, max: 1.5, step: 0.05 } as const;
 export const CODE_SIZE_RANGE = { min: 10, max: 20 } as const;
 const BASE_CODE_SIZE = 13;
 export const DEFAULT_FONT_SETTINGS: Readonly<FontSettings> = {
@@ -138,6 +138,14 @@ export function setFontSettings(patch: Partial<FontSettings>): FontSettings {
   applyFontSettings(next);
   window.dispatchEvent(new window.Event(CHANGE_EVENT));
   return next;
+}
+
+/** The Ctrl/⌘ + = / - / 0 shortcuts: one step of the UI size setting (0 = the
+    default), clamped to its range; the slider reads the same stored value. */
+export function stepUiScale(direction: -1 | 0 | 1): FontSettings {
+  const uiScale =
+    direction === 0 ? DEFAULT_FONT_SETTINGS.uiScale : getFontSettings().uiScale + direction * UI_SCALE_RANGE.step;
+  return setFontSettings({ uiScale });
 }
 
 export function resetFontSettings(): void {

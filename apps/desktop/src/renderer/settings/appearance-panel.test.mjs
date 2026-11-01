@@ -180,7 +180,7 @@ test('size sliders and the ligature switch apply live; reset restores fonts and 
   const { document, root, fontSettings, setValue, button, pickFile } = await mountPanel(t);
   const html = document.documentElement;
   const uiSize = document.querySelector('input[type="range"][aria-label="UI size"]');
-  assert.deepEqual([uiSize.min, uiSize.max, uiSize.step, uiSize.value], ['85', '120', '5', '100']);
+  assert.deepEqual([uiSize.min, uiSize.max, uiSize.step, uiSize.value], ['85', '150', '5', '100']);
   await setValue(uiSize, 110);
   assert.equal(html.style.getPropertyValue('--mx-ui-scale'), '1.1');
   assert.equal(uiSize.getAttribute('aria-valuetext'), '110%');

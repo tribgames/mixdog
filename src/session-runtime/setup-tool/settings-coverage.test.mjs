@@ -987,7 +987,7 @@ test('Desktop schema accepts the device appearance and bot overlay options withi
   assert.match(schemaValueError({ timeFormat: '36h' }, appearance, 'appearance'), /must be one of/);
   assert.match(schemaValueError({ sidePanelPosition: 'left' }, appearance, 'appearance'), /must be one of/);
   assert.match(schemaValueError({ chatTextSize: 'huge' }, appearance, 'appearance'), /must be one of/);
-  assert.match(schemaValueError({ uiScale: 1.3 }, appearance, 'appearance'), /at most 1.2/);
+  assert.match(schemaValueError({ uiScale: 1.55 }, appearance, 'appearance'), /at most 1.5/);
   assert.match(schemaValueError({ uiScale: 0.5 }, appearance, 'appearance'), /at least 0.85/);
   assert.match(schemaValueError({ codeSize: 9 }, appearance, 'appearance'), /at least 10/);
   assert.match(schemaValueError({ codeSize: 12.5 }, appearance, 'appearance'), /integer/);

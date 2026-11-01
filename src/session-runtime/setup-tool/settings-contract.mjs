@@ -299,8 +299,8 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
     uiScale: {
       type: 'number',
       minimum: 0.85,
-      maximum: 1.2,
-      description: 'UI size multiplier, 0.85-1.2 in steps of 0.05 (default 1).',
+      maximum: 1.5,
+      description: 'UI size multiplier, 0.85-1.5 in steps of 0.05 (default 1).',
     },
     codeSize: {
       type: 'integer',

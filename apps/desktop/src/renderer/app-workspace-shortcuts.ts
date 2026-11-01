@@ -14,16 +14,19 @@
 // shift+mod+F find in files · mod+W and ctrl+Q close ·
 // mod+F session search when no tab is open (surfaces keep their own find) ·
 // mod+K and mod+/ command palette · mod+1..9 go to tab (9 = last) ·
+// mod+= / mod+- / mod+0 UI size up / down / default (browser pane and terminal keep their own) ·
 // mod+[ / mod+] back/forward through sessions and editor locations (also mouse
 // buttons 3/4) · shift+mod+[ / ] previous/next tab.
 // Bracket, K and / chords stay with a focused code editor (indent, chords,
 // comment toggle); back/forward also stays with the browser page and terminal.
 import { useEffect, useRef } from 'react';
 
+import { stepUiScale } from './appearance/font-settings';
 import type { WorkspaceTab } from './navigation';
 import { openSessionSearch } from './session-search';
 import { isTextNavigationTarget, modalDialogPresented } from './surface-input-focus';
 import { toggleToolActivityExpandAll } from './tool-activity-expansion';
+import { zoomTargetClaimsKey } from './zoom-target';
 
 /** Surfaces with their own back/forward or word motion: the in-app browser and the terminal. */
 const OWN_HISTORY_SURFACES = '.browser-pane, .browser-isolated-view, .xterm';
@@ -94,6 +97,17 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       const key = event.key.toLowerCase();
       const plain = !event.shiftKey && !event.altKey;
       if (plain && event.key.startsWith('Arrow') && inEditor) return null;
+      // Ctrl/⌘ + = / + / - / 0 step the UI size setting. The browser pane has
+      // its own page zoom, the terminal its own control keys, and a zoom host
+      // (editor preview, Visualize panel; zoom-target.ts) takes the key when
+      // it holds focus or hover. Matched by the typed character, before the
+      // physical bracket keys: some layouts type `+` on the BracketRight key,
+      // and `+` or `0` may need Shift.
+      if (!event.altKey && (event.key === '=' || event.key === '+' || event.key === '-' || event.key === '0')) {
+        if (ownsHistoryKeys || zoomTargetClaimsKey()) return null;
+        const direction = event.key === '-' ? -1 : event.key === '0' ? 0 : 1;
+        return () => stepUiScale(direction);
+      }
       if (!event.altKey && (event.code === 'BracketLeft' || event.code === 'BracketRight')) {
         if (inEditor) return null;
         const offset = event.code === 'BracketLeft' ? -1 : 1;
