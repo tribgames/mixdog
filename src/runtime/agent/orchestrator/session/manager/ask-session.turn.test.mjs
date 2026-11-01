@@ -19,7 +19,7 @@ process.env.MIXDOG_AGENT_TRACE_DISABLE = '1';
 mkdirSync(process.env.MIXDOG_DATA_DIR, { recursive: true });
 const { createSession } = await import('./session-lifecycle.mjs');
 const { askSession } = await import('./ask-session.mjs');
-const { deleteSession, loadSession } = await import('../store.mjs');
+const { deleteSession, drainSessionStore, loadSession, saveSessionAsync } = await import('../store.mjs');
 const { enqueuePendingMessage } = await import('./pending-messages.mjs');
 const { renderShellCompletionEnvelope } = await import('../../../../shared/task-notification-envelope.mjs');
 const { USER_CANCEL_KEEP_PROMPT_REASON } = await import('./turn-interruption.mjs');
@@ -577,20 +577,22 @@ test('a close refused by its lifecycle barrier leaves the turn running and check
   const { closeSession } = await import('./session-close.mjs');
   const { readTurnCheckpoint } = await import('./turn-checkpoint.mjs');
   const { sessionPath } = await import('../store/session-paths.mjs');
-  const { existsSync, readFileSync, unlinkSync, writeFileSync } = await import('node:fs');
+  const { readFileSync, writeFileSync } = await import('node:fs');
   const until = async (predicate) => {
     const deadline = Date.now() + 5_000;
     while (!predicate() && Date.now() < deadline) await new Promise((resolve) => setTimeout(resolve, 10));
   };
   await withAskHarness(t, async ({ session, askSession, loadSession, setReply }) => {
+    // Finish createSession's debounced save before the turn issues its worker save.
+    drainSessionStore();
     let refused = null;
     let checkpointed = null;
     setReply(async (_messages, sendOpts) => {
       sendOpts.onTextDelta?.('before');
-      // Let the turn's preflight save land before replacing the record.
-      await until(() => existsSync(sessionPath(session.id)));
+      // Queue behind preflight and await its completion, not just file creation.
+      await saveSessionAsync(loadSession(session.id), { expectedGeneration: session.generation });
       const path = sessionPath(session.id);
-      const original = existsSync(path) ? readFileSync(path) : null;
+      const original = readFileSync(path);
       // Another session's record renamed onto this path: the barrier refuses it.
       writeFileSync(path, JSON.stringify({ id: 'sess_someone_else', messages: [] }));
       const stderrWrite = process.stderr.write;
@@ -599,8 +601,7 @@ test('a close refused by its lifecycle barrier leaves the turn running and check
         refused = closeSession(session.id, 'cli-agent-close');
       } finally {
         process.stderr.write = stderrWrite;
-        if (original) writeFileSync(path, original);
-        else unlinkSync(path);
+        writeFileSync(path, original);
       }
       sendOpts.onTextDelta?.(' after');
       await until(() => readTurnCheckpoint(session.id)?.interruption?.partialAssistantContent === 'before after');
