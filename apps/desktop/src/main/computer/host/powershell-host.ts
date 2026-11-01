@@ -149,6 +149,8 @@ function createObservationLayer({
     readDisplays,
     readPermissions: readComputerPermissions,
     isObserveOnly,
+    // Late-bound: the capture engine is built after the inspection that asks it.
+    accessibilityUnusable: (command) => captureEngine.accessibilityUnusable(command),
   });
   const processFate = createProcessFateReader(callPowerShell);
   const captureEngine = createCaptureEngine({

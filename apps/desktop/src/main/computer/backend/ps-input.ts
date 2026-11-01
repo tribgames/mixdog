@@ -11,5 +11,6 @@ export const PS_INPUT = [
   loadComputerSource('input-guard.ps1'),
   loadComputerSource('input-pointer.ps1'),
   loadComputerSource('input-window.ps1'),
+  loadComputerSource('quiet-wait.ps1'),
   loadComputerSource('input-menu.ps1'),
 ].join('');

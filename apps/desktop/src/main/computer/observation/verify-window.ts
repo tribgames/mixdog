@@ -7,7 +7,7 @@
 import { elapsedMs, sleep } from '../shared/common';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import { evaluateVerifyPredicate, screenshotInteger, type VerifyStatus } from './analysis';
-import { INTEGRITY_BLOCK_CODE, verifyUnknownReason } from './verify-predicate';
+import { INTEGRITY_BLOCK_CODE, verifyUnknownReason, type VerifyGiveUp } from './verify-predicate';
 import type { InspectHost } from './inspect';
 
 const DEFAULT_VERIFY_TIMEOUT_MS = 5_000;
@@ -18,12 +18,20 @@ const VERIFY_POLL_INTERVAL_MS = 250;
 // left up to the cap; a timed-out sample is retried rather than ending the wait.
 const VERIFY_PROVIDER_MIN_TIMEOUT_MS = 2_000;
 const VERIFY_PROVIDER_MAX_TIMEOUT_MS = 5_000;
+// Every timed-out read retires the worker that hosts the window provider, so a
+// window that times out this many reads in a row is not worth the rest of a
+// 20-30 s budget: the answer stays unknown and the caller is told why.
+const VERIFY_TIMEOUT_GIVE_UP_READS = 2;
 // What an undecided text wait returns of the last read, so the caller sees why
 // the text did not match without spending a capture on it.
 const VERIFY_TEXT_SAMPLE_ENTRIES = 12;
 const VERIFY_TEXT_SAMPLE_CHARS = 60;
 
-export type VerifyHost = Pick<InspectHost, 'callPowerShell' | 'sessionIdFor' | 'assertExecutionNotAborted'>;
+export type VerifyHost = Pick<InspectHost, 'callPowerShell' | 'sessionIdFor' | 'assertExecutionNotAborted'> & {
+  /** Whether capture has cached this window's accessibility tree as unusable
+   *  (visual-only cache); a text predicate cannot be proven from it. */
+  accessibilityUnusable?(command: ComputerCommand): boolean;
+};
 
 type Predicate = Record<string, unknown>;
 
@@ -40,6 +48,8 @@ interface VerifyState {
   textComplete: boolean;
   textSample: string[];
   providerError: string;
+  /** Provider reads in a row that ended in a timeout. */
+  consecutiveTimeouts: number;
 }
 
 function elementTextSample(elements: Array<Record<string, unknown>>): string[] {
@@ -72,6 +82,7 @@ function failSample(state: VerifyState, predicates: Predicate[], message: string
   state.providerError = message;
   state.statuses = predicates.map(() => 'unknown');
   state.consecutive = 0;
+  state.consecutiveTimeouts = message.includes('computer_command_timeout') ? state.consecutiveTimeouts + 1 : 0;
   return message.includes(INTEGRITY_BLOCK_CODE) ? 'blocked' : 'retry';
 }
 
@@ -107,6 +118,7 @@ async function samplePredicates(
   }
   state.samples += 1;
   state.providerError = '';
+  state.consecutiveTimeouts = 0;
   const elements = (Array.isArray(response.result?.elements) ? response.result.elements : []) as Array<
     Record<string, unknown>
   >;
@@ -162,7 +174,12 @@ export async function verifyWindowState(host: VerifyHost, command: ComputerComma
     textComplete: false,
     textSample: [],
     providerError: '',
+    consecutiveTimeouts: 0,
   };
+  // A text predicate cannot be proven from a tree capture already knows is
+  // unusable: read the title once (cheap, no tree) and stop instead of polling.
+  const treeUnusable = needsElementText && Boolean(command.window_id) && host.accessibilityUnusable?.(command) === true;
+  let gaveUp: VerifyGiveUp | undefined = treeUnusable ? 'tree_unusable' : undefined;
   // A closed exact window never reopens under the same handle, so once it is
   // gone an unmet predicate can no longer change and waiting is pointless.
   let targetClosed = false;
@@ -176,11 +193,25 @@ export async function verifyWindowState(host: VerifyHost, command: ComputerComma
       VERIFY_PROVIDER_MIN_TIMEOUT_MS,
       Math.min(VERIFY_PROVIDER_MAX_TIMEOUT_MS, Math.round(deadline - performance.now()))
     );
-    const sampled = await samplePredicates(host, command, predicates, needsElementText, state, providerTimeoutMs);
+    const sampled = await samplePredicates(
+      host,
+      command,
+      predicates,
+      needsElementText && !treeUnusable,
+      state,
+      providerTimeoutMs
+    );
     if (sampled === 'blocked') break;
     if (state.consecutive >= stableSamples) break;
     if (command.window_id && !state.exists && state.statuses.some((status) => status !== 'satisfied')) {
       targetClosed = true;
+      break;
+    }
+    if (treeUnusable) break;
+    // Only a text read is worth abandoning: a title-only predicate reads no
+    // tree, so a transient timeout there says nothing about the window's tree.
+    if (needsElementText && state.consecutiveTimeouts >= VERIFY_TIMEOUT_GIVE_UP_READS) {
+      gaveUp = 'repeated_timeouts';
       break;
     }
     if (performance.now() >= deadline) break;
@@ -196,6 +227,7 @@ export async function verifyWindowState(host: VerifyHost, command: ComputerComma
           providerError: state.providerError,
           textComplete: state.textComplete,
           observedElements: state.observedElements,
+          gaveUp,
         })
       : null;
   let undecidedFields = {};
@@ -205,7 +237,11 @@ export async function verifyWindowState(host: VerifyHost, command: ComputerComma
       unknown_hint: 'the exact window closed before the wait was decided; list windows to find its replacement',
     };
   } else if (unknownReason) {
-    undecidedFields = { unknown_reason: unknownReason.reason, unknown_hint: unknownReason.hint };
+    undecidedFields = {
+      unknown_reason: unknownReason.reason,
+      unknown_hint: unknownReason.hint,
+      ...(gaveUp ? { gave_up_early: true } : {}),
+    };
   }
   return {
     text: JSON.stringify({

@@ -237,6 +237,20 @@ function Release-HeldKeys($state) {
 function Do-Wait($req) {
     $s = if ($null -ne $req.duration) { [double]$req.duration } else { 1 }
     if ($s -lt 0 -or $s -gt 30) { throw 'wait duration must be 0..30 seconds' }
+    # Only a wait that asks for it ends once the window layer stops changing;
+    # any other wait is a fixed pause.
+    if ($req.quiet -eq $true -and $s -gt 0) {
+        $quiet = Wait-UntilQuiet $s { Get-QuietSample }
+        $report = @{ ended_early = [bool]$quiet.quiet; waited_ms = $quiet.waited_ms; requested_ms = [int]($s * 1000) }
+        if (-not $quiet.quiet) { $report.reason = $quiet.reason }
+        $reply = @{
+            ok         = $true
+            action     = 'wait'
+            message    = ('waited ' + [Math]::Round($quiet.waited_ms / 1000, 2) + 's')
+            quiet_wait = $report
+        }
+        return @{ text = (ConvertTo-Json -Compress -InputObject $reply) }
+    }
     Start-Sleep -Milliseconds ([int]($s * 1000))
     return @{ text = ('waited ' + $s + 's') }
 }

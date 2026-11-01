@@ -229,13 +229,13 @@ export const COMPUTER_ACTION_CONTRACTS = [
           minItems: 1,
           maxItems: 6,
           description:
-            'First: an input action. Then type/key/wait reusing focus, or click/double_click/triple_click/scroll/set_value/type/key on a ref from the same observation (no marks or coordinates). Waits total ≤10s; transition/failure or a changed, disabled, or off-screen ref stops the rest.',
+            'First: an input action. Then type/key/wait reusing focus, or click/double_click/triple_click/scroll/set_value/type/key on a ref from the same observation (no marks or coordinates). act already settles after each action; wait is a fixed pause for a known async delay (quiet:true ends it early once windows stop changing; see wait.quiet) and totals ≤10s; use verify for a real condition. Transition/failure or a changed, disabled, or off-screen ref stops the rest.',
         },
         observe: {
           type: 'string',
           enum: ['state', 'ax'],
           description:
-            'Returned observation. Default: ax when the first action targets a ref (full state if the tree is unusable), otherwise state. state includes the frame for coordinates or visual checks; ax skips the screenshot.',
+            'Returned observation. Default: ax when the first action targets a ref (full state if the tree is unusable), otherwise state. state includes the frame for coordinates or visual checks; ax skips the screenshot. A repeat observation of the same window lists only changes as elements_delta: unchanged=N, added and updated rows (updated shows was=old ref), removed refs. Refs you already hold stay valid for unchanged elements; use the new ref of an added or updated row; a removed ref is gone. A new window, a dialog or a large change returns the full elements list, and capture always does.',
         },
         ...delivery,
       },

@@ -233,7 +233,17 @@ export function createCaptureEngine(host: CaptureEngineHost) {
 
   const captureAfterAction = createCaptureAfter(host, ocrPreferences, captureComputer, imageDedup);
 
+  /** Whether a plain read of this window is currently served from pixels because
+   *  its accessibility tree keeps timing out or comes back empty. Reads the cache
+   *  only; it never asks the provider and learns nothing. */
+  function accessibilityUnusable(command: ComputerCommand): boolean {
+    const windowId = String(command.window_id || '');
+    return resolveVisualOnlyCapture(visualOnly, sessionIdFor(command), { action: 'capture' }, 'state', windowId)
+      .cacheHit;
+  }
+
   return {
+    accessibilityUnusable,
     captureScreenshot,
     captureZoom,
     captureComputer,

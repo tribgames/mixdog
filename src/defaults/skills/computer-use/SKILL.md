@@ -204,13 +204,21 @@ refs still work.
 
 ## Waiting and verification
 
-- `wait` inside `act` is only a short settle (5 s each, 10 s total).
+- Every `act` already settles and re-observes, so add no trailing `wait`.
+  Use `wait` inside `act` only for a known async delay (5 s each, 10 s total):
+  it is a fixed pause. `quiet:true` ends it early once the window set,
+  foreground, title and bounds stop changing; use it when waiting for a window
+  or dialog to open, close or move. It does not see content changes inside a
+  window (canvas, text): a real condition is a `verify`.
 - `wait_for_user` waits for control to return, without holding the input queue.
   Read its status: a successful tool response alone does not mean it resumed.
 - For anything longer use `verify`: AND-combined predicates (`present`,
   `absent`, `title_contains`, `window_exists`) with `timeout_ms` and
   `stable_samples`. It reads state only, so prior refs stay valid.
 - Never loop on `capture` to poll; `verify` is the bounded wait.
+- `verify` stops early with `unknown` and an `unknown_reason` when the window's
+  tree is cached unusable or its reads keep timing out; do not rerun it
+  unchanged.
 - `unknown` means the observation could not prove the condition. In particular,
   empty, truncated, or failed accessibility reads do not prove text is absent.
 
@@ -256,8 +264,8 @@ surface `computer`); one-time codes, passkeys, security keys and app approvals
 are the user's step (`handoff_user` kind `takeover`). Never type a password or
 code with `type`/`set_value`, even one shown on screen.
 
-**Keyboard-driven navigation** — `act` with `key` steps such as `ctrl+s`
-and a trailing short `wait`; verify with `verify` rather than another capture.
+**Keyboard-driven navigation** — `act` with `key` steps such as `ctrl+s`;
+the act settles itself. Verify with `verify` rather than another capture.
 `alt+f4` is blocked in every delivery mode. To close a window, obtain the
 user's go-ahead and use `window` with the `close` operation.
 

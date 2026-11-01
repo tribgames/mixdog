@@ -109,7 +109,7 @@ const ALLOWED_STEP_FIELDS: Record<string, Set<string>> = {
   key: new Set(['action', 'ref', 'keys']),
   key_down: new Set(['action', 'ref', 'keys']),
   key_up: new Set(['action', 'ref', 'keys']),
-  wait: new Set(['action', 'duration']),
+  wait: new Set(['action', 'duration', 'quiet']),
 };
 
 type SequenceStep = NonNullable<ComputerCommand['steps']>[number];
@@ -159,6 +159,9 @@ function assertSequenceStep(step: SequenceStep, index: number): string {
     (typeof step.duration !== 'number' || !Number.isFinite(step.duration) || step.duration < 0 || step.duration > 5)
   ) {
     throw new Error(`sequence step ${index + 1} requires duration from 0 to 5 seconds`);
+  }
+  if (stepAction === 'wait' && Object.hasOwn(step, 'quiet') && typeof step.quiet !== 'boolean') {
+    throw new Error(`sequence step ${index + 1} quiet must be a boolean`);
   }
   return stepAction;
 }

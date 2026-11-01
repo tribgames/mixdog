@@ -80,6 +80,7 @@ export async function executeComputerSequenceSteps(
         ? { delivery_accepted: payload.delivery_accepted }
         : {}),
       ...(payload.input_may_have_executed === true ? { input_may_have_executed: true } : {}),
+      ...(payload.quiet_wait ? { quiet_wait: payload.quiet_wait } : {}),
       ...(payload.cursor_feedback ? { cursor_feedback: computerCursorFeedback(payload.cursor_feedback) } : {}),
       timings_ms: {
         ...computerTimings(payload.timings_ms),
