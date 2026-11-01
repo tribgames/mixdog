@@ -66,7 +66,8 @@ async function secureReceiptFolder(folder: string): Promise<void> {
 }
 
 /** Durability per phase. `reserved` only binds the submission id to its content
- * and to the session address — and that address is derived from the id, so a
+ * and to the session address — and that address is normally derived from the
+ * id (only a refusal reset or a changed-content retry uses a random one), so a
  * reservation lost to a power cut replays onto the same session anyway; a lost
  * `configured` only re-applies the same draft. An atomic rename is enough for
  * both (a process crash never loses it). `accepted` is what
@@ -88,8 +89,10 @@ const PHASES: readonly string[] = ['reserved', 'configured', 'accepted'];
 
 /** The stored receipt, or null when there is none. A file that is no receipt
  * — empty or NUL-filled after a crash, truncated, oversized, or of another
- * shape — binds nothing: the id's session address derives from the id itself,
- * so the replay reserves it again and the idempotent submission goes on. Only
+ * shape — binds nothing: the id's session address normally derives from the id
+ * itself, so the replay reserves it again and the idempotent submission goes
+ * on (a random address from a refusal reset or changed-content retry lives
+ * only in the receipt, so losing that receipt falls back to the derived one). Only
  * an I/O error fails the read. */
 async function readReceipt(path: string): Promise<Receipt | null> {
   let text: string;

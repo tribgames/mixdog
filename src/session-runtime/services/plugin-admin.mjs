@@ -171,13 +171,20 @@ function withPluginMutation(dataDir, id, operation) {
 // Node 24 on Windows (Electron) makes rmSync follow junctions into their targets,
 // so every link is detached first and never chmod-ed or recursed into. It also
 // fails with EPERM on read-only files such as git pack files; clear the read-only
-// bit and retry once.
+// bit and retry once. Each entry is lstat-ed right before it is acted on, not
+// trusted from the listing, so a directory swapped for a link after the listing
+// is detached instead of entered. What remains is the instant between that
+// lstat and the next readdir/chmod, which no portable fs call can close. A file
+// with other names (link count > 1) shares its mode with them, so `onFile` is
+// told its stat and the chmod recovery skips it.
 function walkTree(dir, onFile) {
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name);
-    if (entry.isSymbolicLink()) unlinkSync(full);
-    else if (entry.isDirectory()) walkTree(full, onFile);
-    else onFile?.(full);
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    const stat = lstatSync(full, { throwIfNoEntry: false });
+    if (!stat) continue;
+    if (stat.isSymbolicLink()) unlinkSync(full);
+    else if (stat.isDirectory()) walkTree(full, onFile);
+    else onFile?.(full, stat);
   }
 }
 
@@ -191,7 +198,11 @@ function removeTree(path) {
     rmSync(path, options);
   } catch (error) {
     if (error?.code !== 'EPERM') throw error;
-    if (stat.isDirectory()) walkTree(path, (file) => chmodSync(file, 0o666));
+    if (stat.isDirectory()) {
+      walkTree(path, (file, fileStat) => {
+        if (fileStat.nlink === 1) chmodSync(file, 0o666);
+      });
+    }
     rmSync(path, options);
   }
 }

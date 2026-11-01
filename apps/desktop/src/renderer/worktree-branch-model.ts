@@ -530,7 +530,8 @@ export async function submitDraftWithWorktree<T>(
 
 /** A New Task's first send with the draft `key`'s "Worktree" choice: the
  *  choice is taken for the send and given back unless a session was started
- *  (the host refuses to start one that is not bound to its worktree), so a
+ *  (when a worktree is chosen the host refuses to start one that is not bound
+ *  to it; a default-origin submission outside git runs normally), so a
  *  failure at any step before the turn (model resolution, provisioning,
  *  refusal) never drops it. */
 export async function sendDraftWithWorktreeIntent<T extends { accepted?: unknown; sessionId?: unknown }>(
