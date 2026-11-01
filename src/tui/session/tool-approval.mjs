@@ -42,7 +42,17 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
   // queue so they never hold this chat's own requests back and several show
   // at once. Answered here, the answer goes to the asking session's queue.
   const handoffQuestions = [];
-  const publishHandoffQuestions = () => set({ handoffQuestions: handoffQuestions.map((entry) => entry.request) });
+  // The last settled copy per asking session, its request with `record` (the
+  // result its ask_user call returned): the card stays answered beside the
+  // hand-off line, as the asking session's transcript keeps it, until that
+  // session asks again. Never answered here.
+  const handoffRecords = [];
+  const publishHandoffQuestions = () =>
+    set({ handoffQuestions: [...handoffRecords, ...handoffQuestions].map((entry) => entry.request) });
+  const dropHandoffRecordOf = (sessionId) => {
+    const at = handoffRecords.findIndex((entry) => String(entry.request.sessionId || '') === sessionId);
+    if (at >= 0) handoffRecords.splice(at, 1);
+  };
   const ownSessionId = () => String(getState()?.sessionId || '');
   const { delegationSurface, handsOff, offerToHandoffs } = createApprovalDelegation({ surfaceOf, ownSessionId });
   const unregister =
@@ -72,6 +82,7 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     if (getDisposed() || delegated.sessionId !== ownSessionId()) return;
     if (delegated.request?.kind === 'question') {
       if (handoffQuestions.some((entry) => entry.id === delegated.id)) return;
+      dropHandoffRecordOf(String(delegated.request.sessionId || ''));
       handoffQuestions.push({ id: delegated.id, request: delegated.request, mirror: delegated });
       publishHandoffQuestions();
       return;
@@ -83,8 +94,13 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
   function withdrawDelegatedCopy(id, result) {
     const question = handoffQuestions.findIndex((entry) => entry.id === id);
     if (question >= 0) {
-      handoffQuestions.splice(question, 1);
-      if (!getDisposed()) publishHandoffQuestions();
+      const [entry] = handoffQuestions.splice(question, 1);
+      if (getDisposed()) return;
+      if (typeof result?.record === 'string') {
+        dropHandoffRecordOf(String(entry.request.sessionId || ''));
+        handoffRecords.push({ id, request: { ...entry.request, record: result.record } });
+      }
+      publishHandoffQuestions();
       return;
     }
     if (activeToolApproval?.mirror && activeToolApproval.id === id) {
@@ -154,11 +170,18 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
       settleToolApproval(entry, approved === true, String(reason || ''), answers, reply, extra, String(device || ''));
       return true;
     }
-    const question = handoffQuestions.findIndex((entry) => entry.id === targetId);
-    if (question >= 0) {
-      const [entry] = handoffQuestions.splice(question, 1);
-      publishHandoffQuestions();
-      return forwardToOwner(entry, approved, reason, device, answers, reply, extra);
+    const question = handoffQuestions.find((entry) => entry.id === targetId);
+    if (question) {
+      // The owner's settle withdraws this copy (withdrawDelegatedCopy), which
+      // keeps it as the answered record; a copy the owner had already settled
+      // only leaves.
+      const accepted = forwardToOwner(question, approved, reason, device, answers, reply, extra);
+      const left = handoffQuestions.indexOf(question);
+      if (left >= 0) {
+        handoffQuestions.splice(left, 1);
+        publishHandoffQuestions();
+      }
+      return accepted;
     }
     return false;
   }
@@ -171,12 +194,14 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
       unregister();
       // Dropped unanswered with this runtime: the next one adopts them again.
       handoffQuestions.length = 0;
+      handoffRecords.length = 0;
     }
+    const interrupted = { interrupted: true };
     if (activeToolApproval && !(activeToolApproval.mirror && !closing)) {
       const entry = activeToolApproval;
       activeToolApproval = null;
       if (!entry.mirror) {
-        settleToolApproval(entry, false, reason);
+        settleToolApproval(entry, false, reason, undefined, undefined, undefined, '', interrupted);
         // Stop/turn abort ended it: not a timeout, nobody answered.
         set({ toolApprovalResult: { id: entry.id, approved: false, device: '', interrupted: true, at: Date.now() } });
       }
@@ -184,7 +209,7 @@ export function createToolApproval({ getState, set, nextId, getDisposed, timeout
     const kept = [];
     while (toolApprovalQueue.length > 0) {
       const entry = toolApprovalQueue.shift();
-      if (!entry.mirror) settleToolApproval(entry, false, reason);
+      if (!entry.mirror) settleToolApproval(entry, false, reason, undefined, undefined, undefined, '', interrupted);
       else if (!closing) kept.push(entry);
     }
     toolApprovalQueue.push(...kept);

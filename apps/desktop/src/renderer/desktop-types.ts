@@ -165,8 +165,10 @@ export type Snapshot = RecordValue & {
   toolApprovalsWaiting?: number;
   /** The pending ask_user questions of sessions this chat handed work to,
    *  each shown at that session's hand-off line (`sessionId`: the asking
-   *  session) and answered through this chat; never in the transcript. */
-  handoffQuestions?: Approval[];
+   *  session) and answered through this chat; never in the transcript. One
+   *  carrying `record` (the result its call returned) is settled: it shows as
+   *  the answered card the asking session keeps, and is never answered. */
+  handoffQuestions?: Array<Approval & { record?: string }>;
   promptRestore?: { id: string; ids: string[]; text: string; device: string; at: number } | null;
   cwd?: string;
   /** The Lead's live workspace (execution root, worktree binding, revision). */

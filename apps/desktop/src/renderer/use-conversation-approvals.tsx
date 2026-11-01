@@ -1,12 +1,22 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from 'react';
 import { isAgentHomeSessionId } from '../../../../src/runtime/agent/orchestrator/session/agent-home.mjs';
 import { isOtherDevice, sessionUsesMultipleDevices } from '../shared/session-devices';
-import type { ToolApprovalDecision } from '../shared/contract';
+import type { DesktopPromptContent, DesktopSubmitOptions, ToolApprovalDecision } from '../shared/contract';
 import { ApprovalCard, approvalRecordLabel, publishHeldSettlements } from './ApprovalCard';
 import { BrowserApprovalCard, useBrowserApprovals } from './BrowserApprovalHost';
 import { QuestionCard } from './QuestionCard';
 import { useAgentChatSession } from './agent-chat-mode';
-import { approvalQuestions, buildAnswers, type QuestionDraft } from './question-card-logic';
+import { useHandoffTarget } from './agent-task-line';
+import { approvalQuestions, buildAnswers, questionAwareSubmit, type QuestionDraft } from './question-card-logic';
 import type { ComposerIslandFlash } from './ComposerIsland';
 import type { Snapshot } from './desktop-types';
 import { t } from './i18n';
@@ -15,6 +25,7 @@ import { RETIRED_APPROVAL_MS, type RetiredApproval, useRetiredApproval } from '.
 import { useViewerDevice } from './use-viewer-device';
 
 type AnsweredElsewhere = { id: string; device: string };
+type ComposerSubmit<R> = (content: DesktopPromptContent, options?: DesktopSubmitOptions) => Promise<R>;
 
 /** Tool approvals for the session this pane renders: the pending card, the
  *  approvals this device answered itself, and whether the conversation was
@@ -181,6 +192,66 @@ export function useConversationApprovals(
       );
     }
   }
+  // A session this chat handed work to asks (its card shows at its hand-off
+  // line). With nothing of this chat's own waiting, what its composer sends
+  // answers the oldest such question, decided at send time, by the asking
+  // session's own composer rules (questionAwareSubmit), straight to that
+  // session through this chat's copy: never a message or a turn of this
+  // chat's agent. An answer over the cap is refused, not sent on.
+  const relayPending = (snapshot.handoffQuestions ?? []).filter((question) => typeof question.record !== 'string');
+  const relayQuestion = pendingApproval ? undefined : relayPending[0];
+  const relayId = String(relayQuestion?.id ?? '');
+  // The relayed card's picks, sent along with a composer answer; one question's.
+  const relayDrafts = useRef<QuestionDraft[]>([]);
+  const relayDraftsId = useRef('');
+  if (relayDraftsId.current !== relayId) {
+    relayDraftsId.current = relayId;
+    relayDrafts.current = [];
+  }
+  const relayHandoff = (relayQuestion?.handoff ?? {}) as { title?: unknown; agentId?: unknown };
+  const relayName = useHandoffTarget(
+    String(relayQuestion?.sessionId || ''),
+    String(relayHandoff.agentId || ''),
+    String(relayHandoff.title || '')
+  ).name;
+  let answerHint: string | undefined = dismissQuestion ? t('Sending answers the question') : undefined;
+  if (relayQuestion) answerHint = t('Sending answers the question from {{name}}', { name: relayName });
+  const relay = relayQuestion ? { id: relayId, draftsRef: relayDrafts } : null;
+  // Read when a message is sent, not when this render made the callback.
+  const live = useRef({ relayQuestion, dismissQuestion, answerQuestion });
+  live.current = { relayQuestion, dismissQuestion, answerQuestion };
+  /** `submit` as this chat's composer sends: its own question's answer, else
+   *  the oldest relayed question's, else a message. */
+  const wrapSubmit = useCallback(
+    <R,>(submit: ComposerSubmit<R>): ComposerSubmit<R | boolean> =>
+      async (content, options) => {
+        const { relayQuestion: asked, dismissQuestion: dismiss, answerQuestion: answer } = live.current;
+        if (answer && dismiss) return questionAwareSubmit(submit, answer, dismiss)(content, options);
+        const questions = asked ? approvalQuestions(asked.args) : null;
+        if (!asked || !questions) return submit(content, options);
+        const id = String(asked.id ?? '');
+        const resolve = async (decision: ToolApprovalDecision) => {
+          const sessionId = routeSessionIdRef.current;
+          if (!sessionId) return false;
+          return window.mixdogDesktop.resolveToolApprovalForSession(sessionId, id, decision);
+        };
+        const picks = relayDraftsId.current === id ? relayDrafts.current : [];
+        return questionAwareSubmit(
+          submit,
+          (reply) => resolve({ approved: true, answers: buildAnswers(questions, picks), reply }),
+          () => resolve({ approved: false, reason: 'dismissed by user' }),
+          {
+            tooLong: (max) =>
+              new Error(
+                t('This answer is too long for the question (up to {{max}} characters). Your draft has been kept.', {
+                  max,
+                })
+              ),
+          }
+        )(content, options);
+      },
+    [routeSessionIdRef]
+  );
   if (!approvalDock && browserPrompts.length > 0) {
     approvalDock = (
       <BrowserApprovalCard
@@ -195,6 +266,11 @@ export function useConversationApprovals(
     questionCard,
     dismissQuestion,
     answerQuestion,
+    /** The composer's placeholder while a message would answer a question. */
+    answerHint,
+    /** The handed-off session's question the composer answers, if any. */
+    relay,
+    wrapSubmit,
     retiredApproval,
     answeredElsewhere,
     multiDevice,

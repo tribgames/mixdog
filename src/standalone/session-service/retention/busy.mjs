@@ -35,10 +35,11 @@ export function createBusyTracker({ sessions, currentSessionId }) {
     // status source every list row has, open pane or not — re-reads it.
     const awaitingApproval = Boolean(state?.toolApproval);
     const awaitingQuestion = state?.toolApproval?.kind === 'question';
-    // A room member's handed-off questions coming and going re-read it too.
+    // A room member's handed-off questions coming, settling (`record`) and
+    // going re-read it too.
     const sessionId = currentSessionId(entry) || '';
     const handoffQuestions = roomHandoffQuestionsOf(sessionId, state)
-      .map((question) => String(question?.id ?? ''))
+      .map((question) => `${String(question?.id ?? '')}${typeof question?.record === 'string' ? ':settled' : ''}`)
       .join('\n');
     if (
       awaitingApproval !== (entry.awaitingApproval === true) ||

@@ -1579,6 +1579,13 @@ test('Deny from the bot chat or Stop on the sub-agent still settles a long-waiti
 const choice = {
   questions: [{ question: 'Which markets?', options: [{ label: 'All five' }, { label: 'Only KR' }] }],
 };
+// What the asking session's ask_user call returns (ask-user-tool.mjs) for `choice`.
+const CLOSE = 'You can now continue with these answers in mind.';
+const ALL_FIVE = `User has answered your questions: "Which markets?"="All five". ${CLOSE}`;
+const ONLY_KR = `User has answered your questions: "Which markets?"="Only KR". ${CLOSE}`;
+const NO_ANSWER = `User has answered your questions: "Which markets?"=(no answer). ${CLOSE}`;
+const DISMISSED =
+  'User closed the questions without answering. Proceed with your best judgment; ask again only if something new depends on it.';
 const ask = (queue, sessionId) =>
   queue.api.requestToolApproval({
     name: 'ask_user',
@@ -1617,7 +1624,11 @@ test("a handed-off session's question shows in the chat handing it work, apart f
     const result = await answer;
     assert.deepEqual([result.approved, result.answers], [true, answers]);
     assert.equal(task.state().toolApproval, null, "the session's own card is settled");
-    assert.deepEqual(home.state().handoffQuestions, []);
+    assert.deepEqual(
+      home.state().handoffQuestions,
+      [{ ...shown, record: ALL_FIVE }],
+      "the chat's card settles into the record the session's call returned"
+    );
     assert.equal(home.api.finishToolApproval(own.id, true), false, 'never answered twice from the chat');
     assert.equal(task.api.finishToolApproval(own.id, true), false, 'nor from the session');
     // Nothing else of the chat's state moved: no transcript rows, no result trace.
@@ -1686,7 +1697,10 @@ test('daemon start reads the stored watches: a question asked after the restart 
       true
     );
     assert.equal((await answer).approved, true);
-    assert.deepEqual(home.state().handoffQuestions, []);
+    assert.deepEqual(
+      home.state().handoffQuestions.map((question) => question.record),
+      [ALL_FIVE]
+    );
   } finally {
     endHandoff('atask_qs1');
     home.dispose();
@@ -1715,15 +1729,25 @@ test("a room member's handed-off question waits in the member's session, its tur
     assert.equal(member.api.finishToolApproval(own.id, true, 'answered by user', 'DESKTOP-7', answers), true);
     assert.deepEqual((await answer).answers, answers);
     assert.equal(task.state().toolApproval, null);
-    assert.deepEqual(member.state().handoffQuestions, []);
+    assert.deepEqual(
+      member.state().handoffQuestions.map((question) => [question.id, question.record]),
+      [[own.id, ONLY_KR]]
+    );
     assert.equal(member.api.finishToolApproval(own.id, true), false, 'never twice');
     assert.equal(member.state().items, undefined, "no row in the member's transcript");
-    // Answered in the asking session instead: the member's copy is withdrawn.
+    // Answered in the asking session instead: the member's copy settles too.
     const again = ask(task, 'sess_dlg_rtask');
-    assert.equal(member.state().handoffQuestions.length, 1);
+    assert.deepEqual(
+      member.state().handoffQuestions.map((question) => question.record),
+      [undefined],
+      'a new question replaces the settled card'
+    );
     task.api.finishToolApproval(task.state().toolApproval.id, true, 'answered by user', '', []);
     assert.equal((await again).approved, true);
-    assert.deepEqual(member.state().handoffQuestions, []);
+    assert.deepEqual(
+      member.state().handoffQuestions.map((question) => question.record),
+      [NO_ANSWER]
+    );
   } finally {
     endHandoff('atask_rq1');
     member.dispose();
@@ -1731,7 +1755,50 @@ test("a room member's handed-off question waits in the member's session, its tur
   }
 });
 
-test('a handed-off question answered or aborted in its session leaves the chat; each session has its own', async () => {
+test("a chat-composer answer, a dismissal and a timeout of a handed-off question settle the chat's card as the session's, with no turn or row of the chat", async () => {
+  const ports = handoffPorts();
+  const home = sessionQueue(HOME);
+  const task = sessionQueue('sess_dlg_task1');
+  const before = home.state();
+  try {
+    await ports.watches.add(handoffWatch('atask_qc1', 'sess_dlg_task1', 'Rank model'));
+    // Sent from the chat's composer: the reply goes to the asking session alone.
+    const replied = ask(task, 'sess_dlg_task1');
+    const id = task.state().toolApproval.id;
+    assert.equal(home.api.finishToolApproval(id, true, '', 'DESKTOP-7', [null], 'keep it small'), true);
+    assert.equal((await replied).reply, 'keep it small');
+    assert.deepEqual(
+      home.state().handoffQuestions.map((question) => question.record),
+      [`User replied in chat: "keep it small". ${CLOSE}`]
+    );
+    // Closed on either card, or timed out: the same closed record in the chat.
+    const closed = ask(task, 'sess_dlg_task1');
+    home.api.finishToolApproval(task.state().toolApproval.id, false, 'dismissed by user', 'DESKTOP-7');
+    assert.equal((await closed).approved, false);
+    assert.deepEqual(
+      home.state().handoffQuestions.map((question) => question.record),
+      [DISMISSED]
+    );
+    const expired = ask(task, 'sess_dlg_task1');
+    task.api.finishToolApproval(task.state().toolApproval.id, false, 'approval timed out', '', undefined, undefined, {
+      timedOut: true,
+    });
+    assert.equal((await expired).timedOut, true);
+    assert.deepEqual(
+      home.state().handoffQuestions.map((question) => question.record),
+      [DISMISSED]
+    );
+    // None of it reached the chat's agent: no turn, no queued message, no row, no result trace.
+    const { handoffQuestions: _shown, ...after } = home.state();
+    assert.deepEqual(after, before);
+  } finally {
+    endHandoff('atask_qc1');
+    home.dispose();
+    task.dispose();
+  }
+});
+
+test('a handed-off question answered in its session settles in the chat, aborted it leaves; each session has its own', async () => {
   const ports = handoffPorts();
   const home = sessionQueue(HOME);
   const first = sessionQueue('sess_dlg_task1');
@@ -1746,17 +1813,25 @@ test('a handed-off question answered or aborted in its session leaves the chat; 
       ['sess_dlg_task1', 'sess_dlg_task2'],
       'both at once'
     );
-    // Answered in its own session: the chat's card leaves.
-    first.api.finishToolApproval(first.state().toolApproval.id, true, 'answered by user', '', []);
+    // Answered on its own session's card: the chat's card settles the same way at once.
+    first.api.finishToolApproval(first.state().toolApproval.id, true, 'answered by user', 'DESKTOP-7', [
+      { selected: ['All five'] },
+    ]);
     assert.equal((await a).approved, true);
     assert.deepEqual(
-      home.state().handoffQuestions.map((question) => question.sessionId),
-      ['sess_dlg_task2']
+      home.state().handoffQuestions.map((question) => [question.sessionId, question.record]),
+      [
+        ['sess_dlg_task1', ALL_FIVE],
+        ['sess_dlg_task2', undefined],
+      ]
     );
-    // Aborted in its own session: it leaves too, unanswered.
+    // Aborted in its own session: it leaves, unanswered (nobody answered it).
     second.api.denyAllToolApprovals('turn aborted');
     assert.equal((await b).approved, false);
-    assert.deepEqual(home.state().handoffQuestions, []);
+    assert.deepEqual(
+      home.state().handoffQuestions.map((question) => question.sessionId),
+      ['sess_dlg_task1']
+    );
     // The chat's own turn ending keeps a waiting copy; its hand-off ending removes it.
     const c = ask(first, 'sess_dlg_task1');
     home.api.denyAllToolApprovals('turn finished');

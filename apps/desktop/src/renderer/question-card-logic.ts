@@ -119,16 +119,23 @@ export async function steerQueuedAsAnswer(
 
 /** A message sent while a question waits. Plain text (no attachments, not a
  *  slash command) is the answer itself and is not sent again as a prompt;
- *  anything else dismisses the question, then goes out as a new request. */
+ *  anything else dismisses the question, then goes out as a new request.
+ *  `tooLong`: the refusal thrown for plain text over the cap instead (a
+ *  handed-off session's question, whose message would reach another agent);
+ *  the composer keeps the draft and shows its message. */
 export function questionAwareSubmit<R>(
   submit: Submit<R>,
   answerQuestion: (reply: string) => Promise<unknown>,
-  dismissQuestion: () => Promise<unknown>
+  dismissQuestion: () => Promise<unknown>,
+  { tooLong }: { tooLong?: (max: number) => Error } = {}
 ): Submit<R | boolean> {
   return async (content, options) => {
     const text = typeof content === 'string' ? content.trim() : '';
     const attached =
       Object.keys(options?.pastedImages ?? {}).length > 0 || Object.keys(options?.pastedTexts ?? {}).length > 0;
+    if (tooLong && !attached && !text.startsWith('/') && text.length > ASK_USER_REPLY_MAX_CHARS) {
+      throw tooLong(ASK_USER_REPLY_MAX_CHARS);
+    }
     // A reply over the decision's 4000-character cap goes out whole as a
     // message instead of being cut short as an answer.
     if (isPlainAnswer(text, attached)) {

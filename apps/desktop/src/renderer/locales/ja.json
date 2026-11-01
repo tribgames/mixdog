@@ -4395,6 +4395,8 @@
   "Send this message?": "このメッセージを送信しますか？",
   "Sending and Trash ask first.": "送信とゴミ箱への移動は先に確認します。",
   "Sending answers the question": "送信すると質問への回答になります",
+  "Sending answers the question from {{name}}": "送信すると{{name}}の質問への回答になります",
+  "This answer is too long for the question (up to {{max}} characters). Your draft has been kept.": "この回答は質問に対して長すぎます(最大 {{max}} 文字)。下書きは保持されています。",
   "Sending message": "メッセージを送信中",
   "Sending…": "送信中…",
   "Sends a signed test request to the endpoint URL. No task is run.": "エンドポイントURLに署名付きのテストリクエストを送信します。タスクは実行されません。",

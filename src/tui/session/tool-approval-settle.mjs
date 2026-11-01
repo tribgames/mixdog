@@ -5,11 +5,22 @@
  */
 import { normalizeHumanResponse } from '../../runtime/agent/orchestrator/session/human-gate/requests.mjs';
 import { withdrawDelegatedApproval } from '../../runtime/shared/delegated-approval-host.mjs';
+import { askUserResultText } from '../../runtime/agent/orchestrator/runtime-core/ask-user-result.mjs';
 
 // Settle one entry: drop its timeout, then hand the waiter its answer. The
 // resolve stays guarded — a waiter whose caller already went away must never
-// take the rest of the queue down with it.
-export function settleToolApproval(entry, approved, reason, answers, reply, extra, device = '') {
+// take the rest of the queue down with it. `interrupted`: Stop/turn abort or
+// close ended it, nobody answered.
+export function settleToolApproval(
+  entry,
+  approved,
+  reason,
+  answers,
+  reply,
+  extra,
+  device = '',
+  { interrupted = false } = {}
+) {
   if (entry?.timer) clearTimeout(entry.timer);
   const result = { approved, reason };
   if (answers !== undefined) result.answers = answers;
@@ -20,9 +31,18 @@ export function settleToolApproval(entry, approved, reason, answers, reply, extr
     if (device) result.device = device;
   }
   if (extra?.timedOut === true) result.timedOut = true;
-  // Settled here: its copy in the top-level chat goes away.
+  // Settled here: its copy in the top-level chat goes away. An answered or
+  // timed-out question leaves the record its call returns (ask-user-result.mjs),
+  // so a hand-off copy settles into the card the asking session keeps.
   if (entry?.delegated) {
-    withdrawDelegatedApproval(entry.id, { approved, device, ...(extra?.timedOut === true ? { expired: true } : {}) });
+    const questions = entry.request?.kind === 'question' ? entry.request.args?.questions : null;
+    const record = Array.isArray(questions) && !interrupted ? askUserResultText(questions, result) : '';
+    withdrawDelegatedApproval(entry.id, {
+      approved,
+      device,
+      ...(extra?.timedOut === true ? { expired: true } : {}),
+      ...(record ? { record } : {}),
+    });
   }
   try {
     entry.resolve(result);

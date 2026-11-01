@@ -4517,6 +4517,8 @@
   "Send this message?": "Envoyer ce message ?",
   "Sending and Trash ask first.": "L’envoi et la mise à la corbeille nécessitent votre accord.",
   "Sending answers the question": "L’envoi répond à la question",
+  "Sending answers the question from {{name}}": "L’envoi répond à la question de {{name}}",
+  "This answer is too long for the question (up to {{max}} characters). Your draft has been kept.": "Cette réponse est trop longue pour la question ({{max}} caractères au maximum). Votre brouillon a été conservé.",
   "Sending message": "Envoi du message",
   "Sending…": "Envoi en cours…",
   "Sends a signed test request to the endpoint URL. No task is run.": "Envoie une requête de test signée à l’URL du point de terminaison. Aucune tâche n’est exécutée.",

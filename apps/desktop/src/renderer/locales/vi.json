@@ -4395,6 +4395,8 @@
   "Send this message?": "Gửi tin nhắn này?",
   "Sending and Trash ask first.": "Gửi thư và chuyển vào thùng rác sẽ hỏi trước.",
   "Sending answers the question": "Gửi sẽ trả lời câu hỏi",
+  "Sending answers the question from {{name}}": "Gửi sẽ trả lời câu hỏi của {{name}}",
+  "This answer is too long for the question (up to {{max}} characters). Your draft has been kept.": "Câu trả lời này quá dài cho câu hỏi (tối đa {{max}} ký tự). Bản nháp của bạn vẫn được giữ.",
   "Sending message": "Đang gửi tin nhắn",
   "Sending…": "Đang gửi…",
   "Sends a signed test request to the endpoint URL. No task is run.": "Gửi một yêu cầu kiểm tra có chữ ký tới URL của điểm cuối. Không có tác vụ nào được chạy.",
