@@ -17,8 +17,7 @@ words. Promise a follow-up only when the session result allows it.`;
 
 /** An agent-mode Lead's contact catalog intro: the user's other bots. */
 export const MIXY_CONTACTS_INTRO = `The user's other bots. Hand one a request with \`session send\` to its chat and a
-self-contained brief only when the user names that bot or the request continues
-its own work; a bot whose role fits the request is no reason to send it there.`;
+self-contained brief.`;
 
 const modeFileName = (mode) => `${normalizeOrchestrationMode(mode)}.md`;
 
