@@ -72,8 +72,8 @@ function setConfig(next: DesktopPetConfig) {
   for (const listener of [...listeners]) listener();
 }
 
-/** The skin's old corner-mascot flag, read once: the overlay is on by default
- *  (main), so only an explicit 'off' carries over, as a stored off. */
+/** The skin's old corner-mascot flag, read once: the overlay is off by default
+ *  (main), so only an explicit 'on' carries over, as a stored on. */
 const LEGACY_BUDDY_KEY = 'mixdog.desktop.skin-buddy.v1';
 
 async function migrateLegacyPetSetting(api: PetApi): Promise<void> {
@@ -84,7 +84,7 @@ async function migrateLegacyPetSetting(api: PetApi): Promise<void> {
     return;
   }
   if (stored === null) return;
-  if (stored === 'off' && api.setDesktopPetEnabled) setConfig(await api.setDesktopPetEnabled(false));
+  if (stored === 'on' && api.setDesktopPetEnabled) setConfig(await api.setDesktopPetEnabled(true));
   window.localStorage.removeItem(LEGACY_BUDDY_KEY);
 }
 

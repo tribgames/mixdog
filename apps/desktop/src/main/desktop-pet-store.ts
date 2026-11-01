@@ -91,10 +91,10 @@ function readHereAnchor(value: unknown): PetHereAnchor | null {
   return composer === true ? { ...anchor, composer } : anchor;
 }
 
-/** On unless explicitly turned off: only a stored `enabled: false` keeps it
- *  off. Pinned unless explicitly unpinned. */
+/** Off unless explicitly turned on: only a stored `enabled: true` shows it.
+ *  Pinned unless explicitly unpinned. */
 export const DEFAULT_DESKTOP_PET_PREFS: DesktopPetPrefs = Object.freeze({
-  enabled: true,
+  enabled: false,
   keepAbove: false,
   collapsed: false,
   autoAdvance: true,
@@ -120,7 +120,7 @@ export function normalizeDesktopPetPrefs(value: unknown): DesktopPetPrefs {
   }
   const pinned = raw.pinned !== false;
   return {
-    enabled: raw.enabled !== false,
+    enabled: raw.enabled === true,
     keepAbove: raw.keepAbove === true,
     collapsed: raw.collapsed === true,
     autoAdvance: raw.autoAdvance !== false,
