@@ -69,7 +69,8 @@ export function useAppWorkbenchViewWiring(
   context: AppSelectionContext,
   tabWorkflow: AppTabWorkflow,
   hubs: AppWorkbenchHubs,
-  desktopBootReady: boolean
+  desktopBootReady: boolean,
+  renderSessionConversation?: Parameters<typeof useAppWorkbenchViews>[0]['renderSessionConversation']
 ) {
   const { paneWorkspace, editorState, projectCatalog, snapshotStore, sideDocks, sessionPaneSurfaces, shellPanels } =
     shell;
@@ -96,6 +97,8 @@ export function useAppWorkbenchViewWiring(
     dockOpenPullRequest,
     dockOpenLeadSession,
     dockOpenAgentSession,
+    dockPeekAgentSession,
+    openAgentSessionPanelAsTab,
     openFileTab,
     sideFileGuard,
     openProblemQuickFix,
@@ -167,6 +170,9 @@ export function useAppWorkbenchViewWiring(
     dockOpenPullRequest,
     dockOpenLeadSession,
     dockOpenAgentSession,
+    dockPeekAgentSession,
+    openAgentSessionPanelAsTab,
+    renderSessionConversation,
     closeSidebarForNavigation,
     renameProjectEntry,
     paneSideDocks,

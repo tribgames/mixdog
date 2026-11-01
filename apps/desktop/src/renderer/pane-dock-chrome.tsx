@@ -87,7 +87,7 @@ export function scrollTabListByWheel(
  *  surface names its session, which picks the dock; otherwise the focused
  *  dock takes it. */
 export const PANE_DOCK_CLOSE_EVENT = 'mixdog:pane-dock-close';
-export type PaneDockCloseSurface = 'browser' | 'terminal' | 'session-diff' | 'visualize';
+export type PaneDockCloseSurface = 'browser' | 'terminal' | 'session-diff' | 'visualize' | 'agent-session';
 export function requestPaneDockClose(surface: PaneDockCloseSurface, sessionId?: string): void {
   window.dispatchEvent(new CustomEvent(PANE_DOCK_CLOSE_EVENT, { detail: { surface, sessionId } }));
 }

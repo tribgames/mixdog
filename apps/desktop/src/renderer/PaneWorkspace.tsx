@@ -184,6 +184,7 @@ function renderPaneSurface(
 export function PaneWorkspace({
   workspace,
   observedSessionIds = [],
+  dockSessionIds = [],
   renderActive,
   renderStrip,
   renderConversation,
@@ -197,6 +198,9 @@ export function PaneWorkspace({
   workspace: ReturnType<typeof usePaneWorkspace>;
   /** Additional live lanes required by non-editor surfaces such as Agents. */
   observedSessionIds?: readonly string[];
+  /** Sessions a pane's side panel shows (an Agents sub-agent beside its
+   *  chat): live on every surface, the phone included, like a pane's own. */
+  dockSessionIds?: readonly string[];
   /** App's non-chat surface for an empty/project/file focused leaf. */
   renderActive: (leaf: PaneLeaf) => React.ReactNode;
   /** Per-group tab strip. */
@@ -253,8 +257,8 @@ export function PaneWorkspace({
   // every observed lane mirrored a whole working transcript over the relay.
   const petSessionIds = useDesktopPetSessionIds();
   const visibleSessionIds = mobileSurface
-    ? paneSessionIds
-    : [...new Set([...paneSessionIds, ...observedSessionIds, ...petSessionIds])];
+    ? [...new Set([...paneSessionIds, ...dockSessionIds])]
+    : [...new Set([...paneSessionIds, ...dockSessionIds, ...observedSessionIds, ...petSessionIds])];
   useVisibleSessions(visibleSessionIds);
   // On screen: every pane of a split, only the focused one of a carousel.
   useScreenSessions(paneScreenSessionIds(workspace.leaves, workspace.focusedLeafId, singlePaneMode));

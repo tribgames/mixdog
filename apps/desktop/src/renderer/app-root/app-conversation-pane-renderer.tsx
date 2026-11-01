@@ -1,5 +1,7 @@
 import type React from 'react';
+import type { ComponentProps } from 'react';
 import type { DesktopModelSelection } from '../../shared/contract';
+import type { PaneConversation } from '../app-snapshot-views';
 import { displaySessionTitle, sessionDisplayTitle } from '../session-display-title';
 import { t } from '../i18n';
 import { chatLinkMainTabMode, getLinkPreview } from '../link-preview-preference';
@@ -195,7 +197,10 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
     focusPane: () => void,
     leafId: string,
     warm = false,
-    visible = true
+    visible = true,
+    /** The last snapshot of a session that can no longer take input (a
+     *  side-panel sub-agent whose session ended): shown read-only. */
+    heldSnapshot: ComponentProps<typeof PaneConversation>['heldSnapshot'] = null
   ): React.ReactElement {
     // A warm (retained) surface already shows its own session; a close
     // handoff presents the closed one only in the pane's cold surface.
@@ -294,6 +299,7 @@ export function createPaneConversationRenderer(options: PaneConversationRenderer
           onOpenSessionDiff: options.openSessionDiffInSideDock ? routes.openSessionDiff : undefined,
           onOpenAgentSession: routes.openAgentSession,
           onInheritSession: options.replaceWithInheritedSession,
+          ...(heldSnapshot ? { readOnly: true, heldSnapshot } : {}),
         }}
       />
     );

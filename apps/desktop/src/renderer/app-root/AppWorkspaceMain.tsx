@@ -63,6 +63,8 @@ export interface AppWorkspaceMainProps {
 
   paneWorkspace: ReturnType<typeof usePaneWorkspace>;
   observedAgentSessionIds: readonly string[];
+  /** Sub-agents shown in a pane's side panel (useAppWorkbenchViews). */
+  dockSessionIds?: readonly string[];
   paneStripFor: ReturnType<typeof useAppPaneChrome>['paneStripFor'];
   paneConversationSurface: (
     paneSelection: NavigationSelection,
@@ -119,6 +121,7 @@ export function AppWorkspaceMain({
   openConversationCommandSurface,
   paneWorkspace,
   observedAgentSessionIds,
+  dockSessionIds,
   paneStripFor,
   paneConversationSurface,
   paneFileEditors,
@@ -193,6 +196,7 @@ export function AppWorkspaceMain({
     <PaneWorkspace
       workspace={paneWorkspace}
       observedSessionIds={observedAgentSessionIds}
+      dockSessionIds={dockSessionIds}
       renderStrip={paneStripFor}
       renderConversation={paneConversationSurface}
       renderFileEditors={paneFileEditors}

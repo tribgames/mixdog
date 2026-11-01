@@ -25,7 +25,7 @@ import {
   sessionPanelViewIn,
   sessionSideDockEntryForSession,
 } from './session-side-surface-policy';
-import { paneRightGroupsFor } from './routines-tile';
+import { paneDockGroupsFor, paneRightGroupsFor } from './routines-tile';
 import { useStableEvent } from './use-stable-event';
 import { allowVisualizeReveal, suppressVisualizeReveal } from './visualize-store';
 import type { usePaneWorkspace } from './pane-workspace-state';
@@ -112,7 +112,7 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
   };
   const paneSideDocks = usePaneSideDocks({
     leafIds: paneWorkspace.leaves.map((leaf) => leaf.id),
-    groups: workbenchSideLayout.layout.right,
+    groups: paneDockGroupsFor(workbenchSideLayout.layout.right),
     sessionOf: sessionOfLeaf,
     // Owned dock state follows its session's tab; read only once the layout
     // is restored, so a placeholder pane list never releases it.
@@ -232,9 +232,13 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
       // home thread, the room panel from a room): this tab has no such view,
       // so it neither stores it nor shows the panel's first view in its
       // place; the dock opens on this tab's own first view.
-      const remembered = sessionPanelViewIn(groups, rawEntry.view);
+      // The agent session view comes back only from an Agents row: a toggle
+      // has no sub-agent to show in it.
+      const remembered = rawEntry.view === 'agent-session' ? null : sessionPanelViewIn(groups, rawEntry.view);
       if (!remembered) {
-        const first = groups.map((group) => group[0]).find((id) => id && id !== 'browser' && id !== 'terminal');
+        const first = groups
+          .map((group) => group[0])
+          .find((id) => id && id !== 'browser' && id !== 'terminal' && id !== 'agent-session');
         if (!first) return;
         if (isSessionSidePanelView(first)) {
           if (first === 'visualize') allowVisualizeReveal(sessionId);

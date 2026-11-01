@@ -152,6 +152,10 @@ type PaneConversationProps = Omit<
   hidden: boolean;
   transcriptPending?: boolean;
   reconcileOnMount?: boolean;
+  /** The session's last snapshot, kept by its viewer after the live lane
+   *  went away (a side-panel sub-agent that ended): shown in place of the
+   *  shared store, which is neither read nor written for it. */
+  heldSnapshot?: ReturnType<typeof useSessionLane> | null;
 };
 
 export const PaneConversation = memo(function PaneConversation({
@@ -162,9 +166,16 @@ export const PaneConversation = memo(function PaneConversation({
   reconcileOnMount = true,
   draftMode = false,
   onInheritSession,
+  heldSnapshot = null,
   ...props
 }: PaneConversationProps) {
-  const lane = useSessionLane(sessionId, defaultSessionLaneStore, desktopConversationShellSnapshotsEqual, !hidden);
+  const liveLane = useSessionLane(
+    sessionId,
+    defaultSessionLaneStore,
+    desktopConversationShellSnapshotsEqual,
+    !hidden && !heldSnapshot
+  );
+  const lane = heldSnapshot ?? liveLane;
   const { readUnavailable, retryRead } = useSessionLaneRead({
     sessionId,
     hasLane: lane !== null,

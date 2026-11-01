@@ -88,7 +88,7 @@ function workbenchViewOptions(paneWorkspace, overrides) {
     registeredProjectPath: (path) => path,
     resolvedDraftPrefsFor: () => ({ projectPath: '' }),
     paneWorkspace,
-    sessionPaneSurfaces: {},
+    sessionPaneSurfaces: { sessionPanelViews: new Map(), agentSessionPanels: new Map() },
     workbenchSideLayout: { layout: { left: [], right: [] } },
     closePaneRightRegion() {},
     moveWorkbenchSideGroup() {},

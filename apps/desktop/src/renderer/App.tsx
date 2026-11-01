@@ -33,7 +33,8 @@ export function App() {
     context,
     tabWorkflow,
     hubs,
-    surfaces.desktopBootReady
+    surfaces.desktopBootReady,
+    surfaces.paneConversationSurface
   );
 
   return (

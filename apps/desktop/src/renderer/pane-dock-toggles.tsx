@@ -23,6 +23,7 @@ export const SESSION_BOUND_VIEWS: readonly WorkbenchSideViewId[] = [
   'visualize',
   'browser',
   'terminal',
+  'agent-session',
 ];
 
 export function PaneDockToggles({

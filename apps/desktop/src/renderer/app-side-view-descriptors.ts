@@ -79,6 +79,8 @@ export function createAppSideViewDescriptors(
     // A group room's panel: members, limits, leave/delete.
     ['room', { id: 'room', label: t('Room info'), tooltip: t('Room info'), icon: Users }],
     ['agents', { id: 'agents', label: t('Bots'), icon: Bot, onPrefetch: () => onPrefetch('agents') }],
+    // A sub-agent's conversation beside its chat; opened from an Agents row only.
+    ['agent-session', { id: 'agent-session', label: t('Agent session'), icon: Bot }],
     ['search', { id: 'search', label: t('Search'), icon: Search, onPrefetch: () => onPrefetch('search') }],
     [
       'source-control',

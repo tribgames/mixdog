@@ -8,10 +8,14 @@ import {
   restoredSessionSurfaces,
   SESSION_DOCK_SURFACES_KEY,
   storableSessionSurfaces,
+  agentSessionPanelsShown,
+  withAgentSessionPanel,
+  withAgentSessionPanelHost,
   withSessionDiff,
   withSessionPanelView,
   withSessionSideSurface,
   withSessionSurfaceSource,
+  type AgentSessionPanelTarget,
   type SessionSidePanelView,
   type SessionSideSurface,
   type SessionSurfaceSource,
@@ -68,7 +72,9 @@ function withoutSourceHosts(
   return next;
 }
 
-export function useSessionPaneSurfaces() {
+/** `tabSessionIds`: the sessions panes hold as tabs, shown or not. A sub-agent
+ *  among them is never shown in a chat's agent session panel. */
+export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
   const browserSurfaces = useSessionBrowserSurfaces();
   const terminalSurfaces = useSessionTerminalSurfaces();
   // Dock surfaces persist by the session that owns the dock (a pane shows
@@ -96,6 +102,22 @@ export function useSessionPaneSurfaces() {
     () => new Map()
   );
   const [sessionDiffs, setSessionDiffs] = useState<ReadonlyMap<string, PaneSideDockDiff>>(() => new Map());
+  // The sub-agent each chat's `agent-session` view shows; kept, like the
+  // panel view, per chat while the view is its panel view.
+  const [agentSessionPanels, setAgentSessionPanels] = useState<ReadonlyMap<string, AgentSessionPanelTarget>>(
+    () => new Map()
+  );
+  const agentSessionPanelsRef = useRef(agentSessionPanels);
+  agentSessionPanelsRef.current = agentSessionPanels;
+  // Decided in render from the current tabs: a sub-agent that becomes a tab
+  // leaves its panel in the commit that adds the tab, never mounted twice.
+  const tabSessionKey = tabSessionIds.join('\u0000');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the joined ids (tabSessionKey) are the identity of the tab list
+  const tabSessions = useMemo(() => new Set(tabSessionIds), [tabSessionKey]);
+  const shownAgentSessionPanels = useMemo(
+    () => agentSessionPanelsShown(agentSessionPanels, tabSessions),
+    [agentSessionPanels, tabSessions]
+  );
   // A browser reveal waiting for its session's chain to be on screen, with
   // the page it named: one entry, so a hide, a suppression or a deletion
   // drops the page with it.
@@ -222,9 +244,33 @@ export function useSessionPaneSurfaces() {
       }
       setPanelViewFront(sessionId, Boolean(view && options?.front));
       setSessionPanelViews((current) => withSessionPanelView(current, sessionId, view));
+      // Another view (or none) leaves the agent session view: its sub-agent goes.
+      if (view !== 'agent-session') setAgentSessionPanels((current) => withAgentSessionPanel(current, sessionId, null));
     },
     [setPanelViewFront]
   );
+  /** A sub-agent's conversation becomes the panel view of chat
+   *  `hostSessionId`, in front of its browser/terminal; one sub-agent per
+   *  chat, so another row replaces it, and one chat per sub-agent, so a chat
+   *  that showed it before lets it go. */
+  const showAgentSessionPanel = useCallback(
+    (hostSessionId: string, target: AgentSessionPanelTarget) => {
+      const formerHosts = [...agentSessionPanelsRef.current].flatMap(([host, shown]) =>
+        host !== hostSessionId && shown.sessionId === target.sessionId ? [host] : []
+      );
+      setAgentSessionPanels((current) => withAgentSessionPanelHost(current, hostSessionId, target));
+      for (const host of formerHosts) setSessionPanelView(host, null, { agent: true });
+      setSessionPanelView(hostSessionId, 'agent-session', { agent: true, front: true });
+    },
+    [setSessionPanelView]
+  );
+  // The state behind the render-time rule above: a panel whose sub-agent
+  // became a tab closes for good.
+  useEffect(() => {
+    for (const [host, target] of agentSessionPanels) {
+      if (tabSessions.has(target.sessionId)) setSessionPanelView(host, null, { agent: true });
+    }
+  }, [agentSessionPanels, tabSessions, setSessionPanelView]);
   // "프로필 보기" and the agent's name in its tab open that thread's panel,
   // in front of the thread's own file tabs, now or once a pane shows it.
   useEffect(() => {
@@ -237,10 +283,17 @@ export function useSessionPaneSurfaces() {
     window.addEventListener(OPEN_AGENT_PANEL_EVENT, open);
     return () => window.removeEventListener(OPEN_AGENT_PANEL_EVENT, open);
   }, [setSessionPanelView, queueDockReveal]);
-  const displayedPanelViews = useMemo(
-    () => (phone ? sessionPanelViews : withRoutinesPanelDefault(sessionPanelViews, routinesTile, owners)),
-    [phone, sessionPanelViews, routinesTile, owners]
-  );
+  const displayedPanelViews = useMemo(() => {
+    let views = phone ? sessionPanelViews : withRoutinesPanelDefault(sessionPanelViews, routinesTile, owners);
+    // An agent session view with nothing it may show (its sub-agent is a tab
+    // or moved to another chat) is closed in this same render.
+    for (const [host, view] of views) {
+      if (view === 'agent-session' && !shownAgentSessionPanels.has(host)) {
+        views = withSessionPanelView(views, host, null);
+      }
+    }
+    return views;
+  }, [phone, sessionPanelViews, routinesTile, owners, shownAgentSessionPanels]);
 
   const setSessionDiff = useCallback((sessionId: string, diff: PaneSideDockDiff | null) => {
     setSessionDiffs((current) => withSessionDiff(current, sessionId, diff));
@@ -272,6 +325,9 @@ export function useSessionPaneSurfaces() {
       });
       setSessionDiffs((current) => withSessionDiff(current, sessionId, null));
       setSessionPanelViews((current) => withSessionPanelView(current, sessionId, null));
+      // Only the deleted chat's own view goes: a chat showing the deleted
+      // sub-agent keeps its final transcript until the user closes it.
+      setAgentSessionPanels((current) => withAgentSessionPanel(current, sessionId, null));
       setPanelViewFront(sessionId, false);
       releaseSessionDiff(sessionId);
       releaseFullToolOutputs(sessionId);
@@ -300,6 +356,8 @@ export function useSessionPaneSurfaces() {
   );
 
   return {
+    agentSessionPanels: shownAgentSessionPanels,
+    showAgentSessionPanel,
     browserSurfaces,
     browserAutoRevealSuppressed,
     dismissBrowserSurface,

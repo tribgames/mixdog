@@ -21,7 +21,11 @@ export type WorkbenchSideViewId =
   /** Group rooms only: members, limits, leave/delete (AgentRoomPanel). */
   | 'room'
   /** Server windows only: the server's ports and their forwards to this PC. */
-  | 'ports';
+  | 'ports'
+  /** A sub-agent's conversation opened beside its chat from the Agents
+   *  window. Never stored in the layout nor toggled from the strip: the
+   *  pane's right groups carry it (paneRightGroupsFor). */
+  | 'agent-session';
 export type WorkbenchSideViewGroup = readonly WorkbenchSideViewId[];
 export type WorkbenchSideTitleDragProps = {
   draggable: boolean;

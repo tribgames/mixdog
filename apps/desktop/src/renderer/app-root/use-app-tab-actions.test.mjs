@@ -47,6 +47,7 @@ test('useAppTabActions manages utility, studio, terminal, and diff tab opening',
         temporarySelect: () => {},
       },
       sessionPaneSurfaces: {
+        agentSessionPanels: new Map(),
         browserSurfaces: new Map(),
         pendingBrowserAutoReveal: { current: new Set() },
         browserAutoRevealSuppressed: { current: new Set() },

@@ -24,6 +24,7 @@ import type { RoutinesPane as RoutinesPaneComponent } from '../RoutinesPane';
 import type { AgentRoomPanel as AgentRoomPanelComponent } from '../AgentRoomPanel';
 import type { VisualizePane as VisualizePaneComponent } from '../VisualizePane';
 import { DesktopLoadingSurface } from '../RendererRecovery';
+import { AgentSessionPanel } from '../AgentSessionPanel';
 import { prefetchDiffView } from '../lazy-widgets';
 import { SnapshotUtilityDock } from '../app-snapshot-views';
 import type { DesktopSnapshotStore } from '../desktop-snapshot-store';
@@ -145,6 +146,21 @@ export interface UseAppWorkbenchViewsOptions {
   dockOpenPullRequest: PullRequestOpenHandler;
   dockOpenLeadSession: (sessionId: string) => void;
   dockOpenAgentSession: (sessionId: string, title: string, ownerSessionId: string, replaceKey?: string) => void;
+  /** An Agents sub-agent row: its conversation in the chat's side panel. */
+  dockPeekAgentSession?: (sessionId: string, title: string, ownerSessionId: string) => void;
+  /** The side panel's "Open in tab": its sub-agent moves to the focused pane. */
+  openAgentSessionPanelAsTab?: (hostSessionId: string) => void;
+  /** The pane conversation renderer (app-conversation-pane-renderer); the
+   *  agent session view draws its sub-agent with it. */
+  renderSessionConversation?: (
+    selection: NavigationSelection,
+    focused: boolean,
+    focusPane: () => void,
+    leafId: string,
+    warm: boolean,
+    visible: boolean,
+    heldSnapshot: ReturnType<typeof useSessionLane>
+  ) => React.ReactNode;
   /** Phone drawer close (no-op on wide layouts); left-drawer results close it. */
   closeSidebarForNavigation?: () => void;
   renameProjectEntry: (projectPath: string, relPath: string, newName: string) => Promise<void>;
@@ -240,6 +256,9 @@ export function useAppWorkbenchViews({
   dockOpenPullRequest,
   dockOpenLeadSession,
   dockOpenAgentSession,
+  dockPeekAgentSession,
+  openAgentSessionPanelAsTab,
+  renderSessionConversation,
   closeSidebarForNavigation,
   renameProjectEntry,
   paneSideDocks,
@@ -375,6 +394,31 @@ export function useAppWorkbenchViews({
         />
       );
     }
+    if (id === 'agent-session') {
+      const target = pane ? sessionPaneSurfaces.agentSessionPanels.get(pane.sessionId) : undefined;
+      if (!pane || !target || !renderSessionConversation) return null;
+      const hostSessionId = pane.sessionId;
+      return (
+        <AgentSessionPanel
+          key={target.sessionId}
+          target={target}
+          active={active}
+          renderConversation={(sessionId, title, held) =>
+            renderSessionConversation(
+              { kind: 'session', id: sessionId, ...(title ? { title } : {}) },
+              false,
+              () => paneWorkspace.focusLeaf(pane.leafId),
+              pane.leafId,
+              true,
+              active,
+              held
+            )
+          }
+          onOpenAsTab={() => openAgentSessionPanelAsTab?.(hostSessionId)}
+          onClose={() => requestPaneDockClose('agent-session', hostSessionId)}
+        />
+      );
+    }
     // Session-owned surfaces render in the pane dock's persistent stack.
     if (id === 'browser' || id === 'terminal') return null;
     const tab = id as UtilityDockTab;
@@ -435,6 +479,7 @@ export function useAppWorkbenchViews({
         onOpenPullRequest={closingDrawerFirst(closeDrawer, dockOpenPullRequest)}
         onOpenLeadSession={closingDrawerFirst(closeDrawer, dockOpenLeadSession)}
         onOpenAgentSession={closingDrawerFirst(closeDrawer, dockOpenAgentSession)}
+        onPeekAgentSession={dockPeekAgentSession && closingDrawerFirst(closeDrawer, dockPeekAgentSession)}
         onRenameSession={renameSession}
       />
     );
@@ -472,6 +517,16 @@ export function useAppWorkbenchViews({
       .then((module) => module.prefetchAgentProfile(window.mixdogDesktop, activeBotSessionId))
       .catch(() => {});
   }, [activeBotSessionId]);
+
+  // Sub-agents a pane's side panel shows: their lanes are registered like a
+  // pane's own session, so the panel streams live.
+  const dockSessionIds = paneWorkspace.leaves.flatMap((leaf) => {
+    const selection = paneActiveSelection(leaf);
+    if (selection?.kind !== 'session') return [];
+    if (sessionPaneSurfaces.sessionPanelViews.get(selection.id) !== 'agent-session') return [];
+    const target = sessionPaneSurfaces.agentSessionPanels.get(selection.id);
+    return target ? [target.sessionId] : [];
+  });
 
   const renderPaneSideDock = (leaf: PaneLeaf, focused: boolean) =>
     renderPaneSideDockView(leaf, focused, {
@@ -550,5 +605,6 @@ export function useAppWorkbenchViews({
     paneProjectPathFor,
     renderPaneSideDock,
     renderPaneProblems,
+    dockSessionIds,
   };
 }

@@ -1037,10 +1037,14 @@ export function AgentActivityPane({
   onPrefetchSession,
   onOpenLeadSession,
   onOpenSession,
+  onPeekSession,
   onRenameSession,
   readComposerModel,
 }: {
   active: boolean;
+  /** A sub-agent row's click: its conversation beside the chat (the side
+   *  panel). Absent, the row opens it as a tab (`onOpenSession`). */
+  onPeekSession?(sessionId: string, title: string, ownerSessionId: string): void;
   /** Renames a session: a Lead row's Rename (its session title). */
   onRenameSession?(sessionId: string, title: string): Promise<unknown> | void;
   /** The composer's current model, read when "+" opens a new agent. */
@@ -1175,13 +1179,15 @@ export function AgentActivityPane({
       sessions: sessions.filter(leadSessionListed),
     }
   );
+  // Sub-agent rows (the trees under each Lead, bot and work session).
+  const openSubAgent = onPeekSession ?? onOpenSession;
   const subtreeProps = {
     expandedSessionIds,
     unreadSessionIds,
     setSessionExpanded,
     onPrefetchSession,
     onOpenLeadSession,
-    onOpenSession,
+    onOpenSession: openSubAgent,
   };
   const openLeadMenu = (row: AgentLeadRow, point: { x: number; y: number }): void => {
     const group = groups.find((entry) => entry.ownerId === row.sessionId);
@@ -1325,7 +1331,7 @@ export function AgentActivityPane({
                   onOpenMenu={setMenu}
                   onPrefetchSession={onPrefetchSession}
                   onOpenLeadSession={onOpenLeadSession}
-                  onOpenSession={onOpenSession}
+                  onOpenSession={openSubAgent}
                 />
               ))}
               {leadLookOpen && <LeadAppearanceDialog onClose={() => setLeadLookOpen(false)} />}

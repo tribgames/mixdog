@@ -33,15 +33,27 @@ export function writeRoutinesTileOpen(open: boolean): void {
   }
 }
 
+/** The contextual view an Agents row opens beside a chat; never in the stored
+ *  layout, so every surface with a right side gets it here. */
+export const AGENT_SESSION_GROUP: WorkbenchSideViewGroup = ['agent-session'];
+
+/** The right-side groups a pane dock knows: the layout's, then the agent
+ *  session view. */
+export function paneDockGroupsFor(groups: readonly WorkbenchSideViewGroup[]): readonly WorkbenchSideViewGroup[] {
+  return groups.length > 0 ? [...groups, AGENT_SESSION_GROUP] : groups;
+}
+
 /** The pane's right-side groups for the session it shows: the Routines view
- *  only for an agent's home thread, the room panel only for a group room. */
+ *  only for an agent's home thread, the room panel only for a group room, the
+ *  agent session view only behind a session. */
 export function paneRightGroupsFor(
   groups: readonly WorkbenchSideViewGroup[],
   sessionId: string
 ): readonly WorkbenchSideViewGroup[] {
   const home = isAgentHomeSessionId(sessionId);
   const room = Boolean(roomIdOfSession(sessionId));
-  return groups.filter((group) => (home || !group.includes('routines')) && (room || !group.includes('room')));
+  const own = groups.filter((group) => (home || !group.includes('routines')) && (room || !group.includes('room')));
+  return sessionId && own.length > 0 ? [...own, AGENT_SESSION_GROUP] : own;
 }
 
 /** An agent-mode chat's header toggles: its info panel (the profile, or the
@@ -58,7 +70,7 @@ export function agentChatStripGroups(groups: readonly WorkbenchSideViewGroup[]):
  *  turn's outputs), then the coding docks. The changes card and Source
  *  Control open Changes. */
 export function codingStripGroups(groups: readonly WorkbenchSideViewGroup[]): readonly WorkbenchSideViewGroup[] {
-  return groups.filter((group) => !group.includes('session-diff'));
+  return groups.filter((group) => !group.includes('session-diff') && !group.includes('agent-session'));
 }
 
 /** Per-session panel views with the Routines tile filled in for every home
