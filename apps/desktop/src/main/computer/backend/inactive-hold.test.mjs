@@ -357,7 +357,7 @@ public static class MixWin32 {
   public static bool IsWindowHandle(IntPtr value) { return value != IntPtr.Zero; }
   public static bool IsWebContentHost(IntPtr value) { return true; }
   public static bool SelfActivatesOnSemanticInput(IntPtr value) { return Shield; }
-  public static bool Focus(IntPtr value) {
+  public static bool RestoreForeground(IntPtr value) {
     FocusCalls++;
     if (FailFocus) throw new Exception("focus_broken: fixture");
     Current = value;
@@ -371,6 +371,12 @@ public static class MixWin32 {
   }
   public static IntPtr HoldInactive(IntPtr value) { return value; }
   public static void ReleaseInactive(IntPtr value) { if (value != IntPtr.Zero) Releases++; }
+}
+// The worker may not lock the foreground here: the watch and restore are the protection.
+public static class MixForegroundLock {
+  public static bool Acquire(int holdMs) { return false; }
+  public static bool Held { get { return false; } }
+  public static void Release() {}
 }
 '@
 ${LOAD_FUNCTIONS}

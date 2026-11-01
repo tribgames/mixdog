@@ -101,6 +101,11 @@ public sealed class FakeMsaa {
   public bool ReadOnly;
   public string SetValue(string value) { return value.ToLowerInvariant(); }
 }
+public static class MixForegroundLock {
+  public static bool Acquire(int holdMs) { return false; }
+  public static bool Held { get { return false; } }
+  public static void Release() {}
+}
 public static class MixWin32 {
   public static FakeElement Element;
   public static List<string> Sent = new List<string>();
@@ -131,7 +136,7 @@ public static class MixWin32 {
   public static bool IsWithinTopLevel(IntPtr candidate, IntPtr top) { return candidate == top; }
   public static bool IsContainedSameProcess(IntPtr child, IntPtr parent) { return false; }
   public static bool IsOwnedBy(IntPtr child, IntPtr parent) { return false; }
-  public static bool Focus(IntPtr value) { Current = value; return true; }
+  public static bool RestoreForeground(IntPtr value) { Current = value; return true; }
   public static bool SelfActivatesOnSemanticInput(IntPtr value) { return false; }
   public static bool SetWindowEnabled(IntPtr value, bool enabled) { return true; }
   public static IntPtr HoldInactive(IntPtr value) { return IntPtr.Zero; }

@@ -13,6 +13,7 @@ export const MIXDOG_HOST_CSHARP = [
   loadComputerSource('MixWin32Keyboard.cs').trimEnd(),
   loadComputerSource('MixWin32InactiveLedger.cs').trimEnd(),
   loadComputerSource('MixWin32Foreground.cs').trimEnd(),
+  loadComputerSource('MixForegroundLock.cs').trimEnd(),
   loadComputerSource('MixWin32SendInput.cs').trimEnd(),
   loadComputerSource('WindowGraphicsCapture.cs').trimEnd(),
   MIXDOG_INPUT_TRANSPORT_CSHARP,

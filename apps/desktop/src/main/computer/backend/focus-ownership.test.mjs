@@ -7,6 +7,7 @@ import { promisify } from 'node:util';
 import test from 'node:test';
 import { PS_RUNTIME } from './ps-runtime.ts';
 import { PS_INPUT } from './ps-input.ts';
+import { loadComputerSource } from './native-assets.ts';
 
 test('session release leaves focus alone, and background input returns it only while the user did not move it', {
   skip: process.platform !== 'win32' && 'Windows only',
@@ -16,11 +17,12 @@ test('session release leaves focus alone, and background input returns it only w
   try {
     await writeFile(join(directory, 'runtime.ps1'), PS_RUNTIME);
     await writeFile(join(directory, 'input.ps1'), PS_INPUT);
+    await writeFile(join(directory, 'lock.cs'), loadComputerSource('MixForegroundLock.cs'));
     await writeFile(
       join(directory, 'test.ps1'),
       `
 $ErrorActionPreference = 'Stop'
-Add-Type @'
+$stub = @'
 using System;
 public sealed class ObservedInput { public bool Ready = true; public string Generation = "a"; public long Sequence = 7; }
 public static class MixInputObservation {
@@ -40,7 +42,7 @@ public static class MixWin32 {
   public static int StealAfterReads = -1;
   public static IntPtr StealWith;
   public static IntPtr Foreground() {
-    if (StealAfterReads == 0) Current = StealWith;
+    if (StealAfterReads == 0) TrySteal(StealWith);
     if (StealAfterReads >= 0) StealAfterReads--;
     return Current;
   }
@@ -50,6 +52,33 @@ public static class MixWin32 {
   }
   public static bool IsWindowHandle(IntPtr value) { return value != IntPtr.Zero; }
   public static bool Focus(IntPtr value) { FocusCalls++; Current = value; return true; }
+  // The foreground lock refuses every SetForegroundWindow, the restore included.
+  public static bool LockGranted, Locked;
+  public static int Locks, Unlocks, RefusedSteals;
+  // How long the lock stayed on, measured by the native calls themselves.
+  public static System.Diagnostics.Stopwatch LockClock = new System.Diagnostics.Stopwatch();
+  public static long HeldMs = -1;
+  // A system activation (the user's click) passes the lock.
+  public static bool StealPassesLock;
+  // Stands in for LockSetForegroundWindow under the real hold logic.
+  public static bool NativeLock(uint code) {
+    if (code == 1) {
+      if (!LockGranted || Locked) return false;
+      Locks++; Locked = true; LockClock.Restart(); return true;
+    }
+    if (!Locked) return false;
+    Unlocks++; Locked = false; HeldMs = LockClock.ElapsedMilliseconds; return true;
+  }
+  public static void InstallLock() { MixForegroundLock.Native = NativeLock; }
+  public static bool RestoreForeground(IntPtr value) {
+    FocusCalls++;
+    if (Locked) return false;
+    Current = value; return true;
+  }
+  public static void TrySteal(IntPtr value) {
+    if (Locked && !StealPassesLock) { RefusedSteals++; return; }
+    Current = value;
+  }
   public static bool IsContainedSameProcess(IntPtr child, IntPtr parent) { return false; }
   public static bool IsOwnedBy(IntPtr child, IntPtr parent) { return false; }
   public static bool SelfActivating;
@@ -74,6 +103,8 @@ public static class MixWin32 {
   public static int RetryPendingReleases() { return 0; }
 }
 '@
+Add-Type -TypeDefinition ($stub + "\`n" + [IO.File]::ReadAllText((Join-Path $env:FIXTURE_DIRECTORY 'lock.cs')))
+[MixWin32]::InstallLock()
 $tokens=$null; $errors=$null
 $ast=[Management.Automation.Language.Parser]::ParseFile(
   (Join-Path $env:FIXTURE_DIRECTORY 'runtime.ps1'),[ref]$tokens,[ref]$errors)
@@ -132,7 +163,43 @@ $results+=@{scenario='shielded_self_activating'; restored=([MixWin32]::Current -
 [MixWin32]::StealWith=[IntPtr]9; [MixWin32]::StealAfterReads=2
 $null=Invoke-BackgroundWindow ([IntPtr]1) { }
 $results+=@{scenario='delayed_content_steal'; restored=([MixWin32]::Current -eq [IntPtr]2); calls=[MixWin32]::FocusCalls}
+# A Chromium host activates itself well after the call returned, past the
+# 100 ms an unlocked watch lasts: the lock is still held and refuses it.
+[MixWin32]::FocusCalls=0; [MixWin32]::Current=[IntPtr]2; [MixWin32]::LockGranted=$true
+[MixWin32]::Locks=0; [MixWin32]::Unlocks=0; [MixWin32]::RefusedSteals=0
+[MixWin32]::StealWith=[IntPtr]1; [MixWin32]::StealAfterReads=10
+$null=Invoke-BackgroundWindow ([IntPtr]1) { }
+$results+=@{scenario='locked_late_steal'; restored=([MixWin32]::Current -eq [IntPtr]2); calls=[MixWin32]::FocusCalls;
+  locks=[MixWin32]::Locks; unlocks=[MixWin32]::Unlocks; refused=[MixWin32]::RefusedSteals; locked=[MixWin32]::Locked}
+# An activation the lock does not cover is undone, and the lock comes off first
+# so it does not refuse the restore as well.
 [MixWin32]::StealAfterReads=-1
+[MixWin32]::FocusCalls=0; [MixWin32]::Current=[IntPtr]2; [MixWin32]::StealPassesLock=$true
+[MixWin32]::Locks=0; [MixWin32]::Unlocks=0; [MixWin32]::RefusedSteals=0
+$null=Invoke-BackgroundWindow ([IntPtr]1) { [MixWin32]::TrySteal([IntPtr]1) }
+$results+=@{scenario='steal_past_lock'; restored=([MixWin32]::Current -eq [IntPtr]2); calls=[MixWin32]::FocusCalls;
+  locks=[MixWin32]::Locks; unlocks=[MixWin32]::Unlocks; refused=[MixWin32]::RefusedSteals; locked=[MixWin32]::Locked}
+[MixWin32]::StealPassesLock=$false
+# A provider that blocks well past the hold: the lock still ends at its
+# deadline, counted from acquisition, while the call is still running.
+foreach($scenario in @('slow_operation','operation_throws')) {
+  [MixWin32]::FocusCalls=0; [MixWin32]::Current=[IntPtr]2; [MixWin32]::HeldMs=-1
+  [MixWin32]::Locks=0; [MixWin32]::Unlocks=0; [MixWin32]::RefusedSteals=0
+  $script:lockedAfterCall=$null
+  $failure=''
+  try {
+    $null=Invoke-BackgroundWindow ([IntPtr]1) {
+      Start-Sleep -Milliseconds 350
+      $script:lockedAfterCall=[MixWin32]::Locked
+      if ($scenario -eq 'operation_throws') { throw 'provider_failed: fixture' }
+    }
+  }
+  catch { $failure=$_.Exception.Message }
+  $results+=@{scenario=$scenario; restored=([MixWin32]::Current -eq [IntPtr]2); calls=[MixWin32]::FocusCalls;
+    locks=[MixWin32]::Locks; unlocks=[MixWin32]::Unlocks; heldMs=[MixWin32]::HeldMs; locked=[MixWin32]::Locked;
+    lockedAfterCall=$script:lockedAfterCall; failure=$failure}
+}
+[MixWin32]::LockGranted=$false
 [MixWin32]::SelfActivating=$false
 $script:state=@{Map=@{}; Generation=0; LastFocus=[IntPtr]1; HeldPointerTargets=@{'hwnd:0x5'=@(11,22)}}
 [MixWin32]::Released.Clear()
@@ -150,12 +217,32 @@ $results+=@{scenario='held_button'; restored=$false; calls=0; released=[MixWin32
     const rows = JSON.parse(result.stdout.trim());
     assert.deepEqual(
       rows.map((row) => row.calls),
-      [0, 1, 0, 0, 0, 1, 1, 0]
+      [0, 1, 0, 0, 0, 1, 1, 0, 1, 0, 0, 0]
     );
     assert.deepEqual(
       rows.map((row) => row.restored),
-      [false, true, false, false, false, true, true, false]
+      [false, true, false, false, false, true, true, true, true, true, true, false]
     );
+    // The hold is bounded from acquisition, not from the end of the call: a
+    // 350 ms provider call sees the lock already gone, which ended once, near
+    // its 250 ms deadline, on every path including a failing call.
+    for (const row of [rows[9], rows[10]]) {
+      assert.equal(row.locks, 1, JSON.stringify(row));
+      assert.equal(row.unlocks, 1, JSON.stringify(row));
+      assert.equal(row.locked, false, JSON.stringify(row));
+      assert.equal(row.lockedAfterCall, false, JSON.stringify(row));
+      assert.ok(row.heldMs >= 200 && row.heldMs <= 330, JSON.stringify(row));
+    }
+    assert.equal(rows[9].failure, '');
+    assert.match(rows[10].failure, /provider_failed/);
+    // The late self-activation is refused while locked: nothing to restore, and
+    // the lock is released exactly once.
+    assert.deepEqual(
+      [rows[7].refused, rows[7].locks, rows[7].unlocks, rows[7].locked],
+      [1, 1, 1, false]
+    );
+    assert.equal(rows[8].refused, 0);
+    assert.equal(rows[8].locked, false);
     // A window that would activate itself is disabled for the call and restored
     // to exactly the state it had, so the steal never reaches the user's screen.
     assert.equal(rows[5].disables, 1);

@@ -85,6 +85,13 @@ public partial class MixWin32
         }
         return false;
     }
+    /// One activation try with no retry, sleep or lock-timeout change: a
+    /// background restore checks for user input around each attempt itself.
+    public static bool RestoreForeground(IntPtr h)
+    {
+        if (h == IntPtr.Zero || !IsWindow(h)) return false;
+        return TryFocusAttached(h);
+    }
     [DllImport("user32.dll")] static extern bool GetCursorPos(out POINT p);
     [DllImport("user32.dll")] static extern IntPtr WindowFromPoint(POINT p);
     [DllImport("user32.dll")] static extern IntPtr GetAncestor(IntPtr h, uint flags);
