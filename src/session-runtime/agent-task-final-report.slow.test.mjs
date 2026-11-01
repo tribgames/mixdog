@@ -776,6 +776,131 @@ test('a restart between progress updates posts each one once', async (t) => {
   assert.equal(w.wakes.length, 1);
 });
 
+test('open sends whose chains reach one answer post one end and one update per turn, closing every send', async (t) => {
+  const w = world(t);
+  const p = w.boot();
+  const second = { ...worker('running'), tag: 'w2', sessionId: 'sess_agent_w2', taskId: 'task_agent_2' };
+  const first = await sentRequest(w, p, 'refactor the parser');
+  w.task().messages.push(...turnRows(first.options.id, 'I1', { spawns: ['task_agent_1'] }));
+  w.pool.push(worker('running'));
+  first.options.onSettled({ status: 'done', result: { content: 'I1' } });
+  const next = await sentRequest(w, p, 'and the lexer');
+  w.task().messages.push(...turnRows(next.options.id, 'I2', { spawns: ['task_agent_2'] }));
+  w.pool.push(second);
+  next.options.onSettled({ status: 'done', result: { content: 'I2' } });
+  await waitFor(p.delivery, () => w.progress().length >= 2);
+  // One woken turn takes both agents' results: both chains reach it.
+  await wokenTurn(w, p, 'Halfway there.', { reports: ['task_agent_1', 'task_agent_2'] });
+  await waitFor(p.delivery, () => w.progress().length >= 3);
+  await pump(p.delivery);
+  w.pool.splice(0, 2, worker('completed'), { ...second, status: 'completed', stage: 'completed' });
+  await wokenTurn(w, p, FINAL, { reports: ['task_agent_1', 'task_agent_2'] });
+  await waitFor(p.delivery, async () => w.ended().length && !(await w.watchIds()).length);
+  await pump(p.delivery);
+  assert.deepEqual(w.ended().map(reportText), [FINAL], 'one end for the one answer');
+  assert.deepEqual(w.progress().map(reportText), ['I1', 'I2', 'Halfway there.'], 'one update per answer');
+  assert.deepEqual(await w.watchIds(), [], "every send's watch closes");
+  assert.equal(w.wakes.length, 1, 'the bot is woken once');
+});
+
+test("a send steered into a running turn re-attaches to that turn's chain: no older answer after a restart", async (t) => {
+  const w = world(t);
+  const first = w.boot();
+  const owner = await sentRequest(w, first, 'refactor the parser');
+  const steer = await sentRequest(w, first, 'also check MaxHP');
+  // The turn spawned its agent, then took the steered send, then answered.
+  const rows = turnRows(owner.options.id, 'OLD', { spawns: ['task_agent_1'] });
+  rows.splice(3, 0, { role: 'user', content: 'also check MaxHP', meta: { source: 'steering', submissionIds: [steer.options.id] } });
+  w.task().messages.push(...rows);
+  w.pool.push(worker('running'));
+  const detail = { status: 'done', result: { content: 'OLD' } };
+  owner.options.onSettled(detail);
+  steer.options.onSettled(detail);
+  await waitFor(first.delivery, () => w.progress().length >= 1);
+  await pump(first.delivery);
+  // The chain goes on while the daemon is down.
+  w.task().messages.push(
+    ...turnRows('it_wake_a1', 'A1', {
+      source: 'task-notification',
+      prompt: notificationPrompt(['task_agent_1']),
+      consumed: ['task_agent_1'],
+    })
+  );
+  const second = w.boot();
+  assert.equal(await second.api.recover(), 2);
+  await waitFor(second.delivery, () => w.progress().length >= 2);
+  await pump(second.delivery);
+  assert.deepEqual(w.ended(), [], 'no stale answer while the chain still works');
+  assert.deepEqual(w.progress().map(reportText), ['OLD', 'A1'], 'each answer once');
+  w.pool[0] = worker('completed');
+  await wokenTurn(w, second, FINAL);
+  await waitFor(second.delivery, async () => w.ended().length && !(await w.watchIds()).length);
+  await pump(second.delivery);
+  assert.deepEqual(w.ended().map(reportText), [FINAL], "one end, the chain's current answer");
+  assert.deepEqual(await w.watchIds(), []);
+});
+
+test('a converged end still queued takes the sends and files of the same answer', async (t) => {
+  const file = join(tempDir(t), 'routine-results.json');
+  const queue = createRoutineResultQueue(file);
+  const end = (sendId, files) => ({
+    runId: `${TASK}_it_9_end`,
+    kind: 'agent-task',
+    taskSessionId: TASK,
+    status: 'completed',
+    text: FINAL,
+    sendId,
+    files,
+    roundTrip: false,
+  });
+  const entry = (path, id) => ({ path, name: path.slice(1), kind: 'file', mimeType: 'text/plain', size: 1, id });
+  await queue.watch({ runId: 's2', agentId: 'bot1', homeSessionId: HOME, taskSessionId: TASK, title: 'x' });
+  await queue.add(HOME, end('s1', [entry('/a', 'att_a')]));
+  await queue.add(HOME, end('s2', [entry('/a', 'att_a2'), entry('/b', 'att_b')]), { unwatch: ['s2'] });
+  const [row, ...rest] = await queue.items(HOME);
+  assert.deepEqual(rest, [], 'one row');
+  assert.deepEqual(row.sendIds, ['s1', 's2']);
+  assert.deepEqual(
+    row.files.map((f) => [f.path, f.id]),
+    [
+      ['/a', 'att_a'],
+      ['/b', undefined],
+    ]
+  );
+  assert.deepEqual(await queue.watches(), []);
+});
+
+test('a later answer reading the same as an old send-named end still posts its own row, files and wake', async (t) => {
+  const w = world(t);
+  const p = w.boot();
+  const report = (fields) => ({ taskSessionId: TASK, title: 'Coding', target: 'session', ...fields });
+  const post = async (fields) => p.delivery.drain(await p.delivery.enqueueTask('bot1', report(fields)));
+  const file = { path: '/work/out.txt', name: 'out.txt', kind: 'file', mimeType: 'text/plain', size: 1 };
+  // Before the upgrade: send1's end, named by its send, said "Done.".
+  await post({ runId: 'send1_end', status: 'completed', text: 'Done.', watchId: 'send1' });
+  await waitFor(p.delivery, () => w.wakes.length >= 1);
+  // Later, an independent request answers "Done." too, with a file of its own.
+  await p.delivery.watchTask({ runId: 'send2', agentId: 'bot1', homeSessionId: HOME, taskSessionId: TASK, title: 'Coding' });
+  await post({
+    runId: `${TASK}_turn2_end`,
+    status: 'completed',
+    text: 'Done.',
+    watchId: 'send2',
+    progressRunId: `${TASK}_progress_turn2`,
+    files: [file],
+  });
+  await waitFor(p.delivery, () => w.ended().length >= 2 && w.wakes.length >= 2);
+  const ends = w.ended();
+  assert.equal(ends.length, 2, 'its own row');
+  assert.equal(reportText(ends[1]), 'Done.');
+  assert.deepEqual(ends[1].meta.routine.files.map((entry) => entry.path), [file.path], 'with its files');
+  assert.equal(w.wakes.length, 2, 'and its wake');
+  assert.deepEqual(await w.watchIds(), []);
+  // A different answer of the session still posts.
+  await post({ runId: `${TASK}_turn3_end`, status: 'completed', text: 'Another answer.', progressRunId: `${TASK}_progress_turn3` });
+  assert.equal(w.ended().length, 3);
+});
+
 test('a send whose turn reports nothing posts no progress either', async (t) => {
   const w = world(t);
   const p = w.boot();

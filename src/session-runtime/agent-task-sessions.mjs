@@ -189,7 +189,8 @@ export function latestTurnOutcome(messages, runId) {
   return chain && { id: chain.id, outcome: chain.outcome, at: chain.at, ambiguous: chain.ambiguous };
 }
 
-/** latestTurnOutcome with what a report's wait needs besides: `answers`,
+/** latestTurnOutcome with what a report's wait needs besides: `first`, the
+ *  id of the turn that took runId (its prompt's checkpoint); `answers`,
  *  every turn of the chain that recorded its end, oldest first (`{ id,
  *  status, text }`: its submission id and submissionOutcome); `taskIds`, the
  *  agent tasks the chain's turns started — the only tasks proven the chain's
@@ -201,21 +202,26 @@ export function latestTurnOutcome(messages, runId) {
  *  steer is not stored yet. */
 function turnChain(messages, runId) {
   const list = Array.isArray(messages) ? messages : [];
-  const start = list.findIndex((message) => submissionIdsOf(message).includes(runId));
-  if (start < 0) return null;
+  const asked = list.findIndex((message) => submissionIdsOf(message).includes(runId));
+  if (asked < 0) return null;
+  // The chain starts with the whole turn that took runId, named by that turn:
+  // a send steered into it or batched with it follows the same chain as the
+  // turn's own submission, and its answers carry the same ids.
+  const start = turnStartOf(list, asked);
+  const first = list[start]?.meta?.transcript?.checkpointId || runId;
   const started = new Set();
   // The agent tasks whose results a stored turn took (as its prompt or steered in).
   const taken = new Set();
   const startingCalls = new Set();
   let at = start;
-  let id = runId;
+  let id = first;
   let inChain = true;
   let ambiguous = false;
   // The turn the walk is in: where its prompt is stored and its submission id.
   let turnAt = start;
-  let turnId = runId;
+  let turnId = first;
   // Every turn of the chain, in order: where its prompt is stored, its id.
-  const turns = [{ at: start, id: runId }];
+  const turns = [{ at: start, id: first }];
   for (let index = start; index < list.length; index += 1) {
     const message = list[index];
     const checkpointId = index > start && message?.role === 'user' ? message.meta?.transcript?.checkpointId : '';
@@ -274,6 +280,7 @@ function turnChain(messages, runId) {
   }
   return {
     id,
+    first,
     outcome,
     at: Number(ended?.meta?.transcript?.at) || 0,
     ambiguous,
@@ -281,6 +288,23 @@ function turnChain(messages, runId) {
     taskIds: started,
     busyIsOthers: last === 'open' && [...started].every((taskId) => taken.has(taskId)),
   };
+}
+
+/** Where the turn that took the submission stored at `list[at]` keeps its
+ *  prompt: `at` itself for a turn's prompt; for a message steered into a
+ *  running turn (no checkpoint of its own), that turn's prompt — unless the
+ *  turn before it ended first (a completion or interruption on the way back),
+ *  when `at` stays the start. */
+function turnStartOf(list, at) {
+  if (list[at]?.meta?.transcript?.checkpointId) return at;
+  for (let index = at - 1; index >= 0; index -= 1) {
+    const message = list[index];
+    if (message?.meta?.transcript?.completion) return at;
+    if (message?.role !== 'user') continue;
+    if (message.meta?.transcript?.checkpointId) return index;
+    if (INTERRUPTED.test(messageText(message.content))) return at;
+  }
+  return at;
 }
 
 /** The agent task an owed result reports; null when it names none. */
@@ -532,7 +556,8 @@ function followTaskToFinal(
   const answersOf = (latest) => {
     const stored = latest?.answers || [];
     if (!immediate) return stored;
-    return [{ id: runId, ...immediate }, ...stored.filter((answer) => answer.id !== runId)];
+    const firstId = latest?.first || runId;
+    return [{ id: firstId, ...immediate }, ...stored.filter((answer) => answer.id !== firstId)];
   };
   // The answers already handed to `interim`, by turn.
   const interimIds = new Set();
@@ -554,7 +579,10 @@ function followTaskToFinal(
    *  `held` (the final candidate, reported only when it proves not final);
    *  false, stopping there, at the first that could not be queued. */
   async function reportEarlier(answers, held) {
-    const through = progressedThrough ? answers.findIndex((answer) => answer.id === progressedThrough) : -1;
+    // A mark stored before answers were named by their turn names runId for
+    // the chain's first answer.
+    const mark = progressedThrough === runId ? answers[0]?.id : progressedThrough;
+    const through = mark ? answers.findIndex((answer) => answer.id === mark) : -1;
     for (const [index, answer] of answers.entries()) {
       if (index <= through) interimIds.add(answer.id);
       else if (answer !== held && !(await reportInterim(answer))) return false;
@@ -838,7 +866,7 @@ async function rearmTaskWatch(
     endBotWork(watch.runId);
     if (quiet) return disown(watch.runId);
     return deliver(watch.agentId, {
-      runId: `${watch.runId}_end`,
+      runId: turnReportRunId(sessionId, watch.runId, status, { answerId }),
       taskSessionId: sessionId,
       title: watch.title,
       status,
@@ -847,7 +875,7 @@ async function rearmTaskWatch(
       ...(watch.hop > 0 ? { hop: watch.hop } : {}),
       ...roomFrom(watch.homeSessionId),
       watchId: watch.runId,
-      ...progressOf(watch.runId, answerId),
+      ...progressOf(sessionId, answerId),
       ...(watch.textOnly || text === GONE_TEXT || text === LOST_TEXT ? {} : await artifactFields(sessionId, turnId)),
     });
   };
@@ -903,7 +931,7 @@ async function rearmTaskWatch(
               ? null
               : (answer) =>
                   deliver(watch.agentId, {
-                    runId: progressRunId(watch.runId, answer.id),
+                    runId: progressRunId(sessionId, answer.id),
                     taskSessionId: sessionId,
                     title: watch.title,
                     status: 'working',
@@ -984,23 +1012,37 @@ function createSendSettlement(log) {
   return { join, nextSeq };
 }
 
-/** The queue row of send `id`'s progress update carrying the answer of turn
- *  `answerId` (followToFinal `interim`): one per answer, across restarts. */
-const progressRunId = (id, answerId) => `${id}_progress_${answerId}`;
+/** The queue row of the progress update of task session `sessionId` carrying
+ *  the answer of turn `answerId` (followToFinal `interim`): one per answer,
+ *  across restarts and however many open sends' chains reach it. Rows queued
+ *  before were named by the send (`${sendId}_progress_${answerId}`); both end
+ *  in `_progress_${answerId}`, which the queue matches (agent-home-delivery.mjs
+ *  answerKey). */
+const progressRunId = (sessionId, answerId) => `${sessionId}_progress_${answerId}`;
 
-/** The queue row of send `id`'s report of `status`. 'working': a progress
- *  update (progressRunId), not the end. A wait for approval belongs to the
- *  target session, not to this send: every watcher of it names the same row,
- *  so it posts once. */
-const turnReportRunId = (sessionId, id, status, { approvalId = '', answerId = '' } = {}) => {
+/** The queue row of send `id`'s report of `status` to task session
+ *  `sessionId`. 'working': a progress update (progressRunId), not the end. An
+ *  end that carries the answer of turn `answerId` belongs to that answer, not
+ *  to this send: every open send whose chain ends in it names the same row,
+ *  so it posts once and closes them all; an end of no turn is the send's own.
+ *  A wait for approval belongs to the target session: every watcher of it
+ *  names the same row, so it posts once.
+ *  Upgrade: ends were named `${sendId}_end` before and record no answer, so a
+ *  send still watched across the upgrade posts one extra card for an answer a
+ *  converged send already reported under its old name. That one-time
+ *  duplicate is accepted: matching old rows by their text would drop genuinely
+ *  new answers that happen to read the same. */
+const turnReportRunId =(sessionId, id, status, { approvalId = '', answerId = '' } = {}) => {
   if (status === 'blocked') return `${sessionId}_${approvalId}_blocked`;
-  return status === 'working' ? progressRunId(id, answerId) : `${id}_end`;
+  if (status === 'working') return progressRunId(sessionId, answerId);
+  return answerId ? `${sessionId}_${answerId}_end` : `${id}_end`;
 };
 
 /** The report fields naming the progress update that may have carried the
  *  final answer of turn `answerId` already (the queue then does not repeat
  *  it); none for a report of no turn. */
-const progressOf = (id, answerId) => (answerId ? { progressRunId: progressRunId(id, answerId) } : {});
+const progressOf = (sessionId, answerId) =>
+  answerId ? { progressRunId: progressRunId(sessionId, answerId) } : {};
 
 /** The handler of send `id`'s task-session state: a wait for the user's
  *  approval reports blocked once; a later, different one reports again. */
@@ -1126,7 +1168,7 @@ function sendReporter({ deliver, retryDelaysMs, artifactFields, log }, { session
           : {
               watchId: id,
               ...(turn.sendIds.length > 1 ? { watchIds: turn.sendIds } : {}),
-              ...progressOf(id, answerId),
+              ...progressOf(sessionId, answerId),
               ...(origin.textOnly ? {} : await artifactFields(sessionId, id, turn.runtime)),
             }),
       })
