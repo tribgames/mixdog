@@ -60,6 +60,7 @@ export const SLOW_READ_CAPABILITIES: ReadonlySet<string> = new Set([
   'getUsageDashboard',
   'getQuotaHistory',
   'getUsageStats',
+  'getUsageRequests',
 ]);
 /** Lane key of a capability call naming one of {@link SLOW_READ_CAPABILITIES}. */
 export const SLOW_CAPABILITY_READ_CALL = 'readCapabilities:slow';

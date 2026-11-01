@@ -561,6 +561,7 @@ const CAPABILITY_ARITY = {
   updateProviderAccounts: [2, 2],
   getUsageDashboard: [0, 1],
   getUsageStats: [0, 1],
+  getUsageRequests: [0, 1],
   getQuotaHistory: [0, 1],
   getSessionUsage: [0, 1],
   consumeCodexRateLimitResetCredit: [1, 1],
@@ -1350,6 +1351,7 @@ export function requiredDesktopCapabilityRequest(value: unknown): DesktopCapabil
   if (isImportCapability(capability)) validateImportCapabilityArgs(capability, args);
   if (capability === 'contextStatus' && args.length) validateContextStatusArgs(args[0]);
   if (capability === 'getSessionUsage' && args.length) validateSessionUsageArgs(args[0]);
+  if (capability === 'getUsageRequests' && args.length) validateUsageRequestsArgs(args[0]);
   validateSettingCapabilityArgs(capability, args);
   validateLocalProviderCapabilityArgs(capability, args);
   validateCredentialCapabilityArgs(capability, args);
@@ -1397,6 +1399,50 @@ function validateContextStatusArgs(options: unknown): void {
     requiredString(inspection.revision, 'context revision', 64);
   } else if (inspection.revision !== undefined) {
     throw new TypeError('context revision requires an entry id.');
+  }
+}
+
+/** The request log's page bound and filter values (usage-ledger-requests.mjs). */
+const MAX_USAGE_REQUEST_PAGE = 200;
+const MAX_USAGE_REQUEST_CURSOR_LENGTH = 200;
+const MAX_USAGE_REQUEST_MODEL_LENGTH = 300;
+const USAGE_REQUEST_STATUSES = new Set(['completed', 'substituted', 'retried', 'failed']);
+// The statistics periods (usage-stats-period.mjs); the runtime checks the
+// calendar itself, this keeps the shapes.
+const USAGE_PERIOD_VIEWS = new Set(['hour', '7d', 'day', 'week', 'month', 'year', 'all', 'custom']);
+const USAGE_PERIOD_DAY = /^\d{4}-\d{2}-\d{2}$/;
+const USAGE_PERIOD_CLOCK = /^\d{2}:\d{2}(?::\d{2})?$/;
+function validateUsageRequestsArgs(options: unknown): void {
+  const request = optionalPlainRecord(options);
+  if (!request) throw new TypeError('request log options must be an object.');
+  requireAllowedKeys(
+    request,
+    new Set(['view', 'anchor', 'startDay', 'endDay', 'startTime', 'endTime', 'status', 'model', 'cursor', 'limit']),
+    'request log options'
+  );
+  if (request.view !== undefined && !USAGE_PERIOD_VIEWS.has(request.view as string)) {
+    throw new TypeError('request log view is unknown.');
+  }
+  for (const key of ['anchor', 'startDay', 'endDay'] as const) {
+    if (request[key] !== undefined && (typeof request[key] !== 'string' || !USAGE_PERIOD_DAY.test(request[key]))) {
+      throw new TypeError(`request log ${key} must be a YYYY-MM-DD date.`);
+    }
+  }
+  for (const key of ['startTime', 'endTime'] as const) {
+    if (request[key] !== undefined && (typeof request[key] !== 'string' || !USAGE_PERIOD_CLOCK.test(request[key]))) {
+      throw new TypeError(`request log ${key} must be a HH:MM time.`);
+    }
+  }
+  if (request.status !== undefined && !USAGE_REQUEST_STATUSES.has(request.status as string)) {
+    throw new TypeError('request log status is unknown.');
+  }
+  if (request.model !== undefined) requiredString(request.model, 'request log model', MAX_USAGE_REQUEST_MODEL_LENGTH);
+  if (request.cursor !== undefined) requiredString(request.cursor, 'request log cursor', MAX_USAGE_REQUEST_CURSOR_LENGTH);
+  if (
+    request.limit !== undefined &&
+    (!Number.isInteger(request.limit) || (request.limit as number) < 1 || (request.limit as number) > MAX_USAGE_REQUEST_PAGE)
+  ) {
+    throw new TypeError(`request log limit must be an integer from 1 to ${MAX_USAGE_REQUEST_PAGE}.`);
   }
 }
 

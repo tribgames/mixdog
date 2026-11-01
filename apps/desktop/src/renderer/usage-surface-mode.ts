@@ -4,7 +4,7 @@
 // its own subscription and window directly.
 import { useCallback, useState } from 'react';
 
-export type UsageSurfaceMode = 'tokens' | 'quota';
+export type UsageSurfaceMode = 'tokens' | 'quota' | 'requests';
 export type QuotaFocus = { provider: string; window?: string; account?: string };
 
 const MODE_STORAGE_KEY = 'mixdog.desktop.usage-surface-mode.v1';
@@ -35,7 +35,8 @@ export function writeQuotaSubscription(subscription: QuotaSubscription): void {
 
 function readUsageSurfaceMode(): UsageSurfaceMode {
   try {
-    return window.localStorage.getItem(MODE_STORAGE_KEY) === 'quota' ? 'quota' : 'tokens';
+    const stored = window.localStorage.getItem(MODE_STORAGE_KEY);
+    return stored === 'quota' || stored === 'requests' ? stored : 'tokens';
   } catch {
     return 'tokens';
   }
@@ -73,12 +74,23 @@ function openingMode(): UsageSurfaceMode {
  * decides it again before its first paint — the meter that asked, else the
  * last choice — so a stale mode never flashes.
  */
-export function useUsageSurfaceMode(open: boolean): [UsageSurfaceMode, (mode: UsageSurfaceMode) => void] {
+export function useUsageSurfaceMode(
+  open: boolean,
+  requestsSupported = true
+): [UsageSurfaceMode, (mode: UsageSurfaceMode) => void] {
   const [state, setState] = useState(() => ({ open, mode: openingMode() }));
   if (state.open !== open) setState({ open, mode: open ? openingMode() : state.mode });
   const choose = useCallback((mode: UsageSurfaceMode) => {
     writeUsageSurfaceMode(mode);
     setState((current) => ({ ...current, mode }));
   }, []);
-  return [state.mode, choose];
+  // A host without the request log (an older remote host) shows token usage
+  // instead; the stored choice stays for a host that has it.
+  return [state.mode === 'requests' && !requestsSupported ? 'tokens' : state.mode, choose];
+}
+
+/** Whether the host serves the request log: a paired web app asks its host's
+ *  handshake; this desktop's own host always does. */
+export function usageRequestsSupported(api: object | undefined): boolean {
+  return (api as { readonly remoteUsageRequests?: boolean } | undefined)?.remoteUsageRequests !== false;
 }

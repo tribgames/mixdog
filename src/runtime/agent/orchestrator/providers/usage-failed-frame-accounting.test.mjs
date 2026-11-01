@@ -127,7 +127,13 @@ test('compat chat truncated and unfinished streams record received usage only', 
   for (const [sessionId, values, parse] of cases) {
     await assert.rejects(accountProviderSend('openrouter', {}, run(values, parse), 'm-1', { sessionId }));
   }
-  const rows = readRows();
+  const all = readRows();
+  // The two without usage are failed requests with zero tokens.
+  assert.deepEqual(
+    all.filter((row) => row.input + row.output === 0).map((row) => row.session_id),
+    ['c-unfinished-no-usage', 'd-parse-failure-no-usage']
+  );
+  const rows = all.filter((row) => row.input + row.output > 0);
   assert.equal(rows.length, 2);
   for (const row of rows) {
     assert.equal(row.input, 500);

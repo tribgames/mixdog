@@ -76,10 +76,12 @@ for (const [name, consume] of Object.entries(consumers)) {
     assert.equal(rows[0].output, 150);
   });
 
-  test(`${name} stream failure without usageMetadata records nothing`, async (t) => {
+  test(`${name} stream failure without usageMetadata records a failed request with no tokens`, async (t) => {
     const readRows = useLedger(t);
     await assert.rejects(accountProviderSend('gemini', {}, () => consume([withoutUsage]), model, { sessionId: 's' }));
-    assert.equal(readRows().length, 0);
+    const rows = readRows();
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].input + rows[0].output + rows[0].cache_read + rows[0].cache_write, 0);
   });
 }
 

@@ -9,6 +9,7 @@ import { serveWorkerRequests } from '../worker-requests.mjs';
 import { UsageLedger } from './usage-ledger.mjs';
 import { readSessionUsage, rollupDelta, rollupUsage } from './usage-ledger-rollup.mjs';
 import { readQuotaHistory, readQuotaWindows } from './usage-ledger-quota.mjs';
+import { readUsageRequests } from './usage-ledger-requests.mjs';
 import { applyUsageRepairIfUnchanged, selectUsageRepairCandidates } from './usage-ledger-repair.mjs';
 import { unpricedCountAfter, unpricedPendingCounts } from './usage-pricing-refresh.mjs';
 
@@ -61,6 +62,7 @@ const operations = {
   rollup: ({ path, options }) => read(path, (db) => rollupUsage(db, options)),
   rollupDelta: ({ path, options, known, now }) => read(path, (db) => rollupDelta(db, options, known, now)),
   sessionUsage: ({ path, sessionIds, ownerIds }) => read(path, (db) => readSessionUsage(db, sessionIds, ownerIds)),
+  requests: ({ path, options }) => read(path, (db) => readUsageRequests(db, options)),
   record: ({ path, rows }) => write(path, (ledger) => recordBatch(ledger, rows)),
   recordQuota: ({ path, samples }) => write(path, (ledger) => ledger.recordQuota(samples)),
   quotaHistory: ({ path, options }) => read(path, (db) => readQuotaHistory(db, options)),

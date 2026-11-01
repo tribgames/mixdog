@@ -910,6 +910,75 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
 .stats-surface > .usage-table-shell.quota-history {
   min-height: 0;
 }
+/* Request log: the status and model filters close the chip row. */
+.request-log-filters {
+  display: inline-flex;
+  gap: 8px;
+  margin-inline-start: auto;
+}
+.request-log-table .request-log-col-time {
+  width: 72px;
+}
+.request-log-table .request-log-col-session {
+  width: 160px;
+}
+.request-log-table :is(.request-log-col-tokens, .request-log-col-duration) {
+  width: 84px;
+}
+.request-log-table :is(.request-log-col-cost, .request-log-col-status) {
+  width: 72px;
+}
+.request-log-table .request-log-col-speed {
+  width: 92px;
+}
+.request-log-table td {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.request-log-table .request-log-num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.request-log-time,
+.request-log-session span,
+.request-log-model small,
+.request-log-status[data-status="completed"] {
+  color: var(--mx-text-muted);
+}
+.request-log-time {
+  font-variant-numeric: tabular-nums;
+}
+.request-log-model b,
+.request-log-model small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.request-log-model b {
+  font-weight: var(--mx-weight-regular, 400);
+}
+.request-log-model small {
+  font-size: var(--mx-font-meta);
+  line-height: var(--mx-line-meta);
+}
+.request-log-status:is([data-status="substituted"], [data-status="retried"]),
+.mx-menu-item:has(.request-log-tone:is([data-status="substituted"], [data-status="retried"])) {
+  color: var(--mx-warning);
+}
+.request-log-status[data-status="failed"],
+.mx-menu-item:has(.request-log-tone[data-status="failed"]) {
+  color: var(--mx-danger);
+}
+/* The tone marker only colours its menu option. */
+.mx-select-leading:has(> .request-log-tone) {
+  display: none;
+}
+.request-log-more td {
+  height: 1px;
+  padding: 0 !important;
+  border: 0 !important;
+}
 /* Usage dialog header: its two questions are tabs standing in for the title
    (the heading stays for assistive technology), and the header shares the
    body's left edge. */

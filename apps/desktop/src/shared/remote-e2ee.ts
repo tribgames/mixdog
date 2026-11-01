@@ -59,6 +59,9 @@ export interface RelayE2EEChallenge {
   /** This host serves `listHostDirectories` (the project-less host folder
    *  browser). Absent on an older host. */
   hostDirectories?: 1;
+  /** This host serves `getUsageRequests` (the usage dialog's request log).
+   *  Absent on an older host: the dialog offers no request log. */
+  usageRequests?: 1;
   /** This host journals workspace edits and serves project recovery requests. */
   projectRecovery?: 1;
   /** This host serves the HTTP media lane as end-to-end encrypted frames

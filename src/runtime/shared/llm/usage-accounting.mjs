@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { getUsageLedger, makeUsageRecord } from './usage-ledger.mjs';
-import { isNotedUsage, withUsageContext } from './usage-context.mjs';
+import { currentUsageContext, isNotedUsage, withUsageContext } from './usage-context.mjs';
+import { servedModelSubstituted, usageRequestStatus } from './usage-request-status.mjs';
+import { isVisibleStreamProgress } from '../stream-progress.mjs';
 import { ACCOUNT_PROVIDERS } from '../provider-accounts.mjs';
 import { currentProviderAccountId } from '../provider-auth-binding.mjs';
 
@@ -9,6 +11,7 @@ import { currentProviderAccountId } from '../provider-auth-binding.mjs';
 // then returns through the enclosing send, which must not write it again.
 const recorded = new WeakSet();
 const UNMEASURED_USAGE = Object.freeze({ inputTokens: null, inputTokensKnown: false });
+const FAILED_USAGE = Object.freeze({ inputTokens: 0, outputTokens: 0, costUsd: 0 });
 const hasTokens = (usage) =>
   ['inputTokens', 'outputTokens', 'cachedTokens', 'cacheWriteTokens'].some((key) => Number(usage?.[key]) > 0);
 // One rule for every reported usage object: tokens, or a provider-reported
@@ -43,15 +46,30 @@ export async function accountProviderSend(provider, instance, send, model, opts 
   }
   const identity = {
     provider,
-    requestedModel: model,
+    // A provider's own re-send on another model (an overload or retired-model
+    // fallback) runs nested in this context: it still answers the model the
+    // outer send was asked for.
+    requestedModel: currentUsageContext()?.requestedModel || model,
     sessionId,
     sourceType,
     inputTokensInclusive,
   };
+  // The loop's progress callback marks the first visible output; an abandoned
+  // attempt clears it (usage-context.mjs), so the answering attempt's counts.
+  const progress = typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null;
+  const sendOpts = progress
+    ? {
+        ...opts,
+        onStreamDelta: (kind, ...rest) => {
+          if (!identity.firstOutputAt && isVisibleStreamProgress(kind)) identity.firstOutputAt = Date.now();
+          return progress(kind, ...rest);
+        },
+      }
+    : opts;
   // `timed`: only a send's completed result owns the request's wall time. An
   // abandoned attempt or a failure shares that clock with the final attempt,
   // so timing it too would count the same seconds twice and understate speed.
-  const record = async (result, id, owner, timed) => {
+  const record = async (result, id, owner, timed, outcome = null) => {
     // A completed call that reported no usage is still a call: it is recorded
     // as unmeasured (unknown input, unpriced) instead of vanishing from totals.
     if (!result?.usage && !(timed && result && typeof result === 'object')) return;
@@ -64,6 +82,21 @@ export async function accountProviderSend(provider, instance, send, model, opts 
     recorded.add(owner);
     const usage = result.usage || UNMEASURED_USAGE;
     const durationMs = timed ? Date.now() - startedAt : 0;
+    const servedModel = result.model || model;
+    const attempts = outcome ? outcome.attempts : 1;
+    let status = 'completed';
+    if (outcome?.cancelled) status = 'cancelled';
+    else if (outcome)
+      status = usageRequestStatus({
+          failed: outcome.failed,
+          attempts,
+          substituted: servedModelSubstituted({
+            provider,
+            requestedModel: identity.requestedModel,
+            servedModel,
+            fallback: Boolean(result.providerMetadata?.anthropicFallbacks?.length),
+          }),
+        });
     // The one measured request time: the loop's speed figures read it, so
     // the composer and the ledger show the same span.
     if (timed && result && typeof result === 'object') {
@@ -73,8 +106,13 @@ export async function accountProviderSend(provider, instance, send, model, opts 
       id: result.responseId ? undefined : id,
       ts: Date.now(),
       provider,
-      model: result.model || model,
-      requestedModel: model,
+      model: servedModel,
+      requestedModel: outcome ? identity.requestedModel : model,
+      status,
+      attempts,
+      ttftMs: timed && identity.firstOutputAt ? identity.firstOutputAt - startedAt : null,
+      // The request log shows how long a failure took; statistics never time it.
+      elapsedMs: outcome?.failed ? Date.now() - startedAt : 0,
       pricingModel: result.pricingModel,
       sessionId,
       // The session this one runs for (an agent's Lead), kept with its spend.
@@ -101,34 +139,69 @@ export async function accountProviderSend(provider, instance, send, model, opts 
     // SQLite write no longer runs on the event loop.
     await ledger.recordQueued(row);
   };
-  const save = async (result, id = requestId, owner = result, timed = false) => {
+  const save = async (result, id = requestId, owner = result, timed = false, outcome = null) => {
     try {
-      await record(result, id, owner, timed);
+      await record(result, id, owner, timed, outcome);
     } catch (error) {
       result.usageAccountingError = String(error?.message || error);
       process.stderr.write(`[usage-ledger] RECORD NOT SAVED: ${result.usageAccountingError}\n`);
     }
   };
-  const saveAbandoned = async () => {
+  const saveAbandoned = async (skip = -1) => {
     for (const [index, attempt] of (identity.abandonedUsage || []).entries()) {
-      if (recordable(attempt.usage)) await save(attempt, `${requestId}:abandoned:${index}`);
+      if (index !== skip && recordable(attempt.usage)) await save(attempt, `${requestId}:abandoned:${index}`);
     }
   };
   let result;
   try {
-    result = await withUsageContext(identity, send);
+    result = await withUsageContext(identity, () => send(sendOpts));
   } catch (error) {
-    await saveAbandoned();
-    // Only provider-reported partial usage is recordable; never invent
-    // tokens for a failed request or reinterpret an error as a success.
-    // Usage already noted as an abandoned attempt was just recorded above.
-    if (error?.usage) {
-      if (!isNotedUsage(error.usage)) await save(error);
-    } else if (recordable(error?.partialUsage) && !isNotedUsage(error.partialUsage))
-      await save({ usage: error.partialUsage, model: error.partialModel }, requestId, error);
+    const abandoned = identity.abandonedUsage || [];
+    const cancelled = opts.signal?.aborted === true || error?.name === 'AbortError';
+    // Only provider-reported usage is recordable; never invent tokens for a
+    // failed request or reinterpret an error as a success.
+    const reported = error?.usage || (recordable(error?.partialUsage) ? error.partialUsage : null);
+    if (cancelled) {
+      // A user's cancel is not a request outcome: it records exactly what it
+      // always did, under the same ids (noted attempts as abandoned rows, the
+      // cancel's own unnoted usage as the request's row, response-keyed when
+      // it names a response), and that row is marked `cancelled` so the
+      // request log leaves it out.
+      await saveAbandoned();
+      const outcome = { cancelled: true, attempts: abandoned.length + 1 };
+      if (error?.usage) {
+        if (!isNotedUsage(error.usage)) await save(error, requestId, error, false, outcome);
+      } else if (reported && !isNotedUsage(reported)) {
+        await save({ usage: reported, model: error.partialModel }, requestId, error, false, outcome);
+      }
+      throw error;
+    }
+    // The failing attempt's usage may already be noted as abandoned (the
+    // error carries that same usage): that attempt is the request's own row,
+    // not an abandoned one. Any other failure without usage is an attempt of
+    // its own.
+    const last = reported
+      ? abandoned.findLastIndex((attempt) => attempt.source === reported || attempt.usage === reported)
+      : -1;
+    await saveAbandoned(last);
+    const failure = { failed: true, attempts: last >= 0 ? abandoned.length : abandoned.length + 1 };
+    const owner = error && typeof error === 'object' ? error : {};
+    if (last >= 0) {
+      const attempt = abandoned[last];
+      // Owned by the attempt, as when it was stored as abandoned: one error
+      // may end several concurrent sends (a shared cancel reason).
+      await save({ usage: attempt.usage, model: attempt.model || error?.model }, requestId, attempt, false, failure);
+    } else if (reported) {
+      // Usage noted by a nested send was recorded there.
+      const failed = error.usage ? error : { usage: reported, model: error.partialModel };
+      if (!isNotedUsage(reported)) await save(failed, requestId, owner, false, failure);
+    } else {
+      // A failure that reported nothing is still a request: zero tokens.
+      await save({ usage: FAILED_USAGE, model: error?.model }, requestId, owner, false, failure);
+    }
     throw error;
   }
   await saveAbandoned();
-  await save(result, requestId, result, true);
+  await save(result, requestId, result, true, { failed: false, attempts: (identity.abandonedUsage?.length || 0) + 1 });
   return result;
 }

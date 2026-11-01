@@ -20,6 +20,7 @@ import {
   rollupUsage,
 } from './usage-ledger-rollup.mjs';
 import { QUOTA_SCHEMA, readQuotaHistory, readQuotaWindows, recordQuotaSamples } from './usage-ledger-quota.mjs';
+import { REQUEST_LOG_SCHEMA, STORED_REQUEST_STATUSES, readUsageRequests } from './usage-ledger-requests.mjs';
 import { SHARE_ENV } from 'node:worker_threads';
 import { createWorkerRequestClient } from '../worker-requests.mjs';
 
@@ -116,6 +117,7 @@ function compactEventWriter(db) {
   const insertSession = db.prepare('INSERT OR IGNORE INTO usage_sessions(value) VALUES (?)');
   const findSession = db.prepare('SELECT id FROM usage_sessions WHERE value=?');
   const insert = db.prepare('INSERT INTO usage_events VALUES (?,?,?,?,?,?,?,?,?,?,?)');
+  const insertRequest = db.prepare('INSERT INTO usage_requests VALUES (?,?,?,?,?,?,?)');
   const insertOwner = db.prepare('INSERT OR IGNORE INTO usage_session_owners VALUES (?,?)');
   return (row) => {
     for (const key of ['id', 'provider', 'model', 'kind', 'source_type', 'cost_source', 'origin', 'session_id']) {
@@ -159,6 +161,21 @@ function compactEventWriter(db) {
       row.cost_usd,
       row.duration_ms
     );
+    // Request-log facts live beside the record (usage-ledger-requests.mjs);
+    // a completed single attempt with nothing else to say needs no row.
+    const status = row.status || 'completed';
+    const attempts = row.attempts || 1;
+    if (status !== 'completed' || attempts > 1 || row.requested_model || row.ttft_ms != null || row.elapsed_ms) {
+      insertRequest.run(
+        id,
+        row.ts,
+        row.requested_model || null,
+        status,
+        attempts,
+        row.ttft_ms ?? null,
+        row.elapsed_ms || null
+      );
+    }
     return true;
   };
 }
@@ -187,6 +204,7 @@ function migrateUsageLedger(db, path) {
     }
 
     db.exec(COMPACT_SCHEMA);
+    db.exec(REQUEST_LOG_SCHEMA);
     const insert = compactEventWriter(db);
     for (const row of db.prepare('SELECT * FROM events').iterate()) insert(row);
     db.exec(`CREATE VIEW usage_events_migration_check AS ${EVENT_SELECT}`);
@@ -269,6 +287,10 @@ export function makeUsageRecord(args) {
   let costUsd = priced.costUsd;
   if (kind === 'local') costUsd = 0;
   else if (reported) costUsd = Number(args.costUsd);
+  // A request that measured no tokens at all (a failure that reported
+  // nothing) cost nothing, priced model or not: it must not read as unpriced.
+  else if (costUsd === null && args.status === 'failed' && args.inputTokensKnown !== false && priced.input === 0 &&
+    !num(args.outputTokens) && !num(args.cacheReadTokens) && !num(args.cacheWriteTokens)) costUsd = 0;
   let rates = priced.rates;
   if (reported || kind === 'local') {
     rates = {
@@ -301,6 +323,16 @@ export function makeUsageRecord(args) {
     account: text(args.account),
     origin: args.origin || 'live',
     durationMs: num(args.durationMs),
+    // The request log (usage-ledger-requests.mjs): kept only when the
+    // answering model differs from the one asked for.
+    requestedModel: text(args.requestedModel) !== model ? text(args.requestedModel) : '',
+    status: STORED_REQUEST_STATUSES.includes(args.status) ? args.status : 'completed',
+    attempts: Math.max(1, Math.floor(num(args.attempts)) || 1),
+    ttftMs: args.ttftMs == null || !Number.isFinite(Number(args.ttftMs)) ? null : Math.max(0, Number(args.ttftMs)),
+    // A failed request's wall time, shown in the request log only: the
+    // record's own duration stays 0 so statistics speed reads completed
+    // requests alone, as before.
+    elapsedMs: num(args.elapsedMs),
   };
   row.id = args.id || (row.origin === 'live' && !row.responseId ? randomUUID() : usageRecordId(row));
   return row;
@@ -369,6 +401,7 @@ export class UsageLedger {
             CREATE TABLE IF NOT EXISTS legacy_days (day TEXT PRIMARY KEY, document TEXT NOT NULL);
             ${QUOTA_SCHEMA}
             ${DAY_REVISION_SCHEMA}
+            ${REQUEST_LOG_SCHEMA}
             PRAGMA user_version=2;
         `);
     this.prepareStatements();
@@ -477,6 +510,9 @@ export class UsageLedger {
             cost_source: row.costSource,
             rates: row.rates ? JSON.stringify(row.rates) : null,
             duration_ms: row.durationMs,
+            requested_model: row.requestedModel,
+            ttft_ms: row.ttftMs,
+            elapsed_ms: row.elapsedMs,
             rank,
           })
         )
@@ -580,6 +616,12 @@ export class UsageLedger {
   sessionUsageAsync(sessionIds, ownerIds = []) {
     if (this.path === ':memory:') return Promise.resolve().then(() => readSessionUsage(this.db, sessionIds, ownerIds));
     return this.workerRequest('sessionUsage', { sessionIds, ownerIds });
+  }
+
+  /** One page of the request log (usage-ledger-requests.mjs), read on the ledger worker. */
+  requestsAsync(options) {
+    if (this.path === ':memory:') return Promise.resolve().then(() => readUsageRequests(this.db, options));
+    return this.workerRequest('requests', { options });
   }
 
   preserveLegacyDays(days) {

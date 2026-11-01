@@ -35,6 +35,9 @@ export function createSessionIntegrationsApi(bag, { oauthFlows }) {
     getUsageStats: async (options = {}) => {
       return await runtime.getUsageStats?.(options);
     },
+    getUsageRequests: async (options = {}) => {
+      return await runtime.getUsageRequests?.(options);
+    },
     getQuotaHistory: async (options = {}) => {
       return await runtime.getQuotaHistory?.(options);
     },

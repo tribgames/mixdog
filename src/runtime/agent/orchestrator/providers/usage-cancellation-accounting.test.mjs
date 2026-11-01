@@ -68,7 +68,7 @@ test('a cancelled Anthropic SSE turn keeps the usage message_start reported', as
         () => {}
       ),
     'claude-opus-5',
-    { sessionId: 'anthropic-cancel' }
+    { sessionId: 'anthropic-cancel', signal: controller.signal }
   );
   await new Promise((resolve) => setTimeout(resolve, 20));
   controller.abort(new Error('caller cancel'));
@@ -125,7 +125,7 @@ test('concurrent Gemini streams cancelled by one shared reason each keep their o
           { signal: shared.signal, label: 'rest', failureUsage: geminiFailureUsage({}, null, model) }
         ),
       model,
-      { sessionId }
+      { sessionId, signal: shared.signal }
     );
   const runs = [send('a', 100, 10), send('b', 200, 20)];
   await new Promise((resolve) => setTimeout(resolve, 20));
@@ -179,7 +179,7 @@ test('a cancelled compat chat stream keeps the usage chunk it already received',
         providerName: 'openrouter',
       }),
     'm',
-    { sessionId: 'chat' }
+    { sessionId: 'chat', signal: controller.signal }
   );
   await new Promise((resolve) => setTimeout(resolve, 20));
   controller.abort(new Error('caller cancel'));

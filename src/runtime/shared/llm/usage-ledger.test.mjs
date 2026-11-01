@@ -308,6 +308,8 @@ test('live provider accounting works with diagnostics disabled and retains cance
     result
   );
   const cancel = new Error('cancelled');
+  const cancelled = new AbortController();
+  cancelled.abort(cancel);
   await assert.rejects(
     accountProviderSend(
       'anthropic-oauth',
@@ -315,7 +317,8 @@ test('live provider accounting works with diagnostics disabled and retains cance
       async () => {
         throw cancel;
       },
-      result.model
+      result.model,
+      { signal: cancelled.signal }
     ),
     (error) => error === cancel
   );

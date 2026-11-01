@@ -7,6 +7,7 @@ import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import { sessionUsageSnapshot, usageStatsSnapshot } from './services/usage-stats-model.mjs';
 import { resolveUsageStatsPeriod } from './services/usage-stats-period.mjs';
 import { usageRollupDayKey } from '../runtime/shared/llm/usage-rollup.mjs';
+import { agentIdOfHomeSession } from '../runtime/agent/orchestrator/session/agent-home.mjs';
 import {
   ACCOUNT_PROVIDERS,
   accountScopedSessionId,
@@ -164,6 +165,44 @@ function usageRollupQuery(period) {
   };
 }
 
+async function readSessionMetadata(sessionId) {
+  const { readStoredSessionTranscript } = await import(
+    '../runtime/agent/orchestrator/session/store-summary-reader.mjs'
+  );
+  return readStoredSessionTranscript(sessionId, { metadataOnly: true });
+}
+
+/**
+ * What the request log names a session by: its title, and for an agent's
+ * session the title of the session it ran for with its role (`agent: true`
+ * with no role when only the ledger's owner link survives).
+ */
+async function describeRequestSessions(requests, sessionMetadata) {
+  const metadata = new Map();
+  const read = async (id) => {
+    if (!id) return null;
+    if (!metadata.has(id)) metadata.set(id, Promise.resolve(sessionMetadata(id)).catch(() => null));
+    return metadata.get(id);
+  };
+  const labels = new Map();
+  for (const request of requests) {
+    const key = `${request.sessionId}\u0000${request.ownerSessionId}`;
+    if (labels.has(key)) continue;
+    const own = await read(request.sessionId);
+    const ownerId = own?.ownerSessionId || request.ownerSessionId;
+    let label = { title: own?.title || agentIdOfHomeSession(request.sessionId) || '', role: '', agent: false };
+    if (ownerId && ownerId !== request.sessionId && (own?.agent || !own)) {
+      const owner = await read(ownerId);
+      label = { title: owner?.title || agentIdOfHomeSession(ownerId) || '', role: own?.agent || '', agent: true };
+    }
+    labels.set(key, label);
+  }
+  return requests.map(({ ownerSessionId, ...request }) => {
+    const label = labels.get(`${request.sessionId}\u0000${ownerSessionId}`);
+    return { ...request, sessionTitle: label.title, agentRole: label.role, agent: label.agent };
+  });
+}
+
 export function createUsageStatsApi({
   ledger = getUsageLedger,
   importHistory = importUsageHistory,
@@ -171,6 +210,8 @@ export function createUsageStatsApi({
   // provider -> { [accountId]: email } for the picker's secondary text.
   accountEmails = () => ({}),
   getSessionId = () => null,
+  // sessionId -> stored metadata ({ title, agent, ownerSessionId }) or null.
+  sessionMetadata = readSessionMetadata,
 } = {}) {
   let importing = null;
   let imported = false;
@@ -232,6 +273,36 @@ export function createUsageStatsApi({
       snapshots.set(cacheKey, { rollup, now, snapshot });
       if (snapshots.size > SNAPSHOT_CACHE_LIMIT) snapshots.delete(snapshots.keys().next().value);
       return snapshot;
+    },
+
+    /**
+     * The request log: one page of requests in a statistics period (`view`,
+     * `anchor`, custom dates; the 24-hour view by default), newest first,
+     * optionally of one `status` and one answering `model`. `cursor` is an
+     * earlier page's `nextCursor`. `models` lists the models that answered in
+     * the period.
+     */
+    async getUsageRequests(options = {}) {
+      const store = ledger();
+      if (!store) throw new Error('Usage ledger is unavailable');
+      await store.settleWrites();
+      const now = Date.now();
+      const period = usagePeriodFor({ ...options, view: options?.view ?? 'hour' }, now);
+      const page = await store.requestsAsync({
+        fromMs: period.fromMs,
+        toMs: period.toMs,
+        status: quotaText(options?.status),
+        model: quotaText(options?.model),
+        cursor: quotaText(options?.cursor) || null,
+        limit: options?.limit,
+      });
+      return {
+        generatedAt: now,
+        period,
+        requests: await describeRequestSessions(page.requests, sessionMetadata),
+        nextCursor: page.nextCursor,
+        models: page.models,
+      };
     },
 
     /**
