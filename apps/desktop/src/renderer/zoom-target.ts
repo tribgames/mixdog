@@ -49,6 +49,11 @@ function keyZoomTarget(): ZoomTarget | null {
   return live.find((target) => target.element.contains(active)) ?? live.find((target) => target.hovered()) ?? null;
 }
 
+/** A zoom host (editor preview, Visualize panel) would take this zoom key now. */
+export function zoomTargetClaimsKey(): boolean {
+  return keyZoomTarget() !== null;
+}
+
 function onKeyDown(event: KeyboardEvent): void {
   if (event.defaultPrevented || (!event.ctrlKey && !event.metaKey)) return;
   const input = zoomKeyInput(event.key);

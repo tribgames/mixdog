@@ -554,3 +554,118 @@ test('a presented modal dialog outranks the keymap, a parked one does not, and p
   }
   assert.equal(queries, 0);
 });
+
+test('Ctrl/Cmd + = - 0 step the UI size once per press, except where another surface owns the key', async (t) => {
+  const { getFontSettings, setFontSettings } = await import('./appearance/font-settings.ts');
+  const { registerZoomTarget } = await import('./zoom-target.ts');
+  const host = document.createElement('main');
+  const plain = document.createElement('div');
+  const editor = document.createElement('div');
+  editor.className = 'monaco-editor';
+  const browser = document.createElement('div');
+  browser.className = 'browser-pane';
+  const terminal = document.createElement('div');
+  terminal.className = 'xterm';
+  const preview = document.createElement('div');
+  document.body.append(host, plain, editor, browser, terminal, preview);
+  const root = createRoot(host);
+  t.after(async () => {
+    await act(async () => root.unmount());
+    for (const node of [host, plain, editor, browser, terminal, preview]) node.remove();
+    window.localStorage.clear();
+  });
+  const noop = () => {};
+  await act(async () => {
+    root.render(
+      React.createElement(Harness, {
+        actions: Object.fromEntries(
+          [
+            'navigateTab',
+            'startTask',
+            'openSettings',
+            'toggleSidebar',
+            'toggleDock',
+            'togglePanel',
+            'openQuickAccess',
+            'openCommandPalette',
+            'openFindInFiles',
+            'openTabSwitcher',
+            'focusSiblingPane',
+            'focusVerticalPane',
+            'navigateBack',
+            'navigateForward',
+          ]
+            .map((name) => [name, noop])
+            .concat([
+              ['tabs', []],
+              ['activeTabKey', ''],
+            ])
+        ),
+      })
+    );
+  });
+  const press = async (target, key, init = {}) => {
+    const event = new window.KeyboardEvent('keydown', {
+      key,
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+      ...init,
+    });
+    await act(async () => target.dispatchEvent(event));
+    return event.defaultPrevented;
+  };
+  const scale = () => getFontSettings().uiScale;
+
+  setFontSettings({ uiScale: 1 });
+  assert.equal(await press(plain, '='), true);
+  assert.equal(scale(), 1.05);
+  assert.equal(await press(plain, '+', { shiftKey: true }), true);
+  assert.equal(scale(), 1.1);
+  assert.equal(await press(plain, '-'), true);
+  assert.equal(scale(), 1.05);
+  assert.equal(await press(plain, '0'), true);
+  assert.equal(scale(), 1);
+  // Layouts that type `+` on the BracketRight key, or `0` with Shift (AZERTY),
+  // still step the size and never walk history.
+  setFontSettings({ uiScale: 1 });
+  assert.equal(await press(plain, '+', { code: 'BracketRight' }), true);
+  assert.equal(scale(), 1.05);
+  assert.equal(await press(plain, '0', { shiftKey: true, code: 'Digit0' }), true);
+  assert.equal(scale(), 1);
+  // Meta works too, and the code editor does not own these keys.
+  assert.equal(await press(editor, '=', { ctrlKey: false, metaKey: true }), true);
+  assert.equal(scale(), 1.05);
+
+  // Clamped at both ends.
+  setFontSettings({ uiScale: 1.5 });
+  await press(plain, '=');
+  assert.equal(scale(), 1.5);
+  setFontSettings({ uiScale: 0.85 });
+  await press(plain, '-');
+  assert.equal(scale(), 0.85);
+
+  // The browser pane and the terminal own their zoom/control keys.
+  setFontSettings({ uiScale: 1 });
+  for (const surface of [browser, terminal]) {
+    for (const key of ['=', '-', '0']) assert.equal(await press(surface, key), false, key);
+  }
+  // Alt chords are not zoom.
+  assert.equal(await press(plain, '=', { altKey: true }), false);
+  assert.equal(scale(), 1);
+
+  // A zoom host that would take the key keeps it: no second scaling.
+  let hostZoomed = 0;
+  const unregister = registerZoomTarget({
+    element: preview,
+    enabled: () => true,
+    hovered: () => true,
+    command: () => {
+      hostZoomed += 1;
+    },
+  });
+  await press(plain, '=');
+  unregister();
+  assert.equal(scale(), 1);
+  assert.equal(hostZoomed, 1);
+});

@@ -45,7 +45,7 @@ test('stored values are clamped to the capped ranges', () => {
   assert.deepEqual(normalizeFontSettings({ ui: 'x;y', mono: 'Fira Code', uiScale: 9, codeSize: 2, ligatures: 0 }), {
     ui: '',
     mono: 'Fira Code',
-    uiScale: 1.2,
+    uiScale: 1.5,
     codeSize: 10,
     ligatures: true,
   });
@@ -87,4 +87,21 @@ test('settings paint the root, persist on this device, and reset clears every pr
   assert.equal(root.dataset.mixdogMonoLigatures, undefined);
   assert.equal(window.localStorage.getItem('mixdog.desktop.fonts.v1'), null);
   stop();
+});
+
+test('stepUiScale steps by 5%, resets to default and clamps at 85% and 150%', async (t) => {
+  const { document } = installTestDom(t, { actEnvironment: false });
+  const fonts = await import('./font-settings');
+  const root = document.documentElement;
+  assert.equal(fonts.stepUiScale(1).uiScale, 1.05);
+  assert.equal(fonts.getFontSettings().uiScale, 1.05);
+  assert.equal(root.style.getPropertyValue('--mx-ui-scale'), '1.05');
+  assert.equal(fonts.stepUiScale(-1).uiScale, 1);
+  assert.equal(fonts.stepUiScale(1).uiScale, 1.05);
+  assert.equal(fonts.stepUiScale(0).uiScale, 1);
+  for (let i = 0; i < 20; i++) fonts.stepUiScale(1);
+  assert.equal(fonts.getFontSettings().uiScale, 1.5);
+  for (let i = 0; i < 20; i++) fonts.stepUiScale(-1);
+  assert.equal(fonts.getFontSettings().uiScale, 0.85);
+  assert.equal(fonts.UI_SCALE_RANGE.max, 1.5);
 });

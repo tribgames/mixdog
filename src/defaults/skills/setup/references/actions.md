@@ -376,7 +376,7 @@ markers are read with `status desktop`.
   to set both; and `colorTheme`
   (an imported theme id from `status appearance` `colorThemes`, or `"builtin"`).
   Also `timeFormat` (system|12h|24h), `sidePanelPosition` (right|bottom|auto),
-  `uiScale` (0.85–1.2, step 0.05), `codeSize` (10–20), `codeLigatures`
+  `uiScale` (0.85–1.5, step 0.05), `codeSize` (10–20), `codeLigatures`
   (bool) and `chatTextSize` (small|default|large|extra-large). Also
   `composerStyle` (simple|basic|detail; the UI label "Normal" is `basic`) and
   `questionAnswerConfirm` (bool: a single-choice pick waits for Send/Next).

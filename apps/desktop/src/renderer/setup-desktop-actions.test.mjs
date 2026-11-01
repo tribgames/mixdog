@@ -373,7 +373,7 @@ test('appearance timeFormat, sidePanelPosition, font sizes, ligatures and chatTe
     [{ timeFormat: '36h' }, /system, 12h or 24h/],
     [{ sidePanelPosition: 'left' }, /right, bottom or auto/],
     [{ chatTextSize: 'huge' }, /chatTextSize/],
-    [{ uiScale: 1.25 }, /uiScale/],
+    [{ uiScale: 1.55 }, /uiScale/],
     [{ uiScale: 0.8 }, /uiScale/],
     [{ uiScale: 1.07 }, /uiScale/],
     [{ uiScale: '1' }, /uiScale/],

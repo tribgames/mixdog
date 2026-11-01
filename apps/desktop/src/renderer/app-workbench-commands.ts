@@ -1,4 +1,5 @@
 import type { MutableRefObject } from 'react';
+import { stepUiScale } from './appearance/font-settings';
 import { t } from './i18n';
 import type { WorkspaceTab } from './navigation';
 import { desktopFeatureEnabled, hasDesktopUtilityDockFeature } from './desktop-feature-config';
@@ -376,6 +377,27 @@ export function buildAppWorkbenchCommands({
       label: 'Toggle Utility Panel',
       shortcut: 'Ctrl+B',
       run: toggleDock,
+    },
+    {
+      id: 'mixdog.action.uiSizeUp',
+      category: 'View',
+      label: 'Increase UI Size',
+      shortcut: 'Ctrl+=',
+      run: () => stepUiScale(1),
+    },
+    {
+      id: 'mixdog.action.uiSizeDown',
+      category: 'View',
+      label: 'Decrease UI Size',
+      shortcut: 'Ctrl+-',
+      run: () => stepUiScale(-1),
+    },
+    {
+      id: 'mixdog.action.uiSizeReset',
+      category: 'View',
+      label: 'Reset UI Size',
+      shortcut: 'Ctrl+0',
+      run: () => stepUiScale(0),
     },
     {
       id: 'workbench.action.terminal.new',

@@ -188,7 +188,7 @@
 /* The chat scope reads the root's per-device scale. Literal content metrics
    inside the scope (markdown headings, tool-card captions, diff rows)
    multiply by the same --mx-content-scale. Settings → Theme → UI size
-   (--mx-ui-scale, appearance/font-settings.ts, capped 0.85-1.2) scales the
+   (--mx-ui-scale, appearance/font-settings.ts, capped 0.85-1.5) scales the
    whole ramp: the root and, multiplied with the chat size, the chat scope.
    Unset, both stay 1 and chrome keeps its size. */
 :root {
