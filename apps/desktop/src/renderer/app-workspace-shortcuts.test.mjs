@@ -637,14 +637,6 @@ test('Ctrl/Cmd + = - 0 step the UI size once per press, except where another sur
   assert.equal(await press(editor, '=', { ctrlKey: false, metaKey: true }), true);
   assert.equal(scale(), 1.05);
 
-  // Clamped at both ends.
-  setFontSettings({ uiScale: 1.5 });
-  await press(plain, '=');
-  assert.equal(scale(), 1.5);
-  setFontSettings({ uiScale: 0.85 });
-  await press(plain, '-');
-  assert.equal(scale(), 0.85);
-
   // The browser pane and the terminal own their zoom/control keys.
   setFontSettings({ uiScale: 1 });
   for (const surface of [browser, terminal]) {

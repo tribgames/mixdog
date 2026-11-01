@@ -182,8 +182,9 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       // settle, even if focus momentarily remains in the covered editor. Only a
       // PRESENTED dialog counts: Settings and the command surfaces stay mounted
       // while parked, and treating those as modal killed the whole keymap.
-      // The keymap is resolved first (it reads only the event): a plain
-      // keystroke matches nothing and never asks about dialogs.
+      // The keymap is resolved first (it reads the event plus the zoom
+      // targets, focus and hover): a plain keystroke matches nothing and never
+      // asks about dialogs.
       const run = resolve(event);
       if (!run || modalDialogPresented()) return;
       event.preventDefault();

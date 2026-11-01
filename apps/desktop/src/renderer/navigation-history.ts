@@ -27,7 +27,7 @@ export interface NavigationHistory {
   replaying: number;
 }
 
-export const NAVIGATION_HISTORY_LIMIT = 50;
+const NAVIGATION_HISTORY_LIMIT = 50;
 
 /** Whether a session entry can still be opened. A listed session is live
  *  unless archived; a deleted one leaves the catalog and its tabs. Agent
