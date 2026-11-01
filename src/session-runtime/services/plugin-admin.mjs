@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, unlinkSync } from 'node:fs';
+import { chmodSync, existsSync, lstatSync, mkdirSync, readdirSync, renameSync, rmSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
@@ -168,25 +168,30 @@ function withPluginMutation(dataDir, id, operation) {
   });
 }
 
-// Node 24 on Windows (Electron) fails with EPERM on read-only files such as
-// git pack files; clear the read-only bit and retry once.
+// Node 24 on Windows (Electron) makes rmSync follow junctions into their targets,
+// so every link is detached first and never chmod-ed or recursed into. It also
+// fails with EPERM on read-only files such as git pack files; clear the read-only
+// bit and retry once.
+function walkTree(dir, onFile) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const full = join(dir, entry.name);
+    if (entry.isSymbolicLink()) unlinkSync(full);
+    else if (entry.isDirectory()) walkTree(full, onFile);
+    else onFile?.(full);
+  }
+}
+
 function removeTree(path) {
+  const stat = lstatSync(path, { throwIfNoEntry: false });
+  if (!stat) return;
+  if (stat.isSymbolicLink()) return unlinkSync(path);
   const options = { recursive: true, force: true };
+  if (stat.isDirectory()) walkTree(path);
   try {
     rmSync(path, options);
   } catch (error) {
     if (error?.code !== 'EPERM') throw error;
-    const clearReadOnly = (dir) => {
-      for (const entry of readdirSync(dir, { withFileTypes: true })) {
-        const full = join(dir, entry.name);
-        // Node 24 on Windows makes rmSync follow junctions into their targets, so a
-        // link must be detached here, never chmod-ed or recursed into.
-        if (entry.isSymbolicLink()) unlinkSync(full);
-        else if (entry.isDirectory()) clearReadOnly(full);
-        else chmodSync(full, 0o666);
-      }
-    };
-    clearReadOnly(path);
+    if (stat.isDirectory()) walkTree(path, (file) => chmodSync(file, 0o666));
     rmSync(path, options);
   }
 }
@@ -251,7 +256,7 @@ function materializePlugin(normalized, id, dataDir) {
     _publishManagedPluginRoot(root, tempRoot);
   } catch (error) {
     try {
-      rmSync(tempRoot, { recursive: true, force: true });
+      removeTree(tempRoot);
     } catch {}
     throw error;
   } finally {

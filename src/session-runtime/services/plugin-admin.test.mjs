@@ -129,6 +129,26 @@ test('managed plugin publish removes a backup holding read-only git pack files',
   }
 });
 
+test('managed plugin publish never deletes through a link into an outside folder', () => {
+  const base = mkdtempSync(join(tmpdir(), 'mixdog-plugin-link-'));
+  const root = join(base, 'plugin');
+  const outside = join(base, 'outside');
+  const next = join(base, 'next');
+  try {
+    mkdirSync(root);
+    mkdirSync(next);
+    mkdirSync(outside);
+    writeFileSync(join(outside, 'keep.txt'), 'outside');
+    symlinkSync(outside, join(root, 'link'), 'junction');
+
+    _publishManagedPluginRoot(root, next);
+    assert.equal(existsSync(`${root}.backup`), false);
+    assert.equal(readFileSync(join(outside, 'keep.txt'), 'utf8'), 'outside');
+  } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
 test('plugin registry mutation re-reads under the cross-process lock', async () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-plugin-concurrent-'));
   const childSource = join(root, 'child-plugin');
