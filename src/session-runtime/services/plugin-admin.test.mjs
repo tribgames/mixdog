@@ -3,6 +3,8 @@ import { spawn } from 'node:child_process';
 import {
   chmodSync,
   existsSync,
+  linkSync,
+  lstatSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -15,10 +17,41 @@ import {
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
-import test from 'node:test';
+import test, { mock } from 'node:test';
+import * as realFs from 'node:fs';
 
 import { _publishManagedPluginRoot, addPlugin, listRegisteredPlugins, setPluginEnabled } from './plugin-admin.mjs';
 import { hookConfigEntries } from './hook-bus/config.mjs';
+
+// A fresh copy of plugin-admin over a wrapped `node:fs`: the wrapper lets a
+// test act between the module's own fs calls (a swap right after a directory
+// listing, an EPERM on the first rmSync) without touching the other tests.
+const seams = { afterListing: null, failFirstRm: null };
+const { default: _realFsDefault, ...realFsNamed } = realFs;
+mock.module('node:fs', {
+  namedExports: {
+    ...realFsNamed,
+    readdirSync(path, ...rest) {
+      const listing = realFs.readdirSync(path, ...rest);
+      if (seams.afterListing?.path === String(path)) {
+        const { action } = seams.afterListing;
+        seams.afterListing = null;
+        action();
+      }
+      return listing;
+    },
+    rmSync(path, ...rest) {
+      if (seams.failFirstRm === String(path)) {
+        seams.failFirstRm = null;
+        throw Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+      }
+      return realFs.rmSync(path, ...rest);
+    },
+  },
+});
+const { _publishManagedPluginRoot: publishWithSeams } = await import(
+  `${new URL('./plugin-admin.mjs', import.meta.url).href}?fs-seams`
+);
 
 test('plugin registry persists atomically with owner-only permissions', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-plugin-registry-'));
@@ -145,6 +178,69 @@ test('managed plugin publish never deletes through a link into an outside folder
     assert.equal(existsSync(`${root}.backup`), false);
     assert.equal(readFileSync(join(outside, 'keep.txt'), 'utf8'), 'outside');
   } finally {
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('EPERM recovery never changes the mode of a file that has another hard link', () => {
+  const base = mkdtempSync(join(tmpdir(), 'mixdog-plugin-hardlink-'));
+  const root = join(base, 'plugin');
+  const outsideFile = join(base, 'outside.txt');
+  const next = join(base, 'next');
+  try {
+    mkdirSync(root);
+    mkdirSync(next);
+    writeFileSync(outsideFile, 'outside');
+    chmodSync(outsideFile, 0o444);
+    linkSync(outsideFile, join(root, 'linked.txt'));
+    const outsideMode = statSync(outsideFile).mode;
+
+    seams.failFirstRm = `${root}.backup`;
+    // Where the platform refuses to unlink the read-only name, the failure stays
+    // swallowed by the publish; either way the outside name must be untouched.
+    publishWithSeams(root, next);
+    assert.equal(seams.failFirstRm, null, 'the injected EPERM was not reached');
+    assert.equal(statSync(outsideFile).mode, outsideMode);
+    assert.equal(readFileSync(outsideFile, 'utf8'), 'outside');
+  } finally {
+    seams.failFirstRm = null;
+    try {
+      chmodSync(outsideFile, 0o666);
+    } catch {}
+    try {
+      chmodSync(join(`${root}.backup`, 'linked.txt'), 0o666);
+    } catch {}
+    rmSync(base, { recursive: true, force: true });
+  }
+});
+
+test('a directory swapped for a link after it was listed is detached, not entered', () => {
+  const base = mkdtempSync(join(tmpdir(), 'mixdog-plugin-swap-'));
+  const root = join(base, 'plugin');
+  const outside = join(base, 'outside');
+  const elsewhere = join(base, 'elsewhere');
+  const next = join(base, 'next');
+  try {
+    mkdirSync(join(root, 'sub'), { recursive: true });
+    mkdirSync(next);
+    mkdirSync(outside);
+    mkdirSync(elsewhere);
+    symlinkSync(elsewhere, join(outside, 'inner'), 'junction');
+
+    seams.afterListing = {
+      path: `${root}.backup`,
+      action: () => {
+        rmSync(join(`${root}.backup`, 'sub'), { recursive: true });
+        symlinkSync(outside, join(`${root}.backup`, 'sub'), 'junction');
+      },
+    };
+    publishWithSeams(root, next);
+    assert.equal(seams.afterListing, null, 'the swap was not reached');
+    assert.equal(lstatSync(join(outside, 'inner')).isSymbolicLink(), true);
+    assert.equal(existsSync(elsewhere), true);
+    assert.equal(existsSync(`${root}.backup`), false);
+  } finally {
+    seams.afterListing = null;
     rmSync(base, { recursive: true, force: true });
   }
 });
