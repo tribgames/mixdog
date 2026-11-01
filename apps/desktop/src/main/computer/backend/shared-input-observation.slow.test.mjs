@@ -8,76 +8,78 @@ import { createInterface } from 'node:readline';
 import { promisify } from 'node:util';
 import test from 'node:test';
 
-test('one-shot senders retain the original observer across processes, through gap recovery and replacement', {
-  skip: process.platform !== 'win32' && 'Windows only',
-  timeout: 120_000,
-}, async () => {
-  const directory = await mkdtemp(join(tmpdir(), 'mixdog-shared-observer-'));
-  let child;
-  let lines;
-  try {
-    // Real Windows message queues and shared receipts, but no OS input hooks.
-    let source = await readFile(new URL('./sources/InputObservation.cs', import.meta.url), 'utf8');
-    const hookDeclaration =
-      /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll", SetLastError = true\)\]\s+static extern System\.IntPtr SetWindowsHookEx\(int kind, Hook callback, System\.IntPtr module, uint thread\);/;
-    const unhookDeclaration =
-      /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\]\s+static extern bool UnhookWindowsHookEx\(System\.IntPtr hook\);/;
-    assert.match(source, hookDeclaration, 'The fixture must replace the native hook installer before compiling');
-    assert.match(source, unhookDeclaration, 'The fixture must replace native hook cleanup before compiling');
-    source = source
-      .replace(
-        hookDeclaration,
-        'static System.IntPtr SetWindowsHookEx(int kind, Hook callback, System.IntPtr module, uint thread) { ObserverFixture.Installs++; return ObserverFixture.HooksFail ? System.IntPtr.Zero : new System.IntPtr(1); }'
-      )
-      .replace(unhookDeclaration, 'static bool UnhookWindowsHookEx(System.IntPtr hook) { return true; }');
-    // The desktop and held-key reads are fixture state too, so recovery is
-    // decided only by what each step sets.
-    for (const [declaration, stub] of [
-      [
-        /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern short GetAsyncKeyState\(int key\);/,
-        'static short GetAsyncKeyState(int key) { return ObserverFixture.Held ? (short)-32768 : (short)0; }',
-      ],
-      [
-        /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll", SetLastError = true\)\]\s+static extern System\.IntPtr OpenInputDesktop\(uint flags, bool inherit, uint access\);/,
-        'static System.IntPtr OpenInputDesktop(uint flags, bool inherit, uint access) { return ObserverFixture.Desktop ? new System.IntPtr(1) : System.IntPtr.Zero; }',
-      ],
-      [
-        /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern bool CloseDesktop\(System\.IntPtr desktop\);/,
-        'static bool CloseDesktop(System.IntPtr desktop) { return true; }',
-      ],
-      // Fixture windows: the window under a point is its x coordinate, and
-      // window n belongs to process n.
-      [
-        /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern System\.IntPtr GetForegroundWindow\(\);/,
-        'static System.IntPtr GetForegroundWindow() { return new System.IntPtr(ObserverFixture.Foreground); }',
-      ],
-      [
-        /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern System\.IntPtr WindowFromPoint\(POINT point\);/,
-        'static System.IntPtr WindowFromPoint(POINT point) { return new System.IntPtr(point.x); }',
-      ],
-      [
-        /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern System\.IntPtr GetAncestor\(System\.IntPtr window, uint flags\);/,
-        'static System.IntPtr GetAncestor(System.IntPtr window, uint flags) { return ObserverFixture.Root == 0 ? window : new System.IntPtr(ObserverFixture.Root); }',
-      ],
-      [
-        /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern uint GetWindowThreadProcessId\(System\.IntPtr window, out uint process\);/,
-        'static uint GetWindowThreadProcessId(System.IntPtr window, out uint process) { process = (uint)window.ToInt64(); return 1; }',
-      ],
-      [
-        /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern bool GetGUIThreadInfo\(uint thread, ref GUITHREADINFO info\);/,
-        'static bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info) { if (ObserverFixture.CaptureUnreadable) return false; info.capture = new System.IntPtr(ObserverFixture.Capture); return true; }',
-      ],
-    ]) {
-      assert.match(source, declaration, 'The fixture must replace desktop and window reads before compiling');
-      source = source.replace(declaration, stub);
-    }
-    await writeFile(
-      join(directory, 'observer.cs'),
-      source +
-        `
+// Real Windows message queues and shared receipts, but no OS input hooks.
+async function writeObserverFixture(directory) {
+  let source = await readFile(new URL('./sources/InputObservation.cs', import.meta.url), 'utf8');
+  const hookDeclaration =
+    /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll", SetLastError = true\)\]\s+static extern System\.IntPtr SetWindowsHookEx\(int kind, Hook callback, System\.IntPtr module, uint thread\);/;
+  const unhookDeclaration =
+    /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\]\s+static extern bool UnhookWindowsHookEx\(System\.IntPtr hook\);/;
+  assert.match(source, hookDeclaration, 'The fixture must replace the native hook installer before compiling');
+  assert.match(source, unhookDeclaration, 'The fixture must replace native hook cleanup before compiling');
+  source = source
+    .replace(
+      hookDeclaration,
+      'static System.IntPtr SetWindowsHookEx(int kind, Hook callback, System.IntPtr module, uint thread) { ObserverFixture.Installs++; return ObserverFixture.HooksFail ? System.IntPtr.Zero : new System.IntPtr(1); }'
+    )
+    .replace(unhookDeclaration, 'static bool UnhookWindowsHookEx(System.IntPtr hook) { return true; }');
+  // The desktop and held-key reads are fixture state too, so recovery is
+  // decided only by what each step sets.
+  for (const [declaration, stub] of [
+    [
+      /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern short GetAsyncKeyState\(int key\);/,
+      'static short GetAsyncKeyState(int key) { return ObserverFixture.Held ? (short)-32768 : (short)0; }',
+    ],
+    [
+      /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll", SetLastError = true\)\]\s+static extern System\.IntPtr OpenInputDesktop\(uint flags, bool inherit, uint access\);/,
+      'static System.IntPtr OpenInputDesktop(uint flags, bool inherit, uint access) { return ObserverFixture.Desktop ? new System.IntPtr(1) : System.IntPtr.Zero; }',
+    ],
+    [
+      /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern bool CloseDesktop\(System\.IntPtr desktop\);/,
+      'static bool CloseDesktop(System.IntPtr desktop) { return true; }',
+    ],
+    // Fixture windows: the window under a point is its x coordinate, and
+    // window n belongs to process n.
+    [
+      /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern System\.IntPtr GetForegroundWindow\(\);/,
+      'static System.IntPtr GetForegroundWindow() { return new System.IntPtr(ObserverFixture.Foreground); }',
+    ],
+    [
+      /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern System\.IntPtr WindowFromPoint\(POINT point\);/,
+      'static System.IntPtr WindowFromPoint(POINT point) { return new System.IntPtr(point.x); }',
+    ],
+    [
+      /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern System\.IntPtr GetAncestor\(System\.IntPtr window, uint flags\);/,
+      'static System.IntPtr GetAncestor(System.IntPtr window, uint flags) { return ObserverFixture.Root == 0 ? window : new System.IntPtr(ObserverFixture.Root); }',
+    ],
+    [
+      /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern uint GetWindowThreadProcessId\(System\.IntPtr window, out uint process\);/,
+      'static uint GetWindowThreadProcessId(System.IntPtr window, out uint process) { process = (uint)window.ToInt64(); return 1; }',
+    ],
+    [
+      /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern bool GetGUIThreadInfo\(uint thread, ref GUITHREADINFO info\);/,
+      'static bool GetGUIThreadInfo(uint thread, ref GUITHREADINFO info) { if (ObserverFixture.CaptureUnreadable) return false; info.capture = new System.IntPtr(ObserverFixture.Capture); return true; }',
+    ],
+    // Drains still go through the real thread queue; the fixture sees each one posted.
+    [
+      /\[System\.Runtime\.InteropServices\.DllImport\("user32\.dll"\)\] static extern bool PostThreadMessage\(uint thread, uint message, System\.UIntPtr wp, System\.IntPtr lp\);/,
+      'static bool PostThreadMessage(uint thread, uint message, System.UIntPtr wp, System.IntPtr lp) { return ObserverFixture.Post(thread, message, wp, lp); }',
+    ],
+  ]) {
+    assert.match(source, declaration, 'The fixture must replace every stubbed native call before compiling');
+    source = source.replace(declaration, stub);
+  }
+  await writeFile(
+    join(directory, 'observer.cs'),
+    source +
+      `
 public static class MixWin32 {
   public static long Tick = 1000;
-  public static long InputTick() { return System.Threading.Interlocked.Read(ref Tick); }
+  public static long InputTick() {
+    // A held observer stalls inside the drain it is answering.
+    if (ObserverFixture.Hold && System.Threading.Thread.CurrentThread.Name == "Mixdog input observation") ObserverFixture.Gate.Wait();
+    return System.Threading.Interlocked.Read(ref Tick);
+  }
 }
 public static class MixNativeInput {
   public static bool ObserveForeignOwnership;
@@ -88,9 +90,59 @@ public static class ObserverFixture {
   public static volatile int Installs;
   public static long Foreground, Root, Capture;
   public static bool CaptureUnreadable;
+  public static volatile bool Hold;
+  public static readonly System.Threading.SemaphoreSlim Gate = new System.Threading.SemaphoreSlim(0);
+  static volatile System.Threading.SemaphoreSlim posted;
   [System.Runtime.InteropServices.DllImport("user32.dll")]
   static extern bool PostThreadMessage(uint thread, uint message, System.UIntPtr wp, System.IntPtr lp);
+  public static bool Post(uint thread, uint message, System.UIntPtr wp, System.IntPtr lp) {
+    bool sent = PostThreadMessage(thread, message, wp, lp);
+    var watcher = posted;
+    if (watcher != null) watcher.Release();
+    return sent;
+  }
+  // Reader A's drain stalls in the observer until A gives up. Reader B then
+  // asks about another target, and A's late receipt is published while B
+  // waits; B's own drain stays stalled for as long as B waits.
+  public static MixInputSnapshot[] StaleReceipt(long first, long second) {
+    Hold = true;
+    MixInputSnapshot early = MixInputObservation.ReadFor(new System.IntPtr(first));
+    posted = new System.Threading.SemaphoreSlim(0);
+    MixInputSnapshot later = null;
+    var reader = new System.Threading.Thread(() => { later = MixInputObservation.ReadFor(new System.IntPtr(second)); });
+    reader.Start();
+    posted.Wait();
+    Gate.Release();
+    reader.Join();
+    posted = null;
+    Hold = false;
+    Gate.Release();
+    return new MixInputSnapshot[] { early, later };
+  }
   const System.Reflection.BindingFlags Hidden = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static;
+  // Each reader draws its first request ids in a fresh AppDomain: every static
+  // of the allocator restarts in the same process, as it would in a replacement
+  // reader process that reuses a departed reader's PID.
+  public static string[][] RequestIds(int readers, int count) {
+    var setup = new System.AppDomainSetup { ApplicationBase = System.IO.Path.GetDirectoryName(typeof(ObserverFixture).Assembly.Location) };
+    var drawn = new string[readers][];
+    for (int i = 0; i < readers; i++) {
+      var domain = System.AppDomain.CreateDomain("reader" + i, null, setup);
+      try {
+        domain.SetData("count", count);
+        domain.DoCallBack(DrawRequests);
+        drawn[i] = (string[])domain.GetData("ids");
+      } finally { System.AppDomain.Unload(domain); }
+    }
+    return drawn;
+  }
+  static void DrawRequests() {
+    int count = (int)System.AppDomain.CurrentDomain.GetData("count");
+    var next = typeof(MixInputObservation).GetMethod("NextRequest", Hidden);
+    var ids = new string[count];
+    for (int i = 0; i < count; i++) ids[i] = ((long)next.Invoke(null, null)).ToString();
+    System.AppDomain.CurrentDomain.SetData("ids", ids);
+  }
   static void Record(bool own, uint tick) {
     typeof(MixInputObservation).GetMethod("Record", Hidden).Invoke(null, new object[] {own, tick, false, null});
   }
@@ -135,11 +187,23 @@ public static class ObserverFixture {
   }
 }
 `
-    );
-    const setup = `
+  );
+}
+
+const setup = `
 $ErrorActionPreference='Stop'
 Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $env:OBSERVER_FIXTURE 'observer.cs')))
 `;
+
+test('one-shot senders retain the original observer across processes, through gap recovery and replacement', {
+  skip: process.platform !== 'win32' && 'Windows only',
+  timeout: 120_000,
+}, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-shared-observer-'));
+  let child;
+  let lines;
+  try {
+    await writeObserverFixture(directory);
     const env = { ...process.env, OBSERVER_FIXTURE: directory };
     child = spawn(
       'powershell.exe',
@@ -405,6 +469,78 @@ try {
       child.kill();
       await exited;
     }
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('a timed-out read leaves no receipt that a later read of another target accepts', {
+  skip: process.platform !== 'win32' && 'Windows only',
+  timeout: 60_000,
+}, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-stale-receipt-'));
+  try {
+    await writeObserverFixture(directory);
+    const { stdout } = await promisify(execFile)(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        setup +
+          `
+$null = [MixInputObservation]::Read()
+# The user types into process 77 only; process 55 received nothing.
+[ObserverFixture]::Key(77)
+$reads = @([ObserverFixture]::StaleReceipt(55, 77)) + @([MixInputObservation]::ReadFor([IntPtr]77))
+$rows = @($reads | ForEach-Object { [ordered]@{ Ready = $_.Ready; Reason = $_.Reason; Sequence = $_.Sequence; Relevant = $_.RelevantSequence } })
+[Console]::WriteLine((ConvertTo-Json -InputObject $rows -Compress))
+`,
+      ],
+      { windowsHide: true, env: { ...process.env, OBSERVER_FIXTURE: directory } }
+    );
+    const [timedOut, later, fresh] = JSON.parse(stdout.trim());
+    assert.equal(timedOut.Ready, false, 'a read the observer never answered was not refused');
+    assert.equal(timedOut.Reason, 'monitor_unresponsive');
+    // The receipt answering the timed-out read of process 55 says nothing
+    // reached it; taken as this read's answer, it would hide the typing into 77.
+    assert.equal(later.Ready, false, `a receipt for another read answered this one: ${JSON.stringify(later)}`);
+    assert.equal(later.Reason, 'monitor_unresponsive');
+    assert.deepEqual(fresh, { Ready: true, Reason: '', Sequence: 1, Relevant: 1 });
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test('a replacement reader reusing a departed reader process id never repeats its request ids', {
+  skip: process.platform !== 'win32' && 'Windows only',
+  timeout: 60_000,
+}, async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'mixdog-request-ids-'));
+  try {
+    await writeObserverFixture(directory);
+    // A file assembly, so fresh AppDomains in the same process can load it.
+    const { stdout } = await promisify(execFile)(
+      'powershell.exe',
+      [
+        '-NoProfile',
+        '-NonInteractive',
+        '-Command',
+        `
+$ErrorActionPreference='Stop'
+$dll = Join-Path $env:OBSERVER_FIXTURE 'observer.dll'
+Add-Type -TypeDefinition ([IO.File]::ReadAllText((Join-Path $env:OBSERVER_FIXTURE 'observer.cs'))) -OutputAssembly $dll -OutputType Library
+Add-Type -Path $dll
+[Console]::WriteLine((ConvertTo-Json -InputObject ([ObserverFixture]::RequestIds(2, 3)) -Compress))
+`,
+      ],
+      { windowsHide: true, env: { ...process.env, OBSERVER_FIXTURE: directory } }
+    );
+    const [departed, replacement] = JSON.parse(stdout.trim()).map((ids) => ids.map(BigInt));
+    const all = [...departed, ...replacement];
+    assert.equal(all.length, 6);
+    for (const id of all) assert.ok(id > 0n, `request id ${id} is reserved or negative`);
+    assert.equal(new Set(all).size, all.length, `a request id repeated: ${departed} then ${replacement}`);
+  } finally {
     await rm(directory, { recursive: true, force: true });
   }
 });

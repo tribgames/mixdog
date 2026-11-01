@@ -214,6 +214,30 @@ public static class MixInputObservation
     }
     const uint DrainMessage = 0x8001, TimerMessage = 0x113;
     const uint RecoveryIntervalMs = 50;
+    // A drain carries its scope (target process, plus the pointer bit) and a
+    // request id; the receipt echoes both, so a reader takes only the answer to
+    // its own request. A drain a timed-out reader left queued answers no one.
+    const ulong PointerScope = 1UL << 32;
+    // A closing observer answers every waiting reader with a receipt that is never ready.
+    const long ClosedRequest = -1;
+    /// A cryptographically random 63-bit id, so no reader process, PID reuse or
+    /// count can make it repeat: two requests share one with probability 2^-63,
+    /// and n requests within one monitor generation about n^2/2^64. Readers map
+    /// the receipt read-only, so there is no shared counter to draw from. Always
+    /// positive, so never ClosedRequest nor the zero of an unanswered receipt.
+    static readonly System.Security.Cryptography.RandomNumberGenerator RequestIds =
+        System.Security.Cryptography.RandomNumberGenerator.Create();
+    static long NextRequest()
+    {
+        byte[] bytes = new byte[8];
+        long id;
+        do
+        {
+            lock (RequestIds) RequestIds.GetBytes(bytes);
+            id = System.BitConverter.ToInt64(bytes, 0) & long.MaxValue;
+        } while (id == 0);
+        return id;
+    }
     /// One observer thread and its shared receipt. A replacement after the
     /// thread dies gets a fresh generation, so nothing authorized against the
     /// dead observer is ever accepted by its successor.
@@ -404,8 +428,8 @@ public static class MixInputObservation
                 bool timerTick = message.message == TimerMessage && message.hwnd == System.IntPtr.Zero && message.wp == timer;
                 if (message.message == DrainMessage)
                 {
-                    // A reader names the target process and pointer scope it asks about.
-                    PublishSnapshot(run, unchecked((uint)message.wp.ToUInt64()), message.lp != System.IntPtr.Zero);
+                    // A reader names the scope it asks about and its request.
+                    PublishSnapshot(run, message.wp.ToUInt64(), message.lp.ToInt64());
                     run.Drained.Set();
                 }
                 bool gap, installed;
@@ -443,7 +467,7 @@ public static class MixInputObservation
             lock (sync) alive = false;
             if (run.Receipt != null)
             {
-                PublishSnapshot(run, 0, false);
+                PublishSnapshot(run, 0, ClosedRequest);
                 run.Receipt.Dispose();
             }
             run.Drained.Set();
@@ -479,8 +503,10 @@ public static class MixInputObservation
             if (!desktop || held || now < 0 || unchecked((uint)now) != ledger.LatestTick) ledger.Latch();
         }
     }
-    static void PublishSnapshot(ObserverRun run, uint process, bool pointer)
+    static void PublishSnapshot(ObserverRun run, ulong scope, long request)
     {
+        uint process = unchecked((uint)scope);
+        bool pointer = (scope & PointerScope) != 0;
         long tick = MixWin32.InputTick();
         bool matches;
         lock (sync) matches = ledger == null || ledger.Gap || (tick >= 0 && ledger.LatestTick == unchecked((uint)tick));
@@ -512,7 +538,29 @@ public static class MixInputObservation
                 view.Write(20, ledger == null ? 0u : ledger.LastOwnTick);
                 view.Write(28, reason);
                 view.Write(32, ledger == null ? 0L : ledger.LastRelevant(process, pointer));
+                view.Write(48, scope);
+                // The request goes last: a reader that sees its own sees the receipt answering it.
+                System.Threading.Thread.MemoryBarrier();
+                view.Write(40, request);
             }
+        }
+    }
+    /// Waits up to a second for the receipt answering `request` about `scope`.
+    /// A drain an earlier reader gave up on may still be answered and signal
+    /// first; its receipt names that request, so it neither answers nor ends
+    /// this wait. Posted drains are answered in order, so nothing overwrites
+    /// this reader's receipt but a closing observer's, which is never ready.
+    static bool AwaitReceipt(System.Threading.EventWaitHandle completed,
+      System.IO.MemoryMappedFiles.MemoryMappedViewAccessor view, long request, ulong scope)
+    {
+        var clock = System.Diagnostics.Stopwatch.StartNew();
+        while (true)
+        {
+            long left = 1000 - clock.ElapsedMilliseconds;
+            if (left <= 0 || !completed.WaitOne((int)left)) return false;
+            long answered = view.ReadInt64(40);
+            System.Threading.Thread.MemoryBarrier();
+            if (answered == ClosedRequest || (answered == request && view.ReadUInt64(48) == scope)) return true;
         }
     }
     // A one-shot elevated sender must compare against the original resident
@@ -538,11 +586,13 @@ public static class MixInputObservation
                 try
                 {
                     uint ownerThread = view.ReadUInt32(24);
+                    ulong scope = process | (pointer ? PointerScope : 0UL);
                     for (int attempt = 1; ; attempt++)
                     {
+                        long request = NextRequest();
                         completed.Reset();
-                        if (!PostThreadMessage(ownerThread, DrainMessage, new System.UIntPtr(process), pointer ? new System.IntPtr(1) : System.IntPtr.Zero)
-                          || !completed.WaitOne(1000)) return unavailable;
+                        if (!PostThreadMessage(ownerThread, DrainMessage, new System.UIntPtr(scope), new System.IntPtr(request))
+                          || !AwaitReceipt(completed, view, request, scope)) return unavailable;
                         long tick = MixWin32.InputTick();
                         bool current = tick >= 0 && view.ReadUInt32(16) == unchecked((uint)tick);
                         // Input after the receipt is judged by the observer itself on

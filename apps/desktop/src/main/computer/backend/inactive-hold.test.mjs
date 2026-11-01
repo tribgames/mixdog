@@ -251,7 +251,7 @@ public static class ReleaseFixture {
         delegate { releases++; if (releases == 1) throw Hung(); });
     });
     rows.Add("once=" + once + "," + presses + "," + releases + "," + MixWin32.RetryPendingReleases());
-    // Never acknowledged: three attempts, then today's cleanup failure, and the
+    // Never acknowledged: three attempts, then an unconfirmed-cleanup failure, and the
     // release stays pending until a later resend is acknowledged.
     presses = 0; releases = 0;
     bool acknowledges = false;
