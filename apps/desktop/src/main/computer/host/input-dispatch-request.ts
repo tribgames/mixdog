@@ -41,6 +41,7 @@ export function powerShellInputRequest(
     path: command.path ?? null,
     modifiers: command.modifiers ?? null,
     duration: command.duration ?? null,
+    quiet: command.quiet ?? null,
     delivery: command.delivery ?? 'background',
     input_continues: command.input_continues ?? null,
     hold_pointer: command.delivery === 'foreground' ? true : null,

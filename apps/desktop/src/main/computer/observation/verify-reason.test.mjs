@@ -156,15 +156,51 @@ test('a slow sample is retried instead of ending the wait', async (t) => {
   }
 });
 
-test('when every sample times out the wait lasts until the deadline', async (t) => {
+test('consecutive timed-out reads end the wait early and say so', async (t) => {
   const clock = fakeClock(t);
   const started = performance.now();
+  let calls = 0;
   const host = {
     assertExecutionNotAborted() {},
     sessionIdFor: () => 's1',
     async callPowerShell(_request, timeoutMs) {
+      calls += 1;
       clock.advance(timeoutMs);
       throw timeoutError();
+    },
+  };
+  const payload = JSON.parse(
+    (
+      await verifyWindowState(host, {
+        action: 'verify',
+        window_id: 'hwnd:0x1',
+        expect: [{ present: 'Saved' }],
+        timeout_ms: 30_000,
+      })
+    ).text
+  );
+  assert.equal(calls, 2, 'two timed-out reads, not the 30 s budget');
+  assert.ok(performance.now() - started < 30_000);
+  assert.equal(payload.decision, 'unknown');
+  assert.equal(payload.unknown_reason, 'provider_timeout');
+  assert.equal(payload.gave_up_early, true);
+  assert.match(payload.unknown_hint, /stopped before its deadline/);
+  assert.match(payload.provider_error, /computer_command_timeout/);
+});
+
+test('a title-only verify keeps polling through repeated transient timeouts', async (t) => {
+  const clock = fakeClock(t);
+  let calls = 0;
+  const host = {
+    assertExecutionNotAborted() {},
+    sessionIdFor: () => 's1',
+    async callPowerShell(_request, timeoutMs) {
+      calls += 1;
+      if (calls <= 3) {
+        clock.advance(timeoutMs);
+        throw timeoutError();
+      }
+      return { ok: true, result: { exists: true, title: 'Docs - Saved', elements: [] } };
     },
   };
   const payload = JSON.parse(
@@ -177,10 +213,67 @@ test('when every sample times out the wait lasts until the deadline', async (t) 
       })
     ).text
   );
-  assert.ok(performance.now() - started >= 30_000, 'waited out the full budget');
+  assert.ok(calls > 3, 'it did not give up after two timeouts');
+  assert.equal(payload.decision, 'satisfied');
+  assert.equal(payload.gave_up_early, undefined);
+});
+
+test('a window whose tree is cached unusable gives up on text without polling', async (t) => {
+  // Any sleep means the wait was spending its budget.
+  t.mock.method(globalThis, 'setTimeout', () => {
+    throw new Error('the wait slept on its budget');
+  });
+  const requests = [];
+  const host = {
+    assertExecutionNotAborted() {},
+    sessionIdFor: () => 's1',
+    accessibilityUnusable: (command) => command.window_id === 'hwnd:0x1',
+    async callPowerShell(request) {
+      requests.push(request);
+      return { ok: true, result: { exists: true, title: 'Docs', elements: [] } };
+    },
+  };
+  const payload = JSON.parse(
+    (
+      await verifyWindowState(host, {
+        action: 'verify',
+        window_id: 'hwnd:0x1',
+        expect: [{ present: 'Saved' }],
+        timeout_ms: 30_000,
+      })
+    ).text
+  );
+  assert.equal(requests.length, 1, 'one title read, no tree read, no polling');
+  assert.equal(requests[0].include_elements, false);
   assert.equal(payload.decision, 'unknown');
-  assert.equal(payload.unknown_reason, 'provider_timeout');
-  assert.match(payload.provider_error, /computer_command_timeout/);
+  assert.equal(payload.unknown_reason, 'accessibility_unusable');
+  assert.equal(payload.gave_up_early, true);
+  assert.match(payload.unknown_hint, /cached as unusable/);
+});
+
+test('a cached-unusable tree does not stop a verify that never reads text', async () => {
+  let reads = 0;
+  const host = {
+    assertExecutionNotAborted() {},
+    sessionIdFor: () => 's1',
+    accessibilityUnusable: () => true,
+    async callPowerShell() {
+      reads += 1;
+      return { ok: true, result: { exists: true, title: 'Docs - Saved', elements: [] } };
+    },
+  };
+  const payload = JSON.parse(
+    (
+      await verifyWindowState(host, {
+        action: 'verify',
+        window_id: 'hwnd:0x1',
+        expect: [{ title_contains: 'Saved' }],
+        timeout_ms: 5_000,
+      })
+    ).text
+  );
+  assert.equal(payload.decision, 'satisfied');
+  assert.equal(reads, 2);
 });
 
 test('repeated ordinary provider errors end at the deadline with a reason', async (t) => {

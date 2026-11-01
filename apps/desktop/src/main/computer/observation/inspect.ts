@@ -32,6 +32,8 @@ export interface InspectHost {
   readDisplays(): Array<Record<string, unknown>>;
   readPermissions(): ComputerPermissions | Promise<ComputerPermissions>;
   isObserveOnly(): boolean;
+  /** Verify's view of capture's visual-only cache (see verify-window.ts). */
+  accessibilityUnusable?(command: ComputerCommand): boolean;
   readInputState?(): { userControlActive: boolean; cleanupState?: string; takeoverReason?: string };
 }
 

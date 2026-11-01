@@ -90,7 +90,18 @@ export const COMPUTER_CORE_ACTION_SCHEMA = {
         'Key name or chord. Keyboard chords with ctrl/shift/alt require explicit foreground delivery; background supports plain keys.',
       pattern: '^[^\\u0000-\\u001F\\u007F-\\u009F]+$',
     },
-    duration: { type: 'number', minimum: 0, maximum: 5 },
+    duration: {
+      type: 'number',
+      minimum: 0,
+      maximum: 5,
+      description:
+        'wait: cap in seconds. act already settles after every action; use wait only for a known async delay.',
+    },
+    quiet: {
+      type: 'boolean',
+      description:
+        'wait: opt-in (default false, a fixed pause). true ends before duration once the window set, foreground, focused window, title and bounds stop changing (3 equal samples 200 ms apart); use it when waiting for a window or dialog to open, close or move. Content changes inside a window (canvas, text) are not seen: use verify for those.',
+    },
   },
   required: ['type'],
   additionalProperties: false,
@@ -114,7 +125,7 @@ const FIELDS_BY_TYPE = {
   key: new Set(['type', 'ref', 'keys']),
   key_down: new Set(['type', 'ref', 'keys']),
   key_up: new Set(['type', 'ref', 'keys']),
-  wait: new Set(['type', 'duration']),
+  wait: new Set(['type', 'duration', 'quiet']),
 };
 
 function targetFormError(action, { required = true, frameId = '' } = {}) {
@@ -152,6 +163,9 @@ function fieldValueError(field, value, label) {
   }
   if (schema.type === 'number' && (typeof value !== 'number' || !Number.isFinite(value))) {
     return `${label}.${field} must be a finite number`;
+  }
+  if (schema.type === 'boolean' && typeof value !== 'boolean') {
+    return `${label}.${field} must be a boolean`;
   }
   if (typeof value === 'number') {
     if (schema.minimum !== undefined && value < schema.minimum) {

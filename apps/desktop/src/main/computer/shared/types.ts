@@ -44,6 +44,8 @@ export interface ComputerCommand {
   read_only?: boolean;
   /** wait: seconds to pause (0..30). */
   duration?: number;
+  /** wait: opt in to ending before `duration` once the window set, foreground, titles and bounds stop changing; otherwise a fixed pause. */
+  quiet?: boolean;
   /** verify: predicates, bounded wait, and consecutive satisfied samples. */
   expect?: Array<Record<string, unknown>>;
   timeout_ms?: number;

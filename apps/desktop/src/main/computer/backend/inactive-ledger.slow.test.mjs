@@ -205,7 +205,10 @@ Start-Sleep -Seconds 600`,
     assert.ok(!existsSync(ledger));
   } finally {
     worker?.kill();
-    await writeFile(stopPath, '');
+    // The stop file lives in the directory removed just below, so the owner's
+    // 50 ms poll can miss it and loop forever, keeping this test process alive.
+    // Kill the owner directly instead of relying on the file.
+    owner?.kill();
     await rm(directory, { recursive: true, force: true }).catch(() => {});
   }
 });

@@ -1,6 +1,9 @@
 /** Negative text evidence is valid only when the provider completed its read. */
 export type VerifyStatus = 'satisfied' | 'unsatisfied' | 'unknown';
 
+/** A verify that stopped before its deadline because more polling could not help. */
+export type VerifyGiveUp = 'tree_unusable' | 'repeated_timeouts';
+
 /** Prefix the PowerShell host puts on its integrity refusal. */
 export const INTEGRITY_BLOCK_CODE = 'accessibility_blocked_by_integrity';
 
@@ -23,11 +26,25 @@ export function verifyUnknownReason(observation: {
   providerError?: string;
   textComplete?: boolean;
   observedElements: number;
+  /** Why the wait stopped before its deadline, when it did. */
+  gaveUp?: VerifyGiveUp;
 }): { reason: string; hint: string } | null {
   if (observation.providerError?.includes(INTEGRITY_BLOCK_CODE)) {
     return {
       reason: INTEGRITY_BLOCK_CODE,
       hint: "Windows hides this window's text from a lower-integrity host; capture it for pixels or OCR, or verify title_contains/window_exists instead",
+    };
+  }
+  if (observation.gaveUp === 'tree_unusable') {
+    return {
+      reason: 'accessibility_unusable',
+      hint: "this window's accessibility tree is cached as unusable (an earlier read timed out or returned no elements), so verify stopped without polling; capture the window for pixels or OCR, or verify title_contains/window_exists instead",
+    };
+  }
+  if (observation.gaveUp === 'repeated_timeouts') {
+    return {
+      reason: 'provider_timeout',
+      hint: 'consecutive window reads timed out, so verify stopped before its deadline instead of restarting the provider again; the window may be busy, so capture it or verify title_contains/window_exists',
     };
   }
   if (observation.providerError?.includes('computer_command_timeout')) {
