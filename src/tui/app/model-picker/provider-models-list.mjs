@@ -1,12 +1,12 @@
 // model-picker/provider-models-list.mjs
 // One provider's model list: rows from the catalog, the footer for the
 // highlighted row, and the keys that change its selections (←/→ effort,
-// C/Shift+C context, Tab Fast, T thinking). Enter saves through the caller.
+// C/Shift+C context, Tab Fast, T thinking, R OpenRouter routing). Enter saves through the caller.
 import { buildProviderModelItems, resolveProviderDisplayName } from '../model-options.mjs';
 import { modelFooter } from './model-footer.mjs';
 import { createRouteSelection } from './route-selection.mjs';
 
-const MODEL_LIST_HELP = '↑/↓ Select · ←/→ Effort · C/Shift+C Context · Tab Fast · T Thinking · Enter Save';
+const MODEL_LIST_HELP = '↑/↓ Select · ←/→ Effort · C/Shift+C Context · Tab Fast · T Thinking · R Routing · Enter Save';
 
 /** Saves the route for a caller-owned save (options.onSelectRoute) or through
  *  store.setRoute. The keypress owns the hop: the destination is painted and
@@ -98,9 +98,13 @@ export function openProviderModelsPicker({ view, provider, onBack, saveRoute }) 
       },
       onKey: (input, _key, item) => {
         const model = item?._model;
-        if (!model || !['c', 'C', 't', 'T'].includes(input)) return;
+        if (!model || !['c', 'C', 't', 'T', 'r', 'R'].includes(input)) return;
         if (input.toLowerCase() === 'c') {
           if (selection.stepContext(model, input === 'C' ? -1 : 1)) render();
+          return;
+        }
+        if (input.toLowerCase() === 'r') {
+          if (selection.cycleRouting(model)) render();
           return;
         }
         if (selection.cycleThinking(model)) render();

@@ -4,8 +4,11 @@
  * fast/effort tuning of a session that runs on the selected route.
  */
 import { saveModelSettings } from '../../runtime/agent/orchestrator/runtime-core/model-capabilities.mjs';
+import { OPENROUTER_SORT_PARAMETER } from '../../runtime/agent/orchestrator/providers/openrouter-provider-routing.mjs';
 import { writeStatuslineRoute } from '../statusline-route.mjs';
 import { sessionUsesRoute } from '../../runtime/agent/orchestrator/runtime-core/session-route-policy.mjs';
+
+const TUNED_PARAMETERS = ['serviceTier', OPENROUTER_SORT_PARAMETER];
 
 /** Re-tuning the live model (effort, Fast, context, or re-picking it) is not a
  *  main-model choice: new tasks keep their main model unless it is that model. */
@@ -57,10 +60,15 @@ export function createRoutePersistence(deps) {
       if (route.autoEffort === false) session.autoEffort = false;
       else delete session.autoEffort;
       session.effort = route.effectiveEffort || null;
-      // The request path reads session.modelParameters; keep only serviceTier in step.
-      const { serviceTier: _previous, ...otherParameters } = session.modelParameters || {};
-      const serviceTier = route.modelParameters?.serviceTier;
-      session.modelParameters = serviceTier ? { ...otherParameters, serviceTier } : otherParameters;
+      // The request path reads session.modelParameters; keep only the tuned
+      // parameters (serviceTier, OpenRouter's providerSort) in step.
+      const otherParameters = { ...(session.modelParameters || {}) };
+      for (const key of TUNED_PARAMETERS) {
+        delete otherParameters[key];
+        const value = route.modelParameters?.[key];
+        if (value) otherParameters[key] = value;
+      }
+      session.modelParameters = otherParameters;
       writeStatuslineRoute(statusRoutes, session, route);
       invalidateContextStatusCache();
     },

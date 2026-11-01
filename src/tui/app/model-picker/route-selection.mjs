@@ -58,6 +58,7 @@ export function createRouteSelection({ providerModels, state, currentRoute }) {
     toggleFast: fast.toggleFast,
     cycleEffort: effort.cycleEffort,
     cycleThinking: fast.cycleThinking,
+    cycleRouting: fast.cycleRouting,
     routeInputFor,
   };
 }

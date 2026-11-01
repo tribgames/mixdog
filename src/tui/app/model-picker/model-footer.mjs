@@ -63,7 +63,7 @@ export function modelFooter(selection, model = null) {
       return {
         glyph: '◇',
         color: theme.inactive,
-        text: `${parameter.label}: ${parameter.options?.find((option) => option.value === value)?.label || value} · T Toggle`,
+        text: `${parameter.label}: ${parameter.options?.find((option) => option.value === value)?.label || value} · ${parameter.id === 'providerSort' ? 'R Cycle' : 'T Toggle'}`,
       };
     });
   if (!values.length)
