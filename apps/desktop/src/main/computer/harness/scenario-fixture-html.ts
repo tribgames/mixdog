@@ -107,6 +107,94 @@ button{height:44px;border:1px solid #93c5fd;border-radius:5px;background:#eff6ff
 ).join('')}</main>
 <script>document.querySelector('button').addEventListener('click',()=>{document.title='Mixdog Dense Activated'})</script>`;
 
+export const FOCUS_LOCK_TARGET_TITLE = 'Mixdog Focus Lock Target';
+
+/**
+ * A separate Electron app that takes the foreground on every semantic input it
+ * receives: each button click, value write or toggle makes its main process
+ * call `focus()`, the same SetForegroundWindow a Chromium host issues when it
+ * activates itself. It records every attempt and whether it got the
+ * foreground, its window's focus events, and any key that reached it.
+ */
+export function focusLockTargetProgram(statePath: string, userDataPath: string): string {
+  const html = `<!doctype html><meta charset="utf-8"><title>${FOCUS_LOCK_TARGET_TITLE}</title>
+  <body style="font:18px Arial;padding:24px;display:grid;gap:16px;justify-items:start">
+  <button id="invoke">Focus Lock Invoke</button>
+  <input id="field" aria-label="Focus Lock Field">
+  <input id="toggle" type="checkbox" aria-label="Focus Lock Toggle">
+  <script>
+  let sequence=0;
+  const report=(kind,detail)=>{document.title='mixdog-focus-lock|'+kind+'|'+detail+'|'+(++sequence)};
+  const field=document.querySelector('#field');
+  document.querySelector('#invoke').addEventListener('click',()=>report('invoke',''));
+  for(const type of ['input','change'])field.addEventListener(type,()=>report('set_value',field.value));
+  document.querySelector('#toggle').addEventListener('change',(event)=>report('toggle',String(event.target.checked)));
+  addEventListener('keydown',(event)=>report('key',event.key),true);
+  </script>`;
+  return `import { app, BrowserWindow } from 'electron';
+import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+const statePath = ${JSON.stringify(statePath)};
+const state = { phase: 'entry', activations: [], controls: [], focus_events: [], keys: [], value: '', checked: false };
+// Renamed into place, so a reader never sees a half-written file.
+const save = () => {
+  writeFileSync(statePath + '.tmp', JSON.stringify(state));
+  renameSync(statePath + '.tmp', statePath);
+};
+app.setPath('userData', ${JSON.stringify(userDataPath)});
+save();
+void app.whenReady().then(async () => {
+  app.setAccessibilitySupportEnabled(true);
+  const window = new BrowserWindow({ width: 560, height: 320, show: false, title: ${JSON.stringify(FOCUS_LOCK_TARGET_TITLE)}, webPreferences: { backgroundThrottling: false, contextIsolation: true, sandbox: true } });
+  window.on('focus', () => {
+    state.focus_events.push(Date.now());
+    save();
+  });
+  window.webContents.on('page-title-updated', (event, title) => {
+    event.preventDefault();
+    const [tag, kind, detail] = title.split('|');
+    if (tag !== 'mixdog-focus-lock') return;
+    if (kind === 'key') state.keys.push(detail);
+    else {
+      if (kind === 'set_value') state.value = detail;
+      if (kind === 'toggle') state.checked = detail === 'true';
+      const at = Date.now();
+      window.focus();
+      state.activations.push({ kind, at, focused: window.isFocused() });
+    }
+    save();
+  });
+  await window.loadURL(${JSON.stringify(`data:text/html;base64,${Buffer.from(html).toString('base64')}`)});
+  window.showInactive();
+  // The control: the same self-activation with no agent action and so no
+  // foreground lock, asked for through a file, to show the target can take
+  // the foreground here at all.
+  let control = '';
+  setInterval(() => {
+    let request = '';
+    try {
+      request = readFileSync(statePath + '.control', 'utf8');
+    } catch {
+      return;
+    }
+    if (!request || request === control) return;
+    control = request;
+    const at = Date.now();
+    window.focus();
+    state.controls.push({ at, focused: window.isFocused() });
+    save();
+  }, 50);
+  state.phase = 'window';
+  save();
+}).catch((error) => {
+  state.phase = 'error';
+  state.error = error?.stack || String(error);
+  save();
+  app.exit(1);
+});
+app.on('window-all-closed', () => app.quit());
+`;
+}
+
 export function externalFixtureProgram(statePath: string, userDataPath: string): string {
   const html = `<!doctype html><meta charset="utf-8"><title>Mixdog External Electron Fixture</title>
   <style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#f0fff4}canvas{width:100%;height:100%;display:block}textarea{position:fixed;left:-10000px;opacity:0}</style>

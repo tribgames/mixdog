@@ -339,6 +339,9 @@ public static class MixInputObservation {
   public static void BeginExpected(string monitor, long sequence) {
     if (sequence != Current.Sequence) throw new Exception("user_input_active: moved");
   }
+  public static void BeginRestore(string monitor, long sequence, IntPtr target) {
+    BeginExpected(monitor, sequence);
+  }
   public static void AssertContinue() {}
   public static void End() {}
 }
@@ -374,13 +377,16 @@ public static class MixWin32 {
 }
 // The worker may not lock the foreground here: the watch and restore are the protection.
 public static class MixForegroundLock {
-  public static bool Acquire(int holdMs) { return false; }
+  public static System.Collections.Hashtable LastFacts;
+  public static bool Acquire(int holdMs, long action) { return false; }
   public static bool Held { get { return false; } }
-  public static void Release() {}
+  public static string Release() { return "none"; }
+  public static void Mark(string name) {}
+  public static void Note(string name, object value) {}
 }
 '@
 ${LOAD_FUNCTIONS}
-Import-Functions 'input.ps1' @('Invoke-BackgroundWindow', 'Test-TargetWindow')
+Import-Functions 'input.ps1' @('Invoke-BackgroundWindow', 'Test-TargetWindow', 'Test-RestoreBaseline', 'Restore-UserForeground')
 $rows = @()
 foreach ($scenario in @('enable_fails', 'focus_fails', 'resteal', 'delayed_unshielded')) {
   [MixWin32]::Releases = 0; [MixWin32]::FocusCalls = 0; [MixWin32]::Current = [IntPtr]2
@@ -408,11 +414,12 @@ foreach ($scenario in @('enable_fails', 'focus_fails', 'resteal', 'delayed_unshi
     assert.match(byName.enable_fails.failure, /enable_failed/);
     assert.equal(byName.focus_fails.releases, 1);
     assert.match(byName.focus_fails.failure, /focus_broken/);
-    // A web content host is watched too, and a second steal is restored once more.
+    // A web content host is watched too; a steal gets exactly one restore
+    // attempt, so the target taking the window again right after it keeps it.
     assert.equal(byName.resteal.releases, 1);
     assert.equal(byName.resteal.failure, '');
-    assert.equal(byName.resteal.focus, 2);
-    assert.equal(byName.resteal.restored, true);
+    assert.equal(byName.resteal.focus, 1);
+    assert.equal(byName.resteal.restored, false);
     // An unshielded target is watched too, so a late steal is still undone.
     assert.equal(byName.delayed_unshielded.focus, 1);
     assert.equal(byName.delayed_unshielded.restored, true);

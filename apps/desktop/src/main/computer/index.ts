@@ -5,6 +5,7 @@
  * compiled native backend can replace it without changing desktop startup or
  * the renderer/session contract.
  */
+import type { ForegroundLeaseRuntime } from './backend/foreground-lock-host';
 import { createPowerShellComputerHost, type PowerShellComputerHost } from './host/powershell-host';
 
 export type {
@@ -20,6 +21,9 @@ export function createComputerHost(
     onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
     /** The desktop's Auto login setting (browserAutoSignIn), read per command. */
     savedLoginEnabled?: () => boolean;
+    /** Replaces the lease thread and fallback unlock of the host's foreground lock, for a host
+     *  bundled outside the app. */
+    foregroundLease?: ForegroundLeaseRuntime;
   } = {}
 ): ComputerHost {
   return createPowerShellComputerHost(options);

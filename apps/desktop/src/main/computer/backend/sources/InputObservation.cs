@@ -678,9 +678,22 @@ public static class MixInputObservation
     /// process; the pointer joins the scope once the action itself drives it.
     public static void BeginExpected(string expectedGeneration, long expectedSequence, System.IntPtr target, bool pointer)
     {
+        BeginExpected(expectedGeneration, expectedSequence, target, pointer, false);
+    }
+    /// Putting the user's window back after a background action took it.
+    /// Pointer input counts from the observation on, not only from here: a
+    /// restore drives nothing of its own, and a click anywhere since may be
+    /// the user choosing a window. Keys count when they reached the target.
+    public static void BeginRestore(string expectedGeneration, long expectedSequence, System.IntPtr target)
+    {
+        BeginExpected(expectedGeneration, expectedSequence, target, true, true);
+    }
+    static void BeginExpected(string expectedGeneration, long expectedSequence, System.IntPtr target, bool pointer,
+      bool pointerSinceObservation)
+    {
         uint process = ProcessOf(target);
-        var value = Read(process, false);
-        var expected = value.Generation == expectedGeneration ? value : ReadMonitor(expectedGeneration, process, false);
+        var value = Read(process, pointerSinceObservation);
+        var expected = value.Generation == expectedGeneration ? value : ReadMonitor(expectedGeneration, process, pointerSinceObservation);
         if (!value.Ready || !expected.Ready)
         {
             throw new System.Exception("input_observation_unavailable: original observation is unavailable ("

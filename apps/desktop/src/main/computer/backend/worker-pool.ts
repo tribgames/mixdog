@@ -9,6 +9,7 @@ import { randomBytes } from 'node:crypto';
 
 import { createHostScriptPublisher } from './host-script';
 import { createElevatedRequests } from './elevated-requests';
+import type { HostForegroundLock } from './foreground-lock-host';
 import { launchHostProcess, watchHostWorker } from './host-worker-process';
 import { createResidentWorkers } from './resident-workers';
 import { createWorkerLedgers } from './worker-ledgers';
@@ -133,6 +134,9 @@ export interface WorkerPoolHost {
   nativeEnvironment?(): Record<string, string>;
   /** Injectable process transport for isolated lifecycle tests. */
   spawnProcess?: typeof spawn;
+  /** Leases the foreground lock to a worker Windows refuses it to
+   *  (foreground-lock-host.ts); its facts are filed with the request's reply. */
+  foregroundLock?: HostForegroundLock;
 }
 
 export function createWorkerPool(host: WorkerPoolHost) {
@@ -147,6 +151,10 @@ export function createWorkerPool(host: WorkerPoolHost) {
   const spawnProcess = host.spawnProcess || spawn;
   assertComputerWorkerCapacity(0, maxWorkers);
   const inputMarker = String(randomBytes(4).readUInt32LE() & 0x7fffffff || 1);
+  // The lease channel's own number for each worker, never reused, so an answer
+  // or a lease can never reach a later worker that happens to reuse a pid.
+  let nextInstance = 1;
+  const instanceOf = new WeakMap<ChildProcessWithoutNullStreams, number>();
   const ledgers = createWorkerLedgers(dataDirectory);
   const elevated = createElevatedRequests({
     dataDirectory,
@@ -175,13 +183,28 @@ export function createWorkerPool(host: WorkerPoolHost) {
       inputMarker,
       nativeEnvironment: () => host.nativeEnvironment?.(),
       spawnProcess,
+      hostForegroundLock: Boolean(host.foregroundLock),
     });
     residents.add(child);
+    const instance = nextInstance++;
+    instanceOf.set(child, instance);
+    const leaseWorker = {
+      instance,
+      pid: child.pid,
+      owns: (action: number) => Boolean(requests.requestOf(action, child)),
+      write: (line: string) => {
+        if (child.stdin.writable) child.stdin.write(line);
+      },
+    };
     watchHostWorker(child, {
       pointerProgress: (payload) =>
         reportPointerProgress(payload, (id) => requests.requestOf(id, child), host.onPointerProgress),
+      foregroundLock: (payload) => host.foregroundLock?.handle(payload, leaseWorker),
       reply: (json) => requests.handleReply(json, child),
-      retire: (error) => requests.retire(child, error),
+      retire: (error) => {
+        requests.retire(child, error);
+        host.foregroundLock?.workerGone(instance);
+      },
       unstarted: () => residents.delete(child),
       exited: () => {
         residents.delete(child);
@@ -239,7 +262,7 @@ export function createWorkerPool(host: WorkerPoolHost) {
       );
     }
     const child = ensurePowerShell(sessionId);
-    return requests.dispatch(
+    const dispatched = requests.dispatch(
       child,
       id,
       line,
@@ -252,6 +275,26 @@ export function createWorkerPool(host: WorkerPoolHost) {
         backgroundPressRelease: classified.backgroundPressRelease,
       },
       timeoutMs
+    );
+    const foregroundLock = host.foregroundLock;
+    const instance = instanceOf.get(child);
+    if (!foregroundLock || instance === undefined) return dispatched;
+    // The worker reports who held the lock; what the lease thread did when it
+    // was asked joins that, so one reply carries both.
+    return dispatched.then(
+      (response) => {
+        const facts = foregroundLock.takeFacts(instance, id);
+        const result = response.result;
+        if (facts && result) {
+          const worker = result.foreground_lock;
+          result.foreground_lock = { ...(worker && typeof worker === 'object' ? worker : {}), host: facts };
+        }
+        return response;
+      },
+      (error: unknown) => {
+        foregroundLock.takeFacts(instance, id);
+        throw error;
+      }
     );
   }
 

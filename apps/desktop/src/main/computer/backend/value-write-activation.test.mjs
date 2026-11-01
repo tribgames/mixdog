@@ -67,6 +67,9 @@ public static class MixInputObservation {
   public static void BeginExpected(string monitor, long sequence) {
     if (sequence != Sequence) throw new Exception("user_input_active: superseded");
   }
+  public static void BeginRestore(string monitor, long sequence, IntPtr target) {
+    BeginExpected(monitor, sequence);
+  }
   public static void AssertContinue() {}
   public static void End() {}
 }
@@ -102,9 +105,12 @@ public sealed class FakeMsaa {
   public string SetValue(string value) { return value.ToLowerInvariant(); }
 }
 public static class MixForegroundLock {
-  public static bool Acquire(int holdMs) { return false; }
+  public static System.Collections.Hashtable LastFacts;
+  public static bool Acquire(int holdMs, long action) { return false; }
   public static bool Held { get { return false; } }
-  public static void Release() {}
+  public static string Release() { return "none"; }
+  public static void Mark(string name) {}
+  public static void Note(string name, object value) {}
 }
 public static class MixWin32 {
   public static FakeElement Element;
@@ -186,7 +192,7 @@ function Assert-ExecutionAuthorization($req, $target) {}
 function Select-OwningItemAlone($el) { return $null }
 Import-Functions 'input.ps1' @('New-ActionResult', 'Get-VerifiedEffect', 'Background-Unavailable', 'Native-BackgroundFailure',
   'Test-IgnoredValueWrite', 'Test-SameValue', 'ConvertTo-TypedLineBreaks', 'Read-ValueUntil', 'Write-ValueByKeys', 'Do-SetValue',
-  'Test-TargetWindow', 'Invoke-BackgroundWindow')
+  'Test-TargetWindow', 'Test-RestoreBaseline', 'Restore-UserForeground', 'Invoke-BackgroundWindow')
 [MixWin32]::Alive[[long]1] = '100:1'
 function Attempt($text, [scriptblock]$arrange, [bool]$recorded = $true) {
   [MixWin32]::Element = New-Object FakeElement

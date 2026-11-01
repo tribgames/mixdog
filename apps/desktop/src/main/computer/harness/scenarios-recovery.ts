@@ -417,7 +417,23 @@ export const recoveryScenarios: ScenarioGroup = {
     const { command, host } = ctx;
     await runScenario('S35', 'bridge restart retires workers and republishes one generation', 'lifecycle', async () => {
       const discoveryPath = join(dataDirectory, 'computer-bridge.json');
+      // Every queued command first reads window arrivals on the host's own
+      // reader worker (window-arrivals.ts `read`), so after its first command a
+      // republished bridge owns exactly two: that reader and the session's
+      // worker. Neither may be one the restart should have retired.
+      const republishedWorkers = async (retired: number[]) => {
+        await eventually(
+          async () => host.residentWorkerPids(),
+          (pids) => pids.length === 2 && !pids.some((pid) => retired.includes(pid)),
+          10_000
+        ).catch((error: Error) => {
+          throw new Error(
+            `${error.message}; resident workers ${JSON.stringify(host.residentWorkerPids())}, retired ${JSON.stringify(retired)}`
+          );
+        });
+      };
       const rapidPreviousToken = ctx.bridge.discovery.token;
+      const rapidRetired = host.residentWorkerPids();
       host.setBridgeEnabled(false);
       host.setBridgeEnabled(true);
       await eventually(
@@ -442,13 +458,9 @@ export const recoveryScenarios: ScenarioGroup = {
           rapidSessionId
         );
         assert.equal(waited.text, 'waited 0s');
-        // Workers are created on demand, so a republished bridge owns one only
-        // after a command has actually needed it.
-        await eventually(
-          async () => host.residentWorkerPids().length,
-          (count) => count === 1,
-          10_000
-        );
+        // Workers are created on demand, so a republished bridge owns them only
+        // after a command has actually needed them.
+        await republishedWorkers(rapidRetired);
       } finally {
         await command({ action: 'session_release' }, rapidSessionId);
       }
@@ -458,7 +470,8 @@ export const recoveryScenarios: ScenarioGroup = {
         // depending on an earlier session having left one behind.
         const warmSessionId = `bridge-restart-warm-${cycle}`;
         assert.equal((await command({ action: 'wait', duration: 0 }, warmSessionId)).text, 'waited 0s');
-        assert.ok(host.residentWorkerPids().length > 0);
+        const retired = host.residentWorkerPids();
+        assert.ok(retired.length > 0);
         host.setBridgeEnabled(false);
         progress(`S35 cycle ${cycle} disable requested`);
         await eventually(
@@ -496,12 +509,8 @@ export const recoveryScenarios: ScenarioGroup = {
           );
           assert.equal(waited.text, 'waited 0s');
           progress(`S35 cycle ${cycle} command passed`);
-          await eventually(
-            async () => host.residentWorkerPids().length,
-            (count) => count === 1,
-            10_000
-          );
-          progress(`S35 cycle ${cycle} one worker ready`);
+          await republishedWorkers(retired);
+          progress(`S35 cycle ${cycle} session worker and arrivals reader ready`);
         } finally {
           await command({ action: 'session_release' }, sessionId);
         }

@@ -228,9 +228,14 @@ async function semanticActionReply(
     delivery_accepted: typeof result.delivery_accepted === 'boolean' ? result.delivery_accepted : null,
     goal_verified: result.goal_verified === true || verified,
     ...(result.input_may_have_executed === true ? { input_may_have_executed: true } : {}),
-    // The target refused the no-activate hold: the input landed, but background
-    // delivery could not keep the window from coming forward.
+    // The target refused the no-activate hold, or the foreground lock was
+    // unavailable: the input landed with less protection against the window
+    // coming forward.
     ...(result.activation_protection === 'unavailable' ? { activation_protection: 'unavailable' } : {}),
+    // Who held the foreground lock for a background action, or why nobody could.
+    ...(result.foreground_lock && typeof result.foreground_lock === 'object'
+      ? { foreground_lock: result.foreground_lock }
+      : {}),
     path: result.path || 'unknown',
     delivery,
     ...(cursorFeedback ? { cursor_feedback: cursorFeedback } : {}),

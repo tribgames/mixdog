@@ -12,6 +12,12 @@ test('scenario groups partition the ids and the run order is a permutation of th
   );
   assert.deepEqual([...SCENARIO_RUN_ORDER].sort(), ids);
   assert.deepEqual(Object.values(SCENARIO_GROUPS).flat().sort(), ids, 'every id is in exactly one group');
+  // The bridge restart retires every worker, so it stays the last scenario.
+  assert.equal(SCENARIO_RUN_ORDER.at(-1), 'S35');
+});
+
+test('the live foreground-lock check runs with the input group', () => {
+  assert.ok(SCENARIO_GROUPS.input.includes('S48'));
 });
 
 test('--group resolves to its ids and refuses unknown names', () => {

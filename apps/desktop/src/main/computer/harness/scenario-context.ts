@@ -6,9 +6,7 @@ import { sleep } from '../shared/common';
 import { actionPayload } from './scenario-ocr';
 import { ScenarioSkip } from './scenario-runtime';
 import { foregroundHwnd, nativeHwnd } from './scenario-fixtures';
-import type { BridgeDiscovery, CommandResult } from './scenario-types';
-
-type ScenarioCommand = (input: Record<string, unknown>, sessionId?: string) => Promise<CommandResult>;
+import type { BridgeDiscovery, ScenarioCommand } from './scenario-types';
 
 /** What every scenario group shares: the resident host, the command helper, the fixture windows and their ids. */
 export interface ScenarioContext {

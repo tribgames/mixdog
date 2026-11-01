@@ -7,6 +7,11 @@ import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import test from 'node:test';
 import { createWorkerPool } from './worker-pool.ts';
+import {
+  createHostForegroundLock,
+  FOREGROUND_LOCK_LINE_PREFIX,
+  FOREGROUND_LOCK_REPLY_PREFIX,
+} from './foreground-lock-host.ts';
 import { RESPONSE_MARKER } from './program.ts';
 import { WINDOW_ARRIVALS_SESSION_ID } from '../shared/common.ts';
 
@@ -43,6 +48,7 @@ async function fakePool(t, options = {}) {
     isBridgeEnabled: () => false,
     isDisposed: () => false,
     maxWorkers: options.maxWorkers,
+    foregroundLock: options.foregroundLock,
     onSessionRetired: (...args) => retired.push(args),
     spawnProcess: (command, args, spawnOptions) => {
       spawns.push({ command, args, options: spawnOptions });
@@ -89,6 +95,104 @@ test('a request over the dispatch budget is refused before it reaches a worker',
   assert.equal(workers.length, 1);
   pool.retirePowerShell(workers[0], new Error('fixture cleanup'));
   for (const error of await Promise.all(inFlight)) assert.equal(error.message, 'fixture cleanup');
+});
+
+const lockLine = (child, body) =>
+  child.stdout.write(`${FOREGROUND_LOCK_LINE_PREFIX}${typeof body === 'string' ? body : JSON.stringify(body)}\n`);
+
+/** A lease thread that grants every acquire and records what reached it. */
+function grantingLeaseThread() {
+  const posted = [];
+  const start = (events) => ({
+    post(message) {
+      posted.push(message);
+      if (message.type !== 'acquire') return;
+      events.message({
+        type: 'answer',
+        instance: message.instance,
+        action: message.action,
+        seq: message.seq,
+        lease: 3,
+        answer: 'locked',
+        deadlineAt: 1234.5,
+        holding: true,
+        facts: { lease: 3, answer: 'locked', worker_pid: message.pid, foreground_pid: 4242 },
+      });
+    },
+    stop() {},
+  });
+  return { start, posted };
+}
+
+test('a lease request is answered on the asking worker’s stdin, and the lease facts join its reply', async (t) => {
+  const thread = grantingLeaseThread();
+  const foregroundLock = createHostForegroundLock({ startThread: thread.start, fallbackUnlock: () => ({ outcome: 'released' }) });
+  t.after(() => foregroundLock.dispose());
+  const { pool, spawns } = await fakePool(t, { foregroundLock });
+  const pending = pool.callPowerShell({ action: 'invoke', ref: 's1:e1', delivery: 'background', session_id: 'a' });
+  const child = pool.powerShellBySession.get('a');
+  const sent = sentRequest(child);
+  lockLine(child, { op: 'acquire', action: sent.id, seq: 1, hold_ms: 250, answer_by: 99.5 });
+  assert.deepEqual(thread.posted.map(({ type, action, pid }) => [type, action, pid]), [['acquire', sent.id, child.pid]]);
+  assert.equal(child.stdin.read().toString(), `${FOREGROUND_LOCK_REPLY_PREFIX}ack ${sent.id} 1 3 locked 1234.500\n`);
+  reply(child, { id: sent.id, ok: true, result: { delivery_accepted: true, foreground_lock: { holder: 'host' } } });
+  const { result } = await pending;
+  assert.equal(result.foreground_lock.holder, 'host');
+  assert.deepEqual(
+    [result.foreground_lock.host.answer, result.foreground_lock.host.worker_pid, result.foreground_lock.host.foreground_pid],
+    ['locked', child.pid, 4242]
+  );
+  if (process.platform === 'win32') assert.equal(spawns[0].options.env.MIXDOG_COMPUTER_HOST_FOREGROUND_LOCK, '1');
+});
+
+test('a null, malformed or foreign lease line is ignored and the worker is kept', async (t) => {
+  const thread = grantingLeaseThread();
+  const foregroundLock = createHostForegroundLock({ startThread: thread.start, fallbackUnlock: () => ({ outcome: 'released' }) });
+  t.after(() => foregroundLock.dispose());
+  const { pool, retired } = await fakePool(t, { foregroundLock });
+  const pending = pool.callPowerShell({ action: 'invoke', ref: 's1:e1', delivery: 'background', session_id: 'a' });
+  const child = pool.powerShellBySession.get('a');
+  const sent = sentRequest(child);
+  const request = { op: 'acquire', action: sent.id, seq: 1, hold_ms: 100, answer_by: 1 };
+  for (const body of [
+    'null',
+    '[]',
+    '"acquire"',
+    '{"op":',
+    { op: 'acquire' },
+    { ...request, hold_ms: 5_000 },
+    { ...request, answer_by: null },
+    { ...request, op: 'grab' },
+    // An action this worker has not got in flight.
+    { ...request, action: sent.id + 1 },
+  ]) {
+    lockLine(child, body);
+  }
+  assert.deepEqual(thread.posted, []);
+  assert.equal(child.stdin.read(), null);
+  assert.equal(pool.powerShellBySession.get('a'), child);
+  reply(child, { id: sent.id, ok: true, result: { delivery_accepted: true } });
+  assert.equal((await pending).ok, true);
+  assert.deepEqual(retired, []);
+});
+
+test('a lease thread that cannot start answers unavailable without breaking the request', async (t) => {
+  const foregroundLock = createHostForegroundLock({
+    startThread: () => {
+      throw new Error('no worker threads');
+    },
+    fallbackUnlock: () => ({ outcome: 'released' }),
+  });
+  const { pool } = await fakePool(t, { foregroundLock });
+  const pending = pool.callPowerShell({ action: 'invoke', ref: 's1:e1', delivery: 'background', session_id: 'a' });
+  const child = pool.powerShellBySession.get('a');
+  const sent = sentRequest(child);
+  lockLine(child, { op: 'acquire', action: sent.id, seq: 1, hold_ms: 100, answer_by: 1 });
+  assert.equal(child.stdin.read().toString(), `${FOREGROUND_LOCK_REPLY_PREFIX}ack ${sent.id} 1 0 unavailable 0.000\n`);
+  reply(child, { id: sent.id, ok: true, result: { delivery_accepted: true } });
+  const response = await pending;
+  assert.equal(response.ok, true);
+  assert.match(response.result.foreground_lock.host.reason, /could not start: no worker threads/);
 });
 
 test('a background reply reporting unconfirmed cleanup latches until the user clears it', async (t) => {

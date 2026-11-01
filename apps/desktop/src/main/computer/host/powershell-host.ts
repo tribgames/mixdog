@@ -32,6 +32,7 @@ import { createCaptureAuthorizer, listAuthorizationWindows } from './host-author
 import { createSequenceHoldRelease, killSessionWorkers, retireBridgeWorkers } from './worker-control';
 import { nativeDisplayGeometry } from '../shared/native-coordinates';
 import { createWorkerPool } from '../backend/worker-pool';
+import { createHostForegroundLock, type ForegroundLeaseRuntime, koffiForegroundLease } from '../backend/foreground-lock-host';
 import { createCaptureEngine } from '../observation/capture';
 import { electronWindowForNativeId } from '../observation/window-handles';
 import { createInspection } from '../observation/inspect';
@@ -225,6 +226,9 @@ export function createPowerShellComputerHost(
     onDiagnostic?: (event: string, data: Record<string, unknown>) => void;
     /** The desktop's Auto login setting; saved logins are refused without it. */
     savedLoginEnabled?: () => boolean;
+    /** Replaces the lease thread and fallback unlock of the host's foreground lock, for a host
+     *  bundled outside the app. */
+    foregroundLease?: ForegroundLeaseRuntime;
   } = {}
 ): PowerShellComputerHost {
   let bridgeWanted = options.bridgeEnabled !== false;
@@ -245,6 +249,11 @@ export function createPowerShellComputerHost(
   configureCursorDiagnostics(join(mixdogDataDirectory(), 'computer-cursor-diagnostics.json'));
   const diagnose = advisoryDiagnostics(options.onDiagnostic);
 
+  // Windows only: the lock the foreground process leases to a refused worker.
+  const foregroundLock =
+    process.platform === 'win32'
+      ? createHostForegroundLock(options.foregroundLease ?? koffiForegroundLease())
+      : undefined;
   // Agent-scoped resident PowerShell workers + their shared pending-request table.
   const workerPool = createWorkerPool({
     dataDirectory: mixdogDataDirectory,
@@ -255,6 +264,7 @@ export function createPowerShellComputerHost(
     maxWorkers: options.maxWorkers,
     onPointerProgress: publishPointerProgress,
     nativeEnvironment: desktopBoundsEnvironment,
+    foregroundLock,
   });
   const { callPowerShell, powerShellBySession, retirePowerShell } = workerPool;
 
@@ -411,6 +421,7 @@ export function createPowerShellComputerHost(
       bridgeWanted = false;
       await bridge.stopBridge();
       killSessionWorkers(powerShellBySession);
+      await foregroundLock?.dispose();
       computerUseCoordinator.reset();
       workerPool.removeHostScript();
     },

@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import { app, BrowserWindow } from 'electron';
 import { createComputerHost, type ComputerHost } from '../index';
+import { harnessForegroundLease } from './harness-foreground-lock';
 import { createComputerUseOverlay, type ComputerUseOverlay } from '../overlay';
 import { compileNativeTextFixture } from '../backend/native-fixture';
 import { createTurnEndHelpers, type ScenarioContext, type ScenarioGroup } from './scenario-context';
@@ -118,7 +119,7 @@ async function run(): Promise<void> {
       progress('SETUP external fixture spawned');
     }
 
-    host = createComputerHost();
+    host = createComputerHost({ foregroundLease: harnessForegroundLease() });
     progress('SETUP resident host created');
     const bridge = { discovery: await readDiscovery(join(dataDirectory, 'computer-bridge.json'), 45_000) };
     progress('SETUP resident host discovered');

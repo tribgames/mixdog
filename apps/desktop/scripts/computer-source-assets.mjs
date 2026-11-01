@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, resolve } from 'node:path';
 
-const sourceCall = /\bloadComputerSource\('([A-Za-z][A-Za-z0-9-]*\.(?:cs|ps1))'\)/g;
-const backendModule = /[/\\]computer[/\\]backend[/\\](?:native-source|ps-[\w-]+)\.ts$/;
+const sourceCall = /\bloadComputerSource\('([A-Za-z][A-Za-z0-9-]*\.(?:cs|ps1|cjs))'\)/g;
+const backendModule = /[/\\]computer[/\\]backend[/\\](?:native-source|foreground-lock-host|ps-[\w-]+)\.ts$/;
 // The overlay pill ships the app's own face; the installed app has no
 // node_modules to read it from, so the bytes travel inside the bundle.
 const fontCall = /\bloadOverlayFont\('(pretendard\/[\w./-]+\.woff2)'\)/g;

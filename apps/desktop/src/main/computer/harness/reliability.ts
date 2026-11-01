@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { app, BrowserWindow } from 'electron';
 import { createComputerHost } from '../index';
+import { harnessForegroundLease } from './harness-foreground-lock';
 import {
   authorizationLiveDispatch,
   electronBackgroundEdit,
@@ -31,7 +32,7 @@ import {
 async function run() {
   await app.whenReady();
   app.setAccessibilitySupportEnabled(true);
-  const host = createComputerHost();
+  const host = createComputerHost({ foregroundLease: harnessForegroundLease() });
   const sentinel = new BrowserWindow({
     width: 640,
     height: 420,
