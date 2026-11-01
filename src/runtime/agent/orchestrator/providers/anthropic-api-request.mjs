@@ -20,6 +20,7 @@ import { applyAnthropicServerFallback } from './anthropic-server-fallback.mjs';
 import { fastModeAvailable } from './anthropic-fast-mode.mjs';
 import { applyAnthropicEffortToBody, shouldIncludeEffortBeta } from './anthropic-effort.mjs';
 import { isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
+import { applyCustomRequestBody, customRequestHeaders } from './custom-provider-config.mjs';
 import {
   anthropicThinkingActive,
   anthropicTurnScopedReminders,
@@ -73,6 +74,8 @@ export async function buildAnthropicApiRequest({
   capabilityModel = useModel,
   // A gateway-supplied output limit for the model; wins over the Anthropic catalog.
   modelMaxOutputTokens = opts?.modelMaxOutputTokens ?? null,
+  // A custom provider's normalized config: its extra request JSON and headers.
+  customConfig = null,
 }) {
   // A user-defined provider's reasoning comes from its own model row only:
   // the global by-model-id capability index and the Claude-id ladders are
@@ -171,6 +174,11 @@ export async function buildAnthropicApiRequest({
     gatewayEffort,
     effortProjection,
   });
+  // User-defined extra fields (e.g. `thinking`) go over the body before the
+  // tool_choice guard, so a forced choice is still dropped while the merged
+  // body has thinking on. The app-owned keys (model, messages, tools, stream,
+  // tool_choice, …) are refused inside.
+  if (isCustom && customConfig) applyCustomRequestBody(params, customConfig, useModel);
   if (params.tools) resolveRequestToolChoice(params, opts, config);
   // Fast mode → speed: "fast" on models Anthropic marks as speed-capable.
   // Suppressed while the fast capacity pool is cooling down.
@@ -197,7 +205,8 @@ export async function buildAnthropicApiRequest({
     capabilityModel,
     effortProjection,
   });
-  const requestHeaders = requestHeadersFor(betas, { config, opts });
+  const appHeaders = requestHeadersFor(betas, { config, opts });
+  const requestHeaders = isCustom && customConfig ? customRequestHeaders(customConfig, useModel, appHeaders) : appHeaders;
 
   // `betas`: the selected beta names, whether or not this route sends them as a header.
   return { params, requestHeaders, betas, knownToolNames, fastModeLatched: fastLatched };

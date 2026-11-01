@@ -679,6 +679,7 @@ const CUSTOM_PROVIDER_KEYS = new Set([
   'wires',
   'modelWires',
   'headers',
+  'requestBody',
   'type',
 ]);
 // Wires a custom OpenAI-compatible endpoint can serve (custom-provider-config.mjs).
@@ -694,6 +695,8 @@ const CUSTOM_OVERRIDE_KEYS = new Set([
   'maxOutputTokens',
   'supportsVision',
   'reasoning',
+  'requestBody',
+  'requestHeaders',
 ]);
 const CUSTOM_REASONING_KEYS = new Set(['levels', 'wireFormat', 'wireValues', 'replay']);
 // Mirror the runtime normalizer (custom-provider-config.mjs): the same level
@@ -801,11 +804,13 @@ export function requiredCustomProviderInput(value: unknown, modelsOptional = fal
       input.modelOverrides !== undefined ||
       input.wires !== undefined ||
       input.modelWires !== undefined ||
-      input.headers !== undefined) &&
+      input.headers !== undefined ||
+      input.requestBody !== undefined) &&
     input.schemaVersion !== 2
   ) {
     throw new TypeError('custom provider schemaVersion is invalid.');
   }
+  if (input.requestBody !== undefined) plainRecord(input.requestBody, 'custom provider requestBody');
   // Shape only; the runtime validates the names and values and refuses credential headers.
   if (input.headers !== undefined) {
     const headers = plainRecord(input.headers, 'custom provider headers');
@@ -910,6 +915,15 @@ function validateCustomModelOverride(value: unknown, patch: boolean, protocol?: 
     const v = row[key];
     if (v !== undefined && !nullable(v) && (!Number.isSafeInteger(v) || Number(v) <= 0)) {
       throw new TypeError(`custom provider model ${key} is invalid.`);
+    }
+  }
+  // Shape only; the runtime normalizer refuses the app-owned keys and headers.
+  if (row.requestBody !== undefined && !nullable(row.requestBody)) plainRecord(row.requestBody, 'custom provider requestBody');
+  if (row.requestHeaders !== undefined && !nullable(row.requestHeaders)) {
+    const headers = plainRecord(row.requestHeaders, 'custom provider requestHeaders');
+    const values = Object.values(headers);
+    if (values.length > CUSTOM_MAX_HEADERS || values.some((value) => typeof value !== 'string')) {
+      throw new TypeError('custom provider requestHeaders are invalid.');
     }
   }
   if (row.reasoning === undefined || nullable(row.reasoning)) return;

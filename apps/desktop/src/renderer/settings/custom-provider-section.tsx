@@ -21,6 +21,7 @@ import {
 } from './custom-provider-key-fields';
 import { type CustomModel, CustomProviderModelsList } from './custom-provider-models-list';
 import { pairRecord, pairRows, type PairRow } from './pair-list-rows';
+import { parseRequestBody, RequestBodyField, requestBodyText, RequestOptionsSection } from './custom-request-options';
 import { errorMessageText } from '../ErrorNotice';
 
 export const CUSTOM_PROTOCOLS = [
@@ -142,6 +143,7 @@ function customProviderInput({
   models,
   modelDraft,
   headers,
+  requestText,
   envMode,
   envValid,
   envName,
@@ -158,6 +160,7 @@ function customProviderInput({
   models: CustomModel[];
   modelDraft: string;
   headers: PairRow[];
+  requestText: string;
   envMode: boolean;
   envValid: boolean;
   envName: string;
@@ -194,6 +197,12 @@ function customProviderInput({
   // Headers are sent when set, and as {} when the provider had some: that clears them.
   if (Object.keys(headerValues).length || Object.keys(record(provider?.headers)).length) {
     input.headers = headerValues;
+  }
+  const request = parseRequestBody(requestText);
+  if (request.error) throw new Error(request.error);
+  // Same as headers: {} clears a stored object.
+  if (Object.keys(request.value).length || Object.keys(record(provider?.requestBody)).length) {
+    input.requestBody = request.value;
   }
   if (!keyless && envMode) {
     if (!envValid) {
@@ -496,6 +505,8 @@ function CustomProviderForm({
   const [modelDraft, setModelDraft] = useState('');
   const [headers, setHeaders] = useState<PairRow[]>(() => pairRows(provider?.headers));
   const [headersOpen, setHeadersOpen] = useState(headers.length > 0);
+  const [requestText, setRequestText] = useState(() => requestBodyText(provider?.requestBody));
+  const requestError = parseRequestBody(requestText).error;
   const [extraKeys, setExtraKeys] = useState<ExtraKeyRow[]>(() => extraKeyRows(provider));
 
   const checkedName = envMode && !keyless && envValid ? envName.trim() : '';
@@ -512,6 +523,7 @@ function CustomProviderForm({
       models,
       modelDraft,
       headers,
+      requestText,
       envMode,
       envValid,
       envName,
@@ -548,6 +560,7 @@ function CustomProviderForm({
 
   const save = async (event: FormEvent) => {
     event.preventDefault();
+    if (requestError) return;
     const problem = nameError(name);
     setNameProblem(problem);
     if (problem) return;
@@ -716,6 +729,19 @@ function CustomProviderForm({
               changed();
             }}
           />
+          <RequestOptionsSection hasValue={requestText.trim() !== ''} hasError={requestError !== ''}>
+            <RequestBodyField
+              id={`${uid}-request`}
+              text={requestText}
+              disabled={disabled}
+              error={requestError}
+              hint={t('A JSON object merged into every model request of this provider. The model setting wins.')}
+              onChange={(next) => {
+                setRequestText(next);
+                changed();
+              }}
+            />
+          </RequestOptionsSection>
           <CustomProviderOutcome
             working={working !== ''}
             discoveryError={discoveryError}
@@ -736,7 +762,7 @@ function CustomProviderForm({
               {t('Stop waiting')}
             </button>
           )}
-          <button type="submit" form={formId} disabled={disabled}>
+          <button type="submit" form={formId} disabled={disabled || requestError !== ''}>
             {t('Save')}
           </button>
         </footer>

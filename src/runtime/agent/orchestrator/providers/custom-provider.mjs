@@ -217,8 +217,11 @@ export async function createCustomProvider(id, config) {
   // The bound Messages engine reads the parent's model rows, so a routed
   // Messages request carries the same row-driven thinking/effort as the
   // Anthropic protocol.
-  if (provider.messagesEngine)
+  if (provider.messagesEngine) {
     provider.messagesEngine.getCachedModelInfo = (model) => provider.getCachedModelInfo(model);
+    // …and the same extra request fields and headers.
+    provider.messagesEngine.customConfig = cfg;
+  }
   provider.customConfig = cfg;
   provider._customKeyless = keyless;
   provider._applyCustomRows(provider._customRows());

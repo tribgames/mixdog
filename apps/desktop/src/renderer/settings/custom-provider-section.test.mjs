@@ -153,7 +153,11 @@ test('form offers the three formats and masks the API key', async (t) => {
   assert.equal(calls.at(-1).args[0].protocol, 'anthropic');
   assert.equal(field('API key').type, 'password');
   assert.equal(field('API key').required, true);
-  assert.equal(customForm().querySelector('textarea'), null);
+  // The only textarea is the advanced request options JSON field.
+  assert.deepEqual(
+    [...customForm().querySelectorAll('textarea')].map((area) => area.labels[0].textContent),
+    ['Advanced request options']
+  );
   assert.equal(button('Discover models'), undefined);
   const footer = document.querySelector('[role=dialog] > footer');
   assert.deepEqual(
@@ -451,7 +455,11 @@ test('edit keeps secret blank, sends id; delete is confirmed', async (t) => {
   assert.equal(field('API key').value, '');
   assert.equal(field('API key').required, false);
   assert.equal(field('Display name').value, 'Acme');
-  assert.equal(customForm().querySelector('textarea'), null);
+  // The only textarea is the advanced request options JSON field.
+  assert.deepEqual(
+    [...customForm().querySelectorAll('textarea')].map((area) => area.labels[0].textContent),
+    ['Advanced request options']
+  );
   await type(field('Display name'), 'Acme 2');
   await submit();
   const save = calls.find((c) => c.capability === 'saveCustomProvider').args[0];
@@ -492,6 +500,17 @@ test('custom providers invalidate caches and feed model selection', () => {
   assert.deepEqual(filterConfiguredModels(models, setup), [models[0]]);
 });
 
+const levelsTrigger = () =>
+  document.querySelector('.settings-model-editor [role=combobox][aria-label="Reasoning levels"]');
+const levelOption = (name) =>
+  [...document.querySelectorAll('[role=listbox][aria-label="Reasoning levels"] [role=option]')].find(
+    (o) => o.textContent === name
+  );
+// The levels dropdown is a checklist menu: it opens on demand and stays open while toggling.
+async function toggleLevel(name) {
+  if (!levelOption(name)) await click(levelsTrigger());
+  await click(levelOption(name));
+}
 const editorBtn = (label) =>
   [...document.querySelectorAll('.settings-model-editor footer button')].find((el) => el.textContent === label);
 const ROWS = [
@@ -531,7 +550,7 @@ test('keyless provider disables the key field and saves auth none without a key'
 });
 
 const settle = (ms = 400) => act(async () => new Promise((resolve) => setTimeout(resolve, ms)));
-const hint = () => document.querySelector('.settings-custom-provider-hint');
+const hint = () => document.querySelector('.settings-custom-provider-hint:not([id$="-request-hint"])');
 
 test('environment variable mode: control, hints, contract-shaped input and invalid name', async (t) => {
   const calls = [];
@@ -721,18 +740,23 @@ test('model editor sends only touched fields: chips, explicit [], reset null', a
   await render();
   await click(button('Edit'));
   await click(button('Edit model acme-1'));
-  const chip = (name) => [...document.querySelectorAll('.settings-model-chip')].find((c) => c.textContent === name);
-  assert.equal(chip('low').getAttribute('aria-pressed'), 'true');
-  assert.equal(chip('medium').getAttribute('aria-pressed'), 'false');
-  await click(chip('medium'));
-  assert.equal(chip('medium').getAttribute('aria-pressed'), 'true');
-  await click(chip('none'));
+  // One row with a summary trigger; the menu lists every level with a check on the chosen ones.
+  assert.equal(levelsTrigger().textContent, 'low · high');
+  await click(levelsTrigger());
+  assert.equal(document.querySelector('[role=listbox][aria-label="Reasoning levels"]').getAttribute('aria-multiselectable'), 'true');
+  assert.equal(levelOption('low').getAttribute('aria-selected'), 'true');
+  assert.equal(levelOption('medium').getAttribute('aria-selected'), 'false');
+  await toggleLevel('medium');
+  assert.equal(levelOption('medium').getAttribute('aria-selected'), 'true');
+  assert.equal(levelsTrigger().textContent, 'low · medium · high');
+  await toggleLevel('none');
+  assert.equal(levelsTrigger().textContent, 'none · low · medium · high');
   await click(editorBtn('Save'));
   const args = () => calls.filter((c) => c.capability === 'updateCustomProviderModel').at(-1).args;
   assert.deepEqual(args(), ['custom:acme', 'acme-1', { reasoning: { levels: ['none', 'low', 'medium', 'high'] } }]);
 
   await click(button('Edit model acme-1'));
-  for (const name of ['low', 'high']) await click(chip(name));
+  for (const name of ['low', 'high']) await toggleLevel(name);
   await click(editorBtn('Save'));
   assert.deepEqual(args()[2], { reasoning: { levels: [] } });
 
@@ -754,13 +778,11 @@ test('model editor image input is a tri-state: Auto sends nothing, On/Off send b
   await render();
   await click(button('Edit'));
   const args = () => calls.filter((c) => c.capability === 'updateCustomProviderModel').at(-1).args;
-  const choose = async (label) => {
-    await click(button('Image input'));
-    await click([...document.querySelectorAll('[role=option]')].find((o) => o.textContent === label));
-  };
+  const group = () => document.querySelector('.settings-model-editor [role=group][aria-label="Image input"]');
+  const choose = (label) => click([...group().querySelectorAll('button')].find((o) => o.textContent === label));
   // The stored override (false) shows as Off.
   await click(button('Edit model acme-1'));
-  assert.equal(button('Image input').textContent, 'Off');
+  assert.equal(group().querySelector('[aria-pressed=true]').textContent, 'Off');
   await choose('On');
   await click(editorBtn('Save'));
   assert.deepEqual(args()[2], { supportsVision: true });
@@ -787,14 +809,13 @@ test('changing levels sends wire values pruned to the new levels (null when none
   });
   await render();
   await click(button('Edit'));
-  const chip = (name) => [...document.querySelectorAll('.settings-model-chip')].find((c) => c.textContent === name);
   const args = () => calls.filter((c) => c.capability === 'updateCustomProviderModel').at(-1).args;
   await click(button('Edit model acme-1'));
-  await click(chip('high'));
+  await toggleLevel('high');
   await click(editorBtn('Save'));
   assert.deepEqual(args()[2], { reasoning: { levels: ['low'], wireValues: { low: 'L' } } });
   await click(button('Edit model acme-1'));
-  for (const name of ['low', 'high']) await click(chip(name));
+  for (const name of ['low', 'high']) await toggleLevel(name);
   await click(editorBtn('Save'));
   assert.deepEqual(args()[2], { reasoning: { levels: [], wireValues: null } });
 });
@@ -806,7 +827,15 @@ test("the model editor shows a discovered row's maxOutputTokens", async (t) => {
     api: [withRows()],
     handlers: {
       discoverCustomProviderModels: () => ({
-        models: [{ ...ROWS[0], contextWindow: 64000, maxOutputTokens: 8192 }, ROWS[1]],
+        models: [
+          {
+            ...ROWS[0],
+            contextWindow: 64000,
+            maxOutputTokens: 8192,
+            inherited: { name: 'acme-1', contextWindow: 64000, maxOutputTokens: 8192 },
+          },
+          ROWS[1],
+        ],
       }),
     },
   });
@@ -815,8 +844,10 @@ test("the model editor shows a discovered row's maxOutputTokens", async (t) => {
   await click(button('Refresh models'));
   await click(button('Edit model acme-1'));
   const editor = [...document.querySelectorAll('.settings-model-editor')].at(-1);
-  assert.equal(editor.querySelector('input[id$="-contextWindow"]').value, '64000');
-  assert.equal(editor.querySelector('input[id$="-maxOutputTokens"]').value, '8192');
+  // Inherited values are the placeholders; the fields themselves stay empty.
+  assert.equal(editor.querySelector('input[id$="-contextWindow"]').placeholder, '64000');
+  assert.equal(editor.querySelector('input[id$="-maxOutputTokens"]').placeholder, '8192');
+  assert.equal(editor.querySelector('input[id$="-contextWindow"]').value, '');
 });
 
 for (const [protocol, expected] of [
@@ -833,9 +864,10 @@ for (const [protocol, expected] of [
     await render();
     await click(button('Edit'));
     await click(button('Edit model acme-1'));
-    await click(button('Wire format'));
     assert.deepEqual(
-      [...document.querySelectorAll('[role=option]')].map((o) => o.textContent),
+      [...document.querySelectorAll('.settings-model-editor [role=group][aria-label="Wire format"] button')].map(
+        (o) => o.textContent
+      ),
       expected
     );
     await click(button('Standard'));
@@ -891,7 +923,8 @@ test('reopening a model editor after a save shows the saved values and keeps uns
   await click(editorBtn('Save'));
   await render();
   await click(button('Edit model acme-1'));
-  assert.equal(document.querySelector('.settings-model-editor input[id$="-contextWindow"]').value, '12345');
+  // The row carries the applied override; the placeholder is not that value.
+  assert.equal(document.querySelector('.settings-model-editor input[id$="-contextWindow"]').placeholder, 'Inherited');
   await click(editorBtn('Cancel'));
   assert.equal(field('Display name').value, 'Draft name');
 });
@@ -941,15 +974,13 @@ test('reopening a discovered model after a save shows the saved values, not the 
   const input = (key) => document.querySelector(`.settings-model-editor input[id$="-${key}"]`);
   await type(input('contextWindow'), '12345');
   await type(input('name'), 'Saved name');
-  await click([...document.querySelectorAll('.settings-model-chip')].find((c) => c.textContent === 'low'));
+  await toggleLevel('low');
   await click(editorBtn('Save'));
   await click(button('Edit model acme-1'));
   assert.equal(input('contextWindow').value, '12345');
   assert.equal(input('name').value, 'Saved name');
-  assert.deepEqual(
-    [...document.querySelectorAll('.settings-model-chip[aria-pressed=true]')].map((c) => c.textContent),
-    ['high']
-  );
+  assert.equal(levelsTrigger().textContent, 'high');
+
 });
 
 test('refresh with an empty model list shows the empty-result message', async (t) => {
@@ -1060,8 +1091,10 @@ test('HTTP headers: a folded section below the models list; added headers go wit
   await render();
   await fillNew();
   const sections = [...customForm().querySelectorAll('details')];
-  assert.equal(sections.length, 2);
+  assert.equal(sections.length, 3);
   assert.equal(sections[1], headersSection());
+  assert.equal(sections[2].querySelector('summary').textContent, 'Advanced');
+  assert.equal(sections[2].open, false);
   assert.equal(sections[0].querySelector('summary').textContent, 'Add models manually');
   assert.equal(headersSection().open, false);
   const summary = headersSection().querySelector('summary');
@@ -1192,4 +1225,93 @@ test('HTTP headers: a credential header is flagged inline and blocks save, test 
   assert.equal(name.getAttribute('aria-invalid'), null);
   await submit();
   assert.deepEqual(lastSave(calls).headers, { originator: 'Bearer sk-other' });
+});
+
+test('Advanced request options: JSON is saved with the provider; app-owned keys block Save inline', async (t) => {
+  const calls = [];
+  const { render } = mount(t, { calls, handlers: { saveCustomProvider: (i) => i, discoverCustomProviderModels: () => ({ models: [{ id: 'found' }] }) } });
+  await render();
+  await fillNew();
+  const area = field('Advanced request options');
+  await type(area, '{"model":"glm-5","stream":false,"temperature":0.2}');
+  assert.equal(area.getAttribute('aria-invalid'), 'true');
+  assert.match(customForm().querySelector('[role=alert]').textContent, /model, stream are set by the app/);
+  assert.equal(button('Save').disabled, true);
+  await type(area, '{"service_tier":"flex"');
+  assert.match(customForm().querySelector('[role=alert]').textContent, /valid JSON/);
+  assert.equal(button('Save').disabled, true);
+  await type(area, '{"service_tier":"flex","provider":{"order":["z-ai"]}}');
+  assert.equal(button('Save').disabled, false);
+  await submit();
+  assert.deepEqual(lastSave(calls).requestBody, { service_tier: 'flex', provider: { order: ['z-ai'] } });
+});
+
+test('model editor: no raw checkbox or stray inherit lines; reset only on overridden fields; advanced is folded', async (t) => {
+  const calls = [];
+  const { render } = mount(t, {
+    calls,
+    api: [withRows({ modelOverrides: { 'acme-1': { maxOutputTokens: 9 } } })],
+    handlers: { updateCustomProviderModel: () => ({}) },
+  });
+  await render();
+  await click(button('Edit'));
+  await click(button('Edit model acme-1'));
+  const editor = document.querySelector('.settings-model-editor');
+  assert.equal(editor.querySelector('input[type=checkbox]:not(.mixdog-settings__switch input)') !== null, false);
+  assert.equal(editor.querySelectorAll('.mixdog-settings__switch').length, 2);
+  assert.doesNotMatch(editor.textContent, /Inherited|Override/);
+  const resets = [...editor.querySelectorAll('.settings-model-reset')].map((b) => b.getAttribute('aria-label'));
+  assert.deepEqual(resets, ['Reset Max output tokens to inherited']);
+  const advanced = editor.querySelector('details.settings-request-options');
+  assert.equal(advanced.querySelector('summary').textContent, 'Advanced');
+  assert.equal(advanced.open, false);
+  // Invalid JSON opens the fold on its own.
+  await type(advanced.querySelector('textarea'), '{"stream":false}');
+  assert.equal(advanced.open, true);
+  assert.ok(advanced.querySelector('.settings-custom-headers-error'));
+});
+
+test('model editor and provider dialog open Advanced when a saved value exists', async (t) => {
+  const { render } = mount(t, {
+    api: [
+      withRows({
+        requestBody: { service_tier: 'auto' },
+        modelOverrides: { 'acme-1': { requestHeaders: { 'X-Provider': 'z' } } },
+      }),
+    ],
+  });
+  await render();
+  await click(button('Edit'));
+  assert.equal(customForm().querySelector('details.settings-request-options').open, true);
+  await click(button('Edit model acme-1'));
+  assert.equal(document.querySelector('.settings-model-editor details.settings-request-options').open, true);
+});
+
+test('model editor placeholders show the true inherited value after Reset, not the applied override', async (t) => {
+  const calls = [];
+  const row = {
+    ...ROWS[0],
+    name: 'Saved alias',
+    contextWindow: 5000,
+    inherited: { name: 'm', contextWindow: 64000, maxOutputTokens: null },
+  };
+  const { render } = mount(t, {
+    calls,
+    api: [withRows({ models: [row, ROWS[1]], modelOverrides: { 'acme-1': { name: 'Saved alias', contextWindow: 5000 } } })],
+    handlers: { updateCustomProviderModel: () => ({}) },
+  });
+  await render();
+  await click(button('Edit'));
+  await click(button('Edit model acme-1'));
+  const input = (key) => document.querySelector(`.settings-model-editor input[id$="-${key}"]`);
+  assert.equal(input('name').value, 'Saved alias');
+  await click(button('Reset Display name to inherited'));
+  await click(button('Reset Context window to inherited'));
+  assert.equal(input('name').value, '');
+  assert.equal(input('name').placeholder, 'm');
+  assert.equal(input('contextWindow').placeholder, '64000');
+  // Unknown inherited values keep the generic placeholder.
+  assert.equal(input('maxOutputTokens').placeholder, 'Inherited');
+  await click(editorBtn('Save'));
+  assert.deepEqual(calls.at(-1).args[2], { name: null, contextWindow: null });
 });

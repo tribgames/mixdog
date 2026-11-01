@@ -24,6 +24,7 @@ import { compatFirstByteWindowMs, compatRetryOptions, withCompatRetryProfile } f
 import { TIMEOUT_PHASE } from '../../../shared/provider-timeout-phase.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
 import { customWireFormat, isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
+import { applyCustomRequestBody, customRequestHeaders } from './custom-provider-config.mjs';
 import { geminiAcceptedTools } from './gemini-schema.mjs';
 import { acceptedWireTools } from './lib/claude-bridge-schema.mjs';
 import { isGeminiFamilyModel } from './gemini-family.mjs';
@@ -124,15 +125,22 @@ export async function sendCompatChat(provider, messages, useModel, tools, opts) 
   });
   applyCompatProviderChatOptions(params, provider.name, opts, provider.config, modelInfo);
   profile?.applyParams?.(params, { opts, config: provider.config, modelInfo });
+  // A custom provider's own extra JSON goes over the reasoning fields; stream
+  // flags below and the app-owned keys stay the app's.
+  if (isCustom && provider.customConfig) applyCustomRequestBody(params, provider.customConfig, useModel);
   const firstByteTimeoutMs = profile?.firstByteTimeoutMs || PROVIDER_FIRST_BYTE_TIMEOUT_MS;
   const totalSignal = createPassthroughSignal(signal);
   const cacheRouting = provider.name === 'xai' ? xaiCacheRouting(opts, params, tools || [], useModel) : null;
   const cacheRoutingKey = cacheRouting?.key || null;
   // xAI Chat pins a conversation to the server holding its cached prefix with
   // the x-grok-conv-id header (the Responses equivalent is prompt_cache_key).
-  const requestHeaders = cacheRoutingKey
+  const callerHeaders = cacheRoutingKey
     ? { 'x-grok-conv-id': cacheRoutingKey, ...(opts.requestHeaders || {}) }
     : opts.requestHeaders;
+  const requestHeaders =
+    isCustom && provider.customConfig
+      ? customRequestHeaders(provider.customConfig, useModel, callerHeaders)
+      : callerHeaders;
   params.stream = true;
   params.stream_options = { include_usage: true };
   let assembled;

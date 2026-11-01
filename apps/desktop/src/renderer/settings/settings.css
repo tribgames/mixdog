@@ -1474,42 +1474,10 @@ html[data-mixdog-mobile-tabs] .conn-qr-row {
   overflow-y: auto;
   min-height: 0;
 }
-.settings-model-field {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-.settings-model-field > input {
-  flex: 1;
-  min-width: 0;
-}
-.settings-model-source {
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  white-space: nowrap;
-}
 .settings-model-check {
   display: flex;
   align-items: center;
   gap: 6px;
-}
-.settings-model-reasoning {
-  display: grid;
-  gap: 8px;
-  min-width: 0;
-  margin: 0;
-  padding: 8px 0 0;
-  border: 0;
-}
-.settings-model-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-}
-.settings-model-chip[aria-pressed="true"] {
-  background: var(--mx-accent, currentColor);
-  color: var(--mx-accent-contrast, Canvas);
 }
 .settings-model-hidden span {
   opacity: 0.55;
