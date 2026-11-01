@@ -9,6 +9,7 @@ import { ActivityRailNavigation } from './activity-rail-navigation.tsx';
 import { useAppSideDocks } from './use-app-side-docks.ts';
 import { useSideViewSelection } from './app-shell-side-views.ts';
 import { useSessionPaneSurfaces } from './use-session-pane-surfaces.ts';
+import { ACTIVITY_RAIL_PIN_IDS, DEFAULT_ACTIVITY_RAIL_PINS } from '../shared/activity-rail-pins.ts';
 import { installTestDom } from './test-support/test-dom.mjs';
 
 const PINS_KEY = 'mixdog.desktop.activity-rail-pins.v1';
@@ -118,6 +119,15 @@ function setup(t) {
   };
   return launch;
 }
+
+test('a fresh install pins every tab but Agents and opens on a pinned view', async (t) => {
+  const launch = setup(t);
+  const app = await launch(fakeHost(null));
+  const pins = JSON.parse(window.localStorage.getItem(PINS_KEY) ?? 'null') ?? DEFAULT_ACTIVITY_RAIL_PINS;
+  assert.deepEqual(pins, ACTIVITY_RAIL_PIN_IDS.filter((id) => id !== 'agents'));
+  assert.ok(pins.includes(app.active()));
+  assert.equal(app.active(), 'sessions');
+});
 
 test('reordering the pins moves the start view of the next launch to the new top', async (t) => {
   const launch = setup(t);

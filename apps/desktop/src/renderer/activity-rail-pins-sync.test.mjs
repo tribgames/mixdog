@@ -228,18 +228,20 @@ test('a successful read with nothing stored means the host default for remote cl
   const shared = hub();
   const web = { ...shared.api('web'), readActivityRailPins: async () => null };
   const values = await mount(t, shared, { web });
-  assert.deepEqual(values.web.pins, [
-    'sessions',
-    'agents',
-    'schedules',
-    'workflows',
-    'projects',
-    'extensions',
-    'skills',
-  ]);
+  assert.deepEqual(values.web.pins, DEFAULT_PINS);
 });
 
-const DEFAULT_PINS = ['sessions', 'agents', 'schedules', 'workflows', 'projects', 'extensions', 'skills'];
+const DEFAULT_PINS = [
+  'sessions',
+  'schedules',
+  'workflows',
+  'projects',
+  'extensions',
+  'skills',
+  'source-control',
+  'search',
+  'webhooks',
+];
 
 test('a failed save after an absent read rolls back to the default list', async (t) => {
   const shared = hub();
