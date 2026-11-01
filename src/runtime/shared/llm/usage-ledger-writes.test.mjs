@@ -75,7 +75,7 @@ test('a completed call without usage is recorded as unmeasured and makes session
   await sendIn('mixed', { model, responseId: 'r3', usage });
   await sendIn('measured', { model, responseId: 'r4', usage });
   await sendIn('measured', { model, responseId: 'r5', usage });
-  // A failed call is not a completed one: it still records nothing without usage.
+  // A failed call is not a completed one: it is a request of its own, never unmeasured.
   await assert.rejects(
     accountProviderSend(
       'anthropic',
@@ -88,7 +88,11 @@ test('a completed call without usage is recorded as unmeasured and makes session
     )
   );
 
-  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM events').get().n, 5, 'every completed call is recorded');
+  assert.equal(
+    ledger.db.prepare("SELECT COUNT(*) AS n FROM events WHERE session_id<>'failed'").get().n,
+    5,
+    'every completed call is recorded'
+  );
   const unmeasured = ledger.db
     .prepare("SELECT * FROM events WHERE session_id='mixed' AND rates LIKE '%\"inputTokensKnown\":false%'")
     .all();

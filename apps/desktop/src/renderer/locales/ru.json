@@ -1,6 +1,12 @@
 {
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
+  "No requests recorded in this period.": "За этот период запросов нет.",
+  "Request log": "Журнал запросов",
+  "Retried": "Повтор",
+  "Substituted": "Заменён",
+  "Time taken": "Время",
+  "{{seconds}}s": "{{seconds}} с",
   "— {{value0}}": "— {{value0}}",
   "— means price unavailable; + marks a subtotal with unpriced usage. Subscription value is not an API bill.": "— означает, что цена неизвестна; + обозначает промежуточную сумму без учёта использования с неизвестной ценой. Расчётная стоимость подписки не является счётом за API.",
   ", Col": ", Кол",

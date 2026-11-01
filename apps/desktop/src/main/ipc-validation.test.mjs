@@ -230,6 +230,42 @@ test('the turn review bar reaches its diff with only a boolean refresh option', 
   }
 });
 
+test('the request log takes a bounded page, a known status, bounded model and cursor, and period fields', () => {
+  const read = (args) => requiredDesktopCapabilityRequest({ capability: 'getUsageRequests', args });
+  for (const args of [
+    [],
+    [{}],
+    [{ view: 'hour', limit: 50 }],
+    [{ view: 'custom', startDay: '2026-10-01', endDay: '2026-10-31', startTime: '09:00', endTime: '18:00:30' }],
+    [{ view: 'week', anchor: '2026-10-31', status: 'failed', model: 'gpt-5.6', cursor: '1789:01ab', limit: 200 }],
+    [{ limit: 1 }],
+  ]) {
+    assert.doesNotThrow(() => read(args), JSON.stringify(args));
+  }
+  for (const args of [
+    [null],
+    ['hour'],
+    [{ limit: -1 }],
+    [{ limit: 0 }],
+    [{ limit: 1.5 }],
+    [{ limit: 1_000_000 }],
+    [{ limit: '50' }],
+    [{ cursor: { ts: 1 } }],
+    [{ cursor: 'x'.repeat(201) }],
+    [{ status: 'abandoned' }],
+    [{ status: 1 }],
+    [{ model: 'm'.repeat(10_000) }],
+    [{ model: 5 }],
+    [{ view: 'decade' }],
+    [{ anchor: '31/10/2026' }],
+    [{ startDay: 20261001 }],
+    [{ startTime: '9am' }],
+    [{ sessionIds: [] }],
+  ]) {
+    assert.throws(() => read(args), TypeError, JSON.stringify(args));
+  }
+});
+
 test('session usage takes only a bounded list of session ids and the agents flag', () => {
   const read = (args) => requiredDesktopCapabilityRequest({ capability: 'getSessionUsage', args, sessionId: 'lead-1' });
   for (const args of [

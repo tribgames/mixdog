@@ -1,6 +1,12 @@
 {
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
+  "No requests recorded in this period.": "此期间没有请求记录。",
+  "Request log": "请求记录",
+  "Retried": "已重试",
+  "Substituted": "已替代",
+  "Time taken": "耗时",
+  "{{seconds}}s": "{{seconds}} 秒",
   "— {{value0}}": "— {{value0}}",
   "— means price unavailable; + marks a subtotal with unpriced usage. Subscription value is not an API bill.": "— 表示价格未知；+ 表示不含价格未知用量的部分合计。订阅折算金额并非 API 账单金额。",
   ", Col": ", 列",

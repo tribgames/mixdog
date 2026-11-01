@@ -601,7 +601,8 @@ export function wrapProviderAdmission(provider, providerName, scheduler = provid
             return accountProviderSend(
               providerName,
               this,
-              () => originalSend.call(this, messages, model, tools, admittedOpts),
+              // Accounting hands back the options with its first-output probe.
+              (accountedOpts) => originalSend.call(this, messages, model, tools, accountedOpts),
               model,
               admittedOpts
             );

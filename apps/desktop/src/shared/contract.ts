@@ -1162,6 +1162,9 @@ export interface DesktopApi {
    *  the phone size-owner claim/release on `termResize`. Absent/false on an
    *  older host, where the phone sends plain fit resizes only. */
   readonly remoteTermSizeOwner?: boolean;
+  /** Paired web app: whether the current host advertised `usageRequests` and
+   *  serves `getUsageRequests`. Absent on this desktop, whose host always does. */
+  readonly remoteUsageRequests?: boolean;
   /** Paired web app, host advertising `browserParity` only (absent otherwise,
    *  as are the history, saved-login and profile-import members above):
    *  the main-workspace browser tabs. `watch` starts or stops pushes to

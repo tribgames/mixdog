@@ -145,6 +145,9 @@ export interface RemoteShimState {
   /** The current host advertised `hostDirectories`: it serves
    *  `listHostDirectories`. Absent means an older host. */
   peerHostDirectories: boolean;
+  /** The current host advertised `usageRequests`: it serves
+   *  `getUsageRequests`. Absent means an older host. */
+  peerUsageRequests: boolean;
   peerProjectRecovery: boolean;
   /** The current host advertised `routeAutoEffort` in its challenge: it takes
    *  `autoEffort` in model selections and `+noauto` automation refs. */
@@ -452,6 +455,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     peerBrowserSessionTabs: false,
     peerTermSizeOwner: false,
     peerHostDirectories: false,
+    peerUsageRequests: false,
     peerProjectRecovery: false,
     peerRouteAutoEffort: false,
     peerVisualize: false,

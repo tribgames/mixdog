@@ -596,6 +596,8 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
   });
   // Read per access: a reconnect may reach a host that predates `termSizeOwner`.
   Object.defineProperty(api, 'remoteTermSizeOwner', { enumerable: true, get: () => ctx.peerTermSizeOwner === true });
+  // Read per access: a reconnect may reach a host that predates `usageRequests`.
+  Object.defineProperty(api, 'remoteUsageRequests', { enumerable: true, get: () => ctx.peerUsageRequests === true });
   // Absent on a host that predates `hostDirectories`, so the folder browser
   // keeps its legacy fallback.
   Object.defineProperty(api, 'listHostDirectories', {

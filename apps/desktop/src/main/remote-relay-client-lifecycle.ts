@@ -129,6 +129,7 @@ function openRelayClient(deps: RelayClientLifecycleDeps, clientId: string, crede
     browserSessionTabs: 1 as const,
     termSizeOwner: 1 as const,
     hostDirectories: 1 as const,
+    usageRequests: 1 as const,
     projectRecovery: 1 as const,
     mediaE2ee: 1 as const,
     routeAutoEffort: 1 as const,

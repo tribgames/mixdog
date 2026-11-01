@@ -37,7 +37,11 @@ export function UsagePeriodControls({
   paged,
   onLoad,
   leading,
+  trailing,
 }: {
+  /** Controls at the end of the chip row in place of the served period
+   *  (the request log's filters). */
+  trailing?: ReactNode;
   /** What the period applies to. It takes the served period's row, and the
    *  chips move to a row of their own below it. */
   leading?: ReactNode;
@@ -225,7 +229,7 @@ export function UsagePeriodControls({
     return (
       <div className="stats-controls">
         {chips}
-        {pager}
+        {trailing ?? pager}
       </div>
     );
   }

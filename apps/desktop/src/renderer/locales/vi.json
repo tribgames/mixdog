@@ -1,6 +1,12 @@
 {
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
+  "No requests recorded in this period.": "Không có yêu cầu nào trong khoảng thời gian này.",
+  "Request log": "Nhật ký yêu cầu",
+  "Retried": "Thử lại",
+  "Substituted": "Thay thế",
+  "Time taken": "Thời gian",
+  "{{seconds}}s": "{{seconds}} giây",
   "— {{value0}}": "— {{value0}}",
   "— means price unavailable; + marks a subtotal with unpriced usage. Subscription value is not an API bill.": "— nghĩa là chưa có giá; + đánh dấu tổng một phần, không bao gồm mức sử dụng chưa có giá. Giá trị quy đổi của gói đăng ký không phải là hóa đơn API.",
   ", Col": ", Cột",

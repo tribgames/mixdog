@@ -159,6 +159,16 @@ export function refreshStatsDataCache(api: SurfaceApi): Promise<Record<string, u
   return cache.pending;
 }
 
+/** One page of the request log (getUsageRequests); pages are not cached,
+ * each period or filter change reads its first page again. */
+export async function readUsageRequestPage(
+  api: Parameters<typeof readGlobalCapabilities>[0],
+  question: Record<string, unknown>
+) {
+  const [value] = await readGlobalCapabilities(api, [{ capability: 'getUsageRequests', args: [question] }]);
+  return record(value);
+}
+
 /** The desktop owns this subscription even while the statistics dialog is
  * closed. Streaming text and context estimates do not invalidate usage.
  * Without `background` (a remote client), usage changes are only recorded:

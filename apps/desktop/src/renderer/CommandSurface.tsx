@@ -16,7 +16,7 @@ import { SurfaceBody } from './command-surface-body';
 import { commandSurfaceDisplaySnapshot } from './command-surface-state';
 import { ContextReading } from './ContextBody';
 import { UsageModeTabs } from './UsageSurface';
-import { useUsageSurfaceMode } from './usage-surface-mode';
+import { usageRequestsSupported, useUsageSurfaceMode } from './usage-surface-mode';
 import './settings/settings.css';
 
 export function commandSurfaceTitle(surface: CommandSurfaceName): string {
@@ -59,7 +59,8 @@ export function CommandSurface({
   onCloseRef.current = onClose;
 
   // The usage dialog's two questions are its tabs; the dialog keeps its name.
-  const [usageMode, setUsageMode] = useUsageSurfaceMode(surface === 'stats' && open);
+  const requestsSupported = usageRequestsSupported(api);
+  const [usageMode, setUsageMode] = useUsageSurfaceMode(surface === 'stats' && open, requestsSupported);
   const { data, loading, refreshing, pending, error, sessionId, run, requestCapability } = useCommandSurfaceLifecycle({
     surface,
     open,
@@ -154,7 +155,7 @@ export function CommandSurface({
             <h1 id="command-surface-title" className={surface === 'stats' ? 'sr-only' : undefined}>
               {title}
             </h1>
-            {surface === 'stats' && <UsageModeTabs mode={usageMode} onChange={setUsageMode} />}
+            {surface === 'stats' && <UsageModeTabs mode={usageMode} onChange={setUsageMode} requests={requestsSupported} />}
             <div className="command-surface-header-actions">
               {surface === 'context' && (
                 <ContextReading status={data.contextStatus} snapshot={commandSurfaceDisplaySnapshot(data, snapshot)} />

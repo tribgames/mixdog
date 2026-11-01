@@ -1,6 +1,12 @@
 {
   "--argument": "--argument",
   "-{{value0}}": "-{{value0}}",
+  "No requests recorded in this period.": "In diesem Zeitraum wurden keine Anfragen aufgezeichnet.",
+  "Request log": "Anfrageprotokoll",
+  "Retried": "Wiederholt",
+  "Substituted": "Ersetzt",
+  "Time taken": "Dauer",
+  "{{seconds}}s": "{{seconds}} s",
   "— {{value0}}": "— {{value0}}",
   "— means price unavailable; + marks a subtotal with unpriced usage. Subscription value is not an API bill.": "— bedeutet, dass kein Preis verfügbar ist; + kennzeichnet eine Teilsumme, bei der Nutzung ohne bekannten Preis nicht enthalten ist. Der Abonnementwert ist keine API-Rechnung.",
   ", Col": ", Spalte",

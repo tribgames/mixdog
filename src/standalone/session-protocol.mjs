@@ -77,6 +77,7 @@ export const SESSION_READ_ACTIONS = Object.freeze([
   'getUpdateStatus',
   'getUsageDashboard',
   'getUsageStats',
+  'getUsageRequests',
   'getVoiceStatus',
   'isSetupRequestActive',
   'getWorkflowPack',
