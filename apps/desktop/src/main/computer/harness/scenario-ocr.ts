@@ -9,6 +9,35 @@ export function actionPayload(result: CommandResult): Record<string, unknown> {
   return JSON.parse(result.text) as Record<string, unknown>;
 }
 
+type CaptureElement = NonNullable<CapturePayload['elements']>[number];
+
+function refRun(text: string): string[] {
+  const match = /^(.*:e)(\d+)(?:\.\.e(\d+))?$/.exec(text);
+  if (!match) return [text];
+  const start = Number(match[2]);
+  const end = Number(match[3] ?? match[2]);
+  return Array.from({ length: end - start + 1 }, (_, offset) => `${match[1]}${start + offset}`);
+}
+
+/** The list a model holds after a post-action reply: the full list, or the
+ *  previous list with the reply's delta applied (unchanged rows take their
+ *  live refs, added rows join, everything else is gone). */
+export function elementsAfter(previous: CaptureElement[], capture: CapturePayload | undefined): CaptureElement[] {
+  if (!capture) return [];
+  if (capture.elements) return capture.elements;
+  const delta = (capture as { elements_delta?: { unchanged?: string[]; added?: CaptureElement[] } }).elements_delta;
+  if (!delta) return [];
+  const byRef = new Map(previous.map((row) => [row.ref, row]));
+  const kept = (delta.unchanged || []).flatMap((run) => {
+    const [held, live] = run.split('=').map(refRun);
+    return held.flatMap((ref, index) => {
+      const row = byRef.get(ref);
+      return row ? [{ ...row, ref: live[index] }] : [];
+    });
+  });
+  return [...kept, ...(delta.added || [])];
+}
+
 export function ocrText(payload: CapturePayload): string {
   return [
     ...(payload.ocr?.lines || []).map((line) => (typeof line === 'string' ? line : String(line.text || ''))),

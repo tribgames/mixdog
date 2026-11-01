@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { BrowserWindow, clipboard, screen } from 'electron';
 import type { CapturePayload } from './scenario-types';
-import { capturePayload, actionPayload } from './scenario-ocr';
+import { capturePayload, actionPayload, elementsAfter } from './scenario-ocr';
 import { eventually, runScenario, skip } from './scenario-runtime';
 import type { ScenarioContext, ScenarioGroup } from './scenario-context';
 
@@ -88,7 +88,8 @@ async function fillNativeTextFields(ctx: ScenarioContext, native: NativeTextApp)
   );
   assert.equal(setValue.verified, true, JSON.stringify(setValue));
   const setValueCapture = setValue.capture_after as CapturePayload;
-  const freshEditor = (setValueCapture.elements || []).find(
+  const setValueElements = elementsAfter(appCapture.elements || [], setValueCapture);
+  const freshEditor = setValueElements.find(
     (element) => element.role === 'Edit' && element.name === 'Native text editor'
   );
   assert.equal(freshEditor?.value, 'SETVALUE42', JSON.stringify(setValueCapture));
@@ -112,13 +113,13 @@ async function fillNativeTextFields(ctx: ScenarioContext, native: NativeTextApp)
     )
   );
   assert.equal(typed.path, 'win32_message', JSON.stringify(typed));
-  const typedEditor = ((typed.capture_after as CapturePayload | undefined)?.elements || []).find(
+  const typedElements = elementsAfter(setValueElements, typed.capture_after as CapturePayload | undefined);
+  const typedEditor = typedElements.find(
     (element) => element.role === 'Edit' && element.name === 'Native text editor'
   );
   assert.match(String(typedEditor?.value ?? ''), /L1\s+L2/, JSON.stringify(typed));
   // One act fills two fields of the same observation: the second step's
   // ref outlives the first delivery and is re-proved before its own.
-  const typedElements = (typed.capture_after as CapturePayload | undefined)?.elements || [];
   const secondField = typedElements.find(
     (element) => element.role === 'Edit' && element.name === 'Native second field'
   );
@@ -141,7 +142,7 @@ async function fillNativeTextFields(ctx: ScenarioContext, native: NativeTextApp)
   assert.equal(filledCapture.mode, 'ax', JSON.stringify(filledCapture));
   assert.equal(filledResult.image, undefined, 'a ref-led act answers through its tree');
   const filledValues = Object.fromEntries(
-    (filledCapture.elements || [])
+    elementsAfter(typedElements, filledCapture)
       .filter((element) => element.role === 'Edit')
       .map((element) => [element.name, element.value])
   );
