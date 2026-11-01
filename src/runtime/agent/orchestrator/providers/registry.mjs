@@ -385,29 +385,6 @@ async function _initProvidersUnsynchronized(config, signal = null, proxyChannel 
     if (result.sig !== null) nextSignatures.set(result.name, result.sig);
   }
   _providerInitErrors = nextInitErrors;
-  // Second guard: every entry was disabled. Same reasoning — keep the
-  // existing registry rather than going dark. Isolation still holds: a live
-  // instance of a provider that is now an invalid custom config is removed
-  // (the rest of the registry stays), and the recorded reasons are reported.
-  if (next.size === 0) {
-    let removed = false;
-    for (const name of nextInitErrors.keys()) {
-      removed = providers.delete(name) || removed;
-      signatures.delete(name);
-    }
-    if (removed) {
-      _providerCatalogRevision += 1;
-      _startupCatalogRefreshPromise = null;
-      // The live registry no longer reflects the last applied config.
-      _lastAppliedSig = null;
-    }
-    const reasons = [...nextInitErrors.values()];
-    throw noEnabledProvidersError(
-      `[provider] all providers disabled in config — refusing to clear registry${
-        reasons.length ? `; invalid custom providers skipped: ${reasons.join('; ')}` : ''
-      }`
-    );
-  }
   // OAuth preservation guard. anthropic-oauth / openai-oauth are NOT stored
   // in mixdog-config.json — buildDefaultConfig injects them at runtime by
   // calling hasAnthropic/OpenAIOAuthCredentials(), which reads the on-disk
@@ -430,20 +407,48 @@ async function _initProvidersUnsynchronized(config, signal = null, proxyChannel 
   // `enabled` itself, so an explicit UI/hand-edited disable still removes the
   // provider even while its credential file happens to be unreadable, and a
   // logout (probe 'absent') never carries the marker at all.
+  //
+  // It runs before the all-disabled guard below: a secrets-less load
+  // (explore) marks every OAuth entry probe-unavailable, so an OAuth-only
+  // setup has no enabled entry and only its preserved instances.
   const nextDisabled = new Set();
   for (const [name, cfg] of entries) {
     if (cfg?.enabled) continue;
     if (OAUTH_PROVIDER_NAMES.has(name) && cfg?.credentialProbeUnavailable === true) continue;
     nextDisabled.add(name);
   }
-  _explicitlyDisabled = nextDisabled;
   for (const name of OAUTH_PROVIDER_NAMES) {
     if (next.has(name) || !providers.has(name)) continue;
-    if (_explicitlyDisabled.has(name)) continue;
+    if (nextDisabled.has(name)) continue;
     if (oauthCredentialProbeState(name) === 'absent') continue;
     next.set(name, providers.get(name));
     if (signatures.has(name)) nextSignatures.set(name, signatures.get(name));
   }
+  // Second guard: every entry was disabled and nothing was preserved. Same
+  // reasoning — keep the existing registry rather than going dark. Isolation
+  // still holds: a live instance of a provider that is now an invalid custom
+  // config is removed (the rest of the registry stays), and the recorded
+  // reasons are reported.
+  if (next.size === 0) {
+    let removed = false;
+    for (const name of nextInitErrors.keys()) {
+      removed = providers.delete(name) || removed;
+      signatures.delete(name);
+    }
+    if (removed) {
+      _providerCatalogRevision += 1;
+      _startupCatalogRefreshPromise = null;
+      // The live registry no longer reflects the last applied config.
+      _lastAppliedSig = null;
+    }
+    const reasons = [...nextInitErrors.values()];
+    throw noEnabledProvidersError(
+      `[provider] all providers disabled in config — refusing to clear registry${
+        reasons.length ? `; invalid custom providers skipped: ${reasons.join('; ')}` : ''
+      }`
+    );
+  }
+  _explicitlyDisabled = nextDisabled;
   throwIfAborted(signal);
   // Reconfiguration opens a new catalog epoch. A provider added (or rebuilt
   // with an empty model cache) after the startup refresh settled would
