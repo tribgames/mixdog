@@ -71,7 +71,7 @@ export function useAppPaneSurfaces(
     submit,
     workbenchWorkspace,
   } = context;
-  const { openFileTab, openFileInSideDock, openPreviewToSide, dockOpenAgentSession, fileReveal, latestEditorLocation } =
+  const { openFileTab, openFileInSideDock, openPreviewToSide, dockPeekAgentSession, fileReveal, latestEditorLocation } =
     tabWorkflow;
   const { selectWorkbenchSideView } = hubs;
 
@@ -122,7 +122,9 @@ export function useAppPaneSurfaces(
     openFileInSideDock: sideDockRoutes.openFileInSideDock,
     openFolderInSideDock: sideDockRoutes.openFolderInSideDock,
     openSessionDiffInSideDock: sideDockRoutes.openSessionDiffInSideDock,
-    openAgentSession: dockOpenAgentSession,
+    // A chat's own sub-agents (the composer's agent list, an approval's
+    // "세션 열기") open beside that chat, as Agents-window rows do.
+    openAgentSession: dockPeekAgentSession,
   });
 
   const { paneFileEditors, paneUtilitySurfacePortals, paneUtilityTabs } = useAppPersistentPaneSurfaces({
