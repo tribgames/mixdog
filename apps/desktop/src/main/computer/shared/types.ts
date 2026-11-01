@@ -81,6 +81,9 @@ export interface ComputerCommand {
    *  wants the cheapest fresh state, not a fresh verdict on a provider the
    *  session already found stalled. */
   observation_after?: boolean;
+  /** Host-supplied on that capture: the reply may list only the elements that
+   *  changed against the observation the model holds (capture-delta.ts). */
+  observation_delta?: boolean;
   capture_delay_ms?: number;
   capture_after_mode?: 'state' | 'som' | 'vision' | 'ax';
   capture_after_max_elements?: number;

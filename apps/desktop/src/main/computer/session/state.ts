@@ -13,6 +13,7 @@ import type {
   ObservedWindowScope,
 } from '../shared/types';
 import type { CaptureBaseline } from '../observation/capture-baseline';
+import type { ObservationDeltaStore } from '../observation/capture-delta';
 import { elementTarget, resolveElementAliases, visualPointForRef } from './element-aliases';
 import { elementTargetsFromRecords, normalizeElementRecords } from './element-records';
 import { assertFrameSurfaceUnchanged } from './frame-validity';
@@ -41,6 +42,11 @@ export function createSessionState(host: SessionStateHost) {
   // mutation triggers, so the fresh capture that follows can report what
   // changed instead of making the model re-read the whole tree.
   const lastCaptureBySession = new Map<string, CaptureBaseline>();
+  // The rows the model holds of the last observation, which an observation
+  // delta is computed against. Unlike the element targets, a session's own
+  // mutation leaves it alone (the observation that follows depends on it);
+  // every invalidation that retires refs drops it. It never rewrites a ref.
+  const observationDeltaBySession: ObservationDeltaStore = new Map();
 
   /** Frame ids are per host, so a stale id from another session is refused
    *  by lookup rather than by chance. */
@@ -103,7 +109,11 @@ export function createSessionState(host: SessionStateHost) {
         ...[...(frames?.values() || [])].flatMap((frame) => [...(frame.relatedWindowIds || []), frame.windowId || '']),
       ];
       if (!related.some((id) => ids.has(id.toLowerCase()))) continue;
-      invalidateComputerActionTargets(sessionId, { framesBySession, elementTargetsBySession });
+      invalidateComputerActionTargets(sessionId, {
+        framesBySession,
+        elementTargetsBySession,
+        observationDeltaBySession,
+      });
       observedWindowBySession.delete(sessionId);
     }
   }
@@ -112,6 +122,7 @@ export function createSessionState(host: SessionStateHost) {
     invalidateComputerActionTargets(sessionIdFor(command), {
       framesBySession,
       elementTargetsBySession,
+      observationDeltaBySession,
     });
   }
 
@@ -121,6 +132,7 @@ export function createSessionState(host: SessionStateHost) {
       {
         framesBySession,
         elementTargetsBySession,
+        observationDeltaBySession,
         observedWindowBySession,
         lastCaptureBySession,
       },
@@ -132,6 +144,7 @@ export function createSessionState(host: SessionStateHost) {
     invalidateComputerWorkerGeneration(sessionId, {
       framesBySession,
       elementTargetsBySession,
+      observationDeltaBySession,
       observedWindowBySession,
       lastCaptureBySession,
     });
@@ -160,6 +173,7 @@ export function createSessionState(host: SessionStateHost) {
   return {
     framesBySession,
     elementTargetsBySession,
+    observationDeltaBySession,
     observedWindowBySession,
     lastCaptureBySession,
     allocateFrameId,

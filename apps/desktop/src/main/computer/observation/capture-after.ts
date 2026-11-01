@@ -38,7 +38,9 @@ export function createCaptureAfter(
     command: ComputerCommand,
     windowId: string,
     delayOverrideMs?: number,
-    reportedDelayMs?: number
+    reportedDelayMs?: number,
+    /** fullObservation: a window transition or an unfinished sequence earns the whole list, not a delta. */
+    options: { fullObservation?: boolean } = {}
   ): Promise<{ metadata: Record<string, unknown>; image?: { mimeType: string; data: string } }> {
     const delayMs =
       delayOverrideMs ??
@@ -79,6 +81,7 @@ export function createCaptureAfter(
             screen: undefined,
             capture_after: false,
             observation_after: true,
+            observation_delta: options.fullObservation !== true,
           },
           windowId
         );

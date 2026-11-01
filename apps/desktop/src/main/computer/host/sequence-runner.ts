@@ -6,6 +6,7 @@
  */
 import { elapsedMs } from '../shared/common';
 import type { ComputerCommand, ComputerCommandResult, ObservedWindowScope } from '../shared/types';
+import { windowTransitionRetargets } from '../shared/window-transition';
 import { assertSafeComputerInput } from '../input/guards';
 import { classifyComputerSequenceObservation, executeComputerSequenceSteps } from '../input/sequence';
 import type { createCaptureEngine } from '../observation/capture';
@@ -368,7 +369,9 @@ export function createSequenceRunner(host: SequenceRunnerHost) {
     }
     const completed = completedSteps === steps.length && !stoppedReason;
     const captureStartedAt = performance.now();
-    const capture = await captureAfterAction(command, finalWindowId, 0, 0);
+    const capture = await captureAfterAction(command, finalWindowId, 0, 0, {
+      fullObservation: Boolean(stoppedReason) || windowTransitionRetargets(lastTransition),
+    });
     const postCaptureMs = elapsedMs(captureStartedAt);
     const { unavailable: observationUnavailable, pixelUnavailable } = classifyComputerSequenceObservation(
       capture.metadata

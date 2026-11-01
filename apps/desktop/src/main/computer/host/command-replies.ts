@@ -80,7 +80,7 @@ export function createCommandReplies(host: CommandRepliesHost) {
     );
     const windowId = recaptureTarget.windowId;
     const capture = windowId
-      ? await captureAfterAction(command, windowId, 0, 0)
+      ? await captureAfterAction(command, windowId, 0, 0, { fullObservation: true })
       : {
           metadata: {
             ok: false,

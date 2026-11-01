@@ -24,6 +24,7 @@ import {
   viewAccessibility,
 } from './capture-accessibility';
 import type { CaptureBaseline } from './capture-baseline';
+import type { ObservationDeltaStore } from './capture-delta';
 
 import { elapsedMs } from '../shared/common';
 import type { NativeCaptureBackend } from '../shared/capture-attempts';
@@ -67,6 +68,7 @@ export interface CaptureEngineHost {
   framesBySession: Map<string, Map<string, CaptureFrame>>;
   elementTargetsBySession: Map<string, Map<number, ElementAliasTarget>>;
   lastCaptureBySession: Map<string, CaptureBaseline>;
+  observationDeltaBySession: ObservationDeltaStore;
   allocateFrameId(): number;
   authorizeCapture?(command: ComputerCommand, windowId: string): Promise<void>;
   /** Window-owned surfaces this platform's worker renders after the
@@ -85,7 +87,7 @@ function replacedWorkerOcr() {
 }
 
 export function createCaptureEngine(host: CaptureEngineHost) {
-  const { sessionIdFor, assertExecutionNotAborted, lastCaptureBySession } = host;
+  const { sessionIdFor, assertExecutionNotAborted, lastCaptureBySession, observationDeltaBySession } = host;
   const { visualOnly, ocrPreferences, imageDedup, backendMemory, ocrCache, releaseCaptureSession } =
     createCaptureSessionStores();
 
@@ -196,7 +198,7 @@ export function createCaptureEngine(host: CaptureEngineHost) {
       const settled = settleInputObservation(inputObservation, inputAfter);
       return await finishCapture(
         host,
-        { lastCaptureBySession, ocrPreferences },
+        { lastCaptureBySession, observationDeltaBySession, ocrPreferences },
         {
           command,
           mode,

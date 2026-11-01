@@ -13,6 +13,21 @@ export interface CaptureBaseline {
   refIdentities: Map<string, string>;
 }
 
+/** The read parameters two captures must share before one can stand as the
+ *  other's baseline, for both the change summary and the observation delta. */
+export function captureBaselineKey(command: ComputerCommand, mode: CaptureMode, totalElementBudget: number): string {
+  return JSON.stringify({
+    mode,
+    query: command.query ?? null,
+    role: command.role ?? null,
+    visible_only: command.visible_only ?? null,
+    include_noninteractive: command.include_noninteractive ?? null,
+    include_structure: command.include_structure ?? null,
+    max_elements: totalElementBudget,
+    continuation: command.continuation ?? null,
+  });
+}
+
 export function recordCaptureBaseline(
   baselines: Map<string, CaptureBaseline>,
   sessionId: string,
@@ -32,16 +47,7 @@ export function recordCaptureBaseline(
 ): Record<string, unknown> | undefined {
   const refIdentities = new Map<string, string>();
   const identities = captureIdentityMap(rawElements, refIdentities);
-  const baselineKey = JSON.stringify({
-    mode,
-    query: command.query ?? null,
-    role: command.role ?? null,
-    visible_only: command.visible_only ?? null,
-    include_noninteractive: command.include_noninteractive ?? null,
-    include_structure: command.include_structure ?? null,
-    max_elements: totalElementBudget,
-    continuation: command.continuation ?? null,
-  });
+  const baselineKey = captureBaselineKey(command, mode, totalElementBudget);
   const baseline = baselines.get(sessionId);
   const changes =
     baseline && observationWindowId && baseline.windowId === observationWindowId && baseline.baselineKey === baselineKey
