@@ -674,6 +674,7 @@ function createAgentArchiveApi({
   announceBotChange,
   getAgentDefinition,
   deleteOwnedRoutines,
+  reloadRoutines,
 }) {
   // A removed custom agent must not leave a dangling route/preset or a
   // disabled-roster entry that would silently disable a later agent of the
@@ -770,6 +771,9 @@ function createAgentArchiveApi({
     clearAgentDefinitionCache(id);
     // Back in the roster of the Leads that list it, from their next turn.
     await announceBotChange(dataDir);
+    // A one-shot that came due while it was archived was skipped with no
+    // timer left: the reload re-arms it (overdue fires at once, as at start).
+    reloadRoutines();
     return getAgentDefinition(id);
   }
 
@@ -794,9 +798,10 @@ function createAgentArchiveApi({
       writeFileAtomicSync(join(dir, AGENT_DELETED_MARKER), 'deleted\n');
       clearAgentDefinitionCache(id);
     }
-    // A save that passed its owner check while the bot was still archived can
-    // land after the first purge: swept again now that the bot is gone (a
-    // later one is refused by the save itself, channel-admin.mjs). A failure
+    // A save that passed its owner check before the bot was archived (an
+    // archived owner is refused) can land after the first purge: swept again
+    // now that the bot is gone (a later one is refused by the save itself,
+    // channel-admin.mjs). A failure
     // here leaves at most such a row, listed as its bot deleted, deletable.
     const late = await deleteOwnedRoutines(id).catch((error) => error);
     const names = (kind) => [...routines[kind], ...(late instanceof Error ? [] : late[kind])];
@@ -995,6 +1000,7 @@ export function createAgentEditorApi(deps) {
       // The runtime wires the store (boot/apis.mjs); a read-only editor (the
       // routine owner and delivery probes) never deletes an agent.
       deleteOwnedRoutines: deps.deleteOwnedRoutines ?? (async () => ({ schedules: [], webhooks: [] })),
+      reloadRoutines: deps.reloadRoutines ?? (() => {}),
     }
   );
 

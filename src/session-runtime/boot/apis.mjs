@@ -653,6 +653,8 @@ function workflowAgentsApiFor(boot) {
       if (removed.schedules.length || removed.webhooks.length) boot.reloadChannelsSoon();
       return removed;
     },
+    // A restored bot's routines are armed again by the same reload.
+    reloadRoutines: () => boot.reloadChannelsSoon(),
   });
 }
 

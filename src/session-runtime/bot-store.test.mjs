@@ -367,8 +367,9 @@ test('routines keep their owners across the split: migrated bots, Mixy and recla
   assert.equal(await routineOwnerProblem('tool-bot', probe), 'owner-deleted');
 });
 
-// The routine store as the runtime wires it (channel-admin.mjs deleteOwnedRoutines):
-// owner-keyed, all or nothing, with each row's own on/off.
+// A stand-in for the routine store (channel-admin.mjs deleteOwnedRoutines): it
+// models which rows an owner's purge takes and each row's own on/off, not the
+// statement's atomicity (routines-db.mjs, and its tests).
 function routineStore(api) {
   const store = {
     rows: [
