@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readdirSync, renameSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync, unlinkSync } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { createHash, randomUUID } from 'node:crypto';
@@ -168,6 +168,29 @@ function withPluginMutation(dataDir, id, operation) {
   });
 }
 
+// Node 24 on Windows (Electron) fails with EPERM on read-only files such as
+// git pack files; clear the read-only bit and retry once.
+function removeTree(path) {
+  const options = { recursive: true, force: true };
+  try {
+    rmSync(path, options);
+  } catch (error) {
+    if (error?.code !== 'EPERM') throw error;
+    const clearReadOnly = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = join(dir, entry.name);
+        // Node 24 on Windows makes rmSync follow junctions into their targets, so a
+        // link must be detached here, never chmod-ed or recursed into.
+        if (entry.isSymbolicLink()) unlinkSync(full);
+        else if (entry.isDirectory()) clearReadOnly(full);
+        else chmodSync(full, 0o666);
+      }
+    };
+    clearReadOnly(path);
+    rmSync(path, options);
+  }
+}
+
 function cleanupManagedPartials(root) {
   const parent = dirname(root);
   const prefix = `${basename(root)}.tmp-`;
@@ -175,7 +198,7 @@ function cleanupManagedPartials(root) {
   for (const entry of readdirSync(parent)) {
     if (!entry.startsWith(prefix)) continue;
     try {
-      rmSync(join(parent, entry), { recursive: true, force: true });
+      removeTree(join(parent, entry));
     } catch {}
   }
 }
@@ -185,7 +208,7 @@ function recoverManagedPluginRoot(root) {
   if (!existsSync(root) && existsSync(backupRoot)) {
     renameSync(backupRoot, root);
   } else if (existsSync(root) && existsSync(backupRoot)) {
-    rmSync(backupRoot, { recursive: true, force: true });
+    removeTree(backupRoot);
   }
   return backupRoot;
 }
@@ -210,7 +233,7 @@ export function _publishManagedPluginRoot(root, tempRoot) {
     throw error;
   }
   try {
-    rmSync(backupRoot, { recursive: true, force: true });
+    removeTree(backupRoot);
   } catch {}
 }
 
@@ -374,8 +397,8 @@ export function removePlugin(idOrName, { dataDir = resolvePluginData() } = {}) {
     });
     if (entry.managed !== false && entry.root) {
       ensureInside(installRoot(dataDir), entry.root);
-      rmSync(entry.root, { recursive: true, force: true });
-      rmSync(`${entry.root}.backup`, { recursive: true, force: true });
+      removeTree(entry.root);
+      removeTree(`${entry.root}.backup`);
       cleanupManagedPartials(entry.root);
     }
     return { ...entry, removed: true };
