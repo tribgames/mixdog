@@ -896,7 +896,8 @@ test('only turns the origin agent starts report back, ended or waiting for the u
   assert.deepEqual(delivered.at(-1), [
     'reviewer',
     {
-      runId: `${foreign.options.id}_end`,
+      // The end of an answer is the answer's row (one for every send it closes).
+      runId: `${taskId}_${foreign.options.id}_end`,
       taskSessionId: taskId,
       title: taskId,
       status: 'completed',
@@ -906,7 +907,7 @@ test('only turns the origin agent starts report back, ended or waiting for the u
       watchId: foreign.options.id,
       // The progress update that would have carried this answer: the send's
       // own turn (its submission id) answered, so it names that turn.
-      progressRunId: `${foreign.options.id}_progress_${foreign.options.id}`,
+      progressRunId: `${taskId}_progress_${foreign.options.id}`,
     },
   ]);
   // Every reporting turn was watched durably; a coding session's send was not.
@@ -1318,14 +1319,15 @@ test("sends a room answered under another turn's submission id recover that turn
   );
   const second = w.boot();
   assert.equal(await second.api.recover(), 4);
-  for (let i = 0; i < 20 && w.home.messages.length < 4; i += 1) {
+  for (let i = 0; i < 20 && (w.home.messages.length < 2 || (await w.watchIds()).length); i += 1) {
     await settle();
     await second.delivery.drain(HOME);
   }
+  // One card per answer, closing every send it answered.
   const reports = w.home.messages.map((message) => message.content);
-  assert.equal(reports.length, 4);
-  assert.equal(reports.filter((text) => /reported \(completed\)[\s\S]*answer A/.test(text)).length, 2, 'a and b');
-  assert.equal(reports.filter((text) => /reported \(completed\)[\s\S]*answer F/.test(text)).length, 2, 'c and d');
+  assert.equal(reports.length, 2);
+  assert.equal(reports.filter((text) => /reported \(completed\)[\s\S]*answer A/.test(text)).length, 1, 'a and b');
+  assert.equal(reports.filter((text) => /reported \(completed\)[\s\S]*answer F/.test(text)).length, 1, 'c and d');
   assert.deepEqual(await w.watchIds(), []);
 });
 
@@ -1348,12 +1350,13 @@ test("coalesced then cut short: after a restart both sends recover the replaceme
   w.target().messages.push(promptRow(a), promptRow(b), replyRow(b, 'answer B'));
   const second = w.boot();
   assert.equal(await second.api.recover(), 2);
-  for (let i = 0; i < 20 && w.home.messages.length < 2; i += 1) {
+  for (let i = 0; i < 20 && (!w.home.messages.length || (await w.watchIds()).length); i += 1) {
     await settle();
     await second.delivery.drain(HOME);
   }
+  // Both sends' chains reach one answer: one card closes both.
   const reports = w.home.messages.map((message) => message.content);
-  assert.equal(reports.length, 2);
+  assert.equal(reports.length, 1);
   assert.ok(reports.every((text) => /reported \(completed\)[\s\S]*answer B/.test(text)));
   assert.deepEqual(await w.watchIds(), []);
 });
@@ -1465,7 +1468,7 @@ test('a wake that fails before a restart is owed durably and taken once after it
   await first.posted();
   assert.equal(w.home.messages.length, 1, 'the row is posted');
   assert.equal(w.wakes.length, 0);
-  assert.deepEqual(await w.owedWakes(), [`${options.id}_end`], 'the wake stays owed');
+  assert.deepEqual(await w.owedWakes(), [`${TARGET}_${options.id}_end`], 'the wake stays owed');
   // The daemon stops before any retry: the next start wakes, posting nothing.
   w.wakeOutcome.next = undefined;
   const second = w.boot();
@@ -1810,7 +1813,7 @@ test('a room member opens a task session: its result reaches the member session 
   // A replayed report adds nothing.
   await delivery.drain(
     await delivery.enqueueTask('gh', {
-      runId: `${options.id}_end`,
+      runId: `sess_task_1_${options.id}_end`,
       taskSessionId: 'sess_task_1',
       title: 'Build the report',
       status: 'completed',

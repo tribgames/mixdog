@@ -63,6 +63,7 @@ import { readJsonState, updateJsonAtomic } from '../runtime/shared/atomic-file.m
 import { endHandoff, noteHandoff } from '../runtime/shared/delegated-approval-host.mjs';
 import { ROUTINE_LIMITS } from '../runtime/shared/routine-limits.mjs';
 import { submissionIdsOf, submissionOutcome } from './agent-task-sessions.mjs';
+import { HANDOFF_LIMITS } from './handoff-attachments.mjs';
 import {
   heldRequestMessage,
   heldRequestNotice,
@@ -298,14 +299,64 @@ function withDequeued(doc, homeId, runIds, omitted) {
 function withoutRepeatedProgress(doc, homeId, item, posted) {
   const { progressRunId, ...report } = item;
   if (!progressRunId) return { doc, item };
-  if (posted || (doc.delivered[homeId] || []).includes(progressRunId)) {
+  const key = answerKey(progressRunId);
+  if (posted || (doc.delivered[homeId] || []).some((runId) => answerKey(runId) === key)) {
     const { text: _text, textChars: _textChars, ...rest } = report;
     return { doc, item: { ...rest, text: '', answerAbove: true } };
   }
   const queued = doc.homes[homeId] || [];
-  if (!queued.some((row) => row.runId === progressRunId)) return { doc, item: report };
-  const homes = { ...doc.homes, [homeId]: queued.filter((row) => row.runId !== progressRunId) };
+  if (!queued.some((row) => answerKey(row.runId) === key)) return { doc, item: report };
+  const homes = { ...doc.homes, [homeId]: queued.filter((row) => answerKey(row.runId) !== key) };
   return { doc: { ...doc, homes }, item: report };
+}
+
+/** The answer a progress row `runId` carries (`_progress_<turn id>`), '' for
+ *  any other row. A row is named by its task session now and was by its send
+ *  before (agent-task-sessions.mjs progressRunId); turn ids are unique, so
+ *  either name of one answer's update gives the same key, and an update
+ *  already posted under the old name is never posted again. */
+function answerKey(runId) {
+  const at = String(runId || '').indexOf('_progress_');
+  return at < 0 ? '' : String(runId).slice(at);
+}
+
+/** Whether progress row `item` carries an answer `homeId` already holds or
+ *  posted (answerKey), under whichever name. */
+function repeatsProgress(doc, homeId, item) {
+  const key = item.status === 'working' ? answerKey(item.runId) : '';
+  if (!key) return false;
+  const held = [...(doc.homes[homeId] || []).map((row) => row.runId), ...(doc.delivered[homeId] || [])];
+  return held.some((runId) => answerKey(runId) === key);
+}
+
+/** `doc` with task report `item` folded into the row of the same run id
+ *  still queued for `homeId` — the one card of an answer several open sends'
+ *  chains reached: it names every send and lists the files each produced
+ *  (the folded ones by path, at most HANDOFF_LIMITS.count, the rest counted
+ *  as omitted). Null when no such row is queued. */
+function withFoldedReport(doc, homeId, item) {
+  const list = doc.homes[homeId] || [];
+  const index = list.findIndex((row) => row.runId === item.runId);
+  if (index < 0 || item.kind !== 'agent-task') return null;
+  const row = list[index];
+  const sendIds = [...new Set([row.sendId, ...(row.sendIds || []), item.sendId, ...(item.sendIds || [])])].filter(
+    Boolean
+  );
+  const paths = new Set((row.files || []).map((file) => file.path));
+  const added = (item.files || [])
+    .filter((file) => !paths.has(file.path) && paths.add(file.path))
+    .map(({ id: _id, ...file }) => file);
+  const files = [...(row.files || []), ...added];
+  const omitted = (row.omitted || 0) + (item.omitted || 0) + Math.max(0, files.length - HANDOFF_LIMITS.count);
+  const folded = {
+    ...row,
+    ...(sendIds.length > 1 ? { sendIds } : {}),
+    ...(files.length ? { files: files.slice(0, HANDOFF_LIMITS.count) } : {}),
+    ...(omitted > 0 ? { omitted } : {}),
+  };
+  if (JSON.stringify(folded) === JSON.stringify(row)) return null;
+  const next = list.map((entry, at) => (at === index ? folded : entry));
+  return { ...doc, homes: { ...doc.homes, [homeId]: next } };
 }
 
 /** The persisted queue at `filePath`: `{ homes: { [homeSessionId]: item[] },
@@ -477,7 +528,8 @@ export function createRoutineResultQueue(
       return (await read()).omitted[homeId] || null;
     },
     /** Queue `item` for `homeId`; `unwatch` (run ids) drops those watches in the
-     *  same write, also when the item was queued or posted before.
+     *  same write, also when the item was queued or posted before (a task
+     *  report of a row still queued folds into it: withFoldedReport).
      *  `progressPosted`: the thread holds the progress update a final report
      *  names (withoutRepeatedProgress). `progressed` (`{ runId, turnId }`):
      *  watch `runId` reported turn `turnId` as progress — its durable mark,
@@ -485,8 +537,13 @@ export function createRoutineResultQueue(
     async add(homeId, queued, { unwatch = [], progressPosted = false, progressed = null } = {}) {
       await update((stored) => {
         const { doc, item } = withoutRepeatedProgress(stored, homeId, queued, progressPosted);
+        // An answer's update or end that open sends converging on it each
+        // report: queued once (folded into the queued end), never reposted.
+        const folded = withFoldedReport(doc, homeId, item);
         let next = null;
-        if (item.roundTrip !== true) next = appended(doc, homeId, [item]);
+        if (repeatsProgress(doc, homeId, item)) next = null;
+        else if (folded) next = folded;
+        else if (item.roundTrip !== true) next = appended(doc, homeId, [item]);
         else {
           // A task turn's end counts one round trip, once per run id, per home
           // and target: the user's next message in that home starts over
@@ -1191,11 +1248,18 @@ export function createAgentHomeDelivery({
     });
     return run;
   }
-  /** Whether queued row `runId` is in thread `homeId` (posted, saved or not). */
+  /** Whether progress row `runId`, or another carrying the same answer
+   *  (answerKey), is in thread `homeId` (posted, saved or not). */
   const postedIn = (homeId, runId) => {
     const messages = loadSession(homeId)?.messages;
-    const messageId = messageIdOf(runId);
-    return Array.isArray(messages) && messages.some((message) => message?.meta?.transcript?.messageId === messageId);
+    const key = answerKey(runId);
+    return (
+      Array.isArray(messages) &&
+      messages.some((message) => {
+        const messageId = message?.meta?.transcript?.messageId;
+        return messageId === messageIdOf(runId) || (key && answerKey(messageId) === key);
+      })
+    );
   };
   const intake = createHomeEnqueue(queue, drain, { postingFor, postedIn });
   const { watchTask, recover } = createHomeBookkeeping({ queue, log, homeDeleted, sessionDeleted, drain });
