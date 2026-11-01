@@ -40,10 +40,9 @@ export function useConversationIsland({
   });
   // The pending approval docks in the island above the composer; its record
   // after another device answered stays in the transcript.
-  const { dismissQuestion, answerQuestion, answerHint, retiredApproval, answeredElsewhere, viewerDevice } = approvals;
+  const { answerQuestion, answerHint, retiredApproval, answeredElsewhere, viewerDevice } = approvals;
   return {
     approval: approvals.approvalDock,
-    dismissQuestion,
     answerQuestion,
     answerHint,
     wrapSubmit: approvals.wrapSubmit,

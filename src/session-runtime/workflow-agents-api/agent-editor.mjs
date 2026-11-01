@@ -801,8 +801,8 @@ function createAgentArchiveApi({
     // A save that passed its owner check before the bot was archived (an
     // archived owner is refused) can land after the first purge: swept again
     // now that the bot is gone (a later one is refused by the save itself,
-    // channel-admin.mjs). A failure
-    // here leaves at most such a row, listed as its bot deleted, deletable.
+    // channel-admin.mjs). A failure here leaves at most such a row, listed as
+    // its bot deleted, deletable.
     const late = await deleteOwnedRoutines(id).catch((error) => error);
     const names = (kind) => [...routines[kind], ...(late instanceof Error ? [] : late[kind])];
     const removed = { schedules: names('schedules'), webhooks: names('webhooks') };

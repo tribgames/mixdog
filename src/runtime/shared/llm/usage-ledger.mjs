@@ -265,6 +265,7 @@ export function usageCostSource({ kind, costUsd, subscription, reported = false 
 export function makeUsageRecord(args) {
   const provider = text(args.provider);
   const model = text(args.model);
+  const requestedModel = text(args.requestedModel);
   if (!provider || !model) throw new Error('Usage requires a provider and model');
   const ts = Number(args.ts ?? Date.now());
   if (!Number.isSafeInteger(ts) || ts <= 0) throw new Error('Usage requires a valid timestamp');
@@ -329,7 +330,7 @@ export function makeUsageRecord(args) {
     durationMs: num(args.durationMs),
     // The request log (usage-ledger-requests.mjs): kept only when the
     // answering model differs from the one asked for.
-    requestedModel: text(args.requestedModel) !== model ? text(args.requestedModel) : '',
+    requestedModel: requestedModel !== model ? requestedModel : '',
     status: STORED_REQUEST_STATUSES.includes(args.status) ? args.status : 'completed',
     attempts: Math.max(1, Math.floor(num(args.attempts)) || 1),
     ttftMs: args.ttftMs == null || !Number.isFinite(Number(args.ttftMs)) ? null : Math.max(0, Number(args.ttftMs)),

@@ -369,9 +369,8 @@ function normalizeHeaders(raw, label = 'headers', refused = AUTH_HEADERS) {
   return Object.fromEntries(entries);
 }
 
-// `requestBody` (provider) / `requestBody` + `requestHeaders` (model): extra
-// JSON request fields and HTTP headers. A shallow object, size-capped; the keys
-// the app builds the request from can never be set here.
+// `requestBody` (provider and model): extra JSON request fields. A shallow
+// object, size-capped; the keys the app builds the request from can never be set here.
 function normalizeRequestBody(raw, label) {
   if (raw === undefined) return {};
   if (!isPlainObject(raw)) fail(`${label} must be a JSON object`);
@@ -419,7 +418,7 @@ export function resolveCustomRequestExtras(config, model) {
 
 /** `params` (the finished request body) with the extras layered over it; reserved keys keep the app's value. */
 export function applyCustomRequestBody(params, config, model) {
-  const { body } = resolveCustomRequestExtras(config, model ?? params?.model);
+  const { body } = resolveCustomRequestExtras(config, model);
   for (const [key, value] of Object.entries(body)) params[key] = value;
   return params;
 }

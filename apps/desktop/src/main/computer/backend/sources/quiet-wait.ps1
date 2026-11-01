@@ -8,11 +8,6 @@
 $script:QuietSampleIntervalMs = 200
 # Consecutive unchanged comparisons that end the wait: 3 equal samples.
 $script:QuietEqualRun = 2
-# The requested time is a cap. A next sample only starts when a full interval
-# plus a sample's cost still fits before it, so every compared pair is a full
-# interval apart and no sample starts past the cap. A sample cannot be
-# interrupted, so the wait overruns only if a sample runs longer than the
-# previous one (measured Do-WindowSnapshot: 2-22 ms).
 
 function Get-QuietSample {
     $rows = foreach ($w in (Do-WindowSnapshot).windows) {
@@ -21,6 +16,11 @@ function Get-QuietSample {
     return ($rows -join "`n")
 }
 
+# The requested time is a cap. A next sample only starts when a full interval
+# plus a sample's cost still fits before it, so every compared pair is a full
+# interval apart and no sample starts past the cap. A sample cannot be
+# interrupted, so the wait overruns only if a sample runs longer than the
+# previous one (measured Do-WindowSnapshot: 2-22 ms).
 function Wait-UntilQuiet([double]$seconds, [scriptblock]$sample) {
     $capMs = [int]($seconds * 1000)
     $clock = [System.Diagnostics.Stopwatch]::StartNew()

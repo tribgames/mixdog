@@ -4,7 +4,7 @@
 // record the asking session's transcript keeps.
 import { ASK_USER_MAX_TEXT } from './ask-user-tool-defs.mjs';
 
-export const ASK_USER_DISMISSED =
+const ASK_USER_DISMISSED =
   'User closed the questions without answering. Proceed with your best judgment; ask again only if something new depends on it.';
 
 /** Wire answers -> array aligned with questions; invalid entries become null. */

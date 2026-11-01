@@ -88,9 +88,12 @@ export function requestBodyText(value: unknown): string {
   return value && typeof value === 'object' && Object.keys(value).length ? JSON.stringify(value, null, 2) : '';
 }
 
-/** The model-level header the runtime refuses (credentials, transport), or ''. */
+/** A model-level header the runtime refuses (credentials, transport). */
+const isRefusedModelHeader = (row: PairRow) => REFUSED_MODEL_HEADERS.has(row.key.trim().toLowerCase());
+
+/** The first refused model-level header's name, or ''. */
 export function blockedModelHeader(rows: PairRow[]): string {
-  return rows.find((row) => REFUSED_MODEL_HEADERS.has(row.key.trim().toLowerCase()))?.key.trim() ?? '';
+  return rows.find(isRefusedModelHeader)?.key.trim() ?? '';
 }
 
 export function blockedModelHeaderMessage(name: string): string {
@@ -193,7 +196,7 @@ export function ModelRequestHeaders({
         keyPlaceholder={t('Header')}
         valuePlaceholder={t('Value')}
         busy={disabled}
-        invalid={(row) => REFUSED_MODEL_HEADERS.has(row.key.trim().toLowerCase())}
+        invalid={isRefusedModelHeader}
         removeLabel={(row) => (row.key.trim() ? t('Remove {{name}}', { name: row.key.trim() }) : t('Remove'))}
         onChange={onChange}
       >

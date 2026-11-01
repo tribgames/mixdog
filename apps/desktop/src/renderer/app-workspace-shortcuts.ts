@@ -31,10 +31,6 @@ import { zoomTargetClaimsKey } from './zoom-target';
 /** Surfaces with their own back/forward or word motion: the in-app browser and the terminal. */
 const OWN_HISTORY_SURFACES = '.browser-pane, .browser-isolated-view, .xterm';
 
-function isMacPlatform(): boolean {
-  return /Mac/i.test(navigator.platform);
-}
-
 interface WorkspaceShortcutActions {
   tabs: WorkspaceTab[];
   activeTabKey: string;
@@ -95,7 +91,7 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       // buttons 3/4 are the history keys there.
       if (event.altKey && !mod && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
         if (ownsHistoryKeys) return null;
-        if (isMacPlatform() && (inEditor || isTextNavigationTarget(event.target))) return null;
+        if (/Mac/i.test(navigator.platform) && (inEditor || isTextNavigationTarget(event.target))) return null;
         return event.key === 'ArrowLeft'
           ? () => actionsRef.current.navigateBack()
           : () => actionsRef.current.navigateForward();

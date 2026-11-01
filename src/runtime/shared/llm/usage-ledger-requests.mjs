@@ -6,10 +6,10 @@
  *
  * The request facts (requested model, status, attempts) sit in
  * `usage_requests` and the first-output time in `usage_request_first_output`,
- * beside `usage_events` and keyed by the record id, so
- * the record table keeps the exact shape every earlier build writes: an older
- * app still opens and writes a ledger this one touched. A record without a
- * request row is a completed single attempt (every record from before).
+ * beside `usage_events` and keyed by the record id, so the record table keeps
+ * the exact shape every earlier build writes: an older app still opens and
+ * writes a ledger this one touched. A record without a request row is a
+ * completed single attempt (every record from before).
  */
 
 export const REQUEST_STATUSES = ['completed', 'substituted', 'retried', 'failed'];

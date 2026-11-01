@@ -47,7 +47,7 @@ export function modelParameterLabel(parameter: { id: string; label: string }): s
 }
 
 /** A parameter value's label; OpenRouter's routing choices are translated here. */
-export function modelParameterOptionLabel(parameter: { id: string }, option: { value: string; label: string }): string {
+function modelParameterOptionLabel(parameter: { id: string }, option: { value: string; label: string }): string {
   if (parameter.id !== 'providerSort') return option.label;
   const labels: Record<string, string> = {
     auto: t('Auto'),
@@ -56,6 +56,17 @@ export function modelParameterOptionLabel(parameter: { id: string }, option: { v
     latency: t('Latency first'),
   };
   return labels[option.value] ?? option.label;
+}
+
+/** The label of the parameter's `value`: an unlisted stored value reads as itself, none as the first option. */
+export function modelParameterValueLabel(
+  parameter: { id: string; options: ReadonlyArray<{ value: string; label: string }> },
+  value: string | undefined
+): string {
+  const option =
+    parameter.options.find((entry) => entry.value === value) ??
+    (value ? { value, label: value } : parameter.options[0]);
+  return option ? modelParameterOptionLabel(parameter, option) : '';
 }
 
 /** The area a route sheet may use: the trigger's pane clipped to the visible

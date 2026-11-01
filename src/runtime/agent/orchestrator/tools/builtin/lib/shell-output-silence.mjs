@@ -41,9 +41,11 @@ export function describeShellOutputSilence(silentMs, warnMs = SHELL_OUTPUT_SILEN
   return `no output for ${formatDuration(silentMs, { mostSignificantOnly: true })} — may be hung; inspect or cancel`;
 }
 
+const isRunningShell = (task) => task?.surface === 'shell' && task.status === 'running';
+
 /** The warning for one running shell task, else null. */
 export function shellTaskSilenceNote(task, { now = Date.now(), warnMs = SHELL_OUTPUT_SILENCE_WARN_MS, result } = {}) {
-  if (task?.surface !== 'shell' || task.status !== 'running') return null;
+  if (!isRunningShell(task)) return null;
   return describeShellOutputSilence(shellOutputSilenceMs(task, { now, result: result ?? task.result }), warnMs);
 }
 
@@ -53,7 +55,7 @@ export function waitedJobSilence(taskIds, { now = Date.now(), warnMs = SHELL_OUT
   let worst = null;
   for (const taskId of taskIds || []) {
     const task = getBackgroundTask(taskId);
-    if (task?.surface !== 'shell' || task.status !== 'running') continue;
+    if (!isRunningShell(task)) continue;
     const silentMs = shellOutputSilenceMs(task, { now });
     if (silentMs != null && (!worst || silentMs > worst.silentMs))
       worst = { taskId, silentMs, hung: silentMs >= warnMs };

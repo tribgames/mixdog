@@ -44,7 +44,7 @@ export const HandoffQuestionsContext = createContext<{
 } | null>(null);
 
 /** The pending (or else the settled) question `sessionId` asks among `questions`. */
-export function handoffQuestionOf(questions: readonly HandoffQuestionEntry[], sessionId: string) {
+function handoffQuestionOf(questions: readonly HandoffQuestionEntry[], sessionId: string) {
   const asked = questions.filter((question) => String(question.sessionId || '') === sessionId);
   return asked.find((question) => typeof question.record !== 'string') ?? asked[0];
 }

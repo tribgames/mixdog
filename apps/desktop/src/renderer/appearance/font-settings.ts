@@ -141,7 +141,7 @@ export function setFontSettings(patch: Partial<FontSettings>): FontSettings {
 }
 
 /** The Ctrl/⌘ + = / - / 0 shortcuts: one step of the UI size setting (0 = the
-    default), clamped to its range; the slider reads the same stored value. */
+ *  default), clamped to its range; the slider reads the same stored value. */
 export function stepUiScale(direction: -1 | 0 | 1): FontSettings {
   const uiScale =
     direction === 0 ? DEFAULT_FONT_SETTINGS.uiScale : getFontSettings().uiScale + direction * UI_SCALE_RANGE.step;
