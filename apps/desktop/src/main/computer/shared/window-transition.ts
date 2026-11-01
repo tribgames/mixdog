@@ -40,6 +40,14 @@ export interface ComputerWindowTransition {
     | 'launched_single_window';
 }
 
+/** Whether a window opened or closed, or a successor became the target: what
+ *  the refs of an earlier observation named is no longer the whole picture. */
+export function windowTransitionRetargets(
+  transition: { opened_windows?: unknown[]; closed_windows?: unknown[]; next_target?: unknown } | null | undefined
+): boolean {
+  return Boolean(transition?.opened_windows?.length || transition?.closed_windows?.length || transition?.next_target);
+}
+
 const CONFIRMED_LAUNCH_TRANSITIONS = new Set<NonNullable<ComputerWindowTransition['next_target_reason']>>([
   'launched_process_window',
   'launched_app_opened',

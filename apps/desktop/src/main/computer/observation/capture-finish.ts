@@ -6,7 +6,8 @@
 import { elapsedMs } from '../shared/common';
 import type { createOcrCapturePreferenceStore } from '../input/capability-policy';
 import { captureResultPayload } from './capture-result';
-import { type CaptureBaseline, recordCaptureBaseline } from './capture-baseline';
+import { type CaptureBaseline, captureBaselineKey, recordCaptureBaseline } from './capture-baseline';
+import { type ObservationDeltaStore, recordObservation } from './capture-delta';
 import { applyFrameImage, persistCaptureImage } from './capture-image-output';
 import type { CaptureMode } from './capture-target';
 import type { CaptureEngineHost } from './capture';
@@ -26,6 +27,7 @@ export async function finishCapture(
   host: FinishCaptureHost,
   stores: {
     lastCaptureBySession: Map<string, CaptureBaseline>;
+    observationDeltaBySession: ObservationDeltaStore;
     ocrPreferences: ReturnType<typeof createOcrCapturePreferenceStore>;
   },
   state: {
@@ -101,6 +103,26 @@ export async function finishCapture(
     continuation: state.continuation,
     ocrPayload: state.ocrPayload,
   });
+  // The observation that follows an action sends only what changed against the
+  // one the model holds; any other reply is the full list and becomes the new
+  // baseline. Marks, OCR rows, pages and set-of-marks overlays always go full.
+  const ocrContent =
+    state.ocrElements.length > 0 ||
+    [state.ocrPayload?.lines, state.ocrPayload?.words].some((rows) => Array.isArray(rows) && rows.length > 0);
+  const elementsDelta = recordObservation(stores.observationDeltaBySession, sessionId, {
+    elements: state.elements,
+    windowId: observationWindowId,
+    baselineKey: captureBaselineKey(command, mode, state.totalElementBudget),
+    relatedWindowIds: screenshot?.frame?.relatedWindowIds || [observationWindowId],
+    generation: state.generation,
+    recordable: mode !== 'vision' && captureOk && !state.visualOnlyCacheHit && !state.accessibilityError,
+    deltaAllowed:
+      command.observation_delta === true && mode !== 'som' && !ocrContent && !state.continuation && !command.continuation,
+  });
+  if (elementsDelta) {
+    delete payload.elements;
+    payload.elements_delta = elementsDelta;
+  }
   payload.foreground_input_ready = state.foregroundReady;
   if (state.foregroundInputReason) payload.foreground_input_reason = state.foregroundInputReason;
   if (state.accessibilityRetryAt) {

@@ -111,6 +111,12 @@ function ocrTextLine(row) {
 function renderObservationLines(frame) {
   if (!frame || typeof frame !== 'object') return;
   if (Array.isArray(frame.elements)) frame.elements = frame.elements.map(elementLine);
+  const delta = frame.elements_delta;
+  if (delta && typeof delta === 'object') {
+    if (Array.isArray(delta.added)) delta.added = delta.added.map(elementLine);
+    // The delta already says what changed; the host's count summary repeats it.
+    delete frame.changes;
+  }
   for (const key of ['lines', 'words']) {
     if (Array.isArray(frame.ocr?.[key])) frame.ocr[key] = frame.ocr[key].map(ocrTextLine);
   }

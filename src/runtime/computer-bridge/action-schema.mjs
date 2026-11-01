@@ -235,7 +235,7 @@ export const COMPUTER_ACTION_CONTRACTS = [
           type: 'string',
           enum: ['state', 'ax'],
           description:
-            'Returned observation. Default: ax when the first action targets a ref (full state if the tree is unusable), otherwise state. state includes the frame for coordinates or visual checks; ax skips the screenshot. A repeat observation of the same window lists only changes as elements_delta: unchanged=N, added and updated rows (updated shows was=old ref), removed refs. Refs you already hold stay valid for unchanged elements; use the new ref of an added or updated row; a removed ref is gone. A new window, a dialog or a large change returns the full elements list, and capture always does.',
+            'Returned observation. Default: ax when the first action targets a ref (full state if the tree is unusable), otherwise state. state includes the frame for coordinates or visual checks; ax skips the screenshot. A repeat observation of the same window may send elements_delta instead of elements: unchanged lists "old ref=live ref" ranges for rows that look identical to the list you hold (s1:e0..e4=s9:e0..e4), added has every other row in full, removed the old refs that are gone. Every ref from an earlier observation is retired: act only with the live ref on the right of "=" or on an added row. A new window, a dialog or a large change returns the full elements list, and capture always does.',
         },
         ...delivery,
       },

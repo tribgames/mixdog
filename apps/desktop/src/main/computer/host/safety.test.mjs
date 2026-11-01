@@ -522,6 +522,10 @@ test('stale recapture invalidates action targets while session release also clea
       [sessionId, new Map([[1, {}]])],
       [otherSessionId, new Map([[2, {}]])],
     ]),
+    observationDeltaBySession: new Map([
+      [sessionId, { aliases: new Map([['s1:e0', 's3:e0']]) }],
+      [otherSessionId, { aliases: new Map([['s2:e0', 's4:e0']]) }],
+    ]),
     observedWindowBySession: new Map([
       [
         sessionId,
@@ -573,23 +577,28 @@ test('stale recapture invalidates action targets while session release also clea
   invalidateComputerActionTargets(sessionId, stores);
   assert.equal(stores.framesBySession.has(sessionId), false);
   assert.equal(stores.elementTargetsBySession.has(sessionId), false);
+  assert.equal(stores.observationDeltaBySession.has(sessionId), false, 'held refs die with the refs they alias');
   assert.equal(stores.observedWindowBySession.has(sessionId), true);
   assert.equal(stores.lastCaptureBySession.has(sessionId), true);
   assert.equal(preferences.resolve(sessionId, {}).includeOcr, true);
   assert.equal(stores.framesBySession.has(otherSessionId), true);
   assert.equal(stores.elementTargetsBySession.has(otherSessionId), true);
+  assert.equal(stores.observationDeltaBySession.has(otherSessionId), true);
 
   stores.framesBySession.set(sessionId, new Map([['frame-worker', {}]]));
   stores.elementTargetsBySession.set(sessionId, new Map([[1, {}]]));
+  stores.observationDeltaBySession.set(sessionId, { aliases: new Map() });
   invalidateComputerWorkerGeneration(sessionId, stores);
   assert.equal(stores.framesBySession.has(sessionId), false);
   assert.equal(stores.elementTargetsBySession.has(sessionId), false);
   assert.equal(stores.observedWindowBySession.has(sessionId), false);
   assert.equal(stores.lastCaptureBySession.has(sessionId), false);
+  assert.equal(stores.observationDeltaBySession.has(sessionId), false);
   assert.equal(preferences.resolve(sessionId, {}).includeOcr, true);
 
   stores.framesBySession.set(sessionId, new Map([['frame-fresh', {}]]));
   stores.elementTargetsBySession.set(sessionId, new Map([[1, {}]]));
+  stores.observationDeltaBySession.set(sessionId, { aliases: new Map() });
   stores.observedWindowBySession.set(sessionId, {
     primaryWindowId: 'hwnd:0x1',
     relatedWindowIds: ['hwnd:0x1'],
@@ -603,6 +612,7 @@ test('stale recapture invalidates action targets while session release also clea
   releaseComputerSessionResources(sessionId, stores, preferences.release);
   assert.equal(stores.framesBySession.has(sessionId), false);
   assert.equal(stores.elementTargetsBySession.has(sessionId), false);
+  assert.equal(stores.observationDeltaBySession.has(sessionId), false);
   assert.equal(stores.observedWindowBySession.has(sessionId), false);
   assert.equal(stores.lastCaptureBySession.has(sessionId), false);
   assert.deepEqual(preferences.resolve(sessionId, {}), { includeOcr: false });

@@ -31,15 +31,19 @@ export function resolveFreshComputerObservationScope<TScope extends { observedAt
   return { expired: true };
 }
 
-export function invalidateComputerActionTargets<TFrame, TElement>(
+/** `observationDeltaBySession` holds what the model keeps of the last
+ *  observation (see capture-delta.ts); refs retired here retire it too. */
+export function invalidateComputerActionTargets<TFrame, TElement, TDelta>(
   sessionId: string,
   stores: {
     framesBySession: Map<string, TFrame>;
     elementTargetsBySession: Map<string, TElement>;
+    observationDeltaBySession: Map<string, TDelta>;
   }
 ): void {
   stores.framesBySession.delete(sessionId);
   stores.elementTargetsBySession.delete(sessionId);
+  stores.observationDeltaBySession.delete(sessionId);
 }
 
 export function rememberLatestComputerFrame<TFrame>(
@@ -51,11 +55,12 @@ export function rememberLatestComputerFrame<TFrame>(
   framesBySession.set(sessionId, new Map([[frameId, frame]]));
 }
 
-export function invalidateComputerWorkerGeneration<TFrame, TElement, TObserved, TCapture>(
+export function invalidateComputerWorkerGeneration<TFrame, TElement, TDelta, TObserved, TCapture>(
   sessionId: string,
   stores: {
     framesBySession: Map<string, TFrame>;
     elementTargetsBySession: Map<string, TElement>;
+    observationDeltaBySession: Map<string, TDelta>;
     observedWindowBySession: Map<string, TObserved>;
     lastCaptureBySession: Map<string, TCapture>;
   }
@@ -65,11 +70,12 @@ export function invalidateComputerWorkerGeneration<TFrame, TElement, TObserved, 
   stores.lastCaptureBySession.delete(sessionId);
 }
 
-export function releaseComputerSessionResources<TFrame, TElement, TObserved, TCapture>(
+export function releaseComputerSessionResources<TFrame, TElement, TDelta, TObserved, TCapture>(
   sessionId: string,
   stores: {
     framesBySession: Map<string, TFrame>;
     elementTargetsBySession: Map<string, TElement>;
+    observationDeltaBySession: Map<string, TDelta>;
     observedWindowBySession: Map<string, TObserved>;
     lastCaptureBySession: Map<string, TCapture>;
   },

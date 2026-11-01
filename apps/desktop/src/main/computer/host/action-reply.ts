@@ -6,7 +6,7 @@ import {
   transitionConfirmsSemanticAction,
 } from '../observation/analysis';
 import type { ComputerCommand, ComputerCommandResult, PowerShellResponse } from '../shared/types';
-import type { ComputerWindowTransition } from '../shared/window-transition';
+import { type ComputerWindowTransition, windowTransitionRetargets } from '../shared/window-transition';
 import type { CommandRouterHost } from './command-router';
 import { computerCursorFeedback } from '../shared/cursor-feedback';
 import { classifyComputerSequenceObservation } from '../input/sequence';
@@ -82,7 +82,11 @@ async function capturePostAction(
   const { command, windowTransition, settleDelayMs, actionTimings } = context;
   const captureWindowId = windowTransition?.next_target?.id || originalWindowId;
   const postCaptureStartedAt = performance.now();
-  const capture = await captureAfterAction(command, captureWindowId, 0, settleDelayMs);
+  // A window that opened or closed, or a successor target, changes what the
+  // refs the model holds refer to: it gets the whole observation.
+  const capture = await captureAfterAction(command, captureWindowId, 0, settleDelayMs, {
+    fullObservation: windowTransitionRetargets(windowTransition),
+  });
   actionTimings.post_capture_ms = elapsedMs(postCaptureStartedAt);
   const previousWindow =
     originalWindowId && captureWindowId !== originalWindowId ? { previous_window_id: originalWindowId } : {};
