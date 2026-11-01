@@ -407,9 +407,10 @@ public static class MixInputObservation {
   public static int Depth;
   public static int Starts;
   public static int Ends;
-  public static void Begin() { Depth++; Starts++; }
+  public static void Begin(System.IntPtr target, bool pointer) { Depth++; Starts++; }
   public static void End() { Depth--; Ends++; }
 }
+public static class MixWin32 { public static System.IntPtr ParseWindowId(string id) { return System.IntPtr.Zero; } }
 "@
 function Get-SessionState($id) { return @{} }
 function Assert-ExecutionAuthorization($req) {}
@@ -801,15 +802,22 @@ public class IntegrityValue { public bool Known=true, Higher=false; public strin
 public static class MixInputObservation {
   public static long Current = 2;
   public static int Began, BeganExpected, Ended;
-  public static void Begin() { Began++; }
-  public static void BeginExpected(string monitor, long sequence) {
+  public static long Target;
+  public static bool Pointer;
+  public static void Begin(IntPtr target, bool pointer) { Began++; Target = target.ToInt64(); Pointer = pointer; }
+  public static void BeginExpected(string monitor, long sequence, IntPtr target, bool pointer) {
     BeganExpected++;
+    Target = target.ToInt64();
+    Pointer = pointer;
     if (sequence != Current) throw new Exception("user_input_active: observation was superseded by external input");
   }
   public static void End() { Ended++; }
 }
 public static class MixWin32 {
   public static int Probed;
+  public static IntPtr ParseWindowId(string id) {
+    return String.IsNullOrEmpty(id) ? IntPtr.Zero : new IntPtr(Convert.ToInt64(id.Substring(7), 16));
+  }
   public static IntPtr Foreground() { return new IntPtr(1); }
   public static bool IsWindowHandle(IntPtr target) { return target != IntPtr.Zero; }
   public static string WindowId(IntPtr target) { return "hwnd:0x1"; }
@@ -853,6 +861,14 @@ $rows.staleSleeps = $script:Sleeps
 $rows.staleFocus = Attempt @{ action='focus_window'; delivery='background'; session_id='s'; window_id='hwnd:0x1'; observed_input_monitor_id='m'; observed_input_user_sequence=1 }
 $rows.freshFocus = Attempt @{ action='focus_window'; delivery='background'; session_id='s'; window_id='hwnd:0x1'; observed_input_monitor_id='m'; observed_input_user_sequence=2 }
 $rows.fresh = Attempt @{ action='click'; delivery='foreground'; session_id='s'; ref='e1'; observed_input_monitor_id='m'; observed_input_user_sequence=2 }
+# The token is judged against the target window's process; only foreground
+# input, which drives the shared pointer, widens the scope to every pointer event.
+$scopes = [ordered]@{}
+foreach ($case in @(@{ action='key'; delivery='foreground' }, @{ action='focus_window'; delivery='background' })) {
+  $null = Attempt (@{ session_id='s'; window_id='hwnd:0x2a'; observed_input_monitor_id='m'; observed_input_user_sequence=2 } + $case)
+  $scopes[$case.action] = @{ target = [MixInputObservation]::Target; pointer = [MixInputObservation]::Pointer }
+}
+$rows.scopes = $scopes
 # Admission names an elevated holder only; recent user input does not hold the lane.
 $sleepsBefore = $script:Sleeps
 $admitted = Get-ForegroundRefusal 'click' ([IntPtr]1) @{}
@@ -872,6 +888,10 @@ $rows | ConvertTo-Json -Compress -Depth 4
   assert.equal(rows.freshFocus.dispatched, 1);
   assert.equal(rows.fresh.error, '');
   assert.equal(rows.fresh.dispatched, 1);
+  assert.deepEqual(rows.scopes, {
+    key: { target: 0x2a, pointer: true },
+    focus_window: { target: 0x2a, pointer: false },
+  });
   assert.equal(rows.admitted, true);
   assert.equal(rows.admitSleeps, 0, 'admission must not wait');
   assert.equal(rows.probed, 0, 'foreground admission must not look at recent user input');

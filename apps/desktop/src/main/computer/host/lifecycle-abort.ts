@@ -20,6 +20,9 @@ import type { LifecycleContext, SessionLifecycleHost } from './session-lifecycle
 // Covers PowerShell's Add-Type compile plus the sweep's 2 s wait for the
 // user's own keys (the Stop chord) to lift.
 const ABORT_CLEANUP_TIMEOUT_MS = 7_000;
+// The worker's retry of an unacknowledged release: three attempts about a
+// second apart, plus the rest of its held-input release.
+const BACKGROUND_RELEASE_CONFIRM_TIMEOUT_MS = 10_000;
 
 export type RetiredChild = Parameters<typeof waitForComputerWorkerExit>[0];
 type CommandQueue = ReturnType<typeof createComputerCommandQueue>;
@@ -167,6 +170,26 @@ export function createSessionAbort(
   const { host, coordinator, execution, cleanupJobs } = context;
   const { activeExecutionsBySession, sessionAbortEpochs, sessionRecoveryBySession, commandChainsBySession } = execution;
 
+  /** A release a busy target never acknowledged lives only in the worker that
+   *  sent it, so that worker sends it once more before it is retired. Its
+   *  acknowledgement clears the latch; anything else leaves it for the user. */
+  async function confirmBackgroundRelease(sessionId: string, retiredChild?: RetiredChild): Promise<void> {
+    const child = host.powerShellBySession.get(sessionId);
+    if (!host.hasUnconfirmedBackgroundInput?.(sessionId) || !child || child.killed) return;
+    if (retiredChild && retiredChild !== child) return;
+    await queue
+      .runForegroundExclusive(
+        sessionId,
+        () =>
+          host.callPowerShell(
+            { action: 'release_held_input', session_id: sessionId, read_only: false },
+            BACKGROUND_RELEASE_CONFIRM_TIMEOUT_MS
+          ),
+        { requireFreshAfterWait: false, allowWhileUserControl: true }
+      )
+      .catch(() => undefined);
+  }
+
   async function runAbortCleanup(
     sessionId: string,
     restoreDesktop: boolean,
@@ -183,6 +206,7 @@ export function createSessionAbort(
       const activeExecution = activeExecutionsBySession.get(sessionId);
       const recovery = activeExecution?.recovery || sessionRecoveryBySession.get(sessionId);
       if (activeExecution) activeExecution.aborted = true;
+      await confirmBackgroundRelease(sessionId, retiredChild);
       const elevatedStopped = host.cancelElevatedSession(sessionId);
       const child = retiredChild || host.powerShellBySession.get(sessionId);
       if (child && !child.killed) {

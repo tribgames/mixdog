@@ -165,6 +165,9 @@ function Invoke-BackgroundSemantic($ref, [scriptblock]$operation, $effect = 'rel
 function Native-BackgroundFailure($action, $exception, $windowId, [bool]$priorInput = $false) {
     $detail = [string]$exception.Message
     if ($detail.Contains('input_cleanup_unconfirmed:')) {
+        if ($detail.Contains('background_target_gone|')) {
+            throw 'input_cleanup_unconfirmed: background_target_gone|the target window closed before it acknowledged a background input release; do not replay input'
+        }
         throw 'input_cleanup_unconfirmed: background input release was not acknowledged; do not replay input'
     }
     $code = 'background_unavailable'

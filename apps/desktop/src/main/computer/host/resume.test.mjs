@@ -4,6 +4,7 @@ import { ComputerUseCoordinator } from '../session/coordinator.ts';
 import { computerUseOverlayPresentation } from '../overlay/model.ts';
 import { createSessionLifecycle } from './session-lifecycle.ts';
 import { createExecutionState } from './execution-state.ts';
+import { createComputerUserWait } from '../session/user-wait.ts';
 
 function fixture(runOverride, hostOverrides = {}) {
   const coordinator = new ComputerUseCoordinator();
@@ -128,6 +129,63 @@ test('a failed cleanup leaves nothing on screen; the next command recovers it or
   assert.equal(coordinator.snapshot().cleanupState, 'ready');
   coordinator.reset();
 });
+
+for (const acknowledged of [true, false]) {
+  test(`an unacknowledged background release ${
+    acknowledged
+      ? 'that its worker later confirms lifts the pause after five quiet seconds'
+      : 'stays paused for the user'
+  }`, async (t) => {
+    let latched = true;
+    const nativeCalls = [];
+    const f = fixture(undefined, {
+      hasUnconfirmedBackgroundInput: (sessionId) => latched && (sessionId === undefined || sessionId === 'a'),
+      callPowerShell: async (request) => {
+        nativeCalls.push(request.action);
+        // The sending worker resends the release; only an acknowledgement clears the latch.
+        if (request.action === 'release_held_input' && acknowledged) latched = false;
+        return { ok: true, result: { background_release_confirmed: acknowledged } };
+      },
+    });
+    f.workers.set('a', { killed: false, exitCode: 0, signalCode: null });
+    f.coordinator.resumeAfterUserTakeover(f.coordinator.snapshot().takeoverGeneration);
+    f.lifecycle.takeOverComputer('input_cleanup_unconfirmed');
+    await f.lifecycle.waitForCleanup();
+    for (let i = 0; i < 20; i++) await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(nativeCalls[0], 'release_held_input');
+    assert.equal(f.coordinator.snapshot().cleanupState, acknowledged ? 'ready' : 'failed');
+    assert.equal(f.coordinator.snapshot().takeoverReason, 'input_cleanup_unconfirmed');
+
+    t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 0 });
+    let resumes = 0;
+    const wait = createComputerUserWait({
+      coordinator: f.coordinator,
+      now: () => Date.now(),
+      enabled: () => true,
+      observe: async () => ({ ready: true, monitor: 'one', sequence: 1, held: false, idleMs: Date.now() + 60_000 }),
+      resume: async (generation, signal, recheck) => {
+        await f.lifecycle.resumeAfterTakeover(generation, signal, recheck);
+        resumes++;
+      },
+    });
+    t.after(() => {
+      wait.dispose();
+      f.coordinator.reset();
+    });
+    const advance = async (ms) => {
+      for (let elapsed = 0; elapsed < ms; elapsed += 500) {
+        t.mock.timers.tick(500);
+        for (let i = 0; i < 20; i++) await Promise.resolve();
+      }
+    };
+    await advance(4500);
+    assert.equal(resumes, 0);
+    assert.equal(f.coordinator.snapshot().userControlActive, true);
+    await advance(2000);
+    assert.equal(resumes, acknowledged ? 1 : 0);
+    assert.equal(f.coordinator.snapshot().userControlActive, !acknowledged);
+  });
+}
 
 test("the overlay's Resume recovers a latched cleanup before continuing the paused task", async () => {
   const { coordinator, lifecycle } = fixture();

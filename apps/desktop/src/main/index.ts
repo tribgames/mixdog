@@ -2334,8 +2334,11 @@ function installLocalWindowFeatures(
       {
         // Control-renderer recovery pauses input without cancelling the task.
         pause: async () => overlayComputerHost.takeOver('user_pause'),
-        // The user's Resume, for the pause they saw; an ordinary input pause
-        // also resumes by itself after the configured quiet interval.
+        // The user's Resume, for the pause they saw. A pause the user started
+        // (Pause, Stop, their own takeover) waits for it; an unverified input
+        // recovery, a failed observer, or a late release whose cleanup has
+        // since been confirmed resumes by itself after the configured quiet
+        // interval.
         resume: (generation) => overlayComputerHost.resumeByUser(generation),
         configureIdleResume: (seconds) => overlayComputerHost.configureIdleResume(seconds),
         // Stop native input immediately, independently of the daemon's turn

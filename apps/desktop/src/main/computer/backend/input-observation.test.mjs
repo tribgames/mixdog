@@ -73,6 +73,23 @@ if ($ledger.ForeignSequence -ne 4 -or $ledger.LatestTick -ne 11) { throw 'resync
 if (-not $ledger.Observe(11)) { throw 'resynced ledger is not consistent' }
 # Equality only: a wrapped tick is just another unequal tick.
 if ($ledger.Observe([uint32]::MaxValue) -or $ledger.ForeignSequence -ne 5) { throw 'wrapped unaccounted tick was not a gap' }
+# Input reaches an action through its target's process, or through the shared
+# pointer while the action drives it; input nobody can attribute reaches all.
+$scoped = New-Object MixInputLedger 1
+$scoped.Record($false, 2, $false, [uint32[]]@(77))
+if ($scoped.LastRelevant(55, $false) -ne 0 -or $scoped.LastRelevant(55, $true) -ne 0) { throw 'typing into another process reached the target' }
+if ($scoped.LastRelevant(77, $false) -ne 1 -or $scoped.LastRelevant(0, $false) -ne 1) { throw 'typing reached neither its own process nor an unknown target' }
+$scoped.Record($false, 3, $true, [uint32[]]@(77, 77, 0))
+if ($scoped.LastRelevant(55, $false) -ne 0) { throw 'pointer input elsewhere reached a keyboard action' }
+if ($scoped.LastRelevant(55, $true) -ne 2) { throw 'pointer input missed an action driving the pointer' }
+$scoped.Record($false, 4, $true, [uint32[]]@(66, 55, 0))
+if ($scoped.LastRelevant(55, $false) -ne 3) { throw 'a click into the target through a child window was missed' }
+$scoped.Record($true, 5, $true, [uint32[]]@(55))
+if ($scoped.ForeignSequence -ne 3 -or $scoped.LastRelevant(55, $true) -ne 3) { throw 'own input reached the target' }
+$scoped.Record($false, 5)
+if ($scoped.LastRelevant(77, $false) -ne 4) { throw 'unattributed input did not reach every target' }
+$scoped.Latch()
+if ($scoped.ForeignSequence -ne 5 -or $scoped.LastRelevant(55, $false) -ne 5) { throw 'a gap did not reach every target' }
 if (-not [MixInputObservation]::IsUnassignedVirtualKey(0xB9)) { throw 'the activation key 0xB9 counts as typing' }
 foreach ($vk in 0x41, 0x0D, 0x10, 0xBA, 0xDB) {
   if ([MixInputObservation]::IsUnassignedVirtualKey($vk)) { throw "a real key was ignored: $vk" }

@@ -61,6 +61,15 @@ public partial class MixWin32
             DefinitelyNotDelivered = definitelyNotDelivered;
         }
     }
+    /// The release's window was destroyed or its handle now belongs to another
+    /// thread, so nothing was sent. That is never an acknowledgement.
+    public sealed class BackgroundTargetGoneException : InvalidOperationException
+    {
+        public BackgroundTargetGoneException()
+          : base("background_target_gone|the target window closed before it acknowledged a background input release") { }
+    }
+    const string TargetGoneCleanup =
+      "input_cleanup_unconfirmed: background_target_gone|the target window closed before it acknowledged a background input release";
     public static void WithBackgroundRelease(Action press, Action held, Action release)
     {
         bool releaseRequired = true;
@@ -80,13 +89,81 @@ public partial class MixWin32
         {
             if (releaseRequired)
             {
-                try { release(); }
+                try { ConfirmBackgroundRelease(release, ReleaseRetrySleep); }
                 catch (Exception error)
                 {
-                    throw new InvalidOperationException("input_cleanup_unconfirmed: background input release was not acknowledged",
+                    // The session's cleanup sends it again; only an acknowledgement
+                    // there may lift the pause this failure raises.
+                    lock (pendingReleases) pendingReleases.Add(release);
+                    throw new InvalidOperationException(
+                      error is BackgroundTargetGoneException
+                        ? TargetGoneCleanup
+                        : "input_cleanup_unconfirmed: background input release was not acknowledged",
                       operationFailure == null ? error : new AggregateException(operationFailure, error));
                 }
             }
+        }
+    }
+    const int ReleaseAttempts = 3, ReleaseAttemptMs = 1000;
+    /// How the release retries wait out the rest of each attempt's second.
+    /// Fixtures record the waits instead of sleeping through them.
+    public static Action<int> ReleaseRetrySleep = System.Threading.Thread.Sleep;
+    static readonly System.Collections.Generic.List<Action> pendingReleases = new System.Collections.Generic.List<Action>();
+    /// A busy target (a modal dialog, a long repaint) times the release out
+    /// without saying whether it landed. A button or key release is harmless to
+    /// send again, so a timeout gets up to three attempts about a second apart;
+    /// any other failure is final. Returns the attempt the target acknowledged.
+    /// A target gone before any release reached it holds nothing, as before;
+    /// gone after an unanswered release (`afterFailure`, or a later attempt), it
+    /// leaves that release unconfirmed.
+    public static int ConfirmBackgroundRelease(Action release, Action<int> sleep)
+    {
+        return ConfirmBackgroundRelease(release, sleep, false);
+    }
+    public static int ConfirmBackgroundRelease(Action release, Action<int> sleep, bool afterFailure)
+    {
+        for (int attempt = 1; ; attempt++)
+        {
+            var clock = System.Diagnostics.Stopwatch.StartNew();
+            try
+            {
+                release();
+                return attempt;
+            }
+            catch (BackgroundTargetGoneException)
+            {
+                if (attempt > 1 || afterFailure) throw;
+                return 0;
+            }
+            catch (InvalidOperationException error)
+            {
+                if (attempt >= ReleaseAttempts
+                  || !error.Message.StartsWith("background_target_hung|", StringComparison.Ordinal)) throw;
+                long rest = ReleaseAttemptMs - clock.ElapsedMilliseconds;
+                if (rest > 0) sleep((int)rest);
+            }
+        }
+    }
+    /// How many of the releases still pending after the last retry lost their
+    /// window, so the cleanup can say the window closed.
+    public static int PendingReleaseTargetsGone;
+    /// Sends every release this worker could not confirm once more. Returns how
+    /// many are still unacknowledged; a release whose window is gone stays.
+    public static int RetryPendingReleases()
+    {
+        lock (pendingReleases)
+        {
+            var remaining = new System.Collections.Generic.List<Action>();
+            PendingReleaseTargetsGone = 0;
+            foreach (Action release in pendingReleases)
+            {
+                try { ConfirmBackgroundRelease(release, ReleaseRetrySleep, true); }
+                catch (BackgroundTargetGoneException) { PendingReleaseTargetsGone++; remaining.Add(release); }
+                catch (Exception) { remaining.Add(release); }
+            }
+            pendingReleases.Clear();
+            pendingReleases.AddRange(remaining);
+            return remaining.Count;
         }
     }
     static Action BindBackgroundRelease(IntPtr target, Action release)
@@ -100,7 +177,7 @@ public partial class MixWin32
             uint currentPid;
             uint currentThread = GetWindowThreadProcessId(target, out currentPid);
             if (originalPid == 0 || originalThread == 0 || !IsWindowHandle(target)
-              || currentPid != originalPid || currentThread != originalThread) return;
+              || currentPid != originalPid || currentThread != originalThread) throw new BackgroundTargetGoneException();
             release();
         };
     }

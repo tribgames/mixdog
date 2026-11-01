@@ -71,6 +71,7 @@ public static class MixWin32 {
   public static string BackgroundPointer(IntPtr top, int x, int y, string kind, string modifiers) {
     Released.Add(kind + "@" + x + "," + y); return WindowId(top);
   }
+  public static int RetryPendingReleases() { return 0; }
 }
 '@
 $tokens=$null; $errors=$null
@@ -191,6 +192,7 @@ public static class MixWin32 {
   public static string BackgroundPointer(IntPtr top, int x, int y, string kind, string modifiers) {
     Released.Add(kind + "@" + x + "," + y); return "";
   }
+  public static int RetryPendingReleases() { return 0; }
 }
 public static class MixTaggedKeys {
   public static List<string> Lifted = new List<string>();
