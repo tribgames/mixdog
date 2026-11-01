@@ -351,7 +351,7 @@ test('a kind: agent or unmarked (pre-bot) agent is a sub-agent, never a contact;
   assert.doesNotMatch(mixyParts.contactCatalogContext, /\(lead\)/);
   // A bot sees Mixy first, then the other contacts, but not itself.
   const botParts = context.leadPromptParts({ agentMode: true, agentId: 'other' });
-  assert.match(botParts.contactCatalogContext, /send it there\.\n\n- Mixy \(lead\): the user's representative bot\n- /);
+  assert.match(botParts.contactCatalogContext, /brief\.\n\n- Mixy \(lead\): the user's representative bot\n- /);
   assert.match(botParts.contactCatalogContext, /\(sample\)/);
   assert.doesNotMatch(botParts.contactCatalogContext, /\(other\)/);
   // The coding catalog lists it with every other delegatable agent.
