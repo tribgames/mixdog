@@ -126,7 +126,8 @@ public static class MixNativeInput
             }
         }
     }
-    public static void BeginOwnershipObservation()
+    public static void BeginOwnershipObservation() { BeginOwnershipObservation(PhysicalKeyDown); }
+    public static void BeginOwnershipObservation(System.Func<int, bool> keyDown)
     {
         if (ownership == null) throw new System.Exception("input_cleanup_unconfirmed: ownership observation was not initialized");
         using (var view = ownership.CreateViewAccessor())
@@ -135,21 +136,27 @@ public static class MixNativeInput
             // ours, not the user's: recording it as foreign would refuse the very
             // release that ends the hold.
             var owned = new System.Collections.Generic.HashSet<int>();
-            foreach (INPUT release in ReadOwned(view, ownershipMarker))
-                if (release.type == 1) owned.Add(release.U.ki.wVk);
+            foreach (INPUT release in ReadOwned(view, ownershipMarker, delegate () { return AnyKeyHeld(keyDown); }))
+                owned.Add(ReleasedKey(release));
             for (int key = 1; key < 256; key++)
-                view.Write(5000 + key, !owned.Contains(key) && (GetAsyncKeyState(key) & 0x8000) != 0);
+                view.Write(5000 + key, !owned.Contains(key) && keyDown(key));
         }
         ObserveForeignOwnership = true;
     }
+    // The virtual key (mouse buttons included) a release input lets go of; 0 for
+    // anything that is not a single-key release.
+    static int ReleasedKey(INPUT input)
+    {
+        if (!IsRelease(input)) return 0;
+        if (input.type == 1) return input.U.ki.wVk;
+        if (input.U.mi.dwFlags == 4) return 1;
+        if (input.U.mi.dwFlags == 16) return 2;
+        if (input.U.mi.dwFlags == 64) return 4;
+        return 0;
+    }
     static bool ForeignHeld(System.IO.MemoryMappedFiles.MemoryMappedViewAccessor view, INPUT input)
     {
-        if (!IsRelease(input)) return false;
-        int key = 0;
-        if (input.type == 1) key = input.U.ki.wVk;
-        else if (input.U.mi.dwFlags == 4) key = 1;
-        else if (input.U.mi.dwFlags == 16) key = 2;
-        else if (input.U.mi.dwFlags == 64) key = 4;
+        int key = ReleasedKey(input);
         return key > 0 && view.ReadBoolean(5000 + key);
     }
     public static uint DeliverTracked(INPUT[] inputs, System.IntPtr marker, System.Func<INPUT[], uint> transmit)
@@ -294,10 +301,12 @@ public static class MixNativeInput
         }
     }
     const int HeldKeyReleaseWaitMs = 2000;
-    static bool AnyKeyHeld()
+    static bool PhysicalKeyDown(int key) { return (GetAsyncKeyState(key) & 0x8000) != 0; }
+    static bool AnyKeyHeld() { return AnyKeyHeld(PhysicalKeyDown); }
+    static bool AnyKeyHeld(System.Func<int, bool> keyDown)
     {
         for (int key = 1; key < 256; key++)
-            if ((GetAsyncKeyState(key) & 0x8000) != 0) return true;
+            if (keyDown(key)) return true;
         return false;
     }
     public static void ReleaseOwned(System.IntPtr marker, System.Func<INPUT[], uint> transmit)
