@@ -95,6 +95,9 @@ export interface DesktopNewTaskWorktree {
   create?: boolean;
   /** Acknowledges WORKTREE_LARGE_REPO_CONFIRM (resend after the user agreed). */
   confirmLarge?: boolean;
+  /** The choice is only the New Task default: outside a git repository the
+   *  task runs in its folder instead of being refused. */
+  fromDefault?: boolean;
 }
 
 /** Merge the session's worktree branch into the project folder's checked-out

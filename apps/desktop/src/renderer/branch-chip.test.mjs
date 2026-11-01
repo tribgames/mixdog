@@ -621,6 +621,76 @@ test('"Clean up worktrees" is not offered outside a git repository', async (t) =
   assert.equal(menu.querySelector('[data-kind="prune"]'), null);
 });
 
+test('outside a git repository "New worktree" is disabled and a draft takes no worktree default', async (t) => {
+  setUiLanguagePreference('en');
+  await initUiLanguage();
+  menuReply = menuFor({ workspace: workspace({ repoCommonDir: null }) });
+  const settings = { getWorktreeSettings: () => ({ newTaskDefault: 'worktree' }) };
+  const { trigger } = await mount(t, {}, { handlers: settings });
+  const menu = await openMenu(trigger);
+  const button = worktreeButton(menu);
+  assert.equal(button.getAttribute('aria-disabled'), 'true');
+  assert.equal(button.title, 'This folder does not support worktrees.');
+  await act(async () => button.click());
+  assert.equal(
+    calls.some((call) => call.capability === 'requestWorktree'),
+    false
+  );
+  await act(async () => trigger.click());
+
+  // A draft whose folder is no repository (its menu read is refused).
+  await mount(
+    t,
+    { sessionId: '', draftId: 'd-plain' },
+    {
+      handlers: {
+        ...settings,
+        getProjectBranchMenu: () => {
+          throw new Error('WORKTREE_UNSUPPORTED_REPO: This folder does not support worktrees.');
+        },
+      },
+    }
+  );
+  await settle();
+  assert.equal(model.getWorktreeIntent('d-plain'), false);
+  // A git draft takes the default, and sends it marked as the default.
+  projectMenuReply = draftMenu();
+  await mount(t, { sessionId: '', draftId: 'd-repo' }, { handlers: settings });
+  await settle();
+  assert.equal(model.getWorktreeIntent('d-repo'), true);
+  const sent = [];
+  await act(async () => {
+    await model.sendDraftWithWorktreeIntent('d-repo', async (worktree) => {
+      sent.push(worktree);
+      return { accepted: true, sessionId: 'new-session' };
+    });
+  });
+  assert.deepEqual(sent, [{ fromDefault: true }]);
+});
+
+test('a "New worktree" click while the default is still loading stays the user\'s choice', async (t) => {
+  setUiLanguagePreference('en');
+  await initUiLanguage();
+  projectMenuReply = draftMenu();
+  const settings = Promise.withResolvers();
+  const { trigger } = await mount(
+    t,
+    { sessionId: '', draftId: 'd-early' },
+    { handlers: { getWorktreeSettings: () => settings.promise } }
+  );
+  const menu = await openMenu(trigger);
+  await act(async () => worktreeButton(menu).click());
+  await act(async () => settings.resolve({ newTaskDefault: 'worktree' }));
+  const sent = [];
+  await act(async () => {
+    await model.sendDraftWithWorktreeIntent('d-early', async (worktree) => {
+      sent.push(worktree);
+      return { accepted: true, sessionId: 'new-session' };
+    });
+  });
+  assert.deepEqual(sent, [{}], 'the late default did not relabel the explicit choice');
+});
+
 test('large repository confirms once and resends with confirmLarge', async (t) => {
   setUiLanguagePreference('en');
   await initUiLanguage();

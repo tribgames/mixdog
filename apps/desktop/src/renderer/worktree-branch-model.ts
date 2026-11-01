@@ -448,13 +448,20 @@ export function branchChipState(workspace: DesktopSessionWorkspace | null, inten
 // remembers the choice. The send path reads it with takeWorktreeIntent.
 const intents = new Map<string, boolean>();
 const branchIntents = new Map<string, { branch: string; create: boolean }>();
+/** Drafts whose "Worktree" choice is only the New Task default (never a click). */
+const defaultIntents = new Set<string>();
+/** Drafts where the user picked "New worktree" or a branch: a default read
+ *  that answers later never overrides that choice. */
+const chosenIntents = new Set<string>();
 const listeners = new Set<() => void>();
 
 function emitIntent() {
   for (const listener of listeners) listener();
 }
 
-export function setWorktreeIntent(key: string, intent: boolean) {
+export function setWorktreeIntent(key: string, intent: boolean, fromDefault = false) {
+  if (intent && fromDefault) defaultIntents.add(key);
+  else defaultIntents.delete(key);
   if (!intent) branchIntents.delete(key);
   if ((intents.get(key) ?? false) === intent) return;
   if (intent) intents.set(key, true);
@@ -462,7 +469,19 @@ export function setWorktreeIntent(key: string, intent: boolean) {
   emitIntent();
 }
 
+/** The user's own "New worktree" toggle on a draft. */
+export function chooseWorktreeIntent(key: string, intent: boolean) {
+  chosenIntents.add(key);
+  setWorktreeIntent(key, intent);
+}
+
+/** The New Task default, unless the user already chose on this draft. */
+export function applyDefaultWorktreeIntent(key: string) {
+  if (!chosenIntents.has(key)) setWorktreeIntent(key, true, true);
+}
+
 export function setBranchIntent(key: string, branch: string, create: boolean) {
+  chosenIntents.add(key);
   branchIntents.set(key, { branch, create });
   setWorktreeIntent(key, true);
   emitIntent();
@@ -520,11 +539,13 @@ export async function sendDraftWithWorktreeIntent<T extends { accepted?: unknown
   confirm?: (message: string) => boolean
 ): Promise<T | null> {
   const selected = branchIntents.get(key);
+  const fromDefault = defaultIntents.has(key);
   const worktree = takeWorktreeIntent(key);
   let started = false;
   try {
     const result = await submitDraftWithWorktree(
-      (options) => send(selected ? { ...options, ...selected } : options),
+      (options) =>
+        send(selected ? { ...options, ...selected } : fromDefault ? { ...options, fromDefault: true } : options),
       worktree,
       confirm
     );
@@ -533,7 +554,7 @@ export async function sendDraftWithWorktreeIntent<T extends { accepted?: unknown
   } finally {
     if (worktree && !started) {
       if (selected) setBranchIntent(key, selected.branch, selected.create);
-      else setWorktreeIntent(key, true);
+      else setWorktreeIntent(key, true, fromDefault);
     }
   }
 }

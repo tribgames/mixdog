@@ -853,30 +853,39 @@ export class SessionHostLifecycle {
                 confirmLarge: draft.worktree.confirmLarge === true,
               },
             ])
-          : await this.owner.invokeSession(sessionId, 'requestWorktree', [
-              {
-                provision: true,
-                // A new task starts its worktree at the current commit and never
-                // takes the project folder's uncommitted changes with it.
-                carryChanges: 'leave',
-                confirmLarge: draft.worktree.confirmLarge === true,
-                prompt: promptTitle(prompt, options.displayText || ''),
-                txId: submissionId,
-              },
-            ]);
+          : await this.owner
+              .invokeSession(sessionId, 'requestWorktree', [
+                {
+                  provision: true,
+                  // A new task starts its worktree at the current commit and never
+                  // takes the project folder's uncommitted changes with it.
+                  carryChanges: 'leave',
+                  confirmLarge: draft.worktree.confirmLarge === true,
+                  prompt: promptTitle(prompt, options.displayText || ''),
+                  txId: submissionId,
+                },
+              ])
+              .catch((error: unknown) => {
+                // Only the settings default: outside a git repository the task
+                // runs in its folder (a refused provisioning arms nothing).
+                if (draft.worktree?.fromDefault && (error as { code?: unknown })?.code === 'WORKTREE_UNSUPPORTED_REPO')
+                  return null;
+                throw error;
+              });
         // Only a bound session may receive the prompt. A runtime that merely
         // armed the lazy intent (pending) would run the turn in the project
         // folder, and a turn that then fails before provisioning (no model,
         // no provider) would drop the choice: refuse instead, so the draft
         // keeps its text and its "Worktree" choice.
-        const value = provisioned.value as {
+        const value = provisioned?.value as {
           pending?: unknown;
           workspace?: { worktreeId?: unknown; branch?: unknown };
         } | null;
         if (
-          draft.worktree.branch
+          provisioned &&
+          (draft.worktree.branch
             ? value?.workspace?.branch !== draft.worktree.branch
-            : value?.pending !== false || typeof value.workspace?.worktreeId !== 'string'
+            : value?.pending !== false || typeof value.workspace?.worktreeId !== 'string')
         ) {
           throw Object.assign(
             new Error('WORKTREE_NOT_IMPLEMENTED: The session did not enter its worktree before the first prompt.'),
