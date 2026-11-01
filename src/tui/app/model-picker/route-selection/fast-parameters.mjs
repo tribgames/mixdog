@@ -6,6 +6,8 @@
 import { modelKey } from './model-key.mjs';
 import { DAYBREAK_PARAMETER_ID } from '../../../../runtime/shared/llm/openai-daybreak.mjs';
 
+import { OPENROUTER_SORT_PARAMETER } from '../../../../runtime/agent/orchestrator/providers/openrouter-provider-routing.mjs';
+
 const TOGGLE_PARAMETER_IDS = new Set(['thinking', DAYBREAK_PARAMETER_ID]);
 
 export function createFastParameterSelection({ state, currentRoute, isCurrentRoute, isStateRoute, getSelectedEffort }) {
@@ -88,8 +90,7 @@ export function createFastParameterSelection({ state, currentRoute, isCurrentRou
   /** Cycles the model's toggle parameter ('thinking', or Daybreak Blue's
    *  on/off) to its next option; false when the model has none. Fast is
    *  dropped when the new parameters rule it out. */
-  const cycleThinking = (model) => {
-    const definition = (model.modelParameterOptions || []).find((parameter) => TOGGLE_PARAMETER_IDS.has(parameter.id));
+  const cycleParameter = (model, definition) => {
     if (!definition?.options?.length) return false;
     const wanted = definition.id;
     const parameters = modelParametersFor(model);
@@ -103,5 +104,17 @@ export function createFastParameterSelection({ state, currentRoute, isCurrentRou
     return true;
   };
 
-  return { modelParametersFor, fastAvailableFor, getSelectedFast, isUltrafast, toggleFast, cycleThinking };
+  const cycleThinking = (model) =>
+    cycleParameter(
+      model,
+      (model.modelParameterOptions || []).find((parameter) => TOGGLE_PARAMETER_IDS.has(parameter.id))
+    );
+  /** Cycles OpenRouter's Routing (Auto → Price → Speed → Latency); false on other rows. */
+  const cycleRouting = (model) =>
+    cycleParameter(
+      model,
+      (model.modelParameterOptions || []).find((parameter) => parameter.id === OPENROUTER_SORT_PARAMETER)
+    );
+
+  return { modelParametersFor, fastAvailableFor, getSelectedFast, isUltrafast, toggleFast, cycleThinking, cycleRouting };
 }

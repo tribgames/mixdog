@@ -4,6 +4,7 @@ import {
   normalizeOpencodeGoReasoningEffort,
 } from './openai-compat-xai.mjs';
 import { isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
+import { openRouterProviderRouting } from './openrouter-provider-routing.mjs';
 
 function normalizeReasoningEffort(value, allowed) {
   const effort = String(value ?? '')
@@ -66,6 +67,8 @@ export function applyCompatProviderChatOptions(params, providerName, opts = {}, 
   if (providerName === 'openrouter') {
     const reasoning = openRouterReasoning(opts, config);
     if (reasoning) params.reasoning = reasoning;
+    const routing = openRouterProviderRouting(opts);
+    if (routing) params.provider = routing;
     return params;
   }
   if (providerName === 'xai') {

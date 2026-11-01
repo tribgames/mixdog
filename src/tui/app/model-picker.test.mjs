@@ -255,3 +255,48 @@ test('Esc on the model list returns to the provider list, or to the caller when 
   g.current().onCancel();
   assert.deepEqual(returned, [1]);
 });
+
+const ROUTING_OPTION = {
+  id: 'providerSort',
+  label: 'Routing',
+  kind: 'enum',
+  options: [
+    { value: 'auto', label: 'Auto' },
+    { value: 'price', label: 'Price first' },
+    { value: 'throughput', label: 'Speed first' },
+    { value: 'latency', label: 'Latency first' },
+  ],
+};
+
+test('R cycles OpenRouter Routing through its four values and Enter saves providerSort', async () => {
+  const models = [
+    { provider: 'anthropic', id: 'or-1', display: 'OR', modelParameterOptions: [ROUTING_OPTION] },
+    { provider: 'anthropic', id: 'plain-1', display: 'Plain' },
+  ];
+  const h = createHarness({ models, state: { model: 'other' } });
+  await h.openProvider();
+  const routing = () => h.footerText('or-1').filter((t) => t.startsWith('Routing'));
+  assert.deepEqual(routing(), ['Routing: Auto · R Cycle']);
+  const labels = [];
+  for (let i = 0; i < 4; i += 1) {
+    h.current().onKey('r', {}, h.row('or-1'));
+    labels.push(routing()[0]);
+  }
+  assert.deepEqual(labels, [
+    'Routing: Price first · R Cycle',
+    'Routing: Speed first · R Cycle',
+    'Routing: Latency first · R Cycle',
+    'Routing: Auto · R Cycle',
+  ]);
+  h.current().onKey('R', {}, h.row('or-1'));
+  // A row without the option shows no Routing line and R does nothing.
+  h.current().onKey('r', {}, h.row('plain-1'));
+  assert.equal(
+    h.footerText('plain-1').some((t) => t.startsWith('Routing')),
+    false
+  );
+  const picker = h.current();
+  picker.onSelect(h.row('or-1').value, h.row('or-1'));
+  await flush();
+  assert.equal(h.routes.at(-1).modelParameters.providerSort, 'price');
+});

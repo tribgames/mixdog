@@ -39,9 +39,23 @@ export function naturalTriggerWidth(button: HTMLButtonElement): number {
 // "in progress" phrasing on a settings row. The row owns its own key and
 // keeps the provider's label wherever no translation exists.
 export function modelParameterLabel(parameter: { id: string; label: string }): string {
+  // OpenRouter's provider routing: "Routing" alone is the spinner's phrase.
+  if (parameter.id === 'providerSort') return t('Routing (model parameter)');
   return /^thinking$/i.test(parameter.id) || /^thinking$/i.test(parameter.label)
     ? tExisting('Thinking (model parameter)', parameter.label)
     : parameter.label;
+}
+
+/** A parameter value's label; OpenRouter's routing choices are translated here. */
+export function modelParameterOptionLabel(parameter: { id: string }, option: { value: string; label: string }): string {
+  if (parameter.id !== 'providerSort') return option.label;
+  const labels: Record<string, string> = {
+    auto: t('Auto'),
+    price: t('Price first'),
+    throughput: t('Speed first'),
+    latency: t('Latency first'),
+  };
+  return labels[option.value] ?? option.label;
 }
 
 /** The area a route sheet may use: the trigger's pane clipped to the visible
@@ -66,7 +80,8 @@ export function preferredFlyoutHeight(pane: RouteSheetPane, effortCount: number)
   if (pane === 'effort') return Math.min(340, Math.max(44, effortCount * ROUTE_SHEET_ROW_HEIGHT + 34));
   if (pane === 'context') return 100;
   if (pane.startsWith('session:')) return 340;
-  return 132;
+  // A parameter pane lists up to four options (OpenRouter routing).
+  return 176;
 }
 
 /** A conversation setting the route menu carries below its model rows (the
@@ -449,7 +464,7 @@ export function routeParameterPane({
         }}
         onKeyDown={onOptionKeyDown}
       >
-        <span>{option.label}</span>
+        <span>{modelParameterOptionLabel(parameter, option)}</span>
         {selected && <RouteSelectionCheck />}
       </button>
     );

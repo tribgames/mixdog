@@ -14,6 +14,7 @@ import {
   effortConfigurationMode,
 } from '../../runtime/agent/orchestrator/providers/effort-configuration.mjs';
 import { getProvider } from '../../runtime/agent/orchestrator/providers/registry.mjs';
+import { OPENROUTER_SORT_OPTION } from '../../runtime/agent/orchestrator/providers/openrouter-provider-routing.mjs';
 import { providerAvailable } from '../../runtime/agent/orchestrator/providers/provider-availability.mjs';
 import {
   DAYBREAK_PARAMETER_OPTION,
@@ -42,6 +43,7 @@ export function hydrateProviderModelRow(cfg, row) {
   const addedOptions = [
     ...(row.provider === DAYBREAK_PROVIDER && daybreakBlueSupported(row) ? [DAYBREAK_PARAMETER_OPTION] : []),
     ...(fastCapable && ultrafastCapableFor(row.provider, row) ? [ULTRAFAST_SPEED_OPTION] : []),
+    ...(row.provider === 'openrouter' ? [OPENROUTER_SORT_OPTION] : []),
   ];
   const modelParameterOptions = addedOptions.length
     ? [...existingOptions.filter((option) => !addedOptions.some((added) => added.id === option?.id)), ...addedOptions]

@@ -10,6 +10,7 @@
 import { WireGatewayProvider, messagesBaseFromOpenAIBase } from './wire-gateway.mjs';
 import { OPENAI_COMPAT_PRESETS } from './openai-compat-presets.mjs';
 import { openRouterReasoning } from './openai-compat-options.mjs';
+import { openRouterProviderRouting } from './openrouter-provider-routing.mjs';
 
 /**
  * The Claude id a routing slug stands for: an alias (`~anthropic/claude-opus-latest`)
@@ -25,12 +26,14 @@ export function openRouterCapabilityModel(model, aliasTarget = null) {
 
 // Responses requests carry the same reasoning control as Chat requests
 // (`openRouterReasoningEffort`, else the turn effort, else the configured
-// effort; `none` disables reasoning).
+// effort; `none` disables reasoning) and the same provider routing.
 function openRouterResponsesParams(config) {
   return (params, { opts }) => {
     const reasoning = openRouterReasoning(opts, config);
     if (reasoning) params.reasoning = reasoning;
     else delete params.reasoning;
+    const routing = openRouterProviderRouting(opts);
+    if (routing) params.provider = routing;
   };
 }
 
