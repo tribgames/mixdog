@@ -61,10 +61,15 @@ public static class TransportFixture {
     uint conflicting = MixNativeInput.DeliverTracked(new [] { MixNativeInput.Key(0xA3,0,3,ownedMarker) },
       ownedMarker, delegate(MixNativeInput.INPUT[] inputs) { conflictingReleases++; return 1; });
     Require(conflicting == 0 && conflictingReleases == 0, "released a key now held by the user");
-    // A key this session holds reads as physically down when the next command
-    // starts observing. It is ours, so its own release must still be accepted.
+    // Everything this session holds reads as physically down when the next
+    // command starts observing, and the user holds Shift. The key state is
+    // injected: the real one (a click in progress, a key another process holds)
+    // changes which releases are refused. Each held input is ours, so its own
+    // release must still be accepted.
     MixNativeInput.RecordForeignKey(0x41, true);
-    MixNativeInput.BeginOwnershipObservation();
+    MixNativeInput.BeginOwnershipObservation(delegate(int key) {
+      return key == 13 || key == 0xA3 || key == 0x41 || key == 1 || key == 0x10;
+    });
     int holdReleases = 0;
     uint holdRelease = MixNativeInput.DeliverTracked(new [] { MixNativeInput.Key(0x41,0,2,ownedMarker) },
       ownedMarker, delegate(MixNativeInput.INPUT[] inputs) { holdReleases++; return 1; });
@@ -98,6 +103,22 @@ public static class TransportFixture {
     MixNativeInput.ReleaseOwned(ownedMarker, delegate(MixNativeInput.INPUT[] inputs) { attempts++; return 1; },
       delegate() { return true; });
     Require(attempts == 3, "receipt was not reset to empty");
+    // A mouse button this session holds reads as physically down on the next
+    // observation, like a held key, while the user's other button stays theirs.
+    MixNativeInput.DeliverTracked(new [] { MixNativeInput.Mouse(2,ownedMarker) }, ownedMarker,
+      delegate(MixNativeInput.INPUT[] inputs) { return (uint)inputs.Length; });
+    MixNativeInput.BeginOwnershipObservation(delegate(int key) { return key == 1 || key == 2; });
+    int userRightReleases = 0;
+    uint userRight = MixNativeInput.DeliverTracked(new [] { MixNativeInput.Mouse(16,ownedMarker) },
+      ownedMarker, delegate(MixNativeInput.INPUT[] inputs) { userRightReleases++; return 1; });
+    Require(userRight == 0 && userRightReleases == 0, "released a mouse button now held by the user");
+    int pointerReleases = 0;
+    MixNativeInput.ReleaseOwned(ownedMarker, delegate(MixNativeInput.INPUT[] inputs) {
+      pointerReleases++;
+      Require(inputs[0].type == 0 && inputs[0].U.mi.dwFlags == 4, "released something other than the held mouse button");
+      return 1;
+    });
+    Require(pointerReleases == 1, "refused the release of a mouse button this session holds");
   }
 }`;
   const encoded = Buffer.from(fixture).toString('base64');
