@@ -26,6 +26,7 @@ import { nativeDeferredFamilyForRoute } from './wire-route.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
 import { normalizeOpencodeGoReasoningEffort } from './openai-compat-xai.mjs';
 import { isCustomProviderName, resolveCustomReasoning } from './custom-reasoning.mjs';
+import { applyCustomRequestBody, customRequestHeaders } from './custom-provider-config.mjs';
 import { projectEffortConfiguration, withEffortConfigurationFallback } from './effort-configuration.mjs';
 import { normalizeCacheKey } from '../agent-runtime/cache-strategy.mjs';
 import { createProviderReplay } from './lib/provider-replay.mjs';
@@ -205,6 +206,10 @@ function buildCompatResponsesParams({
       (typeof provider.getCachedModelInfo === 'function' && provider.getCachedModelInfo(useModel)) || null;
     hook(params, { useModel, opts, modelInfo });
   }
+  // A custom provider's own extra JSON; the app-owned keys are never overridden.
+  if (isCustomProviderName(provider.name) && provider.customConfig) {
+    applyCustomRequestBody(params, provider.customConfig, useModel);
+  }
   return params;
 }
 
@@ -344,7 +349,11 @@ async function sendCompatResponsesOnce(provider, requestMessages, useModel, tool
   // Custom routes only: a gateway route that opts into prompt_cache_key keeps
   // its own headers.
   const headers = isCustomProviderName(provider.name)
-    ? customSessionHeaders(provider, sessionCacheKey, opts.requestHeaders)
+    ? customSessionHeaders(
+        provider,
+        sessionCacheKey,
+        customRequestHeaders(provider.customConfig, useModel, opts.requestHeaders)
+      )
     : opts.requestHeaders;
 
   try {

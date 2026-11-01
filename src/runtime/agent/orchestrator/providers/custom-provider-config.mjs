@@ -13,6 +13,35 @@ export const CUSTOM_REASONING_WIRE_FORMATS = Object.freeze(['standard', 'deepsee
 export const CUSTOM_PROVIDER_AUTH_MODES = Object.freeze(['key', 'none']);
 export const CUSTOM_MODEL_OVERRIDE_LIMIT = 500;
 export const CUSTOM_HEADER_LIMIT = 64;
+// Serialized size cap of one extra-request JSON object (provider or model).
+export const CUSTOM_REQUEST_BODY_MAX_CHARS = 16384;
+// What the Chat, Responses and Messages wires build themselves (body fields
+// the app sets, or whose override would break replay, tool use or streaming).
+export const CUSTOM_RESERVED_BODY_KEYS = Object.freeze(
+  new Set([
+    'model',
+    'messages',
+    'input',
+    'system',
+    'instructions',
+    'tools',
+    'tool_choice',
+    'parallel_tool_calls',
+    'stream',
+    'stream_options',
+    'previous_response_id',
+    'store',
+    'include',
+    'prompt_cache_key',
+    'max_tokens',
+    'max_output_tokens',
+    'max_completion_tokens',
+  ])
+);
+// Transport headers the HTTP client owns; model-level headers may not set them.
+export const CUSTOM_MODEL_REFUSED_HEADERS = Object.freeze(
+  new Set(['content-type', 'content-length', 'host', 'connection', 'transfer-encoding', 'proxy-authorization'])
+);
 
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 const MAX_MODEL_ID = 256;
@@ -74,6 +103,8 @@ const OVERRIDE_KEYS = new Set([
   'maxOutputTokens',
   'supportsVision',
   'reasoning',
+  'requestBody',
+  'requestHeaders',
 ]);
 const REASONING_KEYS = new Set(['levels', 'wireFormat', 'wireValues', 'replay']);
 const DISCOVERY_KEYS = new Set(['newModelsHidden']);
@@ -93,6 +124,7 @@ const V2_TOP_LEVEL_KEYS = new Set([
   'wires',
   'modelWires',
   'headers',
+  'requestBody',
   'id',
   'apiKey',
   'apiKeyEnv',
@@ -244,6 +276,10 @@ function normalizeOverride(id, raw, protocol, legacy) {
     const reasoning = normalizeReasoning(raw.reasoning, `${label}.reasoning`, protocol);
     if (Object.keys(reasoning).length) out.reasoning = reasoning;
   }
+  const requestBody = normalizeRequestBody(raw.requestBody, `${label}.requestBody`);
+  if (Object.keys(requestBody).length) out.requestBody = requestBody;
+  const requestHeaders = normalizeHeaders(raw.requestHeaders, `${label}.requestHeaders`, CUSTOM_MODEL_REFUSED_HEADERS);
+  if (Object.keys(requestHeaders).length) out.requestHeaders = requestHeaders;
   return out;
 }
 
@@ -307,29 +343,95 @@ function normalizeModelWires(raw, protocol, wires) {
 // `headers`: extra HTTP headers sent with every request to the endpoint
 // (inference, model discovery, connection test). Names are case-insensitive
 // tokens; the credential headers belong to the API key field.
-function normalizeHeaders(raw) {
+function normalizeHeaders(raw, label = 'headers', refused = AUTH_HEADERS) {
   if (raw === undefined) return {};
-  if (!isPlainObject(raw)) fail('headers must be an object of header names to string values');
+  if (!isPlainObject(raw)) fail(`${label} must be an object of header names to string values`);
   const names = Object.keys(raw);
-  if (names.length > CUSTOM_HEADER_LIMIT) fail(`at most ${CUSTOM_HEADER_LIMIT} headers are allowed`);
+  if (names.length > CUSTOM_HEADER_LIMIT) fail(`at most ${CUSTOM_HEADER_LIMIT} ${label} are allowed`);
   const seen = new Set();
   const entries = [];
   for (const name of names) {
     if (name.length > MAX_HEADER_TEXT || !HEADER_NAME.test(name))
-      fail(`headers has an invalid header name: ${JSON.stringify(name.slice(0, 64))}`);
+      fail(`${label} has an invalid header name: ${JSON.stringify(name.slice(0, 64))}`);
     const lower = name.toLowerCase();
-    if (AUTH_HEADERS.has(lower)) fail(`headers must not set ${name}: authentication belongs to the API key field`);
-    if (seen.has(lower)) fail(`headers has duplicate header: ${name}`);
+    if (AUTH_HEADERS.has(lower)) fail(`${label} must not set ${name}: authentication belongs to the API key field`);
+    if (refused.has(lower)) fail(`${label} must not set ${name}: the app owns this header`);
+    if (seen.has(lower)) fail(`${label} has duplicate header: ${name}`);
     seen.add(lower);
-    if (typeof raw[name] !== 'string') fail(`headers.${name} must be a string`);
+    if (typeof raw[name] !== 'string') fail(`${label}.${name} must be a string`);
     // Validate before trimming, and trim only HTTP whitespace (space, tab), so
     // CR/LF is refused rather than stripped and other characters are kept.
-    if (!HEADER_VALUE.test(raw[name])) fail(`headers.${name} has an invalid value`);
+    if (!HEADER_VALUE.test(raw[name])) fail(`${label}.${name} has an invalid value`);
     const value = raw[name].replace(/^[ \t]+|[ \t]+$/g, '');
-    if (value.length > MAX_HEADER_TEXT) fail(`headers.${name} has an invalid value`);
+    if (value.length > MAX_HEADER_TEXT) fail(`${label}.${name} has an invalid value`);
     entries.push([name, value]);
   }
   return Object.fromEntries(entries);
+}
+
+// `requestBody` (provider) / `requestBody` + `requestHeaders` (model): extra
+// JSON request fields and HTTP headers. A shallow object, size-capped; the keys
+// the app builds the request from can never be set here.
+function normalizeRequestBody(raw, label) {
+  if (raw === undefined) return {};
+  if (!isPlainObject(raw)) fail(`${label} must be a JSON object`);
+  let size;
+  try {
+    size = JSON.stringify(raw)?.length;
+  } catch {
+    fail(`${label} must be JSON-serializable`);
+  }
+  if (!Number.isInteger(size)) fail(`${label} must be JSON-serializable`);
+  if (size > CUSTOM_REQUEST_BODY_MAX_CHARS) fail(`${label} must be at most ${CUSTOM_REQUEST_BODY_MAX_CHARS} characters`);
+  const out = {};
+  for (const key of Object.keys(raw)) {
+    if (UNSAFE_KEYS.has(key)) fail(`${label} has an unsafe key: ${key}`);
+    if (CUSTOM_RESERVED_BODY_KEYS.has(key)) fail(`${label} must not set ${key}: the app owns this field`);
+    out[key] = raw[key];
+  }
+  return out;
+}
+
+/**
+ * The extra request fields and headers for one model of a normalized config:
+ * provider JSON, then model JSON over it (shallow); provider headers, then
+ * model headers over them. Reserved keys are stripped again here, so a stored
+ * config that somehow carries one still cannot override the app. Headers are
+ * the model layer only: the provider's ride the engine's default headers.
+ */
+export function resolveCustomRequestExtras(config, model) {
+  const override = config?.modelOverrides && Object.hasOwn(config.modelOverrides, model) ? config.modelOverrides[model] : null;
+  const body = {};
+  for (const layer of [config?.requestBody, override?.requestBody]) {
+    for (const [key, value] of Object.entries(layer || {})) {
+      if (!CUSTOM_RESERVED_BODY_KEYS.has(key) && !UNSAFE_KEYS.has(key)) body[key] = structuredClone(value);
+    }
+  }
+  const headers = {};
+  for (const [name, value] of Object.entries(override?.requestHeaders || {})) {
+    const lower = name.toLowerCase();
+    if (!AUTH_HEADERS.has(lower) && !CUSTOM_MODEL_REFUSED_HEADERS.has(lower)) headers[name] = value;
+  }
+  return { body, headers };
+}
+
+/** `params` (the finished request body) with the extras layered over it; reserved keys keep the app's value. */
+export function applyCustomRequestBody(params, config, model) {
+  const { body } = resolveCustomRequestExtras(config, model ?? params?.model);
+  for (const [key, value] of Object.entries(body)) params[key] = value;
+  return params;
+}
+
+/** Per-request headers: the model's extra headers under the caller's own. */
+export function customRequestHeaders(config, model, requestHeaders) {
+  const { headers } = resolveCustomRequestExtras(config, model);
+  if (!Object.keys(headers).length) return requestHeaders;
+  if (requestHeaders instanceof Headers || Array.isArray(requestHeaders)) {
+    const merged = new Headers(headers);
+    for (const [name, value] of new Headers(requestHeaders)) merged.set(name, value);
+    return merged;
+  }
+  return { ...headers, ...(requestHeaders || {}) };
 }
 
 // Legacy (pre-v2) `models: [{ id, name?, contextWindow?, maxOutputTokens? }]`
@@ -374,6 +476,7 @@ export function normalizeCustomProviderConfig(input) {
     if (input.wires !== undefined || input.modelWires !== undefined)
       fail('wires and modelWires require schemaVersion 2');
     if (input.headers !== undefined) fail('headers require schemaVersion 2');
+    if (input.requestBody !== undefined) fail('requestBody requires schemaVersion 2');
     source = migrateLegacy(input);
   } else if (Number.isInteger(version) && version > CUSTOM_PROVIDER_SCHEMA_VERSION)
     fail(`unsupported schemaVersion ${version}; update mixdog to use this provider`);
@@ -407,6 +510,7 @@ export function normalizeCustomProviderConfig(input) {
   const wires = normalizeWires(source.wires, protocol);
   const modelWires = normalizeModelWires(source.modelWires, protocol, wires);
   const headers = normalizeHeaders(source.headers);
+  const requestBody = normalizeRequestBody(source.requestBody, 'requestBody');
   return {
     type: 'custom',
     schemaVersion: CUSTOM_PROVIDER_SCHEMA_VERSION,
@@ -417,6 +521,7 @@ export function normalizeCustomProviderConfig(input) {
     auth,
     ...(apiKeyEnv && auth === 'key' ? { apiKeyEnv } : {}),
     ...(Object.keys(headers).length ? { headers } : {}),
+    ...(Object.keys(requestBody).length ? { requestBody } : {}),
     discovery: { newModelsHidden },
     modelOverrides: normalizeOverrides(source.modelOverrides, protocol, legacy),
     ...(wires ? { wires } : {}),
@@ -471,6 +576,12 @@ function effectiveRow(base, override, { providerId, discovered, newModelsHidden 
     outputTokens: ov.maxOutputTokens ?? (Number(base.outputTokens) > 0 ? Number(base.outputTokens) : null),
     hidden,
     manual: ov.manual === true,
+    // What the model has without its own override (a reset restores these).
+    inherited: {
+      name: base.name || base.id,
+      contextWindow: Number(base.contextWindow) > 0 ? Number(base.contextWindow) : 0,
+      maxOutputTokens: Number(base.outputTokens) > 0 ? Number(base.outputTokens) : null,
+    },
     // An explicit override (false included) beats the catalog; unset keeps the base.
     ...(typeof ov.supportsVision === 'boolean' ? { supportsVision: ov.supportsVision } : {}),
     supportsReasoning: levels ? levels.some((level) => level !== 'none') : base.supportsReasoning === true,

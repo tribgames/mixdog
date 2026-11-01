@@ -32,6 +32,10 @@ interface OpenSelectProps {
   tooltip?: string;
   leading?: React.ReactNode;
   onChange?: (value: string) => void;
+  /** Multi-select: `values` are the checked options, a choice toggles one and
+   *  the menu stays open; `onChange` still receives the toggled option's value. */
+  multiple?: boolean;
+  values?: ReadonlyArray<string>;
   /** Menu floor in px for icon-only triggers whose options are wider than
    *  the trigger (the browser viewport picker: a 44px button listing
    *  "iPhone 14 Pro Max · 430×932"). Default follows the trigger width. */
@@ -54,8 +58,11 @@ export function OpenSelect({
   tooltip,
   leading,
   menuMinWidth = 160,
+  multiple = false,
+  values = [],
   onChange,
 }: OpenSelectProps) {
+  const isChosen = (option: string) => (multiple ? values.includes(option) : option === current);
   const controlled = value !== undefined;
   const [internalValue, setInternalValue] = useState(defaultValue);
   const current = controlled ? String(value) : internalValue;
@@ -149,6 +156,10 @@ export function OpenSelect({
   const toggleMenu = () => commitMenuOpen(!open);
 
   const select = (next: string, viaKeyboard = false) => {
+    if (multiple) {
+      onChange?.(next);
+      return;
+    }
     if (!controlled) setInternalValue(next);
     onChange?.(next);
     setOpen(false);
@@ -375,6 +386,7 @@ export function OpenSelect({
             role="listbox"
             data-trigger-style={triggerStyle}
             aria-label={ariaLabel}
+            aria-multiselectable={multiple || undefined}
             style={position}
             onKeyDown={onKeyDown}
           >
@@ -388,7 +400,7 @@ export function OpenSelect({
                   className="mx-menu-item"
                   id={`${listboxId}-option-${index}`}
                   disabled={option.disabled}
-                  aria-selected={option.value === current}
+                  aria-selected={isChosen(option.value)}
                   aria-description={option.description || undefined}
                   data-tooltip={option.description || undefined}
                   data-tooltip-side={option.description ? 'right' : undefined}
@@ -399,7 +411,7 @@ export function OpenSelect({
                 >
                   {option.leading && <span className="mx-select-leading">{option.leading}</span>}
                   <span>{option.label}</span>
-                  {option.value === current && <MxIcon name="check-small" size={16} />}
+                  {isChosen(option.value) && <MxIcon name="check-small" size={16} />}
                 </button>
               </React.Fragment>
             ))}

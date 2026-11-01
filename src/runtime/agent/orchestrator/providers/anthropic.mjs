@@ -186,6 +186,7 @@ export class AnthropicProvider {
       fastModeLatched: this.fastModeBetaHeaderLatched,
       modelInfo: isCustomProviderName(this.name) ? this.getCachedModelInfo?.(model) || null : null,
       capabilityModel: this._capabilityModel(model),
+      customConfig: this.customConfig ?? null,
     });
     return sendAnthropicCacheWarm({
       providerName: this.name,
@@ -229,6 +230,7 @@ export class AnthropicProvider {
       // Custom providers carry per-model reasoning settings on their own rows.
       modelInfo: isCustomProviderName(this.name) ? this.getCachedModelInfo?.(useModel) || null : null,
       capabilityModel: this._capabilityModel(useModel),
+      customConfig: this.customConfig ?? null,
     });
     this.fastModeBetaHeaderLatched = fastModeLatched;
 

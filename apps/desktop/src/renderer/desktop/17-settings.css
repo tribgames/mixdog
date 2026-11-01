@@ -479,11 +479,97 @@
 .settings-custom-provider-form .settings-custom-headers input[aria-invalid="true"] {
   box-shadow: 0 0 0 var(--mx-hairline) var(--mx-danger);
 }
-.settings-custom-headers .settings-custom-headers-error {
+.settings-custom-provider-form textarea {
+  font-family: var(--mx-font-mono);
+  font-size: 13px;
+}
+.settings-custom-provider-form textarea::placeholder {
+  color: var(--mx-text-faint);
+  opacity: 1;
+}
+.settings-custom-provider-form textarea[aria-invalid="true"] {
+  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-danger);
+}
+.settings-custom-headers .settings-custom-headers-error,
+.settings-request-options .settings-custom-headers-error {
   margin: 6px 0 0;
   color: var(--mx-danger);
   font-size: 13px;
   line-height: 18px;
+}
+/* "Advanced" disclosure: the head is the shared folded-section head; the body
+   stacks its fields on the dialog's 8px rhythm. */
+.settings-request-options-body {
+  display: grid;
+  gap: 8px;
+  margin-top: 8px;
+}
+.settings-request-options-body > label,
+.settings-request-options-body > .settings-model-label {
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+}
+.settings-request-options-body textarea {
+  width: 100%;
+}
+.settings-request-options input {
+  font-family: var(--mx-font-mono);
+  font-size: 13px;
+}
+.settings-request-options input[aria-invalid="true"] {
+  box-shadow: 0 0 0 var(--mx-hairline) var(--mx-danger);
+}
+/* Model editor: each field is a title row (label left, control and reset
+   right) over its input; a reset exists only while the field is overridden. */
+.settings-custom-provider-key-row > .settings-model-label {
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+}
+.settings-model-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.settings-model-reset {
+  min-height: 24px;
+  padding: 0 8px;
+  font-size: var(--mx-font-meta);
+}
+.settings-model-check > .settings-model-reset {
+  margin-left: auto;
+}
+.settings-model-form .mx-segmented {
+  flex-wrap: wrap;
+  align-self: start;
+}
+.settings-model-form .settings-custom-provider-key-row > input {
+  flex: 0 1 240px;
+  min-width: 0;
+}
+/* Provider dialog model list: name, Edit, remove on one row; Refresh models below. */
+.settings-custom-models li.extensions-mcp-list-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.settings-custom-models li.extensions-mcp-list-row > span {
+  flex: 1;
+}
+.settings-custom-models li.extensions-mcp-list-row > button.settings-action {
+  width: auto;
+  height: auto;
+  min-height: 28px;
+  padding: 0 11px;
+  color: var(--mx-text);
+  background: var(--mx-action-bg);
+  box-shadow: var(--mx-action-ring);
+}
+.settings-custom-models li.extensions-mcp-list-row > button.settings-action:hover:not(:disabled) {
+  background: linear-gradient(var(--mx-hover), var(--mx-hover)), var(--mx-action-bg);
+}
+.settings-custom-models-refresh {
+  margin-top: 8px;
 }
 .settings-oauth-dialog.settings-custom-provider-dialog {
   width: min(520px, calc(100vw - 32px));

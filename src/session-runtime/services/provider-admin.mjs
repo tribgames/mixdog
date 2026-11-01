@@ -598,6 +598,7 @@ function publicCustomModelRows(rows) {
     if (out > 0) model.maxOutputTokens = Math.floor(out);
     model.hidden = item.hidden === true;
     model.manual = item.manual === true;
+    if (item.inherited) model.inherited = structuredClone(item.inherited);
     for (const key of [
       'supportsVision',
       'supportsReasoning',
@@ -660,6 +661,7 @@ function customProviderRow(id, entry, checkSecrets = true) {
   row.discovery = structuredClone(config?.discovery ?? entry.discovery ?? { newModelsHidden: false });
   row.modelOverrides = structuredClone(config?.modelOverrides ?? entry.modelOverrides ?? {});
   if (config?.headers) row.headers = { ...config.headers };
+  if (config?.requestBody) row.requestBody = structuredClone(config.requestBody);
   if (config?.wires) row.wires = [...config.wires];
   if (config?.modelWires) row.modelWires = { ...config.modelWires };
   // Additional API keys by id only; their values never leave the keychain.
@@ -1308,6 +1310,7 @@ function withStoredSettings(input, entry) {
     if (out.modelOverrides === undefined) out.modelOverrides = stored.modelOverrides;
     // `headers: {}` clears them; an omitted field keeps the stored ones.
     if (out.headers === undefined && stored.headers) out.headers = stored.headers;
+    if (out.requestBody === undefined && stored.requestBody) out.requestBody = stored.requestBody;
     // Served wires and per-model wires have no setup field yet: an edit on
     // the same protocol keeps them (another protocol serves other wires).
     if ((out.protocol ?? stored.protocol) === stored.protocol) {
@@ -1472,6 +1475,8 @@ const MODEL_PATCH_KEYS = new Set([
   'maxOutputTokens',
   'supportsVision',
   'reasoning',
+  'requestBody',
+  'requestHeaders',
 ]);
 const REASONING_PATCH_KEYS = new Set(['levels', 'wireFormat', 'wireValues', 'replay']);
 

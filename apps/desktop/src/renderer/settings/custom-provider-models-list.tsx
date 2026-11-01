@@ -89,7 +89,7 @@ export function CustomProviderModelsList({
                 {editable && backed && (
                   <button
                     type="button"
-                    className="secondary"
+                    className="settings-action"
                     disabled={disabled}
                     aria-label={t('Edit model {{name}}', { name: model.id })}
                     onClick={() => onEdit(model.id)}
@@ -113,7 +113,7 @@ export function CustomProviderModelsList({
         )}
       </ul>
       {editable && (
-        <button type="button" className="secondary" disabled={disabled} onClick={onRefresh}>
+        <button type="button" className="settings-action settings-custom-models-refresh" disabled={disabled} onClick={onRefresh}>
           {t('Refresh models')}
         </button>
       )}
