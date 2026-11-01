@@ -1,6 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import type { NavigationSelection, WorkspaceSelection } from '../navigation';
 import { navigationKey } from '../text-format';
+import { createNavigationHistory } from '../navigation-history';
 import type { ConversationHandoff } from '../use-pane-tab-close';
 
 /** The navigation identity every session switch reads and writes: the
@@ -31,6 +32,9 @@ export function useAppFrameNavigationState(startupNavigationSelection: Navigatio
   // (requestedSessionId) as viewed: a slow resume or a fork-on-resume commits
   // a different id, which left the clicked row's dot unconsumed (user report).
   const unreadViewedSessionRef = useRef('');
+  // The window's Back/Forward history: session activation and editor opens
+  // record into the same stack.
+  const navigationHistory = useRef(createNavigationHistory());
   // Stable identity: SessionSidebar is memoised and must not re-render from a
   // fresh selection object literal on every App commit. A switch hands it the
   // requested target first and the committed selection of the same session
@@ -57,6 +61,7 @@ export function useAppFrameNavigationState(startupNavigationSelection: Navigatio
     navigationEpoch,
     viewedSessionRef,
     unreadViewedSessionRef,
+    navigationHistory,
     sidebarSelection,
   };
 }

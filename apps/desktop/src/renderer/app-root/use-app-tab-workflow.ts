@@ -1,4 +1,6 @@
+import { sessionStillExists } from '../navigation-history';
 import { useEditorNavigation } from '../use-editor-navigation';
+import { useStableEvent } from '../use-stable-event';
 import { usePaneTabClose } from '../use-pane-tab-close';
 import { usePaneTabNavigation } from '../use-pane-tab-navigation';
 import { useSideFileGuardOpeners } from './use-side-file-guard';
@@ -36,6 +38,9 @@ export function useAppTabWorkflow(
   const { setTabs, startTask } = lifecycle.taskLifecycle;
   const { openSession, startProject } = commands;
   const { activeProjectPath, activeTabKey } = context;
+  const sessionAvailable = useStableEvent((sessionId: string) =>
+    sessionStillExists(sessionId, nav.sessions, paneWorkspace.leaves)
+  );
 
   const {
     fileReveal,
@@ -47,6 +52,9 @@ export function useAppTabWorkflow(
   } = useEditorNavigation({
     setTabs,
     openSelectionInFocusedPane: paneWorkspace.openInFocused,
+    navigationHistory: nav.navigationHistory,
+    openSession,
+    sessionAvailable,
   });
   // Every main-tab open passes the side-file guard (bound below).
   const { sideFileGuardRef, openFileTab, openFileInSideDock, openPreviewToSide } =

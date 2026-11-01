@@ -47,9 +47,17 @@ test('opening a file at a line stamps a reveal with the current time; opening wi
   const { root } = installTestDom(t, { rootId: 'root' });
   t.mock.timers.enable({ apis: ['Date'], now: 5000 });
   const { useEditorNavigation } = await import('./use-editor-navigation.ts');
+  const { createNavigationHistory } = await import('./navigation-history.ts');
+  const navigationHistory = { current: createNavigationHistory() };
   let nav;
   function Probe() {
-    nav = useEditorNavigation({ setTabs() {}, openSelectionInFocusedPane() {} });
+    nav = useEditorNavigation({
+      setTabs() {},
+      openSelectionInFocusedPane() {},
+      navigationHistory,
+      openSession() {},
+      sessionAvailable: () => true,
+    });
     return null;
   }
   await act(async () => root.render(React.createElement(Probe)));

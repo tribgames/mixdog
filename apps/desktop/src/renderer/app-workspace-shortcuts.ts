@@ -14,15 +14,19 @@
 // shift+mod+F find in files · mod+W and ctrl+Q close ·
 // mod+F session search when no tab is open (surfaces keep their own find) ·
 // mod+K and mod+/ command palette · mod+1..9 go to tab (9 = last) ·
-// mod+[ / mod+] back/forward · shift+mod+[ / ] previous/next tab.
+// mod+[ / mod+] back/forward through sessions and editor locations (also mouse
+// buttons 3/4) · shift+mod+[ / ] previous/next tab.
 // Bracket, K and / chords stay with a focused code editor (indent, chords,
-// comment toggle).
+// comment toggle); back/forward also stays with the browser page and terminal.
 import { useEffect, useRef } from 'react';
 
 import type { WorkspaceTab } from './navigation';
 import { openSessionSearch } from './session-search';
 import { isTextNavigationTarget, modalDialogPresented } from './surface-input-focus';
 import { toggleToolActivityExpandAll } from './tool-activity-expansion';
+
+/** Surfaces with their own back/forward or word motion: the in-app browser and the terminal. */
+const OWN_HISTORY_SURFACES = '.browser-pane, .browser-isolated-view, .xterm';
 
 interface WorkspaceShortcutActions {
   tabs: WorkspaceTab[];
@@ -73,18 +77,15 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       const mod = event.ctrlKey || event.metaKey;
       const target = event.target as Partial<Element> | null;
       const inEditor = Boolean(target?.closest?.('.monaco-editor'));
-      // Alt+Left/Right walks editor history (VS Code); the browser page and
-      // the terminal keep it for their own back/forward and word motion.
-      if (
-        event.altKey &&
-        !mod &&
-        !event.shiftKey &&
-        (event.key === 'ArrowLeft' || event.key === 'ArrowRight') &&
-        !target?.closest?.('.browser-pane, .browser-isolated-view, .xterm')
-      ) {
-        // On a Mac, Option+Left/Right is word motion inside text (the app and
-        // a paired browser alike).
-        if (/Mac/i.test(navigator.platform) && (isTextNavigationTarget(event.target) || inEditor)) return null;
+      const ownsHistoryKeys = Boolean(target?.closest?.(OWN_HISTORY_SURFACES));
+      // Alt+Left/Right walks Back/Forward history (sessions and editor
+      // locations) only outside surfaces with a meaning of their own: the
+      // browser page and the terminal (back/forward, word motion), the code
+      // editor and any text field, the composer included (word motion on a
+      // Mac, native behaviour elsewhere). Ctrl/⌘+[ ] and mouse buttons 3/4
+      // are the app-level history keys there.
+      if (event.altKey && !mod && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
+        if (ownsHistoryKeys || inEditor || isTextNavigationTarget(event.target)) return null;
         return event.key === 'ArrowLeft'
           ? () => actionsRef.current.navigateBack()
           : () => actionsRef.current.navigateForward();
@@ -97,6 +98,8 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
         if (inEditor) return null;
         const offset = event.code === 'BracketLeft' ? -1 : 1;
         if (event.shiftKey) return () => cycleTab(offset);
+        // The browser page keeps its own back/forward; in a terminal Ctrl+[ is Escape.
+        if (ownsHistoryKeys) return null;
         return offset < 0 ? () => actionsRef.current.navigateBack() : () => actionsRef.current.navigateForward();
       }
       if (plain && (key === 'k' || key === '/')) {
@@ -195,7 +198,19 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       else actionsRef.current.navigateForward();
     };
     window.addEventListener('mixdog:navigate-history', onNavigateHistory);
+    // Mouse Back/Forward (buttons 3/4) arrive as renderer mouse events on
+    // every platform; Electron's `app-command` misses presses over page
+    // content and cannot be cancelled, so it is not used.
+    const onMouseNavigate = (event: globalThis.MouseEvent) => {
+      if (event.button !== 3 && event.button !== 4) return;
+      const target = event.target as Partial<Element> | null;
+      if (target?.closest?.(`${OWN_HISTORY_SURFACES}, .monaco-editor`) || modalDialogPresented()) return;
+      event.preventDefault();
+      window.dispatchEvent(new window.CustomEvent('mixdog:navigate-history', { detail: event.button === 3 ? -1 : 1 }));
+    };
+    window.addEventListener('mouseup', onMouseNavigate, true);
     return () => {
+      window.removeEventListener('mouseup', onMouseNavigate, true);
       window.removeEventListener('keydown', onShortcutCapture, true);
       window.removeEventListener('mixdog:cycle-tab', onCycle);
       window.removeEventListener('mixdog:tab-switcher', onSwitcher);

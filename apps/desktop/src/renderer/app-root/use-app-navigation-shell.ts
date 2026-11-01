@@ -44,6 +44,7 @@ export function useAppNavigationShell(shell: AppWorkspaceShell) {
     navigationEpoch,
     viewedSessionRef,
     unreadViewedSessionRef,
+    navigationHistory,
     sidebarSelection,
   } = useAppFrameNavigationState(startupNavigationSelection);
 
@@ -122,6 +123,7 @@ export function useAppNavigationShell(shell: AppWorkspaceShell) {
     navigationEpoch,
     viewedSessionRef,
     unreadViewedSessionRef,
+    navigationHistory,
     sidebarSelection,
     clearNewTaskPreferences,
     draftPanePrefs,
