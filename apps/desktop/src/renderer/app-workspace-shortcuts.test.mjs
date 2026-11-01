@@ -232,7 +232,7 @@ test('a focused code editor keeps Ctrl+Arrow for word jumps and line scrolling',
   assert.deepEqual(vertical, ['down']);
 });
 
-test('Alt+Left/Right walks history except in the browser page, the terminal, the code editor and text fields', async (t) => {
+test('Alt+Left/Right walks history except in the browser page, the terminal and, on a Mac, the code editor and text fields', async (t) => {
   const host = document.createElement('main');
   const plain = document.createElement('textarea');
   const terminal = document.createElement('div');
@@ -299,19 +299,22 @@ test('Alt+Left/Right walks history except in the browser page, the terminal, the
   Object.defineProperty(editable, 'isContentEditable', { value: true });
   host.append(input, checkbox, editor, editable);
 
-  // The composer is a textarea: Alt+Left there keeps its native meaning on
-  // every platform, so it never switches sessions.
+  // Alt+Left/Right is word motion only on a Mac: there text fields and the
+  // editor keep it. On Windows and Linux it navigates from every text surface;
+  // the browser page and the terminal keep it everywhere.
   for (const platform of ['MacIntel', 'Win32', 'Linux x86_64']) {
     Object.defineProperty(navigator, 'platform', { configurable: true, value: platform });
-    for (const [name, target, textTarget] of [
-      ['composer textarea', plain, true],
-      ['input', input, true],
-      ['contenteditable', editable, true],
-      ['Monaco', editorInput, true],
+    const mac = platform === 'MacIntel';
+    for (const [name, target, yields] of [
+      ['composer textarea', plain, mac],
+      ['input', input, mac],
+      ['contenteditable', editable, mac],
+      ['Monaco', editorInput, mac],
       ['workspace', host, false],
       ['checkbox', checkbox, false],
+      ['terminal', terminal, true],
+      ['browser', browser, true],
     ]) {
-      const yields = textTarget;
       const label = `${platform}/${name}`;
       let delivered = 0;
       const onKey = () => delivered++;

@@ -31,6 +31,10 @@ import { zoomTargetClaimsKey } from './zoom-target';
 /** Surfaces with their own back/forward or word motion: the in-app browser and the terminal. */
 const OWN_HISTORY_SURFACES = '.browser-pane, .browser-isolated-view, .xterm';
 
+function isMacPlatform(): boolean {
+  return /Mac/i.test(navigator.platform);
+}
+
 interface WorkspaceShortcutActions {
   tabs: WorkspaceTab[];
   activeTabKey: string;
@@ -82,13 +86,16 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
       const inEditor = Boolean(target?.closest?.('.monaco-editor'));
       const ownsHistoryKeys = Boolean(target?.closest?.(OWN_HISTORY_SURFACES));
       // Alt+Left/Right walks Back/Forward history (sessions and editor
-      // locations) only outside surfaces with a meaning of their own: the
-      // browser page and the terminal (back/forward, word motion), the code
-      // editor and any text field, the composer included (word motion on a
-      // Mac, native behaviour elsewhere). Ctrl/⌘+[ ] and mouse buttons 3/4
-      // are the app-level history keys there.
+      // locations), including from the composer, text fields and the code
+      // editor: on Windows and Linux the key has no meaning there (word motion
+      // is Ctrl+Left/Right, and Monaco binds Alt+Left/Right only on macOS).
+      // It stays out of the browser page and the terminal (their own
+      // back/forward and word motion) and, on a Mac, out of text fields and
+      // the editor, where Option+Left/Right is word motion; ⌘+[ ] and mouse
+      // buttons 3/4 are the history keys there.
       if (event.altKey && !mod && !event.shiftKey && (event.key === 'ArrowLeft' || event.key === 'ArrowRight')) {
-        if (ownsHistoryKeys || inEditor || isTextNavigationTarget(event.target)) return null;
+        if (ownsHistoryKeys) return null;
+        if (isMacPlatform() && (inEditor || isTextNavigationTarget(event.target))) return null;
         return event.key === 'ArrowLeft'
           ? () => actionsRef.current.navigateBack()
           : () => actionsRef.current.navigateForward();
