@@ -20,6 +20,11 @@ import {
   prepareShellText,
   textPiece,
 } from './shell-delivery.mjs';
+import {
+  SHELL_OUTPUT_SILENCE_WARN_MS,
+  describeShellOutputSilence,
+  shellOutputSilenceMs,
+} from './shell-output-silence.mjs';
 
 const cursors = new WeakMap();
 const ESC = '\x1b';
@@ -121,16 +126,16 @@ function lastMatch(pattern, text) {
 
 /** What changed since the agent last saw the job: growth, last line, any
  *  visible percent/ETA. Used where a still-running job is reported. */
-function progressDigest(growth) {
+function progressDigest(growth, hung) {
   const bytes = growth.reduce((sum, entry) => sum + entry.bytes, 0);
   const lines = growth.reduce((sum, entry) => sum + entry.lines, 0);
   const text = growth
     .map((entry) => entry.text)
     .filter(Boolean)
     .join('\n');
-  const parts = [
-    bytes > 0 ? `+${formatKb(bytes)}, +${lines} lines since you last saw it` : 'no new output since you last saw it',
-  ];
+  const parts = [];
+  if (bytes > 0) parts.push(`+${formatKb(bytes)}, +${lines} lines since you last saw it`);
+  else if (!hung) parts.push('no new output since you last saw it');
   const last = text
     .split('\n')
     .reverse()
@@ -140,6 +145,8 @@ function progressDigest(growth) {
   if (percent && Number(percent[1]) <= 100) parts.push(`${percent[1]}%`);
   const eta = lastMatch(ETA_RE, text);
   if (eta) parts.push(`ETA ${eta[1].trim()}`);
+  // A job quiet past the threshold is no longer reassured as "not an error".
+  if (hung) return `[progress] ${[...parts, hung].join(' · ')}`;
   return `[progress] ${parts.join(' · ')} — still running, not an error`;
 }
 
@@ -169,7 +176,13 @@ export function shellLogPiece(path) {
 export function readShellTaskOutput(
   task,
   result = {},
-  { output = 'new', terminal = task.status !== 'running', digest = false } = {}
+  {
+    output = 'new',
+    terminal = task.status !== 'running',
+    digest = false,
+    now = Date.now(),
+    silenceWarnMs = SHELL_OUTPUT_SILENCE_WARN_MS,
+  } = {}
 ) {
   const replay = output === 'tail';
   const growth = [];
@@ -253,5 +266,6 @@ export function readShellTaskOutput(
   const body =
     sections.map((item) => (item.piece ? `${item.prefix}${bodies[pieces.indexOf(item)]}` : item)).join('\n\n') ||
     (replay ? '(no output)' : '(no new output)');
-  return escapeHarnessTags(digest ? `${progressDigest(growth)}\n\n${body}` : body);
+  const hung = digest ? describeShellOutputSilence(shellOutputSilenceMs(task, { now, result }), silenceWarnMs) : null;
+  return escapeHarnessTags(digest ? `${progressDigest(growth, hung)}\n\n${body}` : body);
 }

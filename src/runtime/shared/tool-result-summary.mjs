@@ -265,7 +265,7 @@ function stripInlineMarkdown(value) {
 // Envelope field lines (`status: …`, `task_id: …`) that precede or surround a
 // real agent answer. One list so both scanners below skip exactly the same set.
 const ENVELOPE_FIELD_LINE_RE =
-  /^(?:agent task|background task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|surface|operation|label|exit_code|timed_out|signal|notification|queueDepth|worker|worker_stage|last_progress|silent_for|watchdog|queued_followups|diagnostic|started|finished|elapsed|reused|result|message|output|protocol|version):\s*/i;
+  /^(?:agent task|background task|status|type|target|role|agent|preset|model|effort|fast|limits|session|task-id|task_id|surface|operation|label|exit_code|timed_out|signal|notification|queueDepth|worker|worker_stage|last_progress|silent_for|tool_silent_for|watchdog|queued_followups|diagnostic|started|finished|elapsed|reused|result|message|output|protocol|version):\s*/i;
 
 // Headers that open an envelope block without a colon (`background task`).
 const ENVELOPE_HEADER_LINE_RE = /^(?:agent result|background task)\b/i;

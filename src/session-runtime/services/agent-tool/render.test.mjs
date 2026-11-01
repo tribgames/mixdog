@@ -69,6 +69,28 @@ test('list renders three workers and tasks compactly without becoming an agent r
   assert.equal(parseAgentJob(text), null);
 });
 
+test('list rows show the hung-tool diagnostic with its action, and omit other diagnostics', () => {
+  const text = renderResult({
+    workers: [
+      {
+        tag: 'stuck',
+        status: 'running',
+        worker_stage: 'tool_running',
+        last_progress: 'tool: task',
+        tool_silent_for: '23m (shell job job_1 no output)',
+        diagnostic: 'tool possibly hung: shell job job_1 no output for 23m; inspect or cancel it',
+      },
+      { tag: 'fine', status: 'running', worker_stage: 'tool_running', last_progress: 'tool: task', diagnostic: 'tool running' },
+    ],
+    jobs: [],
+  });
+  assert.match(
+    text,
+    /- stuck {2}running\/tool_running {2}tool: task {2}tool_silent_for: 23m \(shell job job_1 no output\) {2}! tool possibly hung: shell job job_1 no output for 23m; inspect or cancel it/
+  );
+  assert.match(text, /- fine {2}running\/tool_running {2}tool: task$/m);
+});
+
 test('list keeps progress and failed errors on one line, bounds progress, and never falls back to session ids', () => {
   const text = renderResult({
     workers: [

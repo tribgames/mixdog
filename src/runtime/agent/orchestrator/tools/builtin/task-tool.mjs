@@ -32,6 +32,7 @@ import { recordDeliveredCompletion } from '../../session/manager/delivered-compl
 import { listShellJobRecords, readShellJobRecord } from './lib/shell-job-records.mjs';
 import { resourceAdmission } from '../../../../shared/resource-admission.mjs';
 import { readShellTaskOutput } from './lib/shell-task-output.mjs';
+import { shellTaskSilenceNote } from './lib/shell-output-silence.mjs';
 
 // Ceiling for confirming that a cancelled task's process really exited. The
 // wait returns the moment the native task settles, so this only bounds a
@@ -89,6 +90,11 @@ function refreshShellTask(taskId, { includeRunning = false } = {}) {
     if (task) {
       task.result = publicResult;
       task.resultText = JSON.stringify(publicResult, null, 2);
+      // The job's own status line: set while it is quiet past the threshold,
+      // gone again the moment it prints.
+      const silence = shellTaskSilenceNote(task);
+      if (silence) task.meta = { ...task.meta, output_silence: silence };
+      else if (task.meta?.output_silence) delete task.meta.output_silence;
     }
   }
   return job;
@@ -144,6 +150,11 @@ async function listTasks(options) {
     (record) => recoveredTaskMatches(record, options) && !liveIds.has(record.jobId)
   );
   const sections = [rendered];
+  const quiet = listBackgroundTasks({ context: options, surface: 'shell' })
+    .map((row) => [row.task_id, shellTaskSilenceNote(getBackgroundTask(row.task_id))])
+    .filter(([, note]) => note)
+    .map(([id, note]) => `- ${id} ${note}`);
+  if (quiet.length > 0) sections.push(`[output silence]\n${quiet.join('\n')}`);
   if (recovered.length > 0) {
     const rows = recovered.map(
       (record) =>
@@ -175,7 +186,7 @@ async function waitForShellTask(task, taskId, args, options) {
     turnSignal = null;
   }
   const waitControl = beginInterruptibleTaskWait(options?.sessionId, turnSignal);
-  const releaseWaitState = beginSessionTaskWait(options?.sessionId);
+  const releaseWaitState = beginSessionTaskWait(options?.sessionId, taskId);
   const waitSignal = waitControl.signal;
   const waitTimeoutMs = resolveTaskWaitTimeoutMs(args.timeout_ms, await defaultTaskWaitMs(options?.sessionId));
   let interruptedByUser = false;
