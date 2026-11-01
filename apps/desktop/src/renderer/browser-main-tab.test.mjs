@@ -196,6 +196,7 @@ test('Open in main tab request opens a browser tab in the owning pane and folds 
       paneSideDocks: { select() {}, temporarySelect() {} },
       closePaneRightRegion: (id) => folded.push(id),
       sessionPaneSurfaces: {
+        agentSessionPanels: new Map(),
         browserSurfaces: new Map(),
         pendingBrowserAutoReveal: { current: new Set() },
         browserAutoRevealSuppressed: { current: new Set() },

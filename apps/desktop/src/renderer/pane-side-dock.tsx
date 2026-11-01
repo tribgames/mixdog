@@ -1380,6 +1380,8 @@ function PhoneDockSwitchPublisher({
     const descriptor = root === undefined ? undefined : descriptors.get(root);
     if (!root || !descriptor) continue;
     if (root === 'visualize' && !keepVisualize && !visualizeAvailable) continue;
+    // Only an Agents row opens the agent session view; the switch names it while it shows.
+    if (root === 'agent-session' && activeRoot !== root) continue;
     items.push({
       id: root,
       label: descriptor.tooltip || descriptor.label,
@@ -1476,12 +1478,17 @@ function paneDockShowing(entry: PaneSideDockEntry, openNow: boolean) {
   const filesShowing = surfaceShowing && paneFilesShowing(entry);
   const sessionSurfaceShowing = browserShowing || terminalShowing || fileShowing || filesShowing;
   const diffShowing = surfaceShowing && paneDiffShowing(entry);
-  // The Changes panel view draws its own DockHeaderRow (SessionDiffPane).
+  // The Changes, Visualize and agent session views draw their own DockHeaderRow.
   const sessionDiffPanelShowing =
-    openNow && entry.surface === '' && (entry.view === 'session-diff' || entry.view === 'visualize');
-  // Width only: the visualize view is a page viewer, so it sizes as a session
-  // surface (it shrinks toward its floor before the dock overlays).
-  const widthSurfaceShowing = sessionSurfaceShowing || (openNow && entry.surface === '' && entry.view === 'visualize');
+    openNow &&
+    entry.surface === '' &&
+    (entry.view === 'session-diff' || entry.view === 'visualize' || entry.view === 'agent-session');
+  // Width only: the visualize view is a page viewer and the agent session view
+  // a conversation, so they size as a session surface (shrinking toward its
+  // floor before the dock overlays).
+  const widthSurfaceShowing =
+    sessionSurfaceShowing ||
+    (openNow && entry.surface === '' && (entry.view === 'visualize' || entry.view === 'agent-session'));
   return {
     browserShowing,
     terminalShowing,

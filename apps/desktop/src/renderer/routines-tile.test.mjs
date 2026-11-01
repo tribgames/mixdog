@@ -83,8 +83,9 @@ test('routine rows are the schedules the agent owns, ownerless ones belonging to
 
 test('the Routines view exists only on an agent home thread', () => {
   const groups = [['routines'], ['session-diff'], ['browser']];
-  assert.deepEqual(paneRightGroupsFor(groups, 'sess_home_lead'), groups);
-  assert.deepEqual(paneRightGroupsFor(groups, 'sess_0193abc'), [['session-diff'], ['browser']]);
+  // A session tab also holds the agent session view (an Agents row opens it).
+  assert.deepEqual(paneRightGroupsFor(groups, 'sess_home_lead'), [...groups, ['agent-session']]);
+  assert.deepEqual(paneRightGroupsFor(groups, 'sess_0193abc'), [['session-diff'], ['browser'], ['agent-session']]);
   assert.deepEqual(paneRightGroupsFor(groups, ''), [['session-diff'], ['browser']]);
 });
 

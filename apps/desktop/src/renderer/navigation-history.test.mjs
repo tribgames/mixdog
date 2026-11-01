@@ -206,6 +206,7 @@ async function mountNavigation(t, sessions) {
       setSessionSideSurface: noop,
       paneSideDocks: { select: noop, temporarySelect: noop },
       sessionPaneSurfaces: {
+        agentSessionPanels: new Map(),
         browserSurfaces: new Map(),
         pendingBrowserAutoReveal: { current: new Set() },
         browserAutoRevealSuppressed: { current: new Set() },

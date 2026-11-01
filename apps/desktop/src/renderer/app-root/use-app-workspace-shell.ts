@@ -19,7 +19,9 @@ export function useAppWorkspaceShell() {
   const { snapshotStore, connected, hydrated: snapshotHydrated, error, setError, applySnapshot } = useDesktopState();
   const snapshot = useDesktopSnapshotSelector(snapshotStore, selectDesktopSnapshot, desktopChromeSnapshotsEqual);
   const paneWorkspace = usePaneWorkspace();
-  const sessionPaneSurfaces = useSessionPaneSurfaces();
+  const sessionPaneSurfaces = useSessionPaneSurfaces(
+    paneWorkspace.leaves.flatMap((leaf) => leaf.tabs.flatMap((tab) => (tab.kind === 'session' ? [tab.id] : [])))
+  );
   const shellPanels = useAppShellPanels(paneWorkspace.focusedLeafId);
   const { applySidebarOpen, bottomPanel, settingsOpen } = shellPanels;
   const { settingsMounted, settingsPrewarmed } = useAppSettingsMount(settingsOpen);

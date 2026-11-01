@@ -69,6 +69,8 @@ export function useAppTabWorkflow(
     dockOpenPullRequest,
     dockOpenLeadSession,
     dockOpenAgentSession,
+    dockPeekAgentSession,
+    openAgentSessionPanelAsTab,
     chooseFileTab,
     openDroppedPaths,
   } = useAppTabActions({
@@ -149,6 +151,8 @@ export function useAppTabWorkflow(
     dockOpenPullRequest,
     dockOpenLeadSession,
     dockOpenAgentSession,
+    dockPeekAgentSession,
+    openAgentSessionPanelAsTab,
     chooseFileTab,
     openDroppedPaths,
     focusPaneTypingSurface,

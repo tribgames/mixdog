@@ -85,7 +85,7 @@ export function AppShellLayout({
   } = hubs;
   const { paneConversationSurface, paneFileEditors, paneUtilityTabs, paneUtilitySurfacePortals, desktopBootReady } =
     surfaces;
-  const { renderWorkbenchSideView, leftViewInputs, renderPaneSideDock, renderPaneProblems } = views;
+  const { renderWorkbenchSideView, leftViewInputs, renderPaneSideDock, renderPaneProblems, dockSessionIds } = views;
 
   return (
     <DesktopBootGate restorePending={paneWorkspace.restorePending} ready={desktopBootReady}>
@@ -147,6 +147,7 @@ export function AppShellLayout({
               openConversationCommandSurface={openConversationCommandSurface}
               paneWorkspace={paneWorkspace}
               observedAgentSessionIds={sessionTitle.observedAgentSessionIds}
+              dockSessionIds={dockSessionIds}
               paneStripFor={paneStripFor}
               paneConversationSurface={paneConversationSurface}
               paneFileEditors={paneFileEditors}

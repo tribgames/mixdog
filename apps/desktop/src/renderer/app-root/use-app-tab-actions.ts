@@ -8,7 +8,7 @@ import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { isSshConnectionWindow } from '../desktop-connection';
 import { navigationKey, newBrowserSelection, newStudioSelection } from '../text-format';
 import { onBrowserMainRequested, type BrowserMainRequest } from '../browser-main-request';
-import { canSplitPaneSize, paneActiveSelection } from '../pane-layout';
+import { canSplitPaneSize, paneActiveSelection, type PaneLeaf } from '../pane-layout';
 import type { usePaneWorkspace } from '../pane-workspace-state';
 import { beginStudioLoad, reportStudioLoadStage } from '../renderer-load-metrics';
 import { loadStudioViewModule } from '../studio-loader';
@@ -317,7 +317,37 @@ export function useAppTabActions({
       void openSession(childSessionId, false, String(title || '').trim(), replaceKey ?? '');
     }
   );
-
+  // An Agents-window sub-agent row: its conversation opens in the right side
+  // panel of the chat it belongs to (its owner on screen, else the focused
+  // chat), the chat staying where it is. A session already open as a tab is
+  // never mounted a second time: the open reveals the pane that owns it
+  // (openInFocusedState), as a click did before.
+  const dockPeekAgentSession = useStableEvent((sessionId: string, title: string, ownerSessionId: string) => {
+    const childSessionId = String(sessionId || '').trim();
+    if (!childSessionId) return;
+    const cleanTitle = String(title || '').trim();
+    const target = agentSessionPanelHost(
+      paneWorkspace.leaves,
+      sessionOwners,
+      paneWorkspace.focusedLeafId,
+      childSessionId,
+      String(ownerSessionId || '').trim()
+    );
+    if (!target) {
+      void openSession(childSessionId, false, cleanTitle);
+      return;
+    }
+    sessionPaneSurfaces.showAgentSessionPanel(target.hostSessionId, { sessionId: childSessionId, title: cleanTitle });
+    paneSideDocks.select(target.leafId, 'agent-session');
+  });
+  // The panel's "Open in tab": the sub-agent leaves the chat's panel and
+  // opens in the focused pane, exactly as a row click did before.
+  const openAgentSessionPanelAsTab = useStableEvent((hostSessionId: string) => {
+    const panel = sessionPaneSurfaces.agentSessionPanels.get(hostSessionId);
+    if (!panel) return;
+    sessionPaneSurfaces.setSessionPanelView(hostSessionId, null, { agent: true });
+    void openSession(panel.sessionId, false, panel.title);
+  });
   const chooseFileTab = async (leafId = paneWorkspace.focusedLeafId) => {
     void prefetchEditorPane().catch(() => {});
     // The OS file chooser would open on the host; remote surfaces search the project instead.
@@ -359,7 +389,33 @@ export function useAppTabActions({
     dockOpenPullRequest,
     dockOpenLeadSession,
     dockOpenAgentSession,
+    dockPeekAgentSession,
+    openAgentSessionPanelAsTab,
     chooseFileTab,
     openDroppedPaths,
   };
+}
+
+/** A session tab in any pane, shown or not. */
+function sessionTabOpen(leaves: readonly PaneLeaf[], sessionId: string): boolean {
+  return leaves.some((leaf) => leaf.tabs.some((tab) => tab.kind === 'session' && tab.id === sessionId));
+}
+
+/** Where an Agents row opens sub-agent `childSessionId` beside a chat: the
+ *  pane showing its owner (the focused one first), else the focused pane's
+ *  chat. Null when it must open as a tab instead: it already is one (the
+ *  open reveals that pane), or no chat is on screen to hold it. */
+export function agentSessionPanelHost(
+  leaves: readonly PaneLeaf[],
+  owners: readonly { leafId: string; sessionId: string | null }[],
+  focusedLeafId: string,
+  childSessionId: string,
+  ownerSessionId: string
+): { leafId: string; hostSessionId: string } | null {
+  if (sessionTabOpen(leaves, childSessionId)) return null;
+  const ownerLeafId = ownerSessionId ? browserSurfaceRevealPlan(owners, ownerSessionId, focusedLeafId).leafId : null;
+  if (ownerLeafId) return { leafId: ownerLeafId, hostSessionId: ownerSessionId };
+  const focused = owners.find((owner) => owner.leafId === focusedLeafId)?.sessionId;
+  if (!focused || focused === childSessionId) return null;
+  return { leafId: focusedLeafId, hostSessionId: focused };
 }

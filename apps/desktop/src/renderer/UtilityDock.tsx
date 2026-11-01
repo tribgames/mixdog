@@ -88,6 +88,7 @@ export const UtilityDock = memo(function UtilityDock({
   onPrefetchSession,
   onOpenLeadSession,
   onOpenAgentSession,
+  onPeekAgentSession,
   onRenameSession,
   readComposerModel,
   entering = false,
@@ -127,6 +128,8 @@ export const UtilityDock = memo(function UtilityDock({
   onRenameProjectEntry?(projectPath: string, relPath: string, newName: string): Promise<void>;
   onOpenLeadSession?(sessionId: string): void;
   onOpenAgentSession?(sessionId: string, title: string, ownerSessionId: string, replaceKey?: string): void;
+  /** A sub-agent row of the Agents pane: its conversation beside the chat. */
+  onPeekAgentSession?(sessionId: string, title: string, ownerSessionId: string): void;
   /** Renames a session (the Agents pane's Lead rows). */
   onRenameSession?(sessionId: string, title: string): Promise<unknown> | void;
   /** The composer's current model: a new agent from the Agents pane starts on it. */
@@ -259,6 +262,7 @@ export const UtilityDock = memo(function UtilityDock({
                 onPrefetchSession={onPrefetchSession}
                 onOpenLeadSession={onOpenLeadSession}
                 onOpenSession={onOpenAgentSession}
+                onPeekSession={onPeekAgentSession}
                 onRenameSession={onRenameSession}
                 readComposerModel={readComposerModel}
               />

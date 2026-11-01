@@ -1,0 +1,22 @@
+/* The side dock's agent session view: the shared header row over a pane
+   conversation that fills the rest of the dock. */
+.agent-session-panel {
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.agent-session-panel-body {
+  position: relative;
+  min-height: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+.agent-session-panel-body > .workspace {
+  min-height: 0;
+  flex: 1;
+}

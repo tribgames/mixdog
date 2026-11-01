@@ -148,10 +148,57 @@ export function withSessionDiff(
  *  browser and terminal ride `SessionSideSurface` above; the diff FILE rides
  *  `withSessionDiff`. The list is session-owned, never kept on the pane entry,
  *  so it cannot leak across sessions in the same pane. */
-export type SessionSidePanelView = 'session-diff' | 'visualize' | 'routines' | 'room';
+export type SessionSidePanelView = 'session-diff' | 'visualize' | 'routines' | 'room' | 'agent-session';
 
 export const isSessionSidePanelView = (view: unknown): view is SessionSidePanelView =>
-  view === 'session-diff' || view === 'visualize' || view === 'routines' || view === 'room';
+  view === 'session-diff' ||
+  view === 'visualize' ||
+  view === 'routines' ||
+  view === 'room' ||
+  view === 'agent-session';
+
+/** The sub-agent session a chat's `agent-session` panel view shows (an Agents
+ *  row opened beside the chat), with the row's title for its header. */
+export type AgentSessionPanelTarget = { sessionId: string; title: string };
+
+export function withAgentSessionPanel(
+  current: ReadonlyMap<string, AgentSessionPanelTarget>,
+  sessionId: string,
+  target: AgentSessionPanelTarget | null
+): ReadonlyMap<string, AgentSessionPanelTarget> {
+  return withSessionEntry(
+    current,
+    sessionId,
+    target,
+    (left, right) => left.sessionId === right.sessionId && left.title === right.title
+  );
+}
+
+/** Chat `hostSessionId`'s panel shows `target`: a sub-agent has one panel
+ *  host, so any other chat showing it lets it go in the same update. */
+export function withAgentSessionPanelHost(
+  current: ReadonlyMap<string, AgentSessionPanelTarget>,
+  hostSessionId: string,
+  target: AgentSessionPanelTarget
+): ReadonlyMap<string, AgentSessionPanelTarget> {
+  let next = current;
+  for (const [host, shown] of current) {
+    if (host !== hostSessionId && shown.sessionId === target.sessionId) {
+      next = withAgentSessionPanel(next, host, null);
+    }
+  }
+  return withAgentSessionPanel(next, hostSessionId, target);
+}
+
+/** The panel targets a render may mount: never a sub-agent any pane holds as
+ *  a tab (that tab is its one live mount). */
+export function agentSessionPanelsShown(
+  current: ReadonlyMap<string, AgentSessionPanelTarget>,
+  tabSessionIds: ReadonlySet<string>
+): ReadonlyMap<string, AgentSessionPanelTarget> {
+  if (![...current.values()].some((target) => tabSessionIds.has(target.sessionId))) return current;
+  return new Map([...current].filter(([, target]) => !tabSessionIds.has(target.sessionId)));
+}
 
 /** `view` when the tab's own right-side groups (paneRightGroupsFor) hold it,
  *  else null: a view remembered for another session kind (Routines off a
