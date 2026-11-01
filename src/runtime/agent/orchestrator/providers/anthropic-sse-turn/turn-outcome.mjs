@@ -7,6 +7,7 @@
  */
 import { stampStreamOutcome, STREAM_TRANSPORTS } from '../lib/stream-outcome.mjs';
 import { createProviderReplay } from '../lib/provider-replay.mjs';
+import { generationWindow } from '../lib/generation-window.mjs';
 import { OAUTH_STREAM_LABELS } from '../lib/anthropic-stream-labels.mjs';
 import { anthropicFallbackProviderMetadata } from '../anthropic-server-fallback.mjs';
 
@@ -155,6 +156,7 @@ export function createTurnOutcome({ turn, blocks, state, labels = OAUTH_STREAM_L
       assistantBlocks,
       providerReplay: createProviderReplay('anthropic', assistantBlocks),
       providerMetadata: anthropicFallbackProviderMetadata(turn.fallbackEvents),
+      ...generationWindow(turn.firstOutputAt),
     };
   };
 

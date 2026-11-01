@@ -242,6 +242,8 @@ export function normalizeCompatChatResponse({
     ...(reasoningContent !== null ? { reasoningContent } : {}),
     ...(Object.keys(providerMetadata).length ? { providerMetadata } : {}),
     usage: response.usage ? chatCompletionUsage(providerName, response.usage) : undefined,
+    // The answering stream's own generation window (generation-window.mjs).
+    ...(assembled.generationMs != null ? { generationMs: assembled.generationMs } : {}),
   };
 }
 

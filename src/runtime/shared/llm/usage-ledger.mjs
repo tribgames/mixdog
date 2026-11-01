@@ -118,6 +118,7 @@ function compactEventWriter(db) {
   const findSession = db.prepare('SELECT id FROM usage_sessions WHERE value=?');
   const insert = db.prepare('INSERT INTO usage_events VALUES (?,?,?,?,?,?,?,?,?,?,?)');
   const insertRequest = db.prepare('INSERT INTO usage_requests VALUES (?,?,?,?,?,?,?)');
+  const insertFirstOutput = db.prepare('INSERT INTO usage_request_first_output VALUES (?,?)');
   const insertOwner = db.prepare('INSERT OR IGNORE INTO usage_session_owners VALUES (?,?)');
   return (row) => {
     for (const key of ['id', 'provider', 'model', 'kind', 'source_type', 'cost_source', 'origin', 'session_id']) {
@@ -165,17 +166,12 @@ function compactEventWriter(db) {
     // a completed single attempt with nothing else to say needs no row.
     const status = row.status || 'completed';
     const attempts = row.attempts || 1;
-    if (status !== 'completed' || attempts > 1 || row.requested_model || row.ttft_ms != null || row.elapsed_ms) {
-      insertRequest.run(
-        id,
-        row.ts,
-        row.requested_model || null,
-        status,
-        attempts,
-        row.ttft_ms ?? null,
-        row.elapsed_ms || null
-      );
+    if (status !== 'completed' || attempts > 1 || row.requested_model || row.elapsed_ms) {
+      insertRequest.run(id, row.ts, row.requested_model || null, status, attempts, null, row.elapsed_ms || null);
     }
+    // The first-output time has its own table: only this build writes it, so
+    // a row there is this build's measurement (usage-ledger-requests.mjs).
+    if (row.ttft_ms != null) insertFirstOutput.run(id, row.ttft_ms);
     return true;
   };
 }

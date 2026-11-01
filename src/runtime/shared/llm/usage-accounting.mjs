@@ -2,7 +2,6 @@ import { randomUUID } from 'node:crypto';
 import { getUsageLedger, makeUsageRecord } from './usage-ledger.mjs';
 import { currentUsageContext, isNotedUsage, withUsageContext } from './usage-context.mjs';
 import { servedModelSubstituted, usageRequestStatus } from './usage-request-status.mjs';
-import { isVisibleStreamProgress } from '../stream-progress.mjs';
 import { ACCOUNT_PROVIDERS } from '../provider-accounts.mjs';
 import { currentProviderAccountId } from '../provider-auth-binding.mjs';
 
@@ -10,6 +9,29 @@ import { currentProviderAccountId } from '../provider-auth-binding.mjs';
 // fallback, catalog retry) runs its own accounting and its result or error
 // then returns through the enclosing send, which must not write it again.
 const recorded = new WeakSet();
+// The accounting identity of the send whose options carry it; object spread
+// keeps it on every option set a provider derives for its own re-send.
+const SEND_IDENTITY = Symbol('usageSendIdentity');
+// Providers whose answering stream's generation window (`generationMs`,
+// providers/lib/generation-window.mjs) starts when generation does, read
+// from the stream code: Anthropic opens every content block, a thinking
+// block included even when its text is omitted; OpenAI's Responses streams
+// add every output item, an encrypted reasoning item included, as it starts;
+// the local llama.cpp server streams every generated token, reasoning
+// included. Any other provider may reason before its first streamed token
+// (hidden reasoning on chat-compat gateways, Gemini thought summaries,
+// Cursor, Devin, compat Responses gateways), so a speed from it could be
+// inflated: it records no first-output time.
+const TIMED_PROVIDERS = new Set(['anthropic', 'anthropic-oauth', 'openai', 'openai-oauth', 'mixdog-local']);
+
+/** The answering stream's own first-output time within the request, when its
+ *  provider is timed: never an abandoned attempt's or a retry backoff's. */
+function firstOutputMs(provider, result, durationMs) {
+  const generationMs = Number(result?.generationMs);
+  if (!TIMED_PROVIDERS.has(provider) || !Number.isFinite(generationMs)) return null;
+  if (generationMs < 0 || generationMs > durationMs) return null;
+  return durationMs - generationMs;
+}
 const UNMEASURED_USAGE = Object.freeze({ inputTokens: null, inputTokensKnown: false });
 const FAILED_USAGE = Object.freeze({ inputTokens: 0, outputTokens: 0, costUsd: 0 });
 const hasTokens = (usage) =>
@@ -44,28 +66,20 @@ export async function accountProviderSend(provider, instance, send, model, opts 
   } catch (error) {
     openingError = error;
   }
+  // A provider's own re-send on another model (an overload or retired-model
+  // fallback) still answers the model the outer send was asked for. Only a
+  // re-send built from the outer send's own options is one: any other send
+  // that merely runs inside that async context (a tool or agent started
+  // while the outer stream was live) asks for its own model.
+  const outer = currentUsageContext();
   const identity = {
     provider,
-    // A provider's own re-send on another model (an overload or retired-model
-    // fallback) runs nested in this context: it still answers the model the
-    // outer send was asked for.
-    requestedModel: currentUsageContext()?.requestedModel || model,
+    requestedModel: (outer && opts[SEND_IDENTITY] === outer && outer.requestedModel) || model,
     sessionId,
     sourceType,
     inputTokensInclusive,
   };
-  // The loop's progress callback marks the first visible output; an abandoned
-  // attempt clears it (usage-context.mjs), so the answering attempt's counts.
-  const progress = typeof opts.onStreamDelta === 'function' ? opts.onStreamDelta : null;
-  const sendOpts = progress
-    ? {
-        ...opts,
-        onStreamDelta: (kind, ...rest) => {
-          if (!identity.firstOutputAt && isVisibleStreamProgress(kind)) identity.firstOutputAt = Date.now();
-          return progress(kind, ...rest);
-        },
-      }
-    : opts;
+  const sendOpts = { ...opts, [SEND_IDENTITY]: identity };
   // `timed`: only a send's completed result owns the request's wall time. An
   // abandoned attempt or a failure shares that clock with the final attempt,
   // so timing it too would count the same seconds twice and understate speed.
@@ -110,7 +124,7 @@ export async function accountProviderSend(provider, instance, send, model, opts 
       requestedModel: outcome ? identity.requestedModel : model,
       status,
       attempts,
-      ttftMs: timed && identity.firstOutputAt ? identity.firstOutputAt - startedAt : null,
+      ttftMs: timed ? firstOutputMs(provider, result, durationMs) : null,
       // The request log shows how long a failure took; statistics never time it.
       elapsedMs: outcome?.failed ? Date.now() - startedAt : 0,
       pricingModel: result.pricingModel,

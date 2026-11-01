@@ -4,8 +4,9 @@
  * ordered by time (all requests, one status, or one route) and stops after
  * the page: a page of "all history" costs what a page of today does.
  *
- * The request facts (requested model, status, attempts, first-output time)
- * sit in `usage_requests` beside `usage_events`, keyed by the record id, so
+ * The request facts (requested model, status, attempts) sit in
+ * `usage_requests` and the first-output time in `usage_request_first_output`,
+ * beside `usage_events` and keyed by the record id, so
  * the record table keeps the exact shape every earlier build writes: an older
  * app still opens and writes a ledger this one touched. A record without a
  * request row is a completed single attempt (every record from before).
@@ -24,6 +25,9 @@ export const REQUEST_LOG_SCHEMA = `
         id BLOB PRIMARY KEY, ts INTEGER NOT NULL, requested_model TEXT, status TEXT NOT NULL,
         attempts INTEGER NOT NULL, ttft_ms REAL, elapsed_ms REAL
     ) WITHOUT ROWID;
+    CREATE TABLE IF NOT EXISTS usage_request_first_output (
+        id BLOB PRIMARY KEY, ttft_ms REAL NOT NULL
+    ) WITHOUT ROWID;
     CREATE INDEX IF NOT EXISTS usage_requests_status_time ON usage_requests(status, ts) WHERE status<>'completed';
     CREATE INDEX IF NOT EXISTS usage_events_route_time ON usage_events(route, ts);
     CREATE INDEX IF NOT EXISTS usage_routes_model ON usage_routes(json_extract(signature,'$[1]'));
@@ -35,8 +39,14 @@ const MAX_PAGE = 200;
 // `<requestId>:abandoned:N` (UTF-8 ids carry tag 0x01). They are part of
 // their request, counted in its attempts, never a request of their own.
 const NOT_ABANDONED = `NOT (substr(e.id,1,1)=X'01' AND instr(e.id, CAST(':abandoned:' AS BLOB))>0)`;
+// The first-output time is read only from usage_request_first_output, which
+// only a build that times the answering stream's first output of any kind
+// writes. `usage_requests.ttft_ms` is never read: the build that added it
+// (e544d62a5) timed visible text only, so a thinking or tool turn read as
+// generated in a few milliseconds, and an older process may still write it.
 const COLUMNS = `e.id,e.ts,e.route,e.session,e.input,e.output,e.cache_read,e.cache_write,e.cost_usd,e.duration_ms,
-    r.requested_model,r.status,r.attempts,r.ttft_ms,r.elapsed_ms`;
+    r.requested_model,r.status,r.attempts,r.elapsed_ms,
+    (SELECT f.ttft_ms FROM usage_request_first_output f WHERE f.id=e.id) AS first_output_ms`;
 const COMPLETED = `(r.status IS NULL OR r.status='completed')`;
 // Checked on the row the time-ordered read already joined: no other index.
 const LISTED = `(r.status IS NULL OR r.status<>'cancelled')`;
@@ -50,11 +60,15 @@ const encodeCursor = (row) => `${row.ts}:${Buffer.from(row.id).toString('hex')}`
 
 const newestFirst = (a, b) => b.ts - a.ts || Buffer.compare(Buffer.from(b.id), Buffer.from(a.id));
 
+// Streams arrive in network-batched frames tens of milliseconds apart: a
+// shorter generation window times the batching, not the model.
+const MIN_GENERATION_MS = 100;
+
 /** Output tokens per second of generation: from the first output to the end. */
 export function requestSpeed({ status, output, durationMs, ttftMs }) {
   if (status === 'failed' || ttftMs == null || !(output > 0)) return null;
   const generationMs = durationMs - ttftMs;
-  return generationMs > 0 ? output / (generationMs / 1000) : null;
+  return generationMs >= MIN_GENERATION_MS ? output / (generationMs / 1000) : null;
 }
 
 /** The SQL of one page; `source` is the table whose index orders the read. */
@@ -133,7 +147,7 @@ export function readUsageRequests(db, options = {}) {
     const route = routes.get(row.route);
     const rowStatus = row.status || 'completed';
     const durationMs = row.duration_ms || row.elapsed_ms || 0;
-    const ttftMs = row.ttft_ms;
+    const ttftMs = row.first_output_ms;
     return {
       id: Buffer.from(row.id).toString('hex'),
       ts: row.ts,

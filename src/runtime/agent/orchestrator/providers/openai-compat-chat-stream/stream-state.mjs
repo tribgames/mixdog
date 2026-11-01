@@ -14,6 +14,7 @@ import {
 import { chatCompletionUsage } from '../openai-compat-response-normalization.mjs';
 import { noteAbandonedUsage } from '../../../../shared/llm/usage-context.mjs';
 import { createToolCallAccumulator } from './tool-call-acc.mjs';
+import { isVisibleStreamProgress } from '../../../../shared/stream-progress.mjs';
 
 export function createCompatStreamState({
   providerName,
@@ -65,6 +66,10 @@ export function reportTransport(state) {
 
 export function reportProgress(state, kind) {
   if (kind !== 'transport') state.semanticIdleDeadlineAt = Date.now() + state.idleMs;
+  // A chat stream shows output only as deltas: the first visible one starts
+  // the generation (generation-window.mjs). Usage accounting trusts it only
+  // from a provider that streams every token, reasoning included.
+  if (isVisibleStreamProgress(kind)) state.firstOutputAt ||= Date.now();
   try {
     state.onStreamDelta?.(kind);
   } catch {}

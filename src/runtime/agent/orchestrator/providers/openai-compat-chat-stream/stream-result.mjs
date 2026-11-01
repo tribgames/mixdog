@@ -4,6 +4,7 @@
  * reconstructed response, tool-call parsing and dispatch, and the result.
  */
 import { dedupeToolCallList } from '../lib/leaked-toolcall.mjs';
+import { generationWindow } from '../lib/generation-window.mjs';
 import { truncatedCompatStreamError } from '../lib/openai-tool-args.mjs';
 import {
   emitCompatToolCallOnce,
@@ -104,5 +105,6 @@ export function settleCompatStream(state, { label, parseToolCalls }) {
     reasoningSource: state.sawReasoningContent ? state.reasoningSource : null,
     reasoningDetails: state.reasoningDetails.length ? state.reasoningDetails : null,
     rawUsage: state.rawUsage,
+    ...generationWindow(state.firstOutputAt),
   };
 }
