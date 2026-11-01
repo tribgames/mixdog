@@ -83,10 +83,7 @@ export function createSnapshotRefCalls(host: SnapshotRefCallHost) {
       }
       return { handled: true, value: response.result?.value as T };
     } finally {
-      void cdp
-        .guestDebugger(guest)
-        .then((debug) => debug.sendCommand('Runtime.releaseObject', { objectId }, target.sessionId))
-        .catch(() => undefined);
+      cdp.releaseObject(guest, objectId, target.sessionId);
     }
   }
 

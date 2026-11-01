@@ -66,7 +66,7 @@ function fixture({ fileInput = true, chooser = null } = {}) {
     frames: () => sessions,
     frameOffsetForSession: async () => ({ x: 0, y: 0 }),
     cdp: {
-      guestDebugger: async () => ({ sendCommand: async () => undefined }),
+      releaseObject: () => {},
       call: async (_guest, method, params, _signal, options = {}) => {
         if (method === 'DOM.getNodeForLocation') {
           const hit = hits[options.sessionId || ''];

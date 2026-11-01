@@ -55,10 +55,7 @@ export interface UploadReceiver {
 const UPLOAD_TARGET_CHANGED = 'upload target changed; nothing was dispatched';
 
 function releaseObject(host: RefUploadHost, guest: WebContents, object: RefObject): void {
-  void host.cdp
-    .guestDebugger(guest)
-    .then((debug) => debug.sendCommand('Runtime.releaseObject', { objectId: object.objectId }, object.sessionId))
-    .catch(() => undefined);
+  host.cdp.releaseObject(guest, object.objectId, object.sessionId);
 }
 
 interface FrameTreeNode {
