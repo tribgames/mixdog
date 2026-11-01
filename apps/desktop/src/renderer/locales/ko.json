@@ -4395,6 +4395,8 @@
   "Send this message?": "이 메시지를 보낼까요?",
   "Sending and Trash ask first.": "보내거나 휴지통으로 이동하기 전에 확인을 요청합니다.",
   "Sending answers the question": "전송하면 질문에 대한 답변으로 전달됩니다",
+  "Sending answers the question from {{name}}": "전송하면 {{name}}의 질문에 대한 답변으로 전달됩니다",
+  "This answer is too long for the question (up to {{max}} characters). Your draft has been kept.": "질문에 대한 답변이 너무 깁니다(최대 {{max}}자). 작성 중인 내용은 그대로 유지됩니다.",
   "Sending message": "메시지 보내는 중",
   "Sending…": "전송 중…",
   "Sends a signed test request to the endpoint URL. No task is run.": "엔드포인트 URL로 서명된 테스트 요청을 보냅니다. 작업은 실행되지 않습니다.",

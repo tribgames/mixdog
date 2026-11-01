@@ -4395,6 +4395,8 @@
   "Send this message?": "发送这条消息？",
   "Sending and Trash ask first.": "发送和移入垃圾箱前会先询问。",
   "Sending answers the question": "发送后将作为该提问的回答",
+  "Sending answers the question from {{name}}": "发送后将作为 {{name}} 提问的回答",
+  "This answer is too long for the question (up to {{max}} characters). Your draft has been kept.": "此回答对该提问来说过长(最多 {{max}} 个字符)。你的草稿已保留。",
   "Sending message": "正在发送消息",
   "Sending…": "发送中…",
   "Sends a signed test request to the endpoint URL. No task is run.": "向端点 URL 发送带签名的测试请求。不会运行任何任务。",

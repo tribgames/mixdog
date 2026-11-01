@@ -6,7 +6,7 @@
 // (AgentTaskLine, at the report row). Its details (reply, files) stay in the
 // session, which the line and the card open.
 import { ArrowUpRight, SquareTerminal } from 'lucide-react';
-import { type ReactNode, createContext, useContext, useId, useState } from 'react';
+import { type MutableRefObject, type ReactNode, createContext, useContext, useId, useState } from 'react';
 import type { ToolApprovalDecision } from '../shared/contract';
 import type { Handoff } from './agent-chat-place';
 import { collapseHandoffs, taskReportIsQuiet } from './agent-chat-place';
@@ -17,7 +17,8 @@ import type { Approval } from './desktop-types';
 import { t } from './i18n';
 import MarkdownBody from './MarkdownBody';
 import { QuestionCard } from './QuestionCard';
-import { approvalQuestions } from './question-card-logic';
+import { AskUserRecord } from './ask-user-record';
+import { approvalQuestions, type QuestionDraft } from './question-card-logic';
 import { approvalInstanceKey } from './renderer-logic.mjs';
 import { CopyControl } from './transcript-primitives';
 import { useSessionAttentionIndex } from './session-attention-index';
@@ -28,34 +29,56 @@ function openTaskSession(sessionId: string) {
   if (sessionId) window.dispatchEvent(new CustomEvent(OPEN_TASK_SESSION_EVENT, { detail: { sessionId } }));
 }
 
+type HandoffQuestionEntry = Approval & { record?: string };
+
 /** The chat a conversation renders and its snapshot's `handoffQuestions`:
- *  the pending ask_user questions of the sessions it handed work to
- *  (tui/session/tool-approval.mjs). Null in a read-only view. */
+ *  the ask_user questions of the sessions it handed work to, pending or
+ *  settled (`record`) (tui/session/tool-approval.mjs). `relay`: the pending
+ *  one this chat's composer answers (use-conversation-approvals.tsx), whose
+ *  card keeps its picks in `draftsRef` for that answer. Null in a read-only view. */
 export const HandoffQuestionsContext = createContext<{
   chatSessionId: string;
-  questions: readonly Approval[];
+  questions: readonly HandoffQuestionEntry[];
   agentMode: boolean;
+  relay?: { id: string; draftsRef: MutableRefObject<QuestionDraft[]> } | null;
 } | null>(null);
 
-/** A handed-off session's pending question, as the same card that session
- *  shows: answered through this chat's copy, which hands the answer to the
- *  asking session (one request, settled once wherever it is answered). The
- *  card leaves once the copy does (answered anywhere, dismissed, aborted).
+/** The pending (or else the settled) question `sessionId` asks among `questions`. */
+export function handoffQuestionOf(questions: readonly HandoffQuestionEntry[], sessionId: string) {
+  const asked = questions.filter((question) => String(question.sessionId || '') === sessionId);
+  return asked.find((question) => typeof question.record !== 'string') ?? asked[0];
+}
+
+/** A handed-off session's question, as the same card that session shows:
+ *  answered through this chat's copy, which hands the answer straight to the
+ *  asking session (one request, settled once wherever it is answered; no
+ *  turn or message of this chat's agent). Once settled it shows as the
+ *  answered card the asking session keeps; aborted unanswered, it leaves.
  *  For the user alone: nothing of it enters this chat's transcript. */
 function HandoffQuestion({ sessionId }: { sessionId: string }) {
   const context = useContext(HandoffQuestionsContext);
-  const pending = context?.questions.find((question) => String(question.sessionId || '') === sessionId);
-  return pending ? <HandoffQuestionCard pending={pending} /> : null;
+  const asked = context ? handoffQuestionOf(context.questions, sessionId) : undefined;
+  return asked ? <HandoffQuestionCard pending={asked} /> : null;
 }
 
 /** The card of one handed-off question (`line` above it while it shows). */
-function HandoffQuestionCard({ pending, line }: { pending: Approval; line?: ReactNode }) {
+function HandoffQuestionCard({ pending, line }: { pending: HandoffQuestionEntry; line?: ReactNode }) {
   const context = useContext(HandoffQuestionsContext);
-  // The id this view's accepted answer settled, until the copy leaves.
+  // The id this view's accepted answer settled, until the copy settles.
   const [answered, setAnswered] = useState('');
   const id = String(pending.id ?? '');
   const questions = approvalQuestions(pending.args);
-  if (!context || !id || !questions || answered === id) return null;
+  if (!context || !id || !questions) return null;
+  if (typeof pending.record === 'string') {
+    const item = { kind: 'tool', id, name: 'ask_user', args: pending.args, result: pending.record, status: 'done' };
+    return (
+      <>
+        {line}
+        <AskUserRecord item={item} />
+      </>
+    );
+  }
+  if (answered === id) return null;
   const { chatSessionId } = context;
   const resolve = async (decision: ToolApprovalDecision) => {
     const accepted = await window.mixdogDesktop.resolveToolApprovalForSession(chatSessionId, id, decision);
@@ -69,6 +92,7 @@ function HandoffQuestionCard({ pending, line }: { pending: Approval; line?: Reac
         key={approvalInstanceKey(id)}
         questions={questions}
         resolve={resolve}
+        draftsRef={context.relay?.id === id ? context.relay.draftsRef : undefined}
         agentMode={context.agentMode}
       />
     </>
@@ -82,7 +106,14 @@ function HandoffQuestionCard({ pending, line }: { pending: Approval; line?: Reac
  *  copy (agent-rooms.ts approve). */
 export function RoomHandoffQuestions({ speaker }: { speaker: string }) {
   const context = useContext(HandoffQuestionsContext);
-  const asked = context?.questions.filter((question) => String(question.roomMember || '') === speaker) ?? [];
+  const mine = context?.questions.filter((question) => String(question.roomMember || '') === speaker) ?? [];
+  // One card per asking session: its pending question, else its settled one.
+  const asked = [...new Set(mine.map((question) => String(question.sessionId || '')))].flatMap(
+    (sessionId): HandoffQuestionEntry[] => {
+      const question = handoffQuestionOf(mine, sessionId);
+      return question ? [question] : [];
+    }
+  );
   if (!asked.length) return null;
   return (
     <div className="mx-handoff-block">
@@ -93,14 +124,15 @@ export function RoomHandoffQuestions({ speaker }: { speaker: string }) {
   );
 }
 
-function RoomHandoffQuestion({ pending }: { pending: Approval }) {
+function RoomHandoffQuestion({ pending }: { pending: HandoffQuestionEntry }) {
   const sessionId = String(pending.sessionId || '');
   const handoff = (pending.handoff ?? {}) as { title?: unknown; agentId?: unknown };
   const { member, name } = useHandoffTarget(sessionId, String(handoff.agentId || ''), String(handoff.title || ''));
+  const waiting = typeof pending.record !== 'string';
   return (
     <HandoffQuestionCard
       pending={pending}
-      line={<HandoffLineView sessionId={sessionId} member={member} what={name} waiting asking />}
+      line={<HandoffLineView sessionId={sessionId} member={member} what={name} waiting={waiting} asking={waiting} />}
     />
   );
 }
@@ -108,7 +140,7 @@ function RoomHandoffQuestion({ pending }: { pending: Approval }) {
 /** The session a line names: another bot's chat by that bot's face and name,
  *  any other session by its current title (`fallback` until the catalog
  *  holds it); and whether it waits for the user's approval now. */
-function useHandoffTarget(sessionId: string, agentId: string, fallback: string) {
+export function useHandoffTarget(sessionId: string, agentId: string, fallback: string) {
   const { label } = useRoomContacts(Boolean(agentId));
   const title = useSessionTitle(sessionId, fallback || t('Session'));
   const attention = useSessionAttentionIndex();

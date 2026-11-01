@@ -4578,6 +4578,8 @@
   "Send this message?": "Отправить это сообщение?",
   "Sending and Trash ask first.": "Перед отправкой и перемещением в корзину запрашивается подтверждение.",
   "Sending answers the question": "Отправка ответит на вопрос",
+  "Sending answers the question from {{name}}": "Отправка ответит на вопрос из «{{name}}»",
+  "This answer is too long for the question (up to {{max}} characters). Your draft has been kept.": "Этот ответ слишком длинный для вопроса (не более {{max}} символов). Черновик сохранён.",
   "Sending message": "Отправка сообщения",
   "Sending…": "Отправка…",
   "Sends a signed test request to the endpoint URL. No task is run.": "Отправляет подписанный тестовый запрос на URL конечной точки. Задача не запускается.",

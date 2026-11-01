@@ -4395,6 +4395,8 @@
   "Send this message?": "傳送這則訊息？",
   "Sending and Trash ask first.": "傳送與移至垃圾桶前會先詢問。",
   "Sending answers the question": "傳送後將作為此提問的回答",
+  "Sending answers the question from {{name}}": "傳送後將作為 {{name}} 提問的回答",
+  "This answer is too long for the question (up to {{max}} characters). Your draft has been kept.": "此回答對該提問來說過長(最多 {{max}} 個字元)。你的草稿已保留。",
   "Sending message": "正在傳送訊息",
   "Sending…": "傳送中…",
   "Sends a signed test request to the endpoint URL. No task is run.": "向端點 URL 傳送已簽署的測試請求。不會執行任何任務。",

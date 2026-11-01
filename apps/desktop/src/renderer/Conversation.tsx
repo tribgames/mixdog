@@ -151,12 +151,20 @@ export function Conversation(props: ConversationProps) {
   const itemCount = source.liveItemCount + pendingItems.length + steerItems.length;
   // The handed-off sessions' questions, at their hand-off lines.
   const handoffQuestions = snapshot.handoffQuestions;
+  const relay = approvals.relay;
+  const relayId = relay?.id ?? '';
+  const relayDrafts = relay?.draftsRef;
   const handoffQuestionsContext = useMemo(
     () =>
       readOnly || draftMode || !routeSessionId || !handoffQuestions?.length
         ? null
-        : { chatSessionId: routeSessionId, questions: handoffQuestions, agentMode },
-    [readOnly, draftMode, routeSessionId, handoffQuestions, agentMode]
+        : {
+            chatSessionId: routeSessionId,
+            questions: handoffQuestions,
+            agentMode,
+            relay: relayId && relayDrafts ? { id: relayId, draftsRef: relayDrafts } : null,
+          },
+    [readOnly, draftMode, routeSessionId, handoffQuestions, agentMode, relayId, relayDrafts]
   );
 
   return (

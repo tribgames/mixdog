@@ -4516,6 +4516,8 @@
   "Send this message?": "Inviare questo messaggio?",
   "Sending and Trash ask first.": "Invio e cestino chiedono prima conferma.",
   "Sending answers the question": "L’invio risponde alla domanda",
+  "Sending answers the question from {{name}}": "L’invio risponde alla domanda di {{name}}",
+  "This answer is too long for the question (up to {{max}} characters). Your draft has been kept.": "Questa risposta è troppo lunga per la domanda (al massimo {{max}} caratteri). La bozza è stata conservata.",
   "Sending message": "Invio del messaggio",
   "Sending…": "Invio in corso…",
   "Sends a signed test request to the endpoint URL. No task is run.": "Invia una richiesta di test firmata all’URL dell’endpoint. Nessuna attività viene eseguita.",
