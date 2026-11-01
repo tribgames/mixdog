@@ -192,18 +192,17 @@ test('an observer outage in a step fails that row instead of taking the desktop'
 });
 
 test('every global-takeover code in a step reaches the takeover, thrown or returned', async () => {
-  for (const code of ['input_cleanup_unconfirmed']) {
-    for (const thrown of [true, false]) {
-      await assert.rejects(
-        executeComputerSequenceSteps([{ action: 'click' }, { action: 'key' }], 'hwnd:0x1', async (_, index) => {
-          if (index === 0) return { ok: true };
-          if (thrown) throw new Error(`${code}: observer lost`);
-          return { ok: false, code, message: 'observer lost' };
-        }),
-        new RegExp(`^Error: ${code}:`),
-        `${code} ${thrown ? 'thrown' : 'returned'}`
-      );
-    }
+  const code = 'input_cleanup_unconfirmed';
+  for (const thrown of [true, false]) {
+    await assert.rejects(
+      executeComputerSequenceSteps([{ action: 'click' }, { action: 'key' }], 'hwnd:0x1', async (_, index) => {
+        if (index === 0) return { ok: true };
+        if (thrown) throw new Error(`${code}: observer lost`);
+        return { ok: false, code, message: 'observer lost' };
+      }),
+      new RegExp(`^Error: ${code}:`),
+      `${code} ${thrown ? 'thrown' : 'returned'}`
+    );
   }
 });
 
