@@ -36,33 +36,46 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
     # Restoring focus after the fact needs foreground rights Windows may refuse,
     # so a window that would activate itself is held disabled for the call: the
     # steal never happens instead of being undone.
-    $shielded = $target -ne [IntPtr]::Zero -and $foregroundBefore -ne $target -and
-    [MixWin32]::SelfActivatesOnSemanticInput($target)
+    $userElsewhere = $target -ne [IntPtr]::Zero -and $foregroundBefore -ne $target
+    $shielded = $userElsewhere -and [MixWin32]::SelfActivatesOnSemanticInput($target)
     $wasEnabled = $false
     # Held through the steal watch below. A target that accepts the no-activate
     # style declines activation, including one its host queues for when the
     # shield lifts; a target that refuses the style (higher integrity) is not
     # held, and the watch and restore below are then its only protection.
     $inactive = [MixWin32]::HoldInactive($target)
+    # Neither the style nor the shield stops a target that calls
+    # SetForegroundWindow itself after the call returns, and a restore after
+    # the fact lets the user's keystrokes reach the target in between. The
+    # foreground lock refuses that call outright. Its hold is counted from
+    # acquisition and ends on its own, even while the call below still blocks;
+    # a self-activating host gets longer, since a Chromium renderer acts on the
+    # call only after it returns.
+    $lockMs = if ($shielded) { 250 } else { 100 }
     try {
+        if ($userElsewhere) { [void][MixForegroundLock]::Acquire($lockMs) }
         if ($shielded) { $wasEnabled = [MixWin32]::SetWindowEnabled($target, $false) }
         $result = & $operation
     }
     finally {
         try {
-            # A XAML host honours the shield outright. A Chromium host queues its own
-            # activation instead and raises it once the window is enabled again, which
-            # no wait here prevents and no restore can undo from a process without
-            # foreground rights; the shield still spares every window that does honour it.
+            # A XAML host honours the shield outright. A Chromium host activates itself
+            # once the window is enabled again, after the call has returned; only the
+            # foreground lock held through the watch below refuses that.
             if ($shielded -and $wasEnabled) { [void][MixWin32]::SetWindowEnabled($target, $true) }
             $tookFocus = { Test-TargetWindow ([MixWin32]::Foreground()) $target }
             # False once user input superseded the observation: nothing is restored then.
+            # One guarded attempt each time: a retrying focus would sleep and relax the
+            # system-wide foreground lock timeout with no input check in between.
             $restore = {
                 try {
                     [MixInputObservation]::BeginExpected($inputBefore.Generation, $inputBefore.Sequence)
                     try {
                         [MixInputObservation]::AssertContinue()
-                        [void][MixWin32]::Focus($foregroundBefore)
+                        # A steal that got past the lock (a system activation) is undone
+                        # only once the lock no longer refuses this restore as well.
+                        [MixForegroundLock]::Release()
+                        [void][MixWin32]::RestoreForeground($foregroundBefore)
                     }
                     finally { [MixInputObservation]::End() }
                     return $true
@@ -81,7 +94,9 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
             # right away saw nothing to restore. Every restorable target, shielded
             # or not and Chromium included, is watched for that short window; one that
             # takes the foreground again after a restore is restored once more.
-            $watching = $canRestore
+            # The watch lasts as long as the lock still holds, and at least 100 ms
+            # after the call for a restorable target.
+            $watching = $canRestore -or [MixForegroundLock]::Held
             $restores = 0
             $watch = [System.Diagnostics.Stopwatch]::StartNew()
             while ($true) {
@@ -89,12 +104,14 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
                     $restores++
                     if (-not (& $restore)) { break }
                 }
-                if (-not $watching -or $restores -ge 2 -or $watch.ElapsedMilliseconds -ge 100) { break }
+                if (-not $watching -or $restores -ge 2) { break }
+                if ($watch.ElapsedMilliseconds -ge 100 -and -not [MixForegroundLock]::Held) { break }
                 Start-Sleep -Milliseconds 10
             }
         }
         finally {
-            [MixWin32]::ReleaseInactive($inactive)
+            try { [MixForegroundLock]::Release() }
+            finally { [MixWin32]::ReleaseInactive($inactive) }
         }
     }
     return $result
