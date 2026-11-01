@@ -22,7 +22,7 @@ export const TOOL_DEFS = [
       openWorldHint: false,
     },
     description:
-      'Manage standing user preferences and constraints. Before add/edit, obtain approval for the exact content and scope unless already explicitly requested. Load memory-management for curation policy; stored history uses recall.',
+      'Manage standing user preferences and constraints. Save what the user asks you to remember and report its exact text and scope; an entry you propose yourself, or one whose scope is unclear, waits for the user's approval. Load memory-management for curation policy; stored history uses recall.',
     inputSchema: {
       type: 'object',
       properties: {

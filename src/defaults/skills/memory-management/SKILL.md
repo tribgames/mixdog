@@ -22,16 +22,21 @@ Current repository state belongs to repository tools, not memory.
 ## Curate standing memory
 
 Store only user-specific preferences and constraints, as compact English
-statements. Before adding or editing one, show its exact content
-and scope and obtain approval. An explicit request for that exact change
-already supplies approval.
+statements. When the user asks you to remember something, save it and report
+the exact text and scope you saved. An entry you propose yourself, or one
+whose scope is unclear, waits for the user's approval first.
 
 Never turn inferred lessons into standing instructions or duplicate profile,
 settings, rules, tool contracts, or skills. Do not save ordinary task outcomes
 as preferences; automatic history already preserves them.
 
-Omit `project_id` for the current Project, use `common` for shared memory,
-or an explicit Project slug for another Project. The `*` scope is read-only.
+Pick the scope by what the entry is about, not where the conversation is:
+`common` when it holds in any Project (how to address or answer the user,
+approvals, git and release habits, general working style); a Project only
+when it depends on that Project's code, paths, tools or conventions. Omit
+`project_id` for the current Project, or name another Project's slug. The `*`
+scope is read-only. Write each entry so it reads alone, without pointing at
+earlier conversation or entries.
 `agent_id: "self"` selects your own agent memory instead: only you read it,
 and it is the only pool an unattended run (schedule, webhook, group room,
 delegated agent) may write; common and Project memory change only while the
