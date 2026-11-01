@@ -46,7 +46,10 @@ test("a bot's routines go in one statement keyed by their current owner, never b
   assert.doesNotMatch(sql, /\bname\s*=\s*\$/);
 });
 
-test('a purge that fails deletes nothing and rejects; an owner is required', async () => {
+// The stub stores nothing, so this cannot show a rollback (the one-statement
+// purge above is what keeps it all or nothing): only that a failure rejects
+// after the single query.
+test('a purge whose statement fails rejects with its error after that single query; an owner is required', async () => {
   queries.length = 0;
   answer = async () => {
     throw new Error('canceling statement due to lock timeout');
