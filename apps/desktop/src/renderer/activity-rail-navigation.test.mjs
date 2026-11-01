@@ -48,6 +48,16 @@ test('More opens destinations, pins append above it, and unpinning never changes
   try {
     window.localStorage.setItem('mixdog.desktop.activity-rail-pins.v1', '{broken');
     await act(async () => root.render(React.createElement(App)));
+    assert.deepEqual(pinned(), ['sessions', 'schedules', 'workflows', 'projects', 'source-control', 'search']);
+    window.localStorage.setItem(
+      'mixdog.desktop.activity-rail-pins.v1',
+      JSON.stringify(['sessions', 'agents', 'schedules', 'workflows', 'projects'])
+    );
+    await act(async () =>
+      window.dispatchEvent(
+        new window.StorageEvent('storage', { key: 'mixdog.desktop.activity-rail-pins.v1' })
+      )
+    );
     assert.deepEqual(pinned(), ['sessions', 'agents', 'schedules', 'workflows', 'projects']);
     assert.equal(more().getAttribute('aria-expanded'), 'false');
     assert.equal(document.querySelector('[data-side-view="agents"]').getAttribute('aria-current'), 'page');
@@ -144,7 +154,7 @@ test('first launch pins the six default destinations without replacing a saved a
   const order = () => [...document.querySelectorAll('#root [data-side-view]')].map((button) => button.dataset.sideView);
   try {
     await act(async () => root.render(view()));
-    assert.deepEqual(order(), ['sessions', 'agents', 'schedules', 'workflows', 'projects', 'extensions']);
+    assert.deepEqual(order(), ['sessions', 'schedules', 'workflows', 'projects', 'extensions']);
     await act(async () => root.unmount());
     window.localStorage.setItem('mixdog.desktop.activity-rail-pins.v1', '["projects","sessions"]');
     root = createRoot(document.getElementById('root'));
