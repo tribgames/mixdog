@@ -141,8 +141,8 @@ function HandoffLineView({
   let state: 'working' | 'approval' | 'question' = 'working';
   if (waiting) state = asking ? 'question' : 'approval';
   const label = { working: t('Working'), approval: t('Approval needed'), question: t('Answer needed') }[state];
-  // While it works, the session's latest progress update stands for "Working",
-  // one line that ellipsizes like the name.
+  // The session's latest progress update stays off the line (it would stretch
+  // it across the pane); hovering the state shows it.
   const update = state === 'working' ? handoffProgressText(progress) : '';
   return (
     <div className="mx-chat-routine-failed mx-handoff-line" role="status" data-state={state}>
@@ -151,12 +151,7 @@ function HandoffLineView({
       <span className="mx-handoff-what">
         <span className="mx-handoff-name">{what}</span>
         {count > 1 && <span className="mx-handoff-state">{` ${t('×{{n}}', { n: count })}`}</span>}
-        <span className="mx-handoff-state">{update ? ' · ' : ` · ${label}`}</span>
-        {update && (
-          <span className="mx-handoff-name mx-handoff-update" title={update}>
-            {update}
-          </span>
-        )}
+        <span className="mx-handoff-state" title={update || undefined}>{` · ${label}`}</span>
       </span>
       <span aria-hidden="true">·</span>
       <button type="button" onClick={() => openTaskSession(sessionId)}>
