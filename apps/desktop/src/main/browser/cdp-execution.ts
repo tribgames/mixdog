@@ -14,7 +14,11 @@ interface BrowserCdpExecutionHost {
   diagnostic(guest: WebContents, message: string): void;
   /** The page is parked on a dialog the host has yet to answer. */
   awaitingDialog?(guest: WebContents): boolean;
+  /** The child session is not (or no longer) attached under the guest. */
+  sessionEnded(guest: WebContents, sessionId: string): boolean;
 }
+
+const TARGET_DETACHED = 'Inspected target navigated or closed (frame target detached)';
 
 const EXECUTION_METHODS = new Set(['Runtime.evaluate', 'Runtime.callFunctionOn']);
 // These release an already-blocked operation rather than start another input.
@@ -44,7 +48,26 @@ export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
     const pending = sessions?.get(sessionId);
     if (!sessions || !pending) return;
     sessions.delete(sessionId);
-    for (const end of pending) end(new Error('Inspected target navigated or closed (frame target detached)'));
+    // Chromium emits the detach from inside Session::Detach, after freeing the
+    // session but before unlinking it, and Electron drains microtasks within
+    // that emit. Settle on a macrotask so no continuation runs until it returned.
+    setImmediate(() => {
+      for (const end of pending) end(new Error(TARGET_DETACHED));
+    });
+  }
+
+  /** The only dispatch into Chromium. A command addressed to an ended child
+   *  session never reaches it: Chromium may still read the freed session.
+   *  Untracked: no deadline, no fence, not settled when its session ends. */
+  function dispatch<T>(
+    guest: WebContents,
+    cdp: Debugger,
+    method: string,
+    params: Record<string, unknown>,
+    sessionId?: string
+  ): Promise<T> {
+    if (sessionId && host.sessionEnded(guest, sessionId)) return Promise.reject(new Error(TARGET_DETACHED));
+    return cdp.sendCommand(method, params, sessionId) as Promise<T>;
   }
 
   function send<T>(
@@ -54,7 +77,7 @@ export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
     params: Record<string, unknown>,
     sessionId?: string
   ): Promise<T> {
-    const sent = cdp.sendCommand(method, params, sessionId) as Promise<T>;
+    const sent = dispatch<T>(guest, cdp, method, params, sessionId);
     if (!sessionId) return sent;
     let sessions = inFlight.get(guest);
     if (!sessions) {
@@ -158,5 +181,5 @@ export function createBrowserCdpExecution(host: BrowserCdpExecutionHost) {
     }
   }
 
-  return { sendCdp, waitForIdle, endSession };
+  return { sendCdp, waitForIdle, endSession, dispatch };
 }

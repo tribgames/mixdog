@@ -3,6 +3,7 @@ import { EventEmitter } from 'node:events';
 import test from 'node:test';
 import { createBrowserGuestCdp } from './cdp.ts';
 import { BrowserGuestStateStore } from './guest-state.ts';
+import { CDP_REQUEST_TIMEOUT_MS } from './command.ts';
 import { waitUntil } from '../../../../../src/runtime/shared/wait-until.test-support.mjs';
 
 function fixture(send) {
@@ -91,7 +92,7 @@ test('script cancellation terminates the owning CDP target and fences page reuse
     const termination = Promise.withResolvers();
     const started = Promise.withResolvers();
     const calls = [];
-    const { guest, cdp, debug } = fixture((name, _params, sessionId) => {
+    const { guest, cdp, debug, state } = fixture((name, _params, sessionId) => {
       calls.push({ name, sessionId });
       if (name === method) {
         started.resolve();
@@ -100,6 +101,7 @@ test('script cancellation terminates the owning CDP target and fences page reuse
       if (name === 'Runtime.terminateExecution') return termination.promise;
       return Promise.resolve({});
     });
+    state.for(guest).cdpSessions.set('child-frame', {});
     const controller = new AbortController();
     const work = cdp.sendCdp(guest, debug, method, {}, 1000, controller.signal, 'child-frame');
     await started.promise;
@@ -128,12 +130,13 @@ test('script cancellation terminates the owning CDP target and fences page reuse
 test('timed-out element scripts terminate in the child session rather than the root', async () => {
   const running = Promise.withResolvers();
   const calls = [];
-  const { guest, cdp, debug } = fixture((method, _params, sessionId) => {
+  const { guest, cdp, debug, state } = fixture((method, _params, sessionId) => {
     calls.push({ method, sessionId });
     if (method === 'Runtime.callFunctionOn') return running.promise;
     if (method === 'Runtime.terminateExecution') running.reject(new Error('terminated'));
     return Promise.resolve({});
   });
+  state.for(guest).cdpSessions.set('frame-2', {});
   await assert.rejects(cdp.sendCdp(guest, debug, 'Runtime.callFunctionOn', {}, 5, undefined, 'frame-2'), /timed out/);
   await cdp.waitForIdle(guest);
   assert.deepEqual(calls.at(-1), { method: 'Runtime.terminateExecution', sessionId: 'frame-2' });
@@ -246,6 +249,113 @@ test('a timed-out command on a frame target that detaches releases the page fenc
   await next;
   assert.equal(calls.filter((call) => call.method === 'Runtime.evaluate' && !call.sessionId).length, 1);
   assert.equal(state.for(guest).cdpSessions.has('ad-frame'), false);
+});
+
+// Chromium emits Target.detachedFromTarget from inside Session::Detach, after
+// freeing the child session and before unlinking it, and Electron drains the
+// microtask queue within that emit. A command sent to that session from any
+// continuation (a finally releasing an object) read freed memory and killed
+// the app. The fake runs the emit in one macrotask: the microtasks drained
+// right after it stand for "inside the detach"; the next immediate is Chromium
+// returning.
+/** A page with its debugger up and the child frame `ad-frame` attached. */
+async function pageWithFrame(sendCommand) {
+  const guest = new EventEmitter();
+  const debug = Object.assign(new EventEmitter(), {
+    isAttached: () => true,
+    attach: () => {},
+    detach: () => {},
+    sendCommand,
+  });
+  Object.assign(guest, {
+    debugger: debug,
+    isDestroyed: () => false,
+    getURL: () => 'https://page.test/',
+    getUserAgent: () => 'Fixture/1.0',
+  });
+  const state = new BrowserGuestStateStore();
+  const cdp = createBrowserGuestCdp({ state, interceptFetchPatterns: () => [], matchInterceptRule: () => undefined });
+  await cdp.guestDebugger(guest);
+  debug.emit('message', {}, 'Target.attachedToTarget', {
+    sessionId: 'ad-frame',
+    targetInfo: { type: 'iframe', targetId: 'ad-frame', url: 'https://ads.test/' },
+  });
+  await state.for(guest).cdpSessions.get('ad-frame').ready;
+  return { guest, debug, cdp };
+}
+
+for (const ending of ['Target.detachedFromTarget', 'Inspector.targetCrashed']) {
+  test(`a frame session ended by ${ending} inside the message dispatch never receives another command`, async () => {
+    const calls = [];
+    let detaching = false;
+    const { guest, debug, cdp } = await pageWithFrame((method, _params, sessionId) => {
+      calls.push({ method, sessionId, detaching });
+      if (method === 'Runtime.callFunctionOn' && sessionId === 'ad-frame') return new Promise(() => {});
+      return Promise.resolve({});
+    });
+    const frame = { sessionId: 'ad-frame' };
+    // As hit-target's finish(): release the object once the call settles.
+    const settled = cdp
+      .call(guest, 'Runtime.callFunctionOn', { objectId: 'o1' }, undefined, frame)
+      .finally(() => cdp.call(guest, 'Runtime.releaseObject', { objectId: 'o1' }, undefined, frame).catch(() => {}))
+      .then(
+        () => ({ error: undefined, during: detaching }),
+        (error) => ({ error, during: detaching })
+      );
+    await waitUntil(() => calls.some((call) => call.method === 'Runtime.callFunctionOn'));
+    const before = calls.length;
+    await new Promise((resolve) =>
+      setImmediate(() => {
+        detaching = true;
+        setImmediate(() => {
+          detaching = false;
+          resolve();
+        });
+        if (ending === 'Target.detachedFromTarget') debug.emit('message', {}, ending, { sessionId: 'ad-frame' });
+        else debug.emit('message', {}, ending, {}, 'ad-frame');
+      })
+    );
+    const { error, during } = await settled;
+    const late = await cdp.call(guest, 'Runtime.releaseObject', { objectId: 'o2' }, undefined, frame).then(
+      () => undefined,
+      (failure) => failure
+    );
+    await tick();
+    assert.deepEqual(
+      calls.slice(before).filter((call) => call.sessionId === 'ad-frame'),
+      [],
+      'no command reaches the ended session'
+    );
+    assert.match(String(late?.message), /frame target detached/);
+    assert.match(String(error?.message), /frame target detached/);
+    assert.equal(during, false, 'the in-flight call settles only after Chromium returned');
+    cdp.releaseObject(guest, 'o3', 'ad-frame');
+    await tick();
+    assert.deepEqual(
+      calls.slice(before).filter((call) => call.sessionId === 'ad-frame'),
+      [],
+      'a best-effort release is refused too'
+    );
+  });
+}
+
+test('a best-effort release that never answers does not hold the page past the request deadline', async (t) => {
+  const calls = [];
+  const { guest, cdp } = await pageWithFrame((method, _params, sessionId) => {
+    calls.push({ method, sessionId });
+    if (method === 'Runtime.releaseObject') return new Promise(() => {});
+    return Promise.resolve({});
+  });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  cdp.releaseObject(guest, 'o1', 'ad-frame');
+  await tick();
+  assert.deepEqual(calls.at(-1), { method: 'Runtime.releaseObject', sessionId: 'ad-frame' });
+  t.mock.timers.tick(CDP_REQUEST_TIMEOUT_MS + 1);
+  await tick();
+  const next = cdp.call(guest, 'Page.getFrameTree');
+  await tick(); // negative: a fence would keep it undispatched
+  assert.deepEqual(calls.at(-1), { method: 'Page.getFrameTree', sessionId: undefined });
+  await next;
 });
 
 test('cleanup wait timeout never lifts the fence on an unfinished dispatch', async () => {

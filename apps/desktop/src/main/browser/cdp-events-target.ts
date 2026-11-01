@@ -46,14 +46,17 @@ export function onAttachedToTarget(
     );
     return;
   }
-  const ready = host.initializeTargetSession(guest, cdp, lifetime, attachedSessionId);
-  diagnostics.cdpSessions.set(attachedSessionId, {
+  // Recorded before initialization: commands only reach sessions recorded here.
+  const session = {
     type: String(targetInfo.type || 'iframe'),
     url: redactBrowserUrl(String(targetInfo.url || '').slice(0, 8_000)),
     frameId: String(targetInfo.targetId || ''),
     parentSessionId,
-    ready,
-  });
+    ready: Promise.resolve(),
+  };
+  diagnostics.cdpSessions.set(attachedSessionId, session);
+  const ready = host.initializeTargetSession(guest, cdp, lifetime, attachedSessionId);
+  session.ready = ready;
   ready.catch((error) =>
     diagnostics.console.recordInternal(`CDP child target initialization failed: ${(error as Error).message}`)
   );

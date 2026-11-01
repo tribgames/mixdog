@@ -42,7 +42,7 @@ function fixture({ childFailure = false, pageDocument } = {}) {
         if (method === 'Runtime.callFunctionOn') return { result: { value: 'child value' } };
         throw new Error(`Unexpected ${method}`);
       },
-      guestDebugger: async () => ({ sendCommand: async () => ({}) }),
+      releaseObject: () => {},
     },
     diagnostics: () => ({ cdpSessions: new Map(), fault: '' }),
     visualGrounding: new Map(),

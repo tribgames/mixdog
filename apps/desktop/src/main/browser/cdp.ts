@@ -35,7 +35,10 @@ interface BrowserGuestCdpHost {
 }
 
 /** The narrow CDP surface a page service depends on; tests fake this shape. */
-export type BrowserCdpPort = Pick<BrowserGuestCdp, 'call' | 'sendCdp' | 'sendCdpInput' | 'guestDebugger'>;
+export type BrowserCdpPort = Pick<
+  BrowserGuestCdp,
+  'call' | 'sendCdp' | 'sendCdpInput' | 'guestDebugger' | 'releaseObject'
+>;
 
 export interface BrowserGuestCdp {
   /** Do not reuse a page while a cancelled dispatch is still executing. */
@@ -84,6 +87,9 @@ export interface BrowserGuestCdp {
   evaluate<T>(guest: WebContents, expression: string, signal?: AbortSignal, timeoutMs?: number): Promise<T>;
   /** The attached debugger for a guest, initialised once per document. */
   guestDebugger(guest: WebContents, answeringDialog?: boolean): Promise<Electron.Debugger>;
+  /** Best-effort release of a remote object: fire-and-forget, with no
+   *  deadline and no page fence, so a slow release never holds the page. */
+  releaseObject(guest: WebContents, objectId: string, sessionId?: string): void;
   /** Attach a page window.open created without blanking the navigation its
    *  opener started, so its first document already has the dialog bridge. */
   attachOpenedPage(guest: WebContents): Promise<Electron.Debugger>;
@@ -99,10 +105,13 @@ export interface BrowserGuestCdp {
 
 export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCdp {
   const { state } = host;
-  const { sendCdp, waitForIdle, endSession } = createBrowserCdpExecution({
+  const { sendCdp, waitForIdle, endSession, dispatch } = createBrowserCdpExecution({
     bounded,
     diagnostic: (guest, message) => state.for(guest).console.recordInternal(message),
     awaitingDialog: (guest) => Boolean(state.peek(guest)?.pendingDialog),
+    // The event router and debugger detach drop a session from this map
+    // before anything else reacts to its end.
+    sessionEnded: (guest, sessionId) => !state.peek(guest)?.cdpSessions.has(sessionId),
   });
   const sessions = createBrowserCdpSessionInit(
     { ...host, guestDebugger: (guest) => attachment.guestDebugger(guest) },
@@ -130,6 +139,13 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     await sessions.applyFetchPatterns(guest, await attachment.guestDebugger(guest), signal);
   }
 
+  function releaseObject(guest: WebContents, objectId: string, sessionId?: string): void {
+    void attachment
+      .guestDebugger(guest)
+      .then((cdp) => dispatch(guest, cdp, 'Runtime.releaseObject', { objectId }, sessionId))
+      .catch(() => undefined);
+  }
+
   return {
     bounded,
     waitForIdle,
@@ -138,6 +154,7 @@ export function createBrowserGuestCdp(host: BrowserGuestCdpHost): BrowserGuestCd
     sendCdpInput: calls.sendCdpInput,
     evaluate: calls.evaluate,
     guestDebugger: attachment.guestDebugger,
+    releaseObject,
     attachOpenedPage: attachment.attachOpenedPage,
     waitForInitialDocument: attachment.waitForInitialDocument,
     applyFetchPatterns,
