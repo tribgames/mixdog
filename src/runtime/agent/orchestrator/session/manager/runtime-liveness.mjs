@@ -222,6 +222,7 @@ export function markSessionAskStart(id) {
   entry.lastProgressAt = now;
   entry.updatedAt = now;
   entry.taskWaits = 0;
+  entry.taskWaitJobIds = [];
   emitSessionTurnStart(id);
   emitSessionActivityChange(id);
 }
@@ -400,15 +401,20 @@ export function beginSessionApprovalWait(id) {
 // `awaitingTask` so status surfaces show the session waiting, not working.
 // Counted like approval waits; never creates an entry. Returns the idempotent
 // release.
-export function beginSessionTaskWait(id) {
+// `taskId` names the job being waited on, so status can report that job's
+// output silence as the tool-level silence the activity heartbeat hides.
+export function beginSessionTaskWait(id, taskId = null) {
   const entry = id ? _runtimeState.get(id) : null;
   if (!entry) return () => {};
   entry.taskWaits = (entry.taskWaits || 0) + 1;
+  if (taskId) (entry.taskWaitJobIds ||= []).push(taskId);
   if (entry.taskWaits === 1) emitSessionActivityChange(id);
   let released = false;
   return () => {
     if (released) return;
     released = true;
+    const at = taskId && entry.taskWaitJobIds ? entry.taskWaitJobIds.indexOf(taskId) : -1;
+    if (at >= 0) entry.taskWaitJobIds.splice(at, 1);
     entry.taskWaits = Math.max(0, (entry.taskWaits || 0) - 1);
     if (entry.taskWaits === 0) emitSessionActivityChange(id);
   };
@@ -428,6 +434,7 @@ function _settleTerminalEntry(entry, stage, lastError) {
   entry.lastProgressAt = settledAt;
   entry.updatedAt = settledAt;
   entry.taskWaits = 0;
+  entry.taskWaitJobIds = [];
   emitSessionActivityChange(entry.session?.id || '');
 }
 export function markSessionDone(id, { empty = false } = {}) {

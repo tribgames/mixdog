@@ -42,7 +42,11 @@ function workerLine(worker) {
   const stage = worker.worker_stage || worker.stage;
   const progress = oneLine(worker.last_progress);
   const summary = progress.length > 60 ? `${progress.slice(0, 59)}…` : progress;
-  return `- ${worker.tag}  ${status}${stage && stage !== status ? `/${stage}` : ''}${summary ? `  ${summary}` : ''}`;
+  const toolSilence = oneLine(worker.tool_silent_for);
+  // The hung diagnostic carries the warning and the suggested action; other
+  // diagnostics stay out of the compact row.
+  const hung = /^tool possibly hung/.test(worker.diagnostic || '') ? oneLine(worker.diagnostic) : '';
+  return `- ${worker.tag}  ${status}${stage && stage !== status ? `/${stage}` : ''}${summary ? `  ${summary}` : ''}${toolSilence ? `  tool_silent_for: ${toolSilence}` : ''}${hung ? `  ! ${hung}` : ''}`;
 }
 
 function jobLine(job) {
@@ -121,6 +125,7 @@ function taskDiagnosticLines(value) {
   if (value.worker_stage) lines.push(`worker_stage: ${value.worker_stage}`);
   if (value.last_progress) lines.push(`last_progress: ${value.last_progress}`);
   if (Number.isFinite(value.silent_for)) lines.push(`silent_for: ${value.silent_for}s`);
+  if (value.tool_silent_for) lines.push(`tool_silent_for: ${value.tool_silent_for}`);
   if (value.watchdog) lines.push(`watchdog: ${value.watchdog}`);
   if (Number.isFinite(value.queued_followups)) lines.push(`queued_followups: ${value.queued_followups}`);
   if (value.diagnostic) lines.push(`diagnostic: ${value.diagnostic}`);

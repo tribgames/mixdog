@@ -6,6 +6,7 @@ import { buildAgentTaskProgressFields } from '../../agent-task-status.mjs';
 import { getProgressWatchdogState } from '../../agent-watchdog-registry.mjs';
 import { _liveSessions } from '../../../../runtime/agent/orchestrator/session/store/live-state.mjs';
 import { todoProgress } from '../../../../runtime/agent/orchestrator/runtime-core/todo-list.mjs';
+import { waitedJobSilence } from '../../../../runtime/agent/orchestrator/tools/builtin/lib/shell-output-silence.mjs';
 
 // Job statuses that can never progress again (mirrors TERMINAL_STATUSES in
 // runtime/shared/background-tasks.mjs; 'canceled' accepted defensively).
@@ -55,6 +56,7 @@ export function liveAgentStatusRow(row) {
   if (todo) row = { ...row, todo };
   const {
     silent_for: _silentFor,
+    tool_silent_for: _toolSilentFor,
     staleSeconds: _staleSeconds,
     lastStreamDeltaAt: _lastStreamDeltaAt,
     last_progress: _lastProgress,
@@ -95,6 +97,7 @@ export function createSessionProgress({ mgr }) {
       queuedFollowups,
       taskStatus,
       lastToolCall: runtime?.lastToolCall || null,
+      toolSilence: runtime?.taskWaits > 0 ? waitedJobSilence(runtime.taskWaitJobIds, { now }) : null,
     });
   }
 

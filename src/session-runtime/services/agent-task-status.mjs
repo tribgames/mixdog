@@ -1,3 +1,4 @@
+import { formatDuration } from '../../runtime/shared/time-format.mjs';
 import {
   agentWatchdogPolicyActive,
   evaluateAgentWatchdogAbort,
@@ -66,6 +67,7 @@ export function buildAgentTaskProgressFields({
   queuedFollowups = null,
   taskStatus = null,
   lastToolCall = null,
+  toolSilence = null,
 } = {}) {
   const stage = cleanStage(runtimeStage || snapshot?.stage || sessionStatus || 'unknown');
   const silentFor = resolveSilentForSeconds(now, snapshot, runtime);
@@ -93,6 +95,7 @@ export function buildAgentTaskProgressFields({
     queued,
     policy,
     now,
+    toolSilence,
   });
 
   const out = {
@@ -102,6 +105,11 @@ export function buildAgentTaskProgressFields({
   };
   if (silentFor != null && ACTIVE_RUNTIME_STAGES.has(stage)) out.silent_for = silentFor;
   if (watchdog) out.watchdog = watchdog;
+  // The tool's own silence: the activity heartbeat keeps `silent_for` fresh
+  // while a tool runs, so a wait on a job that prints nothing needs its own clock.
+  if (toolSilence && stage === 'tool_running') {
+    out.tool_silent_for = `${formatToolSilence(toolSilence.silentMs)} (shell job ${toolSilence.taskId} no output)`;
+  }
   if (queued != null) out.queued_followups = queued;
   return out;
 }
@@ -150,12 +158,32 @@ function describeLastProgress({ stage, snapshot, runtime, silentFor, lastToolCal
   return stage;
 }
 
-function describeAgentDiagnostic({ taskStatus, sessionStatus, stage, snapshot, silentFor, queued, policy, now }) {
+function formatToolSilence(ms) {
+  return formatDuration(ms, { mostSignificantOnly: true }) || '0s';
+}
+
+function describeAgentDiagnostic({
+  taskStatus,
+  sessionStatus,
+  stage,
+  snapshot,
+  silentFor,
+  queued,
+  policy,
+  now,
+  toolSilence,
+}) {
   const normalizedTask = cleanStage(taskStatus).toLowerCase();
   if (normalizedTask === 'cancelled' || normalizedTask === 'canceled') return 'task cancelled';
   if (normalizedTask === 'failed' || normalizedTask === 'error') return 'task failed';
   if (normalizedTask === 'completed') {
     return sessionStatus === 'error' ? 'task completed (worker error)' : 'task completed; worker idle';
+  }
+
+  // Stalled for notification purposes, never aborted: a quiet job can be a
+  // legitimate build, so the Lead is told and decides.
+  if (toolSilence?.hung && stage === 'tool_running') {
+    return `tool possibly hung: shell job ${toolSilence.taskId} no output for ${formatToolSilence(toolSilence.silentMs)}; inspect or cancel it`;
   }
 
   if (queued) {
