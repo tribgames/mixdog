@@ -56,9 +56,6 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
     # call can raise it during the call and lift the lock, which the watch
     # below then answers with the one restore.
     $lockMs = if ($shielded) { 250 } else { 100 }
-    # The watch covers at least the hold's window from dispatch, so a steal
-    # after a lock that was refused or lifted early still gets the restore.
-    $settleMs = $lockMs
     $locked = $false
     $sinceDispatch = $null
     $canRestore = $inputBefore.Ready -and
@@ -84,9 +81,7 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
         $sinceDispatch = [System.Diagnostics.Stopwatch]::StartNew()
         if ($shielded) { $wasEnabled = [MixWin32]::SetWindowEnabled($target, $false) }
         $result = & $operation
-        if ($userElsewhere) {
-            [MixForegroundLock]::Mark('returned_at')
-        }
+        if ($userElsewhere) { [MixForegroundLock]::Mark('returned_at') }
     }
     finally {
         try {
@@ -99,11 +94,10 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
             # the accessibility call returned, disabled or not, so one check made
             # right away saw nothing to restore. Every restorable target, shielded
             # or not and Chromium included, is watched for that short window, and
-            # a steal is answered with one restore attempt at most.
-            # The watch covers the same settle window as the hold, whether or not
-            # the lock was granted or lasted, so a steal that lands after the lock
-            # ended still gets the one restore; and at least 100 ms after the call
-            # for a restorable target.
+            # a steal is answered with one restore attempt at most. The watch lasts
+            # at least as long as the hold from dispatch, whether or not the lock
+            # was granted or lasted, so a steal after a refused or lifted lock
+            # still gets the restore; and at least 100 ms after the call.
             $watching = $canRestore -or [MixForegroundLock]::Held
             $watch = [System.Diagnostics.Stopwatch]::StartNew()
             while ($true) {
@@ -113,7 +107,7 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
                     break
                 }
                 if (-not $watching) { break }
-                $settled = $null -eq $sinceDispatch -or $sinceDispatch.ElapsedMilliseconds -ge $settleMs
+                $settled = $null -eq $sinceDispatch -or $sinceDispatch.ElapsedMilliseconds -ge $lockMs
                 if ($settled -and $watch.ElapsedMilliseconds -ge 100 -and -not [MixForegroundLock]::Held) { break }
                 Start-Sleep -Milliseconds 10
             }
@@ -158,13 +152,13 @@ function Test-RestoreBaseline($inputBefore, $target) {
 
 # One guarded attempt to give the user back the window the target took. The
 # lock comes off first, whatever else happens, so it cannot refuse the restore
-# too; the restore runs only once that release neither failed nor went
-# unanswered by the host, which may then still hold it (an unknown end means no
-# lock is held any more: a false unlock is Windows having lifted it) and, after
-# its wait, nothing says the user moved on: the observation still holds, the user's window
-# still exists, and the target, not a third window the user picked meanwhile,
-# is in front. No retry: a retrying focus would sleep and relax the system-wide
-# foreground lock timeout with no input check in between.
+# too. It runs only if that release neither failed nor went unanswered by the
+# host (which may then still hold the lock; an unknown end means no lock is held
+# any more, a false unlock being Windows having lifted it) and nothing says the
+# user moved on: the observation still holds, the user's window still exists,
+# and the target, not a third window the user picked meanwhile, is in front. No
+# retry: a retrying focus would sleep and relax the system-wide foreground lock
+# timeout with no input check in between.
 function Restore-UserForeground($target, $foregroundBefore, $inputBefore, [scriptblock]$tookFocus) {
     $superseded = ''
     try { $superseded = Test-RestoreBaseline $inputBefore $target }

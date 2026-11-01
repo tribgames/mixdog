@@ -9,7 +9,7 @@ import { RouteDaybreakToggle } from './route-editor-auto-effort';
 import type { RoutePanelBox, RouteSheetPane } from './route-editor-logic';
 import {
   modelParameterLabel,
-  modelParameterOptionLabel,
+  modelParameterValueLabel,
   moveRouteFocus,
   RouteContextTuneIcon,
   type RouteSessionChoice,
@@ -287,13 +287,7 @@ export function RouteSheetRows({
         row(
           `parameter:${parameter.id}`,
           modelParameterLabel(parameter),
-          modelParameterOptionLabel(
-            parameter,
-            parameter.options.find((option) => option.value === modelParameters[parameter.id]) || {
-              value: modelParameters[parameter.id] || parameter.options[0]?.value || '',
-              label: modelParameters[parameter.id] || parameter.options[0]?.label || '',
-            }
-          ),
+          modelParameterValueLabel(parameter, modelParameters[parameter.id]),
           tuningDisabled
         )
       )}

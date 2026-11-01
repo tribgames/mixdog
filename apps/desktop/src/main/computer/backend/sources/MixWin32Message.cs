@@ -113,7 +113,7 @@ public partial class MixWin32
     /// without saying whether it landed. A button or key release is harmless to
     /// send again, so a timeout gets up to three attempts about a second apart;
     /// any other failure is final. Returns the attempt the target acknowledged.
-    /// A target gone before any release reached it holds nothing, as before;
+    /// A target gone before any release reached it holds nothing;
     /// gone after an unanswered release (`afterFailure`, or a later attempt), it
     /// leaves that release unconfirmed.
     public static int ConfirmBackgroundRelease(Action release, Action<int> sleep)

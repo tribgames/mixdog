@@ -5,7 +5,6 @@
 // invalidate a Fast selection that the new parameter combination rules out.
 import { modelKey } from './model-key.mjs';
 import { DAYBREAK_PARAMETER_ID } from '../../../../runtime/shared/llm/openai-daybreak.mjs';
-
 import { OPENROUTER_SORT_PARAMETER } from '../../../../runtime/agent/orchestrator/providers/openrouter-provider-routing.mjs';
 
 const TOGGLE_PARAMETER_IDS = new Set(['thinking', DAYBREAK_PARAMETER_ID]);

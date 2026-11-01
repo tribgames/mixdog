@@ -18,8 +18,6 @@ import {
   type NavigationHistory,
 } from './navigation-history';
 
-export type { EditorNavigationLocation } from './navigation-history';
-
 interface UseEditorNavigationOptions {
   setTabs: Dispatch<SetStateAction<WorkspaceTab[]>>;
   openSelectionInFocusedPane(selection: WorkspaceSelection, replaceKey?: string, options?: { preview?: boolean }): void;
