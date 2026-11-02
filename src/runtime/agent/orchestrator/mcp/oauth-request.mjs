@@ -1,4 +1,12 @@
 import { anySignal, loginFailed, reauthenticationRequired } from './oauth-shared.mjs';
+import { clearDesktopNotice, raiseDesktopNotice } from '../../../shared/desktop-notice-host.mjs';
+
+// A sign-in that worked was refused and could not be renewed: the desktop says
+// so once per server until a request carrying its token succeeds (2xx) again.
+const signInNoticeKey = (serverName) => `connector-sign-in:${serverName}`;
+function signInExpired(serverName) {
+  if (serverName) raiseDesktopNotice(signInNoticeKey(serverName), 'connector-sign-in-expired', { name: serverName });
+}
 
 /**
  * The authenticated `fetch` of one server over its credential `cache`: it
@@ -90,7 +98,10 @@ export function createAuthorizedFetch({ url, cache, login, fetchImpl, lifetimeSi
     const { response } = sent;
     const attemptedToken = sent.tokens;
     storeUnreadable ||= sent.unreadable;
-    if (!sameOrigin || ![401, 403].includes(response.status)) return response;
+    if (!sameOrigin || ![401, 403].includes(response.status)) {
+      if (sameOrigin && attemptedToken && response.ok && serverName) clearDesktopNotice(signInNoticeKey(serverName));
+      return response;
+    }
     const { extractWWWAuthenticateParams } = await import('@modelcontextprotocol/sdk/client/auth.js');
     const challenge = extractWWWAuthenticateParams(response);
     if (response.status === 403 && challenge.error !== 'insufficient_scope') return response;
@@ -99,7 +110,13 @@ export function createAuthorizedFetch({ url, cache, login, fetchImpl, lifetimeSi
     if (!flight && creds.tokens === attemptedToken) {
       startLogin(challenge, requestLogin, browser, attemptedToken, serverName);
     }
-    if (flight) await awaitLogin(signal, onAuthorized);
+    try {
+      if (flight) await awaitLogin(signal, onAuthorized);
+    } catch (error) {
+      // The stored sign-in was sent and refused, and its renewal needs the user.
+      if (attemptedToken && error?.code === 'reauthenticationRequired') signInExpired(serverName);
+      throw error;
+    }
     lifetimeSignal.throwIfAborted();
     signal.throwIfAborted();
     const retry = await sendRequest(input, options, signal, sameOrigin);
@@ -114,8 +131,10 @@ export function createAuthorizedFetch({ url, cache, login, fetchImpl, lifetimeSi
         },
         { expected: retry.revision }
       );
+      if (attemptedToken) signInExpired(serverName);
       throw reauthenticationRequired();
     }
+    if (retry.tokens && retried.ok && serverName) clearDesktopNotice(signInNoticeKey(serverName));
     return retried;
   }
   return { fetch: authorizedFetch, cancelLogin: () => flightController?.abort() };

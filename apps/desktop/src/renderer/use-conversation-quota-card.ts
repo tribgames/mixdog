@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
+import { showDesktopToast } from './desktop-toasts';
 import type { ComposerIslandQuotaResume } from './ComposerIsland';
 import type { ComposerQuotaCardModel } from './ComposerQuotaCard';
 import type { Snapshot, TranscriptItem } from './desktop-types';
 import { modelDisplayName } from './provider-display';
-import { latestQuotaFailure, quotaDismissKey, quotaPanelVisible } from './quota-continue';
+import { latestQuotaFailure, quotaDismissKey, quotaPanelVisible, quotaStopIsNew } from './quota-continue';
 import { record } from './record-utils';
 import { t } from './i18n';
 
@@ -60,6 +61,17 @@ export function useConversationQuotaCard({
         (chatModel && stopped.quota.model && chatModel !== stopped.quota.model))
   );
   const quotaFailure = stopped;
+  // The pane's snapshot carries its session id only once the session lane has
+  // loaded (a hidden or still-loading pane reads the empty snapshot).
+  const loaded = Boolean(snapshot.sessionId);
+  useEffect(() => {
+    if (quotaStopIsNew(live ? sessionId : '', stopped, loaded) && stopped) {
+      showDesktopToast(
+        t('Usage limit reached on {{provider}}. The turn stopped.', { provider: stopped.quota.provider }),
+        'warn'
+      );
+    }
+  }, [live, sessionId, stopped, loaded]);
   const waitingResume = live ? (snapshot.quotaResume ?? null) : null;
   const waiting = waitingResume?.state === 'waiting';
   const quotaVisible =

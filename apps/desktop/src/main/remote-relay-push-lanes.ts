@@ -8,6 +8,7 @@ import { ACTIVITY_RAIL_PINS_EVENT } from '../shared/activity-rail-pins';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
 import { SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
 import { ORCHESTRATION_MODE_EVENT } from '../shared/orchestration-mode';
+import { DESKTOP_NOTICE_EVENT } from '../shared/desktop-notice';
 import { BROWSER_APPROVAL_SESSIONS_EVENT, readBrowserApprovalSessions } from '../shared/browser-approval-sessions';
 import { TERMINAL_SIZE_OWNER_EVENT, type TerminalSizeOwnerChange } from '../shared/terminal-size-owner';
 import { TERMINAL_ACTIVITY_EVENT } from '../shared/terminal-activity';
@@ -52,6 +53,9 @@ const GLOBAL_DESKTOP_EVENTS = new Set<string>([
   SETTINGS_CHANGED_EVENT,
   ORCHESTRATION_MODE_EVENT,
   UPDATER_STATE_EVENT,
+  // Sign-in expired, secure storage failing, a conversation not saved: the
+  // phone shows the same toast as the window.
+  DESKTOP_NOTICE_EVENT,
 ]);
 
 export function createRelayPushLanes(deps: RelayPushLaneDeps): RelayPushLanes {

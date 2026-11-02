@@ -40,6 +40,7 @@ import {
   REMOTE_BROWSER_TABS_EVENT,
 } from '../shared/remote-browser';
 import { PROVIDER_MODELS_EVENT, readProviderModelsChange } from '../shared/provider-models';
+import { DESKTOP_NOTICE_EVENT, readDesktopNotice } from '../shared/desktop-notice';
 import { REMOTE_WEBRTC_SIGNAL_EVENT, readRemoteWebrtcDesktopSignal } from '../shared/remote-webrtc';
 import { readTerminalActivityEvent } from '../shared/terminal-activity';
 import { REMOTE_TERMINAL_RUN_EVENT, readRemoteTerminalRun } from '../shared/terminal-command';
@@ -275,6 +276,10 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
       if (!authenticated) return;
       const change = readProviderModelsChange(message.payload);
       if (change) fanOut(ctx.providerModelsListeners, change);
+    } else if (message.event === DESKTOP_NOTICE_EVENT) {
+      if (!authenticated) return;
+      const notice = readDesktopNotice(message.payload);
+      if (notice) fanOut(ctx.desktopNoticeListeners, notice);
     } else if (message.event === SETTINGS_CHANGED_EVENT) {
       if (!authenticated) return;
       const change = readSettingsChange(message.payload);

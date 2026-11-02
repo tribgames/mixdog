@@ -32,6 +32,13 @@ let _cacheEpoch = 0;
 // DPAPI PowerShell hosts for the same startup.
 let _prewarmPromise = null;
 
+// The desktop's toast for a failing secret store, raised once per process
+// (src/runtime/shared/desktop-notice-host.mjs). This CommonJS module cannot
+// import that ESM file, so it reaches the registry the file shares globally.
+function _noticeSecretStoreFailure() {
+  globalThis[Symbol.for('mixdog.desktopNoticeHost.v1')]?.raise?.('secret-storage', 'secret-storage-failed');
+}
+
 function _cacheGet(account) {
   const key = `${SERVICE}\0${account}`;
   const entry = _secretCache.get(key);
@@ -682,6 +689,9 @@ function _noteKeychainFailure(error) {
   // (KEYRING_UNREACHABLE: gdbus missing, unparsable reply) proves nothing, so
   // it keeps its warning and recovery action.
   _keychainStatus = { state, message, unavailable: error?.code === KEYRING_UNAVAILABLE };
+  // No provider at all means the private secrets file serves instead (a
+  // working store), and an inconclusive passive probe proves no failure.
+  if (error?.code !== KEYRING_UNAVAILABLE && error?.code !== 'KEYRING_UNREACHABLE') _noticeSecretStoreFailure();
 }
 
 // Sync entry points feed the same health the async ones do (Linux only).
@@ -1317,7 +1327,12 @@ function getSecret(account) {
     // Unreadable keychain (no provider, locked, not read yet): a secret saved
     // to the fallback file is still there; otherwise the keychain error stands.
     const stored = fallbackGetQuiet(account);
-    if (stored == null) throw error;
+    if (stored == null) {
+      // A Linux read also throws while the keyring is still being read at
+      // startup; its real failures are reported by _noteKeychainFailure.
+      if (platform() !== 'linux') _noticeSecretStoreFailure();
+      throw error;
+    }
     return stored;
   }
   _cacheSet(account, value);
@@ -1350,6 +1365,9 @@ function setSecret(account, value) {
       viaFile = true;
     }
     stored = true;
+  } catch (error) {
+    _noticeSecretStoreFailure();
+    throw error;
   } finally {
     _cacheInvalidate(account);
     // Linux reads are cache-only, so a fresh keychain write must stay readable.
@@ -1415,6 +1433,9 @@ async function setSecretAsync(account, value) {
       viaFile = true;
     }
     stored = true;
+  } catch (error) {
+    _noticeSecretStoreFailure();
+    throw error;
   } finally {
     _cacheInvalidate(account);
     if (stored && !viaFile) _cacheSet(account, value);

@@ -239,14 +239,26 @@ export const CapabilitySettings = memo(function CapabilitySettings({
             if (extensionCategory) await refreshExtensions();
             setRevision((value) => value + 1);
           }
-          if (capability === 'updatePlugin') {
+          if (capability === 'updatePlugin' || capability === 'addPlugin') {
             const plugin = record((result.value as { plugin?: unknown } | undefined)?.plugin ?? args[0]);
-            const name = String(plugin.title || plugin.name || plugin.id || '');
-            showDesktopToast(t('{{name}} plugin updated.', { name }), 'success');
+            const name = String(
+              plugin.title || plugin.name || plugin.id || (capability === 'addPlugin' ? args[0] : '')
+            );
+            showDesktopToast(
+              capability === 'addPlugin'
+                ? t('{{name}} plugin installed.', { name })
+                : t('{{name}} plugin updated.', { name }),
+              'success'
+            );
           }
           return result.value;
         } catch (rawReason) {
           const reason = friendlyCapabilityError(rawReason);
+          // Throwing callers (the connector dialog) show the error inline; the
+          // others already get the generic error toast from `error`.
+          if (capability === 'addPlugin' && errorMode === 'throw') {
+            showDesktopToast(t('Could not install the plugin: {{error}}', { error: errorMessage(reason) }), 'error');
+          }
           if (errorMode === 'throw') throw reason;
           if (!silent) setError(errorMessage(reason));
           return undefined;

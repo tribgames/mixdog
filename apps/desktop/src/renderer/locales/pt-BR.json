@@ -6028,5 +6028,16 @@
   "{{count}} steps": "{{count}} etapa",
   "{{count}} steps_other": "{{count}} etapas",
   "Used tools {{count}} times": "Ferramentas usadas {{count}} vez",
-  "Used tools {{count}} times_other": "Ferramentas usadas {{count}} vezes"
+  "Used tools {{count}} times_other": "Ferramentas usadas {{count}} vezes",
+  "{{name}} installed.": "{{name}} instalado.",
+  "Could not install {{name}}: {{error}}": "Não foi possível instalar {{name}}: {{error}}",
+  "{{name}} plugin installed.": "Plugin {{name}} instalado.",
+  "Could not install the plugin: {{error}}": "Não foi possível instalar o plugin: {{error}}",
+  "Mixdog v{{version}} downloaded. Restart to apply the update.": "Mixdog v{{version}} baixado. Reinicie para aplicar a atualização.",
+  "Could not download the update: {{error}}": "Não foi possível baixar a atualização: {{error}}",
+  "Usage limit reached on {{provider}}. The turn stopped.": "Limite de uso atingido em {{provider}}. O turno foi interrompido.",
+  "Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.": "Seu login no {{name}} expirou ou foi recusado. Entre novamente em Configurações → Modelos.",
+  "{{name}} needs you to sign in again. Reconnect it in Connectors.": "O {{name}} precisa que você faça login novamente. Reconecte-o em Conectores.",
+  "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog.": "O armazenamento seguro deste computador não está funcionando, por isso as chaves, senhas e logins salvos não puderam ser lidos ou gravados. Verifique o chaveiro do sistema e reinicie o Mixdog.",
+  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "Não foi possível salvar uma conversa no disco. As mensagens recentes podem ser perdidas quando o Mixdog for fechado. Verifique o espaço livre em disco e as permissões da pasta."
 }

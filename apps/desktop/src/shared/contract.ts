@@ -1,5 +1,6 @@
 import type { GithubRequest, GithubResult } from '../../../../src/runtime/github/contract.mjs';
 import type { FileDownloadApi } from './file-downloads';
+import type { DesktopNotice } from './desktop-notice';
 import type { ProjectRecoveryRequest, ProjectRecoveryResponse } from './project-recovery';
 import type { FileLaunchConfirmation, LocalLinkOpened } from './local-files';
 import type { DesktopFeedbackInput, DesktopFeedbackReceipt } from './contract-feedback';
@@ -451,6 +452,9 @@ export interface DesktopApi {
   /** The relay refused an oversize frame this desktop sent and named no
    *  client. Surfaced to the user; it blames no call and reaches no phone. */
   subscribeRelayPayloadRefused?(listener: (detail: { bytes: number | null; limit: number | null }) => void): () => void;
+  /** A problem the service or main process detected (sign-in expired, secure
+   *  storage failing, a conversation not saved), raised once per condition. */
+  subscribeDesktopNotices?(listener: (notice: DesktopNotice) => void): () => void;
   listSessions(): Promise<DesktopSessionSummary[]>;
   /** Persist and fan out a read cursor. `consumedUnread` covers a completion
    *  marker whose message count did not advance. */

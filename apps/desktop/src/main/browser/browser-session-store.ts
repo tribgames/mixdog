@@ -18,6 +18,7 @@ import {
   type BrowserCookiePartitionKey,
   type BrowserCookieSetDetails,
 } from './cookie-jar';
+import { noticeSecretStorageFailure, noticingSafeStorage } from './secret-storage-notice';
 
 interface StoredSessionCookie {
   name: string;
@@ -48,14 +49,20 @@ const DEFAULT_AUTOSAVE_MS = 60_000;
 
 export async function safeStorageEncrypt(text: string): Promise<Buffer | null> {
   const { safeStorage } = await import('electron');
-  if (!safeStorage.isEncryptionAvailable()) return null;
-  return safeStorage.encryptString(text);
+  if (!safeStorage.isEncryptionAvailable()) {
+    noticeSecretStorageFailure();
+    return null;
+  }
+  return noticingSafeStorage((plaintext: string) => safeStorage.encryptString(plaintext))(text);
 }
 
 export async function safeStorageDecrypt(data: Buffer): Promise<string | null> {
   const { safeStorage } = await import('electron');
-  if (!safeStorage.isEncryptionAvailable()) return null;
-  return safeStorage.decryptString(data);
+  if (!safeStorage.isEncryptionAvailable()) {
+    noticeSecretStorageFailure();
+    return null;
+  }
+  return noticingSafeStorage((sealed: Buffer) => safeStorage.decryptString(sealed))(data);
 }
 
 /** Only session cookies are worth keeping: the rest Chromium already keeps. */

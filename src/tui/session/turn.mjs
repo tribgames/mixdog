@@ -22,6 +22,8 @@ export { transcriptToolCallDisplayMode } from './turn-tool-cards.mjs';
 import { isRejected429 } from '../../runtime/shared/error-presentation.mjs';
 import { QUOTA_KINDS, providerErrorKind } from '../../runtime/agent/orchestrator/providers/provider-error-kind.mjs';
 import { turnFailureRecord } from '../../runtime/agent/orchestrator/session/turn-failure.mjs';
+import { providerDisplayName } from '../../runtime/shared/provider-display-name.mjs';
+import { clearDesktopNotice, raiseDesktopNotice } from '../../runtime/shared/desktop-notice-host.mjs';
 import { registerTaskWaitSteeringCheck } from '../../runtime/agent/orchestrator/session/task-wait-control.mjs';
 import {
   isReactionSuccess,
@@ -529,7 +531,10 @@ function completeTurn(ctx, result, session) {
   set({ stats: { ...getState().stats } });
   settleFinalText(stream, result?.content != null ? String(result.content) : '');
   turn.finishedNormally = true;
+  if (turn.routeMeta?.provider) clearDesktopNotice(providerSignInNoticeKey(turn.routeMeta.provider));
 }
+
+const providerSignInNoticeKey = (provider) => `provider-sign-in:${provider}`;
 
 export function failTurn(ctx, error) {
   const { turn, stream, cards, pushNotice } = ctx;
@@ -549,6 +554,14 @@ export function failTurn(ctx, error) {
   if (record.quota) turn.quota = record.quota;
   turn.failureDetail = record.detail;
   turn.failureDiagnostic = record.errorDetails;
+  // The provider refused the sign-in (expired, revoked, refresh failed): the
+  // desktop says so once per provider until a turn on it succeeds again.
+  const provider = turn.routeMeta?.provider;
+  if (provider && record.providerKind.kind === 'auth') {
+    raiseDesktopNotice(providerSignInNoticeKey(provider), 'provider-sign-in-expired', {
+      name: providerDisplayName(provider),
+    });
+  }
   // Answers the turn went on past before it failed (turn-report.mjs).
   if (typeof error?.carriedReport === 'string') turn.carriedReport = error.carriedReport;
   pushNotice(turn.failureDetail, 'error', { owner: 'transcript' });

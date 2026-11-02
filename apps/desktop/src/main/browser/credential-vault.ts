@@ -36,6 +36,7 @@ import {
   writeVaultFile,
 } from './credential-vault-file';
 import { parseTotpSecret, totpCode } from './totp';
+import { noticeSecretStorageFailure, noticingSafeStorage } from './secret-storage-notice';
 
 export const VAULT_FILE_NAME = 'browser-password-vault.bin';
 
@@ -161,7 +162,7 @@ function parseSource(value: unknown): VaultLoginSource {
   return SOURCES.includes(value as VaultLoginSource) ? (value as VaultLoginSource) : 'chrome';
 }
 
-const unsealVault = (sealed: Buffer): string => safeStorage.decryptString(sealed);
+const unsealVault = noticingSafeStorage((sealed: Buffer): string => safeStorage.decryptString(sealed));
 
 // One sealed file, possibly several CredentialVault instances (the importer
 // builds its own). A read-modify-write must not interleave with another's, or
@@ -207,7 +208,7 @@ export class CredentialVault {
     this.file = join(options.userDataDirectory, VAULT_FILE_NAME);
     this.lockKey = resolve(this.file);
     this.usesSafeStorage = !options.seal;
-    this.seal = options.seal ?? ((plaintext) => safeStorage.encryptString(plaintext));
+    this.seal = options.seal ?? noticingSafeStorage((plaintext: string) => safeStorage.encryptString(plaintext));
     this.unseal = options.unseal ?? unsealVault;
   }
 
@@ -220,6 +221,7 @@ export class CredentialVault {
   private async load(): Promise<StoredVaultLogin[]> {
     if (!existsSync(this.file)) return [];
     if (this.usesSafeStorage && !safeStorage.isEncryptionAvailable()) {
+      noticeSecretStorageFailure();
       throw new Error('Credential encryption is unavailable.');
     }
     let parsed: unknown;
@@ -591,6 +593,7 @@ export class CredentialVault {
     // use it now), but it may be later: record the pause, origin only, and fold
     // it in when the vault next opens. A missing vault has nothing to pause.
     if (this.usesSafeStorage && !safeStorage.isEncryptionAvailable()) {
+      noticeSecretStorageFailure();
       if (existsSync(this.file)) await addPendingPause(this.file, wanted);
       return;
     }

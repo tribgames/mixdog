@@ -6026,5 +6026,16 @@
   "{{count}} steps": "{{count}} paso",
   "{{count}} steps_other": "{{count}} pasos",
   "Used tools {{count}} times": "Herramientas usadas {{count}} vez",
-  "Used tools {{count}} times_other": "Herramientas usadas {{count}} veces"
+  "Used tools {{count}} times_other": "Herramientas usadas {{count}} veces",
+  "{{name}} installed.": "{{name}} instalado.",
+  "Could not install {{name}}: {{error}}": "No se pudo instalar {{name}}: {{error}}",
+  "{{name}} plugin installed.": "Plugin {{name}} instalado.",
+  "Could not install the plugin: {{error}}": "No se pudo instalar el plugin: {{error}}",
+  "Mixdog v{{version}} downloaded. Restart to apply the update.": "Mixdog v{{version}} descargada. Reinicia para aplicar la actualización.",
+  "Could not download the update: {{error}}": "No se pudo descargar la actualización: {{error}}",
+  "Usage limit reached on {{provider}}. The turn stopped.": "Se alcanzó el límite de uso en {{provider}}. El turno se detuvo.",
+  "Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.": "Tu inicio de sesión en {{name}} ha caducado o fue rechazado. Vuelve a iniciar sesión en Ajustes → Modelos.",
+  "{{name}} needs you to sign in again. Reconnect it in Connectors.": "{{name}} necesita que vuelvas a iniciar sesión. Reconéctalo en Conectores.",
+  "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog.": "El almacenamiento seguro de este ordenador no funciona, por lo que no se pudieron leer ni guardar las claves, contraseñas e inicios de sesión guardados. Revisa el llavero del sistema y luego reinicia Mixdog.",
+  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "No se pudo guardar una conversación en el disco. Es posible que los mensajes recientes se pierdan al cerrar Mixdog. Comprueba el espacio libre en disco y los permisos de la carpeta."
 }

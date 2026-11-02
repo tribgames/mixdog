@@ -1,5 +1,5 @@
 import { CapabilityIcon } from '../CapabilityIcon';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import type {
   DesktopGitCliStatus,
@@ -9,6 +9,7 @@ import type {
   DesktopTidyInstallStatus,
 } from '../../shared/contract';
 import { t } from '../i18n';
+import { showDesktopToast } from '../desktop-toasts';
 import { ErrorNotice } from '../ErrorNotice';
 import { record } from '../record-utils';
 import { subscribeSetupChanges } from '../setup-change-refresh';
@@ -298,7 +299,7 @@ export function BuiltInFeaturesPanel({
   data,
   snapshot,
   pending,
-  run,
+  run: runCapability,
   api,
   initialFeature = null,
   onDetailClose,
@@ -308,6 +309,13 @@ export function BuiltInFeaturesPanel({
    *  GitHub row opens Git & GitHub here); called when it closes. */
   onDetailClose?(): void;
 }) {
+  // `run` resolves undefined only after reporting its own error.
+  const runFailed = useRef(false);
+  const run: PanelContext['run'] = async <T,>(...args: Parameters<PanelContext['run']>) => {
+    const value = await runCapability<T>(...args);
+    if (value === undefined) runFailed.current = true;
+    return value;
+  };
   const localActions = useLocalProviderActions(run, pending);
   const { settings, setSettings, gitStatus, setGitStatus, officeDependency, setOfficeDependency } =
     useDesktopFeatureStatus(api);
@@ -429,6 +437,10 @@ export function BuiltInFeaturesPanel({
     if (id === 'localProvider' || id === 'visualize' || id === 'media') return;
     if ((action && action.status !== 'failed') || pending) return;
     setAction({ id, status: 'installing' });
+    runFailed.current = false;
+    // Browser Use / Computer Use only flip a marker: nothing is installed.
+    const announce = id !== 'browser' && id !== 'computer';
+    const name = t(BUILT_IN_FEATURES.find((feature) => feature.id === id)?.title ?? id);
     void (async () => {
       if (id === 'git') {
         const next = await api.installGitCli?.();
@@ -472,7 +484,13 @@ export function BuiltInFeaturesPanel({
         }
       }
       setAction(null);
-    })().catch((error: unknown) => setAction({ id, status: 'failed', message: reason(error) }));
+      if (announce) showDesktopToast(t('{{name}} installed.', { name }), 'success');
+    })().catch((error: unknown) => {
+      setAction({ id, status: 'failed', message: reason(error) });
+      // A failed `run` already surfaced its error through the settings error toast.
+      if (announce && !runFailed.current)
+        showDesktopToast(t('Could not install {{name}}: {{error}}', { name, error: reason(error) }), 'error');
+    });
   };
   // Retry/Install for one missing Code Tidy engine: only that engine is
   // downloaded, and the feature's installed/enabled state is left alone.

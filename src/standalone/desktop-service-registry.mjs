@@ -75,10 +75,11 @@ export class DesktopServiceRegistry {
     this.#onReady = onReady;
   }
 
+  /** Whether a desktop client is subscribed to receive `message`. */
   #publish(desktopId, message) {
     const wire = sanitizeForWire(message);
     const service = this.#servicesById.get(desktopId);
-    if (!wire || !service) return;
+    if (!wire || !service) return false;
     this.#onFrame(
       {
         type: 'desktop-event',
@@ -88,6 +89,7 @@ export class DesktopServiceRegistry {
       },
       service.subscribers
     );
+    return service.subscribers.size > 0;
   }
 
   #require(desktopId) {
@@ -145,9 +147,8 @@ export class DesktopServiceRegistry {
       const instance = await loaded.createDesktopService({
         options: sanitizeForWire(options) || {},
         runtime: this.#runtime,
-        emit: (message) => {
-          if (ownsRecord()) this.#publish(requestedId, message);
-        },
+        // Answers whether a desktop client was subscribed to receive it.
+        emit: (message) => ownsRecord() && this.#publish(requestedId, message),
         onClientCountChanged: () => {
           if (!ownsRecord()) return;
           try {
@@ -262,6 +263,12 @@ export class DesktopServiceRegistry {
     const { service, token } = this.#requireSubscribed(desktopId, ctx);
     this.#syncModelProxyPresence();
     this.#onReady({ desktopId: service.desktopId, clientToken: token || null });
+    // What the service could not deliver while nobody was attached goes now.
+    try {
+      service.instance.clientReady?.();
+    } catch (error) {
+      this.#log(`desktop service clientReady failed: ${error?.message || error}`);
+    }
     return { ok: true };
   }
 
