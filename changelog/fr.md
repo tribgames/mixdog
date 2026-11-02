@@ -23,7 +23,7 @@ Ajout de l'onglet Journal des requêtes dans Utilisation, de panneaux latéraux 
 - Modification de la gestion de mémoire pour enregistrer automatiquement les préférences explicites et demander confirmation pour les entrées suggérées ou aux portées ambiguës.
 - Modification de la mascotte du bot de bureau pour qu'elle n'apparaisse que lorsqu'elle est activée dans les réglages.
 - Modification de la page Bots pour masquer le groupe Agents par défaut ; activez-le depuis le menu ⋯ de la page, vos choix antérieurs étant conservés.
-- Ajustement de la liste de tâches de session pour placer la note sous le titre, adoucir l'affichage des étapes bloquées et afficher les phases en en-têtes.
+- Ajustement de la liste de tâches au-dessus de la zone de saisie pour une lecture plus facile : la note de chaque élément apparaît désormais sur sa propre ligne en dessous.
 
 ### Corrections de bugs
 

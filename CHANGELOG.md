@@ -23,7 +23,7 @@ Added a Request log in Usage, live sub-agent side panels, session navigation his
 - Changed memory management to automatically save explicit user preferences while requiring confirmation for agent-proposed entries or ambiguous project scopes.
 - Changed the desktop bot mascot to appear only when you turn it on in settings.
 - Changed the Bots page to hide the Agents group by default; turn it on from the page's ⋯ menu, and your earlier choices are kept.
-- Adjusted the session to-do list so each step's note sits under its title, blocked steps read more calmly, and phases show as headings.
+- Adjusted the to-do list above the composer to read more easily: each item's note now sits on its own line under the item.
 
 ### Bug fixes
 

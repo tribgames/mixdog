@@ -22,7 +22,7 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 - Thay đổi quản lý bộ nhớ để tự động lưu các tùy chọn rõ ràng, đồng thời yêu cầu xác nhận đối với các mục do agent đề xuất hoặc có phạm vi dự án chưa rõ.
 - Thay đổi biểu tượng linh vật bot trên màn hình để chỉ xuất hiện khi bạn bật trong phần cài đặt.
 - Thay đổi trang Bot để ẩn nhóm Agent theo mặc định; có thể bật lại từ menu ⋯ của trang và các lựa chọn trước đó vẫn được giữ nguyên.
-- Điều chỉnh danh sách việc cần làm của phiên để ghi chú của mỗi bước nằm dưới tiêu đề, các bước bị chặn hiển thị nhẹ nhàng hơn và các giai đoạn hiển thị như tiêu đề.
+- Điều chỉnh danh sách việc cần làm phía trên ô nhập để dễ đọc hơn: ghi chú của mỗi mục nay hiển thị ở một dòng riêng bên dưới mục đó.
 
 ### Sửa lỗi
 
