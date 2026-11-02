@@ -4,9 +4,9 @@ import test from 'node:test';
 import { EventEmitter } from 'node:events';
 import { clearBrowserPermissionHandlers, createBrowserPermissions } from './permissions.ts';
 
-function fixture() {
+function fixture(options = {}) {
   const handlers = {};
-  const session = {
+  const session = Object.assign(new EventEmitter(), {
     setPermissionCheckHandler(handler) {
       handlers.check = handler;
     },
@@ -16,13 +16,14 @@ function fixture() {
     setDevicePermissionHandler(handler) {
       handlers.device = handler;
     },
-  };
+  });
   const activation = { active: true, asked: [] };
   const permissions = createBrowserPermissions({
     userActivation: async (frames) => {
       activation.asked.push(frames.map((frame) => frame.url));
       return activation.active;
     },
+    ...options,
   });
   permissions.install(session);
   /** A page at `url`; `children` are its iframes' URLs. */
@@ -239,6 +240,82 @@ test('storage access is granted as Chrome grants it, never asked of a person', (
   );
   assert.equal(ask(top, 'top-level-storage-access').granted, undefined, 'top-level storage access is still asked');
   assert.deepEqual(permissions.pending(top).keys, ['top-level-storage-access']);
+});
+
+test('a HID device connects only with the setting on and only the one device a person picks', () => {
+  const setting = { on: false };
+  const guests = new Map();
+  const { handlers, session, permissions, page } = fixture({
+    hidDevices: () => setting.on,
+    guestForFrame: (frame) => guests.get(frame),
+  });
+  const guest = page('https://launcher.test/app');
+  const frame = { origin: 'https://launcher.test', processId: 1, routingId: 1, isDestroyed: () => false };
+  guests.set(frame, guest);
+  const keyboard = { deviceId: 'hid-1', name: 'Keyboard' };
+  const deck = { deviceId: 'hid-2', name: 'Stream Deck' };
+  const request = (deviceList) => {
+    const outcome = { prevented: false, calls: [] };
+    session.emit(
+      'select-hid-device',
+      { preventDefault: () => (outcome.prevented = true) },
+      { deviceList, frame },
+      (...args) => outcome.calls.push(args)
+    );
+    return outcome;
+  };
+  const granted = (device, origin = 'https://launcher.test') => handlers.device({ deviceType: 'hid', origin, device });
+
+  // Off (the default): the page cannot use HID and a request is refused unasked.
+  assert.equal(handlers.check(guest, 'hid', 'https://launcher.test', {}), false);
+  const off = request([keyboard]);
+  assert.deepEqual([off.prevented, off.calls], [true, [[]]]);
+  assert.equal(permissions.pending(guest), undefined);
+
+  setting.on = true;
+  assert.equal(handlers.check(guest, 'hid', 'https://launcher.test', {}), true);
+  const asked = request([keyboard]);
+  assert.deepEqual(asked.calls, [], 'the request waits for a person');
+  const shown = permissions.pending(guest);
+  assert.deepEqual(shown, {
+    id: shown.id,
+    origin: 'https://launcher.test',
+    keys: ['hid'],
+    devices: [{ id: 'hid-1', name: 'Keyboard' }],
+  });
+  session.emit('hid-device-added', {}, { device: deck, frame });
+  session.emit('hid-device-removed', {}, { device: keyboard, frame });
+  assert.deepEqual(permissions.pending(guest).devices, [{ id: 'hid-2', name: 'Stream Deck' }], 'kept current');
+  assert.equal(permissions.answer(guest, shown.id, true), false, 'allowing needs a device');
+  assert.equal(permissions.answer(guest, shown.id, true, 'hid-1'), false, 'only a device still offered');
+  assert.equal(granted(deck), false, 'nothing is granted before the pick');
+  assert.equal(permissions.answer(guest, shown.id, true, 'hid-2'), true);
+  assert.deepEqual(asked.calls, [['hid-2']]);
+  assert.equal(permissions.pending(guest), undefined);
+  assert.equal(granted(deck), true, 'the picked device is granted to that site');
+  assert.equal(granted(keyboard), false, 'another device is not');
+  assert.equal(granted(deck, 'https://other.test'), false, 'another site is not');
+  assert.equal(handlers.device({ deviceType: 'usb', origin: 'https://launcher.test', device: deck }), false);
+
+  // A pick is never remembered as a site decision: the next request asks again.
+  const cancelled = request([keyboard]);
+  permissions.answer(guest, permissions.pending(guest).id, false);
+  assert.deepEqual(cancelled.calls, [[undefined]]);
+  const navigated = request([keyboard]);
+  guest.emit('did-start-navigation', { isMainFrame: true, isSameDocument: false });
+  assert.deepEqual(navigated.calls, [[undefined]], 'a navigation withdraws the chooser');
+
+  // Turning the setting off withdraws the grants it allowed.
+  setting.on = false;
+  assert.equal(granted(deck), false);
+  // Disposing the browser cancels a chooser still waiting, once.
+  setting.on = true;
+  const waiting = request([keyboard]);
+  permissions.uninstall(session);
+  assert.deepEqual(waiting.calls, [[undefined]]);
+  assert.equal(permissions.pending(guest), undefined);
+  assert.equal(session.listenerCount('select-hid-device'), 0);
+  assert.equal(handlers.device, null);
 });
 
 test('only a person refusal reads as refused to a page', () => {

@@ -158,7 +158,7 @@ test('with no logins: primary Import, an import hint, no switch or search, setti
   assert.equal(doc.querySelector('.auth-search'), null);
   assert.equal(doc.querySelector('.auth-clear-all'), null);
   assert.match(doc.querySelector('.settings-empty').textContent, /Chrome/);
-  assert.equal(doc.querySelectorAll('.mixdog-settings__row').length, 2, 'both toggles remain');
+  assert.equal(doc.querySelectorAll('.mixdog-settings__row').length, 3, 'the toggles remain');
 });
 
 test('with logins Import is not primary, and the text button opens the clear-all confirm', async (t) => {
@@ -166,7 +166,7 @@ test('with logins Import is not primary, and the text button opens the clear-all
   const dom = await mount(t, api);
   const doc = dom.window.document;
   assert.ok(!doc.querySelector('.auth-tools button').classList.contains('primary'));
-  assert.equal(doc.querySelectorAll('.mixdog-settings__row').length, 2);
+  assert.equal(doc.querySelectorAll('.mixdog-settings__row').length, 3);
   await act(async () => doc.querySelector('.auth-clear-all').click());
   await settle();
   assert.ok(doc.body.textContent.includes('Clear all saved logins?'), 'the existing confirm opens');

@@ -236,6 +236,7 @@ export const SETUP_EXTENDED_PROPERTIES = Object.freeze({
     usageRailSlotsAll: boolean,
     computerObserveOnly: boolean,
     browserAutoSignIn: boolean,
+    browserHidDevices: boolean,
     saveChatLogins: boolean,
     notificationVolume: {
       type: 'integer',

@@ -262,6 +262,8 @@ export interface DesktopBrowserPageDialog {
     embedder?: string;
     /** What it asks for (`notifications`, `media:video`, `clipboard-read`, ...). */
     keys: string[];
+    /** A device chooser (`hid`): the devices a person may pick one of. */
+    devices?: Array<{ id: string; name: string }>;
   };
 }
 
@@ -274,6 +276,8 @@ export type DesktopBrowserPageAction =
       /** The prompt's default was accepted untouched (it may be longer than
        *  what the card showed and sent). */
       keepDefault?: boolean;
+      /** The device picked in a device chooser; required to allow one. */
+      deviceId?: string;
     }
   | { type: 'choose-files'; requestId: string; cancel?: boolean }
   /** `requestId`: the agent's open this tab is for; absent for a user's "+". */

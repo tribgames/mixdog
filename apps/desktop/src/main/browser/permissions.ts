@@ -5,6 +5,18 @@ type BrowserPermissionSession = Pick<
   'setDevicePermissionHandler' | 'setPermissionCheckHandler' | 'setPermissionRequestHandler'
 >;
 
+type BrowserDeviceSession = BrowserPermissionSession & Pick<Session, 'on' | 'removeListener'>;
+
+type HidDeviceInfo = Pick<Electron.HIDDevice, 'deviceId' | 'name'>;
+
+type DeviceFrame = WebFrameMain;
+
+/** A device a site may be connected to, as the chooser lists it. */
+export interface BrowserPermissionDevice {
+  id: string;
+  name: string;
+}
+
 type PermissionFrame = Pick<WebFrameMain, 'url' | 'processId' | 'routingId' | 'executeJavaScript' | 'isDestroyed'>;
 
 type PermissionGuest = Pick<WebContents, 'getURL' | 'once' | 'on' | 'removeListener' | 'isDestroyed'> & {
@@ -71,7 +83,10 @@ export interface PendingBrowserPermission {
   keys: string[];
   /** The frames that asked; a navigation of any of them withdraws the prompt. */
   frames: Set<string>;
-  settle: Array<(granted: boolean) => void>;
+  /** A device chooser (`hid`): the devices it offers, kept current while it
+   *  waits. Its answer is one device, never remembered as a site decision. */
+  devices?: BrowserPermissionDevice[];
+  settle: Array<(granted: boolean, deviceId?: string) => void>;
 }
 
 export interface BrowserPermissionPrompt {
@@ -80,14 +95,22 @@ export interface BrowserPermissionPrompt {
   /** Only set when the asking frame is embedded in another site. */
   embedder?: string;
   keys: string[];
+  devices?: BrowserPermissionDevice[];
 }
 
 export interface BrowserPermissionOptions {
   /** Whether every one of these frames has a live (transient) user activation. */
   userActivation?(frames: PermissionFrame[]): Promise<boolean>;
+  /** Whether sites may ask to connect a HID device (the `browserHidDevices`
+   *  setting, default off). Absent or false: every HID request is refused. */
+  hidDevices?(): boolean;
+  /** The page a requesting frame belongs to. */
+  guestForFrame?(frame: DeviceFrame): PermissionGuest | null | undefined;
 }
 
 const frameId = (frame: Pick<WebFrameMain, 'processId' | 'routingId'>) => `${frame.processId}:${frame.routingId}`;
+
+const deviceOf = (device: HidDeviceInfo): BrowserPermissionDevice => ({ id: device.deviceId, name: device.name || '' });
 
 async function frameActivations(frames: PermissionFrame[]): Promise<boolean> {
   try {
@@ -115,11 +138,19 @@ function originOf(url: string): string {
  * camera, microphone, location or device is ever granted without that
  * answer, and the agent has no way to give it. Requests that are not a
  * person's to grant here (external apps, screen capture, pointer lock,
- * attached devices) are refused outright.
+ * USB, serial and Bluetooth devices) are refused outright. A HID device is
+ * connected only while the `browserHidDevices` setting is on, and only the
+ * one device a person picks in the pane's chooser.
  */
 export function createBrowserPermissions(options: BrowserPermissionOptions = {}) {
   const userActivation = options.userActivation ?? frameActivations;
+  const hidAllowed = () => options.hidDevices?.() === true;
   const decisions = new Map<string, boolean>();
+  /** HID devices a person picked for an origin, until the app quits. */
+  const deviceGrants = new Set<string>();
+  const deviceGrant = (origin: string, deviceId: string) => `${origin}\n${deviceId}`;
+  /** Device choosers still waiting, with their page: uninstall cancels them. */
+  const choosers = new Map<PendingBrowserPermission, PermissionGuest>();
   const pending = new WeakMap<PermissionGuest, PendingBrowserPermission[]>();
   const watched = new WeakSet<PermissionGuest>();
   let serial = 0;
@@ -218,13 +249,69 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
     return main.framesInSubtree.filter((frame) => frame !== main && frame.url === details.requestingUrl);
   }
 
+  /** `navigator.hid.requestDevice()`: queued as a chooser a person answers
+   *  in the pane, with the devices Chromium offers (blocklisted ones, such as
+   *  security keys, are never among them). */
+  function chooseHidDevice(
+    event: { preventDefault(): void },
+    details: { deviceList: HidDeviceInfo[]; frame: DeviceFrame | null },
+    callback: (deviceId?: string | null) => void
+  ): void {
+    event.preventDefault();
+    const frame = details.frame && !details.frame.isDestroyed() ? details.frame : null;
+    const guest = frame ? options.guestForFrame?.(frame) : null;
+    const origin = frame ? originOf(frame.origin) : '';
+    const embedder = guest && !guest.isDestroyed() ? originOf(guest.getURL()) : '';
+    const bad = (value: string) => !value || value === 'null';
+    if (!hidAllowed() || !frame || !guest || bad(origin) || bad(embedder)) {
+      callback();
+      return;
+    }
+    watch(guest);
+    const entry: PendingBrowserPermission = {
+      id: `permission_${++serial}`,
+      origin,
+      embedder,
+      keys: ['hid'],
+      frames: new Set([frameId(frame)]),
+      devices: details.deviceList.map(deviceOf),
+      settle: [
+        (granted, deviceId) => {
+          choosers.delete(entry);
+          if (granted && deviceId) deviceGrants.add(deviceGrant(origin, deviceId));
+          callback(granted ? deviceId : undefined);
+        },
+      ],
+    };
+    choosers.set(entry, guest);
+    pending.set(guest, [...(pending.get(guest) ?? []), entry]);
+  }
+
+  /** A device plugged in or out while a chooser of that frame waits. */
+  function updateHidDevices(added: boolean, details: { device: HidDeviceInfo; frame: DeviceFrame | null }): void {
+    const guest = details.frame ? options.guestForFrame?.(details.frame) : null;
+    if (!details.frame || !guest) return;
+    const asking = frameId(details.frame);
+    for (const entry of pending.get(guest) ?? []) {
+      if (!entry.devices || !entry.frames.has(asking)) continue;
+      entry.devices = entry.devices.filter((device) => device.id !== details.device.deviceId);
+      if (added) entry.devices.push(deviceOf(details.device));
+    }
+  }
+  const onHidAdded = (_event: unknown, details: { device: HidDeviceInfo; frame: DeviceFrame | null }) =>
+    updateHidDevices(true, details);
+  const onHidRemoved = (_event: unknown, details: { device: HidDeviceInfo; frame: DeviceFrame | null }) =>
+    updateHidDevices(false, details);
+
   return {
-    install(session: BrowserPermissionSession): void {
+    install(session: BrowserDeviceSession): void {
       session.setPermissionCheckHandler((_webContents, permission, requestingOrigin, details) => {
         if (GRANTED_BY_DEFAULT.has(permission)) return true;
         if (NEEDS_ACTIVATION.has(permission)) return false;
         const origin = originOf(requestingOrigin);
         if (!origin || origin === 'null') return false;
+        // Lets a page call `navigator.hid` at all; each device still needs a person's pick.
+        if (permission === 'hid') return hidAllowed();
         if (permission === STORAGE_ACCESS) return details?.isMainFrame === true;
         const embedder = originOf(details?.embeddingOrigin ?? '') || origin;
         const key =
@@ -257,7 +344,30 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
           else callback(true);
         });
       });
-      session.setDevicePermissionHandler(() => false);
+      // Electron consults only this handler once it is set, so the devices a
+      // person picked are granted here; nothing else ever is.
+      session.setDevicePermissionHandler(
+        (details) =>
+          details.deviceType === 'hid' &&
+          hidAllowed() &&
+          deviceGrants.has(deviceGrant(originOf(details.origin), (details.device as Electron.HIDDevice).deviceId))
+      );
+      session.on('select-hid-device', chooseHidDevice);
+      session.on('hid-device-added', onHidAdded);
+      session.on('hid-device-removed', onHidRemoved);
+    },
+    uninstall(session: BrowserDeviceSession): void {
+      session.removeListener('select-hid-device', chooseHidDevice);
+      session.removeListener('hid-device-added', onHidAdded);
+      session.removeListener('hid-device-removed', onHidRemoved);
+      clearBrowserPermissionHandlers(session);
+      // A waiting chooser would otherwise leave the page's requestDevice() unresolved.
+      for (const [entry, guest] of [...choosers]) {
+        const queue = (pending.get(guest) ?? []).filter((other) => other !== entry);
+        if (queue.length) pending.set(guest, queue);
+        else pending.delete(guest);
+        for (const settle of entry.settle) settle(false);
+      }
     },
     /** Whether a person refused the page's origin one of the permissions an
      *  engine name stands for; an undecided permission is not refused. */
@@ -273,15 +383,27 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
         origin: first.origin,
         ...(first.embedder === first.origin ? {} : { embedder: first.embedder }),
         keys: first.keys,
+        ...(first.devices ? { devices: first.devices } : {}),
       };
     },
     /** A person's answer to the prompt `id`: remembered for the asking
      *  origin in its embedding site, and applied to every waiting request it
-     *  decides. False when that prompt is no longer the one shown. */
-    answer(guest: PermissionGuest, id: string, allow: boolean): boolean {
+     *  decides. A device chooser is allowed only with one of its devices,
+     *  `deviceId`, and settles only itself. False when that prompt is no
+     *  longer the one shown or the device is not offered. */
+    answer(guest: PermissionGuest, id: string, allow: boolean, deviceId?: string): boolean {
       const queue = pending.get(guest);
       const answered = queue?.[0];
       if (!queue || !answered || answered.id !== id) return false;
+      if (answered.devices) {
+        const chosen = allow ? answered.devices.find((device) => device.id === deviceId) : undefined;
+        if (allow && !chosen) return false;
+        queue.shift();
+        if (queue.length) pending.set(guest, queue);
+        else pending.delete(guest);
+        for (const settle of answered.settle) settle(chosen !== undefined, chosen?.id);
+        return true;
+      }
       for (const key of answered.keys) decisions.set(decisionKey(answered.embedder, answered.origin, key), allow);
       const remaining: PendingBrowserPermission[] = [];
       for (const entry of queue) {

@@ -211,6 +211,8 @@ export function createBrowserHost(
     publishRemoteImportProgress?: (progress: DesktopBrowserImportProgress) => Promise<void>;
     /** Sign in with a saved login by itself (the `browserAutoSignIn` setting). */
     autoSignIn?: () => boolean;
+    /** Sites may ask to connect a HID device (the `browserHidDevices` setting). */
+    hidDevices?: () => boolean;
     /** The WebRTC live view: a signal to one paired client, through the
      *  service, and where the sender renderer's page is. Absent: JPEG only. */
     remoteWebrtc?: {
@@ -229,6 +231,7 @@ export function createBrowserHost(
     remoteSession: options.remoteSession,
     onDiagnostic: options.onDiagnostic,
     requestApproval: options.requestApproval,
+    hidDevices: options.hidDevices,
   });
   const { state, sessions, cdp, display, sendToRenderer } = base;
   const { lifecycle, nativeViews, fullscreen, taskLifecycle, retainGuest } = createBrowserHostPages({

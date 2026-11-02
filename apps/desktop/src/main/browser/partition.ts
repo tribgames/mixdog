@@ -7,14 +7,14 @@
  * `downloads` action can report. Every page keeps a zoom of its own, never
  * the one Chromium shares across a site's pages (page-zoom.ts).
  */
-import type { Session, WebContents } from 'electron';
+import type { Session, WebContents, WebFrameMain } from 'electron';
 import { app, ipcMain, session } from 'electron';
 
 import { rememberBrowserIdentity } from './browser-identity';
 import { BROWSER_PARTITION } from './command';
 import { createBrowserDownloadLedger } from './downloads';
 import { installBrowserPageZoom } from './page-zoom';
-import { clearBrowserPermissionHandlers, createBrowserPermissions } from './permissions';
+import { createBrowserPermissions } from './permissions';
 import { redactBrowserText } from './redaction';
 import { browserRequestDisposition } from './request-scheme';
 import { browserAcceptLanguages, browserPartitionUserAgent } from './user-agent';
@@ -48,12 +48,16 @@ interface BrowserPartitionHost {
   /** A page's main-frame POST navigation with its body (linked sign-in's
    *  form_post callbacks); read in memory, never kept here. */
   onNavigationPost?(webContentsId: number, url: string, chunks: Buffer[]): void;
+  /** The `browserHidDevices` setting: sites may ask to connect a HID device. */
+  hidDevices?(): boolean;
+  /** The page a frame asking for a device belongs to. */
+  guestForFrame?(frame: WebFrameMain): WebContents | null | undefined;
 }
 
 export function createBrowserPartition(host: BrowserPartitionHost) {
   const partitionSession: Session = session.fromPartition(BROWSER_PARTITION);
   // A site gets a permission only from a person's answer in the pane.
-  const permissions = createBrowserPermissions();
+  const permissions = createBrowserPermissions({ hidDevices: host.hidDevices, guestForFrame: host.guestForFrame });
   permissions.install(partitionSession);
   // Pages see the Chrome build that renders them, with the language list a
   // Chrome profile seeds from the system's own languages. The string is the
@@ -115,7 +119,7 @@ export function createBrowserPartition(host: BrowserPartitionHost) {
     dispose(): void {
       uninstallPageZoom();
       partitionSession.removeListener('will-download', downloadLedger.onWillDownload);
-      clearBrowserPermissionHandlers(partitionSession);
+      permissions.uninstall(partitionSession);
       partitionSession.webRequest.onBeforeRequest(null);
     },
   };

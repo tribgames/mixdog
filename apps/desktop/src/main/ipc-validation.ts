@@ -2132,6 +2132,7 @@ export function requiredDesktopSettingKey(value: unknown): DesktopSettingKey {
     value === 'computerObserveOnly' ||
     value === 'browserControl' ||
     value === 'browserAutoSignIn' ||
+    value === 'browserHidDevices' ||
     value === 'saveChatLogins' ||
     value === 'computerInstalled' ||
     value === 'browserInstalled'

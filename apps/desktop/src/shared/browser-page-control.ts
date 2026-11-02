@@ -40,6 +40,7 @@ export function normalizeBrowserPageControl(value: unknown): DesktopBrowserPageC
         accept: input.accept,
         promptText: input.promptText,
         ...(input.keepDefault ? { keepDefault: true } : {}),
+        ...(input.deviceId === undefined ? {} : { deviceId: text('deviceId', 200) }),
       };
     }
     case 'choose-files': {

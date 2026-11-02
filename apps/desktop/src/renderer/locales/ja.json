@@ -5884,5 +5884,12 @@
   "Heartbeat or exec run": "ハートビートまたは exec の実行",
   "Internal": "内部",
   "Internal session: a background run Mixdog started itself. You cannot open it as a conversation.": "内部セッション: Mixdog 自身が開始したバックグラウンド実行です。会話として開くことはできません。",
-  "Memory cycle": "メモリサイクル"
+  "Memory cycle": "メモリサイクル",
+  "{{origin}} wants to connect to a HID device. Pick the device to connect.": "{{origin}} が HID デバイスへの接続を求めています。接続するデバイスを選んでください。",
+  "Device to connect": "接続するデバイス",
+  "Unknown device": "不明なデバイス",
+  "No devices to connect. Connect a device to this PC and it appears here.": "接続できるデバイスがありません。デバイスをこの PC に接続すると、ここに表示されます。",
+  "Only this device is connected to this site, until the app quits.": "アプリを終了するまで、このデバイスだけがこのサイトに接続されます。",
+  "HID device connections": "HID デバイスの接続",
+  "Sites in the built-in browser can ask to connect a HID device. You pick the device each time.": "内蔵ブラウザのサイトが HID デバイスへの接続を求められるようにします。接続するデバイスは毎回自分で選びます。"
 }

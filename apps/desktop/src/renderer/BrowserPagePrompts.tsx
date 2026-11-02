@@ -18,6 +18,8 @@ export function BrowserPagePrompts({
   // An untouched default is accepted as the page's own (possibly longer) value.
   const [edited, setEdited] = useState(false);
   const [busy, setBusy] = useState(false);
+  // The device picked in a device chooser, for the prompt it was picked in.
+  const [pick, setPick] = useState<{ prompt: string; device: string } | null>(null);
   const answer = async (action: DesktopBrowserPageAction) => {
     if (busy) return;
     setBusy(true);
@@ -41,6 +43,13 @@ export function BrowserPagePrompts({
   // A site asking for a permission: nothing is granted until a person picks
   // Allow, so no button is focused for Enter to press by accident.
   const asking = dialog?.type === 'permission';
+  // A device chooser: Connect waits until a person picks one of the devices
+  // still offered (one unplugged meanwhile drops out of the list and the pick).
+  const devices = asking ? dialog?.permission?.devices : undefined;
+  const picked =
+    devices && pick && pick.prompt === dialog?.id && devices.some((device) => device.id === pick.device)
+      ? pick.device
+      : undefined;
   const cancellable = !waiting && !notice && dialog?.type !== 'alert';
   // Like an ordinary browser's page dialog: an opaque card naming the site,
   // focused on arrival so Enter accepts and Escape dismisses it.
@@ -52,6 +61,7 @@ export function BrowserPagePrompts({
         accept: true,
         promptText: text,
         ...(dialog.type === 'prompt' && !edited ? { keepDefault: true } : {}),
+        ...(picked ? { deviceId: picked } : {}),
       });
     }
   };
@@ -66,9 +76,13 @@ export function BrowserPagePrompts({
       ? t('This page is waiting for a dialog open on another page.')
       : notice
         ? t('This page tried to open a dialog, which was dismissed.')
-        : asking
-          ? permissionBody(dialog?.permission)
-          : dialog?.message;
+        : devices
+          ? t('{{origin}} wants to connect to a HID device. Pick the device to connect.', {
+              origin: withoutScheme(dialog?.permission?.origin ?? ''),
+            })
+          : asking
+            ? permissionBody(dialog?.permission)
+            : dialog?.message;
   return (
     <section
       className="browser-page-prompt mx-dialog"
@@ -89,7 +103,37 @@ export function BrowserPagePrompts({
             <h3>{leaving ? t('Leave site?') : pageHost(frame.url)}</h3>
           </header>
           <div className="mx-dialog-body">
-            {asking ? <div>{body}</div> : <p>{body}</p>}
+            {asking && !devices ? <div>{body}</div> : <p>{body}</p>}
+            {devices && dialog && (
+              <>
+                {devices.length ? (
+                  <fieldset className="browser-device-list">
+                    <legend>{t('Device to connect')}</legend>
+                    {devices.map((device) => (
+                      <label key={device.id}>
+                        <input
+                          type="radio"
+                          name={`browser-device-${dialog.id}`}
+                          checked={picked === device.id}
+                          disabled={busy}
+                          onChange={() => setPick({ prompt: dialog.id, device: device.id })}
+                        />
+                        <span>{device.name || t('Unknown device')}</span>
+                      </label>
+                    ))}
+                  </fieldset>
+                ) : (
+                  <p className="browser-device-empty">
+                    {t('No devices to connect. Connect a device to this PC and it appears here.')}
+                  </p>
+                )}
+                {picked && (
+                  <p className="browser-device-note">
+                    {t('Only this device is connected to this site, until the app quits.')}
+                  </p>
+                )}
+              </>
+            )}
             {dialog.type === 'prompt' && (
               <input
                 aria-label={t('Response')}
@@ -112,18 +156,18 @@ export function BrowserPagePrompts({
             <footer>
               {cancellable && (
                 <button type="button" disabled={busy} onClick={dismiss}>
-                  {asking ? t('Deny') : t('Cancel')}
+                  {devices ? t('Cancel') : asking ? t('Deny') : t('Cancel')}
                 </button>
               )}
               <button
                 type="button"
                 className="primary"
-                disabled={busy}
+                disabled={busy || (devices !== undefined && !picked)}
                 onClick={accept}
                 // biome-ignore lint/a11y/noAutofocus: a page dialog must put focus on its default action
                 autoFocus={dialog.type !== 'prompt' && !asking}
               >
-                {leaving ? t('Leave') : asking ? t('Allow') : t('OK')}
+                {leaving ? t('Leave') : devices ? t('Connect') : asking ? t('Allow') : t('OK')}
               </button>
             </footer>
           )}
