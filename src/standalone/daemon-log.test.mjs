@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { pathToFileURL } from 'node:url';
 import * as fileSystem from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -144,6 +146,54 @@ test('redirected streams preserve callbacks and bounded console formatting', asy
   assert.match(f.batches.join(''), /\[console.warn\]/);
   assert.ok(f.batches.join('').length < 20_000);
   assert.deepEqual(f.stderrRows, []);
+});
+
+test('flushSync keeps the queued tail of a process that exits synchronously', (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-daemon-log-exit-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const logPath = join(root, 'nested', 'daemon.log');
+  const script = `
+    import { createDaemonLog } from ${JSON.stringify(pathToFileURL(join(import.meta.dirname, 'daemon-log.mjs')).href)};
+    const logger = createDaemonLog({ logPath: ${JSON.stringify(logPath)} });
+    process.on('exit', logger.flushSync);
+    logger.enableFileLogging();
+    logger.log('last words');
+    process.exit(3);
+  `;
+  const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8' });
+  assert.equal(child.status, 3, child.stderr);
+  assert.match(readFileSync(logPath, 'utf8'), /\[daemon\] last words\n$/);
+});
+
+test('a synchronous flush landing during a rotation is not truncated away', async (t) => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-daemon-log-overlap-'));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const logPath = join(root, 'daemon.log');
+  writeFileSync(logPath, Buffer.alloc(PLUGIN_LOG_MAX_BYTES, 'a'));
+  let landed = false;
+  const logger = createDaemonLog({
+    logPath,
+    fileSystem: {
+      ...fileSystem,
+      // The exit-path write arrives while the rotation decision is in flight.
+      async stat(...args) {
+        const result = await fileSystem.stat(...args);
+        if (!landed) {
+          landed = true;
+          logger.log('fatal marker');
+          logger.flushSync();
+        }
+        return result;
+      },
+    },
+  });
+  logger.enableFileLogging();
+  logger.log('after rotation');
+  await logger.flush();
+  const text = readFileSync(logPath, 'utf8');
+  assert.ok(landed);
+  assert.match(text, /\[daemon\] fatal marker\n/);
+  assert.match(text, /\[daemon\] after rotation\n$/);
 });
 
 test('rotation retains the configured tail and appends the new line', async (t) => {
