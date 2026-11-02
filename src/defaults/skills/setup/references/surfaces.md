@@ -33,13 +33,26 @@ An attached Desktop or TUI may navigate and return `opened:true`.
 
 ## Desktop map
 
-- Settings → General: profile; Features (Regular check-ins, Reactions, Web
-  search, import conversations from other apps (UI-only), Load instruction
-  files, Auto reasoning base, link preview); notifications; worktree
-  defaults; display language, time format, side panels and their position;
-  markdown default view.
+- Settings → General: profile, the Memory master, Voice transcription,
+  session retention (auto-archive / auto-delete), and import conversations
+  from other apps (UI-only).
+- Settings → Display: display language, time format, link preview, confirm
+  question answers, markdown default view, side panels and their position.
+- Settings → Work style: Web search, Load instruction files, Auto reasoning
+  base.
+- Settings → Notifications: per-device choices (what to notify, conversation
+  scope, schedule and webhook results, quiet hours, test notification, taskbar
+  flash, skip if seen on this PC) are UI-only; only the Windows notification
+  volume has a setup action.
+- Settings → Worktrees: worktree defaults, automatic cleanup and the managed
+  worktree list (`set_worktree_settings` covers the defaults and cleanup).
+- Settings → Delegation mode: the instruction text of each orchestration mode
+  (UI-only free text; the mode itself is `set_orchestration_mode`).
+- Settings → Authentication (desktop only): every saved login Browser Use may
+  use, with imports and the auto sign-in, save-chat-logins and HID switches.
+  Passwords and authenticator keys are entered only here.
 - Settings → Context: Let AI rename sessions, auto-compact (also on model
-  change, summary model) and auto-clear.
+  change, summary model), auto-clear and Anthropic cache warming.
 - Settings → Model management: "Show in /model" and favorites per model.
 - Settings → Output style: output style selection, plus the desktop-only
   "Expand tool activity" choice (collapsed / commands and edits / everything),
@@ -49,7 +62,9 @@ An attached Desktop or TUI may navigate and return `opened:true`.
   themes (about 26 color roles; import/export/remove are UI-only), installed
   fonts, font sizes and chat text size. Saved on this device only. First-run
   setup has a Theme step with the same System / Dark / Light / skin choice.
-- Settings → Bots (desktop only): the representative bot overlay, a small
+- Settings → Bots: Regular check-ins and their interval, Reactions
+  (`set_heartbeat_enabled`, `set_heartbeat_interval`, `set_reactions_enabled`,
+  every surface). Desktop only: the representative bot overlay, a small
   window with the representative bot that opens a quick message to it. On
   by default; options: enable, Position (4-way: pinned above the message box
   (default), pinned here, free in the app window, free on screen), keep above
@@ -76,7 +91,7 @@ An attached Desktop or TUI may navigate and return `opened:true`.
   key saved there is kept in a private file (owner-only) when the server has
   no keychain, as on Linux. Changing the model login restarts the server's
   Mixdog after one confirmation and stops its running sessions.
-- Settings → System: update, keep-awake, run in background after the window
+- Settings → System: update and auto-update, keep-awake, run in background after the window
   closes, and Doctor.
 - Settings → Developer options: data-driven sections (approvals, risk-gated
   providers); read them with `status developer`.
