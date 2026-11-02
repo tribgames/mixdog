@@ -244,6 +244,7 @@ test('restoration drops views this build no longer offers', () => {
 test('a corrupt or missing persisted layout falls back to the defaults', () => {
   assert.deepEqual(normalizeWorkbenchSideViewLayout(null).left, [
     ['sessions'],
+    ['studio'],
     ['agents'],
     ['schedules'],
     ['projects'],
@@ -457,20 +458,16 @@ test('pane top and bottom drops combine views at the requested label position', 
   });
 });
 
-test('a stored rail order drops the retired Studio launcher id on load', () => {
-  // Studio opens from the Sessions panel's fixed launcher rows now, so an
-  // older stored layout that still carries the rail icon re-seats without it.
+test('Studio is a rail action entry that keeps a stored position and is never the initial view', () => {
   const layout = normalizeWorkbenchSideViewLayout(
     {
       left: [['sessions'], ['studio'], ['extensions']],
       right: [['session-diff'], ['browser']],
     },
-    ['sessions', 'extensions', 'session-diff', 'browser']
+    ['sessions', 'studio', 'extensions', 'session-diff', 'browser']
   );
-  assert.deepEqual(layout, {
-    left: [['sessions'], ['extensions']],
-    right: [['session-diff'], ['browser']],
-  });
+  assert.deepEqual(layout.left, [['sessions'], ['studio'], ['extensions']]);
+  assert.equal(initialActiveWorkbenchSideViews(layout, ['studio', 'sessions']).left, 'sessions');
 });
 
 test('a stored rail order drops the removed background-jobs view id on load', () => {

@@ -56,6 +56,7 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
   const availableSideViews = useMemo<WorkbenchSideViewId[]>(
     () => [
       ...(desktopFeatureEnabled('sessions') ? ['sessions' as const] : []),
+      'studio' as const,
       ...DEFAULT_SIDEBAR_VIEW_ORDER.filter((panel) => desktopSidebarDestinationEnabled(panel)),
       // The Ports panel belongs to server windows.
       ...(isSshConnectionWindow() ? ['ports' as const] : []),

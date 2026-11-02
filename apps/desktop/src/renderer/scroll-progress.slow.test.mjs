@@ -17,7 +17,7 @@ const PAGE = `
   <aside class="sidebar session-sidebar" id="rail" style="display:flex;flex-direction:column;width:300px;height:640px">
     <header class="session-panel-header" id="header" style="flex:none;height:36px"></header>
     <div class="session-sidebar-sessions" id="sessions" style="flex:1 1 0;min-height:0;display:flex;flex-direction:column">
-      <nav class="session-sidebar-launchers" id="launchers" style="flex:none;height:40px;padding:0"></nav>
+      <div class="session-sidebar-top-fade" id="topfade"></div>
       <div class="session-sidebar-scroll" id="list" style="flex:1 1 0;min-height:0;padding:0;margin:0"></div>
     </div>
     <div class="session-sidebar-scroll session-sidebar-panels" id="panels" style="flex:1 1 0;min-height:0;padding:0;margin:0">
@@ -58,7 +58,7 @@ const SAMPLE = `
     const style = (node, pseudo) => getComputedStyle(node, pseudo);
     const fade = (node) => [style(node).getPropertyValue('--sidebar-fade-top'), style(node).getPropertyValue('--sidebar-fade-bottom')];
     const values = {
-      list: { launchers: style(document.getElementById('launchers'), '::after').opacity, fade: fade(el) },
+      list: { topFade: style(document.getElementById('topfade')).opacity, fade: fade(el) },
       panels: { header: style(document.getElementById('header'), '::after').opacity, fade: fade(el),
         pin: style(document.getElementById('toolbar')).boxShadow },
       transcript: { fade: style(document.getElementById('fade')).opacity },
@@ -96,7 +96,7 @@ const expectedAt = (id, top, max) => {
   const ramp = (value) => `${(20 * unit(value / 0.04) * Math.min(max, 1)).toFixed(3)}px`;
   const fade = [ramp(top / Math.max(max, 1)), ramp(1 - top / Math.max(max, 1))];
   const tail = unit(top / 12);
-  if (id === 'list') return { launchers: unit(top / 12), fade };
+  if (id === 'list') return { topFade: unit(top / 12), fade };
   if (id === 'panels') return { header: unit(top / 12), fade, tail: [0, 6 * tail, 4 * tail, 0] };
   if (id === 'transcript') return { fade: unit(top / 32) };
   return { fade: `${24 * unit((max - top) / 24)}px` };
@@ -199,7 +199,7 @@ test('every layout: no scroll-driven animation, fades follow the scroller over t
 
   await page.evaluate(() => {
     window.unbinds = [
-      window.bindScrollProgress(document.getElementById('list'), ':scope > .session-sidebar-launchers'),
+      window.bindScrollProgress(document.getElementById('list'), ':scope > .session-sidebar-top-fade'),
       window.bindScrollProgress(document.getElementById('panels'), ':scope > .session-panel-header'),
       window.bindScrollProgress(document.getElementById('transcript'), ':scope > .transcript-scroll-fade'),
       window.bindScrollProgress(document.getElementById('palette')),
@@ -213,7 +213,7 @@ test('every layout: no scroll-driven animation, fades follow the scroller over t
         const expected = expectedAt(id, actual.top, actual.max);
         const label = `${layout} ${id} @${actual.top}/${actual.max}`;
         near(actual.fade, expected.fade, `${label}: fade`);
-        if (id === 'list') near(actual.launchers, expected.launchers, `${label}: launchers`);
+        if (id === 'list') near(actual.topFade, expected.topFade, `${label}: header fade`);
         if (id === 'panels') {
           near(actual.header, expected.header, `${label}: title band`);
           near(numbers(actual.pin).slice(-4), expected.tail, `${label}: pinned control tail ${actual.pin}`);

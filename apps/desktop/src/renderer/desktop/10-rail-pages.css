@@ -105,13 +105,11 @@
 html:is([data-window-material="mica"], [data-mixdog-skin]) .session-sidebar {
   --mx-rail-pin-bg: var(--mx-mica-panel-solid);
 }
-.sidebar.session-sidebar > .session-panel-header,
-.session-sidebar-sessions > .session-sidebar-launchers {
+.sidebar.session-sidebar > .session-panel-header {
   position: relative;
   z-index: 2;
 }
-.sidebar.session-sidebar > .session-panel-header::after,
-.session-sidebar-sessions > .session-sidebar-launchers::after {
+.sidebar.session-sidebar > .session-panel-header::after {
   content: "";
   position: absolute;
   top: 100%;
@@ -930,7 +928,9 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   opacity: 0.55;
 }
 /* The text block: name | time, preview | status; the right column is always
-   reserved. The block (name + two preview lines) centres on the face. */
+   reserved. The block always holds the name plus two preview lines, so the
+   row never changes height, and the lines actually shown centre inside it:
+   a one-line preview no longer leaves an empty line under the text. */
 .utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-body {
   display: grid;
   /* The right column is as wide as its actual time/status, not a reserved
@@ -938,6 +938,8 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   grid-template-columns: minmax(0, 1fr) auto;
   column-gap: 8px;
   align-items: start;
+  align-content: center;
+  min-height: calc(var(--agent-contact-name-line) + 2 * var(--agent-contact-preview-line));
 }
 .utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-body > .agent-chat-title {
   grid-column: 1;
@@ -996,15 +998,15 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   grid-row: 2;
 }
 /* The name is one line; the preview up to two (KakaoTalk), both inside the
-   text column — never under the time/status column. The preview always holds
-   its two lines: it swaps between the last message and "Working" as a turn
-   starts and ends, and the badge padding below moves its wrap, so a box sized
-   to its text would grow and shrink the row (and move every row under it). */
+   text column — never under the time/status column. The preview swaps
+   between the last message and "Working" as a turn starts and ends, and the
+   badge padding below moves its wrap; the body's fixed two-line floor above
+   keeps the row height steady while the preview itself sizes to its lines. */
 .utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-body > .agent-chat-preview {
   grid-column: 1;
   grid-row: 2;
   min-width: 0;
-  height: calc(2 * var(--agent-contact-preview-line));
+  max-height: calc(2 * var(--agent-contact-preview-line));
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
@@ -1641,76 +1643,96 @@ html[data-mixdog-mobile-tabs]
 .session-sidebar-scroll > .sidebar-recent:has(> .session-list) + .sidebar-recent {
   margin-top: 20px;
 }
-/* Fixed launcher block: New Task
-   and New Studio sit ABOVE the scroller as a real fixed block. The first
-   cut kept them INSIDE it as a sticky block with a -12px margin, but the
-   engine clamps a sticky box to its scroller's content box, so it stuck
-   12px under the header hairline and scrolled rows showed through that band
-. Out here nothing can scroll beneath it and
-   the scrollbar starts under the launchers. The block owns the surface's
-   12px top inset and an 8px bottom inset to separate creation actions from
-   the categories; the scroller below retains its 2px sibling gap. */
+/* The Sessions surface: the scroller owns the 12px top inset the header's
+   creation action used to leave to the launcher block. */
 .session-sidebar-sessions {
   display: flex;
   flex-direction: column;
 }
-.session-sidebar-launchers {
-  flex: 0 0 auto;
-  display: grid;
-  gap: 2px;
-  padding-top: var(--mx-rail-panel-content-top);
-  padding-bottom: 8px;
-}
 .session-sidebar-sessions > .session-sidebar-scroll {
-  padding-top: 2px;
+  padding-top: var(--mx-rail-panel-content-top);
 }
-/* Fixed launchers use item typography and leading icons on the same left
-   edge as category headings, retaining the primary-link hit area. They sit
-   between the panel title and the rows: the label weight, but the rows'
-   softer ink, so they no longer echo the title without dropping all the way to a plain row
-. */
-.session-sidebar .task-link.session-launcher-row {
+/* The header's scroll fade, as the launcher block drew it: 12px of the rail
+   background over the list's first 12px of scroll, hidden at rest. The
+   surface is already absolutely positioned, so it anchors the fade. */
+.session-sidebar-sessions > .session-sidebar-top-fade {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 12px;
+  background: linear-gradient(var(--mx-rail-pin-bg), transparent);
+  pointer-events: none;
+  --mx-scroll-top: inherit;
+  opacity: clamp(0, var(--mx-scroll-top) / 12, 1);
+}
+/* Bots as one row of avatars (wraps to more rows, never scrolls). Each 32px
+   hit target holds the 20px face; the first one's face sits on the heading's
+   text line. The status mark rides the face's corner. */
+.session-sidebar .session-list.agent-session-strip {
   display: flex;
-  align-items: center;
-  justify-content: flex-start;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 0 0;
+  /* The list reaches one bleed (8px; the phone's own 4px) past the text line;
+     shifting by bleed - 6px puts the face (6px inside its target) on it. */
+  position: relative;
+  left: calc(var(--mx-drawer-bleed, 8px) - 6px);
+}
+.agent-strip-item {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  flex: 0 0 32px;
+}
+.agent-strip-item > .agent-strip-button {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
   padding: 0;
-  color: var(--mx-row-title-ink);
-  /* One size over the 14px rows and group labels: at 14 the primary actions
-     shared a size with "최근" and read smaller than their 36px row and
-     16px glyph. */
-  font-size: var(--mx-font-emphasis);
-  font-weight: var(--mx-weight-medium);
-  text-align: left;
+  border: 0;
+  border-radius: var(--mx-radius-md);
+  background: transparent;
+  cursor: pointer;
 }
-.session-sidebar .task-link.session-launcher-row:is(:hover, :focus-visible) {
-  color: var(--mx-row-title-ink-active);
+.agent-strip-item > .agent-strip-button:hover {
+  background: var(--mx-hover);
 }
-/* The launcher's hover box opens on the same line as the session rows' pill
-   (`.sidebar-recent > .session-list` reaches 8px past the text line), so the
-   highlights of the launchers and of every row below share both edges; the
-   icon stays on the text line. The phone drawer has its own bleed above. */
-html:not([data-mixdog-mobile-tabs]) .session-sidebar .task-link.session-launcher-row {
-  width: calc(100% + 8px);
-  margin-left: -8px;
-  padding-left: 8px;
+.agent-strip-item.selected > .agent-strip-button {
+  background: var(--mx-selected, var(--mx-hover));
+  box-shadow: inset 0 0 0 1.5px var(--mx-accent);
 }
-.session-launcher-label {
-  min-width: 0;
-  flex: 1;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.session-launcher-row > .session-launcher-icon {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  color: var(--mx-icon);
-}
-/* Keyboard focus uses the rows' neutral inner line, not the blue ring. */
-.session-sidebar .task-link.session-launcher-row:focus-visible {
+.agent-strip-button:focus-visible {
   outline: none;
   box-shadow: var(--mx-list-focus-ring);
+}
+html .session-sidebar .session-list .agent-strip-item > .session-row-status,
+html .session-sidebar .session-list .agent-strip-item > .session-row-unread-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  left: auto;
+  bottom: auto;
+  width: 12px;
+  height: 12px;
+  transform: none;
+  display: grid;
+  place-items: center;
+  pointer-events: none;
+}
+.agent-strip-item > .session-row-muted {
+  position: absolute;
+  right: 1px;
+  bottom: 1px;
+  color: var(--mx-text-soft);
+  pointer-events: none;
+}
+html .session-sidebar .session-list .agent-strip-item > .session-row-unread-dot {
+  width: 8px;
+  height: 8px;
+  box-shadow: 0 0 0 1.5px var(--mx-window-band);
 }
 .sidebar-recent-heading {
   height: 32px;

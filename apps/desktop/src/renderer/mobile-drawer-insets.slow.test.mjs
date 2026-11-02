@@ -60,8 +60,13 @@ const PAGES = {
     <aside class="sidebar session-sidebar open">
       ${header('세션')}
       <div class="session-sidebar-sessions">
-        <nav class="session-sidebar-launchers"><button class="task-link session-launcher-row" type="button"><span class="session-launcher-label">새 작업</span></button></nav>
         <div class="session-sidebar-scroll">
+          <section class="sidebar-recent sidebar-agents">
+            <div class="sidebar-category-header"><button class="sidebar-recent-heading sidebar-heading-toggle" type="button"><span>봇</span></button></div>
+            <nav class="session-list agent-session-list agent-session-strip">
+              <div class="agent-strip-item"><button class="agent-strip-button" type="button"><span class="session-agent-avatar"><span class="agent-contact-mascot"></span></span></button></div>
+            </nav>
+          </section>
           <section class="sidebar-recent">
             <div class="sidebar-category-header"><button class="sidebar-recent-heading sidebar-heading-toggle" type="button"><span>최근</span></button></div>
             <nav class="session-list recent-session-list">
@@ -95,8 +100,7 @@ const MEASURE = () => {
     chips: '.routine-sort-chips',
     card: '.routine-side-list',
     heading: '.sidebar-recent-heading > span',
-    launcher: '.session-launcher-row',
-    launcherLabel: '.session-launcher-label',
+    botAvatar: '.agent-strip-item .session-agent-avatar',
     list: '.session-list',
     leadRow: '#lead',
     plainRow: '#plain',
@@ -202,11 +206,11 @@ test('every phone drawer page opens on one inset line, highlights bleed equally,
       'schedules: the pinned search bar paints the drawer sheet tone'
     );
 
-    // Sessions: headings and row text on the line; launcher and row highlights bleed equally.
+    // Sessions: headings and row text on the line; bot avatars sit on the line; row highlights bleed equally.
     near(sessions.heading.left, line, `sessions, ${frameLabel}: the section heading starts on the line`);
     near(sessions.rowText.left, line, `sessions, ${frameLabel}: row text starts on the line`);
-    near(sessions.launcherLabel.left, line, `sessions, ${frameLabel}: launcher content stays on the line`);
-    for (const key of ['launcher', 'plainRow', 'selectedRow']) {
+    near(sessions.botAvatar.left, line, `sessions, ${frameLabel}: the bot avatar strip starts on the line`);
+    for (const key of ['plainRow', 'selectedRow']) {
       near(
         sessions[key].left,
         line - bleed,

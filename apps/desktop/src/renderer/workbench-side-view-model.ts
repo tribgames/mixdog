@@ -5,11 +5,11 @@ import type { UtilityDockTab } from './UtilityDock';
 export type WorkbenchSide = 'left' | 'right';
 /** Browser Use and Terminal are session-owned pane-dock child views. Their
  *  header icons select persistent surfaces stacked over the classic panel.
- *  Studio is no rail view at all: it opens as a workspace tab from the
- *  Sessions panel's fixed launcher rows, so a stored rail order still carrying the retired `studio` id
- *  drops it on load like any other unknown id. */
+ *  Studio is an action entry on the rail: it never shows a panel, selecting it
+ *  opens a Studio workspace tab (descriptor `onActivate`). */
 export type WorkbenchSideViewId =
   | 'sessions'
+  | 'studio'
   | SidebarPanelKey
   | UtilityDockTab
   | 'session-diff'
@@ -43,6 +43,7 @@ const WORKBENCH_SIDE_LAYOUT_KEY = 'mixdog.desktop.workbench-side-view-layout.v1'
 const PANE_BOUND_RIGHT_MIGRATION_KEY = 'mixdog.desktop.workbench-side-view-layout.pane-bound-right.v1';
 const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
   'sessions',
+  'studio',
   'projects',
   'workflows',
   'extensions',
@@ -68,6 +69,7 @@ const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
 const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
   left: [
     ['sessions'],
+    ['studio'],
     ['agents'],
     ['schedules'],
     ['projects'],
@@ -264,7 +266,8 @@ export function initialActiveWorkbenchSideViews(
   layout: WorkbenchSideViewLayout,
   pins: readonly string[]
 ): Record<WorkbenchSide, WorkbenchSideViewId | null> {
-  const left = layout.left.flat();
+  // Studio is an action entry, never a panel to land on.
+  const left = layout.left.flat().filter((id) => id !== 'studio');
   return {
     left: pinnedRailViews(pins, left)[0] ?? left[0] ?? null,
     right: layout.right[0]?.[0] ?? null,

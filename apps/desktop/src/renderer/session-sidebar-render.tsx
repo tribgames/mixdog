@@ -1,4 +1,4 @@
-import { Search, Sparkles, SquarePen } from 'lucide-react';
+import { Plus, Search } from 'lucide-react';
 import type React from 'react';
 import { Fragment } from 'react';
 import type { DesktopSessionSummary } from '../shared/contract';
@@ -11,7 +11,6 @@ import { groupForkRows, type ForkRowRole } from './session-fork-groups';
 import { isOpen } from './sidebar-open-state';
 import { listOrderId, type SessionOrderPrefs } from './session-order';
 import { SessionSidebarRow, type SessionRowReorder } from './session-sidebar-rows';
-import { loadStudioViewModule } from './studio-loader';
 import { RECENT_SESSION_INITIAL_ROWS } from './session-sidebar-scroll';
 import type { AgentContact } from './agent-contacts-model';
 import type { SidebarRoomRow } from './session-sidebar-agents';
@@ -29,10 +28,6 @@ import {
 import type { useProjectFolderState, useSidebarOpenState } from './session-sidebar-state';
 import type { usePersistedListOrder } from './use-persisted-list-order';
 import { type UnrevealedRows, VirtualSessionRows, type VirtualRowItem } from './session-sidebar-virtual-rows';
-
-const prefetchStudioIntent = () => {
-  void loadStudioViewModule().catch(() => undefined);
-};
 
 type ListOrder = ReturnType<typeof usePersistedListOrder>;
 type ProjectsSectionProps = Parameters<typeof projectsSection>[0];
@@ -283,12 +278,14 @@ export function sessionPanelHeader({
   panelTitleDragProps,
   setPanelActionSlot,
   orderMenuItems,
+  onNewTask,
 }: {
   panelActive: boolean;
   panelTitle: string;
   panelTitleDragProps?: React.HTMLAttributes<HTMLSpanElement>;
   setPanelActionSlot(slot: HTMLDivElement | null): void;
   orderMenuItems: React.ComponentProps<typeof RowOverflowMenu>['items'];
+  onNewTask(): void;
 }) {
   // The panel titles itself; every primary navigation control lives on the
   // Activity Rail to the left.
@@ -299,7 +296,7 @@ export function sessionPanelHeader({
       </span>
       {/* Creation belongs to Sessions rather than the Activity Rail: this
             button creates an ordinary task tab and never owns a selected
-            navigation state; the New task launcher below owns creation, and
+            navigation state; the + at the row's end owns creation, and
             ⋯ holds the session sort options. Other panels
             portal their own primary action into the same title-row slot. */}
       <div className="session-panel-header-actions" ref={setPanelActionSlot}>
@@ -315,6 +312,15 @@ export function sessionPanelHeader({
               <Search size={16} aria-hidden="true" />
             </button>
             <RowOverflowMenu label={t('Session order')} items={orderMenuItems} />
+            <button
+              type="button"
+              className="session-panel-action session-new-task"
+              aria-label={t('New task')}
+              data-tooltip={t('New task')}
+              onClick={onNewTask}
+            >
+              <Plus size={16} aria-hidden="true" />
+            </button>
           </>
         )}
       </div>
@@ -322,16 +328,11 @@ export function sessionPanelHeader({
   );
 }
 
-/** Sessions surface: a fixed launcher block over the scrolling list.
- *  The launchers live OUTSIDE the scroller on purpose — as a sticky
- *  block inside it they clamped to the scroller's content box, so the
- *  12px top inset showed scrolled rows through (user: 고정이냐? 뭔가
- *  이상한데). The surface flags (active/inert/hidden) move up to this
- *  wrapper so both parts hide together while a rail panel is shown. */
+/** Sessions surface: the scrolling section list. The surface flags
+ *  (active/inert/hidden) live on this wrapper so the list hides while a rail
+ *  panel is shown. */
 export function sessionsSurface({
   panelActive,
-  onNewTask,
-  onNewStudio,
   scrollerRef,
   onScroll,
   sectionIds,
@@ -340,8 +341,6 @@ export function sessionsSurface({
 }: {
   panelActive: boolean;
   hiddenSections?: ReadonlySet<string>;
-  onNewTask(): void;
-  onNewStudio(): void;
   scrollerRef: React.RefObject<HTMLDivElement | null>;
   onScroll(): void;
   sectionIds: readonly string[];
@@ -354,27 +353,8 @@ export function sessionsSurface({
       inert={panelActive ? true : undefined}
       aria-hidden={panelActive ? true : undefined}
     >
-      {/* Fixed creation rows share the category type tier with leading
-            icons. Both open tabs and stay outside the scrolling lists. */}
-      <nav className="session-sidebar-launchers" aria-label={t('New')}>
-        <button type="button" className="task-link session-launcher-row" onClick={onNewTask}>
-          <SquarePen className="session-launcher-icon" size={16} aria-hidden="true" />
-          <span className="session-launcher-label">{t('New task')}</span>
-        </button>
-        {/* Hover/focus/touch-down is intent: the Studio chunk starts loading
-            before the click (a phone has no hover, so touch-down stands in). */}
-        <button
-          type="button"
-          className="task-link session-launcher-row"
-          onClick={onNewStudio}
-          onPointerEnter={prefetchStudioIntent}
-          onPointerDown={prefetchStudioIntent}
-          onFocus={prefetchStudioIntent}
-        >
-          <Sparkles className="session-launcher-icon" size={16} aria-hidden="true" />
-          <span className="session-launcher-label">{t('New Studio')}</span>
-        </button>
-      </nav>
+      {/* The fade under the header: follows the scroller's position (useScrollProgress hosts). */}
+      <div className="session-sidebar-top-fade" aria-hidden="true" />
       {/* biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop gap handling; the keyboard path is the session menu's Move to project */}
       <div
         className="session-sidebar-scroll"

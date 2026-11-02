@@ -493,10 +493,9 @@ async function measureStudioReentry(window: BrowserWindow) {
     probe.raf = requestAnimationFrame(sample);
     window.__studioReentryProbe = probe;
 
-    // New Studio is a fixed launcher above the Sessions list.
-    const studioItem = [...document.querySelectorAll('.session-launcher-row')]
-      .find((item) => (item.textContent || '').trim() === 'New Studio');
-    if (!(studioItem instanceof HTMLElement)) throw new Error('Missing New Studio action');
+    // Studio is a pinned Activity Rail entry that opens a Studio tab.
+    const studioItem = document.querySelector('.activity-rail [data-side-view="studio"]');
+    if (!(studioItem instanceof HTMLElement)) throw new Error('Missing Studio rail entry');
     studioItem.click();
     await new Promise((resolve) => setTimeout(resolve, 180));
     const studioTab = [...document.querySelectorAll('.workspace-tab')]

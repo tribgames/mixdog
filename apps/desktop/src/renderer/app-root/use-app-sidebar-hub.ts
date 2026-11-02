@@ -224,8 +224,8 @@ export function useAppSidebarHub({
 
   const prefetchWorkbenchSideView = useSideViewPrefetch(trackSidebarPanelModule, quickAccessProjectPath);
   const sideViewDescriptors = useMemo(
-    () => createAppSideViewDescriptors(prefetchWorkbenchSideView),
-    [prefetchWorkbenchSideView]
+    () => createAppSideViewDescriptors(prefetchWorkbenchSideView, sidebarNewStudio),
+    [prefetchWorkbenchSideView, sidebarNewStudio]
   );
 
   const selectWorkbenchSideView = useSideViewSelection({

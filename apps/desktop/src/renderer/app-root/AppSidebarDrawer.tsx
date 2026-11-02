@@ -164,7 +164,9 @@ export function AppSidebarDrawer({
   });
   const selectSideView = useStableEvent((id: WorkbenchSideViewId) => {
     cancelSettingsOpen();
-    selectWorkbenchSideView(id);
+    const activate = sideViewDescriptors.get(id)?.onActivate;
+    if (activate) activate();
+    else selectWorkbenchSideView(id);
   });
   // A routine view with no bot sends the user to make the representative bot.
   useEffect(() => {

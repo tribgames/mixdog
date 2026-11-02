@@ -6,6 +6,7 @@ import {
   Github,
   Globe,
   IdCard,
+  Image,
   Layers3,
   MessageSquare,
   Network,
@@ -18,15 +19,28 @@ import {
   Webhook,
 } from 'lucide-react';
 import { t } from './i18n';
+import { loadStudioViewModule } from './studio-loader';
 import { VisualizeIcon } from './visualize-icon';
 
 import type { WorkbenchSideViewDescriptor, WorkbenchSideViewId } from './workbench-side-view-layout';
 
 export function createAppSideViewDescriptors(
-  onPrefetch: (id: WorkbenchSideViewId) => void
+  onPrefetch: (id: WorkbenchSideViewId) => void,
+  onOpenStudio: () => void
 ): ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor> {
   return new Map([
     ['sessions', { id: 'sessions', label: t('Sessions'), icon: MessageSquare }],
+    // An action entry: it opens a Studio tab and never shows a panel.
+    [
+      'studio',
+      {
+        id: 'studio',
+        label: t('Studio'),
+        icon: Image,
+        onPrefetch: () => void loadStudioViewModule().catch(() => undefined),
+        onActivate: onOpenStudio,
+      },
+    ],
     [
       'projects',
       { id: 'projects', label: t('Projects'), icon: PanelsTopLeft, onPrefetch: () => onPrefetch('projects') },
