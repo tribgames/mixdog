@@ -46,7 +46,7 @@ import {
 } from './disk-cache.mjs';
 import { _runGraphManifest, callsWireSignatureToken, awaitCallsWireProbe } from './graph-binary.mjs';
 import { assembleGraphNodes, linkGraphImports, resolveGraphFileInfos } from './build-file-infos.mjs';
-import { _lookupCandidateNodes } from './symbol-index.mjs';
+import { _ensureTokenIndex, _lookupCandidateNodes } from './symbol-index.mjs';
 import { _findDirProjectRoot } from './project-root.mjs';
 import { raceAbort } from './dispatch/abort-race.mjs';
 
@@ -260,14 +260,89 @@ function _prepareDiskCodeGraphFastPath({
 // Worker disk writes are debounced with an unref'd timer. Drain before sending
 // success so every loaded cwd persists before this Worker can
 // exit; a drain failure is intentionally thrown to the worker's failure path.
-export function _postCodeGraphWorkerSuccess(
+//
+// The graph goes out in pieces: a header carrying the graph with every Map
+// emptied, then each Map's entries in bounded chunks, then `done`. A single
+// message holding the whole graph is deserialized on the receiving main thread
+// in one uninterruptible structured-clone read (150-450 ms for a large root);
+// chunks are each a short read. `nextChunk` (the worker awaits the receiver's
+// ack) paces them one per main-thread event-loop turn — a port delivers every
+// message already queued in one go, so unpaced chunks would be read back to
+// back. Map order is preserved, so node iteration order — which answers depend
+// on — is too.
+const GRAPH_CHUNK_WEIGHT = 50_000;
+
+function _graphChunkWeight(value) {
+  if (value instanceof Set) return value.size + 1;
+  if (typeof value?.text === 'string') return (value.text.length >> 6) + 1;
+  const calls = Array.isArray(value?.calls) ? value.calls.length : 0;
+  const tokens = Array.isArray(value?.tokenSymbols) ? value.tokenSymbols.length : 0;
+  const symbols = Array.isArray(value?.symbols) ? value.symbols.length : 0;
+  return 16 + calls * 8 + tokens + symbols * 8;
+}
+
+export async function _postCodeGraphWorkerSuccess(
   graph,
   postMessage,
   drainCache = drainCodeGraphCacheStrict,
-  { cache = true } = {}
+  { cache = true, nextChunk = null } = {}
 ) {
   if (cache) drainCache();
-  postMessage({ ok: true, signature: graph.signature, graph, baseBytes: _estimateGraphBaseBytes(graph) });
+  const baseBytes = _estimateGraphBaseBytes(graph);
+  const shell = {};
+  const maps = [];
+  for (const [key, value] of Object.entries(graph)) {
+    if (value instanceof Map) {
+      shell[key] = new Map();
+      maps.push([key, value]);
+    } else {
+      shell[key] = value;
+    }
+  }
+  postMessage({ ok: true, signature: graph.signature, shell, baseBytes });
+  const post = async (message) => {
+    await nextChunk?.();
+    postMessage(message);
+  };
+  for (const [key, map] of maps) {
+    let entries = [];
+    let weight = 0;
+    for (const entry of map) {
+      entries.push(entry);
+      weight += _graphChunkWeight(entry[1]);
+      if (weight >= GRAPH_CHUNK_WEIGHT) {
+        await post({ key, entries });
+        entries = [];
+        weight = 0;
+      }
+    }
+    if (entries.length) await post({ key, entries });
+  }
+  await post({ done: true });
+}
+
+// The receiver's ack that lets a paced sender post its next chunk.
+export const CODE_GRAPH_CHUNK_ACK = 'code-graph-chunk-ack';
+
+// Main-thread side of the chunked protocol: feed every worker message in
+// order; returns null until the result is complete, then the result message
+// ({ ok, signature, graph, baseBytes }) — or a failure message as is.
+export function _codeGraphWorkerReceiver() {
+  let header = null;
+  return (message) => {
+    if (!header) {
+      if (!message?.ok || !message.shell) return message;
+      header = message;
+      return null;
+    }
+    if (typeof message?.key === 'string') {
+      const map = header.shell[message.key];
+      for (const [key, value] of message.entries) map.set(key, value);
+      return null;
+    }
+    if (!message?.done) return null;
+    return { ok: true, signature: header.signature, graph: header.shell, baseBytes: header.baseBytes };
+  };
 }
 
 // Structured keys avoid both separator collisions inside roots/prefixes and
@@ -295,8 +370,9 @@ export function prewarmCodeGraphSymbols(cwd, symbols, { language = null } = {}) 
   if (!cwd) return;
   const wanted = (Array.isArray(symbols) ? symbols : [symbols]).map((s) => String(s || '').trim()).filter(Boolean);
   buildCodeGraphAsync(cwd, null, { bestEffort: true })
-    .then((graph) => {
+    .then(async (graph) => {
       if (!graph) return;
+      await _ensureTokenIndex(graph);
       for (const symbol of wanted) {
         try {
           _lookupCandidateNodes(graph, symbol, language);
@@ -496,8 +572,18 @@ export function _spawnCodeGraphWorker(
         };
         signal.addEventListener('abort', _onSignalAbort, { once: true });
       }
-      w.once('message', (msg) => {
+      const receive = _codeGraphWorkerReceiver();
+      w.on('message', (part) => {
+        if (settled) return;
         try {
+          const msg = receive(part);
+          if (!msg) {
+            // Next chunk on a later turn, so other work runs between reads.
+            setImmediate(() => {
+              if (!settled) w.postMessage?.(CODE_GRAPH_CHUNK_ACK);
+            });
+            return;
+          }
           if (msg?.ok && msg.graph && typeof msg.signature === 'string') {
             const genStillCurrent = getGeneration(graphCwd) === genAtStart;
             if (genStillCurrent && cacheResult) {

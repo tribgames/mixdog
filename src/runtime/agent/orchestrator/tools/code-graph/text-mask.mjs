@@ -1,6 +1,12 @@
 // Non-code text masker: blanks comment/string/regex bytes so downstream
 // identifier scans never match inside them. Byte-offset preserving (fills
 // with spaces, keeps newlines) so match.index maps back to the raw source.
+//
+// The scanner marks masked positions in a flag array (`out[j] = MASKED`) and
+// renders text from the source and the flags. Every step only marks positions
+// before the cursor it leaves, so the output up to the cursor is final after
+// any step: the scan can stop, render what it has, and resume
+// (_createNonCodeMasker), with the same result as one pass.
 
 import {
   _supportsHashComments,
@@ -16,46 +22,48 @@ import {
   REGEX_PRECEDENT_CHARS,
 } from './lang-predicates.mjs';
 
+const MASKED = 1;
+
 // Mask a JS regex literal body starting at `start` (which points at `/`).
 // Handles `\` escapes and `[...]` character classes per ECMAScript spec.
 // Returns the index just past the closing `/flags`. Bytes between the
 // delimiters are replaced with spaces in `out` so downstream identifier
 // searches do not see them.
 function _maskJsRegexLiteral(src, out, start) {
-  if (src[start] !== '\n') out[start] = ' ';
+  if (src[start] !== '\n') out[start] = MASKED;
   let j = start + 1;
   let inCharClass = false;
   while (j < src.length) {
     const c = src[j];
     if (c === '\n') return j;
     if (c === '\\') {
-      if (src[j] !== '\n') out[j] = ' ';
-      if (j + 1 < src.length && src[j + 1] !== '\n') out[j + 1] = ' ';
+      if (src[j] !== '\n') out[j] = MASKED;
+      if (j + 1 < src.length && src[j + 1] !== '\n') out[j + 1] = MASKED;
       j += 2;
       continue;
     }
     if (c === '[' && !inCharClass) {
       inCharClass = true;
-      if (src[j] !== '\n') out[j] = ' ';
+      if (src[j] !== '\n') out[j] = MASKED;
       j++;
       continue;
     }
     if (c === ']' && inCharClass) {
       inCharClass = false;
-      if (src[j] !== '\n') out[j] = ' ';
+      if (src[j] !== '\n') out[j] = MASKED;
       j++;
       continue;
     }
     if (c === '/' && !inCharClass) {
-      if (src[j] !== '\n') out[j] = ' ';
+      if (src[j] !== '\n') out[j] = MASKED;
       j++;
       while (j < src.length && src[j] >= 'a' && src[j] <= 'z') {
-        if (src[j] !== '\n') out[j] = ' ';
+        if (src[j] !== '\n') out[j] = MASKED;
         j++;
       }
       return j;
     }
-    if (src[j] !== '\n') out[j] = ' ';
+    if (src[j] !== '\n') out[j] = MASKED;
     j++;
   }
   return j;
@@ -105,8 +113,8 @@ function _handleInterpolationInString(src, out, i, frame, stack) {
   if (!kind) return -1;
   if (kind === 'brace' && src[i] === '{' && src[i + 1] === '{') {
     // `{{` is an escaped literal brace inside an f-string / $"…".
-    if (src[i] !== '\n') out[i] = ' ';
-    if (src[i + 1] !== '\n') out[i + 1] = ' ';
+    if (src[i] !== '\n') out[i] = MASKED;
+    if (src[i + 1] !== '\n') out[i + 1] = MASKED;
     return i + 2;
   }
   const opened = _interpolationOpenerAt(src, i, kind);
@@ -123,7 +131,7 @@ function _handleInterpolationInString(src, out, i, frame, stack) {
     src[i] === '$' &&
     _isWordStartChar(src[i + 1])
   ) {
-    if (src[i] !== '\n') out[i] = ' ';
+    if (src[i] !== '\n') out[i] = MASKED;
     let j = i + 1;
     while (j < src.length && _isWordChar(src[j])) j += 1;
     return j;
@@ -171,18 +179,18 @@ function _interpolationOpenerAt(src, i, kind) {
 
 function blank(s, start, count) {
   for (let j = start; j < start + count && j < s.src.length; j++) {
-    if (s.src[j] !== '\n') s.out[j] = ' ';
+    if (s.src[j] !== '\n') s.out[j] = MASKED;
   }
 }
 
 function blankOne(s) {
-  if (s.src[s.i] !== '\n') s.out[s.i] = ' ';
+  if (s.src[s.i] !== '\n') s.out[s.i] = MASKED;
   s.i++;
 }
 
 function maskToLineEnd(s) {
   while (s.i < s.src.length && s.src[s.i] !== '\n') {
-    s.out[s.i] = ' ';
+    s.out[s.i] = MASKED;
     s.i++;
   }
 }
@@ -382,20 +390,56 @@ function codeStep(s, topLevel) {
   tokenStep(s);
 }
 
-export function _maskNonCodeText(text, lang) {
-  const src = String(text || '');
-  const s = { src, out: src.split(''), i: 0, lang, stack: [], prevToken: 'expr', blockComment: false };
-  while (s.i < src.length) {
-    if (s.blockComment) {
-      blockCommentStep(s);
-      continue;
-    }
-    const frame = s.stack.length ? s.stack[s.stack.length - 1] : null;
-    if (frame?.kind === 'triple') tripleStep(s, frame);
-    else if (frame?.kind === 'luablock') luaBlockStep(s, frame);
-    else if (frame?.kind === 'string') stringStep(s, frame);
-    else if (frame?.kind === 'interp') interpStep(s, frame);
-    else codeStep(s, true);
+function scanStep(s) {
+  if (s.blockComment) return blockCommentStep(s);
+  const frame = s.stack.length ? s.stack[s.stack.length - 1] : null;
+  if (frame?.kind === 'triple') tripleStep(s, frame);
+  else if (frame?.kind === 'luablock') luaBlockStep(s, frame);
+  else if (frame?.kind === 'string') stringStep(s, frame);
+  else if (frame?.kind === 'interp') interpStep(s, frame);
+  else codeStep(s, true);
+}
+
+// Append src[start, end) with its masked positions blanked, run by run.
+function renderRange(src, out, start, end, parts) {
+  let j = start;
+  while (j < end) {
+    const masked = out[j];
+    let k = j + 1;
+    while (k < end && out[k] === masked) k++;
+    parts.push(masked ? ' '.repeat(k - j) : src.slice(j, k));
+    j = k;
   }
-  return s.out.join('');
+}
+
+/**
+ * Resumable masker: `advance(chars)` scans at least `chars` more source chars
+ * (whole scanner steps) and returns true once the text is done; `result()` is
+ * then exactly _maskNonCodeText(text, lang).
+ */
+export function _createNonCodeMasker(text, lang) {
+  const src = String(text || '');
+  const s = { src, out: new Uint8Array(src.length), i: 0, lang, stack: [], prevToken: 'expr', blockComment: false };
+  // One joined string per advance: joining every run at the end would itself
+  // be a long stretch for a large text.
+  const chunks = [];
+  let rendered = 0;
+  return {
+    advance(chars) {
+      const stop = Math.min(src.length, s.i + chars);
+      while (s.i < stop) scanStep(s);
+      const parts = [];
+      renderRange(src, s.out, rendered, s.i, parts);
+      chunks.push(parts.join(''));
+      rendered = s.i;
+      return s.i >= src.length;
+    },
+    result: () => chunks.join(''),
+  };
+}
+
+export function _maskNonCodeText(text, lang) {
+  const masker = _createNonCodeMasker(text, lang);
+  masker.advance(Number.POSITIVE_INFINITY);
+  return masker.result();
 }

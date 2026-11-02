@@ -91,19 +91,48 @@ export function readCallsSidecarPayload(file) {
   }
 }
 
-// Apply a payload onto a cache-loaded graph. Fingerprint mismatch → the file
-// changed since the sidecar was written, so its calls stay unknown.
-export function applyCallsSidecarToGraph(graph, payload) {
-  const files = payload?.files;
-  if (!files || !graph?.nodes) return 0;
-  let applied = 0;
-  for (const node of graph.nodes.values()) {
-    const entry = files[node.rel];
-    if (!Array.isArray(entry) || entry.length !== 2) continue;
-    if (entry[0] !== (node.fingerprint || '')) continue;
-    if (!Array.isArray(entry[1])) continue;
-    node.calls = entry[1];
-    applied += 1;
+const NO_CALLS_KEY = Symbol('no calls key');
+
+// Validate and measure one `[rel, [fp, calls], size?]` sidecar entry against a
+// cache-loaded graph WITHOUT touching it; null when it is not accepted.
+// Fingerprint mismatch → the file changed since the sidecar was written, so
+// its calls stay unknown. The record carries the list's size (the entry's
+// measured `size`, else `sizeOf(calls)`) and the size of what it replaces, so
+// installing never walks a call tuple.
+export function stageCallsSidecarEntry(graph, [rel, entry, size], sizeOf) {
+  const node = graph.nodes.get(rel);
+  if (!node) return null;
+  if (!Array.isArray(entry) || entry.length !== 2) return null;
+  if (entry[0] !== (node.fingerprint || '')) return null;
+  if (!Array.isArray(entry[1])) return null;
+  const record = { node, calls: entry[1], bytes: Number(size ?? sizeOf(entry[1])), replaced: null, replacedBytes: 0 };
+  measureReplacedCalls(record, sizeOf);
+  return record;
+}
+
+// (Re)measure what a staged list replaces — an incremental build's re-parsed
+// files already carry calls; a node without a `calls` key gains one.
+export function measureReplacedCalls(record, sizeOf) {
+  const { node } = record;
+  const had = Object.hasOwn(node, 'calls');
+  record.replaced = had ? node.calls : NO_CALLS_KEY;
+  record.replacedBytes = had ? sizeOf(node.calls) : -(8 + sizeOf('calls'));
+}
+
+/** True when the node's `calls` changed since its record was measured. */
+export function isStagedReplacementStale(record) {
+  const { node } = record;
+  return (Object.hasOwn(node, 'calls') ? node.calls : NO_CALLS_KEY) !== record.replaced;
+}
+
+// Install staged call lists in one synchronous step, so no query observes part
+// of a payload: assignments and precomputed sizes only. `bytes` is the change
+// in the graph's retained size: the staged lists minus what they replaced.
+export function installCallsSidecarEntries(staged) {
+  let bytes = 0;
+  for (const record of staged) {
+    record.node.calls = record.calls;
+    bytes += record.bytes - record.replacedBytes;
   }
-  return applied;
+  return { applied: staged.length, bytes };
 }

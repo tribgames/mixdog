@@ -10,6 +10,7 @@ import {
   _formatCalleeRow,
   _resolveReferenceLanguageNode,
   _prewarmSourceTextNodes,
+  _prewarmSymbolSources,
   _prewarmReferenceSourceText,
   _cheapReferenceSearch,
   _formatReferenceDetails,
@@ -27,6 +28,7 @@ export async function callees(ctx) {
   const symbol = requiredSymbol('callees', args);
   const explicitLanguage = languageArg(args);
   if (rel && !node) return fileNotFound('callees', ctx);
+  await _prewarmSymbolSources(graph, [symbol], explicitLanguage, { signal });
   const allHits = _findSymbolHits(graph, symbol, { language: explicitLanguage });
   const hits = rel ? allHits.filter((h) => h.rel === rel) : allHits;
   const declHit = hits.find((h) => h.declarationLike) || hits[0];
@@ -38,10 +40,11 @@ export async function callees(ctx) {
   // did not extract simply has no callees to report.
   const declNode = graph.nodes.get(declHit.rel) || null;
   await _prewarmSourceTextNodes(graph, [declNode].filter(Boolean), { signal });
-  const rows = _extractCallees(graph, declHit, cwd, {
+  const rows = await _extractCallees(graph, declHit, cwd, {
     cap: 200,
     callerSymbol: symbol,
     language: explicitLanguage,
+    signal,
   });
   if (!rows.length) return `(no callees)`;
   const out = ['# callees'];
@@ -57,6 +60,8 @@ async function scopedCallContext(mode, ctx) {
   const explicitLanguage = languageArg(args);
   const narrowedByCaller = Boolean(rel || scopeRelPrefix || explicitLanguage);
   if (node) await _prewarmSourceTextNodes(graph, [node], { signal });
+  // Covers every narrower language the query may settle on below.
+  await _prewarmSymbolSources(graph, [symbol], explicitLanguage, { signal });
   const resolved = _resolveReferenceLanguageNode(graph, symbol, rel, explicitLanguage);
   if (rel && resolved.kind === 'file-not-found') return { error: fileNotFound(mode, ctx) };
   if (rel && resolved.kind === 'symbol-not-present') {
@@ -64,6 +69,7 @@ async function scopedCallContext(mode, ctx) {
   }
   const resolvedNode = resolved.kind === 'ok' ? resolved.node : null;
   const lang = explicitLanguage || (narrowedByCaller && resolvedNode ? resolvedNode.lang : null);
+  if (lang !== explicitLanguage) await _prewarmSymbolSources(graph, [symbol], lang, { signal });
   return { symbol, lang, narrowedByCaller, userLimit: userLimitArg(args) };
 }
 
@@ -135,13 +141,14 @@ export async function callers(ctx) {
       page: args?.page,
       fileRel: rel,
       scopeRelPrefix,
+      signal,
       ...(userLimit ? { pageSize: userLimit } : {}),
     });
   }
   // The DECLARING files anchor the caller rule (same file or an importer);
   // a `file`/directory anchor scopes the scan AND narrows those
   // declarations to the one the caller pointed at.
-  const callerResult = _formatCallerReferences(graph, symbol, {
+  const callerResult = await _formatCallerReferences(graph, symbol, {
     ...(userLimit ? { limit: userLimit } : {}),
     targetRels: _astCallerTargetRels(graph, symbol, lang, { fileRel: rel, scopeRelPrefix }),
     language: lang,

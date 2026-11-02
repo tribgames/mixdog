@@ -14,8 +14,8 @@ function graphOf(symbols) {
   };
 }
 
-test('a keyword match without a declaration position is listed as unresolved', () => {
-  const out = _searchSymbolsByKeyword(
+test('a keyword match without a declaration position is listed as unresolved', async () => {
+  const out = await _searchSymbolsByKeyword(
     graphOf([
       { name: 'alphaHelper', kind: 'function', startLine: 3, endLine: 5 },
       { name: 'alphaGhost', kind: 'function' },
@@ -29,8 +29,8 @@ test('a keyword match without a declaration position is listed as unresolved', (
   assert.doesNotMatch(out, /^alphaGhost\t/m);
 });
 
-test('fully resolved matches print no unresolved line', () => {
-  const out = _searchSymbolsByKeyword(
+test('fully resolved matches print no unresolved line', async () => {
+  const out = await _searchSymbolsByKeyword(
     graphOf([{ name: 'alphaHelper', kind: 'function', startLine: 3, endLine: 5 }]),
     'alpha',
     '/repo'

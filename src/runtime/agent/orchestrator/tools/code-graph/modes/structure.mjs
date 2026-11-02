@@ -6,7 +6,13 @@
 import { CODE_GRAPH_MAX_FILES } from '../constants.mjs';
 import { _graphRel } from '../source-access.mjs';
 import { _buildExplainerFileSummary } from '../symbol-index.mjs';
-import { _formatRelated, _formatImpact, _impactSourceNodes, _prewarmSourceTextNodes } from '../search.mjs';
+import {
+  _formatRelated,
+  _formatImpact,
+  _impactSourceNodes,
+  _prewarmSourceTextNodes,
+  _prewarmMaskedSourceNodes,
+} from '../search.mjs';
 import { fileNotFound, GRAPH_LIST_CAP } from './shared.mjs';
 
 export async function overview(ctx) {
@@ -70,6 +76,6 @@ export async function impact(ctx) {
   if (!node) return fileNotFound('impact', ctx);
   const targetSymbol = String(args?.symbol || '').trim();
   await _prewarmSourceTextNodes(graph, [node], { signal });
-  await _prewarmSourceTextNodes(graph, _impactSourceNodes(node, graph, targetSymbol), { signal });
+  await _prewarmMaskedSourceNodes(graph, _impactSourceNodes(node, graph, targetSymbol), { signal });
   return _formatImpact(node, graph, cwd, targetSymbol);
 }

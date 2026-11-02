@@ -5,7 +5,7 @@
  */
 import { isAbsolute, resolve as pathResolve } from 'node:path';
 import { _graphRel } from '../source-access.mjs';
-import { _findSymbolHits, _prewarmSourceTextNodes } from '../search.mjs';
+import { _findSymbolHits, _prewarmSourceTextNodes, _prewarmSymbolSources } from '../search.mjs';
 import { fileNotFound, GRAPH_LIST_CAP } from './shared.mjs';
 
 const KNOWN_SRC_EXT =
@@ -74,6 +74,10 @@ function importLineRef(graph, dep, basename, stem) {
 
 export async function dependents(ctx) {
   const { args, cwd, signal, graph, rel, normFile } = ctx;
+  if (!rel && !normFile) {
+    const symbols = [...(Array.isArray(args?.symbols) ? args.symbols : []), args?.symbol].filter(Boolean);
+    await _prewarmSymbolSources(graph, symbols.map(String), null, { signal });
+  }
   const anchor = rel || normFile ? { rel, norm: normFile, note: null } : inferAnchor(args, cwd, graph);
   const depFileNode = anchor.rel ? graph.nodes.get(anchor.rel) : null;
   if (!depFileNode) return fileNotFound('dependents', { normFile: anchor.norm, graph });

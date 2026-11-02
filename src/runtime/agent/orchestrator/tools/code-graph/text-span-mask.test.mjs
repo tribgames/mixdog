@@ -2,7 +2,32 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { _inferSpanEndByIndent } from './span.mjs';
-import { _maskNonCodeText } from './text-mask.mjs';
+import { _createNonCodeMasker, _maskNonCodeText } from './text-mask.mjs';
+
+test('resumable masking in small chunks equals the one-pass mask across every boundary', () => {
+  const fixtures = [
+    [
+      'javascript',
+      'const a = "s\\"q" + \'x\'; /* blk\n * c */ // line\nconst t = `a ${f(`in ${g("z")}`)} b`;\nconst r = /[/]x\\//g.test(y) / 2;\r\nend();',
+    ],
+    ['typescript', 'let s: string = `multi\nline ${call(1)}\nend`; // tail\n/* never closed'],
+    ['python', 'x = f"total {compute(rows)} {{lit}}"\n"""doc\n{no}"""\ny = f\'\'\'a {b(c)}\'\'\' # c\n\'open'],
+    ['csharp', 'var s = $"{Compute(x)} {{literal}}"; @"verb\\" // c\n'],
+    ['kotlin', 'val s = "n=${total(rows)} $name"\nval t = """raw ${x()}"""'],
+    ['bash', 'echo "$(run "$x") ${v#pat}" \'lit\\\' # comment\nfoo#bar\n'],
+    ['lua', 'local a = 1 --[==[ block ]] ]==] b() -- line\nprint("s")'],
+  ];
+  for (const [lang, text] of fixtures) {
+    const oneShot = _maskNonCodeText(text, lang);
+    for (const chunk of [1, 2, 3, 5, 7, 64]) {
+      const masker = _createNonCodeMasker(text, lang);
+      let advances = 0;
+      while (!masker.advance(chunk)) advances += 1;
+      assert.equal(masker.result(), oneShot, `${lang} in ${chunk}-char chunks`);
+      if (chunk === 1) assert.ok(advances > 10, `${lang}: the scan stopped and resumed`);
+    }
+  }
+});
 
 test('indentation span inference keeps a multiline arrow signature whole', () => {
   const lines = ['const handler = (', '  a,', '  b,', ') => {', '  return a + b;', '};'];

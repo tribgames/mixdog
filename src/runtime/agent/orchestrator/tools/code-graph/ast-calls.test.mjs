@@ -13,6 +13,7 @@ import { createHash } from 'node:crypto';
 import { join, resolve } from 'node:path';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { Worker } from 'node:worker_threads';
 
 // Every disk-cache write in this file must land in a throwaway dir, never in
 // the user's real plugin data. resolvePluginData() reads the env per call, so
@@ -28,7 +29,10 @@ process.on('exit', () => {
 });
 
 const { codeGraph } = await import('./dispatch.mjs');
-const { _attachGraphRuntimeCaches, _serializeGraph, _deserializeGraph } = await import('./graph-model.mjs');
+const { _attachGraphRuntimeCaches, _serializeGraph, _deserializeGraph, _estimateGraphBaseBytes, _estimateValueBytes } =
+  await import(
+  './graph-model.mjs'
+);
 const {
   _fileInfoFromRustRecord,
   _reuseFileInfo,
@@ -39,8 +43,13 @@ const {
   callsWireSignatureToken,
 } = await import('./graph-binary.mjs');
 const { _astCalls } = await import('./ast-calls.mjs');
-const { _setDiskCodeGraphEntry, drainCodeGraphCacheStrict, getDiskCodeGraphEntry, hydrateGraphCallsFromSidecar } =
-  await import('./disk-cache.mjs');
+const {
+  _setDiskCodeGraphEntry,
+  drainCodeGraphCacheStrict,
+  getDiskCodeGraphEntry,
+  hydrateGraphCallsFromSidecar,
+  _setCallsSidecarReaderForTest,
+} = await import('./disk-cache.mjs');
 const { canonicalGraphCwd } = await import('../code-graph-state.mjs');
 
 const runNode = promisify(execFile);
@@ -1250,7 +1259,7 @@ function reloadGraph(root) {
   return _deserializeGraph(root, entry);
 }
 
-test('sidecar round-trip: calls leave the main entry and come back on hydration', () => {
+test('sidecar round-trip: calls leave the main entry and come back on hydration', async () => {
   const root = join(tmpdir(), 'mixdog-calls-root-a');
   persistGraph(root, [svcNode(), appNode([]), legacyNode()]);
 
@@ -1267,21 +1276,21 @@ test('sidecar round-trip: calls leave the main entry and come back on hydration'
 
   const restored = reloadGraph(root);
   assert.equal(restored.nodes.get('src/svc.js').calls, null, 'not hydrated yet');
-  assert.equal(hydrateGraphCallsFromSidecar(restored), 2);
+  assert.equal(await hydrateGraphCallsFromSidecar(restored), 2);
   assert.deepEqual(restored.nodes.get('src/svc.js').calls, SVC_CALLS);
   assert.deepEqual(restored.nodes.get('src/app.js').calls, []);
   assert.equal(restored.nodes.get('src/legacy.js').calls, null);
   // One attempt per graph: a second call is a no-op, not a second read.
-  assert.equal(hydrateGraphCallsFromSidecar(restored), 0);
+  assert.equal(await hydrateGraphCallsFromSidecar(restored), 0);
 
   // A file whose bytes changed since the sidecar was written stays unknown.
   const changed = reloadGraph(root);
   changed.nodes.get('src/svc.js').fingerprint = 'fp-new';
-  assert.equal(hydrateGraphCallsFromSidecar(changed), 1);
+  assert.equal(await hydrateGraphCallsFromSidecar(changed), 1);
   assert.equal(changed.nodes.get('src/svc.js').calls, null);
 });
 
-test('an old cache without a sidecar hydrates to null instead of failing', () => {
+test('an old cache without a sidecar hydrates to null instead of failing', async () => {
   const root = join(tmpdir(), 'mixdog-calls-root-b');
   persistGraph(root, [svcNode(), appNode()]);
   const { sidecar } = cacheFiles(cacheHashFor(root));
@@ -1289,7 +1298,7 @@ test('an old cache without a sidecar hydrates to null instead of failing', () =>
   assert.equal(existsSync(sidecar), false);
 
   const restored = reloadGraph(root);
-  assert.equal(hydrateGraphCallsFromSidecar(restored), 0);
+  assert.equal(await hydrateGraphCallsFromSidecar(restored), 0);
   assert.equal(restored.nodes.get('src/svc.js').calls, null);
   assert.equal(restored._callsHydration, 'done');
 });
@@ -1324,7 +1333,7 @@ test('incremental update: unchanged files keep their sidecar entry, changed ones
   assert.equal(final.files['src/svc.js'], undefined);
 });
 
-test('a crash between the entry write and the sidecar write cannot mispair calls', () => {
+test('a crash between the entry write and the sidecar write cannot mispair calls', async () => {
   const root = join(tmpdir(), 'mixdog-calls-root-crash');
   persistGraph(root, [svcNode(), appNode()]);
   const { sidecar } = cacheFiles(cacheHashFor(root));
@@ -1342,14 +1351,14 @@ test('a crash between the entry write and the sidecar write cannot mispair calls
   writeFileSync(sidecar, beforeCrash);
 
   const graph = reloadGraph(root);
-  assert.doesNotThrow(() => hydrateGraphCallsFromSidecar(graph));
+  await hydrateGraphCallsFromSidecar(graph);
   // The changed file must NOT get the calls of its previous bytes …
   assert.equal(graph.nodes.get('src/svc.js').calls, null);
   // … while the untouched file keeps answering from the AST.
   assert.deepEqual(graph.nodes.get('src/app.js').calls, APP_CALLS);
 });
 
-test('a sidecar written for another root is ignored file by file', () => {
+test('a sidecar written for another root is ignored file by file', async () => {
   const mine = join(tmpdir(), 'mixdog-calls-root-mine');
   const other = join(tmpdir(), 'mixdog-calls-root-other');
   persistGraph(mine, [svcNode(), appNode()]);
@@ -1368,13 +1377,13 @@ test('a sidecar written for another root is ignored file by file', () => {
 
   copyFileSync(cacheFiles(cacheHashFor(other)).sidecar, cacheFiles(cacheHashFor(mine)).sidecar);
   const graph = reloadGraph(mine);
-  assert.doesNotThrow(() => hydrateGraphCallsFromSidecar(graph));
+  await hydrateGraphCallsFromSidecar(graph);
   for (const rel of ['src/svc.js', 'src/app.js']) {
     assert.equal(graph.nodes.get(rel).calls, null, `${rel} must not adopt another root's calls`);
   }
 });
 
-test('a corrupt sidecar leaves calls unknown instead of throwing', () => {
+test('a corrupt sidecar leaves calls unknown instead of throwing', async () => {
   const root = join(tmpdir(), 'mixdog-calls-root-corrupt');
   for (const body of [
     '{"v":1,"files":{"src/svc.js":["fp",[', // truncated
@@ -1386,17 +1395,146 @@ test('a corrupt sidecar leaves calls unknown instead of throwing', () => {
     persistGraph(root, [svcNode(), appNode()]);
     writeFileSync(cacheFiles(cacheHashFor(root)).sidecar, body);
     const graph = reloadGraph(root);
-    let applied = -1;
-    assert.doesNotThrow(
-      () => {
-        applied = hydrateGraphCallsFromSidecar(graph);
-      },
-      `payload ${JSON.stringify(body.slice(0, 24))}`
-    );
-    assert.equal(applied, 0);
+    const applied = await hydrateGraphCallsFromSidecar(graph);
+    assert.equal(applied, 0, `payload ${JSON.stringify(body.slice(0, 24))}`);
     assert.equal(graph.nodes.get('src/svc.js').calls, null);
     assert.equal(graph._callsHydration, 'done', 'a miss must not re-read on every query');
   }
+});
+
+// Reader workers for fault injection: `code` runs in place of the real reader.
+function evalReader(code, stallMs = 200) {
+  return { createWorker: (_url, options) => new Worker(code, { ...options, eval: true }), stallMs };
+}
+
+test('a hydration in flight or failed exposes none of its calls to a concurrent query', async () => {
+  const root = join(tmpdir(), 'mixdog-calls-root-overlap');
+  persistGraph(root, [svcNode(), appNode()]);
+  const graph = reloadGraph(root);
+  const retryOnly = [call('retryOnly', 1, 0, 'call', 'runTask')];
+  // Each attempt streams one real chunk, then dies before `done`. What another
+  // query sees is sampled after the chunk reached the main thread.
+  const seen = [];
+  const crashingReader = (calls) => ({
+    createWorker: (_url, options) => {
+      const worker = new Worker(
+        `
+          const { parentPort } = require('node:worker_threads');
+          parentPort.postMessage({ entries: ${JSON.stringify([['src/svc.js', ['fp', calls], 0]])} });
+          parentPort.once('message', () => process.exit(3));
+        `,
+        { ...options, eval: true }
+      );
+      worker.on('message', () => setImmediate(() => seen.push(graph.nodes.get('src/svc.js').calls)));
+      return worker;
+    },
+    stallMs: 2000,
+  });
+  try {
+    _setCallsSidecarReaderForTest(crashingReader(SVC_CALLS));
+    const first = hydrateGraphCallsFromSidecar(graph);
+    assert.equal(await first, 0);
+    // The first query goes on reading the graph while a second one retries.
+    _setCallsSidecarReaderForTest(crashingReader(retryOnly));
+    const retry = hydrateGraphCallsFromSidecar(graph);
+    const firstQueryView = [];
+    while (!(await Promise.race([retry.then(() => true), new Promise((r) => setImmediate(() => r(false)))]))) {
+      firstQueryView.push(graph.nodes.get('src/svc.js').calls);
+    }
+    assert.equal(await retry, 0);
+    assert.ok(seen.length >= 2, 'both attempts streamed a chunk');
+    for (const calls of [...seen, ...firstQueryView]) {
+      assert.equal(calls, null, 'a chunk of an attempt that never completed was visible');
+    }
+  } finally {
+    _setCallsSidecarReaderForTest(null);
+  }
+  assert.equal(graph.nodes.get('src/svc.js').calls, null);
+  assert.equal(graph._callsHydration, 'pending');
+});
+
+test('a reader that crashes mid-stream installs nothing and the next query retries', async () => {
+  const root = join(tmpdir(), 'mixdog-calls-root-crash-mid');
+  persistGraph(root, [svcNode(), appNode()]);
+  const graph = reloadGraph(root);
+  // One real chunk is streamed, then the reader dies before `done`.
+  const chunk = JSON.stringify([['src/svc.js', ['fp', SVC_CALLS], 0]]);
+  _setCallsSidecarReaderForTest(
+    evalReader(`
+      const { parentPort } = require('node:worker_threads');
+      parentPort.postMessage({ entries: ${chunk} });
+      parentPort.once('message', () => process.exit(3));
+    `)
+  );
+  try {
+    assert.equal(await hydrateGraphCallsFromSidecar(graph), 0);
+  } finally {
+    _setCallsSidecarReaderForTest(null);
+  }
+  assert.equal(graph.nodes.get('src/svc.js').calls, null, 'the chunk streamed before the crash is never installed');
+  assert.equal(graph._callsHydration, 'pending', 'a failed read is not a completed one');
+  assert.equal(await hydrateGraphCallsFromSidecar(graph), 2, 'the next call-mode query retries');
+  assert.deepEqual(graph.nodes.get('src/svc.js').calls, SVC_CALLS);
+  assert.equal(graph._callsHydration, 'done');
+});
+
+test('a stalled reader is terminated at its deadline and the graph stays retryable', async () => {
+  const root = join(tmpdir(), 'mixdog-calls-root-stall');
+  persistGraph(root, [svcNode(), appNode()]);
+  const graph = reloadGraph(root);
+  _setCallsSidecarReaderForTest(evalReader('setInterval(() => {}, 1000);'));
+  try {
+    assert.equal(await hydrateGraphCallsFromSidecar(graph), 0);
+  } finally {
+    _setCallsSidecarReaderForTest(null);
+  }
+  assert.equal(graph._callsHydration, 'pending');
+  assert.equal(await hydrateGraphCallsFromSidecar(graph), 2);
+});
+
+test('hydration moves the size estimate to exactly what a full walk measures', async () => {
+  const root = join(tmpdir(), 'mixdog-calls-root-size');
+  persistGraph(root, [svcNode(), appNode()]);
+  const graph = reloadGraph(root);
+  // An incremental build: app.js was re-parsed and already carries calls the
+  // sidecar entry replaces; svc.js was reused and is unknown until hydrated.
+  graph.nodes.get('src/app.js').calls = [...APP_CALLS, call('extra', 9, 1, 'call', 'boot')];
+  assert.equal(_estimateGraphBaseBytes(graph), _estimateGraphBaseBytes(structuredClone(graph)));
+  assert.equal(await hydrateGraphCallsFromSidecar(graph), 2);
+  assert.equal(_estimateGraphBaseBytes(graph), _estimateGraphBaseBytes(structuredClone(graph)));
+});
+
+test('the atomic install only assigns: its time does not grow with the replaced call lists', async () => {
+  const root = join(tmpdir(), 'mixdog-calls-root-install-time');
+  persistGraph(root, [svcNode(), appNode()]);
+  const graph = reloadGraph(root);
+  // An incremental build's re-parsed files carry large call lists the sidecar
+  // entries replace. Each install assignment is time-stamped.
+  const stamps = [];
+  for (const node of graph.nodes.values()) {
+    let calls = Array.from({ length: 300_000 }, (_, i) => call(`c${i % 97}`, i, 1, 'call', 'x'));
+    Object.defineProperty(node, 'calls', {
+      configurable: true,
+      enumerable: true,
+      get: () => calls,
+      set: (value) => {
+        stamps.push(performance.now());
+        calls = value;
+      },
+    });
+  }
+  const replaced = graph.nodes.get('src/app.js').calls;
+  const measureStart = performance.now();
+  _estimateValueBytes(replaced);
+  const measureMs = performance.now() - measureStart;
+  assert.equal(await hydrateGraphCallsFromSidecar(graph), 2);
+  assert.equal(stamps.length, 2);
+  const installMs = stamps[1] - stamps[0];
+  assert.ok(
+    installMs < measureMs / 4,
+    `install took ${installMs.toFixed(2)}ms between assignments; measuring one replaced list takes ${measureMs.toFixed(2)}ms`
+  );
+  assert.deepEqual(graph.nodes.get('src/svc.js').calls, SVC_CALLS);
 });
 
 test('only the call modes trigger the sidecar read', async () => {
@@ -1418,13 +1556,25 @@ test('non-call modes never open the sidecar; the first call mode opens it once',
   persistGraph(root, [svcNode(), appNode()]);
   const script = `
     import assert from 'node:assert/strict';
-    import { createRequire } from 'node:module';
-    // Patch BEFORE the code-graph modules bind their node:fs import, so every
-    // sidecar read is observable instead of inferred from a marker.
-    const fs = createRequire(process.cwd() + '/probe.mjs')('node:fs');
+    import { createRequire, syncBuiltinESMExports } from 'node:module';
+    // Patch BEFORE the code-graph modules bind their node:fs / worker_threads
+    // imports, so every sidecar read is observable instead of inferred from a
+    // marker. The read runs in a reader worker; this thread must never parse it.
+    const require = createRequire(process.cwd() + '/probe.mjs');
+    const fs = require('node:fs');
+    const threads = require('node:worker_threads');
+    const mainThreadReads = [];
     const reads = [];
     const originalRead = fs.readFileSync;
-    fs.readFileSync = function (path, ...rest) { reads.push(String(path)); return originalRead.call(this, path, ...rest); };
+    fs.readFileSync = function (path, ...rest) { mainThreadReads.push(String(path)); return originalRead.call(this, path, ...rest); };
+    const OriginalWorker = threads.Worker;
+    threads.Worker = class extends OriginalWorker {
+      constructor(url, options) {
+        if (String(url).endsWith('/calls-sidecar-worker.mjs')) reads.push(String(options?.workerData?.file));
+        super(url, options);
+      }
+    };
+    syncBuiltinESMExports();
     const [root, dataDir] = process.argv.slice(1);
     process.env.MIXDOG_DATA_DIR = dataDir;
     const CG = './src/runtime/agent/orchestrator/tools/code-graph/';
@@ -1456,6 +1606,8 @@ test('non-call modes never open the sidecar; the first call mode opens it once',
     await codeGraph({ mode: 'references', symbol: 'runTask' }, root, null, { graph });
     await codeGraph({ mode: 'callees', symbol: 'runTask' }, root, null, { graph });
     assert.equal(sidecarReads().length, 1, 'later queries on the same graph must not re-read');
+    assert.equal(graph.nodes.get('src/svc.js').calls.length > 0, true, 'the worker read was applied');
+    assert.deepEqual(mainThreadReads.filter((p) => p.endsWith('.calls.json')), [], 'the main thread parsed the sidecar');
   `;
   await runNode(process.execPath, ['--input-type=module', '-e', script, root, DATA_DIR], {
     cwd: process.cwd(),
@@ -1743,7 +1895,7 @@ test('real binary: --langs advertises wire v2 and --files reuse keeps calls on u
       assert.ok(!JSON.stringify(payload).includes('"calls"'));
       const restored = _deserializeGraph(root, payload);
       assert.equal(restored.nodes.get('keep.mjs').calls, null);
-      hydrateGraphCallsFromSidecar(restored);
+      await hydrateGraphCallsFromSidecar(restored);
       assert.deepEqual(restored.nodes.get('keep.mjs').calls, [keepSentinel]);
       assert.deepEqual(restored.nodes.get('touch.mjs').calls, touched);
     `;
