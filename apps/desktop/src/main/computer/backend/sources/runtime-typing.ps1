@@ -174,7 +174,7 @@ function Do-Type($req) {
                     return $valued
                 }
                 if ($preferred -eq [IntPtr]::Zero) {
-                    return Background-Unavailable 'type' 'element exposes no native keyboard target and no settable value; use explicit foreground delivery' $refRecord.WindowId 'background_unsupported'
+                    return Background-Unavailable 'type' 'element exposes no native keyboard target and no value route that keeps existing text; use set_value to replace its value, or explicit foreground delivery' $refRecord.WindowId 'background_unsupported'
                 }
             }
         }
