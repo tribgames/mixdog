@@ -762,6 +762,11 @@
 .composer-island .session-goal-panel {
   white-space: normal;
 }
+/* The to-do list reads better wide, but never past the window. */
+.composer-island .session-goal-panel {
+  width: 680px;
+  max-width: min(100%, calc(100vw - 24px));
+}
 .composer-island-phead {
   min-height: 44px;
   display: flex;

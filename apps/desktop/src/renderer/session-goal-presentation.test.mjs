@@ -206,7 +206,7 @@ test('a Goal segment carries the ring, n/m and a label from the step list', asyn
     );
     assert.equal(trigger.querySelector('.session-goal-progress').textContent, '1/4');
     assert.equal(host.querySelector('li[data-status="blocked"] svg')?.dataset.glyph, 'stalled');
-    assert.equal(host.querySelector('li[data-status="blocked"] .session-goal-task-blocker').textContent, 'No token');
+    assert.equal(host.querySelector('li[data-status="blocked"] .session-goal-task-blocker').textContent, `${t('Blocked')}: No token`);
     assert.equal(host.querySelector('li[data-status="completed"] .session-goal-task-note').textContent, 'merged');
     assert.equal(host.querySelector('li[data-status="abandoned"] .session-goal-task-note').textContent, 'out of scope');
     assert.ok(host.querySelector('.session-goal-controls'), 'a Goal keeps its controls');
@@ -295,7 +295,7 @@ test('step rows carry accessible status text', async () => {
     });
     const rowText = (selector) => host.querySelector(selector).textContent;
     assert.equal(rowText('li[data-status="in_progress"]'), `${t('In progress')}: Run migration`);
-    assert.equal(rowText('li[data-status="blocked"]'), `${t('Blocked')}: Ship itNo token`);
+    assert.equal(rowText('li[data-status="blocked"]'), `${t('Blocked')}: Ship it${t('Blocked')}: No token`);
     assert.equal(rowText('li[data-status="pending"]'), 'Write docs');
     assert.equal(rowText('li[data-status="abandoned"]'), `${t('Dropped')}: Old idea`);
   } finally {
@@ -401,5 +401,44 @@ test('Goal icon follows approval release and command execution through the live 
 test('terminal Goal states do not become reply activity merely because the session is busy', () => {
   for (const status of ['complete', 'blocked', 'usage_limited', 'duration_reached']) {
     assert.equal(goalDisplayStatus({ status }, { busy: true, shellJobs: { count: 1 } }, true), status);
+  }
+});
+
+test('to-do rows put the note under the title and group rows under phase headings', async () => {
+  const host = document.createElement('div');
+  document.body.append(host);
+  const root = createRoot(host);
+  const render = (phases) =>
+    act(async () => {
+      root.render(
+        React.createElement(SessionGoalIsland, {
+          snapshot: { sessionId: 'phased', todo: { phases, completed: 0, total: 4 } },
+        })
+      );
+    });
+  try {
+    await render([
+      { name: 'Build', tasks: [{ content: 'Compile', status: 'pending', note: 'long note' }] },
+      {
+        name: 'Release',
+        tasks: [
+          { content: 'Tag', status: 'blocked', blocker: 'No token' },
+          { content: 'Publish', status: 'completed' },
+        ],
+      },
+    ]);
+    const note = host.querySelector('li[data-status="pending"] .session-goal-task-note');
+    assert.equal(note.parentElement.tagName, 'DIV', 'the note shares the title column');
+    assert.equal(note.parentElement.parentElement.tagName, 'LI');
+    assert.equal(note.getAttribute('title'), 'long note');
+    const blocker = host.querySelector('li[data-status="blocked"] .session-goal-task-blocker');
+    assert.equal(blocker.parentElement.tagName, 'DIV');
+    const headings = [...host.querySelectorAll('.session-goal-phase')].map((el) => el.textContent);
+    assert.deepEqual(headings, ['Build', 'Release', 'Release'], 'remaining and done groups each head their phases');
+    await render([{ name: 'Default', tasks: [{ content: 'Solo', status: 'pending' }] }]);
+    assert.equal(host.querySelector('.session-goal-phase'), null, 'one phase shows no heading');
+  } finally {
+    await act(async () => root.unmount());
+    host.remove();
   }
 });

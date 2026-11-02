@@ -1559,7 +1559,7 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   display: block;
 }
 .session-goal-body {
-  max-height: min(400px, 52dvh);
+  max-height: 60dvh;
   box-sizing: border-box;
   display: grid;
   /* The content row MUST be allowed to shrink under this max-height. As an
@@ -1698,7 +1698,7 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   display: grid;
   /* Mirrors .session-goal-title-region: icon column + 6px gap, no extra
      inline padding, so rows align with the collapsed header. */
-  grid-template-columns: var(--mx-icon-md) minmax(0, 1fr) auto;
+  grid-template-columns: var(--mx-icon-md) minmax(0, 1fr);
   align-items: start;
   column-gap: 10px;
   padding: 7px 8px;
@@ -1718,21 +1718,33 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   font-weight: var(--mx-weight-label);
 }
 .session-goal-tasks li[data-status="blocked"] {
-  background: color-mix(in srgb, var(--mx-danger) 10%, transparent);
+  background: color-mix(in srgb, var(--mx-danger) 4%, transparent);
+}
+.session-goal-tasks li.session-goal-phase {
+  display: block;
+  padding: 8px 8px 2px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-label);
+  line-height: var(--mx-line-minor);
+  overflow-wrap: anywhere;
 }
 .session-goal-tasks li[data-status="blocked"] > span {
   color: var(--mx-danger);
 }
-.session-goal-task-blocker {
+.session-goal-tasks li > div > .session-goal-task-blocker,
+.session-goal-task-note {
   color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-minor);
+  overflow-wrap: anywhere;
 }
 .session-goal-task-note {
-  max-width: 180px;
-  color: var(--mx-text-faint);
-  font-size: var(--mx-font-meta);
-  line-height: var(--mx-line-ui);
-  overflow-wrap: anywhere;
-  text-align: end;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 .session-goal-tab-label {
   font-weight: var(--mx-weight-label);
@@ -1877,7 +1889,7 @@ html[data-mixdog-mobile-tabs] .session-goal-link {
   min-height: var(--mx-touch, 44px);
 }
 html[data-mixdog-mobile-tabs] .session-goal-tasks li {
-  grid-template-columns: 16px minmax(0, 1fr) auto;
+  grid-template-columns: 16px minmax(0, 1fr);
   column-gap: 6px;
   padding: 8px 0;
 }
