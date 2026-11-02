@@ -270,7 +270,15 @@ export function useAppPersistentPaneSurfaces({
     const startupLabel = utilityStartupLabel(utilitySelection.kind);
     let surface: ReactNode;
     if (utilitySelection.kind === 'studio') {
-      surface = <ReadyStudioPane active={utilityActive} sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} />;
+      surface = (
+        <ReadyStudioPane
+          active={utilityActive}
+          tabKey={key}
+          focused={descriptor.focused}
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={toggleSidebar}
+        />
+      );
     } else if (utilitySelection.kind === 'terminal') {
       surface = (
         <ReadyTerminalPane cwd={utilitySelection.cwd || null} terminalId={utilitySelection.id} active={utilityActive} />

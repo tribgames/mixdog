@@ -62,6 +62,7 @@ export function useAppTabWorkflow(
 
   const {
     openStudioTab,
+    focusStudioTab,
     openTerminalTab,
     dockOpenFile,
     dockOpenFileAt,
@@ -144,6 +145,7 @@ export function useAppTabWorkflow(
     openFileInSideDock,
     openPreviewToSide,
     openStudioTab,
+    focusStudioTab,
     openTerminalTab,
     dockOpenFile,
     dockOpenFileAt,

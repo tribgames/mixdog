@@ -26,11 +26,11 @@ import type { WorkbenchSideViewDescriptor, WorkbenchSideViewId } from './workben
 
 export function createAppSideViewDescriptors(
   onPrefetch: (id: WorkbenchSideViewId) => void,
-  onOpenStudio: () => void
+  onFocusStudio: () => void
 ): ReadonlyMap<WorkbenchSideViewId, WorkbenchSideViewDescriptor> {
   return new Map([
     ['sessions', { id: 'sessions', label: t('Sessions'), icon: MessageSquare }],
-    // An action entry: it opens a Studio tab and never shows a panel.
+    // Selecting it also brings Studio forward in the centre.
     [
       'studio',
       {
@@ -38,7 +38,7 @@ export function createAppSideViewDescriptors(
         label: t('Studio'),
         icon: Image,
         onPrefetch: () => void loadStudioViewModule().catch(() => undefined),
-        onActivate: onOpenStudio,
+        onActivate: onFocusStudio,
       },
     ],
     [

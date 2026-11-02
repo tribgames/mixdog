@@ -19,6 +19,16 @@ import {
 
 type GenerationActions = ReturnType<typeof createStudioGenerationActions>;
 
+/** Deletes a work from the media store and forgets the references it was made with. */
+export async function deleteStudioAsset(
+  api: StudioApi,
+  asset: MediaAsset,
+  referenceStore?: StudioReferenceStore
+): Promise<void> {
+  await callCapability(api, 'deleteMediaAsset', [asset.id]);
+  await removeStudioAssetReferences(asset.id, referenceStore);
+}
+
 /** A gallery asset's detail actions: remove it, reuse its recipe in the
  *  composer, add it as a reference, or queue its saved request again. */
 export function createStudioAssetActions({
@@ -63,8 +73,7 @@ export function createStudioAssetActions({
   const remove = async (asset: MediaAsset) => {
     setHoverId('');
     try {
-      await callCapability(api, 'deleteMediaAsset', [asset.id]);
-      await removeStudioAssetReferences(asset.id, referenceStore);
+      await deleteStudioAsset(api, asset, referenceStore);
       if (selected?.id === asset.id) setSelected(null);
       removeAsset(asset);
       // The run that produced this asset goes with it. A job left behind would

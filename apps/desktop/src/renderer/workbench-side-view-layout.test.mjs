@@ -458,7 +458,7 @@ test('pane top and bottom drops combine views at the requested label position', 
   });
 });
 
-test('Studio is a rail action entry that keeps a stored position and is never the initial view', () => {
+test('Studio is a rail panel that keeps a stored position and leads when pinned first', () => {
   const layout = normalizeWorkbenchSideViewLayout(
     {
       left: [['sessions'], ['studio'], ['extensions']],
@@ -467,7 +467,8 @@ test('Studio is a rail action entry that keeps a stored position and is never th
     ['sessions', 'studio', 'extensions', 'session-diff', 'browser']
   );
   assert.deepEqual(layout.left, [['sessions'], ['studio'], ['extensions']]);
-  assert.equal(initialActiveWorkbenchSideViews(layout, ['studio', 'sessions']).left, 'sessions');
+  assert.equal(initialActiveWorkbenchSideViews(layout, ['studio', 'sessions']).left, 'studio');
+  assert.equal(initialActiveWorkbenchSideViews(layout, ['sessions', 'studio']).left, 'sessions');
 });
 
 test('a stored rail order drops the removed background-jobs view id on load', () => {

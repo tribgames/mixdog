@@ -3,7 +3,7 @@ import test from 'node:test';
 import { Image } from 'lucide-react';
 import { createAppSideViewDescriptors } from './app-side-view-descriptors.ts';
 
-test('Studio is an action rail entry: activating it opens Studio, no panel', () => {
+test('Studio is a rail panel whose selection also brings Studio forward', () => {
   let opened = 0;
   const studio = createAppSideViewDescriptors(
     () => {},

@@ -240,3 +240,78 @@ test("a session's last visualize tab closing clears its visualize view", async (
   assert.equal(shell.surfaces.sessionPanelViews.has('vz'), false);
   assert.equal(shown('vz').open, false, 'no empty frame stays');
 });
+
+/** useAppTabActions over a pane whose tabs the test sets; records what the
+ *  Studio entry brings forward or opens. */
+async function mountStudioEntry(t, leaves, focusedLeafId = 'leaf-1') {
+  installTestDom(null, {
+    jsdom: { url: 'about:blank' },
+    expose: ['navigator', 'HTMLElement', 'Event', 'CustomEvent'],
+  });
+  const calls = { activated: [], opened: [] };
+  let actions = null;
+  function Harness() {
+    actions = useAppTabActions({
+      paneWorkspace: {
+        leaves,
+        focusedLeafId,
+        focusedLeaf: leaves.find((leaf) => leaf.id === focusedLeafId),
+        focusLeaf() {},
+        activateTab: (leafId, key) => calls.activated.push([leafId, key]),
+        openInFocused: (selection) => calls.opened.push(selection),
+        splitFocused() {},
+      },
+      setTabs() {},
+      closeSidebarPanels() {},
+      setSessionSideSurface() {},
+      paneSideDocks: { select() {}, temporarySelect() {} },
+      closePaneRightRegion() {},
+      sessionPaneSurfaces: {
+        agentSessionPanels: new Map(),
+        browserSurfaces: new Map(),
+        pendingBrowserAutoReveal: { current: new Set() },
+        browserAutoRevealSuppressed: { current: new Set() },
+        pendingDockReveals: { current: new Map() },
+        dockRevealTick: 0,
+        queueDockReveal() {},
+        showSessionSurface() {},
+      },
+      openFileTab() {},
+      openSession: async () => {},
+      activeProjectPath: '/p',
+      openQuickOpen() {},
+    });
+    return null;
+  }
+  const root = createRoot(document.getElementById('root'));
+  await act(async () => root.render(React.createElement(Harness)));
+  t.after(async () => act(async () => root.unmount()));
+  return { calls, actions: () => actions };
+}
+
+test('the Studio entry brings an open Studio tab forward instead of opening another', async (t) => {
+  const leaf = {
+    id: 'leaf-1',
+    tabs: [
+      { kind: 'session', id: 's1' },
+      { kind: 'studio', id: 'a' },
+    ],
+    activeKey: 'session:s1',
+  };
+  const { calls, actions } = await mountStudioEntry(t, [leaf]);
+  actions().focusStudioTab();
+  assert.deepEqual(calls.activated, [['leaf-1', 'studio:a']]);
+  assert.deepEqual(calls.opened, [], 'no new Studio tab');
+});
+
+test('the Studio entry opens one Studio tab when none is open, and + still opens a new one each time', async (t) => {
+  const leaf = { id: 'leaf-1', tabs: [{ kind: 'session', id: 's1' }], activeKey: 'session:s1' };
+  const { calls, actions } = await mountStudioEntry(t, [leaf]);
+  actions().focusStudioTab();
+  assert.equal(calls.opened.length, 1);
+  assert.equal(calls.opened[0].kind, 'studio');
+  assert.deepEqual(calls.activated, []);
+  actions().openStudioTab();
+  assert.equal(calls.opened.length, 2);
+  assert.notEqual(calls.opened[0].id, calls.opened[1].id);
+});

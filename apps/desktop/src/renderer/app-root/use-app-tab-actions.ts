@@ -13,6 +13,7 @@ import type { usePaneWorkspace } from '../pane-workspace-state';
 import { beginStudioLoad, reportStudioLoadStage } from '../renderer-load-metrics';
 import { loadStudioViewModule } from '../studio-loader';
 import { prefetchBrowserPane, prefetchDiffView, prefetchEditorPane, prefetchTerminalPane } from '../lazy-widgets';
+import { findStudioTab } from '../studio-panel-model';
 import { useAgentBrowserSurfaceRequests } from '../use-agent-browser-surface-requests';
 import {
   browserSurfaceRevealPlan,
@@ -98,8 +99,19 @@ export function useAppTabActions({
     void loadStudioViewModule()
       .then(() => reportStudioLoadStage('module', '', false, metricToken))
       .catch(() => {});
-    openUtilityTab(newStudioSelection(), t('Studio'), leafId);
+    const selection = newStudioSelection();
+    openUtilityTab(selection, t('Studio'), leafId);
+    return navigationKey(selection);
   };
+
+  // The Studio rail entry: bring the open Studio tab forward, a new one only
+  // when none is open. Returns the key of the tab now in front.
+  const focusStudioTab = useStableEvent((): string => {
+    const existing = findStudioTab(paneWorkspace.leaves, paneWorkspace.focusedLeafId);
+    if (!existing) return openStudioTab();
+    paneWorkspace.activateTab(existing.leafId, existing.key);
+    return existing.key;
+  });
 
   // The side browser's "Open in main tab": the page's URL opens as a new main
   // browser tab in the pane that owned the side browser, and the side panel
@@ -379,6 +391,7 @@ export function useAppTabActions({
   return {
     openUtilityTab,
     openStudioTab,
+    focusStudioTab,
     openTerminalTab,
     openBrowserTab,
     openDiffTab,

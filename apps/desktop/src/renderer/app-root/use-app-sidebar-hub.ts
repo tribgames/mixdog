@@ -6,6 +6,9 @@ import { useAppSidebarSurface } from '../use-app-sidebar-surface';
 import { useAppMobileBack, useAppMobileInitialClose } from '../app-shell-mobile-back';
 import { useSideViewPrefetch, useSideViewSelection, useSideViewReordering } from '../app-shell-side-views';
 import { createAppSideViewDescriptors } from '../app-side-view-descriptors';
+import { requestStudioOpenAsset } from '../studio-panel-bridge';
+import type { MediaAsset } from '../studio-support';
+import { useStableEvent } from '../use-stable-event';
 import type { useAppShellPanels } from '../use-app-shell-panels';
 import type { useAppSideDocks } from '../use-app-side-docks';
 import type { useSessionPaneSurfaces } from '../use-session-pane-surfaces';
@@ -43,6 +46,9 @@ export interface UseAppSidebarHubOptions {
   closeSidebarForNavigation: (motion?: 'animated' | 'instant') => void;
   startTask: ReturnType<typeof useAppTaskLifecycle>['startTask'];
   openStudioTab: (leafId?: string) => void;
+  /** The Studio rail entry: the open Studio tab comes forward, else one opens.
+   *  Returns that tab's key. */
+  focusStudioTab: () => string;
   openSession: (sessionId: string, force?: boolean, title?: string) => Promise<void>;
   refreshProjects: ReturnType<typeof useAppProjectCatalog>['refreshProjects'];
   renameProject: (oldPath: string, newPath: string) => Promise<void>;
@@ -107,6 +113,7 @@ export function useAppSidebarHub({
   closeSidebarForNavigation,
   startTask,
   openStudioTab,
+  focusStudioTab,
   openSession,
   refreshProjects,
   renameProject,
@@ -224,9 +231,15 @@ export function useAppSidebarHub({
 
   const prefetchWorkbenchSideView = useSideViewPrefetch(trackSidebarPanelModule, quickAccessProjectPath);
   const sideViewDescriptors = useMemo(
-    () => createAppSideViewDescriptors(prefetchWorkbenchSideView, sidebarNewStudio),
-    [prefetchWorkbenchSideView, sidebarNewStudio]
+    () => createAppSideViewDescriptors(prefetchWorkbenchSideView, focusStudioTab),
+    [prefetchWorkbenchSideView, focusStudioTab]
   );
+  // A Studio panel row: Studio comes forward with that work open (the phone
+  // drawer closes first so it is visible).
+  const sidebarOpenStudioAsset = useStableEvent((asset: MediaAsset) => {
+    closeSidebarForNavigation();
+    requestStudioOpenAsset(focusStudioTab(), asset);
+  });
 
   const selectWorkbenchSideView = useSideViewSelection({
     sideOf: workbenchSideLayout.sideOf,
@@ -290,6 +303,7 @@ export function useAppSidebarHub({
   return {
     sidebarNewTask,
     sidebarNewStudio,
+    sidebarOpenStudioAsset,
     sidebarPanel,
     sidebarResumeSession,
     renderSidebarPanel,

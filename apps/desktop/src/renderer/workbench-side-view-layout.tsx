@@ -58,7 +58,8 @@ export interface WorkbenchSideViewDescriptor {
   tooltip?: string;
   icon: LucideIcon;
   onPrefetch?(): void;
-  /** An action entry (Studio): selecting it runs this instead of showing a panel. */
+  /** Runs when the rail selects this view, besides showing its panel (Studio
+   *  brings its tab forward in the centre). */
   onActivate?(): void;
 }
 

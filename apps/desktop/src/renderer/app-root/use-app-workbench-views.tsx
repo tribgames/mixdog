@@ -56,6 +56,8 @@ import { resolveLocalLink } from '../local-link-resolver';
 import { isAbsolutePath } from '../session-diff-model';
 import { sideFileKey } from '../side-file-tabs';
 import { closingDrawerFirst } from './drawer-navigation';
+import { StudioPanel } from '../StudioPanel';
+import type { MediaAsset } from '../studio-support';
 
 // The Visualize panel is never part of the first screen, and its source view
 // statically pulls the whole highlight.js core and language set: kept out of
@@ -114,6 +116,8 @@ export interface UseAppWorkbenchViewsOptions {
   sidebarSelection: NavigationSelection;
   sidebarNewTask: () => void;
   sidebarNewStudio: () => void;
+  /** A Studio panel row: Studio comes forward with that work open. */
+  sidebarOpenStudioAsset: (asset: MediaAsset) => void;
   prefetchSession: (sessionId: string) => Promise<boolean>;
   sidebarResumeSession: (sessionId: string) => void;
   renameSession: (sessionId: string, title: string) => Promise<void>;
@@ -235,6 +239,7 @@ export function useAppWorkbenchViews({
   sidebarSelection,
   sidebarNewTask,
   sidebarNewStudio,
+  sidebarOpenStudioAsset,
   prefetchSession,
   sidebarResumeSession,
   renameSession,
@@ -331,7 +336,13 @@ export function useAppWorkbenchViews({
       onDeleteSession: deleteSession,
     };
     if (id === 'sessions') return <SessionSidebar {...sessionSidebarProps} />;
-    if (id === 'studio') return null;
+    if (id === 'studio') {
+      return (
+        <SessionSidebar {...sessionSidebarProps} panelActive panelTitle={sideViewDescriptors.get(id)?.label}>
+          <StudioPanel active={active} onNewStudio={sidebarNewStudio} onOpenAsset={sidebarOpenStudioAsset} />
+        </SessionSidebar>
+      );
+    }
     if (DEFAULT_SIDEBAR_VIEW_ORDER.includes(id as SidebarPanelKey)) {
       return (
         <SessionSidebar {...sessionSidebarProps} panelActive panelTitle={sideViewDescriptors.get(id)?.label}>
