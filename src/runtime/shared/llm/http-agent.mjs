@@ -21,6 +21,7 @@
 
 import { createRequire } from 'node:module';
 import { BlockList, isIP } from 'node:net';
+import { runInRootAsyncContext } from '../root-async-context.mjs';
 
 const require = createRequire(import.meta.url);
 let _undici = null;
@@ -371,8 +372,17 @@ function llmAgent() {
     _agent = null;
     _globalInstalled = false;
   }
-  _agent ??= new (undici().Agent)(llmAgentOptions());
+  _agent ??= new (undici().Agent)({ ...llmAgentOptions(), connect: rootContextConnector() });
   return _agent;
+}
+
+// A kept-alive socket serves later requests of any session: connect it in the
+// root context so it never retains the request that opened it. buildConnector
+// with no options matches the connector undici builds for an Agent without
+// TLS/connect options.
+function rootContextConnector() {
+  const connect = undici().buildConnector({});
+  return (options, callback) => runInRootAsyncContext(() => connect(options, callback));
 }
 
 /**

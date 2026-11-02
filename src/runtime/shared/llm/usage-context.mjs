@@ -1,7 +1,7 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { runtimeAsyncLocalStorage } from '../root-async-context.mjs';
 
 // The selected route owns accounting identity, not an inner transport adapter.
-const context = new AsyncLocalStorage();
+const context = runtimeAsyncLocalStorage();
 export const withUsageContext = (identity, send) => context.run(identity, send);
 export const currentUsageContext = () => context.getStore();
 // Each wire attempt stamps the tier it actually sent on its own send's

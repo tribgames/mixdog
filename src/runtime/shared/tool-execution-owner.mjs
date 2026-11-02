@@ -1,6 +1,6 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { runtimeAsyncLocalStorage } from './root-async-context.mjs';
 
-const toolExecutionOwner = new AsyncLocalStorage();
+const toolExecutionOwner = runtimeAsyncLocalStorage();
 
 export function runWithToolExecutionOwner(ownerKey, run) {
   const owner =

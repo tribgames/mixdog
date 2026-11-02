@@ -4,6 +4,7 @@
  * idle worker from holding the process open.
  */
 import { Worker } from 'node:worker_threads';
+import { runInRootAsyncContext } from '../../../../../shared/root-async-context.mjs';
 
 // After this many consecutive worker-construction failures the pool stops
 // trying to spawn and stays inline. This is a failure latch, not a throttle:
@@ -65,9 +66,13 @@ export function createSlotSpawner({ state, WorkerImpl = Worker, isClosed, affini
   function createSlot() {
     let worker;
     try {
-      worker = new WorkerImpl(new URL('../../stream-json-worker.mjs', import.meta.url), {
-        execArgv: [],
-      });
+      // A slot serves later streams too: spawn it outside this stream's context.
+      worker = runInRootAsyncContext(
+        () =>
+          new WorkerImpl(new URL('../../stream-json-worker.mjs', import.meta.url), {
+            execArgv: [],
+          })
+      );
     } catch {
       noteSpawnFailure();
       return null;

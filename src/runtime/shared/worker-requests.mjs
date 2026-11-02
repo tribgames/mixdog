@@ -2,6 +2,7 @@
 // synchronous native work (process creation, SQLite queries) off the host
 // event loop while callers simply await the answer.
 import { parentPort, Worker } from 'node:worker_threads';
+import { runInRootAsyncContext } from './root-async-context.mjs';
 
 /**
  * Returns `request(payload) → Promise<result>`. The worker starts on first use,
@@ -46,7 +47,8 @@ export function createWorkerRequestClient(url, { idleExitMs = 0, onEvent = null,
 
   function ensureWorker() {
     if (worker) return worker;
-    const created = new Worker(url, { execArgv: [], ...workerOptions });
+    // Shared by every later caller: never let it retain the first caller's context.
+    const created = runInRootAsyncContext(() => new Worker(url, { execArgv: [], ...workerOptions }));
     const owned = pending;
     const rejectOwned = (error) => {
       const entries = [...owned.values()];

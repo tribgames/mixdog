@@ -121,9 +121,11 @@ function drainCursorRuns(reason = 'shutdown') {
 // so chain the previously registered handler instead of overwriting it: whoever
 // loads first stays reachable, in either import order.
 const _priorCursorSessionCloseHook = globalThis.__mixdogCloseProviderConnectionsForSession;
-globalThis.__mixdogCloseProviderConnectionsForSession = (sessionId, reason) => {
+// An active Cursor run is the turn in flight, so a turn abort
+// (`options.inFlightOnly`) closes it as well; the options pass down the chain.
+globalThis.__mixdogCloseProviderConnectionsForSession = (sessionId, reason, options) => {
   try {
-    _priorCursorSessionCloseHook?.(sessionId, reason);
+    _priorCursorSessionCloseHook?.(sessionId, reason, options);
   } finally {
     closeCursorRunsForSession(sessionId, reason);
     // A disposed transport scope never sends again: drop its conversation.

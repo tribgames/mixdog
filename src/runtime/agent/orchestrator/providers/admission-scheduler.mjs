@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { runtimeAsyncLocalStorage } from '../../../shared/root-async-context.mjs';
 import { PRIORITY_RANK, normalizePriority, resourceAdmission } from '../../../shared/resource-admission.mjs';
 import { accountProviderSend } from '../../../shared/llm/usage-accounting.mjs';
 import { sanitizeSurrogates } from '../../../shared/llm/well-formed.mjs';
@@ -20,7 +20,7 @@ const PROVIDER_ACCOUNT_MAX_QUEUE = 1024;
 // request because their scope can differ by model.
 const PROVIDER_COOLDOWN_FAIL_FAST_MS = 60_000;
 const MAX_TIMEOUT_MS = 2_147_483_647;
-const currentAdmission = new AsyncLocalStorage();
+const currentAdmission = runtimeAsyncLocalStorage();
 export function currentProviderAdmissionOwner() {
   const active = currentAdmission.getStore();
   return active?.ownerKey ? String(active.ownerKey) : null;

@@ -2,6 +2,7 @@ import {
   ACCOUNT_PROVIDERS,
   MAX_ACCOUNTS,
   accountScopedSessionId,
+  noteAccountScopedSessionId,
   readProviderAccountPool,
   chooseProviderAccount,
   selectProviderAccountIf,
@@ -179,6 +180,8 @@ function boundAccountSend(providerName, row, messages, options, servedBy = repla
     // An explicit empty executor (model-proxy host) must stay empty.
     opts.toolExecutionSessionId = options.toolExecutionSessionId ?? options.sessionId;
     opts.sessionId = accountScopedSessionId(providerName, row.id, options.sessionId);
+    // Closing the visible session must reach the connections keyed by it.
+    noteAccountScopedSessionId(options.sessionId, opts.sessionId);
     // The spend still belongs to the visible session (usage-accounting.mjs).
     opts.usageSessionId = options.usageSessionId || options.sessionId;
   }

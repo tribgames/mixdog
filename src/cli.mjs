@@ -1,10 +1,14 @@
 #!/usr/bin/env node
 
 import './runtime/shared/uv-threadpool-boot.mjs';
+import { initRootAsyncContext } from './runtime/shared/root-async-context.mjs';
 import { fileURLToPath } from 'node:url';
 import { classifyCliInvocation } from './headless-command.mjs';
 import { beginProcessLifecycle, finishProcessLifecycleAsync } from './runtime/shared/process-lifecycle.mjs';
 import { stagedChildExitCode } from './runtime/shared/staged-child-result.mjs';
+
+// Before any request context exists: long-lived handles are created in this one.
+initRootAsyncContext();
 
 const argv = process.argv.slice(2);
 

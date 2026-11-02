@@ -33,6 +33,8 @@ import { noteShellOwnerSessionClosed } from '../../tools/builtin/lib/shell-job-r
 import { forgetSideQuestion } from '../side-question-store.mjs';
 import { cancelBackgroundTasks } from '../../../../shared/background-tasks.mjs';
 import { releaseWorkerSnapshots } from '../../../../shared/worktrees/worker-snapshots.mjs';
+import { accountScopedSessionIdsOf } from '../../../../shared/provider-accounts.mjs';
+import { registerSessionPurgeHook } from '../store/session-observers.mjs';
 
 /**
  * Close a session. Plants a `closed=true` tombstone on disk with a bumped
@@ -283,13 +285,24 @@ function teardownSessionRuntime({ id, entry, reason, tombstone, newGen }) {
   });
 }
 
-function closeProviderConnections(id, cause) {
-  try {
-    globalThis.__mixdogCloseProviderConnectionsForSession?.(id, cause);
-  } catch {
-    /* ignore */
+// The session's own connections and those an account pool keyed by its
+// account-scoped ids. A close, delete or reap ends the session: every
+// connection goes and the record is dropped. A turn abort ends one turn: only
+// a connection mid-response goes; idle ones keep their response chain.
+function closeProviderConnections(id, cause, { inFlightOnly = false } = {}) {
+  const options = inFlightOnly ? { inFlightOnly } : undefined;
+  for (const key of [id, ...accountScopedSessionIdsOf(id, { forget: !inFlightOnly })]) {
+    try {
+      globalThis.__mixdogCloseProviderConnectionsForSession?.(key, cause, options);
+    } catch {
+      /* ignore */
+    }
   }
 }
+
+// Reap: a stored session deleted without a runtime close (sub-agent retention,
+// tombstone sweep) takes its connections and record along.
+registerSessionPurgeHook((id) => closeProviderConnections(id, 'session-deleted'));
 
 // Session-scoped read caches: pure caches a resumed turn rebuilds from the
 // transcript/disk. The save delta baselines (parent and save-worker thread)
@@ -333,17 +346,18 @@ export function abortSessionTurn(id, reason = 'turn-abort') {
   } catch {
     /* ignore */
   }
-  closeProviderConnections(id, `turn-abort:${reason}`);
+  closeProviderConnections(id, `turn-abort:${reason}`, { inFlightOnly: true });
   return true;
 }
 
 /**
  * Runtime-only unload for a session whose work is DONE.
  *
- * Releases the heavy process-local runtime a finished agent still pins —
- * pooled provider connections, the read-dedup cache, and the liveness/metric
- * runtime entry — WITHOUT
- * touching lifecycle state. Deliberately NOT a close:
+ * Releases the heavy process-local runtime a finished agent still pins — the
+ * read-dedup cache and the liveness/metric runtime entry — WITHOUT
+ * touching lifecycle state. Pooled provider connections stay: a follow-up
+ * continues its response chain on them, and their idle and liveness eviction
+ * still apply; close, delete and reap release them. Deliberately NOT a close:
  *   - no markSessionClosed() tombstone and no bumpSessionGeneration(): the
  *     session file stays open and resumable, so a same-tag follow-up
  *     (`agent type=send`) resumes the SAME session with its full transcript
@@ -377,7 +391,6 @@ export function unloadSessionRuntime(id, reason = 'runtime-unload') {
   }
   _stopToolActivityHeartbeat(id);
   forgetSideQuestion(id, { cancel: true });
-  closeProviderConnections(id, `runtime-unload:${reason}`);
   releaseSessionReadCaches(id);
   _clearSessionRuntime(id);
   // A settled worker turn's read-only snapshots go with it (only ones it made).

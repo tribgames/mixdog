@@ -163,6 +163,28 @@ export function accountScopedSessionId(provider, accountId, sessionId) {
   return `account-${createHash('sha256').update(`${provider}:${accountId}:${sessionId}`).digest('hex')}`;
 }
 
+// Visible session id -> the account-scoped ids it has sent under. Transports
+// key pooled connections by the scoped id, which cannot be derived back, so
+// closing the visible session looks them up here.
+const accountScopedIdsBySession = new Map();
+
+/** Record that `sessionId` sent under `scopedId` (account-pool.mjs). */
+export function noteAccountScopedSessionId(sessionId, scopedId) {
+  let ids = accountScopedIdsBySession.get(sessionId);
+  if (!ids) {
+    ids = new Set();
+    accountScopedIdsBySession.set(sessionId, ids);
+  }
+  ids.add(scopedId);
+}
+
+/** The account-scoped ids `sessionId` has sent under; `forget` drops the record. */
+export function accountScopedSessionIdsOf(sessionId, { forget = false } = {}) {
+  const ids = accountScopedIdsBySession.get(sessionId);
+  if (forget) accountScopedIdsBySession.delete(sessionId);
+  return ids ? [...ids] : [];
+}
+
 export function providerAccountPath(provider, id, dataDir = resolvePluginData()) {
   requireAccountProvider(provider);
   requireAccountId(id);
