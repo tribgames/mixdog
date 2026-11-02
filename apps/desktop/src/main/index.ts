@@ -1666,12 +1666,22 @@ function disposeDesktopResources(): Promise<void> {
         if (timeout) clearTimeout(timeout);
       })
       // The view is detached; an in-tree daemon still has to stop before the
-      // exit kills it mid-teardown (it would leave PostgreSQL running).
-      .then(() => localConnection.transport()?.stopInTreeDaemon(DESKTOP_DAEMON_STOP_TIMEOUT_MS))
+      // exit kills it mid-teardown (it would leave PostgreSQL running). The
+      // outcome is recorded: a quit that ends in the tree kill says why.
+      .then(async () => {
+        const transport = localConnection.transport();
+        const outcome = transport ? await transport.stopInTreeDaemon(DESKTOP_DAEMON_STOP_TIMEOUT_MS) : null;
+        diagnostics?.write('desktop-daemon-stop', outcome ? { ...outcome } : { request: 'no-transport' });
+        await diagnostics?.flush();
+      })
       .then(
         () => undefined,
         (error: unknown) => {
           console.error('Failed to stop the Mixdog daemon during quit:', error);
+          diagnostics?.write('desktop-daemon-stop', {
+            request: 'threw',
+            error: error instanceof Error ? error.message : String(error),
+          });
         }
       );
   }

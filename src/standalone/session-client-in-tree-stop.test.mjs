@@ -86,11 +86,22 @@ test('launcher quit stops its in-tree daemon gracefully and waits for it', {
 }, async (t) => {
   const launcher = inTreeLauncher(t);
   // Not in-tree yet: nothing to stop.
-  assert.equal(await stopInTreeDaemon({ timeoutMs: 100, discovery: null }), false);
+  const none = await stopInTreeDaemon({ timeoutMs: 100, discovery: null });
+  assert.equal(none.stopped, false);
+  assert.equal(none.request, 'none');
 
   const daemon = await launcher.spawn();
-  const stopped = await stopInTreeDaemon({ timeoutMs: 10_000, discovery: daemon.discovery });
-  assert.equal(stopped, true, 'the in-tree daemon exited within the bound');
+  // A daemon.json naming another pid is never asked to stop; the outcome says so.
+  const foreign = await stopInTreeDaemon({ timeoutMs: 100, discovery: { ...daemon.discovery, pid: 1 } });
+  assert.equal(foreign.request, 'not-in-tree');
+  assert.deepEqual(foreign.inTree, [daemon.pid]);
+  assert.equal(foreign.stopped, false);
+  const missing = await stopInTreeDaemon({ timeoutMs: 100, discovery: null });
+  assert.equal(missing.request, 'no-discovery');
+
+  const outcome = await stopInTreeDaemon({ timeoutMs: 10_000, discovery: daemon.discovery });
+  assert.equal(outcome.request, 'sent');
+  assert.equal(outcome.stopped, true, 'the in-tree daemon exited within the bound');
   assert.equal(isPidAlive(daemon.pid), false);
   assert.equal(existsSync(daemon.stoppedPath), true, 'its teardown ran before exit');
 });
@@ -101,7 +112,9 @@ test('a daemon that does not exit holds the quit for the default bound only', {
   const launcher = inTreeLauncher(t);
   const daemon = await launcher.spawn({ wedged: true });
   const startedAt = Date.now();
-  assert.equal(await stopInTreeDaemon({ discovery: daemon.discovery }), false);
+  const outcome = await stopInTreeDaemon({ discovery: daemon.discovery });
+  assert.equal(outcome.stopped, false);
+  assert.equal(outcome.request, 'sent');
   const elapsedMs = Date.now() - startedAt;
   assert.ok(
     elapsedMs >= IN_TREE_DAEMON_STOP_GRACE_MS - 100 && elapsedMs < IN_TREE_DAEMON_STOP_GRACE_MS + 1_000,

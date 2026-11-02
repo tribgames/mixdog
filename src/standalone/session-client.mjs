@@ -662,14 +662,31 @@ export async function shutdownDaemon(
  *  with it, so ask the serving one to stop (forced — its work cannot outlive
  *  this tree anyway) and wait, bounded, for every such child's graceful exit.
  *  One that already unpublished its endpoint is mid-teardown: only waited on.
- *  False when no such child is alive (detached, or another launcher's). */
+ *  The outcome says what happened, so a quit that ends in the tree kill can
+ *  be told apart: `stopped` is false when no such child is alive (detached,
+ *  or another launcher's) or one outlived the wait; `request` is `sent`,
+ *  `failed` (with `error`), `no-discovery`, `not-in-tree` (daemon.json names
+ *  another pid) or `none` (nothing in the tree). */
 export async function stopInTreeDaemon({
   timeoutMs = IN_TREE_DAEMON_STOP_GRACE_MS,
   discovery = readSessionDiscovery(),
 } = {}) {
+  const startedAt = Date.now();
   const pids = [...inTreeDaemons.keys()].filter((pid) => isPidAlive(pid));
-  if (!pids.length) return false;
-  if (discovery?.port && pids.includes(Number(discovery.pid))) {
+  const outcome = {
+    stopped: false,
+    inTree: pids,
+    discoveryPid: Number(discovery?.pid) || null,
+    request: 'none',
+    error: null,
+    elapsedMs: 0,
+  };
+  if (!pids.length) return outcome;
+  if (!discovery?.port) {
+    outcome.request = 'no-discovery';
+  } else if (!pids.includes(Number(discovery.pid))) {
+    outcome.request = 'not-in-tree';
+  } else {
     try {
       await request({
         port: discovery.port,
@@ -680,13 +697,18 @@ export async function stopInTreeDaemon({
         timeoutMs: 3000,
         control: true,
       });
-    } catch {
+      outcome.request = 'sent';
+    } catch (error) {
       // Past its front door already: only the wait remains.
+      outcome.request = 'failed';
+      outcome.error = String(error?.message || error);
     }
   }
   const deadline = Date.now() + Math.max(1, Number(timeoutMs) || IN_TREE_DAEMON_STOP_GRACE_MS);
   while (pids.some((pid) => isPidAlive(pid)) && Date.now() < deadline) await delay(50);
-  return !pids.some((pid) => isPidAlive(pid));
+  outcome.stopped = !pids.some((pid) => isPidAlive(pid));
+  outcome.elapsedMs = Date.now() - startedAt;
+  return outcome;
 }
 
 export async function shutdownDaemonForRuntimeRoot(root, options = {}) {
