@@ -11,7 +11,15 @@ export const ACTIVITY_RAIL_PIN_IDS = [
   'search',
   'webhooks',
 ] as const;
-export const DEFAULT_ACTIVITY_RAIL_PINS: string[] = ACTIVITY_RAIL_PIN_IDS.filter((id) => id !== 'agents');
+export const DEFAULT_ACTIVITY_RAIL_PINS = [
+  'sessions',
+  'agents',
+  'schedules',
+  'workflows',
+  'projects',
+  'extensions',
+  'skills',
+];
 
 export interface ActivityRailPinsState {
   pins: string[];
