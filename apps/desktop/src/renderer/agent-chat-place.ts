@@ -560,8 +560,10 @@ export function isEndedTurnLastRow(rows: readonly TranscriptRowModel[], index: n
 export function turnEndToolItems(rows: readonly TranscriptRowModel[], index: number): TranscriptItem[] | null {
   if (!isEndedTurnLastRow(rows, index)) return null;
   const { turnKey } = rows[index];
+  // A collapsed work fold carries its turn's tool rounds.
   const items = rows
     .slice(0, index + 1)
+    .flatMap((earlier) => (earlier._tag === 'WorkFold' ? earlier.folded : [earlier]))
     .flatMap((earlier) => (earlier._tag === 'ToolActivity' && earlier.turnKey === turnKey ? earlier.items : []));
   return items.length ? items : null;
 }

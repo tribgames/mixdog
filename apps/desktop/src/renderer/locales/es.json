@@ -6021,5 +6021,9 @@
   "No devices to connect. Connect a device to this PC and it appears here.": "No hay dispositivos para conectar. Conecta un dispositivo a este PC y aparecerá aquí.",
   "Only this device is connected to this site, until the app quits.": "Solo este dispositivo queda conectado a este sitio hasta que cierres la app.",
   "HID device connections": "Conexiones de dispositivos HID",
-  "Sites in the built-in browser can ask to connect a HID device. You pick the device each time.": "Los sitios del navegador integrado pueden pedir conectarse a un dispositivo HID. Tú eliges el dispositivo cada vez."
+  "Sites in the built-in browser can ask to connect a HID device. You pick the device each time.": "Los sitios del navegador integrado pueden pedir conectarse a un dispositivo HID. Tú eliges el dispositivo cada vez.",
+  "{{count}} steps": "{{count}} paso",
+  "{{count}} steps_other": "{{count}} pasos",
+  "Used tools {{count}} times": "Herramientas usadas {{count}} vez",
+  "Used tools {{count}} times_other": "Herramientas usadas {{count}} veces"
 }

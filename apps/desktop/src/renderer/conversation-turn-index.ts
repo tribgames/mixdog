@@ -54,7 +54,9 @@ export function createTurnIndexer(targetsOf: (items: readonly TranscriptItem[]) 
     const surfaced = new Set<string>();
     // The set only grows, so a snapshot of its size is still current.
     let snapshot: string[] = [];
-    for (const row of rows) {
+    // A collapsed work fold still holds its turn's rows.
+    const unfolded = (row: TranscriptRowModel) => (row._tag === 'WorkFold' ? row.folded : [row]);
+    for (const row of rows.flatMap(unfolded)) {
       let turn = turns.get(row.turnKey);
       if (!turn) {
         if (snapshot.length !== surfaced.size) snapshot = [...surfaced];

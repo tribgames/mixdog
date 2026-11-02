@@ -419,7 +419,11 @@ export function useConversationRowRenderer({
       if (taskReportHidden(rows, index, waiting)) return null;
       const node = rowNode(row, seat);
       const block = handoffBlock(rows, index);
-      return connectorCards || block ? createElement(Fragment, null, node, block, connectorCards) : node;
+      const shown = connectorCards || block ? createElement(Fragment, null, node, block, connectorCards) : node;
+      // An opened work fold's rows share one quiet column (12-transcript.css).
+      return (row._tag === 'AssistantPart' || row._tag === 'ToolActivity') && row.work
+        ? createElement('div', { className: 'transcript-work' }, shown)
+        : shown;
     }
     return agentChatRow(row, index, rows, seat, {
       rowNode,

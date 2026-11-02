@@ -106,6 +106,7 @@ export function Conversation(props: ConversationProps) {
     optimisticActivityStartedAt,
     // A group room's band is its typing slot (use-conversation-row-renderer.ts).
     room: Boolean(roomIdOfSession(routeSessionId)),
+    foldWork: !agentMode,
     listHeld: props.transcriptListHeld,
     onEntryRevealed,
     onTranscriptHiddenChange,
