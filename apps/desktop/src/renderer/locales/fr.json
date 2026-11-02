@@ -2054,7 +2054,6 @@
   "Failed with exit code {{code}}": "Échec avec le code de sortie {{code}}",
   "Failed with signal {{signal}}": "Échec avec le signal {{signal}}",
   "Failing": "Échec",
-  "Fallback for {{model}}": "À la place de {{model}}",
   "Fallback models must use different providers.": "Les modèles de secours doivent utiliser des fournisseurs différents.",
   "Fast": "Fast",
   "Fast available": "Fast disponible",
@@ -6042,5 +6041,8 @@
   "Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.": "Votre connexion à {{name}} a expiré ou a été refusée. Reconnectez-vous dans Réglages → Modèles.",
   "{{name}} needs you to sign in again. Reconnect it in Connectors.": "{{name}} requiert une nouvelle connexion. Reconnectez-le dans Connecteurs.",
   "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog.": "Le stockage sécurisé de cet ordinateur ne fonctionne pas, les clés, mots de passe et connexions enregistrés n’ont donc pas pu être lus ni enregistrés. Vérifiez le trousseau du système, puis redémarrez Mixdog.",
-  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "Impossible d’enregistrer une conversation sur le disque. Les messages récents risquent d’être perdus à la fermeture de Mixdog. Vérifiez l’espace disque libre et les autorisations du dossier."
+  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "Impossible d’enregistrer une conversation sur le disque. Les messages récents risquent d’être perdus à la fermeture de Mixdog. Vérifiez l’espace disque libre et les autorisations du dossier.",
+  "{{count}} agent tasks running. Installing now stops them.": "{{count}} tâches d’agent en cours. Installer maintenant les arrête.",
+  "Could not check whether agent tasks are running. Installing now may stop them.": "Impossible de vérifier si des tâches d’agent sont en cours. Installer maintenant peut les arrêter.",
+  "Install anyway": "Installer quand même"
 }

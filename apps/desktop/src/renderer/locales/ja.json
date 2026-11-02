@@ -1952,7 +1952,6 @@
   "Failed with exit code {{code}}": "終了コード {{code}} で失敗",
   "Failed with signal {{signal}}": "シグナル {{signal}} で失敗",
   "Failing": "失敗しました",
-  "Fallback for {{model}}": "{{model}} の代替",
   "Fallback models must use different providers.": "フォールバック モデルは異なるプロバイダーを使用する必要があります。",
   "Fast": "Fast",
   "Fast available": "Fast利用可",
@@ -5910,5 +5909,8 @@
   "Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.": "{{name}} のサインインの有効期限が切れたか、拒否されました。設定 → モデル で再度サインインしてください。",
   "{{name}} needs you to sign in again. Reconnect it in Connectors.": "{{name}} で再度サインインが必要です。コネクタ で再接続してください。",
   "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog.": "このコンピューターの安全なストレージが機能していないため、保存されたキー、パスワード、サインイン情報を読み書きできませんでした。システムのキーチェーンを確認してから、Mixdog を再起動してください。",
-  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "会話をディスクに保存できませんでした。Mixdog を終了すると最近のメッセージが失われる可能性があります。ディスクの空き容量とフォルダーの権限を確認してください。"
+  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "会話をディスクに保存できませんでした。Mixdog を終了すると最近のメッセージが失われる可能性があります。ディスクの空き容量とフォルダーの権限を確認してください。",
+  "{{count}} agent tasks running. Installing now stops them.": "エージェントのタスクが{{count}}件実行中です。今インストールすると停止します。",
+  "Could not check whether agent tasks are running. Installing now may stop them.": "エージェントのタスクが実行中か確認できませんでした。今インストールすると停止する可能性があります。",
+  "Install anyway": "このままインストール"
 }

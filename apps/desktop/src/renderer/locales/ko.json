@@ -1954,7 +1954,6 @@
   "Failed with exit code {{code}}": "종료 코드 {{code}}로 실패",
   "Failed with signal {{signal}}": "{{signal}} 신호로 실패",
   "Failing": "실패",
-  "Fallback for {{model}}": "{{model}} 대체",
   "Fallback models must use different providers.": "대체 모델은 서로 다른 프로바이더를 사용해야 합니다.",
   "Fast": "Fast",
   "Fast available": "Fast 지원",
@@ -5910,5 +5909,8 @@
   "Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.": "{{name}} 로그인이 만료되었거나 거부되었습니다. 설정 → 모델에서 다시 로그인하세요.",
   "{{name}} needs you to sign in again. Reconnect it in Connectors.": "{{name}}에 다시 로그인해야 합니다. 커넥터에서 다시 연결하세요.",
   "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog.": "이 컴퓨터의 보안 저장소가 작동하지 않아 저장된 키, 비밀번호 및 로그인을 읽거나 저장할 수 없습니다. 시스템 키체인을 확인한 뒤 Mixdog을 다시 시작하세요.",
-  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "대화를 디스크에 저장하지 못했습니다. Mixdog이 닫힐 때 최근 메시지가 손실될 수 있습니다. 디스크 여유 공간과 폴더 권한을 확인하세요."
+  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "대화를 디스크에 저장하지 못했습니다. Mixdog이 닫힐 때 최근 메시지가 손실될 수 있습니다. 디스크 여유 공간과 폴더 권한을 확인하세요.",
+  "{{count}} agent tasks running. Installing now stops them.": "에이전트 작업 {{count}}개가 실행 중입니다. 지금 설치하면 작업이 중단됩니다.",
+  "Could not check whether agent tasks are running. Installing now may stop them.": "에이전트 작업이 실행 중인지 확인하지 못했습니다. 지금 설치하면 작업이 중단될 수 있습니다.",
+  "Install anyway": "그래도 설치"
 }

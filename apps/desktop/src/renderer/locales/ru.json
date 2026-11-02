@@ -2105,7 +2105,6 @@
   "Failed with exit code {{code}}": "Ошибка, код выхода {{code}}",
   "Failed with signal {{signal}}": "Ошибка, сигнал {{signal}}",
   "Failing": "Ошибка",
-  "Fallback for {{model}}": "Вместо {{model}}",
   "Fallback models must use different providers.": "Резервные модели должны использовать разных поставщиков.",
   "Fast": "Fast",
   "Fast available": "Доступен Fast",
@@ -6108,5 +6107,8 @@
   "Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.": "Срок входа в {{name}} истёк или был отклонён. Войдите снова: Настройки → Модели.",
   "{{name}} needs you to sign in again. Reconnect it in Connectors.": "Для {{name}} требуется повторный вход. Переподключите его в Коннекторах.",
   "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog.": "Безопасное хранилище этого компьютера не работает, поэтому сохранённые ключи, пароли и данные для входа не удалось прочитать или сохранить. Проверьте системную связку ключей и перезапустите Mixdog.",
-  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "Не удалось сохранить диалог на диск. Недавние сообщения могут быть потеряны при закрытии Mixdog. Проверьте свободное место на диске и права доступа к папке."
+  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "Не удалось сохранить диалог на диск. Недавние сообщения могут быть потеряны при закрытии Mixdog. Проверьте свободное место на диске и права доступа к папке.",
+  "{{count}} agent tasks running. Installing now stops them.": "Выполняется задач агентов: {{count}}. Установка сейчас остановит их.",
+  "Could not check whether agent tasks are running. Installing now may stop them.": "Не удалось проверить, выполняются ли задачи агентов. Установка сейчас может остановить их.",
+  "Install anyway": "Всё равно установить"
 }

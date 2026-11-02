@@ -177,11 +177,10 @@ test('the request log tab lists requests with every column, filters them and loa
   assert.equal(cells(1)[4].textContent, '—', 'an OAuth route shows its list-price (API) value');
   assert.match(cells(1)[4].title, new RegExp(`^${t('Est. value')}`), 'and says it is a value, not a bill');
   assert.match(cells(0)[0].textContent, /\d{2}:\d{2}:\d{2}/, 'the time reads to the second');
-  assert.match(
-    cells(3)[2].querySelector('small').textContent,
-    /astra/i,
-    'a substituted row names the model its fallback answered for'
-  );
+  const pair = (selector) => [...cells(3)[2].querySelectorAll(selector)].map((node) => node.textContent);
+  assert.match(pair('b').join(' '), /astra → .*5\.6/i, 'a substituted row pairs the asked-for model with the answer');
+  assert.equal(pair('small').length, 3, 'and each model sits over its provider');
+  assert.equal(pair('small')[1], '→');
   assert.equal(cells(2)[6].dataset.status, 'failed');
   assert.equal(cells(2)[6].textContent, t('Failed'));
   assert.equal(cells(3)[6].textContent, t('Substituted'));

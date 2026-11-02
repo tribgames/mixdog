@@ -2053,7 +2053,6 @@
   "Failed with exit code {{code}}": "Falló con el código de salida {{code}}",
   "Failed with signal {{signal}}": "Falló con la señal {{signal}}",
   "Failing": "Fallando",
-  "Fallback for {{model}}": "En lugar de {{model}}",
   "Fallback models must use different providers.": "Los modelos alternativos deben utilizar proveedores diferentes.",
   "Fast": "Fast",
   "Fast available": "Fast disponible",
@@ -6040,5 +6039,8 @@
   "Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.": "Tu inicio de sesión en {{name}} ha caducado o fue rechazado. Vuelve a iniciar sesión en Ajustes → Modelos.",
   "{{name}} needs you to sign in again. Reconnect it in Connectors.": "{{name}} necesita que vuelvas a iniciar sesión. Reconéctalo en Conectores.",
   "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog.": "El almacenamiento seguro de este ordenador no funciona, por lo que no se pudieron leer ni guardar las claves, contraseñas e inicios de sesión guardados. Revisa el llavero del sistema y luego reinicia Mixdog.",
-  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "No se pudo guardar una conversación en el disco. Es posible que los mensajes recientes se pierdan al cerrar Mixdog. Comprueba el espacio libre en disco y los permisos de la carpeta."
+  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "No se pudo guardar una conversación en el disco. Es posible que los mensajes recientes se pierdan al cerrar Mixdog. Comprueba el espacio libre en disco y los permisos de la carpeta.",
+  "{{count}} agent tasks running. Installing now stops them.": "Hay {{count}} tareas de agentes en ejecución. Instalar ahora las detiene.",
+  "Could not check whether agent tasks are running. Installing now may stop them.": "No se pudo comprobar si hay tareas de agentes en ejecución. Instalar ahora puede detenerlas.",
+  "Install anyway": "Instalar de todos modos"
 }
