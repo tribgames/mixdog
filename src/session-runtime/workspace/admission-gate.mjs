@@ -16,7 +16,10 @@
 import { worktreeError, worktreeRefusal } from '../../runtime/shared/worktrees/contract.mjs';
 import { throwIfAborted } from '../../runtime/shared/worktrees/git.mjs';
 import { isWithin } from '../../runtime/shared/worktrees/paths.mjs';
-import { tryAdmitWorkspaceActivity } from '../../runtime/shared/worktrees/activity-gate.mjs';
+import {
+  tryAdmitWorkspaceActivity,
+  tryAdmitWorkspaceActivityAsync,
+} from '../../runtime/shared/worktrees/activity-gate.mjs';
 import { setTimeout as delay } from 'node:timers/promises';
 
 /** @type {Map<string, { txId: string, settled: Promise<void> }>} Lead session id → in-flight transition. */
@@ -42,10 +45,12 @@ function latch() {
 
 function once(fn) {
   let done = false;
+  let result;
   return () => {
-    if (done) return;
-    fn();
+    if (done) return result;
+    result = fn();
     done = true;
+    return result;
   };
 }
 
@@ -138,9 +143,13 @@ function settledOrAborted(promise, signal) {
  * Admit one turn of `sessionId`, whose live cwd is `cwd()`: waits while the
  * session itself transitions or another session holds the checkout the cwd
  * lies in, then registers the turn until the returned release is called.
- * An abort while waiting rejects and registers nothing.
+ * An abort while waiting rejects and registers nothing. The ledger grant is
+ * asked for without blocking this event loop, so a slow disk or a queue of
+ * other admissions never freezes the daemon; a change or abort that arrived
+ * while the answer was pending gives the grant back and is waited out.
+ * The release returns a promise that settles once every removal was attempted.
  * @param {{ sessionId: string, cwd: () => string, signal?: AbortSignal }} input
- * @returns {Promise<() => void>}
+ * @returns {Promise<() => Promise<void>>}
  */
 export async function admitTurn({ sessionId, cwd, signal }) {
   const id = key(sessionId);
@@ -151,9 +160,13 @@ export async function admitTurn({ sessionId, cwd, signal }) {
       await settledOrAborted(blocker, signal);
       continue;
     }
-    const release = tryAdmitWorkspaceActivity(id, cwd());
+    const release = await tryAdmitWorkspaceActivityAsync(id, cwd());
     if (!release) {
       await delay(100, undefined, { signal });
+      continue;
+    }
+    if (signal?.aborted || admissionBlocker(id, cwd)) {
+      await release();
       continue;
     }
     const token = Symbol('turn');
@@ -161,15 +174,20 @@ export async function admitTurn({ sessionId, cwd, signal }) {
     turns.set(token, { sessionId: id, cwd, leases });
     return once(() => {
       const errors = [];
+      const pending = [];
       for (const leave of leases) {
         try {
-          leave();
+          const settled = leave();
+          if (settled) pending.push(settled);
         } catch (error) {
           errors.push(error);
         }
       }
       turns.delete(token);
       if (errors.length) throw new AggregateError(errors, 'Workspace admission could not be released.');
+      const done = Promise.all(pending).then(() => {});
+      done.catch(() => {});
+      return done;
     });
   }
 }

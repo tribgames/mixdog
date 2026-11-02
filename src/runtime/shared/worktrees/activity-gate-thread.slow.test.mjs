@@ -17,6 +17,7 @@ import {
 } from './activity-gate.mjs';
 import { setAdmissionFaults } from './activity-gate-faults.test-hook.mjs';
 import { withFileLock, withFileLockSync } from '../file-lock.mjs';
+import { admitTurn } from '../../../session-runtime/workspace/admission-gate.mjs';
 import { cleanupTempDirs, makeRepo, tempDir, useTempDataDir } from './test-support.mjs';
 
 const moduleUrl = new URL('./activity-gate.mjs', import.meta.url).href;
@@ -119,6 +120,27 @@ test('the event loop keeps running while a grant and its release are written slo
   const release = await timerTicksDuring(() => grant.value());
   assert.ok(release.ticks >= 15, `a timer fired ${release.ticks} times during a ${release.elapsedMs} ms release`);
   assert.deepEqual(copySessions(repo), [[], []]);
+});
+
+test('a turn admitted while the disk is slow leaves the event loop running, and an abort meanwhile leaves no lease', async (t) => {
+  const repo = makeRepo();
+  t.after(() => setAdmissionFaults());
+  setAdmissionFaults(
+    { op: 'rename', file: FILE, action: 'delay', ms: 300 },
+    { op: 'rename', file: MIRROR, action: 'delay', ms: 300 }
+  );
+  const turn = await timerTicksDuring(() => admitTurn({ sessionId: 'slow-turn', cwd: () => repo }));
+  assert.ok(turn.elapsedMs >= 550, `both copies were written slowly (${turn.elapsedMs} ms)`);
+  assert.ok(turn.ticks >= 15, `a timer fired ${turn.ticks} times during a ${turn.elapsedMs} ms turn admission`);
+  assert.deepEqual(copySessions(repo), [['slow-turn'], ['slow-turn']]);
+  await turn.value();
+  assert.deepEqual(copySessions(repo), [[], []]);
+
+  const controller = new AbortController();
+  const admitted = admitTurn({ sessionId: 'aborted-turn', cwd: () => repo, signal: controller.signal });
+  setTimeout(() => controller.abort(), 100);
+  await assert.rejects(admitted, { name: 'AbortError' });
+  assert.deepEqual(copySessions(repo), [[], []], 'the grant that landed after the abort was given back');
 });
 
 test('a lease acknowledged while an older publication is in flight survives its writes and a forced kill', async (t) => {
