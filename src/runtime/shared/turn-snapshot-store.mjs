@@ -499,14 +499,28 @@ function changesPath(sessionId) {
   return join(changesRoot(), `${hash}.json`);
 }
 
+/** The session's changes file; null when it is not a changes file of this
+ *  session. An unreadable or unparsable file throws. */
+async function parseChangesFile(sessionId) {
+  const parsed = JSON.parse(await readFile(changesPath(sessionId), 'utf8'));
+  if (parsed?.version !== CHANGES_VERSION || parsed.sessionId !== sessionId) return null;
+  return Array.isArray(parsed.records) ? parsed : null;
+}
+
 async function readChangesFile(sessionId) {
   try {
-    const parsed = JSON.parse(await readFile(changesPath(sessionId), 'utf8'));
-    if (parsed?.version !== CHANGES_VERSION || parsed.sessionId !== sessionId) return null;
-    return Array.isArray(parsed.records) ? parsed : null;
+    return await parseChangesFile(sessionId);
   } catch {
     return null;
   }
+}
+
+function deepFreeze(value) {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value)) deepFreeze(child);
+  }
+  return value;
 }
 
 /** Evict the oldest turns until the session fits its byte budget; a turn that
@@ -558,7 +572,12 @@ async function writeChangeRecords(sessionId, records) {
     changesSweepDone = true;
     void sweepDirectory(changesRoot(), CHANGE_RECORD_TTL_MS, MAX_CHANGE_RECORD_FILES);
   }
-  await writeJsonAtomically(changesPath(sessionId), { version: CHANGES_VERSION, sessionId, records });
+  try {
+    await writeJsonAtomically(changesPath(sessionId), { version: CHANGES_VERSION, sessionId, records });
+  } finally {
+    // A read between the drop above and the rename may have cached the old file.
+    changeRecordsCache.delete(sessionId);
+  }
 }
 
 const changeContent = (record) =>
@@ -652,39 +671,77 @@ export async function loadTurnChangeRecord(sessionId, checkpointId) {
   const id = clean(sessionId);
   const key = clean(checkpointId);
   if (!id || !key) return null;
-  const records = (await readChangesFile(id))?.records || [];
+  const records = await loadTurnChangeRecords(id);
   return records.find((record) => record?.checkpointId === key) || null;
 }
 
 // Parsed change records by session, valid while the file's mtime and size are
-// unchanged: the session review refreshes every few seconds and must not
-// re-read and re-parse a multi-megabyte file each time. Callers never mutate.
+// unchanged: the session review and every turn card read the same multi-
+// megabyte file and must not re-read and re-parse it each time. An entry holds
+// the parse's promise, so concurrent readers of one file share a single parse.
+// Least recently used first; bounded by session count and by the summed file
+// bytes (the newest entry always stays, however large). Records are shared and
+// deep-frozen, and every write drops the entry.
 const changeRecordsCache = new Map();
 const CHANGE_RECORDS_CACHE_SESSIONS = 8;
+const CHANGE_RECORDS_CACHE_BYTES = 64 * 1024 * 1024;
+
+function trimChangeRecordsCache() {
+  let bytes = 0;
+  for (const entry of changeRecordsCache.values()) bytes += entry.bytes;
+  while (
+    changeRecordsCache.size > 1 &&
+    (changeRecordsCache.size > CHANGE_RECORDS_CACHE_SESSIONS || bytes > CHANGE_RECORDS_CACHE_BYTES)
+  ) {
+    const [oldest, entry] = changeRecordsCache.entries().next().value;
+    changeRecordsCache.delete(oldest);
+    bytes -= entry.bytes;
+  }
+}
 
 /** Every retained turn's change record of a session, oldest first. */
 export async function loadTurnChangeRecords(sessionId) {
   const id = clean(sessionId);
   if (!id) return [];
-  let signature = '';
+  let info;
   try {
-    const info = await stat(changesPath(id));
-    signature = `${info.mtimeMs}:${info.size}`;
+    info = await stat(changesPath(id));
   } catch {
     changeRecordsCache.delete(id);
     return [];
   }
+  const signature = `${info.mtimeMs}:${info.size}`;
   const cached = changeRecordsCache.get(id);
-  if (cached?.signature === signature) return cached.records;
-  const records = ((await readChangesFile(id))?.records || [])
-    .filter(Boolean)
-    .sort((left, right) => (Number(left.createdAt) || 0) - (Number(right.createdAt) || 0));
   changeRecordsCache.delete(id);
-  changeRecordsCache.set(id, { signature, records });
-  if (changeRecordsCache.size > CHANGE_RECORDS_CACHE_SESSIONS) {
-    changeRecordsCache.delete(changeRecordsCache.keys().next().value);
+  if (cached?.signature === signature) {
+    changeRecordsCache.set(id, cached);
+    try {
+      return await cached.records;
+    } catch {
+      if (changeRecordsCache.get(id) === cached) changeRecordsCache.delete(id);
+      return [];
+    }
   }
-  return records;
+  const entry = {
+    signature,
+    bytes: info.size,
+    records: parseChangesFile(id).then((file) =>
+      deepFreeze(
+        (file?.records || [])
+          .filter(Boolean)
+          .sort((left, right) => (Number(left.createdAt) || 0) - (Number(right.createdAt) || 0))
+      )
+    ),
+  };
+  changeRecordsCache.set(id, entry);
+  trimChangeRecordsCache();
+  try {
+    return await entry.records;
+  } catch {
+    // A failed read is not remembered: the next call reads the file again.
+    if (changeRecordsCache.get(id) === entry) changeRecordsCache.delete(id);
+    return [];
+  }
 }
 
 export function _setTurnChangeRecordWriteHookForTest(hook) {
