@@ -13,7 +13,8 @@ import {
   todoProgress,
   todoStateKind,
 } from './session-goal-presentation.ts';
-import { t } from './i18n.ts';
+import { readFileSync } from 'node:fs';
+import i18n, { t } from './i18n.ts';
 
 installTestDom(null, {
   html: '<!doctype html><body></body>',
@@ -435,6 +436,26 @@ test('to-do rows put the note under the title and group rows under phase heading
     assert.equal(blocker.parentElement.tagName, 'DIV');
     const headings = [...host.querySelectorAll('.session-goal-phase')].map((el) => el.textContent);
     assert.deepEqual(headings, ['Build', 'Release', 'Release'], 'remaining and done groups each head their phases');
+    // The runtime's unnamed phase reads in the user's language; a named one as written.
+    const previousLanguage = i18n.language;
+    i18n.addResourceBundle(
+      'ko',
+      'translation',
+      JSON.parse(readFileSync(new URL('./locales/ko.json', import.meta.url), 'utf8'))
+    );
+    await i18n.changeLanguage('ko');
+    try {
+      await render([
+        { name: 'Tasks', tasks: [{ content: 'Plan', status: 'pending' }] },
+        { name: 'Release', tasks: [{ content: 'Ship', status: 'pending' }] },
+      ]);
+      assert.deepEqual(
+        [...host.querySelectorAll('.session-goal-phase')].map((el) => el.textContent),
+        ['작업', 'Release']
+      );
+    } finally {
+      await i18n.changeLanguage(previousLanguage);
+    }
     await render([{ name: 'Default', tasks: [{ content: 'Solo', status: 'pending' }] }]);
     assert.equal(host.querySelector('.session-goal-phase'), null, 'one phase shows no heading');
   } finally {
