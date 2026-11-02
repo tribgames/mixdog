@@ -5479,6 +5479,7 @@
   "Update (host computer)": "更新(主機)",
   "Update (phone app)": "更新(手機應用程式)",
   "Update metadata": "更新中繼資料",
+  "{{name}} plugin updated.": "已更新 {{name}} 外掛程式。",
   "Update Mixdog on the PC to download its files.": "請更新 PC 上的 Mixdog 以下載其檔案。",
   "Update Mixdog on these PCs to get their notifications here: {{names}}": "請在這些電腦上更新 Mixdog，才能在此接收它們的通知：{{names}}",
   "Update Mixdog on this PC to get its notifications on this device.": "請更新此電腦上的 Mixdog，才能在此裝置接收該電腦的通知。",

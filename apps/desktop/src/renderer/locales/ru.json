@@ -5677,6 +5677,7 @@
   "Update (host computer)": "Обновить (хост-компьютер)",
   "Update (phone app)": "Обновить (приложение для телефона)",
   "Update metadata": "Обновить метаданные",
+  "{{name}} plugin updated.": "Плагин {{name}} обновлён.",
   "Update Mixdog on the PC to download its files.": "Обновите Mixdog на ПК, чтобы скачивать его файлы.",
   "Update Mixdog on these PCs to get their notifications here: {{names}}": "Обновите Mixdog на этих ПК, чтобы получать их уведомления здесь: {{names}}",
   "Update Mixdog on this PC to get its notifications on this device.": "Обновите Mixdog на этом ПК, чтобы получать его уведомления на этом устройстве.",

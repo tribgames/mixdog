@@ -229,3 +229,44 @@ test('an older section read finishing after a newer full sweep does not overwrit
   await oldRefresh;
   assert.equal(cachedSkillCount(api), 2);
 });
+
+test('a successful plugin update shows one named success toast; a failure shows none', async () => {
+  const toasts = [];
+  const onToast = (event) => toasts.push(event.detail);
+  window.addEventListener('mixdog:desktop-toast', onToast);
+  const state = { skillCount: 1 };
+  const api = settingsApi(state);
+  await preloadCapabilitySettings(api);
+  const root = await mount(api, 'plugins');
+  try {
+    const row = [...document.querySelectorAll('button')].find((node) => node.textContent.includes('p1'));
+    await act(async () => {
+      row.click();
+    });
+    const update = () => [...document.querySelectorAll('button')].find((node) => node.textContent === 'Update plugin');
+    api.invokeCapability = async () => ({
+      value: { plugin: { id: 'p1', name: 'p1', title: 'pstack' }, status: {} },
+      snapshot: null,
+    });
+    await act(async () => {
+      update().click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    assert.deepEqual(
+      toasts.filter((toast) => toast.tone === 'success').map((toast) => toast.text),
+      ['pstack plugin updated.']
+    );
+    toasts.length = 0;
+    api.invokeCapability = async () => {
+      throw new Error('boom');
+    };
+    await act(async () => {
+      update().click();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    assert.equal(toasts.filter((toast) => toast.tone === 'success').length, 0);
+  } finally {
+    window.removeEventListener('mixdog:desktop-toast', onToast);
+    await act(async () => root.unmount());
+  }
+});

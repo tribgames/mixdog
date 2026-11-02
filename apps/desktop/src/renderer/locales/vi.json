@@ -5479,6 +5479,7 @@
   "Update (host computer)": "Cập nhật (máy chủ)",
   "Update (phone app)": "Cập nhật (ứng dụng điện thoại)",
   "Update metadata": "Cập nhật metadata",
+  "{{name}} plugin updated.": "Đã cập nhật plugin {{name}}.",
   "Update Mixdog on the PC to download its files.": "Hãy cập nhật Mixdog trên PC để tải xuống tệp của nó.",
   "Update Mixdog on these PCs to get their notifications here: {{names}}": "Hãy cập nhật Mixdog trên các PC này để nhận thông báo của chúng tại đây: {{names}}",
   "Update Mixdog on this PC to get its notifications on this device.": "Cập nhật Mixdog trên PC này để nhận thông báo trên thiết bị này.",

@@ -5479,6 +5479,7 @@
   "Update (host computer)": "アップデート(ホストコンピューター)",
   "Update (phone app)": "アップデート(スマートフォンアプリ)",
   "Update metadata": "メタデータを更新",
+  "{{name}} plugin updated.": "{{name}} プラグインを更新しました。",
   "Update Mixdog on the PC to download its files.": "PC のファイルをダウンロードするには、PC の Mixdog を更新してください。",
   "Update Mixdog on these PCs to get their notifications here: {{names}}": "これらの PC の Mixdog を更新すると、ここで通知を受け取れます: {{names}}",
   "Update Mixdog on this PC to get its notifications on this device.": "このデバイスで通知を受け取るには、この PC 上の Mixdog を更新してください。",

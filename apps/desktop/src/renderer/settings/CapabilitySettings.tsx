@@ -239,6 +239,11 @@ export const CapabilitySettings = memo(function CapabilitySettings({
             if (extensionCategory) await refreshExtensions();
             setRevision((value) => value + 1);
           }
+          if (capability === 'updatePlugin') {
+            const plugin = record((result.value as { plugin?: unknown } | undefined)?.plugin ?? args[0]);
+            const name = String(plugin.title || plugin.name || plugin.id || '');
+            showDesktopToast(t('{{name}} plugin updated.', { name }), 'success');
+          }
           return result.value;
         } catch (rawReason) {
           const reason = friendlyCapabilityError(rawReason);
