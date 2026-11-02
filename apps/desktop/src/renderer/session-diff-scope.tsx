@@ -2,6 +2,7 @@ import { ArrowUpRight, Undo2 } from 'lucide-react';
 import { t } from './i18n';
 import type { SessionDiffRow } from './session-diff-model';
 import { DiffStats } from './session-diff-section';
+import { changedFilesLabel } from './source-control-support';
 import { SetiFileIcon } from './SetiFileIcon';
 import { fileBaseName } from './text-format';
 import { middleTruncatedDirectory } from './turn-changes-model';
@@ -76,13 +77,27 @@ function FocusFileScope({
 /** The Changes tab sums every file in the composer chip's short form
  *  ("Files 3 +12 −4"). A narrow pane beside the source picker drops the
  *  count (27-search-review.css) rather than clip it; the tooltip keeps it. */
-function ChangesScope({ rows, showCount }: { rows: readonly SessionDiffRow[]; showCount: boolean }) {
+function ChangesScope({
+  rows,
+  unlistedCount,
+  showCount,
+}: {
+  rows: readonly SessionDiffRow[];
+  unlistedCount: number;
+  showCount: boolean;
+}) {
   const additions = rows.reduce((total, row) => total + row.additions, 0);
   const deletions = rows.reduce((total, row) => total + row.deletions, 0);
-  const count = rows.length === 1 ? t('1 file changed') : t('{{count}} files changed', { count: rows.length });
+  const total = rows.length + unlistedCount;
+  // A capped list reads "1000 of 200000 changed files"; the counts cover the listed rows.
+  const count = unlistedCount
+    ? changedFilesLabel(total, rows.length)
+    : rows.length === 1
+      ? t('1 file changed')
+      : t('{{count}} files changed', { count: rows.length });
   return (
     <span className="session-diff-summary session-diff-scope" title={showCount ? count : undefined}>
-      {showCount && <span className="session-diff-count">{t('Files {{count}}', { count: rows.length })}</span>}
+      {showCount && <span className="session-diff-count">{t('Files {{count}}', { count: total })}</span>}
       {showCount && <DiffStats additions={additions} deletions={deletions} />}
     </span>
   );
@@ -94,6 +109,7 @@ export function SessionDiffScope({
   pendingPath,
   focusRow,
   rows,
+  unlistedCount,
   showCount,
   onOpenFile,
   canRevertPath,
@@ -102,6 +118,8 @@ export function SessionDiffScope({
   pendingPath: string;
   focusRow: SessionDiffRow | null;
   rows: readonly SessionDiffRow[];
+  /** Untracked files the Git source counted but did not list in `rows`. */
+  unlistedCount: number;
   showCount: boolean;
   onOpenFile?(path: string): void;
   canRevertPath(path: string): boolean;
@@ -118,5 +136,5 @@ export function SessionDiffScope({
       />
     );
   }
-  return <ChangesScope rows={rows} showCount={showCount} />;
+  return <ChangesScope rows={rows} unlistedCount={unlistedCount} showCount={showCount} />;
 }

@@ -122,6 +122,9 @@ export interface DesktopGitStatus {
   behind: number;
   operation: '' | 'merge' | 'rebase' | 'cherry-pick' | 'revert';
   files: DesktopGitFile[];
+  /** Untracked files past the listing cap, counted but absent from `files`
+   *  (so no per-file action reaches them). Absent from an older host. */
+  untrackedOmitted?: number;
 }
 
 export interface DesktopGitStatusOptions {

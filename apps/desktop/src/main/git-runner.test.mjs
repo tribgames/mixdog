@@ -18,7 +18,7 @@ import {
   streamNulRecords,
 } from './git-runner.ts';
 import { gitReview } from './git-history.ts';
-import { gitStatus } from './git-status.ts';
+import { GIT_STATUS_UNTRACKED_LIMIT, gitStatus } from './git-status.ts';
 
 function repo(t) {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-git-runner-'));
@@ -56,6 +56,111 @@ test('with the daemon runner set, every git child starts off-thread with the sam
   );
   assert.ok(commands.length >= 6 && commands.every((call) => call.command === gitCommand()));
   assert.equal(commands[0].env.GIT_TERMINAL_PROMPT, '0', 'the scrubbed git environment travels with each child');
+});
+
+test('status lists a bounded set of untracked files and counts the rest (off-thread)', async (t) => {
+  const root = repo(t);
+  const total = 200_000;
+  const hash = '0'.repeat(40);
+  const stdout =
+    [
+      '# branch.oid ' + hash,
+      '# branch.head main',
+      `1 .M N... 100644 100644 100644 ${hash} ${hash} tracked.txt`,
+      ...Array.from({ length: total }, (_, index) => `? untracked/file-${index}.txt`),
+    ].join('\0') + '\0';
+  setGitProcessRunner((command, args, options) =>
+    args.includes('status') ? Promise.resolve({ code: 0, stdout, stderr: '' }) : runProcessOffThread(command, args, options)
+  );
+  t.after(() => setGitProcessRunner(null));
+  const status = await gitStatus(root);
+  const untracked = status.files.filter((file) => file.untracked);
+  assert.equal(untracked.length, GIT_STATUS_UNTRACKED_LIMIT);
+  assert.equal(untracked[0].path, 'untracked/file-0.txt');
+  assert.equal(status.untrackedOmitted, total - GIT_STATUS_UNTRACKED_LIMIT);
+  assert.equal(status.files.length, GIT_STATUS_UNTRACKED_LIMIT + 1, 'tracked changes are always listed');
+});
+
+test('review materialises at most its untracked limit and counts the rest', async (t) => {
+  const root = repo(t);
+  const total = 200_000;
+  const hash = '0'.repeat(40);
+  const stdout =
+    [
+      '# branch.oid ' + hash,
+      '# branch.head main',
+      ...Array.from({ length: total }, (_, index) => `? untracked/${"d".repeat(180)}/file-${index}.txt`),
+    ].join('\0') + '\0';
+  setGitProcessRunner((command, args, options) =>
+    args.includes('status')
+      ? stdout.length > options.maxBytes
+        ? Promise.reject(Object.assign(new Error('output too large'), { code: 'EMAXBUFFER' }))
+        : Promise.resolve({ code: 0, stdout, stderr: '' })
+      : runProcessOffThread(command, args, options)
+  );
+  t.after(() => setGitProcessRunner(null));
+  const review = await gitReview(root, 'uncommitted');
+  assert.equal(review.files.length, 256);
+  assert.equal(review.untrackedOmitted, total - 256);
+});
+
+test('status lists a bounded set of untracked files and counts the rest (in-thread)', async (t) => {
+  const root = repo(t);
+  const extra = 40;
+  for (let index = 0; index < GIT_STATUS_UNTRACKED_LIMIT + extra; index++) {
+    writeFileSync(join(root, `n${index}.txt`), 'x\n');
+  }
+  const status = await gitStatus(root);
+  assert.equal(status.files.length, GIT_STATUS_UNTRACKED_LIMIT);
+  // The two files `repo` writes are untracked too.
+  assert.equal(status.untrackedOmitted, GIT_STATUS_UNTRACKED_LIMIT + extra + 2 - GIT_STATUS_UNTRACKED_LIMIT);
+});
+
+test('a status listing past its byte bound fails instead of reading as "not a repository"', async (t) => {
+  const root = repo(t);
+  setGitProcessRunner((command, args, options) =>
+    args.includes('status')
+      ? Promise.reject(Object.assign(new Error('git status exceeded output bytes'), { code: 'EMAXBUFFER' }))
+      : runProcessOffThread(command, args, options)
+  );
+  t.after(() => setGitProcessRunner(null));
+  await assert.rejects(gitStatus(root), { code: 'EMAXBUFFER' });
+});
+
+// In-thread, git's stdout is read as raw bytes: the bound counts bytes (not
+// UTF-16 units) and a character split between chunks decodes whole.
+function emitScript(t) {
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-git-emit-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const script = join(dir, 'emit.mjs').replace(/\\/g, '/');
+  writeFileSync(
+    script,
+    `const han = Buffer.from('한');
+if (process.argv[2] === 'split') {
+  process.stdout.write(Buffer.concat([Buffer.from('a\\0'), han.subarray(0, 2)]));
+  setTimeout(() => process.stdout.write(Buffer.concat([han.subarray(2), Buffer.from('b\\0')])), 150);
+} else {
+  process.stdout.write(Buffer.from('한'.repeat(400) + '\\0'));
+}
+`
+  );
+  return ['-c', `alias.emit=!node "${script}"`, 'emit'];
+}
+
+test('a multibyte character split between chunks decodes whole', async (t) => {
+  const records = [];
+  await streamNulRecords(tmpdir(), [...emitScript(t), 'split'], (record) => {
+    records.push(record);
+  });
+  assert.deepEqual(records, ['a', '한b']);
+});
+
+test('the output bound counts bytes of multibyte names, not characters', async (t) => {
+  // 400 characters, 1200 bytes: under the bound by length, over it by bytes.
+  await assert.rejects(
+    streamNulRecords(tmpdir(), [...emitScript(t), 'wide'], () => {}, { maxBytes: 1000 }),
+    { code: 'EMAXBUFFER' }
+  );
 });
 
 // A Git for Windows install resolved for this PATH is then removed: the next

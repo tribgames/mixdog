@@ -32,6 +32,8 @@ export interface IslandGitRequestInput {
   gh: Pick<DesktopGithubCliStatus, 'installed' | 'authenticated' | 'login'> | null;
   /** Main-process reads; null when they could not be gathered. */
   context?: DesktopGitRequestContext | null;
+  /** Untracked files the source counted but did not list in `rows`. */
+  untrackedOmitted?: number;
 }
 
 /** Whether the branch-vs-base reads apply, and against what. */
@@ -173,7 +175,8 @@ function instructionsFor(action: IslandGitAction, input: IslandGitRequestInput):
 
 export function buildIslandGitRequest(input: IslandGitRequestInput): IslandGitRequest {
   const label = islandGitActionLabel(input.action);
-  const meta = `${sessionChangesSourceLabel(input.source)} · ${t('Files {{count}}', { count: input.rows.length })}`;
+  const omitted = input.untrackedOmitted ?? 0;
+  const meta = `${sessionChangesSourceLabel(input.source)} · ${t('Files {{count}}', { count: input.rows.length + omitted })}`;
   const listed = input.rows.slice(0, MAX_LISTED_FILES).map((row) => {
     const counts = `+${row.additions} -${row.deletions}`;
     return `- ${row.status || 'M'} ${row.path} (${counts})`;
@@ -192,10 +195,20 @@ export function buildIslandGitRequest(input: IslandGitRequestInput): IslandGitRe
     `- GitHub CLI: ${ghLine(input.gh)}`,
     `- Scope, ${input.rows.length} file(s) of the shown source:`,
     ...listed,
+    ...(omitted
+      ? [
+          `- INCOMPLETE SCOPE: ${omitted} more untracked file(s) were not listed (listing cap). The list above is not every change.`,
+        ]
+      : []),
     ...contextBlocks(input),
     '',
     'Instructions:',
-    ...(input.context
+    ...(omitted
+      ? [
+          `- ${omitted} untracked file(s) were not listed: never claim the commits cover every change. Run \`git status --short\` to see them, commit only those that belong to the work, and say in your reply that ${omitted} file(s) were not part of the listed scope.`,
+        ]
+      : []),
+    ...(input.context && !omitted
       ? [
           "- This context is current — do not re-run git status/diff/log or gh pr view; use only git and gh; read a file's diff only if it was truncated above.",
         ]
@@ -218,6 +231,7 @@ export interface IslandGitRequestDeps {
   action: IslandGitAction;
   source: SessionChangesSource;
   rows: IslandGitRequestInput['rows'];
+  untrackedOmitted?: number;
 }
 
 /** Gathers what the app knows and sends it through the session's normal
@@ -241,6 +255,7 @@ export async function sendIslandGitRequest(deps: IslandGitRequestDeps): Promise<
     action: deps.action,
     source: deps.source,
     rows: deps.rows,
+    untrackedOmitted: deps.untrackedOmitted,
     status,
     defaultBranch: defaultBranch || '',
     gh: gh ?? null,
@@ -259,8 +274,12 @@ export function useIslandGitRequest(input: { sessionId: string; cwd: string }): 
 } {
   const { sessionId, cwd } = input;
   const changes = useSessionChanges({ cwd, sessionId, active: true });
-  const latest = useRef({ source: changes.source, rows: changes.rows });
-  latest.current = { source: changes.source, rows: changes.rows };
+  const latest = useRef({
+    source: changes.source,
+    rows: changes.rows,
+    untrackedOmitted: changes.untrackedOmitted,
+  });
+  latest.current = { source: changes.source, rows: changes.rows, untrackedOmitted: changes.untrackedOmitted };
   const ready = Boolean(sessionId) && Boolean(cwd) && changes.repository;
   const request = useCallback(
     (action: IslandGitAction) => {

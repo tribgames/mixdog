@@ -180,6 +180,7 @@ function IconAction({
 // line: the Changes tab above already carries the counter.
 export function ChangedFilesHeader({
   files,
+  unlistedCount,
   busy,
   includedVisible,
   includableVisible,
@@ -194,6 +195,8 @@ export function ChangedFilesHeader({
   onToggleViewSort,
 }: {
   files: DesktopGitFile[];
+  /** Untracked files the status did not list; Discard All cannot reach them. */
+  unlistedCount: number;
   busy: string;
   includedVisible: number;
   includableVisible: number;
@@ -236,7 +239,7 @@ export function ChangedFilesHeader({
           <IconAction label={t('Unstage All')} disabled={disabled} onClick={() => onSetAllIncluded(false, files)}>
             <Minus size={14} aria-hidden="true" />
           </IconAction>
-          <IconAction label={t('Discard All')} className="danger" disabled={disabled} onClick={onDiscardAll}>
+          <IconAction label={t('Discard All')} className="danger" disabled={disabled || unlistedCount > 0} onClick={onDiscardAll}>
             <Undo2 size={14} aria-hidden="true" />
           </IconAction>
           <IconAction

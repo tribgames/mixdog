@@ -390,7 +390,7 @@ export function BranchIslandSegment({
   const base = menuWorkspace.mergeTarget || menuWorkspace.branch || '';
   const intent = Boolean(menu?.pendingWorktree);
   // Modified files and commits ahead; a zero count is left out, none at all shows nothing.
-  const modified = gitStatus?.repository ? gitStatus.files.length : 0;
+  const modified = gitStatus?.repository ? gitStatus.files.length + (gitStatus.untrackedOmitted ?? 0) : 0;
   const ahead = gitStatus?.repository ? gitStatus.ahead : 0;
   const metaParts: string[] = [];
   if (!intent && modified > 0) metaParts.push(t('Modified {{count}}', { count: modified }));

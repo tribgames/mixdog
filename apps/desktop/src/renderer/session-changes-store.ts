@@ -134,6 +134,8 @@ type ChangesEntry = {
   revisions: ReadonlyMap<string, string>;
   /** No file's patch fit the last turn's reply (its rows still list counts). */
   diffTooLarge: boolean;
+  /** Untracked files the Git read counted but did not list: `rows` is partial by this many. */
+  untrackedOmitted: number;
   /** Bumps with every adopted read that may have moved a file's patch. */
   generation: number;
   /** Bumps with each explicit (foreground) refresh: the drawn files' patches
@@ -148,7 +150,7 @@ type ChangesEntry = {
 
 type ChangesRead = Pick<
   ChangesEntry,
-  'repository' | 'root' | 'base' | 'rows' | 'untracked' | 'revisions' | 'diffTooLarge'
+  'repository' | 'root' | 'base' | 'rows' | 'untracked' | 'revisions' | 'diffTooLarge' | 'untrackedOmitted'
 >;
 
 const NO_REVISIONS: ReadonlyMap<string, string> = new Map();
@@ -160,6 +162,7 @@ const NO_REPOSITORY: ChangesRead = {
   untracked: new Set(),
   revisions: NO_REVISIONS,
   diffTooLarge: false,
+  untrackedOmitted: 0,
 };
 const EMPTY_ROWS: readonly SessionDiffRow[] = [];
 
@@ -217,6 +220,7 @@ function rowsSignature(read: ChangesRead): string {
     read.root,
     read.base,
     read.diffTooLarge,
+    read.untrackedOmitted,
     read.rows.map((row) => [
       row.path,
       row.status,
@@ -294,6 +298,7 @@ async function readChanges({ cwd, source, sessionId }: ChangesTarget, mode: Load
       untracked: new Set(review.files.filter((file) => file.untracked).map((file) => file.path)),
       revisions: new Map(review.files.filter((file) => file.revision).map((file) => [file.path, file.revision])),
       diffTooLarge: false,
+      untrackedOmitted: review.untrackedOmitted ?? 0,
     };
   }
   if (source === 'staged' || source === 'unstaged') {
@@ -310,6 +315,8 @@ async function readChanges({ cwd, source, sessionId }: ChangesTarget, mode: Load
       untracked: new Set(status.files.filter((file) => file.untracked).map((file) => file.path)),
       revisions: NO_REVISIONS,
       diffTooLarge: false,
+      // Staged rows never include untracked files; the omitted ones are unstaged changes.
+      untrackedOmitted: source === 'unstaged' ? (status.untrackedOmitted ?? 0) : 0,
     };
   }
   // The last turn and the whole session are the runtime's own-edit reviews;
@@ -341,6 +348,7 @@ async function readChanges({ cwd, source, sessionId }: ChangesTarget, mode: Load
       untracked: new Set(),
       revisions: new Map(rows.map((row) => [row.path, row.parts.length ? patchDigest(row) : revision])),
       diffTooLarge: result?.diffTooLarge === true,
+      untrackedOmitted: 0,
     };
   }
   const [dock, decoded] = await Promise.all([dockState, readTurnReview(sessionId, true, background)]);
@@ -354,6 +362,7 @@ async function readChanges({ cwd, source, sessionId }: ChangesTarget, mode: Load
     untracked: new Set(),
     revisions: NO_REVISIONS,
     diffTooLarge: decoded?.diffTooLarge === true,
+    untrackedOmitted: 0,
   };
 }
 
@@ -1143,6 +1152,8 @@ export function useSessionChanges({
     diff: git ? null : diff.result,
     /** No file's patch fit the reply; the rows still list every file's counts. */
     diffTooLarge: git ? entry?.diffTooLarge === true : diff.result?.diffTooLarge === true,
+    /** Untracked files a Git source counted but did not list in `rows`. */
+    untrackedOmitted: git ? (entry?.untrackedOmitted ?? 0) : 0,
     revision,
     /** What the latest turn's review moves with while the session is idle:
      *  its checkpoint and the history epoch (Undo/Reapply/Delete). Lane

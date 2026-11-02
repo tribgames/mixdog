@@ -187,3 +187,11 @@ test('a folder that is not a repository sends nothing', async () => {
   assert.equal(accepted, false);
   assert.equal(called, false);
 });
+
+test('a scope with unlisted untracked files says so and never claims to be complete', () => {
+  const { content, meta } = buildIslandGitRequest({ ...base, action: 'commit', untrackedOmitted: 199_000 });
+  assert.equal(meta, 'Current session · Files 199002');
+  assert.match(content, /INCOMPLETE SCOPE: 199000 more untracked file\(s\) were not listed/);
+  assert.match(content, /never claim the commits cover every change/);
+  assert.doesNotMatch(content, /do not re-run git status/);
+});

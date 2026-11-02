@@ -1087,3 +1087,40 @@ test('a root that is not a repository falls back to the session diff', async (t)
   await view.settle(10_000);
   assert.equal(reviews, 1);
 });
+
+test('the unstaged source carries the untracked files the status did not list; staged does not', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const untrackedFile = {
+    path: 'new.ts',
+    index: '?',
+    worktree: '?',
+    untracked: true,
+    stagedAdditions: 0,
+    stagedDeletions: 0,
+    unstagedAdditions: 2,
+    unstagedDeletions: 0,
+  };
+  const view = mount(t, {
+    gitStatus: async () => ({ repository: true, root: 'C:/omitted', files: [untrackedFile], untrackedOmitted: 199_000 }),
+    gitDiff: async () => '',
+  });
+  let seen = null;
+  function Probe() {
+    seen = useSessionChanges({ cwd: 'C:/omitted', sessionId: 'omitted', active: true });
+    return null;
+  }
+  const drain = async () => {
+    await act(async () => {
+      for (let index = 0; index < 500; index += 1) await Promise.resolve();
+    });
+    await view.settle(100);
+  };
+  setSessionChangesSource('unstaged');
+  await act(async () => view.root.render(h(Probe)));
+  await drain();
+  assert.equal(seen.rows.length, 1);
+  assert.equal(seen.untrackedOmitted, 199_000);
+  setSessionChangesSource('staged');
+  await drain();
+  assert.equal(seen.untrackedOmitted, 0);
+});

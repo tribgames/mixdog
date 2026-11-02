@@ -1,4 +1,5 @@
 import { execFile, spawn } from 'node:child_process';
+import { StringDecoder } from 'node:string_decoder';
 import { startGit } from '../../../../src/runtime/shared/git-launch.mjs';
 import { killChildTree } from '../../../../src/runtime/shared/run-child.mjs';
 import { childEnvironment, hookEnvironment } from './child-environment';
@@ -290,29 +291,61 @@ function spawnWithInput(
   });
 }
 
-/** `timeoutMs` (0: none) kills a child that runs longer, as {@link runRead} does. */
+/** NUL-terminated records in `text` from `from`, and whether an unterminated one trails them. */
+function tallyRecords(text: string, from: number): { terminated: number; open: boolean } {
+  let terminated = 0;
+  let end = from;
+  for (let at = text.indexOf('\0', from); at >= 0; at = text.indexOf('\0', at + 1)) {
+    terminated += 1;
+    end = at + 1;
+  }
+  return { terminated, open: end < text.length };
+}
+
+/** A record callback returns `false` to refuse its record and every later one. */
+type NulRecordHandler = (record: string) => void | boolean;
+
+/** Hands `text`'s records to `onRecord`; the count of those refused (never sliced out). */
+function deliverNulRecords(text: string, onRecord: NulRecordHandler): number {
+  let start = 0;
+  for (let end = text.indexOf('\0'); end >= 0; end = text.indexOf('\0', start)) {
+    if (onRecord(text.slice(start, end)) === false) {
+      const { terminated, open } = tallyRecords(text, start);
+      return terminated + (open ? 1 : 0);
+    }
+    start = end + 1;
+  }
+  return start < text.length && onRecord(text.slice(start)) === false ? 1 : 0;
+}
+
+/**
+ * `timeoutMs` (0: none) kills a child that runs longer, as {@link runRead} does.
+ * `maxBytes` fails the read (code EMAXBUFFER) once the output outgrows it.
+ * Resolves to how many records `onRecord` refused (it returned `false`): those
+ * are counted, not delivered, so a huge listing costs one pass, not one object
+ * per record.
+ */
 export function streamNulRecords(
   cwd: string,
   args: string[],
-  onRecord: (record: string) => void,
-  { timeoutMs = 0 }: { timeoutMs?: number } = {}
-): Promise<void> {
+  onRecord: NulRecordHandler,
+  { timeoutMs = 0, maxBytes = STREAM_MAX_BYTES }: { timeoutMs?: number; maxBytes?: number } = {}
+): Promise<number> {
   if (offThreadRunner) {
     // Delivered once the child has finished (the worker returns its whole
     // output), in the same order and with the same trailing-record rule.
-    return runOffThread(offThreadRunner, cwd, args, gitEnvironment(), { maxBytes: STREAM_MAX_BYTES, timeoutMs }).then(
+    return runOffThread(offThreadRunner, cwd, args, gitEnvironment(), { maxBytes, timeoutMs }).then(
       ({ code, stdout, stderr }) => {
         if (code !== 0) {
           throw new Error(scrubGitCredentials(stderr.slice(-TAIL_CHARS)).trim() || `git exited with code ${code}.`);
         }
-        const records = stdout.split('\0');
-        const last = records.pop();
-        for (const record of records) onRecord(record);
-        if (last) onRecord(last);
+        return deliverNulRecords(stdout, onRecord);
       }
     );
   }
-  return startGit(gitEnvironment(), (command, env) => spawnNulRecords(command, env, cwd, args, onRecord, timeoutMs));
+  return startGit(gitEnvironment(), (command, env) =>
+    spawnNulRecords(command, env, cwd, args, onRecord, timeoutMs, maxBytes)
+  );
 }
 
 function spawnNulRecords(
@@ -320,9 +353,10 @@ function spawnNulRecords(
   env: NodeJS.ProcessEnv,
   cwd: string,
   args: string[],
-  onRecord: (record: string) => void,
-  timeoutMs: number
-): Promise<void> {
+  onRecord: NulRecordHandler,
+  timeoutMs: number,
+  maxBytes: number
+): Promise<number> {
   return new Promise((resolvePromise, reject) => {
     const child = spawn(command, args, {
       cwd,
@@ -330,11 +364,18 @@ function spawnNulRecords(
       env,
       stdio: ['ignore', 'pipe', 'pipe'],
     });
-    child.stdout.setEncoding('utf8');
+    // stdout stays raw so the bound counts bytes; the decoder carries a
+    // multibyte character split across chunks into the next write.
+    const decoder = new StringDecoder('utf8');
     child.stderr.setEncoding('utf8');
     let pending = '';
     let stderr = '';
     let settled = false;
+    let received = 0;
+    // Once a record is refused the rest is only counted, chunk by chunk.
+    let refusing = false;
+    let refused = 0;
+    let refusedOpen = false;
     const timer =
       timeoutMs > 0
         ? setTimeout(() => {
@@ -351,11 +392,36 @@ function spawnNulRecords(
     child.once('close', () => {
       if (timer) clearTimeout(timer);
     });
-    child.stdout.on('data', (chunk: string) => {
+    child.stdout.on('data', (data: Buffer) => {
+      if (settled) return;
+      received += data.length;
+      if (received > maxBytes) {
+        settled = true;
+        killChildTree(child);
+        reject(
+          Object.assign(new Error(`git ${args.join(' ')} exceeded ${maxBytes} output bytes`), { code: 'EMAXBUFFER' })
+        );
+        return;
+      }
+      const chunk = decoder.write(data);
+      if (!chunk) return;
+      if (refusing) {
+        const { terminated, open } = tallyRecords(chunk, 0);
+        refused += terminated;
+        refusedOpen = terminated > 0 ? open : true;
+        return;
+      }
       pending += chunk;
       let separator = pending.indexOf('\0');
       while (separator >= 0) {
-        onRecord(pending.slice(0, separator));
+        if (onRecord(pending.slice(0, separator)) === false) {
+          const { terminated, open } = tallyRecords(pending, 0);
+          refusing = true;
+          refused = terminated;
+          refusedOpen = open;
+          pending = '';
+          return;
+        }
         pending = pending.slice(separator + 1);
         separator = pending.indexOf('\0');
       }
@@ -375,8 +441,9 @@ function spawnNulRecords(
         reject(new Error(scrubGitCredentials(stderr).trim() || `git exited with code ${code}.`));
         return;
       }
-      if (pending) onRecord(pending);
-      resolvePromise();
+      if (refusing) refused += refusedOpen ? 1 : 0;
+      else if ((pending += decoder.end()) && onRecord(pending) === false) refused = 1;
+      resolvePromise(refused);
     });
   });
 }
