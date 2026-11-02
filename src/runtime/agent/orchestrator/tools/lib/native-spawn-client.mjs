@@ -687,10 +687,14 @@ export function tryNativeSpawn({ shell, argv, spawnOptions = {}, cwd } = {}) {
     fail(error) {
       server.pending.delete(id);
       const err = error instanceof Error ? error : new Error(String(error || 'native spawn failed'));
-      if (fake.exitCode == null) {
-        fake.exitCode = 1;
+      // `root_exit` sets exitCode before the output pumps drain and 'close'
+      // arrives; a transport lost in that window must still end the request
+      // (with the known exit), or its waiters hang until their own timeout.
+      if (!fake._closed) {
+        if (fake.exitCode == null) fake.exitCode = 1;
+        fake._closed = true;
         fake.emit('error', err);
-        fake.emit('close', 1, null);
+        fake.emit('close', fake.exitCode, fake.signalCode);
       }
       _recomputeServerRef(server);
     },
