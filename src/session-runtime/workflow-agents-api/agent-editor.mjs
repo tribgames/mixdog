@@ -1186,17 +1186,30 @@ export function createAgentEditorApi(deps) {
   }
   // Replaces the policy (null removes the field). Every other key — avatar,
   // persona, frontmatter — is kept; for Mixy only its agent.json is touched.
-  async function setAgentConnectorPolicy(agentId, connectors) {
+  const setAgentConnectorPolicy = (agentId, connectors) => updateAgentConnectorPolicy(agentId, () => connectors);
+
+  // Read-modify-write of the policy as one turn of the id's lifecycle queue,
+  // like every other writer of its definition: `derive(current)` sees the
+  // policy as stored when that turn comes (not as it was when the call was
+  // made) and may throw to refuse (the remote no-widen check); what it returns
+  // is stored. Nothing awaits between `derive` and the write's start.
+  function updateAgentConnectorPolicy(agentId, derive) {
     const id = agentEditorId(agentId);
-    const next = connectorPolicyInput(connectors);
-    getAgentConnectorPolicy(id);
-    assertManifestWritable(join(id === LEAD_AGENT_ID ? leadDir() : userDir(resolveDataDir(deps), id), 'agent.json'));
-    if (id === LEAD_AGENT_ID) setLeadConnectorPolicy(next);
-    else {
-      const { name, description, body } = loadAgentDefinition(resolveDataDir(deps), id);
-      await saveAgentDefinition({ id, name, description, body, connectors: next });
-    }
-    return getAgentConnectorPolicy(id);
+    if (!id) return Promise.reject(new Error(`unknown agent "${agentId}"`));
+    return withLifecycle(resolveDataDir(deps), id, async () => {
+      const dataDir = resolveDataDir(deps);
+      const next = connectorPolicyInput(derive(getAgentConnectorPolicy(id)));
+      assertManifestWritable(join(id === LEAD_AGENT_ID ? leadDir() : userDir(dataDir, id), 'agent.json'));
+      if (id === LEAD_AGENT_ID) setLeadConnectorPolicy(next);
+      else {
+        const { name, description, body } = loadAgentDefinition(dataDir, id);
+        const payload = { id, name, description, body, connectors: next };
+        const text = String(body || '').trim();
+        if (!text) throw new Error('AGENT.md body must not be empty');
+        await saveLocked(payload, undefined, text, dataDir, resolveSaveTarget(loadAgentDefinition, payload, dataDir));
+      }
+      return getAgentConnectorPolicy(id);
+    });
   }
 
   return {
@@ -1204,6 +1217,7 @@ export function createAgentEditorApi(deps) {
     migrateBotStore: () => migrateBotStore(deps),
     getAgentConnectorPolicy,
     setAgentConnectorPolicy,
+    updateAgentConnectorPolicy,
     listAgents,
     getAgentDefinition,
     getAgentAvatarImage,

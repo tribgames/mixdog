@@ -52,6 +52,9 @@ const editor = {
     writeFileSync(agentFile(id), JSON.stringify(manifest));
     return readConnectorsFile(agentFile(id));
   },
+  async updateAgentConnectorPolicy(id, derive) {
+    return this.setAgentConnectorPolicy(id, derive(this.getAgentConnectorPolicy(id)));
+  },
 };
 const api = createAgentConnectorsApi({ mcpStatus: () => ({ servers: [] }), getMcpTools: () => [] }, editor);
 
