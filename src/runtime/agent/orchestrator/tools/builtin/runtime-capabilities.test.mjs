@@ -224,6 +224,30 @@ test('an unfinished prewarm falls back to the synchronous probe with identical o
   }
 });
 
+test('awaiting the prewarm promise lets a never-probed root compose without spawning git on the event loop', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  const root = prewarmFixture();
+  try {
+    await prewarmGitStartupProbes([root]);
+    const spawns = countMainThreadSpawns(t);
+    let gitLine;
+    let cwdLine;
+    try {
+      gitLine = describeGitStartupState({ cwd: root, capabilities: { available: ['git'] } });
+      cwdLine = describeCwdStartupEntries({ cwd: root });
+    } finally {
+      spawns.restore();
+    }
+    assert.deepEqual(spawns.calls, [], 'composition spawned git on the event loop thread');
+    assert.match(gitLine, /; changes present\.$/);
+    assert.equal(cwdLine, expectedCwdLine);
+  } finally {
+    await settleGitStartupProbes();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('Git startup state preserves the non-repository message', () => {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-nonrepo-startup-'));
   try {

@@ -25,9 +25,10 @@
  * Any read failure means no system proxy.
  */
 
-import { execFileSync } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { isIP } from 'node:net';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
 import { adoptPrivateProxy, isLocalHost, normalizeHost } from './http-agent.mjs';
 
 const INTERNET_SETTINGS_KEY = 'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Internet Settings';
@@ -69,27 +70,58 @@ const lookups = new Map();
 let socksReported = false;
 let failureReported = false;
 
-/** The rows of `reg query <key>` output as a name → data map; null when the query failed. */
+const execFileAsync = promisify(execFile);
+const REG_QUERY_OPTIONS = {
+  encoding: 'utf8',
+  timeout: 2000,
+  maxBuffer: 256 * 1024,
+  windowsHide: true,
+};
+
+function regExe() {
+  return join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'reg.exe');
+}
+
+/** The rows of `reg query` output as a name → data map. */
+function parseRegistryOutput(out) {
+  const values = new Map();
+  for (const row of out.split(/\r?\n/)) {
+    // "    Name    REG_TYPE    data" (data is absent for an empty string)
+    const match = row.match(/^ {4}(\S.*?) {4}(REG_[A-Z_]+)(?: {4}(.*))?$/);
+    if (match) values.set(match[1].toLowerCase(), (match[3] ?? '').trim());
+  }
+  return values;
+}
+
+/** `reg query <key>` as a name → data map; null when the query failed. */
 function queryRegistryKey(key) {
   try {
-    const exe = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'reg.exe');
-    const out = execFileSync(exe, ['query', key], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 2000,
-      maxBuffer: 256 * 1024,
-      windowsHide: true,
-    });
-    const values = new Map();
-    for (const row of out.split(/\r?\n/)) {
-      // "    Name    REG_TYPE    data" (data is absent for an empty string)
-      const match = row.match(/^ {4}(\S.*?) {4}(REG_[A-Z_]+)(?: {4}(.*))?$/);
-      if (match) values.set(match[1].toLowerCase(), (match[3] ?? '').trim());
-    }
-    return values;
+    return parseRegistryOutput(
+      execFileSync(regExe(), ['query', key], { ...REG_QUERY_OPTIONS, stdio: ['ignore', 'pipe', 'ignore'] })
+    );
   } catch {
     return null;
   }
+}
+
+/** queryRegistryKey without holding the event loop for the reg.exe spawn. */
+async function queryRegistryKeyAsync(key) {
+  try {
+    const { stdout } = await execFileAsync(regExe(), ['query', key], REG_QUERY_OPTIONS);
+    return parseRegistryOutput(stdout);
+  } catch {
+    return null;
+  }
+}
+
+function proxySettings(settings) {
+  if (!settings) return null;
+  return {
+    proxyEnable: settings.get('proxyenable') ?? null,
+    proxyServer: settings.get('proxyserver') ?? null,
+    proxyOverride: settings.get('proxyoverride') ?? null,
+    autoConfigUrl: settings.get('autoconfigurl') ?? null,
+  };
 }
 
 /**
@@ -98,14 +130,11 @@ function queryRegistryKey(key) {
  * Internet Settings key cannot be read.
  */
 function readWindowsProxyRegistry() {
-  const settings = queryRegistryKey(INTERNET_SETTINGS_KEY);
-  if (!settings) return null;
-  return {
-    proxyEnable: settings.get('proxyenable') ?? null,
-    proxyServer: settings.get('proxyserver') ?? null,
-    proxyOverride: settings.get('proxyoverride') ?? null,
-    autoConfigUrl: settings.get('autoconfigurl') ?? null,
-  };
+  return proxySettings(queryRegistryKey(INTERNET_SETTINGS_KEY));
+}
+
+async function readWindowsProxyRegistryAsync() {
+  return proxySettings(await queryRegistryKeyAsync(INTERNET_SETTINGS_KEY));
 }
 
 const PROXY_ADDRESS = /^(https?:\/\/)?((?:[a-z0-9_-]+\.)*[a-z0-9_-]+|\[[0-9a-f:]+\]):(\d{1,5})$/i;
@@ -256,6 +285,20 @@ function discover(reader, log) {
   } catch {
     return { proxy: null };
   }
+  return discovered(found, log);
+}
+
+async function discoverAsync(reader, log) {
+  let found;
+  try {
+    found = systemProxyFromRegistry(await reader());
+  } catch {
+    return { proxy: null };
+  }
+  return discovered(found, log);
+}
+
+function discovered(found, log) {
   if (!found.proxy) {
     if (!found.silent) log(`[mixdog] system proxy not used: ${found.reason}`);
     return { proxy: null };
@@ -387,6 +430,33 @@ export function adoptSystemProxy(
     apply = adoptPrivateProxy,
   } = {}
 ) {
+  const begun = beginAdoption(env, platform, logLine, apply);
+  return begun === DISCOVER ? finishAdoption(discover(reader, log)) : begun;
+}
+
+/**
+ * adoptSystemProxy for a process that may have to read the Windows registry
+ * (the daemon, the CLI): the reg.exe spawn is awaited instead of held on the
+ * event loop. Everything but that read is shared with adoptSystemProxy; the
+ * decision is settled when the returned promise resolves.
+ */
+export async function adoptSystemProxyAsync(
+  env = process.env,
+  {
+    platform = process.platform,
+    reader = readWindowsProxyRegistryAsync,
+    log: logLine = (line) => process.stderr.write(`${line}\n`),
+    apply = adoptPrivateProxy,
+  } = {}
+) {
+  const begun = beginAdoption(env, platform, logLine, apply);
+  return begun === DISCOVER ? finishAdoption(await discoverAsync(reader, log)) : begun;
+}
+
+const DISCOVER = Symbol('discover');
+
+/** Everything before the registry read: the final result, or DISCOVER when the registry decides. */
+function beginAdoption(env, platform, logLine, apply) {
   const handoff = parseHandoff(env[HANDOFF_VAR]);
   delete env[HANDOFF_VAR];
   active = null;
@@ -402,7 +472,12 @@ export function adoptSystemProxy(
     active = { proxy: null };
     return false;
   }
-  active = handoff ?? (platform === 'win32' ? discover(reader, log) : null);
+  if (!handoff && platform === 'win32') return DISCOVER;
+  return finishAdoption(handoff);
+}
+
+function finishAdoption(decision) {
+  active = decision;
   if (!active?.proxy) return false;
   return ensureRouting();
 }

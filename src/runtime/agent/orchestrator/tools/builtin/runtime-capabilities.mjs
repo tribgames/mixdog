@@ -355,11 +355,15 @@ function _gitIgnoredEntries(directory, names) {
  * Boot-time prewarm: start the off-thread `git status` and `git check-ignore`
  * probes for directories a session is likely to open, so the first session's
  * prompt composition finds finished answers instead of spawning git on the
- * event loop. Never waits and never throws; a directory whose prewarm has not
- * answered yet when a session composes its prompt takes the synchronous probe
- * exactly as without prewarm.
+ * event loop. Never throws; a directory whose prewarm has not answered yet
+ * when a session composes its prompt takes the synchronous probe exactly as
+ * without prewarm. The returned promise (never rejects) settles once the
+ * probes of these directories that were not yet answered have: an async
+ * session-creation path awaits it before the synchronous composition, so that
+ * composition never has to take the blocking probe.
  */
 export function prewarmGitStartupProbes(directories) {
+  const unanswered = [];
   for (const raw of Array.isArray(directories) ? directories : []) {
     if (!raw) continue;
     let directory;
@@ -392,7 +396,12 @@ export function prewarmGitStartupProbes(directories) {
           entry.pending = null;
         });
     }
+    const changeState = _repositoryChangeStates.get(found.root);
+    if (!changeState.ready) unanswered.push(changeState.pending);
+    const ignored = _gitIgnoreObservations.get(directory);
+    if (!ignored.observation) unanswered.push(ignored.pending);
   }
+  return Promise.all(unanswered).then(() => {});
 }
 
 /** Resolves once every in-flight startup git probe has finished. */

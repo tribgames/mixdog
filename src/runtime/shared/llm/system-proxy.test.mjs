@@ -7,6 +7,7 @@ import { Agent, getGlobalDispatcher, request, setGlobalDispatcher } from 'undici
 import { adoptPrivateProxy, createRoutedProxyDispatcher } from './http-agent.mjs';
 import {
   adoptSystemProxy,
+  adoptSystemProxyAsync,
   attachSystemProxyResolver,
   HANDOFF_VAR,
   parseProxyServer,
@@ -333,6 +334,42 @@ test('a disabled or unreadable registry is quiet and a throwing reader stays dir
   );
   assert.equal(result.result, false);
   assert.deepEqual(JSON.parse(systemProxyHandoffEnv()[HANDOFF_VAR]), { proxy: null });
+});
+
+test('adoptSystemProxyAsync awaits the registry read and decides exactly as adoptSystemProxy', async () => {
+  const run = async (values, env = {}) => {
+    const logs = [];
+    const applied = [];
+    let settled = false;
+    const pending = adoptSystemProxyAsync(env, {
+      platform: 'win32',
+      reader: () => new Promise((resolve) => setTimeout(() => resolve(values), 30)),
+      log: (line) => logs.push(line),
+      apply: (route) => applied.push(route),
+    });
+    pending.then(() => {
+      settled = true;
+    });
+    // The event loop is free while the registry is read: the loop turns and
+    // the decision is still open.
+    await new Promise((resolve) => setImmediate(resolve));
+    const openWhileReading = !settled;
+    const result = await pending;
+    return { result, logs, applied, openWhileReading, handoff: systemProxyHandoffEnv() };
+  };
+  const proxied = await run(STATIC);
+  assert.ok(proxied.openWhileReading, 'the event loop kept running while the registry was read');
+  assert.equal(proxied.result, true);
+  assert.equal(proxied.applied.length, 1);
+  const sync = adopt(STATIC);
+  assert.equal(sync.result, true);
+  assert.deepEqual(proxied.handoff, systemProxyHandoffEnv());
+  const declined = await run({ ...STATIC, proxyOverride: 'secret*host.test' });
+  assert.equal(declined.result, false);
+  assert.match(declined.logs.join('\n'), /exceptions cannot be translated/);
+  assert.equal((await run({ ...STATIC, proxyEnable: '0x0' })).logs.length, 0);
+  const handed = await run(STATIC, { [HANDOFF_VAR]: JSON.stringify({ proxy: null }) });
+  assert.equal(handed.result, false, 'a handoff decides without reading the registry');
 });
 
 test('without a resolver the fallback sends excepted hosts, dotless names and local addresses direct', () => {

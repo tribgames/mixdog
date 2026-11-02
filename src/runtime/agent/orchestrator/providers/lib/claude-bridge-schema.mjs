@@ -168,15 +168,27 @@ function refPointer(node, matches, ptr = '') {
   return undefined;
 }
 
-function assertValidDraft202012(schema) {
+function newAjv() {
   const ajv = new Ajv2020({ strict: false, validateFormats: false, validateSchema: false });
   // Draft-04 `id` is an annotation providers ignore; Ajv would refuse it.
   ajv.removeKeyword('id');
   ajv.addKeyword('id');
-  if (!ajv.validateSchema(schema)) {
-    const [error] = ajv.errors;
+  return ajv;
+}
+
+// Compiling the 2020-12 meta-schema validator costs 10-25 ms per Ajv instance
+// and runs on the event loop. validateSchema keeps no per-schema state, so one
+// shared instance pays it once; each schema itself still compiles on a fresh
+// instance (a shared one would reject a repeated or conflicting `$id`).
+let metaSchemaAjv;
+
+function assertValidDraft202012(schema) {
+  metaSchemaAjv ??= newAjv();
+  if (!metaSchemaAjv.validateSchema(schema)) {
+    const [error] = metaSchemaAjv.errors;
     throw new SchemaProblem(error.instancePath, `not a valid JSON Schema 2020-12 schema: ${error.message}`);
   }
+  const ajv = newAjv();
   try {
     ajv.compile(schema);
   } catch (error) {

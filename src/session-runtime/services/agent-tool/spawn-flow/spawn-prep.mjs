@@ -7,6 +7,7 @@
 import { presetKey, readAgentFirstResponseTimeoutMs, writeAgentStatuslineRoute } from '../helpers.mjs';
 import { resolveAgentWatchdogPolicy } from '../../../../runtime/agent/orchestrator/agent-runtime/agent-progress-watchdog.mjs';
 import { prepareAgentSession } from '../../../../runtime/agent/orchestrator/agent-runtime/session-builder.mjs';
+import { prewarmGitStartupProbes } from '../../../../runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs';
 import { getProvider } from '../../../../runtime/agent/orchestrator/providers/registry.mjs';
 import { resolveRouteContextState } from '../../../route-state.mjs';
 import { contextSelectionFromState } from '../../../../runtime/agent/orchestrator/runtime-core/route-context-state.mjs';
@@ -106,10 +107,15 @@ export function createSpawnPreparer({
     if (plan.preset.contextPercent || plan.preset.contextTokens) {
       Object.assign(sessionSpec, contextSelectionFromState(resolveRouteContextState(plan.preset, null), plan.preset));
     }
+    // Session creation composes the git startup line synchronously; its probes
+    // answer off-thread here so that composition never spawns git on the event loop.
+    const gitProbes = prewarmGitStartupProbes([sessionSpec.cwd]);
     if (sessionSurface?.canonical === true && typeof sessionSurface.createChild === 'function') {
+      await gitProbes;
       return sessionSurface.createChild({ spec: sessionSpec, prompt: plan.prompt, tag: plan.tag });
     }
     await ensureProvider(plan.config, plan.preset.provider);
+    await gitProbes;
     if (prepState?.timedOut) {
       throw new Error('agent spawn prep timed out before session bind');
     }
