@@ -142,4 +142,24 @@ function _isBenignCrash(err) {
   return BENIGN_CRASH_MESSAGE_RE.test(msg);
 }
 
-export { isChannelsDegraded, logCrash, _isBenignCrash, BENIGN_CRASH_FATAL_THRESHOLD, BENIGN_CRASH_STREAK_WINDOW_MS };
+// Zombie-Lead repro (2026-07-02): logCrash-then-survive left a worker alive
+// after an unhandled rejection whose async state was already corrupted
+// (observed: EPERM on active-instance.json rename retry), so it spun
+// forever doing nothing useful — a zombie Lead. A benign error is fatal on repeat.
+let _benignCrashStreak = 0;
+let _lastBenignCrashAt = 0;
+/** Records an uncaught error to crash.log and says whether the process must
+ *  now exit: every non-benign error, and a benign one on its Nth repeat. */
+function crashEndsProcess(label, err) {
+  logCrash(label, err);
+  if (!_isBenignCrash(err)) {
+    _benignCrashStreak = 0;
+    return true;
+  }
+  const now = Date.now();
+  _benignCrashStreak = now - _lastBenignCrashAt <= BENIGN_CRASH_STREAK_WINDOW_MS ? _benignCrashStreak + 1 : 1;
+  _lastBenignCrashAt = now;
+  return _benignCrashStreak >= BENIGN_CRASH_FATAL_THRESHOLD;
+}
+
+export { isChannelsDegraded, logCrash, crashEndsProcess };

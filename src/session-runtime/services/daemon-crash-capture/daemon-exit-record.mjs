@@ -137,8 +137,8 @@ export function installDaemonExitRecorder({
   });
 
   return {
-    setReason(reason, code = 0) {
-      pending = { reason, code, error: null };
+    setReason(reason, code = 0, error = null) {
+      pending = { reason, code, error };
     },
     write,
   };

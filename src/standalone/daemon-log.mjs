@@ -1,5 +1,6 @@
 import path from 'node:path';
 import * as fs from 'node:fs/promises';
+import * as fsSync from 'node:fs';
 import { inspect } from 'node:util';
 import { PLUGIN_LOG_MAX_BYTES, PLUGIN_LOG_KEEP_BYTES } from '../lib/mixdog-debug.cjs';
 
@@ -9,6 +10,7 @@ const LOG_QUEUE_MAX_BYTES = 512 * 1024;
 export function createDaemonLog({
   logPath,
   fileSystem = fs,
+  syncFileSystem = fsSync,
   stderr = process.stderr,
   stdout = process.stdout,
   consoleTarget = console,
@@ -36,15 +38,20 @@ export function createDaemonLog({
       }
     }
     if (fileBytes + incomingBytes <= PLUGIN_LOG_MAX_BYTES) return;
+    // Read-tail and rewrite run in one synchronous step: flushSync() (exit
+    // path) can then never land between them and be truncated away.
+    fileBytes = syncFileSystem.statSync(logPath).size;
     const keep = Math.min(fileBytes, PLUGIN_LOG_KEEP_BYTES);
     const tail = Buffer.allocUnsafe(keep);
-    const handle = await fileSystem.open(logPath, 'r');
+    const handle = syncFileSystem.openSync(logPath, 'r');
     try {
-      const { bytesRead } = await handle.read(tail, 0, keep, Math.max(0, fileBytes - keep));
-      await fileSystem.writeFile(logPath, tail.subarray(0, bytesRead));
+      const bytesRead = syncFileSystem.readSync(handle, tail, 0, keep, Math.max(0, fileBytes - keep));
+      syncFileSystem.writeFileSync(logPath, tail.subarray(0, bytesRead));
       fileBytes = bytesRead;
     } finally {
-      await handle.close().catch(() => {});
+      try {
+        syncFileSystem.closeSync(handle);
+      } catch {}
     }
   }
 
@@ -122,6 +129,22 @@ export function createDaemonLog({
     }
   }
 
+  /** Writes whatever is still queued, synchronously, for exits that never
+   *  return to the event loop (process.exit, a fatal error). No rotation: the
+   *  queue is bounded and the next async write rotates. */
+  function flushSync() {
+    clearFlushTimer();
+    const batch = takeBatch();
+    if (!batch) return;
+    try {
+      syncFileSystem.mkdirSync(path.dirname(logPath), { recursive: true });
+      syncFileSystem.appendFileSync(logPath, batch, 'utf8');
+      if (fileBytes !== null) fileBytes += Buffer.byteLength(batch);
+    } catch {
+      fileBytes = null;
+    }
+  }
+
   function log(line) {
     const text = `[daemon] ${line}`;
     // The spawner mirrors stderr before ready; after ready the daemon owns the
@@ -178,6 +201,7 @@ export function createDaemonLog({
   return {
     log,
     flush,
+    flushSync,
     installRedirect,
     enableFileLogging: () => {
       fileLogging = true;

@@ -96,6 +96,7 @@ import { registerTranscriptPurgeHook } from '../session-runtime/session-transcri
 import { createBootPhaseProfiler } from './boot-phase-profiler.mjs';
 import { createDaemonBootCoordinator } from './daemon-boot-coordinator.mjs';
 import { createDaemonLog } from './daemon-log.mjs';
+import { crashEndsProcess } from '../runtime/channels/lib/crash-log.mjs';
 import { daemonCrashCaptureDir } from '../session-runtime/services/daemon-crash-capture/paths.mjs';
 import {
   installDaemonExitRecorder,
@@ -139,9 +140,13 @@ const LOG_PATH = path.join(DATA_DIR, 'daemon.log');
 const {
   log,
   flush: flushDaemonLogs,
+  flushSync: flushDaemonLogsSync,
   enableFileLogging,
   installRedirect: installDaemonLogRedirect,
 } = createDaemonLog({ logPath: LOG_PATH });
+// Every synchronous exit (process.exit in a backstop or a lost claim, a fatal
+// error) skips the async flush in shutdown(); keep the queued tail.
+process.on('exit', flushDaemonLogsSync);
 
 // Every way this process ends leaves a reason + exit code in its crash-capture
 // sidecar (the launcher usually cannot: it is often gone before the daemon).
@@ -234,11 +239,25 @@ const SHUTDOWN_BUDGET_MS = 15_000;
 /** Graceful PostgreSQL stop bound inside that budget (pg_ctl stop -m fast). */
 const PG_STOP_TIMEOUT_MS = 6_000;
 
-async function shutdown(reason, code = 0) {
+// A fatal error seen at any point (also while a teardown is already running)
+// decides the exit status; both exit paths of shutdown() read it.
+let fatalExit = null;
+
+/** Records how this shutdown ends and returns the code to exit with. */
+function settleExit(reason, code, error) {
+  if (fatalExit) {
+    exitRecorder.setReason(`shutdown: ${reason} (fatal ${fatalExit.label})`, 1, fatalExit.detail);
+    return 1;
+  }
+  exitRecorder.setReason(`shutdown: ${reason}`, code, error);
+  return code;
+}
+
+async function shutdown(reason, code = 0, error = null) {
   if (shuttingDown) return;
   shuttingDown = true;
   ownerHeartbeat?.stop();
-  exitRecorder.setReason(`shutdown: ${reason}`, code);
+  settleExit(reason, code, error);
   if (shutdownRecheckTimer) {
     clearTimeout(shutdownRecheckTimer);
     shutdownRecheckTimer = null;
@@ -249,8 +268,7 @@ async function shutdown(reason, code = 0) {
   // clean path still exits the moment teardown finishes.
   const forcedExit = setTimeout(() => {
     log('shutdown budget exceeded, forcing exit');
-    exitRecorder.setReason(`shutdown: ${reason} (budget exceeded, forced exit)`, code);
-    process.exit(code);
+    process.exit(settleExit(`${reason} (budget exceeded, forced exit)`, code, error));
   }, SHUTDOWN_BUDGET_MS);
   forcedExit.unref?.();
   // PostgreSQL stops after its users below (durable writes drained first), or
@@ -347,7 +365,7 @@ async function shutdown(reason, code = 0) {
     releaseSingletonOwner(OWNER_PATH, process.pid);
   } catch {}
   await flushDaemonLogs();
-  process.exit(code);
+  process.exit(settleExit(reason, code, error));
 }
 
 /** Work actually running right now, across both front doors. Self-shutdown
@@ -415,6 +433,7 @@ daemonTelemetry = createDaemonTelemetry({
  *  evict a busy one, so every self-shutdown trigger checks BOTH registries. */
 let _lastDeferredLog = { key: '', at: 0, suppressed: 0 };
 function maybeSelfShutdown(reason) {
+  if (shuttingDown) return;
   const channelClients = transport?.clientCount ?? 0;
   const sessionClients = sessionTransport?.clientCount ?? 0;
   const remoteClients = sessionService?.externalClientCount ?? 0;
@@ -1206,6 +1225,37 @@ process.on('SIGBREAK', () => {
 process.on('message', (msg) => {
   if (msg && msg.type === 'shutdown') void shutdown('IPC shutdown');
 });
+
+// The daemon, not the channels runtime it hosts, ends the process on a fatal
+// error, so teardown (session stop, PG stop, log flush) always runs. Benign
+// transport errors stay survivable exactly as the channels runtime treats them.
+function onFatalError(label, err) {
+  // 1. Diagnostics first, synchronously: crash.log (inside crashEndsProcess),
+  //    the exit record and the daemon log never wait on teardown.
+  if (!crashEndsProcess(label, err)) return;
+  const detail = err?.stack || err?.message || String(err);
+  process.exitCode = 1;
+  fatalExit ||= { label, detail };
+  log(`${label}: ${err?.message || err}`);
+  flushDaemonLogsSync();
+  if (shuttingDown) {
+    // A teardown already running (second fatal, or a signal) keeps its own
+    // budget and is not restarted, but it now ends nonzero with this error.
+    exitRecorder.setReason(`fatal ${label} during shutdown`, 1, detail);
+    exitRecorder.write({ reason: `fatal ${label} during shutdown`, code: 1, error: detail });
+    return;
+  }
+  exitRecorder.write({ reason: `fatal ${label}`, code: 1, error: detail });
+  // 2./3. shutdown() flips shuttingDown synchronously (admission closes) and
+  //    carries its own bounded budget with a forced exit. A second fatal error
+  //    during teardown returns early there instead of re-entering.
+  // 4. Whatever teardown does, the process ends nonzero.
+  shutdown(`fatal ${label}`, 1, detail)
+    .catch((e) => log(`fatal shutdown failed: ${e?.message || e}`))
+    .finally(() => process.exit(1));
+}
+process.on('unhandledRejection', (err) => onFatalError('unhandled rejection', err));
+process.on('uncaughtException', (err) => onFatalError('uncaught exception', err));
 
 main().catch((err) => {
   log(`fatal boot error: ${err?.stack || err?.message || err}`);

@@ -20,13 +20,7 @@ import {
 } from './runtime-paths.mjs';
 import { createConfigReloadWatch } from './config-reload-watch.mjs';
 import { bootProfile, utcTimestamp } from './boot-profile.mjs';
-import {
-  isChannelsDegraded,
-  logCrash,
-  _isBenignCrash,
-  BENIGN_CRASH_FATAL_THRESHOLD,
-  BENIGN_CRASH_STREAK_WINDOW_MS,
-} from './crash-log.mjs';
+import { isChannelsDegraded, crashEndsProcess } from './crash-log.mjs';
 import { createParentBridge } from './parent-bridge.mjs';
 import { createToolDispatch } from './tool-dispatch.mjs';
 import { createOwnerHeartbeat } from './owner-heartbeat.mjs';
@@ -34,23 +28,8 @@ import { runWorkerIpc } from './worker-ipc.mjs';
 import { createOwnedRuntime } from './owned-runtime.mjs';
 import { runWorkerBootstrap } from './worker-bootstrap.mjs';
 const _require = createRequire(import.meta.url);
-// Zombie-Lead repro (2026-07-02): logCrash-then-survive left a worker alive
-// after an unhandled rejection whose async state was already corrupted
-// (observed: EPERM on active-instance.json rename retry), so it spun
-// forever doing nothing useful — a zombie Lead. Fatal-exit on repeat.
-let _benignCrashStreak = 0;
-let _lastBenignCrashAt = 0;
 function _fatalCrash(label, err) {
-  logCrash(label, err);
-  const benign = _isBenignCrash(err);
-  if (benign) {
-    const now = Date.now();
-    _benignCrashStreak = now - _lastBenignCrashAt <= BENIGN_CRASH_STREAK_WINDOW_MS ? _benignCrashStreak + 1 : 1;
-    _lastBenignCrashAt = now;
-    if (_benignCrashStreak < BENIGN_CRASH_FATAL_THRESHOLD) return;
-  } else {
-    _benignCrashStreak = 0;
-  }
+  if (!crashEndsProcess(label, err)) return;
   Promise.resolve()
     .then(() => (typeof stop === 'function' ? stop(`fatal:${label}`) : null))
     .catch(() => {})
@@ -69,8 +48,12 @@ function _fatalCrash(label, err) {
     } catch {}
   }, 3000).unref?.();
 }
-process.on('unhandledRejection', (err) => _fatalCrash('unhandled rejection', err));
-process.on('uncaughtException', (err) => _fatalCrash('uncaught exception', err));
+// Inside the daemon host the daemon owns fatal handling: exiting from here
+// would skip its shutdown (log line, PG stop, session teardown).
+if (process.env.MIXDOG_DAEMON_HOST !== '1') {
+  process.on('unhandledRejection', (err) => _fatalCrash('unhandled rejection', err));
+  process.on('uncaughtException', (err) => _fatalCrash('uncaught exception', err));
+}
 if (process.env.MIXDOG_CHANNELS_NO_CONNECT) {
   process.exit(0);
 }
