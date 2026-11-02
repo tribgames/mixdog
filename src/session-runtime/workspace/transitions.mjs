@@ -24,6 +24,7 @@ import {
   resetReadStateAfterCompaction,
 } from '../../runtime/agent/orchestrator/session/cache/read-cache.mjs';
 import { buildWorkspacePromptContext } from '../../runtime/agent/orchestrator/session/manager/session-prompt-composition.mjs';
+import { prewarmGitStartupProbes } from '../../runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs';
 import { refreshSessionWorkspaceContext } from '../../runtime/agent/orchestrator/session/manager/prompt-utils.mjs';
 import { AGENT_OWNER } from '../../runtime/agent/orchestrator/agent-owner.mjs';
 import { _liveSessions } from '../../runtime/agent/orchestrator/session/store/live-state.mjs';
@@ -71,6 +72,9 @@ export async function refreshWorkspacePrompt(
   // results. Conversation text remains historical evidence, not a file cache.
   clearReadDedupSession(session?.id);
   resetReadStateAfterCompaction(session?.id);
+  // The new root's git probes answer off-thread, so the synchronous prompt
+  // composition below finds them instead of spawning git on the event loop.
+  await prewarmGitStartupProbes([cwd]);
   const { environmentContext, instructionFilesContext } = buildWorkspacePromptContext(session, cwd, {
     instructionFilesMode,
   });

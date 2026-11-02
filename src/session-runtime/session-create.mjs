@@ -8,6 +8,7 @@ import { runAbortable, throwIfAborted } from '../runtime/shared/abort-race.mjs';
 import { elapsedMs, prepareRoute } from './session-create/route-prep.mjs';
 import { materializeSession, prewarmWsTransport } from './session-create/materialize.mjs';
 import { dispatchSessionStart } from './session-create/session-start-hook.mjs';
+import { prewarmGitStartupProbes } from '../runtime/agent/orchestrator/tools/builtin/runtime-capabilities.mjs';
 import { SessionClosedError } from '../runtime/agent/orchestrator/session/manager/session-errors.mjs';
 import {
   SessionAddressError,
@@ -67,7 +68,11 @@ export function createSessionCreator(deps, routes) {
   }
 
   async function buildSession(reason, signal, startedAt) {
+    // materializeSession composes the git startup line synchronously; its
+    // probes answer off-thread alongside route prep instead of blocking there.
+    const gitProbes = prewarmGitStartupProbes([rt.currentCwd]);
     const { coreMemoryContext, providerImpl } = await prepareRoute(deps, routes, signal, startedAt);
+    await gitProbes;
     // The fence/record may have changed during the awaits above (close during
     // reservation prewarm): re-validate synchronously right before adoption.
     assertAdmissionOpen(rt);

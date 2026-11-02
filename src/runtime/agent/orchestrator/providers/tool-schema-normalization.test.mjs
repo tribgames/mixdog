@@ -421,3 +421,27 @@ test('lowering is targeted: valid constraints survive, draft-07 $ref semantics o
     assert.equal(wireInputSchema(valid, rule).schema, valid);
   }
 });
+
+test('schemas sharing an $id validate independently and many distinct schemas validate quickly', async () => {
+  const { wireInputSchema } = await import('./lib/claude-bridge-schema.mjs');
+  const withId = (field) => ({
+    $id: 'https://example.test/tool.json',
+    type: 'object',
+    properties: { [field]: { type: 'string' } },
+  });
+  assert.ok(wireInputSchema(withId('a'), 'anthropic').schema);
+  assert.ok(wireInputSchema(withId('b'), 'anthropic').schema);
+  assert.ok(wireInputSchema({ type: 'object', properties: { x: { type: 'nope' } } }, 'anthropic').reason);
+  // The 2020-12 meta-schema validator is compiled once, not once per schema
+  // (10-25 ms each on the event loop): 60 distinct schemas stay far under the
+  // ~600 ms the per-schema compile cost.
+  const started = performance.now();
+  for (let i = 0; i < 60; i += 1) {
+    const { schema } = wireInputSchema(
+      { type: 'object', properties: { [`field${i}`]: { type: 'array', items: { type: 'number' } } } },
+      'anthropic'
+    );
+    assert.ok(schema);
+  }
+  assert.ok(performance.now() - started < 300, `60 schemas took ${performance.now() - started} ms`);
+});

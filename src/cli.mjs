@@ -28,7 +28,7 @@ process.env.NODE_ENV ||= 'production';
 // process and in every child (the daemon included). On Windows without any
 // proxy variable, the static system proxy routes this process's own fetch and
 // is handed to the daemon this CLI starts, never exported as environment.
-(await import('./runtime/shared/llm/system-proxy.mjs')).adoptSystemProxy();
+await (await import('./runtime/shared/llm/system-proxy.mjs')).adoptSystemProxyAsync();
 (await import('./runtime/shared/llm/http-agent.mjs')).adoptEnvProxy();
 
 let swapped = false;
