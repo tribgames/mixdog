@@ -486,7 +486,7 @@ export function SessionGoalIsland({ snapshot }: { snapshot: Snapshot }) {
   const kind = goal ? goalStateKind(goal, displayStatus) : todoStateKind(progress);
   const stateLabel = goal
     ? goalStateLabel(goal, kind, displayStatus)
-    : t(kind === 'blocked' ? 'Blocked' : kind === 'complete' ? 'Complete' : 'In progress');
+    : t(kind === 'complete' ? 'Complete' : 'In progress');
   const segmentTime = goal ? goalSegmentTimeLabel(goal, clock) : '';
   const objective = String(goal?.objective || '');
   const title = String(goal?.title || objective || t('Goal'));

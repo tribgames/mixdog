@@ -160,7 +160,11 @@ test('todo progress counts finished steps of the counted ones; abandoned work is
     blocked: true,
     inProgress: true,
   });
-  assert.equal(todoStateKind(todoProgress(todoOf(tasks))), 'blocked');
+  assert.equal(
+    todoStateKind(todoProgress(todoOf(tasks))),
+    'active',
+    'a blocked step (waiting on an agent or a shell) does not turn the list into an alarm'
+  );
   assert.equal(todoStateKind(todoProgress(todoOf([{ content: 'a', status: 'in_progress' }]))), 'active');
   assert.equal(todoStateKind(todoProgress(todoOf([{ content: 'a', status: 'completed' }]))), 'complete');
   assert.equal(

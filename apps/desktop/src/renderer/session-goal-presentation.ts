@@ -177,9 +177,9 @@ export function todoProgress(todo: TodoSnapshot | null | undefined): TodoProgres
 }
 
 /** The ring state of a list shown without a Goal: finished only when something
- *  was accomplished and nothing is left; a blocked step outranks working. */
+ *  was accomplished and nothing is left. A blocked step is routine (waiting on
+ *  an agent or a shell) and is shown on its own row, never as an alarm here. */
 export function todoStateKind(progress: TodoProgress): GoalStateKind {
-  if (progress.blocked) return 'blocked';
   if (progress.total > 0 && progress.completed >= progress.total) return 'complete';
   return 'active';
 }
