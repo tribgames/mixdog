@@ -29,7 +29,7 @@ export function UsageModeTabs({
   const list = useRef<HTMLDivElement>(null);
   // biome-ignore lint/correctness/useExhaustiveDependencies: a new choice moves the active tab
   useLayoutEffect(() => {
-    list.current?.querySelector('.is-active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    list.current?.querySelector('.is-active')?.scrollIntoView?.({ block: 'nearest', inline: 'nearest' });
   }, [mode]);
   return (
     <Tabs
