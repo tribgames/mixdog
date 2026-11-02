@@ -10,24 +10,28 @@ export const TOOL_DEFS = [
     name: 'visualize',
     title: 'Mixdog Visualize',
     description:
-      'Show the user a finished deliverable you produced or changed (mockups, docs, decks, sheets, PDFs, images, video, local dev pages) in the desktop side panel beside the chat. A summary, plan or report of your own work is not one either: it stays in the chat. Your own check screenshots are not deliverables: look at them with read; open with verify: true only to run check/inspect/capture/export. Panel tabs auto-reload when a file changes, so re-opening after edits is unnecessary. ' +
-      'open: input.targets (1-3 file paths, relative to the working directory or absolute anywhere on this machine; 2-3 = side-by-side comparison; or a single http(s) URL alone, never mixed with files or other URLs), optional label, optional version (show that kept version of a file tab read-only; each open/reload that changes the files keeps a version), optional verify (true = you open only to check your own work with check/inspect/capture/export: the user is not shown the tab and it closes when the turn ends; leave it off for anything the user should see). close: optional tab (omit = all). ' +
+      'Show the user a finished deliverable you produced or changed (mockups, docs, decks, sheets, PDFs, images, video, local dev pages) in the desktop side panel beside the chat. A summary, plan or report of your own work is not one either: it stays in the chat. Your own check screenshots are not deliverables: look at them with read; open with verify: true only to run check/inspect/act/capture/export. Panel tabs auto-reload when a file changes, so re-opening after edits is unnecessary. ' +
+      'open: input.targets (1-3 file paths, relative to the working directory or absolute anywhere on this machine; 2-3 = side-by-side comparison; or a single http(s) URL alone, never mixed with files or other URLs), optional label, optional version (show that kept version of a file tab read-only; each open/reload that changes the files keeps a version), optional verify (true = you open only to check your own work with check/inspect/act/capture/export: the user is not shown the tab and it closes when the turn ends; leave it off for anything the user should see). close: optional tab (omit = all). ' +
       'annotate: tab + add [{selector,label?}] | remove [selector] | clear; HTML pages only, never edits the file. capture: tab + output (.png path). ' +
       'export: tab + format (png|pdf) + output (project-relative path ending .png/.pdf) + optional version (a kept version of the tab) + optional overwrite (true replaces an existing file, only under design/; otherwise an existing file is refused). Writes a record of the approved page inside the project and returns its project-relative path, size/dimensions and the page problems seen while rendering. A single HTML page (file, or inline html/chart) is rendered whole in a hidden window, so the tab need not be on screen (PDF: HTML pages only; PNG has a pixel cap, over it export pdf or shorten the page); any other tab exports as capture does (the displayed tab, PNG only). Same project containment as capture: links and paths outside the working directory are refused. ' +
       'check: tab; HTML pages only; waits briefly for the page to settle and returns only its runtime problems (uncaught errors, unhandled rejections, CSP violations, console errors/warnings, missing local assets). ' +
       'inspect: tab + optional viewport {width,height} (e.g. 375x812 to look at a mobile layout) + optional selector (scope); HTML pages with scripts/styles only (not static mermaid/svg/markdown). Returns a compact text read-out of the rendered page without a screenshot: viewport, landmarks and headings, interactive elements (role, accessible name, selector, x/y/w/h), and layout findings (horizontal overflow, clipped text, overlapping or tiny tap targets, low text contrast, images without alt, unlabeled inputs). Run it (desktop width and, for responsive designs, a mobile width) and fix the findings before reporting; `check` also says when findings exist. Secret field values are never included. ' +
+      'act: tab + steps (1-25, run in order, 15 s in total) + optional pane (1-based, default the first HTML page) + optional output (.png capture of the final state); operates an HTML page (file or inline html/chart) and reads the result. Steps: {do:"click",selector} | {do:"type",selector,text} (replaces the field value, fires input/change) | {do:"key",key,selector?} (a key or chord like "Enter", "Shift+Tab", "Control+a"; to the focused element or the selector) | {do:"scroll",selector?,x?,y?} (selector alone = into view, x/y = pixels to scroll it or the page by) | {do:"wait",ms} or {do:"wait",selector,timeout?} (until it is shown; ms and timeout up to 10000) | {do:"evaluate",script} (one JS expression or IIFE run in the page, promises awaited; its JSON result is returned, cut at 4000 characters). Selectors are CSS, e.g. those inspect reports. Input is simulated in the page with synthetic DOM events (no real mouse or keyboard; Enter in a form field submits it), inside the same sandbox and network limits. Stops at the first failing step and says which and why; returns each step\'s outcome, the evaluate values and the page problems seen. On a tab shown in the panel the user sees it happen; on a verify tab or while your turn holds the panel it runs off screen in a freshly loaded page each call. ' +
       'Any result about a tab ends with a "Page problems" section when the page has problems: fix them in the file and re-check before reporting; never report a page with unresolved problems as done. ' +
       'HTML pages run their scripts, but outside network (CDNs, web fonts, APIs, any other http(s)/ws address) is blocked unless the user allows it for the tab, so mockups must be self-contained; a blocked request appears as a "blocked-network" page problem on open/check. ' +
       'Direct renderers: instead of targets, open takes input.content {kind: mermaid|svg|chart|html|markdown, source, title?} (max 512 KiB; chart = an ECharts option as JSON) and shows it with no file written. ' +
       'Prefer inline content for diagrams, charts and quick sketches; write a file for real mockups that need iteration, scripts or versioning on disk. ' +
       'mermaid, svg and markdown render as static, sanitized output (no scripts, no network). chart (ECharts option JSON, interactive: tooltips, zoom) and html (scripts run) open as in-memory pages with the same protections as HTML file pages (outside network blocked, page problems captured); html content must be self-contained. Re-open with the same title to add a version. A render error (Mermaid parse error, bad chart JSON) is returned as a page problem: fix the source and open again. ' +
       'Tweaks: an HTML page (file or inline html/chart) can declare adjustable parameters in <script type="application/json" id="mx-tweaks">[{id,label,type:color|range|select|toggle,var:"--name" or attr:"data-name",min,max,step,unit,options:[{value,label}],default}] (max 16, keep it to a few meaningful ones). The panel shows a Tweaks drawer and applies changes live to the page root (CSS variables / data attributes your CSS and script read); the chosen values come back with their next message under tweaks: to bake into the file. A malformed block is a "tweaks: <reason>" page problem. ' +
-      'Does not replace browser for clicking/typing. ' +
+      'To check a local HTML page, open it here and operate it with act; never serve it yourself to drive it in browser (browser is for web URLs and real browser input). ' +
       TOOL_SYNC_EXECUTION_CONTRACT,
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['open', 'close', 'annotate', 'capture', 'export', 'check', 'inspect'] },
+        action: {
+          type: 'string',
+          enum: ['open', 'close', 'annotate', 'capture', 'export', 'check', 'inspect', 'act'],
+        },
         input: {
           type: 'object',
           properties: {
@@ -82,7 +86,44 @@ export const TOOL_DEFS = [
             output: {
               type: 'string',
               description:
-                'capture: project path ending .png. export: project path ending .png or .pdf (matching format).',
+                'capture: project path ending .png. export: project path ending .png or .pdf (matching format). act: optional project path ending .png for a capture of the final state.',
+            },
+            steps: {
+              type: 'array',
+              minItems: 1,
+              maxItems: 25,
+              items: {
+                type: 'object',
+                properties: {
+                  do: { type: 'string', enum: ['click', 'type', 'key', 'scroll', 'wait', 'evaluate'] },
+                  selector: { type: 'string', maxLength: 500, description: 'CSS selector of the target element.' },
+                  text: { type: 'string', maxLength: 10000, description: 'type: the new field value.' },
+                  key: { type: 'string', maxLength: 40, description: 'key: a key or chord, e.g. Enter, Shift+Tab.' },
+                  x: { type: 'integer', description: 'scroll: pixels to the right (negative = left).' },
+                  y: { type: 'integer', description: 'scroll: pixels down (negative = up).' },
+                  ms: { type: 'integer', minimum: 1, maximum: 10000, description: 'wait: pause length.' },
+                  timeout: {
+                    type: 'integer',
+                    minimum: 1,
+                    maximum: 10000,
+                    description: 'wait with selector: longest wait for it to be shown (default 5000).',
+                  },
+                  script: {
+                    type: 'string',
+                    maxLength: 20000,
+                    description: 'evaluate: one JS expression or IIFE; its JSON-serializable result is returned.',
+                  },
+                },
+                required: ['do'],
+                additionalProperties: false,
+              },
+              description: 'act: the steps, run in order; the first failure stops the rest.',
+            },
+            pane: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 6,
+              description: 'act: the pane (1-based position in the tab) to operate; default the first HTML page.',
             },
             format: { type: 'string', enum: ['png', 'pdf'], description: 'export: file format.' },
             overwrite: {

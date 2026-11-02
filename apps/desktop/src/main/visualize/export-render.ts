@@ -152,6 +152,26 @@ export async function inspectPageOffscreen(
   );
 }
 
+/** Loads one visualize page off screen at `viewport`, hands its window's
+ *  script runner to `work` (the `act` steps), then, when `capture` says so for
+ *  its result, takes a PNG of what it shows; plus the problems the page showed
+ *  meanwhile. */
+export async function actPageOffscreen<T>(
+  pageUrl: string,
+  allowNetwork: boolean,
+  work: (exec: (script: string) => Promise<unknown>) => Promise<T>,
+  options: {
+    viewport: { width: number; height: number };
+    roots?: readonly string[];
+    capture: (result: T) => boolean;
+  }
+): Promise<{ data: { result: T; png?: Buffer }; problems: string[] }> {
+  return withOffscreenPage(pageUrl, allowNetwork, { ...options, size: options.viewport }, async (window) => {
+    const result = await work((script) => window.webContents.executeJavaScript(script));
+    return options.capture(result) ? { result, png: (await window.webContents.capturePage()).toPNG() } : { result };
+  });
+}
+
 /** In a page: whether it shows a password field (a sign-in form), which a
  *  card picture must never capture. */
 export const VISIBLE_PASSWORD_SCRIPT = `[...document.querySelectorAll('input[type="password"]')].some((input) => {

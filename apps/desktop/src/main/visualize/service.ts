@@ -19,6 +19,7 @@ import type {
   VisualizeSessionState,
   VisualizeTabView,
 } from '../../shared/visualize';
+import type { ActStepOutcome, VisualizeActStep } from './act-steps';
 import type { VisualizeServiceContext } from './context';
 import { createExportActions } from './export-actions';
 import { createLeaseGuard, type RequesterFrame } from './lease-guard';
@@ -105,6 +106,22 @@ export interface VisualizeServiceDeps {
     allowNetwork: boolean,
     options: { viewport?: { width: number; height: number }; selector?: string; roots: readonly string[] }
   ): Promise<{ result: unknown; problems: string[] }>;
+  /** `act` in the panel: run `steps` in displayed pane `pane`'s frame (an
+   *  HTML pane of the displayed tab), stopping at the first failure. */
+  act?(sessionId: string, tab: VisualizeTabView, pane: number, steps: VisualizeActStep[]): Promise<ActStepOutcome[]>;
+  /** `act` without the panel: one HTML pane loaded in a hidden window at
+   *  `viewport`, the steps run in it, then (`capture`) a PNG of what it shows,
+   *  with the problems the page showed meanwhile. */
+  actOffscreen?(
+    pane: VisualizePaneView,
+    allowNetwork: boolean,
+    options: {
+      steps: VisualizeActStep[];
+      viewport: { width: number; height: number };
+      roots: readonly string[];
+      capture: boolean;
+    }
+  ): Promise<{ outcomes: ActStepOutcome[]; png?: Buffer; problems: string[] }>;
   /** PNG bytes of the displayed tab body. */
   capture(sessionId: string, tab: VisualizeTabView): Promise<Buffer>;
   /** Resolves once the displayed tab's HTML panes are on screen (so their
@@ -357,6 +374,7 @@ export function createVisualizeService(deps: VisualizeServiceDeps) {
     if (request.action === 'export') return exports.exportToFile(request);
     if (request.action === 'check') return reads.check(request);
     if (request.action === 'inspect') return reads.inspect(request);
+    if (request.action === 'act') return reads.act(request);
     return reads.capture(request);
   };
 

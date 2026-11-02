@@ -33,7 +33,10 @@ tradeoffs, and wording decisions stay in chat even when the topic is UI.
   to grasp: one HTML diagram page, no option machinery.
 **Hard rule — not this tool**: authoring Office files, images, or video belongs
 to their own skills; this skill only shows their output. Clicking, typing, and
-testing a page belong to `browser`.
+testing a local HTML page is `open` then `act` here (`verify: true` for your
+own check); `browser` is for web URLs.
+**Hard rule — never start your own server to check a local HTML page**
+(`python -m http.server`, `npx serve`, …): open it here and operate it with `act`.
 
 ## 2. Mockup loop
 1. **Ground in the real product.** Read the files that define the touched
@@ -64,8 +67,11 @@ testing a page belong to `browser`.
    the file before reporting. Two findings are not defects and may stay: text
    caught mid fade-in, and targets shrunk only because a fixed frame is scaled
    down to fit (craft.md §6); name each one left and why in the report. Then
-   `capture` the tab (or read it through `browser`) and check it against
-   `references/craft.md` §5; fix what fails before the user sees the report.
+   `capture` the tab and check it against `references/craft.md` §5; fix what
+   fails before the user sees the report. A page with interactions (menus,
+   forms, states) is tried with `act`: click, type and press keys on the
+   selectors `inspect` reported, read values with `evaluate`, and pass
+   `output` to capture the state the steps end in.
 6. **Report** in chat: path, the states shown, what to confirm, and the open
    questions. Then stop — implementation waits for approval.
 7. **Iterate in place.** Feedback edits the same file; the tab reloads and the
@@ -116,7 +122,7 @@ or radius are one option.
   write. Long multi-step work shows the first reviewable state, then lets
   reloads carry the rest.
 - `open` shows the user a deliverable. To check your own work (`check`,
-  `inspect`, `capture`, `export`, before/after screenshots), `open` with
+  `inspect`, `act`, `capture`, `export`, before/after screenshots), `open` with
   `verify: true`: the tab stays off the user's panel and chat and closes when
   the turn ends. Opening the same target without it shows it.
 - Decks and documents: the panel shows the converted pages; still run the
