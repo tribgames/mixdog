@@ -5611,6 +5611,7 @@
   "Update (host computer)": "Mettre à jour (ordinateur hôte)",
   "Update (phone app)": "Mettre à jour (application mobile)",
   "Update metadata": "Mettre à jour les métadonnées",
+  "{{name}} plugin updated.": "Plugin {{name}} mis à jour.",
   "Update Mixdog on the PC to download its files.": "Mettez à jour Mixdog sur le PC pour télécharger ses fichiers.",
   "Update Mixdog on these PCs to get their notifications here: {{names}}": "Mettez à jour Mixdog sur ces PC pour recevoir leurs notifications ici : {{names}}",
   "Update Mixdog on this PC to get its notifications on this device.": "Mettez à jour Mixdog sur ce PC pour recevoir ses notifications sur cet appareil.",
