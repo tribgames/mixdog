@@ -67,16 +67,16 @@ function internalKindLabel(kind: string): string {
 
 function requestTime(ts: number, today: string): string {
   const date = new Date(ts);
-  const clock: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
+  const clock: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit', second: '2-digit' };
   return localDayKey(ts) === today
     ? date.toLocaleTimeString(uiFormatLocale(), clock)
     : date.toLocaleString(uiFormatLocale(), { month: 'numeric', day: 'numeric', ...clock });
 }
 
+// A subscription request shows what it would have cost at list (API) prices:
+// the ledger prices it from the catalog like any API request.
 function requestCost(row: Row): string {
-  const plan = statsPlan(String(row.provider || ''), String(row.kind || ''));
-  if (plan === 'subscription') return t('Subscription');
-  if (plan === 'local') return t('Local');
+  if (statsPlan(String(row.provider || ''), String(row.kind || '')) === 'local') return t('Local');
   return row.costUsd == null ? '—' : usageMoney(row.costUsd);
 }
 
@@ -231,9 +231,12 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
               const provider = String(row.provider || '');
               const model = String(row.model || '');
               const status = String(row.status || 'completed');
-              // A substituted request names what was asked for beside what answered.
+              // A substituted request names what was asked for beside the fallback that answered.
               const requested = status === 'substituted' ? String(row.requestedModel || '') : '';
-              const modelTitle = requested && requested !== model ? `${requested} → ${model}` : model;
+              const fallbackFor = requested && requested !== model ? modelDisplayName(requested) : '';
+              const modelTitle = fallbackFor ? `${requested} → ${model}` : model;
+              const providerLabel = usageProviderLabel(resolveProviderDisplayName(provider, providerNames));
+              const subscription = statsPlan(provider, String(row.kind || '')) === 'subscription';
               const internal = String(row.internalKind || '');
               const title = internal
                 ? internalKindLabel(internal)
@@ -259,10 +262,23 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
                   </td>
                   <td className="request-log-model" title={modelTitle}>
                     <b>{modelDisplayName(model, provider)}</b>
-                    <small>{usageProviderLabel(resolveProviderDisplayName(provider, providerNames))}</small>
+                    <small>
+                      {fallbackFor
+                        ? `${providerLabel} · ${t('Fallback for {{model}}', { model: fallbackFor })}`
+                        : providerLabel}
+                    </small>
                   </td>
                   <td className="request-log-num">{statsTokens(row.tokens)}</td>
-                  <td className="request-log-num">{requestCost(row)}</td>
+                  <td
+                    className="request-log-num"
+                    title={
+                      subscription
+                        ? `${t('Est. value')} — ${t('OAuth values use list prices. API costs may be estimates; neither is an invoice.')}`
+                        : undefined
+                    }
+                  >
+                    {requestCost(row)}
+                  </td>
                   <td className="request-log-num">{requestDuration(statsNumber(row.durationMs))}</td>
                   <td className="request-log-status" data-status={status}>
                     {statusLabel(status)}

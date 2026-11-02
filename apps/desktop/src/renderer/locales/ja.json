@@ -1952,6 +1952,7 @@
   "Failed with exit code {{code}}": "終了コード {{code}} で失敗",
   "Failed with signal {{signal}}": "シグナル {{signal}} で失敗",
   "Failing": "失敗しました",
+  "Fallback for {{model}}": "{{model}} の代替",
   "Fallback models must use different providers.": "フォールバック モデルは異なるプロバイダーを使用する必要があります。",
   "Fast": "Fast",
   "Fast available": "Fast利用可",

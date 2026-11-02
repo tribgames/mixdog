@@ -1954,6 +1954,7 @@
   "Failed with exit code {{code}}": "종료 코드 {{code}}로 실패",
   "Failed with signal {{signal}}": "{{signal}} 신호로 실패",
   "Failing": "실패",
+  "Fallback for {{model}}": "{{model}} 대체",
   "Fallback models must use different providers.": "대체 모델은 서로 다른 프로바이더를 사용해야 합니다.",
   "Fast": "Fast",
   "Fast available": "Fast 지원",

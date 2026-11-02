@@ -172,7 +172,16 @@ test('the request log tab lists requests with every column, filters them and loa
   assert.equal(cells(1)[1].textContent, 'Dev session');
   assert.equal(cells(0)[3].textContent, '1.5K');
   assert.equal(cells(0)[4].textContent, '$0.04');
-  assert.equal(cells(1)[4].textContent, t('Subscription'), 'an OAuth route has no per-request bill');
+  // An OAuth route shows its list-price (API) value like any API row; this
+  // fixture model has no catalog price, so its value is unknown, not "Subscription".
+  assert.equal(cells(1)[4].textContent, '—', 'an OAuth route shows its list-price (API) value');
+  assert.match(cells(1)[4].title, new RegExp(`^${t('Est. value')}`), 'and says it is a value, not a bill');
+  assert.match(cells(0)[0].textContent, /\d{2}:\d{2}:\d{2}/, 'the time reads to the second');
+  assert.match(
+    cells(3)[2].querySelector('small').textContent,
+    /astra/i,
+    'a substituted row names the model its fallback answered for'
+  );
   assert.equal(cells(2)[6].dataset.status, 'failed');
   assert.equal(cells(2)[6].textContent, t('Failed'));
   assert.equal(cells(3)[6].textContent, t('Substituted'));
