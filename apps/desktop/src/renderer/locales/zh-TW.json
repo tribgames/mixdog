@@ -5864,6 +5864,8 @@
   "Use letters, digits, \".\", \"_\" or \"-\", separated by \"/\".": "請使用字母、數字、\".\"、\"_\" 或 \"-\"，以 \"/\" 分隔。",
   "Example: {{name}}": "例如: {{name}}",
   "{{count}} unmerged commits": "{{count}} 個未合併的提交",
+  "Background task": "背景工作",
+  "Cache warm-up": "快取預熱",
   "Merged · deleted at next cleanup": "已合併 · 下次清理時刪除",
   "Merged · will be cleaned up": "已合併 · 將被清理",
   "Merged · kept": "已合併 · 保留",
@@ -5878,5 +5880,9 @@
   "No worktrees.": "沒有工作樹。",
   "Ended session": "已結束的工作階段",
   "Open new session here": "在此新增工作階段",
-  "Choose how detailed answers are. Use \"Edit\" to change the instructions of each style.": "選擇回答的詳細程度。使用「編輯」可修改每種風格的指令內容。"
+  "Choose how detailed answers are. Use \"Edit\" to change the instructions of each style.": "選擇回答的詳細程度。使用「編輯」可修改每種風格的指令內容。",
+  "Heartbeat or exec run": "心跳或 exec 執行",
+  "Internal": "內部",
+  "Internal session: a background run Mixdog started itself. You cannot open it as a conversation.": "內部工作階段：由 Mixdog 自行啟動的背景執行，無法作為對話開啟。",
+  "Memory cycle": "記憶週期"
 }

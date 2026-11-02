@@ -595,6 +595,90 @@ test('getUsageRequests with asOf keeps the first page\'s rolling 24-hour bounds'
   }
 });
 
+test('getUsageRequests names an internal dispatch by its source type, even when its session file is gone', async () => {
+  const ledger = new UsageLedger(':memory:');
+  after(() => ledger.close());
+  const now = Date.now();
+  const sources = [
+    ['memory', 'memory-cycle'],
+    ['web', 'native-web-search'],
+    ['warm', 'cache-warm'],
+    ['run', 'exec'],
+    ['nightly', 'schedule'],
+    ['hook', 'webhook'],
+    ['dev', 'lead'],
+    ['other', 'some-new-runner'],
+  ];
+  ledger.record(
+    sources.map(([sessionId, sourceType], index) =>
+      makeUsageRecord({
+        id: `s${index}`,
+        ts: now - (index + 1) * 60_000,
+        provider: 'openai',
+        model: 'gpt-5',
+        sessionId,
+        sourceType,
+        inputTokens: 1,
+      })
+    )
+  );
+  const metadata = {
+    memory: { title: 'Length target: about 2000 characters', sourceType: 'memory-cycle' },
+    nightly: { title: 'Nightly report', sourceType: 'schedule' },
+    dev: { title: 'Dev session' },
+  };
+  const api = createUsageStatsApi({
+    ledger: () => ledger,
+    importHistory: async () => {},
+    sessionMetadata: async (id) => metadata[id] ?? null,
+  });
+  const { requests } = await api.getUsageRequests({});
+  assert.deepEqual(
+    requests.map((row) => [row.internalKind, row.sessionTitle]),
+    [
+      ['memory-cycle', ''],
+      ['native-web-search', ''],
+      ['cache-warm', ''],
+      ['exec', ''],
+      ['', 'Nightly report'],
+      ['', ''],
+      ['', 'Dev session'],
+      ['', ''],
+    ]
+  );
+  assert.ok(requests.every((row) => !('sourceType' in row)), 'the route detail stays inside the API');
+});
+
+test('a background request on a session the user can open keeps its label and adds the kind', async () => {
+  const ledger = new UsageLedger(':memory:');
+  after(() => ledger.close());
+  const now = Date.now();
+  // A cache warm-up records under the real session id and its owner.
+  ledger.record([
+    makeUsageRecord({ id: 'w0', ts: now - 60_000, provider: 'openai', model: 'gpt-5', sessionId: 'reviewer', ownerSessionId: 'dev', sourceType: 'cache-warm', inputTokens: 1 }),
+    makeUsageRecord({ id: 'w1', ts: now - 120_000, provider: 'openai', model: 'gpt-5', sessionId: 'dev', sourceType: 'cache-warm', inputTokens: 1 }),
+    makeUsageRecord({ id: 'w2', ts: now - 180_000, provider: 'openai', model: 'gpt-5', sessionId: 'dev', sourceType: 'lead', inputTokens: 1 }),
+  ]);
+  const metadata = {
+    dev: { title: 'Dev session', sourceType: 'lead' },
+    reviewer: { title: 'agent', agent: 'reviewer', ownerSessionId: 'dev', sourceType: 'cli' },
+  };
+  const api = createUsageStatsApi({
+    ledger: () => ledger,
+    importHistory: async () => {},
+    sessionMetadata: async (id) => metadata[id] ?? null,
+  });
+  const { requests } = await api.getUsageRequests({});
+  assert.deepEqual(
+    requests.map((row) => [row.sessionTitle, row.agentRole, row.agent, row.internalKind, row.backgroundKind]),
+    [
+      ['Dev session', 'reviewer', true, '', 'cache-warm'],
+      ['Dev session', '', false, '', 'cache-warm'],
+      ['Dev session', '', false, '', ''],
+    ]
+  );
+});
+
 test('getUsageRequests pages with a cursor, filters by status and model, and lists the period models', async () => {
   const ledger = new UsageLedger(':memory:');
   after(() => ledger.close());

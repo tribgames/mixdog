@@ -958,6 +958,16 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
 .request-log-time {
   font-variant-numeric: tabular-nums;
 }
+/* Marks a background run the user cannot open: a small muted tag ahead of the name. */
+.request-log-internal {
+  margin-inline-end: 6px;
+  padding: 0 6px;
+  border-radius: var(--mx-radius-sm, 4px);
+  background: var(--mx-hover);
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  font-style: normal;
+}
 .request-log-model b,
 .request-log-model small {
   display: block;

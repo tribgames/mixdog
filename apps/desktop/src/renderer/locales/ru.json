@@ -6062,6 +6062,8 @@
   "Use letters, digits, \".\", \"_\" or \"-\", separated by \"/\".": "Используйте буквы, цифры, \".\", \"_\" или \"-\", разделяя \"/\".",
   "Example: {{name}}": "Пример: {{name}}",
   "{{count}} unmerged commits": "Неслитых коммитов: {{count}}",
+  "Background task": "Фоновая задача",
+  "Cache warm-up": "Прогрев кэша",
   "Merged · deleted at next cleanup": "Слито · удалится при следующей очистке",
   "Merged · will be cleaned up": "Слито · будет очищено",
   "Merged · kept": "Слито · сохранено",
@@ -6076,5 +6078,9 @@
   "No worktrees.": "Нет worktree.",
   "Ended session": "Завершённый сеанс",
   "Open new session here": "Открыть новый сеанс здесь",
-  "Choose how detailed answers are. Use \"Edit\" to change the instructions of each style.": "Выберите, насколько подробными будут ответы. Кнопкой «Изменить» можно править инструкции каждого стиля."
+  "Choose how detailed answers are. Use \"Edit\" to change the instructions of each style.": "Выберите, насколько подробными будут ответы. Кнопкой «Изменить» можно править инструкции каждого стиля.",
+  "Heartbeat or exec run": "Запуск heartbeat или exec",
+  "Internal": "Внутренний",
+  "Internal session: a background run Mixdog started itself. You cannot open it as a conversation.": "Внутренний сеанс: фоновый запуск, начатый самим Mixdog. Открыть его как диалог нельзя.",
+  "Memory cycle": "Цикл памяти"
 }

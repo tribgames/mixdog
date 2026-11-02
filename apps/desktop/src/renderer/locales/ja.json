@@ -5864,6 +5864,8 @@
   "Use letters, digits, \".\", \"_\" or \"-\", separated by \"/\".": "英字、数字、\".\"、\"_\"、\"-\" を \"/\" で区切って使ってください。",
   "Example: {{name}}": "例: {{name}}",
   "{{count}} unmerged commits": "未マージのコミット {{count}} 件",
+  "Background task": "バックグラウンドタスク",
+  "Cache warm-up": "キャッシュのウォームアップ",
   "Merged · deleted at next cleanup": "マージ済み · 次の整理で削除",
   "Merged · will be cleaned up": "マージ済み · 整理の対象",
   "Merged · kept": "マージ済み · 保持",
@@ -5878,5 +5880,9 @@
   "No worktrees.": "ワークツリーはありません。",
   "Ended session": "終了したセッション",
   "Open new session here": "ここで新しいセッションを開く",
-  "Choose how detailed answers are. Use \"Edit\" to change the instructions of each style.": "回答をどれくらい詳しく書くかを選びます。「編集」で各スタイルの指示内容を変更できます。"
+  "Choose how detailed answers are. Use \"Edit\" to change the instructions of each style.": "回答をどれくらい詳しく書くかを選びます。「編集」で各スタイルの指示内容を変更できます。",
+  "Heartbeat or exec run": "ハートビートまたは exec の実行",
+  "Internal": "内部",
+  "Internal session: a background run Mixdog started itself. You cannot open it as a conversation.": "内部セッション: Mixdog 自身が開始したバックグラウンド実行です。会話として開くことはできません。",
+  "Memory cycle": "メモリサイクル"
 }

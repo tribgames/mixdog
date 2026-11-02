@@ -5864,6 +5864,8 @@
   "Use letters, digits, \".\", \"_\" or \"-\", separated by \"/\".": "영문자, 숫자, \".\", \"_\", \"-\"를 사용하고 \"/\"로 구분하세요.",
   "Example: {{name}}": "예: {{name}}",
   "{{count}} unmerged commits": "병합되지 않은 커밋 {{count}}개",
+  "Background task": "백그라운드 작업",
+  "Cache warm-up": "캐시 워밍업",
   "Merged · deleted at next cleanup": "병합됨 · 다음 정리 시 삭제",
   "Merged · will be cleaned up": "병합됨 · 정리 대상",
   "Merged · kept": "병합됨 · 유지됨",
@@ -5878,5 +5880,9 @@
   "No worktrees.": "워크트리가 없습니다.",
   "Ended session": "종료된 세션",
   "Open new session here": "여기서 새 세션 열기",
-  "Choose how detailed answers are. Use \"Edit\" to change the instructions of each style.": "답변을 얼마나 자세히 쓸지 고릅니다. \"편집\"으로 각 스타일의 지침 내용을 바꿀 수 있습니다."
+  "Choose how detailed answers are. Use \"Edit\" to change the instructions of each style.": "답변을 얼마나 자세히 쓸지 고릅니다. \"편집\"으로 각 스타일의 지침 내용을 바꿀 수 있습니다.",
+  "Heartbeat or exec run": "하트비트 또는 exec 실행",
+  "Internal": "내부",
+  "Internal session: a background run Mixdog started itself. You cannot open it as a conversation.": "내부 세션: Mixdog이 스스로 시작한 백그라운드 실행입니다. 대화로 열 수 없습니다.",
+  "Memory cycle": "메모리 사이클"
 }
