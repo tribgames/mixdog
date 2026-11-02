@@ -32,17 +32,29 @@ export function isComputerLifecycleControl(command: ComputerCommand): boolean {
   return computerActionHas(String(command.action || ''), 'lifecycle');
 }
 
-export function requiresForegroundLane(command: ComputerCommand): boolean {
-  const action = String(command.action || '');
+function focusGuarded(command: ComputerCommand): boolean {
   const guardsFocus = (step: Partial<ComputerCommand>) =>
     computerActionHas(String(step.action || ''), 'focusGuard') ||
     (step.action === 'click' && Boolean(step.ref) && !step.modifiers);
   return (
-    command.delivery === 'foreground' ||
-    computerActionHas(action, 'foreground') ||
     guardsFocus(command) ||
-    (action === 'sequence' && Array.isArray(command.steps) && command.steps.some(guardsFocus))
+    (command.action === 'sequence' && Array.isArray(command.steps) && command.steps.some(guardsFocus))
   );
+}
+
+export function requiresForegroundLane(command: ComputerCommand): boolean {
+  return (
+    command.delivery === 'foreground' ||
+    computerActionHas(String(command.action || ''), 'foreground') ||
+    focusGuarded(command)
+  );
+}
+
+/** A background semantic action on the lane only to keep its focus guard apart
+ *  from foreground input. It targets its own window by ref, so waiting for the
+ *  lane does not by itself make its observation stale. */
+export function guardsBackgroundFocus(command: ComputerCommand): boolean {
+  return command.delivery !== 'foreground' && focusGuarded(command);
 }
 
 /** Resource serialization does not change the chosen input delivery. */

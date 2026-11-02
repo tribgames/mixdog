@@ -129,7 +129,7 @@ test('failed or interrupted recovery preserves the original error and never publ
   }
 });
 
-test('background semantic focus guards cannot interrupt another session pointer and remain background', {
+test('a background focus guard waits for another session foreground work, then runs its own input without recapture', {
   timeout: 3000,
 }, async (t) => {
   let release;
@@ -145,29 +145,76 @@ test('background semantic focus guards cannot interrupt another session pointer 
         await new Promise((resolve) => {
           release = resolve;
         });
-      return { text: 'done' };
+      return { text: `done-${command.session_id}` };
     },
   });
+  t.after(() => release?.());
   const pointer = f.host.executeSerialized({ action: 'click', delivery: 'foreground', session_id: 'pointer' });
   await turn();
-  const command = {
+  const semantic = f.host.executeSerialized({
     action: 'sequence',
     delivery: 'background',
     session_id: 'semantic',
     steps: [{ action: 'invoke', ref: 's1:e0' }],
-  };
-  const semantic = f.host.executeSerialized(command);
+  });
   await turn();
-  assert.deepEqual(events, [['pointer', 'foreground']]);
+  assert.deepEqual(events, [['pointer', 'foreground']], 'a guard never overlaps foreground input');
   release();
   await pointer;
-  const observed = JSON.parse((await semantic).text);
-  assert.equal(observed.observation.frame_id, 'fresh');
-  assert.deepEqual(events, [['pointer', 'foreground']], 'waiting must not dispatch stale input');
-  await f.host.executeSerialized({ ...command, steps: [{ action: 'invoke', ref: 'fresh-ref' }] });
+  assert.equal((await semantic).text, 'done-semantic', 'the waiting guard runs its own input');
   assert.deepEqual(events.at(-1), ['semantic', 'background']);
+  assert.deepEqual(f.calls, [], 'waiting alone must not demand a recapture');
 });
 
+test('background focus guards and foreground work never overlap in either order', {
+  timeout: 3000,
+}, async (t) => {
+  const releases = {};
+  const started = [];
+  let running = 0;
+  let maxRunning = 0;
+  const f = fixture(t, {
+    runCommand: async (command) => {
+      started.push(command.session_id);
+      maxRunning = Math.max(maxRunning, ++running);
+      await new Promise((resolve) => {
+        releases[command.session_id] = resolve;
+      });
+      running--;
+      return { text: 'done' };
+    },
+  });
+  t.after(() => Object.values(releases).forEach((release) => release()));
+  const pointer = f.host.executeSerialized({ action: 'click', delivery: 'foreground', session_id: 'pointer' });
+  await turn();
+  const guard = f.host.executeSerialized({ action: 'invoke', ref: 's1:e0', session_id: 'guard' });
+  await turn();
+  const laterGuard = f.host.executeSerialized({ action: 'toggle', ref: 's1:e1', session_id: 'later' });
+  await turn();
+  assert.deepEqual(started, ['pointer']);
+  releases.pointer();
+  await pointer;
+  await turn();
+  assert.deepEqual(started, ['pointer', 'guard']);
+  releases.guard();
+  await guard;
+  await turn();
+  assert.deepEqual(started, ['pointer', 'guard', 'later']);
+  releases.later();
+  await laterGuard;
+  assert.equal(maxRunning, 1);
+  // The other order: foreground work behind a guard is still refused, not run blind.
+  const second = f.host.executeSerialized({ action: 'invoke', ref: 's1:e2', session_id: 'guard2' });
+  await turn();
+  const blocked = f.host.executeSerialized({ action: 'click', delivery: 'foreground', session_id: 'pointer2' });
+  await turn();
+  assert.deepEqual(started.slice(3), ['guard2']);
+  releases.guard2();
+  await second;
+  await blocked;
+  assert.equal(maxRunning, 1);
+  assert.ok(!started.includes('pointer2'), 'foreground input never starts blind behind a guard');
+});
 for (const reason of ['user_pause']) {
   test(`${reason} retains FIFO work without holding the resume drain or replaying stale input`, {
     timeout: 3000,
