@@ -211,9 +211,12 @@ async function describeRequestSessions(requests, sessionMetadata) {
     const kind = internalKindOf(request.sourceType || own?.sourceType);
     // A session the user can open keeps its label whatever the request's
     // route (a cache warm-up records under the real session id); only the
-    // work's kind is added. A session file that is gone cannot be opened.
+    // work's kind is added. A session file that is gone cannot be opened, nor
+    // can a session that is itself an internal run (a memory-cycle dispatch
+    // is stored as an owned agent session).
     const openable =
       Boolean(own) &&
+      !internalKindOf(own.sourceType) &&
       ((own.agent && (own.ownerSessionId || request.ownerSessionId)) || isLeadVisibleRow({ ...own, preview: 'x' }));
     if (kind && !openable) {
       labels.set(key, { title: '', role: '', agent: false, internalKind: kind });

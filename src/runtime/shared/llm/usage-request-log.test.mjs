@@ -623,7 +623,13 @@ test('getUsageRequests names an internal dispatch by its source type, even when 
     )
   );
   const metadata = {
-    memory: { title: 'Length target: about 2000 characters', sourceType: 'memory-cycle' },
+    // Stored as a real memory-cycle dispatch is: an agent-owned session.
+    memory: {
+      title: 'Length target: about 2000 characters',
+      sourceType: 'memory-cycle',
+      owner: 'agent',
+      agent: 'maintenance',
+    },
     nightly: { title: 'Nightly report', sourceType: 'schedule' },
     dev: { title: 'Dev session' },
   };

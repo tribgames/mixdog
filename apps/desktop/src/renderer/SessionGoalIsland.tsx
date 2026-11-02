@@ -145,6 +145,13 @@ const TODO_GLYPHS = {
 
 const REMAINING_VISIBLE = 5;
 
+/** The runtime names a plan's unnamed phase "Tasks" (todo-list.mjs); that
+ *  one is shown in the user's language, a phase the agent named as written. */
+function phaseName(name: unknown): string {
+  const text = String(name || '');
+  return text === 'Tasks' ? t('Tasks') : text;
+}
+
 function todoStatusText(status: TodoStatus): string {
   switch (status) {
     case 'completed':
@@ -205,7 +212,7 @@ function TodoRows({ items, phases, headings }: { items: TodoItem[]; phases: Todo
         <Fragment key={`${index}:${task.content}`}>
           {headings && (index === 0 || items[index - 1].phase !== phase) && (
             <li className="session-goal-phase" role="presentation">
-              {String(phases[phase]?.name || '')}
+              {phaseName(phases[phase]?.name)}
             </li>
           )}
           <TodoRow task={task} />
