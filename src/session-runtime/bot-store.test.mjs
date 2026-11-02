@@ -469,6 +469,209 @@ test('deleting a bot for good deletes only its routines, before its folder; a fa
     "the other bot's routine stays"
   );
 });
+test('a purge cut short after its routines went cannot be restored, and the next start finishes it', async (t) => {
+  let api;
+  const store = routineStore(() => api);
+  let crash = true;
+  const made = fixture(t, {
+    deleteOwnedRoutines: async (agentId) => {
+      const removed = await store.deleteOwnedRoutines(agentId);
+      // The process dies (or the folder cannot be removed) right after the delete.
+      if (crash) throw new Error('process killed');
+      return removed;
+    },
+  });
+  api = made.api;
+  seed(made.dataDir);
+  api.migrateBotStore();
+  await api.deleteAgentDefinition('tool-bot');
+  await assert.rejects(api.purgeAgentDefinition('tool-bot'), /process killed/);
+  assert.deepEqual(
+    store.rows.map((row) => row.name),
+    ['metrics'],
+    'its routines are gone'
+  );
+  await assert.rejects(api.restoreAgentDefinition('tool-bot'), /being deleted/);
+  assert.equal(api.agentDefinitionPresence(['tool-bot'])['tool-bot'], 'deleted');
+
+  crash = false;
+  assert.deepEqual(await api.finishUnfinishedPurges(), ['tool-bot']);
+  assert.equal(existsSync(join(made.dataDir, 'bots', 'tool-bot')), false);
+  assert.deepEqual(await api.finishUnfinishedPurges(), [], 'nothing left to finish');
+});
+
+test('a save cannot take over an id whose purge is pending', async (t) => {
+  let api;
+  const store = routineStore(() => api);
+  const made = fixture(t, {
+    deleteOwnedRoutines: async (agentId) => {
+      await store.deleteOwnedRoutines(agentId);
+      throw new Error('process killed');
+    },
+  });
+  api = made.api;
+  seed(made.dataDir);
+  api.migrateBotStore();
+  await api.deleteAgentDefinition('tool-bot');
+  await assert.rejects(api.purgeAgentDefinition('tool-bot'), /process killed/);
+  await assert.rejects(
+    api.saveAgentDefinition({ id: 'tool-bot', name: 'x', body: 'x', kind: 'bot' }),
+    /being deleted for good/
+  );
+  assert.equal(api.agentDefinitionPresence(['tool-bot'])['tool-bot'], 'deleted', 'nothing was written');
+});
+
+test('startup recovery leaves a live bot alone when a crash left a purge marker beside it', async (t) => {
+  let api;
+  const store = routineStore(() => api);
+  const made = fixture(t, { deleteOwnedRoutines: store.deleteOwnedRoutines });
+  api = made.api;
+  seed(made.dataDir);
+  api.migrateBotStore();
+  // The state a crash during an id's reuse could leave: a live definition, a purge marker.
+  writeFileSync(join(made.dataDir, 'bots', 'tool-bot', '.purging'), 'purging\n');
+  const before = structuredClone(store.rows);
+
+  assert.deepEqual(await api.finishUnfinishedPurges(), []);
+  assert.equal(api.agentDefinitionPresence(['tool-bot'])['tool-bot'], 'present');
+  assert.deepEqual(store.rows, before, 'its routines are intact');
+  assert.deepEqual(store.calls, [], 'none were even asked to go');
+  assert.equal(existsSync(join(made.dataDir, 'bots', 'tool-bot', '.purging')), false, 'the stale marker is gone');
+  // Archiving and restoring it afterwards is an ordinary round trip.
+  await api.deleteAgentDefinition('tool-bot');
+  await api.restoreAgentDefinition('tool-bot');
+  assert.equal(api.agentDefinitionPresence(['tool-bot'])['tool-bot'], 'present');
+});
+
+test('archiving a bot with a stale purge marker drops the marker before moving anything, so an interruption never reads as a purge', async (t) => {
+  let api;
+  const store = routineStore(() => api);
+  const made = fixture(t, { deleteOwnedRoutines: store.deleteOwnedRoutines });
+  api = made.api;
+  seed(made.dataDir);
+  api.migrateBotStore();
+  const dir = join(made.dataDir, 'bots', 'tool-bot');
+  const before = structuredClone(store.rows);
+
+  // A marker that cannot be removed stops the archive: AGENT.md must still be in place
+  // (renamed first, the stop would leave marker + no AGENT.md + no tombstone: a "purge").
+  mkdirSync(join(dir, '.purging'));
+  writeFileSync(join(dir, '.purging', 'x'), 'x');
+  await assert.rejects(api.deleteAgentDefinition('tool-bot'));
+  assert.equal(existsSync(join(dir, 'AGENT.md')), true);
+  rmSync(join(dir, '.purging'), { recursive: true });
+
+  // Interrupted right after the rename: the marker is already gone, the tombstone not yet written.
+  writeFileSync(join(dir, '.purging'), 'purging\n');
+  await api.deleteAgentDefinition('tool-bot');
+  rmSync(join(dir, '.deleted'));
+  assert.equal(existsSync(join(dir, '.purging')), false);
+  assert.deepEqual(await api.finishUnfinishedPurges(), []);
+  assert.equal(existsSync(dir), true, 'the folder stays');
+  assert.deepEqual(store.rows, before, 'its routines are intact');
+  // With the tombstone it is archived and restorable.
+  writeFileSync(join(dir, '.deleted'), 'deleted\n');
+  assert.deepEqual(await api.finishUnfinishedPurges(), []);
+  await api.restoreAgentDefinition('tool-bot');
+  assert.equal(api.agentDefinitionPresence(['tool-bot'])['tool-bot'], 'present');
+});
+
+test('startup recovery does not purge a bot that was archived normally while an earlier purge was awaited', async (t) => {
+  let api;
+  const store = routineStore(() => api);
+  let mode = 'crash';
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const made = fixture(t, {
+    deleteOwnedRoutines: async (agentId) => {
+      if (mode === 'gate') await gate;
+      const removed = await store.deleteOwnedRoutines(agentId);
+      if (mode === 'crash') throw new Error('process killed');
+      return removed;
+    },
+  });
+  api = made.api;
+  seed(made.dataDir);
+  api.migrateBotStore();
+  // dialog-bot: a purge cut short. tool-bot: live, with a stale marker; recovery lists it second.
+  await api.deleteAgentDefinition('dialog-bot');
+  await assert.rejects(api.purgeAgentDefinition('dialog-bot'), /process killed/);
+  const toolDir = join(made.dataDir, 'bots', 'tool-bot');
+  writeFileSync(join(toolDir, '.purging'), 'purging\n');
+  const toolRows = store.rows.filter((row) => row.owner === 'tool-bot');
+  mode = 'gate';
+  const recovering = api.finishUnfinishedPurges();
+  // While recovery awaits dialog-bot's purge, the user archives tool-bot.
+  await api.deleteAgentDefinition('tool-bot');
+  release();
+  assert.deepEqual(await recovering, ['dialog-bot']);
+  assert.deepEqual(
+    store.rows.filter((row) => row.owner === 'tool-bot'),
+    toolRows,
+    'its routines are intact'
+  );
+  assert.equal(existsSync(toolDir), true);
+  await api.restoreAgentDefinition('tool-bot');
+  assert.equal(api.agentDefinitionPresence(['tool-bot'])['tool-bot'], 'present');
+});
+
+test('a restore asked while a purge is deleting the routines is refused', async (t) => {
+  let api;
+  const store = routineStore(() => api);
+  const made = fixture(t, { deleteOwnedRoutines: store.deleteOwnedRoutines });
+  api = made.api;
+  seed(made.dataDir);
+  api.migrateBotStore();
+  await api.deleteAgentDefinition('tool-bot');
+  const purging = api.purgeAgentDefinition('tool-bot');
+  // It waits its turn behind the purge, which has finished (and archived nothing) by then.
+  await assert.rejects(api.restoreAgentDefinition('tool-bot'), /being deleted|is not deleted/);
+  assert.equal((await purging).purged, true);
+});
+
+test('overlapping purges of one id and a save in between never delete the replacement', async (t) => {
+  let api;
+  const store = routineStore(() => api);
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const made = fixture(t, {
+    deleteOwnedRoutines: async (agentId) => {
+      await gate;
+      return store.deleteOwnedRoutines(agentId);
+    },
+  });
+  api = made.api;
+  seed(made.dataDir);
+  api.migrateBotStore();
+  await api.deleteAgentDefinition('triage');
+  const first = api.purgeAgentDefinition('triage');
+  const reuse = api.saveAgentDefinition({ id: 'triage', name: 'New bot', body: 'I am new.', kind: 'agent' });
+  const second = api.purgeAgentDefinition('triage');
+  release();
+  assert.equal((await first).purged, true);
+  await reuse;
+  assert.deepEqual(await second, { id: 'triage', purged: false });
+  assert.equal(api.agentDefinitionPresence(['triage'])['triage'], 'present', 'the replacement stays');
+  assert.match(readFileSync(join(made.dataDir, 'agents', 'triage', 'AGENT.md'), 'utf8'), /I am new/);
+});
+
+test('a restore whose routine reload fails reports it, with the bot already back', async (t) => {
+  const made = fixture(t, {
+    reloadRoutines: async () => {
+      throw new Error('worker unreachable');
+    },
+  });
+  seed(made.dataDir);
+  made.api.migrateBotStore();
+  await made.api.deleteAgentDefinition('tool-bot');
+  await assert.rejects(made.api.restoreAgentDefinition('tool-bot'), /restored, but .*re-armed.*worker unreachable/);
+  assert.equal(made.api.agentDefinitionPresence(['tool-bot'])['tool-bot'], 'present');
+});
+
 test('2: an id lives in one store only: explicit, generated and restored ids never cross stores', async (t) => {
   const { dataDir, api } = fixture(t);
   seed(dataDir);

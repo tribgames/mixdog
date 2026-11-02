@@ -64,9 +64,15 @@ export function wireTools(boot) {
     .catch((error) => bootProfile('mcp:failed', { error: error?.message || String(error) }));
   // A lost reload leaves the old timers armed; the scheduler re-reads each
   // schedule before it fires (scheduler.mjs fireTimed), so it is only reported.
+  // `reloadChannels` settles once the worker re-armed them and rejects when it
+  // could not (a refusal comes back as an isError reply, not a rejection).
+  boot.reloadChannels = async () => {
+    const reply = await boot.channels.execute('reload_config', {});
+    if (reply?.isError === true) throw new Error(reply.content?.[0]?.text || 'reload_config failed');
+  };
   boot.reloadChannelsSoon = () => {
-    boot.channels
-      .execute('reload_config', {})
+    boot
+      .reloadChannels()
       .catch((error) =>
         process.stderr.write(`[channels] schedule reload failed: ${error?.message || String(error)}\n`)
       );

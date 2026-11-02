@@ -339,9 +339,13 @@ function withFoldedReport(doc, homeId, item) {
   const index = list.findIndex((row) => row.runId === item.runId);
   if (index < 0 || item.kind !== 'agent-task') return null;
   const row = list[index];
-  const sendIds = [...new Set([row.sendId, ...(row.sendIds || []), item.sendId, ...(item.sendIds || [])])].filter(
-    Boolean
-  );
+  const rowSends = [row.sendId, ...(row.sendIds || [])].filter(Boolean);
+  const itemSends = [item.sendId, ...(item.sendIds || [])].filter(Boolean);
+  // The row's sends are the contributions already folded into it: a replay of
+  // one (or a file its cap dropped, whose path is not kept) adds nothing, so
+  // its omissions are never counted twice.
+  if (itemSends.length && itemSends.every((id) => rowSends.includes(id))) return null;
+  const sendIds = [...new Set([...rowSends, ...itemSends])];
   const paths = new Set((row.files || []).map((file) => file.path));
   const added = (item.files || [])
     .filter((file) => !paths.has(file.path) && paths.add(file.path))
