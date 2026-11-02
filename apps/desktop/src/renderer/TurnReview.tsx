@@ -67,13 +67,14 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   const turn = useTurnReviewSummaries({ items, reviewScope, reviewState, revertedBoundary, turnBoundaryKey });
   const { authoritativeWorktreeSnapshot, transcriptSummary, agentSources, agentSummary } = turn;
   const sessionScoped = variant === 'segment';
-  const { shownSummary, headlineStats, sources, segmentLabel, sourcePicker, emptyText, ready } = useShownTurnReview({
-    sessionScoped,
-    sessionId,
-    active,
-    cwd,
-    turn,
-  });
+  const { shownSummary, headlineStats, sources, segmentLabel, sourcePicker, emptyText, ready, unlistedCount } =
+    useShownTurnReview({
+      sessionScoped,
+      sessionId,
+      active,
+      cwd,
+      turn,
+    });
   // An open files menu stays while its source has no files, so the source
   // picker in it can switch back.
   const [filesMenuOpen] = useComposerIslandTab('files-menu');
@@ -106,7 +107,7 @@ export const TurnReviewBar = memo(function TurnReviewBar({
   if (variant === 'segment' && !expanded) {
     return turnReviewSegment({
       label: segmentLabel,
-      fileCount: shownSummary.files.size,
+      fileCount: shownSummary.files.size + unlistedCount,
       files: shownSummary.files,
       headlineStats,
       onOpenChanges,

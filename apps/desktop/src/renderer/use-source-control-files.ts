@@ -29,6 +29,7 @@ export function useSourceControlFiles({ projectPath, status, active }: SourceCon
   });
   const scrollRef = useRef<HTMLDivElement>(null);
   const files = useMemo(() => status?.files ?? [], [status]);
+  const unlistedCount = status?.untrackedOmitted ?? 0;
   const conflicts = useMemo(() => files.filter((file) => file.conflicted), [files]);
   const isIncluded = useCallback((file: DesktopGitFile) => !file.conflicted && !excluded.has(file.path), [excluded]);
   const includedFiles = useMemo(() => files.filter(isIncluded), [files, isIncluded]);
@@ -150,6 +151,8 @@ export function useSourceControlFiles({ projectPath, status, active }: SourceCon
     selectedActionFiles,
     includedVisible,
     includableVisible,
-    checkAllLabel: changedFilesLabel(files.length, filteredFiles.length),
+    unlistedCount,
+    // Unlisted untracked files count toward the total, so a capped list reads "1000 of 51000".
+    checkAllLabel: changedFilesLabel(files.length + unlistedCount, filteredFiles.length),
   };
 }

@@ -239,5 +239,7 @@ export function useShownTurnReview({
     sourcePicker: changes.repository,
     emptyText: changes.repository ? sessionChangesEmptyText(changes.source) : t('No changes from this session.'),
     ready: changes.ready,
+    /** Untracked files the shown Git source counted but did not list. */
+    unlistedCount: sessionScoped ? changes.untrackedOmitted : 0,
   };
 }

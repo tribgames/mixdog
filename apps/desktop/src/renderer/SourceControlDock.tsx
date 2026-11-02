@@ -199,6 +199,7 @@ export function SourceControlDock({
     selectedActionFiles,
     includedVisible,
     includableVisible,
+    unlistedCount,
     checkAllLabel,
   } = useSourceControlFiles({
     projectPath,
@@ -502,7 +503,7 @@ export function SourceControlDock({
       <div className="dock-scm-view-stage">
         {!prOnly && (
           <SourceControlViewControls
-            fileCount={files.length}
+            fileCount={files.length + unlistedCount}
             fileFilter={fileFilter}
             historyQuery={history.query}
             view={view}
@@ -540,6 +541,7 @@ export function SourceControlDock({
           <>
             <ChangedFilesHeader
               files={files}
+              unlistedCount={unlistedCount}
               busy={busy}
               includedVisible={includedVisible}
               includableVisible={includableVisible}

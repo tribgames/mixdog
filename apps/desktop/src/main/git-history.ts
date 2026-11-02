@@ -12,7 +12,7 @@ import {
   untrackedStat,
 } from './git-read-utils';
 import type { GitReviewSource } from './git-contract.mjs';
-import { isGitTimeout, runRead } from './git-runner';
+import { GIT_READ_TIMEOUT_MS, isGitTimeout, runRead, streamNulRecords } from './git-runner';
 import { cachedGitRoot, hasHead } from './git-status';
 
 const reviewBaseCache = new Map<string, { expiresAt: number; base: string }>();
@@ -61,6 +61,8 @@ export interface GitReviewDiffsResult {
 }
 
 const REVIEW_UNTRACKED_LIMIT = 256;
+/** Output the review's status scan may produce before it fails instead of buffering more. */
+const REVIEW_STATUS_MAX_BYTES = 64 * 1024 * 1024;
 /** Total patch text one batch returns before the remaining files are omitted. */
 const REVIEW_BATCH_PATCH_CHARS = 8_000_000;
 /** Pathspec text one batch passes on the command line (Windows caps it near 32k). */
@@ -381,45 +383,58 @@ interface ReviewStatus {
   head: string;
   /** Tracked path → its status record(s): every path whose worktree may differ from HEAD. */
   tracked: Map<string, string>;
+  /** At most {@link REVIEW_UNTRACKED_LIMIT} paths. */
   untracked: string[];
+  /** Untracked paths past that limit, counted but never read out. */
+  untrackedOmitted: number;
 }
 
 /** One `status --porcelain=v2` scan: the HEAD oid, the tracked paths that
  *  differ anywhere between HEAD, index and worktree, and the untracked files. */
 async function reviewStatus(root: string): Promise<ReviewStatus | null> {
-  let raw: string;
+  const result: ReviewStatus = { head: '', tracked: new Map(), untracked: [], untrackedOmitted: 0 };
+  let rename = '';
   try {
-    raw = await runRead(root, [
-      '--no-optional-locks',
-      'status',
-      '--porcelain=v2',
-      '-z',
-      // Only `branch.oid` is read: no upstream ahead/behind walk.
-      '--branch',
-      '--no-ahead-behind',
-      '--untracked-files=all',
-      '--no-renames',
-    ]);
+    result.untrackedOmitted = await streamNulRecords(
+      root,
+      [
+        '--no-optional-locks',
+        'status',
+        '--porcelain=v2',
+        '-z',
+        // Only `branch.oid` is read: no upstream ahead/behind walk.
+        '--branch',
+        '--no-ahead-behind',
+        '--untracked-files=all',
+        '--no-renames',
+      ],
+      (record) => {
+        if (rename) {
+          // The origin field of a rename: both sides map to its record.
+          if (record) result.tracked.set(record, rename);
+          rename = '';
+          return;
+        }
+        if (!record) return;
+        if (record.startsWith('# branch.oid ')) result.head = record.slice('# branch.oid '.length);
+        else if (record.startsWith('? ')) {
+          // Git prints every untracked path after the tracked changes, so the rest is only counted.
+          if (result.untracked.length >= REVIEW_UNTRACKED_LIMIT) return false;
+          result.untracked.push(record.slice(2));
+        } else if (record.startsWith('1 ')) result.tracked.set(pathAfter(record, 8), record);
+        else if (record.startsWith('u ')) result.tracked.set(pathAfter(record, 10), record);
+        else if (record.startsWith('2 ')) {
+          // A rename (only under a config --no-renames does not reach): both sides.
+          result.tracked.set(pathAfter(record, 9), record);
+          rename = record;
+        }
+      },
+      { timeoutMs: GIT_READ_TIMEOUT_MS, maxBytes: REVIEW_STATUS_MAX_BYTES }
+    );
   } catch (error) {
-    // null reads as "no changes"; a timeout's answer is unknown.
-    if (isGitTimeout(error)) throw error;
+    // null reads as "no changes"; a timeout's or an oversized listing's answer is unknown.
+    if (isGitTimeout(error) || (error as { code?: unknown } | null)?.code === 'EMAXBUFFER') throw error;
     return null;
-  }
-  const result: ReviewStatus = { head: '', tracked: new Map(), untracked: [] };
-  const fields = raw.split('\0');
-  for (let index = 0; index < fields.length; index++) {
-    const record = fields[index];
-    if (!record) continue;
-    if (record.startsWith('# branch.oid ')) result.head = record.slice('# branch.oid '.length);
-    else if (record.startsWith('? ')) result.untracked.push(record.slice(2));
-    else if (record.startsWith('1 ')) result.tracked.set(pathAfter(record, 8), record);
-    else if (record.startsWith('u ')) result.tracked.set(pathAfter(record, 10), record);
-    else if (record.startsWith('2 ')) {
-      // A rename (only under a config --no-renames does not reach): both sides.
-      const origin = fields[++index] ?? '';
-      result.tracked.set(pathAfter(record, 9), record);
-      if (origin) result.tracked.set(origin, record);
-    }
   }
   return result;
 }
@@ -549,8 +564,8 @@ async function readGitReview(cwd: string, source: GitReviewSource = 'branch'): P
       if (!candidates.has(path)) candidates.set(path, '');
     }
   }
-  const untrackedPaths = status.untracked.slice(0, REVIEW_UNTRACKED_LIMIT);
-  const untrackedOmitted = status.untracked.length - untrackedPaths.length;
+  const untrackedPaths = status.untracked;
+  const untrackedOmitted = status.untrackedOmitted;
   const trackedPaths = [...candidates.keys()];
   const revisions = new Map<string, string>();
   await mapWithConcurrency([...trackedPaths, ...untrackedPaths], UNTRACKED_STAT_CONCURRENCY, async (path) => {

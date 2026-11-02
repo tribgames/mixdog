@@ -41,8 +41,19 @@ export interface GitStatusResult {
   ahead: number;
   behind: number;
   operation: GitOperation;
+  /** Listed files; untracked rows stop at {@link GIT_STATUS_UNTRACKED_LIMIT}. */
   files: GitFileEntry[];
+  /** Untracked files past that limit, counted but not listed. */
+  untrackedOmitted: number;
 }
+
+/** Untracked rows one status lists. Each costs a file read for its line count
+ *  and a row in every reply, so a tree with hundreds of thousands of them
+ *  would otherwise stall the daemon; the rest are only counted. */
+export const GIT_STATUS_UNTRACKED_LIMIT = 1000;
+/** Output the status scan may produce (≈ a million untracked paths) before it
+ *  fails instead of buffering more. */
+const GIT_STATUS_MAX_BYTES = 64 * 1024 * 1024;
 
 interface GitStatusOptions {
   reuseLineStats?: boolean;
@@ -64,6 +75,7 @@ function emptyStatus(): GitStatusResult {
     behind: 0,
     operation: '',
     files: [],
+    untrackedOmitted: 0,
   };
 }
 
@@ -327,6 +339,7 @@ async function readGitStatus(cwd: string, options: GitStatusOptions = {}): Promi
   let ahead = 0;
   let behind = 0;
   let pendingRename: GitFileEntry | null = null;
+  let untrackedListed = 0;
   const statusStream = streamNulRecords(
     cwd,
     ['--no-optional-locks', 'status', '--porcelain=v2', '-z', '--branch', '--untracked-files=all'],
@@ -357,8 +370,14 @@ async function readGitStatus(cwd: string, options: GitStatusOptions = {}): Promi
         return;
       }
       if (entry.startsWith('? ')) {
+        // Git prints every tracked change before the first untracked path, so
+        // everything after the limit is untracked and is counted unread.
+        if (untrackedListed >= GIT_STATUS_UNTRACKED_LIMIT) return false;
         const path = entry.slice(2);
-        if (path) files.push(statusFileEntry(path, '?', '?', true, false));
+        if (path) {
+          files.push(statusFileEntry(path, '?', '?', true, false));
+          untrackedListed += 1;
+        }
         return;
       }
       const kind = entry[0];
@@ -377,7 +396,7 @@ async function readGitStatus(cwd: string, options: GitStatusOptions = {}): Promi
       if (kind === '2') pendingRename = file;
       else files.push(file);
     },
-    { timeoutMs: GIT_READ_TIMEOUT_MS }
+    { timeoutMs: GIT_READ_TIMEOUT_MS, maxBytes: GIT_STATUS_MAX_BYTES }
   );
   const collectLineStats = options.skipLineStats !== true;
   const eagerStats = collectLineStats && options.reuseLineStats !== true;
@@ -394,11 +413,13 @@ async function readGitStatus(cwd: string, options: GitStatusOptions = {}): Promi
   for (const pending of [stagedStatsPromise, unstagedStatsPromise, metadataPromise, operationPromise, rootPromise]) {
     pending?.catch(() => {});
   }
+  let untrackedOmitted = 0;
   try {
-    await statusStream;
+    untrackedOmitted = await statusStream;
   } catch (error) {
-    // An empty status reads as "not a repository"; a timeout's answer is unknown.
-    if (isGitTimeout(error)) throw error;
+    // An empty status reads as "not a repository"; a timeout's or an
+    // oversized listing's answer is unknown.
+    if (isGitTimeout(error) || (error as { code?: unknown } | null)?.code === 'EMAXBUFFER') throw error;
     return emptyStatus();
   }
   if (pendingRename) files.push(pendingRename);
@@ -451,5 +472,6 @@ async function readGitStatus(cwd: string, options: GitStatusOptions = {}): Promi
     behind,
     operation,
     files,
+    untrackedOmitted,
   };
 }

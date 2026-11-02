@@ -180,6 +180,7 @@ export function SessionDiffPane({
     setSource,
     base,
     root,
+    untrackedOmitted,
   } = useSessionDiffRows(sessionId, active, cwd);
   // Git rows are repository-root-relative; the host opens project paths.
   const onOpenFile = useMemo(
@@ -292,6 +293,7 @@ export function SessionDiffPane({
       pendingPath={pendingPath}
       focusRow={focusRow}
       rows={rows}
+      unlistedCount={untrackedOmitted}
       showCount={showCount}
       onOpenFile={onOpenFile}
       canRevertPath={canRevertPath}
