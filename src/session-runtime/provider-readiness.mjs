@@ -74,8 +74,15 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
   }
 
   // A keyring unlocked after boot: every cache built while stored keys read as
-  // absent (provider setup, init gates) is stale.
-  keychain.onKeychainRecovered?.(() => invalidateProviderCaches());
+  // absent (provider setup, init gates) is stale. The keychain module outlives
+  // every runtime, so the listener (which holds this runtime and its caches)
+  // is released by dispose().
+  const unsubscribeKeychainRecovered = keychain.onKeychainRecovered?.(() => invalidateProviderCaches());
+
+  /** Release the keychain subscription; the runtime's teardown calls it. Idempotent. */
+  function dispose() {
+    unsubscribeKeychainRecovered?.();
+  }
 
   // The one edit a caller makes to the provider config it passes is turning a
   // route's provider on (ensureProviderEnabled); those providers, judged
@@ -178,6 +185,7 @@ export function createProviderReadiness({ rt, keychain, getReg, getWarmProviderM
     invalidateProviderCaches,
     reinitProviders,
     ensureProvidersReady,
+    dispose,
     modelMetaByRoute,
     providerModelCaches,
     providerUsageCaches,
