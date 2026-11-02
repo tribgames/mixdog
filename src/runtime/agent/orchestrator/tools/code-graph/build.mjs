@@ -172,6 +172,37 @@ async function _validateDiskCodeGraphHit({
   return { graph, manifest, signature };
 }
 
+// A resident graph past its TTL is revalidated with the same manifest
+// signature check a disk entry gets, instead of being rebuilt in a Worker and
+// structured-cloned back onto the main thread (hundreds of MB for a large
+// root). A mismatch hands the manifest to the Worker so it is not re-run.
+export async function _revalidateResidentCodeGraph({
+  graphCwd,
+  entry,
+  genAtStart,
+  signal = null,
+  acquireSlot = (signal) => acquireChildSpawnSlot(signal, 'code-graph-query'),
+  runManifest = _runGraphManifest,
+  computeSignature = _graphSignatureForCapability,
+  getGeneration = _getCodeGraphGen,
+  setMemoryCache = _setCodeGraphCache,
+}) {
+  const release = await acquireSlot(signal || null);
+  let manifest;
+  try {
+    _throwIfAborted(signal);
+    manifest = await runManifest(graphCwd, signal);
+  } finally {
+    release();
+  }
+  _throwIfAborted(signal);
+  const signature = computeSignature(manifest);
+  if (entry.signature !== signature) return { graph: null, manifest, signature };
+  if (getGeneration(graphCwd) !== genAtStart) throw codeGraphBuildInvalidatedError(entry.graph);
+  setMemoryCache(graphCwd, { ...entry, ts: Date.now() });
+  return { graph: entry.graph, manifest, signature };
+}
+
 // Validates the disk graph under a read-only query slot; a miss releases it
 // and spawnWorker queues for a build slot, so queries never wait behind
 // builds. Keeping this seam dependency-injectable makes slot/abort behavior
@@ -317,6 +348,12 @@ export async function buildCodeGraphAsync(
           buildOptions: scopeOptions,
           cacheResult: false,
         });
+      }
+      const resident = _codeGraphCache.get(graphCwd);
+      if (resident?.graph) {
+        const hit = await _revalidateResidentCodeGraph({ graphCwd, entry: resident, genAtStart, signal });
+        if (hit.graph) return hit.graph;
+        return _spawnCodeGraphWorker(cwd, graphCwd, genAtStart, signal, hit.manifest, hit.signature);
       }
       return _prepareDiskCodeGraphFastPath({
         graphCwd,

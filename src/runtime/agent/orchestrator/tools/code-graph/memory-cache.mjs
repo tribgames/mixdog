@@ -49,9 +49,14 @@ export function _pruneCodeGraphMemoryCache(options = {}) {
     totalRetainedBytes -= freed;
     if (freed > 0) evicted.push({ cwd: row.cwd, reason: 'max-bytes-runtime', freed });
   }
+  // The most recently used graph is never evicted for bytes: it is the root
+  // being worked in, and a graph larger than the whole budget was otherwise
+  // dropped right after every query, so each next query re-ran the build
+  // Worker and structured-cloned the full graph back onto the main thread.
+  const newestCwd = [..._codeGraphCache.keys()].at(-1);
   for (const row of rows) {
     if (totalRetainedBytes <= maxBytes) break;
-    if (!_codeGraphCache.has(row.cwd)) continue;
+    if (row.cwd === newestCwd || !_codeGraphCache.has(row.cwd)) continue;
     _codeGraphCache.delete(row.cwd);
     totalRetainedBytes -= row.retainedBytes;
     evicted.push({ cwd: row.cwd, reason: 'max-bytes-graph', freed: row.retainedBytes });

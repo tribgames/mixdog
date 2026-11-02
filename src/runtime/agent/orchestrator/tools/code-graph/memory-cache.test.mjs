@@ -45,15 +45,33 @@ test('memory pruning clears runtime data before evicting a base graph', () => {
   }
 });
 
-test('memory pruning evicts a base graph that exceeds the total budget', () => {
+test('memory pruning evicts older base graphs but keeps the most recently used one', () => {
   codeGraphCache.clear();
   try {
-    const graph = graphWithSource('');
-    codeGraphCache.set('a', { graph, ts: 1, lastAccess: 1 });
+    const older = graphWithSource('');
+    const newest = graphWithSource('x'.repeat(16_000));
+    codeGraphCache.set('a', { graph: older, ts: 1, lastAccess: 1 });
+    codeGraphCache.set('b', { graph: newest, ts: 2, lastAccess: 2 });
     const result = _pruneCodeGraphMemoryCache({ maxBytes: 1, maxEntries: 6 });
-    assert.equal(codeGraphCache.size, 0);
-    assert.ok(result.evicted.some((row) => row.reason === 'max-bytes-graph'));
+    assert.deepEqual([...codeGraphCache.keys()], ['b']);
+    assert.ok(result.evicted.some((row) => row.cwd === 'a' && row.reason === 'max-bytes-graph'));
+    // Its rebuildable source cache still goes, so the resident size is the base graph.
+    assert.equal(newest._sourceTextCache.size, 0);
+    assert.equal(result.totalRetainedBytes, _estimateGraphRetainedBytes(newest));
   } finally {
     codeGraphCache.clear();
   }
+});
+
+test('retained-size estimate tracks runtime caches and call hydration of a memoized base', () => {
+  const graph = graphWithSource('');
+  graph._sourceTextCache.clear();
+  const base = _estimateGraphRetainedBytes(graph);
+  graph._sourceTextCache.set('src/b.ts', { fingerprint: '', text: 'y'.repeat(10_000) });
+  assert.ok(_estimateGraphRetainedBytes(graph) >= base + 20_000);
+  graph._sourceTextCache.clear();
+  assert.equal(_estimateGraphRetainedBytes(graph), base);
+  graph._callsHydration = 'done';
+  graph.nodes.get('src/a.ts').calls = Array.from({ length: 100 }, (_, i) => ({ name: `c${i}`, line: i }));
+  assert.ok(_estimateGraphRetainedBytes(graph) > base + 100 * 48);
 });
