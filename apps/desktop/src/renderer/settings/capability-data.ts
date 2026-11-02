@@ -128,7 +128,7 @@ export interface PanelContext {
   notice(message: string, tone?: 'info' | 'warn'): void;
   updaterState: DesktopUpdaterState;
   checkDesktopUpdate(): Promise<void>;
-  installDesktopUpdate(): Promise<void>;
+  installDesktopUpdate(confirmed?: boolean): Promise<void>;
   compose?: (text: string) => void;
   openCategory?: (category: SettingsCategory) => void;
   /** Create-form disclosure driven by the host's header action. */

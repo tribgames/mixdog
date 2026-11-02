@@ -27,6 +27,13 @@ export function updaterOutcomeToast(
   return null;
 }
 
+/** Why an install was held back: running agent tasks, or a status that could not be read. */
+export function updaterBusyNotice(busyTasks: number | null): string {
+  return busyTasks === null
+    ? t('Could not check whether agent tasks are running. Installing now may stop them.')
+    : t('{{count}} agent tasks running. Installing now stops them.', { count: busyTasks });
+}
+
 export function useDesktopUpdater(invoke: Invoke) {
   const [state, setStateRaw] = useState<DesktopUpdaterState>({ status: 'disabled' });
   const latest = useRef(state);
@@ -84,10 +91,11 @@ export function useDesktopUpdater(invoke: Invoke) {
     if (state.status === 'ready') setDialogOpen(true);
   }, [state.status]);
   const closeDialog = useCallback(() => setDialogOpen(false), []);
-  const install = useCallback(() => {
-    setDialogOpen(false);
+  // The dialog stays up when the install is held back for the user to confirm;
+  // a started install leaves `ready`, which closes it.
+  const install = useCallback((confirmed?: boolean) => {
     void invoke(async () => {
-      const next = await window.mixdogDesktop.showDesktopUpdate();
+      const next = await window.mixdogDesktop.showDesktopUpdate(confirmed === true);
       setState(next);
     });
   }, [invoke, setState]);

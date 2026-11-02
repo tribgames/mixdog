@@ -1053,7 +1053,8 @@ function hostWindowRemoteMethods(
     // getUpdaterState / checkForDesktopUpdate / showDesktopUpdate calls.
     getUpdaterState: () => requiredHostRequest()('updaterState', []) as Promise<DesktopUpdaterState>,
     checkForDesktopUpdate: () => requiredHostRequest()('updaterCheck', []) as Promise<DesktopUpdaterState>,
-    showDesktopUpdate: () => requiredHostRequest()('updaterInstall', []) as Promise<DesktopUpdaterState>,
+    showDesktopUpdate: (args) =>
+      requiredHostRequest()('updaterInstall', [args[0] === true]) as Promise<DesktopUpdaterState>,
     // The host window's theme + UI language: a browser with no choice of its own follows them.
     readHostDisplayPreferences: async () =>
       readHostDisplayPreferences(await requiredHostRequest()('displayPreferences', [])),

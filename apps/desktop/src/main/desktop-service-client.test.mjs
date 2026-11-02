@@ -366,6 +366,59 @@ test('a daemon replaced behind a live transport counts as a new attachment', asy
   }
 });
 
+test('running work is unknown after a disconnect until the new connection lists sessions', async () => {
+  let live = null;
+  const client = new DesktopServiceClient({
+    connect() {
+      return new TestTransport((current) => {
+        live = current;
+        current.emit('message', { kind: 'ready' });
+      });
+    },
+    sessionOptions: () => ({
+      userDataPath: 'C:/tmp/mixdog',
+      packaged: true,
+      resourcesPath: 'C:/tmp/resources',
+      appPath: 'C:/tmp/resources/app.asar',
+    }),
+    restartBaseDelayMs: 1,
+    restartMaxDelayMs: 1,
+    startupTimeoutMs: 1_000,
+    failureNoticeDelayMs: 1_000,
+  });
+  const keepAlive = setTimeout(() => {}, 2_000);
+  const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
+  try {
+    await client.start();
+    assert.equal(client.runningWorkCount(), null);
+    live.emit('message', { kind: 'sessions', sessions: [{ id: 'a', working: false }] });
+    assert.equal(client.runningWorkCount(), 0);
+
+    const first = live;
+    first.emit('exit', 1);
+    assert.equal(client.runningWorkCount(), null);
+    await settle();
+    assert.notEqual(live, first);
+    assert.equal(client.runningWorkCount(), null);
+
+    live.emit('message', {
+      kind: 'sessions',
+      sessions: [
+        { id: 'a', working: true },
+        { id: 'b', working: false },
+      ],
+    });
+    live.emit('message', { kind: 'view-sync-complete' });
+    assert.equal(client.runningWorkCount(), 1);
+
+    live.emit('message', { kind: 'daemon-replaced' });
+    assert.equal(client.runningWorkCount(), null);
+  } finally {
+    clearTimeout(keepAlive);
+    await client.dispose();
+  }
+});
+
 test('overlapping desktop registrations carry increasing versions before either reply arrives', async () => {
   const transport = new ControlledTransport();
   const client = new DesktopServiceClient({

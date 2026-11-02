@@ -7,6 +7,7 @@
 import { sendJson, sendError } from '../../runtime/memory/lib/http-wire.mjs';
 import { callSignature, callIdConflict, clientCallOwner } from '../rpc-call-identity.mjs';
 import { callLane } from './call-lanes.mjs';
+import { createWorkGate } from '../daemon-work-gate.mjs';
 
 // These routes are safe to replay and can return large snapshots. Keeping
 // them in the mutation-dedup cache retained multiple transcript copies for a
@@ -44,7 +45,14 @@ function cachedDispatch(cached, callId, signature) {
   return cached.promise;
 }
 
-export function createCallRoute({ handleCall, clients, lanes, callCache, nowMs }) {
+export function createCallRoute({
+  handleCall,
+  clients,
+  lanes,
+  callCache,
+  nowMs,
+  workGate = createWorkGate(),
+}) {
   return async function handleCallRequest(body, res) {
     const clientToken = body.token ? String(body.token) : null;
     const c = clientToken ? clients.get(clientToken) : null;
@@ -72,13 +80,18 @@ export function createCallRoute({ handleCall, clients, lanes, callCache, nowMs }
     } else {
       dispatch = lanes.dispatch(
         ownerKeyFor(clientToken, c, body.args),
-        () =>
-          handleCall(name, args, {
+        () => {
+          // The gate is asked again where the call actually starts: one that
+          // queued before a hold must not begin during the teardown.
+          const refusal = workGate.callRefusal(name);
+          if (refusal) throw Object.assign(new Error(refusal), { code: 'EINSTALLHOLD' });
+          return handleCall(name, args, {
             clientToken,
             leadPid: c.leadPid ?? null,
             cwd: c.cwd ?? null,
             revision: c.revision ?? 0,
-          }),
+          });
+        },
         { lane: callLane(name, args) }
       );
       if (cacheKey) callCache.track(cacheKey, dispatch, signature);
@@ -115,3 +128,4 @@ function jsonDetails(err) {
     return {};
   }
 }
+

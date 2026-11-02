@@ -157,6 +157,9 @@ export class DesktopServiceClient implements DesktopService {
   private bootstrapSnapshot: SessionSnapshot;
   private cachedSessions: DesktopSessionSummary[] | null = null;
   private cachedAgentPool: DesktopAgentPoolRow[] | null = null;
+  /** The session list the CURRENT connection last pushed; null from a
+   *  disconnect or daemon replacement until its fresh list arrives. */
+  private liveSessions: DesktopSessionSummary[] | null = null;
   private sessionCacheFresh = false;
   private agentPoolCacheFresh = false;
   private visibleSessionIds: string[] = [];
@@ -326,6 +329,15 @@ export class DesktopServiceClient implements DesktopService {
     return () => this.listeners.delete(listener);
   }
 
+  /** Work that dies with the daemon: sessions running turns or agents plus
+   *  the host's background shell jobs. Null while unknown: no list from the
+   *  current connection yet, or its view sync has not completed. */
+  runningWorkCount(): number | null {
+    if (!this.liveSessions || this.recovering) return null;
+    const shell = (this.cachedSnapshot as { hostShellJobs?: { count?: unknown } } | null)?.hostShellJobs;
+    return this.liveSessions.filter((session) => session.working).length + (Number(shell?.count) || 0);
+  }
+
   subscribeSessions(listener: (sessions: DesktopSessionSummary[]) => void): () => void {
     this.sessionListeners.add(listener);
     return () => this.sessionListeners.delete(listener);
@@ -416,6 +428,7 @@ export class DesktopServiceClient implements DesktopService {
       // so it counts as one: the host redials the relay off the raised
       // generation and the renderer's registration is re-sent.
       this.generation += 1;
+      this.liveSessions = null;
       this.announceServiceReady();
       return;
     }
@@ -426,6 +439,7 @@ export class DesktopServiceClient implements DesktopService {
     if (message.kind === 'sessions') {
       const sessions = Array.isArray(message.sessions) ? message.sessions.slice() : [];
       this.cachedSessions = sessions;
+      this.liveSessions = sessions;
       this.sessionCacheFresh = true;
       for (const listener of this.sessionListeners) listener(sessions.slice());
       return;
@@ -543,6 +557,7 @@ export class DesktopServiceClient implements DesktopService {
     if (transport !== this.transport) return;
     const startupPending = this.readyReject !== null;
     this.transport = null;
+    this.liveSessions = null;
     this.decoder.reset();
     this.sessionStateDecoders.clear();
     if (!startupPending) {

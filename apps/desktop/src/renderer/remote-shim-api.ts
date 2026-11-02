@@ -400,7 +400,8 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     getUpdaterState: () => (parity() ? call('getUpdaterState') : LEGACY_HOST_FALLBACKS.getUpdaterState()),
     checkForDesktopUpdate: () =>
       parity() ? call('checkForDesktopUpdate') : LEGACY_HOST_FALLBACKS.checkForDesktopUpdate(),
-    showDesktopUpdate: () => (parity() ? call('showDesktopUpdate') : LEGACY_HOST_FALLBACKS.showDesktopUpdate()),
+    showDesktopUpdate: (confirmed) =>
+      parity() ? call('showDesktopUpdate', [confirmed === true]) : LEGACY_HOST_FALLBACKS.showDesktopUpdate(),
     // Always registered: a page can mount before the handshake says whether the
     // host has remoteParity, and reconnects never re-subscribe. An older host
     // simply never emits the event.

@@ -16,7 +16,13 @@ export interface ToolApprovalResult {
 
 export type DesktopUpdaterState =
   | { status: 'disabled' | 'idle' | 'checking' | 'up-to-date' }
-  | { status: 'downloading' | 'ready' | 'installing'; version: string; percent?: number }
+  | {
+      status: 'downloading' | 'ready' | 'installing';
+      version: string;
+      percent?: number;
+      /** `ready` after an install was held back: agent tasks running (null = unknown). */
+      busyTasks?: number | null;
+    }
   | { status: 'error'; message: string };
 
 export interface DesktopActivityState extends Readonly<Record<string, unknown>> {

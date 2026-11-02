@@ -75,6 +75,7 @@ import {
 import { createAgentDispatchBroker } from './agent-dispatch-broker.mjs';
 import { createChannelTransport } from './channel-transport.mjs';
 import { drainDeferral, idleGcEligible } from './daemon-drain-policy.mjs';
+import { daemonWorkGate } from './daemon-work-gate.mjs';
 import { createDaemonPgStop } from './daemon-pg-stop.mjs';
 import { createChannelSessionRouter } from '../session-runtime/services/channel-session-router.mjs';
 import { createSessionTransport } from './session-transport.mjs';
@@ -256,6 +257,7 @@ function settleExit(reason, code, error) {
 async function shutdown(reason, code = 0, error = null) {
   if (shuttingDown) return;
   shuttingDown = true;
+  daemonWorkGate.shutdown();
   ownerHeartbeat?.stop();
   settleExit(reason, code, error);
   if (shutdownRecheckTimer) {
@@ -367,6 +369,13 @@ async function shutdown(reason, code = 0, error = null) {
   await flushDaemonLogs();
   process.exit(settleExit(reason, code, error));
 }
+
+// An update install's hold counts what dies with this process: running
+// sessions (turns, scheduled and routine runs, agents) and memory agents.
+daemonWorkGate.setBusySource(() => {
+  const { busySessions, busyMemoryAgents } = inFlightWork();
+  return busySessions + busyMemoryAgents;
+});
 
 /** Work actually running right now, across both front doors. Self-shutdown
  *  asks whether this process may exit; idle GC asks whether a pause is safe. */
@@ -971,10 +980,15 @@ async function main() {
   agentDispatchBroker = createAgentDispatchBroker({
     // Memory-cycle agents use the same lazy provider/orchestrator graph as
     // session actors; it stays unloaded until a real cycle requests it.
-    dispatchAgent: (payload, options) => {
-      if (!sessionRuntimeHost) throw new Error('session runtime host is not ready');
-      return sessionRuntimeHost.agentDispatch(payload, options);
-    },
+    // A memory cycle that comes due during an update install's hold waits for
+    // it instead of starting work the shutdown would abort.
+    dispatchAgent: daemonWorkGate.deferring(
+      (payload, options) => {
+        if (!sessionRuntimeHost) throw new Error('session runtime host is not ready');
+        return sessionRuntimeHost.agentDispatch(payload, options);
+      },
+      (_payload, options) => options?.signal
+    ),
     log,
     onActivityChanged: () => {
       maybeSelfShutdown('memory agent activity changed');
@@ -1159,6 +1173,7 @@ async function main() {
       } catch {}
     },
     onUpgradeRequested: requestDaemonReplacement,
+    workGate: daemonWorkGate,
     admitWork: admitOwnerWorkAsync,
   });
   const sessionEndpoint = await bootPhases.measure('session-transport-start', () => sessionTransport.start());
@@ -1261,3 +1276,5 @@ main().catch((err) => {
   log(`fatal boot error: ${err?.stack || err?.message || err}`);
   void shutdown('fatal boot error', 2);
 });
+
+

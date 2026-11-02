@@ -53,6 +53,7 @@ export function createTransportRoutes({
   transportMemory,
   onClientsEmpty,
   onUpgradeRequested,
+  workGate,
   admitWork = () => true,
 }) {
   // Checked on every register/call, last right before the work is handed on
@@ -82,6 +83,7 @@ export function createTransportRoutes({
       modelProxy: modelProxyClientMode() ? 'client' : null,
       draining: drain.reason || null,
       drainCommitted: drain.committed,
+      installHold: workGate.held,
       version: runtimeVersion(),
       packageVersion: runtimeVersion(),
       buildHash: remoteInstallBuildHash(),
@@ -160,7 +162,25 @@ export function createTransportRoutes({
     // Again right before dispatch: the lease may have been fenced while the
     // body was still arriving.
     if (await refuseUnadmitted(res)) return;
+    const refusal = workGate.callRefusal(body.name);
+    if (refusal) {
+      sendError(res, refusal, 503);
+      return;
+    }
     await callRoute(body, res);
+  };
+
+  // The desktop's update install asks to close the daemon's admission gate and
+  // read the running count in one step (daemon-work-gate.mjs): busy leaves it
+  // open, idle keeps it closed until `release`, shutdown, or the lease lapses.
+  const installHold = async (req, res) => {
+    const body = await readBody(req);
+    if (body.action === 'release') {
+      workGate.release();
+      sendJson(res, { ok: true, held: false });
+      return;
+    }
+    sendJson(res, { ok: true, ...workGate.hold(body.ttlMs) });
   };
 
   const shutdown = (res) => {
@@ -230,6 +250,7 @@ export function createTransportRoutes({
     'POST /call': call,
     'POST /shutdown': (_req, res) => shutdown(res),
     'POST /stop': stop,
+    'POST /install-hold': installHold,
     'POST /upgrade': upgrade,
   };
 

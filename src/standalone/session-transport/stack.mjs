@@ -76,6 +76,7 @@ export function createTransportStack({
   onClientDropped,
   onUpgradeRequested,
   getStatus,
+  workGate,
   admitWork,
 }) {
   const body = createBodyReader();
@@ -113,7 +114,8 @@ export function createTransportStack({
     readBody: body.readBody,
     registry,
     lanes,
-    callRoute: createCallRoute({ handleCall, clients, lanes, callCache, nowMs }),
+    callRoute: createCallRoute({ handleCall, clients, lanes, callCache, nowMs, workGate }),
+    workGate,
     attachSse,
     getStatus,
     transportMemory: () => ({
