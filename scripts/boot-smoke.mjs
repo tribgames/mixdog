@@ -109,10 +109,11 @@ const rows = [
       const hasPatch = active.has('apply_patch');
       if (!hasEdit && !hasPatch) throw new Error('missing edit/apply_patch in ' + [...active].join(','));
       if (hasEdit && hasPatch) throw new Error('both edit dialects unexpectedly active: ' + [...active].join(','));
-      for (const name of ['session','github','web_fetch','recall','web_search']) {
+      for (const name of ['session','github','web_fetch','recall']) {
         if (!catalog.has(name)) throw new Error('missing deferred ' + name + ' in tool catalog');
         if (catalog.get(name)?.active === true) throw new Error('deferred tool unexpectedly active: ' + name);
       }
+      if (!active.has('web_search')) throw new Error('web_search is loaded up front but missing from ' + [...active].join(','));
       for (const name of ['bash']) {
         if (active.has(name)) throw new Error('unexpected ' + name + ' in ' + [...active].join(','));
       }
