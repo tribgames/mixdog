@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.4.4 - 2026-11-02
+
 Đã thêm thẻ Nhật ký yêu cầu trong Mức dùng, bảng bên trực tiếp cho sub-agent, lịch sử điều hướng phiên và các tùy chọn nâng cao cho nhà cung cấp tùy chỉnh.
 
 ### Tính năng mới

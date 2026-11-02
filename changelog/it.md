@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.4.4 - 2026-11-02
+
 Aggiunta la scheda Registro richieste in Utilizzo, pannelli laterali in tempo reale per i subagenti, cronologia di navigazione delle sessioni e opzioni avanzate per i provider personalizzati.
 
 ### Nuove funzionalità
