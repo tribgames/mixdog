@@ -5,6 +5,7 @@ import type React from 'react';
 import { useRef } from 'react';
 import { PanelTop } from 'lucide-react';
 import { t } from './i18n';
+import { sessionTabGlyph } from './WorkspaceTabStrip';
 import { DockHeaderRow } from './pane-dock-chrome';
 import { defaultSessionLaneStore, useSessionLane } from './session-lane-store';
 import type { AgentSessionPanelTarget } from './session-side-surface-policy';
@@ -47,9 +48,12 @@ export function AgentSessionPanel({
       <DockHeaderRow
         className="session-diff-header"
         left={
-          <span className="dock-header-title" data-tooltip={title}>
-            {title}
-          </span>
+          <div className="browser-tab is-active dock-header-chip">
+            <span className="browser-tab-select" title={title}>
+              {sessionTabGlyph(target.sessionId)}
+              <span>{title}</span>
+            </span>
+          </div>
         }
         actions={[
           {

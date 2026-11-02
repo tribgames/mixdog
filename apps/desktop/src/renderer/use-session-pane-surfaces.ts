@@ -234,9 +234,14 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
   /** `agent`: an agent's reveal (visualize) put the view there, not the
    *  user, so the Routines tile preference stays as the user left it.
    *  `front`: the view opens in front of the session's browser/terminal,
-   *  which stays (the latest explicit open wins). */
+   *  which stays (the latest explicit open wins). `fold`: the dock folds
+   *  (toggle, close), so its sub-agent stays for the next open. */
   const setSessionPanelView = useCallback(
-    (sessionId: string, view: SessionSidePanelView | null, options?: { agent?: boolean; front?: boolean }) => {
+    (
+      sessionId: string,
+      view: SessionSidePanelView | null,
+      options?: { agent?: boolean; front?: boolean; fold?: boolean }
+    ) => {
       const tileOpen = options?.agent ? null : routinesTileOpenAfter(sessionId, view);
       if (tileOpen !== null) {
         writeRoutinesTileOpen(tileOpen);
@@ -244,8 +249,9 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
       }
       setPanelViewFront(sessionId, Boolean(view && options?.front));
       setSessionPanelViews((current) => withSessionPanelView(current, sessionId, view));
-      // Another view (or none) leaves the agent session view: its sub-agent goes.
-      if (view !== 'agent-session') setAgentSessionPanels((current) => withAgentSessionPanel(current, sessionId, null));
+      // Another view (or none, unless the dock only folds) leaves the agent
+      // session view: its sub-agent goes.
+      if (view !== 'agent-session' && !options?.fold) setAgentSessionPanels((current) => withAgentSessionPanel(current, sessionId, null));
     },
     [setPanelViewFront]
   );

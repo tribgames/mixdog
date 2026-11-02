@@ -406,6 +406,26 @@ async function mountPanes(initial, focusedLeafId = 'L1') {
 const DRAFT = { kind: 'new', draftId: 'd1' };
 const paneOf = (id, tabs, activeKey) => ({ type: 'leaf', id, tabs, activeKey });
 
+test('a sub-agent panel folded by the dock toggle comes back with the next toggle', async () => {
+  const api = await mountPanes([leaf('L1', 's1')]);
+  try {
+    await act(async () => {
+      api.sessionSurfaces.showAgentSessionPanel('s1', { sessionId: 'sub', title: 'Worker' });
+      api.sideDocks.paneSideDocks.select('L1', 'agent-session');
+    });
+    assert.equal(api.sideDocks.focusedPaneDockOpen, true);
+    await act(async () => api.sideDocks.toggleDock());
+    assert.equal(api.sideDocks.focusedPaneDockOpen, false);
+    await act(async () => api.sideDocks.toggleDock());
+    assert.equal(api.sideDocks.focusedPaneDockOpen, true);
+    assert.equal(api.sessionSurfaces.sessionPanelViews.get('s1'), 'agent-session');
+    assert.deepEqual(api.sessionSurfaces.agentSessionPanels.get('s1'), { sessionId: 'sub', title: 'Worker' });
+  } finally {
+    if (api.sideDocks.focusedPaneDockOpen) await act(async () => api.sideDocks.toggleDock());
+    await api.unmount();
+  }
+});
+
 test("a toggle on a draft or another session never overwrites the owner's file", async () => {
   const tabs = [session('s1'), session('s2'), DRAFT];
   const api = await mountPanes([paneOf('L1', tabs, 'session:s1')]);
