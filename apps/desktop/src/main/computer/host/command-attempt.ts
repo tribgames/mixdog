@@ -13,7 +13,7 @@ import { computerLogError } from '../session/log-privacy';
 import { appendComputerRunRecord, computerRunRecord } from '../session/run-log';
 import { captureAttemptsFromError } from '../shared/capture-attempts';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
-import { computerDeliveryMode, READ_ACTIONS, requiresForegroundLane } from './action-sets';
+import { computerDeliveryMode, guardsBackgroundFocus, READ_ACTIONS, requiresForegroundLane } from './action-sets';
 import { PausedBeforeDispatch, type ForegroundLane } from './command-queue-foreground';
 import { type PauseGate, pausedForUserInput } from './command-queue-pause';
 import type { ActiveExecution, ExecutionState } from './execution-state';
@@ -228,7 +228,10 @@ export function createCommandAttempt(deps: CommandAttemptDeps) {
         if (foreground) await deps.pointerHold?.claim(sessionId);
         return runAttempt(attempt);
       };
-      const requireFreshAfterWait = pending || observesOnly(command) ? false : undefined;
+      // A guarded background action addresses its own window by ref: the lane
+      // wait alone does not stale it. The dispatch still refuses a changed target.
+      const requireFreshAfterWait =
+        pending || observesOnly(command) || guardsBackgroundFocus(command) ? false : undefined;
       const result = foreground
         ? await deps.runForegroundExclusive(sessionId, operation, {
             assertRunnable: attempt.assertRunnable,

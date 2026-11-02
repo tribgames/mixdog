@@ -107,10 +107,14 @@ function Get-RefRecord($ref) {
             (-not $record.Msaa.Refresh())) {
             throw "ref $ref is stale or its MSAA target changed; take a fresh snapshot/find"
         }
+        # MSAA has no runtime id, so the role and name recorded with the ref are
+        # the only proof that the refreshed node is still the element observed, on
+        # a plain command as much as on a later step: a provider may reuse the
+        # slot for another control between the observation and the action.
+        if ((Get-MsaaIdentity $record.Msaa) -ne [string]$record.Identity) {
+            throw "ref $ref no longer identifies the same element; take a fresh snapshot/find"
+        }
         if ($continuation) {
-            if ((Get-MsaaIdentity $record.Msaa) -ne [string]$record.Identity) {
-                throw "ref $ref no longer identifies the same element after an earlier step; take a fresh snapshot/find"
-            }
             if (-not $record.Msaa.Enabled -or $record.Msaa.Offscreen) {
                 throw "ref $ref is disabled or off screen after an earlier step; take a fresh snapshot/find"
             }
@@ -127,6 +131,14 @@ function Get-RefRecord($ref) {
         ((Get-ElRuntimeKey $el) -eq [string]$record.RuntimeId)
     }
     catch {}
+    if ($sameElement -and $null -ne $record.UiaIdentity) {
+        # A runtime id survives a relabel in place, so the role and name the
+        # caller observed must still hold before any input goes to the element.
+        $now = $el.Current
+        if ($now.ControlType.Id -ne $record.UiaIdentity.ControlType.Id -or [string]$now.Name -ne [string]$record.UiaIdentity.Name) {
+            throw "ref $ref no longer identifies the same element; take a fresh snapshot/find"
+        }
+    }
     if (-not $sameElement) {
         # A later step of a sequence acts on what earlier steps left, so only the
         # step the caller aimed from its observation may stand in a rebuilt twin.
