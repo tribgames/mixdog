@@ -447,28 +447,6 @@ html[data-mixdog-skin] .message.user .message-body {
 html[data-mixdog-skin] .mx-chat-row[data-side="user"] .message.user > .message-body {
   background: color-mix(in srgb, var(--mx-skin-accent) 20%, var(--mx-bg-base));
 }
-/* The primary New task launcher is an accent pill (the row keeps its text
-   column: the pill's left padding is cancelled by the negative left margin).
-   Only the LEFT edge bleeds: the session rows' highlight reaches 8px past the
-   text line on the left and ends on the launcher block's content edge, so a
-   -8px right margin would push the pill 8px past every row highlight. */
-html[data-mixdog-skin] .session-sidebar .task-link.session-launcher-row:first-child {
-  margin-inline: -8px 0;
-  padding-inline: 8px;
-  border-radius: var(--mx-radius-control, 8px);
-  color: var(--mx-skin-on-accent);
-  background: var(--mx-skin-accent);
-}
-/* Hover / focus keep the fill and text pair the contrast guard checked and
-   add an inset ring in the text colour instead of mixing the two. */
-html[data-mixdog-skin] .session-sidebar .task-link.session-launcher-row:first-child:is(:hover, :focus-visible) {
-  color: var(--mx-skin-on-accent);
-  background: var(--mx-skin-accent);
-  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--mx-skin-on-accent) 55%, transparent);
-}
-html[data-mixdog-skin] .session-launcher-row:first-child > .session-launcher-icon {
-  color: inherit;
-}
 /* The composer island's primary button takes the accent too. */
 html[data-mixdog-skin] :is(.composer-island-button-primary, .composer-island-button-primary:hover) {
   color: var(--mx-skin-on-accent);

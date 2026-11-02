@@ -381,7 +381,16 @@ function documentOperations(
 function settingsOperations(settingsStore: DesktopSettingsStore, emit: Emit): Record<string, OperationHandler> {
   return {
     readSettings: () => settingsStore.read(),
-    readActivityRailPins: () => settingsStore.readActivityRailPins(),
+    readActivityRailPins: async () => {
+      // The host settles the one-time Studio pin migration; a failed write
+      // stays pending (retried by the next read) and never blocks the read.
+      const migrated = await settingsStore.migrateStudioPin().catch((error) => {
+        console.warn('Studio rail pin migration failed', error);
+        return null;
+      });
+      if (migrated) emit({ name: ACTIVITY_RAIL_PINS_EVENT, value: migrated });
+      return settingsStore.readActivityRailPins();
+    },
     updateActivityRailPins: async (args) => {
       if (args[1] !== undefined && typeof args[1] !== 'boolean') {
         throw new TypeError('initializeIfMissing must be a boolean.');

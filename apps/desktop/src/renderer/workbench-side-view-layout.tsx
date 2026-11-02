@@ -58,6 +58,8 @@ export interface WorkbenchSideViewDescriptor {
   tooltip?: string;
   icon: LucideIcon;
   onPrefetch?(): void;
+  /** An action entry (Studio): selecting it runs this instead of showing a panel. */
+  onActivate?(): void;
 }
 
 type WorkbenchSideDragPayload = {

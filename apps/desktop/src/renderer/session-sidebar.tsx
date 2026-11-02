@@ -110,7 +110,7 @@ function busyPromptOptions(prompt: BusyPrompt) {
 const NO_PROJECTS: readonly DesktopProjectSummary[] = [];
 /** Default top-to-bottom order of the session categories; the user can drag
  *  any heading to reorder them. */
-const SIDEBAR_SECTIONS = ['agents', 'favorites', 'projects', 'recent', 'archived'] as const;
+const SIDEBAR_SECTIONS = ['agents', 'favorites', 'recent', 'projects', 'archived'] as const;
 
 /** The sidebar's width: persisted, clamped, and flushed on pagehide mid-drag. */
 function useSidebarWidth() {
@@ -642,8 +642,6 @@ interface SessionSidebarProps {
   unreadSessionIds?: ReadonlySet<string>;
   selection: NavigationSelection;
   onNewTask(): void;
-  /** Second fixed launcher row: opens a Studio workspace tab. */
-  onNewStudio(): void;
   onPrefetchSession?(sessionId: string): Promise<boolean>;
   onResumeSession(sessionId: string): void;
   /** Opens an agent's chat on the Agents page. */
@@ -678,7 +676,6 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   unreadSessionIds,
   selection,
   onNewTask,
-  onNewStudio,
   onPrefetchSession,
   onResumeSession,
   onOpenAgent,
@@ -703,7 +700,7 @@ export const SessionSidebar = React.memo(function SessionSidebar({
   // inside the commit) and restyled the shown sidebar a second time.
   const phone = usePhoneSurfaceMarked();
   useScrollProgress(panelsScrollerRef, ':scope > .session-panel-header');
-  useScrollProgress(recentScrollerRef, ':scope > .session-sidebar-launchers', hasSessionSurface);
+  useScrollProgress(recentScrollerRef, ':scope > .session-sidebar-top-fade', hasSessionSurface);
   // The catalog holds still under a reader's scroll: no re-sort or row move
   // lands until it ends (see useHeldDuringUserScroll).
   const sessions = useHeldDuringUserScroll(recentScrollerRef, liveSessions);
@@ -1041,12 +1038,11 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           hiddenSections,
           toggleSectionHidden
         ),
+        onNewTask,
       })}
       {hasSessionSurface &&
         sessionsSurface({
           panelActive,
-          onNewTask,
-          onNewStudio,
           scrollerRef: recentScrollerRef,
           onScroll: handleRecentScroll,
           sectionIds: sectionOrder.orderedIds,

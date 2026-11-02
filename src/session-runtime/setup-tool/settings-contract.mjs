@@ -56,6 +56,7 @@ export const SETUP_ACTIVITY_RAIL_PIN_IDS = Object.freeze([
   'source-control',
   'search',
   'webhooks',
+  'studio',
 ]);
 
 export const SETUP_EXTENDED_DOMAINS = Object.freeze([

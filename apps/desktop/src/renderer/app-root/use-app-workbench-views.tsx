@@ -331,6 +331,7 @@ export function useAppWorkbenchViews({
       onDeleteSession: deleteSession,
     };
     if (id === 'sessions') return <SessionSidebar {...sessionSidebarProps} />;
+    if (id === 'studio') return null;
     if (DEFAULT_SIDEBAR_VIEW_ORDER.includes(id as SidebarPanelKey)) {
       return (
         <SessionSidebar {...sessionSidebarProps} panelActive panelTitle={sideViewDescriptors.get(id)?.label}>

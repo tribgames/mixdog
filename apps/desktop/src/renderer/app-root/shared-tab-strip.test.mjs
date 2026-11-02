@@ -157,7 +157,7 @@ test('a bot clicked in the Sessions sidebar opens as a tab of the shared strip; 
   }
   await act(async () => root.render(React.createElement(Harness)));
   await settle();
-  const row = host.querySelector('[data-agent-contact="github-watcher"] .session-row-main');
+  const row = host.querySelector('[data-agent-contact="github-watcher"] .agent-strip-button');
   assert.ok(row, 'the Sessions sidebar lists the bot');
   await act(async () => row.click());
   await settle();

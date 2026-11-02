@@ -891,11 +891,6 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-list .session-row-unread
 html[data-mixdog-mobile-tabs] .session-sidebar .session-list .session-row-status {
   right: calc(14px + var(--mx-drawer-bleed));
 }
-html[data-mixdog-mobile-tabs] .session-sidebar .task-link.session-launcher-row {
-  width: calc(100% + 2 * var(--mx-drawer-bleed));
-  margin-inline: calc(-1 * var(--mx-drawer-bleed));
-  padding-inline: var(--mx-drawer-bleed);
-}
 /* Agents page: rows are the 56..313.4 highlight; their content sits on the line. */
 html[data-mixdog-mobile-tabs] .utility-dock .agent-chat-row-main {
   padding-inline: var(--mx-drawer-bleed);

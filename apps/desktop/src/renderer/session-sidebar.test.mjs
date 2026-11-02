@@ -85,7 +85,7 @@ test('auxiliary sidebars omit duplicate lists while a visited Sessions surface k
   assert.equal(scroller.scrollTop, 47);
 });
 
-test('the fixed launcher rows lead the session list and open a task or a Studio tab', async () => {
+test('the header + starts a task and no launcher rows remain', async () => {
   const { dom, restore } = installDom();
 
   const { SessionSidebar } = await import('./session-sidebar.tsx');
@@ -115,9 +115,6 @@ test('the fixed launcher rows lead the session list and open a task or a Studio 
           onNewTask() {
             calls.push('task');
           },
-          onNewStudio() {
-            calls.push('studio');
-          },
           onResumeSession() {},
           async onRenameSession() {},
           async onArchiveSession() {},
@@ -125,30 +122,18 @@ test('the fixed launcher rows lead the session list and open a task or a Studio 
         })
       )
     );
-    const launchers = document.querySelector('nav[aria-label="New"]');
-    const recentSection = document.querySelector('section[aria-label="Recent sessions"]');
-    assert.ok(launchers);
-    assert.ok(recentSection);
-    assert.ok(
-      launchers.compareDocumentPosition(recentSection) & dom.window.Node.DOCUMENT_POSITION_FOLLOWING,
-      'the launcher rows sit above the Recent list'
-    );
-    // Fixed means OUTSIDE the scroller: only the lists scroll, so the
-    // launchers can never slide away or let rows show through above them.
-    const scroller = recentSection.closest('.session-sidebar-scroll');
-    assert.ok(scroller, 'the Recent list lives in the scroller');
-    assert.equal(launchers.closest('.session-sidebar-scroll'), null, 'the launcher rows stay outside the scroller');
-    assert.equal(launchers.parentElement, scroller.parentElement, 'launchers and scroller share the Sessions surface');
-    const [taskRow, studioRow] = launchers.querySelectorAll('button');
-    assert.equal(taskRow?.textContent, 'New task');
-    assert.equal(studioRow?.textContent, 'New Studio');
+    assert.equal(document.querySelector('.session-sidebar-launchers'), null, 'no launcher block');
+    assert.equal(document.querySelector('nav[aria-label="New"]'), null);
+    const actions = [...document.querySelectorAll('.session-panel-header-actions > :is(button, .row-overflow)')];
+    assert.equal(actions.length, 3);
+    assert.ok(actions[0].classList.contains('session-search-open'), 'search first');
+    assert.ok(actions[1].classList.contains('row-overflow'), 'the ⋯ menu second');
+    const plus = actions[2];
+    assert.equal(plus.getAttribute('aria-label'), 'New task', '+ is rightmost');
     await act(async () => {
-      taskRow.click();
+      plus.click();
     });
-    await act(async () => {
-      studioRow.click();
-    });
-    assert.deepEqual(calls, ['task', 'studio']);
+    assert.deepEqual(calls, ['task']);
   } finally {
     await act(async () => root.unmount());
     restore();
@@ -451,6 +436,54 @@ test('the Recent actions menu archives recent sessions and confirms archived del
     await press('ContextMenu');
     assert.ok(document.querySelector('.row-overflow-menu'));
     await press('Escape');
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('with no saved order, Recent (open) comes before Projects', async () => {
+  const { restore } = installDom();
+  const { SessionSidebar } = await import('./session-sidebar.tsx');
+  const root = createRoot(document.getElementById('root'));
+  window.localStorage.removeItem('mixdog:session-sidebar-section-order');
+  try {
+    await act(async () =>
+      root.render(
+        React.createElement(SessionSidebar, {
+          open: true,
+          sessions: [
+            {
+              id: 'one',
+              title: 'one',
+              preview: '',
+              updatedAt: 1,
+              activityAt: 1,
+              messageCount: 1,
+              cwd: '',
+              classification: 'task',
+              projectPath: null,
+              working: false,
+            },
+          ],
+          sessionsReady: true,
+          projects: [{ name: 'Beta', path: 'C:/Work/Beta', alias: null }],
+          selection: { kind: 'new' },
+          onNewTask() {},
+          onResumeSession() {},
+          async onRenameSession() {},
+          async onArchiveSession() {},
+          async onDeleteSession() {},
+        })
+      )
+    );
+    assert.deepEqual(
+      [...document.querySelectorAll('.session-sidebar-scroll > section')].map((section) =>
+        section.getAttribute('aria-label')
+      ),
+      ['Recent sessions', 'Projects']
+    );
+    assert.equal(document.querySelectorAll('section[aria-label="Recent sessions"] .session-row').length, 1);
   } finally {
     await act(async () => root.unmount());
     restore();
