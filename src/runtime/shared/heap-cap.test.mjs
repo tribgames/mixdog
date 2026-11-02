@@ -3,19 +3,11 @@ import test from 'node:test';
 
 import { heapCapMb, withHeapCap } from './heap-cap.mjs';
 
-test('memory and session-runtime stay capped; daemon defaults to V8 own sizing', () => {
-  // Memory runtime 259MB peak, session-runtime shares the daemon's transcripts.
-  // Daemon no longer carries a fixed 768MB ceiling; MIXDOG_DAEMON_HEAP_MB still
-  // applies a cap when set.
-  assert.equal(heapCapMb('daemon', {}), 0);
-  assert.equal(heapCapMb('memory', {}), 512);
-  assert.equal(heapCapMb('session-runtime', {}), 768);
-  assert.deepEqual(withHeapCap('memory', [], {}), ['--max-old-space-size=512']);
-  assert.deepEqual(withHeapCap('session-runtime', ['--require', 'x'], {}), [
-    '--require',
-    'x',
-    '--max-old-space-size=768',
-  ]);
+test('every role defaults to V8 own sizing, so no process exits at a fixed ceiling', () => {
+  for (const role of ['daemon', 'memory', 'session-runtime']) {
+    assert.equal(heapCapMb(role, {}), 0, role);
+    assert.deepEqual(withHeapCap(role, ['--require', 'x'], {}), ['--require', 'x'], role);
+  }
 });
 
 test('an unrecognised role is left to V8 entirely', () => {
@@ -51,12 +43,12 @@ test('a cap the caller already chose is never doubled', () => {
   ]);
 });
 
-test('a malformed override keeps the default rather than removing the cap', () => {
+test('a malformed override keeps the uncapped default', () => {
   for (const bad of ['abc', '-5', '   ']) {
     assert.deepEqual(
       withHeapCap('session-runtime', [], { MIXDOG_SESSION_RUNTIME_HEAP_MB: bad }),
-      ['--max-old-space-size=768'],
-      `override ${JSON.stringify(bad)} must not disable the cap`
+      [],
+      `override ${JSON.stringify(bad)} must keep the uncapped default`
     );
     assert.deepEqual(
       withHeapCap('daemon', [], { MIXDOG_DAEMON_HEAP_MB: bad }),

@@ -9,16 +9,14 @@
 // Capping old space makes V8 pace its major GCs against a realistic size. On
 // this exact runtime, one identical workload settled at RSS 401MB uncapped
 // versus 245MB under a 768MB cap (39% lower) while the live set was unchanged;
-// the gap between heapTotal and RSS fell from 274MB to 100MB. The desktop
-// renderer already banks the same win from its own cap — see the note above
-// `rendererHeapMb` in apps/desktop/src/main/index.ts, which reached this
-// conclusion first and named forced collection as the path that does NOT work.
+// the gap between heapTotal and RSS fell from 274MB to 100MB.
 //
-// Memory and session-runtime keep caps well above their measured peaks so the
-// ceiling shapes GC pacing. The daemon is left to V8's own sizing by default:
-// a fixed 768MB ceiling was tight enough to risk avoidable exits. An explicit
-// `<ROLE>_HEAP_MB` still applies; `0` restores V8's own sizing, mirroring the
-// MIXDOG_RENDERER_HEAP_MB escape hatch.
+// Every role is nevertheless left to V8's own sizing by default, like the
+// desktop renderer (`rendererHeapMb` in apps/desktop/src/main/index.ts): a
+// fixed ceiling turns a spike past it into an exit while the machine still
+// has memory to spare, and an exit costs the work running in that process.
+// An explicit `<ROLE>_HEAP_MB` still applies; `0` leaves V8's own sizing,
+// mirroring the MIXDOG_RENDERER_HEAP_MB escape hatch.
 
 import { nonNegativeInt } from './numbers.mjs';
 
@@ -29,9 +27,9 @@ const ROLES = {
   // Default 0 leaves V8's own sizing; MIXDOG_DAEMON_HEAP_MB still applies.
   daemon: { env: 'MIXDOG_DAEMON_HEAP_MB', defaultMb: 0 },
   // Memory runtime observed resident at 259MB with the embedding model cold.
-  memory: { env: 'MIXDOG_MEMORY_HEAP_MB', defaultMb: 512 },
+  memory: { env: 'MIXDOG_MEMORY_HEAP_MB', defaultMb: 0 },
   // Shard-mode session runtime holds the same transcripts the daemon would.
-  'session-runtime': { env: 'MIXDOG_SESSION_RUNTIME_HEAP_MB', defaultMb: 768 },
+  'session-runtime': { env: 'MIXDOG_SESSION_RUNTIME_HEAP_MB', defaultMb: 0 },
 };
 
 /** Cap in MB for a role; 0 means "leave V8's own sizing alone". */
