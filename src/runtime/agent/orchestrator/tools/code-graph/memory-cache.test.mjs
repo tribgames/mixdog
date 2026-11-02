@@ -63,6 +63,19 @@ test('memory pruning evicts older base graphs but keeps the most recently used o
   }
 });
 
+test('a worker-built graph arrives with its base size, matching a main-thread walk of the clone', async () => {
+  const { _postCodeGraphWorkerSuccess } = await import('./build.mjs');
+  const { _estimateGraphBaseBytes, _seedGraphBaseBytes } = await import('./graph-model.mjs');
+  const graph = graphWithSource('x'.repeat(4_000));
+  graph.signature = 'sig';
+  let message = null;
+  _postCodeGraphWorkerSuccess(graph, (posted) => (message = structuredClone(posted)), () => {});
+  const fresh = structuredClone(message.graph);
+  assert.equal(message.baseBytes, _estimateGraphBaseBytes(fresh));
+  _seedGraphBaseBytes(message.graph, message.baseBytes);
+  assert.equal(_estimateGraphRetainedBytes(message.graph), _estimateGraphRetainedBytes(fresh));
+});
+
 test('retained-size estimate tracks runtime caches and call hydration of a memoized base', () => {
   const graph = graphWithSource('');
   graph._sourceTextCache.clear();

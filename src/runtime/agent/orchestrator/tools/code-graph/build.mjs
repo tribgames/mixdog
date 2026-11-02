@@ -29,7 +29,13 @@ import {
   CODE_GRAPH_WORKER_TIMEOUT_MS,
   SYMBOL_SCHEMA_VERSION,
 } from './constants.mjs';
-import { _computeGraphSignature, _deserializeGraph, _attachGraphRuntimeCaches } from './graph-model.mjs';
+import {
+  _computeGraphSignature,
+  _deserializeGraph,
+  _attachGraphRuntimeCaches,
+  _estimateGraphBaseBytes,
+  _seedGraphBaseBytes,
+} from './graph-model.mjs';
 import { _touchCodeGraphCache, _setCodeGraphCache } from './memory-cache.mjs';
 import {
   ensureDiskCodeGraphLoaded,
@@ -261,7 +267,7 @@ export function _postCodeGraphWorkerSuccess(
   { cache = true } = {}
 ) {
   if (cache) drainCache();
-  postMessage({ ok: true, signature: graph.signature, graph });
+  postMessage({ ok: true, signature: graph.signature, graph, baseBytes: _estimateGraphBaseBytes(graph) });
 }
 
 // Structured keys avoid both separator collisions inside roots/prefixes and
@@ -495,6 +501,7 @@ export function _spawnCodeGraphWorker(
           if (msg?.ok && msg.graph && typeof msg.signature === 'string') {
             const genStillCurrent = getGeneration(graphCwd) === genAtStart;
             if (genStillCurrent && cacheResult) {
+              _seedGraphBaseBytes(msg.graph, msg.baseBytes);
               setMemoryCache(graphCwd, { ts: Date.now(), signature: msg.signature, graph: msg.graph });
               // The Worker strictly persisted this graph before posting
               // success. Adopt it in the main process without scheduling a
