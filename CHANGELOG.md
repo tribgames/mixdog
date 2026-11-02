@@ -5,6 +5,38 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+Added a Request log in Usage, live sub-agent side panels, session navigation history, and custom provider request options.
+
+### New features
+
+- **Request log** — Added a Request log tab in Usage filtering requests by period, status, and model, showing tokens, cost, duration, and status (#300).
+- **Sub-agent side panel** — Added opening sub-agents from the Agents window or composer list; folds with `Ctrl+B` and keeps ended sessions readable.
+- **Session navigation** — Added Back and Forward history navigation across sessions and editor locations using `Ctrl/Cmd+[` / `]`, `Alt+Left`/`Right`, and mouse side buttons (#289).
+- **Custom provider options** — Added Advanced JSON request parameters, custom HTTP headers, and OpenRouter routing strategies (Auto, Price, Speed, Latency) to model settings (#231).
+- **UI zoom shortcuts** — Added zooming the desktop interface between 85% and 150% in 5% increments using `Ctrl/Cmd+=`, `Ctrl/Cmd+-`, and `Ctrl/Cmd+0` (#286).
+
+### Changes
+
+- Adjusted Computer Use to stream element deltas, cache OCR, and send background scrolling and key chords to Mixdog windows without taking foreground focus.
+- Changed Mixy to answer what she can settle herself, hand work to another bot only when named or continuing its work, and otherwise use sub-agents.
+- Changed handed-off session questions to synchronize between chats, resolving both cards simultaneously when answered, closed, or timed out.
+- Changed memory management to automatically save explicit user preferences while requiring confirmation for agent-proposed entries or ambiguous project scopes.
+- Changed the desktop bot mascot to appear only when you turn it on in settings.
+- Changed the Bots page to hide the Agents group by default; turn it on from the page's ⋯ menu, and your earlier choices are kept.
+- Adjusted the session to-do list so each step's note sits under its title, blocked steps read more calmly, and phases show as headings.
+
+### Bug fixes
+
+- Fixed hand-off chains posting multiple completion cards and progress rows by showing one card and one progress row per answer.
+- Fixed background runs (memory cycle, web search) showing prompts as session names in the Request log; they now show what they do with an Internal tag.
+- Fixed Explore failing to run when configured with an OAuth-only model provider (#301).
+- Fixed tasks started outside Git repositories failing when default worktree settings were active (#297).
+- Fixed removing a plugin deleting files outside it through links inside the plugin folder, and resolved Windows `EPERM` lock failures during updates (#296).
+- Fixed archived bot schedules and webhooks firing while disabled or failing to re-arm upon restoration.
+- Fixed silent background terminal commands continuing to appear healthy when stalled past their progress threshold.
+- Fixed in-app browser crashing when an iframe was removed during an active command.
+- Fixed Computer Use refusing subsequent actions after typing into text fields or failing to release mouse buttons during emergency stops.
+
 ## v1.4.3 - 2026-10-31
 
 Added Worktrees settings and branch cleanup, replaced Goal tasks with session todo lists, and introduced customizable composer styles.
