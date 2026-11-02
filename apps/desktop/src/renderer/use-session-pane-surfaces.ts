@@ -4,6 +4,7 @@ import { noteBrowserRemoteViewer } from './browser-remote-drive';
 import { releaseSessionDiff } from './session-diff-cache';
 import { releaseFullToolOutputs } from './tool-full-output';
 import { useSessionBrowserSurfaces } from './session-browser-surfaces';
+import type { useSessionLane } from './session-lane-store';
 import {
   restoredSessionSurfaces,
   SESSION_DOCK_SURFACES_KEY,
@@ -37,6 +38,8 @@ import { clearBorrowedBrowserTab, releaseBorrowedBrowserTabsOf } from './browser
 import { forgetChildSurfacePages } from './child-surface-peeks';
 
 const ROUTINE_OWNER_KEYS = ['channelSetup'] as const;
+
+export type HeldAgentLane = NonNullable<ReturnType<typeof useSessionLane>>;
 
 /** A dock view an agent reveal (or the agent panel event) left for a session
  *  no pane shows yet: selected in its pane once one shows it, in front of
@@ -109,6 +112,15 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
   );
   const agentSessionPanelsRef = useRef(agentSessionPanels);
   agentSessionPanelsRef.current = agentSessionPanels;
+  // The final snapshot of each panel sub-agent whose lane was torn down
+  // (AgentSessionPanel's useHeldSessionLane). Kept with the panel targets, not
+  // in the component, so it survives the panel remounting on a host switch;
+  // it goes with the target.
+  const heldAgentLanes = useRef(new Map<string, HeldAgentLane>()).current;
+  useEffect(() => {
+    const kept = new Set([...agentSessionPanels.values()].map((target) => target.sessionId));
+    for (const sessionId of heldAgentLanes.keys()) if (!kept.has(sessionId)) heldAgentLanes.delete(sessionId);
+  }, [agentSessionPanels, heldAgentLanes]);
   // Decided in render from the current tabs: a sub-agent that becomes a tab
   // leaves its panel in the commit that adds the tab, never mounted twice.
   const tabSessionKey = tabSessionIds.join('\u0000');
@@ -363,6 +375,7 @@ export function useSessionPaneSurfaces(tabSessionIds: readonly string[] = []) {
 
   return {
     agentSessionPanels: shownAgentSessionPanels,
+    heldAgentLanes,
     showAgentSessionPanel,
     browserSurfaces,
     browserAutoRevealSuppressed,

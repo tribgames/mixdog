@@ -403,6 +403,7 @@ export function useAppWorkbenchViews({
           key={target.sessionId}
           target={target}
           active={active}
+          heldLanes={sessionPaneSurfaces.heldAgentLanes}
           renderConversation={(sessionId, title, held) =>
             renderSessionConversation(
               { kind: 'session', id: sessionId, ...(title ? { title } : {}) },
