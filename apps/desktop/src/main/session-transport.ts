@@ -25,6 +25,16 @@ interface DaemonUpgradeWait {
 
 const UPGRADE_RETRY_DELAY_MS = 250;
 
+/** What a quit-time stop of an in-tree daemon did (session-client stopInTreeDaemon). */
+export interface InTreeDaemonStop {
+  stopped: boolean;
+  inTree: number[];
+  discoveryPid: number | null;
+  request: 'sent' | 'failed' | 'no-discovery' | 'not-in-tree' | 'none' | 'remote' | 'unsupported';
+  error: string | null;
+  elapsedMs: number;
+}
+
 interface SessionClientModule {
   ensureDaemon(options?: {
     cwd?: string;
@@ -33,7 +43,7 @@ interface SessionClientModule {
   }): Promise<Record<string, unknown>>;
   forceDaemonUpgrade(options?: { log?: (line: string) => void }): Promise<boolean>;
   /** Quit only: stop a daemon this process forked into its own tree. */
-  stopInTreeDaemon?(options?: { timeoutMs?: number }): Promise<boolean>;
+  stopInTreeDaemon?(options?: { timeoutMs?: number }): Promise<InTreeDaemonStop>;
   /** Health + protocol verdict for an explicit discovery; reads no files. */
   probeSessionCompatibility(
     discovery: Record<string, unknown>,
@@ -680,8 +690,17 @@ export class SessionTransport implements DesktopTransport {
   /** App quit only (never a transport restart): a local daemon this process
    *  forked into its own tree exits with the app, so let it shut down — and
    *  stop the PostgreSQL it started — before that happens. */
-  async stopInTreeDaemon(timeoutMs: number): Promise<boolean> {
-    if (this.remote || !this.daemonModule?.stopInTreeDaemon) return false;
+  async stopInTreeDaemon(timeoutMs: number): Promise<InTreeDaemonStop> {
+    if (this.remote || !this.daemonModule?.stopInTreeDaemon) {
+      return {
+        stopped: false,
+        inTree: [],
+        discoveryPid: null,
+        request: this.remote ? 'remote' : 'unsupported',
+        error: null,
+        elapsedMs: 0,
+      };
+    }
     return this.daemonModule.stopInTreeDaemon({ timeoutMs });
   }
 }
