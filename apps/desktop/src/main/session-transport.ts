@@ -35,6 +35,13 @@ export interface InTreeDaemonStop {
   elapsedMs: number;
 }
 
+/** What an update install's admission hold did (session-client holdInTreeDaemon). */
+export interface InTreeDaemonHold {
+  status: 'held' | 'busy' | 'none' | 'unknown' | 'released';
+  busy: number;
+  error: string | null;
+}
+
 interface SessionClientModule {
   ensureDaemon(options?: {
     cwd?: string;
@@ -44,6 +51,9 @@ interface SessionClientModule {
   forceDaemonUpgrade(options?: { log?: (line: string) => void }): Promise<boolean>;
   /** Quit only: stop a daemon this process forked into its own tree. */
   stopInTreeDaemon?(options?: { timeoutMs?: number }): Promise<InTreeDaemonStop>;
+  /** Update install: close new-work admission on the in-tree daemon and read
+   *  its running count in one daemon-side step, or release that hold. */
+  holdInTreeDaemon?(options?: { release?: boolean; ttlMs?: number }): Promise<InTreeDaemonHold>;
   /** Health + protocol verdict for an explicit discovery; reads no files. */
   probeSessionCompatibility(
     discovery: Record<string, unknown>,
@@ -702,5 +712,12 @@ export class SessionTransport implements DesktopTransport {
       };
     }
     return this.daemonModule.stopInTreeDaemon({ timeoutMs });
+  }
+
+  /** Update install: a remote or unsupported transport has no in-tree daemon
+   *  this install would kill, so there is nothing to hold. */
+  async holdInTreeDaemon(options: { release?: boolean; ttlMs?: number } = {}): Promise<InTreeDaemonHold> {
+    if (this.remote || !this.daemonModule?.holdInTreeDaemon) return { status: 'none', busy: 0, error: null };
+    return this.daemonModule.holdInTreeDaemon(options);
   }
 }

@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { writeJsonAtomicAsync } from '../../../../src/runtime/shared/atomic-file.mjs';
 import type { DesktopUpdaterState } from '../shared/contract';
-import { createUpdaterController, type UpdaterReadyRecord } from './updater-controller';
+import { createUpdaterController, startUnattendedInstall, type UpdaterReadyRecord } from './updater-controller';
 import { normalizeUpdaterDevFeed } from './updater-feed';
 
 const UPDATE_CHECK_INTERVAL_MS = 10 * 60 * 1000;
@@ -56,13 +56,22 @@ export const desktopUpdater = {
   check(): Promise<DesktopUpdaterState> {
     return controller?.check() ?? Promise.resolve(state);
   },
-  async install(): Promise<void> {
+  async install(confirmed = false): Promise<void> {
     if (!controller) throw new Error('Desktop updates are unavailable in this build.');
-    await controller.install();
+    await controller.install({ confirmed });
+  },
+  /** True (and the state says why) when an unconfirmed install would be held back. */
+  async confirmBusy(): Promise<boolean> {
+    return (await controller?.confirmBusy()) ?? false;
   },
 };
 
-export function startAutoUpdater(stop: () => Promise<void> = async () => {}, report?: UpdaterLog): void {
+export function startAutoUpdater(
+  stop: () => Promise<void> = async () => {},
+  report?: UpdaterLog,
+  busy?: () => Promise<number | null>,
+  barrier?: { close(): Promise<number | null>; release(): Promise<void> }
+): void {
   if (controller || checkInterval || startPromise) return;
   if (!app.isPackaged || process.env.ELECTRON_RENDERER_URL) {
     // Dev/unpackaged builds silently disable updates; the state is already
@@ -105,6 +114,8 @@ export function startAutoUpdater(stop: () => Promise<void> = async () => {}, rep
       service: autoUpdater,
       persistence: readyPersistence(join(app.getPath('userData'), 'updater-ready.json')),
       stop,
+      busy,
+      barrier,
       log(message, data) {
         console.info(`Mixdog ${message}`, data ?? '');
         report?.(message, data as Readonly<Record<string, unknown>> | undefined);
@@ -114,12 +125,17 @@ export function startAutoUpdater(stop: () => Promise<void> = async () => {}, rep
       console.info('Mixdog updater status:', next);
       report?.('updater state', next);
       publish(next);
-      if (devAutoInstall && next.status === 'ready') {
-        void desktopUpdater.install().catch((error: unknown) => {
-          console.warn('Mixdog dev auto-install failed:', error);
-        });
-      }
     });
+    // Never confirmed: an inherited env var must not override the
+    // running-work hold, so a busy loop run waits and retries.
+    const stopUnattendedInstall = devAutoInstall
+      ? startUnattendedInstall(controller, {
+          log(message, data) {
+            console.warn(`Mixdog ${message}`, data ?? '');
+            report?.(message, data as Readonly<Record<string, unknown>> | undefined);
+          },
+        })
+      : undefined;
     void controller.start();
     checkInterval = setInterval(() => {
       void controller?.check();
@@ -128,6 +144,7 @@ export function startAutoUpdater(stop: () => Promise<void> = async () => {}, rep
     app.once('will-quit', () => {
       if (checkInterval) clearInterval(checkInterval);
       checkInterval = undefined;
+      stopUnattendedInstall?.();
     });
   })().catch((error) => {
     // Missing or unreachable publish metadata must never delay application startup.

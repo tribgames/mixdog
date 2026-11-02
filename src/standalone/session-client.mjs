@@ -711,6 +711,40 @@ export async function stopInTreeDaemon({
   return outcome;
 }
 
+/** Before an update install tears the app down: close new-work admission on
+ *  the in-tree daemon and read its running count in one daemon-side step.
+ *  `held` — idle, admission stays closed until release (or the hold lapses);
+ *  `busy` — turns run, admission was left open, `busy` is the count;
+ *  `none` — no in-tree daemon serves, so the install kills nothing;
+ *  `unknown` — the daemon could not be asked. `release` reopens admission. */
+export async function holdInTreeDaemon({
+  release = false,
+  ttlMs,
+  discovery = readSessionDiscovery(),
+} = {}) {
+  const pids = [...inTreeDaemons.keys()].filter((pid) => isPidAlive(pid));
+  if (!pids.length) return { status: 'none', busy: 0, error: null };
+  if (discovery?.port && !pids.includes(Number(discovery.pid))) return { status: 'none', busy: 0, error: null };
+  if (!discovery?.port) return { status: 'unknown', busy: 0, error: 'no daemon discovery' };
+  try {
+    const answer = await request({
+      port: discovery.port,
+      token: discovery.token,
+      method: 'POST',
+      path: '/install-hold',
+      body: release ? { action: 'release' } : { action: 'close', ttlMs },
+      timeoutMs: 3000,
+      control: true,
+    });
+    if (release) return { status: 'released', busy: 0, error: null };
+    if (answer?.held === true) return { status: 'held', busy: 0, error: null };
+    if (Number(answer?.busy) > 0) return { status: 'busy', busy: Number(answer.busy), error: null };
+    return { status: 'unknown', busy: 0, error: 'unexpected hold answer' };
+  } catch (error) {
+    return { status: 'unknown', busy: 0, error: String(error?.message || error) };
+  }
+}
+
 export async function shutdownDaemonForRuntimeRoot(root, options = {}) {
   const runtimeRoot = String(root || '').trim();
   if (!runtimeRoot) return false;

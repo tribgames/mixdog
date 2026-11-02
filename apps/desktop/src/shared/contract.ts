@@ -897,7 +897,9 @@ export interface DesktopApi {
   getUpdaterState(): Promise<DesktopUpdaterState>;
   subscribeUpdaterState(listener: (state: DesktopUpdaterState) => void): () => void;
   checkForDesktopUpdate(): Promise<DesktopUpdaterState>;
-  showDesktopUpdate(): Promise<DesktopUpdaterState>;
+  /** Installs the downloaded update. Held back (state stays `ready` with
+   *  `busyTasks`) while agent tasks run or are unknown, unless `confirmed`. */
+  showDesktopUpdate(confirmed?: boolean): Promise<DesktopUpdaterState>;
   /** Atomically materialize a renderer-only draft and accept its first prompt. */
   submitNewTask(
     prompt: DesktopPromptContent,

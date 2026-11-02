@@ -9,6 +9,7 @@ import { record } from '../record-utils';
 import { isSshConnectionWindow } from '../desktop-connection';
 import { isRemoteHostRenderer } from '../remote-ui-projection';
 import { subscribeSetupChanges } from '../setup-change-refresh';
+import { updaterBusyNotice } from '../use-desktop-updater';
 import {
   setToolActivityExpansion,
   useStoredToolActivityExpansion,
@@ -329,6 +330,7 @@ function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, ins
     updaterState.status === 'downloading' ||
     updaterState.status === 'installing';
   const installLabel = updaterInstallLabel(updaterState);
+  const held = updaterState.status === 'ready' && updaterState.busyTasks !== undefined;
   const current = String(update.currentVersion || '');
   let versionMeta: string | undefined;
   if (updaterState.status === 'checking') versionMeta = t('Checking for update…');
@@ -361,12 +363,13 @@ function UpdatePanel({ data, pending, run, updaterState, checkDesktopUpdate, ins
         updaterState.status === 'installing') && (
         <ResourceRow
           title={onHost ? t('Install update on host computer') : t('Install update')}
+          meta={updaterState.status === 'ready' && held ? updaterBusyNotice(updaterState.busyTasks ?? null) : undefined}
           actions={
             <ActionButton
               disabled={busy || updaterState.status !== 'ready'}
-              onClick={() => void installDesktopUpdate()}
+              onClick={() => void installDesktopUpdate(held)}
             >
-              {installLabel}
+              {held ? t('Install anyway') : installLabel}
             </ActionButton>
           }
         />

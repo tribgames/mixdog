@@ -27,7 +27,7 @@ export interface DesktopUpdater {
   getState(): DesktopUpdaterState;
   subscribe(listener: (state: DesktopUpdaterState) => void): () => void;
   check(): Promise<DesktopUpdaterState>;
-  install(): Promise<void>;
+  install(confirmed?: boolean): Promise<void>;
 }
 
 interface DesktopStateBridgeOptions {
@@ -92,7 +92,7 @@ export class DesktopStateBridge {
       DESKTOP_IPC.checkForDesktopUpdate,
       () => updater?.check() ?? Promise.resolve({ status: 'disabled' } as const)
     );
-    handle(DESKTOP_IPC.showDesktopUpdate, () => this.installDesktopUpdate());
+    handle(DESKTOP_IPC.showDesktopUpdate, (_event, confirmed) => this.installDesktopUpdate(confirmed === true));
 
     this.unsubscribeState = host.subscribe(this.sendEngineState);
     this.unsubscribeSessions =
@@ -268,11 +268,11 @@ export class DesktopStateBridge {
     return (await this.options.host.setVisibleSessions?.(normalized)) === true;
   }
 
-  private async installDesktopUpdate(): Promise<DesktopUpdaterState> {
+  private async installDesktopUpdate(confirmed: boolean): Promise<DesktopUpdaterState> {
     const { updater } = this.options;
     const current = updater?.getState() ?? ({ status: 'disabled' } as const);
     if (current.status !== 'ready' || !updater) return current;
-    await updater.install();
+    await updater.install(confirmed);
     return updater.getState();
   }
 

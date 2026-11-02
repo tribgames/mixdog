@@ -1213,6 +1213,7 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
       const hostMethod = request.method;
       void (async () => {
         let installAfterAnswer = false;
+        let confirmedInstall = false;
         try {
           let result: unknown = null;
           if (hostMethod === 'trashItem') {
@@ -1249,8 +1250,13 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
               authorize: async () => {},
             });
           } else {
+            // Only a confirmed request (args[0]) installs past running agent
+            // tasks; otherwise the answer is the ready state saying why not.
+            const confirmed = args[0] === true;
+            const held = !confirmed && desktopUpdater.getState().status === 'ready' && (await desktopUpdater.confirmBusy());
             result = desktopUpdater.getState();
-            installAfterAnswer = desktopUpdater.getState().status === 'ready';
+            installAfterAnswer = !held && desktopUpdater.getState().status === 'ready';
+            confirmedInstall = confirmed;
           }
           await localService.invokeDesktopOperation('browserRemoteResolve', [id, true, result, null]);
         } catch (error) {
@@ -1265,7 +1271,7 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
             .catch(() => {});
         }
         // Installing restarts this app, so the caller is answered first.
-        if (installAfterAnswer) await desktopUpdater.install();
+        if (installAfterAnswer) await desktopUpdater.install(confirmedInstall);
       })();
       return;
     }
@@ -1577,6 +1583,21 @@ function scheduleDeferredDesktopServices(window: BrowserWindow): void {
         },
         (message, data) => {
           diagnostics?.write('updater', { message, ...data });
+        },
+        // Running turns, agents and background shell jobs; null while the
+        // current daemon connection has not reported them.
+        async () => localService.runningWorkCount(),
+        // The daemon this app would stop on quit: new work is refused from the
+        // moment it reports idle, so nothing can start between check and quit.
+        {
+          async close() {
+            const hold = await localConnection.transport()?.holdInTreeDaemon();
+            if (!hold || hold.status === 'held' || hold.status === 'none') return 0;
+            return hold.status === 'busy' ? hold.busy : null;
+          },
+          async release() {
+            await localConnection.transport()?.holdInTreeDaemon({ release: true });
+          },
         }
       );
     },

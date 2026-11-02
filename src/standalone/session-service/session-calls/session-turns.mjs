@@ -5,6 +5,7 @@
 // ./goal-recovery.mjs.
 import { createGoalRecovery } from './goal-recovery.mjs';
 import { createSessionTurnGate } from './turn-gate.mjs';
+import { daemonWorkGate } from '../../daemon-work-gate.mjs';
 import {
   attachmentsForIntake,
   materializePromptSubmission,
@@ -79,11 +80,17 @@ export function createSessionTurnCalls(ctx) {
     }
   }
 
-  async function submitSession(params = {}) {
-    const id = String(params?.sessionId || '');
-    if (!id) throw new TypeError('sessionId is required');
-    return admitted(id, () => submitAdmitted(id, params));
-  }
+  // Every in-daemon turn start (scheduled fires, routines, channel and
+  // agent-report turns) waits out an update install's hold rather than
+  // starting during the teardown; it is deferred, not dropped.
+  const submitSession = daemonWorkGate.deferring(
+    async (params = {}) => {
+      const id = String(params?.sessionId || '');
+      if (!id) throw new TypeError('sessionId is required');
+      return admitted(id, () => submitAdmitted(id, params));
+    },
+    (params) => params?.signal
+  );
 
   async function submitAdmitted(
     id,
@@ -227,3 +234,5 @@ export function createSessionTurnCalls(ctx) {
 
   return { submitSession, materializeSession, recoverActiveGoals, abortSession, approveSession };
 }
+
+

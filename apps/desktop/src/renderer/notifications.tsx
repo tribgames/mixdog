@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { X } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
+import { updaterBusyNotice } from './use-desktop-updater';
 import { scrimDismiss } from './scrim-dismiss';
 import { trappedTabIndex } from './list-navigation';
 import { acquireModalLayer } from './modal-layer';
@@ -12,13 +13,17 @@ export { InlineErrors } from './ErrorNotice';
 
 export function DesktopUpdateDialog({
   version,
+  busyTasks,
   onCancel,
   onConfirm,
 }: {
   version: string;
+  /** Set once an install was held back: running agent tasks (null = unknown). */
+  busyTasks?: number | null;
   onCancel(): void;
-  onConfirm(): void;
+  onConfirm(confirmed: boolean): void;
 }) {
+  const held = busyTasks !== undefined;
   const surfaceRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -83,14 +88,16 @@ export function DesktopUpdateDialog({
           </button>
         </header>
         <p id="desktop-update-description">
-          {t('Mixdog will close while the update is installed, then reopen automatically.')}
+          {held
+            ? updaterBusyNotice(busyTasks)
+            : t('Mixdog will close while the update is installed, then reopen automatically.')}
         </p>
         <footer>
           <button ref={cancelRef} type="button" onClick={onCancel}>
             {t('Cancel')}
           </button>
-          <button type="button" className="primary" onClick={onConfirm}>
-            {t('Install and restart')}
+          <button type="button" className="primary" onClick={() => onConfirm(held)}>
+            {held ? t('Install anyway') : t('Install and restart')}
           </button>
         </footer>
       </section>

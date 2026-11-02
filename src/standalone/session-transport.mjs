@@ -20,6 +20,7 @@ import http from 'node:http';
 import { randomUUID } from 'node:crypto';
 import { createLoopbackListener } from '../runtime/shared/loopback-listener.mjs';
 import { createTransportStack } from './session-transport/stack.mjs';
+import { createWorkGate } from './daemon-work-gate.mjs';
 
 export function createSessionTransport({
   handleCall,
@@ -35,6 +36,9 @@ export function createSessionTransport({
   // Asked before every register/call; false answers 503 (the daemon's owner
   // lease is not held — daemon-owner.mjs).
   admitWork = () => true,
+  // The daemon's one admission gate; an embedder without one gets its own,
+  // counting the status' busy sessions.
+  workGate = createWorkGate({ busy: () => Number(getStatus()?.busy) || 0 }),
 } = {}) {
   if (typeof handleCall !== 'function') throw new Error('handleCall is required');
 
@@ -55,6 +59,7 @@ export function createSessionTransport({
     onClientDropped,
     onUpgradeRequested,
     getStatus,
+    workGate,
     admitWork,
   });
 

@@ -78,7 +78,7 @@ export interface AppShellOverlaysProps {
   updateDialogOpen: boolean;
   updaterState: ReturnType<typeof useDesktopUpdater>['state'];
   closeDesktopUpdate: () => void;
-  installDesktopUpdate: () => void;
+  installDesktopUpdate: (confirmed?: boolean) => void;
 
   error: string;
   connected: boolean;
@@ -268,6 +268,7 @@ export function AppShellOverlays({
       {updateDialogOpen && updaterState.status === 'ready' && (
         <DesktopUpdateDialog
           version={updaterState.version}
+          busyTasks={updaterState.busyTasks}
           onCancel={closeDesktopUpdate}
           onConfirm={installDesktopUpdate}
         />

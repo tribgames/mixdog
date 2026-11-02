@@ -153,3 +153,19 @@ test('a cancel that lands after preparation, before the send, submits nothing', 
   await Promise.all(aborting);
   assert.equal(submitted.length, 0);
 });
+
+test('a turn start (scheduled fire, routine or channel turn) waits out an update hold instead of starting or dropping', async () => {
+  const { daemonWorkGate } = await import('../../daemon-work-gate.mjs');
+  const { calls, submitted } = harness();
+  assert.equal(daemonWorkGate.hold().held, true);
+  try {
+    const fired = calls.submitSession({ sessionId: 's1', prompt: 'scheduled', options: { kickoff: true } });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(submitted.length, 0, 'nothing started during the hold');
+    daemonWorkGate.release();
+    await fired;
+    assert.equal(submitted.length, 1, 'the deferred start ran once the hold ended');
+  } finally {
+    daemonWorkGate.release();
+  }
+});

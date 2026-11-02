@@ -648,7 +648,7 @@ const api: DesktopApi = {
   getUpdaterState: () => invokeIpc(DESKTOP_IPC.getUpdaterState),
   subscribeUpdaterState: (listener) => subscribeIpc(DESKTOP_IPC.updaterState, listener),
   checkForDesktopUpdate: () => invokeIpc(DESKTOP_IPC.checkForDesktopUpdate),
-  showDesktopUpdate: () => invokeIpc(DESKTOP_IPC.showDesktopUpdate),
+  showDesktopUpdate: (confirmed) => invokeIpc(DESKTOP_IPC.showDesktopUpdate, confirmed === true),
   submitNewTask: (prompt, options, draft) => invokeIpc(DESKTOP_IPC.submitNewTask, prompt, options, draft),
   submitToSession: (sessionId, prompt, options) => invokeIpc(DESKTOP_IPC.submitToSession, sessionId, prompt, options),
   abortSession: (sessionId, options) => invokeIpc(DESKTOP_IPC.abortSession, sessionId, options),
