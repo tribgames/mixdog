@@ -267,6 +267,25 @@ const SessionRow = React.memo(function SessionRow({
       finalizeOpen();
     }
   }, [confirmingDelete, deleting, editing, resume, finalizeOpen]);
+  // Opening a session moves focus to its composer, so F2 there renames the
+  // session that composer sends to, as it does on the row itself. The first
+  // visible row to handle it claims the key (the session may also sit in
+  // another list).
+  useEffect(() => {
+    if (editing || confirmingDelete || deleting) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'F2' || event.defaultPrevented || event.isComposing) return;
+      if (event.ctrlKey || event.metaKey || event.altKey || event.shiftKey) return;
+      if (!(event.target instanceof Element) || !event.target.matches('form.composer textarea')) return;
+      if (event.target.closest<HTMLElement>('form.composer')?.dataset.composerSessionId !== session.id) return;
+      // A parked (closed drawer, retained) sidebar is inert.
+      if (!titleInput.current || titleInput.current.closest('[inert]')) return;
+      event.preventDefault();
+      onStartRename(session);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [confirmingDelete, deleting, editing, onStartRename, session]);
   const clearNativeDrag = useCallback(() => {
     const drag = nativeDrag.current;
     nativeDrag.current = null;
