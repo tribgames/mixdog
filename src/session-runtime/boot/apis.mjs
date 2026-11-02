@@ -129,6 +129,10 @@ export function wireApis(boot) {
   };
   boot.modelRouteApi = modelRouteApiFor(boot);
   boot.workflowAgentsApi = workflowAgentsApiFor(boot);
+  // A bot's purge that stopped before its folder was removed is finished.
+  boot.workflowAgentsApi.finishUnfinishedPurges().catch((error) => {
+    bootProfile('bot-purge:finish-failed', { error: error?.message || String(error) });
+  });
   // Connector allow lists (agent lists, MCP project scopes) become the
   // equivalent "switched off" lists once; a later connector is on everywhere.
   if (!boot.params.initialConfig || typeof boot.params.initialConfig !== 'object') {
@@ -653,8 +657,9 @@ function workflowAgentsApiFor(boot) {
       if (removed.schedules.length || removed.webhooks.length) boot.reloadChannelsSoon();
       return removed;
     },
-    // A restored bot's routines are armed again by the same reload.
-    reloadRoutines: () => boot.reloadChannelsSoon(),
+    // A restored bot's routines are armed again by the same reload; the
+    // restore waits for it and reports its failure.
+    reloadRoutines: () => boot.reloadChannels(),
   });
 }
 

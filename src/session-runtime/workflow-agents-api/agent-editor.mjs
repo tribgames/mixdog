@@ -369,11 +369,39 @@ function writeAgentFiles(dir, { name, description, body, extra = {}, manifest = 
   writeDefinitionText(join(dir, 'AGENT.md'), serializeFrontmatterDoc({ ...meta, ...extra }, body));
   // loadAgentDefinition prefers the manifest for name/description.
   writeManifest(join(dir, 'agent.json'), { ...meta, ...manifest });
+  // A stray purge marker goes before the tombstone: a crash between the two
+  // must never leave a live definition under a marker.
+  rmSync(join(dir, PURGING_MARKER), { force: true });
   rmSync(join(dir, AGENT_DELETED_MARKER), { force: true });
   rmSync(join(dir, ARCHIVED_AGENT_FILE), { force: true });
 }
 
+// Per id, the tail of the queue its lifecycle changes (save, archive, restore,
+// purge, recovery) run in, one at a time. One process owns the store, so this
+// is enough; each change rechecks its eligibility when its turn comes.
+const lifecycleTails = new Map();
+function withLifecycle(dataDir, id, run) {
+  const key = `${dataDir}\0${id}`;
+  const result = (lifecycleTails.get(key) ?? Promise.resolve()).then(run);
+  const tail = result.catch(() => {});
+  lifecycleTails.set(key, tail);
+  tail.then(() => {
+    if (lifecycleTails.get(key) === tail) lifecycleTails.delete(key);
+  });
+  return result;
+}
+
+// Written before a purge deletes the bot's routines, gone with its folder.
+const PURGING_MARKER = '.purging';
+
 const isArchivedAgent = (dataDir, id) => existsSync(join(userDir(dataDir, id), AGENT_DELETED_MARKER));
+
+// Whether a purge of `id` is under way or was cut short: its marker with the
+// definition archived or already gone. A marker beside a live definition
+// (AGENT.md in place, no tombstone) proves nothing and is stale.
+const purgePending = (dataDir, id) =>
+  existsSync(join(userDir(dataDir, id), PURGING_MARKER)) &&
+  (isArchivedAgent(dataDir, id) || !hasUserAgentFile(dataDir, id));
 
 // A save's avatar and connectors applied to `manifest` (in place); returns the
 // avatar update (its image writes), null when the save gives no avatar.
@@ -689,7 +717,17 @@ function createAgentArchiveApi({
     saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
   }
 
-  async function deleteAgentDefinition(agentId) {
+  // One id's archive, restore, purge and recovery run one at a time, each
+  // checking its eligibility on its turn (withLifecycle).
+  const locked = (agentId, run) => {
+    const id = agentEditorId(agentId);
+    return id ? withLifecycle(dataDirOf(), id, () => run(agentId)) : run(agentId);
+  };
+  const deleteAgentDefinition = (agentId) => locked(agentId, deleteUnlocked);
+  const restoreAgentDefinition = (agentId) => locked(agentId, restoreUnlocked);
+  const purgeAgentDefinition = (agentId) => locked(agentId, purgeUnlocked);
+
+  async function deleteUnlocked(agentId) {
     const id = agentEditorId(agentId);
     if (!id) throw new Error(`unknown agent "${agentId}"`);
     if (isHiddenAgent(id)) throw new Error(`agent "${id}" is internal and cannot be deleted`);
@@ -730,6 +768,10 @@ function createAgentArchiveApi({
     }
     const entry = archivableEntry(dir, entryIn(dir));
     mkdirSync(dir, { recursive: true });
+    // A stray purge marker goes before any rename: a crash after one would
+    // leave the marker with no AGENT.md and no tombstone, which reads as a
+    // purge cut short.
+    rmSync(join(dir, PURGING_MARKER), { force: true });
     if (existsSync(agentFile)) renameSync(agentFile, agentArchive);
     if (entry !== agentFile && existsSync(entry) && !existsSync(archivedEntryPath(entry))) {
       renameSync(entry, archivedEntryPath(entry));
@@ -745,12 +787,16 @@ function createAgentArchiveApi({
    *  back (a starter without a copy of its own returns to the packaged one)
    *  and the tombstone gone. Its routines, never touched by the archive, list
    *  and fire again as they were. */
-  async function restoreAgentDefinition(agentId) {
+  async function restoreUnlocked(agentId) {
     const id = agentEditorId(agentId);
     if (!id || isHiddenAgent(id) || isFixedAgent(id)) throw new Error(`unknown agent "${agentId}"`);
     const dataDir = dataDirOf();
     if (!isArchivedAgent(dataDir, id)) throw new Error(`agent "${id}" is not deleted`);
     const dir = userDir(dataDir, id);
+    // Its routines may already be gone: only the purge can finish.
+    if (existsSync(join(dir, PURGING_MARKER))) {
+      throw new Error(`agent "${id}" is being deleted for good and cannot be restored; delete it again to finish`);
+    }
     // AGENT.md.archived back to AGENT.md, and the selected entry's archive back
     // to that entry. Nothing is overwritten: an archive whose file exists again
     // stays as it is, and when every kept archive collides the restore is refused.
@@ -773,7 +819,16 @@ function createAgentArchiveApi({
     await announceBotChange(dataDir);
     // A one-shot that came due while it was archived was skipped with no
     // timer left: the reload re-arms it (overdue fires at once, as at start).
-    reloadRoutines();
+    // The bot is back by now, so a failed reload is reported as such rather
+    // than as a restore that succeeded with its one-shots unarmed.
+    try {
+      await reloadRoutines();
+    } catch (error) {
+      throw new Error(
+        `agent "${id}" was restored, but its schedules could not be re-armed (${error?.message || error}); ` +
+          'they are re-armed by the next schedule reload or restart'
+      );
+    }
     return getAgentDefinition(id);
   }
 
@@ -782,14 +837,27 @@ function createAgentArchiveApi({
    *  fails aborts this with the agent still archived and nothing lost, to be
    *  retried. A starter keeps only its tombstone, so its packaged copy stays
    *  gone. */
-  async function purgeAgentDefinition(agentId) {
+  async function purgeUnlocked(agentId) {
     const id = agentEditorId(agentId);
     if (!id || isHiddenAgent(id) || isFixedAgent(id)) throw new Error(`unknown agent "${agentId}"`);
     const dataDir = dataDirOf();
-    // Never a live agent; one deleted before archiving existed left nothing.
-    if (!isArchivedAgent(dataDir, id)) return { id, purged: false };
-    const routines = await deleteOwnedRoutines(id);
     const dir = userDir(dataDir, id);
+    // Never a live agent; one deleted before archiving existed left nothing.
+    // A marker beside a live definition is only removed.
+    if (!purgePending(dataDir, id)) {
+      rmSync(join(dir, PURGING_MARKER), { force: true });
+      if (!isArchivedAgent(dataDir, id)) return { id, purged: false };
+    }
+    return purgeFiles(id, dataDir, dir);
+  }
+
+  /** The purge of `id` (archived, or one a crash cut short), routines first. */
+  async function purgeFiles(id, dataDir, dir) {
+    // Set before the first await and before the routines go: a restore from
+    // here on is refused (it checks in the same synchronous stretch), and a
+    // crash before the folder is removed is finished by finishUnfinishedPurges.
+    writeFileAtomicSync(join(dir, PURGING_MARKER), 'purging\n');
+    const routines = await deleteOwnedRoutines(id);
     rmSync(dir, { recursive: true, force: true });
     clearAgentDefinitionCache(id);
     dropAgentRoute(id);
@@ -814,7 +882,40 @@ function createAgentArchiveApi({
     };
   }
 
-  return { dropAgentRoute, deleteAgentDefinition, restoreAgentDefinition, purgeAgentDefinition };
+  /** Run at start: every purge that stopped before its folder was removed
+   *  (its marker is still there) is carried through; the ids finished. */
+  async function finishUnfinishedPurges() {
+    const dataDir = dataDirOf();
+    const ids = [join(dataDir, 'agents'), dirname(botDir(dataDir, '_'))].flatMap((root) =>
+      existsSync(root) ? readdirSync(root).filter((name) => existsSync(join(root, name, PURGING_MARKER))) : []
+    );
+    const finished = [];
+    for (const id of ids) if ((await resumePurge(id)).purged) finished.push(id);
+    return finished;
+  }
+
+  /** Resumes only a marked purge that is still pending, checked on the id's
+   *  turn: a bot archived normally meanwhile (marker gone), made live again,
+   *  or already purged by another call is not a purge to finish. */
+  const resumePurge = (id) =>
+    withLifecycle(dataDirOf(), id, async () => {
+      const dataDir = dataDirOf();
+      const dir = userDir(dataDir, id);
+      if (!existsSync(join(dir, PURGING_MARKER))) return { id, purged: false };
+      if (!purgePending(dataDir, id)) {
+        rmSync(join(dir, PURGING_MARKER), { force: true });
+        return { id, purged: false };
+      }
+      return purgeFiles(id, dataDir, dir);
+    });
+
+  return {
+    dropAgentRoute,
+    deleteAgentDefinition,
+    restoreAgentDefinition,
+    purgeAgentDefinition,
+    finishUnfinishedPurges,
+  };
 }
 
 // Agent catalog + editor surface: fixed services stay built-in; starter and
@@ -922,7 +1023,16 @@ export function createAgentEditorApi(deps) {
     const body = String(payload.body || '').trim();
     if (!body) throw new Error('AGENT.md body must not be empty');
     const dataDir = resolveDataDir(deps);
-    const { id, name, description } = resolveSaveTarget(loadAgentDefinition, payload, dataDir);
+    const target = resolveSaveTarget(loadAgentDefinition, payload, dataDir);
+    return withLifecycle(dataDir, target.id, () => saveLocked(payload, options, body, dataDir, target));
+  }
+
+  // Runs as the id's turn in its lifecycle queue (withLifecycle): a purge ahead
+  // of it has finished, so the id it frees is reused, and one behind it sees a live bot.
+  async function saveLocked(payload, options, body, dataDir, { id, name, description }) {
+    if (purgePending(dataDir, id)) {
+      throw new Error(`agent "${id}" is being deleted for good; its id cannot be reused until that finishes`);
+    }
     // Opt-in (the agent profile): without `expectedRevision` the last write
     // wins, as for the Workflows editor and the setup tool.
     if (hasOwn(payload, 'expectedRevision') && String(payload.expectedRevision) !== definitionRevision(dataDir, id)) {
@@ -988,7 +1098,13 @@ export function createAgentEditorApi(deps) {
     return getAgentDefinition(id);
   }
 
-  const { dropAgentRoute, deleteAgentDefinition, restoreAgentDefinition, purgeAgentDefinition } = createAgentArchiveApi(
+  const {
+    dropAgentRoute,
+    deleteAgentDefinition,
+    restoreAgentDefinition,
+    purgeAgentDefinition,
+    finishUnfinishedPurges,
+  } = createAgentArchiveApi(
     {
       dataDirOf: () => resolveDataDir(deps),
       getConfig,
@@ -1103,6 +1219,7 @@ export function createAgentEditorApi(deps) {
     deleteAgentDefinition,
     restoreAgentDefinition,
     purgeAgentDefinition,
+    finishUnfinishedPurges,
     archivedAgentIdentities,
     agentDefinitionPresence,
   };

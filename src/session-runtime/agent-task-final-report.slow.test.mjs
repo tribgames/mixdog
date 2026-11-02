@@ -874,6 +874,35 @@ test('a converged end still queued takes the sends and files of the same answer'
   assert.deepEqual(await queue.watches(), []);
 });
 
+test('folding a converged end counts its omitted files once, however often it is replayed', async (t) => {
+  const queue = createRoutineResultQueue(join(tempDir(t), 'routine-results.json'));
+  const entry = (n) => ({ path: `/f${n}`, name: `f${n}`, kind: 'file', mimeType: 'text/plain', size: 1, id: `att_${n}` });
+  const end = (sendId, files, omitted = 0) => ({
+    runId: `${TASK}_it_9_end`,
+    kind: 'agent-task',
+    taskSessionId: TASK,
+    status: 'completed',
+    text: FINAL,
+    sendId,
+    files,
+    ...(omitted ? { omitted } : {}),
+    roundTrip: false,
+  });
+  const first = end('s1', [0, 1, 2, 3, 4, 5, 6, 7].map(entry));
+  // Two files past the 8 kept, plus one the turn itself left out: 3 omitted.
+  const second = end('s2', [8, 9].map(entry), 1);
+  await queue.add(HOME, first);
+  await queue.add(HOME, second);
+  const [row] = await queue.items(HOME);
+  assert.equal(row.files.length, 8);
+  assert.equal(row.omitted, 3);
+  // A retried delivery of either send, its dropped files' paths not kept, changes nothing.
+  await queue.add(HOME, second);
+  await queue.add(HOME, first);
+  await queue.add(HOME, second);
+  assert.equal((await queue.items(HOME))[0].omitted, 3);
+});
+
 test('a later answer reading the same as an old send-named end still posts its own row, files and wake', async (t) => {
   const w = world(t);
   const p = w.boot();
