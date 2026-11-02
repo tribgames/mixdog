@@ -146,7 +146,7 @@ test('explicit-file batches retain numeric-hyphen filenames and literal source t
 });
 
 test('directory searches keep matches in numeric-hyphen filenames', async (t) => {
-  const root = mkdtempSync(join(tmpdir(), 'mixdog-grep-dir-prefix-'));
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-grep-dir-prefix-2026-11-01-'));
   t.after(() => {
     invalidateBuiltinResultCache();
     rmSync(root, { recursive: true, force: true });
@@ -167,4 +167,12 @@ test('directory searches keep matches in numeric-hyphen filenames', async (t) =>
     // Context-free content groups every file the same way.
     if (context === 0) assert.match(result, /^d\/config-12-a\.txt\n {2}2: LIMIT=45$/m, result);
   }
+  // An absolute directory whose path holds `-11-` reads as count rows, never context lines.
+  const count = await executeGrepTool({ path: join(root, 'd'), pattern: 'LIMIT=\\d+', mode: 'count' }, root);
+  assert.deepEqual(count.split('\n').sort(), [
+    '[total 3 matches across 3 files]',
+    'd/config-12-a.txt:1',
+    'd/plain.txt:1',
+    'd/v-2-x.mjs:1',
+  ]);
 });

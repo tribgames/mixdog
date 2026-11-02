@@ -15,17 +15,9 @@ export function relativeGrepLine(
   if (!workDir) return normalized;
   if (pathOnly) return relativePathPrefix(normalized, workDir);
   if (filenameOmitted) return normalized;
-  const split = splitGrepLinePrefix(normalized, matchOnly);
+  const split = outputMode === 'count' ? splitGrepCountPrefix(normalized) : splitGrepLinePrefix(normalized, matchOnly);
   if (split) {
     return relativePathPrefix(normalized.slice(0, split.pathEnd), workDir) + normalized.slice(split.pathEnd);
-  }
-  if (outputMode === 'count') {
-    const countSplit = splitGrepCountPrefix(normalized);
-    if (countSplit) {
-      return (
-        relativePathPrefix(normalized.slice(0, countSplit.pathEnd), workDir) + normalized.slice(countSplit.pathEnd)
-      );
-    }
   }
   return normalized;
 }

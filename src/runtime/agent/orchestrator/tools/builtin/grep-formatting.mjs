@@ -13,7 +13,7 @@ export function splitGrepLinePrefix(line, matchOnly = false) {
   const text = String(line || '');
   if (!text) return null;
   const searchFrom = /^[A-Za-z]:/.test(text) ? 2 : 0;
-  // content/count modes — rg emits, after any optional drive-letter prefix:
+  // Content mode — rg emits, after any optional drive-letter prefix:
   //   match:    path:lineNo:content  (output_mode content default)
   //   context:  path-lineNo-content  (-A / -B / -C context lines)
   // Caller context decides whether line-number-only output is possible. A
@@ -87,15 +87,9 @@ export function normalizeGrepLine(
   // There is no path prefix to normalise; everything after ^\d+[:\-] is
   // source content and must remain byte-exact.
   if (filenameOmitted && splitGrepLineNumberOnlyPrefix(line)) return line;
-  const split = splitGrepLinePrefix(line, matchOnly);
+  const split = outputMode === 'count' ? splitGrepCountPrefix(line) : splitGrepLinePrefix(line, matchOnly);
   if (split) {
     return line.slice(0, split.pathEnd).replace(/\\/g, '/') + line.slice(split.pathEnd);
-  }
-  if (outputMode === 'count') {
-    const countSplit = splitGrepCountPrefix(line);
-    if (countSplit) {
-      return line.slice(0, countSplit.pathEnd).replace(/\\/g, '/') + line.slice(countSplit.pathEnd);
-    }
   }
   // No confirmed path prefix. Do not fall back to "first colon" slicing:
   // single-file context lines are `N-content`, so their first colon may be a
