@@ -32,7 +32,9 @@ registerSessionPurgeHook((sessionId) => {
 // reach the turn's worktree snapshot as its change signal: a session review
 // read right after them captures the worktree, an unsignaled one may reuse
 // the last capture.
-registerCacheInvalidationListener((paths) => noteTurnWorktreeChange(paths));
+registerCacheInvalidationListener((paths, source) =>
+  noteTurnWorktreeChange(paths, { canonical: source?.canonical === true })
+);
 
 export function createRuntimeReviewApi({ getCwd, getSessionId }) {
   return {

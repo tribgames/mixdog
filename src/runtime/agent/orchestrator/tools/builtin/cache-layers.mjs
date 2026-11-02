@@ -491,10 +491,10 @@ export function registerCacheInvalidationListener(fn) {
   if (typeof fn === 'function') EXTRA_INVALIDATION_LISTENERS.add(fn);
   return () => EXTRA_INVALIDATION_LISTENERS.delete(fn);
 }
-function runExtraInvalidationListeners(affectedPaths = null) {
+function runExtraInvalidationListeners(affectedPaths = null, source = {}) {
   for (const fn of EXTRA_INVALIDATION_LISTENERS) {
     try {
-      fn(affectedPaths);
+      fn(affectedPaths, source);
     } catch {
       /* best-effort: one listener must not block others */
     }
@@ -517,7 +517,7 @@ function cacheInvalidateAll() {
   runExtraInvalidationListeners();
 }
 
-function cacheInvalidatePaths(paths) {
+function cacheInvalidatePaths(paths, source) {
   const affectedPaths = normalizeCacheMetaPaths(Array.isArray(paths) ? paths : [paths]);
   if (affectedPaths.length === 0) {
     cacheInvalidateAll();
@@ -559,12 +559,14 @@ function cacheInvalidatePaths(paths) {
   for (const affected of affectedPaths) {
     deleteReadRangeIndexForPath(affected);
   }
-  runExtraInvalidationListeners(affectedPaths);
+  runExtraInvalidationListeners(affectedPaths, source);
 }
 
-export function invalidateBuiltinResultCache(paths = null) {
+/** `source.canonical`: the paths come from a link-free watch on canonical
+ *  roots, so listeners may match them by spelling alone. */
+export function invalidateBuiltinResultCache(paths = null, source = {}) {
   if (Array.isArray(paths) ? paths.length > 0 : Boolean(paths)) {
-    cacheInvalidatePaths(paths);
+    cacheInvalidatePaths(paths, source);
     return;
   }
   cacheInvalidateAll();

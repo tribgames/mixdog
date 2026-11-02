@@ -461,6 +461,11 @@ test('a note dirties exactly the states HEAD canonicalization would', {
   } catch {
     fileLinked = false; // creating file symlinks needs a privilege on Windows
   }
+  // Directory links inside a root: one leading into the other root, one staying in its own.
+  const dirLinkToA = join(repoB, 'jn-a');
+  symlinkSync(repoA, dirLinkToA, 'junction');
+  const dirLinkSelf = join(repoA, 'jn-self');
+  symlinkSync(join(repoA, 'sub'), dirLinkSelf, 'junction');
   const snapshots = [await createTurnWorktreeSnapshot(repoA), await createTurnWorktreeSnapshot(repoB)];
   const many = Array.from({ length: 30 }, (_, i) => join(repoB, 'sub', `m${i}.txt`));
   const cases = {
@@ -477,6 +482,9 @@ test('a note dirties exactly the states HEAD canonicalization would', {
     'empty list': [],
     null: null,
   };
+  cases['junction inside root into other root'] = [join(dirLinkToA, 'a.txt')];
+  cases['junction inside root into itself'] = [join(dirLinkSelf, 'f.txt')];
+  cases['link burst mixed with plain files'] = [join(dirLinkToA, 'a.txt'), ...many];
   if (fileLinked) cases['file link into other root'] = [fileLink];
   if (process.platform === 'win32') cases['differing case'] = [join(repoA, 'SUB', 'F.TXT'), join(repoB, 'A.TXT')];
   for (const [name, paths] of Object.entries(cases)) {
@@ -486,6 +494,76 @@ test('a note dirties exactly the states HEAD canonicalization would', {
     const actual = snapshots.map((snapshot, i) => snapshot.state.changeStamp !== before[i]);
     assert.deepEqual(actual, expected, name);
   }
+});
+
+test('native watcher paths on a link-free backend stamp by spelling with no filesystem call', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  _resetTurnWorktreeSnapshotsForTest();
+  const repoA = seedRepo('lexical-a');
+  const repoB = seedRepo('lexical-b');
+  const snapshots = [await createTurnWorktreeSnapshot(repoA), await createTurnWorktreeSnapshot(repoB)];
+  // Paths need not exist: a watcher burst reports deletions too.
+  const paths = Array.from({ length: 50_000 }, (_, i) =>
+    join(i % 2 ? repoA : repoB, `d${i % 500}`, `f${i}.txt`)
+  );
+  const counts = { existsSync: 0, lstatSync: 0, realpathSync: 0, readdirSync: 0 };
+  for (const name of Object.keys(counts)) {
+    const original = fs[name];
+    t.mock.method(fs, name, (...args) => {
+      counts[name] += 1;
+      return original(...args);
+    });
+  }
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  const before = snapshots.map((snapshot) => snapshot.state.changeStamp);
+  noteTurnWorktreeChange(paths, { canonical: true, platform: 'win32' });
+  assert.deepEqual(
+    snapshots.map((snapshot, i) => snapshot.state.changeStamp - before[i]),
+    [1, 1]
+  );
+  assert.deepEqual(counts, { existsSync: 0, lstatSync: 0, realpathSync: 0, readdirSync: 0 });
+});
+
+test('a tool invalidation through a junction or a denied probe still stamps the target root', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  _resetTurnWorktreeSnapshotsForTest();
+  const repoA = seedRepo('through-a');
+  const repoB = seedRepo('through-b');
+  const link = join(repoB, 'jn-a');
+  symlinkSync(repoA, link, 'junction');
+  const snapshots = [await createTurnWorktreeSnapshot(repoA), await createTurnWorktreeSnapshot(repoB)];
+  const delta = (paths) => {
+    const before = snapshots.map((snapshot) => snapshot.state.changeStamp);
+    noteTurnWorktreeChange(paths);
+    return snapshots.map((snapshot, i) => snapshot.state.changeStamp - before[i]);
+  };
+  assert.deepEqual(delta([join(link, 'a.txt')]), [1, 0]);
+  // A watcher on a backend that follows links can report the alias spelling.
+  const watched = (platform) => {
+    const before = snapshots.map((snapshot) => snapshot.state.changeStamp);
+    noteTurnWorktreeChange([join(link, 'a.txt')], { canonical: true, platform });
+    return snapshots.map((snapshot, i) => snapshot.state.changeStamp - before[i]);
+  };
+  assert.deepEqual(watched('linux'), [1, 0]);
+  assert.deepEqual(watched('freebsd'), [1, 0]);
+  // A refused probe (or listing) must resolve the path, never read as "not a link".
+  for (const name of ['lstatSync', 'readdirSync']) {
+    t.mock.method(fs, name, () => {
+      throw Object.assign(new Error('denied'), { code: 'EACCES' });
+    });
+  }
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  assert.deepEqual(delta([join(link, 'a.txt')]), [1, 0]);
 });
 
 test('a 200-file burst in 5 directories canonicalizes each directory once', {
