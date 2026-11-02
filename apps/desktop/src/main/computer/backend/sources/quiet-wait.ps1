@@ -31,7 +31,7 @@ function Wait-UntilQuiet([double]$seconds, [scriptblock]$sample) {
         $startedMs = $clock.Elapsed.TotalMilliseconds
         $current = & $sample
         $costMs = $clock.Elapsed.TotalMilliseconds - $startedMs
-        if ($null -ne $previous -and $current -eq $previous) {
+        if ($null -ne $previous -and $current -ceq $previous) {
             $equalRun++
             if ($equalRun -ge $script:QuietEqualRun) {
                 return @{ quiet = $true; waited_ms = [int]$clock.Elapsed.TotalMilliseconds }
