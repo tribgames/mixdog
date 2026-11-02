@@ -4,6 +4,38 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+Aggiunta la scheda Registro richieste in Utilizzo, pannelli laterali in tempo reale per i subagenti, cronologia di navigazione delle sessioni e opzioni avanzate per i provider personalizzati.
+
+### Nuove funzionalità
+
+- **Registro richieste** — Aggiunta una scheda Registro richieste in Utilizzo che filtra per periodo, stato e modello, mostrando token, costo, durata e stato (#300).
+- **Pannello laterale dei subagenti** — Aggiunta l'apertura dei subagenti dalla finestra Agenti o dall'elenco del compositore; si chiude con `Ctrl+B` e mantiene leggibili le sessioni terminate.
+- **Navigazione tra sessioni** — Aggiunta la navigazione avanti e indietro nella cronologia di sessioni e posizioni dell'editor con `Ctrl/Cmd+[` / `]`, `Alt+Left`/`Right` e pulsanti laterali del mouse (#289).
+- **Opzioni provider personalizzati** — Aggiunti parametri JSON avanzati, intestazioni HTTP personalizzate e strategie di routing OpenRouter (Auto, Price, Speed, Latency) in Impostazioni → Modelli (#231).
+- **Scorciatoie di zoom interfaccia** — Aggiunta la regolazione dello zoom dell'interfaccia dall'85% al 150% a passi del 5% con `Ctrl/Cmd+=`, `Ctrl/Cmd+-` e `Ctrl/Cmd+0` (#286).
+
+### Modifiche
+
+- Ottimizzato Computer Use per trasmettere i delta degli elementi, riutilizzare l'OCR e inviare scorrimento e combinazioni di tasti in background alle finestre Mixdog senza sottrarre il focus.
+- Modificata Mixy per rispondere direttamente a ciò che può risolvere da sola, passare il lavoro a un altro bot solo se nominato o se ne continua l'attività, e usare altrimenti subagenti.
+- Sincronizzate le domande delle sessioni delegate tra le chat, completando entrambe le schede simultaneamente in caso di risposta, chiusura o timeout.
+- Modificata la gestione della memoria per salvare automaticamente le preferenze esplicite e richiedere conferma per voci proposte dall'agente o con ambito ambiguo.
+- Modificata la mascotte del bot desktop per comparire solo quando attivata esplicitamente nelle impostazioni.
+- Modificata la pagina Bot per nascondere il gruppo Agenti per impostazione predefinita; si attiva dal menu ⋯ della pagina e le scelte precedenti restano valide.
+- Modificata la lista di cose da fare della sessione in modo che le note siano sotto il titolo, i passi bloccati siano più leggibili e le fasi appaiano come intestazioni.
+
+### Correzioni di bug
+
+- Corrette le schede di completamento e le righe di avanzamento duplicate nelle catene di passaggio, mostrando una sola scheda e una sola riga di avanzamento per risposta.
+- Corretto il problema delle esecuzioni in background (ciclo di memoria, ricerca web) che mostravano il prompt come nome sessione nel Registro richieste; ora mostrano la loro azione con l'etichetta Interno.
+- Risolto un errore per cui Explore non riusciva ad avviarsi se configurato solo con un provider di modelli OAuth (#301).
+- Risolto il fallimento delle attività avviate all'esterno dei repository Git quando l'impostazione predefinita dei worktree era attiva (#297).
+- Risolto un problema per cui la rimozione di un plugin poteva eliminare file esterni tramite collegamenti interni alla cartella, e risolti i blocchi `EPERM` su Windows durante gli aggiornamenti (#296).
+- Risolto un problema per cui le pianificazioni e i webhook dei bot archiviati si attivavano da disabilitati o non venivano riattivati al ripristino.
+- Corretto lo stato dei comandi di terminale silenziosi in background che apparivano corretti pur essendo bloccati oltre la soglia di avanzamento.
+- Risolto il blocco anomalo del browser integrato quando un iframe veniva rimosso durante l'esecuzione di un comando attivo.
+- Risolto il problema per cui Computer Use rifiutava le azioni successive dopo l'immissione di testo o non rilasciava i tasti del mouse durante gli arresti di emergenza.
+
 ## v1.4.3 - 2026-10-31
 
 Aggiunte le impostazioni per i Worktree e la pulizia dei branch, sostituite le attività dei Goal con le liste di cose da fare della sessione e introdotti stili personalizzabili del campo di input.

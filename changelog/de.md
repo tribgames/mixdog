@@ -4,6 +4,38 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Registerkarte „Anfrageprotokoll“ unter Nutzung, Live-Seitenbereiche für Subagenten, Sitzungsverlauf-Navigation und erweiterte Optionen für benutzerdefinierte Provider hinzugefügt.
+
+### Neue Funktionen
+
+- **Anfrageprotokoll** — Registerkarte „Anfrageprotokoll“ unter Nutzung hinzugefügt, die Anfragen nach Zeitraum, Status und Modell filtert und Tokens, Kosten, Dauer und Status anzeigt (#300).
+- **Subagenten-Seitenbereich** — Öffnen von Subagenten aus dem Agenten-Fenster oder der Eingabeliste hinzugefügt; klappt mit `Ctrl+B` ein und hält beendete Sitzungen lesbar.
+- **Sitzungsnavigation** — Vor- und Zurück-Navigation durch Sitzungen und Editor-Positionen mit `Ctrl/Cmd+[` / `]`, `Alt+Left`/`Right` und Maustasten hinzugefügt (#289).
+- **Optionen für benutzerdefinierte Provider** — Erweiterte JSON-Parameter, eigene HTTP-Header und OpenRouter-Routing-Strategien (Auto, Price, Speed, Latency) in Einstellungen → Modelle hinzugefügt (#231).
+- **Zoom-Tastenkürzel** — Skalieren der Desktop-Oberfläche in 5%-Schritten von 85% bis 150% mit `Ctrl/Cmd+=`, `Ctrl/Cmd+-` und `Ctrl/Cmd+0` hinzugefügt (#286).
+
+### Änderungen
+
+- Computer Use angepasst, um Element-Deltas zu übertragen, OCR-Ergebnisse wiederzuverwenden und Hintergrund-Scrollen sowie Tastenkombinationen an Mixdog-Fenster ohne Fokusverlust zu senden.
+- Mixy angepasst, um lösbare Anfragen direkt zu beantworten, Aufgaben nur bei Nennung oder Fortführung an andere Bots zu übergeben und sonst Subagenten einzusetzen.
+- Fragen übergebener Sitzungen zwischen Chats synchronisiert, sodass das Beantworten, Schließen oder Ablaufen beide Karten gleichzeitig abschließt.
+- Speicherverwaltung angepasst, um ausdrückliche Präferenzen direkt zu speichern und bei vorgeschlagenen Einträgen oder unklarem Projektbereich eine Bestätigung einzuholen.
+- Das Desktop-Bot-Maskottchen so geändert, dass es nur erscheint, wenn es in den Einstellungen aktiviert wird.
+- Bots-Seite so geändert, dass die Agenten-Gruppe standardmäßig ausgeblendet ist; sie lässt sich über das ⋯-Menü aktivieren, frühere Auswahlen bleiben erhalten.
+- Sitzungs-To-do-Liste angepasst, sodass Notizen unter dem Titel stehen, blockierte Schritte ruhiger wirken und Phasen als Überschriften erscheinen.
+
+### Fehlerbehebungen
+
+- Mehrfache Abschlusskarten und Fortschrittszeilen bei Weiterleitungsketten behoben, sodass nun genau eine Karte und eine Fortschrittszeile pro Antwort erscheinen.
+- Hintergrundläufe (Speicherzyklus, Websuche), die ihren Prompt als Sitzungsnamen im Anfrageprotokoll anzeigten, behoben; sie zeigen nun ihre Aktion mit einem Intern-Tag.
+- Behoben, dass Explore bei ausschließlicher Konfiguration von OAuth-Modell-Providern nicht gestartet werden konnte (#301).
+- Behoben, dass Aufgaben außerhalb von Git-Repositories fehlschlugen, wenn die Standard-Worktree-Einstellung aktiv war (#297).
+- Behoben, dass beim Entfernen eines Plugins über Links innerhalb des Plugin-Ordners externe Dateien gelöscht werden konnten, sowie Windows-`EPERM`-Dateisperren bei Updates behoben (#296).
+- Behoben, dass Zeitpläne und Webhooks archivierter Bots im deaktivierten Zustand auslösten oder nach der Wiederherstellung nicht reaktiviert wurden.
+- Behoben, dass lautlose Hintergrund-Terminalbefehle fälschlicherweise als fehlerfrei galten, wenn sie über den Fortschrittsschwellenwert hinaus hingen.
+- Absturz des In-App-Browsers beim Entfernen eines Iframes während eines aktiven Befehls behoben.
+- Behoben, dass Computer Use nach Texteingaben Folgeaktionen verweigerte oder Maustasten beim Not-Aus gedrückt blieben.
+
 ## v1.4.3 - 2026-10-31
 
 Einstellungen für Worktrees und Bereinigung von Branches hinzugefügt, Ziel-Aufgaben (Goals) durch Sitzungs-To-do-Listen ersetzt und anpassbare Eingabefeld-Stile eingeführt.

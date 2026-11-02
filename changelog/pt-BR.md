@@ -4,6 +4,38 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Adicionada a aba Registro de solicitações em Uso, painéis laterais em tempo real para subagentes, histórico de navegação entre sessões e opções avançadas para provedores personalizados.
+
+### Novos recursos
+
+- **Registro de solicitações** — Adicionada a aba Registro de solicitações em Uso, que filtra por período, status e modelo, mostrando tokens, custo, duração e status (#300).
+- **Painel lateral de subagentes** — Adicionada a abertura de subagentes pela janela Agentes ou pela lista de escrita; recolhe com `Ctrl+B` e mantém legíveis as sessões encerradas.
+- **Navegación de sessões** — Adicionada a navegação para avançar e voltar no histórico de sessões e locais do editor usando `Ctrl/Cmd+[` / `]`, `Alt+Left`/`Right` e botões laterais do mouse (#289).
+- **Opções de provedores personalizados** — Adicionados parâmetros JSON avançados, cabeçalhos HTTP personalizados e estratégias de roteamento no OpenRouter (Auto, Price, Speed, Latency) em Configurações → Modelos (#231).
+- **Atalhos de zoom da interface** — Adicionado o ajuste de escala da interface de 85% a 150% em incrementos de 5% usando `Ctrl/Cmd+=`, `Ctrl/Cmd+-` e `Ctrl/Cmd+0` (#286).
+
+### Alterações
+
+- Ajustado o Computer Use para transmitir deltas de elementos, reutilizar OCR e enviar rolagem e atalhos em segundo plano para janelas do Mixdog sem roubar o foco.
+- Alterada a Mixy para responder diretamente o que puder resolver sozinha, repassar tarefas a outro bot apenas se nomeado ou ao continuar seu trabalho, e usar subagentes nos demais casos.
+- Sincronizadas as perguntas de sessões repassadas entre chats, concluindo ambos os cartões simultaneamente ao responder, fechar ou expirar.
+- Alterada a gestão de memória para salvar preferências explícitas automaticamente e solicitar confirmação para itens sugeridos pelo agente ou com escopo ambíguo.
+- Alterado o mascote do bot de desktop para aparecer apenas quando ativado nas configurações.
+- Alterada a página de Bots para ocultar o grupo Agentes por padrão; ative-o no menu ⋯ da página, mantendo suas escolhas anteriores.
+- Ajustada a lista de tarefas da sessão para que as anotações fiquem sob o título, etapas bloqueadas fiquem mais suaves e as fases apareçam como títulos.
+
+### Correções de bugs
+
+- Corrigidos cartões de conclusão e linhas de progresso duplicados em cadeias de repasse, exibindo um único cartão e uma única linha de progresso por resposta.
+- Corrigidas as execuções em segundo plano (ciclo de memória, busca web) que mostravam seus prompts como nome de sessão no Registro de solicitações; agora mostram sua ação com a tag Interno.
+- Corrigida a inicialização do Explore quando configurado exclusivamente com um provedor de modelos OAuth (#301).
+- Corrigida a falha em tarefas iniciadas fora de repositórios Git quando as configurações padrão de worktree estavam ativas (#297).
+- Corrigida a remoção de plugins que podia excluir arquivos externos por links dentro da pasta do plugin, e corrigidos erros `EPERM` de bloqueio de arquivo no Windows durante atualizações (#296).
+- Corrigido o disparo de agendamentos e webhooks de bots arquivados enquanto desativados ou a falha ao rearmá-los na restauração.
+- Corrigido o status de comandos silenciosos de terminal em segundo plano que pareciam saudáveis mesmo quando travados além do limite de progresso.
+- Corrigido o travamento do navegador integrado quando um iframe era removido durante um comando ativo.
+- Corrigido o problema em que o Computer Use recusava ações seguintes após digitar em campos de texto ou não liberava botões do mouse em paradas de emergência.
+
 ## v1.4.3 - 2026-10-31
 
 Adicionadas as configurações de Worktrees e a limpeza de branches, substituídas as tarefas de Goal por listas de tarefas da sessão e introduzidos estilos personalizáveis para o campo de mensagem.

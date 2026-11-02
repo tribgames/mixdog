@@ -4,6 +4,38 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Đã thêm thẻ Nhật ký yêu cầu trong Mức dùng, bảng bên trực tiếp cho sub-agent, lịch sử điều hướng phiên và các tùy chọn nâng cao cho nhà cung cấp tùy chỉnh.
+
+### Tính năng mới
+
+- **Nhật ký yêu cầu** — Thêm thẻ Nhật ký yêu cầu trong Mức dùng giúp lọc theo khoảng thời gian, trạng thái và mô hình, hiển thị token, chi phí, thời gian và trạng thái (#300).
+- **Bảng bên cho sub-agent** — Thêm khả năng mở sub-agent từ cửa sổ Agent hoặc danh sách soạn thảo; thu gọn bằng `Ctrl+B` và vẫn đọc được các phiên đã kết thúc.
+- **Điều hướng phiên** — Thêm tính năng điều hướng tới và lui qua lịch sử phiên cùng vị trí trình soạn thảo bằng `Ctrl/Cmd+[` / `]`, `Alt+Left`/`Right` và các nút phụ chuột (#289).
+- **Tùy chọn nhà cung cấp tùy chỉnh** — Thêm tham số yêu cầu JSON nâng cao, tiêu đề HTTP tùy chỉnh và chiến lược định tuyến OpenRouter (Auto, Price, Speed, Latency) trong Cài đặt → Mô hình (#231).
+- **Phím tắt thu phóng giao diện** — Thêm tính năng thu phóng giao diện máy tính từ 85% đến 150% theo bước 5% bằng `Ctrl/Cmd+=`, `Ctrl/Cmd+-` và `Ctrl/Cmd+0` (#286).
+
+### Thay đổi
+
+- Điều chỉnh Computer Use để truyền delta phần tử, lưu vào bộ đệm OCR, đồng thời cuộn trang và gửi tổ hợp phím nền tới cửa sổ Mixdog mà không chiếm tiêu điểm.
+- Thay đổi Mixy để tự trả lời những việc có thể giải quyết ngay, chỉ chuyển việc cho bot khác khi được chỉ định hoặc tiếp tục công việc, còn lại dùng sub-agent.
+- Đồng bộ hóa các thẻ câu hỏi của phiên chuyển giao giữa các cuộc trò chuyện, xử lý cả hai thẻ cùng lúc khi trả lời, đóng hoặc hết thời gian.
+- Thay đổi quản lý bộ nhớ để tự động lưu các tùy chọn rõ ràng, đồng thời yêu cầu xác nhận đối với các mục do agent đề xuất hoặc có phạm vi dự án chưa rõ.
+- Thay đổi biểu tượng linh vật bot trên màn hình để chỉ xuất hiện khi bạn bật trong phần cài đặt.
+- Thay đổi trang Bot để ẩn nhóm Agent theo mặc định; có thể bật lại từ menu ⋯ của trang và các lựa chọn trước đó vẫn được giữ nguyên.
+- Điều chỉnh danh sách việc cần làm của phiên để ghi chú của mỗi bước nằm dưới tiêu đề, các bước bị chặn hiển thị nhẹ nhàng hơn và các giai đoạn hiển thị như tiêu đề.
+
+### Sửa lỗi
+
+- Sửa lỗi chuỗi chuyển giao tạo nhiều thẻ hoàn thành và dòng tiến độ bằng cách chỉ hiển thị một thẻ và một dòng tiến độ cho mỗi câu trả lời.
+- Sửa lỗi các lần chạy ngầm (chu kỳ bộ nhớ, tìm kiếm web) hiển thị prompt làm tên phiên trong Nhật ký yêu cầu; giờ đây hiển thị thao tác kèm thẻ Nội bộ.
+- Sửa lỗi Explore không chạy được khi chỉ cấu hình nhà cung cấp mô hình OAuth (#301).
+- Sửa lỗi các tác vụ khởi chạy ngoài kho lưu trữ Git bị thất bại khi cài đặt worktree mặc định đang bật (#297).
+- Sửa lỗi xóa plugin có thể xóa các tệp bên ngoài qua liên kết bên trong thư mục plugin, đồng thời khắc phục lỗi khóa tệp `EPERM` trên Windows khi cập nhật (#296).
+- Sửa lỗi lịch trình và webhook của bot đã lưu trữ bị kích hoạt khi đang tắt hoặc không được kích hoạt lại khi khôi phục.
+- Sửa lỗi các lệnh dòng lệnh ngầm không có phản hồi vẫn hiển thị trạng thái bình thường khi bị treo quá ngưỡng tiến độ.
+- Sửa lỗi trình duyệt tích hợp bị văng khi một iframe bị xóa trong lúc lệnh đang thực thi.
+- Sửa lỗi Computer Use từ chối các thao tác tiếp theo sau khi nhập văn bản hoặc không nhả nút chuột khi dừng khẩn cấp.
+
 ## v1.4.3 - 2026-10-31
 
 Thêm phần cài đặt Worktree và dọn dẹp nhánh, thay thế tác vụ Goal bằng danh sách việc cần làm của phiên, và ra mắt các kiểu ô nhập tùy chỉnh.

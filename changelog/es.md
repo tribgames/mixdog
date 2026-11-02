@@ -5,6 +5,38 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+Se añadió la pestaña Registro de solicitudes en Uso, paneles laterales en vivo para subagentes, historial de navegación entre sesiones y opciones avanzadas para proveedores personalizados.
+
+### Nuevas funciones
+
+- **Registro de solicitudes** — Se añadió una pestaña Registro de solicitudes en Uso que filtra por período, estado y modelo, mostrando tokens, coste, duración y estado (#300).
+- **Panel lateral de subagentes** — Se añadió la apertura de subagentes desde la ventana Agentes o el cuadro de mensaje; se pliega con `Ctrl+B` y mantiene legibles sesiones finalizadas.
+- **Navegación de sesiones** — Se añadió navegación adelante y atrás por sesiones y ubicaciones del editor con `Ctrl/Cmd+[` / `]`, `Alt+Left`/`Right` y botones laterales del ratón (#289).
+- **Opciones de proveedores personalizados** — Se añadieron parámetros JSON avanzados, encabezados HTTP personalizados y estrategias de enrutamiento en OpenRouter (Auto, Price, Speed, Latency) en Configuración → Modelos (#231).
+- **Atajos de zoom de interfaz** — Se añadió el ajuste de escala de la interfaz del 85% al 150% en pasos del 5% usando `Ctrl/Cmd+=`, `Ctrl/Cmd+-` y `Ctrl/Cmd+0` (#286).
+
+### Cambios
+
+- Se ajustó Computer Use para transmitir deltas de elementos, reutilizar OCR y enviar desplazamiento y combinaciones de teclas en segundo plano a ventanas de Mixdog sin tomar el foco.
+- Se cambió Mixy para responder directamente lo que pueda resolver sola, pasar tareas a otro bot solo si se le nombra o continúa su labor, y usar subagentes en los demás casos.
+- Se sincronizaron las preguntas de sesiones derivadas entre chats, resolviendo ambas tarjetas a la vez al responder, cerrar o agotarse el tiempo.
+- Se cambió la gestión de memoria para guardar preferencias explícitas automáticamente y solicitar confirmación ante propuestas del agente o alcances ambiguos.
+- Se cambió la mascota del bot de escritorio para que solo aparezca cuando se activa explícitamente en la configuración.
+- Se cambió la página Bots para ocultar el grupo Agentes por defecto; se activa desde el menú ⋯ de la página y se conservan las elecciones previas.
+- Se ajustó la lista de tareas de sesión para que la nota de cada paso quede bajo el título, los bloqueos se lean más claros y las fases sean encabezados.
+
+### Correcciones de errores
+
+- Se corrigieron las tarjetas de finalización y filas de progreso duplicadas en cadenas de transferencia, mostrando una sola tarjeta y fila de progreso por respuesta.
+- Se corrigió que las tareas en segundo plano (ciclo de memoria, búsqueda web) mostraran su prompt como nombre de sesión en el Registro de solicitudes; ahora muestran su acción con la etiqueta Interno.
+- Se corrigió un error por el cual Explore no se ejecutaba cuando estaba configurado únicamente con un proveedor de modelos OAuth (#301).
+- Se corrigió el fallo de tareas iniciadas fuera de repositorios Git cuando la opción de worktree predeterminada estaba activa (#297).
+- Se corrigió que al eliminar un plugin se pudieran borrar archivos externos mediante enlaces dentro de su carpeta, y los bloqueos `EPERM` en Windows al actualizar (#296).
+- Se corrigió que las programaciones y webhooks de bots archivados se activaran estando deshabilitados o no se rearmaran al restaurar el bot.
+- Se corrigió que los comandos silenciosos de terminal en segundo plano aparecieran como correctos a pesar de estar bloqueados más allá del límite de progreso.
+- Se corrigió el bloqueo del navegador integrado al eliminarse un iframe durante la ejecución de un comando activo.
+- Se corrigió que Computer Use rechazara acciones posteriores tras escribir en campos de texto o no liberara los botones del ratón durante detenciones de emergencia.
+
 ## v1.4.3 - 2026-10-31
 
 Se añadieron los ajustes de Worktrees y la limpieza de ramas, se reemplazaron las tareas de Goal por listas de tareas de sesión y se introdujeron estilos de cuadro de mensaje personalizables.

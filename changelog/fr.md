@@ -5,6 +5,38 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+Ajout de l'onglet Journal des requêtes dans Utilisation, de panneaux latéraux en direct pour les sous-agents, de l'historique de navigation de session et d'options avancées pour les fournisseurs personnalisés.
+
+### Nouvelles fonctionnalités
+
+- **Journal des requêtes** — Ajout d'un onglet Journal des requêtes dans Utilisation filtrant par période, état et modèle, affichant jetons, coût, durée et statut (#300).
+- **Panneau latéral des sous-agents** — Ajout de l'ouverture des sous-agents depuis la fenêtre Agents ou la liste de saisie ; se replie avec `Ctrl+B` et garde les sessions terminées lisibles.
+- **Navigation dans les sessions** — Ajout de la navigation avant/arrière dans l'historique des sessions et emplacements d'éditeur via `Ctrl/Cmd+[` / `]`, `Alt+Left`/`Right` et boutons latéraux de la souris (#289).
+- **Options de fournisseurs personnalisés** — Ajout de paramètres JSON avancés, d'en-têtes HTTP personnalisés et de stratégies de routage OpenRouter (Auto, Price, Speed, Latency) dans Réglages → Modèles (#231).
+- **Raccourcis de zoom d'interface** — Ajout du réglage du zoom de l'interface de 85 % à 150 % par paliers de 5 % avec `Ctrl/Cmd+=`, `Ctrl/Cmd+-` et `Ctrl/Cmd+0` (#286).
+
+### Modifications
+
+- Ajustement de Computer Use pour transmettre les deltas d'éléments, réutiliser l'OCR et envoyer défilement et raccourcis en arrière-plan aux fenêtres Mixdog sans voler le focus.
+- Modification de Mixy pour répondre directement à ce qu'elle peut résoudre seule, ne passer la main à un autre bot que s'il est nommé ou poursuit son travail, et déléguer sinon à des sous-agents.
+- Synchronisation des questions de sessions déléguées entre chats, résolvant les deux cartes simultanément lors d'une réponse, fermeture ou expiration.
+- Modification de la gestion de mémoire pour enregistrer automatiquement les préférences explicites et demander confirmation pour les entrées suggérées ou aux portées ambiguës.
+- Modification de la mascotte du bot de bureau pour qu'elle n'apparaisse que lorsqu'elle est activée dans les réglages.
+- Modification de la page Bots pour masquer le groupe Agents par défaut ; activez-le depuis le menu ⋯ de la page, vos choix antérieurs étant conservés.
+- Ajustement de la liste de tâches de session pour placer la note sous le titre, adoucir l'affichage des étapes bloquées et afficher les phases en en-têtes.
+
+### Corrections de bugs
+
+- Correction des cartes de fin et lignes de progression dupliquées dans les chaînes de transfert, affichant désormais une seule carte et une seule ligne de progression par réponse.
+- Correction des exécutions en arrière-plan (cycle de mémoire, recherche web) affichant leur prompt comme nom de session dans le Journal des requêtes ; elles affichent désormais leur action avec une étiquette Interne.
+- Correction du lancement d'Explore qui échouait lorsqu'il était configuré uniquement avec un fournisseur de modèles OAuth (#301).
+- Correction de l'échec des tâches lancées hors des dépôts Git lorsque les paramètres de worktree par défaut étaient actifs (#297).
+- Correction de la suppression d'un plugin qui pouvait supprimer des fichiers externes via des liens dans son dossier, et résolution des erreurs de verrouillage `EPERM` sous Windows lors des mises à jour (#296).
+- Correction des planifications et webhooks de bots archivés qui se déclenchaient en étant désactivés ou ne se réarmaient pas après restauration.
+- Correction des commandes de terminal silencieuses en arrière-plan qui apparaissaient actives alors qu'elles étaient bloquées au-delà du seuil de progression.
+- Correction du plantage du navigateur intégré lorsqu'une iframe était supprimée pendant l'exécution d'une commande active.
+- Correction de Computer Use qui refusait les actions suivantes après une saisie de texte ou laissait les boutons de la souris enfoncés lors d'un arrêt d'urgence.
+
 ## v1.4.3 - 2026-10-31
 
 Ajout des paramètres Worktrees et du nettoyage des branches, remplacement des tâches Goal par des listes de tâches de session, et ajout de styles personnalisables pour la zone de saisie.
