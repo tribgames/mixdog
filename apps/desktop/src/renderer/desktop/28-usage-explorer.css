@@ -931,7 +931,7 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
   width: 72px;
 }
 .request-log-table .request-log-col-duration {
-  width: 64px;
+  width: 92px;
 }
 .request-log-table :is(.request-log-col-cost, .request-log-col-status) {
   width: 76px;
