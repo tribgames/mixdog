@@ -294,8 +294,10 @@ public partial class MixWin32
     {
         return !IsChromiumClass(name);
     }
-    /// A browser or Electron tab can echo an accessibility value write its renderer
-    /// never applied, so a value read back there proves nothing about the document.
+    /// A browser or Electron field cannot be told apart through UIA as a native
+    /// input or a contenteditable, and a contenteditable takes a value write
+    /// without the page's editor model seeing it, so a replacing write is not
+    /// a safe stand-in for typing there.
     public static bool IsWebContentHost(IntPtr window)
     {
         return IsChromiumClass(ClassNameOf(window));

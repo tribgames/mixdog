@@ -412,8 +412,12 @@ function Test-BackgroundValueTarget($record) {
     $el = $record.Element
     $pat = $null
     if (-not $el.TryGetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern, [ref]$pat)) { return $false }
-    # A browser or Electron tab echoes the write without applying it in the
-    # document, so its readback would confirm input that never landed.
+    # This route replaces the whole value, which is not typing. On a Chromium or
+    # Electron field it could destroy a draft, and a contenteditable (not
+    # distinguishable from a native input through UIA; measured on Chrome: same
+    # control type, patterns and framework) takes the write through
+    # setInnerText without input events, so its readback proves nothing about
+    # the page's editor. set_value is the explicit way to replace there.
     $top = New-Object IntPtr((Get-TopWindow $el).Current.NativeWindowHandle)
     return -not [MixWin32]::IsWebContentHost($top) -and -not (Test-IgnoredValueWrite $el)
 }

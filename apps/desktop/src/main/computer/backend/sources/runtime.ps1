@@ -132,7 +132,7 @@ function Handle($req) {
                             $target = Get-RefTopHandle $record
                             $preferred = Get-ExactNativeElementHandle $record.Element
                             if ($preferred -eq [IntPtr]::Zero) {
-                                throw 'background_unsupported|element exposes no exact native keyboard target; no input sent'
+                                throw 'background_unsupported|element exposes no exact native keyboard target; use set_value to replace its value, or explicit foreground delivery; no input sent'
                             }
                         }
                         [MixWin32]::ValidateBackgroundInput($target, $preferred, [string]$step.action, [string]$step.keys)

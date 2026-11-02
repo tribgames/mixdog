@@ -87,6 +87,7 @@ public sealed class FakeValue {
   public void SetValue(string value) {
     MixWin32.Order.Add("setvalue");
     SetValueCalls++;
+    if (SetValueStores == "ignore") return;
     Text = SetValueStores == "lower" ? value.ToLowerInvariant() : value;
     if (Activation == "steal" || Activation == "user") MixWin32.Current = new IntPtr(1);
     if (Activation == "user") MixInputObservation.Sequence++;
@@ -290,6 +291,19 @@ $rows | ConvertTo-Json -Compress -Depth 4
     assert.equal(rows.after, 0, 'entries for gone or reused windows are dropped');
   }
 );
+
+test('a value write the field ignores is reported unverified, never confirmed', windows, async () => {
+  const rows = await runFixture(`${VALUE_FIXTURE}
+$rows = [ordered]@{}
+$rows.landed = Attempt 'abc' $null $false
+# A role=textbox that is not editable accepts SetValue and keeps its old text.
+$rows.ignored = Attempt 'abc' { [MixWin32]::Element.Value.SetValueStores = 'ignore' } $false
+$rows | ConvertTo-Json -Compress -Depth 4
+`);
+  assert.deepEqual([rows.landed.verified, rows.landed.effect, rows.landed.value], [true, 'confirmed', 'abc']);
+  assert.deepEqual([rows.ignored.verified, rows.ignored.effect, rows.ignored.value], [false, 'unverifiable', 'old']);
+  assert.equal(rows.ignored.path, 'uia_value');
+});
 
 test(
   'a remembered window takes set_value through its keyboard, refusing first and never writing twice',

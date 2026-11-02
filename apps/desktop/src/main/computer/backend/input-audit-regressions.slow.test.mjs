@@ -235,7 +235,44 @@ foreach ($code in 2, 5, 31, 1223, 87) {
   assert.match(result.messages[4], /launch failed \[shell_launch_failed\/87\]/);
 });
 
-test('background value input skips a browser tab that only echoes the write', windows, async () => {
+test('background type into a Chromium field is refused untouched and points to set_value', windows, async () => {
+  const result = await nativeFixture(`
+Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
+Add-Type -TypeDefinition @'
+using System;
+public static class MixWin32 {
+  public static string WindowId(IntPtr h) { return "hwnd:0x" + h.ToInt64().ToString("x"); }
+  public static bool IsWebContentHost(IntPtr window) { return true; }
+}
+'@
+$script:Writes = 0
+$script:Text = 'draft'
+$element = New-Object psobject
+Add-Member -InputObject $element -MemberType NoteProperty -Name Current -Value ([pscustomobject]@{ ClassName = '' })
+Add-Member -InputObject $element -MemberType ScriptMethod -Name TryGetCurrentPattern -Value { param($pattern, $target) return $true }
+function Get-TopWindow($el) { return @{ Current = @{ NativeWindowHandle = 1 } } }
+function Get-RefRecord($ref) { return @{ Kind = 'uia'; Element = $element; WindowId = 'hwnd:0x1' } }
+function Get-RefTopHandle($record) { return [IntPtr]1 }
+function Get-ExactNativeElementHandle($el) { return [IntPtr]::Zero }
+function Test-BackgroundKeyboardRoute($top, $preferred) { return $false }
+function Do-SetValue($ref, $text) { $script:Writes++; $script:Text = $text }
+foreach ($name in @('New-ActionResult', 'Background-Unavailable', 'Test-BackgroundValueTarget', 'Test-IgnoredValueWrite', 'Do-Type')) { . (Import-InputFunction $name) }
+$filled = Do-Type @{ delivery = 'background'; ref = 's1:e1'; text = 'more' }
+$script:Text = ''
+$empty = Do-Type @{ delivery = 'background'; ref = 's1:e1'; text = 'more' }
+@{ filled = $filled; empty = $empty; writes = $script:Writes } | ConvertTo-Json -Depth 4 -Compress
+`);
+  // A contenteditable cannot be told from a native input through UIA, so no
+  // Chromium field takes the replacing value route for type, empty or not.
+  for (const refused of [result.filled, result.empty]) {
+    assert.equal(refused.code, 'background_unsupported');
+    assert.equal(refused.delivery_accepted, false);
+    assert.match(refused.text, /set_value/);
+  }
+  assert.equal(result.writes, 0);
+});
+
+test('background value input skips a Chromium or Electron field and an Excel cell', windows, async () => {
   const result = await nativeFixture(`
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type -TypeDefinition @'
@@ -324,7 +361,7 @@ $refused = Do-Type @{ delivery = 'background'; ref = 's1:e1'; text = 'parity' }
   assert.equal(result.write_first, 'parity');
   assert.equal(result.refused.code, 'background_unsupported');
   assert.equal(result.refused.delivery_accepted, false);
-  assert.match(result.refused.text, /no settable value/);
+  assert.match(result.refused.text, /set_value/);
 });
 
 test(
