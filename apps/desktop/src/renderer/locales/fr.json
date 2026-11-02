@@ -5996,6 +5996,8 @@
   "Use letters, digits, \".\", \"_\" or \"-\", separated by \"/\".": "Utilisez des lettres, chiffres, \".\", \"_\" ou \"-\", séparés par \"/\".",
   "Example: {{name}}": "Exemple : {{name}}",
   "{{count}} unmerged commits": "{{count}} commits non fusionnés",
+  "Background task": "Tâche en arrière-plan",
+  "Cache warm-up": "Préchauffage du cache",
   "Merged · deleted at next cleanup": "Fusionné · supprimé au prochain nettoyage",
   "Merged · will be cleaned up": "Fusionné · sera nettoyé",
   "Merged · kept": "Fusionné · conservé",
@@ -6010,5 +6012,9 @@
   "No worktrees.": "Aucun worktree.",
   "Ended session": "Session terminée",
   "Open new session here": "Ouvrir une nouvelle session ici",
-  "Choose how detailed answers are. Use \"Edit\" to change the instructions of each style.": "Choisissez le niveau de détail des réponses. « Modifier » permet de changer les instructions de chaque style."
+  "Choose how detailed answers are. Use \"Edit\" to change the instructions of each style.": "Choisissez le niveau de détail des réponses. « Modifier » permet de changer les instructions de chaque style.",
+  "Heartbeat or exec run": "Exécution heartbeat ou exec",
+  "Internal": "Interne",
+  "Internal session: a background run Mixdog started itself. You cannot open it as a conversation.": "Session interne : une exécution en arrière-plan lancée par Mixdog lui-même. Elle ne peut pas être ouverte comme conversation.",
+  "Memory cycle": "Cycle de mémoire"
 }

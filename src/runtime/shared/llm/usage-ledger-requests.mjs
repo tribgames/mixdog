@@ -127,7 +127,8 @@ export function readUsageRequests(db, options = {}) {
 
   const routeOf = db.prepare(
     `SELECT json_extract(signature,'$[0]') AS provider,json_extract(signature,'$[1]') AS model,
-      json_extract(signature,'$[2]') AS kind,json_extract(signature,'$[4]') AS cost_source
+      json_extract(signature,'$[2]') AS kind,json_extract(signature,'$[3]') AS source_type,
+      json_extract(signature,'$[4]') AS cost_source
      FROM usage_routes WHERE id=?`
   );
   const sessionOf = db.prepare('SELECT value FROM usage_sessions WHERE id=?');
@@ -148,6 +149,7 @@ export function readUsageRequests(db, options = {}) {
       model: route.model || '',
       requestedModel: row.requested_model || route.model || '',
       kind: route.kind || '',
+      sourceType: route.source_type || '',
       costSource: route.cost_source || '',
       sessionId: sessionOf.get(row.session)?.value || '',
       ownerSessionId: ownerOf.get(row.session)?.value || '',

@@ -93,8 +93,52 @@ function requestApi(context, count) {
   };
 }
 
+// One request per session kind; `metadata` is what the session store still holds.
+function sessionKindsApi(context, kinds, metadata) {
+  const ledger = new UsageLedger(':memory:');
+  context.after(() => ledger.close());
+  const now = Date.now();
+  ledger.record(
+    kinds.map(([sessionId, sourceType], index) =>
+      makeUsageRecord({
+        ts: now - (index + 1) * 60_000,
+        provider: 'openai',
+        model: 'gpt-5.6',
+        sessionId,
+        sourceType,
+        inputTokens: 10,
+        outputTokens: 10,
+      })
+    )
+  );
+  const usage = createUsageStatsApi({
+    ledger: () => ledger,
+    importHistory: async () => {},
+    sessionMetadata: async (id) => metadata[id] ?? null,
+  });
+  return {
+    invokeCapability: async ({ capability, args = [] }) => ({
+      value:
+        capability === 'getUsageRequests'
+          ? await usage.getUsageRequests(args[0])
+          : { totals: {}, providers: [], period: {} },
+    }),
+  };
+}
+
 const tab = (label) => [...document.querySelectorAll('[role="tab"]')].find((node) => node.textContent === t(label));
 const bodyRows = () => [...document.querySelectorAll('.request-log-table tbody tr:not(.request-log-more)')];
+// Under `table-layout: fixed` a row that spans more or fewer columns than the
+// header adds a phantom column, or leaves one short: a blank band on the right.
+function assertRowsSpanTheHeader() {
+  const columns = document.querySelectorAll('.request-log-table thead th').length;
+  assert.equal(document.querySelectorAll('.request-log-table col').length, columns, 'one <col> per header cell');
+  const rows = [...document.querySelectorAll('.request-log-table tbody tr')];
+  assert.ok(rows.length > 0);
+  for (const row of rows) {
+    assert.equal([...row.children].reduce((sum, cell) => sum + cell.colSpan, 0), columns, row.className || row.textContent);
+  }
+}
 const option = (label) => [...document.querySelectorAll('.mx-menu [role="option"]')].find((node) => node.textContent === label);
 const openFilter = (index) =>
   act(async () => {
@@ -120,6 +164,8 @@ test('the request log tab lists requests with every column, filters them and loa
     'the shared period chips, on the same default'
   );
   assert.equal(bodyRows().length, 50);
+  assertRowsSpanTheHeader();
+  assert.ok(document.querySelector('.request-log-more'), 'the paging sentinel row is part of that check');
   const cells = (row) => [...bodyRows()[row].children];
   assert.equal(cells(0)[1].textContent, 'Dev session · Reviewer', 'an agent names the session it ran for and its role');
   assert.equal(cells(1)[1].textContent, 'Dev session');
@@ -189,4 +235,50 @@ test('an empty period shows one line', async (context) => {
   await render({ surface: 'stats', open: true, onClose() {}, api });
   assert.equal(bodyRows().length, 1);
   assert.equal(bodyRows()[0].querySelector('.usage-empty').textContent, t('No requests recorded in this period.'));
+  assertRowsSpanTheHeader();
+});
+
+test('a request of an internal session shows its kind and an Internal tag, a session the user can open does not', async (context) => {
+  const { render } = harness(context);
+  window.localStorage.setItem('mixdog.desktop.usage-surface-mode.v1', 'requests');
+  const api = sessionKindsApi(
+    context,
+    [
+      ['memory', 'memory-cycle'],
+      ['web', 'native-web-search'],
+      ['warm', 'cache-warm'],
+      ['run', 'exec'],
+      ['plugin-run', 'some-new-runner'],
+      ['gone-schedule', 'schedule'],
+      ['dev', 'lead'],
+      ['dev', 'cache-warm'],
+    ],
+    {
+      // The summarising dispatch's "title" is the first line of its prompt.
+      memory: { title: 'Length target: about 2000 characters', sourceType: 'memory-cycle' },
+      dev: { title: 'Dev session', sourceType: 'lead' },
+    }
+  );
+  await render({ surface: 'stats', open: true, onClose() {}, api });
+  const session = (row) => bodyRows()[row].children[1];
+  const tag = (row) => session(row).querySelector('.request-log-internal');
+  const kinds = ['Memory cycle', 'Web search', 'Cache warm-up', 'Heartbeat or exec run'];
+  kinds.forEach((kind, row) => {
+    assert.equal(tag(row).textContent, t('Internal'), kind);
+    assert.equal(session(row).textContent, `${t('Internal')}${t(kind)}`, 'the kind, never the prompt-derived title');
+    assert.ok(
+      session(row).title.includes(
+        t('Internal session: a background run Mixdog started itself. You cannot open it as a conversation.')
+      )
+    );
+  });
+  assert.equal(tag(4), null, 'an unknown source type counts as conversation, as in the usage totals');
+  assert.equal(session(4).textContent, t('Untitled session'));
+  assert.equal(tag(5), null, 'a schedule the user can open stays labeled as before');
+  assert.equal(session(5).textContent, t('Untitled session'));
+  assert.equal(tag(6), null);
+  assert.equal(session(6).textContent, 'Dev session');
+  assert.equal(tag(7), null, 'a warm-up on a session the user can open is not internal');
+  assert.equal(session(7).textContent, `Dev session · ${t('Cache warm-up')}`);
+  assertRowsSpanTheHeader();
 });

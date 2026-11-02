@@ -6,7 +6,8 @@ import { refreshUnpricedUsageAsync } from '../runtime/shared/llm/usage-pricing-r
 import { resolvePluginData } from '../runtime/shared/plugin-paths.mjs';
 import { sessionUsageSnapshot, usageStatsSnapshot } from './services/usage-stats-model.mjs';
 import { resolveUsageStatsPeriod } from './services/usage-stats-period.mjs';
-import { usageRollupDayKey } from '../runtime/shared/llm/usage-rollup.mjs';
+import { isConversationUsageSource, usageRollupDayKey } from '../runtime/shared/llm/usage-rollup.mjs';
+import { isLeadVisibleRow } from '../runtime/agent/orchestrator/session/store-summary-catalog.mjs';
 import { agentIdOfHomeSession } from '../runtime/agent/orchestrator/session/agent-home.mjs';
 import {
   ACCOUNT_PROVIDERS,
@@ -175,9 +176,23 @@ async function readSessionMetadata(sessionId) {
 /**
  * What the request log names a session by: its title, and for an agent's
  * session the title of the session it ran for with its role (`agent: true`
- * with no role when only the ledger's owner link survives).
+ * with no role when only the ledger's owner link survives). A background
+ * request on such an openable session adds its source type as
+ * `backgroundKind`. A request whose own session the user cannot open (an
+ * internal dispatch, or a session file that is gone) carries its source type
+ * as `internalKind` instead, and no title: the first prompt line of a
+ * background run says nothing about it.
  */
 async function describeRequestSessions(requests, sessionMetadata) {
+  // `exec` is hidden by the catalog but counts as conversation in usage
+  // totals; every other hidden source is one the rollup calls background.
+  const internalKindOf = (sourceType) => {
+    const id = String(sourceType || '')
+      .trim()
+      .toLowerCase();
+    const hidden = id && !isLeadVisibleRow({ sourceType: id, preview: id });
+    return hidden && (id === 'exec' || !isConversationUsageSource(id)) ? id : '';
+  };
   const metadata = new Map();
   const read = async (id) => {
     if (!id) return null;
@@ -190,20 +205,38 @@ async function describeRequestSessions(requests, sessionMetadata) {
   };
   const labels = new Map();
   for (const request of requests) {
-    const key = `${request.sessionId}\u0000${request.ownerSessionId}`;
+    const key = `${request.sessionId}\u0000${request.ownerSessionId}\u0000${request.sourceType}`;
     if (labels.has(key)) continue;
     const own = await read(request.sessionId);
+    const kind = internalKindOf(request.sourceType || own?.sourceType);
+    // A session the user can open keeps its label whatever the request's
+    // route (a cache warm-up records under the real session id); only the
+    // work's kind is added. A session file that is gone cannot be opened.
+    const openable =
+      Boolean(own) &&
+      ((own.agent && (own.ownerSessionId || request.ownerSessionId)) || isLeadVisibleRow({ ...own, preview: 'x' }));
+    if (kind && !openable) {
+      labels.set(key, { title: '', role: '', agent: false, internalKind: kind });
+      continue;
+    }
     const ownerId = own?.ownerSessionId || request.ownerSessionId;
     let label = { title: own?.title || agentIdOfHomeSession(request.sessionId) || '', role: '', agent: false };
     if (ownerId && ownerId !== request.sessionId && (own?.agent || !own)) {
       const owner = await read(ownerId);
       label = { title: owner?.title || agentIdOfHomeSession(ownerId) || '', role: own?.agent || '', agent: true };
     }
-    labels.set(key, label);
+    labels.set(key, { ...label, backgroundKind: kind });
   }
-  return requests.map(({ ownerSessionId, ...request }) => {
-    const label = labels.get(`${request.sessionId}\u0000${ownerSessionId}`);
-    return { ...request, sessionTitle: label.title, agentRole: label.role, agent: label.agent };
+  return requests.map(({ ownerSessionId, sourceType, ...request }) => {
+    const label = labels.get(`${request.sessionId}\u0000${ownerSessionId}\u0000${sourceType}`);
+    return {
+      ...request,
+      sessionTitle: label.title,
+      agentRole: label.role,
+      agent: label.agent,
+      internalKind: label.internalKind || '',
+      backgroundKind: label.backgroundKind || '',
+    };
   });
 }
 

@@ -5864,6 +5864,8 @@
   "Use letters, digits, \".\", \"_\" or \"-\", separated by \"/\".": "Dùng chữ, số, \".\", \"_\" hoặc \"-\", phân tách bằng \"/\".",
   "Example: {{name}}": "Ví dụ: {{name}}",
   "{{count}} unmerged commits": "{{count}} commit chưa hợp nhất",
+  "Background task": "Tác vụ nền",
+  "Cache warm-up": "Làm nóng bộ nhớ đệm",
   "Merged · deleted at next cleanup": "Đã hợp nhất · xóa ở lần dọn tới",
   "Merged · will be cleaned up": "Đã hợp nhất · sẽ được dọn",
   "Merged · kept": "Đã hợp nhất · giữ lại",
@@ -5878,5 +5880,9 @@
   "No worktrees.": "Không có worktree.",
   "Ended session": "Phiên đã kết thúc",
   "Open new session here": "Mở phiên mới tại đây",
-  "Choose how detailed answers are. Use \"Edit\" to change the instructions of each style.": "Chọn mức chi tiết của câu trả lời. Dùng \"Chỉnh sửa\" để đổi chỉ dẫn của từng kiểu."
+  "Choose how detailed answers are. Use \"Edit\" to change the instructions of each style.": "Chọn mức chi tiết của câu trả lời. Dùng \"Chỉnh sửa\" để đổi chỉ dẫn của từng kiểu.",
+  "Heartbeat or exec run": "Lượt chạy heartbeat hoặc exec",
+  "Internal": "Nội bộ",
+  "Internal session: a background run Mixdog started itself. You cannot open it as a conversation.": "Phiên nội bộ: một lượt chạy nền do chính Mixdog khởi động. Không thể mở nó như một cuộc trò chuyện.",
+  "Memory cycle": "Chu kỳ bộ nhớ"
 }

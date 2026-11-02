@@ -42,6 +42,29 @@ function statusLabel(status: string): string {
   return t('All');
 }
 
+// The table's columns, once: the header, the column widths (CSS, by `key`) and
+// every full-width row's span derive from this list, so a column added or
+// removed cannot leave a spanned row one cell off.
+const COLUMNS = [
+  { key: 'time', label: 'Time' },
+  { key: 'session', label: 'Session' },
+  { key: 'model', label: 'Model' },
+  { key: 'tokens', label: 'Tokens', numeric: true },
+  { key: 'cost', label: 'Cost', numeric: true },
+  { key: 'duration', label: 'Time taken', numeric: true },
+  { key: 'status', label: 'Status' },
+] as const;
+
+// What the user would call the work of a background dispatch, by the source
+// type its requests carry; any other source type reads as a generic task.
+function internalKindLabel(kind: string): string {
+  if (kind === 'memory-cycle') return t('Memory cycle');
+  if (kind === 'native-web-search') return t('Web search');
+  if (kind === 'cache-warm') return t('Cache warm-up');
+  if (kind === 'exec') return t('Heartbeat or exec run');
+  return t('Background task');
+}
+
 function requestTime(ts: number, today: string): string {
   const date = new Date(ts);
   const clock: Intl.DateTimeFormatOptions = { hour: '2-digit', minute: '2-digit' };
@@ -190,29 +213,17 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
       <div className="usage-table-shell">
         <table className="usage-table request-log-table" aria-label={t('Request log')}>
           <colgroup>
-            <col className="request-log-col-time" />
-            <col className="request-log-col-session" />
-            <col className="request-log-col-model" />
-            <col className="request-log-col-tokens" />
-            <col className="request-log-col-cost" />
-            <col className="request-log-col-duration" />
-            <col className="request-log-col-status" />
+            {COLUMNS.map((column) => (
+              <col key={column.key} className={`request-log-col-${column.key}`} />
+            ))}
           </colgroup>
           <thead>
             <tr>
-              <th scope="col">{t('Time')}</th>
-              <th scope="col">{t('Session')}</th>
-              <th scope="col">{t('Model')}</th>
-              <th scope="col" className="request-log-num">
-                {t('Tokens')}
-              </th>
-              <th scope="col" className="request-log-num">
-                {t('Cost')}
-              </th>
-              <th scope="col" className="request-log-num">
-                {t('Time taken')}
-              </th>
-              <th scope="col">{t('Status')}</th>
+              {COLUMNS.map((column) => (
+                <th key={column.key} scope="col" className={'numeric' in column ? 'request-log-num' : undefined}>
+                  {t(column.label)}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -220,14 +231,28 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
               const provider = String(row.provider || '');
               const model = String(row.model || '');
               const status = String(row.status || 'completed');
-              const title = String(row.sessionTitle || '') || t('Untitled session');
+              const internal = String(row.internalKind || '');
+              const title = internal
+                ? internalKindLabel(internal)
+                : String(row.sessionTitle || '') || t('Untitled session');
               const role = row.agent === true ? agentRoleLabel(row.agentRole) : '';
+              // A background run on a session the user can open: named like the role.
+              const background = row.backgroundKind ? internalKindLabel(String(row.backgroundKind)) : '';
+              const suffix = [role, background].filter(Boolean).join(' · ');
+              const internalHint = t(
+                'Internal session: a background run Mixdog started itself. You cannot open it as a conversation.'
+              );
               return (
                 <tr key={String(row.id)}>
                   <td className="request-log-time">{requestTime(statsNumber(row.ts), today)}</td>
-                  <td className="request-log-session" title={role ? `${title} · ${role}` : title}>
+                  <td
+                    className="request-log-session"
+                    title={internal ? `${title} — ${internalHint}` : suffix ? `${title} · ${suffix}` : title}
+                  >
+                    {/* Before the name, so the ellipsis never cuts it off. */}
+                    {internal && <em className="request-log-internal">{t('Internal')}</em>}
                     {title}
-                    {role && <span> · {role}</span>}
+                    {suffix && <span> · {suffix}</span>}
                   </td>
                   <td className="request-log-model" title={model}>
                     <b>{modelDisplayName(model, provider)}</b>
@@ -244,14 +269,14 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
             })}
             {!loading && !requests.length && (
               <tr>
-                <td className="usage-empty" colSpan={8}>
+                <td className="usage-empty" colSpan={COLUMNS.length}>
                   {t('No requests recorded in this period.')}
                 </td>
               </tr>
             )}
             {cursor && (
               <tr ref={end} className="request-log-more" aria-hidden="true">
-                <td colSpan={8} />
+                <td colSpan={COLUMNS.length} />
               </tr>
             )}
           </tbody>
