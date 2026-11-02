@@ -1423,8 +1423,12 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     metrics.configureUsageMetricsRuntime({ getRuntimeEntry: () => ({ session: delSession }) });
     await metrics.persistIterationMetrics({ sessionId: delId, iterationIndex: 1, deltaInput: 3, deltaOutput: 1 });
     // Let that save settle so the NEXT delta parks with a live
-    // throttle timer (the retry path a hard delete must disarm).
-    await new Promise((resolve) => setTimeout(resolve, 80));
+    // throttle timer (the retry path a hard delete must disarm). Waits on
+    // the worker reply itself: a fixed delay can end while the write is
+    // still in flight (that ordering is C25b).
+    const settleDeadline = Date.now() + 5000;
+    while (_saveAsyncInflight.has(delId) && Date.now() < settleDeadline) await sleep(10);
+    assert.equal(_saveAsyncInflight.has(delId), false, 'the first metrics save settled');
     await metrics.persistIterationMetrics({ sessionId: delId, iterationIndex: 2, deltaInput: 3, deltaOutput: 1 });
 
     assert.equal(deleteSession(delId), true, 'the session file is unlinked');
@@ -1436,6 +1440,26 @@ test('delete/reuse: stale completions after a hard delete or id reuse stay inert
     await new Promise((resolve) => setTimeout(resolve, 600)); // past the 500 ms throttle timer
     await new Promise((resolve) => setImmediate(resolve));
     assert.equal(existsSync(delPath), false, 'a parked metrics timer cannot resurrect it either');
+    metrics.configureUsageMetricsRuntime({ getRuntimeEntry: () => null });
+  });
+  await t.test('C25b the exit drain skips a write still in flight for a hard-deleted session', async () => {
+    const delId = 'sess_metrics_hard_delete_inflight';
+    const delPath = join(sessionsDir, `${delId}.json`);
+    const delSession = makeSession({ id: delId, messages: [{ role: 'user', content: 'f1' }] });
+    saveSession(delSession, { sync: true });
+    metrics.configureUsageMetricsRuntime({ getRuntimeEntry: () => ({ session: delSession }) });
+    // No macrotask between the post and the delete: the worker reply cannot
+    // have been dispatched, so the write is still in flight at the delete.
+    await metrics.persistIterationMetrics({ sessionId: delId, iterationIndex: 1, deltaInput: 2, deltaOutput: 1 });
+    assert.equal(_saveAsyncInflight.has(delId), true, 'the metrics write is in flight');
+    await metrics.persistIterationMetrics({ sessionId: delId, iterationIndex: 2, deltaInput: 2, deltaOutput: 1 });
+
+    assert.equal(deleteSession(delId), true, 'the session file is unlinked');
+    drainSessionStore();
+    assert.equal(existsSync(delPath), false, 'the exit drain cannot write a deleted in-flight payload back');
+
+    await sleep(600); // the stale reply settles + past the throttle timer
+    assert.equal(existsSync(delPath), false, 'the stale settlement cannot resurrect it either');
     metrics.configureUsageMetricsRuntime({ getRuntimeEntry: () => null });
   });
   await t.test('C27 a rejection settling after hard delete creates nothing', async () => {

@@ -39,6 +39,7 @@ const {
   getBackgroundTask,
   registerBackgroundTask,
 } = await import('../../../../shared/background-tasks.mjs');
+const { onSessionActivityChange } = await import('../../../../shared/session-activity-signal.mjs');
 const { executeBuiltinTool } = await import('../../tools/builtin.mjs');
 const { executeTaskTool } = await import('../../tools/builtin/task-tool.mjs');
 const { killShellJob, peekShellJob, shutdownShellJobs } = await import('../../tools/builtin/shell-jobs.mjs');
@@ -168,7 +169,16 @@ async function waitTurn(t, { path, inject, observeMs = 0, after = null, waitArgs
         resolveTask();
       },
     };
-    const fire = setTimeout(() => {
+    // The event fires once the turn is parked in the wait (its activity
+    // pulse), never after a fixed delay: a loaded machine can take longer
+    // than any delay to reach the wait, and an event queued before it is the
+    // wait-entry path, not the wake under test.
+    let fire = null;
+    const stopWaitSignal = onSessionActivityChange((sid) => {
+      if (sid !== session.id || fire || !(_getRuntimeEntry(session.id)?.taskWaits > 0)) return;
+      fire = setImmediate(fireEvent);
+    });
+    const fireEvent = () => {
       marks.waitingBefore = _getRuntimeEntry(session.id)?.taskWaits || 0;
       marks.injectAt = Date.now();
       inject(ctx);
@@ -179,7 +189,7 @@ async function waitTurn(t, { path, inject, observeMs = 0, after = null, waitArgs
           after?.(ctx);
         }, observeMs);
       }
-    }, 300);
+    };
     try {
       result = await askSession(session.id, 'run the wait', null, null, null, null, {
         ...(lead ? { drainSteering: (_sid, options) => lead.bag.drainPendingSteering(options) } : {}),
@@ -188,7 +198,8 @@ async function waitTurn(t, { path, inject, observeMs = 0, after = null, waitArgs
       error = err;
       marks.rejectedAt = Date.now();
     } finally {
-      clearTimeout(fire);
+      stopWaitSignal();
+      clearImmediate(fire);
       lead?.stopCheck();
       marks.waitingAfter = _getRuntimeEntry(session.id)?.taskWaits || 0;
       marks.taskStatusAfter = peekStatus(taskId);
