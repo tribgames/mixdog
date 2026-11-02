@@ -35,6 +35,7 @@ Aggiunta la scheda Registro richieste in Utilizzo, pannelli laterali in tempo re
 - Corretto lo stato dei comandi di terminale silenziosi in background che apparivano corretti pur essendo bloccati oltre la soglia di avanzamento.
 - Risolto il blocco anomalo del browser integrato quando un iframe veniva rimosso durante l'esecuzione di un comando attivo.
 - Risolto il problema per cui Computer Use rifiutava le azioni successive dopo l'immissione di testo o non rilasciava i tasti del mouse durante gli arresti di emergenza.
+- Risolto il problema per cui una sessione eliminata definitivamente ricompariva se l'app veniva chiusa subito dopo.
 
 ## v1.4.3 - 2026-10-31
 

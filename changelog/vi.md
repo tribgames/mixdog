@@ -35,6 +35,7 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 - Sửa lỗi các lệnh dòng lệnh ngầm không có phản hồi vẫn hiển thị trạng thái bình thường khi bị treo quá ngưỡng tiến độ.
 - Sửa lỗi trình duyệt tích hợp bị văng khi một iframe bị xóa trong lúc lệnh đang thực thi.
 - Sửa lỗi Computer Use từ chối các thao tác tiếp theo sau khi nhập văn bản hoặc không nhả nút chuột khi dừng khẩn cấp.
+- Sửa lỗi phiên vừa bị xóa vĩnh viễn lại xuất hiện trở lại nếu ứng dụng được đóng ngay sau đó.
 
 ## v1.4.3 - 2026-10-31
 

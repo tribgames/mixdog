@@ -36,6 +36,7 @@ Added a Request log in Usage, live sub-agent side panels, session navigation his
 - Fixed silent background terminal commands continuing to appear healthy when stalled past their progress threshold.
 - Fixed in-app browser crashing when an iframe was removed during an active command.
 - Fixed Computer Use refusing subsequent actions after typing into text fields or failing to release mouse buttons during emergency stops.
+- Fixed a session you had just deleted for good coming back when the app closed right after.
 
 ## v1.4.3 - 2026-10-31
 

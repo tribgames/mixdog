@@ -35,6 +35,7 @@ Adicionada a aba Registro de solicitações em Uso, painéis laterais em tempo r
 - Corrigido o status de comandos silenciosos de terminal em segundo plano que pareciam saudáveis mesmo quando travados além do limite de progresso.
 - Corrigido o travamento do navegador integrado quando um iframe era removido durante um comando ativo.
 - Corrigido o problema em que o Computer Use recusava ações seguintes após digitar em campos de texto ou não liberava botões do mouse em paradas de emergência.
+- Corrigido o problema em que uma sessão excluída definitivamente voltava a aparecer caso o aplicativo fosse fechado logo em seguida.
 
 ## v1.4.3 - 2026-10-31
 

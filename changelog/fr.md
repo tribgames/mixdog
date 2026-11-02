@@ -36,6 +36,7 @@ Ajout de l'onglet Journal des requêtes dans Utilisation, de panneaux latéraux 
 - Correction des commandes de terminal silencieuses en arrière-plan qui apparaissaient actives alors qu'elles étaient bloquées au-delà du seuil de progression.
 - Correction du plantage du navigateur intégré lorsqu'une iframe était supprimée pendant l'exécution d'une commande active.
 - Correction de Computer Use qui refusait les actions suivantes après une saisie de texte ou laissait les boutons de la souris enfoncés lors d'un arrêt d'urgence.
+- Correction d'une session définitivement supprimée qui réapparaissait si l'application était fermée juste après.
 
 ## v1.4.3 - 2026-10-31
 

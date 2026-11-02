@@ -35,6 +35,7 @@ Registerkarte „Anfrageprotokoll“ unter Nutzung, Live-Seitenbereiche für Sub
 - Behoben, dass lautlose Hintergrund-Terminalbefehle fälschlicherweise als fehlerfrei galten, wenn sie über den Fortschrittsschwellenwert hinaus hingen.
 - Absturz des In-App-Browsers beim Entfernen eines Iframes während eines aktiven Befehls behoben.
 - Behoben, dass Computer Use nach Texteingaben Folgeaktionen verweigerte oder Maustasten beim Not-Aus gedrückt blieben.
+- Behoben, dass eine endgültig gelöschte Sitzung wieder auftauchte, wenn die App direkt danach geschlossen wurde.
 
 ## v1.4.3 - 2026-10-31
 
