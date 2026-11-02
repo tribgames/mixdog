@@ -14,86 +14,46 @@ dependencies:
 
 Use `media` for still-image generation and editing; read this guide before the first call.
 
-This file owns the judgement around one tool for still images: how a picture is asked for, checked, and saved. Any deliverable that needs a picture loads it and keeps only its own placement rules. The lane catalog (providers, models, controls, sign-in state) lives in the runtime and is read with `list`, so this file stays true when providers change.
+The `media` tool schema and `list` own the controls, lane catalog and sign-in state; this file owns how a picture is asked for, checked, and saved.
 
 ## 1. Which kind of job
 **Hard rule — generate or edit, decided first**:
-- *Generate* — the user wants a new image (product shot, hero, social card, illustration, icon, texture, concept) or a deliverable needs one. Images attached only as style, mood, or composition guidance still make this a generate with references.
-- *Edit* — the user wants an existing image kept and part of it changed: background swap, object removal, lighting or weather, text replacement, style transfer, compositing, cutout. The source image goes in `references` as the edit target; §3 edit brief applies.
+- *Generate* — a new image (product shot, hero, social card, illustration, icon, texture, concept), or a deliverable needs one. Images attached only as style, mood, or composition guidance still make this a generate with references.
+- *Edit* — an existing image is kept and part of it changed: background swap, object removal, lighting or weather, text replacement, style transfer, compositing, cutout. The source goes in `references` as the edit target.
+
 **Hard rule — not this tool**: a repository's own SVG, icon, or logo system; simple shapes, wireframes, and diagrams better drawn in SVG, HTML/CSS, or a chart library; charts, tables, and the user's own photographs.
 **Hard rule — no signed-in lane, no picture**: when `list` (or a failed `generate`) reports no image lane, continue without and say so; never substitute a placeholder, a stock-photo URL, or an emoji.
-**Default — one generation per job, one corrected retry**: a result that misses the brief is retried once with a single targeted change (§2 step 3); a second miss is reported as "not achieved".
+**Default — one generation per job, one corrected retry**: a miss is retried once with a single targeted change (§2 step 4); a second miss is reported as "not achieved". Generation costs the user credits: no speculative variants or "another option" regenerations unless asked.
+
 ## 2. Call order
-1. `media action:'list' kind:'image'` once per session before the first generate: signed-in lanes, their models, and `remembered` — the lane/model a generate runs on when none is passed (Studio selection, else last generation of this kind). Add `model:` for that model's controls (`aspectRatio` / `size`, `resolution`, `quality`, `background`, `maxReferences`).
-2. `media action:'generate' kind:'image', prompt, path, + controls` — **lane and model are omitted by default** (the user's remembered choice, else the signed-in ChatGPT lane); controls only from that model's list — one listing none gets none. **Hard rule — a named source is passed**: GPT / ChatGPT / Codex / OpenAI → the OpenAI lane; Grok, Gemini, Antigravity → theirs, from `list`; if it is not signed in, say so rather than swap. Otherwise pass `lane`/`model` only when the job needs a capability the model lacks (reference count, exact text, a listed resolution). The result reports lane, model, `laneSource` (`requested` / `remembered` / `first`), and options used.
-3. **Hard rule — look before using**: open the file with `read` and check subject, style, composition, the exclusions, any in-image text, and — for an edit — every item in the preserve list. A miss is fixed by changing one variable in the prompt and restating every invariant; never rewrite the whole prompt.
-4. The result is also a Studio asset (`assetId`); the file at `path` is the copy the work uses.
+1. `media action:'list' kind:'image'` once per session before the first generate: signed-in lanes, models, and `remembered` — the lane/model a generate runs on when none is passed. Add `model:` for that model's controls; pass a control only when that model lists it.
+2. **Hard rule — pick the source in this order**: a source the user names (GPT / ChatGPT / Codex / OpenAI, Grok, Gemini, Antigravity …) is passed as `lane`, resolved from `list`; if it is not signed in, say so rather than swap. Otherwise omit `lane`/`model` and let the runtime apply its configured defaults. Pass `lane`/`model` for capability only when the job needs one the selected model lacks (reference count, exact text, a listed resolution).
+3. `media action:'generate' kind:'image', prompt, path, + controls`. The result reports lane, model, `laneSource` (`requested` = a lane explicitly selected in the call (a model alone is not), `pinned` = the user's configured default for images, `remembered` = their last choice, `first` = the default lane or the first available signed-in lane), and the options used. A pinned default that errors is reported, not swapped.
+4. **Hard rule — look before using**: open the file with `read` and check subject, style, composition, the exclusions, any in-image text, and — for an edit — every item in the preserve list. A miss is fixed by changing one variable in the prompt and restating every invariant; never rewrite the whole prompt, and on an edit re-edit only the residual region with the same locks.
+5. The result is also a Studio asset (`assetId`); the file at `path` is the copy the work uses.
 
-## 3. Prompt form
-**Hard rule — labeled lines, in priority order**: the model reads order as priority; scene first by default, subject first when identity or product fidelity dominates. Use only the lines that change pixels. Never wrap the prompt in JSON.
-```
-Use: photorealistic | product-mockup | ui-mockup | infographic | logo-brand | illustration | stylized-concept | historical-scene   (edit: text-replace | identity-preserve | object-edit | lighting-weather | cutout | style-transfer | compositing | sketch-to-render)
-Asset: where it will be used — hero, OG card, figure, avatar, sprite, texture, cover
-Scene: a specific environment, never "a nice background"
-Subject: one subject with material, color, shape, posture; count and position bound in the same sentence
-Style: photograph / flat illustration / 3D render / watercolor …; light source and direction; depth; grain
-Composition: framing (wide, medium close-up, top-down), subject placement, where empty space for copy sits — only when the use needs it
-Mood: color temperature or palette named as a mood; exact hex only when the asset must match a UI
-Text: "exact words" · script · font style · size · placement            (only when text is wanted)
-Keep: invariants that must not change                                   (edits; see the edit brief)
-Avoid: no logos, no watermarks; plus no text / no faces when the use calls for it
-```
-**Default — specificity policy**: a detailed user prompt is normalized into this form and nothing is added; a generic one gets composition, intended use, and scene concreteness — never extra characters, props, brands, palettes, story beats, or placement the layout does not call for.
-**Default — exclusions follow the use**: a field for copy (hero, cover, OG, background) excludes text, logos, watermarks, and faces unless asked; an illustration or a scene with people excludes only logos and watermarks; a portrait keeps its face.
-**Hard rule — anti-patterns**:
-| Pattern | Why it fails | Instead |
-|---|---|---|
-| keyword soup (`beautiful, stunning, 8k, trending`) | tag piles read as noise | narrative sentences: subject + attributes + relations |
-| quality tokens (`masterpiece`, `ultra-detailed`) | do nothing visible | lens, light, and framing language |
-| precision specs (`85mm f/1.2`, `5600K`) | read loosely | perceptual terms: `medium close-up`, `warm tungsten` |
-| contradictory constraints (`minimal` + twelve objects) | some get dropped silently | one intent per line |
+## 3. Prompt invariants
+When drafting a prompt for a job type, a mockup, a logo, or any edit, read `references/prompt-forms.md` for the line template, the edit brief, the anti-patterns, and the aspect table. These hold for every prompt:
+- **Labeled lines in priority order**, never JSON: scene first, subject first when identity or product fidelity dominates. Only lines that change pixels.
+- **Specificity**: a detailed user prompt is normalized and nothing is added; a generic one gets composition, intended use, and scene concreteness — never extra characters, props, brands, palettes, story beats, or placement the layout does not call for.
+- **Exclusions follow the use**: a field for copy (hero, cover, OG, background) excludes text, logos, watermarks, and faces unless asked; an illustration or a scene with people excludes only logos and watermarks; a portrait keeps its face.
+- **Narrative, not tags**: no keyword piles, quality tokens, or precision specs; one intent per line.
+- **An edit names the delta and the locks**: the desired result, the one change, and the fragile properties to preserve (face, pose, silhouette, logo geometry, text spelling, framing, lighting). "Keep everything else the same" alone is weak; repeat the lock list on every retry. A removal says what replaces it. A source carrying drawn markup is sent clean, with the markup translated into instructions.
+- **Text**: a field for copy gets none; the page sets its own type. When text must appear, or copy must be exact, read `references/text.md` first. Copy that must be exact is composited with a real font, not generated.
 
-**Edit brief** — an edit names the delta and the locks, not the whole picture:
-```
-Desired result: one sentence describing the edited image's final state
-Change only: the specific modification
-Preserve exactly: named locks — face structure, pose, product silhouette, logo geometry, text spelling, framing, perspective, palette, lighting, shadows
-Do not add or remove: protected elements
-```
-"Keep everything else the same" alone is weak: name the fragile properties, and repeat the same lock list on every retry. A removal is written as what replaces it ("show the continuous desk grain where the note was, no residue or outline"), never as "remove X" alone. A source carrying drawn markup (arrows, boxes, notes) is sent clean, with the markup translated into instructions — the model reproduces marks it sees.
+## 4. References, aspect, transparency
+- `references:` take file paths (cap: `maxReferences`): the user's own file or one this session generated — never a downloaded third-party image. Each gets an index and a role in the prompt (`Image 1: base scene. Image 2: subject identity.`) plus the relationship. The reference whose fidelity matters most (face, logo, product) goes first; several faces that must stay recognizable are composed into one reference first. Use references for continuity: a series that must share a look, a recognizable product, a still that the video skill will animate.
+- **Aspect comes from where the picture will live**, never from a previous generation (table in `references/prompt-forms.md`). Pass only a listed value; a model listing none gets none, so put the ratio in the prompt's composition. Resolution: highest listed for a hero, print, or full-bleed frame; default for drafts, thumbnails, and icons.
+- **Cutouts**: for cutouts, stickers, icons, logos, background removal, and edits of an image that must stay transparent, pass `background: transparent` when the model lists it (`auto` drops alpha on edits). Otherwise generate on a stated solid background (`pure solid white #FFFFFF`, or black for reflective subjects; no gradient, no floor, no shadow, no vignette) and remove it afterwards. Never write "transparent background" in the prompt: it burns in a fake checkerboard.
 
-## 4. Text inside the image
-**Default — text only when wanted**: a field for copy gets no text; the deliverable or the page sets its own type over it.
-**Hard rule — when text is wanted, it is exact**: the words in quotes, the language and script, the font style, the approximate size, the placement, and "once, with no other readable text". Uncommon words are spelled letter by letter. Korean: write the prompt in English and quote only the Hangul string; start with short label-length strings.
-**Hard rule — copy that must be exact is composited, not generated**: packaging, UI, legal, or brand copy is generated as an empty reserved area (`no text` in that region) and set afterwards with a real font by the deliverable or an image tool.
-**Default — always inspect rendered text** (§2 step 3); garbled glyphs are common. One targeted text-only edit pass may follow; if spelling still drifts, stop and composite.
+## 5. Saving, reporting, provenance
+- **Never overwrite**: an existing file gets a sibling (`hero-v2.png`) unless replacement was asked; output goes beside the work that uses it or where the user named.
+- **Report** the final path, the lane/model that produced it (said to the user in plain words), options, and the final prompt (edit: the change and locks).
+- **Declare generated media where it lands** (notes, caption, alt text, or message) with lane/model and prompt; never present it as a photograph of a real event, place, or person.
 
-## 5. Reference images
-`references:` takes file paths; the model's `maxReferences` caps them. A reference is the user's own file or one this session generated — never a downloaded third-party image.
-**Hard rule — each reference gets an index and a role in the prompt**: `Image 1: base scene and composition. Image 2: subject identity. Image 3: style only.` followed by the relationship ("place the subject from Image 2 into Image 1; apply only Image 3's palette; preserve Image 1's framing and lighting").
-**Default — identity first**: the reference whose fidelity matters most (a face, a logo, a product) goes first. Several faces that must all stay recognizable are composed into one reference image before generating, not passed as separate portraits.
-**Default — references for continuity**: a series that must share a look, a recognizable product, a still that the video skill will animate.
+## 6. Failure
+A `generate` error carries `lanes` or `available`: choose from it and call again, or continue without. `MEDIA_USAGE_LIMIT`: tell the user the reset time. `MEDIA_PARTIAL_ONLY`: no final image, nothing saved.
 
-## 6. Aspect, size, and resolution
-**Hard rule — aspect comes from where the picture will live, never from a previous generation**:
-| Destination | Aspect |
-|---|---|
-| a frame in a deck, document, or page | the frame's ratio (full-bleed 16:9 → `16:9`; side panel → `9:16` / `3:4`; square figure → `1:1`), cropped by the placement, never stretched |
-| landing hero, wide banner | landscape `16:9` or `3:2` |
-| mobile hero, story | portrait `9:16` |
-| OG / social share card | the listed aspect closest to 1.91:1 |
-| icon, avatar, texture, tile | `1:1` |
-| a still for a video clip | the clip's aspect |
-
-Pass only a listed value (closest size when sizes are listed); a model listing none gets none, so put the ratio in the prompt's Composition line.
-**Default — resolution**: the highest the model lists for a hero, print, or full-bleed frame; the default for drafts, thumbnails, and icons.
-**Default — cutouts and transparency**: when the model lists `background`, pass `background: transparent` for cutouts, stickers, icons, logos, background removal, and edits of an image that must stay transparent (`auto` drops alpha on edits). Otherwise generate on a stated solid background (`pure solid white #FFFFFF`, or black for reflective subjects; "no gradient, no floor, no shadow, no vignette") and remove it afterwards; never put "transparent background" in the prompt — it burns a fake checkerboard into the image.
-
-## 7. Saving, reporting, provenance
-**Hard rule — never overwrite**: an existing file gets a sibling (`hero-v2.png`, `photo-edited.png`) unless the user asked for replacement. Output goes beside the work that uses it or where the user named; nothing lives only in a temp folder.
-**Hard rule — the report names what was made**: final path, the lane/model that produced it (said to the user in plain words), options, and the final prompt (edit: the change and locks).
-**Hard rule — generated media is declared where it lands**: the deliverable that places it records it as generated with lane/model and prompt (notes, caption, alt text, or message). A generated picture is never presented as a photograph of a real event, place, or person.
-## 8. Failure and cost
-- A `generate` error carries `lanes` (what is signed in for images) or `available` (models); choose from it and call again, or continue without. `MEDIA_USAGE_LIMIT`: limit reached — tell the user the reset time. `MEDIA_PARTIAL_ONLY`: no final image, nothing saved.
-- Generation costs the user credits or quota: one call per job, no speculative variants or "another option" regenerations unless asked.
-- On a retry, re-edit only the residual region with the same locks rather than enlarging the prompt.
+## Resources
+- `references/prompt-forms.md` — when drafting a prompt for a job type, an edit, or a reference composition; choosing an aspect.
+- `references/text.md` — when the image must contain text or copy must be exact.
