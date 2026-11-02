@@ -131,8 +131,9 @@ export function _anthropicSseError(event, labels) {
 // must stop reading (a terminal frame). A malformed record is skipped exactly
 // like the former per-event JSON.parse throw — and, unlike a whole-batch
 // rejection, the well-formed records beside it still run.
-function applyAnthropicSseEvent(framedEvent, { turn, watchdogs, state, progress, labels }) {
+function applyAnthropicSseEvent(framedEvent, { turn, watchdogs, state, progress, labels, receipt }) {
   const event = framedEvent.value;
+  noteThreadReceipt(receipt, event);
   try {
     if (framedEvent.name === 'error' || event?.type === 'error' || event?.error) {
       throw _anthropicSseError(event, labels);
@@ -192,7 +193,21 @@ export async function parseSSEStream(
   state,
   onTextDelta,
   knownToolNames,
-  { relayProgressUpdates = false, labels = OAUTH_STREAM_LABELS, onStreamItemStart = null } = {}
+  {
+    relayProgressUpdates = false,
+    labels = OAUTH_STREAM_LABELS,
+    onStreamItemStart = null,
+    // A message-thread request: after an early terminal frame (tool_use
+    // message_delta) the stream is read on in the background, up to this
+    // long, for the message_stop that confirms the API stored the response
+    // (`threadReceipt.pending`). The caller must not abort the response body
+    // before that settles.
+    awaitMessageStopMs = 0,
+    // The send's own request/session signal: aborting it (turn abort, session
+    // close) ends that background read at once, as does
+    // `threadReceipt.cancel()`.
+    releaseSignal = null,
+  } = {}
 ) {
   // Anthropic/Claude parity: every received SSE byte proves transport
   // activity, including comment and named ping keepalives. Content kinds
@@ -233,6 +248,11 @@ export async function parseSSEStream(
   const onAbort = () => cancelReaderOnAbort(reader);
   let buffer = '';
   let currentEvent = '';
+  // What a message thread needs from the stream: the response id, whether
+  // message_stop arrived (and when), and every content block exactly as the
+  // API stored it, before any leak-guard rewriting.
+  const receipt = createThreadReceipt();
+  let handedOff = false;
   retainProviderSseStream(streamKey);
   try {
     // Reader ownership begins at getReader() above, so even a signal that
@@ -268,11 +288,29 @@ export async function parseSSEStream(
       const framed = frameProviderSseChunk(region, { currentEvent, streamKey });
       const framedChunk = typeof framed?.then === 'function' ? await framed : framed;
       currentEvent = framedChunk.currentEvent;
-      if (applyAnthropicSseChunk(framedChunk.events, { turn, watchdogs, state, progress, labels })) break;
+      if (applyAnthropicSseChunk(framedChunk.events, { turn, watchdogs, state, progress, labels, receipt })) break;
     }
     turn.flushLeak();
     if (state?.sawMessageStart && !state?.sawCompleted) throw turn.truncatedError();
-    return turn.result();
+    const result = turn.result();
+    // An early terminal frame (tool_use message_delta) ends the turn now; the
+    // message_stop that confirms storage is awaited on the side, never by
+    // the turn.
+    if (awaitMessageStopMs > 0 && !receipt.stoppedAt) {
+      receipt.terminalAt = Date.now();
+      receipt.pending = drainForMessageStop({
+        reader,
+        decoder,
+        rest: buffer,
+        receipt,
+        waitMs: awaitMessageStopMs,
+        labels,
+        signals: [signal, releaseSignal],
+      });
+      handedOff = true;
+    }
+    Object.defineProperty(result, 'threadReceipt', { value: receipt, enumerable: false });
+    return result;
   } finally {
     watchdogs.dispose();
     try {
@@ -283,13 +321,16 @@ export async function parseSSEStream(
     if (signal) signal.removeEventListener('abort', onAbort);
     // message_stop deliberately exits before EOF because Anthropic may keep
     // sending pings. Cancel the reader so the successful response body and
-    // underlying keep-alive connection are not stranded.
-    try {
-      await reader.cancel('Anthropic SSE complete');
-    } catch {
-      // the reader may already be closed after the stream ended
+    // underlying keep-alive connection are not stranded. A reader handed to
+    // the message_stop drain is cancelled there.
+    if (!handedOff) {
+      try {
+        await reader.cancel('Anthropic SSE complete');
+      } catch {
+        // the reader may already be closed after the stream ended
+      }
+      releaseReaderLock(reader, labels);
     }
-    releaseReaderLock(reader, labels);
   }
 }
 
@@ -324,13 +365,140 @@ function readFailureError(err, { watchdogs, signal, state, turn, abortedError })
 
 // Fold one network chunk's framed records into the turn, in order. Returns true
 // once a terminal record ends the stream; a framing error skips its record.
+// Records after the terminal one are only scanned for message_stop.
 function applyAnthropicSseChunk(events, context) {
-  for (const framedEvent of events) {
-    if (framedEvent.error) continue;
-    if (applyAnthropicSseEvent(framedEvent, context)) return true;
+  for (let i = 0; i < events.length; i++) {
+    if (events[i].error) continue;
+    if (applyAnthropicSseEvent(events[i], context)) {
+      for (const rest of events.slice(i + 1)) if (!rest.error) noteThreadReceipt(context.receipt, rest.value);
+      return true;
+    }
   }
   return false;
 }
+
+// The response as the API stores it, block by block. `opaque` marks anything
+// the recording cannot reproduce exactly (an unknown delta, an unparsable
+// tool input, a block never closed); such a response is never continued.
+function createThreadReceipt() {
+  const open = new Map();
+  const receipt = { id: '', stoppedAt: 0, terminalAt: 0, blocks: [], opaque: false, pending: null };
+  Object.defineProperty(receipt, 'open', { value: open, enumerable: false });
+  return receipt;
+}
+
+const APPEND_DELTA_FIELD = {
+  text_delta: ['text', 'text'],
+  thinking_delta: ['thinking', 'thinking'],
+  signature_delta: ['signature', 'signature'],
+};
+
+function noteThreadReceipt(receipt, event) {
+  if (!receipt || !event || typeof event !== 'object') return;
+  switch (event.type) {
+    case 'message_start':
+      if (typeof event.message?.id === 'string') receipt.id = event.message.id;
+      return;
+    case 'message_stop':
+      receipt.stoppedAt ||= Date.now();
+      if (receipt.open.size) receipt.opaque = true;
+      return;
+    case 'content_block_start': {
+      const block = event.content_block;
+      if (!block || typeof block !== 'object') receipt.opaque = true;
+      else receipt.open.set(event.index, { block: structuredClone(block), json: '' });
+      return;
+    }
+    case 'content_block_delta': {
+      const entry = receipt.open.get(event.index);
+      const delta = event.delta || {};
+      const append = APPEND_DELTA_FIELD[delta.type];
+      if (!entry) receipt.opaque = true;
+      else if (append) entry.block[append[0]] = `${entry.block[append[0]] ?? ''}${delta[append[1]] ?? ''}`;
+      else if (delta.type === 'input_json_delta') entry.json += String(delta.partial_json ?? '');
+      else if (delta.type === 'citations_delta') (entry.block.citations ||= []).push(delta.citation);
+      else receipt.opaque = true;
+      return;
+    }
+    case 'content_block_stop': {
+      const entry = receipt.open.get(event.index);
+      if (!entry) {
+        receipt.opaque = true;
+        return;
+      }
+      receipt.open.delete(event.index);
+      if (entry.json) {
+        try {
+          entry.block.input = JSON.parse(entry.json);
+        } catch {
+          receipt.opaque = true;
+        }
+      }
+      receipt.blocks[event.index] = entry.block;
+      return;
+    }
+    default:
+  }
+}
+
+const MESSAGE_STOP_FRAME = /(?:^|\n)event:\s*message_stop\b|"type"\s*:\s*"message_stop"/;
+
+// Read a handed-over stream for at most `waitMs` until its message_stop frame,
+// then cancel it. Only the storage confirmation depends on it: a late or
+// missing frame leaves the response unconfirmed. An abort of any of
+// `signals`, or `receipt.cancel()`, ends it at once. Never rejects.
+async function drainForMessageStop({ reader, decoder, rest, receipt, waitMs, labels, signals = [] }) {
+  const deadline = Date.now() + waitMs;
+  let tail = rest || '';
+  let timer = null;
+  let cancelled = false;
+  let wake = null;
+  const cancel = () => {
+    cancelled = true;
+    wake?.(null);
+  };
+  Object.defineProperty(receipt, 'cancel', { value: cancel, enumerable: false, configurable: true });
+  const watched = signals.filter(Boolean);
+  for (const s of watched) {
+    if (s.aborted) cancelled = true;
+    else s.addEventListener('abort', cancel, { once: true });
+  }
+  try {
+    while (!receipt.stoppedAt && !cancelled) {
+      if (MESSAGE_STOP_FRAME.test(tail)) {
+        receipt.stoppedAt = Date.now();
+        break;
+      }
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) break;
+      const read = reader.read();
+      read.catch(() => {});
+      const chunk = await Promise.race([
+        read,
+        new Promise((resolve) => {
+          wake = resolve;
+          timer = setTimeout(() => resolve(null), remaining);
+        }),
+      ]);
+      clearTimeout(timer);
+      wake = null;
+      if (!chunk || chunk.done || cancelled) break;
+      tail = `${tail}${decoder.decode(chunk.value, { stream: true })}`.slice(-4096);
+    }
+  } catch {
+    // the turn already completed; only the storage confirmation is lost
+  } finally {
+    clearTimeout(timer);
+    for (const s of watched) s.removeEventListener('abort', cancel);
+    try {
+      await reader.cancel('Anthropic SSE complete');
+    } catch {
+      // the reader may already be closed
+    }
+    releaseReaderLock(reader, labels);
+  }
+}
+
 
 function releaseReaderLock(reader, labels) {
   try {

@@ -28,6 +28,11 @@ import {
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
+import {
+  THREAD_MESSAGE_STOP_WAIT_MS,
+  planAnthropicThread,
+  threadAccountKey,
+} from './anthropic-message-threads.mjs';
 
 import {
   loadAnthropic,
@@ -39,6 +44,13 @@ import { ANTHROPIC_VERSION, MODELS } from './lib/anthropic-models.mjs';
 import { streamCallbacks } from './lib/send-callbacks.mjs';
 import { preparePdfTextForProvider } from './media-normalization.mjs';
 export { _test, _toAnthropicMessagesForTest } from './anthropic-messages.mjs';
+
+// The beta names a request actually sends: its anthropic-beta header (which a
+// caller's requestHeaders may have replaced), else the selected names.
+function sentBetas(requestHeaders, betas) {
+  const header = requestHeaders?.['anthropic-beta'];
+  return typeof header === 'string' ? header.split(',').filter(Boolean) : betas || [];
+}
 
 // One stream attempt's controller, aborted with the caller's reason when the
 // send's signal aborts. An already-aborted send fails before the attempt.
@@ -219,7 +231,7 @@ export class AnthropicProvider {
     // Wire request (system/cache layout, tools, effort, fast mode, images)
     // and the per-request beta headers derived from that final body —
     // anthropic-api-request.mjs. Fast mode latches on the provider instance.
-    const { params, requestHeaders, knownToolNames, fastModeLatched } = await buildAnthropicApiRequest({
+    const built = await buildAnthropicApiRequest({
       name: this.name,
       config: this.config,
       messages,
@@ -232,7 +244,25 @@ export class AnthropicProvider {
       capabilityModel: this._capabilityModel(useModel),
       customConfig: this.customConfig ?? null,
     });
+    const { knownToolNames, fastModeLatched } = built;
     this.fastModeBetaHeaderLatched = fastModeLatched;
+    // Message thread (anthropic-message-threads.mjs): the same request as a
+    // create, a delta continue, or unchanged. The thread belongs to this key.
+    this._currentClient();
+    const thread = planAnthropicThread({
+      provider: this.name,
+      config: this.config,
+      opts,
+      body: built.params,
+      betas: sentBetas(built.requestHeaders, built.betas),
+      account: threadAccountKey(this.name, this.config?.baseURL || '', this.apiKey),
+      requestMessages: messages,
+    });
+    const params = thread.body;
+    const requestHeaders =
+      thread.mode === 'none'
+        ? built.requestHeaders
+        : { ...(built.requestHeaders || {}), 'anthropic-beta': thread.betas.join(',') };
 
     const { onStageChange, onStreamDelta, onToolCall, onTextDelta, onTextReset, onStreamItemStart } =
       streamCallbacks(opts);
@@ -260,6 +290,8 @@ export class AnthropicProvider {
     let streamingFallbackTried = false;
     try {
       for (let attemptIndex = 0; attemptIndex <= ANTHROPIC_MAX_MIDSTREAM_RETRIES; attemptIndex++) {
+        // A dropped continue is resent once as-is; after that it replays.
+        if (attemptIndex >= 2) thread.toCreate();
         const { streamController, cancelHandler } = linkAttemptAbort(totalSignal);
 
         const midState = createAnthropicMidState(attemptIndex);
@@ -297,13 +329,23 @@ export class AnthropicProvider {
               relayProgressUpdates: params.thinking?.display === 'updates',
               labels: { display: 'Anthropic', tag: this.name },
               onStreamItemStart,
+              awaitMessageStopMs: thread.mode === 'none' ? 0 : THREAD_MESSAGE_STOP_WAIT_MS,
+              releaseSignal: externalSignal,
             }
           );
-          try {
-            streamController.abort?.('Anthropic SSE complete');
-          } catch {
-            // the stream is complete; the controller may already be aborted
-          }
+          thread.commit(parseResult);
+          const finishStream = () => {
+            try {
+              streamController.abort?.('Anthropic SSE complete');
+            } catch {
+              // the stream is complete; the controller may already be aborted
+            }
+          };
+          // A thread's message_stop may still be read in the background: the
+          // body stays open until that read settles.
+          const receiptTail = parseResult.threadReceipt?.pending;
+          if (receiptTail) void receiptTail.then(finishStream);
+          else finishStream();
 
           firstByte.cleanup();
           assertAnthropicStreamNotEmpty(midState, parseResult, 'Anthropic');
@@ -312,6 +354,16 @@ export class AnthropicProvider {
         } catch (err) {
           // The fallback trigger is handled around the whole send below.
           if (err instanceof AnthropicFallbackTriggeredError) throw err;
+          // A refused thread request (nothing ran): replay as a create or
+          // send unthreaded, per the thread error.
+          const threadDirective =
+            err?.initialResponseError === true
+              ? thread.classify(err.status, err.responseBody ?? err.error ?? err.message)
+              : null;
+          if (threadDirective) {
+            thread.settle();
+            return await this._sendOnce(messages, model, tools, { ...opts, _anthropicThread: threadDirective });
+          }
           // Gateways that 404 the streaming endpoint but serve non-streaming:
           // one non-streaming replay (nothing was streamed yet).
           if (err?.initialResponseError === true && Number(err.status) === 404 && !streamingFallbackTried) {
@@ -337,9 +389,11 @@ export class AnthropicProvider {
       }
       throw midstream.exhaustedError();
     } catch (err) {
+      thread.settle();
       const fallbackOpts = takeAnthropicModelFallback(err, { tag: this.name, model: useModel, opts, onStageChange });
       return await this._doSend(messages, err.fallbackModel, tools, fallbackOpts);
     } finally {
+      thread.settle();
       totalTimeout.cleanup();
     }
   }
