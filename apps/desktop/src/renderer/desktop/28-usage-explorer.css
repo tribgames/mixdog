@@ -919,13 +919,14 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
 /* Session has no width: it takes whatever the fixed columns leave, so
    dropping a column later (e.g. speed) hands its space to Session. */
 .request-log-table {
-  min-width: 760px;
+  min-width: 840px;
 }
 .request-log-table .request-log-col-time {
   width: 120px;
 }
+/* Wide enough for a full model name ("Claude Sonnet 4.5"). */
 .request-log-table .request-log-col-model {
-  width: 136px;
+  width: 200px;
 }
 .request-log-table .request-log-col-tokens {
   width: 72px;
