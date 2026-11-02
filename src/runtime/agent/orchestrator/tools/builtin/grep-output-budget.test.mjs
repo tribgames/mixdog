@@ -82,6 +82,54 @@ test('grep paging is one concise line and chunk merging retains partial-result d
   assert.deepEqual(extractGrepChunkResultLines(complete), { lines: base.windowed, truncated: false });
 });
 
+for (const workDir of ['/work/2026-11-01', 'C:\\work\\2026-11-01']) {
+  test(`count output retains relative numeric-hyphen paths and paging (${workDir})`, () => {
+    const separator = workDir.includes('\\') ? '\\' : '/';
+    const base = {
+      windowed: [`${workDir}${separator}config-12-a.txt:2`, `${workDir}${separator}nested${separator}f-000.txt:1`],
+      totalWindowed: 2,
+      totalKnown: true,
+      headLimit: Infinity,
+      offset: 0,
+      outputMode: 'count',
+      workDir,
+    };
+    assert.equal(formatGrepOutput(base), 'config-12-a.txt:2\nnested/f-000.txt:1\n[total 3 matches across 2 files]');
+    const normalizedRoot = process.platform === 'win32' ? workDir.replaceAll('\\', '/') : workDir;
+    const normalizedSeparator = process.platform === 'win32' ? '/' : separator;
+    assert.equal(
+      formatGrepOutput({ ...base, workDir: '' }),
+      `${normalizedRoot}${normalizedSeparator}config-12-a.txt:2\n` +
+        `${normalizedRoot}${normalizedSeparator}nested${normalizedSeparator}f-000.txt:1\n` +
+        '[total 3 matches across 2 files]'
+    );
+    assert.equal(
+      formatGrepOutput({ ...base, headLimit: 1, offset: 4 }),
+      'config-12-a.txt:2\n[1 of 6 shown; offset:5 for the rest]\n[total 2 matches across 1 file]'
+    );
+    assert.equal(
+      formatGrepOutput({ ...base, windowed: ['2'], totalWindowed: 1, filenameOmitted: true }),
+      '2\n[total 2 matches across 1 file]'
+    );
+  });
+}
+
+test('count output normalizes a UNC path without accessing a share', () => {
+  const line = '\\\\server\\share\\2026-11-01\\config-12-a.txt:2';
+  assert.equal(
+    formatGrepOutput({
+      windowed: [line],
+      totalWindowed: 1,
+      totalKnown: true,
+      headLimit: Infinity,
+      offset: 0,
+      outputMode: 'count',
+      workDir: '',
+    }),
+    `${process.platform === 'win32' ? line.replaceAll('\\', '/') : line}\n[total 2 matches across 1 file]`
+  );
+});
+
 test('context paging retains head-tail offsets and distinguishes partial streams from EOF', () => {
   const base = {
     allLines: ['a.mjs:1:one', '--', 'a.mjs:5:five', '--', 'a.mjs:9:nine'],
