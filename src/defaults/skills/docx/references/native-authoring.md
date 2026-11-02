@@ -4,6 +4,29 @@ The model owns the editing design. The tool implements it and reports structural
 and rendering evidence; it must not choose a visual style merely because the
 file is a Word document.
 
+## Native route essentials
+
+- **Define the styles first**: `define_styles` sets `Title`, `Heading 1`, `Heading 2`, `Normal`, and `Caption` once (face, size, weight, colour, spacing, keeps), and every `append_text style:'Heading 1'` takes them with no properties of its own — a paragraph the reader adds in Word under that style then matches, which per-paragraph properties never give. `properties` stay for the one-off (a cover eyebrow, a callout's field). Batch all known operations.
+- `lineSpacing` is a minimum in points, not a multiplier. Native `properties.nameEastAsia` chooses the recipient's Korean font independently of the Latin `name`; set both when required for predictable rendering.
+- A carrier the content needs (cover group, callout, quote, stat strip, caption, table anatomy, the Korean type ladder) is drawn from "Document anatomy" below, so it reads the same on every page of this document and on both backends.
+- A table's figure columns are right-aligned through `properties.columnAlignments:['left','right',…]` (`alignment` places the whole table, so a list there is refused); the header row is bold and ruled and body rows take hairlines on both backends unless `style`, `borders`, or `shading` says otherwise (`headerBold:false` opts out) — that is the native default, not the concept's table: open, zebra, ruled-grid, or no-header tables are set through `borders`/`shading` (or CSS on the HTML route). A total row is `properties.totalRow:true` (bold over a rule); a row of its own type is `properties.rowStyles` (a stat strip's 22 pt figures over 9 pt labels in one table). → runtime `total_row_unmarked`, `table_label_oversized`
+- `add_note find:<phrase> text:<source>` puts a number's source at the foot of the page where the reader meets it (`kind:'endnote'` sends it to the end instead); the result says whether the mark landed on the phrase or its paragraph, and the snapshot counts only real notes.
+- Hidden text: `properties:{ hidden: true }` on `append_text` or `set_font` makes a working note travel with the document without printing, and the audit does not measure ink no reader sees.
+
+The runtime absorbs what it can (edge spaces are preserved, list numbering is defined, package validity is checked at finalize). What it cannot, the author must avoid:
+
+| Boundary | Failure → runtime code |
+|---|---|
+| A list marker comes from `listKind:'bullet'|'number'` (append_text properties) or `set_list`, never a typed `•` or `- ` | a double or fake bullet → `literal_bullet` |
+| One paragraph per `append_text`; never `\n` inside `text` | the newline renders as a space → `newline_in_text` |
+| A TOC (`insert_toc`) lists paragraphs styled `Heading 1..3`; a bold Normal paragraph is not a heading. Insert it after the headings exist (`paragraph:<n>` places it under the title): the field caches the outline it finds, and a TOC inserted into an empty document renders as its update prompt until Word rebuilds it | an empty TOC → `heading_hierarchy_missing` |
+| Page numbers are fields (`add_page_numbers`, `separator:' / '` for "3 / 12"), never typed digits; a cover without the running line takes `set_header_footer variant:'first' text:''` | wrong numbers after any edit; a header above the cover's eyebrow |
+| Deleted text lives in `<w:delText>` inside `<w:del>`, inserted text in `<w:t>` inside `<w:ins>` (hand-built XML only; the operations do this) | Word refuses the file → `text_in_deletion`, `deleted_text_in_insertion` |
+| A text element with an edge space carries `xml:space="preserve"` | "HelloWorld" → `whitespace_not_preserved` |
+| Comment range markers come in pairs and match a comment | → `comment_marker_mismatch` |
+| A picture carries about 150 pixels per inch at the size it is placed | an enlarged thumbnail prints soft → `image_low_resolution` |
+| A table that crosses a page repeats its header row (`add_table` `properties.repeatHeader`, on by default) | unlabelled columns after the break → `table_header_not_repeated` |
+
 ## Control map
 
 - Document face: `set_document_font properties:{ name, nameEastAsia, size, color }`
@@ -23,7 +46,7 @@ file is a Word document.
   `columns:1` returns the section to a single column.
   Without `section` the edit lands on the section being written into (the last);
   `section:<n>` revisits an earlier one.
-- Notes: `add_note` (`SKILL.md` §4) also takes `paragraph:<n>` instead of
+- Notes: `add_note` ("Native route essentials") also takes `paragraph:<n>` instead of
   `find`; its mark is a superscript reference.
 - Sections: `insert_break kind:'section_next'` closes the current section and
   starts the next one on a new page (`'section_continuous'` on the same page),
@@ -74,7 +97,7 @@ file is a Word document.
   continuation page; `repeatHeader:false` says the row is data, and
   `headerRows:<n>` makes a header of several rows (see "Table anatomy").
   `alignment` places the whole table on the page (`left`, `center`, `right`);
-  column alignment and the default anatomy are in `SKILL.md` §4 and "Table
+  column alignment and the default anatomy are in "Native route essentials" and "Table
   anatomy" below. Bullets, Korean word wrapping, and that anatomy read the same
   in Word and in the portable file.
 - Footer: `add_page_numbers` supplies fields. `prefix:''`, `separator:' / '`
@@ -122,7 +145,7 @@ option: a boxed note, a tinted band, or no callout, and open or zebra tables, ar
   paragraph with `border:{ side:'bottom', size:8, color:<accent> }, spacingAfter:24`. The summary follows on
   the same page; `insert_break kind:'page'` only when the document is long enough to earn a cover page.
 - **Table of contents**: `insert_toc paragraph:<after the cover>` once every `Heading 1..3` exists
-  (`SKILL.md` §4 boundary); `paragraph` is the one the contents follow (the "목차" label's number). A portable
+  (the TOC boundary above); `paragraph` is the one the contents follow (the "목차" label's number). A portable
   render writes each entry's page behind a dot leader, so render before reading the contents page; a document
   under six headings does not need one. Its own title ("목차") is a
   bold paragraph with the section-header look (`size:15, bold:true, keepWithNext:true`), never a `Heading`

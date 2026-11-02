@@ -9,7 +9,7 @@ Rule strength as in `direction.md`.
 
 ## 2. Document contract
 **Hard rule — the canvas**: one HTML document; every page is one `<section class="slide">` exactly 1920 × 1080 px, laid out with absolute positions or flex/grid inside it. The runtime shows one slide at a time whatever the CSS does with the others, and refuses a slide of another size with the size it measured. 1 px = 0.5 pt on the 13.333 × 7.5 in page. → runtime `html_failed`
-**Hard rule — the brief is an HTML comment**: `<!-- BRIEF` … `-->` before the first slide, one `key: value` per line with the keys of SKILL.md §3 (`subject/audience/action`, `directions`, `style`, `facts`, `sources`, `slide plan`, plus `images` and `image style` below); a continuation line is indented. The plan gate and the facts gate read it exactly as they read a script's `//` lines. → runtime `plan_gate`, `facts_gate`
+**Hard rule — the brief is an HTML comment**: `<!-- BRIEF` … `-->` before the first slide, one `key: value` per line with the keys of `brief-critique.md` §1 (`subject/audience/action`, `directions`, `style`, `facts`, `sources`, `slide plan`, plus `images` and `image style` below); a continuation line is indented. The plan gate and the facts gate read it exactly as they read a script's `//` lines. → runtime `plan_gate`, `facts_gate`
 **Hard rule — pictures are local**: `<img src>` is a file beside the deck (the path resolves from the deck's folder) or a `data:` URI; a web URL is refused.
 Speaker notes: `<aside class="notes">…</aside>` inside the slide.
 Artifacts beside the deck: `<deck>.pptx.mixdog-source.html` (the source as laid out), `.mixdog-html-page-N.png` (the browser's pages), and after `render` `.mixdog-compare-page-N.png` (HTML left, PPTX right) in `render.compare`.
