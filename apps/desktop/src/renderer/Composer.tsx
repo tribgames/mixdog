@@ -1010,6 +1010,7 @@ export const Composer = memo(function Composer(props: ComposerProps) {
       <form
         ref={paletteAnchor}
         className="composer"
+        data-composer-session-id={sessionId || undefined}
         data-chat-mode={agentMode ? 'agent' : undefined}
         data-card={card ? '' : undefined}
         onSubmit={onSubmit}
