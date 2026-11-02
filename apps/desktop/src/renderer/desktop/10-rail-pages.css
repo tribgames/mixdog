@@ -1157,7 +1157,8 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   border-top: var(--mx-hairline) solid var(--mx-border-muted);
 }
 /* The header search filters in place: the rail's search field look. */
-.utility-dock .agent-pane-search {
+.utility-dock .agent-pane-search,
+.studio-panel .agent-pane-search {
   box-sizing: border-box;
   width: 100%;
   height: var(--mx-control-xs);
@@ -2066,6 +2067,29 @@ html .session-sidebar .session-list .agent-strip-item > .session-row-unread-dot 
 .session-agent-avatar > .agent-contact-badge > svg {
   width: 7px;
   height: 7px;
+}
+/* Studio panel rows: the Sessions row with a 20px rounded work thumbnail in the
+   avatar slot (the gallery's thumbnail, scaled down to it). */
+.studio-panel-thumb {
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--mx-hover);
+}
+.studio-panel-thumb .studio-thumbnail-image {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.studio-panel-thumb .studio-thumbnail-loading {
+  display: none;
+}
+.studio-panel-thumb .studio-tile-glyph svg {
+  width: 12px;
+  height: 12px;
+}
+.studio-panel-end {
+  height: 1px;
 }
 .session-sidebar .recent-session-list .sidebar-section-empty {
   padding-left: 8px;

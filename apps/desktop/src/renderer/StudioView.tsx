@@ -1,4 +1,4 @@
-import { type UIEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { type UIEvent, useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { t } from './i18n';
 import { useForegroundMedia } from './media-lifecycle';
 import { ErrorNotice } from './ErrorNotice';
@@ -17,6 +17,16 @@ import {
   type StudioMediaJob,
   type StudioReference,
 } from './studio-media-state';
+import {
+  focusStudioPane,
+  hideStudioPane,
+  onStudioAssetRemoved,
+  publishStudioPaneState,
+  showStudioPane,
+  takeStudioOpenRequest,
+  useStudioOpenRequest,
+  useStudioPaneOwner,
+} from './studio-panel-bridge';
 import { shouldFocusSurfaceInput } from './surface-input-focus';
 import { EAGER_THUMB_COUNT, TILE_SIZES, studioRouteRows } from './studio-pane-support';
 import { useStudioLaneCatalog, useStudioLaneChoice, useStudioLoad } from './studio-pane-catalog';
@@ -42,6 +52,8 @@ import { useStudioSelection } from './studio-pane-selection';
 export function StudioPane({
   api = window.mixdogDesktop,
   active = true,
+  tabKey,
+  focused = true,
   sidebarOpen = false,
   onToggleSidebar,
   onReady,
@@ -50,6 +62,10 @@ export function StudioPane({
 }: {
   api?: StudioApi;
   active?: boolean;
+  /** This pane's tab key: where the rail panel aims a work to open. */
+  tabKey?: string;
+  /** The pane's leaf is the focused one. */
+  focused?: boolean;
   sidebarOpen?: boolean;
   onToggleSidebar?: () => void;
   onReady?: () => void;
@@ -231,6 +247,43 @@ export function StudioPane({
     setSelected,
     startQueuedRequest,
   });
+
+  // The rail's Studio panel mirrors the shown pane the user focused last (its
+  // runs and open work), opens a work in the one pane it was aimed at, and
+  // drops works from all (studio-panel-bridge).
+  const instanceKey = useId();
+  const paneKey = tabKey ?? instanceKey;
+  const focusedRef = useRef(focused);
+  focusedRef.current = focused;
+  useEffect(() => {
+    if (!active) return undefined;
+    showStudioPane(paneKey, focusedRef.current);
+    return () => hideStudioPane(paneKey);
+  }, [active, paneKey]);
+  useEffect(() => {
+    if (active && focused) focusStudioPane(paneKey);
+  }, [active, focused, paneKey]);
+  const owner = useStudioPaneOwner(paneKey);
+  useEffect(() => {
+    if (owner) publishStudioPaneState(paneKey, jobs, selected?.id || '');
+  }, [owner, paneKey, jobs, selected?.id]);
+  const openRequest = useStudioOpenRequest(paneKey);
+  useEffect(() => {
+    if (!active || !openRequest) return;
+    const asset = takeStudioOpenRequest(paneKey);
+    if (!asset) return;
+    setKind(asset.kind);
+    openDetail(asset);
+  }, [active, openRequest, paneKey, setKind, openDetail]);
+  useEffect(
+    () =>
+      onStudioAssetRemoved((asset) => {
+        removeAsset(asset);
+        if (selected?.id === asset.id) setSelected(null);
+        setJobs((current) => current.filter((entry) => entry.assetId !== asset.id));
+      }),
+    [removeAsset, selected?.id, setSelected, setJobs]
+  );
 
   useStudioReadyReport({
     active,

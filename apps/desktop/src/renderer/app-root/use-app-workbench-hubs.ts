@@ -119,6 +119,7 @@ export function useAppWorkbenchHubs(
   const {
     sidebarNewTask,
     sidebarNewStudio,
+    sidebarOpenStudioAsset,
     sidebarResumeSession,
     renderSidebarPanel,
     openProjectSettings,
@@ -143,6 +144,7 @@ export function useAppWorkbenchHubs(
     workbenchCommands,
     sidebarNewTask,
     sidebarNewStudio,
+    sidebarOpenStudioAsset,
     sidebarResumeSession,
     renderSidebarPanel,
     openProjectSettings,
@@ -185,7 +187,7 @@ function useSidebarHubWiring(
   const { closeSidebarForNavigation, onboardingOpen, setOnboardingOpen } = nav;
   const { taskLifecycle, runningAutomationNames, updateDialogOpen, updaterState, closeDesktopUpdate } = lifecycle;
   const { openSession, renameProject, removeProject } = commands;
-  const { openStudioTab, pendingUnsavedClose, cancelPendingTabClose } = tabWorkflow;
+  const { openStudioTab, focusStudioTab, pendingUnsavedClose, cancelPendingTabClose } = tabWorkflow;
 
   return useAppSidebarHub({
     ...shellPanels,
@@ -200,6 +202,7 @@ function useSidebarHubWiring(
     closeSidebarForNavigation,
     startTask: taskLifecycle.startTask,
     openStudioTab,
+    focusStudioTab,
     openSession,
     renameProject,
     removeProject,

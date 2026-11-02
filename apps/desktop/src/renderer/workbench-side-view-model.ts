@@ -4,9 +4,7 @@ import type { UtilityDockTab } from './UtilityDock';
 
 export type WorkbenchSide = 'left' | 'right';
 /** Browser Use and Terminal are session-owned pane-dock child views. Their
- *  header icons select persistent surfaces stacked over the classic panel.
- *  Studio is an action entry on the rail: it never shows a panel, selecting it
- *  opens a Studio workspace tab (descriptor `onActivate`). */
+ *  header icons select persistent surfaces stacked over the classic panel. */
 export type WorkbenchSideViewId =
   | 'sessions'
   | 'studio'
@@ -266,8 +264,7 @@ export function initialActiveWorkbenchSideViews(
   layout: WorkbenchSideViewLayout,
   pins: readonly string[]
 ): Record<WorkbenchSide, WorkbenchSideViewId | null> {
-  // Studio is an action entry, never a panel to land on.
-  const left = layout.left.flat().filter((id) => id !== 'studio');
+  const left = layout.left.flat();
   return {
     left: pinnedRailViews(pins, left)[0] ?? left[0] ?? null,
     right: layout.right[0]?.[0] ?? null,
