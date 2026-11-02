@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { PS_SESSION } from './ps-session.ts';
 import { PS_RUNTIME } from './ps-runtime.ts';
+import { loadComputerSource } from './native-assets.ts';
 
 // Only a hung fixture may end here. The former 10s budget SIGTERM-killed a
 // healthy fixture on a hosted windows-latest runner (release-gate run
@@ -113,8 +114,10 @@ test('native capture replies preserve cleanup evidence and retire only unconfirm
   timeout: 200_000,
 }, async () => {
   const loop = PS_RUNTIME.slice(PS_RUNTIME.indexOf('[Console]::OutputEncoding'));
+  // The loop reads its stdin through MixWorkerInput (MixForegroundLock.cs).
   const script = `
 Add-Type @'
+${loadComputerSource('MixForegroundLock.cs')}
 public static class MixWin32 { public static int PointerEventsGenerated, PointerEventsFailed; public static object PointerProgress; public static bool ActivationUnprotected; }
 public static class MixNativeInput { public static void InitializeOwnership(int value) {} }
 public static class MixInputObservation { public static int Marker = 1; }

@@ -107,9 +107,13 @@ jobs:
           - { runner: ubuntu-24.04-arm, arch: arm64, suite: desktop, shard: 1, shards: 2 }
           - { runner: ubuntu-24.04-arm, arch: arm64, suite: desktop, shard: 2, shards: 2 }
     steps:
+      # The root lane needs full history: the usage ledger's compatibility
+      # tests load older builds' sources from pinned commits with `git show`.
       - uses: actions/checkout@v5
         with:
           ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: ${{ matrix.suite == 'root' && '0' || '1' }}
+          filter: ${{ matrix.suite == 'root' && 'blob:none' || '' }}
       - uses: ./.github/actions/assert-sha
         with:
           expected: ${{ inputs.ref || github.sha }}

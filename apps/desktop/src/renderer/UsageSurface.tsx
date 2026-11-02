@@ -4,6 +4,7 @@
  * usage) and what each request did (request log). They are the dialog's own
  * tabs, in its header, above every control a body carries.
  */
+import { useLayoutEffect, useRef } from 'react';
 import { t } from './i18n';
 import { QuotaUsageBody } from './QuotaUsageBody';
 import type { QuotaApi } from './quota-usage-cache';
@@ -23,8 +24,16 @@ export function UsageModeTabs({
   /** The host serves the request log (usageRequestsSupported). */
   requests?: boolean;
 }) {
+  // A row too narrow for every tab scrolls (a phone): the chosen one, restored
+  // on opening or just picked, is brought into view.
+  const list = useRef<HTMLDivElement>(null);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: a new choice moves the active tab
+  useLayoutEffect(() => {
+    list.current?.querySelector('.is-active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  }, [mode]);
   return (
     <Tabs
+      listRef={list}
       className="command-surface-tabs"
       tabClassName="command-surface-tab"
       value={mode}

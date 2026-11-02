@@ -197,7 +197,13 @@ jobs:
       matrix:
         shard: [1, 2, 3]
     steps:
+      # Full history: the usage ledger's compatibility tests load older
+      # builds' sources from pinned commits with `git show`. blob:none keeps
+      # the download to commits and trees; `git show` fetches the few blobs.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          filter: blob:none
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
@@ -314,7 +320,11 @@ jobs:
       matrix:
         shard: [1, 2, 3]
     steps:
+      # Full history, as in the Linux runtime job.
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+          filter: blob:none
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6
         with:
           node-version: "22"
