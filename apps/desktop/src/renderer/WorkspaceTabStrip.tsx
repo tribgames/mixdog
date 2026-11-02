@@ -110,6 +110,13 @@ function TabStatusMark({
   return tabGlyph(tab);
 }
 
+/** A session tab's glyph, also on the side panel's sub-agent chip: a bot
+ *  chat carries the bot's face, every other chat the bubble. */
+export function sessionTabGlyph(sessionId: string, size = 14) {
+  if (isAgentChatSession(sessionId)) return <AgentChatTabFace sessionId={sessionId} />;
+  return <MessageCircle size={size} />;
+}
+
 function tabGlyph(tab: WorkspaceTab, size = 14) {
   switch (tab.selection.kind) {
     case 'project':
@@ -125,9 +132,7 @@ function tabGlyph(tab: WorkspaceTab, size = 14) {
     case 'browser':
       return <Globe size={15} />;
     case 'session':
-      // A bot chat's tab carries the bot's face.
-      if (isAgentChatSession(tab.selection.id)) return <AgentChatTabFace sessionId={tab.selection.id} />;
-      return <MessageCircle size={size} />;
+      return sessionTabGlyph(tab.selection.id, size);
     default:
       // Chat/new-task tabs keep the bubble icon (user: 탭 앞 아이콘은 롤백).
       return <MessageCircle size={size} />;

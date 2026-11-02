@@ -43,6 +43,7 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
     sessionPanelViews,
     panelViewFronts,
     sessionSideSurfaces,
+    agentSessionPanels,
     setSessionDiff,
     setSessionPanelView,
     setSessionSideSurface,
@@ -191,7 +192,7 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
       setSessionSideSurface(sessionId, null);
     }
     if (sessionId && sessionPanelViews.get(sessionId)) {
-      setSessionPanelView(sessionId, null);
+      setSessionPanelView(sessionId, null, { fold: true });
     }
     // Over another session's file tabs or diff this folds only the front
     // parked for the other tabs (pane-side-dock `parked`).
@@ -232,9 +233,12 @@ export function useAppSideDocks({ paneWorkspace, sessionSurfaces, applySidebarOp
       // home thread, the room panel from a room): this tab has no such view,
       // so it neither stores it nor shows the panel's first view in its
       // place; the dock opens on this tab's own first view.
-      // The agent session view comes back only from an Agents row: a toggle
-      // has no sub-agent to show in it.
-      const remembered = rawEntry.view === 'agent-session' ? null : sessionPanelViewIn(groups, rawEntry.view);
+      // The agent session view comes back with the sub-agent the fold kept;
+      // without one a toggle has nothing to show in it.
+      const remembered =
+        rawEntry.view === 'agent-session' && !agentSessionPanels.has(sessionId)
+          ? null
+          : sessionPanelViewIn(groups, rawEntry.view);
       if (!remembered) {
         const first = groups
           .map((group) => group[0])
