@@ -5,6 +5,8 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+## v1.4.4 - 2026-11-02
+
 Se añadió la pestaña Registro de solicitudes en Uso, paneles laterales en vivo para subagentes, historial de navegación entre sesiones y opciones avanzadas para proveedores personalizados.
 
 ### Nuevas funciones

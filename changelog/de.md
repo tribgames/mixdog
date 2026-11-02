@@ -4,6 +4,8 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+## v1.4.4 - 2026-11-02
+
 Registerkarte „Anfrageprotokoll“ unter Nutzung, Live-Seitenbereiche für Subagenten, Sitzungsverlauf-Navigation und erweiterte Optionen für benutzerdefinierte Provider hinzugefügt.
 
 ### Neue Funktionen
