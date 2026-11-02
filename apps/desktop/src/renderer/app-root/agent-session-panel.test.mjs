@@ -165,6 +165,69 @@ test('the panel view and its session are kept per chat', async (t) => {
   assert.equal(shell.surfaces.agentSessionPanels.has('a'), false);
 });
 
+test('an ended sub-agent keeps its final transcript across a host chat switch, until its panel target goes', async (t) => {
+  const { dom } = installTestDom(null, { jsdom: { url: 'https://mixdog.test/' } });
+  window.mixdogDesktop = {};
+  const { defaultSessionLaneStore: store } = await import('../session-lane-store.ts');
+  const { useSessionPaneSurfaces } = await import('../use-session-pane-surfaces.ts');
+  const { AgentSessionPanel } = await import('../AgentSessionPanel.tsx');
+  store.setShownSessionIds(['sub-a', 'sub-b']);
+  const frame = (sessionId, itemId) => ({
+    sessionId,
+    snapshot: { sessionId, items: [{ id: itemId }] },
+    frameSource: 'live',
+  });
+  store.apply(frame('sub-a', 'a-final'));
+  store.apply(frame('sub-b', 'b-live'));
+  const shell = { host: 'chat-1', surfaces: null, held: undefined };
+  // The dock's mount, as use-app-workbench-views: one panel keyed by its
+  // sub-agent, so a host switch to another sub-agent remounts it.
+  function Harness() {
+    shell.surfaces = useSessionPaneSurfaces(['chat-1', 'chat-2']);
+    const target = shell.surfaces.agentSessionPanels.get(shell.host);
+    if (!target) return null;
+    return React.createElement(AgentSessionPanel, {
+      key: target.sessionId,
+      target,
+      active: true,
+      heldLanes: shell.surfaces.heldAgentLanes,
+      renderConversation: (_id, _title, held) => {
+        shell.held = held;
+        return null;
+      },
+      onOpenAsTab() {},
+      onClose() {},
+    });
+  }
+  const root = createRoot(dom.window.document.getElementById('root'));
+  const render = () => act(async () => root.render(React.createElement(Harness)));
+  await render();
+  t.after(async () => {
+    await act(async () => root.unmount());
+    store.setShownSessionIds([]);
+  });
+  await act(async () => shell.surfaces.showAgentSessionPanel('chat-1', { sessionId: 'sub-a', title: 'A' }));
+  await act(async () => shell.surfaces.showAgentSessionPanel('chat-2', { sessionId: 'sub-b', title: 'B' }));
+  await act(async () => shell.surfaces.showAgentSessionPanel('chat-1', { sessionId: 'sub-a', title: 'A' }));
+  assert.equal(shell.held, null, 'live: nothing held');
+
+  await act(async () => store.apply({ sessionId: 'sub-a', snapshot: null, frameSource: 'live', laneEnd: 'gone' }));
+  assert.deepEqual(shell.held?.items, [{ id: 'a-final' }], 'ended panel shows the final transcript');
+
+  shell.host = 'chat-2';
+  await render();
+  assert.equal(shell.held, null, 'chat 2 shows live B');
+  shell.host = 'chat-1';
+  await render();
+  assert.deepEqual(shell.held?.items, [{ id: 'a-final' }], 'back on chat 1, A’s final transcript remains');
+
+  // Fold keeps the target (and its snapshot); another view discards both.
+  await act(async () => shell.surfaces.setSessionPanelView('chat-1', null, { fold: true }));
+  assert.equal(shell.surfaces.heldAgentLanes.has('sub-a'), true);
+  await act(async () => shell.surfaces.setSessionPanelView('chat-1', 'visualize'));
+  assert.equal(shell.surfaces.heldAgentLanes.has('sub-a'), false, 'released with its panel target');
+});
+
 test('an ended sub-agent stays read-only from the panel’s own copy, and a fresh frame makes it live again', async (t) => {
   const { dom } = installTestDom(null, { jsdom: { url: 'https://mixdog.test/' } });
   const { createSessionLaneStore } = await import('../session-lane-store.ts');

@@ -14,34 +14,43 @@ import './agent-session-panel.css';
 type HeldLane = NonNullable<ReturnType<typeof useSessionLane>>;
 
 /** `sessionId`'s last live snapshot once its lane was torn down (the session
- *  ended for good or was deleted) while this panel showed it, else null. The
- *  copy is this panel's own: the shared store is never written, so nothing
+ *  ended for good or was deleted) while a panel showed it, else null. The
+ *  copy is the panel's own: the shared store is never written, so nothing
  *  it derives (live or approval sessions) changes. A fresh live frame ends
- *  it. */
-export function useHeldSessionLane(sessionId: string, store = defaultSessionLaneStore): HeldLane | null {
+ *  it. `retained` is the panel targets' map (heldAgentLanes), which outlives
+ *  this component remounting on a host chat switch; its owner releases an
+ *  entry with its panel target. */
+export function useHeldSessionLane(
+  sessionId: string,
+  store = defaultSessionLaneStore,
+  retained?: Map<string, HeldLane>
+): HeldLane | null {
   const lane = useSessionLane(sessionId, store);
-  const retained = useRef<{ sessionId: string; snapshot: HeldLane } | null>(null);
-  if (lane) retained.current = { sessionId, snapshot: lane };
-  const last = retained.current;
-  return !lane && sessionId && last?.sessionId === sessionId ? last.snapshot : null;
+  const own = useRef(new Map<string, HeldLane>());
+  const kept = retained ?? own.current;
+  if (lane) kept.set(sessionId, lane);
+  return !lane && sessionId ? (kept.get(sessionId) ?? null) : null;
 }
 
 export function AgentSessionPanel({
   target,
   active,
+  heldLanes,
   renderConversation,
   onOpenAsTab,
   onClose,
 }: {
   target: AgentSessionPanelTarget;
   active: boolean;
+  /** Where the sub-agent's final snapshot is kept (see useHeldSessionLane). */
+  heldLanes?: Map<string, HeldLane>;
   /** The pane conversation surface for the sub-agent; `held` (its last
    *  snapshot, shown read-only) once it can no longer take input. */
   renderConversation(sessionId: string, title: string, held: HeldLane | null): React.ReactNode;
   onOpenAsTab(): void;
   onClose(): void;
 }) {
-  const held = useHeldSessionLane(target.sessionId);
+  const held = useHeldSessionLane(target.sessionId, defaultSessionLaneStore, heldLanes);
   const title = target.title || t('Agent session');
   return (
     <section className="agent-session-panel" aria-label={title} hidden={!active || undefined}>

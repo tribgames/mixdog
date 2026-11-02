@@ -222,7 +222,7 @@ export function useWorkspaceShortcuts(actions: WorkspaceShortcutActions) {
     const onMouseNavigate = (event: globalThis.MouseEvent) => {
       if (event.button !== 3 && event.button !== 4) return;
       const target = event.target as Partial<Element> | null;
-      if (target?.closest?.(`${OWN_HISTORY_SURFACES}, .monaco-editor`) || modalDialogPresented()) return;
+      if (target?.closest?.(OWN_HISTORY_SURFACES) || modalDialogPresented()) return;
       event.preventDefault();
       window.dispatchEvent(new window.CustomEvent('mixdog:navigate-history', { detail: event.button === 3 ? -1 : 1 }));
     };

@@ -410,7 +410,7 @@ test('Ctrl+[ / ] walks history in the app and the composer but stays with the br
   assert.deepEqual(calls, [], 'the browser page keeps its own back/forward');
 });
 
-test('mouse buttons 3/4 walk back/forward except over the browser page, terminal and code editor', async (t) => {
+test('mouse buttons 3/4 walk back/forward, including over the code editor, except over the browser page and terminal', async (t) => {
   const { host, composer, surfaces, calls } = await mountHistorySurfaces(t);
   const click = async (target, button) => {
     const event = new window.MouseEvent('mouseup', { button, bubbles: true, cancelable: true });
@@ -423,7 +423,12 @@ test('mouse buttons 3/4 walk back/forward except over the browser page, terminal
   assert.equal(await click(host, 1), false);
   assert.deepEqual(calls, ['back', 'forward']);
   calls.length = 0;
-  for (const [name, target] of Object.entries(surfaces)) {
+  const { editor, ...own } = surfaces;
+  assert.equal(await click(editor, 3), true, 'editor');
+  assert.equal(await click(editor, 4), true, 'editor');
+  assert.deepEqual(calls, ['back', 'forward']);
+  calls.length = 0;
+  for (const [name, target] of Object.entries(own)) {
     assert.equal(await click(target, 3), false, name);
     assert.equal(await click(target, 4), false, name);
   }
