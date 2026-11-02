@@ -16,6 +16,13 @@ function Get-QuietSample {
     return ($rows -join "`n")
 }
 
+# Sleeps until the wait clock reads $untilMs. A separate function so a test can
+# see every deadline the wait sleeps to and make a wake late.
+function Start-QuietSleep([double]$untilMs, [System.Diagnostics.Stopwatch]$clock) {
+    $ms = $untilMs - $clock.Elapsed.TotalMilliseconds
+    if ($ms -gt 0) { [System.Threading.Thread]::Sleep([int]$ms) }
+}
+
 # The requested time is a cap. A next sample only starts when a full interval
 # plus a sample's cost still fits before it, so every compared pair is a full
 # interval apart and no sample starts past the cap. A sample cannot be
@@ -43,9 +50,13 @@ function Wait-UntilQuiet([double]$seconds, [scriptblock]$sample) {
         # A shortened interval is no evidence of stability: when a full interval
         # and the next sample no longer fit, sleep out the cap and report not quiet.
         if ($leftMs -le $script:QuietSampleIntervalMs + $costMs) { break }
-        [System.Threading.Thread]::Sleep($script:QuietSampleIntervalMs)
+        Start-QuietSleep ($clock.Elapsed.TotalMilliseconds + $script:QuietSampleIntervalMs) $clock
+        # The wake can be late (scheduler): re-check on the same clock so a
+        # late wake does not start a sample the previous sample's cost says the
+        # cap has no room for. The wake can still slip between this check and
+        # the sample's start; that gap is not closable here.
+        if ($capMs - $clock.Elapsed.TotalMilliseconds -le $costMs) { break }
     }
-    $leftMs = $capMs - $clock.Elapsed.TotalMilliseconds
-    if ($leftMs -gt 0) { [System.Threading.Thread]::Sleep([int]$leftMs) }
+    Start-QuietSleep $capMs $clock
     return @{ quiet = $false; waited_ms = [int]$clock.Elapsed.TotalMilliseconds; reason = 'still_changing' }
 }

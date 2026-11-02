@@ -69,21 +69,62 @@ $cased = Wait-UntilQuiet 1 { $script:n++; if ($script:n % 2) { 'w1|Report' } els
   assert.equal(result.cased.reason, 'still_changing');
 });
 
+// Replaces Start-QuietSleep to log each deadline the wait sleeps to (on its own
+// Stopwatch) and then wakes `$script:extraMs` after it. Samples log their start
+// on the same Stopwatch, which PowerShell's dynamic scope makes visible to them.
+const SLEEP_LOG = `
+$script:sleepUntil = @()
+$script:starts = @()
+function Start-QuietSleep([double]$untilMs, [System.Diagnostics.Stopwatch]$clock) {
+  $script:sleepUntil += $untilMs
+  $ms = $untilMs - $clock.Elapsed.TotalMilliseconds
+  if ($ms -gt 0) { [System.Threading.Thread]::Sleep([int]$ms + $script:extraMs) }
+}
+`;
+
+function assertCapContract(result, capMs) {
+  assert.ok(result.starts.every((start) => start < capMs), `a sample started at or after the ${capMs} ms cap: ${result.starts}`);
+  assert.ok(result.sleepUntil.every((until) => until <= capMs), `a sleep runs past the ${capMs} ms cap: ${result.sleepUntil}`);
+}
 test('a slow sample does not carry the wait past its cap', {
   skip: process.platform !== 'win32' && 'Windows only',
   timeout: 90_000,
 }, async () => {
   const result = await runWaits(`
+${SLEEP_LOG}
+$script:extraMs = 0
 $script:n = 0
-$slow = Wait-UntilQuiet 0.3 { $script:n++; Start-Sleep -Milliseconds 150; "state $script:n" }
-[Console]::Out.WriteLine('@@QUIET@@' + (@{ slow = $slow } | ConvertTo-Json -Depth 4 -Compress))
+$slow = Wait-UntilQuiet 0.3 { $script:starts += $clock.Elapsed.TotalMilliseconds; $script:n++; Start-Sleep -Milliseconds 150; "state $script:n" }
+[Console]::Out.WriteLine('@@QUIET@@' + (@{ slow = $slow; samples = $script:n; starts = @($script:starts); sleepUntil = @($script:sleepUntil) } | ConvertTo-Json -Depth 4 -Compress))
 `);
   // A 150 ms sample (far slower than the few ms a Win32 snapshot takes) leaves
   // no room for a second one, so the wait stops sampling and sleeps out the cap.
   assert.equal(result.slow.quiet, false);
-  assert.ok(result.slow.waited_ms <= 300 + CAP_TOLERANCE_MS, `slow sample waited ${result.slow.waited_ms} ms of 300`);
+  assert.equal(result.samples, 1);
+  // The contract is checked on what the wait itself does, not on elapsed wall
+  // time (a sample cannot be interrupted and a wake can be late, so elapsed
+  // time is scheduler luck): no sample starts at or after the cap and no sleep
+  // is scheduled to end past it.
+  assertCapContract(result, 300);
+  assert.deepEqual(result.sleepUntil, [300], 'only the sleep out to the cap is expected');
 });
 
+test('a sleep that wakes late does not start a sample past the cap', {
+  skip: process.platform !== 'win32' && 'Windows only',
+  timeout: 90_000,
+}, async () => {
+  const result = await runWaits(`
+${SLEEP_LOG}
+# The inter-sample sleep wakes 400 ms late, past the 500 ms cap.
+$script:extraMs = 400
+$script:n = 0
+$late = Wait-UntilQuiet 0.5 { $script:starts += $clock.Elapsed.TotalMilliseconds; $script:n++; "state $script:n" }
+[Console]::Out.WriteLine('@@QUIET@@' + (@{ late = $late; samples = $script:n; starts = @($script:starts); sleepUntil = @($script:sleepUntil) } | ConvertTo-Json -Depth 4 -Compress))
+`);
+  assert.equal(result.late.quiet, false);
+  assert.equal(result.samples, 1, `a sample started after the late wake: ${result.starts}`);
+  assertCapContract(result, 500);
+});
 test('quiet sampling reads window metadata only, and Do-Wait is a fixed pause unless quiet is true', {
   skip: process.platform !== 'win32' && 'Windows only',
   timeout: 90_000,
