@@ -71,6 +71,13 @@ const CHARACTER_KEYS: Record<string, { code: string; keyCode: number; shift?: bo
   ')': { code: 'Digit0', keyCode: 48, shift: true },
 };
 
+/** The character a physical key types with Shift held, from the same table. */
+const SHIFTED_BY_CODE = new Map(
+  Object.entries(CHARACTER_KEYS)
+    .filter(([, key]) => key.shift)
+    .map(([character, key]) => [key.code, character])
+);
+
 export function assertBrowserKeyDoesNotAccessClipboard(rawKey: string): void {
   const parts = String(rawKey || '')
     .trim()
@@ -138,7 +145,10 @@ function resolveKeyPress(rawKey: string): KeyPress {
   const modifierBits = normalizeModifierMask([...modifierNames]) | (character?.shift ? SHIFT_MODIFIER : 0);
   const typesText = (modifierBits & ~SHIFT_MODIFIER) === 0;
   const normalized = keyName.toLowerCase();
-  const typed = modifierNames.has('shift') ? keyName.toUpperCase() : keyName;
+  const typed =
+    modifierNames.has('shift') && !character?.shift
+      ? ((character && SHIFTED_BY_CODE.get(character.code)) ?? keyName.toUpperCase())
+      : keyName;
   let printable: KeySpec | null = null;
   if (character) {
     printable = { key: typed, code: character.code, keyCode: character.keyCode, text: typesText ? typed : undefined };

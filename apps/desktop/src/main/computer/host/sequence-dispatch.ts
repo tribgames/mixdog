@@ -1,5 +1,6 @@
 /** Native batching stops at each step so pause and target transitions stay host-owned. */
 import { electronWindowForNativeId } from '../observation/window-handles';
+import { canUseAppOwnedInput } from './input-preflight';
 import { filterComputerUseInternalWindows } from '../overlay/internal-windows';
 import { computerTimings } from '../shared/timings';
 import { normalizeComputerWindowRecords, computeComputerWindowTransition } from '../shared/window-transition';
@@ -10,7 +11,7 @@ export function canBatchSequenceInput(command: ComputerCommand, windowId?: strin
   return (
     Boolean(windowId) &&
     command.delivery !== 'foreground' &&
-    !(command.action === 'type' && !command.ref && electronWindowForNativeId(windowId))
+    !(canUseAppOwnedInput(command) && electronWindowForNativeId(windowId))
   );
 }
 
