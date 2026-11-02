@@ -266,6 +266,20 @@ test('the request log takes a bounded page, a known status, bounded model and cu
   }
 });
 
+test('the request log pages twice with the first page time pinned as asOf, and refuses a malformed asOf', () => {
+  const read = (args) => requiredDesktopCapabilityRequest({ capability: 'getUsageRequests', args });
+  const first = { view: 'hour', status: 'failed', limit: 50 };
+  const generatedAt = Date.now() - 1000;
+  assert.doesNotThrow(() => read([first]));
+  assert.doesNotThrow(() => read([{ ...first, cursor: '1789:01ab', asOf: generatedAt }]));
+  assert.doesNotThrow(() => read([{ ...first, cursor: '1788:02cd', asOf: generatedAt }]));
+  // A remote runtime's clock may run ahead of this one: the runtime checks the future.
+  assert.doesNotThrow(() => read([{ ...first, cursor: '1789:01ab', asOf: Date.now() + 60_000 }]));
+  for (const asOf of [0, -1, Number.NaN, Number.POSITIVE_INFINITY, '1789', null]) {
+    assert.throws(() => read([{ ...first, cursor: '1789:01ab', asOf }]), TypeError, String(asOf));
+  }
+});
+
 test('session usage takes only a bounded list of session ids and the agents flag', () => {
   const read = (args) => requiredDesktopCapabilityRequest({ capability: 'getSessionUsage', args, sessionId: 'lead-1' });
   for (const args of [

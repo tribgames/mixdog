@@ -78,12 +78,15 @@ function requestApi(context, count) {
       ({ lead: { title: 'Dev session' }, agent: { agent: 'reviewer', ownerSessionId: 'lead' } })[id] ?? null,
   });
   const asked = [];
+  const control = { failFirstPage: false };
   return {
     asked,
+    control,
     api: {
       invokeCapability: async ({ capability, args = [] }) => {
         if (capability !== 'getUsageRequests') return { value: { totals: {}, providers: [], period: {} } };
         asked.push(args[0]);
+        if (control.failFirstPage && !args[0].cursor) throw new Error('first page failed');
         return { value: await usage.getUsageRequests(args[0]) };
       },
     },
@@ -109,7 +112,7 @@ test('the request log tab lists requests with every column, filters them and loa
   assert.deepEqual(asked[0], { view: 'hour', limit: 50 });
   assert.deepEqual(
     [...document.querySelectorAll('.request-log-table thead th')].map((node) => node.textContent),
-    ['Time', 'Session', 'Model', 'Tokens', 'Cost', 'Time taken', 'Speed', 'Status'].map((label) => t(label))
+    ['Time', 'Session', 'Model', 'Tokens', 'Cost', 'Time taken', 'Status'].map((label) => t(label))
   );
   assert.equal(
     document.querySelector('.stats-ranges [aria-pressed="true"]').textContent,
@@ -123,11 +126,9 @@ test('the request log tab lists requests with every column, filters them and loa
   assert.equal(cells(0)[3].textContent, '1.5K');
   assert.equal(cells(0)[4].textContent, '$0.04');
   assert.equal(cells(1)[4].textContent, t('Subscription'), 'an OAuth route has no per-request bill');
-  assert.equal(cells(0)[6].textContent, '100 tok/s', 'output over the time after the first output');
-  assert.equal(cells(2)[6].textContent, '—', 'a failed request has no speed');
-  assert.equal(cells(2)[7].dataset.status, 'failed');
-  assert.equal(cells(2)[7].textContent, t('Failed'));
-  assert.equal(cells(3)[7].textContent, t('Substituted'));
+  assert.equal(cells(2)[6].dataset.status, 'failed');
+  assert.equal(cells(2)[6].textContent, t('Failed'));
+  assert.equal(cells(3)[6].textContent, t('Substituted'));
 
   await scrollToEnd();
   assert.equal(asked.length, 2);
@@ -148,6 +149,26 @@ test('the request log tab lists requests with every column, filters them and loa
   await act(async () => option('gpt-5.6-luna').click());
   assert.equal(asked.at(-1).model, 'gpt-5.6-luna');
   assert.equal(bodyRows()[0].textContent, t('No requests recorded in this period.'));
+});
+
+test('a failed first page of a new filter clears the old rows and pages nothing on scroll', async (context) => {
+  const { render, scrollToEnd } = harness(context);
+  window.localStorage.clear();
+  const { api, asked, control } = requestApi(context, 120);
+  await render({ surface: 'stats', open: true, onClose() {}, api });
+  await act(async () => tab('Request log').click());
+  assert.equal(bodyRows().length, 50);
+  await scrollToEnd();
+  assert.ok(asked.at(-1).asOf > 0, 'later pages carry the first page\'s time');
+  assert.equal(bodyRows().length, 100);
+
+  control.failFirstPage = true;
+  await openFilter(0);
+  await act(async () => option(t('Failed')).click());
+  const count = asked.length;
+  assert.equal(bodyRows().filter((row) => !row.querySelector('.usage-empty')).length, 0, 'the old rows are gone');
+  await scrollToEnd();
+  assert.equal(asked.length, count, 'no page is read with the old cursor');
 });
 
 test('a host that does not advertise the request log shows no tab, and a stored choice opens token usage', async (context) => {

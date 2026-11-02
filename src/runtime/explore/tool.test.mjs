@@ -256,19 +256,39 @@ for (const [name, timeoutMs, expected] of [
   ['caller cancellation', undefined, /cancelled/],
   ['timeout', 30, /## Q1: a\n\[explore error\] timed out/],
 ]) {
-  test(`${name} waits for a slower explorer to settle`, async () => {
+  test(`${name} waits for a slower explorer to settle`, async (t) => {
     const before = await leftovers();
     let release;
     const gate = new Promise((r) => (release = r));
-    const h = harness((q, _m, opts) => (q === 'a' ? abortable(opts.signal) : gate), configured, { timeoutMs });
+    const started = { a: Promise.withResolvers(), b: Promise.withResolvers() };
+    const fastCleaned = Promise.withResolvers();
+    const h = harness(
+      async (q, _m, opts) => {
+        started[q].resolve();
+        if (q === 'b') return gate;
+        try {
+          return await abortable(opts.signal);
+        } finally {
+          fastCleaned.resolve();
+        }
+      },
+      configured,
+      { timeoutMs }
+    );
+    // The timeout is driven by a mocked clock, not by waiting for it.
+    if (timeoutMs) t.mock.timers.enable({ apis: ['setTimeout'] });
     const controller = new AbortController();
     let done = false;
     const pending = runExplore({ query: ['a', 'b'] }, { signal: controller.signal }, h.deps).finally(
       () => (done = true)
     );
-    await new Promise((r) => setTimeout(r, 20));
-    if (!timeoutMs) controller.abort(new Error('esc'));
-    await new Promise((r) => setTimeout(r, 80));
+    await Promise.all([started.a.promise, started.b.promise]);
+    if (timeoutMs) t.mock.timers.tick(timeoutMs);
+    else controller.abort(new Error('esc'));
+    await fastCleaned.promise;
+    // One macrotask turn lets the fast explorer's provider call finish unwinding.
+    await new Promise((r) => setImmediate(r));
+    assert.equal(h.children.find((c) => c.query === 'a').open, 0);
     assert.equal(done, false);
     release('late');
     const res = await pending;

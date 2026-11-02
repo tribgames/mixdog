@@ -21,7 +21,6 @@ import {
   periodLabel,
   statsNumber,
   statsPlan,
-  statsSpeed,
   statsTokens,
   type Row,
   type StatsView,
@@ -89,11 +88,19 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
     ...(current.model ? { model: current.model } : {}),
     limit: PAGE_SIZE,
   });
-  const load = (current: Question, after: string | null) => {
+  // `asOf` pins later pages to the first page's time, so a rolling period
+  // does not slide while the list is scrolled.
+  const load = (current: Question, after: string | null, asOf?: number) => {
     const ticket = after ? sequence.current : ++sequence.current;
     setBusy(true);
     setError('');
-    readUsageRequestPage(api, { ...ask(current), ...(after ? { cursor: after } : {}) })
+    // A new question drops the old rows and cursor: if its first page fails,
+    // nothing can page on with a cursor from another question.
+    if (!after) {
+      setRequests([]);
+      setCursor(null);
+    }
+    readUsageRequestPage(api, { ...ask(current), ...(after ? { cursor: after, asOf } : {}) })
       .then((page) => {
         if (sequence.current !== ticket) return;
         if (!after) setAnswer(page);
@@ -114,7 +121,7 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
   const end = useRef<HTMLTableRowElement>(null);
   const loadMore = useRef(() => {});
   loadMore.current = () => {
-    if (!busy && cursor) load(question, cursor);
+    if (!busy && cursor) load(question, cursor, statsNumber(answer?.generatedAt) || undefined);
   };
   useEffect(() => {
     const target = end.current;
@@ -189,7 +196,6 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
             <col className="request-log-col-tokens" />
             <col className="request-log-col-cost" />
             <col className="request-log-col-duration" />
-            <col className="request-log-col-speed" />
             <col className="request-log-col-status" />
           </colgroup>
           <thead>
@@ -206,9 +212,6 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
               <th scope="col" className="request-log-num">
                 {t('Time taken')}
               </th>
-              <th scope="col" className="request-log-num">
-                {t('Speed')}
-              </th>
               <th scope="col">{t('Status')}</th>
             </tr>
           </thead>
@@ -217,7 +220,6 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
               const provider = String(row.provider || '');
               const model = String(row.model || '');
               const status = String(row.status || 'completed');
-              const speed = row.outputTokensPerSecond == null ? '—' : `${statsSpeed(row.outputTokensPerSecond)} tok/s`;
               const title = String(row.sessionTitle || '') || t('Untitled session');
               const role = row.agent === true ? agentRoleLabel(row.agentRole) : '';
               return (
@@ -234,7 +236,6 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
                   <td className="request-log-num">{statsTokens(row.tokens)}</td>
                   <td className="request-log-num">{requestCost(row)}</td>
                   <td className="request-log-num">{requestDuration(statsNumber(row.durationMs))}</td>
-                  <td className="request-log-num">{speed}</td>
                   <td className="request-log-status" data-status={status}>
                     {statusLabel(status)}
                   </td>

@@ -4,9 +4,16 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import { createCustomProvider, effectiveCustomModelRows, normalizeCustomProviderConfig } from './custom-provider.mjs';
+import { applyCustomRequestBody } from './custom-provider-config.mjs';
 import { initProviders, getProvider, getProviderInitErrors, providerInputExcludesCache } from './registry.mjs';
 import { mergeStoredProviders } from '../config-providers-merge.mjs';
 import { makeTempDirSync } from '../../../../../scripts/lib/scoped-temp.mjs';
+
+test('applyCustomRequestBody selects the per-model override from params.model when no model is passed', () => {
+  const config = { modelOverrides: { m1: { requestBody: { top_k: 5 } } } };
+  assert.deepEqual(applyCustomRequestBody({ model: 'm1' }, config), { model: 'm1', top_k: 5 });
+  assert.deepEqual(applyCustomRequestBody({ model: 'other' }, config), { model: 'other' });
+});
 
 // Hermetic catalog: remote catalog fetches 404 in every mock below and fall
 // back to this disk copy (models.dev is keyed by provider id).

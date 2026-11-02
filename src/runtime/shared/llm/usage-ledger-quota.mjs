@@ -13,6 +13,7 @@
  * is an estimate: providers do not publish what a request costs the meter.
  */
 import { normalizeUsageMeasurement } from './usage-measurement.mjs';
+import { NO_USAGE_COST_SOURCE } from './usage-ledger-requests.mjs';
 import { FAST_KEY, fastRouteSql, sortFastBesideModel, usageRollupDayKey } from './usage-rollup.mjs';
 import { estimateOutsideQuota, estimateQuotaValue, outsideSpans } from './quota-value-estimate.mjs';
 
@@ -401,6 +402,7 @@ function readQuotaEvents(db, { provider, account, label = '', fromMs, toMs }) {
               ${fastRouteSql('signature')} AS fast
           FROM usage_routes
           WHERE json_extract(signature,'$[0]')=? AND COALESCE(json_extract(signature,'$[8]'),'') IN (?,?)
+              AND json_extract(signature,'$[4]')<>'${NO_USAGE_COST_SOURCE}'
       )
       SELECT e.ts,e.day,r.model,r.rank,COUNT(*) AS turns,
           SUM(e.input) AS input,SUM(e.output) AS output,SUM(e.cache_read) AS cacheRead,

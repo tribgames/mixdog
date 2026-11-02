@@ -20,7 +20,7 @@ import {
   rollupUsage,
 } from './usage-ledger-rollup.mjs';
 import { QUOTA_SCHEMA, readQuotaHistory, readQuotaWindows, recordQuotaSamples } from './usage-ledger-quota.mjs';
-import { REQUEST_LOG_SCHEMA, STORED_REQUEST_STATUSES, readUsageRequests } from './usage-ledger-requests.mjs';
+import { NO_USAGE_COST_SOURCE, REQUEST_LOG_SCHEMA, STORED_REQUEST_STATUSES, readUsageRequests } from './usage-ledger-requests.mjs';
 import { SHARE_ENV } from 'node:worker_threads';
 import { createWorkerRequestClient } from '../worker-requests.mjs';
 
@@ -296,6 +296,14 @@ export function makeUsageRecord(args) {
     !num(args.cacheWriteTokens)
   )
     costUsd = 0;
+  const noUsage =
+    args.status === 'failed' &&
+    args.inputTokensKnown !== false &&
+    priced.input === 0 &&
+    !num(args.outputTokens) &&
+    !num(args.cacheReadTokens) &&
+    !num(args.cacheWriteTokens) &&
+    !costUsd;
   let rates = priced.rates;
   if (reported || kind === 'local') {
     rates = {
@@ -322,7 +330,7 @@ export function makeUsageRecord(args) {
     cacheRead: num(args.cacheReadTokens),
     cacheWrite: num(args.cacheWriteTokens),
     costUsd,
-    costSource: usageCostSource({ kind, costUsd, subscription, reported }),
+    costSource: noUsage ? NO_USAGE_COST_SOURCE : usageCostSource({ kind, costUsd, subscription, reported }),
     rates,
     responseId: text(args.responseId),
     account: text(args.account),
@@ -455,6 +463,7 @@ export class UsageLedger {
   }
 
   indexRecord(row, rank) {
+    if (row.costSource === NO_USAGE_COST_SOURCE) return;
     const conversation = isConversationUsageSource(row.sourceType);
     this.daily.run(
       row.day,
