@@ -1,7 +1,7 @@
 // The automatic worktree cleanup against real git: the scan never holds the
 // folder, and the checks under the hold keep a worktree that changed meanwhile.
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, utimesSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { after, afterEach, beforeEach, test } from 'node:test';
 import { configureWorktreeManager } from './manager.mjs';
@@ -14,6 +14,7 @@ import {
   createTestWorktree as create,
   git,
   makeRepo,
+  tempDir,
   useTempDataDir,
 } from './test-support.mjs';
 
@@ -153,8 +154,37 @@ test('an unstaged edit of a tracked file between the scan and the hold keeps the
   assert.equal(readFileSync(join(entry.path, 'README.md'), 'utf8'), 'edited\n');
 });
 
+/**
+ * Makes every later `git status` in `path` unable to finish until it is
+ * killed, so a short final-check timeout always fires: a 1 ms timeout alone
+ * races a fast git, whose exit the runner's loop can see before its timer.
+ * README.md gets a new mtime (same content), so status hashes it through a
+ * clean filter that never ends its output; once git is gone the filter's
+ * write fails and it exits.
+ */
+function stallStatus(path) {
+  const filter = join(tempDir('mixdog-wt-filter-'), 'endless.cjs');
+  writeFileSync(
+    filter,
+    "process.stdout.on('error', () => process.exit(0));\n" +
+      "process.stdin.on('data', () => {}).on('end', () => setInterval(() => process.stdout.write('x'), 10));\n"
+  );
+  writeFileSync(resolve(path, git(path, 'rev-parse', '--git-path', 'info/attributes')), 'README.md filter=endless\n');
+  const command = `"${process.execPath.replace(/\\/g, '/')}" "${filter.replace(/\\/g, '/')}"`;
+  Object.assign(process.env, {
+    GIT_CONFIG_COUNT: '1',
+    GIT_CONFIG_KEY_0: 'filter.endless.clean',
+    GIT_CONFIG_VALUE_0: command,
+  });
+  const later = new Date(Date.now() + 5_000);
+  utimesSync(join(path, 'README.md'), later, later);
+}
+afterEach(() => {
+  for (const name of ['GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0']) delete process.env[name];
+});
+
 test('a final dirty check that does not finish in time keeps the worktree', async () => {
-  const { report, entry } = await changeUnderHold(() => {}, { finalCheckTimeoutMs: 1 });
+  const { report, entry } = await changeUnderHold(stallStatus, { finalCheckTimeoutMs: 1 });
   assert.deepEqual(report.removed, []);
   assert.ok(report.kept.some((item) => item.id === entry.id && item.reason === 'busy'));
   assert.ok(existsSync(entry.path));
@@ -179,12 +209,8 @@ test('with nothing changed the final check passes and the worktree goes', async 
 });
 
 test('a timed-out final check has no git left running when the worktree is kept', async () => {
-  const repo = makeRepo();
-  const { made, options } = await setup(repo, { slow: { idleMs: 2 * HOUR } });
-  configure({ maxWorktrees: 0, unusedDays: 0 });
-  await setArchivedSessionWorktrees([made.slow.sessionId], true);
-  const report = await runWorktreeCleanup(options({ finalCheckTimeoutMs: 1 }));
-  const kept = report.kept.find((item) => item.id === made.slow.entry.id);
+  const { report, entry } = await changeUnderHold(stallStatus, { finalCheckTimeoutMs: 1 });
+  const kept = report.kept.find((item) => item.id === entry.id);
   assert.equal(kept?.reason, 'busy');
   assert.equal(kept.gitRunning, undefined, 'the killed git status exited before the hold was released');
 });
