@@ -40,6 +40,9 @@ $deployStartedAtUtc = [DateTime]::UtcNow
 $timings = [ordered]@{}
 
 function Write-Step { param([string]$Text) Write-Host "==> $Text" -ForegroundColor Cyan }
+# Windows PowerShell wraps Write-Warning at the console width when its output
+# is redirected, breaking a long snapshot path in two; write the line whole.
+function Write-SnapshotWarning { param([string]$Text) [Console]::Error.WriteLine("WARNING: $Text") }
 function Save-Timing {
     param([string]$Name, [Diagnostics.Stopwatch]$Stopwatch)
     $timings[$Name] = [math]::Round($Stopwatch.Elapsed.TotalMilliseconds)
@@ -69,7 +72,7 @@ function Remove-SnapshotWorktree {
 
     $links = Find-DirectoryLinks $Path
     if ($null -eq $links) {
-        Write-Warning "Skipped $Path : a folder in it could not be searched for links; nothing was deleted."
+        Write-SnapshotWarning "Skipped $Path : a folder in it could not be searched for links; nothing was deleted."
         return $false
     }
     $stuck = @(
@@ -79,13 +82,13 @@ function Remove-SnapshotWorktree {
         }
     )
     if ($stuck.Count -gt 0) {
-        Write-Warning ("Skipped $Path : could not unlink " + ($stuck -join ', ') +
+        Write-SnapshotWarning ("Skipped $Path : could not unlink " + ($stuck -join ', ') +
             '; nothing was deleted. Remove those links (never their targets), then run -CleanupOnly again.')
         return $false
     }
     $left = Find-DirectoryLinks $Path
     if ($null -eq $left -or $left.Count -gt 0) {
-        Write-Warning "Skipped $Path : links are still present after unlinking; nothing was deleted."
+        Write-SnapshotWarning "Skipped $Path : links are still present after unlinking; nothing was deleted."
         return $false
     }
     # Both calls below are expected to fail sometimes — a directory that git never
