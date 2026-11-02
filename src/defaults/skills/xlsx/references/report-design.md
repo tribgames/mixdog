@@ -100,10 +100,26 @@ bordered table, and a fill header are each a choice of the concept, not required
   labels carry the numbers), `highlight` on the bar the title is about (one series: the rest take `mutedColor`),
   `fontName` the sheet's face, `showLegend` only with two or more series, `zeroBaseline:true` for bars; placed at
   `cell` beside or under the table, as wide as the table (`toColumn`).
+  A chart whose bars carry their values (`showValues:true`) takes `gridlines:false, valueAxis:false`.
   `range` is the header row plus the rows under it, categories in its first column; a series that is not
   next to its categories joins by comma the way Excel reads it (`range:'A7:A12,D7:D12'`), same rows in
-  every area. `width`/`height` are points: a 420 × 260 chart at `F5` reaches about column N and row 22,
-  so the print area has to reach past it.
+  every area. `add_chart` reads the range by columns — first column the categories, every other column a
+  series — and `plotBy:'rows'` reads one block the other way for a sheet that grows a column per period; a
+  summary sheet charts another sheet by naming it on every area (`range:"'월별 계산'!A1:A7,'월별 계산'!D1:D7"`)
+  while `sheet` says where the frame stands. `add_chart` and `add_image` take `cell:'H2'` for the top-left
+  corner — the same cell the snapshot reports the object's anchor in; `left`/`top` in points remain available
+  for exact placement. `width`/`height` are points: a 420 × 260 chart at `F5` reaches about column N and row
+  22, so the print area has to reach past it.
+- **Chart rules**: charts stay native (`add_chart` or `compose_sheet.chart`), one message per chart, quiet axes,
+  no 3D. A chart or picture placed on a sheet with no page setup sets that sheet to one page wide (the result says
+  `pageFit:'one-page-wide'`), so an export no longer paginates through it; a fit, print scale, or print area the
+  sheet already declares is kept, and a report still gets its own `set_page_setup` (print area, orientation)
+  after the last chart exists. One that landed in the wrong place is moved with `set_drawing` (`drawing` is the
+  shape's name or its 1-based position on the sheet; `left`, `top`, `width`, `height` in points) or removed with
+  `delete_drawing`, never rebuilt — together they answer `drawing_overlap`, `drawing_covers_cells`, and
+  `drawing_outside_print_area`. The portable preview is LibreOffice, which spaces CJK chart category labels by
+  character (`1 호`) while the file holds `1호` and Excel draws it unspaced — check the cell before treating it as
+  a defect.
 - **Conditional format**: at most two hues with a meaning the header or a legend states — good (pale green fill, dark
   green type), bad (pale red fill, dark red type) — `formula` relative to the
   range's first cell (`B2<0.9`); a `colorScale` only on a heat-map the reader compares across, never on a
