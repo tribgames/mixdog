@@ -236,12 +236,20 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
               // A fallback to another provider names that provider; a model the
               // same provider swapped in has none of its own.
               const requestedProvider = String(row.requestedProvider || provider);
-              const fallbackFor = requested && requested !== model ? modelDisplayName(requested, requestedProvider) : '';
-              const modelTitle = fallbackFor ? `${requested} → ${model}` : model;
+              // The same model name on another provider is still a substitution.
+              const fallbackFor =
+                requested && (requested !== model || requestedProvider !== provider)
+                  ? modelDisplayName(requested, requestedProvider)
+                  : '';
               const providerLabel = usageProviderLabel(resolveProviderDisplayName(provider, providerNames));
               const requestedProviderLabel = usageProviderLabel(
                 resolveProviderDisplayName(requestedProvider, providerNames)
               );
+              const modelTitle = !fallbackFor
+                ? model
+                : requestedProvider === provider
+                  ? `${requested} → ${model}`
+                  : `${requested} (${requestedProviderLabel}) → ${model} (${providerLabel})`;
               const subscription = statsPlan(provider, String(row.kind || '')) === 'subscription';
               const internal = String(row.internalKind || '');
               const title = internal

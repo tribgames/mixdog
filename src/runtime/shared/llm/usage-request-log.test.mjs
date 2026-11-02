@@ -381,6 +381,57 @@ test('only a provider re-send of the same send answers its requested model', asy
   assert.deepEqual([rows.lead.status, rows.lead.requestedModel], ['substituted', 'claude-opus-5-5']);
 });
 
+test('a request answered on a configured fallback hop lists the primary route it asked for', async (t) => {
+  const read = useLedger(t);
+  const answer = (model) => async () => ({ content: 'x', model, usage: { inputTokens: 1, outputTokens: 1 } });
+  const primary = { provider: 'anthropic-oauth', model: 'claude-opus-5-5' };
+  const hopped = (provider) => ({ provider, routeFallbackPrimary: primary, routeFallbackIndex: 2 });
+  // A second hop still asks for the primary, not the hop it left.
+  await accountProviderSend('openai', {}, answer('gpt-5'), 'gpt-5', { sessionId: 'hop', session: hopped('openai') });
+  // The same model name on another provider is still a hop.
+  await accountProviderSend('openrouter', {}, answer('claude-opus-5-5'), 'claude-opus-5-5', {
+    sessionId: 'same-name',
+    session: hopped('openrouter'),
+  });
+  // The hop's request failing is still asked of the primary route.
+  await assert.rejects(
+    accountProviderSend('openai', {}, async () => Promise.reject(new Error('down')), 'gpt-5', {
+      sessionId: 'hop-failed',
+      session: hopped('openai'),
+    })
+  );
+  // A hop within one provider names no other provider.
+  await accountProviderSend('anthropic-oauth', {}, answer('claude-sonnet-5-5'), 'claude-sonnet-5-5', {
+    sessionId: 'same-provider-hop',
+    session: hopped('anthropic-oauth'),
+  });
+  // Ordinary, same-provider-substituted and primary-route requests are unchanged.
+  await accountProviderSend('openai', {}, answer('gpt-5'), 'gpt-5', { sessionId: 'plain', session: { provider: 'openai' } });
+  await accountProviderSend('openai', {}, answer('gpt-5-mini'), 'gpt-5', { sessionId: 'swapped' });
+  await accountProviderSend('anthropic-oauth', {}, answer(primary.model), primary.model, {
+    sessionId: 'primary',
+    session: hopped('anthropic-oauth'),
+  });
+  // A send that is not on the hop's route (another provider under the session) asks for itself.
+  await accountProviderSend('gemini', {}, answer('gemini-3'), 'gemini-3', { sessionId: 'other', session: hopped('openai') });
+
+  const rows = Object.fromEntries(read().map((row) => [row.sessionId, row]));
+  const shape = (id) => [rows[id].status, rows[id].requestedProvider, rows[id].requestedModel, rows[id].provider];
+  assert.deepEqual(shape('hop'), ['substituted', 'anthropic-oauth', 'claude-opus-5-5', 'openai']);
+  assert.deepEqual(shape('same-name'), ['substituted', 'anthropic-oauth', 'claude-opus-5-5', 'openrouter']);
+  assert.deepEqual(shape('hop-failed'), ['failed', 'anthropic-oauth', 'claude-opus-5-5', 'openai']);
+  assert.deepEqual(shape('same-provider-hop'), ['substituted', '', 'claude-opus-5-5', 'anthropic-oauth']);
+  assert.deepEqual(shape('plain'), ['completed', '', 'gpt-5', 'openai']);
+  assert.deepEqual(shape('swapped'), ['substituted', '', 'gpt-5', 'openai']);
+  assert.deepEqual(shape('primary'), ['completed', '', 'claude-opus-5-5', 'anthropic-oauth']);
+  assert.deepEqual(shape('other'), ['completed', '', 'gemini-3', 'gemini']);
+  // The filters still read the answering route and the status.
+  assert.deepEqual(
+    read({ status: 'substituted', model: 'gpt-5' }).map((row) => row.sessionId),
+    ['hop']
+  );
+});
+
 test('a retried send with a dated id of its model reads as retried', async (t) => {
   const read = useLedger(t);
   await accountProviderSend(
@@ -904,6 +955,55 @@ test('a ledger this build touched is opened and written by the previous build', 
         [5, 'failed'],
       ],
       "the previous build's record reads as completed"
+    );
+  } finally {
+    reopened.close();
+  }
+});
+
+test('the deployed request-log build opens and writes a ledger holding fallback-hop requests', async (t) => {
+  const { UsageLedger: DeployedLedger, makeUsageRecord: deployedRecord } = await previousLedgerModule(
+    t,
+    REQUEST_LOG_COMMIT
+  );
+  const path = join(makeTempDirSync('request-log-hop'), 'ledger.sqlite');
+  const ts = Date.now() - 1000;
+  const fields = { provider: 'openai', model: 'gpt-5', sessionId: 's', sourceType: 'lead' };
+  const current = new UsageLedger(path);
+  current.record([
+    makeUsageRecord({
+      ...fields,
+      id: 'hop',
+      ts,
+      outputTokens: 5,
+      requestedProvider: 'anthropic-oauth',
+      requestedModel: 'claude-opus-5-5',
+      status: 'substituted',
+    }),
+  ]);
+  current.close();
+
+  const deployed = new DeployedLedger(path);
+  try {
+    assert.equal(
+      deployed.record([
+        deployedRecord({ ...fields, id: 'older', ts: ts + 1, outputTokens: 7, requestedModel: 'gpt-5-mini', status: 'substituted' }),
+      ]),
+      1
+    );
+  } finally {
+    deployed.close();
+  }
+
+  const reopened = new UsageLedger(path);
+  try {
+    const rows = everything(reopened.db).requests;
+    assert.deepEqual(
+      rows.map((row) => [row.output, row.status, row.requestedModel, row.requestedProvider]),
+      [
+        [7, 'substituted', 'gpt-5-mini', ''],
+        [5, 'substituted', 'claude-opus-5-5', 'anthropic-oauth'],
+      ]
     );
   } finally {
     reopened.close();

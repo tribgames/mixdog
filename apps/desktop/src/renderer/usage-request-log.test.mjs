@@ -60,6 +60,8 @@ function requestApi(context, count) {
         provider: index === 1 ? 'openai-oauth' : 'openai',
         model: index === 1 ? 'gpt-5.6-luna' : 'gpt-5.6',
         ...(index === 3 ? { requestedModel: 'gpt-6-astra' } : {}),
+        // A fallback hop to another provider that serves the same model name.
+        ...(index === 4 ? { requestedProvider: 'anthropic' } : {}),
         sessionId: index === 0 ? 'agent' : 'lead',
         sourceType: 'lead',
         inputTokens: 1000,
@@ -67,7 +69,7 @@ function requestApi(context, count) {
         costUsd: 0.04,
         durationMs: 6000,
         ttftMs: 1000,
-        status: index === 2 ? 'failed' : index === 3 ? 'substituted' : 'completed',
+        status: index === 2 ? 'failed' : index === 3 || index === 4 ? 'substituted' : 'completed',
       })
     );
   }
@@ -186,6 +188,10 @@ test('the request log tab lists requests with every column, filters them and loa
   assert.equal(cells(3)[6].textContent, t('Substituted'));
   assert.equal(cells(3)[2].title, 'gpt-6-astra → gpt-5.6', 'a substituted row names the requested model');
   assert.equal(cells(0)[2].title, 'gpt-5.6');
+  const hop = [...cells(4)[2].querySelectorAll('small')].map((node) => node.textContent);
+  assert.equal(hop.length, 3, 'the same model on another provider is still a pair');
+  assert.notEqual(hop[0], hop[2], 'the asked-for provider differs from the answering one');
+  assert.match(hop[0], /anthropic/i);
 
   await scrollToEnd();
   assert.equal(asked.length, 2);

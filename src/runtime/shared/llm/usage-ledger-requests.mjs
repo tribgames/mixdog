@@ -5,8 +5,10 @@
  * the page: a page of "all history" costs what a page of today does.
  *
  * The request facts (requested model, status, attempts) sit in
- * `usage_requests` and the first-output time in `usage_request_first_output`,
- * beside `usage_events` and keyed by the record id, so the record table keeps
+ * `usage_requests`, the first-output time in `usage_request_first_output` and
+ * the provider asked for, when a configured fallback hop made another provider
+ * answer, in `usage_request_requested_provider`, beside `usage_events` and
+ * keyed by the record id, so the record table keeps
  * the exact shape every earlier build writes: an older app still opens and
  * writes a ledger this one touched. A record without a request row is a
  * completed single attempt (every record from before).
@@ -27,6 +29,9 @@ export const REQUEST_LOG_SCHEMA = `
     ) WITHOUT ROWID;
     CREATE TABLE IF NOT EXISTS usage_request_first_output (
         id BLOB PRIMARY KEY, ttft_ms REAL NOT NULL
+    ) WITHOUT ROWID;
+    CREATE TABLE IF NOT EXISTS usage_request_requested_provider (
+        id BLOB PRIMARY KEY, provider TEXT NOT NULL
     ) WITHOUT ROWID;
     CREATE INDEX IF NOT EXISTS usage_requests_status_time ON usage_requests(status, ts) WHERE status<>'completed';
     CREATE INDEX IF NOT EXISTS usage_events_route_time ON usage_events(route, ts);
@@ -50,7 +55,8 @@ const NOT_ABANDONED = `NOT (substr(e.id,1,1)=X'01' AND instr(e.id, CAST(':abando
 // generated in a few milliseconds, and an older process may still write it.
 const COLUMNS = `e.id,e.ts,e.route,e.session,e.input,e.output,e.cache_read,e.cache_write,e.cost_usd,e.duration_ms,
     r.requested_model,r.status,r.attempts,r.elapsed_ms,
-    (SELECT f.ttft_ms FROM usage_request_first_output f WHERE f.id=e.id) AS first_output_ms`;
+    (SELECT f.ttft_ms FROM usage_request_first_output f WHERE f.id=e.id) AS first_output_ms,
+    (SELECT p.provider FROM usage_request_requested_provider p WHERE p.id=e.id) AS requested_provider`;
 const COMPLETED = `(r.status IS NULL OR r.status='completed')`;
 // Checked on the row the time-ordered read already joined: no other index.
 const LISTED = `(r.status IS NULL OR r.status<>'cancelled')`;
@@ -148,6 +154,7 @@ export function readUsageRequests(db, options = {}) {
       provider: route.provider || '',
       model: route.model || '',
       requestedModel: row.requested_model || route.model || '',
+      requestedProvider: row.requested_provider || '',
       kind: route.kind || '',
       sourceType: route.source_type || '',
       costSource: route.cost_source || '',
