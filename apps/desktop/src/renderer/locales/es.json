@@ -2053,6 +2053,7 @@
   "Failed with exit code {{code}}": "Falló con el código de salida {{code}}",
   "Failed with signal {{signal}}": "Falló con la señal {{signal}}",
   "Failing": "Fallando",
+  "Fallback for {{model}}": "En lugar de {{model}}",
   "Fallback models must use different providers.": "Los modelos alternativos deben utilizar proveedores diferentes.",
   "Fast": "Fast",
   "Fast available": "Fast disponible",

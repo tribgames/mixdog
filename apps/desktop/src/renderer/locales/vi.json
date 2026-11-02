@@ -1952,6 +1952,7 @@
   "Failed with exit code {{code}}": "Thất bại với mã thoát {{code}}",
   "Failed with signal {{signal}}": "Thất bại với tín hiệu {{signal}}",
   "Failing": "Thất bại",
+  "Fallback for {{model}}": "Thay cho {{model}}",
   "Fallback models must use different providers.": "Mô hình dự phòng phải sử dụng các nhà cung cấp khác nhau.",
   "Fast": "Fast",
   "Fast available": "Có Fast",

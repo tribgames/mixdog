@@ -142,10 +142,6 @@
   max-height: 100%;
   grid-template-rows: minmax(0, 1fr);
 }
-.command-surface[data-surface="stats"]:has(.stats-surface[data-empty="true"]) {
-  height: auto;
-  max-height: 100%;
-}
 .command-surface[data-surface="stats"] .mixdog-settings__panel {
   max-height: 100%;
   /* Keep the lower inset outside the scroller, even with every model open. */
@@ -905,6 +901,20 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
   flex: 0 0 auto;
   min-height: 140px;
 }
+/* In the usage dialog the surface and its table claim the full body height
+   from the first frame: rows arriving (or none at all) never resize the table
+   and shift the layout; more rows than fit scroll the body. */
+.command-surface[data-surface="stats"] .mixdog-settings__body > .pane-surface-gate > .pane-surface-gate-content,
+.command-surface[data-surface="stats"] .command-surface-content {
+  display: flex;
+  flex-direction: column;
+  flex: 1 0 auto;
+  min-height: 0;
+}
+.command-surface[data-surface="stats"] .stats-surface,
+.command-surface[data-surface="stats"] .stats-surface > .usage-table-shell:not(.quota-history) {
+  flex: 1 0 auto;
+}
 /* The history card holds only its own rows; the loading floor above left a
    blank band under a single in-progress window. */
 .stats-surface > .usage-table-shell.quota-history {
@@ -918,14 +928,15 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
 }
 /* Session has no width: it takes whatever the fixed columns leave. */
 .request-log-table {
-  min-width: 840px;
+  min-width: 908px;
 }
+/* Room for an earlier day's date beside a clock with seconds. */
 .request-log-table .request-log-col-time {
-  width: 120px;
+  width: 156px;
 }
-/* Wide enough for a full model name ("Claude Sonnet 4.5"). */
+/* Wide enough for a full model name ("Claude Sonnet 4.5") and its fallback line. */
 .request-log-table .request-log-col-model {
-  width: 200px;
+  width: 232px;
 }
 .request-log-table .request-log-col-tokens {
   width: 72px;

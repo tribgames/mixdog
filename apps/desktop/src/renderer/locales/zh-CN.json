@@ -1952,6 +1952,7 @@
   "Failed with exit code {{code}}": "失败，退出码 {{code}}",
   "Failed with signal {{signal}}": "失败，信号 {{signal}}",
   "Failing": "失败",
+  "Fallback for {{model}}": "替代 {{model}}",
   "Fallback models must use different providers.": "后备模型必须使用不同的提供商。",
   "Fast": "Fast",
   "Fast available": "支持 Fast",
