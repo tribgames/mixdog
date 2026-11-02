@@ -10,6 +10,10 @@
 // user cycle (background-wait.mjs).
 // Cancelled, failed and usage-limited turns never reach this point.
 //
+// A turn that ends with only blocked items left asks once per user cycle to
+// settle them: a blocked item keeps the list on screen, and one whose blocker
+// has already cleared was otherwise left there indefinitely.
+//
 // With an active Goal whose items are all closed, the same check asks once
 // per cycle for the completion audit: complete the Goal or append the rest.
 import { resolvePluginData } from '../../../../../shared/plugin-paths.mjs';
@@ -165,6 +169,16 @@ function openItemsReminder(open, count) {
   ].join('\n');
 }
 
+function blockedItemsReminder(blocked) {
+  return [
+    '<system-reminder>',
+    `You ended the turn with ${blocked.length} blocked todo item(s):`,
+    ...blocked.map((task) => `- ${task.content}${task.blocker ? ` (blocked: ${task.blocker})` : ''}`),
+    'For each: if its blocker is settled, unblock and finish it; if it is no longer needed, drop it; if it truly waits on the user, leave it blocked and say in your reply what you need from them.',
+    '</system-reminder>',
+  ].join('\n');
+}
+
 const GOAL_AUDIT_REMINDER = [
   '<system-reminder>',
   'Every todo item is closed but the Goal is still active. Audit each user condition of the Goal objective against current evidence: when all are proven met, call goal with action complete; otherwise append the remaining work to todo and continue.',
@@ -187,6 +201,13 @@ export function todoCompletionReminder(session, { sessionId = null, sessionAgent
     check.reminders += 1;
     check.awaitingProgress = true;
     return openItemsReminder(open, check.reminders);
+  }
+  const blocked = unfinishedTodoItems(session);
+  if (blocked.length && !check.blockedAsked) {
+    if (awaitingBackgroundWork({ sessionId: id })) return null;
+    check.blockedAsked = true;
+    check.awaitingProgress = true;
+    return blockedItemsReminder(blocked);
   }
   if (check.auditAsked || !id || !activeGoal(id)) return null;
   if (awaitingBackgroundWork({ sessionId: id })) return null;

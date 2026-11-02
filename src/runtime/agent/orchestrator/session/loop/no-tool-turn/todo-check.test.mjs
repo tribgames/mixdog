@@ -126,20 +126,52 @@ test('a reminder that produced no progress stops the check; progress re-arms it 
   assert.equal((await f.end()).action, 'continue');
 });
 
-test('no reminder without open items, for hidden roles, or while the turn waits on the user', async () => {
+test('no reminder without unfinished items, for hidden roles, or while the turn waits on the user', async () => {
   assert.equal((await fixture({ items: [] }).end()).action, 'break');
   const closed = fixture({ items: ['Only step'] });
   executeTodoTool(closed.session, { op: 'done', item: 'Only step' });
   assert.equal((await closed.end()).action, 'break');
-  const blocked = fixture({ items: ['Only step'] });
-  executeTodoTool(blocked.session, { op: 'block', item: 'Only step', reason: 'waiting on the user' });
-  assert.equal((await blocked.end()).action, 'break', 'blocked items are not open');
+  const waiting = fixture({ items: ['Only step'] });
+  executeTodoTool(waiting.session, { op: 'block', item: 'Only step', reason: 'waiting on the user' });
+  noteTodoUserWait(waiting.session.id);
+  assert.equal(
+    (await waiting.end()).action,
+    'break',
+    'a turn waiting on the user is not asked about its blocked items'
+  );
   const denied = fixture();
   noteTodoUserWait(denied.session.id);
   assert.equal((await denied.end()).action, 'break');
   // The next turn no longer carries the last turn's wait.
   beginTodoTurn(denied.session, { genuine: false });
   assert.equal((await denied.end()).action, 'continue');
+});
+
+test('a turn ending with only blocked items asks once per user cycle to settle them', async () => {
+  const f = fixture({ items: ['Measure', 'Verify after the fixes'] });
+  executeTodoTool(f.session, { op: 'done', item: 'Measure' });
+  executeTodoTool(f.session, { op: 'block', item: 'Verify after the fixes', reason: 'after the three fixes land' });
+  assert.equal((await f.end()).action, 'continue');
+  const [reminder] = f.reminders();
+  assert.match(
+    reminder.content,
+    /1 blocked todo item\(s\):\n- Verify after the fixes \(blocked: after the three fixes land\)/
+  );
+  assert.match(reminder.content, /unblock and finish it; .*drop it; .*leave it blocked and say in your reply/);
+  // The agent answers that it still waits on the user: the turn ends, and the
+  // same cycle does not ask again even after more work.
+  assert.equal((await f.end()).action, 'break');
+  f.resolver.noteToolBatchCompleted([], []);
+  assert.equal((await f.end()).action, 'break', 'asked once per user cycle');
+  assert.equal(f.reminders().length, 1);
+  // A new user prompt asks again while the item stays blocked.
+  beginTodoTurn(f.session, { genuine: true });
+  assert.equal((await f.end()).action, 'continue');
+  // Settled: nothing left to ask about.
+  executeTodoTool(f.session, { op: 'drop', item: 'Verify after the fixes' });
+  beginTodoTurn(f.session, { genuine: true });
+  assert.equal(todoSnapshot(f.session), null, 'the closed list is let go on the next prompt');
+  assert.equal((await f.end()).action, 'break');
 });
 
 test('a running agent or a background shell started this cycle skips the reminder; an earlier server does not', async () => {
