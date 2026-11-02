@@ -1,6 +1,6 @@
 import { availableParallelism, freemem, totalmem } from 'node:os';
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { requestMemoryPressureSnapshot } from './memory-snapshot.mjs';
+import { runtimeAsyncLocalStorage } from './root-async-context.mjs';
 import { nonNegativeInt, positiveInt } from './numbers.mjs';
 
 const MB = 1024 * 1024;
@@ -108,7 +108,7 @@ export class ResourceAdmissionController {
     this.queue = [];
     // Live leases for saturation diagnostics only (labels/ages in snapshot()).
     this.activeLeases = new Set();
-    this.context = new AsyncLocalStorage();
+    this.context = runtimeAsyncLocalStorage();
     // Admission waits by pool: first acquisition (agent/shell) and the
     // reacquisition after a yielded provider call (restore). Shows whether
     // the agent cap actually delays work.

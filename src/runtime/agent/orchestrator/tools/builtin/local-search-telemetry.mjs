@@ -1,6 +1,6 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { runtimeAsyncLocalStorage } from '../../../../shared/root-async-context.mjs';
 
-const localSearchTelemetry = new AsyncLocalStorage();
+const localSearchTelemetry = runtimeAsyncLocalStorage();
 
 export function runWithLocalSearchTelemetry(telemetry, run) {
   return telemetry && typeof telemetry === 'object' ? localSearchTelemetry.run(telemetry, run) : run();

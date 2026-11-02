@@ -1,8 +1,8 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { ACCOUNT_PROVIDERS, providerAccountPath, readProviderAccountPool } from './provider-accounts.mjs';
+import { runtimeAsyncLocalStorage } from './root-async-context.mjs';
 
 const AUTH_BINDINGS = Symbol.for('mixdog.providerAuthBindings');
-const scopedBindings = new AsyncLocalStorage();
+const scopedBindings = runtimeAsyncLocalStorage();
 
 export function hasExplicitProviderAuthBinding(provider) {
   return Boolean(globalThis[AUTH_BINDINGS]?.[provider]);

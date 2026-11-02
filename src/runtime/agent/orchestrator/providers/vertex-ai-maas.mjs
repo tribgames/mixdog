@@ -1,4 +1,4 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { runtimeAsyncLocalStorage } from '../../../shared/root-async-context.mjs';
 import { currentUsageContext } from '../../../shared/llm/usage-context.mjs';
 import { noteErrorUsage } from './lib/note-error-usage.mjs';
 import { OpenAICompatProvider } from './openai-compat.mjs';
@@ -73,7 +73,7 @@ export function vertexErrorBody(text) {
 
 // The account one send targets ({ identity, token }), read by its engine's
 // fetch on every HTTP attempt, the engine's own retries included.
-const sendAccount = new AsyncLocalStorage();
+const sendAccount = runtimeAsyncLocalStorage();
 
 // Each HTTP attempt carries the send's account's current token, and a
 // credential switch since the send began aborts it before anything is sent.

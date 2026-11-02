@@ -1,6 +1,6 @@
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { runtimeAsyncLocalStorage } from '../../../shared/root-async-context.mjs';
 
-const requestToolScope = new AsyncLocalStorage();
+const requestToolScope = runtimeAsyncLocalStorage();
 const NATIVE_PREFIX_COUNT = Symbol('mixdog.providerNativeToolPrefixCount');
 const finalizedProviderRequestTools = new WeakSet();
 let requestToolScopeGeneration = 0;
@@ -49,21 +49,28 @@ export function runWithProviderRequestToolsScope(scope, callback) {
     try {
       result = callback();
     } catch (error) {
-      store.active = false;
+      deactivate(store);
       throw error;
     }
     if (result && typeof result.then === 'function') {
-      return Promise.resolve(result).finally(() => {
-        store.active = false;
-      });
+      return Promise.resolve(result).finally(() => deactivate(store));
     }
-    store.active = false;
+    deactivate(store);
     return result;
   });
 }
 
+// An inactive scope is never read again, but any handle, timer or listener
+// created under it keeps the store: drop what pins the session.
+function deactivate(store) {
+  store.active = false;
+  store.session = null;
+  store.messages = null;
+  store.requestTools = null;
+}
+
 export function invalidateProviderRequestToolsScope(scope = requestToolScope.getStore()) {
-  if (scope && typeof scope === 'object') scope.active = false;
+  if (scope && typeof scope === 'object') deactivate(scope);
 }
 
 export function scopedProviderRequestTools(session, provider, messages) {

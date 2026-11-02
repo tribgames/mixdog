@@ -12,13 +12,13 @@
  * files outside the workspace (the system temp folder, the Office data
  * folder) are never noted.
  */
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, relative, resolve } from 'node:path';
 import { PATCH_EDIT_BUDGET_BYTES, createSnapshotBudget, reviewFileContent } from '../../shared/bounded-file-read.mjs';
+import { runtimeAsyncLocalStorage } from '../../shared/root-async-context.mjs';
 
-const ledgers = new AsyncLocalStorage();
+const ledgers = runtimeAsyncLocalStorage();
 
 const pathKey = (path) => (process.platform === 'win32' ? path.toLowerCase() : path);
 

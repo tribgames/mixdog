@@ -253,7 +253,8 @@ export function createSpawnRunner({
       // SubagentStop: worker finished (terminal), regardless of outcome.
       emitSubagentEvent('stop', agent, { session_id: session.id, tag, status: finalStatus });
       // Keep the durable session/tag for same-tag follow-ups, but release every
-      // process-local provider, shell, watchdog and tool cache immediately.
+      // process-local shell, watchdog and tool cache immediately. Pooled
+      // provider connections stay for the follow-up's response chain.
       try {
         mgr.unloadSessionRuntime?.(session.id, 'agent-turn-complete');
       } catch {}

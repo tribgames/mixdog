@@ -29,6 +29,7 @@ import {
   _cfCookieHeader,
 } from './openai-ws-headers.mjs';
 import { clearAllCodexTurnStates, clearCodexTurnStateScope, retireCodexTurnStateOwner } from './openai-turn-state.mjs';
+import { runInRootAsyncContext } from '../../../shared/root-async-context.mjs';
 
 // Human-readable transport label for handshake/acquire error messages. Shared
 // with openai-oauth-ws.mjs (stream-side errors use the same labels).
@@ -273,16 +274,20 @@ function _removeFromPool(poolKey, entry) {
   if (arr.length === 0) _wsPool.delete(poolKey);
 }
 
+// Pooled sockets and their idle/liveness timers outlive the request that made
+// them; created in the root context they never retain that request's session.
 function _scheduleIdleClose(poolKey, entry) {
   if (!entry) return;
   if (entry.idleTimer) clearTimeout(entry.idleTimer);
-  entry.idleTimer = setTimeout(() => {
-    if (entry.busy) return;
-    try {
-      entry.socket.close(1000, 'idle_timeout');
-    } catch {}
-    _removeFromPool(poolKey, entry);
-  }, WS_IDLE_MS);
+  entry.idleTimer = runInRootAsyncContext(() =>
+    setTimeout(() => {
+      if (entry.busy) return;
+      try {
+        entry.socket.close(1000, 'idle_timeout');
+      } catch {}
+      _removeFromPool(poolKey, entry);
+    }, WS_IDLE_MS)
+  );
   try {
     entry.idleTimer.unref?.();
   } catch {}
@@ -369,22 +374,24 @@ function _pingProbe(entry, timeoutMs) {
 // its own inter-chunk/semantic-idle watchdogs.
 function _armLiveness(poolKey, entry) {
   _clearLiveness(entry);
-  entry.pingTimer = setInterval(async () => {
-    if (entry.busy || entry.closing || entry.probing) return;
-    if (!_isOpen(entry)) {
-      _evictDead(poolKey, entry);
-      return;
-    }
-    // Recent activity ⇒ assume live, skip the probe this tick.
-    if (Date.now() - (entry.lastAliveAt || 0) < WS_LIVENESS_STALE_MS) return;
-    entry.probing = true;
-    try {
-      const alive = await _pingProbe(entry, WS_PONG_TIMEOUT_MS);
-      if (!alive && !entry.busy) _evictDead(poolKey, entry);
-    } finally {
-      entry.probing = false;
-    }
-  }, WS_PING_INTERVAL_MS);
+  entry.pingTimer = runInRootAsyncContext(() =>
+    setInterval(async () => {
+      if (entry.busy || entry.closing || entry.probing) return;
+      if (!_isOpen(entry)) {
+        _evictDead(poolKey, entry);
+        return;
+      }
+      // Recent activity ⇒ assume live, skip the probe this tick.
+      if (Date.now() - (entry.lastAliveAt || 0) < WS_LIVENESS_STALE_MS) return;
+      entry.probing = true;
+      try {
+        const alive = await _pingProbe(entry, WS_PONG_TIMEOUT_MS);
+        if (!alive && !entry.busy) _evictDead(poolKey, entry);
+      } finally {
+        entry.probing = false;
+      }
+    }, WS_PING_INTERVAL_MS)
+  );
   try {
     entry.pingTimer.unref?.();
   } catch {}
@@ -734,7 +741,11 @@ async function _openPoolEntry({ auth, cacheKey, codexHeaders, externalSignal, co
     const tokenHash = createHash('sha256').update(String(sessionToken)).digest('hex').slice(0, 8);
     _acquireTrace(`acquire-new tokenHash=${tokenHash} elapsed=${Date.now() - acqStart}ms`);
   }
-  const { socket } = await _openSocketImpl({ auth, sessionToken, externalSignal, cacheKey, codexHeaders });
+  // The socket (its TCP/TLS handle and handshake timers) is reused by later
+  // requests: open it in the root context, never this one's.
+  const { socket } = await runInRootAsyncContext(() =>
+    _openSocketImpl({ auth, sessionToken, externalSignal, cacheKey, codexHeaders })
+  );
   if (_drainComplete) {
     try {
       socket.close(1000, 'drain-complete');
@@ -922,8 +933,18 @@ export function releaseWebSocket({ entry, poolKey: callerPoolKey, keep }) {
   _releasePoolOwner(poolKey, entry);
 }
 
-function closeOpenaiWsPoolForSession(poolKey, reason = 'session_closed') {
+function closeOpenaiWsPoolForSession(poolKey, reason = 'session_closed', { inFlightOnly = false } = {}) {
   if (!poolKey) return;
+  if (inFlightOnly) {
+    // A turn abort: only a socket mid-response is unusable. An idle one keeps
+    // its response chain for the next turn; the closed one's own 'close'
+    // handler releases its owner claim and pool slot.
+    const owned = [...(_wsPool.get(poolKey) || []), ...[..._unpooledSockets].filter((e) => e.poolKey === poolKey)];
+    for (const entry of owned) {
+      if (entry.busy) _shutdownEntry(entry, String(reason || 'turn_aborted'));
+    }
+    return;
+  }
   _clearPoolOwnerScope(poolKey);
   clearCodexTurnStateScope(poolKey);
   const closeReason = String(reason || 'session_closed');
@@ -1052,11 +1073,12 @@ export function drainOpenaiWsPool(reason = 'shutdown', { immediate = false } = {
 // registers the same globals), so chain whatever is already installed instead of
 // replacing it — import order must not decide which transport gets torn down.
 const _priorPoolSessionCloseHook = globalThis.__mixdogCloseProviderConnectionsForSession;
-globalThis.__mixdogCloseProviderConnectionsForSession = (poolKey, reason) => {
+// `options.inFlightOnly`: a turn abort, which leaves idle connections alone.
+globalThis.__mixdogCloseProviderConnectionsForSession = (poolKey, reason, options) => {
   try {
-    _priorPoolSessionCloseHook?.(poolKey, reason);
+    _priorPoolSessionCloseHook?.(poolKey, reason, options);
   } finally {
-    closeOpenaiWsPoolForSession(poolKey, reason);
+    closeOpenaiWsPoolForSession(poolKey, reason, options);
   }
 };
 const _priorPoolDrainHook = globalThis.__mixdogDrainProviderConnections;

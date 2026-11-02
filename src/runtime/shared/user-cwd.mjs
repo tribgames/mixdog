@@ -19,14 +19,14 @@
  *     disk reads of user-cwd.txt are negligible.
  */
 
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { homedir } from 'node:os';
 import { holdsNoData, writeFileAtomicSync } from './atomic-file.mjs';
 import { resolvePluginData, mixdogRoot } from './plugin-paths.mjs';
+import { runtimeAsyncLocalStorage } from './root-async-context.mjs';
 
-const _cwdOverride = new AsyncLocalStorage();
+const _cwdOverride = runtimeAsyncLocalStorage();
 
 function _activeCwdOverride() {
   const store = _cwdOverride.getStore();

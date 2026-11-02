@@ -1,7 +1,7 @@
 import { statSync } from 'node:fs';
 import * as fsPromises from 'node:fs/promises';
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { isAbsolute, sep } from 'node:path';
+import { runtimeAsyncLocalStorage } from '../../../../shared/root-async-context.mjs';
 import { canonicalCachePath, deleteReadRangeIndexForPath } from './read-range-index.mjs';
 import { resolveAgainstCwd } from './path-utils.mjs';
 import { fileVersion, sameFileVersion } from './file-version.mjs';
@@ -9,8 +9,8 @@ import { canCacheReadFile } from './read-cache-policy.mjs';
 
 const RESULT_CACHE = new Map(); // key → { ts, value, paths, scopes, readSnapshotMeta, contentPrefixHash, bytes }
 const RESULT_CACHE_INFLIGHT = new Map(); // key → { promise, controller, subscribers, settled }
-const RESULT_CACHE_COMPUTE = new AsyncLocalStorage();
-const READ_CACHE_PUBLICATION = new AsyncLocalStorage();
+const RESULT_CACHE_COMPUTE = runtimeAsyncLocalStorage();
+const READ_CACHE_PUBLICATION = runtimeAsyncLocalStorage();
 // Only active reads retain a slot. Invalidating an inactive path creates
 // no history, and the final reader releases its path in a finally block.
 const ACTIVE_READ_CACHE_PATHS = new Map();

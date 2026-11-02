@@ -10,7 +10,7 @@ import {
 } from 'node:fs/promises';
 import { basename, dirname, join } from 'node:path';
 import { randomBytes } from 'node:crypto';
-import { AsyncLocalStorage } from 'node:async_hooks';
+import { runtimeAsyncLocalStorage } from './root-async-context.mjs';
 import { enforceOwnerOnlyAclWin32, enforceOwnerOnlyAclWin32Async } from './file-permissions.mjs';
 import { createKeyedSerialQueue } from './keyed-serial-queue.mjs';
 import { sleep, sleepSync } from './sleep.mjs';
@@ -34,7 +34,7 @@ const OWNER_TOKEN = randomBytes(12).toString('hex');
 const osHeldPaths = new Map();
 // In-process waiters queue per lock path before contending for the OS lock.
 const lockQueue = createKeyedSerialQueue();
-const heldLockPaths = new AsyncLocalStorage();
+const heldLockPaths = runtimeAsyncLocalStorage();
 // A reclaim guard is held for a few metadata calls; one older than this whose
 // owner is dead was stranded by a process that died inside the reclaim.
 const RECLAIM_GUARD_STALE_MS = 30_000;

@@ -14,6 +14,8 @@
 //
 // The unified host identity is set before the channels runtime is loaded so
 // worker-main skips its parent-IPC loop and this entry owns start()/stop().
+// Before any request context exists: long-lived handles are created in this one.
+initRootAsyncContext();
 process.env.MIXDOG_WORKER_MODE = process.env.MIXDOG_WORKER_MODE || '1';
 // This process owns session runtimes and must never proxy back into itself.
 process.env.MIXDOG_DAEMON_HOST = '1';
@@ -37,6 +39,7 @@ await (await import('../runtime/shared/llm/system-proxy.mjs')).adoptSystemProxyA
 // serialize it, turning a 110ms module graph into ~1.2s and taxing the ~900
 // lazily imported modules the same way.
 
+import { initRootAsyncContext } from '../runtime/shared/root-async-context.mjs';
 import os from 'node:os';
 import path from 'node:path';
 import { rmSync } from 'node:fs';
@@ -1276,5 +1279,3 @@ main().catch((err) => {
   log(`fatal boot error: ${err?.stack || err?.message || err}`);
   void shutdown('fatal boot error', 2);
 });
-
-

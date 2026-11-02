@@ -1,3 +1,4 @@
+import { AsyncResource } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
 import { _parseEvent } from '../openai-ws-events.mjs';
 import {
@@ -158,13 +159,20 @@ export function createSocketHandlers({
   };
   const onOpen = () => _writeWsLifecycleTrace('open');
 
+  // Pooled sockets are opened in the root context (openai-ws-pool.mjs), and a
+  // socket's events run in the context it was opened in: bind this stream's
+  // handlers to the context of the request that sends on it.
+  const socketListeners = [
+    ['message', AsyncResource.bind(onMessage)],
+    ['close', AsyncResource.bind(onClose)],
+    ['error', AsyncResource.bind(onError)],
+    ['ping', AsyncResource.bind(onPing)],
+    ['pong', AsyncResource.bind(onPong)],
+  ];
+
   function detach() {
-    socket.off('message', onMessage);
-    socket.off('close', onClose);
-    socket.off('error', onError);
+    for (const [event, listener] of socketListeners) socket.off(event, listener);
     socket.off('open', onOpen);
-    socket.off('ping', onPing);
-    socket.off('pong', onPong);
     externalSignal?.removeEventListener('abort', onAbort);
   }
 
@@ -176,11 +184,7 @@ export function createSocketHandlers({
       }
       externalSignal.addEventListener('abort', onAbort, { once: true });
     }
-    socket.on('message', onMessage);
-    socket.on('close', onClose);
-    socket.on('error', onError);
-    socket.on('ping', onPing);
-    socket.on('pong', onPong);
+    for (const [event, listener] of socketListeners) socket.on(event, listener);
     if (WS_TRACE_ENABLED) {
       socket.on('open', onOpen);
       if (socket.readyState === WebSocket.OPEN) _writeWsLifecycleTrace('open');

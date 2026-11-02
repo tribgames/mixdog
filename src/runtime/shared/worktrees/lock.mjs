@@ -9,16 +9,16 @@
  *     shared by the runtime daemon and the desktop main process.
  * Re-entrant within one async call chain.
  */
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { join } from 'node:path';
 import { withGitRepoWriteLock } from '../../agent/orchestrator/tools/builtin/git-repo-rw-lock.mjs';
 import { withFileLock } from '../file-lock.mjs';
 import { resolvePluginData } from '../plugin-paths.mjs';
 import { repoHash, WORKTREE_STORE_DIR } from './contract.mjs';
 import { canonicalPath, pathKey } from './paths.mjs';
+import { runtimeAsyncLocalStorage } from '../root-async-context.mjs';
 
 const REPO_LOCK_TIMEOUT_MS = 120_000;
-const heldRepoLocks = new AsyncLocalStorage();
+const heldRepoLocks = runtimeAsyncLocalStorage();
 
 /** Cross-process lock file for one repository (outside the removable root). */
 function repoLockPath(repoCommonDir, { dataDir = resolvePluginData() } = {}) {

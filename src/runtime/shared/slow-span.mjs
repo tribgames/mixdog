@@ -6,14 +6,14 @@
 // names the spans that overlapped the stall window. Spans carry labels and
 // phase durations only — never payloads.
 
-import { AsyncLocalStorage } from 'node:async_hooks';
 import { performance } from 'node:perf_hooks';
+import { runtimeAsyncLocalStorage } from './root-async-context.mjs';
 
 export const SPAN_RING_MIN_MS = 25;
 export const SPAN_SLOW_MS = 1000;
 export const SPAN_RING_CAPACITY = 64;
 
-const current = new AsyncLocalStorage();
+const current = runtimeAsyncLocalStorage();
 
 /** Short, log-safe id of a session id. */
 export function shortId(id) {
