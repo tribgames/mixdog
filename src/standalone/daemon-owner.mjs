@@ -266,8 +266,12 @@ export function daemonOwnerIsStale(
  * (recreating a deleted record), then calls `onBeat`.
  * - No successful refresh for `fenceMs`: fenced, never renewed (`onFenced`) —
  *   unless the lease ran out inside one stall (live when the loop stopped):
- *   then the refresh is retried every tick for `heartbeatMs` after the loop
- *   resumes, and fenced only if none succeeds by then.
+ *   then the refresh under the claim lock decides, however long it takes. It
+ *   is retried every tick after the loop resumes; the record still naming
+ *   this pid serves again, another pid's is `onSuperseded`, and fenced once a
+ *   refresh started after the resume was refused and `heartbeatMs` of
+ *   retries since then did not change that, or when none has answered
+ *   `staleMs` after the resume.
  * - The record names another pid: `onSuperseded(record)`.
  * - A turn gap over `stallMs`: `admit()` refuses work until a refresh succeeds.
  *   The gap is logged once, with `describeStall(fromMono, toMono)` appended.
@@ -280,6 +284,7 @@ export function createOwnerHeartbeat({
   fenceMs,
   tickMs,
   stallMs,
+  staleMs = daemonOwnerTimings().staleMs,
   now = Date.now,
   monoNow = () => performance.now(),
   refresh = refreshSingletonOwnerAsync,
@@ -298,6 +303,8 @@ export function createOwnerHeartbeat({
   let needsVerify = false;
   // Monotonic time the loop resumed from a stall that outlived the lease.
   let stallResumedAt = null;
+  // A refresh started since that resume was refused (claim lock busy, error).
+  let verifyDenied = false;
   // The refresh in flight: a promise of its settled status, else null.
   let pending = null;
   // When the latest stall was noticed: only a refresh started after it can
@@ -316,15 +323,32 @@ export function createOwnerHeartbeat({
   }
 
   // Expired and past re-verification: the refreshes failed while the loop
-  // ran, or no refresh landed within `heartbeatMs` of resuming from a stall.
+  // ran, or a refresh started after the resume from a stall was refused and
+  // `heartbeatMs` of retries since then did not change that (a retry still in
+  // flight does not extend it). How long a verifying refresh takes proves
+  // nothing (the loop is often still starved right after a stall), so one not
+  // yet refused is waited for — but only for `staleMs` after the resume: a
+  // daemon that answers health probes while refusing all work would block
+  // every client with no one able to take over.
   function mustFence(t) {
-    return leaseExpired(t) && !(stallResumedAt !== null && t - stallResumedAt < heartbeatMs);
+    if (!leaseExpired(t)) return false;
+    if (stallResumedAt === null) return true;
+    return resumeBoundPassed(t) || (verifyDenied && t - stallResumedAt >= heartbeatMs);
+  }
+
+  function resumeBoundPassed(t) {
+    return leaseExpired(t) && stallResumedAt !== null && t - stallResumedAt >= staleMs;
   }
 
   function fence(t) {
     if (state !== 'active') return;
+    const unanswered = stallResumedAt !== null && !verifyDenied;
     halt('fenced');
-    log(`owner lease not refreshed for ${Math.round(t - leaseFrom)}ms (last ${lastRefreshAt}) — fencing`);
+    log(
+      unanswered
+        ? `owner lease verification unanswered ${Math.round(t - stallResumedAt)}ms after the loop resumed (last ${lastRefreshAt}) — fencing`
+        : `owner lease not refreshed for ${Math.round(t - leaseFrom)}ms (last ${lastRefreshAt}) — fencing`
+    );
     onFenced({ lastRefreshAt, sinceMs: Math.round(t - leaseFrom) });
   }
 
@@ -354,6 +378,12 @@ export function createOwnerHeartbeat({
   // moment the refresh started (`t`), never from when it answered.
   function settle(t, heartbeatAt, result) {
     if (state !== 'active') return result.status;
+    // A verification landing at or after the bound comes too late, whether or
+    // not a tick has fenced yet.
+    if (result.status === 'refreshed' && resumeBoundPassed(monoNow())) {
+      fence(monoNow());
+      return result.status;
+    }
     if (result.status === 'refreshed') {
       if (leaseExpired(t)) {
         log(
@@ -363,6 +393,7 @@ export function createOwnerHeartbeat({
       }
       leaseFrom = t;
       lastRefreshAt = heartbeatAt;
+      verifyDenied = false;
       if (t >= stallNotedAt) {
         needsVerify = false;
         stallResumedAt = null;
@@ -371,8 +402,11 @@ export function createOwnerHeartbeat({
     } else if (result.status === 'superseded') {
       halt('superseded');
       onSuperseded(result.owner);
-    } else if (result.status === 'busy') {
-      log('owner heartbeat skipped: claim lock busy');
+    } else {
+      if (result.status === 'busy') log('owner heartbeat skipped: claim lock busy');
+      // An older refresh (started before the resume) says nothing about the
+      // record now.
+      if (stallResumedAt !== null && t >= stallResumedAt) verifyDenied = true;
     }
     return result.status;
   }
