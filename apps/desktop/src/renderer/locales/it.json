@@ -2053,7 +2053,6 @@
   "Failed with exit code {{code}}": "Non riuscito con codice di uscita {{code}}",
   "Failed with signal {{signal}}": "Non riuscito con il segnale {{signal}}",
   "Failing": "Errore",
-  "Fallback for {{model}}": "Al posto di {{model}}",
   "Fallback models must use different providers.": "I modelli di fallback devono utilizzare provider diversi.",
   "Fast": "Fast",
   "Fast available": "Fast disponibile",
@@ -6040,5 +6039,8 @@
   "Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.": "Il tuo accesso a {{name}} è scaduto o è stato rifiutato. Accedi di nuovo in Impostazioni → Modelli.",
   "{{name}} needs you to sign in again. Reconnect it in Connectors.": "{{name}} richiede di effettuare nuovamente l’accesso. Riconnettilo in Connettori.",
   "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog.": "Lo spazio di archiviazione sicuro di questo computer non funziona, pertanto non è stato possibile leggere o salvare chiavi, password e accessi salvati. Controlla il portachiavi di sistema, quindi riavvia Mixdog.",
-  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "Impossibile salvare una conversazione su disco. I messaggi recenti potrebbero andare persi alla chiusura di Mixdog. Controlla lo spazio libero su disco e i permessi della cartella."
+  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "Impossibile salvare una conversazione su disco. I messaggi recenti potrebbero andare persi alla chiusura di Mixdog. Controlla lo spazio libero su disco e i permessi della cartella.",
+  "{{count}} agent tasks running. Installing now stops them.": "{{count}} attività degli agenti in esecuzione. Installare ora le interrompe.",
+  "Could not check whether agent tasks are running. Installing now may stop them.": "Impossibile verificare se ci sono attività degli agenti in esecuzione. Installare ora potrebbe interromperle.",
+  "Install anyway": "Installa comunque"
 }

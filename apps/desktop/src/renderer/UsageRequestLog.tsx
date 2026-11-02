@@ -233,9 +233,15 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
               const status = String(row.status || 'completed');
               // A substituted request names what was asked for beside the fallback that answered.
               const requested = status === 'substituted' ? String(row.requestedModel || '') : '';
-              const fallbackFor = requested && requested !== model ? modelDisplayName(requested) : '';
+              // A fallback to another provider names that provider; a model the
+              // same provider swapped in has none of its own.
+              const requestedProvider = String(row.requestedProvider || provider);
+              const fallbackFor = requested && requested !== model ? modelDisplayName(requested, requestedProvider) : '';
               const modelTitle = fallbackFor ? `${requested} → ${model}` : model;
               const providerLabel = usageProviderLabel(resolveProviderDisplayName(provider, providerNames));
+              const requestedProviderLabel = usageProviderLabel(
+                resolveProviderDisplayName(requestedProvider, providerNames)
+              );
               const subscription = statsPlan(provider, String(row.kind || '')) === 'subscription';
               const internal = String(row.internalKind || '');
               const title = internal
@@ -261,12 +267,22 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
                     {suffix && <span> · {suffix}</span>}
                   </td>
                   <td className="request-log-model" title={modelTitle}>
-                    <b>{modelDisplayName(model, provider)}</b>
-                    <small>
-                      {fallbackFor
-                        ? `${providerLabel} · ${t('Fallback for {{model}}', { model: fallbackFor })}`
-                        : providerLabel}
-                    </small>
+                    {fallbackFor ? (
+                      // Asked-for → answered, each model over its provider.
+                      <span className="request-log-pair">
+                        <b className="request-log-requested">{fallbackFor}</b>
+                        <b aria-hidden="true">→</b>
+                        <b>{modelDisplayName(model, provider)}</b>
+                        <small className="request-log-requested">{requestedProviderLabel}</small>
+                        <small aria-hidden="true">→</small>
+                        <small>{providerLabel}</small>
+                      </span>
+                    ) : (
+                      <>
+                        <b>{modelDisplayName(model, provider)}</b>
+                        <small>{providerLabel}</small>
+                      </>
+                    )}
                   </td>
                   <td className="request-log-num">{statsTokens(row.tokens)}</td>
                   <td

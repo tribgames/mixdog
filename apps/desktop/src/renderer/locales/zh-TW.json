@@ -1952,7 +1952,6 @@
   "Failed with exit code {{code}}": "失敗，結束碼 {{code}}",
   "Failed with signal {{signal}}": "失敗，訊號 {{signal}}",
   "Failing": "失敗",
-  "Fallback for {{model}}": "替代 {{model}}",
   "Fallback models must use different providers.": "後備模型必須使用不同的提供者。",
   "Fast": "Fast",
   "Fast available": "支援 Fast",
@@ -5910,5 +5909,8 @@
   "Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.": "你的 {{name}} 登入已過期或被拒絕。請在 設定 → 模型 中重新登入。",
   "{{name}} needs you to sign in again. Reconnect it in Connectors.": "{{name}} 需要重新登入。請在 連接器 中重新連線。",
   "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog.": "這台電腦的安全儲存空間無法運作，因此無法讀取或儲存已儲存的金鑰、密碼和登入資訊。請檢查系統金鑰圈，然後重新啟動 Mixdog。",
-  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "無法將對話儲存至磁碟。關閉 Mixdog 時最近的訊息可能會遺失。請檢查磁碟可用空間和資料夾權限。"
+  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "無法將對話儲存至磁碟。關閉 Mixdog 時最近的訊息可能會遺失。請檢查磁碟可用空間和資料夾權限。",
+  "{{count}} agent tasks running. Installing now stops them.": "有 {{count}} 個代理任務正在執行。現在安裝會中止它們。",
+  "Could not check whether agent tasks are running. Installing now may stop them.": "無法確認是否有代理任務正在執行。現在安裝可能會中止它們。",
+  "Install anyway": "仍然安裝"
 }

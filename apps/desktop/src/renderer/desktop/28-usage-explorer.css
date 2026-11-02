@@ -988,6 +988,17 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
 .request-log-model b {
   font-weight: var(--mx-weight-regular, 400);
 }
+/* A fallback row pairs the model asked for, muted, with the one that
+   answered: names on the first line, their providers under each. */
+.request-log-pair {
+  display: grid;
+  grid-template-columns: minmax(0, auto) auto minmax(0, auto);
+  column-gap: 6px;
+  justify-content: start;
+}
+.request-log-requested {
+  color: var(--mx-text-muted);
+}
 .request-log-model small {
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
