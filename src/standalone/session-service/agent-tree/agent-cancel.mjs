@@ -23,8 +23,24 @@ export function createAgentCancellation({
   entryForSession,
   log,
   rememberCancelTranscript,
+  markOwnerClosed,
 }) {
   const agentCloseRuns = new Map();
+
+  // The agent's owner closed it (options.ownerClose): recorded on the stored
+  // record itself once the runtime is closed, whichever close got it there —
+  // this one, an earlier one for another reason, or one already in progress.
+  async function closeOne(id, reason, options) {
+    const closed = await closeRuntime(id, reason, options);
+    if (closed && options.ownerClose === true) {
+      const outcome = { absent: false };
+      const generation = await markOwnerClosed(id, reason, { outcome });
+      if (typeof generation !== 'number' && outcome.absent !== true) {
+        throw new Error(`agent session ${id}: the owner close could not be recorded`);
+      }
+    }
+    return closed;
+  }
 
   /** The runtime entry that can close this descriptor: the live owner, else a
    *  freshly loaded one (null when loading fails, which is logged). */
@@ -44,7 +60,7 @@ export function createAgentCancellation({
     }
   };
 
-  function closeOne(id, reason, options) {
+  function closeRuntime(id, reason, options) {
     const active = agentCloseRuns.get(id);
     if (active) return active;
     let run;

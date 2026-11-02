@@ -56,7 +56,7 @@ export function closeSession(id, reason = 'manual', opts = {}) {
   const outcome = { absent: false };
   const newGen = tombstone
     ? markSessionClosed(id, reason, { outcome })
-    : bumpSessionGeneration(id, reason, { outcome });
+    : bumpSessionGeneration(id, reason, { outcome, ownerClose: opts.ownerClose === true });
   return finishClose({ id, reason, tombstone, entry, closeSnapshot, newGen, outcome });
 }
 
@@ -79,7 +79,7 @@ export async function closeSessionAsync(id, reason = 'manual', opts = {}) {
     const outcome = { absent: false };
     const newGen = tombstone
       ? markSessionClosedAttempt(id, reason, { outcome }, attempt)
-      : bumpSessionGenerationAttempt(id, reason, { outcome }, attempt);
+      : bumpSessionGenerationAttempt(id, reason, { outcome, ownerClose: opts.ownerClose === true }, attempt);
     if (!isLifecycleRetry(newGen)) {
       return finishClose({ id, reason, tombstone, entry, closeSnapshot, newGen, outcome });
     }

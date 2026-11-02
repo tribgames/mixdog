@@ -343,6 +343,7 @@ export function createSendFlow({
         effort: session.effort || null,
         fast: session.fast === true,
         ...(session.autoEffort === false ? { autoEffort: false } : {}),
+        ...(extras.resumed === true ? { resumed: true } : {}),
       },
       (job, ownerNotifyContext) => runSend(prepared, ownerNotifyContext, job),
       notifyContext

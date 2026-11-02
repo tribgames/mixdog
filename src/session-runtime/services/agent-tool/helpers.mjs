@@ -1,5 +1,6 @@
 // Dependency-light helpers for the agent-tool facade.
 import { existsSync, readFileSync } from 'node:fs';
+import { stat } from 'node:fs/promises';
 import { isAbsolute, join, resolve } from 'node:path';
 import {
   normalizeAgentPermissionOrNone,
@@ -64,6 +65,16 @@ export function runtimeAlive(pid) {
     return true;
   } catch (error) {
     return error?.code === 'EPERM';
+  }
+}
+
+/** Whether `path` is an existing directory (probed without blocking). */
+export async function isExistingDirectory(path) {
+  if (!clean(path)) return false;
+  try {
+    return (await stat(path)).isDirectory();
+  } catch {
+    return false;
   }
 }
 

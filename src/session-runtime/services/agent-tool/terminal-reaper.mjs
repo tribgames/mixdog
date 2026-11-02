@@ -10,15 +10,18 @@ import { createStaleRowTransition } from './terminal-reaper/stale-rows.mjs';
 export function createTerminalReaper({ cfgMod, mgr, tagMaps, index, getLiveSession }) {
   const tombstones = createTagTombstones({ tagMaps, index });
   const scan = createScanAdmission({
+    cfgMod,
     mgr,
     index,
     tombstoneBlocksScan: tombstones.tombstoneBlocksScan,
   });
-  const { transitionStaleNonterminalRows } = createStaleRowTransition({ cfgMod, tagMaps, index, getLiveSession });
+  const tombstoneBlocksScan = (session, tag, map) =>
+    scan.scanSessionAgedOut(session) || tombstones.tombstoneBlocksScan(session, tag, map);
+  const { transitionStaleNonterminalRows } = createStaleRowTransition({ cfgMod, mgr, tagMaps, index, getLiveSession });
 
   return {
     tagTombstoneIndex: tombstones.tagTombstoneIndex,
-    tombstoneBlocksScan: tombstones.tombstoneBlocksScan,
+    tombstoneBlocksScan,
     scanUpsertSession: scan.scanUpsertSession,
     forgetTerminalSession: tombstones.forgetTerminalSession,
     tombstoneTerminalSession: tombstones.tombstoneTerminalSession,

@@ -289,6 +289,8 @@ function _markSessionClosed(id, reason, options, attempt) {
  * late write's own _shouldDrop() check (generation-as-ownership-counter
  * rule, see store/write-admission.mjs) sees disk generation > expected and drops itself instead
  * of clobbering whatever the resumed session writes next.
+ * `options.ownerClose` (the agent tool's owner close) also stamps
+ * `ownerClosedAt` on the record.
  * Returns the new generation, or null if the session file doesn't exist.
  */
 export function bumpSessionGeneration(id, reason = 'detach', options = {}) {
@@ -322,7 +324,16 @@ function _bumpSessionGeneration(id, reason, options, attempt) {
     const existing = loadSession(id);
     if (!existing) return _recordAbsent(options);
     const newGen = (typeof existing.generation === 'number' ? existing.generation : 0) + 1;
-    const detached = { ...existing, generation: newGen, updatedAt: Date.now(), detachedReason: reason };
+    const now = Date.now();
+    const detached = {
+      ...existing,
+      generation: newGen,
+      updatedAt: now,
+      detachedReason: reason,
+      // The agent's owner closed it: the record keeps that for its lifetime
+      // (agent-reap-state.mjs ownerClosedSinceLastTurn).
+      ...(options.ownerClose === true ? { ownerClosedAt: now } : {}),
+    };
     const wrote = _writeLifecycleRecord(id, detached, existing, reason, attempt);
     if (wrote !== true) return wrote || null;
     _savePending.delete(id);
@@ -369,6 +380,16 @@ async function _runBarrierAttempts(run) {
     if (!isLifecycleRetry(result)) return result;
     await sleep(result.retryInMs);
   }
+}
+
+/** Stamp the agent owner's close (`ownerClosedAt`) on a session record that
+ *  stays open: bumpSessionGeneration with `ownerClose`, never blocking the
+ *  event loop on a rename retry. For a close whose runtime close wrote no such
+ *  stamp (already terminal, or closed earlier for another reason). */
+export function markSessionOwnerClosedAsync(id, reason = 'cli-agent-close', options = {}) {
+  return _runBarrierAttempts((attempt) =>
+    _bumpSessionGeneration(id, reason, { ...options, ownerClose: true }, attempt)
+  );
 }
 
 /** markSessionClosed without ever blocking the event loop on a rename retry. */

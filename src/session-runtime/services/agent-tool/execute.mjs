@@ -1,6 +1,7 @@
 import { errorLine } from '../../../runtime/shared/err-text.mjs';
 import { createSendDispatch } from './execute-send.mjs';
 import { createSpawnDispatch } from './execute-spawn.mjs';
+import { createTagResume } from './execute-resume.mjs';
 import { agentScope, clean } from './helpers.mjs';
 import { renderResult } from './render.mjs';
 
@@ -30,7 +31,9 @@ export function createAgentExecute({
     return renderResult(views.renderJob(job, true));
   }
 
-  const { send } = createSendDispatch({ registry, defaultCwd, sendFlow, spawnFlow, spawnResult });
+  // Shared so a send and a spawn of one reaped tag are serialized together.
+  const tagResume = createTagResume({ registry, sendFlow, defaultCwd });
+  const { send } = createSendDispatch({ registry, defaultCwd, sendFlow, spawnFlow, spawnResult, tagResume });
   const { spawn } = createSpawnDispatch({
     registry,
     terminalTrace,
@@ -38,6 +41,8 @@ export function createAgentExecute({
     spawnFlow,
     spawnResult,
     listProviderModels,
+    defaultCwd,
+    tagResume,
   });
 
   return async function execute(args = {}, context = {}) {

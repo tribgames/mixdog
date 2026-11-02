@@ -162,6 +162,10 @@ test('job rows read live progress for running tasks and freeze terminal ones; lo
   const respawned = api.renderJob({ taskId: 't', operation: 'spawn', status: 'completed', meta: { respawned: true } });
   assert.equal(respawned.respawned, true);
   assert.match(respawned.note, /previous session reaped/);
+  const resumed = api.renderJob({ taskId: 't', operation: 'send', status: 'completed', meta: { resumed: true } });
+  assert.equal(resumed.resumed, true);
+  assert.equal(resumed.respawned, undefined);
+  assert.match(resumed.note, /resumed from its saved transcript/);
 });
 
 test('a worker session without a task answers read/status with a synthetic job built from its last assistant output', () => {

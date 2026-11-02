@@ -25,6 +25,7 @@ import { holdTurnUntilDurable } from './turn-durability.mjs';
 import { recordProviderContextBaseline } from '../loop/compact-policy.mjs';
 import { throwIfAborted } from '../../../../shared/abort-race.mjs';
 import { appendAssistantTurnMessage, persistProviderState, recordAskUsage } from './ask-turn-commit.mjs';
+import { CLOSE_PROVENANCE_VERSION } from '../../../../shared/agent-reap-state.mjs';
 
 export function attachAssistantTranscriptCompletion(messages, completion, turnStartedAt = 0) {
   if (!Array.isArray(messages) || !completion || typeof completion !== 'object') return false;
@@ -127,8 +128,14 @@ export async function commitAskTurn({ sessionId, opened, prepared, result, rawTr
   if (runtime.prepareCloseSnapshot === prepareCloseSnapshot) {
     runtime.prepareCloseSnapshot = null;
   }
-  session.updatedAt = Date.now();
-  session.lastUsedAt = Date.now();
+  const completedAt = Date.now();
+  session.updatedAt = completedAt;
+  session.lastUsedAt = completedAt;
+  // Owner closes from here on are recorded on this record, and only a
+  // completed turn (never a rewind or other bookkeeping that moves
+  // lastUsedAt) lifts an earlier one (agent-reap-state.mjs).
+  session.closeProvenance = CLOSE_PROVENANCE_VERSION;
+  session.lastTurnCompletedAt = completedAt;
   applyAskTerminalUsageTotals(session, result, {
     skipTotalsIfIncremental: runtime?.usageMetricsTurnIncremental === true,
   });

@@ -67,16 +67,16 @@ export function createJobRender({ progress }) {
 
   function renderJob(job, includeResult = false) {
     const meta = job.meta || {};
-    const head = jobHead(
-      { ...job, type: job.operation },
-      meta,
-      meta.respawned === true
-        ? {
-            respawned: true,
-            note: 'previous session reaped — fresh session, no prior context; re-supply anchors if needed',
-          }
-        : {}
-    );
+    let reapNote = {};
+    if (meta.respawned === true) {
+      reapNote = {
+        respawned: true,
+        note: 'previous session reaped — fresh session, no prior context; re-supply anchors if needed',
+      };
+    } else if (meta.resumed === true) {
+      reapNote = { resumed: true, note: 'previous session reaped — resumed from its saved transcript, prior context kept' };
+    }
+    const head = jobHead({ ...job, type: job.operation }, meta, reapNote);
     const tail = includeResult && job.result !== undefined ? { result: job.result } : {};
     // Frozen terminal view: never re-read the (possibly reused) live session.
     if (isTerminalJobStatus(job.status)) {

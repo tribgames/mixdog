@@ -10,6 +10,7 @@ import { createTagMaps } from './tag-maps.mjs';
 import { createTerminalReaper } from './terminal-reaper.mjs';
 import { createTagLookup } from './tag-registry/tag-lookup.mjs';
 import { createTagRefresh } from './tag-registry/tag-refresh.mjs';
+import { createReapedSessions } from './tag-registry/reaped-sessions.mjs';
 
 export function createTagRegistry({ dataDir, cfgMod, mgr }) {
   const tagMaps = createTagMaps();
@@ -68,6 +69,7 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
   }
 
   const reaper = createTerminalReaper({ cfgMod, mgr, tagMaps, index, getLiveSession });
+  const reaped = createReapedSessions({ mgr, getLiveSession, isReleased: index.isReleased });
 
   function wantsSessionScan(args = {}) {
     return args.recover === true || args.scanSessions === true || args.scan_sessions === true;
@@ -140,6 +142,8 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     tombstoneTerminalSession: reaper.tombstoneTerminalSession,
     tagTombstoneForTag: reaper.tagTombstoneForTag,
     consumeTagTombstone: reaper.consumeTagTombstone,
+    lastTagSession: reaped.lastTagSession,
+    resumableTagSession: reaped.resumableTagSession,
     transitionStaleNonterminalRows: reaper.transitionStaleNonterminalRows,
   };
 }

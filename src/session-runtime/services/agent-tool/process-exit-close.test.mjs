@@ -65,12 +65,14 @@ function scenario() {
     ])
   );
   const closed = [];
+  const ownerCloses = [];
   const mgr = {
     getSession: (id) => live.get(id) || null,
     listSessions: () => [...live.values()],
     getSessionRuntime: () => null,
-    closeSession: (id) => {
+    closeSession: (id, _reason, options) => {
       closed.push(id);
+      ownerCloses.push(options?.ownerClose === true);
       const session = live.get(id);
       if (session) session.closed = true;
       return true;
@@ -88,15 +90,16 @@ function scenario() {
     const workers = Array.isArray(doc.workers) ? doc.workers : Object.values(doc.workers || {});
     return workers.map((row) => row.sessionId).sort();
   };
-  return { agent, owner, rows, closed, storedIds };
+  return { agent, owner, rows, closed, ownerCloses, storedIds };
 }
 
 test('a process exit closes the Lead sub-agents but keeps their rows for the next process to list', async () => {
-  const { agent, owner, rows, closed, storedIds } = scenario();
+  const { agent, owner, rows, closed, ownerCloses, storedIds } = scenario();
   try {
     await agent.closeAll('SIGTERM', { callerSessionId: owner, processExit: true });
     await agent.flushIndexWrites();
     assert.deepEqual(closed.sort(), rows.map((row) => row.sessionId).sort(), 'every resident sub-agent is closed');
+    assert.deepEqual(ownerCloses, [false, false], 'an exit is no owner close: their reaped tags stay resumable');
     assert.deepEqual(
       storedIds(),
       rows.map((row) => row.sessionId).sort(),
@@ -108,11 +111,12 @@ test('a process exit closes the Lead sub-agents but keeps their rows for the nex
 });
 
 test('closing a Lead (not a process exit) still drops its sub-agent rows', async () => {
-  const { agent, owner, storedIds } = scenario();
+  const { agent, owner, ownerCloses, storedIds } = scenario();
   try {
     await agent.closeAll('agent owner closed', { callerSessionId: owner });
     await agent.flushIndexWrites();
     assert.deepEqual(storedIds(), []);
+    assert.deepEqual(ownerCloses, [true, true], 'the owner closed them: recorded on each session');
   } finally {
     agent.dispose();
   }

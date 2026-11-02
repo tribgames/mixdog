@@ -3,9 +3,9 @@
 import { clean, stampMs } from '../helpers.mjs';
 import { isTerminalWorkerStatus } from '../worker-rows.mjs';
 import { ACTIVE_STAGES } from '../tool-def.mjs';
-import { sessionActivityAt } from './row-helpers.mjs';
+import { pastSettledRetention, sessionActivityAt } from './row-helpers.mjs';
 
-export function createScanAdmission({ mgr, index, tombstoneBlocksScan }) {
+export function createScanAdmission({ cfgMod, mgr, index, tombstoneBlocksScan }) {
   const { readWorkerRows, upsertWorkerSessionDeferred } = index;
 
   function scanSessionIsTerminal(session) {
@@ -42,6 +42,14 @@ export function createScanAdmission({ mgr, index, tombstoneBlocksScan }) {
     };
   }
 
+  /** A settled session past its retention would be re-indexed with its frozen
+   * stamps only to be aged out again (once its tombstone expired or was
+   * capped), so a scan never admits it. */
+  function scanSessionAgedOut(session) {
+    if (!scanSessionIsTerminal(session)) return false;
+    return pastSettledRetention(cfgMod.loadConfig(), session);
+  }
+
   // Shared session-scan admission: returns false when the scan must not
   // resurrect this session, otherwise indexes it (terminal sessions with their
   // own stamps).
@@ -52,5 +60,5 @@ export function createScanAdmission({ mgr, index, tombstoneBlocksScan }) {
     return true;
   }
 
-  return { scanUpsertSession };
+  return { scanUpsertSession, scanSessionAgedOut };
 }
