@@ -6082,5 +6082,12 @@
   "Heartbeat or exec run": "Запуск heartbeat или exec",
   "Internal": "Внутренний",
   "Internal session: a background run Mixdog started itself. You cannot open it as a conversation.": "Внутренний сеанс: фоновый запуск, начатый самим Mixdog. Открыть его как диалог нельзя.",
-  "Memory cycle": "Цикл памяти"
+  "Memory cycle": "Цикл памяти",
+  "{{origin}} wants to connect to a HID device. Pick the device to connect.": "{{origin}} запрашивает подключение к HID-устройству. Выберите устройство для подключения.",
+  "Device to connect": "Устройство для подключения",
+  "Unknown device": "Неизвестное устройство",
+  "No devices to connect. Connect a device to this PC and it appears here.": "Нет устройств для подключения. Подключите устройство к этому ПК, и оно появится здесь.",
+  "Only this device is connected to this site, until the app quits.": "До закрытия приложения к этому сайту подключено только это устройство.",
+  "HID device connections": "Подключение HID-устройств",
+  "Sites in the built-in browser can ask to connect a HID device. You pick the device each time.": "Сайты во встроенном браузере могут запрашивать подключение к HID-устройству. Устройство вы каждый раз выбираете сами."
 }

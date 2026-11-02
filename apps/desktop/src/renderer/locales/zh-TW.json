@@ -5884,5 +5884,12 @@
   "Heartbeat or exec run": "心跳或 exec 執行",
   "Internal": "內部",
   "Internal session: a background run Mixdog started itself. You cannot open it as a conversation.": "內部工作階段：由 Mixdog 自行啟動的背景執行，無法作為對話開啟。",
-  "Memory cycle": "記憶週期"
+  "Memory cycle": "記憶週期",
+  "{{origin}} wants to connect to a HID device. Pick the device to connect.": "{{origin}} 要求連接 HID 裝置。請選擇要連接的裝置。",
+  "Device to connect": "要連接的裝置",
+  "Unknown device": "不明裝置",
+  "No devices to connect. Connect a device to this PC and it appears here.": "沒有可連接的裝置。將裝置連接到這台電腦後，它會顯示在這裡。",
+  "Only this device is connected to this site, until the app quits.": "在結束應用程式之前，只有此裝置會連接到此網站。",
+  "HID device connections": "HID 裝置連接",
+  "Sites in the built-in browser can ask to connect a HID device. You pick the device each time.": "內建瀏覽器中的網站可以要求連接 HID 裝置。每次都由你選擇要連接的裝置。"
 }

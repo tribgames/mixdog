@@ -77,3 +77,84 @@
   box-sizing: border-box;
   margin-top: 12px;
 }
+/* A device chooser: one radio row per device on a recessed plate; the radio
+   and the name share the row's vertical centre. */
+.browser-device-list,
+.browser-page-prompt .mx-dialog-body .browser-device-empty {
+  margin-top: 12px;
+  padding: 4px;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-bg-layer-1);
+}
+.browser-device-list {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  max-height: 220px;
+  overflow-y: auto;
+  border: 0;
+}
+/* The fieldset names the group for assistive tech; the card's text already
+   says it on screen. */
+.browser-device-list > legend {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.browser-device-list > label {
+  min-height: 40px;
+  padding: 0 10px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-text);
+  font-size: var(--mx-font-ui);
+  cursor: pointer;
+}
+.browser-device-list > label > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.browser-device-list > label:hover,
+.browser-device-list > label:has(input:checked) {
+  background: var(--mx-hover);
+}
+.browser-device-list > label > input {
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  flex: none;
+  margin: 0;
+  box-sizing: border-box;
+  border: 1.5px solid var(--mx-text-muted);
+  border-radius: 50%;
+  cursor: inherit;
+}
+.browser-device-list > label > input:checked {
+  border: 5px solid var(--mx-text);
+}
+.browser-device-list > label > input:focus-visible {
+  outline: 1px solid var(--mx-focus);
+  outline-offset: 2px;
+}
+.browser-page-prompt .mx-dialog-body .browser-device-empty {
+  min-height: 72px;
+  padding: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+  text-align: center;
+}
+.browser-page-prompt .mx-dialog-body .browser-device-note {
+  margin-top: 10px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-meta);
+}

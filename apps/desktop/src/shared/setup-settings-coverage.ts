@@ -20,6 +20,7 @@ export const DESKTOP_SETUP_SETTING_ACTIONS: Record<
   usageRailSlotsAll: 'set_desktop_settings',
   computerObserveOnly: 'set_desktop_settings',
   browserAutoSignIn: 'set_desktop_settings',
+  browserHidDevices: 'set_desktop_settings',
   saveChatLogins: 'set_desktop_settings',
   computerControl: 'set_builtin_enabled',
   browserControl: 'set_builtin_enabled',

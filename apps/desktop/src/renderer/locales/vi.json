@@ -5884,5 +5884,12 @@
   "Heartbeat or exec run": "Lượt chạy heartbeat hoặc exec",
   "Internal": "Nội bộ",
   "Internal session: a background run Mixdog started itself. You cannot open it as a conversation.": "Phiên nội bộ: một lượt chạy nền do chính Mixdog khởi động. Không thể mở nó như một cuộc trò chuyện.",
-  "Memory cycle": "Chu kỳ bộ nhớ"
+  "Memory cycle": "Chu kỳ bộ nhớ",
+  "{{origin}} wants to connect to a HID device. Pick the device to connect.": "{{origin}} muốn kết nối với một thiết bị HID. Hãy chọn thiết bị cần kết nối.",
+  "Device to connect": "Thiết bị cần kết nối",
+  "Unknown device": "Thiết bị không xác định",
+  "No devices to connect. Connect a device to this PC and it appears here.": "Không có thiết bị nào để kết nối. Hãy cắm thiết bị vào PC này, thiết bị sẽ xuất hiện ở đây.",
+  "Only this device is connected to this site, until the app quits.": "Chỉ thiết bị này được kết nối với trang web này cho đến khi bạn thoát ứng dụng.",
+  "HID device connections": "Kết nối thiết bị HID",
+  "Sites in the built-in browser can ask to connect a HID device. You pick the device each time.": "Các trang web trong trình duyệt tích hợp có thể yêu cầu kết nối với thiết bị HID. Bạn tự chọn thiết bị mỗi lần."
 }

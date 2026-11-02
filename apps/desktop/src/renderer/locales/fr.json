@@ -6016,5 +6016,12 @@
   "Heartbeat or exec run": "Exécution heartbeat ou exec",
   "Internal": "Interne",
   "Internal session: a background run Mixdog started itself. You cannot open it as a conversation.": "Session interne : une exécution en arrière-plan lancée par Mixdog lui-même. Elle ne peut pas être ouverte comme conversation.",
-  "Memory cycle": "Cycle de mémoire"
+  "Memory cycle": "Cycle de mémoire",
+  "{{origin}} wants to connect to a HID device. Pick the device to connect.": "{{origin}} souhaite se connecter à un appareil HID. Choisissez l’appareil à connecter.",
+  "Device to connect": "Appareil à connecter",
+  "Unknown device": "Appareil inconnu",
+  "No devices to connect. Connect a device to this PC and it appears here.": "Aucun appareil à connecter. Branchez un appareil sur ce PC et il apparaîtra ici.",
+  "Only this device is connected to this site, until the app quits.": "Seul cet appareil est connecté à ce site, jusqu’à la fermeture de l’app.",
+  "HID device connections": "Connexions d’appareils HID",
+  "Sites in the built-in browser can ask to connect a HID device. You pick the device each time.": "Les sites du navigateur intégré peuvent demander à se connecter à un appareil HID. Vous choisissez l’appareil à chaque fois."
 }

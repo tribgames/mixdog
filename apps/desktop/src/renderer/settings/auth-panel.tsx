@@ -60,6 +60,7 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
   const [confirmClear, setConfirmClear] = useState(false);
   const [autoSignIn, setAutoSignIn] = useState<boolean | null>(null);
   const [saveChatLogins, setSaveChatLogins] = useState<boolean | null>(null);
+  const [hidDevices, setHidDevices] = useState<boolean | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -97,6 +98,7 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
         if (read !== settingsRead.current) return;
         setAutoSignIn(settings ? settings.browserAutoSignIn !== false : null);
         setSaveChatLogins(settings ? settings.saveChatLogins !== false : null);
+        setHidDevices(settings ? settings.browserHidDevices === true : null);
       })
       .catch(() => undefined);
   }, [active, api, reload]);
@@ -114,12 +116,15 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
     }
   };
 
-  const toggleSetting = (key: 'browserAutoSignIn' | 'saveChatLogins', next: boolean, set: (value: boolean) => void) => {
+  const toggleSetting = (
+    key: 'browserAutoSignIn' | 'saveChatLogins' | 'browserHidDevices',
+    next: boolean,
+    set: (value: boolean) => void
+  ) => {
     set(next);
     void Promise.resolve(api.updateSetting?.(key, next))
       .then((settings) => {
-        if (settings)
-          set(key === 'browserAutoSignIn' ? settings.browserAutoSignIn !== false : settings.saveChatLogins !== false);
+        if (settings) set(key === 'browserHidDevices' ? settings.browserHidDevices === true : settings[key] !== false);
       })
       .catch((reason) => setError(reason instanceof Error ? reason.message : String(reason)));
   };
@@ -305,6 +310,17 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
             showDescription
             checked={saveChatLogins}
             onChange={(next) => toggleSetting('saveChatLogins', next, setSaveChatLogins)}
+          />
+        )}
+        {hidDevices !== null && (
+          <ToggleRow
+            title={t('HID device connections')}
+            description={t(
+              'Sites in the built-in browser can ask to connect a HID device. You pick the device each time.'
+            )}
+            showDescription
+            checked={hidDevices}
+            onChange={(next) => toggleSetting('browserHidDevices', next, setHidDevices)}
           />
         )}
       </Group>

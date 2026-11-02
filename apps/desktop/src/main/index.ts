@@ -775,6 +775,8 @@ let browserHostDisposal: Promise<void> = Promise.resolve();
 let browserControlEnabled = false;
 // Saved-login sign-in (default on), read by the host per command.
 let browserAutoSignIn = true;
+// Sites may ask to connect a HID device (default off), read per request.
+let browserHidDevices = false;
 let computerHost: ComputerHost | null = null;
 let computerUseOverlay: ComputerUseOverlay | null = null;
 let computerControlEnabled = false;
@@ -1077,6 +1079,7 @@ const applyDesktopSettings = (settings: DesktopSettings): void => {
   browserFeatureInstalled = settings.browserInstalled !== false;
   browserHost?.setBridgeEnabled(browserControlEnabled);
   browserAutoSignIn = settings.browserAutoSignIn !== false;
+  browserHidDevices = settings.browserHidDevices === true;
 };
 // Computer use is opt-in and high risk, so the bridge (and thus the agent
 // `computer` tool) exists only while the setting is on. Toggling it starts or
@@ -2365,6 +2368,7 @@ function installLocalWindowFeatures(
     onGuest,
     onDiagnostic: (event, data) => diagnostics?.write(event, data),
     autoSignIn: () => browserAutoSignIn,
+    hidDevices: () => browserHidDevices,
     // Live frames and explicit reveal/hide requests reach paired clients
     // through the service, which owns the relay and per-client pacing.
     publishRemoteFrame: async (frame) => {

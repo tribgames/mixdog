@@ -112,10 +112,13 @@ function createBrowserHostStorage(
   state: BrowserGuestStateStore,
   sessions: BrowserSessionRegistry,
   urls: ReturnType<typeof createBrowserUrlAdmission>,
-  onDiagnostic?: Diagnostic
+  onDiagnostic?: Diagnostic,
+  hidDevices?: () => boolean
 ) {
   const partition = createBrowserPartition({
     windowSession,
+    hidDevices,
+    guestForFrame: (frame) => webContents.fromFrame(frame),
     assertResolvedResourceUrlAllowed: urls.assertResolvedResourceUrlAllowed,
     downloadsDirectory: () => app.getPath('downloads'),
     sessionIdForGuest: (guest) => sessions.sessionIdForGuest(guest),
@@ -227,6 +230,8 @@ export function createBrowserHostFoundation(
     remoteSession: boolean;
     onDiagnostic?: Diagnostic;
     requestApproval?: (request: BrowserApprovalRequest, signal?: AbortSignal) => Promise<boolean>;
+    /** Sites may ask to connect a HID device (the `browserHidDevices` setting). */
+    hidDevices?: () => boolean;
   }
 ) {
   const state = new BrowserGuestStateStore(sameProcessGuests);
@@ -260,7 +265,14 @@ export function createBrowserHostFoundation(
   const urlPolicy = browserUrlPolicyFromEnvironment({ remote: options.remoteSession });
   const urls = createBrowserUrlAdmission({ policy: urlPolicy });
   const nativeView = /^(?:1|true|yes)$/i.test(String(process.env.MIXDOG_BROWSER_NATIVE_VIEW || ''));
-  const storage = createBrowserHostStorage(window.webContents.session, state, sessions, urls, options.onDiagnostic);
+  const storage = createBrowserHostStorage(
+    window.webContents.session,
+    state,
+    sessions,
+    urls,
+    options.onDiagnostic,
+    options.hidDevices
+  );
   const devtools = createBrowserHostDevtools(state, urlPolicy, storage.partition.permissions.refused);
   const displayTextures = createBrowserHostTextures(window, state);
   const display = createBrowserDisplayTracking(sessions);
