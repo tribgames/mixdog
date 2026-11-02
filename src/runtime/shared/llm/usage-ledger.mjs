@@ -119,6 +119,7 @@ function compactEventWriter(db) {
   const insert = db.prepare('INSERT INTO usage_events VALUES (?,?,?,?,?,?,?,?,?,?,?)');
   const insertRequest = db.prepare('INSERT INTO usage_requests VALUES (?,?,?,?,?,?,?)');
   const insertFirstOutput = db.prepare('INSERT INTO usage_request_first_output VALUES (?,?)');
+  const insertRequestedProvider = db.prepare('INSERT INTO usage_request_requested_provider VALUES (?,?)');
   const insertOwner = db.prepare('INSERT OR IGNORE INTO usage_session_owners VALUES (?,?)');
   return (row) => {
     for (const key of ['id', 'provider', 'model', 'kind', 'source_type', 'cost_source', 'origin', 'session_id']) {
@@ -172,6 +173,8 @@ function compactEventWriter(db) {
     // The first-output time has its own table: only this build writes it, so
     // a row there is this build's measurement (usage-ledger-requests.mjs).
     if (row.ttft_ms != null) insertFirstOutput.run(id, row.ttft_ms);
+    // Likewise the provider a fallback hop was asked on: older builds never see it.
+    if (row.requested_provider) insertRequestedProvider.run(id, row.requested_provider);
     return true;
   };
 }
@@ -266,6 +269,7 @@ export function makeUsageRecord(args) {
   const provider = text(args.provider);
   const model = text(args.model);
   const requestedModel = text(args.requestedModel);
+  const requestedProvider = text(args.requestedProvider);
   if (!provider || !model) throw new Error('Usage requires a provider and model');
   const ts = Number(args.ts ?? Date.now());
   if (!Number.isSafeInteger(ts) || ts <= 0) throw new Error('Usage requires a valid timestamp');
@@ -339,6 +343,8 @@ export function makeUsageRecord(args) {
     // The request log (usage-ledger-requests.mjs): kept only when the
     // answering model differs from the one asked for.
     requestedModel: requestedModel !== model ? requestedModel : '',
+    // Only a route-fallback hop asks another provider.
+    requestedProvider: requestedProvider !== provider ? requestedProvider : '',
     status: STORED_REQUEST_STATUSES.includes(args.status) ? args.status : 'completed',
     attempts: Math.max(1, Math.floor(num(args.attempts)) || 1),
     ttftMs: args.ttftMs == null || !Number.isFinite(Number(args.ttftMs)) ? null : Math.max(0, Number(args.ttftMs)),
@@ -525,6 +531,7 @@ export class UsageLedger {
             rates: row.rates ? JSON.stringify(row.rates) : null,
             duration_ms: row.durationMs,
             requested_model: row.requestedModel,
+            requested_provider: row.requestedProvider,
             ttft_ms: row.ttftMs,
             elapsed_ms: row.elapsedMs,
             rank,

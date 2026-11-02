@@ -72,9 +72,17 @@ export async function accountProviderSend(provider, instance, send, model, opts 
   // that merely runs inside that async context (a tool or agent started
   // while the outer stream was live) asks for its own model.
   const outer = currentUsageContext();
+  // A session on a configured route-fallback hop (route-fallback.mjs) asks
+  // for the route the user configured, the primary one kept at the first hop,
+  // however many hops the chain has taken: that is what its answer replaces.
+  const primary = opts.session?.provider === provider ? opts.session.routeFallbackPrimary : null;
+  const routeHop = Boolean(primary?.provider && (primary.provider !== provider || primary.model !== model));
   const identity = {
     provider,
-    requestedModel: (outer && opts[SEND_IDENTITY] === outer && outer.requestedModel) || model,
+    requestedProvider: routeHop ? primary.provider : provider,
+    requestedModel: routeHop
+      ? primary.model
+      : (outer && opts[SEND_IDENTITY] === outer && outer.requestedModel) || model,
     sessionId,
     sourceType,
     inputTokensInclusive,
@@ -104,12 +112,14 @@ export async function accountProviderSend(provider, instance, send, model, opts 
       status = usageRequestStatus({
         failed: outcome.failed,
         attempts,
-        substituted: servedModelSubstituted({
-          provider,
-          requestedModel: identity.requestedModel,
-          servedModel,
-          fallback: Boolean(result.providerMetadata?.anthropicFallbacks?.length),
-        }),
+        substituted:
+          routeHop ||
+          servedModelSubstituted({
+            provider,
+            requestedModel: identity.requestedModel,
+            servedModel,
+            fallback: Boolean(result.providerMetadata?.anthropicFallbacks?.length),
+          }),
       });
     // The one measured request time: the loop's speed figures read it, so
     // the composer and the ledger show the same span.
@@ -122,6 +132,7 @@ export async function accountProviderSend(provider, instance, send, model, opts 
       provider,
       model: servedModel,
       requestedModel: outcome ? identity.requestedModel : model,
+      requestedProvider: outcome ? identity.requestedProvider : provider,
       status,
       attempts,
       // Measured to the moment the stream returned, not to this write: the
