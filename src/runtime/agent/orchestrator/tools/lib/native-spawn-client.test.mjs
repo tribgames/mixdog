@@ -193,3 +193,44 @@ test('foreground shell has stable owner identity before promotion', {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('transport lost after root exit still ends the request promptly', {
+  timeout: 20_000,
+}, async (t) => {
+  const binary = resolve(
+    'native/mixdog-spawn/target/debug',
+    process.platform === 'win32' ? 'mixdog-spawn.exe' : 'mixdog-spawn'
+  );
+  if (!existsSync(binary)) {
+    t.skip(`native spawn test binary not found: ${binary}`);
+    return;
+  }
+  try {
+    _setNativeSpawnBinaryForTest(binary);
+    await ensureNativeSpawnServer();
+    // The root exits at once but a grandchild keeps the stdout pipe open, so
+    // root_exit arrives while 'close' stays outstanding.
+    const grandchild =
+      "require('node:child_process').spawn(process.execPath,['-e','setTimeout(()=>{},4000)']," +
+      "{stdio:['ignore','inherit','inherit'],detached:true}).unref()";
+    const { child } = tryNativeSpawn({ shell: process.execPath, argv: ['-e', grandchild] });
+    const errors = [];
+    child.on('error', (error) => errors.push(error));
+    const closed = new Promise((resolve) => child.on('close', (code) => resolve([code])));
+    await once(child, 'exit');
+    const lostAt = Date.now();
+    await shutdownNativeSpawnServer('transport-lost');
+    const [code] = await Promise.race([
+      closed,
+      delay(2_000).then(() => {
+        throw new Error('request stranded after transport loss');
+      }),
+    ]);
+    assert.ok(Date.now() - lostAt < 2_000);
+    assert.equal(code, 0, 'the known root exit code is kept');
+    assert.equal(errors.length, 1);
+  } finally {
+    await shutdownNativeSpawnServer('test-finish').catch(() => {});
+    _resetNativeSpawnClientForTest();
+  }
+});
