@@ -159,7 +159,6 @@ const DEFAULTS_SEPARATION_VERSION = 1;
 const HISTORICAL_ACTIVITY_RAIL_PINS: readonly (readonly string[])[] = [
   ['sessions', 'agents', 'schedules', 'workflows', 'projects'],
   ['sessions', 'agents', 'schedules', 'workflows', 'projects', 'extensions'],
-  ['sessions', 'agents', 'schedules', 'workflows', 'projects', 'extensions', 'skills'],
   DEFAULT_ACTIVITY_RAIL_PINS,
 ];
 

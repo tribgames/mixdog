@@ -579,17 +579,7 @@ test('defaults separation removes the current default pin list and keeps a custo
 
 test('saving the default pin list stores only the revision and still reads back the default', async () => {
   const { state, store } = memoryStore({});
-  const defaults = [
-    'sessions',
-    'schedules',
-    'workflows',
-    'projects',
-    'extensions',
-    'skills',
-    'source-control',
-    'search',
-    'webhooks',
-  ];
+  const defaults = ['sessions', 'agents', 'schedules', 'workflows', 'projects', 'extensions', 'skills'];
   assert.deepEqual(await store.updateActivityRailPins(defaults), { pins: defaults, revision: 1 });
   assert.deepEqual(state.value.desktop.activityRailPins, { revision: 1 });
   assert.deepEqual(await store.readActivityRailPins(), { pins: defaults, revision: 1 });
