@@ -212,6 +212,26 @@ test('a narrow surface drills the pane into the sheet; Back returns to the rows 
   }
 });
 
+test('the Studio sheet lines up with the trailing edge of its end-justified pill', async () => {
+  const view = await mount();
+  try {
+    view.trigger().getBoundingClientRect = () => ({
+      left: 600,
+      right: 700,
+      top: 600,
+      bottom: 632,
+      width: 100,
+      height: 32,
+    });
+    await click(view.trigger());
+    const sheet = document.querySelector('.route-sheet');
+    assert.equal(Number.parseFloat(sheet.style.left) + Number.parseFloat(sheet.style.width), 700);
+    assert.ok(Number.parseFloat(sheet.style.top) < 600, 'the sheet opens above the pill');
+  } finally {
+    await view.dispose();
+  }
+});
+
 test('the field variant wraps the menu, shows the suffix and keeps its natural width', async () => {
   const view = await mount({ variant: 'field', triggerLabel: 'Custom', suffix: 'Work', ariaLabel: 'Pick' });
   try {
