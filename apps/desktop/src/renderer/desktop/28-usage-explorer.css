@@ -1004,12 +1004,20 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
   overflow: hidden;
   clip: rect(0, 0, 0, 0);
 }
+/* Tabs that do not fit (a phone, a long locale) scroll sideways under their
+   own edge instead of running under the close button. */
 .command-surface-tabs {
   align-self: stretch;
   align-items: stretch;
   gap: 20px;
   min-width: 0;
   margin-inline-end: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.command-surface-tabs::-webkit-scrollbar {
+  display: none;
 }
 .command-surface-tab {
   position: relative;

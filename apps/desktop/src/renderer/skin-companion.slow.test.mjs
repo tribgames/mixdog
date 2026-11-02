@@ -2337,19 +2337,20 @@ test('Settings → Bots: the overlay is on by default; the switch turns it off a
   assert.equal(window.localStorage.getItem('mixdog.desktop.skin-buddy.v1'), null);
 });
 
-test('the old corner-mascot flag migrates once: an explicit off is kept as a stored off', async (t) => {
-  const off = fakeDesktop();
-  const { document, window } = await mountSettings(t, off, { legacy: 'off' });
-  assert.deepEqual(off.calls.enabled, [false]);
-  assert.equal(switchOf(document).checked, false);
+// Main's overlay is off unless stored on (DEFAULT_DESKTOP_PET_PREFS).
+test('the old corner-mascot flag migrates once: an explicit on is kept as a stored on', async (t) => {
+  const unset = fakeDesktop({ enabled: false });
+  const { document, window } = await mountSettings(t, unset, { legacy: 'on' });
+  assert.deepEqual(unset.calls.enabled, [true]);
+  assert.equal(switchOf(document).checked, true);
   assert.equal(window.localStorage.getItem('mixdog.desktop.skin-buddy.v1'), null, 'migrated once');
 });
 
-test('an old on, or no old flag, leaves the default on without writing anything', async (t) => {
-  const on = fakeDesktop();
-  const first = await mountSettings(t, on, { legacy: 'on' });
-  assert.deepEqual(on.calls.enabled, []);
-  assert.equal(switchOf(first.document).checked, true);
+test('an old off leaves the default off without writing anything', async (t) => {
+  const unset = fakeDesktop({ enabled: false });
+  const first = await mountSettings(t, unset, { legacy: 'off' });
+  assert.deepEqual(unset.calls.enabled, []);
+  assert.equal(switchOf(first.document).checked, false);
   assert.equal(first.window.localStorage.getItem('mixdog.desktop.skin-buddy.v1'), null);
 });
 

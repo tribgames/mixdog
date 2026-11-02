@@ -5,6 +5,7 @@ import {
   type HTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
+  type Ref,
   type SelectHTMLAttributes,
 } from 'react';
 
@@ -92,15 +93,17 @@ export function Tabs<T extends string>({
   onChange,
   className,
   tabClassName,
+  listRef,
 }: {
   items: ReadonlyArray<{ id: T; label: ReactNode; badge?: ReactNode }>;
   value: T;
   onChange(value: T): void;
   className?: string;
   tabClassName?: string;
+  listRef?: Ref<HTMLDivElement>;
 }) {
   return (
-    <div className={classes('mx-tabs', className)} role="tablist">
+    <div ref={listRef} className={classes('mx-tabs', className)} role="tablist">
       {items.map((item) => (
         <button
           key={item.id}

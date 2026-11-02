@@ -113,9 +113,18 @@ test('the usage dialog closes by its button and by an outside tap on a phone', a
     page.on('pageerror', (error) => errors.push(error.message));
     await page.setUserAgent(IOS_UA);
     await page.setViewport({ ...viewport, deviceScaleFactor: 2, isMobile: true, hasTouch: true });
-    await page.setContent(
-      '<!doctype html><html data-mixdog-mobile-tabs data-mixdog-ios-web><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"></head><body><div id="root"></div></body></html>'
+    // Served from an origin (about:blank has none) so the dialog's last tab
+    // choice can persist in localStorage.
+    await page.setRequestInterception(true);
+    page.on('request', (request) =>
+      request.respond({
+        contentType: 'text/html',
+        body: '<!doctype html><html data-mixdog-mobile-tabs data-mixdog-ios-web><head><meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover"></head><body><div id="root"></div></body></html>',
+      })
     );
+    await page.goto('http://mixdog.test/');
+    // The origin's storage outlives a page: every viewport opens on its default tab.
+    await page.evaluate(() => window.localStorage.clear());
     // The shell tracks the visual viewport through these (shell-viewport.ts).
     await page.evaluate(({ width, height }) => {
       const root = document.documentElement.style;
@@ -127,9 +136,9 @@ test('the usage dialog closes by its button and by an outside tap on a phone', a
     await page.addScriptTag({ content: bundle.outputFiles.find((file) => file.path.endsWith('.js')).text });
     const label = `${viewport.width}x${viewport.height}`;
 
-    const open = async () => {
+    const open = async (ready = '.command-surface .stats-provider-row') => {
       await page.tap('#open-usage');
-      await page.waitForSelector('.command-surface .stats-provider-row');
+      await page.waitForSelector(ready);
       await page.evaluate(async () => {
         await document.fonts.ready;
         await Promise.all(
@@ -184,6 +193,33 @@ test('the usage dialog closes by its button and by an outside tap on a phone', a
     await page.waitForFunction(() => !document.querySelector('.command-surface'), { timeout: 3000 }).catch(() => {});
     assert.equal(await isOpen(), false, `outside tap dismisses: ${label}`);
     assert.deepEqual(await page.evaluate(() => window.tapLog), [], `the tap does not reach the shell: ${label}`);
+
+    // The last tab chosen is restored on opening; a row too narrow for every
+    // tab still shows it whole, and the close button stays reachable.
+    await page.evaluate(() => window.localStorage.setItem('mixdog.desktop.usage-surface-mode.v1', 'requests'));
+    await open('.command-surface-tab.is-active');
+    if (shots) await page.screenshot({ path: join(shots, `requests-${label}.png`) });
+    const restored = await page.evaluate(() => {
+      const row = document.querySelector('.command-surface-tabs').getBoundingClientRect();
+      const tab = document.querySelector('.command-surface-tab.is-active');
+      const box = tab.getBoundingClientRect();
+      const close = document.querySelector('.mixdog-settings__close');
+      const closeBox = close.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        (closeBox.left + closeBox.right) / 2,
+        (closeBox.top + closeBox.bottom) / 2
+      );
+      return {
+        tab: tab.textContent.trim(),
+        clipped: Math.max(0, row.left - box.left, box.right - row.right),
+        closeHit: close === hit || close.contains(hit),
+      };
+    });
+    assert.equal(restored.tab, 'Request log', `the stored tab is restored: ${label}`);
+    assert.ok(restored.clipped < 1, `the restored tab is not clipped: ${label} by ${restored.clipped}px`);
+    assert.ok(restored.closeHit, `close button is hit-testable over the restored tab row: ${label}`);
+    await page.tap('.mixdog-settings__close');
+    await page.waitForFunction(() => !document.querySelector('.command-surface'));
     if (shots) await page.screenshot({ path: join(shots, `closed-${label}.png`) });
     assert.deepEqual(errors, [], 'no renderer errors');
     await page.close();
