@@ -5891,5 +5891,9 @@
   "No devices to connect. Connect a device to this PC and it appears here.": "接続できるデバイスがありません。デバイスをこの PC に接続すると、ここに表示されます。",
   "Only this device is connected to this site, until the app quits.": "アプリを終了するまで、このデバイスだけがこのサイトに接続されます。",
   "HID device connections": "HID デバイスの接続",
-  "Sites in the built-in browser can ask to connect a HID device. You pick the device each time.": "内蔵ブラウザのサイトが HID デバイスへの接続を求められるようにします。接続するデバイスは毎回自分で選びます。"
+  "Sites in the built-in browser can ask to connect a HID device. You pick the device each time.": "内蔵ブラウザのサイトが HID デバイスへの接続を求められるようにします。接続するデバイスは毎回自分で選びます。",
+  "{{count}} steps": "{{count}}ステップ",
+  "{{count}} steps_other": "{{count}}ステップ",
+  "Used tools {{count}} times": "ツール{{count}}回使用",
+  "Used tools {{count}} times_other": "ツール{{count}}回使用"
 }
