@@ -162,10 +162,8 @@ const GRAPH_RUNTIME_CACHE_KEYS = new Set([
 // short-lived Object.entries arrays.
 const _baseGraphBytes = new WeakMap();
 
-export function _estimateGraphRetainedBytes(graph) {
-  if (!graph || typeof graph !== 'object' || graph instanceof Map || Array.isArray(graph)) {
-    return _estimateValueBytes(graph);
-  }
+/** Base (non-runtime-cache) size of a graph, memoized per hydration state. */
+export function _estimateGraphBaseBytes(graph) {
   let base = _baseGraphBytes.get(graph);
   if (!base || base.hydration !== graph._callsHydration) {
     const seen = new WeakSet();
@@ -176,7 +174,22 @@ export function _estimateGraphRetainedBytes(graph) {
     base = { hydration: graph._callsHydration, bytes };
     _baseGraphBytes.set(graph, base);
   }
-  let bytes = base.bytes;
+  return base.bytes;
+}
+
+// A build Worker measures its graph before posting it; the structured clone
+// has the same own keys and values, so the main thread adopts that number
+// instead of re-walking a multi-hundred-MB graph on arrival.
+export function _seedGraphBaseBytes(graph, bytes) {
+  if (!graph || typeof graph !== 'object' || !Number.isFinite(bytes)) return;
+  _baseGraphBytes.set(graph, { hydration: graph._callsHydration, bytes });
+}
+
+export function _estimateGraphRetainedBytes(graph) {
+  if (!graph || typeof graph !== 'object' || graph instanceof Map || Array.isArray(graph)) {
+    return _estimateValueBytes(graph);
+  }
+  let bytes = _estimateGraphBaseBytes(graph);
   for (const key of GRAPH_RUNTIME_CACHE_KEYS) {
     if (Object.hasOwn(graph, key)) bytes += 8 + _estimateValueBytes(key) + _estimateValueBytes(graph[key]);
   }

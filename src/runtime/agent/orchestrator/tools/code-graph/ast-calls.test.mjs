@@ -448,6 +448,23 @@ test('AST callees: inSymbol match reports kind, receiver and 1-based column', as
   assert.doesNotMatch(out, /Timer|cleanup/);
 });
 
+test('AST callees: resolving a callee never reads files that only mention its name', async (t) => {
+  // users.js uses `helper` but declares nothing; its text is only on disk, so a
+  // read shows up as a source-cache entry.
+  const text = 'helper(1);\nhelper(2);\n';
+  const user = makeNode('src/users.js', 'javascript', text);
+  const dir = mkdtempSync(join(tmpdir(), 'mixdog-callees-'));
+  user.node.abs = join(dir, 'users.js');
+  writeFileSync(user.node.abs, text);
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const graph = makeGraph([svcNode()]);
+  graph.nodes.set(user.node.rel, user.node);
+  const out = await dispatch(graph, { mode: 'callees', symbol: 'runTask' });
+  assert.match(out, /^helper\tcallsite src\/svc\.js:2:10\tdecl src\/svc\.js:17\t\(in runTask\)\tkind=call$/m);
+  assert.equal(graph._sourceTextCache.has('src/users.js'), false);
+  assert.equal(graph._maskedLinesCache.has('src/users.js'), false);
+});
+
 test('AST callees: a container symbol also reports the calls of its members', async () => {
   const graph = makeGraph([svcNode()]);
   const out = await dispatch(graph, { mode: 'callees', symbol: 'Worker' });

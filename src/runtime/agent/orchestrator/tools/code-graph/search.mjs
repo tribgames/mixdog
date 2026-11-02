@@ -504,8 +504,22 @@ function _pickCalleeDeclHit(hits, preferRel) {
   return sorted.find((h) => h.declarationLike) || sorted[0];
 }
 
+// A callee row only uses a declaration-like hit, and only a node whose native
+// record declares the name (symbols or topLevelTypes) can yield one. Scanning
+// just those nodes picks the same hit (the comparator is a total order over
+// hit fields) without reading and masking every file that merely mentions a
+// common name like `push` — a multi-second main-thread stall per callees call.
 function _resolveCalleeDeclaration(graph, name, { language = null, preferRel = null } = {}) {
-  return _pickCalleeDeclHit(_findSymbolHits(graph, name, { language }), preferRel);
+  const cleanName = String(name || '').trim();
+  if (!cleanName || cleanName.includes('/')) {
+    return _pickCalleeDeclHit(_findSymbolHits(graph, name, { language }), preferRel);
+  }
+  const declaring = _lookupCandidateNodes(graph, cleanName, language).filter(
+    (node) =>
+      (Array.isArray(node.topLevelTypes) && node.topLevelTypes.includes(cleanName)) ||
+      (Array.isArray(node.symbols) && node.symbols.some((symbol) => symbol?.name === cleanName))
+  );
+  return _pickCalleeDeclHit(_findSymbolHitsOnNodes(graph, cleanName, declaring, { language }), preferRel);
 }
 
 // The record facts every symbol-mode row reports: the unified kind, the
