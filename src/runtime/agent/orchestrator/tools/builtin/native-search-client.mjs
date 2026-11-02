@@ -338,7 +338,7 @@ function _ensureServer() {
       return;
     }
     if (message?.event === 'invalidate' && Array.isArray(message.paths)) {
-      invalidateBuiltinResultCache(message.paths.map(String));
+      invalidateBuiltinResultCache(message.paths.map(String), { canonical: true });
       return;
     }
     if (message?.event === 'cancelled') {

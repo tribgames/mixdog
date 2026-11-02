@@ -161,19 +161,52 @@ function stateForRoot(root) {
   return state;
 }
 
+// Platforms whose recursive watch backend reports a path as the watched
+// (canonical) root plus a relative name and never descends into a link:
+// ReadDirectoryChangesW on Windows watches one directory handle and its own
+// subtree, and FSEvents on macOS reports resolved paths. inotify on Linux
+// follows links while walking a recursive watch, so it can report an alias
+// of a directory that another tracked root owns. Unlisted platforms are not
+// trusted either.
+const LINK_FREE_WATCH_PLATFORMS = new Set(['win32', 'darwin']);
+
 /** Report written paths (or `null`: anything may have changed). The next
- *  review poll of an affected worktree captures instead of reusing. */
-export function noteTurnWorktreeChange(paths = null) {
+ *  review poll of an affected worktree captures instead of reusing.
+ *  `canonical`: the paths come from a recursive watch on canonical roots. On a
+ *  link-free backend a path under a root by its own spelling then needs no
+ *  filesystem call; one that is not is still canonicalised. Every other
+ *  source, and every watcher on another platform, may name paths through
+ *  links, so each is canonicalised. `platform` exists for tests. */
+export function noteTurnWorktreeChange(
+  paths = null,
+  { canonical = false, platform = process.platform } = {}
+) {
   if (states.size === 0) return;
   const list = Array.isArray(paths) ? paths.filter((value) => clean(value)) : [];
-  const dirs = new Map();
-  const keys = list.map((value) => pathKey(canonicalPath(value, dirs)));
-  for (const state of states.values()) {
-    const root = pathKey(state.root);
-    if (keys.length === 0 || keys.some((key) => key === root || key.startsWith(`${root}/`))) {
-      state.changeStamp += 1;
-    }
+  if (list.length === 0) {
+    for (const state of states.values()) state.changeStamp += 1;
+    return;
   }
+  const roots = [...states.values()].map((state) => ({ state, root: pathKey(state.root) }));
+  const stamped = new Set();
+  const stampMatches = (key) => {
+    let matched = false;
+    for (const { state, root } of roots) {
+      if (key === root || key.startsWith(`${root}/`)) {
+        stamped.add(state);
+        matched = true;
+      }
+    }
+    return matched;
+  };
+  const trustSpelling = canonical && LINK_FREE_WATCH_PLATFORMS.has(platform);
+  const dirs = new Map();
+  for (const value of list) {
+    if (stamped.size === roots.length) break;
+    if (trustSpelling && stampMatches(pathKey(resolve(value)))) continue;
+    stampMatches(pathKey(canonicalPath(value, dirs)));
+  }
+  for (const state of stamped) state.changeStamp += 1;
 }
 
 // A lock hold (queue wait plus work) at least this long is logged, so a slow
