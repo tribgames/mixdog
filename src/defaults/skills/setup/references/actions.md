@@ -1,6 +1,7 @@
 # Setup actions and domain notes
 
-Read this when choosing a `setup` mutation.
+Read this when choosing a `setup` mutation, explaining domain behavior or
+change timing, or diagnosing MCP, plugin, or built-in failures.
 
 ## Read and navigate
 
@@ -84,7 +85,7 @@ Read this when choosing a `setup` mutation.
 | Enable/disable (pause/resume) a schedule/webhook | `set_automation_enabled` |
 | Run a schedule once now, or re-run a webhook on its latest received payload; the result posts into the owning agent's thread | `run_automation` |
 | Webhook listener enabled state, port, or domain | `set_webhook_config` |
-| Desktop keep-awake, run in background after window close, turn-completion notifications, notification volume (Windows), usage pin, usage rail short + long bars, expanded usage accounts, usage rail slots (three / all), Computer observe-only, Browser auto sign-in, or the representative bot overlay (`desktop.botOverlay`) | `set_desktop_settings` |
+| Desktop keep-awake, run in background after window close, notification volume (Windows), usage pin, usage rail short + long bars, expanded usage accounts, usage rail slots (three / all), Computer observe-only, Browser auto sign-in, saving logins entered in chat, browser HID device connections, session auto-archive / auto-delete days, or the representative bot overlay (`desktop.botOverlay`) | `set_desktop_settings` |
 | Desktop theme, imported color theme, UI/code font, UI scale, code size and ligatures, chat text size, skin transparency (outer or main panels), display language, time format, side panels and their position, markdown default view, link previews, or tool activity expansion | `set_appearance` |
 | Add a before-tool hook rule | `add_hook_rule` |
 | Enable or disable a hook rule by its `status hooks` index | `set_hook_rule_enabled` |
@@ -106,6 +107,21 @@ Read this when choosing a `setup` mutation.
 | One connector tool of an agent to disabled, needs_approval or auto (a widening asks the user on an approval card) | `set_agent_connector_tool` |
 | Bring back an archived bot or agent (`definitionKind: "agent"`) | `restore_definition` |
 | Bot display order (Bots page, Sessions bot section; `status agents` `botOrder`) | `set_bot_order` |
+
+## When a change applies
+
+Report the result's `appliesTo` and `appliedToCurrentSession` when it has them;
+this table is for when it does not.
+
+- Now (each at its next use): built-in, connector, permission, hook-rule,
+  cache-warming and automation changes, and a fallback chain: running sessions
+  on that route read it at their next hop.
+- Next turn: an agent/bot route for its open chats, `reset_route_fallback`, a
+  workflow switch. A running turn finishes on its current model.
+- New sessions: the Main model (`set_route` model), instruction files, most
+  other settings. An established conversation keeps its model.
+- Session actions (`reset_route_fallback`, quota resume, `continue_in_model`)
+  answer `scope: "session"`, not a saved setting.
 
 ## Routes and workflow
 
@@ -231,7 +247,8 @@ key's source.
   built-in window. A reset and a duration are mutually exclusive; provider
   reset requires a provider.
 - `duration: "unlimited"` (or `"never"`) stops idle clearing for a provider;
-  without `provider` it applies to the current route's provider. `status
+  without `provider` it applies to the current route's provider. Unlimited
+  stops idle clearing only: compaction still runs at the context limit. `status
   autoclear` reports `unlimited`, `label` and per-provider `providerDefaults`
   (`builtInUnlimited` marks a built-in unlimited window); a provider reset
   restores its built-in window. Built-ins follow each provider's cache: Codex/
@@ -248,13 +265,18 @@ key's source.
   `summaryMode`: `smart`, `maintainer`, or `self` (Conversation model).
   `status compaction` returns them plus `aiSessionTitles`
   (`set_ai_session_titles`).
+- Memory master state (`set_memory_enabled`) controls the memory tools and
+  background cycles; Core Memory injection stays on regardless.
+  `set_recap_enabled` changes only the background cycles. Core Memory entries
+  are read and changed with the `memory` tool, not setup.
 - If no supported action exposes a requested Memory interval, report it as
   unavailable rather than editing configuration.
 
 ## Built-in features
 
 Read `status features` and distinguish installation, enabled state, and live
-bridge state. `status features` covers Git, Memory, Office, Code Tidy, Local
+bridge state; for an unavailable built-in, say which applies: not installed,
+installed but disabled, or bridge inactive. `status features` covers Git, Memory, Office, Code Tidy, Local
 Provider, Auto Effort and Web Search plus Browser/Computer/Terminal bridge
 activity and voice state (enabled, runtime installed, missing whisper/model/
 ffmpeg components); the Browser Use / Computer Use installed and enabled
@@ -290,6 +312,7 @@ markers are read with `status desktop`.
 
 ## Hooks and media
 
+- Hook rules are before-tool policy, separate from MCP and plugins.
 - `status hooks` lists before-tool rules with their `index`, plus configured
   lifecycle events, config sources and errors. Argument edits are reported
   only as `hasArgumentEdit`; their contents are never returned. Indexes shift
@@ -311,10 +334,22 @@ markers are read with `status desktop`.
 ## Skills, MCP, and plugins
 
 - `status skills` plus `set_disabled_skills` manage activation.
-- `set_extension_scope` limits a global item to selected Project roots.
+  `set_disabled_skills` replaces the complete disabled list; inspect the
+  current list before changing one entry.
+- User skills are machine-global. Enabled plugin skills and built-in skills are
+  also discoverable; project-local `.mixdog/skills` directories are ignored.
+- MCP servers and plugins are machine-global integrations whose visibility may
+  be scoped to selected Projects: `set_extension_scope` limits a global item to
+  selected Project roots.
 - Plugin scope is inherited by the skills and MCP integrations it contributes.
-- MCP mutation results include reconnection state. Diagnose the returned error
-  before making another change.
+- MCP mutation results include reconnection state. For a failure, inspect the
+  reported transport error before changing command, arguments, directory,
+  environment, URL, headers, or enabled state, and before making another
+  change. MCP reads omit raw connection values that may contain secrets.
+- An HTTP/SSE MCP server that needs OAuth waits for sign-in instead of
+  failing; setup rows then show it enabled, not connected, with no `error`.
+  Setup cannot sign in, and `reconnect_mcp` does not log in: hand off to
+  `open mcp` (Connect/Reconnect) or the TUI `/mcp login`.
 - MCP add requires name plus command or URL. Save uses `originalName` (defaults
   to name), so changing `name` with `originalName` renames the existing server.
   Omitted fields remain unchanged. Switching transport requires a complete new
@@ -341,7 +376,10 @@ markers are read with `status desktop`.
   ("Slack 연결해 줘"): it leaves a connect card in the conversation whose
   press runs the service's sign-in, key sheet or (Gmail: app password only)
   dialog in Desktop; nothing connects until the user presses it, so tell them to press the card and read
-  `status mcp` afterwards. `add_mcp_server` with the service URL is not the
+  `status mcp` afterwards. For each of Gmail, Calendar and Drive, multiple
+  accounts share that connector's server and its tools select an account, so
+  a second account is another card, not another server. A Google sign-in that leaves a requested access box
+  unchecked stores no token: connect again and tick every box. `add_mcp_server` with the service URL is not the
   sign-in flow; never use it for a catalog service.
 - Agent permissions and connector switches change only toward less: `block`
   or `ask`, a connector off, a tool to `disabled`. An action permission
@@ -365,9 +403,12 @@ markers are read with `status desktop`.
 - `status capabilities` lists supported actions and deliberate handoffs.
 - Desktop-only operations require the owning conversation visible in the local
   Desktop app. Never claim a persisted change from merely delivering a request.
+- Desktop appearance changes affect the Desktop host, not a paired phone.
+  Fonts, imported color themes and skin transparency are saved per device.
+  Display language is independent of the profile response language.
 - A display-language change returns `requiresReload`; so does a changed
   `timeFormat` (already-shown times update after the window reloads, which is
-  never automatic).
+  never automatic). A required reload is reported, never performed.
 - `set_appearance` also takes `uiFont` / `codeFont` (a family name, `""` =
   built-in; text it lacks falls back to the built-in fonts), skin transparency
   (0–100, defaults outer 20 / main 40; higher shows more of the skin picture):
@@ -389,6 +430,25 @@ markers are read with `status desktop`.
   `autoClose` and `scale` (50–200, step 10). Enabling needs the
   representative bot; `status desktop` returns `botOverlay`. Reset position
   stays in the UI.
+- Saved logins: `browserAutoSignIn` (the agent signs in by itself),
+  `saveChatLogins` (keep logins the user types in chat) and `browserHidDevices`
+  (sites may offer a HID device the person picks) are only switches. The logins
+  themselves (passwords, authenticator keys, imports, sign-out, delete, clear
+  all) are managed by the user in Settings → Authentication; never ask for or
+  type them in chat.
+- `sessionAutoDeleteDays` permanently deletes archived sessions (never
+  restorable): ask for explicit approval before setting or shortening it, and
+  prefer `sessionAutoArchiveDays` (restorable) when the user only wants a
+  tidier list. Favorite and bot sessions, running or open sessions,
+  scheduled-task targets and sessions with unread replies are never archived.
+- `set_worktree_settings`: `maxWorktrees` / `unusedDays` of `0` disable that
+  cleanup criterion; setting a positive value where it was `0`, or lowering a
+  positive one, makes cleanup remove more, and `deleteBranch:true` also
+  deletes the cleaned-up worktrees' branches: confirm with the user first. The
+  size warning is bytes in the tool (the page shows GB); `0` never asks.
+- `set_cache_warming_enabled` covers Anthropic models only (their cache
+  expires): it warms a conversation's cache only once its own return times show
+  it pays, and adds a small usage charge, so say that when offering it.
 - A Project removal unregisters it only.
 - Inspect schedules/webhooks before editing. `overwrite:true` updates an
   existing named entry and preserves omitted fields; a new schedule needs
@@ -407,7 +467,8 @@ markers are read with `status desktop`.
   answers "accepted" at once and a delivery that arrives while its run is
   active is skipped. In an attended bot conversation (chat, room, or work a
   bot started) the same payment and permanent-delete connectors ask first,
-  allow once or deny only; a coding session is not asked.
+  allow once or deny only, never "항상 허용" whatever was stored before; a
+  coding session is not asked.
 - `entry.executorAgentId` (schedule or webhook) is an enabled workflow
   sub-agent id (Worker, …; never a bot or Mixy; unknown or turned-off ids are
   refused). With it, each run is first carried out by that sub-agent on its own

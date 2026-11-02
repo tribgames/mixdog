@@ -26,8 +26,9 @@ names or dotted internal names. End a step with one question, not a list of opti
 
 - Setup walk-through: the user accepted setup help ("기본 설정부터 같이 할까요?"),
   or asks how to start or what to do first.
-- Concept question: answer it from the glossary below, then stop. Go deeper
-  only when asked, and offer the matching setup step only if it is not done.
+- Concept question: read `references/glossary.md`, answer from it, then stop.
+  Go deeper only when asked, and offer the matching setup step only if it is
+  not done.
 
 ## Opening
 
@@ -49,29 +50,10 @@ Tier 2, recommended: Memory (`memory`), Computer Use (`computer`), Browser Use
 Tier 3, optional: Voice transcription (`voice`), Local Provider
 (`localProvider`), Code Tidy (`tidy`). Offer the missing ones in one short line.
 
-Install only what the user accepts. How each is done:
-
-- `install_builtin` with the name for git, memory, autoEffort, computer,
-  browser, voice, localProvider and tidy. Git installs system Git through the
-  Desktop when this chat is open there. Auto reasoning can be unsupported on
-  a machine: report that instead of retrying. Computer Use and Browser Use
-  need the Desktop, and the user approves OS permission dialogs. Local
-  Provider only prepares the runtime; models belong to `local-provider`.
-- Memory is install-only; its later on/off is `set_memory_enabled`.
-- Visualize has no install: `set_builtin_enabled` turns it on.
-- Media generation has no setup action: `open plugins` and let the user turn
-  it on there, then re-check `status features`.
-
-Connectors come after the tiers. First explain in a sentence or two: a
-connector links an outside service so bots and agents can read and act in it,
-and anything that sends or posts asks first through an approval card. Then
-suggest by what the user does, only these: Gmail (with a Google app password;
-it needs 2-Step Verification on the Google account, and the connect window
-opens the app-password page in the browser), Google Calendar, Google Drive
-(both with the Google sign-in), Notion, Linear or Jira. GitHub is
-not a connector; it is the signed-in GitHub CLI of Git & GitHub. Connect one with
-`connect_connector`; it only leaves a card, so tell the user to press it and
-confirm with `status mcp`.
+Install only what the user accepts. Visualize and Media generation have no
+install: once accepted, turn them on with `set_builtin_enabled` (`name`
+`visualize` or `media`, `enabled` true). Read `references/features.md` before
+offering add-ons or explaining, recommending, or connecting connectors.
 
 ## Walk-through
 
@@ -87,104 +69,35 @@ done. Take the first open step, explain it in a sentence or two, ask, then act.
 2. project: done when a Project exists or `onboarding` lists `project` as
    visited. A folder is optional. Register one with `save_project` for a path
    the user names.
-3. workflow: done when `onboarding` lists `workflow` as visited. Explain
-   workflows and agents, `open workflows` so the user can turn agents on and
-   pick models (`set_agent_route` once they name a model). Recommend models
-   from `${MIXDOG_SKILL_DIR}/model-recommendations.json`, role by role, only
-   among providers the user is signed in to (`status providers`) and only a
-   model the provider's model list actually offers; picks are an ordered list
-   of any length, so recommend the first one that qualifies and otherwise take
-   the next. A subscription sign-in always comes first: when the user has one,
-   take the first qualifying pick it offers before any pick that would bill an
-   API key, and only fall back to API-key providers when no subscription
-   offers one. If `asOf` is older than `staleAfterDays`, say the list may be out of
-   date. Never print ids or file names. Roles with
-   `preferOtherProviderThan` (Reviewer, Advisor) work best with the opposite
-   tendency from the model doing the work: pick the first qualifying model whose
-   provider differs from the chosen Lead's and Heavy Worker's providers, and
-   fall back to the plain first pick only when the user has a single signed-in
-   provider. Give the reason in one line: a different model family catches what
-   the main one misses. Suggest turning on the Maintainer with
-   a cheap model at the lowest effort; it also decides turns in group rooms.
-   Offer Explore the same way, from its own picks: a cheap model that
-   searches code for the Lead in separate parallel sessions.
-   A pick may carry `plans`: when the Lead provider's plan (`plan` in
-   `status providers`) is listed there, recommend that model instead. A null or
-   unlisted plan keeps the pick as is; never fail on an unknown plan.
-   Delegation and roster come from `delegation` in the data file. First ask
-   once how the user likes to work: one agent doing everything, or splitting
-   work across agents. Say plainly that Solo is a good choice at any plan: it
-   is the most efficient, and with a strong model its quality is often not much
-   lower; delegation trades more usage for speed and parallel work. Then suggest
-   the mode whose `plans` lists the Lead provider's plan (the default
-   suggestion), but the user's preference overrides it. Ask once; set it with
-   `set_orchestration_mode`, and say it can be changed later in settings. The
-   roster follows the chosen mode: turn on only `baseRoster` plus that mode's
-   `agents`, using `set_agent_route` with `route.disabled` set false for what
-   the user accepts and true for the rest; do not enable others. Offer
-   `leanReview` for Solo or focused as a cost saver: the Lead reviews its own
-   work, Reviewer stays off, Advisor is on but used rarely (only when stuck).
-   Advisor in balanced or swarm is a light, occasional second opinion from a
-   different model family at key decision points, not on every task. Say in
-   one line that more agents can be turned on later on the Workflows page.
-   Right after the models are picked, explain Auto reasoning: it adjusts
-   reasoning depth per message around a medium baseline, so hard work may
-   come out slightly lower in quality but cost is much lower. The Lead runs
-   the main coding work, where stability matters most, so also recommend
-   fixing the Lead's effort at High or above in the model picker (choosing an
-   effort there turns Auto off for that model). Ask whether to turn Auto on
-   (`install_builtin` `autoEffort`). If declined, say in one line that it can
-   be turned on later by choosing Auto at the top of the model picker's
-   reasoning effort list.
+3. workflow: done when `onboarding` lists `workflow` as visited. Explain that a
+   workflow sets how work gets done and agents are helpers behind a task, then
+   `open workflows` so the user can turn agents on and pick models
+   (`set_agent_route` once they name a model). Read
+   `references/workflow-models.md` before recommending any model, mode, roster
+   or Auto reasoning.
 4. remote: done when a device is paired (`status connection`) or `remote` is
    visited. Pairing is user-operated: `open connection`.
-5. extensions: done when `extensions` is visited. Explain plugins and skills;
-   offer only built-ins not already covered by the tiers above.
+5. extensions: done when `extensions` is visited. Explain that plugins add
+   tools and skills teach how to work; offer only built-ins not already covered
+   by the tiers above.
 6. mixy: done once Mixy exists, which is already true when this skill runs in
    Mixy's chat. Offer to make another bot when the user wants one.
 
 After a change, report it in a sentence and move on. The user may stop at any
 step; do not insist.
 
-## Glossary
-
-- Bot (봇): a contact you chat with in bot mode (봇 모드). Mixy is the representative
-  bot; the user can have it make others, such as a GitHub Watcher.
-- Agent (에이전트): a workflow sub-agent such as Worker or Reviewer that
-  does part of a task. Users add their own on the Workflows page with the
-  "에이전트 +" button. Bots are people-facing; agents work behind a task.
-- Default agents (기본 에이전트): built-in helpers listed on Workflows, such as
-  Web Search (runs the web search tool), the Maintainer (memory upkeep and
-  session titles) and Explore (code search for the Lead). They need a model
-  route to work.
-- Agent mode (에이전트 모드): a coding work session run by Lead and agents.
-  A session a bot starts for a job is an agent task session (에이전트 작업
-  세션); others are just sessions (세션).
-- Sessions and projects: an agent-mode session runs in a Project, a folder whose
-  instructions and memories it loads.
-- Workflows and work rules: a workflow sets how a request gets done; work
-  rules are the instructions it applies.
-- Connectors and extensions: connectors are MCP services such as Notion or
-  Linear (`connect_connector`, the user presses the card); extensions are
-  plugins that add tools and skills that teach how to work.
-- Group rooms (그룹 대화방): one chat with several bots. `@name` or "봇 부르기"
-  addresses one bot; otherwise the Maintainer decides who answers next.
-- Schedules and webhooks: a timed or incoming-event trigger (`save_automation`).
-  Each run is one turn in its bot's own chat, with that bot's persona, rules,
-  permissions, memory and model. Without a bot they cannot be used. A routine
-  can also name an executor sub-agent (`executorAgentId`, e.g. Worker): that
-  sub-agent does each run on its own model and the bot only relays its report.
-  In the Schedules/Webhooks editor this is the "Executor" field (Korean UI:
-  "실행 에이전트"); its default "The bot itself" ("직접 처리") means the bot
-  does the run itself.
-- Approval cards: when a tool needs permission it waits in the chat until the
-  user approves or declines.
-- Phone remote access: pair a phone under Settings → Connection to follow and
-  steer tasks away from the PC.
-
 ## Pitfalls
 
-- Do not claim a step is done from memory; re-read state after acting.
-- A UI handoff (`open`) is not completion; ask the user to confirm, then
-  re-check the status.
+- Do not claim a step is done from memory; read state before the step.
+- Trust a receipt that proves the change. Re-check `status` only after a UI
+  handoff (`open`: ask the user to confirm first), a pending install, or a
+  receipt that does not show the persisted value.
 - Do not run several steps in one message or queue the next question early.
+
+## Resources
+
+- `references/glossary.md` — read only for a concept question.
+- `references/features.md` — read before offering add-ons or explaining,
+  recommending, or connecting connectors.
+- `references/workflow-models.md` — read at the workflow step before
+  recommending models, roster or Auto reasoning.
