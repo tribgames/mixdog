@@ -32,6 +32,7 @@ import { AGENT_GROUP_EXPANSION_EVENT, AgentGroupsMenu } from './agent-group-visi
 import i18n from './i18n.ts';
 import { publishAgentModeSessions } from './agent-chat-mode.ts';
 import { resetMixyStatus } from './mixy-identity.ts';
+import * as orderStore from './bot-order-store.ts';
 
 // The pane lists agent-mode sessions' work only; these owners are agent chats
 // (`internal-control` stays an ordinary session on purpose).
@@ -53,7 +54,11 @@ publishAgentModeSessions(
   ].map((id) => ({ id, sessionMode: 'agent' }))
 );
 
+// The Agents section is hidden by default; these tests exercise it, so each
+// opts in the way a user would (a stored `shown:agents`).
 function installDom() {
+  orderStore.resetBotOrder();
+  orderStore.setGroupHidden('agents', false);
   const { restore } = installTestDom(null, { jsdom: { url: 'http://localhost/' }, expose: ['navigator'] });
   return {
     root: createRoot(document.getElementById('root')),

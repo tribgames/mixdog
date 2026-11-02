@@ -63,7 +63,7 @@ function mount(t, { pool = [] } = {}) {
     },
     invokeCapability: async ({ capability }) => {
       if (capability === 'getLeadStatus') return { value: { created: true } };
-      if (capability === 'getBotOrder') return { value: { order: [] } };
+      if (capability === 'getBotOrder') return { value: { order: ['shown:agents'] } };
       if (capability === 'listAgents') return { value: [] };
       return { value: null };
     },

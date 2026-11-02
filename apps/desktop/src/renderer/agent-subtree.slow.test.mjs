@@ -54,7 +54,12 @@ const PAGE = `
     listAgentPool: async () => pool,
     subscribeAgentPool: () => () => {},
     invokeCapability: async ({ capability }) => ({
-      value: capability === "listAgents" ? [{ id: "reviewer", kind: "agent", custom: true, label: "Reviewer" }] : null,
+      value:
+        capability === "listAgents"
+          ? [{ id: "reviewer", kind: "agent", custom: true, label: "Reviewer" }]
+          : capability === "getBotOrder"
+            ? { order: ["shown:agents"] } // Agents are hidden by default
+            : null,
     }),
   };
   const route = { provider: "openai", model: "gpt-6" };

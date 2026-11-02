@@ -135,29 +135,34 @@ export function paneSectionOrder(order: readonly string[] = current): PaneSectio
 }
 
 /** The page's four show/hide groups: the pinned representative bot plus the
- *  three sections. Hidden ones ride in the same stored list as reserved
- *  `hidden:<id>` entries (shown by default; synced like the section order). */
+ *  three sections. A choice that differs from the default rides in the same
+ *  stored list as a reserved `hidden:<id>` or `shown:<id>` entry (synced like
+ *  the section order). */
 export const PANE_GROUP_IDS = ['representative', ...PANE_SECTION_IDS] as const;
 /** Every hideable part of the page: the four list groups plus the connector bar at the foot. */
 export const PANE_TOGGLE_IDS = [...PANE_GROUP_IDS, 'connectors'] as const;
 export type PaneToggleId = (typeof PANE_TOGGLE_IDS)[number];
 const HIDDEN_PREFIX = 'hidden:';
+const SHOWN_PREFIX = 'shown:';
+/** Hidden until the user shows it; every other group is shown by default. */
+const DEFAULT_HIDDEN_GROUPS: ReadonlySet<PaneToggleId> = new Set(['agents']);
 
-/** The groups and panels the list marks hidden. */
+/** The groups and panels the list marks hidden, defaults included. */
 export function hiddenPaneGroups(order: readonly string[] = current): ReadonlySet<PaneToggleId> {
+  const entries = new Set(order);
   return new Set(
-    order
-      .filter((id) => id.startsWith(HIDDEN_PREFIX))
-      .map((id) => id.slice(HIDDEN_PREFIX.length))
-      .filter((id): id is PaneToggleId => (PANE_TOGGLE_IDS as readonly string[]).includes(id))
+    PANE_TOGGLE_IDS.filter((id) =>
+      entries.has(`${HIDDEN_PREFIX}${id}`) || (DEFAULT_HIDDEN_GROUPS.has(id) && !entries.has(`${SHOWN_PREFIX}${id}`))
+    )
   );
 }
 
 /** The stored list with group `id` shown or hidden; null when already so. */
 function toggledGroupOrder(stored: readonly string[], id: PaneToggleId, hidden: boolean): string[] | null {
   if (hiddenPaneGroups(stored).has(id) === hidden) return null;
-  const entry = `${HIDDEN_PREFIX}${id}`;
-  return hidden ? [...stored, entry] : stored.filter((item) => item !== entry);
+  const rest = stored.filter((item) => item !== `${HIDDEN_PREFIX}${id}` && item !== `${SHOWN_PREFIX}${id}`);
+  if (hidden === DEFAULT_HIDDEN_GROUPS.has(id)) return rest;
+  return [...rest, `${hidden ? HIDDEN_PREFIX : SHOWN_PREFIX}${id}`];
 }
 
 /** Pinned Leads ride in the same stored list as `pin:<sessionId>` entries: a
