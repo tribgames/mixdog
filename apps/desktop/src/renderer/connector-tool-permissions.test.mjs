@@ -40,6 +40,9 @@ function host(policy, { second = false } = {}) {
       state.policy = stored ? parseConnectorPolicy(stored) : null;
       return stored;
     },
+    async updateAgentConnectorPolicy(id, derive) {
+      return this.setAgentConnectorPolicy(id, derive(this.getAgentConnectorPolicy(id)));
+    },
   };
   const connectors = createAgentConnectorsApi(
     { mcpStatus: () => ({ servers: SERVERS }), getMcpTools: () => TOOLS },
