@@ -172,6 +172,8 @@ export function createAnthropicApiTransport({
           // short Retry-After and upstream can read quota hints.
           err.headers = res.headers;
           err.response = { status: res.status, headers: res.headers };
+          // The full error body: thread error codes sit past the message cut.
+          err.responseBody = text;
           // This is an initial-response 429, before SSE
           // output/tool exposure, so the request-local
           // withRetry loop may retry it with jitter.

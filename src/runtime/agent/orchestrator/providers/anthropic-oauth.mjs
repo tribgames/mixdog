@@ -56,6 +56,11 @@ import { applyAnthropicErrorContract } from './anthropic-error-contract.mjs';
 import { adjustMaxTokensForContextOverflow } from './anthropic-max-tokens-recovery.mjs';
 import { createAnthropicOverloadTracker, takeAnthropicModelFallback } from './anthropic-overload-fallback.mjs';
 import { createAnthropicOAuthRecovery } from './anthropic-oauth-recovery.mjs';
+import {
+  THREAD_MESSAGE_STOP_WAIT_MS,
+  planAnthropicThread,
+  threadAccountKey,
+} from './anthropic-message-threads.mjs';
 import { createMidState, createMidstreamRecovery } from './anthropic-oauth-midstream.mjs';
 import { assertAnthropicStreamNotEmpty } from './anthropic-midstream-recovery.mjs';
 import { applyAnthropicEffortToBody, shouldIncludeEffortBeta } from './anthropic-effort.mjs';
@@ -553,18 +558,40 @@ export class AnthropicOAuthProvider {
     // Default when the caller doesn't pin a model: newest high-tier chat
     // model from the live catalog (one warmup round-trip if cache is cold).
     const useModel = model || (await ensureLatestAnthropicModel(this));
-    const body = buildRequestBody(messages, useModel, tools, sendOpts);
-    body.messages = await prepareAnthropicImages(body.messages, { signal: externalSignal });
+    const fullBody = buildRequestBody(messages, useModel, tools, sendOpts);
+    fullBody.messages = await prepareAnthropicImages(fullBody.messages, { signal: externalSignal });
     // Diagnostic: per-block prefix hashes of exactly what is sent.
-    recordAnthropicPrefix(anthropicPrefixSessionId(opts), anthropicPrefixFingerprint(body));
-    if (body.speed === 'fast') {
+    recordAnthropicPrefix(anthropicPrefixSessionId(opts), anthropicPrefixFingerprint(fullBody));
+    if (fullBody.speed === 'fast') {
       this.fastModeBetaHeaderLatched = true;
     }
     // advanced-tool-use-2025-11-20 beta is only needed when this request
     // actually carries deferred (defer_loading) tools — gate the header on
     // that instead of sending it unconditionally on every request.
-    const hasDeferredTools = Array.isArray(body.tools) && body.tools.some((t) => t && t.defer_loading === true);
-    const knownToolNames = requestToolNames(body);
+    const hasDeferredTools =
+      Array.isArray(fullBody.tools) && fullBody.tools.some((t) => t && t.defer_loading === true);
+    const knownToolNames = requestToolNames(fullBody);
+    // Message thread (anthropic-message-threads.mjs): the same request as a
+    // create, a delta continue, or unchanged. Its beta set is the full body's,
+    // so a continue keeps the create's fixed header.
+    const thread = planAnthropicThread({
+      provider: 'anthropic-oauth',
+      config: this.config,
+      opts,
+      body: fullBody,
+      betas: buildOAuthBetaHeaders(fullBody, {
+        fastMode: this.fastModeBetaHeaderLatched,
+        toolSearch: hasDeferredTools,
+        model: useModel,
+        opts,
+      }).split(','),
+      account: threadAccountKey(
+        'anthropic-oauth',
+        auth.creds?.identity?.id || auth.creds?.path || boundProviderAuthPath('anthropic-oauth') || ''
+      ),
+      requestMessages: messages,
+    });
+    const body = thread.body;
     const sessionId = opts.sessionId || null;
     const iteration = Number.isFinite(Number(opts.iteration)) ? Number(opts.iteration) : null;
     // Option A: no absolute wall-clock cap on streaming generation. A stream
@@ -589,6 +616,7 @@ export class AnthropicOAuthProvider {
       auth,
       totalSignal,
       hasDeferredTools,
+      thread,
       onStageChange,
       onTextReset,
     });
@@ -596,6 +624,8 @@ export class AnthropicOAuthProvider {
     let maxTokensAdjusted = false;
     try {
       for (let attemptIndex = 0; attemptIndex <= ANTHROPIC_MAX_MIDSTREAM_RETRIES; attemptIndex++) {
+        // A dropped continue is resent once as-is; after that it replays.
+        if (attemptIndex >= 2) thread.toCreate();
         const opened = await this._openResponse({
           requestWithRetry,
           cleanupCancelHandler,
@@ -607,6 +637,8 @@ export class AnthropicOAuthProvider {
         maxTokensAdjusted = opened.maxTokensAdjusted;
         if (!response.ok) {
           cleanupCancelHandler(cancelHandler);
+          // This request is over; any resend plans the thread afresh.
+          thread.settle();
           return await this._resendAfterRejection({
             response,
             rejectedAuthBody,
@@ -616,6 +648,7 @@ export class AnthropicOAuthProvider {
             tools,
             opts,
             onStageChange,
+            thread,
           });
         }
 
@@ -638,13 +671,26 @@ export class AnthropicOAuthProvider {
             midState,
             onTextDelta,
             knownToolNames,
-            { relayProgressUpdates: body.thinking?.display === 'updates', onStreamItemStart }
+            {
+              relayProgressUpdates: body.thinking?.display === 'updates',
+              onStreamItemStart,
+              awaitMessageStopMs: thread.mode === 'none' ? 0 : THREAD_MESSAGE_STOP_WAIT_MS,
+              releaseSignal: externalSignal,
+            }
           );
-          try {
-            controller?.abort?.('Anthropic SSE complete');
-          } catch {
-            // the stream is complete; the controller may already be aborted
-          }
+          thread.commit(result);
+          const finishStream = () => {
+            try {
+              controller?.abort?.('Anthropic SSE complete');
+            } catch {
+              // the stream is complete; the controller may already be aborted
+            }
+          };
+          // A thread's message_stop may still be read in the background: the
+          // body stays open until that read settles.
+          const receiptTail = result?.threadReceipt?.pending;
+          if (receiptTail) void receiptTail.then(finishStream);
+          else finishStream();
           this._settleStreamedTurn({
             result,
             midState,
@@ -667,6 +713,7 @@ export class AnthropicOAuthProvider {
       }
       throw midstream.exhaustedError();
     } catch (err) {
+      thread.settle();
       const fallbackOpts = takeAnthropicModelFallback(err, {
         tag: 'anthropic-oauth',
         model: useModel,
@@ -676,6 +723,7 @@ export class AnthropicOAuthProvider {
       });
       return await this.send(messages, err.fallbackModel, tools, fallbackOpts);
     } finally {
+      thread.settle();
       totalTimeout.cleanup();
     }
   }
@@ -691,6 +739,7 @@ export class AnthropicOAuthProvider {
     auth,
     totalSignal,
     hasDeferredTools,
+    thread = null,
     onStageChange,
     onTextReset,
   }) {
@@ -709,7 +758,9 @@ export class AnthropicOAuthProvider {
       totalSignal,
       overload,
       betaHeadersFor: (requestBody) =>
-        buildOAuthBetaHeaders(requestBody, {
+        thread && thread.mode !== 'none'
+          ? thread.betas.join(',')
+          : buildOAuthBetaHeaders(requestBody, {
           fastMode: this.fastModeBetaHeaderLatched,
           toolSearch: hasDeferredTools,
           model: useModel,
@@ -793,8 +844,24 @@ export class AnthropicOAuthProvider {
 
   // A non-OK initial response: quota errors surface as-is; a CLI-version
   // floor or an unknown/retired model replays the turn ONCE through send().
-  async _resendAfterRejection({ response, rejectedAuthBody, messages, model, useModel, tools, opts, onStageChange }) {
+  async _resendAfterRejection({
+    response,
+    rejectedAuthBody,
+    messages,
+    model,
+    useModel,
+    tools,
+    opts,
+    onStageChange,
+    thread = null,
+  }) {
     const text = rejectedAuthBody ?? (await response.text().catch(() => ''));
+    // A refused thread request (nothing ran): replay as a create or send
+    // unthreaded, per the thread error.
+    const threadDirective = thread?.classify(response.status, text);
+    if (threadDirective) {
+      return this._sendOnce(messages, useModel, tools, { ...opts, _anthropicThread: threadDirective });
+    }
     const scrubbedText = this.scrubTokens(text);
     const safeText = scrubbedText.slice(0, 200);
     process.stderr.write(`[anthropic-oauth] API error ${response.status}: ${safeText}\n`);
