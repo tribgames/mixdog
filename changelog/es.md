@@ -36,6 +36,7 @@ Se añadió la pestaña Registro de solicitudes en Uso, paneles laterales en viv
 - Se corrigió que los comandos silenciosos de terminal en segundo plano aparecieran como correctos a pesar de estar bloqueados más allá del límite de progreso.
 - Se corrigió el bloqueo del navegador integrado al eliminarse un iframe durante la ejecución de un comando activo.
 - Se corrigió que Computer Use rechazara acciones posteriores tras escribir en campos de texto o no liberara los botones del ratón durante detenciones de emergencia.
+- Se corrigió que una sesión eliminada definitivamente volviera a aparecer si la aplicación se cerraba justo después.
 
 ## v1.4.3 - 2026-10-31
 
