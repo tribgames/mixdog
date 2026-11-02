@@ -67,13 +67,13 @@ const ALL_VIEW_IDS: readonly WorkbenchSideViewId[] = [
 const DEFAULT_WORKBENCH_SIDE_VIEW_LAYOUT: WorkbenchSideViewLayout = {
   left: [
     ['sessions'],
-    ['studio'],
     ['agents'],
     ['schedules'],
     ['projects'],
     ['workflows'],
     ['extensions'],
     ['skills'],
+    ['studio'],
     ['source-control'],
     ['search'],
     ['webhooks'],

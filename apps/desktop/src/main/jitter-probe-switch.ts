@@ -493,10 +493,20 @@ async function measureStudioReentry(window: BrowserWindow) {
     probe.raf = requestAnimationFrame(sample);
     window.__studioReentryProbe = probe;
 
-    // Studio is a pinned Activity Rail entry that opens a Studio tab.
-    const studioItem = document.querySelector('.activity-rail [data-side-view="studio"]');
-    if (!(studioItem instanceof HTMLElement)) throw new Error('Missing Studio rail entry');
-    studioItem.click();
+    // Studio is an Activity Rail entry that opens a Studio tab; unpinned by
+    // default, it is reached through the rail's More menu.
+    const pinnedStudio = document.querySelector('.activity-rail [data-side-view="studio"]');
+    if (pinnedStudio instanceof HTMLElement) {
+      pinnedStudio.click();
+    } else {
+      const more = document.querySelector('.activity-rail [data-activity-more]');
+      if (!(more instanceof HTMLElement)) throw new Error('Missing Activity Rail More');
+      more.click();
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      const studioItem = document.querySelector('[role="menuitem"][data-action-id="studio"]');
+      if (!(studioItem instanceof HTMLElement)) throw new Error('Missing Studio in the rail More menu');
+      studioItem.click();
+    }
     await new Promise((resolve) => setTimeout(resolve, 180));
     const studioTab = [...document.querySelectorAll('.workspace-tab')]
       .find((tab) => (tab.textContent || '').trim() === 'Studio');

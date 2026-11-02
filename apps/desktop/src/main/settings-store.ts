@@ -19,7 +19,6 @@ import {
   DEFAULT_ACTIVITY_RAIL_PINS,
   normalizeActivityRailPins,
   readActivityRailPinsState,
-  withStudioPin,
   type ActivityRailPinsState,
 } from '../shared/activity-rail-pins';
 import { packagedRuntimeSourceRoot } from './runtime-layout';
@@ -177,9 +176,6 @@ function sameList(a: readonly unknown[], b: readonly unknown[]): boolean {
   return a.length === b.length && a.every((entry, index) => entry === b[index]);
 }
 
-/** Set on the stored pins once Studio's rail migration is settled. */
-const STUDIO_PIN_MARKER = 'studioPinned';
-
 /** Stored pins: a full state, or a revision alone meaning the default list. */
 function storedPinsState(value: unknown): ActivityRailPinsState | null {
   const full = readActivityRailPinsState(value);
@@ -267,42 +263,12 @@ export class DesktopSettingsStore {
       const revision = (previous?.revision ?? 0) + 1;
       if (!Number.isSafeInteger(revision)) throw new RangeError('Activity rail pin revision is exhausted.');
       // The default list is never stored; the revision alone keeps ordering.
-      // Any saved list is the user's own choice about Studio, so it also
-      // closes the one-time Studio migration (migrateStudioPin).
-      const stored = sameList(pins, DEFAULT_ACTIVITY_RAIL_PINS)
-        ? { revision, [STUDIO_PIN_MARKER]: true }
-        : { pins, revision, [STUDIO_PIN_MARKER]: true };
+      const stored = sameList(pins, DEFAULT_ACTIVITY_RAIL_PINS) ? { revision } : { pins, revision };
       return { ...current, desktop: { ...desktop, activityRailPins: stored } };
     });
     const state = storedPinsState(record(record(saved).desktop).activityRailPins);
     if (!state) throw new TypeError('The config write did not return valid activity rail pins.');
     return state;
-  }
-
-  /** Pins saved before Studio was a rail item get it once, under Sessions, in
-   *  the same config transaction that records the migration. Unset pins mean
-   *  the default list (which has Studio) and a saved write already carries the
-   *  marker, so neither is touched. Returns the migrated state, else null. A
-   *  rejected write records nothing, so the next call retries. */
-  async migrateStudioPin(): Promise<ActivityRailPinsState | null> {
-    const config = await this.loadConfig();
-    let migrated = false;
-    const saved = await config.updateConfigAsync((current) => {
-      migrated = false;
-      const desktop = record(current.desktop);
-      const stored = record(desktop.activityRailPins);
-      const previous = storedPinsState(stored);
-      if (stored[STUDIO_PIN_MARKER] === true || !previous || !Object.hasOwn(stored, 'pins')) return current;
-      const revision = previous.revision + 1;
-      if (!Number.isSafeInteger(revision)) throw new RangeError('Activity rail pin revision is exhausted.');
-      migrated = true;
-      const pins = withStudioPin(previous.pins);
-      return {
-        ...current,
-        desktop: { ...desktop, activityRailPins: { pins, revision, [STUDIO_PIN_MARKER]: true } },
-      };
-    });
-    return migrated ? storedPinsState(record(record(saved).desktop).activityRailPins) : null;
   }
 
   async update(key: DesktopSettingKey, enabled: boolean): Promise<DesktopSettings> {

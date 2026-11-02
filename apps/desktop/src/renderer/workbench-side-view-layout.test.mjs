@@ -244,13 +244,13 @@ test('restoration drops views this build no longer offers', () => {
 test('a corrupt or missing persisted layout falls back to the defaults', () => {
   assert.deepEqual(normalizeWorkbenchSideViewLayout(null).left, [
     ['sessions'],
-    ['studio'],
     ['agents'],
     ['schedules'],
     ['projects'],
     ['workflows'],
     ['extensions'],
     ['skills'],
+    ['studio'],
     ['source-control'],
     ['search'],
     ['webhooks'],
@@ -469,6 +469,16 @@ test('Studio is a rail panel that keeps a stored position and leads when pinned 
   assert.deepEqual(layout.left, [['sessions'], ['studio'], ['extensions']]);
   assert.equal(initialActiveWorkbenchSideViews(layout, ['studio', 'sessions']).left, 'studio');
   assert.equal(initialActiveWorkbenchSideViews(layout, ['sessions', 'studio']).left, 'sessions');
+});
+
+test('a stored order that lacks Studio places it right above Source Control', () => {
+  const stored = normalizeWorkbenchSideViewLayout({ left: [['sessions'], ['skills'], ['source-control']], right: [] }, [
+    'sessions',
+    'skills',
+    'studio',
+    'source-control',
+  ]);
+  assert.deepEqual(stored.left, [['sessions'], ['skills'], ['studio'], ['source-control']]);
 });
 
 test('a stored rail order drops the removed background-jobs view id on load', () => {

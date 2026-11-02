@@ -14,7 +14,6 @@ export const ACTIVITY_RAIL_PIN_IDS = [
 ] as const;
 export const DEFAULT_ACTIVITY_RAIL_PINS = [
   'sessions',
-  'studio',
   'agents',
   'schedules',
   'workflows',
@@ -22,16 +21,6 @@ export const DEFAULT_ACTIVITY_RAIL_PINS = [
   'extensions',
   'skills',
 ];
-
-/** Saved pins from before Studio was a rail item: Studio joins right under
- *  Sessions, where its launcher used to be (last when Sessions is unpinned,
- *  so it never leads the rail). Applied once per client. */
-export function withStudioPin(pins: readonly string[]): string[] {
-  if (pins.includes('studio')) return [...pins];
-  const sessions = pins.indexOf('sessions');
-  const at = sessions < 0 ? pins.length : sessions + 1;
-  return [...pins.slice(0, at), 'studio', ...pins.slice(at)];
-}
 
 export interface ActivityRailPinsState {
   pins: string[];
