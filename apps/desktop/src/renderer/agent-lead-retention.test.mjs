@@ -45,7 +45,8 @@ function mount(t, { sessions, pool = [], stored = [] }) {
   });
   const { window } = dom;
   window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
-  const host = { order: stored, calls: [] };
+  // The Agents section is hidden by default; these tests opt in like a user.
+  const host = { order: ['shown:agents', ...stored], calls: [] };
   window.mixdogDesktop = {
     listAgentPool: async () => pool,
     subscribeAgentPool: () => () => {},
@@ -153,11 +154,11 @@ test('the Lead menu pins and unpins, stored as pin:<sessionId> in the bot order'
   let items = await menu();
   assert.ok(items.some((el) => el.textContent.trim() === 'Hide this group'));
   await act(async () => items.find((el) => el.textContent.trim() === 'Pin').click());
-  assert.deepEqual(m.host.calls.at(-1), ['pin:fresh']);
+  assert.deepEqual(m.host.calls.at(-1), ['shown:agents', 'pin:fresh']);
   assert.ok(m.document.querySelector('[data-agent-lead="fresh"] [data-lead-pin]'), 'marked at once');
   items = await menu();
   await act(async () => items.find((el) => el.textContent.trim() === 'Unpin').click());
-  assert.deepEqual(m.host.calls.at(-1), []);
+  assert.deepEqual(m.host.calls.at(-1), ['shown:agents']);
   assert.equal(m.document.querySelector('[data-lead-pin]'), null);
 });
 
@@ -181,11 +182,11 @@ test('the ⋯ menu offers Keep finished agents as radios (1 hour default) and st
     'Keep finished agents'
   );
   await act(async () => m.document.querySelector('[data-action-id="retain-1d"]').click());
-  assert.deepEqual(m.host.calls.at(-1), ['retain:1d']);
+  assert.deepEqual(m.host.calls.at(-1), ['shown:agents', 'retain:1d']);
   assert.deepEqual(m.leads(), ['fresh', 'two-hours'], 'the list follows at once');
   assert.equal(m.document.querySelector('[data-action-id="retain-1d"]').getAttribute('aria-checked'), 'true');
   await act(async () => m.document.querySelector('[data-action-id="retain-1h"]').click());
-  assert.deepEqual(m.host.calls.at(-1), [], 'the default is stored as no entry');
+  assert.deepEqual(m.host.calls.at(-1), ['shown:agents'], 'the default retention is stored as no entry');
 });
 
 test('pins and the retention choice are read from the host list and survive other entries', () => {

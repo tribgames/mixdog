@@ -17,6 +17,7 @@ const [
   { resetDismissedShellJobsCache },
   { publishAgentModeSessions },
   { resetMixyStatus },
+  { resetBotOrder, setGroupHidden },
 ] = await Promise.all([
   import('./AgentActivityPane.tsx'),
   import('./agent-activity-model.ts'),
@@ -25,6 +26,7 @@ const [
   import('./background-jobs-dismissed-store.ts'),
   import('./agent-chat-mode.ts'),
   import('./mixy-identity.ts'),
+  import('./bot-order-store.ts'),
 ]);
 
 const NOW = Date.now();
@@ -128,6 +130,10 @@ for (const [language, expected] of Object.entries(TIME_LABELS)) {
 function mount(t, pool, props = {}, { ordinary = false } = {}) {
   publishAgentModeSessions(ordinary ? [] : [{ id: 'lead-a', sessionMode: 'agent' }]);
   t.after(() => publishAgentModeSessions([]));
+  // The Agents section is hidden by default; these tests opt in like a user.
+  resetBotOrder();
+  setGroupHidden('agents', false);
+  t.after(resetBotOrder);
   const { dom, root } = installTestDom(t, {
     jsdom: { url: 'http://localhost/' },
     expose: ['HTMLElement', 'Element', 'Node', 'KeyboardEvent', 'MouseEvent', 'navigator'],

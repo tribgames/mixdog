@@ -7,11 +7,13 @@ import { installTestDom } from './test-support/test-dom.mjs';
 
 const { restore: restoreBootstrapDom } = installTestDom(null);
 after(restoreBootstrapDom);
-const [{ AgentActivityPane }, { resetDismissedShellJobsCache }, { publishAgentModeSessions }] = await Promise.all([
-  import('./AgentActivityPane.tsx'),
-  import('./background-jobs-dismissed-store.ts'),
-  import('./agent-chat-mode.ts'),
-]);
+const [{ AgentActivityPane }, { resetDismissedShellJobsCache }, { publishAgentModeSessions }, orderStore] =
+  await Promise.all([
+    import('./AgentActivityPane.tsx'),
+    import('./background-jobs-dismissed-store.ts'),
+    import('./agent-chat-mode.ts'),
+    import('./bot-order-store.ts'),
+  ]);
 
 const NOW = Date.now();
 const task = (id, extra = {}) => ({
@@ -37,6 +39,10 @@ const poolLead = (id, extra = {}) => ({
 function mount(t, pool, sessions, agentModeIds = [], unreadIds = []) {
   publishAgentModeSessions(agentModeIds.map((id) => ({ id, sessionMode: 'agent' })));
   t.after(() => publishAgentModeSessions([]));
+  // The Agents section is hidden by default; these tests opt in like a user.
+  orderStore.resetBotOrder();
+  orderStore.setGroupHidden('agents', false);
+  t.after(orderStore.resetBotOrder);
   const { dom, root } = installTestDom(t, {
     jsdom: { url: 'http://localhost/' },
     expose: ['HTMLElement', 'Element', 'Node', 'KeyboardEvent', 'MouseEvent', 'navigator'],
@@ -335,6 +341,7 @@ function leadHost(window, stored = null) {
     ...base,
     invokeCapability: async ({ capability, args }) => {
       host.calls.push([capability, ...args]);
+      if (capability === 'getBotOrder') return { value: { order: ['shown:agents'] } }; // Agents are hidden by default
       if (capability === 'getLeadAppearance') return { value: { avatar: host.stored } };
       if (capability === 'setLeadAppearance') {
         host.stored = args[0];

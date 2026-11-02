@@ -49,7 +49,9 @@ const POOL = [
   },
 ];
 
-function mount(t, { sessions = [ROOM, CODING], pool = POOL, stored = [], mixy = true } = {}) {
+// Agents are hidden by default: unless a test is about the fresh default
+// (`fresh: true`), it opts in the way a user does, with a stored `shown:agents`.
+function mount(t, { sessions = [ROOM, CODING], pool = POOL, stored = [], mixy = true, fresh = false } = {}) {
   orderStore.resetBotOrder();
   resetMixyStatus();
   publishAgentModeSessions([]);
@@ -67,7 +69,7 @@ function mount(t, { sessions = [ROOM, CODING], pool = POOL, stored = [], mixy = 
   const { document } = window;
   window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
   const host = {
-    order: stored,
+    order: fresh ? stored : ['shown:agents', ...stored],
     calls: [],
     listeners: new Set(),
     announce: () => {
@@ -120,10 +122,10 @@ function mount(t, { sessions = [ROOM, CODING], pool = POOL, stored = [], mixy = 
   return { document, window, host, render, layout };
 }
 
-test('default order is Bots, Rooms, Agents with one hairline between sections, Mixy first', async (t) => {
-  const m = mount(t);
+test('default: Mixy first, then Bots and Rooms with one hairline; Agents stay hidden', async (t) => {
+  const m = mount(t, { fresh: true });
   await m.render();
-  assert.deepEqual(m.layout(), ['bots', 'hr', 'rooms', 'hr', 'agents']);
+  assert.deepEqual(m.layout(), ['bots', 'hr', 'rooms']);
   assert.equal(m.document.querySelector('[data-agent-contact]').dataset.agentContact, 'lead', 'Mixy is on top');
   assert.deepEqual(orderStore.paneSectionOrder(), ['bots', 'rooms', 'agents']);
   assert.deepEqual(
@@ -131,6 +133,14 @@ test('default order is Bots, Rooms, Agents with one hairline between sections, M
     [],
     'nothing stored until a change'
   );
+});
+
+test('with Agents shown the order is Bots, Rooms, Agents with one hairline between sections', async (t) => {
+  const m = mount(t);
+  await m.render();
+  assert.deepEqual(m.layout(), ['bots', 'hr', 'rooms', 'hr', 'agents']);
+  assert.equal(m.document.querySelector('[data-agent-contact]').dataset.agentContact, 'lead', 'Mixy is on top');
+  assert.deepEqual(orderStore.paneSectionOrder(), ['bots', 'rooms', 'agents']);
 });
 
 test('the sections have no heading rows and the "…" menu has no Section order item', async (t) => {
@@ -149,7 +159,7 @@ test('a synced value applies live and on first read; bot order and section order
   const m = mount(t, { stored: ['section:agents', 'section:rooms', 'section:bots'] });
   await m.render();
   assert.deepEqual(m.layout(), ['agents', 'hr', 'rooms', 'hr', 'bots']);
-  m.host.order = ['section:rooms', 'section:bots', 'section:agents']; // a phone reordered
+  m.host.order = ['shown:agents', 'section:rooms', 'section:bots', 'section:agents']; // a phone reordered
   await act(async () => m.host.announce());
   await act(async () => {});
   assert.deepEqual(m.layout(), ['rooms', 'hr', 'bots', 'hr', 'agents']);
@@ -217,8 +227,8 @@ const toggle = async (m, id) => {
 };
 const roomCount = (m) => m.document.querySelectorAll('[data-agent-room]').length;
 
-test('all four groups are shown by default, as four checked menu items', async (t) => {
-  const m = mount(t);
+test('a fresh order shows four checked items, Agents unchecked, and no Agents section', async (t) => {
+  const m = mount(t, { fresh: true });
   await m.render();
   await act(async () => m.document.querySelector('.agent-activity-page .row-overflow-trigger').click());
   const items = [...m.document.querySelectorAll('[data-action-id^="show-group-"]')];
@@ -228,11 +238,44 @@ test('all four groups are shown by default, as four checked menu items', async (
       ['show-group-representative', 'Representative bot', 'true'],
       ['show-group-bots', 'Bots', 'true'],
       ['show-group-rooms', 'Rooms', 'true'],
-      ['show-group-agents', 'Agents', 'true'],
+      ['show-group-agents', 'Agents', 'false'],
       ['show-group-connectors', 'Connectors', 'true'],
     ]
   );
+  assert.deepEqual(m.layout(), ['bots', 'hr', 'rooms']);
+  assert.equal(m.document.querySelector('[data-agent-lead]'), null);
+});
+
+test('checking Agents stores shown:agents and shows it; unchecking removes the entry', async (t) => {
+  const m = mount(t, { fresh: true });
+  await m.render();
+  await toggle(m, 'agents');
+  assert.deepEqual(m.host.order, ['shown:agents']);
   assert.deepEqual(m.layout(), ['bots', 'hr', 'rooms', 'hr', 'agents']);
+  assert.equal(m.document.querySelector('[data-action-id="show-group-agents"]').getAttribute('aria-checked'), 'true');
+  await toggle(m, 'agents');
+  assert.deepEqual(m.host.order, []);
+  assert.deepEqual(m.layout(), ['bots', 'hr', 'rooms']);
+});
+
+test('an explicit hidden: choice on another group still works from a fresh order', async (t) => {
+  const m = mount(t, { fresh: true });
+  await m.render();
+  await toggle(m, 'rooms');
+  assert.deepEqual(m.host.order, ['hidden:rooms']);
+  assert.deepEqual(m.layout(), ['bots']);
+  await toggle(m, 'rooms');
+  assert.deepEqual(m.host.order, []);
+});
+
+test('a stored legacy order with neither entry hides Agents; shown: and hidden: win over the default', async (t) => {
+  const legacy = mount(t, { fresh: true, stored: ['b1', 'section:agents', 'section:bots', 'section:rooms'] });
+  await legacy.render();
+  assert.deepEqual(legacy.layout(), ['bots', 'hr', 'rooms']);
+  assert.deepEqual(orderStore.hiddenPaneGroups(), new Set(['agents']));
+  const both = mount(t, { fresh: true, stored: ['shown:agents', 'hidden:agents'] });
+  await both.render();
+  assert.deepEqual(both.layout(), ['bots', 'hr', 'rooms'], 'an explicit hidden: entry wins');
 });
 
 test('each toggle hides only its group, with no double or missing hairline', async (t) => {
@@ -241,17 +284,18 @@ test('each toggle hides only its group, with no double or missing hairline', asy
   await toggle(rooms, 'rooms');
   assert.deepEqual(rooms.layout(), ['bots', 'hr', 'agents']);
   assert.equal(roomCount(rooms), 0);
-  assert.deepEqual(rooms.host.order, ['hidden:rooms']);
+  assert.deepEqual(rooms.host.order, ['shown:agents', 'hidden:rooms']);
   await toggle(rooms, 'rooms');
   assert.deepEqual(rooms.layout(), ['bots', 'hr', 'rooms', 'hr', 'agents']);
-  assert.deepEqual(rooms.host.order, []);
+  assert.deepEqual(rooms.host.order, ['shown:agents']);
 });
 
-test('hiding Agents leaves Bots and Rooms with one hairline', async (t) => {
+test('hiding a shown Agents section leaves Bots and Rooms with one hairline', async (t) => {
   const agents = mount(t);
   await agents.render();
   await toggle(agents, 'agents');
   assert.deepEqual(agents.layout(), ['bots', 'hr', 'rooms']);
+  assert.deepEqual(agents.host.order, []);
 });
 
 test('hiding the representative bot removes only the Mixy row', async (t) => {
@@ -269,12 +313,13 @@ test('Connectors: the foot bar shows by default, hides on toggle, persists, and 
   assert.ok(m.document.querySelector('.connectors-pill'), 'shown by default');
   await toggle(m, 'connectors');
   assert.equal(m.document.querySelector('.connectors-pill'), null);
-  assert.deepEqual(m.host.order, ['hidden:connectors']);
+  assert.deepEqual(m.host.order, ['shown:agents', 'hidden:connectors']);
   assert.deepEqual(m.layout(), ['bots', 'hr', 'rooms', 'hr', 'agents'], 'the lists are untouched');
   const again = mount(t, { stored: ['hidden:connectors'] });
   await again.render();
   assert.equal(again.document.querySelector('.connectors-pill'), null, 'persisted');
-  const all = mount(t, { stored: ['hidden:representative', 'hidden:bots', 'hidden:rooms', 'hidden:agents'] });
+  // Agents are already hidden by default, so three entries hide all four lists.
+  const all = mount(t, { fresh: true, stored: ['hidden:representative', 'hidden:bots', 'hidden:rooms'] });
   await all.render();
   assert.match(all.document.querySelector('.agent-activity-page').textContent, /All groups are hidden/);
   assert.ok(all.document.querySelector('.connectors-pill'), 'the bar stays when only the lists are hidden');
@@ -293,8 +338,8 @@ test('the choice persists across a remount (host-stored) and the section order s
   await first.render();
   await toggle(first, 'bots');
   const saved = first.host.order;
-  assert.deepEqual(saved, ['section:agents', 'section:bots', 'section:rooms', 'hidden:bots']);
-  const second = mount(t, { stored: saved });
+  assert.deepEqual(saved, ['shown:agents', 'section:agents', 'section:bots', 'section:rooms', 'hidden:bots']);
+  const second = mount(t, { fresh: true, stored: saved });
   await second.render();
   assert.equal(second.document.querySelectorAll('[data-agent-contact="lead"]').length, 1, 'Mixy still shown');
   await toggle(second, 'rooms');
@@ -307,7 +352,8 @@ test('the choice persists across a remount (host-stored) and the section order s
 
 test('all four hidden: a short hint instead of a blank pane; a search still finds rows', async (t) => {
   const m = mount(t, {
-    stored: ['hidden:representative', 'hidden:bots', 'hidden:rooms', 'hidden:agents'],
+    fresh: true,
+    stored: ['hidden:representative', 'hidden:bots', 'hidden:rooms'],
   });
   await m.render();
   assert.deepEqual(m.layout(), []);

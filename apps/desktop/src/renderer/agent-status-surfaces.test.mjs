@@ -18,6 +18,7 @@ const [
   { quietCueText },
   { LiveActivity },
   { publishAgentModeSessions },
+  { resetBotOrder, setGroupHidden },
 ] = await Promise.all([
   import('../shared/agent-activity.ts'),
   import('./agent-row-meta.ts'),
@@ -30,6 +31,7 @@ const [
   import('./quiet-cue.tsx'),
   import('./transcript-status.tsx'),
   import('./agent-chat-mode.ts'),
+  import('./bot-order-store.ts'),
 ]);
 
 // The Agents pane lists agent-mode chats only (AgentActivityPane `visibleGroups`
@@ -44,6 +46,10 @@ const NOW = Date.now();
 const iso = (ms) => new Date(ms).toISOString();
 
 function mount(t, host) {
+  // The Agents section is hidden by default; these tests opt in like a user.
+  resetBotOrder();
+  setGroupHidden('agents', false);
+  t.after(resetBotOrder);
   const { dom, root } = installTestDom(t, {
     jsdom: { url: 'http://localhost/' },
     expose: ['HTMLElement', 'Element', 'Node', 'KeyboardEvent', 'MouseEvent', 'MutationObserver', 'navigator'],
