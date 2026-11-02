@@ -50,7 +50,7 @@ const CASES = [
     'explore reads like every other group',
     [finished('explore', EXPLORE)],
     ['Explore 3 questions', 'Explored 3 questions'],
-    ['질문 3개 탐색', '질문 3개 탐색함'],
+    ['3개 항목 탐색', '3개 항목 탐색함'],
   ],
   [
     'git and shell commands',
