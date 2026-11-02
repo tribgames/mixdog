@@ -147,8 +147,43 @@ export function _attachGraphRuntimeCaches(graph) {
   return graph;
 }
 
+const GRAPH_RUNTIME_CACHE_KEYS = new Set([
+  '_referenceSearchCache',
+  '_keywordSearchCache',
+  '_maskedLinesCache',
+  '_sourceLinesCache',
+  '_sourceTextCache',
+  '_symbolTokenIndex',
+]);
+// The base graph is immutable once built except for the one-time call-site
+// hydration, so its walk is memoized per hydration state. The memory-cache
+// prune runs after every code_graph call; re-walking a resident multi-hundred-MB
+// graph each time cost 140-400 ms of main-thread time and millions of
+// short-lived Object.entries arrays.
+const _baseGraphBytes = new WeakMap();
+
 export function _estimateGraphRetainedBytes(graph) {
-  const seen = new WeakSet();
+  if (!graph || typeof graph !== 'object' || graph instanceof Map || Array.isArray(graph)) {
+    return _estimateValueBytes(graph);
+  }
+  let base = _baseGraphBytes.get(graph);
+  if (!base || base.hydration !== graph._callsHydration) {
+    const seen = new WeakSet();
+    let bytes = 48;
+    for (const [key, item] of Object.entries(graph)) {
+      if (!GRAPH_RUNTIME_CACHE_KEYS.has(key)) bytes += 8 + _estimateValueBytes(key) + _estimateValueBytes(item, seen);
+    }
+    base = { hydration: graph._callsHydration, bytes };
+    _baseGraphBytes.set(graph, base);
+  }
+  let bytes = base.bytes;
+  for (const key of GRAPH_RUNTIME_CACHE_KEYS) {
+    if (Object.hasOwn(graph, key)) bytes += 8 + _estimateValueBytes(key) + _estimateValueBytes(graph[key]);
+  }
+  return bytes;
+}
+
+function _estimateValueBytes(root, seen = new WeakSet()) {
   const estimate = (value) => {
     if (value == null) return 0;
     const type = typeof value;
@@ -181,7 +216,7 @@ export function _estimateGraphRetainedBytes(graph) {
     }
     return bytes;
   };
-  return estimate(graph);
+  return estimate(root);
 }
 
 export function _clearGraphRuntimeCaches(graph) {
