@@ -59,6 +59,7 @@ function requestApi(context, count) {
         ts: now - (index + 1) * 60_000,
         provider: index === 1 ? 'openai-oauth' : 'openai',
         model: index === 1 ? 'gpt-5.6-luna' : 'gpt-5.6',
+        ...(index === 3 ? { requestedModel: 'gpt-6-astra' } : {}),
         sessionId: index === 0 ? 'agent' : 'lead',
         sourceType: 'lead',
         inputTokens: 1000,
@@ -175,6 +176,8 @@ test('the request log tab lists requests with every column, filters them and loa
   assert.equal(cells(2)[6].dataset.status, 'failed');
   assert.equal(cells(2)[6].textContent, t('Failed'));
   assert.equal(cells(3)[6].textContent, t('Substituted'));
+  assert.equal(cells(3)[2].title, 'gpt-6-astra → gpt-5.6', 'a substituted row names the requested model');
+  assert.equal(cells(0)[2].title, 'gpt-5.6');
 
   await scrollToEnd();
   assert.equal(asked.length, 2);

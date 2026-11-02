@@ -231,6 +231,9 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
               const provider = String(row.provider || '');
               const model = String(row.model || '');
               const status = String(row.status || 'completed');
+              // A substituted request names what was asked for beside what answered.
+              const requested = status === 'substituted' ? String(row.requestedModel || '') : '';
+              const modelTitle = requested && requested !== model ? `${requested} → ${model}` : model;
               const internal = String(row.internalKind || '');
               const title = internal
                 ? internalKindLabel(internal)
@@ -254,7 +257,7 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
                     {title}
                     {suffix && <span> · {suffix}</span>}
                   </td>
-                  <td className="request-log-model" title={model}>
+                  <td className="request-log-model" title={modelTitle}>
                     <b>{modelDisplayName(model, provider)}</b>
                     <small>{usageProviderLabel(resolveProviderDisplayName(provider, providerNames))}</small>
                   </td>
