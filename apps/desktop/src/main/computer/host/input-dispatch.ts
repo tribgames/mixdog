@@ -7,7 +7,8 @@ import type { CommandRouterHost } from './command-router';
 import type { ComputerExecutionPolicy } from './execution-policy';
 import { dispatchElectronText, type DispatchAuthority } from './input-dispatch-electron-text';
 import { powerShellInputRequest, type InputObservation } from './input-dispatch-request';
-import { canUseAppOwnedTextInput } from './input-preflight';
+import { dispatchElectronInput } from './input-dispatch-electron-input';
+import { canUseAppOwnedInput } from './input-preflight';
 import type { ResolvedInputTarget } from './input-resolution';
 import { assertObservationInputAllowed } from './observation-policy';
 import { fillSavedLogin } from './saved-login';
@@ -122,9 +123,10 @@ export function createInputDispatch(host: DispatchHost, policy: ComputerExecutio
       assertExecutionNotAborted();
       return sessionIdFor(command) === CHROME_SETUP_SESSION_ID ? {} : policy.dispatchAuthority(targetWindowId);
     };
-    const electronTextTarget = canUseAppOwnedTextInput(command) ? electronWindowForNativeId(targetWindowId) : null;
-    if (electronTextTarget && !electronTextTarget.webContents.isDestroyed()) {
-      return dispatchElectronText({ host, command, target, renderer: electronTextTarget, authorizeDispatch });
+    const electronTarget = canUseAppOwnedInput(command) ? electronWindowForNativeId(targetWindowId) : null;
+    if (electronTarget && !electronTarget.webContents.isDestroyed()) {
+      const electronInput = { host, command, target, renderer: electronTarget, authorizeDispatch };
+      return command.action === 'type' ? dispatchElectronText(electronInput) : dispatchElectronInput(electronInput);
     }
     const powerShellRequest = {
       ...powerShellInputRequest(command, action, target, sessionIdFor(command), inputObservation),

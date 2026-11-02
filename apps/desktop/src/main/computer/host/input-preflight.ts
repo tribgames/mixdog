@@ -1,9 +1,15 @@
 /** Plan the same keyboard grammar and text route that dispatch will execute. */
 import { normalizeComputerKeySequence } from '../input/keyboard';
 import type { ComputerCommand, PowerShellResponse } from '../shared/types';
+import { electronKeyPresses } from './input-electron-keys';
 
-export function canUseAppOwnedTextInput(command: ComputerCommand): boolean {
-  return command.action === 'type' && command.delivery !== 'foreground' && !command.ref;
+/** Text, keys and wheel for an app-owned Electron window go through its own input channel. */
+export function canUseAppOwnedInput(command: ComputerCommand): boolean {
+  return (
+    (command.action === 'type' || command.action === 'key' || command.action === 'scroll') &&
+    command.delivery !== 'foreground' &&
+    !command.ref
+  );
 }
 
 export function createInputPreflight(host: {
@@ -19,7 +25,14 @@ export function createInputPreflight(host: {
     const nativeSteps = steps
       .filter((step) => step.action === 'key' || step.action === 'type')
       .map((step) => host.resolveElementAliases(step))
-      .filter((step) => !(canUseAppOwnedTextInput(step) && host.isAppOwnedWindow(String(step.window_id || ''))))
+      .filter((step) => {
+        if (!canUseAppOwnedInput(step) || !host.isAppOwnedWindow(String(step.window_id || command.window_id || ''))) {
+          return true;
+        }
+        // The Electron route refuses a key it cannot map before any step runs.
+        if (step.action === 'key') electronKeyPresses(String(step.keys || ''));
+        return false;
+      })
       .map((step) => ({
         action: step.action,
         ...(step.ref ? { ref: step.ref } : {}),

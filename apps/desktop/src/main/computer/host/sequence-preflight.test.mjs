@@ -23,13 +23,9 @@ test('preflight uses dispatch grammar and preserves native refs on app-owned tar
     { ...command, action: 'type', text: 'private-text' },
     { ...command, action: 'type', element: 1, text: 'private-text' },
   ]);
-  assert.deepEqual(requests[0].steps, [
-    { action: 'key', keys: normalizeComputerKeySequence('ctrl-s') },
-    { action: 'key', keys: normalizeComputerKeySequence('PageDown') },
-    { action: 'type', ref: 's1:e1' },
-  ]);
-  assert.equal(requests[0].steps[0].keys, '^S');
-  assert.equal(requests[0].steps[1].keys, '{PGDN}');
+  // Keys and refless text on an app-owned window use its Electron input channel.
+  assert.deepEqual(requests[0].steps, [{ action: 'type', ref: 's1:e1' }]);
+  assert.equal(normalizeComputerKeySequence('ctrl-s'), '^S');
   assert.equal(requests[0].read_only, true);
   assert.equal(JSON.stringify(requests).includes('private-text'), false);
   await preflight({ ...command, delivery: 'foreground' }, [{ action: 'key', keys: 'ctrl-s' }]);
