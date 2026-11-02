@@ -75,6 +75,59 @@ test('a rebuild that failed is retried as a rebuild and reports its real outcome
   assert.deepEqual([...inits], ['old-key', 'new-key']);
 });
 
+// Mirrors lib/keychain-cjs.cjs: a process-wide listener Set, subscribe returns the unsubscribe.
+function fakeKeychain() {
+  const listeners = new Set();
+  return {
+    listeners,
+    prewarmSecrets: () => Promise.resolve(),
+    onKeychainRecovered(listener) {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    recover: () => [...listeners].forEach((listener) => listener()),
+  };
+}
+
+function readinessOn(keychain) {
+  const rt = { config: { providers: {} }, closeRequested: false };
+  return createProviderReadiness({
+    rt,
+    keychain,
+    getReg: () => ({}),
+    getWarmProviderModelCache: () => () => {},
+  });
+}
+
+test('disposing a runtime releases its keychain recovery listener', () => {
+  const keychain = fakeKeychain();
+  const before = keychain.listeners.size;
+  const readiness = readinessOn(keychain);
+  assert.equal(keychain.listeners.size, before + 1);
+  readiness.dispose();
+  assert.equal(keychain.listeners.size, before);
+  // Teardown may run more than once.
+  readiness.dispose();
+  assert.equal(keychain.listeners.size, before);
+});
+
+test('creating and disposing many runtimes leaves no listeners behind, and a live one still invalidates on recovery', () => {
+  const keychain = fakeKeychain();
+  for (let i = 0; i < 25; i += 1) readinessOn(keychain).dispose();
+  assert.equal(keychain.listeners.size, 0);
+
+  const live = readinessOn(keychain);
+  const gone = readinessOn(keychain);
+  live.modelMetaByRoute.set('route', { stale: true });
+  gone.modelMetaByRoute.set('route', { stale: true });
+  gone.dispose();
+  keychain.recover();
+  assert.equal(live.modelMetaByRoute.size, 0, 'the live runtime dropped its stale caches');
+  assert.equal(gone.modelMetaByRoute.size, 1, 'a disposed runtime is no longer notified');
+  live.dispose();
+  assert.equal(keychain.listeners.size, 0);
+});
+
 test('a runtime that never initialized providers does not start them on a provider change', async () => {
   const { inits, readiness } = harness();
   readiness.reinitProviders();

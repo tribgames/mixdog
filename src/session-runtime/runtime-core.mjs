@@ -62,14 +62,41 @@ function bootParams({
   };
 }
 
+// A boot that throws returns no runtime to close, so whatever its stages already
+// subscribed to process-wide registries is released here. Each release is
+// independent of the late disposeGlobalExtensionSubscription aggregate (wired by
+// the last stage) and tolerates a stage that never ran.
+function releaseFailedBoot(boot) {
+  for (const release of [
+    () => boot.disposeProviderReadiness(),
+    () => boot.disposeConfigSync?.(),
+    () => boot.disposeAgentProfileChanges?.(),
+    () => boot.resourceApi?.disposeGlobalExtensionSubscription?.(),
+    () => boot.setupTool?.dispose(),
+    () => boot.disposeInternalTools?.(),
+    () => boot.sessionTitles?.disposeAll(),
+  ]) {
+    try {
+      release();
+    } catch {
+      /* the boot error is the one to report */
+    }
+  }
+}
+
 export async function createMixdogSessionRuntime(options = {}) {
   const boot = beginBoot(bootParams(options));
-  await loadModules(boot);
-  await resolveConfig(boot);
-  wireInfrastructure(boot);
-  wireTools(boot);
-  wireProviders(boot);
-  wireSessionLifecycle(boot);
-  wireApis(boot);
-  return buildFacade(boot);
+  try {
+    await loadModules(boot);
+    await resolveConfig(boot);
+    wireInfrastructure(boot);
+    wireTools(boot);
+    wireProviders(boot);
+    wireSessionLifecycle(boot);
+    wireApis(boot);
+    return buildFacade(boot);
+  } catch (error) {
+    releaseFailedBoot(boot);
+    throw error;
+  }
 }

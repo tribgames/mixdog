@@ -123,6 +123,7 @@ export function wireApis(boot) {
     if (boot.ensureConnectorAccountIds()) boot.reloadFullConfig();
   }
   boot.disposeGlobalExtensionSubscription = () => {
+    boot.disposeProviderReadiness();
     boot.disposeConfigSync?.();
     boot.disposeAgentProfileChanges();
     boot.resourceApi.disposeGlobalExtensionSubscription?.();
