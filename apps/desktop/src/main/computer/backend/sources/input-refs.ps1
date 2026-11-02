@@ -110,17 +110,10 @@ function Get-RefRecord($ref) {
         # MSAA has no runtime id, so the role and name recorded with the ref are
         # the only proof that the refreshed node is still the element observed, on
         # a plain command as much as on a later step: a provider may reuse the
-        # slot for another control between the observation and the action.
-        # An editable field's name can mirror its text (a Win32 edit), so typing
-        # into it renames it. That is accepted only with the same role and a new
-        # name equal to the value the node holds now; any other rename is a
-        # different element in a reused slot.
-        $sameIdentity = (Get-MsaaIdentity $record.Msaa) -eq [string]$record.Identity
-        if (-not $sameIdentity -and [string]$record.Msaa.ControlType -in @('Edit', 'ComboBox')) {
-            $sameIdentity = ([string]$record.Identity).StartsWith(([string]$record.Msaa.ControlType) + '|', [StringComparison]::Ordinal) -and
-            [string]::Equals([string]$record.Msaa.Name, [string]$record.Msaa.Value, [StringComparison]::Ordinal)
-        }
-        if (-not $sameIdentity) {
+        # slot for another control between the observation and the action. Refresh
+        # re-reads the current slot, so a replacement's own name or value proves
+        # nothing: any role or name change is refused and the caller recaptures.
+        if ((Get-MsaaIdentity $record.Msaa) -ne [string]$record.Identity) {
             throw "ref $ref no longer identifies the same element; take a fresh snapshot/find"
         }
         if ($continuation) {

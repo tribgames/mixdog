@@ -56,6 +56,19 @@ $short = Wait-UntilQuiet 0.3 { 'same' }
   assert.ok(result.changing.waited_ms >= 990 && result.changing.waited_ms <= 1000 + CAP_TOLERANCE_MS);
 });
 
+test('a window title that changes only in case is not quiet', {
+  skip: process.platform !== 'win32' && 'Windows only',
+  timeout: 90_000,
+}, async () => {
+  const result = await runWaits(`
+$script:n = 0
+$cased = Wait-UntilQuiet 1 { $script:n++; if ($script:n % 2) { 'w1|Report' } else { 'w1|report' } }
+[Console]::Out.WriteLine('@@QUIET@@' + (@{ cased = $cased } | ConvertTo-Json -Depth 4 -Compress))
+`);
+  assert.equal(result.cased.quiet, false);
+  assert.equal(result.cased.reason, 'still_changing');
+});
+
 test('a slow sample does not carry the wait past its cap', {
   skip: process.platform !== 'win32' && 'Windows only',
   timeout: 90_000,

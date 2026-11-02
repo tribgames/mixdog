@@ -15,8 +15,23 @@ import { assertObservationInputAllowed } from './observation-policy';
 /** CSS pixels one wheel notch scrolls, the step Chromium itself uses. */
 const WHEEL_NOTCH = 100;
 
-/** Run `work` with the window's debugger attached, releasing it only if this call attached it. */
+/** The tail of each window's queued input operations. Sessions run their commands on separate
+ *  chains, so without this one session could detach the debugger between another's keydown and keyup. */
+const operationTails = new WeakMap<WebContents, Promise<unknown>>();
+
+/** Run `work` with the window's debugger attached, releasing it only if this call attached it.
+ *  Whole operations (attach, work, detach) run one at a time per window. */
 async function withDebugger<T>(
+  contents: WebContents,
+  work: (send: SendBrowserInput) => Promise<T>
+): Promise<T> {
+  const previous = operationTails.get(contents) ?? Promise.resolve();
+  const run = previous.then(() => attachedOperation(contents, work));
+  operationTails.set(contents, run.catch(() => undefined));
+  return run;
+}
+
+async function attachedOperation<T>(
   contents: WebContents,
   work: (send: SendBrowserInput) => Promise<T>
 ): Promise<T> {

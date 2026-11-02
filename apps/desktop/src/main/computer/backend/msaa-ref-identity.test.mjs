@@ -52,10 +52,14 @@ $reused = New-Node 'Bank account' 'Edit'
 $reused | Add-Member -NotePropertyName Value -NotePropertyValue ''
 $script:Session.Map['msaaReused'] = @{ Kind = 'msaa'; Msaa = $reused; WindowId = 'w1'; Generation = 1; RuntimeId = 'k'; Identity = 'Edit|Search' }
 $script:Session.Map['msaaEdit'] = @{ Kind = 'msaa'; Msaa = $edit; WindowId = 'w1'; Generation = 1; RuntimeId = 'k'; Identity = 'Edit|old text' }
+$replacement = New-Node 'replacement' 'Edit'
+$replacement | Add-Member -NotePropertyName Value -NotePropertyValue 'replacement'
+$script:Session.Map['msaaReplacement'] = @{ Kind = 'msaa'; Msaa = $replacement; WindowId = 'w1'; Generation = 1; RuntimeId = 'k'; Identity = 'Edit|original' }
 $script:Session.Map['msaaEditRole'] = @{ Kind = 'msaa'; Msaa = (New-Node 'old text' 'Button'); WindowId = 'w1'; Generation = 1; RuntimeId = 'k'; Identity = 'Edit|old text' }
-$result = @{ same = $null; changed = $null; uiaSame = $null; uiaChanged = $null; uiaEdit = $null; uiaRenamedWindow = $null; msaaEdit = $null; msaaReused = $null; msaaEditRole = $null }
+$result = @{ same = $null; changed = $null; uiaSame = $null; uiaChanged = $null; uiaEdit = $null; uiaRenamedWindow = $null; msaaEdit = $null; msaaReused = $null; msaaEditRole = $null; msaaReplacement = $null }
 $result.uiaEdit = (Get-RefRecord 'uiaEdit').Kind
-$result.msaaEdit = (Get-RefRecord 'msaaEdit').Kind
+try { Get-RefRecord 'msaaEdit' | Out-Null; $result.msaaEdit = 'accepted' } catch { $result.msaaEdit = [string]$_.Exception.Message }
+try { Get-RefRecord 'msaaReplacement' | Out-Null; $result.msaaReplacement = 'accepted' } catch { $result.msaaReplacement = [string]$_.Exception.Message }
 try { Get-RefRecord 'msaaReused' | Out-Null; $result.msaaReused = 'accepted' } catch { $result.msaaReused = [string]$_.Exception.Message }
 try { Get-RefRecord 'uiaRenamedWindow' | Out-Null; $result.uiaRenamedWindow = 'accepted' } catch { $result.uiaRenamedWindow = [string]$_.Exception.Message }
 try { Get-RefRecord 'msaaEditRole' | Out-Null; $result.msaaEditRole = 'accepted' } catch { $result.msaaEditRole = [string]$_.Exception.Message }
@@ -81,11 +85,13 @@ test('a plain ref action refuses an MSAA node whose role and name changed since 
     assert.match(result.changed, /no longer identifies the same element/);
     assert.equal(result.uiaSame, 'uia');
     assert.match(result.uiaChanged, /no longer identifies the same element/);
-    // A field renamed by its own value is still the element observed; a changed role is not.
+    // A UIA field renamed by its own native text is still the element observed; a changed role is not.
     assert.equal(result.uiaEdit, 'uia');
     assert.match(result.uiaRenamedWindow, /no longer identifies the same element/);
-    assert.equal(result.msaaEdit, 'msaa');
-    // Same role, new name that is not the field's own text: a reused slot.
+    // MSAA has no runtime id, so a rename is refused even when the name equals the
+    // value, and a replacement control in the same slot satisfies that equality too.
+    assert.match(result.msaaEdit, /no longer identifies the same element/);
+    assert.match(result.msaaReplacement, /no longer identifies the same element/);
     assert.match(result.msaaReused, /no longer identifies the same element/);
     assert.match(result.msaaEditRole, /no longer identifies the same element/);
   } finally {

@@ -15,8 +15,8 @@ registerHooks({
 const { electronKeyPresses } = await import('./input-electron-keys.ts');
 const { createInputDispatch } = await import('./input-dispatch.ts');
 
-function fixtureWindow(commands) {
-  let attached = false;
+function fixtureWindow(commands, { log = [], delayMs = 0, attachedBefore = false } = {}) {
+  let attached = attachedBefore;
   return {
     isDestroyed: () => false,
     getNativeWindowHandle: () => Buffer.from([1, 0, 0, 0]),
@@ -30,12 +30,16 @@ function fixtureWindow(commands) {
         isAttached: () => attached,
         attach: () => {
           attached = true;
+          log.push('attach');
         },
         detach: () => {
           attached = false;
+          log.push('detach');
         },
         sendCommand: async (method, params) => {
+          if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
           commands.push({ method, params });
+          log.push(`${params.key}:${params.type}`);
         },
       },
     },
@@ -93,6 +97,50 @@ test('background key and scroll on a Mixdog window use its own input channel, ne
       button: 'none',
     });
     assert.equal(nativeCalls.length, 0);
+  } finally {
+    delete globalThis.inputWindows;
+  }
+});
+
+const concurrentTarget = { targetWindowId: 'hwnd:0x1', allowedWindowIds: ['hwnd:0x1'] };
+
+test('overlapping operations on one window never interleave, and the debugger is detached once by its attacher', async () => {
+  const log = [];
+  globalThis.inputWindows = [fixtureWindow([], { log, delayMs: 5 })];
+  try {
+    const dispatch = dispatcher([]);
+    await Promise.all([
+      dispatch({ action: 'key', keys: 'enter' }, 'key', concurrentTarget),
+      dispatch({ action: 'key', keys: 'tab' }, 'key', concurrentTarget),
+    ]);
+    const first = log.indexOf('detach');
+    const second = log.indexOf('attach', first);
+    assert.equal(log[0], 'attach');
+    assert.ok(first > 0 && second === first + 1, `operations overlapped: ${log.join(' ')}`);
+    assert.equal(log.filter((entry) => entry === 'attach').length, 2);
+    assert.equal(log.filter((entry) => entry === 'detach').length, 2);
+    assert.equal(log.at(-1), 'detach');
+    const firstKeys = new Set(log.slice(1, first).map((entry) => entry.split(':')[0]));
+    const secondKeys = new Set(log.slice(second + 1, -1).map((entry) => entry.split(':')[0]));
+    assert.equal(firstKeys.size, 1, `first operation saw ${[...firstKeys]}`);
+    assert.equal(secondKeys.size, 1, `second operation saw ${[...secondKeys]}`);
+    assert.notDeepEqual([...firstKeys], [...secondKeys]);
+  } finally {
+    delete globalThis.inputWindows;
+  }
+});
+
+test('an attachment that existed before the operation is left in place', async () => {
+  const log = [];
+  globalThis.inputWindows = [fixtureWindow([], { log, delayMs: 1, attachedBefore: true })];
+  try {
+    const dispatch = dispatcher([]);
+    await Promise.all([
+      dispatch({ action: 'key', keys: 'enter' }, 'key', concurrentTarget),
+      dispatch({ action: 'scroll', direction: 'down' }, 'scroll', concurrentTarget),
+    ]);
+    assert.ok(log.length > 0);
+    assert.ok(!log.includes('attach') && !log.includes('detach'), log.join(' '));
   } finally {
     delete globalThis.inputWindows;
   }
