@@ -14,8 +14,13 @@ const REQUEST_TIMEOUT_MS = 30_000;
  *  for it (45 s) is shorter, so a timeout is reported by the host, which then
  *  writes nothing, rather than raced by this client. */
 const EXPORT_REQUEST_TIMEOUT_MS = 60_000;
+/** `act` loads a page (off screen), runs up to 15 s of steps and may capture;
+ *  the host bounds each part, so it gets the export's longer wait. */
+const LONG_ACTIONS = new Set(['export', 'act']);
 const MAX_RESPONSE_BYTES = 1024 * 1024;
-const ACTIONS = new Set(['open', 'close', 'annotate', 'capture', 'export', 'check', 'inspect']);
+const ACTIONS = new Set(['open', 'close', 'annotate', 'capture', 'export', 'check', 'inspect', 'act']);
+const ACT_STEP_KINDS = new Set(['click', 'type', 'key', 'scroll', 'wait', 'evaluate']);
+const MAX_ACT_STEPS = 25;
 const INLINE_KINDS = ['mermaid', 'svg', 'chart', 'html', 'markdown'];
 const MAX_INLINE_BYTES = 512 * 1024;
 const BRIDGE_UNAVAILABLE_MESSAGE = 'visualize is unavailable; the Mixdog desktop app must be running';
@@ -40,7 +45,7 @@ export function validateVisualizeArgs(args) {
     return { ok: false, error: 'visualize arguments must be an object' };
   }
   if (!ACTIONS.has(args.action))
-    return { ok: false, error: 'action must be open, close, annotate, capture, export, check, or inspect' };
+    return { ok: false, error: 'action must be open, close, annotate, capture, export, check, inspect, or act' };
   const input = args.input ?? {};
   if (typeof input !== 'object' || Array.isArray(input)) return { ok: false, error: 'input must be an object' };
   if (args.action === 'open' && input.verify != null && typeof input.verify !== 'boolean') {
@@ -86,7 +91,7 @@ export function validateVisualizeArgs(args) {
     }
   }
   if (
-    ['annotate', 'capture', 'export', 'check', 'inspect'].includes(args.action) &&
+    ['annotate', 'capture', 'export', 'check', 'inspect', 'act'].includes(args.action) &&
     (typeof input.tab !== 'string' || !input.tab)
   ) {
     return { ok: false, error: `${args.action} requires input.tab` };
@@ -113,6 +118,21 @@ export function validateVisualizeArgs(args) {
   }
   if (args.action === 'capture' && !(typeof input.output === 'string' && /\.png$/i.test(input.output.trim()))) {
     return { ok: false, error: 'capture requires input.output ending in .png' };
+  }
+  if (args.action === 'act') {
+    const { steps } = input;
+    if (!Array.isArray(steps) || steps.length < 1 || steps.length > MAX_ACT_STEPS) {
+      return { ok: false, error: `act requires input.steps: 1-${MAX_ACT_STEPS} steps` };
+    }
+    const bad = steps.findIndex(
+      (step) => !step || typeof step !== 'object' || Array.isArray(step) || !ACT_STEP_KINDS.has(step.do)
+    );
+    if (bad >= 0) {
+      return { ok: false, error: `act input.steps[${bad}].do must be click, type, key, scroll, wait, or evaluate` };
+    }
+    if (input.output != null && !(typeof input.output === 'string' && /\.png$/i.test(input.output.trim()))) {
+      return { ok: false, error: 'act input.output must end in .png' };
+    }
   }
   if (args.action === 'export') {
     if (input.format !== 'png' && input.format !== 'pdf')
@@ -173,7 +193,9 @@ export async function executeVisualizeTool(args, options = {}) {
   if (!discovery) return toolError(unavailableMessage());
   let result;
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const timeout = AbortSignal.timeout(validated.action === 'export' ? EXPORT_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS);
+    const timeout = AbortSignal.timeout(
+      LONG_ACTIONS.has(validated.action) ? EXPORT_REQUEST_TIMEOUT_MS : REQUEST_TIMEOUT_MS
+    );
     try {
       result = await requestBridge(
         discovery,

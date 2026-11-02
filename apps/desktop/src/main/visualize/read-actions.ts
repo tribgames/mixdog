@@ -1,9 +1,10 @@
 /**
- * The agent's page-reading actions on a displayed tab — `annotate`,
- * `capture`, `check`, `inspect` — and the panel's source view of a pane.
+ * The agent's page actions on a displayed tab — `annotate`, `capture`,
+ * `check`, `inspect`, `act` — and the panel's source view of a pane.
  */
 import { writeFile } from 'node:fs/promises';
 
+import { type ActStepOutcome, actOutcomeLines, actScriptStillRunning } from './act-steps';
 import type { VisualizePaneText } from '../../shared/visualize';
 import { inspectFindingsSummary, visualizePageInspection } from '../../shared/visualize-inspect';
 import type { VisualizeServiceContext } from './context';
@@ -192,6 +193,80 @@ async function inspectTab(
   };
 }
 
+/** Runs `act` steps in one HTML pane of a tab: in the panel's own frame (the
+ *  user sees it), or off screen in a freshly loaded page when the tab is
+ *  verify-only or a turn holds the panel; optionally captures the end state. */
+async function actTab(
+  ctx: ReadContext,
+  request: Extract<VisualizeRequest, { action: 'act' }>
+): Promise<VisualizeResult> {
+  const { deps } = ctx;
+  const tab = ctx.tabs.findTab(request.sessionId, request.tab);
+  if (tab.url) throw new Error(`tab ${tab.id} lives in the browser panel; operate it with the browser tool`);
+  const panes = displayedPanes(tab);
+  const index = request.pane ?? panes.findIndex((pane) => pane.kind === 'html');
+  const pane = panes[index];
+  if (pane?.kind !== 'html') {
+    if (request.pane === undefined) throw new Error(`act works on HTML pages only; tab ${tab.id} shows no HTML page`);
+    throw new Error(
+      pane
+        ? `pane ${index + 1} of tab ${tab.id} is not an HTML page`
+        : `tab ${tab.id} has ${panes.length} pane${panes.length === 1 ? '' : 's'}, no pane ${index + 1}`
+    );
+  }
+  const output = request.output ? await resolveCaptureOutput(request.cwd, request.output) : null;
+  const total = request.steps.length;
+  const head = (outcomes: ActStepOutcome[], where: string) => {
+    const done = outcomes.filter((outcome) => outcome.ok).length;
+    const named = panes.length > 1 ? ` (pane ${index + 1}, ${pane.label})` : '';
+    return `Ran ${done === total ? `all ${total}` : `${done} of ${total}`} steps on tab ${tab.id}${named}${where} (input simulated in the page):`;
+  };
+  /** The capture line; none is taken while a timed-out script may still be
+   *  changing the page. */
+  const captured = (taken: boolean) => {
+    if (!output) return [];
+    return taken
+      ? [`Captured the final state to ${output}.`]
+      : [`No final capture written to ${output}: the timed-out script may still be changing the page.`];
+  };
+  if (offscreen(ctx, request.sessionId, tab)) {
+    if (!deps.actOffscreen) throw new Error('operating a page off screen is unavailable here');
+    const { size, panel } = offscreenSize(ctx, undefined);
+    const run = await deps.actOffscreen(pane, tab.allowNetwork === true, {
+      steps: request.steps,
+      viewport: size,
+      roots: [request.cwd, ...problemRootsOf(tab)],
+      capture: output !== null,
+    });
+    const taken = Boolean(output && run.png && !actScriptStillRunning(run.outcomes));
+    if (taken && output && run.png) await writeFile(output, run.png);
+    const where = `, off screen in a freshly loaded page at ${panel ? "the side panel's size " : ''}${size.width}×${size.height}${tab.verify ? '' : ' (the side panel shows the tab unchanged when this turn ends)'}`;
+    const problems = run.problems.length
+      ? [`Page problems while it ran:`, ...run.problems.map((line) => `- ${line}`)]
+      : [];
+    return {
+      text: [head(run.outcomes, where), ...actOutcomeLines(run.outcomes, total), ...captured(taken), ...problems].join(
+        '\n'
+      ),
+      tabs: [summary(tab)],
+      ...(taken && output ? { path: output } : {}),
+    };
+  }
+  if (!deps.act) throw new Error('act is unavailable here');
+  await ctx.tabs.display(request.sessionId, tab);
+  await ctx.problems.awaitInlineRender(tab);
+  const outcomes = await deps.act(request.sessionId, view(tab), index, request.steps);
+  await ctx.problems.settle(tab, 2);
+  const taken = output !== null && !actScriptStillRunning(outcomes);
+  if (taken && output) await writeFile(output, await deps.capture(request.sessionId, view(tab)));
+  return {
+    text: withProblems(tab, [head(outcomes, ''), ...actOutcomeLines(outcomes, total), ...captured(taken)].join('\n')),
+    tabs: [summary(tab)],
+    ...(taken ? { path: output } : {}),
+    ...problemsOf(tab),
+  };
+}
+
 export function createReadActions(ctx: ReadContext) {
   const { deps } = ctx;
 
@@ -275,6 +350,8 @@ export function createReadActions(ctx: ReadContext) {
     },
 
     inspect: (request: Extract<VisualizeRequest, { action: 'inspect' }>) => inspectTab(ctx, request),
+
+    act: (request: Extract<VisualizeRequest, { action: 'act' }>) => actTab(ctx, request),
 
     /** The source text of displayed pane `index`: inline content as given, an
      *  HTML file as read now (a kept version from its snapshot), capped. */

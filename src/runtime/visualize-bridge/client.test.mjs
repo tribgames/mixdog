@@ -56,6 +56,7 @@ test('visualize tool-defs schema exposes action + input and the usage guidance',
     'export',
     'check',
     'inspect',
+    'act',
   ]);
   assert.equal(schema.properties.input.type, 'object');
   assert.equal(schema.properties.input.properties.targets.maxItems, 3);
@@ -194,6 +195,22 @@ test('the tool schema and description cover inspect', () => {
   assert.ok(schema.properties.action.enum.includes('inspect'));
   assert.deepEqual(schema.properties.input.properties.viewport.required, ['width']);
   assert.match(TOOL_DEFS[0].description, /inspect: tab \+ optional viewport[\s\S]*fix the findings before reporting/);
+});
+
+test('act takes a tab and 1-25 steps, and the description says input is simulated', () => {
+  const act = (input) => validateVisualizeArgs({ action: 'act', input });
+  const steps = [{ do: 'click', selector: '#go' }];
+  assert.equal(act({ tab: 'v1', steps }).ok, true);
+  assert.equal(act({ tab: 'v1', steps, output: 'end.png', pane: 2 }).ok, true);
+  assert.match(act({ steps }).error, /act requires input\.tab/);
+  assert.match(act({ tab: 'v1' }).error, /act requires input\.steps: 1-25 steps/);
+  assert.match(act({ tab: 'v1', steps: Array(26).fill(steps[0]) }).error, /1-25 steps/);
+  assert.match(act({ tab: 'v1', steps: [steps[0], { do: 'hover' }] }).error, /steps\[1\]\.do must be click/);
+  assert.match(act({ tab: 'v1', steps, output: 'end.jpg' }).error, /output must end in \.png/);
+  const props = TOOL_DEFS[0].inputSchema.properties.input.properties;
+  assert.deepEqual(props.steps.items.properties.do.enum, ['click', 'type', 'key', 'scroll', 'wait', 'evaluate']);
+  assert.match(TOOL_DEFS[0].description, /act: tab \+ steps[\s\S]*Input is simulated in the page/);
+  assert.match(TOOL_DEFS[0].description, /never serve it yourself/);
 });
 
 test('executeVisualizeTool returns the bridge text with its page problems section', async () => {

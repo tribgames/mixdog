@@ -1,9 +1,10 @@
 /**
  * Scripts the desktop host runs inside a displayed tab's HTML panes:
- * annotation overlays and screen reading.
+ * annotation overlays, screen reading and `act` steps.
  */
 import type { BrowserWindow } from 'electron';
 
+import { runActSteps, type VisualizeActStep } from './act-steps';
 import type { VisualizeTabView } from '../../shared/visualize';
 import { visualizeInspectScript } from '../../shared/visualize-inspect';
 import { htmlFrames, leasePrefix, paneFrames, retry, shownBody, sleep } from './host-frames';
@@ -86,6 +87,18 @@ export async function annotatePanes(window: BrowserWindow, tab: VisualizeTabView
       )) as VisualizeOverlayResult,
     }))
   );
+}
+
+/** Runs `act` steps in displayed pane `index`'s own frame, found again for
+ *  each script (a step may have reloaded the page). */
+export async function actPane(window: BrowserWindow, tab: VisualizeTabView, index: number, steps: VisualizeActStep[]) {
+  const frameOf = () => paneFrames(window, tab).find((entry) => entry.index === index)?.frame ?? null;
+  await retry(frameOf);
+  return runActSteps(steps, async (script) => {
+    const frame = frameOf();
+    if (!frame) throw new Error('the page is no longer shown');
+    return frame.executeJavaScript(script);
+  });
 }
 
 /** Reads every HTML pane of the tab, laid out at `viewport` for the reading

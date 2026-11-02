@@ -14,6 +14,7 @@ import {
   type VisualizePaneKind,
   visualizeKindForPath,
 } from '../../shared/visualize';
+import { parseActSteps, type VisualizeActStep } from './act-steps';
 
 const MAX_VISUALIZE_TARGETS = 3;
 const MAX_LABEL_CHARS = 120;
@@ -23,7 +24,7 @@ const MAX_MARKS_PER_CALL = 20;
 const SESSION_ID = /^[\w.:-]{1,200}$/;
 const CALL_ID = /^[\w.:|-]{1,200}$/;
 
-export type VisualizeAction = 'open' | 'close' | 'annotate' | 'capture' | 'export' | 'check' | 'inspect';
+export type VisualizeAction = 'open' | 'close' | 'annotate' | 'capture' | 'export' | 'check' | 'inspect' | 'act';
 
 /** Viewport bounds `inspect` accepts, in CSS px. */
 const INSPECT_VIEWPORT_MIN = 200;
@@ -81,6 +82,17 @@ export type VisualizeRequest =
       viewport?: { width: number; height: number };
       /** Scope the read-out to this subtree. */
       selector?: string;
+    }
+  | {
+      sessionId: string;
+      cwd: string;
+      action: 'act';
+      tab: string;
+      /** The displayed pane (0-based) the steps run in; absent = the first HTML pane. */
+      pane?: number;
+      steps: VisualizeActStep[];
+      /** A `.png` capture of the final state, as `capture` writes one. */
+      output?: string;
     };
 
 export type VisualizeTarget =
@@ -292,8 +304,27 @@ export function parseVisualizeRequest(raw: unknown): VisualizeRequest {
         ...(selector ? { selector } : {}),
       };
     }
+    case 'act': {
+      const output = optionalText(input.output, 'output', 4096);
+      if (output && !/\.png$/i.test(output)) throw new Error('output must be a .png path');
+      let pane: number | undefined;
+      if (input.pane !== undefined && input.pane !== null) {
+        if (typeof input.pane !== 'number' || !Number.isInteger(input.pane) || input.pane < 1 || input.pane > 6) {
+          throw new Error('pane must be a whole number from 1 to 6 (the pane position in the tab)');
+        }
+        pane = input.pane - 1;
+      }
+      return {
+        ...base,
+        action: 'act',
+        tab: text(input.tab, 'tab', 64),
+        ...(pane === undefined ? {} : { pane }),
+        steps: parseActSteps(input.steps),
+        ...(output ? { output } : {}),
+      };
+    }
     default:
-      throw new Error('action must be one of open, close, annotate, capture, export, check, inspect');
+      throw new Error('action must be one of open, close, annotate, capture, export, check, inspect, act');
   }
 }
 

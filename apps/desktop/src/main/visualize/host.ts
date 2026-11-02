@@ -18,7 +18,13 @@ import {
 } from '../../shared/visualize';
 import { INLINE_CHART_RENDERED } from '../../shared/visualize-inline-page';
 import { visualizeInspectScript } from '../../shared/visualize-inspect';
-import { inspectPageOffscreen, renderPageExportDetailed, VISIBLE_PASSWORD_SCRIPT } from './export-render';
+import { actScriptStillRunning, runActSteps } from './act-steps';
+import {
+  actPageOffscreen,
+  inspectPageOffscreen,
+  renderPageExportDetailed,
+  VISIBLE_PASSWORD_SCRIPT,
+} from './export-render';
 import {
   chooseExportPath,
   type ExportRenderers,
@@ -39,7 +45,7 @@ import {
 } from './host-frames';
 import { inlinePageUrl, panePreviewUrl } from './host-pane-preview';
 import { watchPageProblems } from './host-page-observer';
-import { annotatePanes, inspectPanes, requireShownWindow, shownHtmlFrames } from './host-page-ops';
+import { actPane, annotatePanes, inspectPanes, requireShownWindow, shownHtmlFrames } from './host-page-ops';
 import { watchVisualizeZoomInput } from './host-zoom-input';
 import { preparePaneFrame } from './host-pane-frame';
 import { createVisualizeService, type VisualizeService } from './service';
@@ -54,6 +60,11 @@ export const REMOTE_ONLY_ANNOTATE = 'the tab is shown only on a paired remote de
  *  in the desktop window's panes. */
 const REMOTE_ONLY_INSPECT =
   'inspect reads the page in the Mixdog desktop window, and this tab is shown only on a paired remote device; ask the user to open the visualize panel on the desktop, then retry';
+
+/** act on a tab only a paired remote device is showing: the steps run in the
+ *  desktop window's panes. */
+const REMOTE_ONLY_ACT =
+  'act runs the page in the Mixdog desktop window, and this tab is shown only on a paired remote device; ask the user to open the visualize panel on the desktop, then retry';
 
 /** A card picture is taken once two captures this far apart match… */
 const THUMBNAIL_QUIET_MS = 400;
@@ -326,6 +337,19 @@ export function createDesktopVisualize(options: {
         { ...(viewport ? { viewport } : {}), roots }
       );
       return { result: read.data, problems: read.problems };
+    },
+    // `act` runs in the desktop window's own pane frame, the user watching.
+    async act(sessionId, tab, pane, steps) {
+      const window = await requireShownWindow(sessionId, tab, viewer, REMOTE_ONLY_ACT);
+      return actPane(window, tab, pane, steps);
+    },
+    async actOffscreen(pane, allowNetwork, { steps, viewport, roots, capture }) {
+      const read = await actPageOffscreen(pane.url, allowNetwork, (exec) => runActSteps(steps, exec), {
+        viewport,
+        roots,
+        capture: (outcomes) => capture && !actScriptStillRunning(outcomes),
+      });
+      return { outcomes: read.data.result, ...(read.data.png ? { png: read.data.png } : {}), problems: read.problems };
     },
     async ensureShown(sessionId, tab) {
       const window = requireWindow();

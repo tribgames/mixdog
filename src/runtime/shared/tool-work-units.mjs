@@ -358,6 +358,8 @@ function visualizeUnit(a) {
     return unitDescriptor('Visualize', { count: 1, active: 'Checking', done: 'Checked', noun: 'page' });
   if (action === 'inspect')
     return unitDescriptor('Visualize', { count: 1, active: 'Inspecting', done: 'Inspected', noun: 'page' });
+  if (action === 'act')
+    return unitDescriptor('Visualize', { count: 1, active: 'Operating', done: 'Operated', noun: 'page' });
   if (action === 'close')
     return unitDescriptor('Visualize', { count: 1, active: 'Closing', done: 'Closed', noun: 'tab' });
   return unitDescriptor('Visualize', { count: 1, active: 'Showing', done: 'Showed', noun: 'artifact' });
