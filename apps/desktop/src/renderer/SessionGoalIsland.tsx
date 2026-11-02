@@ -1,4 +1,4 @@
-import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
+import { Fragment, useEffect, useId, useLayoutEffect, useRef, useState } from 'react';
 
 import { liveAgentRows } from './AgentActivityPane';
 import type { GoalSnapshot, Snapshot, TodoSnapshot, TodoStatus, TodoTask } from './desktop-types';
@@ -163,9 +163,11 @@ function todoStatusText(status: TodoStatus): string {
 function TodoRow({ task }: { task: TodoTask }) {
   const status = task.status || 'pending';
   const statusText = todoStatusText(status);
-  // A step's note reads small on the right; a blocked step also says why.
+  // The title takes the full row; its note (and a blocked step's reason) sit
+  // under it as muted lines, the full text on hover.
   const note = String(task.note || '');
   const blocker = status === 'blocked' ? String(task.blocker || '') : '';
+  const blockerText = blocker ? `${statusText}: ${blocker}` : '';
   return (
     <li data-status={status}>
       <span>
@@ -176,10 +178,40 @@ function TodoRow({ task }: { task: TodoTask }) {
           {statusText && <span className="sr-only">{statusText}: </span>}
           {String(task.content || '')}
         </span>
-        {blocker && <span className="session-goal-task-blocker">{blocker}</span>}
+        {blocker && (
+          <span className="session-goal-task-blocker" title={blockerText}>
+            {/* The title's screen-reader prefix already announces Blocked. */}
+            <span aria-hidden="true">{statusText}: </span>
+            {blocker}
+          </span>
+        )}
+        {note && (
+          <small className="session-goal-task-note" title={note}>
+            {note}
+          </small>
+        )}
       </div>
-      {note && <small className="session-goal-task-note">{note}</small>}
     </li>
+  );
+}
+
+type TodoItem = { task: TodoTask; phase: number };
+
+/** Rows in plan order; with headings, each phase's first row follows its name. */
+function TodoRows({ items, phases, headings }: { items: TodoItem[]; phases: TodoSnapshot['phases']; headings: boolean }) {
+  return (
+    <>
+      {items.map(({ task, phase }, index) => (
+        <Fragment key={`${index}:${task.content}`}>
+          {headings && (index === 0 || items[index - 1].phase !== phase) && (
+            <li className="session-goal-phase" role="presentation">
+              {String(phases[phase]?.name || '')}
+            </li>
+          )}
+          <TodoRow task={task} />
+        </Fragment>
+      ))}
+    </>
   );
 }
 
@@ -207,14 +239,15 @@ function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishe
   const [showRest, setShowRest] = useState(false);
   const doneListId = useId();
   const restListId = useId();
-  const tasks = todo.phases.flatMap((phase) => phase.tasks);
-  const remaining = tasks.filter((task) => task.status !== 'completed' && task.status !== 'abandoned');
-  const done = tasks.filter((task) => task.status === 'completed' || task.status === 'abandoned');
-  const completedCount = done.filter((task) => task.status === 'completed').length;
+  const tasks: TodoItem[] = todo.phases.flatMap((phase, index) => phase.tasks.map((task) => ({ task, phase: index })));
+  const headings = todo.phases.filter((phase) => phase.tasks.length > 0).length >= 2;
+  const remaining = tasks.filter(({ task }) => task.status !== 'completed' && task.status !== 'abandoned');
+  const done = tasks.filter(({ task }) => task.status === 'completed' || task.status === 'abandoned');
+  const completedCount = done.filter(({ task }) => task.status === 'completed').length;
   const abandonedCount = done.length - completedCount;
   // The first rows stay; every working or blocked row always makes the cut.
   const shownIndexes = new Set<number>();
-  remaining.forEach((task, index) => {
+  remaining.forEach(({ task }, index) => {
     if (task.status === 'in_progress' || task.status === 'blocked') shownIndexes.add(index);
   });
   for (let index = 0; index < remaining.length && shownIndexes.size < REMAINING_VISIBLE; index += 1) {
@@ -230,9 +263,7 @@ function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishe
         <div className="session-goal-group">
           <p className="session-goal-group-label">{t('Remaining {{n}}', { n: remaining.length })}</p>
           <ul className="session-goal-task-list" aria-label={t('To-do')}>
-            {shown.map((task, index) => (
-              <TodoRow key={`${index}:${task.content}`} task={task} />
-            ))}
+            <TodoRows items={shown} phases={todo.phases} headings={headings} />
           </ul>
           {rest.length > 0 && (
             <>
@@ -248,9 +279,7 @@ function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishe
                 {t('Rest {{n}}', { n: rest.length })}
               </button>
               <ul id={restListId} className="session-goal-task-list" hidden={!showRest}>
-                {rest.map((task, index) => (
-                  <TodoRow key={`${index}:${task.content}`} task={task} />
-                ))}
+                <TodoRows items={rest} phases={todo.phases} headings={headings} />
               </ul>
             </>
           )}
@@ -275,9 +304,7 @@ function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishe
               .join(' · ')}
           </button>
           <ul id={doneListId} className="session-goal-task-list" hidden={!doneOpen}>
-            {done.map((task, index) => (
-              <TodoRow key={`${index}:${task.content}`} task={task} />
-            ))}
+            <TodoRows items={done} phases={todo.phases} headings={headings} />
           </ul>
         </div>
       )}
