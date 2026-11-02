@@ -1,3 +1,4 @@
+import { createTagResume } from './execute-resume.mjs';
 import { clean, rowMatchesContext } from './helpers.mjs';
 import { resolveRequestedModel } from './model-select.mjs';
 
@@ -21,9 +22,10 @@ function requestedRoute(args) {
 // Spawn request dispatch: deciding what an explicitly tagged spawn means before
 // a job is started, and starting it.
 //
-// Inputs: `registry` (tag resolution, live sessions, tombstones),
-// `terminalTrace`, `sendFlow` (reuse path), `spawnFlow`, and `spawnResult`
-// (job -> rendered tool output). Output: { spawn }.
+// Inputs: `registry` (tag resolution, live sessions, tombstones, session
+// records), `terminalTrace`, `sendFlow` (reuse path), `spawnFlow`,
+// `spawnResult` (job -> rendered tool output), `defaultCwd` and `tagResume`
+// (shared with send). Output: { spawn }.
 export function createSpawnDispatch({
   registry,
   terminalTrace,
@@ -31,13 +33,20 @@ export function createSpawnDispatch({
   spawnFlow,
   spawnResult,
   listProviderModels = null,
+  defaultCwd = process.cwd(),
+  tagResume = createTagResume({ registry, sendFlow, defaultCwd }),
 }) {
+  const { resumeTag } = tagResume;
+
   // Explicit-tag spawn priority (auto nextTag always creates a fresh session):
   //   1) live + busy -> queue the prompt (reuse)
   //   2) live + idle -> continue existing session (reuse)
   //   3) lingering terminal trace -> reap trace and fresh spawn under same tag
-  //   4) genuinely new tag -> fresh deferred spawn
-  async function resolveExplicitTagSpawn(explicitTag, args, { scopedContext, context, notifyContext }) {
+  //   4) reaped tag (tombstone, or past it this owner's last session record)
+  //      whose saved session can continue -> resume it; a tombstone whose
+  //      session cannot -> fresh spawn inheriting agent/cwd (`respawned`)
+  //   5) genuinely new tag -> fresh deferred spawn
+  async function resolveExplicitTagSpawn(explicitTag, args, { scopedContext, context, notifyContext, callerCwd }) {
     let liveSessionId = null;
     try {
       liveSessionId = registry.resolveTag(explicitTag, scopedContext, {
@@ -63,9 +72,12 @@ export function createSpawnDispatch({
       terminalTrace.reapTerminalTraceForTag(explicitTag, scopedContext);
       return { spawnArgs: args, respawned: true };
     }
-    // Tombstone inheritance never honors allTerminals/global scope.
+    // Tombstone inheritance and resume never honor allTerminals/global scope.
+    const resumeOptions = { operation: 'spawn', args, callerCwd, context, notifyContext, route: requestedRoute(args) };
     const tombstone = registry.tagTombstoneForTag(explicitTag, context);
     if (tombstone) {
+      const resumed = await resumeTag(explicitTag, tombstone.sessionId, { ...resumeOptions, tombstone });
+      if (resumed) return { reused: resumed };
       registry.consumeTagTombstone(tombstone);
       return {
         spawnArgs: {
@@ -80,6 +92,11 @@ export function createSpawnDispatch({
       .readAllTagTombstones()
       .find((row) => clean(row.tag) === explicitTag && !rowMatchesContext(row, context));
     if (foreignTombstone) throw new Error(`agent spawn: tag "${explicitTag}" belongs to another terminal`);
+    const record = registry.lastTagSession(explicitTag, context);
+    if (record) {
+      const resumed = await resumeTag(explicitTag, record.id, resumeOptions);
+      if (resumed) return { reused: resumed };
+    }
     return { spawnArgs: args, respawned: false };
   }
 
@@ -91,7 +108,11 @@ export function createSpawnDispatch({
     let spawnArgs = args;
     let respawned = false;
     if (explicitTag) {
-      const plan = await resolveExplicitTagSpawn(explicitTag, args, request);
+      // One decision at a time per owner's tag: a spawn queued behind a send
+      // or spawn that resumed this tag reuses it instead of resuming it again.
+      const plan = await tagResume.serialized(explicitTag, request.context, () =>
+        resolveExplicitTagSpawn(explicitTag, args, request)
+      );
       if (plan.reused) return plan.reused;
       spawnArgs = plan.spawnArgs;
       respawned = plan.respawned;

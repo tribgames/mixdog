@@ -83,7 +83,12 @@ export function createCloseFlow({ mgr, registry, views }) {
     // below is an idempotent no-op fallback once terminal.
     // Closing a runtime cancels its work; only explicit session deletion
     // may tombstone the conversation.
-    const ok = await closeManagedSession(mgr, sessionId, 'cli-agent-close', { tombstone: false });
+    // An owner's close (not a process exit's) is recorded on the session itself,
+    // so a later reuse of its reaped tag never continues it.
+    const ok = await closeManagedSession(mgr, sessionId, 'cli-agent-close', {
+      tombstone: false,
+      ...(keepRow ? {} : { ownerClose: true }),
+    });
     if (task?.taskId) cancelBackgroundTask(task.taskId, CLOSE_REASON);
     // Drop the row only once the cancellation is DURABLY recorded: a failed
     // close that still forgot the row would leave no cancelled state behind.

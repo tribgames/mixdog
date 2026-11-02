@@ -26,6 +26,25 @@ export function stampMs(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 }
 
+/** Stamped as `closeProvenance` on a record by every completed turn, beside
+ *  that turn's completion time (`lastTurnCompletedAt`): from that turn on, an
+ *  owner close of the session is recorded on the record (`ownerClosedAt`). A
+ *  record without it last ran under a build that did not record owner closes,
+ *  so its absence proves nothing. */
+export const CLOSE_PROVENANCE_VERSION = 1;
+
+/** Whether a reaped tag may continue this stored session: its record carries
+ *  close provenance (absent → never; fail closed) and its owner did not close
+ *  it (the agent tool's `close`, which keeps the conversation open) after its
+ *  last completed turn. Only a turn completed after that close — the owner
+ *  reusing it — lifts it; `lastUsedAt` also moves without a turn (a rewind),
+ *  so it never counts. */
+export function resumableAfterReap(record) {
+  if (record?.closeProvenance !== CLOSE_PROVENANCE_VERSION) return false;
+  const closedAt = stampMs(record.ownerClosedAt);
+  return !(closedAt > 0 && closedAt >= stampMs(record.lastTurnCompletedAt));
+}
+
 export function tagTombstoneKey(row = {}) {
   const parent = clean(row.parentSessionId || row.ownerSessionId);
   if (parent) return `session:${parent}\0${clean(row.tag)}`;

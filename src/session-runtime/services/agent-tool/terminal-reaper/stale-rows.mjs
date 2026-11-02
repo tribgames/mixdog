@@ -2,35 +2,46 @@
 // last row stamp is older than the reap window becomes a tombstone so its tag is
 // freed instead of blocking spawn forever.
 import { clean, positiveInt } from '../helpers.mjs';
+import { isUnnotifiedRestartFailure } from '../worker-index/row-liveness.mjs';
 import { TAG_TOMBSTONE_TTL_MS, isLeadPoolAgent, workerRowTime } from '../worker-rows.mjs';
 import { resolveAgentTerminalReapMs } from '../../../../runtime/agent/orchestrator/runtime-core/config-helpers.mjs';
-import { insertTombstone, isTerminalRow } from './row-helpers.mjs';
+import { insertTombstone, isTerminalRow, pastSettledRetention, sessionHasLiveWork } from './row-helpers.mjs';
 
-export function createStaleRowTransition({ cfgMod, tagMaps, index, getLiveSession }) {
+export function createStaleRowTransition({ cfgMod, mgr, tagMaps, index, getLiveSession }) {
   const { readWorkerRows, writeWorkerRows, flushWorkerIndexMutations } = index;
 
   function transitionStaleNonterminalRows(context = {}) {
+    const now = Date.now();
+    const config = cfgMod.loadConfig();
     const staleRows = readWorkerRows(context).filter((row) => {
       if (isLeadPoolAgent(row.agent)) return false;
-      if (isTerminalRow(row)) return false;
+      // Settled rows age out of the index (the tombstone keeps the tag's reap
+      // note); an owed restart failure is the only record of that result, and
+      // a session still in use in this process keeps its row.
+      if (isTerminalRow(row)) {
+        if (isUnnotifiedRestartFailure(row)) return false;
+        if (!pastSettledRetention(config, row, now) || sessionHasLiveWork(mgr, clean(row.sessionId))) return false;
+        return true;
+      }
       if (getLiveSession(clean(row.sessionId))) return false;
       const rowTime = workerRowTime(row);
-      const reapMs = resolveAgentTerminalReapMs(cfgMod.loadConfig(), row.provider);
+      const reapMs = resolveAgentTerminalReapMs(config, row.provider);
       // A row with no timestamp has no usable stamp at all. Explicitly
       // disabled terminal reaping still gets the tombstone TTL as a finite
       // staleness bound, so malformed/running index rows cannot block a
       // tag forever.
-      return rowTime <= 0 || Date.now() - rowTime >= (reapMs ?? TAG_TOMBSTONE_TTL_MS);
+      return rowTime <= 0 || now - rowTime >= (reapMs ?? TAG_TOMBSTONE_TTL_MS);
     });
     if (staleRows.length === 0) return false;
     flushWorkerIndexMutations();
     const nowIso = new Date().toISOString();
+    const reapedIds = new Set(staleRows.map((row) => clean(row.sessionId)));
     writeWorkerRows((byKey, tombstonesByKey, priorityTombstoneKeys) => {
+      for (const [key, candidate] of byKey) {
+        if (reapedIds.has(clean(candidate.sessionId))) byKey.delete(key);
+      }
       for (const row of staleRows) {
         const sessionId = clean(row.sessionId);
-        for (const [key, candidate] of [...byKey.entries()]) {
-          if (clean(candidate.sessionId) === sessionId) byKey.delete(key);
-        }
         const tombstone = {
           tag: clean(row.tag),
           agent: clean(row.agent) || null,

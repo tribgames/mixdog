@@ -111,6 +111,30 @@ test('explicit deletion replaces automatic-close provenance without resetting it
   }
 });
 
+test("an agent owner's close is kept on the open record; other detaches are not", async () => {
+  const owned = 'sess_close_owner_stamp';
+  const exited = 'sess_close_exit_detach';
+  await saveSessionAsync(session(owned));
+  await saveSessionAsync(session(exited));
+  assert.equal(closeSession(owned, 'cli-agent-close', { tombstone: false, ownerClose: true }), true);
+  assert.equal(closeSession(exited, 'cli-agent-close', { tombstone: false }), true);
+  const record = loadSession(owned);
+  assert.equal(record.closed === true, false, 'the conversation stays open');
+  assert.ok(record.ownerClosedAt > 0);
+  assert.equal(loadSession(exited).ownerClosedAt, undefined);
+});
+
+test('an owner close is recorded on a record whose runtime was already closed for another reason', async () => {
+  const { markSessionOwnerClosedAsync } = await import('../store/lifecycle-barriers.mjs');
+  const id = 'sess_close_owner_after_detach';
+  await saveSessionAsync(session(id));
+  assert.equal(closeSession(id, 'parent stopped', { tombstone: false }), true);
+  assert.equal(loadSession(id).ownerClosedAt, undefined);
+  assert.equal(typeof (await markSessionOwnerClosedAsync(id)), 'number');
+  assert.ok(loadSession(id).ownerClosedAt > 0);
+  assert.equal(loadSession(id).closed === true, false);
+});
+
 test('a barrier that really failed is still reported and the close is refused', () => {
   const id = 'sess_close_foreign_bytes';
   mkdirSync(join(root, 'sessions'), { recursive: true });

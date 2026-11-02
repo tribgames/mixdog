@@ -110,6 +110,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
       upsertWorkerRow(rowFromSession(session, fallbackTag, extra), { defer: true }),
     removeWorkerRow,
     markReleased,
+    isReleased: store.isReleased,
     setAwaitingUser: awaitingUser.setAwaitingUser,
     refreshTagsFromIndex,
     flushActiveWorkerRows: settlement.flushActiveWorkerRows,

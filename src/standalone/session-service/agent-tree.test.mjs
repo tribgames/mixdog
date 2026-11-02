@@ -45,7 +45,12 @@ function createHarness({ rows = [], stored = {}, busyIds = new Set(), beforeCrea
     }
     return runtimes.get(id);
   };
+  const ownerCloses = [];
   const tree = createAgentTree({
+    markOwnerClosed: async (id, reason) => {
+      ownerCloses.push([id, reason]);
+      return 1;
+    },
     listSessions: async () => rows,
     readStoredSession: async (id, options) => stored[id]?.(options) ?? null,
     log: (line) => logs.push(line),
@@ -60,7 +65,7 @@ function createHarness({ rows = [], stored = {}, busyIds = new Set(), beforeCrea
       return { sessionId };
     },
   });
-  return { tree, created, turns, closed, closeOptions, retained, logs, runtimeFor };
+  return { tree, created, turns, closed, closeOptions, ownerCloses, retained, logs, runtimeFor };
 }
 
 const spec = (parentSessionId, extra = {}) => ({
@@ -323,6 +328,51 @@ test('closing a finished child keeps its completed status; closing a running one
   assert.equal(await h.tree.cancelAgentTree(running.id, 'cli-agent-close'), true);
   assert.equal(h.tree.agentDescriptor(running.id).status, 'cancelled');
   assert.equal(h.tree.agentDescriptor(running.id).stage, 'cancelled');
+});
+
+test("an owner's close is recorded on every member's record after its runtime closes", async () => {
+  const h = createHarness();
+  const { session: parent } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  const { session: child } = await h.tree.createAgentChild({ spec: spec(parent.id) });
+  assert.equal(await h.tree.cancelAgentTree(parent.id, 'cli-agent-close', { ownerClose: true }), true);
+  assert.deepEqual(h.ownerCloses, [
+    [child.id, 'cli-agent-close'],
+    [parent.id, 'cli-agent-close'],
+  ]);
+  await h.tree.cancelAgentTree(parent.id, 'parent stopped');
+  assert.equal(h.ownerCloses.length, 2, 'any other close records nothing');
+});
+
+test('an owner close after a non-owner close of a still-registered terminal runtime is recorded', async () => {
+  const h = createHarness();
+  const { session } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  assert.equal(await h.tree.cancelAgentTree(session.id, 'parent stopped'), true);
+  assert.equal(h.runtimeFor(session.id).terminal, true);
+  assert.equal(await h.tree.cancelAgentTree(session.id, 'cli-agent-close', { ownerClose: true }), true);
+  assert.equal(h.closed.length, 1, 'the terminal runtime is not closed again');
+  assert.deepEqual(h.ownerCloses, [[session.id, 'cli-agent-close']]);
+});
+
+test('an owner close joining a close already in progress is still recorded', async () => {
+  const h = createHarness();
+  const { session } = await h.tree.createAgentChild({ spec: spec('lead-1') });
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  const runtime = h.runtimeFor(session.id);
+  runtime.closeCanonicalSession = async () => {
+    await gate;
+    runtime.terminal = true;
+    return true;
+  };
+  const first = h.tree.cancelAgentTree(session.id, 'parent stopped');
+  const owner = h.tree.cancelAgentTree(session.id, 'cli-agent-close', { ownerClose: true });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(h.ownerCloses, []);
+  release();
+  assert.deepEqual(await Promise.all([first, owner]), [true, true]);
+  assert.deepEqual(h.ownerCloses, [[session.id, 'cli-agent-close']]);
 });
 
 test('cancellation follows the current runtime after an ordinary session reopen', async () => {

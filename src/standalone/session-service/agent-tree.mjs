@@ -24,6 +24,12 @@ export function createAgentTree({
   entryForSession,
   retainUnwatched,
   createSession,
+  // Sessions run inline in this daemon, so its own store records the owner
+  // close; loaded on first use only.
+  markOwnerClosed = async (...args) =>
+    (await import('../../runtime/agent/orchestrator/session/store/lifecycle-barriers.mjs')).markSessionOwnerClosedAsync(
+      ...args
+    ),
 } = {}) {
   const registry = createAgentRegistry();
   const progress = new Map();
@@ -110,6 +116,7 @@ export function createAgentTree({
     entryForSession,
     log,
     rememberCancelTranscript,
+    markOwnerClosed,
   });
 
   /** The descriptor as callers see it: status from the live runtime when one

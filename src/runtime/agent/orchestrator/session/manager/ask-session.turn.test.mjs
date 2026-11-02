@@ -104,6 +104,32 @@ test('a turn returns the provider answer and commits user + assistant messages w
     assert.equal(tail[1].content, 'answer');
     assert.equal(stored.totalInputTokens, 10);
     assert.equal(stored.totalOutputTokens, 5);
+    // From this turn on, an owner close of the session is recorded on it.
+    assert.equal(stored.closeProvenance, 1);
+    assert.equal(stored.lastTurnCompletedAt, stored.lastUsedAt);
+  });
+});
+
+test('an owner close is lifted by a completed turn, never by a rewind', async (t) => {
+  const { closeSession } = await import('./session-close.mjs');
+  const { rewindSessionMessagesTo } = await import('./session-crud.mjs');
+  const { resumableAfterReap } = await import('../../../../shared/agent-reap-state.mjs');
+  const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+  await withAskHarness(t, async ({ session, askSession, loadSession }) => {
+    await askSession(session.id, 'first', null, null, null, null, {});
+    await askSession(session.id, 'second', null, null, null, null, {});
+    assert.equal(resumableAfterReap(loadSession(session.id)), true);
+    await tick();
+    assert.equal(closeSession(session.id, 'cli-agent-close', { tombstone: false, ownerClose: true }), true);
+    assert.equal(resumableAfterReap(loadSession(session.id)), false, 'owner-closed');
+    await tick();
+    assert.ok(await rewindSessionMessagesTo(session.id, { text: 'second' }));
+    const rewound = loadSession(session.id);
+    assert.ok(rewound.lastUsedAt > rewound.ownerClosedAt, 'the rewind moved lastUsedAt past the close');
+    assert.equal(resumableAfterReap(rewound), false, 'a rewind is no turn');
+    await tick();
+    await askSession(session.id, 'third', null, null, null, null, {});
+    assert.equal(resumableAfterReap(loadSession(session.id)), true, 'a completed turn is the owner reusing it');
   });
 });
 

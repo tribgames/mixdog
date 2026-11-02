@@ -156,6 +156,7 @@ function renderTask(value, includeDiagnostics) {
   if (value.type) lines.push(`type: ${value.type}`);
   if (value.reused) lines.push('reused: true');
   if (value.respawned) lines.push('respawned: true');
+  if (value.resumed) lines.push('resumed: true');
   if (value.note) lines.push(`note: ${value.note}`);
   if (value.tag || value.sessionId) lines.push(`target: ${value.tag || '-'} ${value.sessionId || ''}`.trim());
   if (!isStartAck) lines.push(...taskDiagnosticLines(value));
@@ -174,6 +175,7 @@ function renderQueued(value) {
   return [
     'agent message queued',
     value.reused ? 'reused: true' : null,
+    value.resumed ? 'resumed: true' : null,
     `target: ${value.tag || '-'} ${value.sessionId || ''}`.trim(),
     value.agent ? `agent: ${value.agent}` : null,
     `queueDepth: ${value.queueDepth ?? 1}`,
