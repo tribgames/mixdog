@@ -5,10 +5,9 @@
 //
 // Contract:
 //  - cwd arrives via workerData.cwd.
-//  - On success: postMessage({ ok: true, signature, graph }). Main thread
-//    seeds _codeGraphCache directly. Graph is structuredClone-transferred —
-//    Maps/Sets of plain objects only, runtime caches are empty Maps that
-//    survive the clone.
+//  - On success: the graph is posted in ack-paced chunks
+//    (_postCodeGraphWorkerSuccess) and reassembled by the main thread, which
+//    seeds _codeGraphCache directly. Maps/Sets of plain objects only.
 //  - On any failure: postMessage({ ok: false, error }). Main thread propagates
 //    the worker error — find_symbol / code_graph tools throw. No sync fallback.
 import { parentPort, workerData } from 'node:worker_threads';
@@ -34,8 +33,10 @@ try {
     };
     const graph = await _buildCodeGraph(cwd, buildOptions);
     if (graph && typeof graph.signature === 'string') {
-      _postCodeGraphWorkerSuccess(graph, (message) => parentPort.postMessage(message), undefined, {
+      await _postCodeGraphWorkerSuccess(graph, (message) => parentPort.postMessage(message), undefined, {
         cache: buildOptions.cache,
+        // Chunks are paced by the main thread's ack (see build.mjs).
+        nextChunk: () => new Promise((resolve) => parentPort.once('message', resolve)),
       });
     } else {
       parentPort.postMessage({ ok: false });

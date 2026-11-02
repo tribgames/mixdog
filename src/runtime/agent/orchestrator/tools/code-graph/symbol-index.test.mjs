@@ -11,7 +11,11 @@ import {
   _getTokenSymbolsForNode,
   _graphHasNativeSymbols,
   _graphExpectsNativeSymbols,
+  _tokenCandidateNodes,
+  _ensureTokenIndex,
+  _tokenIndexRetainedBytes,
 } from './symbol-index.mjs';
+import { _attachGraphRuntimeCaches, _estimateGraphRetainedBytes } from './graph-model.mjs';
 
 const node = (symbols) => ({ rel: 'src/a.mjs', lang: 'javascript', symbols });
 
@@ -149,6 +153,44 @@ test('candidate lookup uses native tokens only — no full-graph fallback', () =
   );
   // A miss is the empty set, not "every node in the graph".
   assert.deepEqual(_lookupCandidateNodes(graph, 'beta'), []);
+});
+
+test('the token index answers the scan’s candidates, follows a token change, and is counted in the graph size', async () => {
+  const files = [
+    ['src/a.mjs', 'javascript', ['alpha', 'beta', 'alpha']],
+    ['src/b.py', 'python', ['alpha']],
+    ['src/c.mjs', 'javascript', null],
+    ['src/d.mjs', 'javascript', ['gamma', 'alpha']],
+  ];
+  const graph = _attachGraphRuntimeCaches({
+    cwd: '/repo',
+    nodes: new Map(files.map(([rel, lang, tokenSymbols]) => [rel, { rel, lang, tokenSymbols, symbols: [] }])),
+    reverse: new Map(),
+  });
+  const queries = [
+    ['alpha', null],
+    ['alpha', 'javascript'],
+    ['beta', null],
+    ['gamma', 'python'],
+    ['missing', null],
+  ];
+  const scanned = queries.map(([symbol, lang]) => _tokenCandidateNodes(graph, symbol, lang).map((n) => n.rel));
+  const sizeWithout = _estimateGraphRetainedBytes(graph);
+  await _ensureTokenIndex(graph);
+  assert.ok(_tokenIndexRetainedBytes(graph) > 0);
+  assert.equal(_estimateGraphRetainedBytes(graph), sizeWithout + _tokenIndexRetainedBytes(graph));
+  assert.deepEqual(
+    queries.map(([symbol, lang]) => _tokenCandidateNodes(graph, symbol, lang).map((n) => n.rel)),
+    scanned
+  );
+  assert.deepEqual(scanned[0], ['src/a.mjs', 'src/b.py', 'src/d.mjs']);
+  // A node whose tokens were replaced is re-indexed on the next query's ensure.
+  graph.nodes.get('src/c.mjs').tokenSymbols = ['beta'];
+  await _ensureTokenIndex(graph);
+  assert.deepEqual(
+    _lookupCandidateNodes(graph, 'beta').map((n) => n.rel),
+    ['src/a.mjs', 'src/c.mjs']
+  );
 });
 
 test('symbol capability probes separate "no symbols" from "not an extraction language"', () => {

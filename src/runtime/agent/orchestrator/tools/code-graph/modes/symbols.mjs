@@ -9,13 +9,14 @@ import { statSync } from 'node:fs';
 import { _graphRel } from '../source-access.mjs';
 import { _capGraphList, _symbolOutlineRows } from '../symbol-index.mjs';
 import {
-  _findSymbolHits,
   _findSymbolAcrossGraph,
   _searchSymbolsByKeyword,
   _declarationOutsideScope,
   _isVendorPath,
-  _prewarmSourceTextNodes,
+  _prewarmMaskedSourceNodes,
+  _prewarmSymbolSources,
 } from '../search.mjs';
+import { _nodeInAstScope } from '../ast-calls.mjs';
 import { _buildExactFileGraph } from '../exact-file-graph.mjs';
 import {
   collectGraphSymbolList,
@@ -52,6 +53,11 @@ export async function resolveOutsideDeclaration(
   symbol,
   { language = null, fileRel = null, scopeRelPrefix = null, signal = null } = {}
 ) {
+  // The scope's files are scanned line by line for an import of the symbol.
+  if (fileRel || scopeRelPrefix) {
+    const scoped = [...graph.nodes.values()].filter((node) => _nodeInAstScope(node, fileRel, scopeRelPrefix));
+    await _prewarmMaskedSourceNodes(graph, scoped, { masked: false, signal });
+  }
   const outside = _declarationOutsideScope(graph, symbol, { language, fileRel, scopeRelPrefix });
   if (!outside?.viaImport || !outside.abs) return outside;
   if (!outlineLanguageForPath(outside.abs)) return outside;
@@ -80,14 +86,11 @@ export async function resolveOutsideDeclaration(
   };
 }
 
-// The declaring file's source is read ahead so a `body:true` answer renders
-// from the cache instead of a sync read per row.
+// Every file the declaration search reads and masks — the declaring file a
+// `body:true` answer renders included — is read and masked ahead, so the
+// synchronous search runs over cached text instead of a sync read per file.
 export async function prewarmPrimaryDeclaration(graph, symbol, language, signal) {
-  const hits = _findSymbolHits(graph, symbol, { language });
-  const primary = hits.find((hit) => hit.declarationLike) || hits[0];
-  await _prewarmSourceTextNodes(graph, [primary?.rel ? graph.nodes.get(primary.rel) : null].filter(Boolean), {
-    signal,
-  });
+  await _prewarmSymbolSources(graph, [symbol], language, { signal });
 }
 
 export async function symbols(ctx) {
@@ -103,7 +106,7 @@ export async function findSymbol(ctx) {
   const language = languageArg(args);
   const limit = Math.max(1, Math.min(50, Number(args?.limit || 20)));
   if (rel && !node) return fileNotFound('find_symbol', ctx);
-  if (args?.body !== false) await prewarmPrimaryDeclaration(graph, symbol, language, signal);
+  await prewarmPrimaryDeclaration(graph, symbol, language, signal);
   return _findSymbolAcrossGraph(graph, symbol, cwd, {
     defaultCwd,
     language,
@@ -141,7 +144,7 @@ export async function symbolSearch(ctx) {
   const seen = new Set();
   const sections = [];
   for (const kw of keywords) {
-    const result = search(kw);
+    const result = await search(kw);
     if (seen.has(result)) continue;
     seen.add(result);
     sections.push(`# symbol_search: ${kw}\n${result}`);

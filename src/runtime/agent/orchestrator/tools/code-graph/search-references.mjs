@@ -11,6 +11,7 @@ import {
   _capGraphList,
 } from './symbol-index.mjs';
 import { CODE_GRAPH_MAX_FILES } from './constants.mjs';
+import { _mainThreadSlice } from './main-thread-slice.mjs';
 import { _inferSpanEndByIndent } from './span.mjs';
 import { _toByteColumn, _symbolPathForPosition, _symbolPathForSymbol } from './text-columns.mjs';
 
@@ -23,6 +24,7 @@ import {
   _isTypeFaceOf,
   _findSymbolHits,
   _augmentNoHitDiagnostic,
+  _prewarmSymbolSources,
 } from './search.mjs';
 
 export function _formatFullSymbolBody(srcText, startLine, endLine) {
@@ -429,11 +431,15 @@ function _astReferenceCallEntries(graph, symbol, referenceText) {
 
 // callers: AST call sites reaching a declaring file, already grouped by
 // (file, inSymbol) by _astCallerCallSites.
-function _astCallerEntries(graph, symbol, targetRels, scope) {
+async function _astCallerEntries(graph, symbol, targetRels, scope) {
   if (!targetRels?.length) return [];
-  return _astCallerCallSites(graph, symbol, targetRels, scope).map(({ node, call }) =>
-    _astEntryFromCall(graph, node, call)
-  );
+  const entries = [];
+  const slice = _mainThreadSlice();
+  for (const { node, call } of await _astCallerCallSites(graph, symbol, targetRels, scope)) {
+    entries.push(_astEntryFromCall(graph, node, call));
+    if (slice.expired()) await slice.yield();
+  }
+  return entries;
 }
 
 // references only: the identifier USAGES that are not call sites — a type
@@ -496,14 +502,15 @@ export function _formatReferenceDetails(graph, symbol, referenceText, { limit = 
 // `targetRels` are the files the symbol is DECLARED in — the anchors of the
 // caller rule. Every row is an AST call site; no declaration anchor means no
 // call sites, never a text guess.
-export function _formatCallerReferences(
+export async function _formatCallerReferences(
   graph,
   symbol,
   { limit = 200, targetRels = null, language = null, fileRel = null, scopeRelPrefix = null } = {}
 ) {
-  const callSites = _sortEntries(_astCallerEntries(graph, symbol, targetRels, { language, fileRel, scopeRelPrefix }), {
-    groupByCaller: true,
-  });
+  const callSites = _sortEntries(
+    await _astCallerEntries(graph, symbol, targetRels, { language, fileRel, scopeRelPrefix }),
+    { groupByCaller: true }
+  );
   if (!callSites.length) return '(no callers)';
   const format = (entry) => {
     const caller = entry.caller ? `\tcaller=${entry.caller}` : '';
@@ -542,14 +549,15 @@ export function _astCallerTargetRels(graph, symbol, language = null, { fileRel =
   return [...new Set(chosen.map((hit) => hit.rel).filter(Boolean))].slice(0, _AST_TARGET_RELS_MAX);
 }
 
-function _callerNamesOf(graph, symbol, language, { fileRel = null, scopeRelPrefix = null } = {}) {
+async function _callerNamesOf(graph, symbol, language, { fileRel = null, scopeRelPrefix = null } = {}) {
   const byName = new Map();
   const leaves = new Map();
   // Every level of the transitive walk uses the same rule as depth=1.
   const targetRels = _astCallerTargetRels(graph, symbol, language, { fileRel, scopeRelPrefix });
-  const entries = _sortEntries(_astCallerEntries(graph, symbol, targetRels, { language, fileRel, scopeRelPrefix }), {
-    groupByCaller: true,
-  });
+  const entries = _sortEntries(
+    await _astCallerEntries(graph, symbol, targetRels, { language, fileRel, scopeRelPrefix }),
+    { groupByCaller: true }
+  );
   for (const e of entries) {
     if (e.caller && e.caller !== symbol) {
       if (!byName.has(e.caller)) byName.set(e.caller, { name: e.caller, loc: `${e.file}:${e.line}`, leaf: false });
@@ -569,32 +577,47 @@ function _callerNamesOf(graph, symbol, language, { fileRel = null, scopeRelPrefi
   return [...byName.values(), ...leafList];
 }
 
-export function _formatTransitiveCallers(
+export async function _formatTransitiveCallers(
   graph,
   rootSymbol,
   cwd,
-  { language = null, depth = 2, pageSize = 100, page = 1, hardMax = 1000, fileRel = null, scopeRelPrefix = null } = {}
+  {
+    language = null,
+    depth = 2,
+    pageSize = 100,
+    page = 1,
+    hardMax = 1000,
+    fileRel = null,
+    scopeRelPrefix = null,
+    signal = null,
+  } = {}
 ) {
   const expanded = new Set();
   const collected = [];
   let overflow = false;
-  const walk = (symbol, level) => {
+  // Each level resolves the callers of names found one level up, so their
+  // sources are prewarmed per name, right before that name is evaluated, and
+  // the walk yields between names once a slice is spent.
+  const walkSlice = _mainThreadSlice();
+  const walk = async (symbol, level) => {
     if (overflow || level >= depth) return;
     if (expanded.has(symbol)) {
       collected.push({ indent: level + 1, label: `${symbol} … (callers expanded above)` });
       return;
     }
     expanded.add(symbol);
-    for (const entry of _callerNamesOf(graph, symbol, language, { fileRel, scopeRelPrefix })) {
+    if (walkSlice.expired()) await walkSlice.yield();
+    await _prewarmSymbolSources(graph, [symbol], language, { signal });
+    for (const entry of await _callerNamesOf(graph, symbol, language, { fileRel, scopeRelPrefix })) {
       if (collected.length >= hardMax) {
         overflow = true;
         return;
       }
       collected.push({ indent: level + 1, label: `${entry.name}\t${entry.loc}` });
-      if (!entry.leaf) walk(entry.name, level + 1);
+      if (!entry.leaf) await walk(entry.name, level + 1);
     }
   };
-  walk(rootSymbol, 0);
+  await walk(rootSymbol, 0);
   if (collected.length === 0) return _augmentNoHitDiagnostic('(no callers)', '(no callers)', graph, cwd, rootSymbol);
 
   const size = Math.max(1, Math.floor(Number(pageSize) || 100));

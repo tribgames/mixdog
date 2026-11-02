@@ -64,12 +64,13 @@ test('memory pruning evicts older base graphs but keeps the most recently used o
 });
 
 test('a worker-built graph arrives with its base size, matching a main-thread walk of the clone', async () => {
-  const { _postCodeGraphWorkerSuccess } = await import('./build.mjs');
+  const { _postCodeGraphWorkerSuccess, _codeGraphWorkerReceiver } = await import('./build.mjs');
   const { _estimateGraphBaseBytes, _seedGraphBaseBytes } = await import('./graph-model.mjs');
   const graph = graphWithSource('x'.repeat(4_000));
   graph.signature = 'sig';
   let message = null;
-  _postCodeGraphWorkerSuccess(graph, (posted) => (message = structuredClone(posted)), () => {});
+  const receive = _codeGraphWorkerReceiver();
+  await _postCodeGraphWorkerSuccess(graph, (posted) => (message = receive(structuredClone(posted)) || message), () => {});
   const fresh = structuredClone(message.graph);
   assert.equal(message.baseBytes, _estimateGraphBaseBytes(fresh));
   _seedGraphBaseBytes(message.graph, message.baseBytes);

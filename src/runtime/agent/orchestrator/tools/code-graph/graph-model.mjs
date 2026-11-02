@@ -5,6 +5,7 @@
 import { createHash } from 'node:crypto';
 import { resolve as pathResolve } from 'node:path';
 import { SYMBOL_SCHEMA_VERSION, CODE_GRAPH_MAX_FILES } from './constants.mjs';
+import { _tokenIndexRetainedBytes } from './symbol-index.mjs';
 
 export function _computeGraphSignature(fileMetas) {
   const hash = createHash('sha1');
@@ -185,18 +186,55 @@ export function _seedGraphBaseBytes(graph, bytes) {
   _baseGraphBytes.set(graph, { hydration: graph._callsHydration, bytes });
 }
 
+// Call-site hydration changes a graph whose base size is already known by
+// `addedBytes` (applyCallsSidecarEntries: applied lists minus the lists they
+// replaced) and by the marker flip itself, so the estimate moves to the
+// hydrated state without re-walking every call tuple on the main thread (300+
+// ms for a large root). `baseBytes` is the pre-hydration size the caller took
+// before applying anything. Same rules as the walk, so the result equals it.
+export function _noteGraphCallsHydrated(graph, baseBytes, addedBytes) {
+  const markerBytes = (present, value) =>
+    present ? 8 + _estimateValueBytes('_callsHydration') + _estimateValueBytes(value) : 0;
+  const before = markerBytes(Object.hasOwn(graph, '_callsHydration'), graph._callsHydration);
+  graph._callsHydration = 'done';
+  const bytes = baseBytes + addedBytes + markerBytes(true, 'done') - before;
+  _baseGraphBytes.set(graph, { hydration: 'done', bytes });
+}
+
 export function _estimateGraphRetainedBytes(graph) {
   if (!graph || typeof graph !== 'object' || graph instanceof Map || Array.isArray(graph)) {
     return _estimateValueBytes(graph);
   }
-  let bytes = _estimateGraphBaseBytes(graph);
+  let bytes = _estimateGraphBaseBytes(graph) + _tokenIndexRetainedBytes(graph);
   for (const key of GRAPH_RUNTIME_CACHE_KEYS) {
-    if (Object.hasOwn(graph, key)) bytes += 8 + _estimateValueBytes(key) + _estimateValueBytes(graph[key]);
+    if (Object.hasOwn(graph, key)) bytes += 8 + _estimateValueBytes(key) + _estimateRuntimeCacheBytes(graph[key]);
   }
   return bytes;
 }
 
-function _estimateValueBytes(root, seen = new WeakSet()) {
+// Runtime-cache entries are immutable once stored (a refresh stores a new
+// object), so an entry measured where it was produced — in a time-sliced
+// prewarm — is not re-walked by the prune after every call. That walk over the
+// line arrays of thousands of files was a 50-90 ms main-thread stretch per call
+// on a large root. Same rules as _estimateValueBytes, so the total is unchanged.
+const _runtimeEntryBytes = new WeakMap();
+
+export function _noteRuntimeCacheEntryBytes(value) {
+  if (value && typeof value === 'object' && !_runtimeEntryBytes.has(value)) {
+    _runtimeEntryBytes.set(value, _estimateValueBytes(value));
+  }
+}
+
+function _estimateRuntimeCacheBytes(cache) {
+  if (!(cache instanceof Map)) return _estimateValueBytes(cache);
+  let bytes = 48 + cache.size * 24;
+  for (const [key, value] of cache) {
+    bytes += _estimateValueBytes(key) + (_runtimeEntryBytes.get(value) ?? _estimateValueBytes(value));
+  }
+  return bytes;
+}
+
+export function _estimateValueBytes(root, seen = new WeakSet()) {
   const estimate = (value) => {
     if (value == null) return 0;
     const type = typeof value;

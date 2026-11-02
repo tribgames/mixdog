@@ -5,6 +5,7 @@
 
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { Worker } from 'node:worker_threads';
 import {
   readdirSync,
   readFileSync,
@@ -37,15 +38,25 @@ import {
   RE_CALLS_CACHE_TMP,
   RE_CALLS_CACHE_LOCK,
 } from './constants.mjs';
-import { _serializeGraph } from './graph-model.mjs';
+import {
+  _serializeGraph,
+  _estimateGraphBaseBytes,
+  _estimateValueBytes,
+  _noteGraphCallsHydrated,
+} from './graph-model.mjs';
 import {
   callsSidecarPath,
   callsSidecarHash,
   buildCallsSidecarPayload,
   graphHasCallsToPersist,
   readCallsSidecarPayload,
-  applyCallsSidecarToGraph,
+  installCallsSidecarEntries,
+  isStagedReplacementStale,
+  measureReplacedCalls,
+  stageCallsSidecarEntry,
 } from './calls-cache.mjs';
+import { _mainThreadSlice } from './main-thread-slice.mjs';
+import { runInRootAsyncContext } from '../../../../shared/root-async-context.mjs';
 
 const _diskCodeGraphCache = new Map();
 // Call-site sidecars waiting for the next persist, keyed by canonical cwd.
@@ -659,23 +670,147 @@ function _stageCallsSidecar(key, graph) {
 /**
  * Fill a cache-loaded graph's nodes with their persisted AST call sites.
  * Called by the callers/callees/references modes only — the first such query
- * of a process pays one sidecar read, every other mode pays nothing. Runs at
- * most once per graph object (the marker is cleared even on a miss, so a
- * missing/corrupt sidecar cannot be re-read on every query).
- * Returns the number of files hydrated.
+ * of a process pays one sidecar read, every other mode pays nothing. The file
+ * is read and parsed in a worker and received chunk by chunk, so the main
+ * thread never parses the whole payload. Resolves to the number of files
+ * hydrated.
+ *
+ * Concurrent queries share the attempt in flight. An attempt the reader
+ * COMPLETED installs every call list at once and marks the graph done — a
+ * missing/corrupt sidecar included, so it is not re-read on every query. An
+ * attempt that FAILED (reader crash, stall past its deadline, process
+ * shutdown) installed nothing and leaves the graph pending, so the next
+ * call-mode query retries instead of answering from half a sidecar forever.
  */
 export function hydrateGraphCallsFromSidecar(graph) {
-  if (graph?._callsHydration !== 'pending') return 0;
-  graph._callsHydration = 'done';
+  if (graph?._callsHydration !== 'pending') return Promise.resolve(0);
+  let running = _callsHydrations.get(graph);
+  if (!running) {
+    running = _hydrateGraphCalls(graph).finally(() => _callsHydrations.delete(graph));
+    _callsHydrations.set(graph, running);
+  }
+  return running;
+}
+
+const _callsHydrations = new WeakMap();
+
+// Entries are collected while the reader streams, staged off the graph in
+// time slices (validated and measured, including the lists they replace), and
+// installed in one synchronous step that only assigns, once the reader
+// acknowledged the whole file: no query ever sees part of a sidecar, and a
+// failed attempt leaves nothing to roll back.
+async function _hydrateGraphCalls(graph) {
   try {
     _loadDiskCodeGraphCache();
     const key = _canonicalGraphCwd(graph.cwd);
-    const payload = _pendingCallsSidecars.get(key) || readCallsSidecarPayload(_callsSidecarFileFor(key));
-    if (!payload) return 0; // old cache without a sidecar → calls stay null
-    return applyCallsSidecarToGraph(graph, payload);
+    const pending = _pendingCallsSidecars.get(key);
+    const entries = pending ? Object.entries(pending.files || {}) : [];
+    if (!pending) {
+      // An old cache without a sidecar streams nothing → calls stay null.
+      await _streamCallsSidecar(_callsSidecarFileFor(key), (chunk) => {
+        for (const entry of chunk) entries.push(entry);
+      });
+    }
+    const slice = _mainThreadSlice();
+    const staged = [];
+    for (const entry of entries) {
+      const record = stageCallsSidecarEntry(graph, entry, _estimateValueBytes);
+      if (record) staged.push(record);
+      if (slice.expired()) await slice.yield();
+    }
+    // A node whose calls changed while staging yielded is re-measured here,
+    // never in the install.
+    for (;;) {
+      const stale = staged.filter(isStagedReplacementStale);
+      if (stale.length === 0) break;
+      for (const record of stale) {
+        measureReplacedCalls(record, _estimateValueBytes);
+        if (slice.expired()) await slice.yield();
+      }
+    }
+    // Pre-install size: the estimate then moves by the measured call bytes
+    // instead of re-walking the hydrated graph.
+    const baseBytes = _estimateGraphBaseBytes(graph);
+    const { applied, bytes } = installCallsSidecarEntries(staged);
+    _noteGraphCallsHydrated(graph, baseBytes, bytes);
+    return applied;
   } catch {
     return 0;
   }
+}
+
+// A reader that sends nothing for this long is stalled: its chunks arrive a
+// few ms apart once parsing is done, and parsing a 100+ MB sidecar takes
+// seconds, not tens of seconds.
+const CALLS_READER_STALL_MS = 30_000;
+let _callsReader = null;
+const _liveCallsReaders = new Set();
+
+/** Test seam: `{ createWorker, stallMs }` replaces the reader worker; null restores it. */
+export function _setCallsSidecarReaderForTest(reader) {
+  _callsReader = reader;
+}
+
+// A process exiting mid-read takes its readers down instead of waiting on them.
+process.once('exit', () => {
+  for (const worker of _liveCallsReaders) void worker.terminate();
+});
+
+// Resolves when the reader acknowledged the whole file (`done`); rejects when
+// it crashed, exited early or stalled.
+function _streamCallsSidecar(file, onEntries) {
+  return new Promise((resolve, reject) => {
+    const createWorker = _callsReader?.createWorker || ((url, options) => new Worker(url, options));
+    const stallMs = _callsReader?.stallMs ?? CALLS_READER_STALL_MS;
+    // execArgv: [] — the parent's flags (e.g. --input-type) can make a worker
+    // fail to start, as for the build worker.
+    // Root context: the hydration is shared across queries, so its worker and
+    // timers must not pin the async stores of the query that started it.
+    const worker = runInRootAsyncContext(() =>
+      createWorker(new URL('./calls-sidecar-worker.mjs', import.meta.url), {
+        workerData: { file },
+        execArgv: [],
+        stdout: true,
+        stderr: true,
+      })
+    );
+    _liveCallsReaders.add(worker);
+    let settled = false;
+    let stallTimer = null;
+    const settle = (error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(stallTimer);
+      _liveCallsReaders.delete(worker);
+      void worker.terminate();
+      if (error) reject(error);
+      else resolve();
+    };
+    const armStallTimer = () => {
+      clearTimeout(stallTimer);
+      stallTimer = runInRootAsyncContext(() =>
+        setTimeout(() => settle(new Error(`calls sidecar reader stalled for ${stallMs}ms`)), stallMs)
+      );
+      stallTimer.unref?.();
+    };
+    armStallTimer();
+    worker.on('message', (message) => {
+      if (settled) return;
+      if (message?.done) return settle(null);
+      try {
+        if (Array.isArray(message?.entries)) onEntries(message.entries);
+      } catch (error) {
+        return settle(error);
+      }
+      armStallTimer();
+      // Ack on a later turn: the next chunk is read after other work ran.
+      setImmediate(() => {
+        if (!settled) worker.postMessage(0);
+      });
+    });
+    worker.once('error', (error) => settle(error));
+    worker.once('exit', (code) => settle(new Error(`calls sidecar reader exited (${code}) before done`)));
+  });
 }
 
 export function _setDiskCodeGraphEntry(cwd, graph, { persist = true } = {}) {

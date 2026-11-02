@@ -1,6 +1,7 @@
 // Symbol search / callers / callees / references / impact query layer over a
 // built graph. Pure over {graph,cwd,args}; owns no cache state.
 import { readFile } from 'node:fs/promises';
+import { runtimeAsyncLocalStorage } from '../../../../shared/root-async-context.mjs';
 import { existsSync } from 'node:fs';
 import { resolve as pathResolve, dirname as pathDirname, basename as pathBasename } from 'node:path';
 import { normalizeOutputPath } from '../builtin/path-utils.mjs';
@@ -12,7 +13,17 @@ import {
   _graphRel,
   _isExistingFile,
 } from './source-access.mjs';
-import { _escapeRegExp, _unicodeBoundaryPattern, _lookupCandidateNodes, _symbolLine } from './symbol-index.mjs';
+import {
+  _escapeRegExp,
+  _unicodeBoundaryPattern,
+  _lookupCandidateNodes,
+  _tokenCandidateNodes,
+  _symbolLine,
+} from './symbol-index.mjs';
+import { _mainThreadSlice } from './main-thread-slice.mjs';
+import { _maskTextsOffThread } from './mask-pool.mjs';
+import { _createNonCodeMasker } from './text-mask.mjs';
+import { _noteRuntimeCacheEntryBytes } from './graph-model.mjs';
 import { CODE_GRAPH_MAX_FILES } from './constants.mjs';
 import { _symbolPathForSymbol } from './text-columns.mjs';
 import { _keywordSymbolSortKey, _tokenizeKeyword, _keywordMatchesSymbolName } from './keyword-match.mjs';
@@ -49,7 +60,12 @@ export {
 // cannot resolve is simply reported as external. Rows are deduped by
 // (kind, recv, name) and carry kind/recv. A file whose `calls` is absent or
 // malformed contributes no rows at all.
-export function _extractCallees(graph, declHit, _cwd, { cap = 200, callerSymbol = null, language = null } = {}) {
+export async function _extractCallees(
+  graph,
+  declHit,
+  _cwd,
+  { cap = 200, callerSymbol = null, language = null, signal = null } = {}
+) {
   if (!declHit) return [];
   const declNode = graph.nodes.get(declHit.rel);
   if (!declNode) return [];
@@ -62,11 +78,17 @@ export function _extractCallees(graph, declHit, _cwd, { cap = 200, callerSymbol 
   }
   const all = [...seen.values()];
   const sliced = all.slice(0, cap);
+  await _prewarmSymbolSources(graph, [...new Set(sliced.map((call) => call.name))], language, {
+    declaringOnly: true,
+    signal,
+  });
   const sourceLines = _getSourceLinesForNode(graph, declNode);
   const importedRels = _astImportedRels(declNode, graph?.cwd || _cwd);
   const declLookupCache = new Map();
   const rows = [];
+  const slice = _mainThreadSlice();
   for (const call of sliced) {
+    if (slice.expired()) await slice.yield();
     let declPath = '';
     let declLine = 0;
     let resolved = false;
@@ -189,6 +211,177 @@ export async function _prewarmSourceTextNodes(
   return sourceNodes;
 }
 
+// ~1M chars per worker message: large enough to amortize the round trip, small
+// enough that copying one batch in or out is a short main-thread stretch.
+const MASK_BATCH_CHARS = 1 << 20;
+const MASK_BATCHES_IN_FLIGHT = 2;
+// Largest file masked inline when the pool refuses or fails its batch: a few
+// ms of masking, well inside one main-thread slice.
+const INLINE_MASK_MAX_CHARS = 128 * 1024;
+// Source chars a resumable mask scans between slice checks (well under 1 ms).
+const MASK_STEP_CHARS = 16 * 1024;
+
+// `text.split(/\r?\n/)` in yielding slices, for texts too large to split in one.
+async function _splitLinesSliced(text, slice) {
+  const lines = [];
+  let start = 0;
+  for (;;) {
+    const end = text.indexOf('\n', start);
+    if (end < 0) {
+      lines.push(text.slice(start));
+      return lines;
+    }
+    lines.push(text.slice(start, end > start && text.charCodeAt(end - 1) === 13 ? end - 1 : end));
+    start = end + 1;
+    if ((lines.length & 1023) === 0 && slice.expired()) await slice.yield();
+  }
+}
+
+// Source text, source lines and (unless `masked:false`) masked lines of
+// `nodes`, computed before a query's synchronous evaluation reads them: the
+// reads are async, masking runs in the mask worker pool, and the line splits
+// are time-sliced. The caches are the ones the synchronous accessors read, so
+// the answer is unchanged; a node this misses (unreadable, evicted mid-query)
+// is simply computed on demand as before. Of a batch the pool refuses or
+// fails, small files are masked here in slices and larger ones wait for pool
+// admission.
+export async function _prewarmMaskedSourceNodes(graph, nodes, { masked = true, signal = null, ...options } = {}) {
+  const sourceNodes = await _prewarmSourceTextNodes(graph, nodes, { ...options, signal });
+  const ready = [];
+  for (const node of sourceNodes) {
+    const cached = graph._sourceTextCache?.get(node.rel);
+    if (cached && cached.fingerprint === (node.fingerprint || '')) ready.push({ node, text: cached.text });
+  }
+  const pending = masked
+    ? ready.filter(({ node }) => graph._maskedLinesCache?.get(node.rel)?.fingerprint !== (node.fingerprint || ''))
+    : [];
+  const slice = _mainThreadSlice();
+  // A hard cap checked before a file joins a batch; a file larger than the cap
+  // goes alone.
+  const batches = [];
+  let start = 0;
+  for (let i = 0, bytes = 0; i < pending.length; i++) {
+    const size = pending[i].text.length;
+    if (i > start && bytes + size > MASK_BATCH_CHARS) {
+      batches.push(pending.slice(start, i));
+      start = i;
+      bytes = 0;
+    }
+    bytes += size;
+  }
+  if (start < pending.length) batches.push(pending.slice(start));
+  // Two batches in flight: posting copies a batch's texts on this thread, so
+  // posting every batch at once was itself a long stretch on a common name.
+  const inFlight = [];
+  let nextBatch = 0;
+  const launch = () => {
+    const batch = batches[nextBatch++];
+    const texts = batch.map(({ text }) => text);
+    const langs = batch.map(({ node }) => node.lang);
+    // A refused or failed batch (pool saturated, deadline, crash) is handled
+    // below file by file, rather than in one unyielding stretch when
+    // evaluation reads it.
+    inFlight.push({ batch, reply: _maskTextsOffThread(texts, langs, { signal }).catch(() => null) });
+  };
+  while (inFlight.length < MASK_BATCHES_IN_FLIGHT && nextBatch < batches.length) launch();
+  for (const { node } of ready) {
+    if (signal?.aborted) return sourceNodes;
+    _getSourceLinesForNode(graph, node);
+    _noteRuntimeCacheEntryBytes(graph._sourceLinesCache?.get(node.rel));
+    if (slice.expired()) await slice.yield();
+  }
+  // Files over INLINE_MASK_MAX_CHARS of a refused or failed batch: masking one
+  // is a single unyielding stretch, so they wait for pool admission instead.
+  const waiting = [];
+  const store = async (node, text, masked) => {
+    const fingerprint = node.fingerprint || '';
+    // Masked lines must come from the text the synchronous path would read.
+    if (graph._sourceTextCache?.get(node.rel)?.text !== text) return;
+    if (graph._maskedLinesCache?.get(node.rel)?.fingerprint === fingerprint) return;
+    if (masked === null && text.length > INLINE_MASK_MAX_CHARS) {
+      // The pool failed this file twice: mask it here, resumably, in slices.
+      const masker = _createNonCodeMasker(text, node.lang);
+      while (!masker.advance(MASK_STEP_CHARS)) {
+        if (slice.expired()) await slice.yield();
+        if (signal?.aborted) return;
+      }
+      masked = masker.result();
+    }
+    if (masked !== null) {
+      const lines =
+        masked.length > INLINE_MASK_MAX_CHARS ? await _splitLinesSliced(masked, slice) : masked.split(/\r?\n/);
+      if (graph._maskedLinesCache?.get(node.rel)?.fingerprint === fingerprint) return;
+      const entry = { fingerprint, lines };
+      graph._maskedLinesCache?.set(node.rel, entry);
+      _noteRuntimeCacheEntryBytes(entry);
+    } else {
+      _getMaskedLinesForNode(graph, node);
+      _noteRuntimeCacheEntryBytes(graph._maskedLinesCache?.get(node.rel));
+    }
+    if (slice.expired()) await slice.yield();
+  };
+  while (inFlight.length) {
+    const { batch, reply } = inFlight.shift();
+    const results = await reply;
+    if (signal?.aborted) return sourceNodes;
+    if (nextBatch < batches.length) launch();
+    for (const [i, { node, text }] of batch.entries()) {
+      if (signal?.aborted) return sourceNodes;
+      if (!results && text.length > INLINE_MASK_MAX_CHARS) {
+        const masked = _maskTextsOffThread([text], [node.lang], { signal, waitForAdmission: true });
+        waiting.push({ node, text, reply: masked.then(([one]) => one).catch(() => null) });
+        continue;
+      }
+      await store(node, text, results ? results[i] : null);
+    }
+  }
+  for (const { node, text, reply } of waiting) {
+    const masked = await reply;
+    if (signal?.aborted) return sourceNodes;
+    // Still failed after waiting its turn (deadline, crash): `store` masks it
+    // on this thread with the resumable masker, in slices.
+    await store(node, text, masked);
+  }
+  return sourceNodes;
+}
+
+// Every node the synchronous evaluation of `symbols` reads: the token
+// candidates of each name and of its last path segment (the name
+// _findSymbolHits looks up), or — `declaringOnly` — just the files whose
+// record declares the name (what a callee resolution reads).
+export async function _prewarmSymbolSources(graph, symbols, language, { declaringOnly = false, ...options } = {}) {
+  // Unmemoized lookups: the per-call lookup memo also feeds the casing hint of
+  // a no-match answer, so a prewarm must not add keys the query never asked.
+  const nodes = [];
+  const plainNames = [];
+  const slice = _mainThreadSlice();
+  for (const symbol of symbols) {
+    if (slice.expired()) await slice.yield();
+    const clean = String(symbol || '').trim();
+    if (clean && !clean.includes('/')) {
+      const candidates = _tokenCandidateNodes(graph, clean, language);
+      const scanned = declaringOnly ? candidates.filter((node) => _declaresName(node, clean)) : candidates;
+      nodes.push(...scanned);
+      plainNames.push({ key: _symbolHitsKey(declaringOnly ? 'decl' : 'all', clean, language), clean, scanned });
+      if (declaringOnly) continue;
+    }
+    const leaf = clean.replace(/^\/+|\/+$/g, '').split('/').at(-1) || '';
+    if (leaf !== clean) nodes.push(..._tokenCandidateNodes(graph, leaf, language));
+    if (symbol !== clean) nodes.push(..._tokenCandidateNodes(graph, symbol, language));
+  }
+  const sourceNodes = await _prewarmMaskedSourceNodes(graph, nodes, options);
+  // The hit scans themselves, time-sliced, for _findSymbolHits /
+  // _resolveCalleeDeclaration to answer from.
+  const memo = _queryHitsMemo(graph);
+  for (const { key, clean, scanned } of plainNames) {
+    if (!memo || options.signal?.aborted) break;
+    if (memo.has(key)) continue;
+    const hits = await _findSymbolHitsOnNodesSliced(graph, clean, scanned, { language });
+    if (_sourcesReadable(graph, scanned)) _memoSymbolHits(memo, key, hits);
+  }
+  return sourceNodes;
+}
+
 export async function _prewarmReferenceSourceText(graph, symbol, language, options = {}) {
   const candidateNodes = _lookupCandidateNodes(graph, symbol, language);
   // Return the resolved candidate set so the immediately-following
@@ -238,7 +431,8 @@ export function _cheapReferenceSearch(
     const rawLines = _getSourceLinesForNode(graph, node);
     for (let i = 0; i < fileLines.length; i++) {
       const line = fileLines[i];
-      if (!line.trim()) continue;
+      // Every match contains the literal symbol: skip before building the regex.
+      if (!line.includes(symbol) || !line.trim()) continue;
       const boundaryLang = language || node.lang;
       const re = new RegExp(_unicodeBoundaryPattern(escaped, boundaryLang, symbol), 'gu');
       for (const match of line.matchAll(re)) {
@@ -341,12 +535,27 @@ function _isCanonicalSrcRel(rel) {
   return /^src\//.test(rel || '');
 }
 
+// The path-derived sort keys of a hit, computed once per hit instead of per
+// comparison (a common name sorts thousands of hits).
+const _hitRelRanks = new WeakMap();
+
+function _relRank(hit) {
+  let rank = _hitRelRanks.get(hit);
+  if (!rank) {
+    rank = [Number(_isTypeDeclarationRel(hit.rel)), Number(_isCanonicalSrcRel(hit.rel)), _relDepth(hit.rel)];
+    _hitRelRanks.set(hit, rank);
+  }
+  return rank;
+}
+
 function _compareSymbolHits(a, b) {
+  const ra = _relRank(a);
+  const rb = _relRank(b);
   return (
     Number(b.declarationLike) - Number(a.declarationLike) ||
-    Number(_isTypeDeclarationRel(a.rel)) - Number(_isTypeDeclarationRel(b.rel)) ||
-    Number(_isCanonicalSrcRel(b.rel)) - Number(_isCanonicalSrcRel(a.rel)) ||
-    _relDepth(a.rel) - _relDepth(b.rel) ||
+    ra[0] - rb[0] ||
+    rb[1] - ra[1] ||
+    ra[2] - rb[2] ||
     b.matchCount - a.matchCount ||
     a.rel.localeCompare(b.rel) ||
     a.line - b.line
@@ -404,7 +613,52 @@ export function _findSymbolHits(graph, symbol, { language = null } = {}) {
     }
     return _sortSymbolHits(hits);
   }
+  const memo = _queryHitsMemo(graph)?.get(_symbolHitsKey('all', cleanSymbol, language));
+  if (memo) return memo.slice();
   return _findSymbolHitsOnNodes(graph, cleanSymbol, candidateNodes, { language });
+}
+
+// Hits of a plain name computed ahead by _prewarmSymbolSources (time-sliced)
+// for the synchronous evaluation of the SAME query. The memo is query-local
+// (an async context opened by _runCodeGraphQuery around one mode call), so no
+// later query can answer from it: a result computed while a source was
+// unreadable, or before the file changed, ends with the query that saw it.
+// Within the query it is bounded here, and a scan that met an unreadable
+// candidate is not memoized at all — the synchronous call re-reads, as before.
+const SYMBOL_HITS_MEMO_MAX = 256;
+// A runtime store: shared handles (the mask pool's workers and timers, the
+// sidecar reader) are created in the root context, which leaves it.
+const _queryHitsMemos = runtimeAsyncLocalStorage();
+
+/** Run one code_graph query with its own hit memo. */
+export function _runCodeGraphQuery(fn) {
+  return _queryHitsMemos.run(new WeakMap(), fn);
+}
+
+function _queryHitsMemo(graph) {
+  const byGraph = _queryHitsMemos.getStore();
+  if (!byGraph || !graph || typeof graph !== 'object') return null;
+  let memo = byGraph.get(graph);
+  if (!memo) {
+    memo = new Map();
+    byGraph.set(graph, memo);
+  }
+  return memo;
+}
+
+function _symbolHitsKey(kind, cleanSymbol, language) {
+  return `${kind}\u0000${language || '*'}\u0000${cleanSymbol}`;
+}
+
+function _memoSymbolHits(memo, key, hits) {
+  memo.delete(key);
+  memo.set(key, hits);
+  while (memo.size > SYMBOL_HITS_MEMO_MAX) memo.delete(memo.keys().next().value);
+}
+
+// Every node's source was readable (cached under its fingerprint) for the scan.
+function _sourcesReadable(graph, nodes) {
+  return nodes.every((node) => graph._sourceTextCache?.get(node.rel)?.fingerprint === (node.fingerprint || ''));
 }
 
 // Declarations come from the native record ONLY. A regex fallback would mark
@@ -414,86 +668,101 @@ export function _findSymbolHits(graph, symbol, { language = null } = {}) {
 // hits — it just declares nothing.
 function _findSymbolHitsOnNodes(graph, cleanSymbol, candidateNodes, { language = null } = {}) {
   if (!cleanSymbol) return [];
-  const escaped = _escapeRegExp(cleanSymbol);
   const hits = [];
+  for (const node of candidateNodes) _symbolHitsOnNode(graph, node, cleanSymbol, language, hits);
+  return hits.length ? _sortSymbolHits(hits) : [];
+}
+
+// _findSymbolHitsOnNodes, time-sliced between files.
+async function _findSymbolHitsOnNodesSliced(graph, cleanSymbol, candidateNodes, { language = null } = {}) {
+  if (!cleanSymbol) return [];
+  const hits = [];
+  const slice = _mainThreadSlice();
   for (const node of candidateNodes) {
-    const nativeSymbols = (Array.isArray(node.symbols) ? node.symbols : []).filter(
-      (symbol) => symbol?.name === cleanSymbol
-    );
-    const sourceText = _getSourceTextForNode(graph, node);
-    if (!sourceText.includes(cleanSymbol)) {
-      for (const nativeSymbol of nativeSymbols) {
-        const hit = _nativeSymbolHit(node, nativeSymbol);
-        if (hit) hits.push(hit);
-      }
-      continue;
-    }
-    const boundaryLang = language || node.lang;
-    const re = new RegExp(_unicodeBoundaryPattern(escaped, boundaryLang, cleanSymbol), 'gu');
-    const sourceLines = _getSourceLinesForNode(graph, node);
-    const lines = _getMaskedLinesForNode(graph, node);
-    let firstLine = null;
-    let firstCol = null;
-    let matchCount = 0;
-    let firstContent = '';
-    let contextLines = [];
-    let declarationLike = Array.isArray(node.topLevelTypes) && node.topLevelTypes.includes(cleanSymbol);
-    const nativeDeclSymbols = new Map();
-    for (const nativeSymbol of nativeSymbols) {
-      const line = _symbolLine(nativeSymbol);
-      if (line && !nativeDeclSymbols.has(line)) nativeDeclSymbols.set(line, nativeSymbol);
-    }
-    let declLine = null;
-    let declCol = null;
-    let declContent = '';
-    let declContext = [];
-    let declSymbol = null;
-    for (let i = 0; i < lines.length; i++) {
-      const line = lines[i];
-      if (!line.trim()) continue;
-      let localHit = false;
-      for (const match of line.matchAll(re)) {
-        matchCount += 1;
-        localHit = true;
-        if (firstLine == null) {
-          firstLine = i + 1;
-          firstCol = match.index + 1;
-          firstContent = String(sourceLines[i] || '').trim();
-          contextLines = _hitContextLines(sourceLines, i);
-        }
-        if (declLine == null && nativeDeclSymbols.has(i + 1)) {
-          declLine = i + 1;
-          declCol = match.index + 1;
-          declContent = String(sourceLines[i] || '').trim();
-          declContext = _hitContextLines(sourceLines, i);
-          declSymbol = nativeDeclSymbols.get(i + 1);
-        }
-      }
-      if (localHit && nativeDeclSymbols.has(i + 1)) declarationLike = true;
-    }
-    if (firstLine == null) continue;
-    const hasDeclPos = declLine != null;
-    const declLineForEnd = hasDeclPos ? declLine : firstLine;
-    const endLine = _nativeEndLineForDecl(node, cleanSymbol, declLineForEnd);
-    hits.push({
-      rel: node.rel,
-      lang: node.lang,
-      line: hasDeclPos ? declLine : firstLine,
-      col: hasDeclPos ? declCol : firstCol || 1,
-      ...(Number.isFinite(endLine) && endLine >= declLineForEnd ? { endLine } : {}),
-      declarationLike,
-      matchCount,
-      content: hasDeclPos ? declContent : firstContent,
-      context: hasDeclPos ? declContext : contextLines,
-      firstLine,
-      firstCol: firstCol || 1,
-      firstContent,
-      firstContext: contextLines,
-      ..._symbolFacts(declSymbol),
-    });
+    _symbolHitsOnNode(graph, node, cleanSymbol, language, hits);
+    if (slice.expired()) await slice.yield();
   }
-  if (!hits.length) return [];
-  return _sortSymbolHits(hits);
+  return hits.length ? _sortSymbolHits(hits) : [];
+}
+
+// Appends the hits one candidate file contributes to `hits`.
+function _symbolHitsOnNode(graph, node, cleanSymbol, language, hits) {
+  const nativeSymbols = (Array.isArray(node.symbols) ? node.symbols : []).filter(
+    (symbol) => symbol?.name === cleanSymbol
+  );
+  const sourceText = _getSourceTextForNode(graph, node);
+  if (!sourceText.includes(cleanSymbol)) {
+    for (const nativeSymbol of nativeSymbols) {
+      const hit = _nativeSymbolHit(node, nativeSymbol);
+      if (hit) hits.push(hit);
+    }
+    return;
+  }
+  const boundaryLang = language || node.lang;
+  const re = new RegExp(_unicodeBoundaryPattern(_escapeRegExp(cleanSymbol), boundaryLang, cleanSymbol), 'gu');
+  const sourceLines = _getSourceLinesForNode(graph, node);
+  const lines = _getMaskedLinesForNode(graph, node);
+  let firstLine = null;
+  let firstCol = null;
+  let matchCount = 0;
+  let firstContent = '';
+  let contextLines = [];
+  let declarationLike = Array.isArray(node.topLevelTypes) && node.topLevelTypes.includes(cleanSymbol);
+  const nativeDeclSymbols = new Map();
+  for (const nativeSymbol of nativeSymbols) {
+    const line = _symbolLine(nativeSymbol);
+    if (line && !nativeDeclSymbols.has(line)) nativeDeclSymbols.set(line, nativeSymbol);
+  }
+  let declLine = null;
+  let declCol = null;
+  let declContent = '';
+  let declContext = [];
+  let declSymbol = null;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    // Every match contains the literal name, so a line without it is skipped
+    // before the per-line regex iterator is allocated.
+    if (!line.includes(cleanSymbol) || !line.trim()) continue;
+    let localHit = false;
+    for (const match of line.matchAll(re)) {
+      matchCount += 1;
+      localHit = true;
+      if (firstLine == null) {
+        firstLine = i + 1;
+        firstCol = match.index + 1;
+        firstContent = String(sourceLines[i] || '').trim();
+        contextLines = _hitContextLines(sourceLines, i);
+      }
+      if (declLine == null && nativeDeclSymbols.has(i + 1)) {
+        declLine = i + 1;
+        declCol = match.index + 1;
+        declContent = String(sourceLines[i] || '').trim();
+        declContext = _hitContextLines(sourceLines, i);
+        declSymbol = nativeDeclSymbols.get(i + 1);
+      }
+    }
+    if (localHit && nativeDeclSymbols.has(i + 1)) declarationLike = true;
+  }
+  if (firstLine == null) return;
+  const hasDeclPos = declLine != null;
+  const declLineForEnd = hasDeclPos ? declLine : firstLine;
+  const endLine = _nativeEndLineForDecl(node, cleanSymbol, declLineForEnd);
+  hits.push({
+    rel: node.rel,
+    lang: node.lang,
+    line: hasDeclPos ? declLine : firstLine,
+    col: hasDeclPos ? declCol : firstCol || 1,
+    ...(Number.isFinite(endLine) && endLine >= declLineForEnd ? { endLine } : {}),
+    declarationLike,
+    matchCount,
+    content: hasDeclPos ? declContent : firstContent,
+    context: hasDeclPos ? declContext : contextLines,
+    firstLine,
+    firstCol: firstCol || 1,
+    firstContent,
+    firstContext: contextLines,
+    ..._symbolFacts(declSymbol),
+  });
 }
 
 function _pickCalleeDeclHit(hits, preferRel) {
@@ -514,12 +783,16 @@ function _resolveCalleeDeclaration(graph, name, { language = null, preferRel = n
   if (!cleanName || cleanName.includes('/')) {
     return _pickCalleeDeclHit(_findSymbolHits(graph, name, { language }), preferRel);
   }
-  const declaring = _lookupCandidateNodes(graph, cleanName, language).filter(
-    (node) =>
-      (Array.isArray(node.topLevelTypes) && node.topLevelTypes.includes(cleanName)) ||
-      (Array.isArray(node.symbols) && node.symbols.some((symbol) => symbol?.name === cleanName))
+  const declaring = _lookupCandidateNodes(graph, cleanName, language).filter((node) => _declaresName(node, cleanName));
+  const memo = _queryHitsMemo(graph)?.get(_symbolHitsKey('decl', cleanName, language));
+  return _pickCalleeDeclHit(memo || _findSymbolHitsOnNodes(graph, cleanName, declaring, { language }), preferRel);
+}
+
+function _declaresName(node, name) {
+  return (
+    (Array.isArray(node.topLevelTypes) && node.topLevelTypes.includes(name)) ||
+    (Array.isArray(node.symbols) && node.symbols.some((symbol) => symbol?.name === name))
   );
-  return _pickCalleeDeclHit(_findSymbolHitsOnNodes(graph, cleanName, declaring, { language }), preferRel);
 }
 
 // The record facts every symbol-mode row reports: the unified kind, the
@@ -559,7 +832,8 @@ function _nativeSymbolHit(node, sym) {
   };
 }
 
-function _collectNativeKeywordSymbolEntries(
+// Time-sliced: it matches the keyword against every symbol of every file.
+async function _collectNativeKeywordSymbolEntries(
   graph,
   keyword,
   { language = null, fileRel = null, scopeRelPrefix = null } = {}
@@ -568,7 +842,9 @@ function _collectNativeKeywordSymbolEntries(
   if (!lowerKey) return [];
   const keyTokens = _tokenizeKeyword(keyword);
   const byName = new Map();
+  const slice = _mainThreadSlice();
   for (const node of graph?.nodes?.values?.() || []) {
+    if (slice.expired()) await slice.yield();
     if (language && node.lang !== language) continue;
     if (!_nodeInAstScope(node, fileRel, scopeRelPrefix)) continue;
     const symbols = Array.isArray(node?.symbols) ? node.symbols : [];
@@ -795,7 +1071,7 @@ function _setKeywordSearchCache(graph, cacheKey, value) {
   return value;
 }
 
-export function _searchSymbolsByKeyword(
+export async function _searchSymbolsByKeyword(
   graph,
   keyword,
   cwd,
@@ -823,7 +1099,7 @@ export function _searchSymbolsByKeyword(
   const _memo = (s) => _setKeywordSearchCache(graph, cacheKey, s);
   // Native symbols are the only source: a node without them contributes no
   // keyword match (it has no declarations the extractor could name).
-  const entries = _collectNativeKeywordSymbolEntries(graph, clean, scope);
+  const entries = await _collectNativeKeywordSymbolEntries(graph, clean, scope);
   if (!entries.length) {
     const nodeCount = graph?.nodes?.size ?? 0;
     return _memo(

@@ -30,6 +30,7 @@
 import { _graphRel } from './source-access.mjs';
 import { CONTAINER_SYMBOL_KINDS } from './constants.mjs';
 import { _symbolParentIndex, _symbolAncestors } from './text-columns.mjs';
+import { _mainThreadSlice } from './main-thread-slice.mjs';
 
 // Receivers that keep a `method` call attributable to the declaring file
 // itself (an unqualified / self call), independent of imports.
@@ -253,8 +254,9 @@ function _astReachableTargetRels(graph, targetRels, name) {
 //
 // Node order: the cheap reachability/scope filters run BEFORE `_astCalls`, so
 // a query normalizes the call arrays of the declaring files and their
-// importers only — never of every node in the graph.
-export function _astCallerCallSites(
+// importers only — never of every node in the graph. The walk is time-sliced:
+// a common name reaches thousands of importers on a large root.
+export async function _astCallerCallSites(
   graph,
   symbol,
   targetRels,
@@ -266,12 +268,17 @@ export function _astCallerCallSites(
   if (!name || !roots.length || !graph?.nodes) return out;
   const cwd = graph.cwd || '';
   const targets = _astReachableTargetRels(graph, roots, name);
+  const slice = _mainThreadSlice();
   for (const node of graph.nodes.values()) {
+    if (slice.expired()) await slice.yield();
     if (language && node.lang !== language) continue;
     if (!_nodeInAstScope(node, fileRel, scopeRelPrefix)) continue;
     const sameFile = targets.has(node.rel);
     const importsTarget = _astImportedRels(node, cwd).some((rel) => targets.has(rel));
     if (!sameFile && !importsTarget && !_astImportsUnresolved(node, cwd)) continue;
+    // No raw tuple named S → no row from this file, valid payload or not, so
+    // its call list is never normalized (thousands of importers on a large root).
+    if (!node.calls?.some?.((raw) => Array.isArray(raw) && raw[0] === name)) continue;
     const calls = _astCalls(node);
     if (!calls?.length) continue;
     for (const call of calls) {

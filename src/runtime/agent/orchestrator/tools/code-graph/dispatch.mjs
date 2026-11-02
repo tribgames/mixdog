@@ -21,12 +21,13 @@ import {
   _symbolOutlineRows,
   _graphHasNativeSymbols,
   _graphExpectsNativeSymbols,
+  _ensureTokenIndex,
 } from './symbol-index.mjs';
 import { _findDirProjectRoot } from './project-root.mjs';
 import { buildCodeGraphAsync, prewarmCodeGraph, prewarmCodeGraphSymbols } from './build.mjs';
 
 import { _pruneCodeGraphMemoryCache } from './memory-cache.mjs';
-import { _findSymbolAcrossGraph } from './search.mjs';
+import { _findSymbolAcrossGraph, _runCodeGraphQuery } from './search.mjs';
 import { _graphHasAstCalls } from './ast-calls.mjs';
 import { callsCapabilityError, symbolsCapabilityError, symbolsCapabilityHint } from './graph-binary.mjs';
 import { hydrateGraphCallsFromSidecar } from './disk-cache.mjs';
@@ -192,7 +193,8 @@ async function _graphForMode(mode, cwd, signal, options) {
   // that read call sites pay for it, and only on the first such query of the
   // process (the graph object carries the marker); overview/symbols/imports/…
   // never touch the file.
-  if (CODE_GRAPH_CALL_MODES.has(mode)) hydrateGraphCallsFromSidecar(graph);
+  if (CODE_GRAPH_CALL_MODES.has(mode)) await hydrateGraphCallsFromSidecar(graph);
+  await _ensureTokenIndex(graph);
   // Call analysis is AST-only: a graph without call data cannot answer, and an
   // empty answer would read like "no callers". Fail loudly with the remedy.
   if (CODE_GRAPH_CALL_ONLY_MODES.has(mode) && !_graphHasAstCalls(graph)) {
@@ -229,18 +231,20 @@ export async function codeGraph(rawArgs, cwd, signal = null, options = {}) {
   const rel = abs && !fileIsDirectory ? _graphRel(abs, cwd) : null;
   const scopeRelPrefix = abs && fileIsDirectory ? _scopeRelPrefix(_graphRel(abs, cwd)) : null;
   const node = rel ? graph.nodes.get(rel) : null;
-  return handler({
-    args,
-    cwd,
-    defaultCwd: options._defaultCwd ?? cwd,
-    signal,
-    graph,
-    normFile,
-    rel,
-    node,
-    scopeRelPrefix,
-    symbolsNote,
-  });
+  return _runCodeGraphQuery(() =>
+    handler({
+      args,
+      cwd,
+      defaultCwd: options._defaultCwd ?? cwd,
+      signal,
+      graph,
+      normFile,
+      rel,
+      node,
+      scopeRelPrefix,
+      symbolsNote,
+    })
+  );
 }
 
 async function findSymbolTool(args, cwd, signal = null, options = {}) {
@@ -280,18 +284,21 @@ async function findSymbolTool(args, cwd, signal = null, options = {}) {
     }
     throw new Error('find_symbol: provide "symbol" (to locate) or "file" (to list its symbols).');
   }
-  if (args?.body !== false) await prewarmPrimaryDeclaration(graph, symbol, language, signal);
-  return _findSymbolAcrossGraph(graph, symbol, cwd, {
-    defaultCwd: options._defaultCwd ?? cwd,
-    language,
-    limit,
-    fileRel,
-    body: args?.body !== false,
-    outsideDeclaration: await resolveOutsideDeclaration(graph, symbol, {
+  await _ensureTokenIndex(graph);
+  return _runCodeGraphQuery(async () => {
+    await prewarmPrimaryDeclaration(graph, symbol, language, signal);
+    return _findSymbolAcrossGraph(graph, symbol, cwd, {
+      defaultCwd: options._defaultCwd ?? cwd,
       language,
+      limit,
       fileRel,
-      signal,
-    }),
+      body: args?.body !== false,
+      outsideDeclaration: await resolveOutsideDeclaration(graph, symbol, {
+        language,
+        fileRel,
+        signal,
+      }),
+    });
   });
 }
 

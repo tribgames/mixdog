@@ -13,6 +13,7 @@ import { EXTRACTION_SYMBOL_LANGS } from './constants.mjs';
 import { _getSourceTextForNode, _graphRel } from './source-access.mjs';
 import { _symbolParentIndex, _symbolLevel } from './text-columns.mjs';
 import { oneLine } from '../../../../shared/clean.mjs';
+import { _mainThreadSlice } from './main-thread-slice.mjs';
 
 export function _escapeRegExp(text) {
   return String(text ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -43,9 +44,113 @@ export function _getTokenSymbolsForNode(node) {
   return Array.isArray(node?.tokenSymbols) ? node.tokenSymbols : null;
 }
 
-// Per-symbol candidate lookup over the native token lists, memoized in
-// `_symbolTokenIndex` so repeat lookups are O(1). The scan is O(N) over the
-// node count and each node's check is an Array.includes on its shipped tokens.
+// Inverted token index of a graph: token → ascending ordinal(s) into the
+// graph.nodes order, so a candidate lookup costs O(hits) instead of an
+// Array.includes over every token of every file (up to ~750 ms per new name on
+// a large root, repeated for each callee name).
+//
+// Kept in a WeakMap rather than on the graph: it is derived from immutable node
+// data, so it must survive the per-call runtime-cache clear (rebuilding it each
+// query would cost what it saves); it is not part of the persisted or
+// structured-clone shape; and its byte size is computed once at build time so
+// the per-call memory estimate never re-walks millions of postings. Postings
+// are bounded by the graph's own token lists (one ordinal per distinct token per
+// file), and _estimateGraphRetainedBytes adds them to the graph's size.
+const _tokenIndexes = new WeakMap();
+
+function _tokenIndexIsCurrent(graph, entry) {
+  if (!entry?.complete || entry.nodeMap !== graph.nodes || entry.nodes.length !== graph.nodes.size) return false;
+  let ordinal = 0;
+  for (const node of graph.nodes.values()) {
+    if (entry.nodes[ordinal] !== node || entry.tokens[ordinal] !== node.tokenSymbols) return false;
+    ordinal += 1;
+  }
+  return true;
+}
+
+async function _buildTokenIndex(graph, entry) {
+  const slice = _mainThreadSlice();
+  const byToken = new Map();
+  let bytes = 48 + 2 * 24;
+  for (const node of graph.nodes.values()) {
+    const ordinal = entry.nodes.length;
+    entry.nodes.push(node);
+    entry.tokens.push(node.tokenSymbols);
+    const tokens = _getTokenSymbolsForNode(node);
+    for (const token of tokens || []) {
+      // Most tokens occur in one file: their posting is the bare ordinal, and
+      // only a second file turns it into an array (the _estimateValueBytes
+      // rules: Map slot + key, then 8 per number or 24 + 16 per array item).
+      const list = byToken.get(token);
+      if (list === undefined) {
+        byToken.set(token, ordinal);
+        bytes += 24 + (typeof token === 'string' ? 16 + token.length * 2 : 8) + 8;
+      } else if (typeof list === 'number') {
+        if (list !== ordinal) {
+          byToken.set(token, [list, ordinal]);
+          bytes += 24 + 2 * 16 - 8;
+        }
+      } else if (list[list.length - 1] !== ordinal) {
+        list.push(ordinal);
+        bytes += 16;
+      }
+    }
+    bytes += 16;
+    if (slice.expired()) await slice.yield();
+  }
+  entry.byToken = byToken;
+  entry.bytes = bytes;
+  entry.complete = true;
+}
+
+/**
+ * Build (time-sliced) or revalidate the token index of `graph`. Every query
+ * awaits this before its synchronous evaluation; until it resolves, lookups
+ * fall back to the linear scan, which returns the same candidates.
+ */
+export function _ensureTokenIndex(graph) {
+  if (!graph?.nodes) return Promise.resolve();
+  const current = _tokenIndexes.get(graph);
+  if (current && (!current.complete || _tokenIndexIsCurrent(graph, current))) return current.ready;
+  const entry = { nodeMap: graph.nodes, nodes: [], tokens: [], byToken: null, bytes: 0, complete: false };
+  entry.ready = _buildTokenIndex(graph, entry).catch(() => {
+    if (_tokenIndexes.get(graph) === entry) _tokenIndexes.delete(graph);
+  });
+  _tokenIndexes.set(graph, entry);
+  return entry.ready;
+}
+
+/** Retained bytes of the graph's token index (0 when none is built). */
+export function _tokenIndexRetainedBytes(graph) {
+  const entry = graph && typeof graph === 'object' ? _tokenIndexes.get(graph) : null;
+  return entry?.complete ? entry.bytes : 0;
+}
+
+// The nodes whose native tokens include `symbol`, in graph.nodes order: O(hits)
+// through the token index when it is built, otherwise a linear scan with an
+// Array.includes on each node's shipped tokens — the same nodes either way.
+export function _tokenCandidateNodes(graph, symbol, language = null) {
+  if (!graph?.nodes) return [];
+  const entry = _tokenIndexes.get(graph);
+  const candidates = [];
+  if (entry?.complete && entry.nodeMap === graph.nodes && entry.nodes.length === graph.nodes.size) {
+    const posting = entry.byToken.get(symbol);
+    for (const ordinal of typeof posting === 'number' ? [posting] : posting || []) {
+      const node = entry.nodes[ordinal];
+      if (!language || node.lang === language) candidates.push(node);
+    }
+    return candidates;
+  }
+  for (const node of graph.nodes.values()) {
+    if (language && node.lang !== language) continue;
+    const tokens = _getTokenSymbolsForNode(node);
+    if (tokens?.includes(symbol)) candidates.push(node);
+  }
+  return candidates;
+}
+
+// Per-symbol candidate lookup, memoized in `_symbolTokenIndex` so repeat
+// lookups are O(1).
 //
 // A node without tokens contributes nothing, and a miss is cached as the empty
 // set: the previous "no candidate → return EVERY node" fallback turned a token
@@ -58,12 +163,7 @@ export function _lookupCandidateNodes(graph, symbol, language = null) {
     const rels = graph._symbolTokenIndex.get(cacheKey);
     return rels.map((rel) => graph.nodes.get(rel)).filter(Boolean);
   }
-  const candidates = [];
-  for (const node of graph.nodes.values()) {
-    if (language && node.lang !== language) continue;
-    const tokens = _getTokenSymbolsForNode(node);
-    if (tokens?.includes(symbol)) candidates.push(node);
-  }
+  const candidates = _tokenCandidateNodes(graph, symbol, language);
   graph._symbolTokenIndex?.set(
     cacheKey,
     candidates.map((n) => n.rel)
