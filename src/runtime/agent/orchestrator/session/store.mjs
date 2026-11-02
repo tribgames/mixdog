@@ -515,8 +515,13 @@ function _collectNewestDrainPayloads() {
   // (the ref was replaced behind the write). Map/source order must never
   // decide that, and minting a newer epoch here would hand an old snapshot
   // fresh write authority.
-  const record = (id, session, opts, epoch, revision) => {
+  const record = (id, session, opts, epoch, revision, incarnation) => {
     if (!id || !session) return;
+    // A hard delete retired this payload's incarnation. The drain writes
+    // under a FRESH guard, so the delete's cancellation cannot stop it here:
+    // an in-flight worker write of a deleted id (its slot outlives the purge
+    // until the reply settles) would re-create the unlinked file.
+    if (!_isCurrentSessionIncarnation(id, incarnation)) return;
     const issued = Number.isFinite(epoch) ? epoch : 0;
     const rev = Number.isFinite(revision) ? revision : 0;
     const current = newest.get(id);
@@ -526,14 +531,15 @@ function _collectNewestDrainPayloads() {
   for (const [id, pending] of _savePending) {
     // Both slots are candidates; the payload's own epoch decides, so a
     // `queued` follow-up wins because it is NEWER, not because of its slot.
-    record(id, pending.payload?.session, pending.payload?.opts, pending.payload?.epoch, 0);
-    record(id, pending.queued?.session, pending.queued?.opts, pending.queued?.epoch, 0);
+    const { payload, queued } = pending;
+    record(id, payload?.session, payload?.opts, payload?.epoch, 0, payload?.settlement ?? payload?.incarnation);
+    record(id, queued?.session, queued?.opts, queued?.epoch, 0, queued?.settlement ?? queued?.incarnation);
   }
   for (const [, pending] of _saveWorkerPending)
-    record(pending.id, pending.session, pending.opts, pending.epoch, pending.revision);
-  for (const [id, q] of _saveAsyncQueued) record(id, q.session, q.opts, q.epoch, q.revision);
+    record(pending.id, pending.session, pending.opts, pending.epoch, pending.revision, pending.incarnation);
+  for (const [id, q] of _saveAsyncQueued) record(id, q.session, q.opts, q.epoch, q.revision, q.incarnation);
   for (const [, pending] of _deferredSessionSaves)
-    record(pending.session?.id, pending.session, pending.opts, pending.epoch, pending.revision);
+    record(pending.session?.id, pending.session, pending.opts, pending.epoch, pending.revision, pending.incarnation);
   return newest;
 }
 
