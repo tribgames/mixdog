@@ -21,6 +21,7 @@ import { createHeldChannel } from './held-ipc';
 import { withApiFileGrantRefresh } from '../renderer/remote-file-grant-refresh';
 import { ipcErrorFromEnvelope } from '../shared/coded-error';
 import { DESKTOP_PET_IPC, desktopPetAppLayout } from '../shared/desktop-pet';
+import { type DesktopNotice, readDesktopNotice } from '../shared/desktop-notice';
 
 /** `ipcRenderer.invoke` that rebuilds a refusal main returned as an error
  *  envelope (Electron drops an Error's custom `code` in transit). */
@@ -97,6 +98,16 @@ const notificationOpenSessions = createHeldChannel<string>();
 ipcRenderer.on(DESKTOP_IPC.notificationOpenSession, (_event, sessionId: string) =>
   notificationOpenSessions.push(sessionId)
 );
+// Each notice is raised once, so every one sent before the toast region
+// subscribes is held for it, not only the newest.
+const heldNotices: DesktopNotice[] = [];
+const noticeListeners = new Set<(notice: DesktopNotice) => void>();
+ipcRenderer.on(DESKTOP_IPC.desktopNotice, (_event, value: unknown) => {
+  const notice = readDesktopNotice(value);
+  if (!notice) return;
+  if (noticeListeners.size === 0) heldNotices.push(notice);
+  else for (const listener of [...noticeListeners]) listener(notice);
+});
 
 const api: DesktopApi = {
   ...(bootContext ? { bootContext } : {}),
@@ -185,6 +196,13 @@ const api: DesktopApi = {
     };
     ipcRenderer.on(DESKTOP_IPC.relayPayloadRefused, receive);
     return () => ipcRenderer.removeListener(DESKTOP_IPC.relayPayloadRefused, receive);
+  },
+  subscribeDesktopNotices: (listener) => {
+    noticeListeners.add(listener);
+    for (const notice of heldNotices.splice(0)) listener(notice);
+    return () => {
+      noticeListeners.delete(listener);
+    };
   },
   subscribeFolderChanges: (listener) => {
     const receive = (_event: Electron.IpcRendererEvent, dir: string): void => {

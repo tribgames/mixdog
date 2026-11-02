@@ -270,3 +270,44 @@ test('a successful plugin update shows one named success toast; a failure shows 
     await act(async () => root.unmount());
   }
 });
+
+test('installing a plugin shows one success toast on completion and one error toast on failure', async () => {
+  const toasts = [];
+  const onToast = (event) => toasts.push(event.detail);
+  window.addEventListener('mixdog:desktop-toast', onToast);
+  globalThis.FormData = window.FormData;
+  const api = settingsApi({ skillCount: 1 });
+  await preloadCapabilitySettings(api);
+  const root = createRoot(document.querySelector('main'));
+  await act(async () => {
+    root.render(React.createElement(CapabilitySettings, { api, category: 'plugins', active: true, createOpen: true }));
+  });
+  const submit = async (source) => {
+    const form = document.querySelector('form');
+    form.querySelector('input[name="source"]').value = source;
+    await act(async () => {
+      form.dispatchEvent(new window.Event('submit', { bubbles: true, cancelable: true }));
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+  };
+  try {
+    api.invokeCapability = async () => ({ value: { plugin: { id: 'x', name: 'x', title: 'Xtool' } }, snapshot: null });
+    await submit('https://github.com/o/x');
+    assert.deepEqual(
+      toasts.map((toast) => [toast.tone, toast.text]),
+      [['success', 'Xtool plugin installed.']]
+    );
+    toasts.length = 0;
+    api.invokeCapability = async () => {
+      throw new Error('boom');
+    };
+    await submit('https://github.com/o/y');
+    assert.deepEqual(
+      toasts.map((toast) => toast.tone),
+      ['error']
+    );
+  } finally {
+    window.removeEventListener('mixdog:desktop-toast', onToast);
+    await act(async () => root.unmount());
+  }
+});

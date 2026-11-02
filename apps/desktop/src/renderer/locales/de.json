@@ -5962,5 +5962,16 @@
   "{{count}} steps": "{{count}} Schritt",
   "{{count}} steps_other": "{{count}} Schritte",
   "Used tools {{count}} times": "Tools {{count}}-mal verwendet",
-  "Used tools {{count}} times_other": "Tools {{count}}-mal verwendet"
+  "Used tools {{count}} times_other": "Tools {{count}}-mal verwendet",
+  "{{name}} installed.": "{{name}} installiert.",
+  "Could not install {{name}}: {{error}}": "{{name}} konnte nicht installiert werden: {{error}}",
+  "{{name}} plugin installed.": "Plugin {{name}} installiert.",
+  "Could not install the plugin: {{error}}": "Plugin konnte nicht installiert werden: {{error}}",
+  "Mixdog v{{version}} downloaded. Restart to apply the update.": "Mixdog v{{version}} heruntergeladen. Starten Sie neu, um das Update anzuwenden.",
+  "Could not download the update: {{error}}": "Update konnte nicht heruntergeladen werden: {{error}}",
+  "Usage limit reached on {{provider}}. The turn stopped.": "Nutzungslimit bei {{provider}} erreicht. Der Durchlauf wurde beendet.",
+  "Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.": "Ihre Anmeldung bei {{name}} ist abgelaufen oder wurde abgelehnt. Melden Sie sich unter Einstellungen → Modelle erneut an.",
+  "{{name}} needs you to sign in again. Reconnect it in Connectors.": "Für {{name}} ist eine erneute Anmeldung erforderlich. Verbinden Sie es unter Konnektoren neu.",
+  "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog.": "Der sichere Speicher dieses Computers funktioniert nicht, daher konnten gespeicherte Schlüssel, Passwörter und Anmeldungen nicht gelesen oder gespeichert werden. Überprüfen Sie den System-Schlüsselbund und starten Sie Mixdog anschließend neu.",
+  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "Eine Unterhaltung konnte nicht auf der Festplatte gespeichert werden. Neuere Nachrichten gehen möglicherweise verloren, wenn Mixdog geschlossen wird. Überprüfen Sie den freien Speicherplatz und die Ordnerberechtigungen."
 }

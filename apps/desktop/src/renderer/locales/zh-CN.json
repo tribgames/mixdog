@@ -5896,5 +5896,16 @@
   "{{count}} steps": "{{count}} 步",
   "{{count}} steps_other": "{{count}} 步",
   "Used tools {{count}} times": "使用工具 {{count}} 次",
-  "Used tools {{count}} times_other": "使用工具 {{count}} 次"
+  "Used tools {{count}} times_other": "使用工具 {{count}} 次",
+  "{{name}} installed.": "已安装 {{name}}。",
+  "Could not install {{name}}: {{error}}": "无法安装 {{name}}：{{error}}",
+  "{{name}} plugin installed.": "已安装 {{name}} 插件。",
+  "Could not install the plugin: {{error}}": "无法安装插件：{{error}}",
+  "Mixdog v{{version}} downloaded. Restart to apply the update.": "已下载 Mixdog v{{version}}。重启以应用更新。",
+  "Could not download the update: {{error}}": "无法下载更新：{{error}}",
+  "Usage limit reached on {{provider}}. The turn stopped.": "已达到 {{provider}} 的使用上限。轮次已停止。",
+  "Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.": "你的 {{name}} 登录已过期或被拒绝。请在 设置 → 模型 中重新登录。",
+  "{{name}} needs you to sign in again. Reconnect it in Connectors.": "{{name}} 需要重新登录。请在 连接器 中重新连接。",
+  "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog.": "此电脑的安全存储无法正常工作，因此无法读取或保存已保存的密钥、密码和登录信息。请检查系统钥匙串，然后重启 Mixdog。",
+  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "无法将对话保存到磁盘。关闭 Mixdog 时最近的消息可能会丢失。请检查磁盘可用空间和文件夹权限。"
 }

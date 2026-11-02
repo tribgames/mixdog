@@ -5896,5 +5896,16 @@
   "{{count}} steps": "{{count}}ステップ",
   "{{count}} steps_other": "{{count}}ステップ",
   "Used tools {{count}} times": "ツール{{count}}回使用",
-  "Used tools {{count}} times_other": "ツール{{count}}回使用"
+  "Used tools {{count}} times_other": "ツール{{count}}回使用",
+  "{{name}} installed.": "{{name}} をインストールしました。",
+  "Could not install {{name}}: {{error}}": "{{name}} をインストールできませんでした: {{error}}",
+  "{{name}} plugin installed.": "{{name}} プラグインをインストールしました。",
+  "Could not install the plugin: {{error}}": "プラグインをインストールできませんでした: {{error}}",
+  "Mixdog v{{version}} downloaded. Restart to apply the update.": "Mixdog v{{version}} をダウンロードしました。再起動してアップデートを適用してください。",
+  "Could not download the update: {{error}}": "アップデートをダウンロードできませんでした: {{error}}",
+  "Usage limit reached on {{provider}}. The turn stopped.": "{{provider}} の利用上限に達しました。ターンが停止しました。",
+  "Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.": "{{name}} のサインインの有効期限が切れたか、拒否されました。設定 → モデル で再度サインインしてください。",
+  "{{name}} needs you to sign in again. Reconnect it in Connectors.": "{{name}} で再度サインインが必要です。コネクタ で再接続してください。",
+  "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog.": "このコンピューターの安全なストレージが機能していないため、保存されたキー、パスワード、サインイン情報を読み書きできませんでした。システムのキーチェーンを確認してから、Mixdog を再起動してください。",
+  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "会話をディスクに保存できませんでした。Mixdog を終了すると最近のメッセージが失われる可能性があります。ディスクの空き容量とフォルダーの権限を確認してください。"
 }

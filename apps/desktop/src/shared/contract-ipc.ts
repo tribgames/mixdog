@@ -65,6 +65,7 @@ export const DESKTOP_IPC = {
   lspDiagnostics: 'mixdog:lsp-diagnostics',
   lspStatus: 'mixdog:lsp-status',
   relayPayloadRefused: 'mixdog:relay-payload-refused',
+  desktopNotice: 'mixdog:desktop-notice',
   listSessions: 'mixdog:list-sessions',
   markSessionRead: 'mixdog:mark-session-read',
   renameSession: 'mixdog:rename-session',

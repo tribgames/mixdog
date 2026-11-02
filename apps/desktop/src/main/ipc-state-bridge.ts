@@ -9,6 +9,7 @@ import {
 import { isSessionId, requiredSessionId, requiredSessionIds } from './desktop-state';
 import { SETTINGS_CHANGED_EVENT } from '../shared/settings-changed';
 import { ORCHESTRATION_MODE_EVENT } from '../shared/orchestration-mode';
+import { registerDesktopNoticeSink } from '../../../../src/runtime/shared/desktop-notice-host.mjs';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type { DesktopService } from './desktop-service-contract';
 import { requiredTranscriptHistoryRequest, requiredTranscriptItemLimit } from './ipc-validation';
@@ -62,6 +63,7 @@ export class DesktopStateBridge {
   private readonly unsubscribeSessionStates: () => void;
   private readonly unsubscribeUpdater: () => void;
   private readonly unsubscribeDesktopEvents: () => void;
+  private readonly unregisterNotices: () => void;
   private disposed = false;
 
   constructor(private readonly options: DesktopStateBridgeOptions) {
@@ -123,6 +125,15 @@ export class DesktopStateBridge {
           this.send(DESKTOP_IPC.conversationImportProgress, value);
         }
       }) ?? (() => {});
+    // The service's notices (held by its client until a window listens) and
+    // this process's own (its secure storage).
+    const unsubscribeServiceNotices =
+      host.subscribeDesktopNotices?.((notice) => this.send(DESKTOP_IPC.desktopNotice, notice)) ?? (() => {});
+    const unregisterOwnNotices = registerDesktopNoticeSink((notice) => this.send(DESKTOP_IPC.desktopNotice, notice));
+    this.unregisterNotices = () => {
+      unsubscribeServiceNotices();
+      unregisterOwnNotices();
+    };
 
     options.ipcMain.on(DESKTOP_IPC.stateResync, this.onStateResync);
     options.ipcMain.on(DESKTOP_IPC.sessionStateResync, this.onSessionStateResync);
@@ -131,11 +142,12 @@ export class DesktopStateBridge {
     }
   }
 
-  private send(channel: string, value: unknown): void {
+  /** Whether the window was there to receive it. */
+  private send(channel: string, value: unknown): boolean {
     const { window } = this.options;
-    if (!window.isDestroyed() && !window.webContents.isDestroyed()) {
-      window.webContents.send(channel, value);
-    }
+    if (window.isDestroyed() || window.webContents.isDestroyed()) return false;
+    window.webContents.send(channel, value);
+    return true;
   }
 
   private readonly sendEngineState = (snapshot: SessionSnapshot): void => {
@@ -309,6 +321,7 @@ export class DesktopStateBridge {
     this.unsubscribeSessionStates();
     this.unsubscribeUpdater();
     this.unsubscribeDesktopEvents();
+    this.unregisterNotices();
     this.sessionEncoders.clear();
     this.latestSessionStates.clear();
     this.latestSessionProvenance.clear();

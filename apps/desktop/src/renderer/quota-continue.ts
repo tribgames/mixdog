@@ -45,6 +45,28 @@ export function latestQuotaFailure(items: readonly TranscriptItem[], turnKeys: r
   return null;
 }
 
+// Shared by every consumer in the window, so two panes on one session announce
+// a stop once. Keys are session + turn.
+const quotaSessionsSeen = new Set<string>();
+const quotaStopsAnnounced = new Set<string>();
+
+/** True once per quota stop that appears after its session's transcript
+ *  finished loading (`loaded`). Stops present when it loaded (history, restart,
+ *  session switch) are only remembered; an empty session has none, so its
+ *  first stop is new. */
+export function quotaStopIsNew(sessionId: string, failure: QuotaFailure | null, loaded: boolean): boolean {
+  if (!sessionId || !loaded) return false;
+  const key = failure ? quotaDismissKey(sessionId, failure.turnKey) : '';
+  if (!quotaSessionsSeen.has(sessionId)) {
+    quotaSessionsSeen.add(sessionId);
+    if (key) quotaStopsAnnounced.add(key);
+    return false;
+  }
+  if (!key || quotaStopsAnnounced.has(key)) return false;
+  quotaStopsAnnounced.add(key);
+  return true;
+}
+
 export const quotaDismissKey = (sessionId: string, turnKey: string) => `${sessionId}:${turnKey}`;
 
 /** The panel shows for a quota failure of an idle session that the user has

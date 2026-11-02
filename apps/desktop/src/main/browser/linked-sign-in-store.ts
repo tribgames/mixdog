@@ -14,6 +14,7 @@ import { basename, dirname, join } from 'node:path';
 import { safeStorage } from 'electron';
 
 import { readVaultFile, writeVaultFile } from './credential-vault-file';
+import { noticeSecretStorageFailure, noticingSafeStorage } from './secret-storage-notice';
 import {
   type LinkedSignIn,
   type LinkedSignInInput,
@@ -71,8 +72,8 @@ export class LinkedSignInStore {
   constructor(options: LinkedSignInStoreOptions) {
     this.file = join(options.userDataDirectory, LINKED_SIGN_IN_FILE_NAME);
     this.usesSafeStorage = !options.seal;
-    this.seal = options.seal ?? ((plaintext) => safeStorage.encryptString(plaintext));
-    this.unseal = options.unseal ?? ((sealed) => safeStorage.decryptString(sealed));
+    this.seal = options.seal ?? noticingSafeStorage((plaintext: string) => safeStorage.encryptString(plaintext));
+    this.unseal = options.unseal ?? noticingSafeStorage((sealed: Buffer) => safeStorage.decryptString(sealed));
     this.now = options.now ?? Date.now;
   }
 
@@ -93,6 +94,7 @@ export class LinkedSignInStore {
       return this.cache;
     }
     if (this.usesSafeStorage && !safeStorage.isEncryptionAvailable()) {
+      noticeSecretStorageFailure();
       throw new Error('Credential encryption is unavailable.');
     }
     let parsed: unknown;

@@ -22,6 +22,7 @@ import type {
   SessionSnapshot,
   ToolApprovalDecision,
 } from '../shared/contract';
+import type { DesktopNotice } from '../shared/desktop-notice';
 import type { SessionFinalAnswer } from './session-final-answer';
 
 export interface DesktopService {
@@ -160,6 +161,8 @@ export interface DesktopService {
    * singleton daemon. Product hosts never execute these domains locally. */
   invokeDesktopOperation(method: string, args?: unknown[]): Promise<unknown>;
   subscribeDesktopEvents?(listener: (event: { name: string; value: unknown }) => void): () => void;
+  /** The service's notices; those that arrived while nobody listened come first. */
+  subscribeDesktopNotices?(listener: (notice: DesktopNotice) => void): () => void;
   perfLog(line: string): void;
   dispose(): Promise<void>;
 }

@@ -1,5 +1,6 @@
 import { contentCarriesLiveMedia } from '../../providers/media-normalization.mjs';
 import { publishSessionPersistence } from './session-persistence-events.mjs';
+import { raiseDesktopNotice } from '../../../../shared/desktop-notice-host.mjs';
 
 const _lastSaveError = new Map(); // id -> { message, at }
 
@@ -243,6 +244,9 @@ function _failedSaveClone(session) {
  */
 export function _recordSaveFailure(id, err, epoch = null, session = null) {
   if (!id) return;
+  // The only notice of a transcript the disk no longer keeps up with; told
+  // once per run, whichever session it was.
+  raiseDesktopNotice('conversation-save', 'conversation-save-failed');
   _lastSaveError.set(id, { message: err?.message ?? String(err), at: Date.now() });
   _droppedSaveIds.add(id);
   _markFailureEpoch(id, epoch);

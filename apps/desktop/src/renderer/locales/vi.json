@@ -5896,5 +5896,16 @@
   "{{count}} steps": "{{count}} bước",
   "{{count}} steps_other": "{{count}} bước",
   "Used tools {{count}} times": "Dùng công cụ {{count}} lần",
-  "Used tools {{count}} times_other": "Dùng công cụ {{count}} lần"
+  "Used tools {{count}} times_other": "Dùng công cụ {{count}} lần",
+  "{{name}} installed.": "Đã cài đặt {{name}}.",
+  "Could not install {{name}}: {{error}}": "Không thể cài đặt {{name}}: {{error}}",
+  "{{name}} plugin installed.": "Đã cài đặt plugin {{name}}.",
+  "Could not install the plugin: {{error}}": "Không thể cài đặt plugin: {{error}}",
+  "Mixdog v{{version}} downloaded. Restart to apply the update.": "Đã tải xuống Mixdog v{{version}}. Khởi động lại để áp dụng bản cập nhật.",
+  "Could not download the update: {{error}}": "Không thể tải xuống bản cập nhật: {{error}}",
+  "Usage limit reached on {{provider}}. The turn stopped.": "Đã đạt giới hạn sử dụng trên {{provider}}. Lượt đã dừng.",
+  "Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.": "Đăng nhập {{name}} của bạn đã hết hạn hoặc bị từ chối. Hãy đăng nhập lại trong Cài đặt → Mô hình.",
+  "{{name}} needs you to sign in again. Reconnect it in Connectors.": "{{name}} cần bạn đăng nhập lại. Hãy kết nối lại trong Trình kết nối.",
+  "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog.": "Bộ nhớ bảo mật của máy tính này không hoạt động nên không thể đọc hoặc lưu các khóa, mật khẩu và thông tin đăng nhập đã lưu. Hãy kiểm tra chuỗi khóa hệ thống, sau đó khởi động lại Mixdog.",
+  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "Không thể lưu cuộc trò chuyện vào đĩa. Các tin nhắn gần đây có thể bị mất khi đóng Mixdog. Hãy kiểm tra dung lượng đĩa trống và quyền thư mục."
 }

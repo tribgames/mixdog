@@ -14,6 +14,12 @@ import { BROWSER_OPEN_REQUESTED_DESKTOP_EVENT } from '../shared/remote-browser';
 import { TERMINAL_RUN_REQUESTED_DESKTOP_EVENT } from '../shared/terminal-command';
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
 import { SETTINGS_CHANGED_EVENT } from '../shared/settings-changed';
+import { DESKTOP_NOTICE_EVENT } from '../shared/desktop-notice';
+import {
+  deliverPendingDesktopNotices,
+  type RaisedDesktopNotice,
+  registerDesktopNoticeSink,
+} from '../../../../src/runtime/shared/desktop-notice-host.mjs';
 import { watchConfiguredOrchestrationMode } from './orchestration-mode-watch';
 import { watchAgentSettings } from './agent-settings-watch';
 import { REMOTE_VISUALIZE_LANE, VISUALIZE_REMOTE_DESKTOP_EVENT } from '../shared/visualize';
@@ -115,7 +121,9 @@ const UPLOAD_SWEEP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 interface DesktopServiceFactoryInput {
   options: SerializableDesktopServiceOptions;
   runtime: DesktopServiceRuntime;
-  emit(message: DesktopServiceOutbound): void;
+  /** False when no desktop client was subscribed to receive it; an older
+   *  daemon answers nothing. */
+  emit(message: DesktopServiceOutbound): boolean | undefined;
   onClientCountChanged?(): void;
 }
 
@@ -147,6 +155,8 @@ interface DesktopServiceAdapter {
   invoke(method: string, args: unknown[]): Promise<unknown>;
   control(message: unknown): Promise<void>;
   releaseClient(epoch: number): Promise<void>;
+  /** A desktop client finished attaching (`desktop.ready`). */
+  clientReady(): void;
   dispose(reason?: string): Promise<void>;
 }
 
@@ -702,18 +712,35 @@ type DesktopEventListener = (event: { name: string; value: unknown }) => void;
  *  in-process subscriber (the relay). */
 function createDesktopEventBus(host: SessionHost, emit: DesktopServiceFactoryInput['emit']) {
   const listeners = new Set<DesktopEventListener>();
-  const publish = (name: string, value: unknown): void => {
+  /** Whether a desktop client was there to receive it (the relay's phones
+   *  are not counted). */
+  const publish = (name: string, value: unknown): boolean => {
     // A provider or setting changed: the host's reused catalog and branch
     // menu answers describe the state before it.
     if (name === PROVIDER_MODELS_EVENT || name === SETTINGS_CHANGED_EVENT) host.invalidateReadCaches();
-    emit({ kind: 'desktop-event', name, value });
+    const delivered = emit({ kind: 'desktop-event', name, value }) !== false;
     for (const listener of listeners) listener({ name, value });
+    return delivered;
   };
   const subscribe = (listener: DesktopEventListener): (() => boolean) => {
     listeners.add(listener);
     return () => listeners.delete(listener);
   };
   return { publish, subscribe, clear: (): void => listeners.clear() };
+}
+
+/** The runtime this daemon hosts raises notices (desktop-notice-host.mjs):
+ *  the window and paired phones show them. One no window received waits for
+ *  the next desktop client (clientReady) and is replayed to the window alone:
+ *  the phones already had it. */
+export function desktopNoticeSink(
+  emit: DesktopServiceFactoryInput['emit'],
+  publishDesktopEvent: (name: string, value: unknown) => boolean
+): (notice: RaisedDesktopNotice, replay: boolean) => boolean {
+  return (notice, replay) =>
+    replay
+      ? emit({ kind: 'desktop-event', name: DESKTOP_NOTICE_EVENT, value: notice }) !== false
+      : publishDesktopEvent(DESKTOP_NOTICE_EVENT, notice);
 }
 
 /** An edit's file recovery: inside a managed worktree through the worktree
@@ -1020,6 +1047,7 @@ export async function createDesktopService({
   const host = await SessionHost.create(options, runtime);
   const desktopEvents = createDesktopEventBus(host, emit);
   const publishDesktopEvent = desktopEvents.publish;
+  const unregisterNotices = registerDesktopNoticeSink(desktopNoticeSink(emit, publishDesktopEvent));
   const operations = createDesktopOperations({
     withRecoveryStore: worktreeRecoveryStore(runtime, options.userDataPath),
     userDataPath: options.userDataPath,
@@ -1210,6 +1238,9 @@ export async function createDesktopService({
       systemProxy.release(epoch);
       return stateSync.releaseClient(epoch);
     },
+    clientReady(): void {
+      deliverPendingDesktopNotices();
+    },
     async dispose(): Promise<void> {
       // First: a pass in flight uses the runtime hosts, the session host and
       // the upload staging, so it settles (and no later one starts) before
@@ -1219,6 +1250,7 @@ export async function createDesktopService({
       stopConfigChanges();
       importProgress.dispose();
       stateSync.dispose();
+      unregisterNotices();
       desktopEvents.clear();
       browserRemoteRequests.rejectAll('Desktop service is closing.');
       systemProxy.dispose();

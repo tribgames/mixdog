@@ -8,6 +8,7 @@ import { groupToasts, reduceToasts } from './desktop-toast-state';
 import { reportRendererNotice } from './RendererRecovery';
 import { presentedModalDialog } from './surface-input-focus';
 import { relayPayloadTooLargeMessage } from '../shared/remote-payload-limit';
+import type { DesktopNotice } from '../shared/desktop-notice';
 
 function toastTitle(tone: string): string {
   if (tone === 'success') return t('Completed');
@@ -36,6 +37,34 @@ export function showDesktopToast(
     })
   );
   return id;
+}
+
+/** A main-process or service notice (shared/desktop-notice.ts) as its toast. */
+export function desktopNoticeToast(notice: DesktopNotice): { text: string; tone: DesktopToastTone } {
+  const name = notice.params.name || '';
+  switch (notice.code) {
+    case 'provider-sign-in-expired':
+      return {
+        text: t('Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.', { name }),
+        tone: 'warn',
+      };
+    case 'connector-sign-in-expired':
+      return { text: t('{{name}} needs you to sign in again. Reconnect it in Connectors.', { name }), tone: 'warn' };
+    case 'secret-storage-failed':
+      return {
+        text: t(
+          "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog."
+        ),
+        tone: 'error',
+      };
+    case 'conversation-save-failed':
+      return {
+        text: t(
+          'A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.'
+        ),
+        tone: 'error',
+      };
+  }
 }
 
 export function dismissDesktopToast(id: string | undefined) {
@@ -103,10 +132,15 @@ export function DesktopToastRegion({
         { scope: 'relay' }
       );
     });
+    const unsubscribeNotices = window.mixdogDesktop?.subscribeDesktopNotices?.((notice) => {
+      const { text, tone } = desktopNoticeToast(notice);
+      showDesktopToast(text, tone, { groupKey: notice.key });
+    });
     return () => {
       window.removeEventListener(DESKTOP_TOAST_EVENT, receive);
       window.removeEventListener(DESKTOP_TOAST_DISMISS_EVENT, dismiss);
       unsubscribe?.();
+      unsubscribeNotices?.();
     };
   }, []);
   const entries = groupToasts(records);

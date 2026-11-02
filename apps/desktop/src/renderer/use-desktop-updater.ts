@@ -1,12 +1,41 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { DesktopUpdaterState } from '../shared/contract';
+import { showDesktopToast } from './desktop-toasts';
+import { t } from './i18n';
 import { isSshConnectionWindow } from './desktop-connection';
 import { REMOTE_CONNECTION_READY_EVENT } from './remote-connection-state';
 
 type Invoke = (action: () => unknown) => Promise<void>;
 
+/** The toast a download's outcome earns: only a change seen from `downloading`,
+ *  so polling, a repeated state or an update already downloaded at app start
+ *  announces nothing. */
+export function updaterOutcomeToast(
+  previous: DesktopUpdaterState,
+  next: DesktopUpdaterState
+): { text: string; tone: 'success' | 'error' } | null {
+  if (previous.status !== 'downloading') return null;
+  if (next.status === 'ready') {
+    return {
+      text: t('Mixdog v{{version}} downloaded. Restart to apply the update.', { version: next.version }),
+      tone: 'success',
+    };
+  }
+  if (next.status === 'error') {
+    return { text: t('Could not download the update: {{error}}', { error: next.message }), tone: 'error' };
+  }
+  return null;
+}
+
 export function useDesktopUpdater(invoke: Invoke) {
-  const [state, setState] = useState<DesktopUpdaterState>({ status: 'disabled' });
+  const [state, setStateRaw] = useState<DesktopUpdaterState>({ status: 'disabled' });
+  const latest = useRef(state);
+  const setState = useCallback((next: DesktopUpdaterState) => {
+    const toast = updaterOutcomeToast(latest.current, next);
+    latest.current = next;
+    setStateRaw(next);
+    if (toast) showDesktopToast(toast.text, toast.tone);
+  }, []);
   const [ready, setReady] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -49,7 +78,7 @@ export function useDesktopUpdater(invoke: Invoke) {
       unsubscribe?.();
       if (read) window.removeEventListener(REMOTE_CONNECTION_READY_EVENT, read);
     };
-  }, []);
+  }, [setState]);
 
   const openDialog = useCallback(() => {
     if (state.status === 'ready') setDialogOpen(true);
@@ -61,7 +90,7 @@ export function useDesktopUpdater(invoke: Invoke) {
       const next = await window.mixdogDesktop.showDesktopUpdate();
       setState(next);
     });
-  }, [invoke]);
+  }, [invoke, setState]);
 
   return {
     state,

@@ -34,6 +34,7 @@ import { createSnapshotDeltaDecoder, releaseHiddenSessionStateEntries } from './
 import { isTerminalRemoteError } from './ssh/remote-bootstrap';
 import { codedErrorParams } from '../shared/coded-error';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
+import { DESKTOP_NOTICE_EVENT, type DesktopNotice, readDesktopNotice } from '../shared/desktop-notice';
 import type { SessionFinalAnswer } from './session-final-answer';
 
 export interface DesktopTransport {
@@ -83,6 +84,7 @@ const DEFAULT_RESTART_STABLE_MS = 30_000;
 const DEFAULT_FAILURE_NOTICE_DELAY_MS = 60_000;
 const PROCESS_FAILURE_NOTICE_TEXT = 'The service connection has been lost for a while. Still retrying automatically.';
 const PROCESS_FAILURE_TOAST_ID = 'service-connection-stopped';
+const HELD_NOTICE_LIMIT = 20;
 
 /** The daemon lane carries arguments as JSON, which turns an omitted trailing
  *  argument (`undefined`) into `null`. Receivers validate optional parameters
@@ -143,6 +145,9 @@ export class DesktopServiceClient implements DesktopService {
   private readonly sessionListeners = new Set<(sessions: DesktopSessionSummary[]) => void>();
   private readonly agentPoolListeners = new Set<(agents: DesktopAgentPoolRow[]) => void>();
   private readonly desktopEventListeners = new Set<(event: { name: string; value: unknown }) => void>();
+  private readonly noticeListeners = new Set<(notice: DesktopNotice) => void>();
+  /** Notices that arrived while no window listened (one per key, bounded). */
+  private heldNotices: DesktopNotice[] = [];
   private readonly sessionStateListeners = new Set<(update: DesktopSessionStateUpdate) => void>();
   private readonly sessionStateDecoders = new Map<string, ReturnType<typeof createSnapshotDeltaDecoder>>();
   private readonly pending = new Map<number, PendingRequest>();
@@ -349,6 +354,28 @@ export class DesktopServiceClient implements DesktopService {
     return () => this.desktopEventListeners.delete(listener);
   }
 
+  subscribeDesktopNotices(listener: (notice: DesktopNotice) => void): () => void {
+    this.noticeListeners.add(listener);
+    const held = this.heldNotices;
+    this.heldNotices = [];
+    for (const notice of held) listener(notice);
+    return () => this.noticeListeners.delete(listener);
+  }
+
+  /** The service raised each notice once and counts it delivered here, so one
+   *  arriving before any window (or between windows) waits for the next. */
+  private receiveNotice(value: unknown): void {
+    const notice = readDesktopNotice(value);
+    if (!notice) return;
+    if (this.noticeListeners.size > 0) {
+      for (const listener of this.noticeListeners) listener(notice);
+      return;
+    }
+    this.heldNotices = [...this.heldNotices.filter((held) => held.key !== notice.key), notice].slice(
+      -HELD_NOTICE_LIMIT
+    );
+  }
+
   /** Both ways this process arrives at a live daemon: the first attach, and a
    *  replacement behind a transport that never dropped. The generation the
    *  host reads tells those apart; what has to happen after either is the
@@ -413,6 +440,7 @@ export class DesktopServiceClient implements DesktopService {
     if (message.kind === 'desktop-event') {
       const event = { name: String(message.name || ''), value: message.value };
       if (!event.name) return;
+      if (event.name === DESKTOP_NOTICE_EVENT) this.receiveNotice(event.value);
       for (const listener of this.desktopEventListeners) listener(event);
       return;
     }
@@ -1042,6 +1070,7 @@ export class DesktopServiceClient implements DesktopService {
     this.sessionListeners.clear();
     this.agentPoolListeners.clear();
     this.desktopEventListeners.clear();
+    this.noticeListeners.clear();
     this.sessionStateListeners.clear();
     this.visibleSessionIds = [];
     if (transport) {

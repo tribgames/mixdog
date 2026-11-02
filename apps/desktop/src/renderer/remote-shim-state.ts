@@ -18,6 +18,7 @@ import type { RelayE2EEChannel, RelayE2EEPairingMaterial } from '../shared/remot
 import type { RemoteWebrtcDesktopSignal } from '../shared/remote-webrtc';
 import type { ActivityRailPinsState } from '../shared/activity-rail-pins';
 import type { ProviderModelsChange } from '../shared/provider-models';
+import type { DesktopNotice } from '../shared/desktop-notice';
 import type { SettingsChange } from '../shared/settings-changed';
 import type { OrchestrationModeChange } from '../shared/orchestration-mode';
 import type { DesktopVisualizeEvent } from '../shared/visualize';
@@ -229,6 +230,7 @@ export interface RemoteShimCollaborators {
   folderChangeListeners: Set<(dir: string) => void>;
   activityRailPinsListeners: Set<(state: ActivityRailPinsState) => void>;
   providerModelsListeners: Set<(change: ProviderModelsChange) => void>;
+  desktopNoticeListeners: Set<(notice: DesktopNotice) => void>;
   settingsChangedListeners: Set<(change: SettingsChange) => void>;
   orchestrationModeListeners: Set<(change: OrchestrationModeChange) => void>;
   updaterListeners: Set<(state: DesktopUpdaterState) => void>;
@@ -503,6 +505,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     folderChangeListeners: new Set(),
     activityRailPinsListeners: new Set(),
     providerModelsListeners: new Set(),
+    desktopNoticeListeners: new Set(),
     settingsChangedListeners: new Set(),
     orchestrationModeListeners: new Set(),
     updaterListeners: new Set(),

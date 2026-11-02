@@ -477,6 +477,7 @@ export const createRemoteApi = (ctx: RemoteShimContext): DesktopApi => {
     subscribeActivityRailPins: (listener) => listenOn(ctx.activityRailPinsListeners, listener),
     notifyProviderModelsChanged: (origin) => fire('notifyProviderModelsChanged', [origin]),
     subscribeProviderModelsChanged: (listener) => listenOn(ctx.providerModelsListeners, listener),
+    subscribeDesktopNotices: (listener) => listenOn(ctx.desktopNoticeListeners, listener),
     invokeCapability: <T = unknown>(request: DesktopCapabilityRequest) =>
       call<DesktopCapabilityResult<T>>('invokeCapability', [request]),
     readCapabilities: (requests) => call('readCapabilities', [requests]),

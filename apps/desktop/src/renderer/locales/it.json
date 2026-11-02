@@ -6026,5 +6026,16 @@
   "{{count}} steps": "{{count}} passaggio",
   "{{count}} steps_other": "{{count}} passaggi",
   "Used tools {{count}} times": "Strumenti usati {{count}} volta",
-  "Used tools {{count}} times_other": "Strumenti usati {{count}} volte"
+  "Used tools {{count}} times_other": "Strumenti usati {{count}} volte",
+  "{{name}} installed.": "{{name}} installato.",
+  "Could not install {{name}}: {{error}}": "Impossibile installare {{name}}: {{error}}",
+  "{{name}} plugin installed.": "Plugin {{name}} installato.",
+  "Could not install the plugin: {{error}}": "Impossibile installare il plugin: {{error}}",
+  "Mixdog v{{version}} downloaded. Restart to apply the update.": "Mixdog v{{version}} scaricato. Riavvia per applicare l’aggiornamento.",
+  "Could not download the update: {{error}}": "Impossibile scaricare l’aggiornamento: {{error}}",
+  "Usage limit reached on {{provider}}. The turn stopped.": "Limite di utilizzo raggiunto su {{provider}}. Il turno si è interrotto.",
+  "Your {{name}} sign-in has expired or was refused. Sign in again under Settings → Models.": "Il tuo accesso a {{name}} è scaduto o è stato rifiutato. Accedi di nuovo in Impostazioni → Modelli.",
+  "{{name}} needs you to sign in again. Reconnect it in Connectors.": "{{name}} richiede di effettuare nuovamente l’accesso. Riconnettilo in Connettori.",
+  "This computer's secure storage is not working, so saved keys, passwords and sign-ins could not be read or saved. Check the system keychain, then restart Mixdog.": "Lo spazio di archiviazione sicuro di questo computer non funziona, pertanto non è stato possibile leggere o salvare chiavi, password e accessi salvati. Controlla il portachiavi di sistema, quindi riavvia Mixdog.",
+  "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "Impossibile salvare una conversazione su disco. I messaggi recenti potrebbero andare persi alla chiusura di Mixdog. Controlla lo spazio libero su disco e i permessi della cartella."
 }
