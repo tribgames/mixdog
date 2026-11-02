@@ -11,7 +11,8 @@ dependencies:
 # Memory management
 
 Use `memory` for curated preferences injected into future sessions. The tool
-schema owns arguments; this guide owns curation and approval policy.
+schema owns arguments, scope selectors and index versioning; this guide owns
+curation and approval policy.
 
 ## Choose the source
 
@@ -33,25 +34,20 @@ as preferences; automatic history already preserves them.
 Pick the scope by what the entry is about, not where the conversation is:
 `common` when it holds in any Project (how to address or answer the user,
 approvals, git and release habits, general working style); a Project only
-when it depends on that Project's code, paths, tools or conventions. Omit
-`project_id` for the current Project, or name another Project's slug. The `*`
-scope is read-only. Write each entry so it reads alone, without pointing at
-earlier conversation or entries.
-`agent_id: "self"` selects your own agent memory instead: only you read it,
-and it is the only pool an unattended run (schedule, webhook, group room,
-delegated agent) may write; common and Project memory change only while the
-user is chatting. Confirm the target before destructive changes.
+when it depends on that Project's code, paths, tools or conventions. Write
+each entry so it reads alone, without pointing at earlier conversation or
+entries.
+`agent_id: "self"` selects your own agent memory: it is the only pool an
+unattended run (schedule, webhook, group room, delegated agent) may write;
+common and Project memory change only while the user is chatting. Confirm the
+target before destructive changes.
 
-Memory indices start at 1 independently in common memory and each Project.
-Deletion and movement compact the affected scope's indices; new memories
-append after its last index. For edit/delete, use the exact `project_id`,
-`id`, and `index_revision` returned by the list. On a stale-version error,
-read the list and identify the intended content again; never blindly retry
-an old number. Internal database keys are not public memory indices.
+Indices are per scope. Edit or delete only from a fresh list; after a
+stale-version error, list again and re-identify the intended entry. A recall record ID or internal database key
+is never a memory index.
 
-The memory tool manages only user-curated entries. Conversation summaries are
-searchable through `recall`; they never become standing instructions automatically.
-Do not use a recall record ID as a memory index.
+Conversation summaries found through `recall` never become standing
+instructions automatically.
 
 Done when the tool reports the approved change in the intended scope.
 Do not reread a successful write merely to confirm it.

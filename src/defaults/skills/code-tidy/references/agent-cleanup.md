@@ -1,7 +1,7 @@
 # Agent-level cleanup
 
-Owns the deletion ladder, lenses, slop categories, and risk tiers. The skill
-body owns scope, order, approvals, and the never-remove list.
+Owns the deletion ladder, lenses, slop categories, risk tiers and the
+never-remove list. The skill body owns scope, order and approvals.
 
 ## Behavior boundary
 
@@ -72,6 +72,31 @@ focus excludes.
 | Hardcoded config | environment-specific URLs, ids, absolute paths, unnamed thresholds | fixtures, docs, contract-fixed literals | use the project's config accessor; name the literal. A credential in source is a defect: report it |
 | Placeholder naming | `data2`, `tmp`, `handleStuff` on new code | the project's own idioms | rename locals; an exported rename is RISKY |
 | Oversized modules | files past the review threshold mixing responsibilities | a cohesive module | split confirmed independent responsibilities; no `utils`/`common` dumps |
+
+## Structural signals
+
+File > 1,000 lines, function > 50 lines or nesting > 3, duplicated small
+helpers, history comments and exported underscore names are leads, not
+candidates: act only on a named symptom. Do not improve names, control flow,
+or types beyond the ladder and lenses. A confirmed responsibility-based split
+that preserves behavior and entry points is CAREFUL; moving a whole body
+elsewhere or cutting it into numbered chunks resolves nothing.
+
+## Keep: never remove or rename
+
+- Validation and error handling at a trust boundary unless an adversarial test
+  proves the guard redundant; an empty catch or ignored error that may be
+  intentional is flagged, not removed.
+- Contracts: export names, routes, CLI flags, DB columns, config keys, event
+  names, wire strings. A rename is RISKY even when the name is bad.
+- Anything on the never-dead list in `dead-code.md`.
+- Complexity serving a current compatibility obligation, staged migration, or
+  vendored-code isolation.
+- Tool directives, public API docs, and security or compatibility
+  explanations; comments that may separate tokens or carry significant line
+  breaks go to manual review.
+- The project's own idioms (`AGENTS.md`/`CLAUDE.md`/lint config) over generic
+  ones; clarity over fewer lines.
 
 ## Risk tiers
 

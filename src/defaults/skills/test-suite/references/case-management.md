@@ -1,8 +1,11 @@
 # Test case management
 
-Every test has an owner, a single contract and a lane. None of this belongs in a hand-written registry: hand lists
-drift from the code. It is derived from where the file lives, its name and its
-text, and `scripts/inventory.mjs` reports it.
+Read for Audit, or when adding a new area.
+
+Every test has an owner, a single contract and a lane. None of this belongs in
+a hand-written registry: hand lists drift from the code. It is derived from
+where the file lives, its name and its text, and `scripts/inventory.mjs`
+reports it.
 
 ## Where a test lives
 
@@ -43,9 +46,14 @@ needs a fix; an issue number does not make it acceptable.
 A fake-clock library in the file clears `timer` and `clock`. Markers are
 leads, not verdicts: a timer in a test about timers is correct.
 
-## Audit report
+## Audit procedure
 
-One table per project: area, files, fast/slow counts, marker counts, defect
-skips. Rank batches by: defect skips, fast-lane
-files with `timer`+`spawn`, then the rest by area. The audit ends at the
-report; fix only the batches the user picks.
+1. Run `node ${MIXDOG_SKILL_DIR}/scripts/inventory.mjs <project-root>`
+   (`--json` for data). Result: per-area counts, lanes, languages, risk
+   markers and defect skips for JS/TS, Python, Go and Rust.
+2. Rank findings by impact: defect skips, then risky markers in the fast lane
+   (files with `timer`+`spawn`), duplicate owners, then the rest by area.
+3. Report one table per project (area, files, fast/slow counts, marker counts,
+   defect skips, proposed action) and wait for the user's choice of batches.
+   The audit ends at this report; fix only the batches the user picks, one or
+   two at a time, each verified by its covering files.
