@@ -15,10 +15,11 @@ const CLOSE_DURATION = 110;
 
 type StudioViewport = { left: number; top: number; width: number; height: number };
 
-/** The Studio composer's pill sits at the bottom of its pane, so its sheet
- *  opens above with the left edges aligned (the pill grows rightwards into
- *  it); the settings `field` sits at the trailing edge of its row, so its
- *  sheet opens below with the right edges aligned. */
+/** The Studio composer's pill sits at the trailing end of the line under the
+ *  card, so its sheet opens above with the right edges aligned (the
+ *  end-justified pill grows leftwards into it); the settings `field` sits at
+ *  the trailing edge of its row, so its sheet opens below, right edges
+ *  aligned too. */
 function measuredSheet(
   trigger: HTMLElement,
   rect: { left: number; right: number; top: number; bottom: number },
@@ -30,7 +31,7 @@ function measuredSheet(
     viewport,
     sheet: field
       ? routeSheetBox(rect, sheetHeight, viewport, ROUTE_PANEL_WIDTH, 'below', 'end')
-      : routeSheetBox(rect, sheetHeight, viewport, ROUTE_PANEL_WIDTH, 'above', 'start'),
+      : routeSheetBox(rect, sheetHeight, viewport, ROUTE_PANEL_WIDTH, 'above', 'end'),
   };
 }
 
