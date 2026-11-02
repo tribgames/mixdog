@@ -50,8 +50,18 @@ export function createAgentConnectorsApi(deps, editor) {
   const switches = (policy) => installedIds().map((id) => ({ id, enabled: connectorEnabled(policy, id) }));
   // A legacy list or an unreadable policy becomes its deny-list equivalent
   // over today's connectors before any edit, so an edit never widens it.
-  const editablePolicy = (agentId) =>
-    migrateLegacyConnectorPolicy(editor.getAgentConnectorPolicy(agentId), installedIds()) || { off: [], tools: {} };
+  const editablePolicyOf = (stored) =>
+    migrateLegacyConnectorPolicy(stored, installedIds()) || { off: [], tools: {} };
+  const editablePolicy = (agentId) => editablePolicyOf(editor.getAgentConnectorPolicy(agentId));
+  // An edit is derived from the policy stored when its turn in the agent's
+  // write queue comes, so two edits started together never undo each other,
+  // and the remote no-widen check judges that same policy.
+  const editPolicy = (agentId, options, derive) =>
+    editor.updateAgentConnectorPolicy(agentId, (stored) => {
+      const next = derive(editablePolicyOf(stored));
+      if (options?.noWiden) assertConnectorPolicyNotWidened(stored, next);
+      return storedConnectorPolicy(next);
+    });
 
   function listConnectors() {
     return (mcpStatus()?.servers || []).map((row) => ({
@@ -102,12 +112,10 @@ export function createAgentConnectorsApi(deps, editor) {
   async function setAgentConnectorEnabled(agentId, connectorId, enabled, options) {
     const id = requireId(connectorId, 'connector id');
     if (typeof enabled !== 'boolean') throw new TypeError('enabled must be a boolean');
-    const policy = editablePolicy(agentId);
-    const off = enabled ? policy.off.filter((entry) => entry !== id) : [...policy.off, id];
-    if (options?.noWiden) {
-      assertConnectorPolicyNotWidened(editor.getAgentConnectorPolicy(agentId), { off, tools: policy.tools });
-    }
-    await editor.setAgentConnectorPolicy(agentId, storedConnectorPolicy({ off, tools: policy.tools }));
+    await editPolicy(agentId, options, (policy) => ({
+      off: enabled ? policy.off.filter((entry) => entry !== id) : [...policy.off, id],
+      tools: policy.tools,
+    }));
     return getAgentConnectors(agentId);
   }
 
@@ -119,26 +127,24 @@ export function createAgentConnectorsApi(deps, editor) {
     }
     const server = requireId(connectorId, 'connector id');
     const tool = requireId(toolName, 'tool name');
-    const policy = editablePolicy(agentId);
     // The accounts of one connector (`gmail`, `gmail-2`…) share the permission,
     // stored once under the connector's id; an entry an account kept of its own
     // for this tool goes in the same write.
     const group = connectorGroupId(server);
-    const tools = Object.fromEntries(
-      Object.entries(policy.tools).map(([id, entries]) => {
-        if (id === group || connectorGroupId(id) !== group) return [id, entries];
-        const { [tool]: _dropped, ...rest } = entries;
-        return [id, rest];
-      })
-    );
-    const own = { ...tools[group] };
-    if (permission == null) delete own[tool];
-    else own[tool] = permission;
-    tools[group] = own;
-    if (options?.noWiden) {
-      assertConnectorPolicyNotWidened(editor.getAgentConnectorPolicy(agentId), { off: policy.off, tools });
-    }
-    return editor.setAgentConnectorPolicy(agentId, storedConnectorPolicy({ off: policy.off, tools }));
+    return editPolicy(agentId, options, (policy) => {
+      const tools = Object.fromEntries(
+        Object.entries(policy.tools).map(([id, entries]) => {
+          if (id === group || connectorGroupId(id) !== group) return [id, entries];
+          const { [tool]: _dropped, ...rest } = entries;
+          return [id, rest];
+        })
+      );
+      const own = { ...tools[group] };
+      if (permission == null) delete own[tool];
+      else own[tool] = permission;
+      tools[group] = own;
+      return { off: policy.off, tools };
+    });
   }
 
   // A card's "항상 허용" for a connector tool saves through this same writer.
@@ -186,11 +192,12 @@ export function createAgentConnectorsApi(deps, editor) {
   /** Replace the agent's connector policy (null removes it). With `options.noWiden`
    *  the replacement may not give any tool more authority than the stored policy. */
   async function setAgentConnectors(agentId, connectors, options) {
-    if (options?.noWiden) {
-      const next = connectors == null ? null : parseConnectorPolicy(connectors);
-      assertConnectorPolicyNotWidened(editor.getAgentConnectorPolicy(agentId), next);
-    }
-    return editor.setAgentConnectorPolicy(agentId, connectors);
+    return editor.updateAgentConnectorPolicy(agentId, (stored) => {
+      if (options?.noWiden) {
+        assertConnectorPolicyNotWidened(stored, connectors == null ? null : parseConnectorPolicy(connectors));
+      }
+      return connectors;
+    });
   }
 
   /** The registered Project at `projectPath` (its path is the policy key). */
