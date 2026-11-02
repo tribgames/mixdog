@@ -91,5 +91,4 @@ not shown while it lists any.
   `blocked-network` page problem), so inline or bundle every asset in the
   project. No fake data passed off as real, or stock imagery.
 - A value the user may want to tune (accent, density, spacing) is a CSS variable
-  on the root plus a control in `<script type="application/json" id="mx-tweaks">
-  [{"id":"accent","type":"color","var":"--accent","default":"#3b82f6"}]`.
+on the root plus a tweaks control (SKILL.md §4).
