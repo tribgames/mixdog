@@ -22,7 +22,7 @@ Aggiunta la scheda Registro richieste in Utilizzo, pannelli laterali in tempo re
 - Modificata la gestione della memoria per salvare automaticamente le preferenze esplicite e richiedere conferma per voci proposte dall'agente o con ambito ambiguo.
 - Modificata la mascotte del bot desktop per comparire solo quando attivata esplicitamente nelle impostazioni.
 - Modificata la pagina Bot per nascondere il gruppo Agenti per impostazione predefinita; si attiva dal menu ⋯ della pagina e le scelte precedenti restano valide.
-- Modificata la lista di cose da fare della sessione in modo che le note siano sotto il titolo, i passi bloccati siano più leggibili e le fasi appaiano come intestazioni.
+- Modificata la lista di cose da fare sopra il campo di input per facilitarne la lettura: la nota di ciascun elemento si trova ora su una riga dedicata sottostante.
 
 ### Correzioni di bug
 

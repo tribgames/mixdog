@@ -22,7 +22,7 @@ Registerkarte „Anfrageprotokoll“ unter Nutzung, Live-Seitenbereiche für Sub
 - Speicherverwaltung angepasst, um ausdrückliche Präferenzen direkt zu speichern und bei vorgeschlagenen Einträgen oder unklarem Projektbereich eine Bestätigung einzuholen.
 - Das Desktop-Bot-Maskottchen so geändert, dass es nur erscheint, wenn es in den Einstellungen aktiviert wird.
 - Bots-Seite so geändert, dass die Agenten-Gruppe standardmäßig ausgeblendet ist; sie lässt sich über das ⋯-Menü aktivieren, frühere Auswahlen bleiben erhalten.
-- Sitzungs-To-do-Liste angepasst, sodass Notizen unter dem Titel stehen, blockierte Schritte ruhiger wirken und Phasen als Überschriften erscheinen.
+- To-do-Liste über dem Eingabefeld angepasst, um die Lesbarkeit zu verbessern: Die Notiz jedes Eintrags steht nun in einer eigenen Zeile darunter.
 
 ### Fehlerbehebungen
 

@@ -22,7 +22,7 @@ Adicionada a aba Registro de solicitações em Uso, painéis laterais em tempo r
 - Alterada a gestão de memória para salvar preferências explícitas automaticamente e solicitar confirmação para itens sugeridos pelo agente ou com escopo ambíguo.
 - Alterado o mascote do bot de desktop para aparecer apenas quando ativado nas configurações.
 - Alterada a página de Bots para ocultar o grupo Agentes por padrão; ative-o no menu ⋯ da página, mantendo suas escolhas anteriores.
-- Ajustada a lista de tarefas da sessão para que as anotações fiquem sob o título, etapas bloqueadas fiquem mais suaves e as fases apareçam como títulos.
+- Ajustada a lista de tarefas acima do campo de mensagem para facilitar a leitura: a anotação de cada item agora fica em sua própria linha abaixo.
 
 ### Correções de bugs
 

@@ -23,7 +23,7 @@ Se añadió la pestaña Registro de solicitudes en Uso, paneles laterales en viv
 - Se cambió la gestión de memoria para guardar preferencias explícitas automáticamente y solicitar confirmación ante propuestas del agente o alcances ambiguos.
 - Se cambió la mascota del bot de escritorio para que solo aparezca cuando se activa explícitamente en la configuración.
 - Se cambió la página Bots para ocultar el grupo Agentes por defecto; se activa desde el menú ⋯ de la página y se conservan las elecciones previas.
-- Se ajustó la lista de tareas de sesión para que la nota de cada paso quede bajo el título, los bloqueos se lean más claros y las fases sean encabezados.
+- Se ajustó la lista de tareas sobre el cuadro de mensaje para facilitar su lectura: la nota de cada elemento ahora aparece en su propia línea debajo.
 
 ### Correcciones de errores
 
