@@ -379,22 +379,15 @@ if (process.platform === 'win32') {
   app.commandLine.appendSwitch('disable-features', 'CalculateNativeWinOcclusion');
 }
 
-// V8 sizes the renderer's old space against what the host can spare, so on a
-// 32 GB machine a working day of sessions left the renderer resident above
-// 1 GB with nothing leaking: the collector simply had no reason to run while
-// 20 GB sat free (the same diagnostics log shows unforced 500 MB drops the
-// moment the host came under pressure). Capping the old space makes V8 run its
-// own major GCs at a size that fits the UI's real working set — transcript
-// virtualization keeps the live set far below this, and the cap is well above
-// the ~550 MB the renderer settles at after a collection. This is the
-// supported lever: forcing a purge through the debugger crashes the renderer
-// (see main/idle-reclaim.ts). MIXDOG_RENDERER_HEAP_MB overrides; 0 restores
-// V8's own default sizing.
+// The renderer keeps V8's own heap sizing. A fixed old-space cap paced the
+// collector against the UI's working set, but it also turned any spike past
+// the cap into a dead window while the machine had memory to spare; V8 sizes
+// against what the host can give and collects harder once the host comes
+// under pressure (the diagnostics log shows unforced 500 MB drops then).
+// MIXDOG_RENDERER_HEAP_MB still sets a cap in MB; 0 or unset leaves none.
 const configuredRendererHeapMb = Number(process.env.MIXDOG_RENDERER_HEAP_MB);
 const rendererHeapMb =
-  Number.isFinite(configuredRendererHeapMb) && configuredRendererHeapMb >= 0
-    ? Math.floor(configuredRendererHeapMb)
-    : 768;
+  Number.isFinite(configuredRendererHeapMb) && configuredRendererHeapMb >= 0 ? Math.floor(configuredRendererHeapMb) : 0;
 if (rendererHeapMb > 0) {
   app.commandLine.appendSwitch('js-flags', `--max-old-space-size=${rendererHeapMb}`);
 }
