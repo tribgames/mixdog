@@ -23,6 +23,7 @@ import {
   usageRollupDayKey,
 } from './usage-rollup.mjs';
 import { normalizeUsageMeasurement, normalizeLegacyUsageDay } from './usage-measurement.mjs';
+import { NO_USAGE_COST_SOURCE } from './usage-ledger-requests.mjs';
 
 // A detail and its terminal summary can overlap on the SAME route.
 // Another provider/model on that day is independent and must survive.
@@ -97,7 +98,7 @@ function readHourlyRows(db, { hourlyDay, fromDay, toDay, fromMs, toMs, fromTs, t
     .prepare(`
                 SELECT e.ts,e.provider,e.source_type,e.input,e.output,e.cache_read,e.cache_write,e.cost_usd
                 FROM events e JOIN (${best}) b USING(day,provider,model,rank)
-                WHERE e.ts>=? AND e.ts<? ORDER BY e.ts
+                WHERE e.ts>=? AND e.ts<? AND e.cost_source<>'${NO_USAGE_COST_SOURCE}' ORDER BY e.ts
             `)
     .all(fromDay, toDay, fromMs == null ? start.getTime() : fromTs, toMs == null ? end.getTime() : toTs)
     .map((row) => {
@@ -132,7 +133,7 @@ function readDailyAmounts(db, { fromDay, toDay, fromMs, fromTs, toTs }) {
                     SUM(e.cost_usd) AS cost_usd,SUM(e.duration_ms) AS duration_ms,
                     MAX(e.origin!='live') AS imported
                 FROM events e JOIN (${best}) b USING(day,provider,model,rank)
-                WHERE e.ts>=? AND e.ts<?
+                WHERE e.ts>=? AND e.ts<? AND e.cost_source<>'${NO_USAGE_COST_SOURCE}'
                 GROUP BY e.day,e.rank,e.provider,e.model,e.kind,e.cost_source,e.source_type
             `)
         .all(fromDay, toDay, fromTs, toTs)
@@ -178,7 +179,8 @@ function readFastAmounts(db, { fromDay, toDay, fromTs, toTs }) {
                     json_extract(r.signature,'$[3]') AS source_type,
                     json_extract(r.signature,'$[4]') AS cost_source,
                     json_extract(r.signature,'$[7]') AS rank
-                FROM usage_routes r WHERE ${fastRouteSql('r.signature')}`;
+                FROM usage_routes r WHERE ${fastRouteSql('r.signature')}
+                    AND json_extract(r.signature,'$[4]')<>'${NO_USAGE_COST_SOURCE}'`;
   if (!db.prepare(`${fastRoutes} LIMIT 1`).get()) return [];
   return db
     .prepare(`
@@ -258,6 +260,7 @@ function readSessionAttribution(db, { fromDay, toDay, fromTs, toTs }) {
                     s.value AS session_id,e.input,e.output,e.cacheRead,e.cacheWrite
                 FROM grouped e JOIN usage_routes r ON r.id=e.route
                 JOIN usage_sessions s ON s.id=e.session
+                WHERE json_extract(r.signature,'$[4]')<>'${NO_USAGE_COST_SOURCE}'
             )
             SELECT e.* FROM attributed e JOIN (${best}) b USING(day,provider,model,rank)
         `)
@@ -399,6 +402,7 @@ export function readSessionUsage(db, sessionIds, ownerIds = []) {
                     m.turns,m.input,m.output,m.cache_read,m.cache_write,m.cost_usd,m.duration_ms,
                     m.speed_output,m.speed_ms
                 FROM mine m JOIN usage_routes r ON r.id=m.route
+                WHERE json_extract(r.signature,'$[4]')<>'${NO_USAGE_COST_SOURCE}'
             )
             SELECT a.* FROM attributed a JOIN (${best}) b USING(day,provider,model,rank)
         `)

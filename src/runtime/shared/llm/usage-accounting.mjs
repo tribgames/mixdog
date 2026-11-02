@@ -26,11 +26,11 @@ const TIMED_PROVIDERS = new Set(['anthropic', 'anthropic-oauth', 'openai', 'open
 
 /** The answering stream's own first-output time within the request, when its
  *  provider is timed: never an abandoned attempt's or a retry backoff's. */
-function firstOutputMs(provider, result, durationMs) {
+function firstOutputMs(provider, result, streamMs) {
   const generationMs = Number(result?.generationMs);
   if (!TIMED_PROVIDERS.has(provider) || !Number.isFinite(generationMs)) return null;
-  if (generationMs < 0 || generationMs > durationMs) return null;
-  return durationMs - generationMs;
+  if (generationMs < 0 || generationMs > streamMs) return null;
+  return streamMs - generationMs;
 }
 const UNMEASURED_USAGE = Object.freeze({ inputTokens: null, inputTokensKnown: false });
 const FAILED_USAGE = Object.freeze({ inputTokens: 0, outputTokens: 0, costUsd: 0 });
@@ -124,7 +124,9 @@ export async function accountProviderSend(provider, instance, send, model, opts 
       requestedModel: outcome ? identity.requestedModel : model,
       status,
       attempts,
-      ttftMs: timed ? firstOutputMs(provider, result, durationMs) : null,
+      // Measured to the moment the stream returned, not to this write: the
+      // abandoned attempts' writes awaited before it are not first-output wait.
+      ttftMs: timed ? firstOutputMs(provider, result, streamEndedAt - startedAt) : null,
       // The request log shows how long a failure took; statistics never time it.
       elapsedMs: outcome?.failed ? Date.now() - startedAt : 0,
       pricingModel: result.pricingModel,
@@ -167,8 +169,10 @@ export async function accountProviderSend(provider, instance, send, model, opts 
     }
   };
   let result;
+  let streamEndedAt;
   try {
     result = await withUsageContext(identity, () => send(sendOpts));
+    streamEndedAt = Date.now();
   } catch (error) {
     const abandoned = identity.abandonedUsage || [];
     const cancelled = opts.signal?.aborted === true || error?.name === 'AbortError';

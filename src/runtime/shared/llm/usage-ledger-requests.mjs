@@ -33,6 +33,10 @@ export const REQUEST_LOG_SCHEMA = `
     CREATE INDEX IF NOT EXISTS usage_routes_model ON usage_routes(json_extract(signature,'$[1]'));
 `;
 
+// The cost source of a failure that reported no usage: the request log lists
+// it, but statistics and quota totals add no turn for it.
+export const NO_USAGE_COST_SOURCE = 'none';
+
 const DEFAULT_PAGE = 50;
 const MAX_PAGE = 200;
 // A provider-local retry's abandoned attempts are stored as
@@ -59,17 +63,6 @@ function decodeCursor(cursor) {
 const encodeCursor = (row) => `${row.ts}:${Buffer.from(row.id).toString('hex')}`;
 
 const newestFirst = (a, b) => b.ts - a.ts || Buffer.compare(Buffer.from(b.id), Buffer.from(a.id));
-
-// Streams arrive in network-batched frames tens of milliseconds apart: a
-// shorter generation window times the batching, not the model.
-const MIN_GENERATION_MS = 100;
-
-/** Output tokens per second of generation: from the first output to the end. */
-export function requestSpeed({ status, output, durationMs, ttftMs }) {
-  if (status === 'failed' || ttftMs == null || !(output > 0)) return null;
-  const generationMs = durationMs - ttftMs;
-  return generationMs >= MIN_GENERATION_MS ? output / (generationMs / 1000) : null;
-}
 
 /** The SQL of one page; `source` is the table whose index orders the read. */
 export function requestPageQuery({ source, cursor = false, completed = false, routes = 0 }) {
@@ -168,7 +161,6 @@ export function readUsageRequests(db, options = {}) {
       ttftMs: ttftMs ?? null,
       attempts: row.attempts || 1,
       status: rowStatus,
-      outputTokensPerSecond: requestSpeed({ status: rowStatus, output: row.output, durationMs, ttftMs }),
     };
   });
 

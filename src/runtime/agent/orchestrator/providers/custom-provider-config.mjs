@@ -418,7 +418,7 @@ export function resolveCustomRequestExtras(config, model) {
 
 /** `params` (the finished request body) with the extras layered over it; reserved keys keep the app's value. */
 export function applyCustomRequestBody(params, config, model) {
-  const { body } = resolveCustomRequestExtras(config, model);
+  const { body } = resolveCustomRequestExtras(config, model ?? params?.model);
   for (const [key, value] of Object.entries(body)) params[key] = value;
   return params;
 }

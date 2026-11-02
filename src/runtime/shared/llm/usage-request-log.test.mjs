@@ -104,7 +104,7 @@ test('a version 2 ledger gains the request table and stays version 2; its rows r
     assert.equal(requests.length, 1, 'the abandoned attempt is not a request of its own');
     assert.equal(requests[0].status, 'completed');
     assert.equal(requests[0].attempts, 1);
-    assert.equal(requests[0].outputTokensPerSecond, null, 'no first-output time, no speed');
+    assert.equal(requests[0].ttftMs, null, 'no first-output time');
     assert.deepEqual(models, ['gpt-5']);
   } finally {
     ledger.close();
@@ -170,12 +170,33 @@ test('a send records its answering model, substitution, attempts and first-outpu
   assert.equal(row.status, 'substituted', 'substitution outranks the retry');
   assert.equal(row.attempts, 2, 'the abandoned attempt is folded into its request');
   assert.ok(row.ttftMs >= 15 && row.ttftMs < row.durationMs);
-  assert.equal(
-    Math.round(row.outputTokensPerSecond),
-    Math.round(400 / ((row.durationMs - row.ttftMs) / 1000)),
-    'speed runs from the first output, not the whole request'
-  );
   assert.equal(read().length, 1);
+});
+
+test('the first-output time excludes the write of an abandoned attempt that follows the stream', async (t) => {
+  const read = useLedger(t);
+  const ledger = getUsageLedger();
+  const write = ledger.recordQueued.bind(ledger);
+  ledger.recordQueued = async (row) => {
+    if (String(row.id).includes(':abandoned:')) await new Promise((resolve) => setTimeout(resolve, 300));
+    return write(row);
+  };
+  await accountProviderSend(
+    'openai',
+    {},
+    async () => {
+      noteAbandonedUsage({ inputTokens: 5, outputTokens: 1 }, 'gpt-5');
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const firstOutputAt = Date.now();
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      return { content: 'x', usage: { inputTokens: 1, outputTokens: 4 }, generationMs: Date.now() - firstOutputAt };
+    },
+    'gpt-5',
+    { sessionId: 's' }
+  );
+  const [row] = read();
+  assert.ok(row.durationMs >= 350, 'the total duration still covers the accounting write');
+  assert.ok(row.ttftMs < 200, `first output at ${row.ttftMs}ms, not after the abandoned write`);
 });
 
 test('a stream whose first output is silent thinking times generation from the thinking item', async (t) => {
@@ -251,8 +272,6 @@ test('a stream whose first output is silent thinking times generation from the t
       row.durationMs - row.ttftMs >= THINKING_MS - 10,
       `${row.provider}: first output at the thinking item, so the thinking is generation time (${row.ttftMs}ms)`
     );
-    const speed = row.outputTokensPerSecond;
-    assert.ok(speed > 0 && speed < 400 / ((THINKING_MS - 10) / 1000), `${row.provider}: a true rate (${speed})`);
   }
 });
 
@@ -305,7 +324,6 @@ test('a WebSocket retry whose abandoned attempt reported no usage is timed by th
     generationMs >= ANSWER_MS - 10 && generationMs < ANSWER_MS + 100,
     `only the answering stream's generation is timed (${generationMs}ms of ${row.durationMs}ms)`
   );
-  assert.ok(row.outputTokensPerSecond > 300 / ((ANSWER_MS + 100) / 1000), `a true rate (${row.outputTokensPerSecond})`);
 });
 
 test('a provider whose stream may hide reasoning records no first-output time; a local one does', async (t) => {
@@ -332,9 +350,8 @@ test('a provider whose stream may hide reasoning records no first-output time; a
   // The local server streams every generated token, reasoning included.
   await accountProviderSend('mixdog-local', {}, chat, 'local', { sessionId: 'local', onStreamDelta: () => {} });
   const rows = Object.fromEntries(read().map((row) => [row.sessionId, row]));
-  assert.deepEqual([rows.gateway.ttftMs, rows.gateway.outputTokensPerSecond], [null, null]);
+  assert.equal(rows.gateway.ttftMs, null);
   assert.ok(rows.local.durationMs - rows.local.ttftMs >= 140, 'timed from the first delta');
-  assert.ok(rows.local.outputTokensPerSecond > 0);
 });
 
 test('only a provider re-send of the same send answers its requested model', async (t) => {
@@ -379,7 +396,6 @@ test('a retried send with a dated id of its model reads as retried', async (t) =
   const [row] = read();
   assert.equal(row.status, 'retried');
   assert.equal(row.ttftMs, null);
-  assert.equal(row.outputTokensPerSecond, null);
 });
 
 test('a failed send without usage is recorded as a failed request with zero tokens', async (t) => {
@@ -399,7 +415,6 @@ test('a failed send without usage is recorded as a failed request with zero toke
   const [row] = read();
   assert.equal(row.status, 'failed');
   assert.equal(row.tokens, 0);
-  assert.equal(row.outputTokensPerSecond, null);
   assert.deepEqual(read({ status: 'failed' }).length, 1);
   assert.deepEqual(read({ status: 'completed' }).length, 0);
 });
@@ -522,6 +537,62 @@ test('a cancelled send that reported nothing records nothing', async (t) => {
     )
   );
   assert.equal(read().length, 0);
+});
+
+test('a failure that reported no usage is listed but adds no turn to session or day totals', async () => {
+  const ledger = new UsageLedger(':memory:');
+  try {
+    const ts = Date.now() - 1000;
+    const base = { provider: 'openai', model: 'gpt-5', sessionId: 's', sourceType: 'lead' };
+    ledger.record([
+      makeUsageRecord({ ...base, ts, inputTokens: 10, outputTokens: 5, costUsd: 0.01 }),
+      makeUsageRecord({ ...base, ts: ts + 1, status: 'failed', inputTokens: 0, outputTokens: 0, costUsd: 0 }),
+    ]);
+    assert.equal(everything(ledger.db).requests.length, 2, 'both are listed');
+    const session = await ledger.sessionUsageAsync(['s']);
+    assert.deepEqual([session.turns, session.costKnownTurns], [1, 1]);
+    const api = createUsageStatsApi({ ledger: () => ledger, importHistory: async () => {} });
+    assert.equal((await api.getUsageStats({ view: 'hour' })).totals.turns, 1);
+    assert.equal((await api.getUsageStats({ view: '7d' })).totals.turns, 1);
+  } finally {
+    ledger.close();
+  }
+});
+
+test('a usage-less failure in another session adds no session to the statistics', async () => {
+  const ledger = new UsageLedger(':memory:');
+  try {
+    const ts = Date.now() - 1000;
+    const base = { provider: 'openai', model: 'gpt-5', sourceType: 'lead' };
+    ledger.record([
+      makeUsageRecord({ ...base, sessionId: 's', ts, inputTokens: 10, outputTokens: 2, costUsd: 0.01 }),
+      makeUsageRecord({ ...base, sessionId: 's2', ts: ts + 1, status: 'failed', inputTokens: 0, outputTokens: 0 }),
+    ]);
+    const api = createUsageStatsApi({ ledger: () => ledger, importHistory: async () => {} });
+    for (const view of ['hour', '7d']) {
+      assert.equal((await api.getUsageStats({ view })).totals.sessions, 1, view);
+    }
+  } finally {
+    ledger.close();
+  }
+});
+
+test('getUsageRequests with asOf keeps the first page\'s rolling 24-hour bounds', async () => {
+  const ledger = new UsageLedger(':memory:');
+  try {
+    const now = Date.now();
+    ledger.record([
+      makeUsageRecord({ ts: now - 24 * 3_600_000 - 5000, provider: 'openai', model: 'gpt-5', sessionId: 's', sourceType: 'lead', inputTokens: 1 }),
+    ]);
+    const api = createUsageStatsApi({ ledger: () => ledger, importHistory: async () => {} });
+    assert.equal((await api.getUsageRequests({})).requests.length, 0, 'a fresh window has slid past the row');
+    const pinned = await api.getUsageRequests({ asOf: now - 10_000 });
+    assert.equal(pinned.generatedAt, now - 10_000);
+    assert.equal(pinned.requests.length, 1, 'the pinned window still holds it');
+    await assert.rejects(api.getUsageRequests({ asOf: Date.now() + 3_600_000 }), RangeError);
+  } finally {
+    ledger.close();
+  }
 });
 
 test('getUsageRequests pages with a cursor, filters by status and model, and lists the period models', async () => {
@@ -674,11 +745,11 @@ test('statistics and quota views count every reported token once, time only the 
   const quota = await api.getQuotaHistory({ provider, account: 'default', window: '5H' });
 
   // Every reported attempt once (the response-keyed cancel recorded twice is
-  // one record), plus one zero-token record per failure that reported nothing.
+  // one record). A failure that reported nothing is listed, not counted.
   const input = 300 + 1000 + 400 + 500 + 600 + 700 + 800;
   const output = 30 + 200 + 40 + 50 + 60 + 70 + 80;
   assert.equal(totals.tokens, input + output, 'every reported token once');
-  assert.equal(totals.turns, 9, '7 billed attempts and 2 failures that reported nothing');
+  assert.equal(totals.turns, 7, 'the 7 billed attempts; failures that reported nothing add no turn');
   // Priced at the model's own rates, per token, once.
   const rates = JSON.parse(ledger.db.prepare('SELECT signature FROM usage_routes LIMIT 1').get().signature)[5];
   const { inputCostPerM, outputCostPerM } = JSON.parse(rates);
@@ -699,7 +770,7 @@ test('statistics and quota views count every reported token once, time only the 
   const [quotaModel] = quota.models;
   assert.deepEqual(
     [quotaModel.model, quotaModel.turns, quotaModel.input, quotaModel.output, quotaModel.tokens],
-    [model, 9, input, output, input + output]
+    [model, 7, input, output, input + output]
   );
   assert.ok(Math.abs(quotaModel.costUsd - cost) < 1e-6);
   assert.equal(Math.round(quotaModel.outputTokensPerSecond), Math.round(providers[0].outputTokensPerSecond));
@@ -783,12 +854,8 @@ test('the deployed request-log build still writes this ledger, and only this bui
     const rows = everything(reopened.db).requests;
     const byTokens = Object.fromEntries(rows.map((row) => [row.output || row.status, row]));
     assert.equal(rows.length, 3);
-    assert.deepEqual([byTokens[500].ttftMs, byTokens[500].outputTokensPerSecond], [1000, 100], 'this build’s row');
-    assert.deepEqual(
-      [byTokens[408].ttftMs, byTokens[408].outputTokensPerSecond],
-      [null, null],
-      'the deployed build’s first-output time is never a speed'
-    );
+    assert.equal(byTokens[500].ttftMs, 1000, 'this build’s row');
+    assert.equal(byTokens[408].ttftMs, null, 'the deployed build’s first-output time is never trusted');
     assert.equal(byTokens.failed.status, 'failed', 'its request facts still read');
   } finally {
     reopened.close();

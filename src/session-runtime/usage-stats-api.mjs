@@ -290,7 +290,12 @@ export function createUsageStatsApi({
       const store = ledger();
       if (!store) throw new Error('Usage ledger is unavailable');
       await store.settleWrites();
-      const now = Date.now();
+      // `asOf` is the first page's `generatedAt`: later pages resolve the same
+      // period bounds, so a rolling window does not slide while it is browsed.
+      const asOf = Number(options?.asOf);
+      const real = Date.now();
+      if (options?.asOf != null && !(asOf > 0 && asOf <= real)) throw new RangeError('asOf must be a past timestamp');
+      const now = asOf > 0 ? asOf : real;
       const period = usagePeriodFor({ ...options, view: options?.view ?? 'hour' }, now);
       const page = await store.requestsAsync({
         fromMs: period.fromMs,

@@ -1432,9 +1432,17 @@ function validateUsageRequestsArgs(options: unknown): void {
   if (!request) throw new TypeError('request log options must be an object.');
   requireAllowedKeys(
     request,
-    new Set(['view', 'anchor', 'startDay', 'endDay', 'startTime', 'endTime', 'status', 'model', 'cursor', 'limit']),
+    new Set(['view', 'anchor', 'startDay', 'endDay', 'startTime', 'endTime', 'status', 'model', 'cursor', 'limit', 'asOf']),
     'request log options'
   );
+  // The first page's time, pinned for later pages. Shape only: the runtime that
+  // produced it (possibly a remote one) checks it against its own clock.
+  if (
+    request.asOf !== undefined &&
+    (typeof request.asOf !== 'number' || !Number.isFinite(request.asOf) || request.asOf <= 0)
+  ) {
+    throw new TypeError('request log asOf must be a positive timestamp.');
+  }
   if (request.view !== undefined && !USAGE_PERIOD_VIEWS.has(request.view as string)) {
     throw new TypeError('request log view is unknown.');
   }

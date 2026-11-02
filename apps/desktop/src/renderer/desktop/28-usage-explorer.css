@@ -916,8 +916,7 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
   gap: 8px;
   margin-inline-start: auto;
 }
-/* Session has no width: it takes whatever the fixed columns leave, so
-   dropping a column later (e.g. speed) hands its space to Session. */
+/* Session has no width: it takes whatever the fixed columns leave. */
 .request-log-table {
   min-width: 840px;
 }
@@ -936,9 +935,6 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
 }
 .request-log-table :is(.request-log-col-cost, .request-log-col-status) {
   width: 76px;
-}
-.request-log-table .request-log-col-speed {
-  width: 104px;
 }
 .request-log-table td {
   overflow: hidden;
