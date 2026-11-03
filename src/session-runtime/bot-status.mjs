@@ -145,15 +145,14 @@ const ago = (at, now) => `${span(now - at)} ago`;
 const until = (at, now) => (at <= now ? 'due now' : `in ${span(at - now)}`);
 
 export async function defaultListBots() {
-  const [{ workflowHelpers }, { getPluginData, loadConfig }, { isAgentDisabled, isContactAgentId }] = await Promise.all(
-    [
+  const [{ workflowHelpers }, { getPluginData, getConfigSnapshot }, { isAgentDisabled, isContactAgentId }] =
+    await Promise.all([
       import('./boot/shared.mjs'),
       import('../runtime/agent/orchestrator/config.mjs'),
       import('../runtime/shared/agent-route-config.mjs'),
-    ]
-  );
+    ]);
   const dataDir = getPluginData();
-  const config = loadConfig({ secrets: false });
+  const config = getConfigSnapshot({ secrets: false });
   return workflowHelpers.listCustomAgentIds(dataDir).flatMap((id) => {
     const definition = workflowHelpers.loadAgentDefinition(dataDir, id);
     if (!definition || !isContactAgentId(id, definition.kind)) return [];

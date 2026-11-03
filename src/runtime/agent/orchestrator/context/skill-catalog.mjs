@@ -14,7 +14,7 @@ import {
 } from '../../../shared/skill-document.mjs';
 import { readSkillToolDependencies, skillToolDependenciesRoot } from '../../../shared/skill-tool-dependencies.mjs';
 import { SKILL_LAUNCHER_COMMAND } from '../../../shared/skill-script-runtime.mjs';
-import { loadConfig, normalizeSkillsConfig } from '../config.mjs';
+import { getConfigSnapshot, normalizeSkillsConfig } from '../config.mjs';
 import { builtinFeatureActive, withGrandfatheredBuiltins } from '../runtime-core/builtin-features.mjs';
 import { SKILL_TOOL } from '../runtime-core/tool-defs.mjs';
 import { extensionScopesFromConfig, skillAllowedForCwd } from '../../../shared/extension-scopes.mjs';
@@ -228,11 +228,11 @@ function missingFeature(skill, config) {
  *  is grandfathered as installed exactly like the daemon does at adoption, so
  *  the skill list and the tool surface agree. */
 function featureConfig(config = null) {
-  return withGrandfatheredBuiltins(config || loadConfig({ secrets: false }));
+  return withGrandfatheredBuiltins(config || getConfigSnapshot({ secrets: false }));
 }
 
 function getDisabledSkillNameSet(config = null) {
-  const cfg = config || loadConfig({ secrets: false });
+  const cfg = config || getConfigSnapshot({ secrets: false });
   const keys = normalizeSkillsConfig(cfg.skills)
     .disabled.map((n) => normalizeSkillNameKey(n))
     .filter(Boolean);
@@ -269,7 +269,7 @@ export function isSkillDisabled(name, config = null, skills = null) {
  */
 export function skillEnabledFlags(skills, config = null) {
   const list = Array.isArray(skills) ? skills : [];
-  const cfg = config || loadConfig({ secrets: false });
+  const cfg = config || getConfigSnapshot({ secrets: false });
   const disabled = getDisabledSkillNameSet(cfg);
   const features = featureConfig(cfg);
   const byKey = new Map();

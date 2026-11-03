@@ -148,6 +148,7 @@ async function isolated() {
     },
     '../config.mjs': { getPluginData: () => root },
     '../../../shared/provider-auth-binding.mjs': { boundProviderAuthPath: () => s.boundPath },
+    '../../../shared/config-epoch.mjs': { bumpConfigInputEpoch: () => {} },
     '../../../shared/atomic-file.mjs': {
       writeJsonAtomicSync: (p, value, options) => {
         assert.equal(p, path());

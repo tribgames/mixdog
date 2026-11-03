@@ -3,7 +3,7 @@
 // declares, so limiting the plugin limits everything it brought along. MCP
 // ownership comes from the tool's `mcpPluginId`, set when the plugin's server
 // connected, never from the server name.
-import { loadConfig } from '../config.mjs';
+import { getConfigSnapshot } from '../config.mjs';
 import {
   extensionAllowedForCwd,
   extensionScopesFromConfig,
@@ -49,13 +49,13 @@ export function filterMcpToolsForCwd(tools, scopes, cwd) {
 }
 
 /** The MCP tools a session at `cwd` may see. No scopes configured → the input
- *  as-is, so the global-only fast path costs one config read. An agent's
+ *  as-is, so the global-only fast path costs one snapshot read. An agent's
  *  connectors never narrow this list: the schema and the BP2 manifest stay
  *  identical across agents (one shared cache prefix), and the connector policy
  *  is enforced at dispatch (pre-dispatch-deny / connector approval). */
 export function filterMcpToolsForSession(tools, cwd, config = null) {
   const list = Array.isArray(tools) ? tools : [];
   if (!list.length) return list;
-  const scopes = extensionScopesFromConfig(config || loadConfig({ secrets: false }));
+  const scopes = extensionScopesFromConfig(config || getConfigSnapshot({ secrets: false }));
   return hasExtensionScopes(scopes) ? filterMcpToolsForCwd(list, scopes, cwd) : list;
 }

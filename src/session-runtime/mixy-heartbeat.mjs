@@ -635,14 +635,15 @@ export function createMixyHeartbeat({
   now = Date.now,
   path = defaultStatePath(),
   isEnabled = async () =>
-    (await import('../runtime/agent/orchestrator/config.mjs')).loadConfig({ secrets: false }).heartbeat === true,
+    (await import('../runtime/agent/orchestrator/config.mjs')).getConfigSnapshot({ secrets: false }).heartbeat === true,
   // Whether the representative bot exists (mixy-presence.mjs, the rule the
   // desktop and her routines follow): without it no check runs at all.
   mixyExists = async () => (await import('./routine-owner.mjs')).readMixyExists(),
   // Milliseconds between checks, read at every tick so a changed setting applies at once.
   intervalMs = async () =>
     normalizeHeartbeatIntervalMinutes(
-      (await import('../runtime/agent/orchestrator/config.mjs')).loadConfig({ secrets: false }).heartbeatIntervalMinutes
+      (await import('../runtime/agent/orchestrator/config.mjs')).getConfigSnapshot({ secrets: false })
+        .heartbeatIntervalMinutes
     ) * 60_000,
   userTurnAt = () => lastUserTurnAt,
   appInputAt = () => lastAppInputAt,

@@ -84,7 +84,9 @@ function wireAgent(boot) {
     boot;
   const agentToolStartedAt = performance.now();
   const agentTool = createStandaloneAgent({
-    cfgMod,
+    // Every agent-tool config read is a repeated one (reaper pulses, Lead row
+    // upserts, spawn/send): served from the snapshot, never re-loaded.
+    cfgMod: { ...cfgMod, loadConfig: cfgMod.getConfigSnapshot },
     reg,
     mgr,
     dataDir: cfgMod.getPluginData(),

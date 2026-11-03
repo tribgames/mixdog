@@ -46,13 +46,12 @@ export function normalizeExecutorAgentId(value) {
 }
 
 async function defaultProbe(id) {
-  const [{ workflowHelpers }, { getPluginData, loadConfig }, { isAgentDisabled, isContactAgentId }] = await Promise.all(
-    [
+  const [{ workflowHelpers }, { getPluginData, getConfigSnapshot }, { isAgentDisabled, isContactAgentId }] =
+    await Promise.all([
       import('./boot/shared.mjs'),
       import('../runtime/agent/orchestrator/config.mjs'),
       import('../runtime/shared/agent-route-config.mjs'),
-    ]
-  );
+    ]);
   const dataDir = getPluginData();
   // The fresh scan: an agent made a moment ago counts.
   const listed = workflowHelpers.listCustomAgentIds(dataDir).includes(id) && !BUILTIN_SLOT_AGENT_IDS.has(id);
@@ -60,7 +59,7 @@ async function defaultProbe(id) {
   return {
     listed: Boolean(definition),
     contact: Boolean(definition) && isContactAgentId(id, definition.kind),
-    disabled: isAgentDisabled(loadConfig({ secrets: false }), id),
+    disabled: isAgentDisabled(getConfigSnapshot({ secrets: false }), id),
   };
 }
 

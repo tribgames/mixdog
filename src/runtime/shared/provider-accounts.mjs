@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import { readJsonStateSync, unsupportedState, updateJsonAtomic } from './atomic-file.mjs';
 import { resolvePluginData } from './plugin-paths.mjs';
+import { bumpConfigInputEpoch } from './config-epoch.mjs';
 
 export const ACCOUNT_PROVIDERS = Object.freeze([
   'openai-oauth',
@@ -19,6 +20,7 @@ export const MAX_ACCOUNTS = 20;
 // `dataDir` defaults to this process's data dir; an isolated runtime passes
 // the host's dir explicitly while its own MIXDOG_DATA_DIR points elsewhere.
 const file = (dataDir = resolvePluginData()) => join(dataDir, 'provider-accounts.json');
+export const providerAccountsPath = file;
 
 // A custom provider (`custom-<id>`) pools its API keys in the same roster: its
 // primary key is the `default` account and each additional key one more
@@ -138,7 +140,7 @@ async function update(provider, mutate) {
   requireAccountProvider(provider);
   // A roster that parses yet fails validation is recovered here first; the
   // mutator's validate would otherwise refuse every write. I/O failures throw.
-  read();
+  const selectedBefore = read().providers[provider]?.selectedId ?? null;
   const result = await updateJsonAtomic(
     file(),
     (raw) => {
@@ -150,6 +152,9 @@ async function update(provider, mutate) {
     },
     { mode: 0o600, secret: true, fsyncDir: true, backup: true }
   );
+  // The selected account decides which credential file the agent config's
+  // OAuth probe reads; usage and block writes leave it and stay silent.
+  if ((result.providers[provider]?.selectedId ?? null) !== selectedBefore) bumpConfigInputEpoch();
   return normalizePool(provider, result.providers[provider]);
 }
 

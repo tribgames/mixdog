@@ -29,6 +29,7 @@ import {
   findLegacyUserDataEvidence,
 } from './user-data-guard.mjs';
 import { AGENT_PROVIDER_ENV, AGENT_PROVIDER_ENV_ALIASES, getAgentApiKey } from './provider-api-key.mjs';
+import { bumpConfigInputEpoch } from './config-epoch.mjs';
 
 export { AGENT_PROVIDER_ENV, AGENT_PROVIDER_ENV_ALIASES, getAgentApiKey };
 
@@ -100,8 +101,16 @@ const CONFIG_READ_TTL_MS = (() => {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 })();
 
-export function invalidateConfigReadCache() {
+function dropConfigReadCache() {
   _configReadCache = null;
+}
+
+/** The file may have changed outside this cache (this process wrote it, or a
+ *  caller knows it moved): drop the raw cache and mark the agent config
+ *  snapshot stale so its next read rebuilds. */
+export function invalidateConfigReadCache() {
+  dropConfigReadCache();
+  bumpConfigInputEpoch();
 }
 
 // A replacement of the same size within the mtime's resolution still moves the
@@ -237,7 +246,7 @@ function readConfigFile() {
     // instead of looping on a broken file. A cached raw string that fails to
     // parse must not be re-served; drop it so the post-quarantine/restore read
     // hits disk fresh (malformed = never cached).
-    invalidateConfigReadCache();
+    dropConfigReadCache();
     if (_inNotificationPass) throw configMidWriteError(err);
     quarantineMalformedConfig(err);
     return null;
@@ -357,6 +366,7 @@ function quarantineMalformedConfig(parseErr) {
   try {
     if (existsSync(configPath())) renameWithRetrySync(configPath(), corrupt);
     keptAside = existsSync(corrupt);
+    if (keptAside) bumpConfigInputEpoch();
   } catch {}
   process.stderr.write(
     `[config] mixdog-config.json is malformed (${parseErr.message}). Renamed to ${corrupt}. Restore it or delete to start fresh.\n`
@@ -543,6 +553,7 @@ function finishSecretChange(account, token, deleted) {
   // cache), so its own change is recorded as applied.
   _secretsSeen = withSecretChange(_secretsSeen, account, token, deleted);
   _secretsMarkerStat = secretsMarkerStat(secretsMarkerPath());
+  bumpConfigInputEpoch();
   notifyConfigChanged();
 }
 
@@ -656,7 +667,7 @@ async function runConfigChangeListeners() {
   const last = _watchedContent;
   if (!forced && Array.isArray(last) && last.every((value, index) => value === content[index])) return;
   _watchedContent = content;
-  invalidateConfigReadCache();
+  dropConfigReadCache();
   // A Linux keyring is read only through a snapshot, which the invalidation
   // dropped: re-take it so listeners reload the changed keys.
   if (syncSecretsMarker().length && process.platform === 'linux') {
@@ -721,6 +732,31 @@ function ensureConfigWatcher() {
     _configWatcher = null;
     scheduleConfigWatchRetry();
   }
+}
+
+/** Run `fn` with the reads of a notification pass: a config that does not parse
+ *  is taken for a write in progress and throws ECONFIG_MID_WRITE instead of
+ *  being quarantined, and the pass is retried once shortly. For a reader that
+ *  keeps its last good result (the agent config snapshot). */
+export function withMidWriteTolerantReads(fn) {
+  const previous = _inNotificationPass;
+  _inNotificationPass = true;
+  try {
+    return fn();
+  } finally {
+    _inNotificationPass = previous;
+  }
+}
+
+/** Moves whenever a keychain read may answer differently (see keychain-cjs). */
+export function secretCacheVersion() {
+  return _keychain.secretCacheVersion?.() ?? 0;
+}
+
+/** The files beside the config whose change a config-change subscriber hears:
+ *  the config itself and the secret change marker. */
+export function configInputFiles() {
+  return [configPath(), secretsMarkerPath()];
 }
 
 /** Subscribe to persisted config and secret changes (this process or another). Returns unsubscribe. */
@@ -1014,10 +1050,12 @@ export const keychainSecretStore = Object.freeze({
   async setSecretAsync(account, value, { announce = true } = {}) {
     await _keychain.setSecretAsync(account, value);
     if (announce) await publishSecretChangeAsync(account);
+    else bumpConfigInputEpoch();
   },
   async deleteSecretAsync(account, { announce = true } = {}) {
     await _keychain.deleteSecretAsync(account);
     if (announce) await publishSecretChangeAsync(account, true);
+    else bumpConfigInputEpoch();
   },
 });
 

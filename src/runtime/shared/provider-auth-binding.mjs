@@ -1,5 +1,6 @@
 import { ACCOUNT_PROVIDERS, providerAccountPath, readProviderAccountPool } from './provider-accounts.mjs';
 import { runtimeAsyncLocalStorage } from './root-async-context.mjs';
+import { bumpConfigInputEpoch } from './config-epoch.mjs';
 
 const AUTH_BINDINGS = Symbol.for('mixdog.providerAuthBindings');
 const scopedBindings = runtimeAsyncLocalStorage();
@@ -37,14 +38,23 @@ export function boundProviderAuthPath(provider) {
   return providerAccountPath(provider, currentProviderAccountId(provider));
 }
 
+/** True inside withProviderAccount: credential paths resolve per async scope. */
+export function hasScopedProviderAuthBinding() {
+  const store = scopedBindings.getStore();
+  return Boolean(store && Object.keys(store).length);
+}
+
+// A binding moves the credential files the agent config's OAuth probes read.
 export function replaceProviderAuthBindings(next = {}) {
   const previous = globalThis[AUTH_BINDINGS];
   globalThis[AUTH_BINDINGS] = Object.freeze({ ...next });
+  bumpConfigInputEpoch();
   let restored = false;
   return () => {
     if (restored) return;
     restored = true;
     if (previous === undefined) delete globalThis[AUTH_BINDINGS];
     else globalThis[AUTH_BINDINGS] = previous;
+    bumpConfigInputEpoch();
   };
 }

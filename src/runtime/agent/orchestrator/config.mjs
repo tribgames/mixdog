@@ -48,6 +48,7 @@ import {
 import { normalizeDeveloperConfig } from '../../shared/developer-options.mjs';
 import { normalizeWorktreeSettings } from '../../shared/worktrees/settings.mjs';
 import { normalizePluginMcpIntents } from './runtime-core/plugin-mcp.mjs';
+import { createConfigSnapshot } from './config-snapshot.mjs';
 
 export const {
   PROFILE_LANGUAGES,
@@ -375,6 +376,11 @@ export function loadConfig(options = {}) {
     ...(hasKeys(sectionRaw) ? {} : { builtins: {} }),
   };
 }
+/** loadConfig(options) for hot and periodic paths: an immutable snapshot kept
+ *  current by change events (config-snapshot.mjs), no I/O on a warm read.
+ *  Boot, settings writes and explicit reloads keep calling loadConfig(). */
+export const getConfigSnapshot = createConfigSnapshot(loadConfig);
+
 /** In-lock patch of `skills.disabled` only (avoids whole-config lost-update). */
 function buildSkillsDisabledPatch(disabledNames) {
   let names = [];

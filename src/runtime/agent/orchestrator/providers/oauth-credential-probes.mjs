@@ -5,7 +5,7 @@ import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { cursorTokenExpiry } from './cursor-auth.mjs';
 import { describeDevinOAuthCredentials } from './devin-auth.mjs';
-import { isSignedInTokenDocument } from './lib/oauth-token-utils.mjs';
+import { signedInTokenDocumentUntil } from './lib/oauth-token-utils.mjs';
 import { isValidMuseCredentialDocument } from './muse-code-oauth-tokens.mjs';
 import { isValidOpenCodeGoCredentialDocument } from './opencode-go-oauth-tokens.mjs';
 import { developerOptionEnabled, developerOptionForProvider } from '../../../shared/developer-options.mjs';
@@ -39,10 +39,13 @@ function readCredentialFile(path) {
   }
 }
 
-// Resolve a probe to 'present' | 'absent' | 'unreadable'. `evaluate` sees only
-// the documents that parsed; if none of them yields usable credentials while at
-// least one candidate file was unreadable, the answer is "cannot tell", never
-// "absent".
+// Resolve a probe to { state: 'present' | 'absent' | 'unreadable', until }.
+// `evaluate` sees only the documents that parsed and answers until when they
+// hold usable credentials: Infinity with no clock limit (a refresh token, a
+// key), the access token's expiry when that alone carries them, 0 when they do
+// not. If none is usable while at least one candidate file was unreadable, the
+// answer is "cannot tell", never "absent". `until` is when a 'present' answer
+// turns 'absent' by the clock alone.
 function resolveProbeState(paths, evaluate) {
   let sawUnreadable = false;
   const docs = [];
@@ -55,8 +58,34 @@ function resolveProbeState(paths, evaluate) {
     }
     if (file.data) docs.push(file.data);
   }
-  if (evaluate(docs) === true) return 'present';
-  return sawUnreadable ? 'unreadable' : 'absent';
+  const until = evaluate(docs);
+  if (until > Date.now()) return { state: 'present', until };
+  return { state: sawUnreadable ? 'unreadable' : 'absent', until: NO_EXPIRY };
+}
+
+const NO_EXPIRY = Number.POSITIVE_INFINITY;
+const usableWithoutExpiry = (usable) => (usable ? NO_EXPIRY : 0);
+
+// The build observing probes (observeOAuthCredentialExpiry), or null.
+let expiryObserver = null;
+
+function noteExpiry(at) {
+  if (expiryObserver && at < expiryObserver.at) expiryObserver.at = at;
+}
+
+/** Runs `run`; answers its value and the earliest moment a probe it ran turns
+ *  'present' into 'absent' by the clock alone (an access token with no refresh
+ *  token expiring), Infinity when none does. */
+export function observeOAuthCredentialExpiry(run) {
+  const outer = expiryObserver;
+  const observer = { at: NO_EXPIRY };
+  expiryObserver = observer;
+  try {
+    return { value: run(), expiresAt: observer.at };
+  } finally {
+    expiryObserver = outer;
+    noteExpiry(observer.at);
+  }
 }
 
 // Short-TTL memo. Under simultaneous multi-agent launch, buildDefaultConfig
@@ -104,18 +133,59 @@ function memoProbe(key, paths, compute, extraSignature = '') {
   const signature = credentialPathsSignature(paths, extraSignature);
   const hit = _probeCache.get(key);
   const now = Date.now();
-  if (hit && hit.signature === signature && now - hit.ts < PROBE_TTL_MS) return hit.value;
-  const value = compute();
-  _probeCache.set(key, { ts: now, signature, value });
-  return value;
+  // A cached 'present' never outlives the expiry it was computed against.
+  if (hit && hit.signature === signature && now - hit.ts < PROBE_TTL_MS && now < hit.until) {
+    noteExpiry(hit.until);
+    return hit.value;
+  }
+  const { state, until } = compute();
+  _probeCache.set(key, { ts: now, signature, value: state, until });
+  noteExpiry(until);
+  return state;
+}
+
+// Each probe's credential file, matching its token store's account/path
+// precedence: the selected (or bound) account, then the provider's explicit
+// path variable, then the legacy file in the data dir. Credentials belonging
+// to another account must never authenticate a missing or unreadable one.
+const CREDENTIAL_FILES = new Map([
+  ['anthropic-oauth', ['ANTHROPIC_OAUTH_CREDENTIALS_PATH', () => ANTHROPIC_DEFAULT_CREDENTIALS_PATH]],
+  ['openai-oauth', ['OPENAI_OAUTH_CREDENTIALS_PATH', 'openai-oauth.json']],
+  ['grok-oauth', ['GROK_OAUTH_CREDENTIALS_PATH', 'grok-oauth.json']],
+  ['mimo-oauth', ['MIMO_OAUTH_CREDENTIALS_PATH', 'mimo-oauth.json']],
+  ['command-code-oauth', ['COMMAND_CODE_OAUTH_CREDENTIALS_PATH', 'command-code-oauth.json']],
+  ['muse-code-oauth', ['MUSE_CODE_OAUTH_CREDENTIALS_PATH', 'muse-code-oauth.json']],
+  ['opencode-go-oauth', ['OPENCODE_GO_OAUTH_CREDENTIALS_PATH', 'opencode-go-oauth.json']],
+  ['antigravity-oauth', ['ANTIGRAVITY_OAUTH_CREDENTIALS_PATH', 'antigravity-oauth.json']],
+  ['cursor-oauth', ['CURSOR_OAUTH_CREDENTIALS_PATH', 'cursor-oauth.json']],
+  ['devin-oauth', ['DEVIN_OAUTH_CREDENTIALS_PATH', 'devin-oauth.json']],
+]);
+
+function credentialFile(provider) {
+  const [envKey, fallback] = CREDENTIAL_FILES.get(provider);
+  return (
+    boundProviderAuthPath(provider) ||
+    process.env[envKey] ||
+    (typeof fallback === 'function' ? fallback() : join(resolvePluginData(), fallback))
+  );
+}
+
+/** Every credential file the probes read right now (one per OAuth provider).
+ *  A path that cannot be resolved is left out, as its probe reads 'unreadable'. */
+export function oauthCredentialFiles() {
+  return [...CREDENTIAL_FILES.keys()]
+    .map((provider) => {
+      try {
+        return credentialFile(provider);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
 }
 
 function anthropicOAuthState() {
-  const paths = [
-    boundProviderAuthPath('anthropic-oauth') ||
-      process.env.ANTHROPIC_OAUTH_CREDENTIALS_PATH ||
-      ANTHROPIC_DEFAULT_CREDENTIALS_PATH,
-  ];
+  const paths = [credentialFile('anthropic-oauth')];
   return memoProbe('anthropic-oauth', paths, () => {
     return resolveProbeState(paths, (docs) => {
       const candidates = [];
@@ -130,101 +200,70 @@ function anthropicOAuthState() {
           });
         }
       }
-      if (!candidates.length) return false;
+      if (!candidates.length) return 0;
       candidates.sort((a, b) => (Number(b.expiresAt) || 0) - (Number(a.expiresAt) || 0));
       const chosen = candidates[0];
       const hasInferenceScope = Array.isArray(chosen.scopes) && chosen.scopes.includes('user:inference');
+      if (!(chosen.accessToken && hasInferenceScope)) return 0;
       const expiresAt = Number(chosen.expiresAt) || 0;
-      return !!(
-        chosen.accessToken &&
-        hasInferenceScope &&
-        (expiresAt === 0 || expiresAt > Date.now() || chosen.refreshToken)
-      );
+      return expiresAt === 0 || chosen.refreshToken ? NO_EXPIRY : expiresAt;
     });
   });
 }
 
 function openAIOAuthState() {
-  // Match the chat provider's account/path precedence. Credentials belonging
-  // to another account must never authenticate a missing or unreadable one.
-  const paths = [
-    boundProviderAuthPath('openai-oauth') ||
-      process.env.OPENAI_OAUTH_CREDENTIALS_PATH ||
-      join(resolvePluginData(), 'openai-oauth.json'),
-  ];
+  const paths = [credentialFile('openai-oauth')];
   return memoProbe('openai-oauth', paths, () =>
-    resolveProbeState(paths, (docs) => docs.some((raw) => isSignedInTokenDocument(raw)))
+    resolveProbeState(paths, (docs) => Math.max(0, ...docs.map(signedInTokenDocumentUntil)))
   );
 }
 
 function grokOAuthState() {
-  // Same account/path precedence as the token store (getOwnTokenPath): a login
-  // lands in the selected account's pool file, never the legacy root file.
-  const paths = [
-    boundProviderAuthPath('grok-oauth') ||
-      process.env.GROK_OAUTH_CREDENTIALS_PATH ||
-      join(resolvePluginData(), 'grok-oauth.json'),
-  ];
+  const paths = [credentialFile('grok-oauth')];
   return memoProbe('grok-oauth', paths, () =>
-    resolveProbeState(paths, (docs) => docs.some((own) => !!(own?.access_token && own?.refresh_token)))
+    resolveProbeState(paths, (docs) =>
+      usableWithoutExpiry(docs.some((own) => !!(own?.access_token && own?.refresh_token)))
+    )
   );
 }
 
 function mimoOAuthState() {
-  const paths = [
-    boundProviderAuthPath('mimo-oauth') ||
-      process.env.MIMO_OAUTH_CREDENTIALS_PATH ||
-      join(resolvePluginData(), 'mimo-oauth.json'),
-  ];
-  return memoProbe('mimo-oauth', paths, () => resolveProbeState(paths, (docs) => docs.some((own) => !!own?.apiKey)));
+  const paths = [credentialFile('mimo-oauth')];
+  return memoProbe('mimo-oauth', paths, () =>
+    resolveProbeState(paths, (docs) => usableWithoutExpiry(docs.some((own) => !!own?.apiKey)))
+  );
 }
 
 function commandCodeOAuthState() {
-  const paths = [
-    boundProviderAuthPath('command-code-oauth') ||
-      process.env.COMMAND_CODE_OAUTH_CREDENTIALS_PATH ||
-      join(resolvePluginData(), 'command-code-oauth.json'),
-  ];
+  const paths = [credentialFile('command-code-oauth')];
   return memoProbe('command-code-oauth', paths, () =>
-    resolveProbeState(paths, (docs) => docs.some((own) => typeof own?.apiKey === 'string' && !!own.apiKey.trim()))
+    resolveProbeState(paths, (docs) =>
+      usableWithoutExpiry(docs.some((own) => typeof own?.apiKey === 'string' && !!own.apiKey.trim()))
+    )
   );
 }
 
 function museCodeOAuthState() {
-  const paths = [
-    boundProviderAuthPath('muse-code-oauth') ||
-      process.env.MUSE_CODE_OAUTH_CREDENTIALS_PATH ||
-      join(resolvePluginData(), 'muse-code-oauth.json'),
-  ];
+  const paths = [credentialFile('muse-code-oauth')];
   return memoProbe('muse-code-oauth', paths, () =>
-    resolveProbeState(paths, (docs) => docs.some(isValidMuseCredentialDocument))
+    resolveProbeState(paths, (docs) => usableWithoutExpiry(docs.some(isValidMuseCredentialDocument)))
   );
 }
 
 function openCodeGoOAuthState() {
-  const paths = [
-    boundProviderAuthPath('opencode-go-oauth') ||
-      process.env.OPENCODE_GO_OAUTH_CREDENTIALS_PATH ||
-      join(resolvePluginData(), 'opencode-go-oauth.json'),
-  ];
+  const paths = [credentialFile('opencode-go-oauth')];
   return memoProbe('opencode-go-oauth', paths, () =>
-    resolveProbeState(paths, (docs) => docs.some(isValidOpenCodeGoCredentialDocument))
+    resolveProbeState(paths, (docs) => usableWithoutExpiry(docs.some(isValidOpenCodeGoCredentialDocument)))
   );
 }
 
 // Antigravity needs a resolved Cloud project alongside the tokens: without it
 // every request 400s, so a half-finished login must not enable the provider.
 function antigravityOAuthState() {
-  // Same account/path precedence as the token store: a login lands in the
-  // selected account's pool file, so the probe must read that file first.
-  const paths = [
-    boundProviderAuthPath('antigravity-oauth') ||
-      process.env.ANTIGRAVITY_OAUTH_CREDENTIALS_PATH ||
-      join(resolvePluginData(), 'antigravity-oauth.json'),
-  ];
+  const paths = [credentialFile('antigravity-oauth')];
   return memoProbe('antigravity-oauth', paths, () =>
     resolveProbeState(paths, (docs) =>
-      docs.some((own) => !!(own?.access_token && own?.refresh_token && own?.project_id))
+      usableWithoutExpiry(docs.some((own) => !!(own?.access_token && own?.refresh_token && own?.project_id)))
     )
   );
 }
@@ -239,10 +278,9 @@ function cursorEnvTokenFingerprint() {
 }
 
 function cursorOAuthState() {
-  // Match the adapter: selected account, then explicit path, then legacy file.
   // An environment token must not authenticate a different selected account.
   const bound = boundProviderAuthPath('cursor-oauth');
-  const paths = [bound || process.env.CURSOR_OAUTH_CREDENTIALS_PATH || join(resolvePluginData(), 'cursor-oauth.json')];
+  const paths = [credentialFile('cursor-oauth')];
   // The env token is the whole answer on this branch and has no file metadata
   // behind it, so its VALUE is what the memo signature has to track: a length
   // (or a bare present/absent flag) let a swap to an equal-length expired token
@@ -259,16 +297,20 @@ function cursorOAuthState() {
       // usable" outcome this branch already took for those shapes.
       if (process.env.CURSOR_ACCESS_TOKEN && !bound) {
         const expiresAt = cursorTokenExpiry(process.env.CURSOR_ACCESS_TOKEN);
-        return expiresAt === 0 || expiresAt > Date.now() ? 'present' : 'absent';
+        if (expiresAt !== 0 && expiresAt <= Date.now()) return { state: 'absent', until: NO_EXPIRY };
+        return { state: 'present', until: expiresAt || NO_EXPIRY };
       }
       return resolveProbeState(paths, (docs) =>
-        docs.some((own) => {
-          if (!own?.access_token) return false;
-          // Cursor permanently rejected the refresh token: signed out until a new login.
-          if (own.reauth_required === true) return false;
-          const expiresAt = Number(own.expires_at) || 0;
-          return expiresAt === 0 || expiresAt > Date.now() || Boolean(own.refresh_token);
-        })
+        Math.max(
+          0,
+          ...docs.map((own) => {
+            if (!own?.access_token) return 0;
+            // Cursor permanently rejected the refresh token: signed out until a new login.
+            if (own.reauth_required === true) return 0;
+            const expiresAt = Number(own.expires_at) || 0;
+            return expiresAt === 0 || own.refresh_token ? NO_EXPIRY : expiresAt;
+          })
+        )
       );
     },
     envSignature
@@ -279,14 +321,11 @@ function cursorOAuthState() {
 // comes from describeDevinOAuthCredentials (no refresh is attempted here); an
 // expired access token still counts when a refresh token can renew it.
 function devinOAuthState() {
-  const paths = [
-    boundProviderAuthPath('devin-oauth') ||
-      process.env.DEVIN_OAUTH_CREDENTIALS_PATH ||
-      join(resolvePluginData(), 'devin-oauth.json'),
-  ];
+  const paths = [credentialFile('devin-oauth')];
   return memoProbe('devin-oauth', paths, () => {
     const info = describeDevinOAuthCredentials();
-    return info?.authenticated && (info.usable || info.refreshable) ? 'present' : 'absent';
+    if (!(info?.authenticated && (info.usable || info.refreshable))) return { state: 'absent', until: NO_EXPIRY };
+    return { state: 'present', until: info.refreshable || !info.expiresAt ? NO_EXPIRY : info.expiresAt };
   });
 }
 

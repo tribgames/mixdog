@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { renameSync } from 'node:fs';
+import { bumpConfigInputEpoch } from '../../runtime/shared/config-epoch.mjs';
 import { modelProxyClientMode, serverModelCredentialsDisabledError } from '../../runtime/shared/model-proxy-mode.mjs';
 import { sameAccountIdentity } from '../../runtime/agent/orchestrator/providers/lib/oauth-token-utils.mjs';
 import { agentApiKeyEnvName } from '../../runtime/shared/provider-api-key.mjs';
@@ -938,6 +939,8 @@ async function settleOAuthLogin(
     const existingId = addAccount ? rosterAccountForIdentity(id, oauth, signedInId, auth) : null;
     if (existingId) {
       renameSync(providerAccountPath(id, signedInId), providerAccountPath(id, existingId));
+      // A credential file the agent config snapshot probes moved.
+      bumpConfigInputEpoch();
       accountId = existingId;
     }
     await registerProviderAccount(id, accountId, { includeDefault, label });

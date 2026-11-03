@@ -3,6 +3,8 @@ import { existsSync, mkdirSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
+// Every credential write bumps it: the agent config snapshot probes this file.
+import { bumpConfigInputEpoch } from '../../../shared/config-epoch.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { modelProxyClientMode } from '../../../shared/model-proxy-mode.mjs';
 import { openInBrowser } from '../../../shared/open-url.mjs';
@@ -126,6 +128,7 @@ function saveCredentials(tokens) {
     mode: 0o600,
     secret: true,
   });
+  bumpConfigInputEpoch();
 }
 
 export function hasCursorOAuthCredentials() {
@@ -187,6 +190,7 @@ export function forgetCursorOAuthCredentials() {
   const path = credentialsPath();
   if (!existsSync(path)) return { removed: false };
   unlinkSync(path);
+  bumpConfigInputEpoch();
   return { removed: true };
 }
 

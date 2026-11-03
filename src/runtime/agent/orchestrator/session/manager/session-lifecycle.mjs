@@ -12,7 +12,7 @@ import { _recoverTurnCheckpointDurably } from './turn-checkpoint-recovery.mjs';
 import { isAgentOwner } from '../../agent-owner.mjs';
 import { AGENT_MODE, resolveSessionMode, sessionModeOf } from '../agent-mode.mjs';
 import { getHiddenAgent } from '../../internal-agents.mjs';
-import { loadConfig } from '../../config.mjs';
+import { getConfigSnapshot } from '../../config.mjs';
 import {
   buildProviderCacheOpts,
   cacheCapabilityForProvider,
@@ -72,7 +72,7 @@ function buildSessionProviderCacheOpts(providerName, sessionId, agent = null, co
   try {
     let autoClear = null;
     if (isLeadCacheClass(agent, session)) {
-      const loadedConfig = config || loadConfig({ secrets: false });
+      const loadedConfig = config || getConfigSnapshot({ secrets: false });
       const normalizedAutoClear = normalizeAutoClearConfig(loadedConfig?.autoClear);
       autoClear = {
         ...normalizedAutoClear,

@@ -7,6 +7,8 @@ import { readFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+// Every credential write bumps it: the agent config snapshot probes this file.
+import { bumpConfigInputEpoch } from '../../../shared/config-epoch.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { accountIdentityFields, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
@@ -73,6 +75,7 @@ export function saveTokens(tokens) {
     },
     { lock: true, fsyncDir: true, mode: 0o600, secret: true }
   );
+  bumpConfigInputEpoch();
 }
 
 export function hasMuseCodeOAuthCredentials() {
@@ -122,6 +125,7 @@ export function forgetMuseCodeOAuthCredentials() {
   const path = getOwnTokenPath();
   if (!existsSync(path)) return { removed: false };
   unlinkSync(path);
+  bumpConfigInputEpoch();
   return { removed: true };
 }
 

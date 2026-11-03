@@ -87,10 +87,15 @@ export function normalizeExpiresAtMs(value) {
  * expiry and no refresh token is incomplete, not a sign-in.
  */
 export function isSignedInTokenDocument(raw) {
-  if (!raw?.access_token) return false;
-  if (raw.refresh_token) return true;
-  const expiresAt = normalizeExpiresAtMs(raw.expires_at ?? raw.expiresAt) || expiryFromAccessToken(raw.access_token);
-  return expiresAt > Date.now();
+  return signedInTokenDocumentUntil(raw) > Date.now();
+}
+
+/** Until when `raw` is a sign-in (isSignedInTokenDocument): Infinity with a
+ *  refresh token, else its access token's expiry; 0 when it never is. */
+export function signedInTokenDocumentUntil(raw) {
+  if (!raw?.access_token) return 0;
+  if (raw.refresh_token) return Number.POSITIVE_INFINITY;
+  return normalizeExpiresAtMs(raw.expires_at ?? raw.expiresAt) || expiryFromAccessToken(raw.access_token);
 }
 
 /**
