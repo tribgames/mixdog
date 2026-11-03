@@ -1,4 +1,4 @@
-import { ChevronRight, Wrench } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 import React, { useMemo } from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { t } from './i18n';
@@ -39,9 +39,6 @@ export const WorkFoldRow = React.memo(function WorkFoldRow({
       aria-expanded={open}
       title={summary || undefined}
     >
-      <span className="transcript-work-fold-icon" aria-hidden="true">
-        <Wrench size={14} />
-      </span>
       <span className="transcript-work-fold-label">{label}</span>
       <span className="transcript-work-fold-chevron" aria-hidden="true">
         <ChevronRight size={14} />
