@@ -324,6 +324,7 @@ function SentImageCard({
   name,
   dims,
   tooltip,
+  queued,
   menuProps,
 }: {
   session: string;
@@ -333,12 +334,21 @@ function SentImageCard({
   name: string;
   dims?: string;
   tooltip?: string;
+  /** The message is not in the session's transcript yet (queued behind a turn). */
+  queued?: boolean;
   menuProps: ReturnType<typeof useAttachmentContextMenu>['menuProps'];
 }) {
   const stored = useStoredImagePreview(session, attachmentRef);
   const preview = live || stored;
   const openFile = useContext(MarkdownOpenFileContext);
-  const hostFile = storedAttachmentRef(session, attachmentRef);
+  // The host serves an attachment by id only once the session's transcript
+  // names it, which a queued message's does not yet: it opens from the
+  // picture on hand instead of a read that would fail.
+  const hostFile = queued ? undefined : storedAttachmentRef(session, attachmentRef);
+  // Without this pane's own full-size picture, a queued image has only the
+  // reduced cached thumbnail: it can be viewed, but not copied or saved as the image.
+  const viewOnly = queued && !live;
+  const imageSource = { kind: 'image', name, dataUrl: preview, stored: hostFile, viewOnly } as const;
   return (
     <AttachmentCard
       kind="image"
@@ -346,16 +356,8 @@ function SentImageCard({
       imageUrl={preview || undefined}
       tooltip={tooltip}
       meta={preview ? undefined : dims}
-      menu={menuProps(
-        preview
-          ? { kind: 'image', name, dataUrl: preview, stored: hostFile }
-          : { kind: 'image-marker', name, stored: hostFile }
-      )}
-      onOpen={
-        preview
-          ? () => openAttachmentSource({ kind: 'image', name, dataUrl: preview, stored: hostFile }, openFile)
-          : undefined
-      }
+      menu={menuProps(preview ? imageSource : { kind: 'image-marker', name, stored: hostFile })}
+      onOpen={preview ? () => openAttachmentSource(imageSource, openFile) : undefined}
     />
   );
 }
@@ -447,7 +449,9 @@ export function SentAttachments({
 }) {
   const markerRefs = markerChipRefs(markerChips, item.imageRefs);
   const records = chipAttachments(item.attachments, fileChips, []);
-  const hostFileOf = (record: SentAttachmentRecord | undefined) => storedAttachmentRef(session, record?.id);
+  const queued = item.pending === true;
+  const hostFileOf = (record: SentAttachmentRecord | undefined) =>
+    queued ? undefined : storedAttachmentRef(session, record?.id);
   return (
     // biome-ignore lint/a11y/useSemanticElements: a <fieldset> brings its own border, padding and min-width into the card row.
     <div className="message-attachments" role="group" aria-label={t('Attachments')}>
@@ -464,6 +468,7 @@ export function SentAttachments({
             attachmentRef={image.attachmentRef}
             live={preview || undefined}
             name={preview ? name : image.name || 'Image'}
+            queued={queued}
             menuProps={menuProps}
           />
         );
@@ -477,6 +482,7 @@ export function SentAttachments({
           name={chip.name}
           tooltip={chip.title}
           dims={chip.dims}
+          queued={queued}
           menuProps={menuProps}
         />
       ))}

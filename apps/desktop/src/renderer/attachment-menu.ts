@@ -16,7 +16,7 @@ export type AttachmentMenuSource = AttachmentMenuBase & { stored?: StoredAttachm
 
 type AttachmentMenuBase =
   /** Image with bytes. */
-  | { kind: 'image'; name: string; dataUrl?: string }
+  | { kind: 'image'; name: string; dataUrl?: string; viewOnly?: boolean }
   /** Image known by name only. */
   | { kind: 'image-marker'; name: string }
   | { kind: 'pasted-text'; name: string; text?: string }
@@ -123,6 +123,9 @@ export function attachmentMenuItems(
       if (!url) break;
       const show = actions.openInApp ?? actions.openLightbox;
       add('open', t('Open'), show && (() => show(url, name)), fail);
+      // A picture that is only a reduced stand-in for the original is for viewing:
+      // copying or saving it would hand out the stand-in as the image.
+      if (source.viewOnly) break;
       add('copy-image', t('Copy image'), actions.copyImage && (() => actions.copyImage!(url)), fail);
       add('save', saveLabel(t('Save image as…')), actions.saveAs && (() => actions.saveAs!(url, name)), fail);
       break;
