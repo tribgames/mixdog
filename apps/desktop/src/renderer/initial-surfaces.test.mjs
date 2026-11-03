@@ -814,6 +814,71 @@ test('startup emits no settled signal while persisted panes are still being vali
   assert.equal(settled, 1);
 });
 
+test('start screen preference opens a projectless new conversation over both startup restore paths', async (t) => {
+  const view = harness(t);
+  const { useAppStartupRestore } = await import('./use-app-startup-restore.ts');
+  const { setStartupView } = await import('./startup-view-preference.ts');
+  const restoredSession = { kind: 'session', id: 's-restored' };
+  async function launch({ startFresh, restoredFromStorage }) {
+    window.localStorage.setItem('test-session', 's-last');
+    window.localStorage.setItem('test-project', '/work/a');
+    const calls = [];
+    const props = {
+      restorePending: false,
+      restoredFromStorage,
+      startupFocusedPaneSelection: restoredFromStorage ? restoredSession : null,
+      startupNavigationSelection: restoredFromStorage ? restoredSession : null,
+      startFresh,
+      startProjectlessTask: () => calls.push('projectless'),
+      projectCatalogReady: true,
+      snapshot: {},
+      snapshotReady: true,
+      sessions: [{ id: 's-last' }],
+      selectionRef: { current: { kind: 'new' } },
+      viewedSessionRef: { current: '' },
+      unreadViewedSessionRef: { current: '' },
+      setSelection: (selection) => calls.push(`select:${selection.id}`),
+      setStartupSettled() {},
+      activateSelection: (selection) => calls.push(`activate:${selection.kind}`),
+      openSessionRef: { current: async (id) => calls.push(`resume:${id}`) },
+      lastNewTaskPrefs: { current: null },
+      effectiveDraftProjectPath: (path) => path,
+      preferredDraftProjectPath: '',
+      setNewTaskDeferred() {},
+      resetNewTaskDraft: (path) => calls.push(`draft:${path}`),
+      lastSessionStorageKey: 'test-session',
+      lastProjectStorageKey: 'test-project',
+    };
+    function Probe() {
+      useAppStartupRestore(props);
+      return null;
+    }
+    await view.render(React.createElement(Probe));
+    return calls;
+  }
+  assert.deepEqual(await launch({ startFresh: true, restoredFromStorage: true }), ['projectless']);
+  assert.deepEqual(await launch({ startFresh: true, restoredFromStorage: false }), ['projectless']);
+  assert.deepEqual(await launch({ startFresh: false, restoredFromStorage: true }), ['select:s-restored']);
+  assert.deepEqual(await launch({ startFresh: false, restoredFromStorage: false }), ['resume:s-last']);
+  window.sessionStorage.clear();
+  window.localStorage.removeItem('mixdog.desktop.startup-view.v1');
+  const { startsOnProjectlessDraft: phoneLaunch } = await import('./startup-view-preference.ts?phone');
+  assert.equal(phoneLaunch(), false, 'the phone and web clients keep reopening their last conversation');
+  const previousDesktop = window.mixdogDesktop;
+  window.mixdogDesktop = { ...previousDesktop, bootContext: { bootId: 'boot-test' } };
+  try {
+    window.sessionStorage.clear();
+    const { startsOnProjectlessDraft: firstLaunch } = await import('./startup-view-preference.ts?default');
+    assert.equal(firstLaunch(), true, 'the default start screen opens a projectless new conversation');
+    window.sessionStorage.clear();
+    assert.ok(setStartupView('last'));
+    const { startsOnProjectlessDraft: relaunch } = await import('./startup-view-preference.ts?launch');
+    assert.equal(relaunch(), false, 'a launch set to the last working position resumes it');
+  } finally {
+    window.mixdogDesktop = previousDesktop;
+  }
+});
+
 test('usage pin paints cached rows in its first render, before the settings read lands', async (t) => {
   const view = harness(t);
   window.mixdogDesktop.readSettings = () => new Promise(() => {});

@@ -26,6 +26,8 @@ export function useAppStartupRestore({
   restoredFromStorage,
   startupFocusedPaneSelection,
   startupNavigationSelection,
+  startFresh,
+  startProjectlessTask,
   projectCatalogReady,
   snapshot,
   snapshotReady,
@@ -49,6 +51,9 @@ export function useAppStartupRestore({
   restoredFromStorage: boolean;
   startupFocusedPaneSelection: WorkspaceSelection | null | undefined;
   startupNavigationSelection: NavigationSelection | null | undefined;
+  /** "Start screen" asks for a projectless new conversation on this launch. */
+  startFresh?: boolean;
+  startProjectlessTask?(): void;
   projectCatalogReady: boolean;
   snapshot: Snapshot;
   snapshotReady: boolean;
@@ -79,6 +84,14 @@ export function useAppStartupRestore({
     };
     if (restoredStartupNavigation.current) return;
     if (restorePending) return;
+    // Overrides both the restored panes and the last-session/project fallback;
+    // the other restored tabs stay where they are.
+    if (startFresh && startProjectlessTask) {
+      restoredStartupNavigation.current = true;
+      startProjectlessTask();
+      settleStartup();
+      return;
+    }
     // The phone opens straight into the session it showed last, like the
     // desktop: the relay client names that session among its visible sessions
     // when it connects, so its transcript arrives with the first view sync
@@ -199,6 +212,8 @@ export function useAppStartupRestore({
     setStartupSettled,
     snapshot,
     snapshotReady,
+    startFresh,
+    startProjectlessTask,
     startupFocusedPaneSelection,
     startupNavigationSelection,
     unreadViewedSessionRef,
