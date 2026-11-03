@@ -136,6 +136,8 @@ function _dispatch() {
         const failed = _queue.shift();
         _release(failed);
         _settle(failed, error);
+        // Its released charge may admit a waiter that nothing else would wake.
+        _admitWaiting();
         continue;
       }
     }

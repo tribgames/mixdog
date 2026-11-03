@@ -2056,9 +2056,6 @@ html[data-mixdog-mobile-tabs]
   width: 7px;
   height: 7px;
 }
-.studio-panel-end {
-  height: 1px;
-}
 /* Session rows sit tighter than the 36px nav links: 31px keeps the 14px title
    comfortable while the list stops reading airy. */
 .session-sidebar .session-row {
@@ -2102,6 +2099,8 @@ html[data-mixdog-mobile-tabs]
    surface inset), so the row-name line is 8 + 30 in. The Source Control clean
    state is not listed: its scroller already gives that 8px. */
 .workbench-side-panel[data-side="right"] .utility-dock-empty,
-.workbench-side-panel[data-side="right"] .visualize-pane .visualize-empty:not(.visualize-zoom-layer > .visualize-empty) {
+.workbench-side-panel[data-side="right"]
+  .visualize-pane
+  .visualize-empty:not(.visualize-zoom-layer > .visualize-empty) {
   padding-left: 38px;
 }

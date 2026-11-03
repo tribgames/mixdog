@@ -75,6 +75,26 @@ test('a worker construction failure settles its request, releases its charge and
   assert.deepEqual(await _maskTextsOffThread([text], ['javascript']), [_maskNonCodeText(text, 'javascript')]);
 });
 
+test('a construction failure after a crash settles every admission waiter, not only the next one', {
+  timeout: 10_000,
+}, async () => {
+  let created = 0;
+  const createWorker = (_url, options) => {
+    created += 1;
+    if (created === 1) return new Worker(CRASH, { ...options, eval: true });
+    throw Object.assign(new Error('init failed'), { code: 'ERR_WORKER_INIT_FAILED' });
+  };
+  _configureMaskPoolForTest({ createWorker, maxOutstandingChars: 3 });
+  const running = _maskTextsOffThread(['abc'], ['javascript']);
+  const waiters = [
+    _maskTextsOffThread(['def'], ['javascript'], { waitForAdmission: true }),
+    _maskTextsOffThread(['ghi'], ['javascript'], { waitForAdmission: true }),
+  ];
+  await assert.rejects(running, { code: 'ERR_MASK_WORKER_EXITED' });
+  for (const waiter of waiters) await assert.rejects(waiter, { code: 'ERR_WORKER_INIT_FAILED' });
+  assert.equal(_maskPoolOutstandingChars(), 0);
+});
+
 test('aborting a queued request drops it and releases its share of the bound', async () => {
   _configureMaskPoolForTest({ createWorker: evalWorkers(STALL) });
   // Two workers take the first two; the third waits in the queue.

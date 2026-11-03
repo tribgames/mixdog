@@ -1,7 +1,8 @@
 import { Check, ChevronDown, Images, LayoutGrid } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { type KeyboardEvent, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { t } from './i18n';
+import { useMenuDismiss } from './menu-dismiss';
 import type { StudioBoard } from './studio-boards';
 
 /** Every board's mark: one glyph in the Sessions row slot (16px, muted ink). */
@@ -78,36 +79,45 @@ export function StudioBoardPicker({
   const [box, setBox] = useState<{ left: number; bottom: number } | null>(null);
   const open = Boolean(box);
   const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
   const menu = useRef<HTMLDivElement>(null);
   const setOpen = (next: boolean) => {
     const rect = root.current?.getBoundingClientRect();
     setBox(next && rect ? { left: rect.left, bottom: window.innerHeight - rect.top + 6 } : null);
   };
   const current = boards.find((board) => board.id === openId) ?? null;
+  useMenuDismiss({ open, close: () => setBox(null), trigger, panels: () => [menu.current] });
+  // Focus enters the open menu on its checked item, as in the row menus.
   useEffect(() => {
-    if (!open) return undefined;
-    const close = (event: PointerEvent) => {
-      const target = event.target as Node;
-      if (!root.current?.contains(target) && !menu.current?.contains(target)) setBox(null);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setBox(null);
-    };
-    document.addEventListener('pointerdown', close, true);
-    document.addEventListener('keydown', closeOnEscape);
-    return () => {
-      document.removeEventListener('pointerdown', close, true);
-      document.removeEventListener('keydown', closeOnEscape);
-    };
+    if (open) menu.current?.querySelector<HTMLButtonElement>('[aria-checked="true"]')?.focus();
   }, [open]);
+  const moveFocus = (event: KeyboardEvent<HTMLDivElement>) => {
+    const items = [...(menu.current?.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]') ?? [])];
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    const next =
+      event.key === 'ArrowDown'
+        ? (at + 1) % items.length
+        : event.key === 'ArrowUp'
+          ? (at - 1 + items.length) % items.length
+          : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? items.length - 1
+              : -1;
+    if (next < 0) return;
+    event.preventDefault();
+    items[next]?.focus();
+  };
   const choose = (id: string) => {
     setBox(null);
+    trigger.current?.focus({ preventScroll: true });
     onSelect(id);
   };
   const label = current ? current.name : t('No board');
   return (
     <div className="studio-board-picker" ref={root}>
       <button
+        ref={trigger}
         type="button"
         className="studio-board-trigger"
         aria-haspopup="menu"
@@ -128,6 +138,7 @@ export function StudioBoardPicker({
             role="menu"
             aria-label={t('Boards')}
             style={{ left: box.left, bottom: box.bottom }}
+            onKeyDown={moveFocus}
           >
             <button
               type="button"
