@@ -72,7 +72,7 @@
   margin: 0;
   white-space: pre-wrap;
 }
-.browser-page-prompt .mx-dialog-body input {
+.browser-page-prompt .mx-dialog-body input:not([type="radio"]) {
   width: 100%;
   box-sizing: border-box;
   margin-top: 12px;
