@@ -5872,6 +5872,7 @@
   "{{count}} unmerged commits": "{{count}} 个未合并的提交",
   "Background task": "后台任务",
   "Cache warm-up": "缓存预热",
+  "Session title": "会话标题",
   "Merged · deleted at next cleanup": "已合并 · 下次清理时删除",
   "Merged · will be cleaned up": "已合并 · 将被清理",
   "Merged · kept": "已合并 · 保留",

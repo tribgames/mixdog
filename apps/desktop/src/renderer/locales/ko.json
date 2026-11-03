@@ -5872,6 +5872,7 @@
   "{{count}} unmerged commits": "병합되지 않은 커밋 {{count}}개",
   "Background task": "백그라운드 작업",
   "Cache warm-up": "캐시 워밍업",
+  "Session title": "세션 제목",
   "Merged · deleted at next cleanup": "병합됨 · 다음 정리 시 삭제",
   "Merged · will be cleaned up": "병합됨 · 정리 대상",
   "Merged · kept": "병합됨 · 유지됨",

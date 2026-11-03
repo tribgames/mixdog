@@ -25,7 +25,9 @@ test('first-turn LLM title waits until visible assistant progress', async () => 
   const promoted = [];
   const controller = createSessionTitleController({
     dataRoot: () => '',
-    generateSessionTitle: async (source) => {
+    generateSessionTitle: async (source, options) => {
+      // The title call carries its session, so its spend is booked there.
+      assert.equal(options.sessionId, 'session-title-deferred');
       generated.push(source);
       return 'Deferred title';
     },

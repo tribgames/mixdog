@@ -189,6 +189,7 @@ export function createSessionTitleController(deps = {}) {
             deps.generateSessionTitle || (await import('../agent-runtime/title-completion.mjs')).generateSessionTitle;
           if (disposed) return '';
           return complete(source, {
+            sessionId,
             signal: abort.signal,
             locale: String(deps.systemLocale?.() || resolvedSystemLocale()),
           });

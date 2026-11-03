@@ -12,6 +12,7 @@ import { accountProviderSend } from './usage-accounting.mjs';
 import { noteAbandonedUsage } from './usage-context.mjs';
 import { normalizeServedModelId, servedModelSubstituted, usageRequestStatus } from './usage-request-status.mjs';
 import { createUsageStatsApi } from '../../../session-runtime/usage-stats-api.mjs';
+import { createTitleCompletion } from '../../agent/orchestrator/agent-runtime/title-completion.mjs';
 import { parseSSEStream } from '../../agent/orchestrator/providers/anthropic-sse.mjs';
 import { createHttpSseResponseState } from '../../agent/orchestrator/providers/openai-http-sse-response-state.mjs';
 import { _streamResponse } from '../../agent/orchestrator/providers/openai-ws-stream.mjs';
@@ -733,6 +734,37 @@ test('a background request on a session the user can open keeps its label and ad
       ['Dev session', '', false, '', 'cache-warm'],
       ['Dev session', '', false, '', ''],
     ]
+  );
+});
+
+test('a title call is recorded under the session it titles and the request log names it a title call', async (t) => {
+  useLedger(t);
+  const generate = createTitleCompletion({
+    loadConfig: () => ({ providers: {} }),
+    resolveMaintenanceRoute: () => ({ provider: 'openai', model: 'gpt-5' }),
+    initProviders: async () => {},
+    getProvider: () => ({
+      send: (messages, model, tools, opts) =>
+        accountProviderSend(
+          'openai',
+          {},
+          async () => ({ content: 'Parser refactor', model, usage: { inputTokens: 10, outputTokens: 3 } }),
+          model,
+          opts
+        ),
+    }),
+  });
+  assert.equal(await generate('Refactor the parser.', { sessionId: 'dev' }), 'Parser refactor');
+  const metadata = { dev: { title: 'Dev session', sourceType: 'lead' } };
+  const api = createUsageStatsApi({
+    ledger: getUsageLedger,
+    importHistory: async () => {},
+    sessionMetadata: async (id) => metadata[id] ?? null,
+  });
+  const { requests } = await api.getUsageRequests({});
+  assert.deepEqual(
+    requests.map((row) => [row.sessionTitle, row.internalKind, row.backgroundKind]),
+    [['Dev session', '', 'session-title']]
   );
 });
 

@@ -5938,6 +5938,7 @@
   "{{count}} unmerged commits": "{{count}} nicht zusammengeführte Commits",
   "Background task": "Hintergrundaufgabe",
   "Cache warm-up": "Cache-Aufwärmung",
+  "Session title": "Sitzungstitel",
   "Merged · deleted at next cleanup": "Zusammengeführt · beim nächsten Aufräumen gelöscht",
   "Merged · will be cleaned up": "Zusammengeführt · wird aufgeräumt",
   "Merged · kept": "Zusammengeführt · behalten",
