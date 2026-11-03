@@ -665,8 +665,6 @@ test('sidebar rows and collapsed project groups use the same status set', async 
   const folders = await render(
     projectsSection({
       groups: [group('collapsed', ['a', 'b', 'c']), group('open', ['b'])],
-      open: true,
-      onToggleOpen: noop,
       projectOpen: { collapsed: false, open: true },
       onToggleProject: noop,
       rowLimits: new Map(),
@@ -751,9 +749,7 @@ test('a collapsed project section header follows the same rule', async () => {
   const projects = await render(
     projectsSection({
       groups: [{ key: 'p', name: 'p', path: '/p', rows: runs }],
-      open: false,
-      onToggleOpen: noop,
-      projectOpen: {},
+      projectOpen: { p: false },
       onToggleProject: noop,
       rowLimits: new Map(),
       onShowMore: noop,

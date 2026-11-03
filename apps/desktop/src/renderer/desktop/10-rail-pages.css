@@ -1773,53 +1773,20 @@ html[data-mixdog-mobile-tabs]
    its trailing + starts a task in that project. */
 /* Grid/flex items default to min-width:auto, which lets a nowrap session
    title widen the folder past the rail; every level must be shrinkable. */
-.project-group,
-.project-group-sessions {
+.project-group {
   min-width: 0;
 }
-.project-folder {
-  position: relative;
-  display: flex;
-  align-items: center;
-  min-width: 0;
-}
+/* A project is its own category: the heading is the category heading, with
+   the project's name, the shared chevron and a hover-only + at its right. */
 .project-folder > .project-folder-toggle {
   flex: 1 1 auto;
   min-width: 0;
-  display: flex;
-  align-items: center;
-  border: 0;
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
 }
-/* The folder icon sits on the label line; the name starts on the same line
-   its child sessions do (8px row inset + 16px icon + 8px gap = 32px, matched
-   by .project-group-sessions rows). */
-.project-folder > .project-folder-toggle {
-  gap: 8px;
-}
-/* Folder names carry the launcher weight and full ink so a project reads
-   apart from the session titles it groups. */
-.session-sidebar .project-folder-toggle .session-row-copy b {
-  font-weight: var(--mx-weight-medium);
-  color: var(--mx-text);
-}
-.project-folder-toggle > .project-folder-icon {
-  flex: 0 0 auto;
-  width: 16px;
-  height: 16px;
-  /* Same ink as the New task / New Studio launcher glyphs above it: a muted
-     1px stroke read thinner than theirs. */
-  color: var(--mx-icon);
-}
-/* An open folder ends with breathing room before the next folder; the last
-   one leaves the gap to the section rule below. */
-.project-group-sessions {
-  padding-bottom: 8px;
-}
-.project-group:last-child > .project-group-sessions {
-  padding-bottom: 0;
+.project-folder-toggle > span {
+  flex: 0 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .project-folder > .project-folder-new {
   position: absolute;
@@ -1827,25 +1794,95 @@ html[data-mixdog-mobile-tabs]
   width: 28px;
   height: 28px;
 }
-/* Inline project rename replaces the folder row in place (same input skin
-   as a session rename); the row keeps its height while the toggle hides. */
-.project-folder {
-  min-height: 31px;
+@media (hover: hover) {
+  .project-folder > .project-folder-new {
+    opacity: 0;
+  }
+  .project-folder:hover > .project-folder-new,
+  .project-folder:focus-within > .project-folder-new,
+  .project-folder > .project-folder-new[aria-expanded="true"] {
+    opacity: 1;
+  }
 }
+/* Inline project rename replaces the heading in place (same input skin as a
+   session rename). */
 .project-folder > .project-folder-rename {
   right: 40px;
   visibility: visible;
   pointer-events: auto;
 }
-/* + is always shown; the name
-   truncates before it instead of running under it. */
+/* The name truncates before the + instead of running under it. */
 .session-sidebar .project-folder > .project-folder-toggle {
   padding-right: 40px;
+}
+/* The 20px leading slot every row opens with, so all row names share one x:
+   bots show the avatar (.session-agent-avatar), rooms the people glyph,
+   sessions the chat bubble, a conversation with forks the fork glyph. */
+.session-row-slot {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 20px;
+  display: grid;
+  place-items: center;
+  color: var(--mx-text-muted);
+}
+.session-row-slot-room {
+  border-radius: 6px;
+  background: var(--mx-hover);
+  color: var(--mx-text-muted);
+}
+/* A git branch inside a project: a 28px sub-heading (8px above) with the
+   branch glyph in the slot, the name on the row-title line in the row-name
+   style, then the chevron. Its sessions follow as ordinary rows. */
+.session-subheading {
+  width: 100%;
+  height: 28px;
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+  border: 0;
+  background: transparent;
+  color: var(--mx-text-muted);
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+/* Under sub-headings the rows step in to the branch name's x (slot + 28). */
+.session-sidebar .project-session-list-split .session-row:not(.editing) {
+  padding-left: 36px;
+}
+.project-session-list > .session-subheading:first-child {
+  margin-top: 0;
+}
+.session-subheading-name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--mx-row-title-ink);
+  font-size: var(--mx-font-item);
+  font-weight: var(--mx-weight-regular);
+  line-height: var(--mx-line-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-subheading > svg:last-child {
+  flex: none;
+}
+/* An empty project's note sits on its sessions' title line (8px row inset +
+   20px slot + 8px gap). */
+.project-session-list > .sidebar-section-empty {
+  height: 28px;
+  display: flex;
+  align-items: center;
+  padding: 0 8px 0 36px;
+  color: var(--mx-text-muted);
+  font-size: var(--mx-font-item);
 }
 /* Sections and project folders reorder by drag (shared
    usePersistedListOrder): the heading/folder row is the grip, the whole
    section/folder group is the drop target and carries the drop line. */
-.session-sidebar-sessions :is(.sidebar-category-header, .project-folder)[draggable="true"]:active {
+.session-sidebar-sessions .sidebar-category-header[draggable="true"]:active {
   cursor: grabbing;
 }
 .session-sidebar-sessions :is(.sidebar-recent, .project-group)[data-reordering="true"] {
@@ -1963,8 +2000,7 @@ html[data-mixdog-mobile-tabs]
   opacity: 1;
   cursor: default;
 }
-.project-group-more .session-row-copy b,
-.project-group-sessions .sidebar-section-empty {
+.project-group-more .session-row-copy b {
   color: var(--mx-text-muted);
   font-weight: var(--mx-weight-regular);
 }

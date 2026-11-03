@@ -5,6 +5,7 @@ import {
   ChevronUp,
   CornerDownRight,
   GitFork,
+  MessageCircle,
   Star,
   Trash2,
   X,
@@ -83,6 +84,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   onOpenMenu,
   forkKind,
   forkExpanded,
+  forkCount,
   forkNumber,
   onToggleFork,
 }: {
@@ -95,6 +97,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
   /** Fork grouping: the original (`root`, with its expansion) or a numbered fork. */
   forkKind?: 'root' | 'child';
   forkExpanded?: boolean;
+  forkCount?: number;
   forkNumber?: number;
   onToggleFork?(sessionId: string): void;
   /** Right-click / Menu key: the sidebar owns the menu and its items. */
@@ -135,6 +138,7 @@ export const SessionSidebarRow = React.memo(function SessionSidebarRow({
       onOpenMenu={onOpenMenu && ((target, point) => onOpenMenu(target, point, rowKey))}
       forkKind={forkKind}
       forkExpanded={forkExpanded}
+      forkCount={forkCount}
       forkNumber={forkNumber}
       onToggleFork={onToggleFork}
       onTitleDraftChange={onTitleDraftChange}
@@ -186,6 +190,7 @@ const SessionRow = React.memo(function SessionRow({
   onOpenMenu,
   forkKind,
   forkExpanded,
+  forkCount,
   forkNumber,
   onToggleFork,
 }: {
@@ -196,6 +201,7 @@ const SessionRow = React.memo(function SessionRow({
   attention: SessionAttention | '';
   forkKind?: 'root' | 'child';
   forkExpanded?: boolean;
+  forkCount?: number;
   forkNumber?: number;
   onToggleFork?(sessionId: string): void;
   onOpenMenu?(session: DesktopSessionSummary, point: { x: number; y: number }): void;
@@ -224,8 +230,7 @@ const SessionRow = React.memo(function SessionRow({
   const [dragging, setDragging] = useState(false);
   const label = forkNumber ? forkDisplayTitle(sessionLabel(session), forkNumber) : sessionLabel(session);
   // A deleted bot's archived chat: the bot's face before its name.
-  const deletedBot = session.agentDeleted === true ? session.agentHome || '' : '';
-  const titleRef = useRef<HTMLElement>(null);
+  const deletedBot = session.agentDeleted === true ? session.agentHome || '' : '';  const titleRef = useRef<HTMLElement>(null);
   const [overflowing, setOverflowing] = useState(false);
   // Only a title that does not fit fades at the row edge.
   // biome-ignore lint/correctness/useExhaustiveDependencies: label is not read, but a new title changes the text width and must re-measure.
@@ -411,18 +416,23 @@ const SessionRow = React.memo(function SessionRow({
           onOpenMenu(session, elementMenuPoint(event.currentTarget));
         }}
       >
-        {forkKind === 'root' && (
-          <GitFork className="session-row-fork-icon" data-fork="root" size={16} aria-hidden="true" />
-        )}
-        {forkKind === 'child' && (
-          <CornerDownRight className="session-row-fork-icon" data-fork="child" size={16} aria-hidden="true" />
-        )}
-        {deletedBot && <DeletedBotFace agentId={deletedBot} />}
+        {/* The 20px leading slot: every row's name starts on one line. */}
+        <span className="session-row-slot" aria-hidden="true">
+          {forkKind === 'root' ? (
+            <GitFork className="session-row-fork-icon" data-fork="root" size={14} aria-hidden="true" />
+          ) : forkKind === 'child' ? (
+            <CornerDownRight className="session-row-fork-icon" data-fork="child" size={14} aria-hidden="true" />
+          ) : deletedBot ? (
+            <DeletedBotFace agentId={deletedBot} />
+          ) : (
+            // The tab strip's session icon (WorkspaceTabStrip sessionTabGlyph).
+            <MessageCircle className="session-row-chat-icon" size={14} aria-hidden="true" />
+          )}
+        </span>
         <span className="session-row-copy">
           <b ref={titleRef} data-overflow={overflowing || undefined}>
             {label}
-          </b>
-        </span>
+          </b>        </span>
         {forkKind === 'root' && (
           // A span, not a button: it sits inside the row's button and the
           // click must not open the session.
@@ -451,6 +461,7 @@ const SessionRow = React.memo(function SessionRow({
               onToggleFork?.(session.id);
             }}
           >
+            {forkCount ? <span className="session-row-fork-count">{forkCount}</span> : null}
             {forkExpanded ? <ChevronUp size={14} aria-hidden="true" /> : <ChevronDown size={14} aria-hidden="true" />}
           </span>
         )}

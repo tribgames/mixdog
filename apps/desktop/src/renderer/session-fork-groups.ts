@@ -12,7 +12,7 @@ export interface ForkGroup {
 /** How a row takes part in a fork group: the original (with its expansion) or
  *  the n-th fork (1-based creation order). */
 export type ForkRowRole =
-  | { kind: 'root'; expanded: boolean }
+  | { kind: 'root'; expanded: boolean; count: number }
   | { kind: 'child'; n: number; rootId: string; last: boolean };
 
 /** Root of `row`: the first ancestor, following `inheritedFromSessionId`,

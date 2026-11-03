@@ -123,11 +123,12 @@ test('the sidebar shows the original with a fork icon and chevron, then numbered
   assert.equal(title(document, 'f2'), 'Shared title (fork 2)');
   const root = document.querySelector('[data-session-id="orig"]');
   const main = root.querySelector('.session-row-main');
-  const [icon, copy, toggle] = [...main.children];
-  assert.equal(icon.getAttribute('data-fork'), 'root');
+  const [slot, copy, toggle] = [...main.children];
+  assert.ok(slot.classList.contains('session-row-slot'));
+  assert.equal(slot.firstElementChild.getAttribute('data-fork'), 'root');
   assert.ok(copy.classList.contains('session-row-copy'));
   assert.ok(toggle.classList.contains('session-row-fork-toggle'));
-  assert.equal(toggle.textContent, '', 'the chevron carries no count or badge');
+  assert.equal(toggle.textContent, '2', 'the branch count precedes the chevron');
   assert.equal(document.querySelector('[data-session-id="f1"] [data-fork="child"]') !== null, true);
   assert.equal(document.querySelector('[data-session-id="solo"] .session-row-fork-toggle'), null);
   // The title still opens the session; the chevron does not.
@@ -260,4 +261,36 @@ test('committing a group order keeps forks after their original and paged-out gr
     ['a', ['f1']],
     ['d', []],
   ]);
+});
+
+test('a project split across branches gets sub-headings (checkout first); one branch stays plain', async (t) => {
+  const ws = (worktreeId, branch) => ({ projectPath: '/p', repoCommonDir: null, cwd: '/p', worktreeId, branch, mergeTarget: 'main' });
+  const sess = (id, activityAt, workspace) =>
+    row(id, { activityAt, updatedAt: activityAt, classification: 'project', projectPath: '/p', cwd: '/p', workspace });
+  const { document } = await mount(t, [
+    sess('a', 5, ws('w1', 'feat/boards')),
+    sess('b', 4, ws(null, 'main')),
+    sess('c', 3, ws('w2', 'fix/rail')),
+    sess('d', 2, null),
+  ], { projects: [{ name: 'P', path: '/p', alias: null }] });
+  const section = document.querySelector('section[aria-label="P"]');
+  const heads = [...section.querySelectorAll('.session-subheading')];
+  assert.deepEqual(heads.map((h) => h.querySelector('.session-subheading-name').textContent), ['main', 'feat/boards', 'fix/rail']);
+  assert.deepEqual(
+    [...section.querySelectorAll('.session-row[data-session-id], .session-subheading')].map((n) =>
+      n.dataset.sessionId ?? n.textContent
+    ),
+    ['main', 'b', 'd', 'feat/boards', 'a', 'fix/rail', 'c']
+  );
+});
+
+test('a project whose sessions share one branch lists them plainly', async (t) => {
+  const ws = (worktreeId, branch) => ({ projectPath: '/p', repoCommonDir: null, cwd: '/p', worktreeId, branch });
+  const sess = (id, activityAt, workspace) =>
+    row(id, { activityAt, updatedAt: activityAt, classification: 'project', projectPath: '/p', cwd: '/p', workspace });
+  const { document } = await mount(t, [sess('x', 1, ws(null, 'main')), sess('y', 2, null)], {
+    projects: [{ name: 'Q', path: '/p', alias: null }],
+  });
+  assert.equal(document.querySelector('section[aria-label="Q"] .session-subheading'), null);
+  assert.equal(document.querySelectorAll('section[aria-label="Q"] .session-row').length, 2);
 });

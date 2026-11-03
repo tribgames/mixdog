@@ -41,7 +41,7 @@ test('rooms render after the bots, with indicators, and a click opens the room',
     ['Watcher', 'Alpha', 'Beta']
   );
   assert.ok(rows[1].classList.contains('selected'));
-  assert.ok(rows[1].querySelector('.agent-room-tile'));
+  assert.ok(rows[1].querySelector('.session-row-slot-room svg'), 'a room leads with the people glyph');
   assert.ok(rows[2].querySelector('.session-row-unread-dot'));
   await act(async () => rows[2].querySelector('button').click());
   assert.deepEqual(opened, ['sess_r2']);
