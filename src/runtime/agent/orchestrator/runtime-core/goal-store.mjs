@@ -50,12 +50,27 @@ export function createGoalStore(ctx) {
     return record;
   };
 
+  // Session -> publications a running mutation made. The lock is released
+  // through real I/O after the operation, so a listener told inside it would
+  // arm its follow-up (the Goal continuation's immediate) before the caller
+  // awaiting the mutation resumes; they go out once the mutation has settled.
+  const heldPublications = new Map();
+
   const withMutation = (sessionId, operation) => {
     const id = assertSessionId(sessionId);
     const previous = mutationChains.get(id) || Promise.resolve();
     // Under the record's lock, reading from disk: another process's commit
     // is what this operation modifies, never a cached copy it replaced.
-    const current = previous.catch(() => {}).then(() => storage.mutate(id, () => operation(id)));
+    const current = previous.catch(() => {}).then(async () => {
+      const held = [];
+      heldPublications.set(id, held);
+      try {
+        return await storage.mutate(id, () => operation(id));
+      } finally {
+        heldPublications.delete(id);
+        for (const goal of held) notify(id, goal);
+      }
+    });
     mutationChains.set(id, current);
     current
       .finally(() => {
@@ -86,12 +101,18 @@ export function createGoalStore(ctx) {
     return goal?.archivedAt ? null : goal;
   };
 
-  const emit = (sessionId, goal = visibleSnapshot(sessionId)) => {
+  const notify = (sessionId, goal) => {
     for (const listener of [...listeners]) {
       try {
         listener({ sessionId, goal });
       } catch {}
     }
+  };
+
+  const emit = (sessionId, goal = visibleSnapshot(sessionId)) => {
+    const held = heldPublications.get(sessionId);
+    if (held) held.push(goal);
+    else notify(sessionId, goal);
   };
 
   const commit = async (sessionId, goal, { isCurrent, accept } = {}) => {
