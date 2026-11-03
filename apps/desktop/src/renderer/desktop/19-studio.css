@@ -1088,12 +1088,15 @@ html[data-mixdog-skin] .desktop-boot-cover > .desktop-loading-surface {
   isolation: isolate;
   /* Same scrim as other dialogs. No backdrop-filter: it blacked out the
      window on Windows GPU during slider drags. Gallery stays hidden so
-     tiles cannot ghost through the veil. */
+     tiles cannot ghost through the veil. The composer dock goes too: through
+     the translucent scrim (and a transparent image) its card and model line
+     showed and stayed clickable. */
   background: var(--mx-scrim);
   animation: studio-detail-in var(--mx-motion-chrome);
 }
 .studio-shell:has(.studio-detail) .studio-results,
-.studio-shell:has(.studio-detail) .studio-topbar {
+.studio-shell:has(.studio-detail) .studio-topbar,
+.studio-shell:has(.studio-detail) .studio-dock {
   visibility: hidden;
 }
 /* Detail card follows the shared dialog grammar (model picker / settings):
