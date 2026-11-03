@@ -1645,7 +1645,7 @@ html[data-mixdog-mobile-tabs]
    row's supporting line in the two-line panels). */
 .session-sidebar-scroll > .sidebar-recent:has(> .session-list) + .sidebar-recent,
 .studio-panel > .sidebar-recent:has(> .session-list) + .sidebar-recent {
-  margin-top: 20px;
+  margin-top: 12px;
 }
 /* The Sessions surface: the scroller owns the 12px top inset the header's
    creation action used to leave to the launcher block. */
@@ -2016,8 +2016,8 @@ html[data-mixdog-mobile-tabs]
 .session-sidebar .recent-session-list {
   padding: 0;
 }
-/* Agents section: the 최근 row grammar with a 20px face (the Agents pane's
-   avatar, scaled) before the name; an unread reply is only the row's dot. */
+/* Agents section: the 최근 row grammar with the bot's face in the 16px slot
+   (the Agents pane's avatar, scaled); an unread reply is only the row's dot. */
 .session-agent-avatar {
   position: relative;
   width: 16px;
@@ -2027,9 +2027,17 @@ html[data-mixdog-mobile-tabs]
   place-items: center;
   color: var(--mx-text-soft);
 }
+/* The mascot is a 16×12 drawing whose paint spans x 2..15: at the slot's 16px
+   it reads smaller than the 16px glyphs beside it. Drawn 18.5px wide (paint
+   ≈13.9px tall, like the bubble) and pulled 1.5px left so its painted edge sits
+   on the glyphs' left edge; it ends ≈6px before the name (slot + 22). */
+.session-agent-avatar {
+  justify-items: start;
+}
 .session-agent-avatar > .agent-contact-mascot {
-  width: 100%;
-  height: 100%;
+  width: 18.5px;
+  height: auto;
+  margin-left: -1.5px;
 }
 .session-agent-avatar > .agent-contact-badge {
   position: absolute;
