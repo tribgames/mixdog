@@ -281,7 +281,9 @@
   flex: none;
   min-width: 0;
   height: var(--mx-dock-header-height, 44px);
-  padding: 0 6px 0 8px;
+  /* The left rail's panel header: title on the 16px content line, the last
+     28px action centred on the trailing line 26px in (12 + 14). */
+  padding: 0 12px 0 16px;
   /* No rule under the header: content starts directly beneath it. A divider
      belongs to a second top row (the browser nav row), not to this one. */
   border-bottom: 0;
@@ -326,11 +328,17 @@
   background: var(--mx-pressed);
 }
 .dock-header-title {
-  padding: 0 2px;
+  padding: 0;
   color: var(--mx-text);
   font-size: var(--mx-rail-panel-title, 13px);
-  font-weight: var(--mx-weight-semibold);
+  /* The rail panel title weight (09-sidebar-chrome.css .session-panel-header). */
+  font-weight: var(--mx-weight-medium);
   white-space: nowrap;
+}
+/* A tab strip in the title slot puts its first chip's icon on the title's
+   16px line: the row pads 3px and the chip leads by 13px. */
+.dock-header-row:has(> .dock-header-left > :first-child:is(.browser-tab-toolbar, .browser-tab-list)) {
+  padding-left: 3px;
 }
 /* The file chip IS a `.browser-tab.is-active` (same plate, font, weight, ink and
    icon size as the pane workspace tabs); only its width floor is released. */

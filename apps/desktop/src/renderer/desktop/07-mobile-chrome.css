@@ -882,9 +882,6 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-list .session-subheading
   padding-left: calc(8px - var(--mx-drawer-bleed));
 }
 html[data-mixdog-mobile-tabs] .session-sidebar .session-list .sidebar-section-empty {
-  padding-left: calc(8px - var(--mx-drawer-bleed));
-}
-html[data-mixdog-mobile-tabs] .session-sidebar .project-session-list > .sidebar-section-empty {
   padding-left: calc(30px - var(--mx-drawer-bleed));
 }
 /* The static dot and status ride the row's right edge with fixed offsets. */
@@ -983,8 +980,10 @@ html[data-mixdog-mobile-tabs] .pane-side-dock {
   padding-top: env(safe-area-inset-top, 0px);
 }
 html[data-mixdog-mobile-tabs] .dock-header-row {
-  /* Row padding (0 6px 0 8px), gap (4px) and control gap (2px) stay the PC's. */
+  /* Gap (4px), control gap (2px) and the 16px title line stay the PC's; the
+     44px touch buttons keep the PC's trailing line (26px in) with a 4px pad. */
   --mx-dock-header-height: var(--mx-touch-main);
+  padding-right: 4px;
 }
 /* The diff detail's back chevron keeps its PC glyph box; only its hit frame
    reaches the touch minimum, hanging off ::after. */

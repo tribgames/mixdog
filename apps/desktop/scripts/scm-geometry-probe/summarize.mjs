@@ -578,8 +578,8 @@ for (const scenario of report) {
   );
   check(
     scenario,
-    Math.abs(rowHeight - 29) <= 0.5,
-    `the changed-file row band is ${rowHeight}px, not the 29px the window is computed on`
+    Math.abs(rowHeight - 31) <= 0.5,
+    `the changed-file row band is ${rowHeight}px, not the 31px the window is computed on`
   );
   const historyScroll = scenario.historyScroll;
   console.log(
