@@ -123,7 +123,9 @@ const pick = {
   view: { x: 0, y: 0, width: 10, height: 10 },
   masks: [],
 };
-const settle = () => act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+// The real timer: a test that moves the product's clock still gets a real turn here.
+const { setTimeout: realSetTimeout } = globalThis;
+const settle = () => act(async () => new Promise((resolve) => realSetTimeout(resolve, 0)));
 
 async function mount(t, comment, shown = tab) {
   resetVisualizeFeedback();
@@ -285,6 +287,9 @@ test('Comment mode drops page choices: no gesture spent, no bar', async (t) => {
 
 test('a crop re-describes the element: only the answer to its own request counts, within a short wait', async (t) => {
   const { frame, toPage, fromPage } = await mount(t, false);
+  // The wait runs on a clock this test moves: delivering the answers below can
+  // take longer than the wait on a loaded machine without running it out.
+  t.mock.timers.enable({ apis: ['setTimeout'] });
   const asking = requestVisualizeDescription(frame, 'h1');
   const request = toPage.at(-1);
   assert.equal(request.type, 'describe');
@@ -299,7 +304,9 @@ test('a crop re-describes the element: only the answer to its own request counts
   assert.equal(answer.masksOverflow, false);
 
   // No answer: null after the wait, so no crop.
-  assert.equal(await requestVisualizeDescription(frame, 'h1'), null);
+  const unanswered = requestVisualizeDescription(frame, 'h1');
+  t.mock.timers.runAll();
+  assert.equal(await unanswered, null);
 });
 
 test('a crop is kept only if the page answers the same before and after the shot', async (t) => {
