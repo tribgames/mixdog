@@ -3,4 +3,7 @@
     <!-- Mixdog window band (CSS mx-window-band): system bars, splash and the
          pre-paint window all match the app chrome so nothing flashes white. -->
     <color name="mixdogBand">#181818</color>
+    <!-- Reconnect screen text on that band. -->
+    <color name="mixdogReconnectText">#F2F2F2</color>
+    <color name="mixdogReconnectMuted">#A6A6A6</color>
 </resources>
