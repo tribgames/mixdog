@@ -5,6 +5,36 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+This release speeds up ongoing Claude conversations, organizes the Sessions panel by project and branch, and introduces Studio boards, alongside stability improvements for parallel work.
+
+### New features
+
+- **Studio boards** — Group Studio creations into boards from the composer menu, and browse past works with search from the left rail.
+- **Projects in Sessions** — Groups sessions by project in the Sessions panel, with sub-categories for each branch when a project has multiple branches.
+- **Start screen setting** — Choose what a new desktop window opens with in settings, starting a projectless session by default without accumulating blank tabs (#312).
+- **Faster Claude replies** — Ongoing Claude conversations now send only new messages after the initial turn, speeding up replies while falling back when needed.
+- **HID devices in the built-in browser** — Websites in the built-in browser can now connect to selected HID hardware (#250).
+- **Page actions in Visualize** — Agents can now click, type, and scroll inside open HTML pages in Visualize to inspect interfaces directly.
+
+### Changes
+
+- Changed the Sessions panel to start tasks with a + button in the header and show bots as rows with their status.
+- Changed the Request log to show durations in seconds, requested and answering models for substituted requests (#306), and subscription API list prices.
+- Changed top-right notifications to alert on app updates, installs, usage-limit pauses, expired sign-ins, and unsaved conversations.
+- Changed to-do lists to track pending, in progress, completed, and dropped tasks, preventing blocked steps from turning the progress ring red.
+- Adjusted side panels and the Studio gallery to share consistent spacing, empty-state styling, and top and bottom edge fades.
+
+### Bug fixes
+
+- Fixed the app freezing, stuttering, or crashing on memory spikes during heavy operations like code search (#308).
+- Fixed an app update install stopping work that was still running (#308).
+- Fixed Claude ignoring a message sent after a turn that ended without a reply, as if it were tool output.
+- Fixed background worktree checks taking two minutes on Windows after every app launch.
+- Fixed plugin updates finishing silently without displaying a completion notice (#307).
+- Fixed context popovers being covered on mobile screens (#309) and long timestamps overflowing their column in the Request log (#310).
+- Fixed pressing `F2` in the session composer failing to rename the active session.
+- Fixed search counts showing full paths instead of relative ones in folders whose names contain numbers and hyphens (#304).
+
 ## v1.4.4 - 2026-11-02
 
 Added a Request log in Usage, live sub-agent side panels, session navigation history, and custom provider request options.

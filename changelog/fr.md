@@ -5,6 +5,36 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+Cette version accélère les conversations Claude en cours, organise le panneau Sessions par projet et branche, et introduit les tableaux Studio, tout en améliorant la stabilité lors du travail en parallèle.
+
+### Nouvelles fonctionnalités
+
+- **Tableaux Studio** — Regroupez les créations Studio en tableaux depuis le menu de saisie et parcourez vos travaux passés avec recherche depuis la barre latérale gauche.
+- **Projets dans Sessions** — Regroupe les sessions par projet dans le panneau Sessions, avec des sous-catégories pour chaque branche lorsqu'un projet en compte plusieurs.
+- **Réglage de l'écran d'accueil** — Choisissez dans les réglages ce qu'ouvre une nouvelle fenêtre de bureau, démarrant par défaut une session sans projet sans accumuler d'onglets vides (#312).
+- **Réponses Claude plus rapides** — Les conversations Claude en cours n'envoient désormais que les nouveaux messages après le premier tour, accélérant les réponses tout en revenant à un envoi complet si nécessaire.
+- **Périphériques HID dans le navigateur intégré** — Les sites web dans le navigateur intégré peuvent désormais se connecter au matériel HID sélectionné (#250).
+- **Actions de page dans Visualize** — Les agents peuvent désormais cliquer, taper et faire défiler dans les pages HTML ouvertes dans Visualize pour inspecter les interfaces directement.
+
+### Modifications
+
+- Modification du panneau Sessions pour démarrer des tâches via un bouton + dans l'en-tête et afficher les bots sous forme de lignes avec leur statut.
+- Modification du Journal des requêtes pour afficher les durées en secondes, les modèles demandés et répondants pour les requêtes substituées (#306), ainsi que les tarifs catalogue de l'API d'abonnement.
+- Modification des notifications en haut à droite pour signaler les installations, mises à jour de l'app, arrêts pour limite d'utilisation, connexions expirées et conversations non enregistrées.
+- Modification des listes de tâches pour suivre les étapes en attente, en cours, terminées et abandonnées, empêchant une étape bloquée de faire passer l'anneau de progression au rouge.
+- Ajustement des panneaux latéraux et de la galerie Studio pour partager un espacement cohérent, des styles d'état vide harmonisés et des fondus en haut et en bas.
+
+### Corrections de bugs
+
+- Correction des blocages, saccades ou plantages de l'application dus à des pics de mémoire lors d'opérations lourdes comme la recherche de code (#308).
+- Correction de l'installation d'une mise à jour de l'application qui interrompait des tâches encore en cours d'exécution (#308).
+- Correction du problème où Claude ignorait un message envoyé après un tour terminé sans réponse, en le prenant pour la sortie d'un outil.
+- Correction des vérifications de worktrees en arrière-plan qui prenaient deux minutes sous Windows après chaque démarrage de l'application.
+- Correction des mises à jour d'extensions qui se terminaient silencieusement sans afficher de notification (#307).
+- Correction des popovers de contexte masqués sur les écrans mobiles (#309) et des horodatages trop longs qui débordaient de leur colonne dans le Journal des requêtes (#310).
+- Correction de l'appui sur `F2` dans la zone de saisie qui ne renommait pas la session active.
+- Correction du décompte des résultats de recherche qui affichait des chemins absolus au lieu de chemins relatifs dans les dossiers contenant des chiffres et des tirets (#304).
+
 ## v1.4.4 - 2026-11-02
 
 Ajout de l'onglet Journal des requêtes dans Utilisation, de panneaux latéraux en direct pour les sous-agents, de l'historique de navigation de session et d'options avancées pour les fournisseurs personnalisés.

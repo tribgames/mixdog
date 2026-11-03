@@ -4,6 +4,36 @@ Wichtige Änderungen, die neuesten zuerst. Die Deploy-Pipeline verweigert einen 
 
 ## Unreleased
 
+Diese Version beschleunigt laufende Claude-Unterhaltungen, ordnet den Bereich „Sitzungen“ nach Projekt und Branch, führt Studio-Boards ein und verbessert die Stabilität bei paralleler Arbeit.
+
+### Neue Funktionen
+
+- **Studio-Boards** — Studio-Ergebnisse über das Menü der Eingabezeile in Boards organisieren und frühere Arbeiten über die linke Seitenleiste durchsuchen.
+- **Projekte in Sitzungen** — Gruppiert Sitzungen im Bereich „Sitzungen“ nach Projekt, mit Unterkategorien für jeden Branch bei Projekten mit mehreren Branches.
+- **Startbildschirm-Einstellung** — In den Einstellungen festlegen, womit ein neues Desktop-Fenster geöffnet wird; standardmäßig wird eine neue Sitzung ohne Projekt gestartet, ohne leere Tabs anzuhäufen (#312).
+- **Schnellere Claude-Antworten** — Laufende Claude-Unterhaltungen senden nach der ersten Anfrage nur noch neue Nachrichten, was Antworten beschleunigt und bei Bedarf auf eine vollständige Anfrage zurückgreift.
+- **HID-Geräte im integrierten Browser** — Websites im integrierten Browser können sich nun mit ausgewählter HID-Hardware verbinden (#250).
+- **Seitenaktionen in Visualize** — Agenten können nun direkt in geöffneten HTML-Seiten in Visualize klicken, tippen und scrollen, um Oberflächen selbst zu prüfen.
+
+### Änderungen
+
+- Bereich „Sitzungen“ so geändert, dass neue Aufgaben über eine +-Schaltfläche in der Kopfzeile gestartet werden und Bots als Zeilen mit ihrem Status erscheinen.
+- Anfrageprotokoll so geändert, dass Dauern in Sekunden, angefragte und antwortende Modelle bei ersetzten Anfragen (#306) sowie API-Listenpreise für Abonnements angezeigt werden.
+- Benachrichtigungen oben rechts so geändert, dass sie über Installationen, App-Updates, Nutzungslimit-Pausen, abgelaufene Anmeldungen und ungespeicherte Unterhaltungen informieren.
+- To-do-Listen so geändert, dass sie ausstehende, laufende, abgeschlossene und verworfene Aufgaben erfassen und blockierte Schritte den Fortschrittsring nicht mehr rot färben.
+- Seitenbereiche und die Studio-Galerie angepasst, um einheitliche Abstände, Stile für leere Zustände sowie Überblendungen am oberen und unteren Rand zu teilen.
+
+### Fehlerbehebungen
+
+- Einfrieren, Ruckeln oder Abstürze der App bei Speicherüberlastung während intensiver Vorgänge wie der Codesuche behoben (#308).
+- Behoben, dass eine App-Update-Installation noch laufende Arbeiten unterbrach (#308).
+- Behoben, dass Claude eine Nachricht ignorierte, die nach einem Durchgang ohne Antwort gesendet wurde, als wäre sie eine Werkzeugausgabe.
+- Behoben, dass Hintergrund-Worktree-Prüfungen unter Windows nach jedem App-Start zwei Minuten dauerten.
+- Behoben, dass Plugin-Updates ohne jede Abschlussmeldung abgeschlossen wurden (#307).
+- Behoben, dass Kontext-Popovers auf Mobilgeräten verdeckt wurden (#309) und lange Zeitstempel ihre Spalte im Anfrageprotokoll überragten (#310).
+- Behoben, dass das Drücken von `F2` in der Sitzungseingabe die aktive Sitzung nicht umbenannte.
+- Behoben, dass Trefferzähler in Ordnern mit Zahlen und Bindestrichen im Namen vollständige Pfade anstelle von relativen anzeigten (#304).
+
 ## v1.4.4 - 2026-11-02
 
 Registerkarte „Anfrageprotokoll“ unter Nutzung, Live-Seitenbereiche für Subagenten, Sitzungsverlauf-Navigation und erweiterte Optionen für benutzerdefinierte Provider hinzugefügt.

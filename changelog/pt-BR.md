@@ -4,6 +4,36 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Esta versão acelera conversas contínuas com o Claude, organiza o painel Sessões por projeto e branch e introduz quadros do Studio, além de melhorias de estabilidade para trabalho em paralelo.
+
+### Novos recursos
+
+- **Quadros do Studio** — Agrupe criações do Studio em quadros pelo menu do campo de mensagem e explore trabalhos anteriores com busca na barra lateral esquerda.
+- **Projetos em Sessões** — Agrupa sessões por projeto no painel Sessões, com subcategorias para cada branch quando um projeto tem mais de uma ramificação.
+- **Configuração da tela inicial** — Escolha nas configurações o que uma nova janela do desktop abre, iniciando por padrão uma sessão sem projeto sem acumular abas em branco (#312).
+- **Respostas mais rápidas do Claude** — Conversas contínuas com o Claude agora enviam apenas as novas mensagens após o turno inicial, acelerando as respostas e recorrendo ao envio completo quando necessário.
+- **Dispositivos HID no navegador integrado** — Sites no navegador integrado agora podem se conectar ao hardware HID selecionado (#250).
+- **Ações de página no Visualize** — Os agentes agora podem clicar, digitar e rolar dentro de páginas HTML abertas no Visualize para inspecionar interfaces diretamente.
+
+### Alterações
+
+- Alterado o painel Sessões para iniciar tarefas a partir de um botão + no cabeçalho e exibir os bots como linhas com seus respectivos status.
+- Alterado o Registro de solicitações para mostrar durações em segundos, modelos solicitados e que responderam para solicitações substituídas (#306) e preços de tabela da API de assinaturas.
+- Alteradas as notificações no canto superior direito para alertar sobre instalações, atualizações do app, pausas por limite de uso, logins expirados e conversas não salvas.
+- Alteradas as listas de tarefas para acompanhar itens pendentes, em andamento, concluídos e descartados, impedindo que uma etapa bloqueada torne vermelho o anel de progresso.
+- Ajustados os painéis laterais e a galeria do Studio para compartilhar espaçamento consistente, estilos de estado vazio e transições suaves nas bordas superior e inferior.
+
+### Correções de bugs
+
+- Corrigidos travamentos, engasgos ou fechamentos inesperados do app por picos de memória durante operações pesadas, como busca de código (#308).
+- Corrigido o problema em que a instalação de uma atualização do app interrompia trabalhos ainda em execução (#308).
+- Corrigido o problema em que o Claude ignorava uma mensagem enviada após um turno terminado sem resposta, como se fosse a saída de uma ferramenta.
+- Corrigido o problema em que as verificações de worktrees em segundo plano levavam dois minutos no Windows após cada inicialização do app.
+- Corrigido o problema em que as atualizações de plugins terminavam silenciosamente sem exibir aviso de conclusão (#307).
+- Corrigido o problema em que popovers de contexto ficavam cobertos em telas móveis (#309) e carimbos de data/hora longos extrapolavam sua coluna no Registro de solicitações (#310).
+- Corrigido o problema em que pressionar `F2` no campo de mensagem da sessão não renomeava a sessão ativa.
+- Corrigido o problema em que as contagens de busca exibiam caminhos completos em vez de relativos em pastas com números e hífens no nome (#304).
+
 ## v1.4.4 - 2026-11-02
 
 Adicionada a aba Registro de solicitações em Uso, painéis laterais em tempo real para subagentes, histórico de navegação entre sessões e opções avançadas para provedores personalizados.

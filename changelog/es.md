@@ -5,6 +5,36 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+Esta versión acelera las conversaciones en curso con Claude, organiza el panel Sesiones por proyecto y rama, e introduce tableros de Studio, junto con mejoras de estabilidad para el trabajo en paralelo.
+
+### Nuevas funciones
+
+- **Tableros de Studio** — Agrupe creaciones de Studio en tableros desde el menú del cuadro de mensaje y explore trabajos anteriores con búsqueda desde la barra izquierda.
+- **Proyectos en Sesiones** — Agrupa sesiones por proyecto en el panel Sesiones, con subcategorías para cada rama cuando un proyecto tiene varias ramas.
+- **Ajuste de pantalla de inicio** — Elija con qué se abre una nueva ventana de escritorio en la configuración, iniciando por defecto una sesión sin proyecto sin acumular pestañas en blanco (#312).
+- **Respuestas de Claude más rápidas** — Las conversaciones en curso con Claude ahora envían solo los mensajes nuevos tras el turno inicial, acelerando las respuestas y recurriendo al envío completo si es necesario.
+- **Dispositivos HID en el navegador integrado** — Los sitios web en el navegador integrado ahora pueden conectarse al hardware HID seleccionado (#250).
+- **Acciones de página en Visualize** — Los agentes ahora pueden hacer clic, escribir y desplazarse dentro de páginas HTML abiertas en Visualize para inspeccionar interfaces directamente.
+
+### Cambios
+
+- Se cambió el panel Sesiones para iniciar tareas con un botón + en el encabezado y mostrar los bots como filas con su estado.
+- Se cambió el Registro de solicitudes para mostrar duraciones en segundos, los modelos solicitados y de respuesta en solicitudes sustituidas (#306) y los precios de lista de la API de suscripción.
+- Se cambiaron las notificaciones de la esquina superior derecha para avisar sobre instalaciones, actualizaciones de la app, pausas por límite de uso, inicios de sesión caducados y conversaciones no guardadas.
+- Se cambiaron las listas de tareas para registrar elementos pendientes, en curso, completados y descartados, evitando que un paso bloqueado ponga en rojo el anillo de progreso.
+- Se ajustaron los paneles laterales y la galería de Studio para compartir espaciado coherente, estilos de estado vacío y degradados superior e inferior.
+
+### Correcciones de errores
+
+- Se corrigieron congelamientos, tirones o cierres inesperados de la app por picos de memoria durante operaciones intensivas como la búsqueda de código (#308).
+- Se corrigió que la instalación de una actualización de la app detuviera tareas que aún estaban en ejecución (#308).
+- Se corrigió que Claude ignorara un mensaje enviado tras un turno que finalizó sin respuesta, confundiéndolo con la salida de una herramienta.
+- Se corrigió que las comprobaciones de worktree en segundo plano tardaran dos minutos en Windows tras cada inicio de la app.
+- Se corrigió que las actualizaciones de plugins finalizaran de forma silenciosa sin mostrar ningún aviso (#307).
+- Se corrigió que los menús emergentes de contexto quedaran cubiertos en pantallas móviles (#309) y que las marcas de tiempo largas se desbordaran de su columna en el Registro de solicitudes (#310).
+- Se corrigió que pulsar `F2` en el cuadro de mensaje no renombrara la sesión activa.
+- Se corrigió que el recuento de búsquedas mostrara rutas absolutas en lugar de relativas en carpetas cuyos nombres contienen números y guiones (#304).
+
 ## v1.4.4 - 2026-11-02
 
 Se añadió la pestaña Registro de solicitudes en Uso, paneles laterales en vivo para subagentes, historial de navegación entre sesiones y opciones avanzadas para proveedores personalizados.
