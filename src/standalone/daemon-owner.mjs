@@ -1,5 +1,14 @@
-// Whether the daemon-owner.json record still names a daemon, and the lease a
-// daemon holds on it.
+// Whether the daemon-owner.json record still names a daemon, and how the
+// daemon that owns a data dir keeps that record.
+//
+// Ownership itself is the OS lock the daemon holds for its whole life
+// (daemon-owner-lock.mjs): acquiring it IS the claim, a contender that cannot
+// acquire it yields, and no timer or stall can lose it. The record is what
+// everyone else reads — launchers deciding whether to wait for a booting
+// owner, the pg orphan sweep, checkpoint recovery — and what daemons from
+// before the lock still arbitrate on. A lock holder's record carries
+// `ownership: 'os-lock'`, its pid and process start time, plus the lease
+// fields those older daemons understand (heartbeat, liveness port).
 //
 // A live pid proves nothing on its own. A daemon terminated without running
 // its exit hooks (Windows shutdown, an installer or Task Manager ending the
@@ -9,31 +18,25 @@
 // spawned candidate yielded to it, and the desktop failed every call with
 // "daemon session endpoint is unavailable".
 //
-// Single-owner safety never rests on the wall clock:
-// - Holder: keeps its lease in monotonic time since its last successful
-//   refresh. An expired lease fences it (refuse work, shut down) instead of
-//   being renewed, and every register/call asks `admit()` first. After an
-//   event-loop stall nothing is served until a refresh under the claim lock
-//   proves the record still names it — a contender's claim takes that lock.
-//   A lease that ran out while that re-verification was pending — DURING
-//   the stall (live when the loop stopped), or after stalls the starved loop
-//   ended before it but too late to complete the refresh — is the one
-//   exception to the fence: nothing was admitted since the stall, and a
-//   contender's reclaim is decided under the claim lock against the record's
-//   heartbeat there (daemonOwnerIsStale re-checks it), so a refresh started
-//   after the stall that finds the record still naming this pid proves no
-//   contender took it and none can on its earlier proof. Without that, a sole
-//   daemon whose loop the machine starved past the lease killed itself and
-//   every running turn with no other daemon to take over.
-// - Holder's record names `livenessPort` from its very first claim: a tiny
-//   loopback listener started BEFORE the claim (startOwnerLivenessListener)
-//   answers /health with the pid, through boot and for the process lifetime.
-// - Contender: may reclaim a live-pid record only when its heartbeat looks
-//   stale (wall clock: a reused pid never beats) AND that port, probed for the
-//   full OWNER_PROBE_TIMEOUT_MS, does not answer with that pid — never on
+// Judging a record (launchers, and a lock holder facing a pre-lock record):
+// - A record names `livenessPort` from its very first write: a loopback
+//   listener started BEFORE the claim (startOwnerLivenessListener; in a lock
+//   holder it runs on the freeze watchdog's thread, so it answers while the
+//   main thread is frozen) answers /health with the pid for the process
+//   lifetime.
+// - A live-pid record is reclaimable only when its heartbeat looks stale
+//   (wall clock: a reused pid never beats) AND that port, probed for the full
+//   OWNER_PROBE_TIMEOUT_MS, does not answer with that pid — never on
 //   wall-clock staleness alone, so a clock jump never reclaims a holder that
-//   answers, booting or not; a holder silent for that long has stalled past
-//   `stallMs` and re-verifies before serving again.
+//   answers, booting or not.
+// - A daemon that holds the lock replaces a lock-format record naming another
+//   pid at once: its writer held the lock this process now holds, so it is
+//   gone, whatever its pid looks like now.
+//
+// Migration: a pre-lock daemon takes no lock. A lock holder therefore honors
+// a pre-lock record by the rules above and yields to a live one; a pre-lock
+// daemon sees a lock holder's record as a lease it cannot reclaim while the
+// liveness port answers.
 //
 // Records without a heartbeat come from v1.1.2 and older (and records with a
 // heartbeat but no liveness port only from unreleased intermediate builds,
@@ -50,12 +53,14 @@ export const DAEMON_OWNER_STALE_MS = 60_000;
 export const OWNER_PROBE_TIMEOUT_MS = 3_000;
 const PROBE_BODY_MAX_BYTES = 1024 * 1024;
 
+/** Marks a record written by a daemon holding the OS owner lock. */
+export const OWNER_LOCK_OWNERSHIP = 'os-lock';
+
 /**
- * Lease timings. MIXDOG_DAEMON_OWNER_STALE_MS may only shorten the stale
+ * Record timings. MIXDOG_DAEMON_OWNER_STALE_MS may only shorten the stale
  * threshold (tests); every process on one data dir must see the same value.
- * Six beats per threshold; fenced at two thirds of it (40 s of 60 s, leaving
- * the 15 s shutdown budget inside it); the lease is checked every `tickMs`
- * and a turn gap over `stallMs` (< OWNER_PROBE_TIMEOUT_MS) counts as a stall.
+ * The holder rewrites its heartbeat six times per threshold, so readers that
+ * judge by it (launchers, pre-lock daemons) rarely need to probe.
  */
 export function daemonOwnerTimings(env = process.env) {
   const configured = Number(env.MIXDOG_DAEMON_OWNER_STALE_MS);
@@ -63,9 +68,21 @@ export function daemonOwnerTimings(env = process.env) {
     Number.isFinite(configured) && configured > 0
       ? Math.min(DAEMON_OWNER_STALE_MS, Math.max(600, configured))
       : DAEMON_OWNER_STALE_MS;
-  const heartbeatMs = Math.round(staleMs / 6);
-  const tickMs = Math.min(250, Math.round(heartbeatMs / 4));
-  return { staleMs, heartbeatMs, fenceMs: Math.round((staleMs * 2) / 3), tickMs, stallMs: tickMs * 4 };
+  return { staleMs, heartbeatMs: Math.round(staleMs / 6) };
+}
+
+/** Whether `owner` was written by a daemon holding the OS owner lock. */
+export function ownerRecordFromLockHolder(owner) {
+  return owner?.ownership === OWNER_LOCK_OWNERSHIP;
+}
+
+/**
+ * For a daemon that has just acquired the OS owner lock: whether a live-pid
+ * record naming another pid gives way. A lock holder's record does (its
+ * writer is gone); a pre-lock daemon's only by daemonOwnerIsStale.
+ */
+export function ownerRecordYieldsToLock(owner, options) {
+  return ownerRecordFromLockHolder(owner) || daemonOwnerIsStale(owner, options);
 }
 
 /** daemon.json's pid and session endpoint, or null when missing/unreadable. */
@@ -167,8 +184,9 @@ function leasedPort(owner) {
 /**
  * The holder's owner-liveness listener: loopback /health answering this pid
  * (unauthenticated, like the session /health). Started before the claim so
- * the very first record names its port; it answers whenever this process's
- * event loop runs. Resolves null when loopback cannot be bound — the record
+ * the very first record names its port; it answers whenever the event loop of
+ * the thread that started it runs (the freeze watchdog's, in a lock holder).
+ * Resolves null when loopback cannot be bound — the record
  * then carries no port and is judged like a legacy one.
  */
 export function startOwnerLivenessListener({ pid = process.pid, log = () => {} } = {}) {
@@ -262,60 +280,55 @@ export function daemonOwnerIsStale(
 }
 
 /**
- * The holder's side of the lease, in monotonic time (`monoNow`). Every
- * `tickMs` it checks the lease, notices stalls, and every `heartbeatMs`
- * rewrites `owner` with a fresh wall-clock `heartbeatAt` under the claim lock
- * (recreating a deleted record), then calls `onBeat`.
- * - No successful refresh for `fenceMs`: fenced, never renewed (`onFenced`) —
- *   unless the lease ran out with a stall's re-verification pending (inside
- *   one stall, or across split stalls): then the refresh under the claim
- *   lock decides, however long it takes. It is retried every tick; the
- *   record still naming this pid serves again, another pid's is
- *   `onSuperseded`, and fenced once a refresh started at or after the first
- *   turn that saw the lease expired was refused and `heartbeatMs` of retries
- *   since that turn did not change that, or when none has answered `staleMs`
- *   after it.
- * - The record names another pid: `onSuperseded(record)`.
- * - A turn gap over `stallMs`: `admit()` refuses work until a refresh succeeds.
- *   The gap is logged once, with `describeStall(fromMono, toMono)` appended.
- * Both callbacks must make this process stop serving.
+ * The lock holder's record upkeep. Every `heartbeatMs` it rewrites `owner`
+ * with a fresh wall-clock `heartbeatAt` under the claim lock (recreating a
+ * deleted record), then calls `onBeat`. No span of time stops it: a busy
+ * claim lock or a failed write is logged and retried, since the OS lock, not
+ * the record, is the ownership.
+ * - The record names another pid (a pre-lock daemon reclaimed it):
+ *   `onSuperseded(record)`.
+ * - `lockIntact()` turned false (the lock file was deleted or replaced, so a
+ *   new daemon could lock another file): `onLockLost()`.
+ * Both callbacks must make this process stop serving. `update(fields)` merges
+ * new fields (a liveness listener's port) and resolves with the status of the
+ * refresh that wrote them.
+ *
+ * Admission after a stall. A pre-lock daemon takes the record over when its
+ * heartbeat looks stale and its liveness port does not answer — possible
+ * while this main thread is frozen (the record goes unrefreshed) and its
+ * liveness listener is down. Every turn gap over `stallMs` (noticed by the
+ * `tickMs` timer or by `admit()` itself, whichever runs first after it; a
+ * whole-process suspend counts too) therefore closes admission until a refresh
+ * STARTED after the latest gap finds the record still naming this pid. A
+ * refresh from before a gap proves nothing — it may have read the record
+ * before the takeover — and that includes a gap while the refresh itself ran,
+ * so the turn gap is observed again when it settles. A busy claim lock (a contender mid-claim) or a failed write keeps
+ * it closed and is retried every tick; `admitAsync()` waits for that refresh.
  */
-export function createOwnerHeartbeat({
+export function createOwnerRecordKeeper({
   ownerPath,
   owner,
   heartbeatMs,
-  fenceMs,
-  tickMs,
-  stallMs,
-  staleMs = daemonOwnerTimings().staleMs,
+  tickMs = 250,
+  stallMs = 1000,
   now = Date.now,
   monoNow = () => performance.now(),
   refresh = refreshSingletonOwnerAsync,
+  lockIntact = () => true,
   log = () => {},
-  describeStall = null,
   onBeat = () => {},
   onSuperseded,
-  onFenced,
+  onLockLost,
 }) {
   const record = { ...owner };
   let state = 'active';
-  let leaseFrom = monoNow();
-  let lastRefreshAt = record.heartbeatAt ?? null;
-  let lastBeatAt = leaseFrom;
-  let lastTurnAt = leaseFrom;
-  let needsVerify = false;
-  // The first turn that saw the lease expired with a stall's re-verification
-  // pending (the resume, for a stall that outlived the lease); the
-  // re-verification bounds count from it.
-  let stallResumedAt = null;
-  // A refresh started since that turn was refused (claim lock busy, error).
-  let verifyDenied = false;
-  // The refresh in flight: a promise of its settled status, else null.
-  let pending = null;
-  // When the latest stall was noticed: only a refresh started after it can
-  // re-verify the record (an older one may have read it before the stall).
-  let stallNotedAt = Number.NEGATIVE_INFINITY;
   let timer = null;
+  // The refresh in flight: { startedAt, done } (done: its settled status).
+  let inFlight = null;
+  let lastBeatAt = monoNow();
+  let lastTurnAt = lastBeatAt;
+  // When the latest unverified stall was noticed, else null.
+  let stalledAt = null;
 
   function halt(next) {
     state = next;
@@ -323,149 +336,79 @@ export function createOwnerHeartbeat({
     timer = null;
   }
 
-  function leaseExpired(t) {
-    return t - leaseFrom >= fenceMs;
-  }
-
-  // Expired and past re-verification: the refreshes failed while the loop
-  // ran with no stall to verify, or a refresh started since the expiry turn
-  // (`stallResumedAt`) was refused and `heartbeatMs` of retries since then
-  // did not change that (a retry still in flight does not extend it). How
-  // long a verifying refresh takes proves nothing (the loop is often still
-  // starved after a stall, and split stalls leave it unanswered across the
-  // expiry), so one not yet refused is waited for — but only for `staleMs`
-  // after the expiry turn: a daemon that answers health probes while refusing
-  // all work would block every client with no one able to take over.
-  function mustFence(t) {
-    if (!leaseExpired(t)) return false;
-    // Taken once per verification episode: later stalls never move its bounds.
-    if (stallResumedAt === null && needsVerify) stallResumedAt = t;
-    if (stallResumedAt === null) return true;
-    return resumeBoundPassed(t) || (verifyDenied && t - stallResumedAt >= heartbeatMs);
-  }
-
-  function resumeBoundPassed(t) {
-    return leaseExpired(t) && stallResumedAt !== null && t - stallResumedAt >= staleMs;
-  }
-
-  function fence(t) {
-    if (state !== 'active') return;
-    const unanswered = stallResumedAt !== null && !verifyDenied;
-    halt('fenced');
-    log(
-      unanswered
-        ? `owner lease verification unanswered ${Math.round(t - stallResumedAt)}ms after the loop resumed (last ${lastRefreshAt}) — fencing`
-        : `owner lease not refreshed for ${Math.round(t - leaseFrom)}ms (last ${lastRefreshAt}) — fencing`
-    );
-    onFenced({ lastRefreshAt, sinceMs: Math.round(t - leaseFrom) });
-  }
-
   function noteTurn(t) {
-    const from = lastTurnAt;
-    // Rebased before reporting: one long block is one gap, however many
-    // callers (tick, admit) observe it afterwards.
+    if (t - lastTurnAt > stallMs) stalledAt = t;
     lastTurnAt = t;
-    if (t - from <= stallMs) return;
-    needsVerify = true;
-    stallNotedAt = t;
-    let detail = '';
-    try {
-      detail = describeStall?.(from, t) || '';
-    } catch {
-      /* attribution must not disturb the lease */
-    }
-    log(
-      `event loop stalled ${Math.round(t - from)}ms — owner lease must be re-verified before serving` +
-        (detail ? ` | ${detail}` : '')
-    );
   }
 
-  // A refresh's verdict, applied once it is known. Fenced, superseded or
-  // stopped while it ran: nothing is renewed. A renewal counts from the
-  // moment the refresh started (`t`), never from when it answered.
-  function settle(t, heartbeatAt, result) {
+  function settle(startedAt, result) {
     if (state !== 'active') return result.status;
-    // A verification landing at or after the bound comes too late, whether or
-    // not a tick has fenced yet.
-    if (result.status === 'refreshed' && resumeBoundPassed(monoNow())) {
-      fence(monoNow());
-      return result.status;
-    }
     if (result.status === 'refreshed') {
-      if (leaseExpired(t)) {
-        log(
-          `owner lease re-verified ${Math.round(t - leaseFrom)}ms after its last refresh (event-loop stall)` +
-            ' — the record still names this process; serving again'
-        );
-      }
-      leaseFrom = t;
-      lastRefreshAt = heartbeatAt;
-      verifyDenied = false;
-      if (t >= stallNotedAt) {
-        needsVerify = false;
-        stallResumedAt = null;
-      }
+      // A stall while it ran (no turn seen since) may postdate its read.
+      noteTurn(monoNow());
+      if (stalledAt !== null && startedAt >= stalledAt) stalledAt = null;
       onBeat();
     } else if (result.status === 'superseded') {
       halt('superseded');
       onSuperseded(result.owner);
-    } else {
-      if (result.status === 'busy') log('owner heartbeat skipped: claim lock busy');
-      // An older refresh (started before the expiry turn) is retried, not
-      // counted as a denial.
-      if (stallResumedAt !== null && t >= stallResumedAt) verifyDenied = true;
-    }
+    } else if (result.status === 'busy') log('owner record refresh skipped: claim lock busy');
     return result.status;
   }
 
-  function failedRefresh(error) {
-    log(`owner heartbeat failed: ${error?.message || error}`);
-    return { status: 'failed' };
-  }
-
-  // One refresh at a time. An asynchronous refresh (the default: its file
-  // work and lock retries never block the loop) answers 'pending' here and
-  // settles later; the lease and fence keep their monotonic deadlines while
-  // it runs — a refresh still unanswered at the fence does not hold it off.
   function beat() {
     if (state !== 'active') return null;
-    if (pending) return 'pending';
-    const t = monoNow();
-    lastBeatAt = t;
-    // Checked before every renewal: an overdue beat must fence, not extend a
-    // lease a contender may already have reclaimed — except while a stall's
-    // re-verification is pending past the lease, where the refresh itself
-    // (under the claim lock) answers whether one did.
-    if (mustFence(t)) {
-      fence(t);
-      return 'fenced';
+    if (!lockIntact()) {
+      halt('lock-lost');
+      onLockLost();
+      return 'lock-lost';
     }
-    const heartbeatAt = new Date(now()).toISOString();
-    let result;
-    try {
-      result = refresh(ownerPath, { ...record, heartbeatAt });
-    } catch (error) {
-      result = failedRefresh(error);
-    }
-    if (typeof result?.then !== 'function') return settle(t, heartbeatAt, result);
-    pending = result
-      .then(
-        (value) => value,
-        (error) => failedRefresh(error)
-      )
-      .then((value) => {
-        pending = null;
-        return settle(t, heartbeatAt, value);
+    if (inFlight) return 'pending';
+    const startedAt = monoNow();
+    lastBeatAt = startedAt;
+    const written = { ...record, heartbeatAt: new Date(now()).toISOString() };
+    const done = Promise.resolve()
+      .then(() => refresh(ownerPath, written))
+      .catch((error) => {
+        log(`owner record refresh failed: ${error?.message || error}`);
+        return { status: 'failed' };
+      })
+      .then((result) => {
+        inFlight = null;
+        return settle(startedAt, result);
       });
+    inFlight = { startedAt, done };
     return 'pending';
+  }
+
+  /** The status of a refresh started at or after `from` (started if needed). */
+  async function refreshSince(from) {
+    while (state === 'active') {
+      const current = inFlight;
+      if (!current) {
+        const started = beat();
+        if (started !== 'pending') return started;
+        continue;
+      }
+      const status = await current.done;
+      if (current.startedAt >= from) return status;
+    }
+    return null;
   }
 
   function tick() {
     if (state !== 'active') return;
     const t = monoNow();
     noteTurn(t);
-    if (mustFence(t)) fence(t);
-    else if (needsVerify ? t - lastBeatAt >= tickMs : t - lastBeatAt >= heartbeatMs) beat();
+    if (stalledAt !== null ? !inFlight : t - lastBeatAt >= heartbeatMs) beat();
+  }
+
+  /** Gate for every register/call: closed after a stall until re-verified. */
+  function admit() {
+    if (state !== 'active') return false;
+    noteTurn(monoNow());
+    if (stalledAt === null) return true;
+    if (!inFlight) beat();
+    return false;
   }
 
   return {
@@ -474,40 +417,33 @@ export function createOwnerHeartbeat({
       timer = setInterval(tick, tickMs);
       timer.unref?.();
     },
-    /** Gate for every register/call: true while the lease is held and verified. */
-    admit() {
-      if (state === 'fenced' || state === 'superseded') return false;
-      const t = monoNow();
-      // Shutting down: no ticks run to measure stalls; the lease still bounds it.
-      if (state === 'stopped') return !leaseExpired(t);
-      noteTurn(t);
-      if (mustFence(t)) {
-        fence(t);
-        return false;
-      }
-      // Re-verified at most once per tick: a busy claim lock must not block
-      // the loop on every request.
-      if (needsVerify && t - lastBeatAt >= tickMs) beat();
-      return state === 'active' && !needsVerify;
-    },
-    /** admit(), but a request arriving while the lease is being re-verified
-     *  waits for the verifying refresh instead of being refused outright: at
-     *  most two refreshes (one started before the stall cannot verify). */
-    async admitAsync() {
-      for (let attempt = 0; attempt < 2; attempt += 1) {
-        if (this.admit()) return true;
-        if (!pending) return false;
-        await pending;
-      }
-      return this.admit();
-    },
     beat,
     tick,
+    admit,
+    /** admit(), waiting for the re-verifying refresh instead of refusing.
+     *  The turn gap is observed again after every wait (admit() does): a
+     *  stall during one needs a refresh started after it, a few at most. */
+    async admitAsync() {
+      for (let round = 0; round < 3; round += 1) {
+        if (admit()) return true;
+        if (state !== 'active') return false;
+        if ((await refreshSince(stalledAt)) !== 'refreshed') return false;
+      }
+      return admit();
+    },
+    update(fields) {
+      Object.assign(record, fields);
+      return refreshSince(monoNow());
+    },
     /** Settles with the in-flight refresh's status (null when none runs). */
     settled() {
-      return pending ?? Promise.resolve(null);
+      return inFlight?.done ?? Promise.resolve(null);
     },
-    /** Stop beating (shutdown). admit() keeps refusing once the lease runs out. */
+    /** A stall is waiting to be re-verified (admission is closed). */
+    get verifying() {
+      return state === 'active' && stalledAt !== null;
+    },
+    /** Stop rewriting the record (shutdown). */
     stop() {
       if (state === 'active') halt('stopped');
     },
@@ -516,3 +452,4 @@ export function createOwnerHeartbeat({
     },
   };
 }
+

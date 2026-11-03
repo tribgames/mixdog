@@ -1,9 +1,9 @@
 // daemon-refusal.mjs — the 503 a daemon front door answers when it will not
 // take work now, and how a client reads it back. Two kinds look alike on the
 // wire and must not be handled alike:
-// - EDAEMON_RETRY_LATER: busy or not ready yet (today: the owner lease is
-//   being re-verified); the same request is asked again after `retryAfterMs`,
-//   on the same attachment.
+// - EDAEMON_RETRY_LATER: busy or not ready yet (today: the owner record is
+//   being re-verified after an event-loop stall); the same request is asked
+//   again after `retryAfterMs`, on the same attachment, silently.
 // - EDAEMON_FENCED: fenced or shutting down; this daemon will not serve again,
 //   so only re-attaching (to whichever daemon serves next) helps.
 import { sendJson } from '../runtime/memory/lib/http-wire.mjs';

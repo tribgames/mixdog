@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -8,16 +9,25 @@ import test from 'node:test';
 import { setTimeout as delay } from 'node:timers/promises';
 import { writeJsonAtomicSync } from '../runtime/shared/atomic-file.mjs';
 import { isPidAlive } from '../runtime/shared/pid-liveness.mjs';
-import { readSingletonOwner } from '../runtime/shared/singleton-owner.mjs';
-import { discoveryPid, probeDaemonPid, proveDaemonOwnerRecord, startOwnerLivenessListener } from './daemon-owner.mjs';
+import {
+  discoveryPid,
+  probeDaemonPid,
+  proveDaemonOwnerRecord,
+  readDiscovery,
+  startOwnerLivenessListener,
+} from './daemon-owner.mjs';
 import { ensureDaemon, spawnDaemonCandidate } from './session-client.mjs';
+import { SESSION_PROTOCOL } from './session-wire.mjs';
 
 // The real daemon in an isolated home, data dir and runtime root, on a 6 s
-// lease (1 s beats, fenced at 4 s) so the tests need not wait out 60 s;
-// `staleMs: null` keeps the production 60 s lease (10 s beats).
+// record staleness (1 s heartbeats) so the tests need not wait out 60 s;
+// `staleMs: null` keeps the production 60 s (10 s heartbeats).
+// `freezeLimitMs` shortens the freeze watchdog's 120 s limit.
 const STALE_MS = 6000;
+const OWNER_MODULE = new URL('./daemon-owner.mjs', import.meta.url).href;
+const SINGLETON_MODULE = new URL('../runtime/shared/singleton-owner.mjs', import.meta.url).href;
 
-function daemonFixture(t, { staleMs = STALE_MS } = {}) {
+function daemonFixture(t, { staleMs = STALE_MS, freezeLimitMs = null } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'mixdog-owner-heartbeat-'));
   const home = join(root, 'home');
   const dataDir = join(home, '.mixdog', 'data');
@@ -27,6 +37,7 @@ function daemonFixture(t, { staleMs = STALE_MS } = {}) {
     MIXDOG_HOME: join(home, '.mixdog'),
     MIXDOG_RUNTIME_ROOT: join(root, 'runtime'),
     MIXDOG_DAEMON_OWNER_STALE_MS: staleMs ? String(staleMs) : undefined,
+    MIXDOG_DAEMON_FREEZE_LIMIT_MS: freezeLimitMs ? String(freezeLimitMs) : undefined,
     HOME: home,
     USERPROFILE: home,
   };
@@ -62,6 +73,7 @@ function daemonFixture(t, { staleMs = STALE_MS } = {}) {
   return {
     root,
     ownerPath,
+    logPath: join(dataDir, 'daemon.log'),
     discoveryPath: join(root, 'runtime', 'daemon.json'),
     owner: () => JSON.parse(readFileSync(ownerPath, 'utf8')),
     track: (pid) => pids.add(Number(pid)),
@@ -105,13 +117,14 @@ async function waitFor(predicate, timeoutMs = 10_000) {
   return predicate();
 }
 
-// Keep the real daemon entry and HTTP probe. Only the contender's wall clock
-// moves; a holder heartbeat can no longer erase the clock-jump condition.
-// Record the actual liveness request so yielding on a fresh-looking record
-// without probing the holder cannot satisfy the test.
-function clockShiftedContender(fx, offsetMs, livenessPort) {
-  const entry = join(fx.root, 'clock-shifted-contender.mjs');
-  const probePath = join(fx.root, 'contender-probe.json');
+// A daemon from before the OS lock, as far as ownership goes: it takes no
+// lock and claims by the record alone — proof, then claimSingletonOwner with
+// daemonOwnerIsStale, the code path released daemons run (unchanged by the
+// lock). Its wall clock may be shifted. Records the liveness request it makes,
+// so yielding on a fresh-looking record without probing cannot pass for it.
+async function preLockContender(fx, { offsetMs = 0 } = {}) {
+  const entry = join(fx.root, `pre-lock-contender-${Date.now()}.mjs`);
+  const probePath = `${entry}.probe.json`;
   writeFileSync(
     entry,
     `
@@ -121,16 +134,73 @@ const realNow = Date.now;
 Date.now = () => realNow() + ${offsetMs};
 const get = http.get;
 http.get = function (options, ...args) {
-  if (options.port === ${livenessPort} && options.path === '/health') {
+  if (options.path === '/health') {
     const owner = JSON.parse(readFileSync(${JSON.stringify(fx.ownerPath)}, 'utf8'));
-    writeFileSync(${JSON.stringify(probePath)}, JSON.stringify({ owner, now: Date.now() }));
+    writeFileSync(${JSON.stringify(probePath)}, JSON.stringify({ owner, port: options.port, now: Date.now() }));
   }
   return get.call(this, options, ...args);
 };
+const { claimSingletonOwner } = await import(${JSON.stringify(SINGLETON_MODULE)});
+const { daemonOwnerIsStale, proveDaemonOwnerRecord } = await import(${JSON.stringify(OWNER_MODULE)});
+const ownerPath = ${JSON.stringify(fx.ownerPath)};
+const proof = await proveDaemonOwnerRecord(ownerPath, { discoveryPath: ${JSON.stringify(fx.discoveryPath)} });
+const claim = claimSingletonOwner(ownerPath, {
+  kind: 'mixdog-daemon',
+  meta: { heartbeatAt: new Date().toISOString() },
+  isStale: (owner) => daemonOwnerIsStale(owner, { proof }),
+});
+process.stdout.write(JSON.stringify({ owned: claim.owned, ownerPid: Number(claim.owner?.pid) || 0, proof }));
+`
+  );
+  const child = spawn(process.execPath, [entry], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  let err = '';
+  child.stdout.on('data', (chunk) => {
+    out += chunk;
+  });
+  child.stderr.on('data', (chunk) => {
+    err += chunk;
+  });
+  const code = await new Promise((resolve) => child.once('exit', resolve));
+  assert.equal(code, 0, err);
+  let probe = null;
+  try {
+    probe = JSON.parse(readFileSync(probePath, 'utf8'));
+  } catch {}
+  return { ...JSON.parse(out), probe };
+}
+
+// The real daemon entry, whose main thread freezes (Atomics.wait: idle, no
+// CPU) for the milliseconds written to `freeze()`'s request file.
+function freezableDaemon(fx) {
+  const entry = join(fx.root, 'freezable-daemon.mjs');
+  const requestPath = join(fx.root, 'freeze-request');
+  writeFileSync(
+    entry,
+    `
+import { existsSync, readFileSync, rmSync } from 'node:fs';
+const request = ${JSON.stringify(requestPath)};
+setInterval(() => {
+  if (!existsSync(request)) return;
+  const ms = Number(readFileSync(request, 'utf8'));
+  rmSync(request, { force: true });
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}, 50).unref();
 await import(${JSON.stringify(new URL('./daemon.mjs', import.meta.url).href)});
 `
   );
-  return { entry, probePath };
+  return {
+    entry,
+    freeze: async (ms) => {
+      writeFileSync(requestPath, String(ms));
+      assert.ok(await waitFor(() => !existsSync(requestPath), 5000), 'the daemon picked the freeze up');
+    },
+  };
+}
+
+function exitOf(candidate) {
+  const { exitedAt, exitCode, exitSignal, exitReason } = candidate.summary();
+  return exitedAt ? { exitCode, exitSignal, exitReason } : null;
 }
 
 // Regression: a daemon killed without its exit hooks leaves daemon-owner.json
@@ -179,14 +249,14 @@ test('a legacy owner and daemon.json naming a reused pid with a dead endpoint ar
 });
 
 // Fault injection: every refresh of the owner record fails (the claim lock is
-// held, as an antivirus or sync client holding the file would). The holder
-// must fence itself — stop serving and exit — before its record turns stale
-// and a contender may reclaim it.
-test('a daemon that cannot refresh its lease stops before a contender may reclaim it', async (t) => {
+// held, as an antivirus or sync client holding the file would). Under the
+// lease the holder fenced itself; holding the OS lock it keeps serving, and a
+// contender still yields to it however stale its record grows.
+test('a daemon that cannot refresh its record keeps serving, and a contender still yields to its lock', async (t) => {
   const fx = daemonFixture(t);
-  const old = await ensureDaemon({ cwd: fx.root, attempts: 2, readyTimeoutMs: 30_000 });
-  const oldPid = Number(old.pid);
-  fx.track(oldPid);
+  const holder = await ensureDaemon({ cwd: fx.root, attempts: 2, readyTimeoutMs: 30_000 });
+  const holderPid = Number(holder.pid);
+  fx.track(holderPid);
 
   const lockPath = `${fx.ownerPath}.claim.lock`;
   mkdirSync(lockPath);
@@ -196,38 +266,201 @@ test('a daemon that cannot refresh its lease stops before a contender may reclai
     utimesSync(lockPath, now, now);
   }, 500);
   t.after(() => clearInterval(touch));
+  const lastHeartbeat = Date.parse(fx.owner().heartbeatAt);
+  // Past the 6 s staleness (and the 4 s the lease fenced at).
+  await delay(STALE_MS + 1500);
+  assert.ok(isPidAlive(holderPid), 'still running');
+  assert.ok(Date.now() - Date.parse(fx.owner().heartbeatAt) > STALE_MS, 'its record went stale');
+  assert.equal(Date.parse(fx.owner().heartbeatAt), lastHeartbeat);
 
-  let lastHeartbeat = Date.parse(fx.owner().heartbeatAt);
-  let stoppedAt = 0;
-  let unpublishedBeforeExit = false;
-  const deadline = Date.now() + 20_000;
-  while (Date.now() < deadline) {
-    const record = readSingletonOwner(fx.ownerPath).owner;
-    if (record?.pid === oldPid) lastHeartbeat = Date.parse(record.heartbeatAt);
-    if (discoveryPid(fx.discoveryPath) !== oldPid) unpublishedBeforeExit = true;
-    if (!isPidAlive(oldPid)) {
-      stoppedAt = Date.now();
-      break;
-    }
-    assert.ok(Date.now() - lastHeartbeat <= STALE_MS, 'the old daemon was still running on a reclaimable record');
-    await delay(25);
-  }
-  assert.ok(stoppedAt, 'the old daemon fenced itself and exited');
-  assert.ok(stoppedAt - lastHeartbeat < STALE_MS, `stopped ${stoppedAt - lastHeartbeat}ms after its last refresh`);
-  assert.ok(unpublishedBeforeExit, 'its endpoint was unpublished');
+  const logs = [];
+  const candidate = await spawnDaemonCandidate({ cwd: fx.root, log: (line) => logs.push(line), timeoutMs: 30_000 });
+  const summary = candidate.summary();
+  fx.track(summary.pid);
+  assert.equal(summary.exitCode, 0, logs.join('\n'));
+  assert.match(summary.exitReason, new RegExp(`lost singleton claim to live peer pid=${holderPid}\\b`));
 
   clearInterval(touch);
   rmSync(lockPath, { recursive: true, force: true });
-  // The contender only has to boot and claim, not exercise the lease. On the
-  // 6 s lease a boot slowed by load fences itself 4 s after its last refresh,
-  // before it is ready; the production lease fences no earlier than 40 s
-  // after the claim, past this whole 30 s ready wait. The old daemon is gone,
-  // so no process on this data dir sees the other value.
-  delete process.env.MIXDOG_DAEMON_OWNER_STALE_MS;
-  const contender = await ensureDaemon({ cwd: fx.root, attempts: 2, readyTimeoutMs: 30_000 });
-  fx.track(contender.pid);
-  assert.notEqual(Number(contender.pid), oldPid);
-  assert.equal(fx.owner().pid, Number(contender.pid));
+  const again = await ensureDaemon({ cwd: fx.root, attempts: 1, readyTimeoutMs: 10_000 });
+  assert.equal(Number(again.pid), holderPid, 'the same daemon serves');
+  assert.equal(discoveryPid(fx.discoveryPath), holderPid);
+});
+
+// A main thread frozen below the watchdog limit loses nothing: the lock keeps
+// a new contender out, and the watchdog thread answers the liveness probe a
+// pre-lock daemon makes once the record looks stale.
+test('a daemon frozen below the freeze limit keeps ownership; new and pre-lock contenders yield', async (t) => {
+  const fx = daemonFixture(t, { freezeLimitMs: 25_000 });
+  const daemon = freezableDaemon(fx);
+  const holder = await spawnDaemonCandidate({ cwd: fx.root, entry: daemon.entry, log: () => {}, timeoutMs: 30_000 });
+  const holderPid = Number(holder.summary().pid);
+  fx.track(holderPid);
+  assert.ok(holder.summary().ready, 'the holder booted');
+  const frozenAt = Date.now();
+  await daemon.freeze(12_000);
+
+  const logs = [];
+  const candidate = await spawnDaemonCandidate({ cwd: fx.root, log: (line) => logs.push(line), timeoutMs: 30_000 });
+  const summary = candidate.summary();
+  fx.track(summary.pid);
+  assert.equal(summary.exitCode, 0, logs.join('\n'));
+  assert.match(summary.exitReason, new RegExp(`lost singleton claim to live peer pid=${holderPid}\\b`));
+
+  // Past the 6 s staleness without a heartbeat: the pre-lock daemon probes.
+  await delay(Math.max(0, frozenAt + STALE_MS + 1000 - Date.now()));
+  const preLock = await preLockContender(fx);
+  assert.ok(Date.now() - frozenAt < 12_000, 'decided while the holder was still frozen');
+  assert.equal(preLock.owned, false);
+  assert.equal(preLock.ownerPid, holderPid);
+  assert.deepEqual(preLock.proof, { pid: holderPid, verdict: 'live' });
+  assert.equal(preLock.probe.port, Number(fx.owner().livenessPort));
+  assert.equal(fx.owner().pid, holderPid);
+
+  // Thawed: still the one daemon, serving.
+  const again = await ensureDaemon({ cwd: fx.root, attempts: 1, readyTimeoutMs: 20_000 });
+  assert.equal(Number(again.pid), holderPid);
+  assert.ok(isPidAlive(holderPid));
+  // daemon.log exists once anything was logged after ready.
+  assert.doesNotMatch(existsSync(fx.logPath) ? readFileSync(fx.logPath, 'utf8') : '', /freeze watchdog:/);
+});
+
+function registerClient({ port, token }) {
+  return new Promise((resolve, reject) => {
+    const payload = Buffer.from(
+      JSON.stringify({ protocol: SESSION_PROTOCOL, leadPid: process.pid, cwd: process.cwd(), lifecycle: false })
+    );
+    const req = http.request(
+      {
+        hostname: '127.0.0.1',
+        port,
+        path: '/client/register',
+        method: 'POST',
+        agent: false,
+        headers: { 'X-Mixdog-Daemon-Token': token, 'Content-Type': 'application/json', 'Content-Length': payload.length },
+      },
+      (res) => {
+        let body = '';
+        res.setEncoding('utf8');
+        res.on('data', (chunk) => {
+          body += chunk;
+        });
+        res.on('end', () => resolve({ status: res.statusCode, body }));
+      }
+    );
+    req.on('error', reject);
+    req.end(payload);
+  });
+}
+
+// Reproduced: a pre-lock daemon took the record over while this holder's main
+// thread was frozen (its liveness unanswered) and still held the claim lock;
+// thawed, the holder answered /client/register with 200.
+test('a holder thawing from a freeze serves nothing until its record is re-verified, and stops if it was taken', async (t) => {
+  const fx = daemonFixture(t);
+  const daemon = freezableDaemon(fx);
+  const holder = await spawnDaemonCandidate({ cwd: fx.root, entry: daemon.entry, log: () => {}, timeoutMs: 30_000 });
+  const holderPid = Number(holder.summary().pid);
+  fx.track(holderPid);
+  assert.ok(holder.summary().ready, 'the holder booted');
+  const discovery = readDiscovery(fx.discoveryPath);
+  assert.equal(discovery.pid, holderPid);
+  const control = await registerClient(discovery);
+  assert.equal(control.status, 200, control.body);
+
+  const frozenAt = Date.now();
+  await daemon.freeze(3000);
+  // The pre-lock contender's claim: its record (this live process standing
+  // in), written under the claim lock it keeps holding.
+  const claimLock = `${fx.ownerPath}.claim.lock`;
+  mkdirSync(claimLock);
+  const touch = setInterval(() => {
+    const now = new Date();
+    utimesSync(claimLock, now, now);
+  }, 500);
+  t.after(() => clearInterval(touch));
+  fx.writeOwner({ claimedAt: fx.iso(), heartbeatAt: fx.iso() });
+  await delay(Math.max(0, frozenAt + 3500 - Date.now()));
+
+  const refused = await registerClient(discovery);
+  assert.equal(refused.status, 503, refused.body);
+  assert.equal(JSON.parse(refused.body).code, 'EDAEMON_RETRY_LATER');
+  assert.equal(fx.owner().pid, process.pid, 'the record was left alone');
+
+  // The claim lock released, the re-verification finds the other owner.
+  clearInterval(touch);
+  rmSync(claimLock, { recursive: true, force: true });
+  assert.ok(await waitFor(() => exitOf(holder) !== null, 20_000), 'the superseded holder stopped');
+  assert.match(exitOf(holder).exitReason, new RegExp(`owner claim superseded by pid=${process.pid}\\b`));
+  assert.equal(fx.owner().pid, process.pid);
+});
+
+test('a daemon frozen past the freeze limit is killed with diagnostics and the next one takes over at once', async (t) => {
+  const fx = daemonFixture(t, { freezeLimitMs: 3000 });
+  const daemon = freezableDaemon(fx);
+  const holder = await spawnDaemonCandidate({ cwd: fx.root, entry: daemon.entry, log: () => {}, timeoutMs: 30_000 });
+  const holderPid = Number(holder.summary().pid);
+  fx.track(holderPid);
+  assert.ok(holder.summary().ready, 'the holder booted');
+  await daemon.freeze(120_000);
+
+  assert.ok(await waitFor(() => exitOf(holder) !== null, 30_000), 'the frozen daemon was killed');
+  const exit = exitOf(holder);
+  if (process.platform === 'win32') assert.equal(exit.exitCode, 1);
+  else assert.equal(exit.exitSignal, 'SIGKILL');
+  assert.match(exit.exitReason, /^freeze watchdog: main thread made no progress for \d+ms/);
+  assert.match(readFileSync(fx.logPath, 'utf8'), /\[daemon\] freeze watchdog: main thread made no progress/);
+
+  // The kernel released the lock: the next start owns at once, nothing waited out.
+  const startedAt = Date.now();
+  const next = await ensureDaemon({ cwd: fx.root, attempts: 2, readyTimeoutMs: 30_000 });
+  fx.track(next.pid);
+  assert.notEqual(Number(next.pid), holderPid);
+  assert.equal(fx.owner().pid, Number(next.pid));
+  assert.ok(Date.now() - startedAt < STALE_MS * 3, `took over in ${Date.now() - startedAt}ms`);
+});
+
+test('two daemons started at once leave exactly one owner', async (t) => {
+  const fx = daemonFixture(t);
+  const candidates = await Promise.all(
+    [0, 1].map(() => spawnDaemonCandidate({ cwd: fx.root, log: () => {}, timeoutMs: 30_000 }))
+  );
+  const summaries = candidates.map((candidate) => candidate.summary());
+  for (const summary of summaries) fx.track(summary.pid);
+  const winners = summaries.filter((summary) => summary.ready);
+  assert.equal(winners.length, 1, JSON.stringify(summaries));
+  const loser = summaries.find((summary) => !summary.ready);
+  assert.equal(loser.exitCode, 0);
+  assert.match(loser.exitReason, /lost singleton claim to live peer/);
+  assert.equal(fx.owner().pid, Number(winners[0].pid));
+  assert.equal(discoveryPid(fx.discoveryPath), Number(winners[0].pid));
+});
+
+// SIGKILL runs no exit hook: the record still names the dead holder. Even a
+// record that looks live — its pid reused by a running process, its heartbeat
+// fresh — gives way at once: it is a lock holder's, and the lock is free.
+test('after kill -9 of the holder the next start owns at once, whatever its record looks like', async (t) => {
+  const fx = daemonFixture(t, { staleMs: null });
+  const first = await ensureDaemon({ cwd: fx.root, attempts: 2, readyTimeoutMs: 30_000 });
+  const firstPid = Number(first.pid);
+  fx.track(firstPid);
+  const record = fx.owner();
+  assert.equal(record.ownership, 'os-lock');
+  assert.ok(Date.parse(record.processStartedAt) > 0);
+  process.kill(firstPid, 'SIGKILL');
+  assert.ok(await waitFor(() => !isPidAlive(firstPid)));
+  // The pid reused by this (live) test process, heartbeat fresh.
+  writeJsonAtomicSync(fx.ownerPath, { ...record, pid: process.pid, heartbeatAt: fx.iso() });
+
+  const logs = [];
+  const startedAt = Date.now();
+  const candidate = await spawnDaemonCandidate({ cwd: fx.root, log: (line) => logs.push(line), timeoutMs: 30_000 });
+  const summary = candidate.summary();
+  fx.track(summary.pid);
+  assert.ok(summary.ready, logs.join('\n'));
+  assert.ok(Date.now() - startedAt < 30_000);
+  assert.equal(fx.owner().pid, Number(summary.pid));
+  assert.equal(fx.owner().ownership, 'os-lock');
 });
 
 test('an owner still booting after more than 60 s keeps its claim while it beats', async (t) => {
@@ -283,10 +516,11 @@ test('a running daemon stops serving once its owner record names another live pi
   assert.equal(fx.owner().pid, process.pid);
 });
 
-// A contender with a shifted clock must yield to a holder that answers health,
-// even after the holder refreshes its heartbeat. Use the fixture's short lease
-// to observe a real refresh, rather than racing the production 10 s heartbeat
-// (which may also run early when the holder re-verifies after an event-loop stall).
+// A pre-lock contender with a shifted clock must yield to a holder that
+// answers health, even after the holder refreshes its heartbeat. (A new
+// contender never gets that far: the lock refuses it first, as asserted too.)
+// Use the fixture's short staleness to observe a real refresh, rather than
+// racing the production 10 s heartbeat.
 for (const [direction, shiftMs] of [
   ['forward', -61_000],
   ['backward', 61_000],
@@ -306,20 +540,20 @@ for (const [direction, shiftMs] of [
       await waitFor(() => fx.owner().heartbeatAt !== record.heartbeatAt),
       'the real holder refreshed its heartbeat'
     );
-    const { entry, probePath } = clockShiftedContender(fx, -shiftMs, Number(record.livenessPort));
 
     const logs = [];
-    const candidate = await spawnDaemonCandidate({
-      cwd: fx.root,
-      entry,
-      log: (line) => logs.push(line),
-      timeoutMs: 30_000,
-    });
+    const candidate = await spawnDaemonCandidate({ cwd: fx.root, log: (line) => logs.push(line), timeoutMs: 30_000 });
     const summary = candidate.summary();
     fx.track(summary.pid);
     assert.equal(summary.exitCode, 0, logs.join('\n'));
     assert.match(summary.exitReason, new RegExp(`lost singleton claim to live peer pid=${holderPid}\\b`));
-    const probe = JSON.parse(readFileSync(probePath, 'utf8'));
+
+    const preLock = await preLockContender(fx, { offsetMs: -shiftMs });
+    assert.equal(preLock.owned, false);
+    assert.equal(preLock.ownerPid, holderPid);
+    const { probe } = preLock;
+    assert.ok(probe, 'the pre-lock contender probed the holder');
+    assert.equal(probe.port, Number(record.livenessPort));
     const ageMs = probe.now - Date.parse(probe.owner.heartbeatAt);
     assert.equal(Math.sign(ageMs), Math.sign(-shiftMs), 'the probe observed the requested clock-jump direction');
     assert.ok(Math.abs(ageMs) > STALE_MS, 'the contender probed a stale-looking heartbeat');
