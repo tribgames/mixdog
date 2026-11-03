@@ -44,6 +44,8 @@ import {
   sidebarResizeHandle,
   type SidebarResizeStart,
   groupProjectSessions,
+  projectBranchKey,
+  splitBranchRows,
 } from './session-sidebar-sections';
 import { withOpen, type OpenMap } from './sidebar-open-state';
 import type { ForkRowRole } from './session-fork-groups';
@@ -422,7 +424,14 @@ function useProjectGroups({
       ...document.querySelectorAll<HTMLElement>('.session-sidebar-sessions .session-row[data-session-id]'),
     ].some((row) => row.dataset.sessionId === selectedSessionId && row.getClientRects().length > 0);
     if (shown) return;
-    updateProjectOpen((current) => withOpen(current, group.key, true));
+    // In a project split by branch, the session's branch sub-category opens too.
+    const branch = splitBranchRows(group.rows).branches.find((candidate) =>
+      candidate.rows.some((session) => session.id === selectedSessionId)
+    );
+    updateProjectOpen((current) => {
+      const opened = withOpen(current, group.key, true);
+      return branch ? withOpen(opened, projectBranchKey(group.key, branch.name), true) : opened;
+    });
   }, [activityProjectGroups, selectedSessionId, updateProjectOpen]);
   // A project added from the Projects header menu opens and scrolls into view
   // once its folder exists in the grouping (the catalog refresh lands after the
@@ -436,7 +445,7 @@ function useProjectGroups({
     updateProjectOpen((current) => withOpen(current, key, true));
     window.requestAnimationFrame(() =>
       document
-        .querySelector(`.sidebar-projects [data-project-key="${CSS.escape(key)}"]`)
+        .querySelector(`[data-project-key="${CSS.escape(key)}"]`)
         ?.scrollIntoView({ block: 'nearest' })
     );
   }, [activityProjectGroups, revealedProject, updateProjectOpen]);
@@ -1036,7 +1045,8 @@ export const SessionSidebar = React.memo(function SessionSidebar({
           showAgents,
           updateShowAgents,
           hiddenSections,
-          toggleSectionHidden
+          toggleSectionHidden,
+          onAddProject && (() => onAddProject())
         ),
         onNewTask,
       })}

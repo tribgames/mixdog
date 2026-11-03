@@ -195,6 +195,7 @@ export function renderSessionRow(
       onOpenMenu={ctx.openSessionMenu}
       forkKind={fork?.kind}
       forkExpanded={fork?.kind === 'root' ? fork.expanded : undefined}
+      forkCount={fork?.kind === 'root' ? fork.count : undefined}
       forkNumber={fork?.kind === 'child' ? fork.n : undefined}
       onToggleFork={ctx.onToggleFork}
     />
@@ -242,7 +243,7 @@ function forkRowItems(
     if (forks.length === 0) return [item(session)];
     const expanded = isOpen(ctx.openState.forkOpen, session.id);
     return [
-      item(session, { kind: 'root', expanded }),
+      item(session, { kind: 'root', expanded, count: forks.length }),
       ...(expanded
         ? forks.map((fork, index) =>
             item(fork, { kind: 'child', n: index + 1, rootId: session.id, last: index === forks.length - 1 })
@@ -381,7 +382,8 @@ export function sessionOrderMenuItems(
   showAgents: boolean,
   updateShowAgents: (show: boolean) => void,
   hiddenSections: ReadonlySet<string> = new Set(),
-  toggleSectionHidden: (section: string) => void = () => {}
+  toggleSectionHidden: (section: string) => void = () => {},
+  onAddProject?: () => void
 ): React.ComponentProps<typeof RowOverflowMenu>['items'] {
   const sectionLabels: readonly (readonly [string, string])[] = [
     ['agents', t('Bots')],
@@ -429,6 +431,9 @@ export function sessionOrderMenuItems(
         onSelect: () => toggleSectionHidden(section),
       })),
     },
+    ...(onAddProject
+      ? [{ id: 'sessions-add-project', label: t('Add project'), separatorBefore: true, onSelect: onAddProject }]
+      : []),
   ];
 }
 
@@ -489,7 +494,7 @@ export interface SidebarSectionContext {
  *  drag handle for the persisted category order. */
 function renderSidebarSection(section: string, ctx: SidebarSectionContext): React.ReactNode {
   const { openState, folders, rows, archivedRows, bulkAction } = ctx;
-  const { onAddProject, onNewProjectTask, onNewTask } = ctx;
+  const { onNewProjectTask, onNewTask } = ctx;
   const headerProps = ctx.sectionOrder.getReorderProps(section);
   const renderUnorderedRows: RenderForkRows = (list, limit, sentinelRef) =>
     renderForkRows(ctx, list, limit, undefined, section, sentinelRef);
@@ -528,20 +533,16 @@ function renderSidebarSection(section: string, ctx: SidebarSectionContext): Reac
       );
     case 'projects':
       return (
-        (ctx.projectGroups.length > 0 || Boolean(onAddProject)) &&
+        ctx.projectGroups.length > 0 &&
         projectsSection({
-          onAddProject: onAddProject && (() => onAddProject()),
           sessionDrop: ctx.sessionDrop,
           groups: ctx.projectGroups,
-          open: openState.projectsOpen,
-          onToggleOpen: () => openState.toggleSection('projects'),
           projectOpen: folders.projectOpen,
           onToggleProject: folders.toggleProject,
           rowLimits: folders.projectRowLimits,
           onShowMore: folders.showMoreProjectRows,
           onNewTask: (projectPath) => (onNewProjectTask ? onNewProjectTask(projectPath) : onNewTask()),
           folderReorderProps: ctx.projectOrder.getReorderProps,
-          headerProps,
           attentionOf: ctx.attentionOf,
           renderRows: (list, limit, groupKey) => renderForkRows(ctx, list, limit, `project:${groupKey}`),
           onFolderMenu: ctx.openProjectMenu,

@@ -731,12 +731,11 @@
 }
 /* Fork groups: the original leads with a fork glyph and ends its title with a
    disclosure chevron; each fork starts its title where the original's does
-   (16px glyph + the row's 8px gap). */
-.session-row-fork-icon {
-  flex: 0 0 16px;
-  width: 16px;
-  height: 16px;
-  color: var(--mx-icon-muted);
+   (the shared 20px leading slot holds the glyph). */
+.session-row-fork-icon,
+.session-row-chat-icon {
+  flex: 0 0 auto;
+  color: var(--mx-text-muted);
 }
 /* A deleted bot's archived chat leads with the face the bot left. */
 .session-row-bot-face {
@@ -751,11 +750,17 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
+  gap: 2px;
+  min-width: 20px;
   height: 20px;
+  padding: 0 4px;
   border-radius: var(--mx-radius-sm);
-  color: var(--mx-text);
+  color: var(--mx-text-muted);
   cursor: pointer;
+}
+.session-row-fork-count {
+  font-size: var(--mx-font-meta);
+  font-variant-numeric: tabular-nums;
 }
 .session-row-fork-toggle:hover {
   background: var(--mx-hover);

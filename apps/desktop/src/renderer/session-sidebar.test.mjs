@@ -481,7 +481,7 @@ test('with no saved order, Recent (open) comes before Projects', async () => {
       [...document.querySelectorAll('.session-sidebar-scroll > section')].map((section) =>
         section.getAttribute('aria-label')
       ),
-      ['Recent sessions', 'Projects']
+      ['Recent sessions', 'Beta']
     );
     assert.equal(document.querySelectorAll('section[aria-label="Recent sessions"] .session-row').length, 1);
   } finally {
@@ -549,48 +549,17 @@ test('registered projects list as folders above an unchanged Recent', async () =
       [...document.querySelectorAll('.session-sidebar-scroll > section')].map((section) =>
         section.getAttribute('aria-label')
       ),
-      ['Recent sessions', 'Projects']
+      ['Recent sessions', 'alpha-app', 'Beta', 'Empty']
     );
     assert.equal(recent.querySelector('.sidebar-category-header').getAttribute('draggable'), 'true');
-    // Releasing over a section's rows reorders it, and the split is the
-    // target's heading: just below the heading already means "after", even
-    // far above the middle of a tall section.
-    const dataTransfer = { setData() {}, getData: () => '', effectAllowed: '', dropEffect: '' };
-    const drag = (target, type, clientY) => {
-      const event = new window.Event(type, { bubbles: true, cancelable: true });
-      Object.assign(event, { dataTransfer, clientY, clientX: 0 });
-      target.dispatchEvent(event);
-    };
-    const dropSection = document.querySelector('section[aria-label="Projects"]');
-    dropSection.getBoundingClientRect = () => ({ top: 400, bottom: 800, height: 400, left: 0, right: 0 });
-    dropSection.querySelector(':scope > .sidebar-category-header').getBoundingClientRect = () => ({
-      top: 400,
-      bottom: 432,
-      height: 32,
-      left: 0,
-      right: 0,
-    });
-    const projectFolder = dropSection.querySelector('.project-folder');
-    await act(async () => {
-      drag(recent.querySelector('.sidebar-category-header'), 'dragstart', 0);
-      drag(projectFolder, 'dragover', 450);
-    });
-    assert.equal(dropSection.getAttribute('data-drop-position'), 'after');
-    await act(async () => {
-      drag(projectFolder, 'drop', 450);
-    });
-    assert.deepEqual(
-      [...document.querySelectorAll('.session-sidebar-scroll > section')].map((section) =>
-        section.getAttribute('aria-label')
-      ),
-      ['Projects', 'Recent sessions']
-    );
-    const projectsSection = document.querySelector('section[aria-label="Projects"]');
-    const groups = () => [...projectsSection.querySelectorAll('.project-group')];
+    // Each project is its own top-level category; its heading is the grip.
+    const groups = () => [...document.querySelectorAll('.session-sidebar-scroll > .project-group')];
     assert.deepEqual(
       groups().map((group) => group.querySelector('.project-folder-toggle').textContent),
       ['alpha-app', 'Beta', 'Empty']
     );
+    assert.equal(groups()[0].querySelector('.project-folder').getAttribute('draggable'), 'true');
+    assert.equal(document.querySelector('section[aria-label="Projects"]'), null);
     // Folders start open: their sessions show, an empty one says so.
     assert.deepEqual(ids(groups()[0]), ['alpha-cwd', 'alpha-old']);
     assert.match(groups()[2].textContent, /No sessions/);
@@ -777,11 +746,9 @@ test('sections and folders default open, persist choices, and a selected session
     async onArchiveSession() {},
     async onDeleteSession() {},
   });
-  const projectsSection = () => document.querySelector('section[aria-label="Projects"]');
+  const alphaSection = () => document.querySelector('section[aria-label="Alpha"]');
   const alphaIds = () =>
-    [...projectsSection().querySelectorAll('.project-group')[0].querySelectorAll('.session-row[data-session-id]')].map(
-      (node) => node.dataset.sessionId
-    );
+    [...alphaSection().querySelectorAll('.session-row[data-session-id]')].map((node) => node.dataset.sessionId);
   const stored = () => JSON.parse(window.localStorage.getItem('mixdog:session-sidebar-project-open'));
   try {
     await act(async () => root.render(React.createElement(SessionSidebar, props({ kind: 'new' }))));
@@ -793,7 +760,7 @@ test('sections and folders default open, persist choices, and a selected session
     assert.equal(stored()['c:/work/alpha'], true);
     // Collapsing while the same session stays selected is not undone by a refresh.
     await act(async () => {
-      projectsSection().querySelector('.project-folder-toggle').click();
+      alphaSection().querySelector('.project-folder-toggle').click();
     });
     assert.deepEqual(alphaIds(), []);
     await act(async () => root.render(React.createElement(SessionSidebar, props({ kind: 'session', id: 'a2' }))));
@@ -810,7 +777,59 @@ test('sections and folders default open, persist choices, and a selected session
   }
 });
 
-test('the Projects header menu offers Add project, also with zero projects', async () => {
+test('a selected session reveals its collapsed branch sub-category', async () => {
+  const { restore } = installDom();
+  const { SessionSidebar } = await import('./session-sidebar.tsx');
+  const root = createRoot(document.getElementById('root'));
+  const row = (id, workspace) => ({
+    id,
+    title: id,
+    preview: '',
+    updatedAt: 1,
+    activityAt: 1,
+    messageCount: 1,
+    cwd: 'C:/Work/Alpha',
+    classification: 'task',
+    projectPath: null,
+    working: false,
+    workspace,
+  });
+  window.localStorage.setItem(
+    'mixdog:session-sidebar-project-open',
+    JSON.stringify({ 'c:/work/alpha': true, 'c:/work/alpha\nfeat/x': false })
+  );
+  const props = (selection) => ({
+    open: true,
+    sessions: [
+      row('m1', { worktreeId: null, branch: 'main' }),
+      row('f1', { worktreeId: 'wt-1', branch: 'feat/x' }),
+    ],
+    sessionsReady: true,
+    projects: [{ name: 'Alpha', path: 'C:/Work/Alpha', alias: null }],
+    selection,
+    onNewTask() {},
+    onNewStudio() {},
+    onResumeSession() {},
+    async onRenameSession() {},
+    async onArchiveSession() {},
+    async onDeleteSession() {},
+  });
+  const alphaIds = () =>
+    [...document.querySelectorAll('section[aria-label="Alpha"] .session-row[data-session-id]')].map(
+      (node) => node.dataset.sessionId
+    );
+  try {
+    await act(async () => root.render(React.createElement(SessionSidebar, props({ kind: 'new' }))));
+    assert.deepEqual(alphaIds(), ['m1']);
+    await act(async () => root.render(React.createElement(SessionSidebar, props({ kind: 'session', id: 'f1' }))));
+    assert.deepEqual(alphaIds(), ['m1', 'f1']);
+  } finally {
+    await act(async () => root.unmount());
+    restore();
+  }
+});
+
+test('the Sessions header menu offers Add project, also with zero projects', async () => {
   const { restore } = installDom();
   const { SessionSidebar } = await import('./session-sidebar.tsx');
   const root = createRoot(document.getElementById('root'));
@@ -839,7 +858,7 @@ test('the Projects header menu offers Add project, also with zero projects', asy
   try {
     for (const projects of [[], [{ name: 'Alpha', path: 'C:/Work/Alpha', alias: null }]]) {
       await render(projects);
-      const header = document.querySelector('section[aria-label="Projects"] .sidebar-category-header');
+      const header = document.querySelector('.session-panel-header');
       await act(async () => header.querySelector('.row-overflow-trigger').click());
       const item = [...document.querySelectorAll('[role="menuitem"]')].find(
         (n) => n.textContent.trim() === 'Add project'
@@ -877,7 +896,7 @@ test('a pointer click on a section header releases its focus; keyboard activatio
         })
       )
     );
-    for (const label of ['Projects', 'Recent sessions']) {
+    for (const label of ['Recent sessions']) {
       const toggle = () => document.querySelector(`section[aria-label="${label}"] .sidebar-heading-toggle`);
       // Keyboard activation (Enter/Space dispatch click with detail 0) keeps the focus ring target.
       await act(async () => toggle().focus());

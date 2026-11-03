@@ -875,14 +875,17 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-list .session-row:not(.e
   padding-left: calc(8px - var(--mx-drawer-bleed));
   padding-right: calc(var(--mx-rail-gutter) + var(--mx-drawer-bleed));
 }
-html[data-mixdog-mobile-tabs] .session-sidebar .session-list .project-group-sessions .session-row:not(.editing) {
-  padding-left: calc(32px - var(--mx-drawer-bleed));
+html[data-mixdog-mobile-tabs] .session-sidebar .session-list.project-session-list-split .session-row:not(.editing) {
+  padding-left: calc(36px - var(--mx-drawer-bleed));
+}
+html[data-mixdog-mobile-tabs] .session-sidebar .session-list .session-subheading {
+  padding-left: calc(8px - var(--mx-drawer-bleed));
 }
 html[data-mixdog-mobile-tabs] .session-sidebar .session-list .sidebar-section-empty {
   padding-left: calc(8px - var(--mx-drawer-bleed));
 }
-html[data-mixdog-mobile-tabs] .session-sidebar .session-list .project-group-sessions .sidebar-section-empty {
-  padding-left: calc(32px - var(--mx-drawer-bleed));
+html[data-mixdog-mobile-tabs] .session-sidebar .project-session-list > .sidebar-section-empty {
+  padding-left: calc(36px - var(--mx-drawer-bleed));
 }
 /* The static dot and status ride the row's right edge with fixed offsets. */
 html[data-mixdog-mobile-tabs] .session-sidebar .session-list .session-row-unread-dot {

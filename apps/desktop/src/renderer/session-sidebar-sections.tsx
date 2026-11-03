@@ -1,11 +1,9 @@
-import { ChevronDown, ChevronRight, type FolderPlus, Plus, Star } from 'lucide-react';
+import { ChevronDown, ChevronRight, type FolderPlus, GitBranch, Plus, Star, Users } from 'lucide-react';
 import { AgentAvatar } from './agent-avatar';
 import type { AgentContact } from './agent-contacts-model';
-import { RoomAvatar } from './agent-room-parts';
 import { useSessionDragSource } from './agent-row-parts';
 import { useBotReorder } from './bot-reorder';
 import type { SidebarRoomRow } from './session-sidebar-agents';
-import { MxIcon } from './MxIcon';
 import { NotificationMuteMark } from './notification-controls';
 import { contextMenuRowProps, elementMenuPoint, isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
 import type { usePersistedListOrder } from './use-persisted-list-order';
@@ -307,8 +305,8 @@ function AgentsSection({
                   aria-haspopup={onOpenRoomMenu ? 'menu' : undefined}
                   onClick={() => onOpenRoom?.(row)}
                 >
-                  <span className="session-agent-avatar">
-                    <RoomAvatar members={row.members} />
+                  <span className="session-agent-avatar session-row-slot-room">
+                    <Users size={13} aria-hidden="true" />
                   </span>
                   <span className="session-row-copy">
                     <b>{row.name}</b>
@@ -539,8 +537,6 @@ interface ProjectsSectionProps {
     onDragLeave(group: ProjectSessionGroup, event: React.DragEvent<HTMLElement>): void;
     onDrop(group: ProjectSessionGroup, event: React.DragEvent<HTMLElement>): boolean;
   };
-  /** Header ⋯ menu: opens the shared add-project dialog. */
-  onAddProject?(): void;
   /** Right-click / Menu key on a folder row. */
   onFolderMenu?(group: ProjectSessionGroup, point: { x: number; y: number }): void;
   /** Inline rename of one folder (its project display name). */
@@ -552,8 +548,6 @@ interface ProjectsSectionProps {
     onCancel(): void;
   } | null;
   groups: ProjectSessionGroup[];
-  open: boolean;
-  onToggleOpen(): void;
   /** Explicit folder open choices; a folder without an entry is open. */
   projectOpen: OpenMap;
   onToggleProject(key: string): void;
@@ -561,11 +555,41 @@ interface ProjectsSectionProps {
   onShowMore(key: string): void;
   onNewTask(projectPath: string): void;
   folderReorderProps(key: string): ReorderProps;
-  headerProps?: ReorderProps;
   /** The strongest status of one session; a collapsed folder shows its
    *  sessions' strongest. */
   attentionOf(sessionId: string): SessionAttention | '';
   renderRows(rows: readonly DesktopSessionSummary[], limit: number, groupKey: string): React.ReactNode;
+}
+
+/** A project's sessions by branch. Sessions on one branch (the project's own
+ *  checkout, usually main) list plainly (`branches` empty). Once they span
+ *  several, each branch is a sub-category: the checkout's branch first (it also
+ *  holds sessions with no known branch), the rest by newest activity. */
+export function splitBranchRows(rows: readonly DesktopSessionSummary[]) {
+  const checkout =
+    rows.find((session) => session.workspace && !session.workspace.worktreeId && session.workspace.branch)?.workspace
+      ?.branch ||
+    rows.find((session) => session.workspace?.mergeTarget)?.workspace?.mergeTarget ||
+    'main';
+  const byBranch = new Map<string, { name: string; rows: DesktopSessionSummary[]; newest: number }>();
+  for (const session of rows) {
+    const branch = (session.workspace?.worktreeId && session.workspace.branch) || checkout;
+    const activity = Number(session.activityAt) || session.updatedAt;
+    const entry = byBranch.get(branch) ?? { name: branch, rows: [], newest: 0 };
+    entry.rows.push(session);
+    entry.newest = Math.max(entry.newest, activity);
+    byBranch.set(branch, entry);
+  }
+  if (byBranch.size < 2) return { branches: [] };
+  const branches = [...byBranch.values()].sort(
+    (a, b) => Number(b.name === checkout) - Number(a.name === checkout) || b.newest - a.newest
+  );
+  return { branches };
+}
+
+/** Open-state key of a branch sub-category inside a project folder. */
+export function projectBranchKey(groupKey: string, branch: string) {
+  return `${groupKey}\n${branch}`;
 }
 
 /** One project folder: its drag/drop target, folder row (with inline rename and
@@ -595,11 +619,13 @@ function projectFolderGroup(
     group.rows.map((session) => session.id),
     attentionOf
   );
+  const { branches } = splitBranchRows(group.rows);
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: drag-and-drop target; the keyboard path is the session menu's Move to project
-    <div
-      className="project-group"
+    <section
+      className="sidebar-recent project-group"
       key={group.key}
+      aria-label={group.name}
       data-project-key={group.key}
       data-session-drop={sessionDrop?.activeKey === group.key ? 'true' : undefined}
       data-session-drop-zone={sessionDrop ? group.key : undefined}
@@ -614,7 +640,7 @@ function projectFolderGroup(
     >
       {/* biome-ignore lint/a11y/noStaticElementInteractions: right-click is a pointer shortcut; the folder button inside opens the same menu from the keyboard (Menu / Shift+F10). */}
       <div
-        className="project-folder"
+        className="sidebar-category-header project-folder"
         {...(rename?.key === group.key ? {} : reorderHandle(reorder))}
         onContextMenu={
           onFolderMenu
@@ -650,7 +676,7 @@ function projectFolderGroup(
         )}
         <button
           type="button"
-          className="session-row project-folder-toggle"
+          className="sidebar-recent-heading sidebar-heading-toggle project-folder-toggle"
           aria-expanded={expanded}
           aria-haspopup={onFolderMenu ? 'menu' : undefined}
           data-tooltip={group.path}
@@ -662,17 +688,13 @@ function projectFolderGroup(
             onFolderMenu(group, elementMenuPoint(event.currentTarget));
           }}
         >
-          {/* Same project glyph as the Projects panel and composer chip. */}
-          <MxIcon name="folder" className="project-folder-icon" />
-          <span className="session-row-copy">
-            <b>{group.name}</b>
-          </span>
-          {attention === 'unread' && <SessionRowUnreadDot name={group.name} />}
-          {attention && attention !== 'unread' && (
-            <span className="session-row-status">
-              <SessionRowStatusIcon status={attention} name={group.name} />
-            </span>
-          )}
+          <span>{group.name}</span>
+          {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+          <SectionHeadingStatus
+            status={attention}
+            name={group.name}
+            unreadLabel={t('{{name}} has new activity', { name: group.name })}
+          />
         </button>
         {/* Like a collapsed section heading: the status mark takes the
             trailing slot, so the + yields until the folder opens. */}
@@ -689,67 +711,52 @@ function projectFolderGroup(
         )}
       </div>
       {expanded && (
-        <div className="project-group-sessions">
+        <nav
+          className={`session-list project-session-list${branches.length > 0 ? ' project-session-list-split' : ''}`}
+          aria-label={group.name}
+        >
           {group.rows.length === 0 && <p className="sidebar-section-empty">{t('No sessions.')}</p>}
-          {renderRows(group.rows, limit, group.key)}
-          {group.rows.length > limit && (
+          {branches.length === 0 && renderRows(group.rows, limit, group.key)}
+          {branches.map((branch) => {
+            const branchKey = projectBranchKey(group.key, branch.name);
+            const branchOpen = isOpen(projectOpen, branchKey);
+            return (
+              <React.Fragment key={branchKey}>
+                <button
+                  type="button"
+                  className="session-subheading"
+                  aria-expanded={branchOpen}
+                  onClick={() => onToggleProject(branchKey)}
+                >
+                  <span className="session-row-slot" aria-hidden="true">
+                    <GitBranch size={14} />
+                  </span>
+                  <span className="session-subheading-name">{branch.name}</span>
+                  {branchOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
+                </button>
+                {branchOpen && renderRows(branch.rows, branch.rows.length, group.key)}
+              </React.Fragment>
+            );
+          })}
+          {branches.length === 0 && group.rows.length > limit && (
             <button type="button" className="session-row project-group-more" onClick={() => onShowMore(group.key)}>
+              <span className="session-row-slot" aria-hidden="true" />
               <span className="session-row-copy">
                 <b>{t('More')}</b>
               </span>
             </button>
           )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/** Projects section above Recent: one folder row per registered project. A
- *  folder opens onto its newest sessions; the folder row is the drag handle
- *  for reordering and its hover + starts a task in that project. */
-export function projectsSection(props: ProjectsSectionProps) {
-  const { groups, open, onToggleOpen, headerProps, onAddProject, attentionOf } = props;
-  const headingStatus = groupSessionAttention(
-    !open,
-    groups.flatMap((group) => group.rows.map((session) => session.id)),
-    attentionOf
-  );
-  return (
-    <section className="sidebar-recent sidebar-projects" aria-label={t('Projects')} {...reorderTarget(headerProps)}>
-      <div
-        className="sidebar-category-header"
-        {...reorderHandle(headerProps)}
-        {...(onAddProject ? rowOverflowHostProps() : {})}
-      >
-        <button
-          type="button"
-          className="sidebar-recent-heading sidebar-heading-toggle"
-          aria-expanded={open}
-          onClick={toggleHeading(onToggleOpen)}
-        >
-          <span>{t('Projects')}</span>
-          {open ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          <SectionHeadingStatus
-            status={headingStatus}
-            name={t('Projects')}
-            unreadLabel={t('{{name}} has new activity', { name: t('Projects') })}
-          />
-        </button>
-        {onAddProject && (
-          <RowOverflowMenu
-            label={t('Actions')}
-            items={[{ id: 'add-project', label: t('Add project'), onSelect: () => onAddProject() }]}
-          />
-        )}
-      </div>
-      {open && (
-        <nav className="session-list project-session-list" aria-label={t('Projects')}>
-          {groups.map((group) => projectFolderGroup(group, props))}
         </nav>
       )}
     </section>
   );
+}
+
+/** One top-level category per registered project, after Bots, Favorites and
+ *  Recent's slot in the section order. The heading is the drag handle for
+ *  reordering and its hover + starts a task in that project. */
+export function projectsSection(props: ProjectsSectionProps) {
+  return <>{props.groups.map((group) => projectFolderGroup(group, props))}</>;
 }
 
 /** Archived section: restore and permanent-delete of parked sessions, kept
