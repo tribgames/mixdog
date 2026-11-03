@@ -350,7 +350,6 @@ test('boards persist with their results; deleting a board keeps its results in t
       listed.boards.map(({ name, count }) => ({ name, count })),
       [{ name: 'Icons', count: 2 }]
     );
-    assert.ok([loose.id, inBoard.id].includes(listed.boards[0].cover.id));
     assert.throws(() => reopened.setMediaAssetBoard([loose.id], 'missing'), /board not found/);
     // Only strings name boards and results, and only null takes a result out.
     assert.throws(() => reopened.createMediaBoard({ name: 'x' }), TypeError);

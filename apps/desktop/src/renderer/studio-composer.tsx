@@ -23,8 +23,6 @@ function dropPosition(event: DragEvent<HTMLElement>): ReferenceDrop['position'] 
 export function StudioComposer({
   boardId,
   boards,
-  boardThumbUrl,
-  onBoardThumbError,
   dropping,
   kind,
   lane,
@@ -47,8 +45,6 @@ export function StudioComposer({
   /** The board new runs join ('' = none). */
   boardId: string;
   boards: readonly StudioBoard[];
-  boardThumbUrl(board: StudioBoard): string;
-  onBoardThumbError(assetId: string): void;
   dropping: boolean;
   kind: MediaKind;
   lane: string;
@@ -227,13 +223,7 @@ export function StudioComposer({
       picker stays mounted across kind switches (the model is already valid
       for this render); the line scrolls sideways instead of clipping on a phone. */}
       <div className="studio-composer-controls">
-        <StudioBoardPicker
-          boards={boards}
-          openId={boardId}
-          thumbUrl={boardThumbUrl}
-          onThumbError={onBoardThumbError}
-          onSelect={onSelectBoard}
-        />
+        <StudioBoardPicker boards={boards} openId={boardId} onSelect={onSelectBoard} />
         <span className="studio-composer-controls-gap" aria-hidden="true" />
         <StudioRouteMenu
           entries={modelEntries}

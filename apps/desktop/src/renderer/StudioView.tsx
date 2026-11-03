@@ -32,7 +32,6 @@ import {
   showStudioPane,
   useStudioPaneOwner,
 } from './studio-panel-bridge';
-import { useStudioBoardThumbs } from './studio-board-components';
 import {
   moveStudioAssets,
   onStudioAssetsMoved,
@@ -92,7 +91,6 @@ export function StudioPane({
   // The open board (shared with the rail panel): the gallery shows only its
   // results and new runs join it; '' is "전체", every result.
   const { boards, openId: boardId } = useStudioBoards(api, active);
-  const boardThumbs = useStudioBoardThumbs(api, active, boards);
   const { assets, loadMoreAssets, moveAssets, reloadAssetKind, removeAsset, refreshAssetKind, visibleAssets } =
     useStudioAssetGallery(api, kind, boardId);
   const { selected, setSelected, promptOpen, togglePrompt, openDetail } = useStudioDetailView(visibleAssets);
@@ -489,8 +487,6 @@ export function StudioPane({
               onReferencesChange={setRefs}
               boards={boards}
               boardId={boardId}
-              boardThumbUrl={boardThumbs.thumbUrl}
-              onBoardThumbError={boardThumbs.onThumbError}
               onSelectBoard={openStudioBoard}
               onSelectModel={(entry) => {
                 setLaneId(entry.lane);
