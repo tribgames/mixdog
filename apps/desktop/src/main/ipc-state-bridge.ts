@@ -9,6 +9,7 @@ import {
 import { isSessionId, requiredSessionId, requiredSessionIds } from './desktop-state';
 import { SETTINGS_CHANGED_EVENT } from '../shared/settings-changed';
 import { ORCHESTRATION_MODE_EVENT } from '../shared/orchestration-mode';
+import { TURN_REVIEW_CHANGED_EVENT } from '../shared/turn-review-changed';
 import { registerDesktopNoticeSink } from '../../../../src/runtime/shared/desktop-notice-host.mjs';
 import { reportTranscriptRead } from '../shared/transcript-read-diagnostics';
 import type { DesktopService } from './desktop-service-contract';
@@ -111,6 +112,7 @@ export class DesktopStateBridge {
         else if (name === 'activity-rail-pins-changed') this.send(DESKTOP_IPC.activityRailPinsChanged, value);
         else if (name === 'provider-models-changed') this.send(DESKTOP_IPC.providerModelsChanged, value);
         else if (name === SETTINGS_CHANGED_EVENT) this.send(DESKTOP_IPC.settingsChanged, value);
+        else if (name === TURN_REVIEW_CHANGED_EVENT) this.send(DESKTOP_IPC.turnReviewChanged, null);
         else if (name === ORCHESTRATION_MODE_EVENT) this.send(DESKTOP_IPC.orchestrationModeChanged, value);
         else if (name === 'lsp-diagnostics') this.send(DESKTOP_IPC.lspDiagnostics, value);
         else if (name === 'lsp-status') this.send(DESKTOP_IPC.lspStatus, value);

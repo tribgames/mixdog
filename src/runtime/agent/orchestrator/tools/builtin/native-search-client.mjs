@@ -291,9 +291,6 @@ const WATCH_COALESCE_MS = 50;
 // directories (see collapseWatchPaths).
 const WATCH_BATCH_MAX_PATHS = 512;
 let _watchPending = null; // Set of reported paths, or 'all' (unknown boundary)
-// The pending paths that are directories a burst was lifted to: they stand
-// for changes beneath them, not for a change of the entry itself.
-let _watchLifted = new Set();
 let _watchTimer = null;
 
 function pathDepth(path) {
@@ -302,9 +299,9 @@ function pathDepth(path) {
 
 // The deepest paths are replaced by their parent directories until at most
 // `max` remain, so every reported path stays under one kept path, and a
-// shallow path is not lifted for a deep burst elsewhere. Lexical only: the
-// paths come from a watch on canonical roots.
-function collapseWatchPaths(paths, lifted, max) {
+// shallow path is not lifted for a deep burst elsewhere. Lexical only: a kept
+// directory covers what it was lifted from by prefix, whatever it names.
+function collapseWatchPaths(paths, max) {
   let depths = new Map([...paths].map((path) => [path, pathDepth(path)]));
   while (depths.size > max) {
     let deepest = 0;
@@ -313,16 +310,12 @@ function collapseWatchPaths(paths, lifted, max) {
     let raised = false;
     for (const [path, depth] of depths) {
       const parent = depth === deepest ? dirname(path) : path;
-      if (parent !== path) {
-        raised = true;
-        lifted.add(parent);
-      }
+      if (parent !== path) raised = true;
       if (!next.has(parent)) next.set(parent, parent === path ? depth : depth - 1);
     }
     if (!raised) break;
     depths = next;
   }
-  for (const path of lifted) if (!depths.has(path)) lifted.delete(path);
   return new Set(depths.keys());
 }
 
@@ -332,7 +325,7 @@ function queueWatcherInvalidation(paths) {
     _watchPending ??= new Set();
     for (const path of paths) _watchPending.add(String(path));
     if (_watchPending.size > WATCH_BATCH_MAX_PATHS) {
-      _watchPending = collapseWatchPaths(_watchPending, _watchLifted, WATCH_BATCH_MAX_PATHS);
+      _watchPending = collapseWatchPaths(_watchPending, WATCH_BATCH_MAX_PATHS);
     }
   }
   if (_watchTimer) return;
@@ -347,15 +340,9 @@ export function flushNativeWatcherInvalidations() {
   if (_watchTimer) clearTimeout(_watchTimer);
   _watchTimer = null;
   const pending = _watchPending;
-  const lifted = _watchLifted;
   _watchPending = null;
-  _watchLifted = new Set();
   if (!pending) return;
-  if (pending === 'all') {
-    invalidateBuiltinResultCache(null, { canonical: true });
-    return;
-  }
-  invalidateBuiltinResultCache([...pending], { canonical: true, ...(lifted.size ? { directories: [...lifted] } : {}) });
+  invalidateBuiltinResultCache(pending === 'all' ? null : [...pending], { canonical: true });
 }
 
 function onServerLine(server, line) {

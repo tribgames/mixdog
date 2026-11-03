@@ -957,6 +957,8 @@ export interface DesktopApi {
   previewNotificationSound?(): Promise<string>;
   /** A desktop setting or the global Git identity was written (here or on the host). */
   subscribeSettingsChanged?(listener: (change: SettingsChange) => void): () => void;
+  /** A turn review may read differently now (TURN_REVIEW_CHANGED_EVENT). */
+  subscribeTurnReviewChanged?(listener: () => void): () => void;
   /** The configured orchestration default changed (any writer; only when its value differs).
    *  An older host never emits it. */
   subscribeOrchestrationModeChanged?(listener: (change: OrchestrationModeChange) => void): () => void;

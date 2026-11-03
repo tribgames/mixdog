@@ -580,8 +580,8 @@ function cacheInvalidatePaths(paths, source) {
   runExtraInvalidationListeners(affectedPaths, source);
 }
 
-/** `source.canonical`: the paths come from a link-free watch on canonical
- *  roots, so listeners may match them by spelling alone. */
+/** `source.canonical`: the paths come from the native search watcher, not a
+ *  tool write. */
 export function invalidateBuiltinResultCache(paths = null, source = {}) {
   if (Array.isArray(paths) ? paths.length > 0 : Boolean(paths)) {
     cacheInvalidatePaths(paths, source);

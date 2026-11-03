@@ -8,6 +8,7 @@ import {
 import { presentErrorText } from './err-text.mjs';
 import { clean } from './clean.mjs';
 import { emitSessionActivityChange } from './session-activity-signal.mjs';
+import { noteCommandToolSettled } from './turn-boundary-signal.mjs';
 import {
   parseTaskNotification,
   renderTaskCompletionEnvelope,
@@ -472,6 +473,10 @@ export function completeBackgroundTask(
   if (resultType) task.resultType = resultType;
   if (instruction) task.notificationInstruction = compactText(instruction, 1_000);
   emitSessionActivityChange(task.ownerSessionId || '');
+  // Work that ran in a directory may have changed files there, possibly
+  // after its turn sealed: its end is a boundary like a finished command's.
+  const cwd = task.input?.cwd || task.meta?.cwd;
+  if (cwd) noteCommandToolSettled(String(cwd));
   if (notify) {
     task.meta = sanitizeTaskMeta(task.meta);
     notifyTaskCompletion(task, instruction);
