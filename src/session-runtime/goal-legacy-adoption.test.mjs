@@ -104,8 +104,10 @@ test('a committed save clears the legacy tasks; the reloaded list keeps them, lo
   assert.ok(LONG_TASK.length > 200);
   assert.deepEqual(contents(f.disk()), [
     { content: 'Shipped part', status: 'completed' },
-    { content: 'Needs approval', status: 'blocked', blocker: 'awaiting user approval' },
-    { content: LONG_TASK, status: 'in_progress' },
+    // `awaiting_approval` adopts as pending (todo has no blocked status); the
+    // list then starts its earliest open item.
+    { content: 'Needs approval', status: 'in_progress' },
+    { content: LONG_TASK, status: 'pending' },
   ]);
 });
 
