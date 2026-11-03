@@ -322,7 +322,6 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
 .transcript-virtual-row-content[data-tag="UserMessage"],
 .transcript-virtual-row-content[data-tag="AssistantPart"],
 .transcript-virtual-row-content[data-tag="ToolActivity"],
-.transcript-virtual-row-content[data-tag="WorkFold"],
 .transcript-virtual-row-content[data-tag="Thinking"],
 .transcript-virtual-row-content[data-tag="Error"] {
   width: 100%;
@@ -344,70 +343,12 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
    rows above it the size they were measured at. */
 .transcript-virtual-row-content[data-tag="AssistantPart"],
 .transcript-virtual-row-content[data-tag="ToolActivity"],
-.transcript-virtual-row-content[data-tag="WorkFold"],
 .transcript-virtual-row-content[data-tag="Error"],
 .transcript-virtual-row-content[data-turn-end="true"] {
   padding-bottom: 0;
 }
 .transcript-virtual-row-content[data-step-before="true"] {
   padding-top: 8px;
-}
-/* A finished turn's work, folded into one row above its final answer. */
-.transcript-work-fold {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 36px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 12px;
-  border: 1px solid var(--mx-border);
-  border-radius: var(--mx-radius-md);
-  background: transparent;
-  color: var(--mx-text-muted);
-  font: inherit;
-  font-size: var(--mx-font-ui);
-  text-align: left;
-  cursor: pointer;
-}
-.transcript-work-fold:hover {
-  background: var(--mx-hover);
-}
-.transcript-work-fold-label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.transcript-work-fold-chevron {
-  display: inline-flex;
-  margin-left: auto;
-  transition: transform 0.2s ease;
-}
-.transcript-work-fold[aria-expanded="true"] .transcript-work-fold-chevron {
-  transform: rotate(90deg);
-}
-/* The opened work: one thin rule down its rows, its interim text muted and a
-   step smaller than the answer. The step between its rows moves inside the
-   rule, so the rule runs unbroken. */
-.transcript-work {
-  padding-left: 14px;
-  border-left: 1px solid var(--mx-border);
-}
-.transcript-virtual-row-content[data-work="true"][data-step-before="true"] {
-  padding-top: 0;
-}
-.transcript-virtual-row-content[data-work="true"][data-step-before="true"] > .transcript-work {
-  padding-top: 8px;
-}
-.transcript-work .message-body {
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-minor);
-}
-@media (prefers-reduced-motion: reduce) {
-  .transcript-work-fold-chevron {
-    transition: none;
-  }
 }
 /* After a turn's changed-files card (the last of its turn-end stack), the
    next row keeps the turn gap (.transcript-turn-gap) even within one turn. */

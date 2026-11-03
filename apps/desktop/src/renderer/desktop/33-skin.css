@@ -360,7 +360,6 @@ html[data-mixdog-skin]
     .transcript-virtual-row-content[data-tag="UserMessage"],
     .transcript-virtual-row-content[data-tag="AssistantPart"],
     .transcript-virtual-row-content[data-tag="ToolActivity"],
-    .transcript-virtual-row-content[data-tag="WorkFold"],
     .transcript-virtual-row-content[data-tag="Thinking"],
     .transcript-virtual-row-content[data-tag="Error"]
   ) {
@@ -420,7 +419,6 @@ html[data-mixdog-skin]
     .ask-user-record,
     .turn-changes-card,
     .transcript-visualize-turn,
-    .transcript-work-fold,
     .approval-prompt
   ) {
   background: var(--mx-skin-card);
