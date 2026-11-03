@@ -1635,14 +1635,16 @@ html[data-mixdog-mobile-tabs]
   margin-left: -8px;
 }
 /* Sibling sections stay distinct without opening an oversized empty band. */
-.session-sidebar-scroll > .sidebar-recent + .sidebar-recent {
+.session-sidebar-scroll > .sidebar-recent + .sidebar-recent,
+.studio-panel > .sidebar-recent + .sidebar-recent {
   margin-top: 2px;
 }
 /* Every open list ends with the same gap before the next category, whatever
    the category order; collapsed headings stay stacked. The wide band is what
    separates categories from rows (full-ink labels; a muted label read as a
    row's supporting line in the two-line panels). */
-.session-sidebar-scroll > .sidebar-recent:has(> .session-list) + .sidebar-recent {
+.session-sidebar-scroll > .sidebar-recent:has(> .session-list) + .sidebar-recent,
+.studio-panel > .sidebar-recent:has(> .session-list) + .sidebar-recent {
   margin-top: 20px;
 }
 /* The Sessions surface: the scroller owns the 12px top inset the header's
