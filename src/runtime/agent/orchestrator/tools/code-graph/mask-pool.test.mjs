@@ -3,6 +3,7 @@
 // the caller masks on its own path (#308).
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { getEventListeners } from 'node:events';
 import { Worker } from 'node:worker_threads';
 
 import {
@@ -54,6 +55,24 @@ test('a crashed worker rejects its request and the next request gets a new worke
   await assert.rejects(_maskTextsOffThread(['b'], ['javascript']), { code: 'ERR_MASK_WORKER_EXITED' });
   assert.equal(counter.spawned, 2);
   assert.equal(_maskPoolOutstandingChars(), 0);
+});
+
+test('a worker construction failure settles its request, releases its charge and listener, and the pool recovers', async () => {
+  let fail = true;
+  const createWorker = (url, options) => {
+    if (!fail) return new Worker(new URL('./mask-worker.mjs', import.meta.url), options);
+    throw Object.assign(new Error('init failed'), { code: 'ERR_WORKER_INIT_FAILED' });
+  };
+  _configureMaskPoolForTest({ createWorker });
+  const controller = new AbortController();
+  await assert.rejects(_maskTextsOffThread(['abc'], ['javascript'], { signal: controller.signal }), {
+    code: 'ERR_WORKER_INIT_FAILED',
+  });
+  assert.equal(_maskPoolOutstandingChars(), 0);
+  assert.equal(getEventListeners(controller.signal, 'abort').length, 0);
+  fail = false;
+  const text = '// x\nconst s = "target";';
+  assert.deepEqual(await _maskTextsOffThread([text], ['javascript']), [_maskNonCodeText(text, 'javascript')]);
 });
 
 test('aborting a queued request drops it and releases its share of the bound', async () => {
