@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { routeDrillBox, routeFlyoutBox, routeFlyoutFit, routePanelStyle, routeSheetBox } from './route-editor-logic.ts';
+import { routeDrillBox, routeDropdownBox, routeFlyoutBox, routeFlyoutFit, routePanelStyle, routeSheetBox } from './route-editor-logic.ts';
 
 const viewport = { left: 0, top: 0, width: 1400, height: 900 };
 
@@ -28,6 +28,33 @@ test('a dialog field sheet flips above only when below cannot hold it and above 
   const box = routeSheetBox(field, 120, viewport, 224, 'below', 'end');
   assert.equal(box.placement, 'above');
   assert.equal(box.top + box.height, 820 - 6);
+});
+
+test('a dropdown in a wide dialog lane is chip-anchored and content-sized, not lane-wide', () => {
+  // Chip 130px at x=900; the lane runs 570px from the chip's left edge.
+  const lane = { left: 900, right: 1470 - 70, top: 400, bottom: 432 };
+  const box = routeDropdownBox(lane, 120, viewport, 130);
+  assert.equal(box.left, 900);
+  assert.equal(box.width, 224);
+  assert.equal(routeDropdownBox(lane, 120, viewport, 300).width, 300);
+  assert.equal(routeDropdownBox(lane, 120, viewport, 2000).width, 500);
+});
+
+test('a drilled model catalog keeps its 280px width when the selected name (chip) is short', () => {
+  const lane = { left: 900, right: 1400, top: 400, bottom: 432 };
+  const chip = 130;
+  const catalogWidth = 280; // preferredFlyoutWidth('model')
+  const box = routeDropdownBox(lane, 300, viewport, Math.max(chip, catalogWidth));
+  assert.equal(box.width, 280);
+  // A narrow lane still caps it.
+  assert.equal(routeDropdownBox({ ...lane, right: 1100 }, 300, viewport, catalogWidth).width, 200);
+});
+
+test('a dropdown in a narrow side-panel lane still fills the lane', () => {
+  const lane = { left: 1000, right: 1180, top: 400, bottom: 432 };
+  const box = routeDropdownBox(lane, 120, viewport, 130);
+  assert.equal(box.left, 1000);
+  assert.equal(box.width, 180);
 });
 
 test('a flyout is as tall as its content up to the cap, aligned with its row', () => {
