@@ -267,16 +267,21 @@ test('a quota-failed Lead or Goal turn queues its resume and a fire resumes it o
   assert.ok(notificationEntry, 'notification-only failure is eligible for automatic resume');
   const beforeRetry = sends.at(-1);
   await until(() => !api.getState().busy && api.getState().queued.length === 0, 'notification settlement');
-  await tick();
-  assert.equal(
-    await api.retryFailedTurn(N, notificationEntry.turnKey),
-    true,
-    JSON.stringify({
-      entry: notificationEntry,
-      items: api.getState().items,
-      messages: (await api.readModelMessages()).messages.slice(-1),
-    })
-  );
+  // The idle frame is published before the turn's Goal settlement and quota
+  // settlement finish (real file I/O), and a retry is refused until they have.
+  // A refusal changes nothing, so ask until the retry is admitted.
+  let retried = false;
+  let asking = false;
+  await until(() => {
+    if (!retried && !asking) {
+      asking = true;
+      void api.retryFailedTurn(N, notificationEntry.turnKey).then((admitted) => {
+        retried = admitted === true;
+        asking = false;
+      });
+    }
+    return retried;
+  }, 'the failed notification turn to be retryable');
   await until(() => sends.at(-1) !== beforeRetry && !api.getState().busy, 'notification retry');
   assert.equal(sends.at(-1).lastUser, beforeRetry.lastUser, 'retained notification and context are reused verbatim');
   assert.equal(sends.at(-1).users, beforeRetry.users, 'notification is not appended twice');

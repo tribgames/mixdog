@@ -228,6 +228,53 @@ test('a Goal file deleted in this process is gone from the runtime cache at once
   assert.equal(runtime.snapshot(SESSION), null);
 });
 
+test('a quota reactivation revives a usage-limited Goal another runtime wrote before the watch delivered it', async (t) => {
+  const make = (prefix) => {
+    const dataDir = mkdtempSync(join(tmpdir(), prefix));
+    const runtime = createGoalRuntime({ dataDir, deadlineWarningMs: [], generateTitle: null });
+    t.after(async () => {
+      await runtime.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    });
+    return { dataDir, runtime };
+  };
+  const writer = make('mixdog-goal-limited-');
+  const { goal } = await writer.runtime.control(SESSION, { action: 'create', objective: 'Ship the cache' });
+  await writer.runtime.startTurn(SESSION);
+  await writer.runtime.settleTurn(SESSION, { status: 'failed', usageLimited: true, error: 'quota' });
+  const record = readFileSync(join(writer.dataDir, 'goals', `${SESSION}.json`), 'utf8');
+
+  const reader = make('mixdog-goal-reader-');
+  fs.mkdirSync(join(reader.dataDir, 'goals'));
+  assert.equal(reader.runtime.snapshot(SESSION), null, 'the reader has cached "no Goal"');
+  // Written and used with no event-loop turn between: no watch event could have arrived.
+  writeFileSync(join(reader.dataDir, 'goals', `${SESSION}.json`), record);
+  const revived = await reader.runtime.reactivateUsageLimited(SESSION, goal.id);
+  assert.equal(revived?.status, 'active');
+  assert.equal(JSON.parse(readFileSync(join(reader.dataDir, 'goals', `${SESSION}.json`), 'utf8')).goal.status, 'active');
+});
+
+test('a Goal change reaches listeners only after its mutation released the record lock', async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-publish-'));
+  const runtime = createGoalRuntime({ dataDir, deadlineWarningMs: [], generateTitle: null });
+  t.after(async () => {
+    await runtime.close();
+    rmSync(dataDir, { recursive: true, force: true });
+  });
+  // The Goal continuation is such a follow-up: it arms an immediate when told
+  // of an active Goal, and must not start a turn ahead of the caller that
+  // awaited the creation.
+  let created = false;
+  const followUp = Promise.withResolvers();
+  runtime.subscribe(({ goal }) => {
+    if (goal) setImmediate(() => followUp.resolve(created));
+  });
+  await runtime.control(SESSION, { action: 'create', objective: 'Ship the cache' }).then(() => {
+    created = true;
+  });
+  assert.equal(await followUp.promise, true);
+});
+
 test('closing the Goal runtime releases its storage watch', async (t) => {
   const watching = trackWatchers(t);
   const { dataDir, runtime } = await runtimeFixture(t);
