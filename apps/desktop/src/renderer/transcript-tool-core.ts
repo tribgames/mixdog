@@ -858,27 +858,6 @@ function summaryUnitKey(unitKey: string): string {
   return unitKey === 'Read|Read|image' || unitKey === 'Read|Read|resource' ? 'Read|Read|file' : unitKey;
 }
 
-/** How many tool calls `items` made, and how many of them failed. A stopped
- *  call is no failure (the stop is its own outcome). */
-export function desktopToolActivityCallCounts(items: readonly TranscriptItem[]): { calls: number; failed: number } {
-  let calls = 0;
-  let failed = 0;
-  for (const item of flattenedToolActivityItems(items)) {
-    const count = Math.max(1, Math.round(Number(item.count || 1)));
-    calls += count;
-    if (
-      !toolItemDone(item) ||
-      toolOutputBasics(item).resultStatus === 'cancelled' ||
-      toolActivityItemTone(item) === 'neutral'
-    ) {
-      continue;
-    }
-    const errors = Math.max(0, Number(item.callErrorCount || 0)) + Math.max(0, Number(item.exitErrorCount || 0));
-    failed += Math.min(count, Math.max(1, errors));
-  }
-  return { calls, failed };
-}
-
 /** The group summary: each work unit summarized as a natural verb phrase, file
  *  changes first, then the rest in call order, as one list ("Edit 2 files,
  *  Read 6 files, Run 4 commands"). A command that failed says so: a lone one

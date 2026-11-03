@@ -37,8 +37,6 @@ export type TranscriptRowModel =
       live?: boolean;
       /** This row holds the last turndone of a checkpoint: its changed-files card follows. */
       turnChanges?: TurnChangesRef;
-      /** Interim text of a finished turn, shown under its opened work fold. */
-      work?: boolean;
     }
   | {
       _tag: 'ToolActivity';
@@ -48,22 +46,6 @@ export type TranscriptRowModel =
       /** A running turn ends in this group: its next call lands here, so the
        *  group does not read finished between two calls (appendLiveTranscriptRows). */
       open?: boolean;
-      /** A tool round of a finished turn, shown under its opened work fold. */
-      work?: boolean;
-    }
-  | {
-      /** A finished turn's work before its final answer, as one row (foldTurnWork). */
-      _tag: 'WorkFold';
-      key: string;
-      turnKey: string;
-      /** The tool rounds the work holds. */
-      steps: number;
-      /** Every tool call of the work, oldest first. */
-      items: readonly TranscriptItem[];
-      open: boolean;
-      /** The rows the collapsed fold stands for; empty while open, when they
-       *  follow it in the list instead. */
-      folded: readonly TranscriptRowModel[];
     }
   | {
       _tag: 'Thinking';
@@ -628,138 +610,6 @@ function openTailToolActivity(rows: TranscriptRowModel[]): void {
   while (tail >= 0 && rows[tail]?._tag === 'Thinking') tail -= 1;
   const row = rows[tail];
   if (row?._tag === 'ToolActivity') rows[tail] = { ...row, open: true };
-}
-
-/** One fold of a finished run's work: rows[start..end] (inclusive) hold
- *  interim text and tool rounds between two of the run's prompts, or between
- *  its last prompt and its final answer. */
-export interface TurnWorkSpan {
-  /** The fold row's key, from the final answer's: stable once the run ends. */
-  key: string;
-  turnKey: string;
-  /** The turn key of the run's final answer: a next message starts another. */
-  runKey: string;
-  start: number;
-  end: number;
-  steps: number;
-}
-
-const isWorkRow = (row: TranscriptRowModel): boolean =>
-  (row._tag === 'ToolActivity' && !row.open) ||
-  (row._tag === 'AssistantPart' && !row.live && !row.active && !row.completion && row.item.kind !== 'user');
-
-/** Whether rows[index] opens a run of its own: a turn start, unless it is a
- *  message the model read inside the running turn (a steering message
- *  continues the run, whatever turn key it carries). */
-function opensRun(rows: readonly TranscriptRowModel[], index: number): boolean {
-  const row = rows[index] as TranscriptRowModel;
-  const previous = rows[index - 1];
-  const turnStart = row._tag === 'TurnGap' || !previous || previous.turnKey !== row.turnKey;
-  if (!turnStart) return false;
-  const lead = row._tag === 'TurnGap' ? rows[index + 1] : row;
-  return !(lead?._tag === 'UserMessage' && lead.item.steered === true);
-}
-
-/** The folds of each run whose work folds: the run ended successfully (its
- *  completion folded into the final answer row), the answer is the assistant
- *  text after its last tool round and last prompt, and its work holds two or
- *  more rounds in all. A streaming, failed or cancelled run carries no folded
- *  completion, so it never folds. The prompts (steering messages included)
- *  stay in view: the work on each side of them folds apart. */
-export function turnWorkSpans(rows: readonly TranscriptRowModel[]): TurnWorkSpan[] {
-  const spans: TurnWorkSpan[] = [];
-  let runStart = 0;
-  for (let index = 0; index <= rows.length; index += 1) {
-    if (index < rows.length && (index === runStart || !opensRun(rows, index))) continue;
-    // rows[runStart..index) is one run (its gap row, if any, leads it).
-    let answer = -1;
-    let lastBreak = -1;
-    for (let at = runStart; at < index; at += 1) {
-      const part = rows[at] as TranscriptRowModel;
-      if (part._tag === 'TurnGap' || part._tag === 'UserMessage' || part._tag === 'ToolActivity') lastBreak = at;
-      else if (part._tag === 'AssistantPart' && part.completion && part.item.kind === 'assistant' && !part.live) {
-        answer = at;
-      }
-    }
-    const answerRow = rows[answer];
-    // Work segments before the answer, split at the run's prompts.
-    const segments: { start: number; end: number; steps: number }[] = [];
-    let valid = answerRow !== undefined && answer > lastBreak;
-    for (let at = runStart; valid && at <= lastBreak; at += 1) {
-      const part = rows[at] as TranscriptRowModel;
-      if (part._tag === 'TurnGap' || part._tag === 'UserMessage') continue;
-      valid = isWorkRow(part);
-      const segment = segments.at(-1);
-      const steps = part._tag === 'ToolActivity' ? 1 : 0;
-      if (segment && segment.end === at - 1) {
-        segment.end = at;
-        segment.steps += steps;
-      } else segments.push({ start: at, end: at, steps });
-    }
-    const steps = segments.reduce((total, segment) => total + segment.steps, 0);
-    if (valid && answerRow && steps >= 2) {
-      // Interim text with no tool round beside it stays as it is.
-      const folding = segments.filter((segment) => segment.steps > 0);
-      folding.forEach((segment, order) => {
-        spans.push({
-          key: order === folding.length - 1 ? `${answerRow.key}:work` : `${answerRow.key}:work:${order}`,
-          turnKey: (rows[segment.start] as TranscriptRowModel).turnKey,
-          runKey: answerRow.turnKey,
-          ...segment,
-        });
-      });
-    }
-    runStart = index;
-  }
-  return spans;
-}
-
-// One marked copy per settled row: memoized row renderers see the same row
-// on every recompute while the fold stays open.
-const workRows = new WeakMap<TranscriptRowModel, TranscriptRowModel>();
-
-function workRow(row: TranscriptRowModel): TranscriptRowModel {
-  if (row._tag !== 'ToolActivity' && row._tag !== 'AssistantPart') return row;
-  let marked = workRows.get(row);
-  if (!marked) {
-    marked = { ...row, work: true };
-    workRows.set(row, marked);
-  }
-  return marked;
-}
-
-/** `rows` with each span's work behind one fold row, where the work was: a
- *  collapsed fold stands for the rows, an open one is followed by them (marked
- *  as work). `folds` says which spans fold now and whether each is open. */
-export function foldTurnWork(
-  rows: readonly TranscriptRowModel[],
-  spans: readonly TurnWorkSpan[],
-  folds: (span: TurnWorkSpan) => { fold: boolean; open: boolean }
-): readonly TranscriptRowModel[] {
-  let folded: TranscriptRowModel[] | null = null;
-  let copied = 0;
-  for (const span of spans) {
-    const { fold, open } = folds(span);
-    if (!fold) continue;
-    folded ??= [];
-    folded.push(...rows.slice(copied, span.start));
-    const work = rows.slice(span.start, span.end + 1);
-    const items = work.flatMap((row) => (row._tag === 'ToolActivity' ? row.items : []));
-    folded.push({
-      _tag: 'WorkFold',
-      key: span.key,
-      turnKey: span.turnKey,
-      steps: span.steps,
-      items,
-      open,
-      folded: open ? [] : work,
-    });
-    if (open) for (const row of work) folded.push(workRow(row));
-    copied = span.end + 1;
-  }
-  if (!folded) return rows;
-  folded.push(...rows.slice(copied));
-  return folded;
 }
 
 const TURN_CHROME_KINDS = new Set(['user', 'turndone', 'statusdone', 'notice']);

@@ -306,7 +306,7 @@ function rowSteps(
   // settled part above it, and the new row was placed at the old size for a
   // frame before jumping 8px (tool rounds shook the whole thread).
   const part = (tag: TranscriptRowModel['_tag'] | undefined) =>
-    tag === 'AssistantPart' || tag === 'ToolActivity' || tag === 'Error' || tag === 'WorkFold';
+    tag === 'AssistantPart' || tag === 'ToolActivity' || tag === 'Error';
   const bandLead = row._tag === 'Thinking' && leadsBand(previous);
   const stepBefore = !bandLead && row._tag !== 'TurnGap' && part(previous);
   const turnEnd = !blank && !part(row._tag) && (!next || next._tag === 'TurnGap');
@@ -360,7 +360,6 @@ function renderVirtualRow(
         data-slot="session-turn-message-container"
         data-index={virtualRow.index}
         data-tag={row._tag}
-        data-work={'work' in row && row.work ? 'true' : undefined}
         data-turn-end={turnEnd ? 'true' : undefined}
         data-band-lead={bandLead ? 'true' : undefined}
         data-step-before={stepBefore ? 'true' : undefined}

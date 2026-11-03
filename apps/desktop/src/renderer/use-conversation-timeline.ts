@@ -5,7 +5,6 @@ import { useMobileRemoteSurface } from './mobile-surface';
 import { commandShowsActivity } from './transcript-status';
 import { useConversationFollowEffects } from './use-conversation-follow-effects';
 import { useTranscriptRows } from './use-conversation-rows';
-import { useTurnWorkFolds } from './use-turn-work-folds';
 import type { ConversationTranscriptSource } from './use-conversation-transcript-source';
 import type { ConversationViewport } from './use-conversation-viewport';
 import { useTranscriptHistoryFill } from './use-transcript-history';
@@ -25,7 +24,6 @@ export function useConversationTimeline({
   steerItems,
   optimisticActivityStartedAt,
   room,
-  foldWork = false,
   listHeld = false,
   onEntryRevealed,
   onTranscriptHiddenChange,
@@ -50,9 +48,6 @@ export function useConversationTimeline({
   optimisticActivityStartedAt: number;
   /** A group room: the live band is its typing slot (use-conversation-rows.ts). */
   room?: boolean;
-  /** A coding transcript: finished multi-step turns fold their work
-   *  (use-turn-work-folds.ts); an agent chat shows no tool rounds to fold. */
-  foldWork?: boolean;
   /** The list is not mounted yet (held one frame behind the cover): the
    *  reveal and the entry record start only once it is. */
   listHeld?: boolean;
@@ -65,7 +60,7 @@ export function useConversationTimeline({
   const liveItem = source.activeStreamingTail;
   const showTimeline = source.showTranscriptTimeline;
   const { following, hasScrollGesture, resume: resumeFollow, arm: armFollow } = follow;
-  const { settledTurnKeys, transcriptRows: projectedRows } = useTranscriptRows({
+  const { settledTurnKeys, transcriptRows } = useTranscriptRows({
     identity,
     sessionKey,
     settledItems,
@@ -81,7 +76,6 @@ export function useConversationTimeline({
     optimisticActivityStartedAt,
     room,
   });
-  const transcriptRows = useTurnWorkFolds({ rows: projectedRows, enabled: foldWork, following, viewport });
   const populated = showTimeline && !listHeld && transcriptRows.length > 0;
   const phone = useMobileRemoteSurface();
   const transcriptRevealed = useTranscriptReveal({

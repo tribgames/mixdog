@@ -24,7 +24,6 @@ import { showsResponseFooter, TranscriptResponseFooter, TranscriptRow } from './
 import { backgroundWorkCounts, completionActivityKey, hadLiveActivity, LiveActivity } from './transcript-status';
 import { dropTranscriptScrollDeviation } from './transcript-follow-rules';
 import { ToolActivityGroup } from './transcript-tool-ui';
-import { WorkFoldRow } from './transcript-work-fold';
 import { AskUserRecord, askUserCardKey, splitAskUser } from './ask-user-record';
 import { PreviewedTurnChangesCard } from './transcript-visualize-card';
 import { desktopPromptDisplayText, pendingPromptImages, type PendingPromptItem } from './conversation-prompt-items';
@@ -475,9 +474,6 @@ export function transcriptRowNode(
   }
   if (row._tag === 'UserMessage') {
     return <TranscriptRow item={row.item} disclosureScope={disclosureScope} attachedUser={row.attachedUser} />;
-  }
-  if (row._tag === 'WorkFold') {
-    return <WorkFoldRow foldKey={row.key} steps={row.steps} items={row.items} open={row.open} />;
   }
   if (row._tag === 'ToolActivity') {
     // Questions leave the tool roll-up: a waiting one is the live card, an

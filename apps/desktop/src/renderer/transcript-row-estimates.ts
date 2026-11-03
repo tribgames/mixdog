@@ -70,7 +70,6 @@ export function transcriptRowShape(row: TranscriptRowModel): string {
   switch (row._tag) {
     case 'TurnGap':
     case 'Thinking':
-    case 'WorkFold':
       return row._tag;
     case 'UserMessage': {
       const text = textOf(row.item);
@@ -83,12 +82,12 @@ export function transcriptRowShape(row: TranscriptRowModel): string {
       const text = textOf(row.item);
       // A room's typing bubble, quiet pass and speech are all empty-or-short
       // notices of very different heights: one shape would blend them.
-      return `reply:${row.item?.kind ?? ''}${row.item?.room?.kind ? `/${row.item.room.kind}` : ''}:${lengthBucket(text)}:${markdownFeatures(text)}:${row.completion ? 1 : 0}:${row.turnChanges ? 1 : 0}${row.work ? ':work' : ''}`;
+      return `reply:${row.item?.kind ?? ''}${row.item?.room?.kind ? `/${row.item.room.kind}` : ''}:${lengthBucket(text)}:${markdownFeatures(text)}:${row.completion ? 1 : 0}:${row.turnChanges ? 1 : 0}`;
     }
     case 'ToolActivity': {
       const count = row.items.length;
       const kinds = [...new Set(row.items.map((item) => item?.kind ?? ''))].sort().join('+');
-      return `tool:${kinds}:${count > 8 ? 9 : count}${row.work ? ':work' : ''}`;
+      return `tool:${kinds}:${count > 8 ? 9 : count}`;
     }
     case 'Error':
       return `error:${row.failures.length > 1 ? 2 : 1}:${row.turnChanges ? 1 : 0}`;
