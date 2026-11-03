@@ -205,6 +205,7 @@
       "5d909abd96e4aa8636f27cf652301c5e",
       "646365a3f7041a3da3d7d7d896a0c3b6",
       "662f730d603b1e583dc777a1984b9134",
+      "6da9e5ab34c6b3c81d44e340cb86a60f",
       "814b0820a05119a049cf4262dc35301b",
       "85876f6f5aa4f9253d0f5f3f1836dd1a",
       "8691fb728207188e5277611ab8ee739f",
@@ -233,6 +234,7 @@
       "8a5a68ec13a7414b35e7f3b0089e2208",
       "9728f28dc5b23eb1bb1924213d3ffddd",
       "9a8789b3b4f5f6b3ba02f407cdfb92f7",
+      "9ee8131907638b7a80ec5ba265c1cb14",
       "ab5cce4a2fccad63e006cf22aa6cc6b0",
       "b50e9c0ba5e8228583eab4f0e0573838",
       "c03f4d0e008467497c0152639953b166",
@@ -246,6 +248,7 @@
       "26fc2fc1acc0dce5ca450c4c0fae30a6",
       "27135bd0ba3468258d3b43c752501929",
       "398b50b687206544149feeb0a5b02c09",
+      "3c6fb7fcb53e7d63bff8afe37f9e456b",
       "3f8b7b4cd798dba866eccd7d09c76248",
       "45534843b3a94a6ab2c6bb5f141c5133",
       "733d30c3ca6745c96a69f7e237f3d8c0",
@@ -271,6 +274,7 @@
     ],
     "docx": [
       "25180dffff54178bcc336250f58ba7db",
+      "38445623e17d1c8ee71e4ba01f8304f8",
       "399e105761046c206a9d638609751313",
       "52acd56f1e33cadb55c077fefa84f2e5",
       "74ccfc661e33250bcbf53b0ced66c08e",
@@ -309,13 +313,15 @@
       "c1a7863f99f8c57bd6c6dc4f05228d06",
       "de167d9432b970379e4ba6819416ebbc",
       "e30b8db5872d14039f3ce96a48a0e711",
-      "e78e509faeb77e9841789f89edefd4fc"
+      "e78e509faeb77e9841789f89edefd4fc",
+      "f3f3c27f6f7d671d05021c0f27f057c2"
     ],
     "local-provider": [
       "0dd50d50ca7fd15c75eb7297a9731fac",
       "64ae24b63d890f41d71f2d4acb245bdd",
       "7064f1716df7abd987d2fc618ba56d51",
       "ba7cbc32044384d663f4770f2e968927",
+      "c99798fc65c2a904d449d63c5b290285",
       "d113331411c1e8459ede53a149ee7a74",
       "e2e9117f822b5dd113e32e12a8105094",
       "e975b09facc24fd6f1ca84cc07f98b27",
@@ -325,6 +331,7 @@
       "bdf26b0f2ac9f3126bfa74ced15a7d73"
     ],
     "memory-management": [
+      "101eb6b953fa795b6785de2d4bfd2336",
       "1533630b81ebace2bc9ece6fda02bb11",
       "261a34fce0fb0f73abfd1b1e2add3602",
       "356bf57f7087fe2c40c5dcd99622c3e9",
@@ -342,12 +349,14 @@
       "c5d416db89c973fd9cedfe32310376dc",
       "d8efa2799cb99d806572a690f169bf9a",
       "da6a1af298107ffed1270bd7d514067f",
+      "e3f4a2f624e57518b46d38b73e988d79",
       "e5af7a8e68898e305da7f085494dc0f0",
       "ef3c4c71b1d8cd8a29906922821b3351",
       "f1d9a290cf2dc6b602db652e6eff120c"
     ],
     "pptx": [
       "02010418903501a4310a9cf9d84441ff",
+      "03c716c9aac2786e1eb46379b01148f2",
       "07802a61d913c3fb7c431774e7f4ebb7",
       "0a34c5b6011578bebdb6cca63edfcec4",
       "0ddf9f9845e1fcfc76d81592d6a71e70",
@@ -423,6 +432,7 @@
       "b21681ecfeb523c0d7dd89a299ec05a9",
       "b4f9c79dcb08151e6275b5ee35c2bca4",
       "b96f637e5a5acc2406fb1922f7004291",
+      "bb1b1fdf0fd0c575465d44b10e153314",
       "bca9732a1cecd2ce3a26e905b57d3b25",
       "c6db973f51166fc42814808ae0001797",
       "c82197acd9111f4a6dcda24baccffb86",
@@ -435,6 +445,7 @@
       "e7957096bcf6cb5c5833f4e98e1f7110",
       "e848b92962dee0d4c3d7e3721d2e3294",
       "e9b89f9193bd9d9c80ba6cf4419e58ff",
+      "f00d8792941e20002ae1acd335600adc",
       "feabe973080344c4d52787a96043ab68",
       "ff18ac1a9f5961925aec27ffb870bae0"
     ],
@@ -445,7 +456,8 @@
       "920d5b29ccfe6c88f623cf0892b29285",
       "dbe3d22991ad4dff6e3906f9101c9b5f",
       "ec88a82ab5e511c0afb1738162150648",
-      "fa355d4ea5f1823e4b75219ab842c34a"
+      "fa355d4ea5f1823e4b75219ab842c34a",
+      "fc684b732720a61de39e41ebb42aba98"
     ],
     "skill-creator": [
       "020817866da73a69544ba35086bdcd5f",
@@ -460,9 +472,11 @@
     ],
     "test-suite": [
       "df60ba4a182ee289f3550e79f1731cd4",
+      "e40273e8ecb588d5d857d6d4005a61e2",
       "f5c8ee5331a9b8279f997f609b10c380"
     ],
     "video": [
+      "5f55265a19ef8c7f0b2cda74304356c8",
       "6aad64b16521d324e355d125692a0cec",
       "82f61245cc67ce5380ab9ccf4c697c29",
       "c3e50ae30343e17652edaf62c01cd872",
@@ -471,6 +485,7 @@
       "fe0512acbb2fc8f80c5961b9f44aa5e2"
     ],
     "visualize": [
+      "6e935c8d151ff00a5e345af3d07c0144",
       "7487f5be6506456add26a43f47efcd3f",
       "8320fedd9dd745a332621c325a8bf355",
       "9c9fba19647b67d75a600137e38c02b8",
@@ -490,6 +505,7 @@
       "5ac9a3e274c8a3b3318d93cb42cd485d",
       "6ce20520ae797d0bd9f7692e2d677562",
       "74a76fe7926c5f43d190751ef89ea043",
+      "901fc9bfccddc14addbcea9503668d54",
       "968369bfd2f8475c037719251988ff5e",
       "acbcb8ef7f1bfbf8e9c739d14c185cd0",
       "b0076e5e89f72ae5f14f0d1dd24cdaa0",

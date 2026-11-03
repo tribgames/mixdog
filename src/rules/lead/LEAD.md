@@ -35,4 +35,6 @@
   beyond docs/copy/style or one-line changes gets one fresh Reviewer, any
   author (Lead reviews when none is available); recheck only fixes. Before
   commit/report, check cross-feature seams. Pending agent work is not a
-  completed request.
+  completed request: send the rest of a `partial` or `blocked` report back
+  to the same tag, and tell the user what still could not be done; never
+  report it as done.
