@@ -21,9 +21,7 @@ const WARM_MARGIN_RATIO = 0.1;
 
 /** How long the cache a saved request wrote or read stays readable, in ms:
  *  Infinity when it does not expire (openai-oauth), 0 when it is not cached.
- *  Anthropic: the request's message-tail tier (5m / 1h); OpenAI: the 30m tail
- *  that holds the conversation (the Lead's 12h breakpoint covers only the
- *  stable tools/instructions prefix). */
+ *  Anthropic: the request's message-tail tier (5m / 1h); OpenAI: 30m. */
 function requestCacheLifetimeMs(request) {
   const name = request?.provider?.name;
   if (name === 'openai-oauth') return Infinity;

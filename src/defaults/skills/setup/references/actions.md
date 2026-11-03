@@ -253,9 +253,7 @@ key's source.
   (`builtInUnlimited` marks a built-in unlimited window); a provider reset
   restores its built-in window. Built-ins follow each provider's cache: Codex/
   ChatGPT login unlimited, OpenAI API 30 min, Anthropic and Gemini 1h. The
-  OpenAI API caches a Lead-class session's stable prefix for 12h and its
-  moving tail for 30 min (Lead, bot chats, bot task sessions, routine and
-  webhook runs), so the 30 min window clears only a cold tail. Finished
+  OpenAI API cache lasts 30 min, so that window clears only a cold cache. Finished
   sub-agent sessions are always released on a finite timer (the provider's
   window, e.g. DeepSeek 24h; 1h for Codex/ChatGPT logins); unlimited does not
   disable it.

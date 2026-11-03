@@ -16,7 +16,6 @@ const {
   isLeadCacheClass,
   providerTailCacheLifetimeMs,
   resolveCacheStrategy,
-  resolveOpenAiPrefixCacheTtl,
   resolveProviderPromptCacheLane,
   roleProviderCacheOpts,
   sessionTailCacheExpired,
@@ -75,9 +74,8 @@ test('bot home threads and bot task sessions are Lead class; spawned sub-agents 
   for (const session of [home, mixyHome, routineRun, botTask, coding]) {
     assert.equal(isLeadCacheClass(session.agent, session), true, session.id);
     assert.equal(roleProviderCacheOpts('anthropic', ...lead(session)).cacheStrategy.messages, '1h', session.id);
-    assert.deepEqual(roleProviderCacheOpts('openai', ...lead(session)), { promptCachePrefixTtl: '12h' }, session.id);
+    assert.equal(roleProviderCacheOpts('openai', ...lead(session)), null, session.id);
     assert.equal(roleProviderCacheOpts('openai-oauth', ...lead(session)), null, session.id);
-    assert.equal(resolveOpenAiPrefixCacheTtl(session.agent, session), '12h', session.id);
   }
   for (const session of [worker, botWorker]) {
     assert.equal(isLeadCacheClass(session.agent, session), false, session.id);

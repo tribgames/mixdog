@@ -64,9 +64,8 @@ export { prefetchSession, prepareSessionProjection } from './prepared-resume-cac
 function buildSessionProviderCacheOpts(providerName, sessionId, agent = null, config = null, session = null) {
   // Keep this in sync with createSession's provider-cache policy: only
   // explicit-breakpoint providers get BP cache opts here; key-prefix
-  // providers use promptCacheKey and request-time strategy instead (plus the
-  // OpenAI API's Lead-class 12h prefix TTL and a one-shot role's shared
-  // prompt-cache scope).
+  // providers use promptCacheKey and request-time strategy instead (plus a
+  // one-shot role's shared prompt-cache scope).
   if (cacheCapabilityForProvider(providerName) !== 'explicit-breakpoint') {
     return roleProviderCacheOpts(providerName, agent, { session });
   }
@@ -259,8 +258,8 @@ export function createSession(createOpts) {
   // today, so that branch never fires); build it directly here so every
   // session still gets a cache strategy. Lead-class sessions (the Lead, raw
   // callers, bot home threads and other agent-mode Leads) get their BP4
-  // message tail TTL linked to the user's autoClear idle-sweep config and,
-  // on the OpenAI API, the 12h stable-prefix TTL; sub-agents and hidden roles
+  // message tail TTL linked to the user's autoClear idle-sweep config;
+  // sub-agents and hidden roles
   // keep the agent defaults (see cache-strategy.mjs docs).
   const providerCacheOpts =
     resolved.providerCacheOpts || buildSessionProviderCacheOpts(providerName, id, opts.agent, null, { ...opts, id });

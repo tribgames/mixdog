@@ -202,11 +202,10 @@ const AUTO_CLEAR_DEFAULT_IDLE_MS = 60 * 60 * 1000;
 // reusable. Gemini, xAI and Mistral
 // caches run ~1h, Groq's implicit cache persists ~2h, and DeepSeek's
 // implicit cache is evicted after "a few hours to a few days" (kept at 24h).
-// OpenAI public API (GPT-5.6+ Responses, cache-strategy.mjs): the moving tail
-// is written with ttl "30m" and only the Lead-class stable prefix with "12h",
-// so the sweep matches the 30m tail — a clear after that costs nothing extra
-// (the tail is cold anyway) and the cleared session restarts on the warm 12h
-// prefix. Earlier OpenAI models (prompt_cache_retention, typically ~30 min)
+// OpenAI public API (GPT-5.6+ Responses, cache-strategy.mjs): every request
+// is written with ttl "30m", so the sweep matches it — a clear after that
+// costs nothing extra (the cache is cold anyway). Earlier OpenAI models
+// (prompt_cache_retention, typically ~30 min)
 // are not distinguished: these call sites only know the provider.
 // OpenAI OAuth (Codex/ChatGPT login) keeps the cache of logged-in users
 // indefinitely (2026-10-20), so its built-in window is unlimited: no idle
