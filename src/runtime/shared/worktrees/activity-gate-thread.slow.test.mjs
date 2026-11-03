@@ -326,23 +326,33 @@ test('a release requested before a later grant is answered lands after it, and t
 
 test('a removal that did not land is retried by the heal tick and never comes back', async (t) => {
   const repo = makeRepo();
+  const report = 'MIXDOG_TEST_LEDGER_WRITES';
+  delete process.env[report];
   process.env.MIXDOG_ADMISSION_HEAL_MS = '100';
   t.after(() => {
     setAdmissionFaults();
     delete process.env.MIXDOG_ADMISSION_HEAL_MS;
+    delete process.env[report];
   });
   const keep = await tryAdmitWorkspaceActivityAsync('keep', repo);
   const late = await tryAdmitWorkspaceActivityAsync('late', repo);
-  setAdmissionFaults({ op: 'rename', file: MIRROR, hits: [true], action: 'fail', code: 'EIO' });
-  await late();
-  setAdmissionFaults();
-  assert.deepEqual(
-    copySessions(repo),
-    [['keep'], ['keep', 'late']],
-    'the mirror kept the lease its write failed to drop'
+  // The heal tick runs on the admission thread's own timer and may land before
+  // this thread looks, so the copies are recorded there, just before the next
+  // mirror write after the failed one replaces it.
+  const files = [admissionPath(repo), mirrorPath(repo)];
+  setAdmissionFaults(
+    { op: 'rename', file: MIRROR, hits: [true], action: 'fail', code: 'EIO' },
+    { op: 'rename', file: MIRROR, hits: [false, true], action: 'snapshot', report, files }
   );
+  await late();
   // No other request comes: the heal tick finishes the removal by itself.
   await until(() => !copySessions(repo)[1].includes('late'));
+  setAdmissionFaults();
+  assert.deepEqual(
+    JSON.parse(process.env[report] ?? '[]').map(({ copies }) => copies.map(sessionsIn)),
+    [[['keep'], ['keep', 'late']]],
+    'the mirror kept the lease its write failed to drop'
+  );
   const next = await tryAdmitWorkspaceActivityAsync('next', repo);
   for (let round = 0; round < 5; round += 1) {
     await sleep(120);
