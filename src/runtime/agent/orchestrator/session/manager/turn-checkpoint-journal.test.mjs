@@ -673,6 +673,45 @@ test('replay skips a duplicated re-flushed record and stops at a real gap', asyn
   assert.ok(!JSON.stringify(checkpoint).includes('after-gap'));
 });
 
+test('journal appends do not probe the checkpoint directory once it was ensured', async (t) => {
+  const sessionId = 'sess-dir-once';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+  const probes = [];
+  for (const name of ['existsSync', 'mkdirSync', 'statSync']) {
+    const original = fs[name];
+    t.mock.method(fs, name, (...args) => {
+      probes.push(name);
+      return original(...args);
+    });
+  }
+  syncBuiltinESMExports();
+  t.after(() => syncBuiltinESMExports());
+  for (const delta of ['a', 'b', 'c']) {
+    turn.tracker.recordTextDelta(delta);
+    turn.flush();
+    await settleTurnCheckpointWrites(sessionId);
+  }
+  t.mock.restoreAll();
+  assert.deepEqual(probes, []);
+  assert.equal(readTurnCheckpoint(sessionId).interruption.partialAssistantContent, 'abc');
+});
+
+test('a journal append after the checkpoint directory was deleted recreates it', async () => {
+  const sessionId = 'sess-dir-gone';
+  const turn = startTurn(sessionId);
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+  const dir = join(turnJournalPath(sessionId), '..');
+  rmSync(dir, { recursive: true, force: true });
+  turn.tracker.recordTextDelta('after-delete');
+  turn.flush();
+  await settleTurnCheckpointWrites(sessionId);
+  assert.equal(existsSync(dir), true);
+  assert.match(readFileSync(join(dir, `${sessionId}.jsonl`), 'utf8'), /after-delete/);
+});
+
 test('stop retires further flushes without dropping the durable prefix', async () => {
   const sessionId = 'sess-stop';
   const turn = startTurn(sessionId);

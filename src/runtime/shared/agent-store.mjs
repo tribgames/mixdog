@@ -5,9 +5,10 @@
 // before that — or if it never could run — every reader sees agents/ as
 // before. The ids the split copied are bots for good: their agents/ originals
 // stay on disk for rollback but no catalog reads them again.
-import { existsSync, statSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { readJsonStateSync, writeJsonAtomicSync } from './atomic-file.mjs';
+import { createWatchedFileCache, fileStampSync } from './watched-file-cache.mjs';
 import { setBotRouteResolver } from './agent-route-config.mjs';
 
 export const BOTS_DIR = 'bots';
@@ -33,21 +34,25 @@ function readJson(file) {
   }
 }
 
-// Small stat-keyed caches: the store is read on route and catalog paths.
-const fileCache = new Map();
-function cachedJson(file) {
-  let stat;
+// The store is read on route and catalog paths: warm reads come from memory
+// (watched-file-cache.mjs), reloaded only once the file changed.
+const fileCache = createWatchedFileCache((file) => {
+  const stamp = fileStampSync(file);
+  return { stamp, value: stamp === 'missing' ? null : readJson(file) };
+});
+/** For this process's writers that bypass this module (the bot-store
+ *  migrations): what they rewrote under bots/ reads fresh at once. */
+export function forgetBotStoreCache(dataDir) {
+  if (dataDir) fileCache.deleteUnder(join(dataDir, BOTS_DIR));
+}
+
+// `fresh`: the disk now, for a read a write will be based on.
+function cachedJson(file, { fresh = false } = {}) {
   try {
-    stat = statSync(file);
+    return fileCache.get(file, { fresh });
   } catch {
-    fileCache.delete(file);
     return null;
   }
-  const hit = fileCache.get(file);
-  if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) return hit.value;
-  const value = readJson(file);
-  fileCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, value });
-  return value;
 }
 
 /** The finished split's record, or null before it ran. */
@@ -90,10 +95,11 @@ const isCompleteRoute = (route) =>
   );
 
 /** A store bot's own route (agent.json `route`): the route, null when it has
- *  none, undefined when `id` is no store bot. */
-export function readBotRoute(dataDir, id) {
+ *  none, undefined when `id` is no store bot. `fresh` reads the disk now:
+ *  what a route change is computed from or compared against. */
+export function readBotRoute(dataDir, id, { fresh = false } = {}) {
   if (!isStoreBot(dataDir, id)) return undefined;
-  const route = cachedJson(join(botDir(dataDir, id), 'agent.json'))?.route;
+  const route = cachedJson(join(botDir(dataDir, id), 'agent.json'), { fresh })?.route;
   return isCompleteRoute(route) ? route : null;
 }
 
@@ -105,7 +111,7 @@ export function writeBotRoute(dataDir, id, route) {
   if (route) manifest.route = route;
   else delete manifest.route;
   writeJsonAtomicSync(file, manifest, { backup: true });
-  fileCache.delete(file);
+  fileCache.set(file, manifest);
 }
 
 // --- Mixy: its own bot (bots/mixy), apart from the Lead ---
@@ -121,9 +127,9 @@ export function mixyIdentityDir(dataDir) {
 }
 
 /** Mixy's own route, or null when it has none (its thread keeps its own). */
-export function readMixyRoute(dataDir) {
+export function readMixyRoute(dataDir, { fresh = false } = {}) {
   if (!dataDir) return null;
-  const route = cachedJson(join(botDir(dataDir, MIXY_BOT_ID), 'agent.json'))?.route;
+  const route = cachedJson(join(botDir(dataDir, MIXY_BOT_ID), 'agent.json'), { fresh })?.route;
   return isCompleteRoute(route) ? route : null;
 }
 

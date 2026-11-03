@@ -149,7 +149,8 @@ export function createGoalRuntime({
       listeners.clear();
       // Accepted writes keep their ordering until they settle. Callers may
       // await this barrier before releasing the session's backing resources.
-      return Promise.allSettled([...ctx.mutationChains.values()]).then(() => {});
+      // The storage cache (and its directory watch) goes once they have.
+      return Promise.allSettled([...ctx.mutationChains.values()]).then(() => ctx.closeStorage());
     },
   };
 }

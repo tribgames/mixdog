@@ -53,7 +53,9 @@ export function createGoalStore(ctx) {
   const withMutation = (sessionId, operation) => {
     const id = assertSessionId(sessionId);
     const previous = mutationChains.get(id) || Promise.resolve();
-    const current = previous.catch(() => {}).then(() => operation(id));
+    // Under the record's lock, reading from disk: another process's commit
+    // is what this operation modifies, never a cached copy it replaced.
+    const current = previous.catch(() => {}).then(() => storage.mutate(id, () => operation(id)));
     mutationChains.set(id, current);
     current
       .finally(() => {
@@ -75,7 +77,7 @@ export function createGoalStore(ctx) {
     }
     if (!completedGoalExpired(goal, at, completedRetentionMs)) return goal;
     ctx.deadlines.clearDeadline(id);
-    if (deleteStoredGoalFile(dataDir, id)) storage.forget(id);
+    deleteStoredGoalFile(dataDir, id);
     return null;
   };
 
@@ -160,5 +162,6 @@ export function createGoalStore(ctx) {
     commit,
     stampLive,
     requireGoal,
+    closeStorage: storage.close,
   };
 }

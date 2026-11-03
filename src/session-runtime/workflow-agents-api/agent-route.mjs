@@ -107,10 +107,11 @@ export function createAgentRouteApi(deps) {
     saveConfigAndAdopt(canonicalizeAgentRouteStorage(nextConfig));
   }
 
-  // The route a bot saved of its own ({} when none).
-  function ownRoute(id) {
-    if (isMixy(id)) return readMixyRoute(dataDir()) || {};
-    if (storeBot(id)) return readBotRoute(dataDir(), id) || {};
+  // The route a bot saved of its own ({} when none). `fresh`: from disk, for
+  // the route a change is computed from or compared against.
+  function ownRoute(id, { fresh = false } = {}) {
+    if (isMixy(id)) return readMixyRoute(dataDir(), { fresh }) || {};
+    if (storeBot(id)) return readBotRoute(dataDir(), id, { fresh }) || {};
     return agentRouteFromConfig(getConfig(), id) || {};
   }
   // The route a bot's chats run on: its own, else Main's.
@@ -151,7 +152,7 @@ export function createAgentRouteApi(deps) {
     // picked while the model resolved below stays (answered with `skipped`).
     const onlyIfEmpty = requested.onlyIfEmpty === true;
     delete requested.onlyIfEmpty;
-    const readStored = () => ownRoute(id);
+    const readStored = () => ownRoute(id, { fresh: true });
     const kept = () => ({ ...readStored(), id, skipped: true });
     const stored = readStored();
     if (onlyIfEmpty && clean(stored.provider)) return kept();
