@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, realpathSync } from 'node:fs';
-import { access, copyFile, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import fsPromises, { access, copyFile, lstat, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import { PATCH_EDIT_MAX_BYTES } from './bounded-file-read.mjs';
 import { cleanString as clean } from './clean.mjs';
@@ -154,6 +154,9 @@ function stateForRoot(root) {
     // Bumped by every reported write under `root`; a capture records the
     // value it started from.
     changeStamp: 0,
+    // Watcher batches still resolving that may touch `root`; while any is,
+    // the root counts as changed (noteWatchBatch).
+    watchPending: new Set(),
     // Set by forgetTurnWorktreeRoot(): the shadow repository must never be
     // recreated for this state. A later snapshot of the same path gets a new one.
     forgotten: false,
@@ -168,36 +171,190 @@ function stateForRoot(root) {
 // (canonical) root plus a relative name and never descends into a link:
 // ReadDirectoryChangesW on Windows watches one directory handle and its own
 // subtree, and FSEvents on macOS reports resolved paths. inotify on Linux
-// follows links while walking a recursive watch, so it can report an alias
-// of a directory that another tracked root owns. Unlisted platforms are not
-// trusted either.
+// follows links while walking a recursive watch (notify's default), so it can
+// report an alias of a directory that another tracked root owns. Unlisted
+// platforms are not trusted either.
 const LINK_FREE_WATCH_PLATFORMS = new Set(['win32', 'darwin']);
 
+// Watcher `realpath` lookups outstanding at once, across every batch. Each
+// runs on the libuv pool (4 threads by default), which fs.promises, the
+// git-HEAD and watched-file caches, dns and zlib share, and a lookup stuck in
+// a hung mount cannot be cancelled. Two leaves at least half the default pool
+// to everyone else even if both stall for good. A slot is held until its
+// lookup settles, whatever its batch has done since.
+const WATCH_LOOKUP_SLOTS = 2;
+let watchLookupsOutstanding = 0;
+// A batch of at most 512 directories (the client's collapse cap) resolves in
+// ~30 ms over two lookup slots, so this only fires on a stalled filesystem (a
+// hung network mount, a wedged FUSE). It fails closed: every held root is stamped. Short enough that
+// a stall does not hold reviews in "changed" (recapture on every poll) for
+// long, and well under MIN_RECAPTURE_GAP_MS.
+const WATCH_RESOLVE_DEADLINE_MS = 5_000;
+
+/** One watcher lookup in a free slot. A stopped batch starts none, and a
+ *  batch finding every slot taken (by lookups that may be stalled) is told so
+ *  at once instead of queueing behind them. */
+async function watchRealpath(path, run) {
+  if (run.stopped) throw Object.assign(new Error('watch batch stopped'), { code: 'WATCH_BATCH_STOPPED' });
+  if (watchLookupsOutstanding >= WATCH_LOOKUP_SLOTS) {
+    throw Object.assign(new Error('no watcher lookup slot free'), { code: 'WATCH_LOOKUP_BUSY' });
+  }
+  watchLookupsOutstanding += 1;
+  try {
+    return await fsPromises.realpath(path);
+  } finally {
+    watchLookupsOutstanding -= 1;
+  }
+}
+
+/** `canonicalPath` without blocking: the nearest existing ancestor's realpath
+ *  plus the rest. Only a missing path walks upward; any other failure
+ *  (EACCES, ELOOP, no slot, a stopped batch) leaves the resolution unknown and
+ *  is thrown. */
+async function resolvedPath(full, run) {
+  let head = full;
+  for (;;) {
+    try {
+      return join(await watchRealpath(head, run), relative(head, full));
+    } catch (error) {
+      if (error?.code !== 'ENOENT' && error?.code !== 'ENOTDIR') throw error;
+      const parent = dirname(head);
+      if (parent === head) return full;
+      head = parent;
+    }
+  }
+}
+
+/** Root keys a key dirties: the roots it lies under and the roots it
+ *  contains (a directory). */
+function keyMatcher(candidates) {
+  const roots = [...candidates].flatMap((state) =>
+    [...new Set([pathKey(state.root), state.canonicalKey])].map((root) => ({ state, root }))
+  );
+  return (key, matched) => {
+    const dir = key.endsWith('/') ? key : `${key}/`;
+    for (const { state, root } of roots) {
+      if (key === root || key.startsWith(`${root}/`) || root.startsWith(dir)) matched.add(state);
+    }
+  };
+}
+
+/** Canonical keys of one watcher batch. A reported entry is the change
+ *  itself, so only its directory is resolved: a change to a link entry
+ *  dirties the root holding the link. A directory the client lifted a burst
+ *  to (`directoryKeys`) stands for changes beneath it, so it is also resolved
+ *  through its final component. Each directory is resolved once. */
+async function resolveWatchKeys(list, directoryKeys, run) {
+  const items = list.map((value) => {
+    const full = resolve(value);
+    const parent = dirname(full);
+    return {
+      full,
+      parent: parent === full ? null : parent,
+      directory: parent === full || directoryKeys.has(pathKey(full)),
+    };
+  });
+  const resolved = new Map();
+  for (const { full, parent, directory } of items) {
+    if (parent) resolved.set(parent, null);
+    if (directory) resolved.set(full, null);
+  }
+  const queue = [...resolved.keys()];
+  let next = 0;
+  const worker = async () => {
+    // A batch that already failed or timed out starts no further lookups.
+    while (!run.stopped && next < queue.length) {
+      const dir = queue[next++];
+      try {
+        resolved.set(dir, await resolvedPath(dir, run));
+      } catch (error) {
+        run.stopped = true;
+        throw error;
+      }
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(WATCH_LOOKUP_SLOTS, queue.length) }, worker));
+  const keys = [];
+  for (const { full, parent, directory } of items) {
+    if (parent) keys.push(pathKey(join(resolved.get(parent), basename(full))));
+    if (directory) keys.push(pathKey(resolved.get(full)));
+  }
+  return keys;
+}
+
+/** A watcher batch on a link-following backend. Any reported path may pass
+ *  through a link into any tracked root, which no lexical rule can rule out,
+ *  so every tracked root is held pending at once (captureNeeded treats a
+ *  pending root as changed) while the batch resolves off the main thread.
+ *  Then exactly the affected roots are stamped and this batch's hold is
+ *  released. A failed lookup or WATCH_RESOLVE_DEADLINE_MS without an answer
+ *  stamps every held root instead. The batch settles once: whichever of
+ *  resolution and deadline comes second is a no-op. Stamps only ever increase
+ *  and each batch releases only its own hold, so a late resolution never
+ *  undoes a newer batch, stamp or capture. */
+function noteWatchBatch(list, directories) {
+  const hold = Symbol('watch batch');
+  const held = [...states.values()];
+  for (const state of held) state.watchPending.add(hold);
+  const directoryKeys = new Set((Array.isArray(directories) ? directories : []).map((v) => pathKey(resolve(v))));
+  const unique = [...new Map(list.map((value) => [pathKey(resolve(value)), value])).values()];
+  const run = { stopped: false, settled: false };
+  let timer = null;
+  const settle = (affected) => {
+    if (run.settled) return;
+    run.settled = true;
+    run.stopped = true;
+    clearTimeout(timer);
+    for (const state of affected) state.changeStamp += 1;
+    for (const state of held) state.watchPending.delete(hold);
+  };
+  const deadline = new Promise((done) => {
+    timer = setTimeout(() => {
+      settle(held);
+      done();
+    }, WATCH_RESOLVE_DEADLINE_MS);
+    timer.unref?.();
+  });
+  const resolution = resolveWatchKeys(unique, directoryKeys, run)
+    .then(
+      (keys) => {
+        const matches = keyMatcher(held);
+        const affected = new Set();
+        for (const key of keys) matches(key, affected);
+        return affected;
+      },
+      // Unresolvable: every held root may have changed.
+      () => held
+    )
+    .then(settle);
+  return Promise.race([resolution, deadline]);
+}
+
 /** Report written paths (or `null`: anything may have changed). The next
- *  review poll of an affected worktree captures instead of reusing.
- *  `canonical`: the paths come from a recursive watch on canonical roots. On a
- *  link-free backend such a path never names a root through a link, so it is
- *  matched by its own spelling with no filesystem call, whether or not it
- *  falls under a root. Every other source, and every watcher on another
- *  platform, may name paths through links, so each is canonicalised.
+ *  review poll of an affected worktree captures instead of reusing. A path
+ *  dirties the roots it lies under and the roots it contains (a directory).
+ *  `canonical`: the paths come from the native recursive watch, whose roots
+ *  are canonicalized on every platform. On a link-free backend a report is
+ *  the canonical root plus a relative name, so a path is matched by its
+ *  spelling alone with no filesystem call. A link-following backend (inotify)
+ *  can spell a path through a link into another root: see noteWatchBatch,
+ *  whose promise is returned (`directories`: the batch's lifted directories).
+ *  Every other source may name paths through links, so each is canonicalised.
  *  `platform` exists for tests. */
-export function noteTurnWorktreeChange(paths = null, { canonical = false, platform = process.platform } = {}) {
-  if (states.size === 0) return;
+export function noteTurnWorktreeChange(
+  paths = null,
+  { canonical = false, directories = null, platform = process.platform } = {}
+) {
+  if (states.size === 0) return null;
   const list = Array.isArray(paths) ? paths.filter((value) => clean(value)) : [];
   if (list.length === 0) {
     for (const state of states.values()) state.changeStamp += 1;
-    return;
+    return null;
   }
-  const roots = [...states.values()].flatMap((state) =>
-    [...new Set([pathKey(state.root), state.canonicalKey])].map((root) => ({ state, root }))
-  );
-  const stamped = new Set();
-  const stampMatches = (key) => {
-    for (const { state, root } of roots) {
-      if (key === root || key.startsWith(`${root}/`)) stamped.add(state);
-    }
-  };
   const trustSpelling = canonical && LINK_FREE_WATCH_PLATFORMS.has(platform);
+  if (canonical && !trustSpelling) return noteWatchBatch(list, directories);
+  const matches = keyMatcher(states.values());
+  const stamped = new Set();
   const dirs = new Map();
   const seen = new Set();
   for (const value of list) {
@@ -205,9 +362,10 @@ export function noteTurnWorktreeChange(paths = null, { canonical = false, platfo
     const key = pathKey(resolve(value));
     if (seen.has(key)) continue;
     seen.add(key);
-    stampMatches(trustSpelling ? key : pathKey(canonicalPath(value, dirs)));
+    matches(trustSpelling ? key : pathKey(canonicalPath(value, dirs)), stamped);
   }
   for (const state of stamped) state.changeStamp += 1;
+  return null;
 }
 
 // A lock hold (queue wait plus work) at least this long is logged, so a slow
@@ -520,6 +678,7 @@ async function captureTreeUnlocked(state, toolPaths = [], { after = -1 } = {}) {
     last &&
     last.seq > after &&
     last.stamp === state.changeStamp &&
+    state.watchPending.size === 0 &&
     [...explicit].every((rel) => last.explicit.has(rel))
   ) {
     return last.tree;
@@ -1406,7 +1565,7 @@ async function captureMark(state) {
 async function captureNeeded(snapshot) {
   const mark = snapshot.captured;
   if (!mark || snapshot.pendingBaselines.size > 0) return true;
-  if (mark.stamp !== snapshot.state.changeStamp) return true;
+  if (mark.stamp !== snapshot.state.changeStamp || snapshot.state.watchPending.size > 0) return true;
   if (Date.now() - mark.at >= MIN_RECAPTURE_GAP_MS) return true;
   return (await sourceIndexIdentity(snapshot.state)) !== mark.index;
 }
