@@ -65,10 +65,13 @@ test('getLiveWorkspace of a managed worktree names the branch its checkout has n
   const renamed = view.getLiveWorkspace();
   assert.deepEqual(renamed, { ...workspace, branch: 'place' });
   assert.equal(view.getLiveWorkspace(), renamed);
-  // Detached (a rebase, bisect or `switch --detach`): the branch last shown stays.
+  // Detached (a rebase, bisect or `switch --detach`): the recorded branch, as the manager acts on it.
   head('0123456789abcdef0123456789abcdef01234567');
-  assert.equal(view.getLiveWorkspace(), renamed);
-  // Renamed back: the stored record as it is.
+  assert.equal(view.getLiveWorkspace(), workspace);
+  // Switched to another branch: that branch.
+  head('ref: refs/heads/side');
+  assert.deepEqual(view.getLiveWorkspace(), { ...workspace, branch: 'side' });
+  // Back on the recorded branch: the stored record as it is.
   head('ref: refs/heads/feat/place-review');
   assert.equal(view.getLiveWorkspace(), workspace);
 });

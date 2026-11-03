@@ -7,15 +7,14 @@ import { prewarmUtilityDockGitState } from './UtilityDock.tsx';
 
 test('git refresh scheduler stays single-flight and keeps one trailing activity run', async () => {
   const releases = [];
-  const reasons = [];
+  let runs = 0;
   const scheduler = createGitRefreshScheduler(
-    (reason) =>
+    () =>
       new Promise((resolve) => {
-        reasons.push(reason);
+        runs += 1;
         releases.push(resolve);
       }),
     {
-      safetyIntervalMs: 60_000,
       activityDebounceMs: 0,
       activityMinGapMs: 0,
     }
@@ -23,19 +22,21 @@ test('git refresh scheduler stays single-flight and keeps one trailing activity 
 
   scheduler.resume();
   await waitForTurn();
-  assert.deepEqual(reasons, ['activity']);
+  assert.equal(runs, 1);
   scheduler.signal();
   scheduler.signal();
-  assert.equal(reasons.length, 1);
+  assert.equal(runs, 1);
 
   releases.shift()();
   // The trailing run waits out the first run's own duration, which a loaded CI host stretches.
   const deadline = Date.now() + 2_000;
-  while (reasons.length < 2 && Date.now() < deadline) await waitForDelay(5);
-  assert.deepEqual(reasons, ['activity', 'activity']);
+  while (runs < 2 && Date.now() < deadline) await waitForDelay(5);
+  assert.equal(runs, 2);
 
   releases.shift()();
-  await waitForTurn();
+  // No event, no run: nothing re-reads on a clock.
+  await waitForDelay(50);
+  assert.equal(runs, 2);
   scheduler.dispose();
 });
 

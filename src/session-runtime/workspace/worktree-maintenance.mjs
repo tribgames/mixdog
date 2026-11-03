@@ -68,8 +68,10 @@ export function createWorktreeMaintenance({
    * it, but a live owner or a session or background command working in the
    * folder refuses (folder-in-use, folder-shell-jobs, workspace-lease), as do
    * other sessions' shared references and retained recovery data. Dirty or
-   * unmerged work needs `force`; a forced unmerged tip stays under
-   * refs/mixdog/removed/<id>.
+   * unmerged work needs `force`. The branch Mixdog created goes with it once
+   * git considers it merged, any other stays (`preservedBranch`); a HEAD
+   * commit or deleted branch tip no ref reaches stays under
+   * refs/mixdog/recovered/<id>/<oid> (`recoveryRefs`).
    */
   async function deleteWorktree({ entryId, force = false } = {}) {
     const row = (await listWorktrees()).find((item) => item.id === entryId);
@@ -115,11 +117,9 @@ export function createWorktreeMaintenance({
   async function cleanupDeletedSession(sessionId) {
     // Its snapshots go with it below; no turn cleanup keeps retrying them.
     cancelSnapshotCleanups(sessionId);
-    const settings = worktreeSettings();
     return maintenance.cleanupDeletedSessionWorktree(sessionId, {
       manager: await backend(),
-      autoCleanup: settings.autoCleanup,
-      deleteBranch: settings.deleteBranch,
+      autoCleanup: worktreeSettings().autoCleanup,
     });
   }
 

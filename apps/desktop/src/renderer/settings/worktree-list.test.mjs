@@ -49,7 +49,6 @@ window.mixdogDesktop = {
           maxWorktrees: 15,
           unusedDays: 30,
           cleanupArchived: true,
-          deleteBranch: false,
         },
       };
     }

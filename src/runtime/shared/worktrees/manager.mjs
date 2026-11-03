@@ -22,10 +22,17 @@
  * Nothing outside a managed checkout is ever deleted: before any recursive
  * delete the record's path must be managedWorktreePath(repoCommonDir, id)
  * and its `.git` must link back to this repository (WORKTREE_PATH_UNSAFE).
- * A forced removal that drops unmerged commits keeps the branch tip
- * reachable at `refs/mixdog/removed/<id>` (returned as `recoveryRef`/`tip`;
- * `git branch <name> refs/mixdog/removed/<id>` restores it, `git update-ref
- * -d` forgets it).
+ * Removing a worktree removes its folder and registration, then the branch
+ * Mixdog created for it (recorded `existingBranch: false`) once git considers
+ * it merged (deleteCreatedBranch); any other branch, or unmerged work, stays
+ * (`preservedBranch`, deletable later through forceDeleteBranch). A HEAD
+ * commit or deleted branch tip no ref reaches then (detached work a forced
+ * removal drops, a squash-merged branch) is kept at
+ * `refs/mixdog/recovered/<id>/<oid>` (`recoveryRefs`; builds before kept one
+ * at `refs/mixdog/removed/<id>`, left as is), never overwritten and never
+ * cleaned up; `git for-each-ref refs/mixdog/recovered/ refs/mixdog/removed/`
+ * lists them, `git branch <name> <ref>` restores one, `git update-ref -d`
+ * forgets it.
  *
  * A snapshot (createSnapshotWorktree) is a read-only detached checkout in the
  * same store and registry, bound to no session and removed with the turn
@@ -47,6 +54,7 @@ import {
   normalizeWorktreeOwner,
   runRootCleanups,
   runRootReleasers,
+  isWorktreeError,
   WORKTREE_SNAPSHOT_KIND,
   worktreeBranchName,
   worktreeError,
@@ -99,7 +107,6 @@ import {
   entryView,
   getRecord,
   insertRecord,
-  mutateRegistry,
   putRecord,
   readRegistry,
   registryPath,
@@ -294,13 +301,41 @@ async function assertManagedCheckoutPath(record) {
   }
 }
 
-/** Keep the tip of a branch whose unmerged commits a forced removal drops. */
-async function keepRemovedTip(record) {
-  const tip = await branchCommit(repoCwd(record), record.branch);
-  if (!tip) return { tip: null, recoveryRef: null };
-  const ref = `refs/mixdog/removed/${record.id}`;
-  await runGit(repoCwd(record), ['update-ref', '-m', `mixdog: removed worktree ${record.id}`, ref, tip]);
-  return { tip, recoveryRef: ref };
+/** The commit full ref `ref` names, or null when there is no such ref. */
+async function refTarget(cwd, ref) {
+  const result = await runGit(cwd, ['rev-parse', '--verify', '--quiet', ref], { allowFailure: true, readOnly: true });
+  return result.code === 0 ? firstLine(result.stdout) || null : null;
+}
+
+/**
+ * Keep `commit` (a full oid) reachable at `refs/mixdog/recovered/<id>/<commit>`
+ * (a removal drops what held it); returns that ref. Created only where none
+ * is (an empty old value), so nothing is ever overwritten: a slug reused by a
+ * later worktree adds its own commits beside the earlier ones, and the same
+ * commit kept twice is the same ref. A namespace of its own because earlier
+ * builds kept one commit at the plain `refs/mixdog/removed/<id>`, a ref that
+ * would block an `<id>/` directory beside it; those stay as they are.
+ */
+async function keepCommit(record, commit) {
+  const cwd = repoCwd(record);
+  const ref = `refs/mixdog/recovered/${record.id}/${commit}`;
+  const made = await runGit(cwd, ['update-ref', '-m', `mixdog: removed worktree ${record.id}`, ref, commit, ''], {
+    allowFailure: true,
+  });
+  if (made.code !== 0 && (await refTarget(cwd, ref)) !== commit) {
+    throw new Error(`Could not keep ${commit} at ${ref}: ${firstLine(made.stderr)}`);
+  }
+  return ref;
+}
+
+/** True when any ref (branch, tag, remote, recovery ref) still reaches `commit`. */
+async function anyRefContains(cwd, commit) {
+  const result = await runGit(cwd, ['for-each-ref', '--count=1', '--format=%(refname)', '--contains', commit], {
+    allowFailure: true,
+    readOnly: true,
+  });
+  // Unknown (a failed git) counts as unreachable: the commit is kept.
+  return result.code === 0 && firstLine(result.stdout) !== '';
 }
 
 /**
@@ -335,13 +370,31 @@ async function recordInclude(record, ledger) {
   await putRecord(record);
 }
 
-async function unmergedCommitCount(record) {
+/** The merge target's tip, else the base commit: what "merged" is measured against. */
+async function mergeReference(record) {
+  return (record.mergeTarget && (await branchCommit(repoCwd(record), record.mergeTarget))) || record.baseCommit || null;
+}
+
+/**
+ * Unmerged commits of what the worktree has checked out: its HEAD commit,
+ * on a branch or detached (a renamed branch, a rebase in progress), so no
+ * name decides it. A checkout already gone is measured by its branch tip.
+ */
+async function checkoutUnmergedCount(record) {
   // A snapshot has no branch, so nothing of it can be unmerged.
   if (!record.branch) return 0;
-  const cwd = repoCwd(record);
-  const tip = await branchCommit(cwd, record.branch);
+  const head = existsSync(record.path)
+    ? await runGit(record.path, ['rev-parse', '--verify', '-q', 'HEAD'], { allowFailure: true, readOnly: true })
+    : null;
+  const tip = head?.code === 0 ? firstLine(head.stdout) : await branchCommit(repoCwd(record), record.branch);
+  return unmergedCommitCount(record, tip);
+}
+
+/** Commits of `tip` the merge reference lacks; 0 when none, or when their changes are all in it. */
+async function unmergedCommitCount(record, tip) {
   if (!tip) return 0;
-  const reference = (record.mergeTarget && (await branchCommit(cwd, record.mergeTarget))) || record.baseCommit;
+  const cwd = repoCwd(record);
+  const reference = await mergeReference(record);
   if (!reference) return 0;
   const result = await runGit(cwd, ['rev-list', '--count', tip, '--not', reference]);
   const count = Number(firstLine(result.stdout)) || 0;
@@ -563,6 +616,12 @@ async function finalDirtyCheck(record, timeoutMs, artefacts) {
   }
 }
 
+/**
+ * `git branch -D` of the record's branch unless it is gone or checked out
+ * somewhere. Only a failed creation's rollback calls it, for the branch that
+ * transaction's own `worktree add -b` made; a removal deletes through
+ * `branch -d` (deleteCreatedBranch).
+ */
 async function deleteBranchIfFree(record) {
   if (record.existingBranch === true) return { deleted: false, reason: 'pre-existing' };
   const cwd = repoCwd(record);
@@ -684,9 +743,6 @@ async function removeCheckoutSafely(record) {
   await assertManagedCheckoutPath(record);
   await assertRecoveryStoresClear(record);
   await assertRemovable(record);
-  if (await operationInProgress(gitStatusRunner, record.path)) {
-    throw worktreeError('WORKTREE_DIRTY', 'Finish the Git operation before removing this worktree.');
-  }
   const ownedLock = `mixdog session=${record.ownerSessionId}`;
   if (registration?.locked !== null && registration?.locked !== ownedLock) {
     throw worktreeError('WORKTREE_BUSY_JOBS', 'The worktree has an external Git lock.');
@@ -963,67 +1019,127 @@ async function finishDeletion(record) {
     await putRecord(record);
     return { removed: false, retryable: true, remaining };
   }
-  let branch = { deleted: false, reason: 'kept' };
-  let kept = { tip: null, recoveryRef: null };
-  // A cleanup decided the branch merged at `mergedTip`: no second commit walk
-  // while the tip is still that one.
-  const mergedTip = record.deleting?.mergedTip;
-  const merged =
-    (!!mergedTip && record.branch && (await branchCommit(repoCwd(record), record.branch)) === mergedTip) ||
-    (await unmergedCommitCount(record)) === 0;
-  if (record.branch && !record.deleting?.preserveBranch && (record.deleting?.force || merged)) {
-    // Forced past unmerged commits (or a cleanup that deletes branches): the
-    // tip stays reachable before `branch -D`.
-    if (!merged || record.deleting?.keepTip) kept = await keepRemovedTip(record);
-    else kept.tip = await branchCommit(repoCwd(record), record.branch);
-    branch = await deleteBranchIfFree(record);
+  // The branch-row "Remove worktree folder" (safeOnly) promises the branch
+  // stays. Only a record that says Mixdog created the branch deletes it; one
+  // without the flag (made before it was recorded) keeps it, reported.
+  const branch =
+    !record.branch || record.deleting?.safeOnly || record.existingBranch === true
+      ? { deleted: false }
+      : record.existingBranch === false
+        ? await deleteCreatedBranch(record)
+        : await keepBranch(repoCwd(record), record.branch);
+  // After the branch: the HEAD commit and the deleted branch's tip, each
+  // unless a ref still reaches it (detached work, a squash-merged branch just
+  // deleted), keep a recovery ref to survive the folder (keepCommit).
+  const kept = [];
+  for (const commit of new Set([record.deleting?.headCommit, branch.head].filter(Boolean))) {
+    if (await anyRefContains(repoCwd(record), commit)) continue;
+    kept.push(await keepCommit(record, commit));
   }
   await deleteRecord(record.id);
   forgetFolderSize(record.path);
   await pruneEmptyRepoRoot(record.repoCommonDir);
   return {
     removed: true,
-    branchDeleted: branch.deleted,
-    ...(branch.deleted && kept.tip ? { tip: kept.tip } : {}),
-    ...(kept.recoveryRef ? { recoveryRef: kept.recoveryRef } : {}),
+    ...(branch.deleted ? { branchDeleted: true } : {}),
+    ...(branch.preserved ? { preservedBranch: branch.preserved } : {}),
+    ...(kept.length ? { recoveryRefs: kept } : {}),
   };
 }
 
+/** A branch a removal leaves, reported `preserved` unless it is gone or checked out. */
+async function keepBranch(cwd, name) {
+  const head = await branchCommit(cwd, name);
+  if (!head || (await branchCheckedOut(cwd, name))) return { deleted: false };
+  return { deleted: false, preserved: { name, head } };
+}
+
+/** True when a live (not prunable) worktree has `name` checked out. */
+async function branchCheckedOut(cwd, name) {
+  return (await listWorktrees(cwd)).some((row) => row.branch === name && row.prunable === null);
+}
+
 /**
- * A ready branch worktree's record follows the branch its checkout has now
- * (a `git branch -m` or switch inside it), read from the shared HEAD cache;
- * a change is persisted compare-and-set on the old name and applied to
- * `record`. Deletion ownership never moves with the name: git cannot prove
- * the new branch is the one Mixdog made (a user branch can pass through the
- * recorded name), so it is marked existingBranch and no removal or cleanup
- * deletes it; a renamed Mixdog branch is left behind, its commits intact.
- * A detached HEAD (a rebase, bisect, `switch --detach`) keeps the recorded
- * branch: the work stays named by it. The write is a field patch under the
- * repository lock, like every registry writer, so no whole-record write
- * whose read came before it lands after it. Returns `record`.
+ * Delete local branch `name` only while it still points at `expectedHead`
+ * (`update-ref -d` with the old value) and no worktree has it checked out;
+ * a checkout that raced in restores it. WORKTREE_BRANCH_OCCUPIED /
+ * WORKTREE_REVISION_CONFLICT (moved) delete nothing.
  */
-async function followCheckedOutBranch(record) {
-  if (!record?.branch || record.kind === WORKTREE_SNAPSHOT_KIND || record.state !== 'ready') return record;
-  const checkedOut = () => {
-    const head = readGitHead(record.path);
-    return head?.branch && samePath(head.topLevel, record.path) ? head.branch : null;
-  };
-  const seen = checkedOut();
-  if (!seen || seen === record.branch) return record;
-  return withRepoLock(record.repoCommonDir, async () => {
-    // HEAD again: it may have moved while the lock was awaited.
-    const branch = checkedOut();
-    if (!branch) return record;
-    let stored = null;
-    await mutateRegistry((doc) => {
-      const entry = doc.entries[record.id];
-      if (entry?.txId !== record.txId || entry.state !== 'ready') return;
-      if (entry.branch !== branch) Object.assign(entry, { branch, existingBranch: true, updatedAt: Date.now() });
-      stored = { branch: entry.branch, existingBranch: entry.existingBranch === true };
+export async function forceDeleteBranch(cwd, name, expectedHead) {
+  if (await branchCheckedOut(cwd, name)) throw worktreeError('WORKTREE_BRANCH_OCCUPIED', undefined, { branch: name });
+  const removed = await runGit(cwd, ['update-ref', '-d', `refs/heads/${name}`, expectedHead], { allowFailure: true });
+  if (removed.code !== 0) {
+    throw worktreeError('WORKTREE_REVISION_CONFLICT', `The branch "${name}" moved; review it before deleting it.`, {
+      branch: name,
     });
-    // The caller acts on what the registry now holds, never on its older read.
-    return stored ? Object.assign(record, stored) : record;
+  }
+  if (await branchCheckedOut(cwd, name)) {
+    await runGit(cwd, ['update-ref', `refs/heads/${name}`, expectedHead, ''], { allowFailure: true });
+    throw worktreeError('WORKTREE_BRANCH_OCCUPIED', undefined, { branch: name });
+  }
+  // As `git branch -D` does; a stale section is harmless.
+  await runGit(cwd, ['config', '--remove-section', `branch.${name}`], { allowFailure: true });
+}
+
+/**
+ * After a removal, the recorded branch Mixdog created goes when git's own
+ * `branch -d` accepts it (merged into HEAD or into its upstream), or — a squash
+ * or rebase merge `-d` refuses — when its changes are all in the merge
+ * reference (unmergedCommitCount), head-guarded. A branch checked out in any
+ * worktree stays (a stale registration is pruned first). The name is the
+ * recorded one: a rename or switch inside the checkout leaves that branch
+ * alone, and a branch the user put under the recorded name goes once merged.
+ * Unmerged work stays and is reported `preserved: { name, head }`; a
+ * deleted branch returns its `head` for finishDeletion's recovery ref.
+ */
+async function deleteCreatedBranch(record) {
+  const cwd = repoCwd(record);
+  const name = record.branch;
+  const head = await branchCommit(cwd, name);
+  if (!head) return { deleted: false };
+  const holders = (await listWorktrees(cwd)).filter((row) => row.branch === name);
+  if (holders.some((row) => row.prunable === null)) return { deleted: false };
+  if (holders.length) await runGit(cwd, ['worktree', 'prune'], { allowFailure: true });
+  if ((await runGit(cwd, ['branch', '-d', '--', name], { allowFailure: true })).code === 0) {
+    return { deleted: true, head };
+  }
+  if ((await unmergedCommitCount(record, head)) === 0) {
+    try {
+      await forceDeleteBranch(cwd, name, head);
+      return { deleted: true, head };
+    } catch (error) {
+      if (!isWorktreeError(error)) throw error;
+    }
+  }
+  return { deleted: false, preserved: { name, head } };
+}
+
+/**
+ * A ready branch worktree as of the branch its checkout has now (a
+ * `git branch -m` or switch inside it), read from the HEAD cache at use time
+ * — what the list and the merge name. The registry keeps the branch the
+ * worktree was made on and is never rewritten for this. A detached HEAD (a
+ * rebase, bisect, `switch --detach`) names the recorded branch. Returns
+ * `record` itself while the names agree, else a copy.
+ */
+function withCheckedOutBranch(record) {
+  if (!record?.branch || record.kind === WORKTREE_SNAPSHOT_KIND || record.state !== 'ready') return record;
+  const head = readGitHead(record.path);
+  const branch = head?.branch && samePath(head.topLevel, record.path) ? head.branch : record.branch;
+  return branch === record.branch ? record : { ...record, branch };
+}
+
+/**
+ * The HEAD commit of a branch worktree's checkout (detached or not), read
+ * while it still exists: what finishDeletion keeps reachable.
+ */
+async function checkoutHeadCommit(record) {
+  if (record.kind === WORKTREE_SNAPSHOT_KIND || !existsSync(record.path)) return null;
+  const head = await runGit(record.path, ['rev-parse', '--verify', '-q', 'HEAD'], {
+    allowFailure: true,
+    readOnly: true,
   });
+  return head.code === 0 ? firstLine(head.stdout) : null;
 }
 
 function findRecord(doc, predicate) {
@@ -1048,7 +1164,7 @@ export async function getSessionWorktree(sessionId) {
   if (typeof sessionId !== 'string' || !sessionId) return null;
   const records = Object.values((await readRegistry()).entries).filter((record) => record.ownerSessionId === sessionId);
   const record = records.find((item) => item.state === 'ready') || records[0];
-  return record ? entryView(await followCheckedOutBranch(record)) : null;
+  return record ? entryView(withCheckedOutBranch(record)) : null;
 }
 
 /** The managed worktree at `path` (canonical, case-insensitive on Windows), or null. */
@@ -1056,7 +1172,7 @@ export async function getWorktreeByPath(path) {
   if (typeof path !== 'string' || !path.trim()) return null;
   const key = pathKey(path);
   const record = Object.values((await readRegistry()).entries).find((item) => pathKey(item.path) === key);
-  return record ? entryView(await followCheckedOutBranch(record)) : null;
+  return record ? entryView(withCheckedOutBranch(record)) : null;
 }
 
 /**
@@ -1165,7 +1281,7 @@ export async function forgetSharedWorktreeSession(sessionId) {
 export async function findWorktreeContaining(path) {
   if (typeof path !== 'string' || !path.trim()) return null;
   const record = Object.values((await readRegistry()).entries).find((item) => isWithin(item.path, path));
-  return record ? entryView(await followCheckedOutBranch(record)) : null;
+  return record ? entryView(withCheckedOutBranch(record)) : null;
 }
 
 /** File-host seam, not a user capability. Persist the host-owned scope before
@@ -1567,6 +1683,8 @@ export async function createManagedWorktree({
 } = {}) {
   requireText(projectPath, 'projectPath');
   requireText(txId, 'txId');
+  // Recorded as given: only an explicit `false` lets a removal delete the branch.
+  if (typeof existingBranch !== 'boolean') throw new TypeError('existingBranch must be a boolean.');
   if (startCommit !== null && (existingBranch || requestedBranch === null)) {
     throw new TypeError('startCommit applies to a new exact branch only.');
   }
@@ -2267,11 +2385,10 @@ export async function mergeWorktreeIntoProject({ entryId, target, confirmed, pro
         projectPath,
       });
     }
-    await followCheckedOutBranch(current);
     const result = await mergeBranchIntoCheckout({
       git: gitStatusRunner,
       cwd: current.projectPath,
-      source: current.branch,
+      source: withCheckedOutBranch(current).branch,
       target,
       confirmed,
     });
@@ -2302,6 +2419,13 @@ export async function mergeBranchIntoProject({ projectPath, source, target, conf
 
 /** WORKTREE_DIRTY / WORKTREE_UNMERGED for a ready worktree removal would refuse. */
 async function assertRemovable(record) {
+  // A merge, rebase, pick, revert or bisect may hold work that neither the
+  // files nor HEAD show yet.
+  if (existsSync(record.path) && (await operationInProgress(gitStatusRunner, record.path))) {
+    throw worktreeError('WORKTREE_DIRTY', 'Finish the Git operation before removing this worktree.', {
+      entryId: record.id,
+    });
+  }
   const dirty = await dirtyPaths(record);
   if (dirty.length) {
     throw worktreeError('WORKTREE_DIRTY', undefined, {
@@ -2310,7 +2434,7 @@ async function assertRemovable(record) {
       count: dirty.length,
     });
   }
-  const unmerged = await unmergedCommitCount(record);
+  const unmerged = await checkoutUnmergedCount(record);
   if (unmerged > 0) {
     throw worktreeError('WORKTREE_UNMERGED', undefined, {
       entryId: record.id,
@@ -2350,9 +2474,8 @@ function assertNotShared(record, sessionId = record.ownerSessionId) {
  * @param {{ entryId: string, force?: boolean }} input
  */
 export async function assertWorktreeRemovable({ entryId, force = false, sessionId } = {}) {
-  const record = await getRecord(entryId);
+  const record = withCheckedOutBranch(await getRecord(entryId));
   if (!record) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
-  await followCheckedOutBranch(record);
   assertNotShared(record, sessionId);
   await assertRecoveryStoresClear(record);
   if (record.state !== 'ready') return;
@@ -2371,14 +2494,16 @@ export async function assertWorktreeRemovable({ entryId, force = false, sessionI
  * (removeAutomatically): no force, no recursive delete; a keep is raised as
  * WORKTREE_DIRTY / WORKTREE_UNMERGED / WORKTREE_BUSY_JOBS, and an incomplete
  * git removal returns `{ removed: false, incomplete: true }` with the record ready again.
+ * The branch Mixdog created goes with it once git considers it merged; other
+ * branches stay, and dropped commits stay reachable (finishDeletion).
  * @param {{ entryId: string, force?: boolean, expected?: { kind?: string, txId?: string, holderSessionId?: string }|null, automatic?: boolean }} input
- * @returns {Promise<{ removed: boolean, skipped?: boolean, retryable?: boolean, remaining?: object[], branchDeleted?: boolean }>}
+ * @returns {Promise<{ removed: boolean, skipped?: boolean, retryable?: boolean, remaining?: object[], branchDeleted?: boolean,
+ *   preservedBranch?: { name: string, head: string }, recoveryRefs?: string[] }>}
  */
 export async function removeManagedWorktree({
   entryId,
   force = false,
   sessionId,
-  preserveBranch = false,
   safeOnly = false,
   expected = null,
   automatic = false,
@@ -2400,7 +2525,7 @@ export async function removeManagedWorktree({
       if (!current && !expected) throw worktreeError('WORKTREE_MISSING', undefined, { entryId });
       return skipped;
     }
-    return removeLocked(current, { force, sessionId, preserveBranch, safeOnly, automatic });
+    return removeLocked(current, { force, sessionId, safeOnly, automatic });
   });
 }
 
@@ -2418,17 +2543,17 @@ function automaticRefusal(record, kept) {
   return worktreeRefusal('folder-in-use', { entryId: record.id, kept: kept.reason });
 }
 
-/** The removal of `current`, under its repository lock. */
-async function removeLocked(
-  current,
-  { force, sessionId, preserveBranch = false, safeOnly = false, automatic = false }
-) {
+/**
+ * The removal of `current`, under its repository lock. The record keeps the
+ * branch it was made on (what a rollback or the branch deletion names); the
+ * refusals name the branch checked out now.
+ */
+async function removeLocked(current, { force, sessionId, safeOnly = false, automatic = false }) {
   assertNotShared(current, sessionId);
-  await followCheckedOutBranch(current);
   // A deleted session's leftover (cleanupDeletedSessionWorktree): the
   // verified automatic path, never a forced or recursive one.
   if (automatic && !force && current.state === 'ready' && current.kind !== WORKTREE_SNAPSHOT_KIND) {
-    const outcome = await removeAutomatically(current, { preserveBranch, keepTip: !preserveBranch });
+    const outcome = await removeAutomatically(current);
     if (!outcome.result) throw automaticRefusal(current, outcome.kept);
     return outcome.result;
   }
@@ -2440,7 +2565,7 @@ async function removeLocked(
   // for (refuses on) its consumers.
   const release = current.kind === WORKTREE_SNAPSHOT_KIND ? await holdSnapshotFolder(current) : () => {};
   try {
-    return await decideAndFinishDeletion(current, { force, preserveBranch, safeOnly });
+    return await decideAndFinishDeletion(current, { force, safeOnly });
   } finally {
     await release();
   }
@@ -2493,13 +2618,20 @@ export async function removeOrphanedWorktree({
 }
 
 /** Mark a ready worktree `deleting` (after its guards), then finish the deletion. */
-async function decideAndFinishDeletion(current, { force, preserveBranch, safeOnly }) {
+async function decideAndFinishDeletion(current, { force, safeOnly }) {
   if (current.state === 'ready') {
     await assertRecoveryStoresClear(current);
     await assertManagedCheckoutPath(current);
-    if (!force) await assertRemovable(current);
+    if (!force) await assertRemovable(withCheckedOutBranch(current));
+    const headCommit = await checkoutHeadCommit(current);
     current.state = 'deleting';
-    current.deleting = { force: force === true, preserveBranch, safeOnly, startedAt: Date.now(), remaining: [] };
+    current.deleting = {
+      force: force === true,
+      safeOnly,
+      headCommit,
+      startedAt: Date.now(),
+      remaining: [],
+    };
     await putRecord(current);
   }
   return finishDeletion(current);
@@ -2533,8 +2665,8 @@ export async function listManagedWorktrees({
   const live = new Set(liveSessionIds);
   const retained = new Set(retainedSessionIds);
   const rows = [];
-  for (const record of Object.values((await readRegistry()).entries)) {
-    await followCheckedOutBranch(record);
+  for (const stored of Object.values((await readRegistry()).entries)) {
+    const record = withCheckedOutBranch(stored);
     const { ownerLive, retained: isRetained, removable } = await retentionOf(record, live, retained);
     const row = {
       ...entryView(record),
@@ -2549,7 +2681,7 @@ export async function listManagedWorktrees({
         const { dirty, ignored } = await automaticKeepPaths(record);
         row.dirty = dirty.length + ignored.length;
         row.ignored = ignored.length;
-        row.unmerged = await unmergedCommitCount(record);
+        row.unmerged = await checkoutUnmergedCount(record);
       } catch {
         // Unreadable state counts as work to keep.
         row.dirty = null;
@@ -2607,17 +2739,14 @@ async function retentionOf(record, live, retained) {
  */
 async function removeAutomatically(
   record,
-  {
-    inUse = async () => false,
-    preserveBranch = false,
-    keepTip = false,
-    finalCheckTimeoutMs = FINAL_DIRTY_CHECK_TIMEOUT_MS,
-  } = {}
+  { inUse = async () => false, finalCheckTimeoutMs = FINAL_DIRTY_CHECK_TIMEOUT_MS } = {}
 ) {
   const token = await checkoutToken(record);
   const { dirty, ignored, artefacts } = await automaticKeepPaths(record);
-  const unmerged = await unmergedCommitCount(record);
+  const unmerged = await checkoutUnmergedCount(record);
   if (dirty.length || unmerged > 0) return { kept: { reason: dirty.length ? 'dirty' : 'unmerged' } };
+  // As assertRemovable: an operation in progress keeps the checkout.
+  if (await operationInProgress(gitStatusRunner, record.path)) return { kept: { reason: 'dirty' } };
   if (ignored.length) return { kept: ignoredKeep(ignored) };
   let release;
   try {
@@ -2634,14 +2763,13 @@ async function removeAutomatically(
     const finalCheck = await finalDirtyCheck(record, finalCheckTimeoutMs, artefacts);
     if (finalCheck) return { kept: finalCheck };
     await assertRecoveryStoresClear(record);
+    const headCommit = await checkoutHeadCommit(record);
     record.state = 'deleting';
     delete record.removalIncomplete;
     record.deleting = {
       force: false,
       automatic: true,
-      ...(preserveBranch ? { preserveBranch: true } : keepTip ? { keepTip: true } : {}),
-      // Checked above; finishDeletion trusts it while the tip is this one.
-      mergedTip: record.branch ? await branchCommit(repoCwd(record), record.branch) : null,
+      headCommit,
       startedAt: Date.now(),
       remaining: [],
     };
@@ -2745,9 +2873,8 @@ export async function previewManagedWorktreeCleanup({
  * sessions) and `minAgeMs`/`now` (younger worktrees) exempt those and
  * archived-session marks (`disposableReason: 'archived'`, which
  * `cleanupArchived: false` ignores); a deleted session's mark and a true
- * orphan are not subject to them. `preserveBranch` keeps the branch of every
- * worktree it removes; otherwise `keepTip` writes the recovery ref before the
- * branch goes. `maxRemovals` caps the count/age/archive removals of one pass
+ * orphan are not subject to them. A removed worktree's merged branch goes
+ * when Mixdog created it (finishDeletion). `maxRemovals` caps the count/age/archive removals of one pass
  * together (`kept: budget` beyond it). Dirty, unmerged, live, shared or
  * recovery-holding worktrees are always kept, as are ones holding ignored
  * files no install restores (`kept: ignored` with `files`, `count`:
@@ -2757,7 +2884,7 @@ export async function previewManagedWorktreeCleanup({
  * under that hold (the caller's current live sessions and running jobs).
  * @param {{ liveSessionIds?: string[], retainedSessionIds?: string[], removeOrphans?: boolean,
  *   repoCommonDir?: string|null, removeEntryIds?: string[], protectedSessionIds?: string[],
- *   minAgeMs?: number, now?: number, cleanupArchived?: boolean, preserveBranch?: boolean, keepTip?: boolean,
+ *   minAgeMs?: number, now?: number, cleanupArchived?: boolean,
  *   maxRemovals?: number, inUse?: (record: object) => Promise<boolean>|boolean,
  *   finalCheckTimeoutMs?: number }} input
  *   `finalCheckTimeoutMs` bounds the last dirty check under the hold (FINAL_DIRTY_CHECK_TIMEOUT_MS);
@@ -2773,8 +2900,6 @@ export async function reconcileManagedWorktrees({
   minAgeMs = 0,
   now = Date.now(),
   cleanupArchived = true,
-  preserveBranch = false,
-  keepTip = false,
   maxRemovals = Infinity,
   inUse = async () => false,
   finalCheckTimeoutMs = FINAL_DIRTY_CHECK_TIMEOUT_MS,
@@ -2906,11 +3031,8 @@ export async function reconcileManagedWorktrees({
                 report.kept.push({ id: record.id, reason: 'budget' });
                 continue;
               }
-              await followCheckedOutBranch(record);
               const outcome = await removeAutomatically(record, {
                 inUse,
-                preserveBranch,
-                keepTip,
                 finalCheckTimeoutMs,
               });
               if (!outcome.result) {

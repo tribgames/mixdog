@@ -9,6 +9,7 @@ import {
   DESKTOP_WORKTREE_NEW_TASK_DEFAULTS,
 } from '../shared/contract.ts';
 import { requiredDesktopCapabilityReadRequests, requiredDesktopCapabilityRequest } from './ipc-validation.ts';
+import { createRemoteMethods } from './remote-methods.ts';
 import { worktreeErrorWithCode } from './worktree-validation.ts';
 import { WORKTREE_ERROR_CODES } from '../../../../src/runtime/shared/worktrees/contract.mjs';
 import { WORKTREE_NEW_TASK_DEFAULTS } from '../../../../src/runtime/shared/worktrees/settings.mjs';
@@ -64,7 +65,7 @@ test('worktree capability arguments are shape-checked', () => {
   assert.doesNotThrow(() => request('pruneWorktrees', { repoCommonDir: '/p/.git' }));
   assert.doesNotThrow(() => request('setWorktreeSettings', { branchPrefix: '' }));
   assert.doesNotThrow(() =>
-    request('setWorktreeSettings', { maxWorktrees: 0, unusedDays: 30, cleanupArchived: false, deleteBranch: true })
+    request('setWorktreeSettings', { maxWorktrees: 0, unusedDays: 30, cleanupArchived: false })
   );
   assert.doesNotThrow(() => request('deleteWorktree', { entryId: 'fix-login' }));
   assert.doesNotThrow(() => request('deleteWorktree', { entryId: 'fix-login', force: true }));
@@ -122,7 +123,7 @@ test('worktree capability arguments are shape-checked', () => {
     ['setWorktreeSettings', { maxWorktrees: 1001 }],
     ['setWorktreeSettings', { unusedDays: 1.5 }],
     ['setWorktreeSettings', { cleanupArchived: 'yes' }],
-    ['setWorktreeSettings', { deleteBranch: 1 }],
+    ['setWorktreeSettings', { deleteBranch: true }],
     ['deleteWorktree'],
     ['deleteWorktree', {}],
     ['deleteWorktree', { entryId: 'x', force: 'yes' }],
@@ -130,6 +131,39 @@ test('worktree capability arguments are shape-checked', () => {
   ]) {
     assert.throws(() => request(capability, ...args), TypeError, `${capability} ${JSON.stringify(args)}`);
   }
+});
+
+test('a phone force-deletes a branch through the desktop validation: boolean, delete-branch only', async () => {
+  const forwarded = [];
+  const methods = createRemoteMethods({
+    host: {
+      async invokeCapability(capability, args) {
+        forwarded.push([capability, args[0].force]);
+        return { value: { deleted: true } };
+      },
+    },
+  });
+  const branchAction = (input) =>
+    methods.invokeCapability([
+      {
+        capability: 'manageProjectBranch',
+        args: [
+          {
+            projectPath: '/p',
+            branch: 'kept',
+            commit: 'a'.repeat(40),
+            target: 'main',
+            targetCommit: 'b'.repeat(40),
+            confirmed: true,
+            ...input,
+          },
+        ],
+      },
+    ]);
+  await assert.rejects(async () => branchAction({ action: 'delete-branch', force: 'yes' }), TypeError);
+  await assert.rejects(async () => branchAction({ action: 'merge', force: true }), TypeError);
+  await branchAction({ action: 'delete-branch', force: true });
+  assert.deepEqual(forwarded, [['manageProjectBranch', true]]);
 });
 
 test('a typed worktree failure keeps its code at the head of the message across IPC', () => {

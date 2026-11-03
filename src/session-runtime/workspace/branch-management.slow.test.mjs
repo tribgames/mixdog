@@ -72,7 +72,7 @@ function fixture(repo, { session: hosted = false, autoCleanup = false } = {}) {
     findRegisteredProject: async (path) => (samePath(path, repo) ? repo : null),
   });
   const inspect = (branch) => api.inspectProjectBranch({ projectPath: repo, branch });
-  const act = (view, action) =>
+  const act = (view, action, extra = {}) =>
     api.manageProjectBranch({
       projectPath: repo,
       branch: view.branch,
@@ -81,6 +81,7 @@ function fixture(repo, { session: hosted = false, autoCleanup = false } = {}) {
       targetCommit: view.targetCommit,
       confirmed: true,
       action,
+      ...extra,
     });
   return { state, api, inspect, act, session };
 }
@@ -381,6 +382,27 @@ test('stale confirmations, unmerged commits, dirty worktrees and main/external f
   writeFile(created.entry.path, 'untracked.txt', 'keep\n');
   await assert.rejects(f.act(await f.inspect(created.entry.branch), 'remove-worktree'), { code: 'WORKTREE_DIRTY' });
   assert.ok(existsSync(created.entry.path));
+});
+
+test('a confirmed force delete drops an unmerged branch only at the commit the user saw', async () => {
+  const repo = makeRepo();
+  const f = fixture(repo);
+  git(repo, 'checkout', '-q', '-b', 'feature/kept');
+  commitFile(repo, 'kept.txt', 'kept\n');
+  git(repo, 'checkout', '-q', 'main');
+  const seen = await f.inspect('feature/kept');
+  await assert.rejects(f.act(seen, 'delete-branch'), { code: 'WORKTREE_UNMERGED' });
+  git(repo, 'checkout', '-q', 'feature/kept');
+  const moved = commitFile(repo, 'later.txt', 'later\n');
+  git(repo, 'checkout', '-q', 'main');
+  await assert.rejects(f.act(seen, 'delete-branch', { force: true }), { code: 'WORKTREE_REVISION_CONFLICT' });
+  assert.equal(git(repo, 'rev-parse', 'feature/kept'), moved, 'the moved branch stays');
+  assert.deepEqual(await f.act(await f.inspect('feature/kept'), 'delete-branch', { force: true }), {
+    deleted: true,
+    branch: 'feature/kept',
+    forced: true,
+  });
+  assert.equal(git(repo, 'branch', '--list', 'feature/kept'), '');
 });
 
 test('unreadable usage refuses mutations rather than assuming no work', async () => {

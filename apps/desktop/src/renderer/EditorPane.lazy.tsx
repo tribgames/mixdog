@@ -310,7 +310,7 @@ export default function EditorPane({
     relPath,
     updateOutline,
   });
-  // Quick-diff refresh: file-watch evidence plus a slow safety pass while active.
+  // Quick-diff refresh: Git evidence while active.
   const releaseQuickDiff = useEditorQuickDiff({
     api,
     active,

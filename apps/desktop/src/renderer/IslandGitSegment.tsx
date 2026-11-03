@@ -19,7 +19,7 @@ import { useSessionChanges } from './session-changes-store';
 import { readCachedDockGitState, requestDockGitState } from './utility-dock-git-state';
 
 /** The Source Control dock's cadence for the shared status snapshot. */
-const ISLAND_GIT_REFRESH = { safetyIntervalMs: 30_000, activityDebounceMs: 125, activityMinGapMs: 3_000 };
+const ISLAND_GIT_REFRESH = { activityDebounceMs: 125, activityMinGapMs: 3_000 };
 
 /** The checkout's status (branch, commits ahead of upstream), re-read on Git
  *  evidence; null without a folder or before the first read. */

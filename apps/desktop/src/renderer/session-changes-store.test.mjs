@@ -291,9 +291,10 @@ test('a session-source refresh adopts a file whose patch moved while its counts 
   await view.settle(200);
   assert.match(states.a.rows[0].parts[0].patch, /\+y\n/);
   line = 'z';
-  // The slow safety lane: no Git evidence, same counts.
-  await view.settle(30_000);
-  await view.settle(30_000);
+  // Git evidence with the same counts.
+  await act(async () => view.window.dispatchEvent(new view.window.Event('mixdog:git-changed')));
+  await view.settle(3_000);
+  await view.settle(200);
   assert.match(states.a.rows[0].parts[0].patch, /\+z\n/);
 });
 
@@ -331,8 +332,9 @@ test('a session-source refresh re-reads a file listed without its patch', async 
   await view.settle(200);
   assert.match(state.drawn[0].parts[0]?.patch ?? '', /\+y\n/);
   line = 'z';
-  // The slow safety lane: same listing, same counts.
-  await view.settle(30_000);
+  // Git evidence: same listing, same counts.
+  await act(async () => view.window.dispatchEvent(new view.window.Event('mixdog:git-changed')));
+  await view.settle(3_000);
   await view.settle(200);
   await view.settle(200);
   assert.deepEqual(fileReads, ['y', 'z']);
@@ -485,7 +487,7 @@ test('only Git evidence refreshes: no reads on render, git-changed re-reads at t
   assert.equal(reads, 3);
 });
 
-test('staged and unstaged count lines afresh on evidence and refresh; only the safety tick reuses them', async (t) => {
+test('staged and unstaged count lines afresh on evidence and refresh; nothing re-reads on a clock', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
   // The main process's reused stats are keyed by status only: a growing file
   // keeps its old count there.
@@ -531,8 +533,8 @@ test('staged and unstaged count lines afresh on evidence and refresh; only the s
   assert.ok(options.length >= 3);
   assert.ok(options.every((reuse) => reuse === false));
   options.length = 0;
-  await view.settle(30_000);
-  assert.deepEqual(options, [true], 'the safety tick reuses');
+  await view.settle(30 * 60_000);
+  assert.deepEqual(options, [], 'no evidence, no read');
 });
 
 /** A Git tree of `count` files (+2 −1 each) served by the batch IPC, with the
@@ -1067,7 +1069,9 @@ test('a read that only failed is unknown, never an answered empty list; the next
   assert.equal(states.a.ready, false, 'the island keeps its first-read placeholder instead of hiding as "no changes"');
   assert.equal(states.a.repository, false);
   fail = false;
-  await view.settle(2_000);
+  // Retried on the next evidence, like any read.
+  await act(async () => view.window.dispatchEvent(new view.window.Event('mixdog:git-changed')));
+  await view.settle(3_000);
   assert.equal(states.a.ready, true);
   assert.equal(states.a.error, '');
   assert.deepEqual(
@@ -1076,15 +1080,15 @@ test('a read that only failed is unknown, never an answered empty list; the next
   );
 });
 
-test('a failed read retries on a short doubling backoff, not the slow-read one, and a success resets it', async (t) => {
+test('failed reads keep the last good rows and retry on the next evidence, never after a slow-read gap', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
-  const outcomes = ['hang-then-fail', 'fail', 'ok', 'ok'];
+  const outcomes = ['ok', 'hang-then-fail', 'fail', 'ok'];
   let reads = 0;
   const view = mount(t, {
     gitReview: async () => {
       const outcome = outcomes[reads] ?? 'ok';
       reads += 1;
-      // Cut off at the git read deadline: its 60 s would set a 5 min backoff.
+      // Cut off at the git read deadline: timed as a run, its 60 s would set a 5 min gap.
       if (outcome === 'hang-then-fail') {
         await new Promise((resolve) => setTimeout(resolve, 60_000));
         throw new Error('git status timed out after 60000ms');
@@ -1098,26 +1102,35 @@ test('a failed read retries on a short doubling backoff, not the slow-read one, 
   await act(async () =>
     view.root.render(h(Probe, { name: 'a', cwd: 'C:/backoff', sessionId: 'backoff', active: true }))
   );
+  const evidence = () => act(async () => view.window.dispatchEvent(new view.window.Event('mixdog:git-changed')));
   await view.settle();
   assert.equal(reads, 1);
-  await view.settle(60_000);
-  await view.settle(1_999);
-  assert.equal(reads, 1);
-  await view.settle(1);
-  assert.equal(reads, 2, 'the first retry follows 2 s after the failure');
-  await view.settle(3_999);
+  await evidence();
+  await view.settle(3_000);
   assert.equal(reads, 2);
-  await view.settle(1);
-  assert.equal(reads, 3, 'the second waits twice as long');
+  await view.settle(60_000);
+  assert.match(states.a.error, /timed out/);
+  assert.equal(states.a.ready, true);
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['a.ts'],
+    'a failed read is unknown, never "no changes"'
+  );
+  await view.settle(3_000);
+  assert.equal(reads, 2, 'a failure starts no timer of its own');
+  await evidence();
+  await view.settle(125);
+  assert.equal(reads, 3, 'the next evidence retries at once: the cut-off read set no slow-read gap');
   assert.deepEqual(
     states.a.rows.map((row) => row.path),
     ['a.ts']
   );
-  // Success: the ordinary 30 s safety lane again.
-  await view.settle(29_999);
-  assert.equal(reads, 3);
-  await view.settle(1);
+  await view.settle(10 * 60_000);
+  assert.equal(reads, 3, 'nor does a second failure');
+  await evidence();
+  await view.settle(3_000);
   assert.equal(reads, 4);
+  assert.equal(states.a.error, '');
 });
 
 test('a root that is not a repository falls back to the session diff', async (t) => {

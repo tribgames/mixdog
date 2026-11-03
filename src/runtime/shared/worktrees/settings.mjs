@@ -14,14 +14,13 @@ export const WORKTREE_NEW_TASK_DEFAULTS = Object.freeze(['branch', 'worktree']);
  * @property {string} branchPrefix Ref prefix for created branches, ending with "/";
  *   "" (default) names the branch after the task alone.
  * @property {number} sizeWarnBytes Repository size that asks for confirmation; 0 never asks.
- * @property {boolean} autoCleanup Remove clean, merged worktrees when their session ends.
- *   The four settings below apply only while it is on.
+ * @property {boolean} autoCleanup Remove clean, merged worktrees when their session ends
+ *   (with the branch Mixdog created, once git considers it merged; its commits stay
+ *   reachable). The three settings below apply only while it is on.
  * @property {number} maxWorktrees Keep at most this many managed worktrees (oldest
  *   activity cleaned first); 0 keeps any number.
  * @property {number} unusedDays Clean up worktrees unused this many days; 0 never.
  * @property {boolean} cleanupArchived Archiving a session makes its worktrees disposable.
- * @property {boolean} deleteBranch Cleanup deletes the worktree's branch too (its tip
- *   stays under the recovery ref); off keeps the branch.
  */
 
 /** @type {Readonly<WorktreeSettings>} */
@@ -33,7 +32,6 @@ export const WORKTREE_SETTINGS_DEFAULTS = Object.freeze({
   maxWorktrees: 15,
   unusedDays: 30,
   cleanupArchived: true,
-  deleteBranch: false,
 });
 
 const WORKTREE_MAX_WORKTREES_LIMIT = 1000;
@@ -70,7 +68,6 @@ function fieldError(key, value) {
         : `must be an integer from 0 to ${WORKTREE_UNUSED_DAYS_LIMIT}`;
     case 'autoCleanup':
     case 'cleanupArchived':
-    case 'deleteBranch':
       return typeof value === 'boolean' ? null : 'must be a boolean';
     default:
       return 'is not a worktree setting';

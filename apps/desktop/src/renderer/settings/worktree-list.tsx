@@ -97,22 +97,39 @@ export function WorktreeList({ active = true }: { active?: boolean }) {
       ) {
         return null;
       }
+      type Deleted = {
+        removed?: { branchDeleted?: boolean; preservedBranch?: { name: string; head: string }; recoveryRefs?: string[] };
+      };
+      let deleted: Deleted;
       try {
-        await invokeWorktree('deleteWorktree', [{ entryId: row.id }]);
+        deleted = await invokeWorktree<Deleted>('deleteWorktree', [{ entryId: row.id }]);
       } catch (reason) {
         const failure = worktreeFailure(reason);
         if (failure.code !== 'WORKTREE_DIRTY' && failure.code !== 'WORKTREE_UNMERGED') throw reason;
         const forced = await confirmAction(
           t(
-            'Delete anyway?\n{{branch}} has uncommitted or unmerged work. Uncommitted changes are lost; its last commit stays under refs/mixdog/removed/{{id}}.',
-            { branch: name, id: row.id }
+            'Delete anyway?\n{{branch}} has uncommitted or unmerged work. Uncommitted changes are lost. A branch Mixdog created is deleted once git considers it merged, and its commits stay reachable; any other branch is kept.',
+            { branch: name }
           ),
           { danger: true, confirmLabel: t('Delete anyway'), key: `worktree-force-delete:${row.id}` }
         );
         if (!forced) return null;
-        await invokeWorktree('deleteWorktree', [{ entryId: row.id, force: true }]);
+        deleted = await invokeWorktree<Deleted>('deleteWorktree', [{ entryId: row.id, force: true }]);
       }
-      return t('Deleted worktree {{branch}}.', { branch: name });
+      const kept = deleted?.removed?.preservedBranch;
+      const message = kept
+        ? t(
+            'Deleted worktree {{branch}}. Its branch {{kept}} was kept: Mixdog deletes only a branch it created, once git considers it merged. Delete it from the branch menu.',
+            { branch: name, kept: kept.name }
+          )
+        : deleted?.removed?.branchDeleted
+          ? t(
+              'Deleted worktree {{branch}} and the branch Mixdog created for it, which git considers merged; its commits stay reachable.',
+              { branch: name }
+            )
+          : t('Deleted worktree {{branch}}.', { branch: name });
+      const refs = deleted?.removed?.recoveryRefs ?? [];
+      return refs.length ? `${message} ${t('Its commits are kept at {{refs}}.', { refs: refs.join(', ') })}` : message;
     });
 
   const projects = [...new Set((rows ?? []).map((row) => row.projectPath))];

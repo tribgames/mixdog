@@ -84,13 +84,14 @@ export function BranchRowActions({
     if (!confirmed) return;
     setBusy(true);
     setNotice('');
-    try {
-      const result = await invokeWorktree<{
-        merged?: boolean;
-        conflicts?: string[];
-        removed?: boolean;
-        remaining?: Array<{ error?: string }>;
-      }>('manageProjectBranch', [
+    type BranchActionResult = {
+      merged?: boolean;
+      conflicts?: string[];
+      removed?: boolean;
+      remaining?: Array<{ error?: string }>;
+    };
+    const run = (force?: true) =>
+      invokeWorktree<BranchActionResult>('manageProjectBranch', [
         {
           projectPath,
           branch,
@@ -99,8 +100,27 @@ export function BranchRowActions({
           target: state.target,
           targetCommit: state.targetCommit,
           confirmed: true,
+          ...(force ? { force } : {}),
         },
       ]);
+    try {
+      let result: BranchActionResult;
+      try {
+        result = await run();
+      } catch (reason) {
+        // An unmerged branch (one a worktree removal kept) is deleted on a
+        // second confirmation, only while it is still at the inspected commit.
+        if (action !== 'delete-branch' || worktreeFailure(reason).code !== 'WORKTREE_UNMERGED') throw reason;
+        const forced = await confirmAction(
+          t(
+            'Delete "{{branch}}" anyway? Its commits are not merged into "{{target}}" and are lost unless another branch has them.',
+            { branch, target: state.target ?? '' }
+          ),
+          { danger: true, confirmLabel: t('Delete anyway'), key: `branch-force-delete:${projectPath}:${branch}` }
+        );
+        if (!forced) return;
+        result = await run(true);
+      }
       if (result.merged === false) {
         setNotice(t('Nothing was merged. Conflicting files: {{files}}', { files: result.conflicts?.join(', ') || '' }));
       } else if (result.removed === false) {

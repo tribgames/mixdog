@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import type { DesktopGitFile } from '../shared/contract';
 import { SESSION_CHANGES_SOURCE_KEY, type Snapshot, type TranscriptItem } from './desktop-types';
-import { createGitRefreshScheduler, watchGitRefreshEvidence, type GitRefreshReason } from './git-refresh-scheduler';
+import { createGitRefreshScheduler, watchGitRefreshEvidence } from './git-refresh-scheduler';
 import { t } from './i18n';
 import { RendererLruCache } from './renderer-lru-cache';
 import { fetchSessionDiff, fetchSessionDiffFilePatchResult, sessionDiffRevision } from './session-diff-cache';
@@ -166,19 +166,12 @@ const NO_REPOSITORY: ChangesRead = {
 };
 const EMPTY_ROWS: readonly SessionDiffRow[] = [];
 
-// The dock's Git cadence: watch bursts debounce, runs keep a gap at least as
-// long as the last read, and the safety lane is slow.
+// The dock's Git cadence: watch bursts debounce, and runs keep a gap at least
+// as long as the last read. Only evidence starts a read; a failed one waits
+// for the next.
 const CHANGES_REFRESH_OPTIONS = {
-  safetyIntervalMs: 30_000,
   activityDebounceMs: 125,
   activityMinGapMs: 3_000,
-  slowTaskMultiplier: 5,
-  // A failed read (a git exit that a concurrent index write causes, a
-  // deadline under daemon load) is retried soon, not after the slow-read
-  // backoff (up to 5 min) its cut-off duration would set: 2 s rides out a
-  // transient clash; doubling caps at 60 s, the git read deadline, so a
-  // wedged daemon gets at most one retry per deadline.
-  failureRetry: { minMs: 2_000, maxMs: 60_000 },
 };
 
 const entries = new Map<string, ChangesEntry>();
@@ -310,8 +303,8 @@ async function readChanges({ cwd, source, sessionId }: ChangesTarget, mode: Load
   if (source === 'staged' || source === 'unstaged') {
     if (!api?.gitStatus) return NO_REPOSITORY;
     // Reused line stats are keyed by status only (not file content): evidence
-    // and explicit refreshes count afresh; only the safety tick reuses them.
-    const status = await api.gitStatus(cwd, { reuseLineStats: mode === 'safety' });
+    // and explicit refreshes count afresh; only an open intent's prefetch reuses them.
+    const status = await api.gitStatus(cwd, { reuseLineStats: mode === 'warm' });
     if (!status.repository) return NO_REPOSITORY;
     return {
       repository: true,
@@ -372,7 +365,9 @@ async function readChanges({ cwd, source, sessionId }: ChangesTarget, mode: Load
   };
 }
 
-type LoadMode = 'foreground' | GitRefreshReason;
+/** foreground: asked for now; activity: Git evidence; warm: an open intent's
+ *  prefetch, which reuses the line counts an unchanged status still holds. */
+type LoadMode = 'foreground' | 'activity' | 'warm';
 
 const ROW_FIELDS = [
   'id',
@@ -420,12 +415,12 @@ function adopt(target: ChangesTarget, read: ChangesRead, mode: LoadMode): void {
   const previous = entries.get(key);
   const wasStale = staleKeys.delete(key);
   const changed = !previous || rowsSignature(previous) !== rowsSignature(read);
-  // A safety pass that found nothing new keeps the shown entry (no render).
-  if (!changed && mode === 'safety' && !wasStale && !previous.loading && !previous.error) return;
+  // A prefetch that found nothing new keeps the shown entry (no render).
+  if (!changed && mode === 'warm' && !wasStale && !previous.loading && !previous.error) return;
   publish(key, {
     ...read,
     rows: keepRows(previous?.rows, read.rows),
-    generation: (previous?.generation ?? 0) + (changed || mode !== 'safety' ? 1 : 0),
+    generation: (previous?.generation ?? 0) + (changed || mode !== 'warm' ? 1 : 0),
     patchEpoch: (previous?.patchEpoch ?? 0) + (mode === 'foreground' ? 1 : 0),
     evidenceEpoch: (previous?.evidenceEpoch ?? 0) + (mode === 'activity' ? 1 : 0),
     loading: false,
@@ -486,8 +481,8 @@ function retainChangesWatch(target: ChangesTarget): () => void {
   if (!watch) {
     const stop = watchGitRefreshEvidence(
       target.cwd,
-      createGitRefreshScheduler(async (reason) => {
-        if (!(await loadChanges(target, reason))) throw new Error('The Changes read failed.');
+      createGitRefreshScheduler(async () => {
+        if (!(await loadChanges(target, 'activity'))) throw new Error('The Changes read failed.');
       }, CHANGES_REFRESH_OPTIONS)
     );
     watch = { count: 0, stop };
@@ -936,7 +931,7 @@ export function prefetchSessionChanges(
     };
     const held = readEntry(target);
     if (held && !held.error) warm();
-    else void loadChanges(target, 'safety').then(warm);
+    else void loadChanges(target, 'warm').then(warm);
   }
 }
 

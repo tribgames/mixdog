@@ -14,7 +14,7 @@ import { parseUnifiedDiff } from './renderer-logic.mjs';
 import { isRemoteHostRenderer } from './remote-ui-projection';
 import { DownloadSessionContext, startProjectFileDownload } from './project-file-download';
 import { copyTextToClipboard } from './text-format';
-import { createGitRefreshScheduler, type GitRefreshReason } from './git-refresh-scheduler';
+import { createGitRefreshScheduler } from './git-refresh-scheduler';
 import { subscribeProjectFileChanges } from './project-file-changes';
 import { describeSourceControlError, SourceControlErrorNotice } from './SourceControlErrorNotice';
 
@@ -165,8 +165,8 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
   const [forced, setForced] = useState<string[]>([]);
   // null = loading; a failed read keeps its message apart from patch text.
   const [diffs, setDiffs] = useState<Record<string, string | null | { error: string }>>({});
-  // No manual refresh control: file-watch evidence plus the safety lane owns
-  // freshness, so cached diffs self-invalidate when a file's stats change.
+  // No manual refresh control: Git evidence (file and git-dir events, focus)
+  // owns freshness, so cached diffs self-invalidate when a file's stats change.
   const reviewRef = useRef<GitReviewInfo | null>(null);
   const [diffStyle, setDiffStyle] = useState<'unified' | 'split'>(() => {
     try {
@@ -183,7 +183,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
     }
   }, [diffStyle]);
   const refresh = useCallback(
-    async (reason: GitRefreshReason = 'activity') => {
+    async () => {
       if (!cwd) {
         setStatus(null);
         return;
@@ -194,9 +194,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
       }
       try {
         const [next, nextReview] = await Promise.all([
-          window.mixdogDesktop.gitStatus(cwd, {
-            reuseLineStats: reason === 'safety',
-          }),
+          window.mixdogDesktop.gitStatus(cwd),
           window.mixdogDesktop.gitReview(cwd),
         ]);
         setStatus(next ?? null);
@@ -228,11 +226,9 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
   );
   useEffect(() => {
     if (!cwd) return undefined;
-    const scheduler = createGitRefreshScheduler((reason) => refresh(reason), {
-      safetyIntervalMs: 30_000,
+    const scheduler = createGitRefreshScheduler(refresh, {
       activityDebounceMs: 125,
       activityMinGapMs: 3_000,
-      slowTaskMultiplier: 5,
     });
     const signal = () => scheduler.signal();
     const refreshNow = () => scheduler.refreshNow();

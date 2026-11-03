@@ -4,91 +4,54 @@
  * (a directory, or a `gitdir:` file for linked worktrees and submodules), and
  * HEAD is the one small file in the git dir. Packed refs never matter: HEAD
  * names a branch (`ref: refs/heads/x`) or holds a commit id.
+ *
+ * A session's watcher holds, through the shared watched-file cache, exactly
+ * the files its answer was read from: HEAD and every symbolic ref it passes
+ * through for a repository, or each `.git` the layout walk looked for above a
+ * folder outside any repository. Their change events alone refresh the
+ * answer; nothing re-reads on a clock. A filesystem that delivers no events
+ * is the watched-file cache's to handle, for that path only.
  */
-import { readFileSync, statSync, watch } from 'node:fs';
-import { readFile, stat } from 'node:fs/promises';
+import { readFileSync, statSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
+import { createWatchedFileCache, fileStamp, fileStampSync } from '../watched-file-cache.mjs';
 import { canonicalPath } from './paths.mjs';
 
 const OBJECT_ID = /^[0-9a-f]{40}(?:[0-9a-f]{24})?$/i;
-/** Safety net for missed watch events: one shared async stat of each watched HEAD, and non-repo re-checks. */
-const SAFETY_POLL_MS = 1000;
-/** Minimum age of a "not a repository" answer before a read starts an async re-check. */
-const NOT_A_REPO_RECHECK_MS = 1000;
 const NO_HEAD = Object.freeze({ branch: null, commit: null });
 
 /** start dir → { topLevel, gitDir, commonDir } for folders inside a checkout. */
 const layouts = new Map();
-/** start dir → { checkedAt, pending } for a walk that found no repository. */
+/** start dir → watchers holding it as "not a repository" (kept so until a `.git` they watch changes). */
 const notRepos = new Map();
 /** git dir → last HEAD read, kept across a half-written HEAD. */
 const lastHeads = new Map();
 /** git dir → the shared watched state of a repository some watcher holds (see acquireRepo). */
 const repos = new Map();
-/** Watchers whose folder is outside any repository: the safety poll re-checks them. */
-const unrepoWatchers = new Set();
 
-/*
- * The filesystem walks are generators yielding `['read'|'stat', path]`, so one
- * definition runs synchronously (cold fill, strict lookups) or on the libuv
- * threadpool (watch-driven refreshes, re-checks).
- */
-function runSync(steps) {
-  let step = steps.next();
-  while (!step.done) {
-    const [op, path] = step.value;
-    let value;
-    let failed = false;
-    try {
-      value = op === 'read' ? readFileSync(path, 'utf8') : statSync(path);
-    } catch (error) {
-      failed = true;
-      value = error;
-    }
-    step = failed ? steps.throw(value) : steps.next(value);
-  }
-  return step.value;
-}
-
-async function runAsync(steps) {
-  let step = steps.next();
-  while (!step.done) {
-    const [op, path] = step.value;
-    let value;
-    let failed = false;
-    try {
-      value = await (op === 'read' ? readFile(path, 'utf8') : stat(path));
-    } catch (error) {
-      failed = true;
-      value = error;
-    }
-    step = failed ? steps.throw(value) : steps.next(value);
-  }
-  return step.value;
-}
-
-function* readText(path, strict = false) {
+function readText(path, strict = false) {
   try {
-    return yield ['read', path];
+    return readFileSync(path, 'utf8');
   } catch (error) {
     if (strict && error?.code !== 'ENOENT') throw error;
     return null;
   }
 }
 
-function* isDirectory(path, strict = false) {
+function isDirectory(path, strict = false) {
   try {
-    return (yield ['stat', path]).isDirectory();
+    return statSync(path).isDirectory();
   } catch (error) {
     if (strict && !['ENOENT', 'ENOTDIR'].includes(error?.code)) throw error;
     return false;
   }
 }
 
-function* isFile(path, strict = false) {
+function isFile(path, strict = false) {
   try {
-    return (yield ['stat', path]).isFile();
+    return statSync(path).isFile();
   } catch (error) {
     if (strict && !['ENOENT', 'ENOTDIR'].includes(error?.code)) throw error;
     return false;
@@ -98,36 +61,36 @@ function* isFile(path, strict = false) {
 const GIT_LAYOUT_ENTRIES = ['objects', 'refs', 'config', 'commondir', 'packed-refs', 'index'];
 
 /** True when a `.git` directory holds any entry git itself would create. Permission errors propagate. */
-function* hasGitLayout(dotGit) {
-  for (const name of GIT_LAYOUT_ENTRIES) {
+function hasGitLayout(dotGit) {
+  return GIT_LAYOUT_ENTRIES.some((name) => {
     try {
-      yield ['stat', resolve(dotGit, name)];
+      statSync(resolve(dotGit, name));
       return true;
     } catch (error) {
       if (!['ENOENT', 'ENOTDIR'].includes(error?.code)) throw error;
+      return false;
     }
-  }
-  return false;
+  });
 }
 
-function* layoutAbove(start, strict = false) {
+function layoutAbove(start, strict = false) {
   for (let dir = start; ; dir = dirname(dir)) {
     const dotGit = resolve(dir, '.git');
     let gitDir = null;
-    if (yield* isDirectory(dotGit, strict)) {
+    if (isDirectory(dotGit, strict)) {
       gitDir = dotGit;
-    } else if (yield* isFile(dotGit, strict)) {
-      const pointer = /^gitdir:\s*(.+?)\s*$/m.exec((yield* readText(dotGit, strict)) ?? '');
+    } else if (isFile(dotGit, strict)) {
+      const pointer = /^gitdir:\s*(.+?)\s*$/m.exec(readText(dotGit, strict) ?? '');
       if (strict && !pointer) throw new Error(`Cannot inspect Git directory: ${dotGit}`);
       if (pointer) gitDir = resolve(dir, pointer[1]);
     }
-    if (gitDir && strict && !(yield* isFile(resolve(gitDir, 'HEAD'), true))) {
+    if (gitDir && strict && !isFile(resolve(gitDir, 'HEAD'), true)) {
       // A directory with none of git's layout is a stray folder, not a damaged repo.
-      if (gitDir !== dotGit || (yield* hasGitLayout(gitDir))) throw new Error(`Cannot inspect Git HEAD: ${gitDir}`);
+      if (gitDir !== dotGit || hasGitLayout(gitDir)) throw new Error(`Cannot inspect Git HEAD: ${gitDir}`);
       gitDir = null;
     }
-    if (gitDir && (yield* isFile(resolve(gitDir, 'HEAD'), strict))) {
-      const common = (yield* readText(resolve(gitDir, 'commondir'), strict))?.trim();
+    if (gitDir && isFile(resolve(gitDir, 'HEAD'), strict)) {
+      const common = readText(resolve(gitDir, 'commondir'), strict)?.trim();
       return {
         topLevel: canonicalPath(dir),
         gitDir,
@@ -138,63 +101,36 @@ function* layoutAbove(start, strict = false) {
   }
 }
 
-/** A watched repository's HEAD stands for its layout: the watch and safety poll drop it when HEAD goes. */
-function watchedRepo(gitDir) {
-  const entry = repos.get(gitDir);
-  return entry && !entry.closed ? entry : null;
-}
-
-/**
- * Re-walks a folder that held no repository, on the threadpool. Resolves the
- * layout once one appears there, else null. `minAgeMs` throttles re-checks.
- */
-function recheckNotRepo(start, minAgeMs = NOT_A_REPO_RECHECK_MS) {
-  const miss = notRepos.get(start);
-  if (!miss) return Promise.resolve(layouts.get(start) ?? null);
-  if (miss.pending) return miss.pending;
-  if (Date.now() - miss.checkedAt < minAgeMs) return Promise.resolve(null);
-  miss.pending = runAsync(layoutAbove(start))
-    .catch(() => null)
-    .then((found) => {
-      miss.pending = null;
-      miss.checkedAt = Date.now();
-      if (!found || notRepos.get(start) !== miss) return null;
-      notRepos.delete(start);
-      layouts.set(start, found);
-      return found;
-    });
-  return miss.pending;
+/** Every `.git` the walk from `start` looks for, nearest first. */
+function dotGitsAbove(start) {
+  const paths = [];
+  for (let dir = start; ; dir = dirname(dir)) {
+    paths.push(resolve(dir, '.git'));
+    if (dirname(dir) === dir) return paths;
+  }
 }
 
 /**
  * The checkout layout containing `cwd`, or null outside a repository. Strict
  * lookups always walk; the cached one walks once per folder: a watched
- * repository's layout is trusted with no fs access, and a folder outside any
- * repository answers null while it is re-checked asynchronously.
+ * repository's layout is trusted with no fs access, and a folder a watcher
+ * holds as outside any repository answers null with none.
  */
 export function findGitLayout(cwd, { strict = false } = {}) {
   const start = resolve(String(cwd || '.'));
-  if (strict) {
-    return runSync(layoutAbove(start, true));
-  }
+  if (strict) return layoutAbove(start, true);
   const known = layouts.get(start);
-  if (known && (watchedRepo(known.gitDir) || runSync(isFile(resolve(known.gitDir, 'HEAD'))))) return known;
+  if (known && (repos.has(known.gitDir) || isFile(resolve(known.gitDir, 'HEAD')))) return known;
   layouts.delete(start);
-  if (notRepos.has(start)) {
-    void recheckNotRepo(start);
-    return null;
-  }
-  const found = runSync(layoutAbove(start));
-  if (!found) {
-    notRepos.set(start, { checkedAt: Date.now(), pending: null });
-    return null;
-  }
-  layouts.set(start, found);
+  if (notRepos.has(start)) return null;
+  const found = layoutAbove(start);
+  if (found) layouts.set(start, found);
   return found;
 }
 
 const MAX_SYMREF_DEPTH = 5;
 const PER_WORKTREE_REFS = /^refs\/(?:bisect|worktree|rewritten)\//;
+const SYMREF = /^ref:\s*(.+)$/;
 
 /** Where a ref's loose file lives: per-worktree refs in the git dir, the rest in the common dir. */
 function refFile(layout, name) {
@@ -203,21 +139,22 @@ function refFile(layout, name) {
 
 /**
  * Follows HEAD's symbolic refs like git does (packed-refs never holds a
- * symref, so only loose ref files are read). Returns `{ name, files }`: the
- * ref HEAD finally resolves to (the first non-symbolic ref, or the first
- * missing target: an unborn branch) and every file read along the chain, or
- * `{ name: null, files }` for a cycle or a chain over the depth limit.
+ * symref, so only loose ref files are read through `read`). Returns
+ * `{ name, files }`: the ref HEAD finally resolves to (the first non-symbolic
+ * ref, or the first missing target: an unborn branch) and every file read
+ * along the chain, or `{ name: null, files }` for a cycle or a chain over the
+ * depth limit.
  */
-function* followHead(layout, text) {
+function followHead(layout, text, read) {
   const files = [resolve(layout.gitDir, 'HEAD')];
-  let name = /^ref:\s*(.+)$/.exec(text)?.[1].trim();
+  let name = SYMREF.exec(text)?.[1].trim();
   const seen = new Set();
   for (let depth = 0; name && depth < MAX_SYMREF_DEPTH; depth++) {
     if (seen.has(name)) return { name: null, files };
     seen.add(name);
     const file = refFile(layout, name);
     files.push(file);
-    const next = /^ref:\s*(.+)$/.exec((yield* readText(file))?.trim() ?? '')?.[1].trim();
+    const next = SYMREF.exec(read(file)?.trim() ?? '')?.[1].trim();
     if (!next) return { name, files };
     name = next;
   }
@@ -225,46 +162,20 @@ function* followHead(layout, text) {
 }
 
 /**
- * The stat fingerprint of every file in a resolved chain (a missing file
- * reads as `-`): any change to HEAD or a symref it passes through changes it.
- * A published commit lives in HEAD itself (detached), so the final ref's
- * commit and packed-refs never matter.
+ * One read of HEAD through `read`: the resolved `head` and the symref chain
+ * `files` — both null for a missing or half-written HEAD, so the caller keeps
+ * its last answer.
  */
-function* chainSignature(files) {
-  const parts = [];
-  for (const file of files) {
-    try {
-      const stats = yield ['stat', file];
-      parts.push(`${file}=${stats.ino}:${stats.size}:${stats.mtimeMs}`);
-    } catch {
-      parts.push(`${file}=-`);
-    }
-  }
-  return parts.join('\n');
-}
-
-/**
- * One read of HEAD: `{ gone }` when HEAD no longer exists, else the resolved
- * `head` and the symref chain `files` — both null for a half-written HEAD, so
- * the caller keeps its last answer.
- */
-function* readHead(layout) {
+function readHead(layout, read = readText) {
   const path = resolve(layout.gitDir, 'HEAD');
-  try {
-    yield ['stat', path];
-  } catch (error) {
-    if (['ENOENT', 'ENOTDIR'].includes(error?.code)) return { gone: true };
-  }
-  const text = (yield* readText(path))?.trim();
-  if (text && /^ref:\s*(.+)$/.test(text)) {
-    const { name, files } = yield* followHead(layout, text);
+  const text = read(path)?.trim();
+  if (text && SYMREF.test(text)) {
+    const { name, files } = followHead(layout, text, read);
     const branch = name?.startsWith('refs/heads/') ? name.slice('refs/heads/'.length) : null;
-    return { gone: false, head: { branch, commit: null }, files };
+    return { head: { branch, commit: null }, files };
   }
-  if (text && OBJECT_ID.test(text)) {
-    return { gone: false, head: { branch: null, commit: text.toLowerCase() }, files: [path] };
-  }
-  return { gone: false, head: null, files: null };
+  if (text && OBJECT_ID.test(text)) return { head: { branch: null, commit: text.toLowerCase() }, files: [path] };
+  return { head: null, files: null };
 }
 
 /**
@@ -272,15 +183,15 @@ function* readHead(layout) {
  * branch, commit }` (`branch` null when detached or when the symbolic-ref
  * chain is broken, `commit` null on a branch), or null when `cwd` is not
  * inside a git repository. A branch alias resolves to the branch it points at.
- * A repository some watcher holds is answered from its watch-maintained cache
+ * A repository some watcher holds is answered from its event-maintained cache
  * with no fs access; any other is read now.
  */
 export function readGitHead(cwd) {
   const layout = findGitLayout(cwd);
   if (!layout) return null;
-  let head = watchedRepo(layout.gitDir) ? lastHeads.get(layout.gitDir) : null;
+  let head = repos.get(layout.gitDir)?.head;
   if (!head) {
-    head = runSync(readHead(layout)).head ?? lastHeads.get(layout.gitDir) ?? NO_HEAD;
+    head = readHead(layout).head ?? lastHeads.get(layout.gitDir) ?? NO_HEAD;
     lastHeads.set(layout.gitDir, head);
   }
   return {
@@ -293,158 +204,126 @@ export function readGitHead(cwd) {
 }
 
 /*
- * The process-wide registry: one entry per git dir any watcher holds, shared
- * by every session in that checkout — its layout, the cached HEAD (lastHeads),
- * the symref chain files, one fs.watch set, a ref count and the subscribers
- * told when the resolved HEAD changes or the repository goes away.
+ * The held files: one watched-file cache entry per path some watcher reads,
+ * with the listeners told when its value changes. A value is the file's text,
+ * '' for a directory (a `.git` folder) and null when missing, so a `.git`
+ * appearing is a change too.
  */
-let safetyPoll = null;
+const listeners = new Map();
+const held = createWatchedFileCache(
+  {
+    load(path) {
+      const stamp = fileStampSync(path);
+      if (stamp === 'missing') return { value: null, stamp };
+      try {
+        return { value: readFileSync(path, 'utf8'), stamp };
+      } catch (error) {
+        if (error?.code === 'EISDIR') return { value: '', stamp };
+        if (error?.code === 'ENOENT') return { value: null, stamp: 'missing' };
+        throw error;
+      }
+    },
+    async loadAsync(path) {
+      const stamp = await fileStamp(path);
+      if (stamp === null) throw new Error(`Cannot stat ${path}`);
+      if (stamp === 'missing') return { value: null, stamp };
+      try {
+        return { value: await readFile(path, 'utf8'), stamp };
+      } catch (error) {
+        if (error?.code === 'EISDIR') return { value: '', stamp };
+        if (error?.code === 'ENOENT') return { value: null, stamp: 'missing' };
+        throw error;
+      }
+    },
+  },
+  {
+    onChange: (path) => {
+      for (const listener of [...(listeners.get(path) ?? [])]) listener();
+    },
+  }
+);
 
-function syncSafetyPoll() {
-  const needed = repos.size > 0 || unrepoWatchers.size > 0;
-  if (needed && !safetyPoll) {
-    safetyPoll = setInterval(pollOnce, SAFETY_POLL_MS);
-    safetyPoll.unref?.();
-  } else if (!needed && safetyPoll) {
-    clearInterval(safetyPoll);
-    safetyPoll = null;
+/** A held file's text (null when missing or unreadable); warm reads touch no fs. */
+function readHeld(path) {
+  try {
+    return held.get(path);
+  } catch {
+    return null;
   }
 }
 
-/**
- * Async stats of every file in each watched chain — HEAD and each symref it
- * passes through, so a missed event or a failed or missing directory watch
- * is still caught — refreshing on any difference; one async walk per
- * non-repo folder. The poll owns `signature`: a change landing during a
- * refresh differs on the next tick.
- */
-function pollOnce() {
-  for (const entry of repos.values()) {
-    if (entry.refreshing || entry.polling) continue;
-    entry.polling = true;
-    void runAsync(chainSignature(entry.files)).then((signature) => {
-      entry.polling = false;
-      if (signature === entry.signature) return;
-      entry.signature = signature;
-      void refreshRepo(entry);
-    });
+function hold(path, listener) {
+  let set = listeners.get(path);
+  if (!set) {
+    set = new Set();
+    listeners.set(path, set);
+    readHeld(path);
   }
-  const starts = new Set([...unrepoWatchers].map((watcher) => watcher.target()));
-  for (const start of starts) {
-    void recheckNotRepo(start, 0).then((found) => {
-      if (!found) return;
-      for (const watcher of [...unrepoWatchers]) if (watcher.target() === start) watcher.found();
-    });
-  }
+  set.add(listener);
 }
 
-function closeChainWatch(entry) {
-  for (const watcher of entry.watchers) watcher.close();
-  entry.watchers = [];
-  entry.watchKey = '';
+function unhold(path, listener) {
+  const set = listeners.get(path);
+  if (!set?.delete(listener) || set.size) return;
+  listeners.delete(path);
+  held.delete(path);
 }
 
-/**
- * Watches the directories of HEAD and every symbolic ref it passes through
- * (a change anywhere in that chain can change the branch). Directories, not
- * files: git replaces HEAD and refs by renaming `<name>.lock` over them.
- */
-function watchChain(entry, files) {
-  const key = files.join('\n');
-  if (entry.closed || key === entry.watchKey) return;
-  closeChainWatch(entry);
-  entry.watchKey = key;
-  entry.files = files;
-  for (const dir of new Set(files.map((file) => dirname(file)))) {
-    try {
-      const watcher = watch(dir, { persistent: false }, (_event, name) => {
-        if (name && !entry.files.includes(resolve(dir, String(name)))) return;
-        void refreshRepo(entry);
-      });
-      watcher.on('error', () => {
-        watcher.close();
-        entry.watchers = entry.watchers.filter((w) => w !== watcher);
-        entry.watchKey = '';
-        void refreshRepo(entry);
-      });
-      entry.watchers.push(watcher);
-    } catch {
-      // A chain directory that does not exist (an unborn target) is not watched.
-    }
-  }
+/** Holds exactly `paths` for `entry` (HEAD and its symref chain). */
+function holdChain(entry, paths) {
+  const next = new Set(paths);
+  for (const path of entry.files) if (!next.has(path)) unhold(path, entry.listener);
+  for (const path of next) if (!entry.files.includes(path)) hold(path, entry.listener);
+  entry.files = [...next];
 }
 
 /** Drops a repository whose HEAD vanished; its subscribers re-resolve their folders. */
 function dropRepo(entry) {
   entry.gone = true;
-  entry.closed = true;
-  closeChainWatch(entry);
-  if (repos.get(entry.layout.gitDir) === entry) repos.delete(entry.layout.gitDir);
+  closeRepo(entry);
   lastHeads.delete(entry.layout.gitDir);
   for (const [start, layout] of layouts) if (layout.gitDir === entry.layout.gitDir) layouts.delete(start);
-  syncSafetyPoll();
+  for (const subscriber of [...entry.subscribers]) subscriber();
 }
 
-function applyRead(entry, read) {
-  if (read.gone) {
-    dropRepo(entry);
-    return true;
-  }
-  if (read.files) watchChain(entry, read.files);
-  if (!read.head || isDeepStrictEqual(read.head, lastHeads.get(entry.layout.gitDir))) return false;
-  lastHeads.set(entry.layout.gitDir, read.head);
-  return true;
+function closeRepo(entry) {
+  entry.closed = true;
+  holdChain(entry, []);
+  if (repos.get(entry.layout.gitDir) === entry) repos.delete(entry.layout.gitDir);
 }
 
-/** Async re-read of HEAD; one in flight per repository, re-run once when asked again meanwhile. */
+/** Re-reads HEAD after a held file changed: once per burst (a microtask), publishing only a different answer. */
 function refreshRepo(entry) {
-  if (entry.closed) return Promise.resolve();
-  if (entry.refreshing) {
-    entry.dirty = true;
-    return entry.refreshing;
-  }
-  entry.refreshing = (async () => {
-    let changed = false;
-    do {
-      entry.dirty = false;
-      const read = await runAsync(readHead(entry.layout));
-      // Released or dropped while the read was in flight: its result opens and publishes nothing.
-      if (entry.closed) return;
-      changed = applyRead(entry, read) || changed;
-    } while (entry.dirty && !entry.closed);
-    if (changed) for (const subscriber of [...entry.subscribers]) subscriber();
-  })().finally(() => {
-    entry.refreshing = null;
+  if (entry.closed || entry.queued) return;
+  entry.queued = true;
+  queueMicrotask(() => {
+    entry.queued = false;
+    if (entry.closed) return;
+    if (!isFile(resolve(entry.layout.gitDir, 'HEAD'))) {
+      dropRepo(entry);
+      return;
+    }
+    const read = readHead(entry.layout, readHeld);
+    if (read.files) holdChain(entry, read.files);
+    if (!read.head || isDeepStrictEqual(read.head, entry.head)) return;
+    entry.head = read.head;
+    lastHeads.set(entry.layout.gitDir, read.head);
+    for (const subscriber of [...entry.subscribers]) subscriber();
   });
-  return entry.refreshing;
 }
 
-/** Joins (or creates, with one sync cold read) the shared entry of `layout`'s repository. */
+/** Joins (or creates, with one cold read) the shared entry of `layout`'s repository. */
 function acquireRepo(layout) {
-  let entry = watchedRepo(layout.gitDir);
+  let entry = repos.get(layout.gitDir);
   if (!entry) {
-    entry = {
-      layout,
-      files: [],
-      watchers: [],
-      watchKey: '',
-      refs: 0,
-      subscribers: new Set(),
-      signature: null,
-      polling: false,
-      refreshing: null,
-      dirty: false,
-      // HEAD vanished (subscribers re-resolve); closed: dropped or released — never reopened.
-      gone: false,
-      closed: false,
-    };
-    const read = runSync(readHead(layout));
-    lastHeads.set(layout.gitDir, read.head ?? lastHeads.get(layout.gitDir) ?? NO_HEAD);
-    const files = read.files ?? [resolve(layout.gitDir, 'HEAD')];
-    entry.signature = runSync(chainSignature(files));
+    // gone: HEAD vanished (subscribers re-resolve); closed: dropped or released — never reopened.
+    entry = { layout, head: null, files: [], refs: 0, subscribers: new Set(), queued: false, gone: false, closed: false };
+    entry.listener = () => refreshRepo(entry);
+    const read = readHead(layout, readHeld);
+    entry.head = read.head ?? lastHeads.get(layout.gitDir) ?? NO_HEAD;
+    lastHeads.set(layout.gitDir, entry.head);
     repos.set(layout.gitDir, entry);
-    watchChain(entry, files);
-    syncSafetyPoll();
+    holdChain(entry, read.files ?? [resolve(layout.gitDir, 'HEAD')]);
   }
   entry.refs++;
   return entry;
@@ -453,21 +332,20 @@ function acquireRepo(layout) {
 function releaseRepo(entry) {
   entry.refs--;
   if (entry.refs > 0 || entry.closed) return;
-  entry.closed = true;
-  closeChainWatch(entry);
-  repos.delete(entry.layout.gitDir);
-  syncSafetyPoll();
+  closeRepo(entry);
 }
 
 /**
  * Calls `onChange` shortly after the HEAD of the checkout `getCwd()` names
- * changes (a `git switch` from any terminal). Call `retarget()` when the
- * session's folder may have moved: it re-resolves only when that folder
- * differs. `dispose()` releases the watch.
+ * changes (a `git switch` from any terminal), or after a repository appears
+ * around a folder that had none. Call `retarget()` when the session's folder
+ * may have moved: it re-resolves only when that folder differs. `dispose()`
+ * releases the watch.
  */
 export function createGitHeadWatcher({ getCwd, onChange, debounceMs = 40 }) {
   let target = null;
   let entry = null;
+  let dotGits = [];
   let timer = null;
   const notify = () => {
     clearTimeout(timer);
@@ -478,12 +356,13 @@ export function createGitHeadWatcher({ getCwd, onChange, debounceMs = 40 }) {
     if (entry?.gone) attach(target);
     notify();
   };
-  const handle = {
-    target: () => target,
-    found: () => {
-      attach(target);
-      notify();
-    },
+  // A `.git` above a folder outside any repository changed: walk again.
+  const found = () => {
+    const layout = layoutAbove(target);
+    if (!layout) return;
+    layouts.set(target, layout);
+    attach(target);
+    notify();
   };
   const detach = () => {
     if (entry) {
@@ -491,7 +370,13 @@ export function createGitHeadWatcher({ getCwd, onChange, debounceMs = 40 }) {
       releaseRepo(entry);
       entry = null;
     }
-    unrepoWatchers.delete(handle);
+    if (dotGits.length) {
+      for (const path of dotGits) unhold(path, found);
+      dotGits = [];
+      const count = (notRepos.get(target) ?? 1) - 1;
+      if (count > 0) notRepos.set(target, count);
+      else notRepos.delete(target);
+    }
   };
   function attach(start) {
     detach();
@@ -500,10 +385,11 @@ export function createGitHeadWatcher({ getCwd, onChange, debounceMs = 40 }) {
     if (layout) {
       entry = acquireRepo(layout);
       entry.subscribers.add(subscriber);
-    } else {
-      unrepoWatchers.add(handle);
+      return;
     }
-    syncSafetyPoll();
+    notRepos.set(start, (notRepos.get(start) ?? 0) + 1);
+    dotGits = dotGitsAbove(start);
+    for (const path of dotGits) hold(path, found);
   }
   return {
     retarget() {
@@ -515,7 +401,6 @@ export function createGitHeadWatcher({ getCwd, onChange, debounceMs = 40 }) {
       clearTimeout(timer);
       detach();
       target = null;
-      syncSafetyPoll();
     },
   };
 }

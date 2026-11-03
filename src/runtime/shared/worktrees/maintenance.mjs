@@ -275,9 +275,8 @@ export async function previewWorktreeCleanup({
  * owner with a running background shell job, or any job running inside the
  * folder), a favorite session's, one younger than an hour, a shared one, an
  * unmanaged one. The limits need the favorites: unknown (no desktop
- * attached) skips them (`limits: 'favorites-unknown'`). `deleteBranch` off
- * keeps every removed worktree's branch; on, its tip stays under
- * refs/mixdog/removed/<id>.
+ * attached) skips them (`limits: 'favorites-unknown'`). A removed
+ * worktree's merged branch goes when Mixdog created it; others stay.
  * @param {{ liveSessionIds?: string[], listSessionIds?: () => Promise<string[]>, manager?: object,
  *   repoCommonDir?: string|null, explicit?: boolean, now?: number, settings?: object|null,
  *   currentLiveSessionIds?: () => Iterable<string>, finalCheckTimeoutMs?: number|null,
@@ -352,8 +351,6 @@ export async function runWorktreeCleanup({
           cleanupArchived: settings.cleanupArchived === true && limits === 'applied',
         }
       : {}),
-    preserveBranch: settings.deleteBranch !== true,
-    keepTip: settings.deleteBranch === true,
     maxRemovals: WORKTREE_CLEANUP_MAX_REMOVALS,
     inUse,
     ...(finalCheckTimeoutMs ? { finalCheckTimeoutMs } : {}),
@@ -479,27 +476,24 @@ export async function setArchivedSessionWorktrees(
  * After a session was deleted: with autoCleanup on, its worktree is marked
  * disposable and removed when clean and merged (dirty or unmerged work is
  * kept, still disposable, for a later prune once it is clean). Off: kept.
- * Its branch goes only with deleteBranch on.
+ * Its branch goes with it when Mixdog created it and it is merged.
  * @param {string} sessionId
- * @param {{ manager?: object, autoCleanup?: boolean, deleteBranch?: boolean }} [options]
+ * @param {{ manager?: object, autoCleanup?: boolean }} [options]
  */
-export async function cleanupDeletedSessionWorktree(sessionId, { manager = null, autoCleanup, deleteBranch } = {}) {
+export async function cleanupDeletedSessionWorktree(sessionId, { manager = null, autoCleanup } = {}) {
   const backend = manager || (await loadManager());
   await backend.forgetSharedWorktreeSession?.(sessionId);
   // Its read-only snapshots go whatever autoCleanup says (they never outlive their holder).
   await backend.removeSessionSnapshots?.(sessionId);
   const entry = await backend.getSessionWorktree(sessionId);
   if (!entry) return null;
-  const settings =
-    autoCleanup === undefined || deleteBranch === undefined ? await backend.currentWorktreeSettings() : null;
-  const enabled = autoCleanup ?? settings.autoCleanup;
+  const enabled = autoCleanup ?? (await backend.currentWorktreeSettings()).autoCleanup;
   if (enabled !== true) return { entryId: entry.id, removed: false, reason: 'auto-cleanup-off' };
   if (entry.state === 'ready') await backend.markWorktreeDisposable(entry.id);
-  const preserveBranch = (deleteBranch ?? settings.deleteBranch) !== true;
   try {
     return {
       entryId: entry.id,
-      ...(await backend.removeManagedWorktree({ entryId: entry.id, preserveBranch, automatic: true })),
+      ...(await backend.removeManagedWorktree({ entryId: entry.id, automatic: true })),
     };
   } catch (error) {
     if (

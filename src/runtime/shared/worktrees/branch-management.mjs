@@ -12,6 +12,7 @@ import {
   getWorktreeByPath,
   mergeBranchIntoProject,
   assertWorktreeRemovable,
+  forceDeleteBranch,
   removeManagedWorktree,
   managedWorktreeDirtyPaths,
 } from './manager.mjs';
@@ -142,7 +143,7 @@ export async function manageProjectBranch(input, withFolders) {
         const users = [record.ownerSessionId, ...(record.sharedSessionIds ?? [])].filter((id) => retained.has(id));
         if (users.length) throw worktreeRefusal('workspace-retained', { sessions: users });
         await assertWorktreeRemovable({ entryId: record.id });
-        return removeManagedWorktree({ entryId: record.id, preserveBranch: true, safeOnly: true });
+        return removeManagedWorktree({ entryId: record.id, safeOnly: true });
       }
       if (!target || branch === target)
         throw worktreeError('WORKTREE_TARGET_MISMATCH', 'Select a different source branch.');
@@ -156,9 +157,17 @@ export async function manageProjectBranch(input, withFolders) {
         const merged = await runGit(projectPath, ['merge-base', '--is-ancestor', commit, targetCommit], {
           allowFailure: true,
         });
-        if (merged.code !== 0) throw worktreeError('WORKTREE_UNMERGED', `The branch is not merged into ${target}.`);
-        await runGit(projectPath, ['branch', '-d', '--', branch]);
-        return { deleted: true, branch };
+        if (merged.code === 0) {
+          await runGit(projectPath, ['branch', '-d', '--', branch]);
+          return { deleted: true, branch };
+        }
+        if (input.force !== true) {
+          throw worktreeError('WORKTREE_UNMERGED', `The branch is not merged into ${target}.`, { commit });
+        }
+        // Unmerged work the user confirmed dropping (a removal's preservedBranch):
+        // only while the branch is still at the commit the user saw.
+        await forceDeleteBranch(projectPath, branch, commit);
+        return { deleted: true, branch, forced: true };
       }
       if (state.path) {
         const operation = await operationInProgress(gitStatusRunner, state.path);

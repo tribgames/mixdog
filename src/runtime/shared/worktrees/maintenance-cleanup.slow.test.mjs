@@ -84,8 +84,8 @@ test('count limit: the least recently used eligible worktree goes; favorite, liv
   for (const name of ['favorite', 'live', 'dirty', 'young', 'newer'])
     assert.ok(existsSync(made[name].entry.path), name);
   assert.ok(existsSync(join(made.dirty.entry.path, 'wip.txt')));
-  // deleteBranch off (the default): the removed worktree's branch stays.
-  assert.ok(branchExists(repo, made.oldest.entry.branch));
+  // The removed worktree's merged branch, made by Mixdog, goes with it.
+  assert.equal(branchExists(repo, made.oldest.entry.branch), false);
 });
 
 test('age limit: worktrees unused past the limit go; a running job in a folder keeps it', async () => {
@@ -117,16 +117,6 @@ test('toggles: autoCleanup off or unknown favorites remove nothing by the limits
   for (const { entry } of Object.values(made)) assert.ok(existsSync(entry.path));
 });
 
-test('deleteBranch on: the branch goes and its tip stays under the recovery ref', async () => {
-  const repo = makeRepo();
-  const { made, options } = await setup(repo, { gone: { idleMs: 90 * DAY } });
-  const tip = git(repo, 'rev-parse', made.gone.entry.branch);
-  configure({ maxWorktrees: 0, unusedDays: 30, deleteBranch: true });
-  assert.deepEqual((await runWorktreeCleanup(options())).removed, [made.gone.entry.id]);
-  assert.equal(branchExists(repo, made.gone.entry.branch), false);
-  assert.equal(git(repo, 'rev-parse', `refs/mixdog/removed/${made.gone.entry.id}`), tip);
-});
-
 test('empty prefix: a user branch named like the task is never reused, overwritten or deleted', async () => {
   const repo = makeRepo();
   git(repo, 'branch', 'fix-login');
@@ -142,7 +132,7 @@ test('empty prefix: a user branch named like the task is never reused, overwritt
   // A worktree opened on the user's own branch: cleanup never deletes that branch.
   const opened = await create(repo, { branch: 'feature-x', existingBranch: true });
   for (const { entry } of [named, nested, opened]) await backdate(entry, 90 * DAY);
-  configure({ maxWorktrees: 0, unusedDays: 30, deleteBranch: true });
+  configure({ maxWorktrees: 0, unusedDays: 30 });
   const report = await runWorktreeCleanup({
     listSessionIds: async () => [named.sessionId, nested.sessionId, opened.sessionId],
     readActivity: async () => ({}),
@@ -150,7 +140,8 @@ test('empty prefix: a user branch named like the task is never reused, overwritt
     listJobs: async () => [],
   });
   assert.deepEqual(report.removed.sort(), [named.entry.id, nested.entry.id, opened.entry.id].sort());
-  assert.equal(branchExists(repo, 'fix-login-2'), false, 'its own branch goes');
+  assert.equal(branchExists(repo, 'fix-login-2'), false, 'its own merged branch goes');
+  assert.equal(branchExists(repo, 'nested-2'), false);
   assert.equal(git(repo, 'rev-parse', 'fix-login'), userTip);
   assert.ok(branchExists(repo, 'feature-x'), "the user's branch stays");
   assert.ok(branchExists(repo, 'nested/old'));
