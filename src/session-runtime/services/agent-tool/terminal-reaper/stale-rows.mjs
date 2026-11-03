@@ -12,7 +12,10 @@ export function createStaleRowTransition({ cfgMod, mgr, tagMaps, index, getLiveS
 
   function transitionStaleNonterminalRows(context = {}) {
     const now = Date.now();
-    const config = cfgMod.loadConfig();
+    // Resolved at most once, and only for a row whose decision needs the
+    // provider window.
+    let config;
+    const getConfig = () => (config ??= cfgMod.loadConfig());
     const staleRows = readWorkerRows(context).filter((row) => {
       if (isLeadPoolAgent(row.agent)) return false;
       // Settled rows age out of the index (the tombstone keeps the tag's reap
@@ -20,17 +23,18 @@ export function createStaleRowTransition({ cfgMod, mgr, tagMaps, index, getLiveS
       // a session still in use in this process keeps its row.
       if (isTerminalRow(row)) {
         if (isUnnotifiedRestartFailure(row)) return false;
-        if (!pastSettledRetention(config, row, now) || sessionHasLiveWork(mgr, clean(row.sessionId))) return false;
+        if (!pastSettledRetention(getConfig, row, now) || sessionHasLiveWork(mgr, clean(row.sessionId))) return false;
         return true;
       }
       if (getLiveSession(clean(row.sessionId))) return false;
       const rowTime = workerRowTime(row);
-      const reapMs = resolveAgentTerminalReapMs(config, row.provider);
       // A row with no timestamp has no usable stamp at all. Explicitly
       // disabled terminal reaping still gets the tombstone TTL as a finite
       // staleness bound, so malformed/running index rows cannot block a
       // tag forever.
-      return rowTime <= 0 || now - rowTime >= (reapMs ?? TAG_TOMBSTONE_TTL_MS);
+      if (rowTime <= 0) return true;
+      const reapMs = resolveAgentTerminalReapMs(getConfig(), row.provider);
+      return now - rowTime >= (reapMs ?? TAG_TOMBSTONE_TTL_MS);
     });
     if (staleRows.length === 0) return false;
     flushWorkerIndexMutations();

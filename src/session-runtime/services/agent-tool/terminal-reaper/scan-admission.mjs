@@ -47,7 +47,7 @@ export function createScanAdmission({ cfgMod, mgr, index, tombstoneBlocksScan })
    * capped), so a scan never admits it. */
   function scanSessionAgedOut(session) {
     if (!scanSessionIsTerminal(session)) return false;
-    return pastSettledRetention(cfgMod.loadConfig(), session);
+    return pastSettledRetention(() => cfgMod.loadConfig(), session);
   }
 
   // Shared session-scan admission: returns false when the scan must not

@@ -28,12 +28,15 @@ export const SETTLED_ROW_RETENTION_MS = 24 * 60 * 60 * 1000;
  *  floor and past its continuation deadline (`reapAt` when stamped, else the
  *  provider's resolved window). `record` is a worker row or a session: both
  *  carry the same stamp fields, so pruning a row and admitting a session scan
- *  one rule over its latest activity stamp. Decided by stamps alone. */
-export function pastSettledRetention(config, record, now = Date.now()) {
+ *  one rule over its latest activity stamp. Decided by stamps alone.
+ *  `getConfig` is called only when the provider window is needed: loading
+ *  config costs file reads and credential probes on every list pulse. */
+export function pastSettledRetention(getConfig, record, now = Date.now()) {
   const settledAtMs = sessionActivityAt(record);
   if (!(settledAtMs > 0) || now - settledAtMs < SETTLED_ROW_RETENTION_MS) return false;
   const stamped = stampMs(record.reapAt);
-  return now >= (stamped > 0 ? stamped : settledAtMs + resolveAgentTerminalReapMs(config, record.provider));
+  if (stamped > 0) return now >= stamped;
+  return now >= settledAtMs + resolveAgentTerminalReapMs(getConfig(), record.provider);
 }
 
 /** In-memory proof that a session is still in use (a running or just-resumed
