@@ -34,6 +34,7 @@ public class MainActivity extends BridgeActivity {
           + "return location.origin==='https://localhost'?'local':'none'})()";
 
   private MixdogNativeHost nativeHost;
+  private MixdogReconnect reconnect;
 
   @Override
   public void onCreate(Bundle savedInstanceState) {
@@ -50,6 +51,8 @@ public class MainActivity extends BridgeActivity {
             new OnBackPressedCallback(true) {
               @Override
               public void handleOnBackPressed() {
+                // The reconnect screen covers the page: Back leaves the failed PC for the pairing screen.
+                if (reconnect != null && reconnect.onBack()) return;
                 WebView webView = getBridge() == null ? null : getBridge().getWebView();
                 if (webView == null) {
                   moveTaskToBack(true);
@@ -83,8 +86,10 @@ public class MainActivity extends BridgeActivity {
     nativeHost = new MixdogNativeHost(this);
     nativeHost.register(findViewById(com.getcapacitor.android.R.id.webview));
     super.load();
-    // Top-level navigation: bundled screen + saved relay origins only.
-    getBridge().setWebViewClient(new MixdogWebViewClient(getBridge()));
+    // Top-level navigation: bundled screen + saved relay origins only. A relay
+    // page that fails to load is brought back by MixdogReconnect.
+    reconnect = new MixdogReconnect(this);
+    getBridge().setWebViewClient(new MixdogWebViewClient(getBridge(), reconnect));
     // Downloads the page did not route through the fileSave bridge (UNBUILT).
     getBridge().getWebView().setDownloadListener(new MixdogDownloads(this));
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) fitWebViewToInsets(getBridge().getWebView());
@@ -129,10 +134,12 @@ public class MainActivity extends BridgeActivity {
   public void onResume() {
     super.onResume();
     if (nativeHost != null) nativeHost.onResume();
+    if (reconnect != null) reconnect.onResume();
   }
 
   @Override
   public void onPause() {
+    if (reconnect != null) reconnect.onPause();
     if (nativeHost != null) nativeHost.onPause();
     super.onPause();
   }

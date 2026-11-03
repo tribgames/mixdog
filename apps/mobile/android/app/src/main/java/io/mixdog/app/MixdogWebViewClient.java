@@ -4,6 +4,7 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
 import android.net.Uri;
+import android.webkit.WebResourceError;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
@@ -15,11 +16,16 @@ import java.util.HashMap;
 /**
  * Top-level navigation is limited to the bundled pairing screen and the saved
  * relay origins; any other http(s) link opens in the system browser. (There is
- * no wildcard `allowNavigation`: see OriginPolicy.)
+ * no wildcard `allowNavigation`: see OriginPolicy.) A transient main-frame
+ * failure of a relay page is handed to MixdogReconnect instead of being left on
+ * the browser's error page.
  */
 public class MixdogWebViewClient extends BridgeWebViewClient {
-  public MixdogWebViewClient(Bridge bridge) {
+  private final MixdogReconnect reconnect;
+
+  MixdogWebViewClient(Bridge bridge, MixdogReconnect reconnect) {
     super(bridge);
+    this.reconnect = reconnect;
   }
 
   private boolean block(WebView view, Uri uri) {
@@ -66,9 +72,32 @@ public class MixdogWebViewClient extends BridgeWebViewClient {
   public void onPageStarted(WebView view, String url, Bitmap favicon) {
     if (url != null && !"about:blank".equals(url) && !NavigationPolicy.allowMainFrame(url, MixdogOrigins.saved(view.getContext()))) {
       view.stopLoading();
+      reconnect.onBlocked(url);
       return;
     }
+    reconnect.onPageStarted(url);
     MixdogNativeHost.pageStarted();
     super.onPageStarted(view, url, favicon);
+  }
+
+  @Override
+  public void onPageFinished(WebView view, String url) {
+    super.onPageFinished(view, url);
+    reconnect.onPageFinished(url);
+  }
+
+  // The error page itself is covered by the reconnect screen, never shown.
+  @Override
+  public void onReceivedError(WebView view, WebResourceRequest request, WebResourceError error) {
+    super.onReceivedError(view, request, error);
+    if (request.isForMainFrame()) reconnect.onLoadError(request.getUrl().toString(), error.getErrorCode());
+  }
+
+  // Only a gateway status (a restarting relay) is retried; a 4xx, or the 403
+  // above for a blocked URL, is the answer and is left as it is.
+  @Override
+  public void onReceivedHttpError(WebView view, WebResourceRequest request, WebResourceResponse errorResponse) {
+    super.onReceivedHttpError(view, request, errorResponse);
+    if (request.isForMainFrame()) reconnect.onHttpError(request.getUrl().toString(), errorResponse.getStatusCode());
   }
 }

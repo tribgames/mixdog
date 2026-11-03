@@ -181,6 +181,187 @@ public class FileSaveCheck {
 }
 `;
 
+const reconnectSource = `package io.mixdog.app;
+import java.util.*;
+public class ReconnectCheck {
+  static int failures = 0;
+  static void eq(Object actual, Object expected, String label) {
+    if (!Objects.equals(actual, expected)) { failures++; System.out.println("FAIL " + label + ": " + actual + " != " + expected); }
+  }
+  static final String PAGE = "https://relay.example.com/d/abc/";
+  static ReconnectState.Phase p(ReconnectState s) { return s.phase(); }
+  public static void main(String[] args) {
+    Set<String> saved = new HashSet<>(Arrays.asList("https://relay.example.com", "http://localhost:8787"));
+
+    // Backoff: 2s doubling to a 30s ceiling, never negative or overflowing.
+    long[] delays = {2000, 4000, 8000, 16000, 30000, 30000};
+    for (int i = 0; i < delays.length; i++) eq(ReconnectState.delayMs(i), delays[i], "delay " + i);
+    eq(ReconnectState.delayMs(1000), 30000L, "huge count stays capped");
+    eq(ReconnectState.delayMs(-3), 2000L, "negative count is the first delay");
+
+    // Which failures are worth waiting for.
+    for (int code : new int[] {-1, -2, -6, -7, -8, -11, -15}) eq(ReconnectState.isTransientError(code), true, "transient error " + code);
+    for (int code : new int[] {0, -3, -4, -5, -9, -10, -12, -13, -14, -16}) eq(ReconnectState.isTransientError(code), false, "permanent error " + code);
+    for (int status : new int[] {502, 503, 504}) eq(ReconnectState.isTransientStatus(status), true, "gateway status " + status);
+    for (int status : new int[] {200, 301, 400, 401, 403, 404, 410, 429, 500, 501}) eq(ReconnectState.isTransientStatus(status), false, "real answer " + status);
+
+    // Only an allowed, non-bundled relay URL is ever reloaded.
+    eq(ReconnectState.isRecoverableUrl(PAGE, saved), true, "saved relay page");
+    eq(ReconnectState.isRecoverableUrl("HTTPS://Relay.Example.com:443/d/abc?x=1#y", saved), true, "same origin, other spelling");
+    eq(ReconnectState.isRecoverableUrl("http://localhost:8787/d/abc/", saved), true, "loopback relay");
+    eq(ReconnectState.isRecoverableUrl("https://localhost/index.html", saved), false, "bundled screen has no network to wait for");
+    eq(ReconnectState.isRecoverableUrl("https://evil.example.net/", saved), false, "unknown origin");
+    eq(ReconnectState.isRecoverableUrl("https://relay.example.com.evil.net/", saved), false, "lookalike origin");
+    eq(ReconnectState.isRecoverableUrl("http://relay.example.com/d/abc/", saved), false, "downgraded scheme");
+    eq(ReconnectState.isRecoverableUrl("chrome-error://chromewebdata/", saved), false, "error page url");
+    eq(ReconnectState.isRecoverableUrl(null, saved), false, "no url");
+
+    // Idle: nothing to reload, no stale timer or trigger does anything.
+    ReconnectState s = new ReconnectState();
+    eq(p(s), ReconnectState.Phase.IDLE, "starts idle");
+    eq(s.active(), false, "idle is not active");
+    eq(s.dueReload(), null, "no timer when idle");
+    eq(s.retryNow(), null, "no trigger when idle");
+    eq(s.pageFinished(PAGE), false, "an ordinary page finishing is not a recovery");
+
+    // A failure episode runs the whole backoff, then gives up.
+    eq(s.failed(PAGE), 2000L, "first wait");
+    eq(p(s), ReconnectState.Phase.WAITING, "waiting after the failure");
+    eq(s.active(), true, "waiting is active");
+    eq(s.pageFinished(PAGE), false, "the error page finishing is not a recovery");
+    List<Long> waits = new ArrayList<>();
+    waits.add(2000L);
+    String other = "https://relay.example.com/d/abc/?redirected=1";
+    for (int i = 0; i < ReconnectState.MAX_RELOADS; i++) {
+      eq(s.dueReload(), PAGE, "reload " + (i + 1) + " reloads the first failing url");
+      eq(p(s), ReconnectState.Phase.LOADING, "loading during reload " + (i + 1));
+      s.pageStarted(PAGE);
+      waits.add(s.failed(other));
+    }
+    eq(waits, Arrays.asList(2000L, 4000L, 8000L, 16000L, 30000L, 30000L, 30000L, 30000L, -1L), "bounded backoff");
+    eq(p(s), ReconnectState.Phase.GAVE_UP, "gave up after the cap");
+    eq(s.dueReload(), null, "no timer once gave up");
+    eq(s.failed(PAGE), -1L, "a late failure does not restart the backoff");
+
+    // The button (or network / foreground) restarts it from the beginning.
+    eq(s.retryNow(), PAGE, "button reloads");
+    eq(p(s), ReconnectState.Phase.LOADING, "loading after the button");
+    eq(s.retryNow(), null, "a reload in flight is left alone");
+    s.pageStarted(PAGE);
+    eq(s.failed(PAGE), 4000L, "fresh backoff after a manual retry");
+
+    // Network back / foreground while a timer is pending reloads at once.
+    eq(s.retryNow(), PAGE, "trigger while waiting reloads now");
+    eq(s.dueReload(), null, "the pending timer then finds nothing to do");
+
+    // The error page of the previous attempt finishing late is not the reload succeeding.
+    eq(s.pageFinished(PAGE), false, "stale finish before the reload started");
+    eq(p(s), ReconnectState.Phase.LOADING, "still loading");
+    s.pageStarted(PAGE);
+    eq(s.pageFinished(PAGE), true, "the reload finished");
+    eq(p(s), ReconnectState.Phase.IDLE, "idle after recovery");
+    eq(s.url(), "", "episode forgotten");
+    eq(s.pageFinished(PAGE), false, "recovery is reported once");
+
+    // A new episode starts a new backoff and a new target.
+    eq(s.failed("https://relay.example.com/d/xyz/"), 2000L, "new episode starts at the first wait");
+    eq(s.url(), "https://relay.example.com/d/xyz/", "new target");
+
+    // A reload redirected off the allowed origins is not retried by itself.
+    s.dueReload();
+    s.pageStarted(PAGE);
+    s.blocked("chrome-error://chromewebdata/");
+    eq(p(s), ReconnectState.Phase.LOADING, "an error-page url is not a blocked redirect");
+    s.blocked("https://evil.example.net/login");
+    eq(p(s), ReconnectState.Phase.GAVE_UP, "blocked redirect stops the automatic retries");
+    eq(s.failed(PAGE), -1L, "and stays stopped");
+    eq(s.dueReload(), null, "no timer after a blocked redirect");
+    s.clear();
+    eq(p(s), ReconnectState.Phase.IDLE, "clear forgets the episode");
+    s.failed(PAGE);
+    s.blocked("https://evil.example.net/login");
+    eq(p(s), ReconnectState.Phase.WAITING, "a blocked url outside a reload changes nothing");
+
+    // A navigation that is not this episode's own reload ends the episode.
+    String pairing = "https://localhost/?manage=1";
+    s.clear();
+    s.failed(PAGE);
+    eq(s.pageStarted(pairing), true, "pairing screen starting while waiting ends the episode");
+    eq(p(s), ReconnectState.Phase.IDLE, "idle after leaving for pairing");
+    eq(s.dueReload(), null, "the pending timer no longer returns the failed relay");
+    eq(s.retryNow(), null, "nor does a network or foreground trigger");
+
+    s.failed(PAGE);
+    eq(s.pageFinished(pairing), true, "pairing screen finishing while waiting ends the episode");
+    eq(p(s), ReconnectState.Phase.IDLE, "idle after the pairing page finished");
+    eq(s.dueReload(), null, "no stale reload after the pairing page finished");
+
+    for (int i = 0; i < ReconnectState.MAX_RELOADS; i++) { s.failed(PAGE); s.dueReload(); }
+    eq(p(s), ReconnectState.Phase.LOADING, "setup: loading");
+    s.failed(PAGE);
+    eq(p(s), ReconnectState.Phase.GAVE_UP, "setup: gave up");
+    eq(s.pageStarted(pairing), true, "pairing screen starting after giving up ends the episode");
+    eq(p(s), ReconnectState.Phase.IDLE, "idle after leaving from the button state");
+    eq(s.retryNow(), null, "the button state is gone");
+
+    // The reload in flight: its own origin (and redirect hops) stay the episode; another origin ends it.
+    s.failed(PAGE);
+    s.retryNow();
+    eq(s.pageStarted(PAGE + "?again=1"), false, "own reload with another path stays the episode");
+    eq(p(s), ReconnectState.Phase.LOADING, "still loading");
+    eq(s.pageStarted(pairing), true, "another origin starting during the reload ends it");
+    eq(p(s), ReconnectState.Phase.IDLE, "idle after the reload was superseded");
+
+    s.failed(PAGE);
+    s.retryNow();
+    eq(s.pageFinished(pairing), true, "another origin finishing during the reload ends it");
+    eq(p(s), ReconnectState.Phase.IDLE, "idle after the superseding page finished");
+
+    // The failed page's own late events and non-navigations never end it.
+    s.failed(PAGE);
+    eq(s.pageStarted(null), false, "no url is not a navigation");
+    eq(s.pageStarted("about:blank"), false, "about:blank is not a navigation");
+    eq(s.pageFinished("chrome-error://chromewebdata/"), false, "error document finishing is not a navigation");
+    eq(s.pageFinished(PAGE), false, "failed page finishing late is not a navigation");
+    eq(p(s), ReconnectState.Phase.WAITING, "still waiting");
+
+    // Originless finishes never count as the reload succeeding.
+    s.clear();
+    s.failed(PAGE);
+    s.retryNow();
+    s.pageStarted(PAGE);
+    eq(s.pageFinished(null), false, "null finish during a started reload");
+    eq(s.pageFinished("about:blank"), false, "about:blank finish during a started reload");
+    eq(s.pageFinished("chrome-error://chromewebdata/"), false, "error document finish during a started reload");
+    eq(p(s), ReconnectState.Phase.LOADING, "recovery stays until a real finish");
+    eq(s.pageFinished(PAGE), true, "a real allowed-origin finish recovers");
+    eq(p(s), ReconnectState.Phase.IDLE, "idle after the real finish");
+
+    // A redirect target that failed counts as the episode's own origin.
+    String hop = "https://relay.example.com/login";
+    s.clear();
+    s.failed(PAGE);
+    s.dueReload();
+    s.pageStarted(PAGE);
+    s.failed(hop);
+    eq(s.pageFinished(hop), false, "error page of a same-origin redirect target is ours");
+    String hopOrigin = "http://localhost:8787/d/abc/";
+    s.dueReload();
+    s.failed(hopOrigin);
+    eq(s.pageFinished(hopOrigin), false, "error page of a redirect to another failed origin is ours");
+
+    // Explicit abandon (choose another PC / Back).
+    s.clear();
+    eq(p(s), ReconnectState.Phase.IDLE, "clear abandons");
+    eq(s.dueReload(), null, "abandoned: no timer");
+    eq(s.retryNow(), null, "abandoned: no trigger");
+
+    if (failures > 0) System.exit(1);
+    System.out.println("reconnect state (java): ok");
+  }
+}
+`;
+
 const dir = mkdtempSync(join(tmpdir(), 'mixdog-origin-'));
 try {
   const pkg = join(dir, 'io', 'mixdog', 'app');
@@ -193,14 +374,17 @@ try {
   writeFileSync(join(pkg, 'QueueCheck.java'), queueSource);
   cpSync(join(root, 'android/app/src/main/java/io/mixdog/app/FileSaveSessions.java'), join(pkg, 'FileSaveSessions.java'));
   writeFileSync(join(pkg, 'FileSaveCheck.java'), fileSaveSource);
+  cpSync(join(root, 'android/app/src/main/java/io/mixdog/app/ReconnectState.java'), join(pkg, 'ReconnectState.java'));
+  writeFileSync(join(pkg, 'ReconnectCheck.java'), reconnectSource);
   execFileSync(
     'javac',
-    ['-d', dir, ...['OriginPolicy', 'PendingActionQueue', 'NavigationPolicy', 'WebViewInsets', 'FileSaveSessions', 'OriginPolicyCheck', 'QueueCheck', 'FileSaveCheck'].map((n) => join(pkg, `${n}.java`))],
+    ['-d', dir, ...['OriginPolicy', 'PendingActionQueue', 'NavigationPolicy', 'WebViewInsets', 'FileSaveSessions', 'ReconnectState', 'OriginPolicyCheck', 'QueueCheck', 'FileSaveCheck', 'ReconnectCheck'].map((n) => join(pkg, `${n}.java`))],
     { stdio: 'inherit' }
   );
   execFileSync('java', ['-cp', dir, 'io.mixdog.app.OriginPolicyCheck'], { stdio: 'inherit' });
   execFileSync('java', ['-cp', dir, 'io.mixdog.app.QueueCheck'], { stdio: 'inherit' });
   execFileSync('java', ['-cp', dir, 'io.mixdog.app.FileSaveCheck'], { stdio: 'inherit' });
+  execFileSync('java', ['-cp', dir, 'io.mixdog.app.ReconnectCheck'], { stdio: 'inherit' });
 } finally {
   rmSync(dir, { recursive: true, force: true });
 }

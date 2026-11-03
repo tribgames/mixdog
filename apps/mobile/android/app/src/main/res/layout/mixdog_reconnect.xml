@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Shown over the WebView while MixdogReconnect brings a failed relay page back
+     (instead of the browser's error page). Clickable so touches never reach the
+     page underneath. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/mixdog_reconnect"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/mixdogBand"
+    android:clickable="true"
+    android:focusable="true"
+    android:gravity="center"
+    android:orientation="vertical"
+    android:padding="32dp"
+    android:visibility="gone">
+
+    <ProgressBar
+        android:id="@+id/mixdog_reconnect_spinner"
+        style="?android:attr/progressBarStyleLarge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:indeterminate="true" />
+
+    <TextView
+        android:id="@+id/mixdog_reconnect_title"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="20dp"
+        android:accessibilityLiveRegion="polite"
+        android:gravity="center"
+        android:textColor="@color/mixdogReconnectText"
+        android:textSize="20sp"
+        android:textStyle="bold" />
+
+    <TextView
+        android:id="@+id/mixdog_reconnect_sub"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:gravity="center"
+        android:textColor="@color/mixdogReconnectMuted"
+        android:textSize="15sp" />
+
+    <Button
+        android:id="@+id/mixdog_reconnect_button"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="24dp"
+        android:text="@string/reconnect_button"
+        android:visibility="gone" />
+
+    <!-- Always offered: an unavailable PC must never trap the user here. -->
+    <Button
+        android:id="@+id/mixdog_reconnect_other"
+        style="?android:attr/borderlessButtonStyle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:text="@string/reconnect_other" />
+</LinearLayout>

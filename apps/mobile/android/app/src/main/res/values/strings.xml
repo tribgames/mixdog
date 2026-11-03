@@ -1,5 +1,5 @@
 <?xml version='1.0' encoding='utf-8'?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools" tools:ignore="MissingTranslation">
     <string name="app_name">Mixdog</string>
     <string name="title_activity_main">Mixdog</string>
     <string name="package_name">io.mixdog.app</string>
@@ -7,4 +7,12 @@
     <string name="download_cannot_save">This download cannot be saved from here.</string>
     <string name="download_started">Downloading %1$s</string>
     <string name="download_failed">The download could not be started.</string>
+    <!-- Reconnect screen (MixdogReconnect); same wording as the pairing screen's
+         connecting / network-error steps (src/pairing-ui.ts). Korean: values-ko. -->
+    <string name="reconnect_connecting">Connecting…</string>
+    <string name="reconnect_connecting_sub">Reconnecting automatically.</string>
+    <string name="reconnect_failed">Connection failed</string>
+    <string name="reconnect_failed_sub">Check your internet connection.</string>
+    <string name="reconnect_button">Connect again</string>
+    <string name="reconnect_other">Choose another PC</string>
 </resources>

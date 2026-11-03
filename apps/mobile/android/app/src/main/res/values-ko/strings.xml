@@ -1,0 +1,9 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="reconnect_connecting">연결 중…</string>
+    <string name="reconnect_connecting_sub">자동으로 다시 연결합니다.</string>
+    <string name="reconnect_failed">연결하지 못했습니다</string>
+    <string name="reconnect_failed_sub">인터넷 연결을 확인하세요.</string>
+    <string name="reconnect_button">다시 연결</string>
+    <string name="reconnect_other">다른 PC 선택</string>
+</resources>
