@@ -5,6 +5,30 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+This release adds session and cross-conversation action approvals, built-in browser site permissions and automatic Chrome cookie imports, alongside Computer Use and mobile remote improvements.
+
+### New features
+
+- **Action approvals** — Approval cards offer Allow for this session, coding chats support Always allow, and allowances can be revoked with "Ask again"; payments and permanent deletes always ask.
+- **Browser site permissions** — Manage default permissions and per-site exceptions under Settings › Authentication, with prompts that remember choices for this site, all sites, or until the app quits.
+- **Chrome cookie auto-import** — Turn on "Import cookies automatically" under Settings › Authentication to re-import cookies after Chrome closes, keeping sites signed in within the built-in browser.
+- **Automatic verification codes** — Reads and fills one-time sign-in codes from your connected mailbox automatically, and lets you answer password and code prompts from your phone.
+
+### Changes
+
+- Changed browser actions to click through steps directly and try existing sessions or saved logins first, handing off only passwords, card numbers, codes, or identity checks.
+- Changed the Android app to show its own reconnect screen, reconnect automatically when the network returns or the app reopens, and offer "Choose another PC".
+- Adjusted phone remote chat so the keyboard stays open after sending, sent messages no longer jump up, and attachments keep their original files.
+- Adjusted session icons in the sidebar to 20px for clearer visibility.
+
+### Bug fixes
+
+- Fixed Computer Use clicks missing targets on scaled high-DPI displays and background actions pulling focus and flickering the active window.
+- Fixed HID devices chosen in the built-in browser failing to connect to the site (#313).
+- Fixed the HID device chooser showing stretched flat ovals across the row instead of device names (#314).
+- Fixed the Sessions list showing blank rows when returning from another menu or jumping to the top when growing past 40 rows (#315).
+- Fixed the model picker in the agent editor stretching across the entire dialog.
+
 ## v1.4.5 - 2026-11-03
 
 This release speeds up ongoing Claude conversations, organizes the Sessions panel by project and branch, and introduces Studio boards, alongside stability improvements for parallel work.
