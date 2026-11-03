@@ -4,6 +4,8 @@ Modifiche rilevanti, dalla più recente. La pipeline di Deploy rifiuta di rilasc
 
 ## Unreleased
 
+## v1.4.5 - 2026-11-03
+
 Questa versione velocizza le conversazioni Claude in corso, organizza il pannello Sessioni per progetto e branch e introduce le lavagne di Studio, insieme a miglioramenti della stabilità per il lavoro parallelo.
 
 ### Nuove funzionalità

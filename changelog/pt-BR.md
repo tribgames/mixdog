@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.4.5 - 2026-11-03
+
 Esta versão acelera conversas contínuas com o Claude, organiza o painel Sessões por projeto e branch e introduz quadros do Studio, além de melhorias de estabilidade para trabalho em paralelo.
 
 ### Novos recursos
