@@ -131,6 +131,30 @@ test('while Chrome is running nothing runs, not at start and not on the hourly t
   assert.equal((await importer.status()).lastError, undefined, 'skipping is quiet');
 });
 
+test('a run whose Chrome check is still pending follows the setting as it is when the check ends', async () => {
+  const { importer, clock, calls, world } = setup({ saved: ON });
+  await importer.start();
+  let chromeChecked;
+  world.chromeRunning = new Promise((resolve) => {
+    chromeChecked = resolve;
+  });
+  await clock.advance(START_DELAY_MS);
+  await importer.configure({ enabled: false, profileId: 'Default' });
+  chromeChecked(false);
+  await settle();
+  assert.deepEqual(calls.run, [], 'turned off while Chrome was checked: no import');
+
+  world.chromeRunning = new Promise((resolve) => {
+    chromeChecked = resolve;
+  });
+  await importer.configure(ON);
+  await clock.advance(0);
+  await importer.configure({ enabled: true, profileId: 'Profile 1' });
+  chromeChecked(false);
+  await settle();
+  assert.deepEqual(calls.run, ['Profile 1'], 'switched while Chrome was checked: the new profile');
+});
+
 test('when Chrome exits, the next poll runs one import; polls while it still runs do not', async () => {
   const { importer, clock, calls, world } = setup({ saved: ON, chromeRunning: true });
   await importer.start();

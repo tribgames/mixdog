@@ -217,8 +217,7 @@ export class CookieAutoImporter {
   private attempt(): Promise<void> {
     if (this.current) return this.current;
     const run = (async () => {
-      const { enabled, profileId } = this.settings;
-      if (!enabled || !profileId) return;
+      if (!this.settings.enabled || !this.settings.profileId) return;
       try {
         this.chromeWasRunning = await this.deps.chromeRunning();
       } catch {
@@ -226,6 +225,10 @@ export class CookieAutoImporter {
       }
       if (this.chromeWasRunning) return;
       if ((await this.deps.state.read()).needsManualImport) return;
+      // Read after the checks: the setting may have been turned off, or moved
+      // to another profile, while they were awaited.
+      const { enabled, profileId } = this.settings;
+      if (!enabled || !profileId) return;
       await this.deps.run(profileId);
     })()
       .catch((error) => this.deps.onError?.(error))
