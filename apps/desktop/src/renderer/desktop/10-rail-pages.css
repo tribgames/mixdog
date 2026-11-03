@@ -1630,7 +1630,8 @@ html[data-mixdog-mobile-tabs]
 }
 /* Row text shares the category label's left line; the row pill reaches 8px
    past it on the left (its inner inset), the trailing edge is unchanged. */
-.session-sidebar-sessions .sidebar-recent > .session-list {
+.session-sidebar-sessions .sidebar-recent > .session-list,
+.studio-panel .sidebar-recent > .session-list {
   margin-left: -8px;
 }
 /* Sibling sections stay distinct without opening an oversized empty band. */
