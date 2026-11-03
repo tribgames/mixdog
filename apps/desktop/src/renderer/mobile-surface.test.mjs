@@ -36,6 +36,24 @@ function closeWindow(dom) {
 const mobileChromeSource = readFileSync(new URL('./desktop/07-mobile-chrome.css', import.meta.url), 'utf8');
 const markdownSource = readFileSync(new URL('./desktop/22-markdown.css', import.meta.url), 'utf8');
 
+test('an open context popover lifts the composer above the island status pill (#309)', () => {
+  const composer = readFileSync(new URL('./desktop/15-composer.css', import.meta.url), 'utf8');
+  const dom = new JSDOM(`<!doctype html><html data-mixdog-mobile-tabs><head>
+    <style>${composer}\n${mobileChromeSource}</style></head><body>
+    <div class="composer-region"><div class="composer-island-slot"></div>
+    <form class="composer"><div class="session-context-indicator" data-open="false"></div></form></div>
+    </body></html>`);
+  try {
+    const { document, getComputedStyle } = dom.window;
+    const zIndex = (selector) => Number(getComputedStyle(document.querySelector(selector)).zIndex);
+    assert.ok(zIndex('.composer') < zIndex('.composer-island-slot'), 'closed: the island stays above the composer');
+    document.querySelector('.session-context-indicator').setAttribute('data-open', 'true');
+    assert.ok(zIndex('.composer') > zIndex('.composer-island-slot'), 'open: the popover is not covered');
+  } finally {
+    closeWindow(dom);
+  }
+});
+
 test('phone draft context keeps Project and its height while Workflow loads', () => {
   const composer = readFileSync(new URL('./desktop/15-composer.css', import.meta.url), 'utf8');
   const dom = new JSDOM(`<!doctype html><html data-mixdog-mobile-tabs><head>

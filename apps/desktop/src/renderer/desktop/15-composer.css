@@ -3283,6 +3283,11 @@ button.attachment-card-file {
 .composer {
   z-index: 1;
 }
+/* The context popover opens inside the composer; lift the composer over the
+   island slot (z-index 9) while it is open so the status pill cannot cover it. */
+.composer:has(.session-context-indicator[data-open="true"]) {
+  z-index: 10;
+}
 
 /* Shared menu/select primitive used by settings and composer controls. */
 .mx-select-root {
