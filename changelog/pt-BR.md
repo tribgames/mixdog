@@ -4,6 +4,8 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+## v1.4.4 - 2026-11-02
+
 Adicionada a aba Registro de solicitações em Uso, painéis laterais em tempo real para subagentes, histórico de navegação entre sessões e opções avançadas para provedores personalizados.
 
 ### Novos recursos

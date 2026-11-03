@@ -5,6 +5,8 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+## v1.4.4 - 2026-11-02
+
 Ajout de l'onglet Journal des requêtes dans Utilisation, de panneaux latéraux en direct pour les sous-agents, de l'historique de navigation de session et d'options avancées pour les fournisseurs personnalisés.
 
 ### Nouvelles fonctionnalités
