@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { EventEmitter } from 'node:events';
+import fs, { mkdirSync, mkdtempSync, realpathSync, renameSync, rmSync, writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import test from 'node:test';
@@ -173,4 +175,236 @@ test('the watcher reports an external HEAD change shortly after it happens', asy
     new Promise((_, reject) => setTimeout(() => reject(new Error('no event')), 2000)),
   ]);
   assert.equal(readGitHead(top).branch, 'next');
+});
+
+/** Replaces fs.watch with handles that never fire; returns the opened handles. */
+function fakeWatch(t) {
+  const opened = [];
+  t.mock.method(fs, 'watch', (dir, _options, listener) => {
+    const handle = new EventEmitter();
+    handle.dir = dir;
+    handle.fire = (name) => listener('rename', name);
+    handle.closed = false;
+    handle.close = () => {
+      handle.closed = true;
+    };
+    opened.push(handle);
+    return handle;
+  });
+  syncBuiltinESMExports();
+  // Restored here, not by the runner's later reset, so the module's live binding follows.
+  t.after(() => stopSpy(t));
+  return opened;
+}
+
+/** Counts sync fs calls made from now on. */
+function spySyncFs(t) {
+  const calls = [];
+  for (const name of ['readFileSync', 'statSync', 'lstatSync', 'existsSync', 'realpathSync', 'readdirSync']) {
+    const original = fs[name];
+    t.mock.method(fs, name, (...args) => {
+      calls.push(name);
+      return original(...args);
+    });
+  }
+  syncBuiltinESMExports();
+  return calls;
+}
+
+function stopSpy(t) {
+  t.mock.restoreAll();
+  syncBuiltinESMExports();
+}
+
+const live = (dir, handles) => handles.filter((h) => !h.closed && h.dir.startsWith(dir));
+
+test('N sessions in one repository share one watcher set', (t) => {
+  const top = repo(sandbox(t), 'proj', 'ref: refs/heads/main\n');
+  writeRef(top, 'refs/heads/main', `${SHA}\n`);
+  mkdirSync(join(top, 'src'));
+  const opened = fakeWatch(t);
+  const sessions = Array.from({ length: 5 }, (_, i) =>
+    createGitHeadWatcher({ getCwd: () => (i % 2 ? join(top, 'src') : top), onChange: () => {} })
+  );
+  t.after(() => sessions.forEach((s) => s.dispose()));
+  sessions.forEach((s) => s.retarget());
+  // HEAD's directory and the branch ref's directory, once for all five.
+  assert.equal(opened.length, 2);
+  sessions.forEach((s) => s.retarget());
+  assert.equal(opened.length, 2, 'retarget with an unchanged folder re-watches nothing');
+});
+
+test('steady-state HEAD reads of a watched repository touch no sync fs', (t) => {
+  const top = repo(sandbox(t), 'proj', 'ref: refs/heads/main\n');
+  fakeWatch(t);
+  const watcher = createGitHeadWatcher({ getCwd: () => top, onChange: () => {} });
+  t.after(() => watcher.dispose());
+  watcher.retarget();
+  assert.equal(readGitHead(top).branch, 'main');
+  const calls = spySyncFs(t);
+  for (let i = 0; i < 10; i++) {
+    assert.equal(readGitHead(top).branch, 'main');
+    assert.equal(findGitLayout(top).topLevel, top);
+    watcher.retarget();
+  }
+  stopSpy(t);
+  assert.deepEqual(calls, []);
+});
+
+/** Yields to real I/O while fake timers advance, until `done()` holds. */
+async function until(t, done, stepMs = 250) {
+  const deadline = performance.now() + 3000;
+  while (!done()) {
+    assert.ok(performance.now() < deadline, 'condition never held');
+    t.mock.timers.tick(stepMs);
+    await fs.promises.stat(tmpdir());
+  }
+}
+
+test('a HEAD change the watch missed is caught by the safety poll', async (t) => {
+  const top = repo(sandbox(t), 'proj', 'ref: refs/heads/main\n');
+  fakeWatch(t);
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  let changes = 0;
+  const watcher = createGitHeadWatcher({ getCwd: () => top, onChange: () => changes++, debounceMs: 10 });
+  t.after(() => watcher.dispose());
+  watcher.retarget();
+  writeFileSync(join(top, '.git', 'HEAD'), 'ref: refs/heads/feature\n');
+  assert.equal(readGitHead(top).branch, 'main', 'served from the cache until a refresh');
+  await until(t, () => changes > 0);
+  assert.equal(readGitHead(top).branch, 'feature');
+  watcher.dispose(); // clears the shared poll while its fake timer is current
+});
+
+test('a non-repository folder that becomes one is attached by the safety poll', async (t) => {
+  const cwd = join(sandbox(t), 'plain');
+  mkdirSync(cwd);
+  fakeWatch(t);
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  let changes = 0;
+  const watcher = createGitHeadWatcher({ getCwd: () => cwd, onChange: () => changes++, debounceMs: 10 });
+  t.after(() => watcher.dispose());
+  watcher.retarget();
+  assert.equal(readGitHead(cwd), null);
+  repo(dirname(cwd), 'plain', 'ref: refs/heads/main\n');
+  await until(t, () => changes > 0);
+  assert.equal(readGitHead(cwd).branch, 'main');
+  watcher.dispose();
+});
+
+test('a session moving to another repository releases its reference', (t) => {
+  const root = sandbox(t);
+  const one = repo(root, 'one', 'ref: refs/heads/main\n');
+  const two = repo(root, 'two', 'ref: refs/heads/main\n');
+  const opened = fakeWatch(t);
+  let cwdA = one;
+  const a = createGitHeadWatcher({ getCwd: () => cwdA, onChange: () => {} });
+  const b = createGitHeadWatcher({ getCwd: () => one, onChange: () => {} });
+  t.after(() => {
+    a.dispose();
+    b.dispose();
+  });
+  a.retarget();
+  b.retarget();
+  const watchedOne = live(one, opened).length;
+  assert.ok(watchedOne > 0);
+  cwdA = two;
+  a.retarget();
+  assert.equal(live(one, opened).length, watchedOne, 'the other session still holds repository one');
+  assert.ok(live(two, opened).length > 0);
+  b.dispose();
+  assert.equal(live(one, opened).length, 0);
+  assert.equal(opened.filter((h) => h.dir.startsWith(one)).length, watchedOne, 'repository one was watched once');
+  // Unwatched again: a read goes back to the file.
+  writeFileSync(join(one, '.git', 'HEAD'), 'ref: refs/heads/dev\n');
+  assert.equal(readGitHead(one).branch, 'dev');
+});
+
+/** Awaits real I/O (fake timers stay put) until `done()` holds. */
+async function settle(done) {
+  const deadline = performance.now() + 3000;
+  while (!done()) {
+    assert.ok(performance.now() < deadline, 'condition never held');
+    await fs.promises.stat(tmpdir());
+  }
+}
+
+test('disposing during a blocked async refresh opens no watch handles', async (t) => {
+  const top = repo(sandbox(t), 'proj', 'ref: refs/heads/main\n');
+  const opened = fakeWatch(t);
+  const watcher = createGitHeadWatcher({ getCwd: () => top, onChange: () => {} });
+  t.after(() => watcher.dispose());
+  watcher.retarget();
+  const gate = Promise.withResolvers();
+  let reads = 0;
+  const readFile = fs.promises.readFile;
+  t.mock.method(fs.promises, 'readFile', async (...args) => {
+    reads++;
+    await gate.promise;
+    return readFile(...args);
+  });
+  syncBuiltinESMExports();
+  live(top, opened)[0].fire('HEAD');
+  await settle(() => reads > 0);
+  watcher.dispose();
+  assert.equal(live(top, opened).length, 0);
+  gate.resolve();
+  for (let i = 0; i < 20; i++) await fs.promises.stat(tmpdir());
+  assert.equal(live(top, opened).length, 0, 'the refresh result of a released repository opens nothing');
+});
+
+test('a symref chain change with no watch event is caught by the next safety poll', async (t) => {
+  const top = repo(sandbox(t), 'proj', 'ref: refs/heads/alias\n');
+  writeRef(top, 'refs/heads/alias', 'ref: refs/heads/main\n');
+  fakeWatch(t);
+  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const watcher = createGitHeadWatcher({ getCwd: () => top, onChange: () => {} });
+  t.after(() => watcher.dispose());
+  watcher.retarget();
+  assert.equal(readGitHead(top).branch, 'main');
+  writeRef(top, 'refs/heads/alias', 'ref: refs/heads/next\n');
+  t.mock.timers.tick(1000);
+  await settle(() => readGitHead(top).branch === 'next');
+  watcher.dispose();
+});
+
+/** Starts a real watch on `top`, waits for the watch to settle, applies `change`, awaits the publish. */
+async function published(t, top, change) {
+  const seen = [Promise.withResolvers(), Promise.withResolvers()];
+  const sessions = seen.map((s) =>
+    createGitHeadWatcher({ getCwd: () => top, onChange: () => s.resolve(), debounceMs: 10 })
+  );
+  t.after(() => sessions.forEach((s) => s.dispose()));
+  sessions.forEach((s) => s.retarget());
+  // macOS delivers no event for a write made the instant a watch starts.
+  await new Promise((resolve) => setTimeout(resolve, 150));
+  change();
+  const startedAt = performance.now();
+  await Promise.race([
+    Promise.all(seen.map((s) => s.promise)),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('not published')), 900)),
+  ]);
+  return performance.now() - startedAt;
+}
+
+test('git switch, detached HEAD, symref change and atomic HEAD replace are published', async (t) => {
+  const top = repo(sandbox(t), 'proj', 'ref: refs/heads/main\n');
+  writeRef(top, 'refs/heads/alias', 'ref: refs/heads/main\n');
+  const head = join(top, '.git', 'HEAD');
+  await published(t, top, () => {
+    writeFileSync(`${head}.lock`, 'ref: refs/heads/feature\n');
+    renameSync(`${head}.lock`, head);
+  });
+  assert.equal(readGitHead(top).branch, 'feature');
+  await published(t, top, () => writeFileSync(head, `${SHA}\n`));
+  assert.deepEqual([readGitHead(top).branch, readGitHead(top).commit], [null, SHA]);
+  await published(t, top, () => writeFileSync(head, 'ref: refs/heads/alias\n'));
+  assert.equal(readGitHead(top).branch, 'main');
+  await published(t, top, () => writeRef(top, 'refs/heads/alias', 'ref: refs/heads/other\n'));
+  assert.equal(readGitHead(top).branch, 'other');
+  await published(t, top, () => {
+    writeFileSync(join(top, '.git', 'HEAD.tmp'), 'ref: refs/heads/swapped\n');
+    renameSync(join(top, '.git', 'HEAD.tmp'), head);
+  });
+  assert.equal(readGitHead(top).branch, 'swapped');
 });
