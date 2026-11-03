@@ -62,7 +62,7 @@
   background: transparent;
   box-shadow: none;
 }
-.extensions-pane .settings-empty {
+.extensions-pane .settings-empty:not(.settings-empty-list) {
   width: 100%;
   margin: 0;
   padding: 0;

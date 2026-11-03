@@ -717,7 +717,8 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock {
   padding: var(--mx-rail-row-padding) var(--mx-rail-gutter);
 }
 .session-sidebar-panels .workflows-section-head {
-  padding: 6px 0 0;
+  /* With the page's 8px gap: the shared 12px band after an open list. */
+  padding: 4px 0 0;
 }
 .utility-dock .workflows-section-head {
   padding: 6px var(--mx-rail-gutter) 0;
