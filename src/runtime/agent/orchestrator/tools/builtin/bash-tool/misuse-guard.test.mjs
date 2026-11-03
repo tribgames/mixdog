@@ -225,9 +225,15 @@ test('the worktree check is linear: pathological commands finish in a few millis
   ];
   for (const command of pathological) {
     for (const shellType of [POSIX, POWERSHELL]) {
-      const started = performance.now();
-      const out = guard(command, shellType);
-      const elapsed = performance.now() - started;
+      // The fastest of three runs is the check's own cost: a GC pause or a
+      // descheduled runner stretches one run, a super-linear scan every run.
+      let elapsed = Infinity;
+      let out;
+      for (let run = 0; run < 3; run += 1) {
+        const started = performance.now();
+        out = guard(command, shellType);
+        elapsed = Math.min(elapsed, performance.now() - started);
+      }
       assert.equal(out.failure, undefined, command.slice(0, 40));
       assert.ok(elapsed < 50, `${command.slice(0, 40)}… took ${elapsed.toFixed(1)} ms`);
     }
