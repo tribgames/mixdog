@@ -426,8 +426,7 @@ test('a Sessions 봇 row spins while its home chat is running, like a session ro
 
   // The glyph sits in the same trailing slot session rows use.
   assert.ok(spinner().closest('.session-row-status'), 'wrapped in .session-row-status');
-  assert.ok(row().classList.contains('agent-strip-item'), 'the bot is one avatar of the strip, not a row');
-  assert.equal(row().querySelector('button').getAttribute('aria-label'), 'Watcher');
+  assert.ok(row().classList.contains('working'), 'a running row yields space to the spinner');
 });
 
 test('a Sessions 봇 row shows the amber triangle, with a digit from 2 waiting sessions, not a spinner', async (t) => {
