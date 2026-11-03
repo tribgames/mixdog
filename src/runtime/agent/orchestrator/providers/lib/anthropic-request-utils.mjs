@@ -341,9 +341,15 @@ export function toAnthropicMessages(transcript, availableTools, provider = '') {
   // Tool-result user messages a provider request ended with (see the
   // `sentRequestTail` meta finalizeInterruptedTurn stamps).
   const sent = new WeakSet();
+  // Set while the previous message was a dropped empty assistant final: the
+  // user message after it starts a new turn and is never folded into the
+  // tool_result the dropped turn ended on (it would read as tool output).
+  let afterDroppedFinal = false;
   for (let idx = 0; idx < messages.length; idx++) {
     const m = messages[idx];
     if (m.role === 'system') continue;
+    const turnBoundary = afterDroppedFinal;
+    afterDroppedFinal = false;
     const orderedReplay = m.role === 'assistant' ? providerReplayItems(m, 'anthropic') : undefined;
     if (
       m.role === 'assistant' &&
@@ -441,6 +447,7 @@ export function toAnthropicMessages(transcript, availableTools, provider = '') {
     if (
       m.role === 'user' &&
       !isSteering &&
+      !turnBoundary &&
       foldUserTextIntoToolResultTail(result, normalizeContentForAnthropic(m.content))
     ) {
       // A reminder folded before the request was sent ends that request.
@@ -450,7 +457,10 @@ export function toAnthropicMessages(transcript, availableTools, provider = '') {
     // An assistant turn with no text and no blocks (a refused or empty final
     // kept in the transcript for diagnosis) has nothing to replay; sending it
     // would be a blank text block the API rejects on every later request.
-    if (m.role === 'assistant' && isBlankText(m.content)) continue;
+    if (m.role === 'assistant' && isBlankText(m.content)) {
+      afterDroppedFinal = true;
+      continue;
+    }
     const content = normalizeContentForAnthropic(m.content);
     result.push(m.role === 'assistant' ? assistantWireMessage(m, content) : { role: m.role, content });
   }
