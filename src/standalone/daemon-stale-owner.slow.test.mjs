@@ -218,6 +218,12 @@ test('a daemon that cannot refresh its lease stops before a contender may reclai
 
   clearInterval(touch);
   rmSync(lockPath, { recursive: true, force: true });
+  // The contender only has to boot and claim, not exercise the lease. On the
+  // 6 s lease a boot slowed by load fences itself 4 s after its last refresh,
+  // before it is ready; the production lease fences no earlier than 40 s
+  // after the claim, past this whole 30 s ready wait. The old daemon is gone,
+  // so no process on this data dir sees the other value.
+  delete process.env.MIXDOG_DAEMON_OWNER_STALE_MS;
   const contender = await ensureDaemon({ cwd: fx.root, attempts: 2, readyTimeoutMs: 30_000 });
   fx.track(contender.pid);
   assert.notEqual(Number(contender.pid), oldPid);
