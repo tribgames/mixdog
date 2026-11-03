@@ -10,8 +10,28 @@ test('real settings writes preserve peer settings, explicit provider OFF, and th
   const dir = mkdtempSync(join(tmpdir(), 'mixdog-settings-concurrency-'));
   const source = `
     import assert from 'node:assert/strict';
+    import childProcess from 'node:child_process';
+    import { once } from 'node:events';
+    import { syncBuiltinESMExports } from 'node:module';
     import { resolve } from 'node:path';
     import { mock } from 'node:test';
+
+    // Secret writes start long-lived PowerShell ACL helpers that this process never waits for:
+    // they only stop as it exits, and while stopping they write into their profile, the temp
+    // home the parent deletes as soon as this process is gone. Record every process started
+    // here so each can be stopped and awaited first, and keep the sync bridge off: its helper
+    // belongs to a worker thread this script cannot reach, so synchronous writes take the
+    // awaited one-shot update instead.
+    const started = [];
+    const spawn = childProcess.spawn;
+    mock.method(childProcess, 'spawn', (...args) => {
+      const child = spawn(...args);
+      started.push(child);
+      return child;
+    });
+    syncBuiltinESMExports();
+    const acl = await import('./src/runtime/shared/file-permissions.mjs');
+    acl.disableOwnerOnlyAclSyncBridgeForTests();
 
     const keychain = {
       getSecret: () => null,
@@ -73,95 +93,107 @@ test('real settings writes preserve peer settings, explicit provider OFF, and th
       return { api, lifecycle, config: () => config };
     }
 
-    await sharedCfgMod.updateConfigAsync(() => ({
-      agent: {
-        profile: { title: 'Initial', language: 'ko' },
-        compaction: { auto: true },
-        autoClear: { enabled: true },
-        skills: { disabled: [] },
-        builtins: {},
-      },
-      desktop: { keepAwake: false },
-      outputStyle: 'simple',
-      memory: { embedding: { dtype: 'q8' } },
-    }));
-    const read = () => sharedCfgMod.readConfig();
-    const a = runtime();
-    const b = runtime();
-    a.api.setProfile({ language: 'en' });
-    await a.lifecycle.flushAllConfigSavesAsync({ requireSaved: true });
-    b.api.setProfile({ title: 'Updated by B' });
-    await b.lifecycle.flushAllConfigSavesAsync({ requireSaved: true });
-    assert.equal(read().agent.profile.language, 'en');
-    assert.equal(read().agent.profile.title, 'Updated by B');
+    try {
+      await sharedCfgMod.updateConfigAsync(() => ({
+        agent: {
+          profile: { title: 'Initial', language: 'ko' },
+          compaction: { auto: true },
+          autoClear: { enabled: true },
+          skills: { disabled: [] },
+          builtins: {},
+        },
+        desktop: { keepAwake: false },
+        outputStyle: 'simple',
+        memory: { embedding: { dtype: 'q8' } },
+      }));
+      const read = () => sharedCfgMod.readConfig();
+      const a = runtime();
+      const b = runtime();
+      a.api.setProfile({ language: 'en' });
+      await a.lifecycle.flushAllConfigSavesAsync({ requireSaved: true });
+      b.api.setProfile({ title: 'Updated by B' });
+      await b.lifecycle.flushAllConfigSavesAsync({ requireSaved: true });
+      assert.equal(read().agent.profile.language, 'en');
+      assert.equal(read().agent.profile.title, 'Updated by B');
 
-    const c = runtime();
-    await sharedCfgMod.updateConfigAsync(root => ({
-      ...root,
-      agent: {
-        ...root.agent,
-        compaction: { ...root.agent.compaction, auto: false },
-        autoClear: { ...root.agent.autoClear, enabled: false },
-      },
-    }));
-    await cfgMod.patchSkillsDisabledAsync(['browser-use']);
-    c.api.setProfile({ title: 'Unrelated profile edit' });
-    await c.lifecycle.flushAllConfigSavesAsync({ requireSaved: true });
-    assert.equal(read().agent.compaction.auto, false);
-    assert.equal(read().agent.autoClear.enabled, false);
-    assert.deepEqual(read().agent.skills.disabled, ['browser-use']);
+      const c = runtime();
+      await sharedCfgMod.updateConfigAsync(root => ({
+        ...root,
+        agent: {
+          ...root.agent,
+          compaction: { ...root.agent.compaction, auto: false },
+          autoClear: { ...root.agent.autoClear, enabled: false },
+        },
+      }));
+      await cfgMod.patchSkillsDisabledAsync(['browser-use']);
+      c.api.setProfile({ title: 'Unrelated profile edit' });
+      await c.lifecycle.flushAllConfigSavesAsync({ requireSaved: true });
+      assert.equal(read().agent.compaction.auto, false);
+      assert.equal(read().agent.autoClear.enabled, false);
+      assert.deepEqual(read().agent.skills.disabled, ['browser-use']);
 
-    const d = runtime();
-    const e = runtime();
-    d.api.setProfile({ language: 'ja' });
-    e.api.setProfile({ title: 'Concurrent title' });
-    await Promise.all([
-      d.lifecycle.flushAllConfigSavesAsync({ requireSaved: true }),
-      e.lifecycle.flushAllConfigSavesAsync({ requireSaved: true }),
-    ]);
-    assert.equal(read().agent.profile.language, 'ja');
-    assert.equal(read().agent.profile.title, 'Concurrent title');
+      const d = runtime();
+      const e = runtime();
+      d.api.setProfile({ language: 'ja' });
+      e.api.setProfile({ title: 'Concurrent title' });
+      await Promise.all([
+        d.lifecycle.flushAllConfigSavesAsync({ requireSaved: true }),
+        e.lifecycle.flushAllConfigSavesAsync({ requireSaved: true }),
+      ]);
+      assert.equal(read().agent.profile.language, 'ja');
+      assert.equal(read().agent.profile.title, 'Concurrent title');
 
-    // A deleted nested setting must stay deleted without touching its siblings.
-    const before = cfgMod.loadConfig({ secrets: false });
-    const withShell = { ...before, shell: { command: 'pwsh', args: ['-NoProfile'] } };
-    await cfgMod.saveConfigAsync(withShell, { baseConfig: before });
-    const shellBaseline = cfgMod.loadConfig({ secrets: false });
-    await sharedCfgMod.updateConfigAsync(root => ({
-      ...root, agent: { ...root.agent, shell: { ...root.agent.shell, extra: 'peer' } },
-    }));
-    const cleared = { ...shellBaseline, shell: { args: [] } };
-    await cfgMod.saveConfigAsync(cleared, { baseConfig: shellBaseline });
-    assert.deepEqual(read().agent.shell, { args: [], extra: 'peer' });
+      // A deleted nested setting must stay deleted without touching its siblings.
+      const before = cfgMod.loadConfig({ secrets: false });
+      const withShell = { ...before, shell: { command: 'pwsh', args: ['-NoProfile'] } };
+      await cfgMod.saveConfigAsync(withShell, { baseConfig: before });
+      const shellBaseline = cfgMod.loadConfig({ secrets: false });
+      await sharedCfgMod.updateConfigAsync(root => ({
+        ...root, agent: { ...root.agent, shell: { ...root.agent.shell, extra: 'peer' } },
+      }));
+      const cleared = { ...shellBaseline, shell: { args: [] } };
+      await cfgMod.saveConfigAsync(cleared, { baseConfig: shellBaseline });
+      assert.deepEqual(read().agent.shell, { args: [], extra: 'peer' });
 
-    // Compare aliases after normalization, and never treat keychain overlays as edits.
-    assert.deepEqual(cfgMod.createConfigPatch(
-      { autoClear: { thresholdMs: 90000 }, compaction: { enabled: false }, providers: { openai: { enabled: true, apiKey: 'old' } } },
-      { autoClear: { idleMs: 90000 }, compaction: { auto: false }, providers: { openai: { enabled: true, apiKey: 'new' } } }
-    ), []);
+      // Compare aliases after normalization, and never treat keychain overlays as edits.
+      assert.deepEqual(cfgMod.createConfigPatch(
+        { autoClear: { thresholdMs: 90000 }, compaction: { enabled: false }, providers: { openai: { enabled: true, apiKey: 'old' } } },
+        { autoClear: { idleMs: 90000 }, compaction: { auto: false }, providers: { openai: { enabled: true, apiKey: 'new' } } }
+      ), []);
 
-    // A synchronous provider edit also rebases on its supplied baseline.
-    const providerBaseline = cfgMod.loadConfig();
-    assert.equal(providerBaseline.providers.openai.enabled, true);
-    await sharedCfgMod.updateConfigAsync(root => ({
-      ...root, agent: { ...root.agent, profile: { ...root.agent.profile, language: 'ko' } },
-    }));
-    cfgMod.saveConfig({
-      ...providerBaseline,
-      providers: { ...providerBaseline.providers, openai: { ...providerBaseline.providers.openai, enabled: false } },
-    }, { baseConfig: providerBaseline });
-    assert.equal(read().agent.profile.language, 'ko');
-    assert.equal(read().agent.providers.openai.enabled, false);
-    const full = cfgMod.loadConfig();
-    assert.equal(full.providers.openai.enabled, false);
-    assert.equal(typeof full.providers.openai.apiKey, 'string');
-    await cfgMod.saveConfigAsync({ ...full, profile: { ...full.profile, title: 'After secrets load' } });
-    assert.equal(read().agent.providers.openai.enabled, false);
-    assert.equal(Object.hasOwn(read().agent.providers.openai, 'apiKey'), false);
+      // A synchronous provider edit also rebases on its supplied baseline.
+      const providerBaseline = cfgMod.loadConfig();
+      assert.equal(providerBaseline.providers.openai.enabled, true);
+      await sharedCfgMod.updateConfigAsync(root => ({
+        ...root, agent: { ...root.agent, profile: { ...root.agent.profile, language: 'ko' } },
+      }));
+      cfgMod.saveConfig({
+        ...providerBaseline,
+        providers: { ...providerBaseline.providers, openai: { ...providerBaseline.providers.openai, enabled: false } },
+      }, { baseConfig: providerBaseline });
+      assert.equal(read().agent.profile.language, 'ko');
+      assert.equal(read().agent.providers.openai.enabled, false);
+      const full = cfgMod.loadConfig();
+      assert.equal(full.providers.openai.enabled, false);
+      assert.equal(typeof full.providers.openai.apiKey, 'string');
+      await cfgMod.saveConfigAsync({ ...full, profile: { ...full.profile, title: 'After secrets load' } });
+      assert.equal(read().agent.providers.openai.enabled, false);
+      assert.equal(Object.hasOwn(read().agent.providers.openai, 'apiKey'), false);
 
-    assert.deepEqual(read().desktop, { keepAwake: false });
-    assert.equal(read().outputStyle, 'simple');
-    assert.deepEqual(read().memory, { embedding: { dtype: 'q8' } });
+      assert.deepEqual(read().desktop, { keepAwake: false });
+      assert.equal(read().outputStyle, 'simple');
+      assert.deepEqual(read().memory, { embedding: { dtype: 'q8' } });
+    } finally {
+      // An idle helper is unref'd, so ref it to keep this process alive until 'exit', which
+      // fires only once the process is fully gone and every file it held is closed.
+      await Promise.all(started.map(async child => {
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        child.ref();
+        const exited = once(child, 'exit');
+        child.kill();
+        await exited;
+      }));
+    }
   `;
   try {
     const result = spawnSync(
