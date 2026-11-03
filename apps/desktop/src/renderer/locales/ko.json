@@ -5912,5 +5912,18 @@
   "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "대화를 디스크에 저장하지 못했습니다. Mixdog이 닫힐 때 최근 메시지가 손실될 수 있습니다. 디스크 여유 공간과 폴더 권한을 확인하세요.",
   "{{count}} agent tasks running. Installing now stops them.": "에이전트 작업 {{count}}개가 실행 중입니다. 지금 설치하면 작업이 중단됩니다.",
   "Could not check whether agent tasks are running. Installing now may stop them.": "에이전트 작업이 실행 중인지 확인하지 못했습니다. 지금 설치하면 작업이 중단될 수 있습니다.",
-  "Install anyway": "그래도 설치"
+  "Install anyway": "그래도 설치",
+  "Board name": "보드 이름",
+  "No board": "보드 없음",
+  "Board: {{name}}": "보드: {{name}}",
+  "Board for new results": "새 결과물이 들어갈 보드",
+  "Boards": "보드",
+  "New board": "새 보드",
+  "Delete board \"{{name}}\"? Its results stay in All.": "\"{{name}}\" 보드를 삭제할까요? 결과물은 전체에 그대로 남습니다.",
+  "Delete board": "보드 삭제",
+  "Search boards": "보드 검색",
+  "No boards yet.": "아직 보드가 없습니다.",
+  "Move to board": "보드로 옮기기",
+  "Add to board": "보드에 추가",
+  "Remove from board": "보드에서 빼기"
 }

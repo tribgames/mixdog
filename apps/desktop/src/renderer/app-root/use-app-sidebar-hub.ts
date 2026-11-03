@@ -6,8 +6,6 @@ import { useAppSidebarSurface } from '../use-app-sidebar-surface';
 import { useAppMobileBack, useAppMobileInitialClose } from '../app-shell-mobile-back';
 import { useSideViewPrefetch, useSideViewSelection, useSideViewReordering } from '../app-shell-side-views';
 import { createAppSideViewDescriptors } from '../app-side-view-descriptors';
-import { requestStudioOpenAsset } from '../studio-panel-bridge';
-import type { MediaAsset } from '../studio-support';
 import { useStableEvent } from '../use-stable-event';
 import type { useAppShellPanels } from '../use-app-shell-panels';
 import type { useAppSideDocks } from '../use-app-side-docks';
@@ -234,11 +232,11 @@ export function useAppSidebarHub({
     () => createAppSideViewDescriptors(prefetchWorkbenchSideView, focusStudioTab),
     [prefetchWorkbenchSideView, focusStudioTab]
   );
-  // A Studio panel row: Studio comes forward with that work open (the phone
-  // drawer closes first so it is visible).
-  const sidebarOpenStudioAsset = useStableEvent((asset: MediaAsset) => {
+  // A Studio panel row (a board, or "전체"): Studio comes forward showing it
+  // (the phone drawer closes first so it is visible).
+  const sidebarShowStudio = useStableEvent(() => {
     closeSidebarForNavigation();
-    requestStudioOpenAsset(focusStudioTab(), asset);
+    focusStudioTab();
   });
 
   const selectWorkbenchSideView = useSideViewSelection({
@@ -303,7 +301,7 @@ export function useAppSidebarHub({
   return {
     sidebarNewTask,
     sidebarNewStudio,
-    sidebarOpenStudioAsset,
+    sidebarShowStudio,
     sidebarPanel,
     sidebarResumeSession,
     renderSidebarPanel,

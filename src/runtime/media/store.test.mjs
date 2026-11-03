@@ -314,3 +314,84 @@ test('a NUL-filled media index lists an empty gallery, is kept aside, and saving
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+test('boards persist with their results; deleting a board keeps its results in the catalog', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-media-boards-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    const store = await import(`./store.mjs?boards=${Date.now()}`);
+    const save = (prompt, meta = {}) =>
+      store.saveMediaAsset({
+        kind: 'image',
+        lane: 'gemini',
+        model: 'm',
+        prompt,
+        mime: 'image/png',
+        bytes: Buffer.from(prompt),
+        meta,
+      });
+    const board = store.createMediaBoard('  Gacha   sprites ');
+    assert.equal(board.name, 'Gacha sprites');
+    const loose = save('loose');
+    const inBoard = save('in board', { boardId: board.id });
+    assert.deepEqual(
+      store.listMediaAssets({ boardId: board.id }).assets.map((entry) => entry.id),
+      [inBoard.id]
+    );
+    assert.deepEqual(store.setMediaAssetBoard([loose.id], board.id), { ids: [loose.id], boardId: board.id });
+    store.renameMediaBoard(board.id, 'Icons');
+
+    // A fresh module (a restart) reads the same boards and membership.
+    const reopened = await import(`./store.mjs?boards-reopen=${Date.now()}`);
+    const listed = reopened.listMediaBoards();
+    assert.equal(listed.total, 2);
+    assert.deepEqual(
+      listed.boards.map(({ name, count }) => ({ name, count })),
+      [{ name: 'Icons', count: 2 }]
+    );
+    assert.ok([loose.id, inBoard.id].includes(listed.boards[0].cover.id));
+    assert.throws(() => reopened.setMediaAssetBoard([loose.id], 'missing'), /board not found/);
+    // Only strings name boards and results, and only null takes a result out.
+    assert.throws(() => reopened.createMediaBoard({ name: 'x' }), TypeError);
+    assert.throws(() => reopened.renameMediaBoard(17, 'x'), TypeError);
+    assert.throws(() => reopened.setMediaAssetBoard([loose.id], false), TypeError);
+    assert.throws(() => reopened.setMediaAssetBoard([{}], board.id), TypeError);
+    assert.equal(reopened.listMediaAssets({ boardId: board.id }).total, 2, 'a refused call moved nothing');
+    assert.deepEqual(reopened.setMediaAssetBoard([loose.id], null), { ids: [loose.id], boardId: '' });
+    reopened.setMediaAssetBoard([loose.id], board.id);
+
+    assert.deepEqual(reopened.deleteMediaBoard(board.id), { id: board.id, removed: true });
+    assert.deepEqual(reopened.listMediaBoards(), { total: 2, boards: [] });
+    assert.equal(reopened.listMediaAssets().total, 2, 'its results stay in the catalog');
+    assert.ok(reopened.listMediaAssets().assets.every((entry) => !entry.boardId));
+  } finally {
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test('a boards file with a malformed list is recovered from its backup before a create, not overwritten', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'mixdog-media-boards-bad-'));
+  const previousDataDir = process.env.MIXDOG_DATA_DIR;
+  process.env.MIXDOG_DATA_DIR = root;
+  try {
+    const store = await import(`./store.mjs?boards-bad=${Date.now()}`);
+    store.createMediaBoard('One');
+    store.createMediaBoard('Two');
+    store.createMediaBoard('Three');
+    const boardsFile = join(root, 'media', 'boards.json');
+    // Valid JSON, wrong shape; the .bak still holds One and Two.
+    writeFileSync(boardsFile, JSON.stringify({ version: 1, boards: null }));
+    store.createMediaBoard('Four');
+    const names = store.listMediaBoards().boards.map((board) => board.name);
+    for (const name of ['One', 'Two', 'Four']) assert.ok(names.includes(name), `${name} survived: ${names}`);
+    const backup = JSON.parse(readFileSync(`${boardsFile}.bak`, 'utf8'));
+    assert.ok(Array.isArray(backup.boards) && backup.boards.length >= 2, 'the backup is still a good catalog');
+  } finally {
+    if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
+    else process.env.MIXDOG_DATA_DIR = previousDataDir;
+    rmSync(root, { recursive: true, force: true });
+  }
+});

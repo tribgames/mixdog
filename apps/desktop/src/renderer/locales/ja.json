@@ -5912,5 +5912,18 @@
   "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "会話をディスクに保存できませんでした。Mixdog を終了すると最近のメッセージが失われる可能性があります。ディスクの空き容量とフォルダーの権限を確認してください。",
   "{{count}} agent tasks running. Installing now stops them.": "エージェントのタスクが{{count}}件実行中です。今インストールすると停止します。",
   "Could not check whether agent tasks are running. Installing now may stop them.": "エージェントのタスクが実行中か確認できませんでした。今インストールすると停止する可能性があります。",
-  "Install anyway": "このままインストール"
+  "Install anyway": "このままインストール",
+  "Board name": "ボード名",
+  "No board": "ボードなし",
+  "Board: {{name}}": "ボード: {{name}}",
+  "Board for new results": "新しい結果を入れるボード",
+  "Boards": "ボード",
+  "New board": "新しいボード",
+  "Delete board \"{{name}}\"? Its results stay in All.": "ボード「{{name}}」を削除しますか？結果は「すべて」に残ります。",
+  "Delete board": "ボードを削除",
+  "Search boards": "ボードを検索",
+  "No boards yet.": "ボードはまだありません。",
+  "Move to board": "ボードへ移動",
+  "Add to board": "ボードに追加",
+  "Remove from board": "ボードから外す"
 }

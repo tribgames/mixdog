@@ -12,6 +12,7 @@ import { agentHomeTitle } from './agent-contacts-model';
 import { openAgentProfile } from './agent-panel-tab';
 import { isDeletedBotSession } from './agent-chat-mode';
 import { useSidebarReferences } from './sidebar-reference-cache';
+import { useStudioBoardTitle } from './studio-boards';
 
 type PaneWorkspace = ReturnType<typeof usePaneWorkspace>;
 
@@ -65,6 +66,7 @@ export function useAppPaneChrome({
   // catalog is read only while such a tab is open.
   const homeTabOpen = tabs.some((tab) => tab.selection.kind === 'session' && isAgentHomeSessionId(tab.selection.id));
   const { values: homeAgents } = useSidebarReferences(window.mixdogDesktop, HOME_TITLE_REFERENCE_KEYS, homeTabOpen);
+  const studioTitle = useStudioBoardTitle();
   const selectionTitle = (selection: WorkspaceSelection): string => {
     switch (selection.kind) {
       case 'session': {
@@ -81,7 +83,7 @@ export function useAppPaneChrome({
         if (selection.mode === 'changes') return t('Changes in Pull Request #{{number}}', { number: selection.number });
         return selection.title || t('Pull Request #{{number}}', { number: selection.number });
       case 'studio':
-        return t('Studio');
+        return studioTitle;
       case 'terminal':
         return t('Terminal');
       case 'browser':
@@ -97,6 +99,9 @@ export function useAppPaneChrome({
     const deletedBot = selection.kind === 'session' && isDeletedBotSession(selection.id);
     const home = selection.kind === 'session' && !deletedBot ? agentHomeTitle(selection.id, homeAgents.agents) : null;
     if (home) return home;
+    // A Studio tab is titled by the board it shows (its registered "Studio"
+    // title predates boards).
+    if (selection.kind === 'studio') return studioTitle;
     const registered = tabs.find((tab) => tab.key === key);
     // A registered session title may be a stored one (startup restore, a
     // persisted tab): an attachment placeholder reads as its kind.

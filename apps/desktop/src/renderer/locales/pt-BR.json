@@ -6044,5 +6044,18 @@
   "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "Não foi possível salvar uma conversa no disco. As mensagens recentes podem ser perdidas quando o Mixdog for fechado. Verifique o espaço livre em disco e as permissões da pasta.",
   "{{count}} agent tasks running. Installing now stops them.": "{{count}} tarefas de agentes em execução. Instalar agora as interrompe.",
   "Could not check whether agent tasks are running. Installing now may stop them.": "Não foi possível verificar se há tarefas de agentes em execução. Instalar agora pode interrompê-las.",
-  "Install anyway": "Instalar mesmo assim"
+  "Install anyway": "Instalar mesmo assim",
+  "Board name": "Nome do quadro",
+  "No board": "Sem quadro",
+  "Board: {{name}}": "Quadro: {{name}}",
+  "Board for new results": "Quadro para novos resultados",
+  "Boards": "Quadros",
+  "New board": "Novo quadro",
+  "Delete board \"{{name}}\"? Its results stay in All.": "Excluir o quadro \"{{name}}\"? Os resultados continuam em Tudo.",
+  "Delete board": "Excluir quadro",
+  "Search boards": "Pesquisar quadros",
+  "No boards yet.": "Ainda não há quadros.",
+  "Move to board": "Mover para quadro",
+  "Add to board": "Adicionar ao quadro",
+  "Remove from board": "Remover do quadro"
 }

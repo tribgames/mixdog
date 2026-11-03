@@ -5912,5 +5912,18 @@
   "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "Không thể lưu cuộc trò chuyện vào đĩa. Các tin nhắn gần đây có thể bị mất khi đóng Mixdog. Hãy kiểm tra dung lượng đĩa trống và quyền thư mục.",
   "{{count}} agent tasks running. Installing now stops them.": "Có {{count}} tác vụ agent đang chạy. Cài đặt ngay sẽ dừng chúng.",
   "Could not check whether agent tasks are running. Installing now may stop them.": "Không thể kiểm tra xem có tác vụ agent nào đang chạy không. Cài đặt ngay có thể dừng chúng.",
-  "Install anyway": "Vẫn cài đặt"
+  "Install anyway": "Vẫn cài đặt",
+  "Board name": "Tên bảng",
+  "No board": "Không có bảng",
+  "Board: {{name}}": "Bảng: {{name}}",
+  "Board for new results": "Bảng cho kết quả mới",
+  "Boards": "Bảng",
+  "New board": "Bảng mới",
+  "Delete board \"{{name}}\"? Its results stay in All.": "Xóa bảng \"{{name}}\"? Kết quả vẫn ở mục Tất cả.",
+  "Delete board": "Xóa bảng",
+  "Search boards": "Tìm bảng",
+  "No boards yet.": "Chưa có bảng nào.",
+  "Move to board": "Chuyển sang bảng",
+  "Add to board": "Thêm vào bảng",
+  "Remove from board": "Bỏ khỏi bảng"
 }

@@ -119,7 +119,7 @@ export function useAppWorkbenchHubs(
   const {
     sidebarNewTask,
     sidebarNewStudio,
-    sidebarOpenStudioAsset,
+    sidebarShowStudio,
     sidebarResumeSession,
     renderSidebarPanel,
     openProjectSettings,
@@ -144,7 +144,7 @@ export function useAppWorkbenchHubs(
     workbenchCommands,
     sidebarNewTask,
     sidebarNewStudio,
-    sidebarOpenStudioAsset,
+    sidebarShowStudio,
     sidebarResumeSession,
     renderSidebarPanel,
     openProjectSettings,

@@ -5,7 +5,15 @@ import { ErrorNotice } from './ErrorNotice';
 import { StudioCleanupBar } from './studio-cleanup';
 import { ensureStudioLoad, reportStudioLoadStage } from './renderer-load-metrics';
 import type { StudioReferenceStore } from './studio-draft-cache';
-import { errorText, modelControls, posterFromVideo, studioTargetRowHeight, type StudioApi } from './studio-support';
+import {
+  errorText,
+  MEDIA_KINDS,
+  type MediaAsset,
+  modelControls,
+  posterFromVideo,
+  studioTargetRowHeight,
+  type StudioApi,
+} from './studio-support';
 import { useStudioDetailView, useStudioDraft, useStudioGridMotion } from './studio-pane-state';
 import { StudioComposer } from './studio-composer';
 import { StudioGallery } from './studio-gallery';
@@ -20,13 +28,18 @@ import {
 import {
   focusStudioPane,
   hideStudioPane,
-  onStudioAssetRemoved,
   publishStudioPaneState,
   showStudioPane,
-  takeStudioOpenRequest,
-  useStudioOpenRequest,
   useStudioPaneOwner,
 } from './studio-panel-bridge';
+import { useStudioBoardThumbs } from './studio-board-components';
+import {
+  moveStudioAssets,
+  onStudioAssetsMoved,
+  openStudioBoard,
+  refreshStudioBoards,
+  useStudioBoards,
+} from './studio-boards';
 import { shouldFocusSurfaceInput } from './surface-input-focus';
 import { EAGER_THUMB_COUNT, TILE_SIZES, studioRouteRows } from './studio-pane-support';
 import { useStudioLaneCatalog, useStudioLaneChoice, useStudioLoad } from './studio-pane-catalog';
@@ -76,8 +89,12 @@ export function StudioPane({
   reportStudioLoadStage('module', '', false, bootMetricToken);
   const { kind, setKind, laneId, setLaneId, model, setModel, options, setOptions, prompt, setPrompt } =
     useStudioDraft(active);
-  const { assets, loadMoreAssets, reloadAssetKind, removeAsset, refreshAssetKind, visibleAssets } =
-    useStudioAssetGallery(api, kind);
+  // The open board (shared with the rail panel): the gallery shows only its
+  // results and new runs join it; '' is "전체", every result.
+  const { boards, openId: boardId } = useStudioBoards(api, active);
+  const boardThumbs = useStudioBoardThumbs(api, active, boards);
+  const { assets, loadMoreAssets, moveAssets, reloadAssetKind, removeAsset, refreshAssetKind, visibleAssets } =
+    useStudioAssetGallery(api, kind, boardId);
   const { selected, setSelected, promptOpen, togglePrompt, openDetail } = useStudioDetailView(visibleAssets);
   const thumbnails = useStudioThumbnailState();
   const [copied, setCopied] = useState(false);
@@ -191,6 +208,7 @@ export function StudioPane({
     createStudioGenerationActions({
       activeModel,
       api,
+      boardId,
       controls,
       kind,
       lane,
@@ -205,6 +223,7 @@ export function StudioPane({
 
   const { checkedIds, cleanUp, exitSelection, selectAll, selecting, setSelecting, toggleChecked } = useStudioSelection({
     api,
+    boardId,
     kind,
     referenceStore,
     reloadAssetKind,
@@ -265,24 +284,35 @@ export function StudioPane({
   }, [active, focused, paneKey]);
   const owner = useStudioPaneOwner(paneKey);
   useEffect(() => {
-    if (owner) publishStudioPaneState(paneKey, jobs, selected?.id || '');
-  }, [owner, paneKey, jobs, selected?.id]);
-  const openRequest = useStudioOpenRequest(paneKey);
+    if (owner) publishStudioPaneState(paneKey, jobs);
+  }, [owner, paneKey, jobs]);
+  // Another board opened: the gallery reads that board from its first page.
+  const shownBoardRef = useRef(boardId);
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the board id is the trigger
   useEffect(() => {
-    if (!active || !openRequest) return;
-    const asset = takeStudioOpenRequest(paneKey);
-    if (!asset) return;
-    setKind(asset.kind);
-    openDetail(asset);
-  }, [active, openRequest, paneKey, setKind, openDetail]);
-  useEffect(
-    () =>
-      onStudioAssetRemoved((asset) => {
-        removeAsset(asset);
-        if (selected?.id === asset.id) setSelected(null);
-        setJobs((current) => current.filter((entry) => entry.assetId !== asset.id));
-      }),
-    [removeAsset, selected?.id, setSelected, setJobs]
+    if (shownBoardRef.current === boardId) return;
+    shownBoardRef.current = boardId;
+    exitSelection();
+    setSelected(null);
+    if (!active) return;
+    Promise.all(MEDIA_KINDS.map((assetKind) => refreshAssetKind(assetKind))).catch((reason) =>
+      setError(errorText(reason))
+    );
+  }, [boardId, active]);
+  useEffect(() => onStudioAssetsMoved(moveAssets), [moveAssets]);
+  // A finished run changes its board's count and thumbnail.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: runningKey is the trigger
+  useEffect(() => {
+    if (active) void refreshStudioBoards(api).catch(() => {});
+  }, [active, api, runningKey]);
+  const recountBoards = () => refreshStudioBoards(api).catch(() => {});
+  const removeAndRecount = (asset: MediaAsset) => void remove(asset).then(recountBoards);
+  const moveToBoard = (asset: MediaAsset, target: string) =>
+    void moveStudioAssets(api, [asset.id], target).catch((reason) => setError(errorText(reason)));
+  // A board view lists only the runs that land in it.
+  const boardJobs = useMemo(
+    () => (boardId ? jobs.filter((entry) => (entry.request?.boardId ?? '') === boardId) : jobs),
+    [jobs, boardId]
   );
 
   useStudioReadyReport({
@@ -319,10 +349,10 @@ export function StudioPane({
     },
     [kind, loadMoreAssets]
   );
-  const { layoutRows, pendingJobs } = useStudioGridRows({
+  const { layoutSections, pendingJobs } = useStudioGridRows({
     frameRatiosSource: thumbnails.ratios,
     gridWidth,
-    jobs,
+    jobs: boardJobs,
     kind,
     rowHeight,
     visibleAssets,
@@ -361,6 +391,8 @@ export function StudioPane({
           <div className="studio-stage-host">
             <StudioGallery
               assetUrl={assetUrl}
+              boards={boards}
+              onMoveToBoard={moveToBoard}
               checkedIds={checkedIds}
               cleanup={
                 <StudioCleanupBar
@@ -370,12 +402,16 @@ export function StudioPane({
                   onSelectMode={() => setSelecting(true)}
                   onSelectAll={() => void selectAll()}
                   onDeleteSelected={() =>
-                    void cleanUp({ ids: [...checkedIds] }, (total) =>
-                      t('Delete {{total}} selected items permanently? This cannot be undone.', { total })
-                    )
+                    void Promise.resolve(
+                      cleanUp({ ids: [...checkedIds] }, (total) =>
+                        t('Delete {{total}} selected items permanently? This cannot be undone.', { total })
+                      )
+                    ).then(recountBoards)
                   }
                   onExitSelection={exitSelection}
-                  onCleanUp={(filter, confirmText) => void cleanUp(filter, confirmText)}
+                  onCleanUp={(filter, confirmText) =>
+                    void Promise.resolve(cleanUp(filter, confirmText)).then(recountBoards)
+                  }
                 />
               }
               durations={thumbnails.durations}
@@ -389,7 +425,7 @@ export function StudioPane({
               hoverId={hoverId}
               kind={kind}
               kindsOffered={kindsOffered}
-              layoutRows={layoutRows}
+              layoutSections={layoutSections}
               loading={loading}
               localTransport={localTransport}
               mediaForeground={mediaForeground}
@@ -404,7 +440,7 @@ export function StudioPane({
               tileSizes={TILE_SIZES}
               visibleAssets={visibleAssets}
               onCancel={(id) => void cancel(id)}
-              onDelete={(asset) => void remove(asset)}
+              onDelete={removeAndRecount}
               onDismiss={dismissJob}
               onHoverEnd={() => setHoverId('')}
               onHoverStart={(asset) => void hoverPreview(asset)}
@@ -451,6 +487,11 @@ export function StudioPane({
               onOpenReference={openReference}
               onPromptChange={setPrompt}
               onReferencesChange={setRefs}
+              boards={boards}
+              boardId={boardId}
+              boardThumbUrl={boardThumbs.thumbUrl}
+              onBoardThumbError={boardThumbs.onThumbError}
+              onSelectBoard={openStudioBoard}
               onSelectModel={(entry) => {
                 setLaneId(entry.lane);
                 setModel(entry.model);
@@ -477,7 +518,7 @@ export function StudioPane({
               onOpenFolder={(asset) => void openAssetFolder(asset)}
               onPrevious={previousAsset ? () => setSelected(previousAsset) : undefined}
               onRegenerate={(asset) => void regenerate(asset)}
-              onRemove={(asset) => void remove(asset)}
+              onRemove={removeAndRecount}
               onReusePrompt={(asset) => void reusePrompt(asset)}
               onSave={(asset) => void saveAsset(asset)}
               onTogglePrompt={togglePrompt}

@@ -5912,5 +5912,18 @@
   "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "无法将对话保存到磁盘。关闭 Mixdog 时最近的消息可能会丢失。请检查磁盘可用空间和文件夹权限。",
   "{{count}} agent tasks running. Installing now stops them.": "有 {{count}} 个智能体任务正在运行。现在安装会中止它们。",
   "Could not check whether agent tasks are running. Installing now may stop them.": "无法确认是否有智能体任务正在运行。现在安装可能会中止它们。",
-  "Install anyway": "仍然安装"
+  "Install anyway": "仍然安装",
+  "Board name": "看板名称",
+  "No board": "无看板",
+  "Board: {{name}}": "看板：{{name}}",
+  "Board for new results": "新结果所在的看板",
+  "Boards": "看板",
+  "New board": "新建看板",
+  "Delete board \"{{name}}\"? Its results stay in All.": "删除看板“{{name}}”？其中的结果仍保留在“全部”中。",
+  "Delete board": "删除看板",
+  "Search boards": "搜索看板",
+  "No boards yet.": "还没有看板。",
+  "Move to board": "移到看板",
+  "Add to board": "添加到看板",
+  "Remove from board": "从看板移除"
 }

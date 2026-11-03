@@ -4,6 +4,8 @@ import { type Dispatch, type DragEvent, type RefObject, type SetStateAction, use
 import { t } from './i18n';
 import { StudioRouteMenu, type StudioModelEntry, type StudioOptionRow, type StudioSliderRow } from './StudioRouteMenu';
 import type { StudioReference } from './studio-media-state';
+import { StudioBoardPicker } from './studio-board-components';
+import type { StudioBoard } from './studio-boards';
 import type { MediaKind } from './studio-support';
 
 type ReferenceDrop = {
@@ -19,6 +21,10 @@ function dropPosition(event: DragEvent<HTMLElement>): ReferenceDrop['position'] 
 }
 
 export function StudioComposer({
+  boardId,
+  boards,
+  boardThumbUrl,
+  onBoardThumbError,
   dropping,
   kind,
   lane,
@@ -35,8 +41,14 @@ export function StudioComposer({
   onOpenReference,
   onPromptChange,
   onReferencesChange,
+  onSelectBoard,
   onSelectModel,
 }: {
+  /** The board new runs join ('' = none). */
+  boardId: string;
+  boards: readonly StudioBoard[];
+  boardThumbUrl(board: StudioBoard): string;
+  onBoardThumbError(assetId: string): void;
   dropping: boolean;
   kind: MediaKind;
   lane: string;
@@ -53,6 +65,7 @@ export function StudioComposer({
   onOpenReference: (reference: StudioReference, index: number) => Promise<void>;
   onPromptChange: (prompt: string) => void;
   onReferencesChange: Dispatch<SetStateAction<StudioReference[]>>;
+  onSelectBoard: (boardId: string) => void;
   onSelectModel: (entry: StudioModelEntry) => void;
 }) {
   const fileInput = useRef<HTMLInputElement>(null);
@@ -209,10 +222,19 @@ export function StudioComposer({
           </button>
         </div>
       </div>
-      {/* Like the chat composer, the model picker sits on a slim line under the
-      card. It stays mounted across kind switches (the model is already valid
-      for this render) and scrolls sideways instead of clipping on a phone. */}
+      {/* Like the chat composer's footer, a slim line under the card: the
+      board new runs join on the left, the model on the right. The model
+      picker stays mounted across kind switches (the model is already valid
+      for this render); the line scrolls sideways instead of clipping on a phone. */}
       <div className="studio-composer-controls">
+        <StudioBoardPicker
+          boards={boards}
+          openId={boardId}
+          thumbUrl={boardThumbUrl}
+          onThumbError={onBoardThumbError}
+          onSelect={onSelectBoard}
+        />
+        <span className="studio-composer-controls-gap" aria-hidden="true" />
         <StudioRouteMenu
           entries={modelEntries}
           lane={lane}

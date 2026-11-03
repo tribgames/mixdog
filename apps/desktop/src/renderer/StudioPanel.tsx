@@ -1,162 +1,103 @@
-import { ChevronDown, ChevronRight, Plus, Search } from 'lucide-react';
-import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ChevronDown, ChevronRight, LayoutGrid, Plus, Search } from 'lucide-react';
+import { useCallback, useContext, useMemo, useState } from 'react';
 import { createPortal } from 'react-dom';
+import { confirmAction } from './app-confirm';
 import { showDesktopToast } from './desktop-toasts';
-import { t, uiFormatLocale } from './i18n';
-import { announceStudioAssetRemoved, useStudioPanelState } from './studio-panel-bridge';
-import { filterStudioAssets, groupStudioAssets } from './studio-panel-model';
-import { StudioThumbnail } from './studio-media-components';
-import { useStudioAssetGallery, useStudioMediaUrls, type StudioMediaJob } from './studio-media-state';
-import { deleteStudioAsset } from './studio-pane-asset-actions';
+import { t } from './i18n';
+import { useStudioPanelState } from './studio-panel-bridge';
+import {
+  createStudioBoard,
+  deleteStudioBoard,
+  openStudioBoard,
+  renameStudioBoard,
+  useStudioBoards,
+  type StudioBoard,
+} from './studio-boards';
+import { StudioBoardNameInput, StudioBoardThumb, useStudioBoardThumbs } from './studio-board-components';
 import { contextMenuRowProps, ScmContextMenu, type ScmContextMenuState } from './ScmContextMenu';
 import { SidebarPanelHeaderSlot, toggleHeading } from './session-sidebar-sections';
 import { SessionRowStatusIcon } from './session-status-mark';
-import { errorText, type MediaAsset, type MediaKind, type StudioApi } from './studio-support';
+import { errorText, type StudioApi } from './studio-support';
 
-const KINDS: readonly MediaKind[] = ['image', 'video'];
-/** How close to the list's end (px) the next page starts loading. */
-const LOAD_AHEAD = 240;
-
-function assetTooltip(asset: MediaAsset): string {
-  const when = new Date(asset.createdAt).toLocaleString(uiFormatLocale(), { dateStyle: 'medium', timeStyle: 'short' });
-  return `${asset.prompt} · ${t(asset.kind)} · ${when}`;
-}
-
-/** The 20px rounded slot leading a row; a run in flight has no picture yet. */
-function WorkThumb({ asset, src, onError }: { asset?: MediaAsset; src?: string; onError?(assetId: string): void }) {
-  return (
-    <span className="session-agent-avatar studio-panel-thumb" aria-hidden="true">
-      {asset && (
-        <StudioThumbnail
-          src={src ?? ''}
-          kind={asset.kind}
-          eager={false}
-          onLoad={() => {}}
-          onError={() => onError?.(asset.id)}
-        />
-      )}
+/** The count at a row's end, or the running spinner while a run in it is in flight. */
+function RowEnd({ count, working, name }: { count: number; working: boolean; name: string }) {
+  return working ? (
+    <span className="session-row-status" data-working>
+      <SessionRowStatusIcon status="running" name={name} />
     </span>
+  ) : (
+    <span className="studio-board-count">{count}</span>
   );
 }
 
-function PanelSection({
-  id,
-  label,
-  closed,
-  onToggle,
-  children,
-}: {
-  id: string;
-  label: string;
-  closed: boolean;
-  onToggle(id: string): void;
-  children: ReactNode;
-}) {
-  return (
-    <section className="sidebar-recent" aria-label={label}>
-      <div className="sidebar-category-header">
-        <button
-          type="button"
-          className="sidebar-recent-heading sidebar-heading-toggle"
-          aria-expanded={!closed}
-          onClick={toggleHeading(() => onToggle(id))}
-        >
-          <span>{label}</span>
-          {closed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
-        </button>
-      </div>
-      {!closed && <nav className="session-list recent-session-list">{children}</nav>}
-    </section>
-  );
-}
-
-/** The Studio rail page: the runs in flight, then the works by day, one
+/** The Studio rail page: "전체" (every result), then the boards, one
  *  Sessions-sized row each. Nothing is fetched while it is not shown. */
 export function StudioPanel({
   active,
   api = window.mixdogDesktop,
-  onNewStudio,
-  onOpenAsset,
+  onShowStudio,
 }: {
   active: boolean;
   api?: StudioApi;
-  onNewStudio(): void;
-  /** Brings Studio forward with `asset` open. */
-  onOpenAsset(asset: MediaAsset): void;
+  /** Brings Studio forward (showing the board just opened). */
+  onShowStudio(): void;
 }) {
-  const { assets, loadMoreAssets, refreshAssetKind, removeAsset } = useStudioAssetGallery(api, 'image');
-  const { jobs, openId } = useStudioPanelState();
-  const { assetUrl, markUrlBroken } = useStudioMediaUrls(api, active);
+  const { boards, total, openId, loaded } = useStudioBoards(api, active);
+  const { jobs } = useStudioPanelState();
+  const { thumbUrl, onThumbError } = useStudioBoardThumbs(api, active, boards);
   const slot = useContext(SidebarPanelHeaderSlot);
   const [searching, setSearching] = useState(false);
   const [query, setQuery] = useState('');
-  const [closedSections, setClosedSections] = useState<ReadonlySet<string>>(new Set());
+  const [boardsClosed, setBoardsClosed] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [renamingId, setRenamingId] = useState('');
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
   const closeMenu = useCallback(() => setMenu(null), []);
-  const sentinelRef = useRef<HTMLDivElement>(null);
 
-  const running = useMemo(() => jobs.filter((entry) => entry.status === 'running'), [jobs]);
-  const runningKey = running.map((entry) => entry.id).join(',');
-  const shownAssets = useMemo(() => filterStudioAssets(assets, searching ? query : ''), [assets, searching, query]);
-  const groups = useMemo(() => groupStudioAssets(shownAssets), [shownAssets]);
+  // Which boards (and "no board", '') have a run in flight.
+  const workingBoards = useMemo(
+    () => new Set(jobs.filter((entry) => entry.status === 'running').map((entry) => entry.request?.boardId ?? '')),
+    [jobs]
+  );
+  const needle = searching ? query.trim().toLowerCase() : '';
+  const shownBoards = needle ? boards.filter((board) => board.name.toLowerCase().includes(needle)) : boards;
 
-  // A finished run adds a work, so the list reloads when the runs in flight change.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: runningKey is the trigger
-  useEffect(() => {
-    if (!active) return;
-    Promise.all(KINDS.map((kind) => refreshAssetKind(kind))).catch((reason) =>
-      showDesktopToast(errorText(reason), 'error')
-    );
-  }, [active, refreshAssetKind, runningKey]);
-
-  // The next page loads as the list's end nears, like the gallery's scroll
-  // paging (no IntersectionObserver: see VisualizePane's note).
-  // biome-ignore lint/correctness/useExhaustiveDependencies: each loaded page re-checks
-  useEffect(() => {
-    const sentinel = sentinelRef.current;
-    if (!active || !sentinel) return undefined;
-    const check = () => {
-      if (sentinel.getBoundingClientRect().top > window.innerHeight + LOAD_AHEAD) return;
-      Promise.all(KINDS.map((kind) => loadMoreAssets(kind))).catch((reason) =>
-        showDesktopToast(errorText(reason), 'error')
-      );
-    };
-    check();
-    document.addEventListener('scroll', check, { capture: true, passive: true });
-    window.addEventListener('resize', check);
-    return () => {
-      document.removeEventListener('scroll', check, { capture: true });
-      window.removeEventListener('resize', check);
-    };
-  }, [active, loadMoreAssets, assets.length]);
-
-  const toggleSection = (id: string) =>
-    setClosedSections((current) => {
-      const next = new Set(current);
-      if (!next.delete(id)) next.add(id);
-      return next;
-    });
-  const deleteAsset = async (asset: MediaAsset) => {
-    try {
-      await deleteStudioAsset(api, asset);
-      removeAsset(asset);
-      announceStudioAssetRemoved(asset);
-    } catch (reason) {
-      showDesktopToast(errorText(reason), 'error');
-    }
+  const fail = (reason: unknown) => showDesktopToast(errorText(reason), 'error');
+  const open = (id: string) => {
+    openStudioBoard(id);
+    onShowStudio();
   };
-  const openMenu = (asset: MediaAsset, point: { x: number; y: number }) =>
+  const create = (name: string) => {
+    setCreating(false);
+    void createStudioBoard(api, name)
+      .then((board) => {
+        if (board) openStudioBoard(board.id);
+      })
+      .catch(fail);
+  };
+  const rename = (board: StudioBoard, name: string) => {
+    setRenamingId('');
+    void renameStudioBoard(api, board.id, name).catch(fail);
+  };
+  const remove = (board: StudioBoard) => {
+    const message = t('Delete board "{{name}}"? Its results stay in All.', { name: board.name });
+    void confirmAction(message, { danger: true, confirmLabel: t('Delete') })
+      .then((confirmed) => (confirmed ? deleteStudioBoard(api, board.id) : undefined))
+      .catch(fail);
+  };
+  const openMenu = (board: StudioBoard, point: { x: number; y: number }) =>
     setMenu({
-      label: assetTooltip(asset),
+      label: board.name,
       ...point,
       items: [
-        { id: 'open', label: t('Open'), onSelect: () => onOpenAsset(asset) },
+        { id: 'open', label: t('Open'), onSelect: () => open(board.id) },
+        { id: 'rename', label: t('Rename'), onSelect: () => setRenamingId(board.id) },
         {
           id: 'delete',
-          label: t('Delete asset'),
+          label: t('Delete board'),
           danger: true,
           separatorBefore: true,
-          onSelect: () => void deleteAsset(asset),
+          onSelect: () => remove(board),
         },
       ],
     });
@@ -179,53 +120,58 @@ export function StudioPanel({
       <button
         type="button"
         className="session-panel-action"
-        aria-label={t('New Studio')}
-        data-tooltip={t('New Studio')}
-        onClick={onNewStudio}
+        aria-label={t('New board')}
+        data-tooltip={t('New board')}
+        onClick={() => {
+          setBoardsClosed(false);
+          setCreating(true);
+        }}
       >
         <Plus size={16} aria-hidden="true" />
       </button>
     </>
   );
-  const runRow = (entry: StudioMediaJob) => {
-    const label = entry.request?.prompt || t('Generating');
-    return (
-      <div className="session-row working" key={entry.id}>
-        <button type="button" className="session-row-main" aria-label={label} data-tooltip={label}>
-          <WorkThumb />
-          <span className="session-row-copy">
-            <b>{label}</b>
-          </span>
-          <span className="session-row-status" data-working>
-            <SessionRowStatusIcon status="running" name={label} />
-          </span>
-        </button>
-      </div>
-    );
-  };
-  const workRow = (asset: MediaAsset) => {
-    const tooltip = assetTooltip(asset);
-    const selected = openId === asset.id;
+
+  const boardRow = (board: StudioBoard) => {
+    const selected = openId === board.id;
+    if (renamingId === board.id) {
+      return (
+        <div className="session-row editing studio-board-row" key={board.id} data-board-id={board.id}>
+          <StudioBoardNameInput
+            initial={board.name}
+            label={t('Rename {{name}}', { name: board.name })}
+            onCommit={(name) => rename(board, name)}
+            onCancel={() => setRenamingId('')}
+          />
+        </div>
+      );
+    }
     return (
       <div
-        className={`session-row${selected ? ' selected' : ''}`}
-        key={asset.id}
-        data-asset-id={asset.id}
-        {...contextMenuRowProps((point) => openMenu(asset, point))}
+        className={`session-row studio-board-row${selected ? ' selected' : ''}`}
+        key={board.id}
+        data-board-id={board.id}
+        {...contextMenuRowProps((point) => openMenu(board, point))}
       >
         <button
           type="button"
           className="session-row-main"
-          aria-label={tooltip}
           aria-current={selected ? 'true' : undefined}
           aria-haspopup="menu"
-          data-tooltip={tooltip}
-          onClick={() => onOpenAsset(asset)}
+          data-tooltip={board.name}
+          onClick={() => open(board.id)}
+          onDoubleClick={() => setRenamingId(board.id)}
+          onKeyDown={(event) => {
+            if (event.key !== 'F2') return;
+            event.preventDefault();
+            setRenamingId(board.id);
+          }}
         >
-          <WorkThumb asset={asset} src={assetUrl(asset.id, 'thumb')} onError={(id) => markUrlBroken(id, 'thumb')} />
+          <StudioBoardThumb board={board} src={thumbUrl(board)} onError={onThumbError} />
           <span className="session-row-copy">
-            <b>{asset.prompt}</b>
+            <b>{board.name}</b>
           </span>
+          <RowEnd count={board.count} working={workingBoards.has(board.id)} name={board.name} />
         </button>
       </div>
     );
@@ -241,41 +187,67 @@ export function StudioPanel({
           // biome-ignore lint/a11y/noAutofocus: the search button opens this field to type into
           autoFocus
           value={query}
-          placeholder={t('Search')}
-          aria-label={t('Search')}
+          placeholder={t('Search boards')}
+          aria-label={t('Search boards')}
           onChange={(event) => setQuery(event.currentTarget.value)}
           onKeyDown={(event) => {
             if (event.key === 'Escape') setSearching(false);
           }}
         />
       )}
-      {running.length > 0 && (
-        <PanelSection
-          id="running"
-          label={t('In progress')}
-          closed={closedSections.has('running')}
-          onToggle={toggleSection}
-        >
-          {running.map(runRow)}
-        </PanelSection>
-      )}
-      {groups.map((group) => (
-        <PanelSection
-          key={group.id}
-          id={group.id}
-          label={group.label}
-          closed={closedSections.has(group.id)}
-          onToggle={toggleSection}
-        >
-          {group.assets.map(workRow)}
-        </PanelSection>
-      ))}
-      {running.length === 0 && groups.length === 0 && (
-        <p className="utility-dock-empty">
-          <span>{searching && query.trim() ? t('No results') : t('No works yet.')}</span>
-        </p>
-      )}
-      <div ref={sentinelRef} className="studio-panel-end" aria-hidden="true" />
+      <section className="sidebar-recent studio-panel-all" aria-label={t('All')}>
+        <nav className="session-list recent-session-list">
+          <div className={`session-row studio-all-row${openId ? '' : ' selected'}`} data-board-id="">
+            <button
+              type="button"
+              className="session-row-main"
+              aria-current={openId ? undefined : 'true'}
+              onClick={() => open('')}
+            >
+              <span className="session-row-slot" aria-hidden="true">
+                <LayoutGrid size={15} />
+              </span>
+              <span className="session-row-copy">
+                <b>{t('All')}</b>
+              </span>
+              <RowEnd count={total} working={workingBoards.has('')} name={t('All')} />
+            </button>
+          </div>
+        </nav>
+      </section>
+      <section className="sidebar-recent" aria-label={t('Boards')}>
+        <div className="sidebar-category-header">
+          <button
+            type="button"
+            className="sidebar-recent-heading sidebar-heading-toggle"
+            aria-expanded={!boardsClosed}
+            onClick={toggleHeading(() => setBoardsClosed((value) => !value))}
+          >
+            <span>{t('Boards')}</span>
+            {boardsClosed ? <ChevronRight size={12} /> : <ChevronDown size={12} />}
+          </button>
+        </div>
+        {!boardsClosed && (
+          <nav className="session-list recent-session-list">
+            {creating && (
+              <div className="session-row editing studio-board-row" data-board-id="new">
+                <StudioBoardNameInput
+                  initial=""
+                  label={t('New board')}
+                  onCommit={create}
+                  onCancel={() => setCreating(false)}
+                />
+              </div>
+            )}
+            {shownBoards.map(boardRow)}
+            {loaded && !creating && shownBoards.length === 0 && (
+              <p className="sidebar-section-empty studio-board-empty">
+                {needle ? t('No results') : t('No boards yet.')}
+              </p>
+            )}
+          </nav>
+        )}
+      </section>
       <ScmContextMenu state={menu} onClose={closeMenu} />
     </div>
   );

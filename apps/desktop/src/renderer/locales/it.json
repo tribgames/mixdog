@@ -6042,5 +6042,18 @@
   "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "Impossibile salvare una conversazione su disco. I messaggi recenti potrebbero andare persi alla chiusura di Mixdog. Controlla lo spazio libero su disco e i permessi della cartella.",
   "{{count}} agent tasks running. Installing now stops them.": "{{count}} attività degli agenti in esecuzione. Installare ora le interrompe.",
   "Could not check whether agent tasks are running. Installing now may stop them.": "Impossibile verificare se ci sono attività degli agenti in esecuzione. Installare ora potrebbe interromperle.",
-  "Install anyway": "Installa comunque"
+  "Install anyway": "Installa comunque",
+  "Board name": "Nome della bacheca",
+  "No board": "Nessuna bacheca",
+  "Board: {{name}}": "Bacheca: {{name}}",
+  "Board for new results": "Bacheca per i nuovi risultati",
+  "Boards": "Bacheche",
+  "New board": "Nuova bacheca",
+  "Delete board \"{{name}}\"? Its results stay in All.": "Eliminare la bacheca «{{name}}»? I risultati restano in Tutto.",
+  "Delete board": "Elimina bacheca",
+  "Search boards": "Cerca bacheche",
+  "No boards yet.": "Ancora nessuna bacheca.",
+  "Move to board": "Sposta nella bacheca",
+  "Add to board": "Aggiungi alla bacheca",
+  "Remove from board": "Rimuovi dalla bacheca"
 }

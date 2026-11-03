@@ -78,6 +78,21 @@ export function createMediaApi() {
     async listMediaAssets(options) {
       return (await store()).listMediaAssets(options || {});
     },
+    async listMediaBoards() {
+      return (await store()).listMediaBoards();
+    },
+    async createMediaBoard(name) {
+      return (await store()).createMediaBoard(name);
+    },
+    async renameMediaBoard(id, name) {
+      return (await store()).renameMediaBoard(id, name);
+    },
+    async deleteMediaBoard(id) {
+      return (await store()).deleteMediaBoard(id);
+    },
+    async setMediaAssetBoard(ids, boardId) {
+      return (await store()).setMediaAssetBoard(ids, boardId);
+    },
     async readMediaAsset(id, options) {
       return (await store()).readMediaAsset(id, options || {});
     },

@@ -17,9 +17,12 @@ import {
 } from './studio-support';
 
 const ASSET_PAGE_SIZE = 60;
+const MEDIA_KIND_LIST: readonly MediaKind[] = ['image', 'video'];
 const POLL_INTERVAL_MS = 1_500;
 
 interface MediaAssetPage {
+  /** The board the page was read for ('' = all). */
+  board: string;
   assets: MediaAsset[];
   total: number;
 }
@@ -44,6 +47,8 @@ export interface QueuedMediaRequest {
   prompt: string;
   options: Record<string, unknown>;
   references: StudioReference[];
+  /** The board the result joins ('' = none); unset takes the open board. */
+  boardId?: string;
 }
 
 export type StudioMediaJob = MediaJob & {
@@ -63,28 +68,48 @@ function mergeMediaAssets(current: MediaAsset[], incoming: MediaAsset[]): MediaA
   return Array.from(byId.values()).sort((left, right) => Number(right.createdAt || 0) - Number(left.createdAt || 0));
 }
 
-export function useStudioAssetGallery(api: StudioApi, kind: MediaKind) {
+/** The gallery's pages: every result, or only board `boardId`'s ('' = all).
+ *  Switching boards drops what was loaded; a page still in flight for the
+ *  previous board is discarded when it lands. */
+export function useStudioAssetGallery(api: StudioApi, kind: MediaKind, boardId = '') {
   const [assets, setAssets] = useState<MediaAsset[]>([]);
+  const assetsRef = useRef(assets);
+  assetsRef.current = assets;
   const visibleAssets = useMemo(() => assets.filter((asset) => asset.kind === kind), [assets, kind]);
   const pagingRef = useRef<Record<MediaKind, MediaAssetPaging>>(initialMediaAssetPaging());
   const pageRequests = useRef<Map<string, Promise<MediaAssetPage>>>(new Map());
+  const boardRef = useRef(boardId);
+  if (boardRef.current !== boardId) {
+    boardRef.current = boardId;
+    pagingRef.current = initialMediaAssetPaging();
+    pageRequests.current = new Map();
+  }
+  const [shownBoard, setShownBoard] = useState(boardId);
+  if (shownBoard !== boardId) {
+    setShownBoard(boardId);
+    setAssets([]);
+  }
 
   const requestAssetPage = useCallback(
     (assetKind: MediaKind, offset: number): Promise<MediaAssetPage> => {
-      const key = `${assetKind}:${offset}`;
+      const board = boardRef.current;
+      const key = `${board}:${assetKind}:${offset}`;
       const existing = pageRequests.current.get(key);
       if (existing) return existing;
+      const requests = pageRequests.current;
       const request = (async () => {
         const result = (await callCapability(api, 'listMediaAssets', [
           {
             kind: assetKind,
             limit: ASSET_PAGE_SIZE,
             offset,
+            ...(board ? { boardId: board } : {}),
           },
         ])) as { assets?: MediaAsset[]; total?: number } | undefined;
         const rows = Array.isArray(result?.assets) ? result.assets : [];
         const reportedTotal = Number(result?.total);
         return {
+          board,
           assets: rows,
           total:
             Number.isFinite(reportedTotal) && reportedTotal >= 0
@@ -92,10 +117,10 @@ export function useStudioAssetGallery(api: StudioApi, kind: MediaKind) {
               : offset + rows.length,
         };
       })();
-      pageRequests.current.set(key, request);
+      requests.set(key, request);
       const cleanup = () => {
-        if (pageRequests.current.get(key) === request) {
-          pageRequests.current.delete(key);
+        if (requests.get(key) === request) {
+          requests.delete(key);
         }
       };
       void request.then(cleanup, cleanup);
@@ -107,6 +132,7 @@ export function useStudioAssetGallery(api: StudioApi, kind: MediaKind) {
   const refreshAssetKind = useCallback(
     async (assetKind: MediaKind): Promise<MediaAsset[]> => {
       const page = await requestAssetPage(assetKind, 0);
+      if (page.board !== boardRef.current) return [];
       const paging = pagingRef.current[assetKind];
       setAssets((current) =>
         mergeMediaAssets(
@@ -143,6 +169,7 @@ export function useStudioAssetGallery(api: StudioApi, kind: MediaKind) {
       };
       try {
         const page = await requestAssetPage(assetKind, offset);
+        if (page.board !== boardRef.current) return [];
         setAssets((current) => mergeMediaAssets(current, page.assets));
         const latest = pagingRef.current[assetKind];
         const consumedOffset = page.assets.length ? offset + page.assets.length : page.total;
@@ -191,15 +218,37 @@ export function useStudioAssetGallery(api: StudioApi, kind: MediaKind) {
       setAssets((current) => current.filter((asset) => !gone.has(asset.id)));
       pagingRef.current = { ...pagingRef.current, [assetKind]: initialMediaAssetPaging()[assetKind] };
       for (const key of pageRequests.current.keys()) {
-        if (key.startsWith(`${assetKind}:`)) pageRequests.current.delete(key);
+        if (key.startsWith(`${boardRef.current}:${assetKind}:`)) pageRequests.current.delete(key);
       }
       return refreshAssetKind(assetKind);
     },
     [refreshAssetKind]
   );
 
+  /** Results moved to `boardId`: a board view drops the ones that left it
+   *  (and reloads to pick up arrivals); "전체" just records the new board. */
+  const moveAssets = useCallback(
+    (ids: readonly string[], boardId: string): void => {
+      const board = boardRef.current;
+      const moved = new Set(ids);
+      if (!board) {
+        setAssets((current) =>
+          current.map((asset) => (moved.has(asset.id) ? { ...asset, boardId: boardId || undefined } : asset))
+        );
+        return;
+      }
+      if (boardId === board) {
+        for (const assetKind of MEDIA_KIND_LIST) void reloadAssetKind(assetKind, []).catch(() => {});
+        return;
+      }
+      for (const asset of assetsRef.current) if (moved.has(asset.id)) removeAsset(asset);
+    },
+    [reloadAssetKind, removeAsset]
+  );
+
   return {
     assets,
+    moveAssets,
     loadMoreAssets,
     reloadAssetKind,
     removeAsset,

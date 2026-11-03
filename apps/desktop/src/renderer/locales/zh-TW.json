@@ -5912,5 +5912,18 @@
   "A conversation could not be saved to disk. Recent messages may be lost when Mixdog closes. Check free disk space and folder permissions.": "無法將對話儲存至磁碟。關閉 Mixdog 時最近的訊息可能會遺失。請檢查磁碟可用空間和資料夾權限。",
   "{{count}} agent tasks running. Installing now stops them.": "有 {{count}} 個代理任務正在執行。現在安裝會中止它們。",
   "Could not check whether agent tasks are running. Installing now may stop them.": "無法確認是否有代理任務正在執行。現在安裝可能會中止它們。",
-  "Install anyway": "仍然安裝"
+  "Install anyway": "仍然安裝",
+  "Board name": "看板名稱",
+  "No board": "無看板",
+  "Board: {{name}}": "看板：{{name}}",
+  "Board for new results": "新結果所在的看板",
+  "Boards": "看板",
+  "New board": "新增看板",
+  "Delete board \"{{name}}\"? Its results stay in All.": "刪除看板「{{name}}」？其中的結果仍保留在「全部」中。",
+  "Delete board": "刪除看板",
+  "Search boards": "搜尋看板",
+  "No boards yet.": "還沒有看板。",
+  "Move to board": "移到看板",
+  "Add to board": "加入看板",
+  "Remove from board": "從看板移除"
 }

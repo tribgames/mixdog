@@ -34,17 +34,18 @@ dom.window.HTMLElement.prototype.detachEvent = () => {};
 const React = await import('react');
 const { act } = React;
 const { createRoot } = await import('react-dom/client');
-const { findStudioTab, filterStudioAssets, groupStudioAssets } = await import('./studio-panel-model.ts');
+const { findStudioTab, groupStudioAssets } = await import('./studio-panel-model.ts');
 const { StudioPanel } = await import('./StudioPanel.tsx');
 const { StudioPane } = await import('./StudioView.tsx');
 const bridge = await import('./studio-panel-bridge.ts');
+const boardsStore = await import('./studio-boards.ts');
 
 const DAY = 86_400_000;
 const PIXEL =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ' +
   'AAAADUlEQVR42mNk+M/wHwAEAQH/2kGLWQAAAABJRU5ErkJggg==';
 const now = Date.now();
-const asset = (id, prompt, age, kind = 'image') => ({
+const asset = (id, prompt, age, boardId, kind = 'image') => ({
   id,
   kind,
   lane: 'gemini',
@@ -53,13 +54,8 @@ const asset = (id, prompt, age, kind = 'image') => ({
   mime: 'image/png',
   bytes: 100,
   createdAt: now - age,
+  ...(boardId ? { boardId } : {}),
 });
-const works = [
-  asset('today-1', 'A fox in the snow', 1000),
-  asset('yesterday-1', 'A red bicycle', DAY + 1000),
-  asset('week-1', 'A quiet harbour', 4 * DAY),
-  asset('earlier-1', 'A paper crane', 30 * DAY, 'video'),
-];
 const lane = {
   id: 'gemini',
   label: 'Gemini',
@@ -75,25 +71,93 @@ const lane = {
   video: null,
 };
 
+/** A Studio host with boards: results, boards and every call recorded. */
 function studioApi(calls = []) {
+  const works = [
+    asset('today-1', 'A fox in the snow', 1000, 'b-gacha'),
+    asset('yesterday-1', 'A red bicycle', DAY + 1000),
+    asset('week-1', 'A quiet harbour', 4 * DAY, 'b-gacha'),
+    asset('earlier-1', 'A paper crane', 30 * DAY),
+  ];
+  let boards = [
+    { id: 'b-gacha', name: 'Gacha sprites', createdAt: 2 },
+    { id: 'b-icons', name: 'Currency icons', createdAt: 1 },
+  ];
+  const value = (result) => ({ value: result, snapshot: null });
   return {
-    mediaUrl: () => PIXEL,
+    works,
+    mediaUrl: (id, variant) => `mixdog-media://asset/${id}?variant=${variant}`,
     invokeCapability: async ({ capability, args = [] }) => {
       calls.push({ capability, args });
-      if (capability === 'listMediaLanes') return { value: [lane], snapshot: null };
+      if (capability === 'listMediaLanes') return value([lane]);
       if (capability === 'listMediaAssets') {
-        const kind = args[0]?.kind;
-        const rows = args[0]?.offset ? [] : works.filter((entry) => entry.kind === kind);
-        return { value: { assets: rows, total: rows.length }, snapshot: null };
+        const { kind, offset, boardId } = args[0] ?? {};
+        const rows = offset
+          ? []
+          : works.filter((entry) => entry.kind === kind && (!boardId || entry.boardId === boardId));
+        return value({ assets: rows, total: rows.length });
+      }
+      if (capability === 'listMediaBoards') {
+        return value({
+          total: works.length,
+          boards: boards.map((board) => {
+            const members = works.filter((entry) => entry.boardId === board.id);
+            return {
+              ...board,
+              count: members.length,
+              cover: members[0] ? { id: members[0].id, kind: members[0].kind } : null,
+            };
+          }),
+        });
+      }
+      if (capability === 'createMediaBoard') {
+        const board = { id: `b-${boards.length + 1}`, name: args[0], createdAt: Date.now() };
+        boards = [board, ...boards];
+        return value(board);
+      }
+      if (capability === 'renameMediaBoard') {
+        boards = boards.map((board) => (board.id === args[0] ? { ...board, name: args[1] } : board));
+        return value(null);
+      }
+      if (capability === 'setMediaAssetBoard') {
+        for (const entry of works) if (args[0].includes(entry.id)) entry.boardId = args[1] || undefined;
+        return value({ ids: args[0], boardId: args[1] });
+      }
+      if (capability === 'startMediaJob') {
+        return value({
+          id: 'job-1',
+          status: 'running',
+          kind: 'image',
+          lane: 'gemini',
+          model: 'image-model',
+          progress: 0,
+          assetId: null,
+          error: null,
+          startedAt: Date.now(),
+        });
+      }
+      if (capability === 'getMediaJob') {
+        return value({
+          id: args[0],
+          status: 'running',
+          kind: 'image',
+          lane: 'gemini',
+          model: 'image-model',
+          progress: 0,
+          assetId: null,
+          error: null,
+        });
       }
       if (capability === 'readMediaAsset')
-        return { value: { base64: PIXEL.split(',')[1], mime: 'image/png' }, snapshot: null };
-      if (capability === 'setMediaDefault') return { value: args[0], snapshot: null };
-      if (capability === 'deleteMediaAsset') return { value: { id: args[0], deleted: true }, snapshot: null };
+        return value({ base64: PIXEL.split(',')[1], mime: 'image/png', variant: args[1]?.variant });
+      if (capability === 'cacheMediaThumbnail') return value({ id: args[0], available: true });
+      if (capability === 'setMediaDefault') return value(args[0]);
       throw new Error(`unexpected capability: ${capability}`);
     },
   };
 }
+
+const settle = (ms = 25) => new Promise((resolve) => setTimeout(resolve, ms));
 
 async function mount(element) {
   const host = document.createElement('main');
@@ -101,7 +165,7 @@ async function mount(element) {
   const root = createRoot(host);
   await act(async () => {
     root.render(element);
-    await new Promise((resolve) => setTimeout(resolve, 25));
+    await settle();
   });
   return {
     host,
@@ -112,13 +176,31 @@ async function mount(element) {
   };
 }
 
-const rowOf = (host, id) => host.querySelector(`.session-row[data-asset-id="${id}"]`);
-const headings = (host) => [...host.querySelectorAll('.sidebar-recent-heading span')].map((node) => node.textContent);
+function reset() {
+  window.localStorage.clear();
+  boardsStore.openStudioBoard('');
+}
 
-test('works group by day and match the Sessions row grammar', () => {
-  const groups = groupStudioAssets(works, now);
+function typeInto(input, text) {
+  const proto = input instanceof window.HTMLTextAreaElement ? window.HTMLTextAreaElement : window.HTMLInputElement;
+  Object.getOwnPropertyDescriptor(proto.prototype, 'value').set.call(input, text);
+  input.dispatchEvent(new window.Event('input', { bubbles: true }));
+}
+
+const boardRow = (host, id) => host.querySelector(`.session-row[data-board-id="${id}"]`);
+const menuItems = () => [...document.querySelectorAll('.dock-scm-context-menu [data-action-id]')];
+const clickMenu = (label) =>
+  act(async () => {
+    menuItems()
+      .find((node) => node.textContent.trim() === label)
+      .click();
+    await settle();
+  });
+
+test('results group by day', () => {
+  const works = studioApi().works;
   assert.deepEqual(
-    groups.map((group) => [group.id, group.assets.map((entry) => entry.id)]),
+    groupStudioAssets(works, now).map((group) => [group.id, group.assets.map((entry) => entry.id)]),
     [
       ['today', ['today-1']],
       ['yesterday', ['yesterday-1']],
@@ -126,15 +208,6 @@ test('works group by day and match the Sessions row grammar', () => {
       ['earlier', ['earlier-1']],
     ]
   );
-  assert.deepEqual(
-    groupStudioAssets([works[0]], now).map((group) => group.id),
-    ['today']
-  );
-  assert.deepEqual(
-    filterStudioAssets(works, '  BICYCLE ').map((entry) => entry.id),
-    ['yesterday-1']
-  );
-  assert.equal(filterStudioAssets(works, '').length, 4);
 });
 
 test('the Studio entry picks the focused pane’s shown Studio tab, then any Studio tab', () => {
@@ -149,92 +222,98 @@ test('the Studio entry picks the focused pane’s shown Studio tab, then any Stu
   assert.equal(findStudioTab([{ id: 'l', tabs: [{ kind: 'session', id: 's' }], activeKey: 'session:s' }], 'l'), null);
 });
 
-test('the panel lists runs in progress and dated works as Sessions-sized rows, and a row opens its work', async () => {
-  window.localStorage.clear();
-  const opened = [];
-  let created = 0;
-  const calls = [];
+test('the panel lists "All" with the total, then each board with thumbnail, name and count; a row opens it', async () => {
+  reset();
+  let shown = 0;
   const view = await mount(
-    React.createElement(StudioPanel, {
-      active: true,
-      api: studioApi(calls),
-      onNewStudio: () => {
-        created += 1;
-      },
-      onOpenAsset: (entry) => opened.push(entry.id),
-    })
+    React.createElement(StudioPanel, { active: true, api: studioApi(), onShowStudio: () => (shown += 1) })
   );
   const { host } = view;
-  assert.deepEqual(headings(host), ['Today', 'Yesterday', 'This week', 'Earlier']);
-  const row = rowOf(host, 'today-1');
-  assert.equal(row.querySelectorAll('.session-row-copy b').length, 1, 'one line: the prompt');
-  assert.equal(row.querySelector('.session-row-copy b').textContent, 'A fox in the snow');
-  assert.equal(row.querySelector('.session-row-copy small'), null, 'no second line');
-  assert.ok(row.querySelector('.session-row-main .studio-panel-thumb'), 'a thumbnail leads the row');
-  const label = row.querySelector('.session-row-main').getAttribute('aria-label');
-  assert.match(label, /A fox in the snow · image · /, 'kind and time ride the label');
-  assert.match(rowOf(host, 'earlier-1').querySelector('.session-row-main').getAttribute('aria-label'), / · video · /);
-
-  await act(async () => row.querySelector('.session-row-main').click());
-  assert.deepEqual(opened, ['today-1']);
-
-  // Search filters by prompt.
-  await act(async () => host.querySelector('button[aria-label="Search"]').click());
-  const input = host.querySelector('input[type="search"]');
-  await act(async () => {
-    const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value').set;
-    setter.call(input, 'crane');
-    input.dispatchEvent(new window.Event('input', { bubbles: true }));
-  });
-  assert.deepEqual(
-    [...host.querySelectorAll('.session-row')].map((node) => node.dataset.assetId),
-    ['earlier-1']
+  const all = boardRow(host, '');
+  assert.equal(all.querySelector('.session-row-copy b').textContent, 'All');
+  assert.equal(all.querySelector('.studio-board-count').textContent, '4');
+  assert.ok(all.classList.contains('selected'), 'All is open at first');
+  assert.equal(host.querySelector('.sidebar-recent-heading span').textContent, 'Boards');
+  const gacha = boardRow(host, 'b-gacha');
+  assert.equal(gacha.querySelector('.session-row-copy b').textContent, 'Gacha sprites');
+  assert.equal(gacha.querySelector('.studio-board-count').textContent, '2');
+  assert.ok(
+    gacha.querySelector('.studio-panel-thumb .studio-thumbnail-image, .studio-panel-thumb img'),
+    'the latest result leads the row'
   );
+  assert.equal(boardRow(host, 'b-icons').querySelector('.studio-board-count').textContent, '0');
 
-  await act(async () => host.querySelector('button[aria-label="New Studio"]').click());
-  assert.equal(created, 1);
+  await act(async () => gacha.querySelector('.session-row-main').click());
+  assert.equal(shown, 1, 'Studio comes forward');
+  assert.ok(boardRow(host, 'b-gacha').classList.contains('selected'));
+  assert.equal(boardRow(host, '').classList.contains('selected'), false);
 
-  // Runs in flight lead, with the running spinner in the status slot.
+  // A run in flight for a board spins in place of its count.
   await act(async () => bridge.showStudioPane('owner', true));
   await act(async () =>
-    bridge.publishStudioPaneState(
-      'owner',
-      [
-        {
-          id: 'job-1',
-          status: 'running',
-          kind: 'image',
-          lane: 'gemini',
-          model: 'm',
-          progress: 0,
-          assetId: null,
-          error: null,
-          request: { prompt: 'A glowing jellyfish' },
-        },
-      ],
-      ''
-    )
+    bridge.publishStudioPaneState('owner', [
+      { id: 'job-1', status: 'running', kind: 'image', request: { prompt: 'x', boardId: 'b-icons' } },
+    ])
   );
-  assert.equal(headings(host)[0], 'In progress');
-  const running = host.querySelector('.session-row.working');
-  assert.equal(running.querySelector('.session-row-copy b').textContent, 'A glowing jellyfish');
-  assert.ok(running.querySelector('.session-row-status[data-working]'));
+  assert.ok(boardRow(host, 'b-icons').querySelector('.session-row-status[data-working]'));
+  assert.equal(boardRow(host, 'b-icons').querySelector('.studio-board-count'), null);
+  assert.ok(boardRow(host, '').querySelector('.studio-board-count'), 'All counts while only a board generates');
   await act(async () => bridge.hideStudioPane('owner'));
-  assert.equal(headings(host)[0], 'Earlier', 'the owner left: its runs are gone');
+  assert.ok(boardRow(host, 'b-icons').querySelector('.studio-board-count'), 'the owner left: its runs are gone');
+  await view.unmount();
+});
+
+test('the header + names a new board inline and opens it; rename and delete ride the row menu', async () => {
+  reset();
+  const calls = [];
+  const view = await mount(
+    React.createElement(StudioPanel, { active: true, api: studioApi(calls), onShowStudio() {} })
+  );
+  const { host } = view;
+  await act(async () => host.querySelector('button[aria-label="New board"]').click());
+  const input = host.querySelector('.studio-board-name-input');
+  assert.ok(input, 'an inline name field');
+  await act(async () => typeInto(input, 'Lobby backgrounds'));
+  await act(async () => {
+    input.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await settle();
+  });
+  assert.deepEqual(calls.find((call) => call.capability === 'createMediaBoard').args, ['Lobby backgrounds']);
+  const created = boardRow(host, 'b-3');
+  assert.equal(created.querySelector('.session-row-copy b').textContent, 'Lobby backgrounds');
+  assert.ok(created.classList.contains('selected'), 'the new board opens');
+
+  await act(async () =>
+    boardRow(host, 'b-icons').dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
+  );
+  assert.deepEqual(
+    menuItems().map((node) => node.textContent.trim()),
+    ['Open', 'Rename', 'Delete board']
+  );
+  await clickMenu('Rename');
+  const rename = boardRow(host, 'b-icons').querySelector('.studio-board-name-input');
+  await act(async () => typeInto(rename, 'Coins'));
+  await act(async () => {
+    rename.dispatchEvent(new window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await settle();
+  });
+  assert.deepEqual(calls.find((call) => call.capability === 'renameMediaBoard').args, ['b-icons', 'Coins']);
+  assert.equal(boardRow(host, 'b-icons').querySelector('.session-row-copy b').textContent, 'Coins');
   await view.unmount();
 });
 
 test('a hidden panel fetches nothing', async () => {
+  reset();
   const calls = [];
   const view = await mount(
-    React.createElement(StudioPanel, { active: false, api: studioApi(calls), onNewStudio() {}, onOpenAsset() {} })
+    React.createElement(StudioPanel, { active: false, api: studioApi(calls), onShowStudio() {} })
   );
   assert.deepEqual(calls, []);
   await view.unmount();
 });
 
-test('a panel row opens its work in the Studio pane, shows selected, and Delete asset drops it everywhere', async () => {
-  window.localStorage.clear();
+test('an open board shows only its results by day, takes results from All, and new runs join it', async () => {
+  reset();
   const calls = [];
   const api = studioApi(calls);
   const view = await mount(
@@ -242,137 +321,137 @@ test('a panel row opens its work in the Studio pane, shows selected, and Delete 
       React.Fragment,
       null,
       React.createElement(StudioPane, { api, tabKey: 'studio:a' }),
-      React.createElement(StudioPanel, {
-        active: true,
-        api,
-        onNewStudio() {},
-        onOpenAsset: (entry) => bridge.requestStudioOpenAsset('studio:a', entry),
-      })
+      React.createElement(StudioPanel, { active: true, api, onShowStudio() {} })
     )
   );
   const { host } = view;
-  assert.equal(host.querySelector('.studio-detail-prompt'), null);
-  await act(async () => {
-    rowOf(host, 'yesterday-1').querySelector('.session-row-main').click();
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  });
-  assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'A red bicycle');
-  assert.ok(rowOf(host, 'yesterday-1').classList.contains('selected'), 'the open work shows selected');
-  assert.equal(rowOf(host, 'today-1').classList.contains('selected'), false);
+  const tiles = () =>
+    [...host.querySelectorAll('.studio-tile[data-studio-asset-id]')].map((node) => node.dataset.studioAssetId);
+  const days = () => [...host.querySelectorAll('.studio-day-heading')].map((node) => node.textContent);
+  assert.deepEqual(tiles(), ['today-1', 'yesterday-1', 'week-1', 'earlier-1']);
+  assert.deepEqual(days(), ['Today', 'Yesterday', 'This week', 'Earlier']);
+  assert.equal(host.querySelector('.studio-board-trigger-label').textContent, 'No board');
 
-  await act(async () => {
-    rowOf(host, 'week-1').dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }));
-  });
-  const items = [...document.querySelectorAll('[role="menuitem"]')].map((node) => node.textContent.trim());
-  assert.deepEqual(items, ['Open', 'Delete asset']);
-  await act(async () => {
-    [...document.querySelectorAll('[role="menuitem"]')]
-      .find((node) => node.textContent.includes('Delete asset'))
-      .click();
-    await new Promise((resolve) => setTimeout(resolve, 25));
-  });
-  assert.deepEqual(
-    calls.filter((call) => call.capability === 'deleteMediaAsset').map((call) => call.args[0]),
-    ['week-1']
+  // From All, a result's menu adds it to a board.
+  const bicycle = host.querySelector('.studio-tile[data-studio-asset-id="yesterday-1"] .studio-tile-open');
+  await act(async () =>
+    bicycle.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true }))
   );
-  assert.equal(rowOf(host, 'week-1'), null);
-  assert.equal(host.querySelectorAll('.studio-tile-open').length, 2, 'the gallery dropped it too');
+  assert.deepEqual(
+    menuItems().map((node) => node.textContent.trim()),
+    ['Open', 'Add to board', 'Delete asset']
+  );
+  await clickMenu('Add to board');
+  await clickMenu('Gacha sprites');
+  assert.deepEqual(calls.find((call) => call.capability === 'setMediaAssetBoard').args, [['yesterday-1'], 'b-gacha']);
+  assert.equal(boardRow(host, 'b-gacha').querySelector('.studio-board-count').textContent, '3');
+  assert.deepEqual(tiles(), ['today-1', 'yesterday-1', 'week-1', 'earlier-1'], 'All keeps every result');
+
+  // Opening the board shows only its results, still by day.
+  await act(async () => {
+    boardRow(host, 'b-gacha').querySelector('.session-row-main').click();
+    await settle();
+  });
+  assert.deepEqual(tiles(), ['today-1', 'yesterday-1', 'week-1']);
+  assert.deepEqual(days(), ['Today', 'Yesterday', 'This week']);
+  assert.ok(
+    calls.some((call) => call.capability === 'listMediaAssets' && call.args[0]?.boardId === 'b-gacha'),
+    'the board is read from the store'
+  );
+  assert.equal(host.querySelector('.studio-board-trigger-label').textContent, 'Gacha sprites');
+
+  // Moving a result out of the open board drops it from the view.
+  const fox = host.querySelector('.studio-tile[data-studio-asset-id="today-1"] .studio-tile-open');
+  await act(async () => fox.dispatchEvent(new window.MouseEvent('contextmenu', { bubbles: true, cancelable: true })));
+  await clickMenu('Move to board');
+  await clickMenu('Remove from board');
+  assert.deepEqual(tiles(), ['yesterday-1', 'week-1']);
+
+  // A new generation joins the open board.
+  const prompt = host.querySelector('.studio-composer textarea');
+  await act(async () => typeInto(prompt, 'A glowing jellyfish'));
+  await act(async () => {
+    host.querySelector('button[aria-label="Generate"]').click();
+    await settle();
+  });
+  assert.equal(calls.find((call) => call.capability === 'startMediaJob').args[0].boardId, 'b-gacha');
+  assert.ok(boardRow(host, 'b-gacha').querySelector('.session-row-status[data-working]'), 'its row spins');
+
+  // The composer's board picker switches the board (and the view) back to none.
+  await act(async () => host.querySelector('.studio-board-trigger').click());
+  await act(async () => {
+    [...document.querySelectorAll('.studio-board-menu-item')].find((node) => node.textContent === 'No board').click();
+    await settle();
+  });
+  assert.ok(boardRow(host, '').classList.contains('selected'));
+  assert.deepEqual(tiles().slice(-4), ['today-1', 'yesterday-1', 'week-1', 'earlier-1']);
   await view.unmount();
 });
 
-/** Two Studio panes (each in its own box) and the rail panel, rendered again
- *  with new per-pane props: `{ active, focused }`. */
-async function mountTwoPanes(api, onOpenAsset) {
-  const host = document.createElement('main');
-  document.body.append(host);
-  const root = createRoot(host);
-  const render = async (a, b) => {
+test('a board thumbnail the byte lane cannot serve yet is filled by the renderer fallback, not left blank', async () => {
+  reset();
+  const calls = [];
+  const view = await mount(
+    React.createElement(StudioPanel, { active: true, api: studioApi(calls), onShowStudio() {} })
+  );
+  const { host } = view;
+  const thumb = () => boardRow(host, 'b-gacha').querySelector('.studio-panel-thumb img');
+  // The desktop lane only serves renditions that exist: a cold cover 404s.
+  const direct = [...host.querySelectorAll('.studio-panel-thumb img')].find((img) =>
+    img.src.startsWith('mixdog-media:')
+  );
+  if (direct) {
     await act(async () => {
-      root.render(
-        React.createElement(
-          React.Fragment,
-          null,
-          ...[
-            ['a', a],
-            ['b', b],
-          ].map(([id, props]) =>
-            props
-              ? React.createElement(
-                  'section',
-                  { key: id, 'data-pane': id },
-                  React.createElement(StudioPane, { api, tabKey: `studio:${id}`, ...props })
-                )
-              : null
-          ),
-          React.createElement(StudioPanel, { active: true, api, onNewStudio() {}, onOpenAsset })
-        )
-      );
-      await new Promise((resolve) => setTimeout(resolve, 25));
+      direct.dispatchEvent(new window.Event('error'));
+      await settle();
     });
-  };
-  const request = (id, entry) => act(async () => bridge.requestStudioOpenAsset(`studio:${id}`, entry));
-  const detail = (id) => host.querySelector(`[data-pane="${id}"] .studio-detail-prompt`)?.textContent ?? null;
-  const selected = () => [...host.querySelectorAll('.session-row.selected')].map((row) => row.dataset.assetId);
-  return {
-    host,
-    render,
-    request,
-    detail,
-    selected,
-    async unmount() {
-      await act(async () => root.unmount());
-      host.remove();
+  }
+  await act(async () => settle(50));
+  assert.ok(thumb(), 'the cover still shows a picture');
+  assert.match(thumb().src, /^data:image\/png;base64,/, 'read through the renderer fallback');
+  assert.ok(
+    calls.some((call) => call.capability === 'readMediaAsset' && call.args[0] === 'today-1'),
+    'the cover was read for its thumbnail'
+  );
+  assert.ok(
+    calls.some((call) => call.capability === 'cacheMediaThumbnail' && call.args[0] === 'today-1'),
+    'and cached so the byte lane serves it next time'
+  );
+  await view.unmount();
+});
+
+test('a board list read answered before a rename does not leave the renamed board stale', async () => {
+  reset();
+  const host = studioApi();
+  let hold = null;
+  const api = {
+    ...host,
+    invokeCapability: async (request) => {
+      // Snapshot the reply when asked, but release it only when the test says.
+      const reply = await host.invokeCapability(request);
+      if (request.capability === 'listMediaBoards' && hold) await hold;
+      return reply;
     },
   };
-}
-
-test('with two shown Studio panes, a work opens only in the pane it was aimed at, once', async () => {
-  window.localStorage.clear();
-  const view = await mountTwoPanes(studioApi());
-  await view.render({ active: true, focused: true }, { active: true, focused: false });
-  await view.request('b', works[1]);
-  assert.equal(view.detail('b'), 'A red bicycle');
-  assert.equal(view.detail('a'), null, 'the other shown pane does not also open it');
-  // The request was taken: later renders and a second request do not repeat it.
-  await view.request('a', works[0]);
-  assert.equal(view.detail('a'), 'A fox in the snow');
-  assert.equal(view.detail('b'), 'A red bicycle', 'the first pane keeps what it had');
-  // A request aimed at a pane whose tab is not shown waits for it.
-  await view.render({ active: false, focused: false }, { active: true, focused: true });
-  await view.request('a', works[2]);
-  assert.equal(view.detail('a'), 'A fox in the snow');
-  await view.render({ active: true, focused: true }, { active: true, focused: false });
-  assert.equal(view.detail('a'), 'A quiet harbour');
-  await view.unmount();
-});
-
-test('the rail panel mirrors the Studio pane the user focused last, handing over and clearing with it', async () => {
-  window.localStorage.clear();
-  const view = await mountTwoPanes(studioApi());
-  const both = (focused) =>
-    view.render({ active: true, focused: focused === 'a' }, { active: true, focused: focused === 'b' });
-  await both('a');
-  await view.request('b', works[0]);
-  assert.equal(view.detail('b'), 'A fox in the snow');
-  assert.deepEqual(view.selected(), [], 'a pane the user has not focused does not drive the panel');
-
-  await both('b');
-  assert.deepEqual(view.selected(), ['today-1'], 'focusing it makes it the owner, and it republishes');
-  await both('a');
-  assert.deepEqual(view.selected(), [], 'the owner is the pane focused last');
-  await both('b');
-  assert.deepEqual(view.selected(), ['today-1']);
-
-  // The owner's tab is no longer shown: its selection leaves with it.
-  await view.render({ active: true, focused: false }, { active: false, focused: false });
-  assert.deepEqual(view.selected(), [], 'no stale selection after switching to a non-Studio tab');
-  await view.render({ active: true, focused: false }, { active: true, focused: true });
-  assert.deepEqual(view.selected(), ['today-1'], 'it owns again once shown and focused, and republishes');
-
-  // Closing a pane that is not the owner leaves the owner's state alone.
-  await view.render(null, { active: true, focused: true });
-  assert.deepEqual(view.selected(), ['today-1'], 'the surviving owner keeps its state');
-  await view.render(null, null);
-  assert.deepEqual(view.selected(), [], 'closing the owner clears it');
+  let release;
+  hold = new Promise((resolve) => (release = resolve));
+  const older = boardsStore.refreshStudioBoards(api, { join: true });
+  await settle();
+  const renamed = boardsStore.renameStudioBoard(api, 'b-gacha', 'After');
+  await settle();
+  hold = null;
+  release();
+  await Promise.all([older, renamed]);
+  const name = () => {
+    let current;
+    const Probe = () => {
+      current = boardsStore.useStudioBoards(api, false).boards.find((board) => board.id === 'b-gacha')?.name;
+      return null;
+    };
+    return { Probe, read: () => current };
+  };
+  const probe = name();
+  const view = await mount(React.createElement(probe.Probe));
+  assert.equal(probe.read(), 'After', 'the list read after the rename wins');
   await view.unmount();
 });
