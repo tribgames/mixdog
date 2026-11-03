@@ -240,6 +240,38 @@ test('a timed-out read fails status and review instead of answering "no changes"
   await Promise.allSettled(children);
 });
 
+// Windows: a concurrent git rewriting the index makes a status exit non-zero
+// ("unable to open index"). That answer is unknown, never "no changes": the
+// empty list replaced the shown files and the island hid its segments.
+test('a failed status or diff fails the review instead of answering "no changes"', async (t) => {
+  const root = repo(t);
+  execFileSync('git', ['add', '.'], { cwd: root });
+  execFileSync('git', ['-c', 'user.email=a@b', '-c', 'user.name=a', 'commit', '-qm', 'init'], { cwd: root });
+  writeFileSync(join(root, 'a.txt'), 'a\nmore\n');
+  const failing = new Set();
+  setGitProcessRunner((command, args, options) =>
+    [...failing].some((name) => args.includes(name))
+      ? Promise.resolve({ code: 128, stdout: '', stderr: 'fatal: .git/index: index file open failed: Permission denied' })
+      : runProcessOffThread(command, args, options)
+  );
+  t.after(() => setGitProcessRunner(null));
+  assert.deepEqual(
+    (await gitReview(root, 'uncommitted')).files.map((file) => file.path),
+    ['a.txt']
+  );
+  writeFileSync(join(root, 'a.txt'), 'a\nmore\nagain\n');
+  for (const name of ['status', 'diff']) {
+    failing.clear();
+    failing.add(name);
+    await assert.rejects(gitReview(root, 'uncommitted'), /index file open failed/);
+  }
+  failing.clear();
+  assert.deepEqual(
+    (await gitReview(root, 'uncommitted')).files.map((file) => [file.path, file.additions]),
+    [['a.txt', 2]]
+  );
+});
+
 test('a git deadline carries EGITTIMEOUT, never the ETIMEDOUT the session transport reads as a dead daemon', async (t) => {
   setGitProcessRunner(() =>
     Promise.reject(

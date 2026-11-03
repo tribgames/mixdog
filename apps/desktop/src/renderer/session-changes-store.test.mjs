@@ -1048,6 +1048,78 @@ test('a newer-generation lazy read failure is shown beside the last good text, t
   assert.equal(drawn[0].parts.length, 1);
 });
 
+test('a read that only failed is unknown, never an answered empty list; the next good read answers it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  let fail = true;
+  const view = mount(t, {
+    gitReview: async () => {
+      if (fail) throw new Error('Mixdog session request timed out: invokeDesktopOperation (gitReview).');
+      return { repository: true, root: 'C:/unknown', base: 'HEAD', files: [reviewFile('a.ts', 3)] };
+    },
+  });
+  const states = {};
+  const Probe = probes(states);
+  await act(async () =>
+    view.root.render(h(Probe, { name: 'a', cwd: 'C:/unknown', sessionId: 'unknown', active: true }))
+  );
+  await view.settle();
+  assert.match(states.a.error, /timed out/);
+  assert.equal(states.a.ready, false, 'the island keeps its first-read placeholder instead of hiding as "no changes"');
+  assert.equal(states.a.repository, false);
+  fail = false;
+  await view.settle(2_000);
+  assert.equal(states.a.ready, true);
+  assert.equal(states.a.error, '');
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['a.ts']
+  );
+});
+
+test('a failed read retries on a short doubling backoff, not the slow-read one, and a success resets it', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
+  const outcomes = ['hang-then-fail', 'fail', 'ok', 'ok'];
+  let reads = 0;
+  const view = mount(t, {
+    gitReview: async () => {
+      const outcome = outcomes[reads] ?? 'ok';
+      reads += 1;
+      // Cut off at the git read deadline: its 60 s would set a 5 min backoff.
+      if (outcome === 'hang-then-fail') {
+        await new Promise((resolve) => setTimeout(resolve, 60_000));
+        throw new Error('git status timed out after 60000ms');
+      }
+      if (outcome === 'fail') throw new Error('fatal: .git/index: index file open failed: Permission denied');
+      return { repository: true, root: 'C:/backoff', base: 'HEAD', files: [reviewFile('a.ts')] };
+    },
+  });
+  const states = {};
+  const Probe = probes(states);
+  await act(async () =>
+    view.root.render(h(Probe, { name: 'a', cwd: 'C:/backoff', sessionId: 'backoff', active: true }))
+  );
+  await view.settle();
+  assert.equal(reads, 1);
+  await view.settle(60_000);
+  await view.settle(1_999);
+  assert.equal(reads, 1);
+  await view.settle(1);
+  assert.equal(reads, 2, 'the first retry follows 2 s after the failure');
+  await view.settle(3_999);
+  assert.equal(reads, 2);
+  await view.settle(1);
+  assert.equal(reads, 3, 'the second waits twice as long');
+  assert.deepEqual(
+    states.a.rows.map((row) => row.path),
+    ['a.ts']
+  );
+  // Success: the ordinary 30 s safety lane again.
+  await view.settle(29_999);
+  assert.equal(reads, 3);
+  await view.settle(1);
+  assert.equal(reads, 4);
+});
+
 test('a root that is not a repository falls back to the session diff', async (t) => {
   t.mock.timers.enable({ apis: ['setTimeout', 'Date'], now: 1_000_000 });
   let reviews = 0;

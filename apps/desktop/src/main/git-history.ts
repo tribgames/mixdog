@@ -390,52 +390,49 @@ interface ReviewStatus {
 }
 
 /** One `status --porcelain=v2` scan: the HEAD oid, the tracked paths that
- *  differ anywhere between HEAD, index and worktree, and the untracked files. */
-async function reviewStatus(root: string): Promise<ReviewStatus | null> {
+ *  differ anywhere between HEAD, index and worktree, and the untracked files.
+ *  A failed scan (a timeout, an oversized listing, a non-zero exit such as an
+ *  index another git is rewriting) rejects: its answer is unknown, never "no
+ *  changes", so the caller keeps the rows it last showed. */
+async function reviewStatus(root: string): Promise<ReviewStatus> {
   const result: ReviewStatus = { head: '', tracked: new Map(), untracked: [], untrackedOmitted: 0 };
   let rename = '';
-  try {
-    result.untrackedOmitted = await streamNulRecords(
-      root,
-      [
-        '--no-optional-locks',
-        'status',
-        '--porcelain=v2',
-        '-z',
-        // Only `branch.oid` is read: no upstream ahead/behind walk.
-        '--branch',
-        '--no-ahead-behind',
-        '--untracked-files=all',
-        '--no-renames',
-      ],
-      (record) => {
-        if (rename) {
-          // The origin field of a rename: both sides map to its record.
-          if (record) result.tracked.set(record, rename);
-          rename = '';
-          return;
-        }
-        if (!record) return;
-        if (record.startsWith('# branch.oid ')) result.head = record.slice('# branch.oid '.length);
-        else if (record.startsWith('? ')) {
-          // Git prints every untracked path after the tracked changes, so the rest is only counted.
-          if (result.untracked.length >= REVIEW_UNTRACKED_LIMIT) return false;
-          result.untracked.push(record.slice(2));
-        } else if (record.startsWith('1 ')) result.tracked.set(pathAfter(record, 8), record);
-        else if (record.startsWith('u ')) result.tracked.set(pathAfter(record, 10), record);
-        else if (record.startsWith('2 ')) {
-          // A rename (only under a config --no-renames does not reach): both sides.
-          result.tracked.set(pathAfter(record, 9), record);
-          rename = record;
-        }
-      },
-      { timeoutMs: GIT_READ_TIMEOUT_MS, maxBytes: REVIEW_STATUS_MAX_BYTES }
-    );
-  } catch (error) {
-    // null reads as "no changes"; a timeout's or an oversized listing's answer is unknown.
-    if (isGitTimeout(error) || (error as { code?: unknown } | null)?.code === 'EMAXBUFFER') throw error;
-    return null;
-  }
+  result.untrackedOmitted = await streamNulRecords(
+    root,
+    [
+      '--no-optional-locks',
+      'status',
+      '--porcelain=v2',
+      '-z',
+      // Only `branch.oid` is read: no upstream ahead/behind walk.
+      '--branch',
+      '--no-ahead-behind',
+      '--untracked-files=all',
+      '--no-renames',
+    ],
+    (record) => {
+      if (rename) {
+        // The origin field of a rename: both sides map to its record.
+        if (record) result.tracked.set(record, rename);
+        rename = '';
+        return;
+      }
+      if (!record) return;
+      if (record.startsWith('# branch.oid ')) result.head = record.slice('# branch.oid '.length);
+      else if (record.startsWith('? ')) {
+        // Git prints every untracked path after the tracked changes, so the rest is only counted.
+        if (result.untracked.length >= REVIEW_UNTRACKED_LIMIT) return false;
+        result.untracked.push(record.slice(2));
+      } else if (record.startsWith('1 ')) result.tracked.set(pathAfter(record, 8), record);
+      else if (record.startsWith('u ')) result.tracked.set(pathAfter(record, 10), record);
+      else if (record.startsWith('2 ')) {
+        // A rename (only under a config --no-renames does not reach): both sides.
+        result.tracked.set(pathAfter(record, 9), record);
+        rename = record;
+      }
+    },
+    { timeoutMs: GIT_READ_TIMEOUT_MS, maxBytes: REVIEW_STATUS_MAX_BYTES }
+  );
   return result;
 }
 
@@ -513,13 +510,8 @@ async function diffStaleRows(
   const argChars = stale.reduce((sum, path) => sum + path.length + 3, 0);
   // Past the command-line budget the whole diff is read instead.
   const whole = argChars > REVIEW_BATCH_ARGS_CHARS;
-  // A timed-out diff is not an empty one: those rows would be cached as unchanged.
-  const raw = await runRead(root, whole ? [...args, ...flags] : [...args, ...flags, '--', ...stale]).catch(
-    (error: unknown) => {
-      if (isGitTimeout(error)) throw error;
-      return '';
-    }
-  );
+  // A failed diff is not an empty one: those rows would be cached as unchanged.
+  const raw = await runRead(root, whole ? [...args, ...flags] : [...args, ...flags, '--', ...stale]);
   return { records: parseRawNumstat(raw), whole };
 }
 
@@ -543,10 +535,6 @@ async function readGitReview(cwd: string, source: GitReviewSource = 'branch'): P
     reviewStatus(root),
     source === 'uncommitted' ? null : resolveMergeBase(root),
   ]);
-  if (!status) {
-    const { base } = await resolveReviewRef(root, source);
-    return { repository: true, root, base, files: [], untrackedOmitted: 0 };
-  }
   const unborn = !status.head || status.head === '(initial)';
   let base = 'HEAD';
   let ref = 'HEAD';

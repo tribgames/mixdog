@@ -173,6 +173,12 @@ const CHANGES_REFRESH_OPTIONS = {
   activityDebounceMs: 125,
   activityMinGapMs: 3_000,
   slowTaskMultiplier: 5,
+  // A failed read (a git exit that a concurrent index write causes, a
+  // deadline under daemon load) is retried soon, not after the slow-read
+  // backoff (up to 5 min) its cut-off duration would set: 2 s rides out a
+  // transient clash; doubling caps at 60 s, the git read deadline, so a
+  // wedged daemon gets at most one retry per deadline.
+  failureRetry: { minMs: 2_000, maxMs: 60_000 },
 };
 
 const entries = new Map<string, ChangesEntry>();
@@ -481,7 +487,7 @@ function retainChangesWatch(target: ChangesTarget): () => void {
     const stop = watchGitRefreshEvidence(
       target.cwd,
       createGitRefreshScheduler(async (reason) => {
-        await loadChanges(target, reason);
+        if (!(await loadChanges(target, reason))) throw new Error('The Changes read failed.');
       }, CHANGES_REFRESH_OPTIONS)
     );
     watch = { count: 0, stop };
@@ -1144,8 +1150,9 @@ export function useSessionChanges({
     loading: git ? (watchable && !entry) || Boolean(entry?.loading) : diff.loading,
     error: git ? (entry?.error ?? '') : diff.error,
     refresh,
-    /** A read has answered (Git entry, or the session diff). */
-    ready: git ? Boolean(entry) : Boolean(diff.result),
+    /** A read has answered (Git entry, or the session diff). An entry whose
+     *  reads have only failed is unknown, not an empty answer. */
+    ready: git ? entry !== undefined && entry.repository !== null : Boolean(diff.result),
     /** Adopted reads, so a waiter can tell a refresh it did not issue landed. */
     adoptions: git ? (entry?.generation ?? 0) : diff.adoptions,
     /** The non-Git session diff (null for a Git root). */
