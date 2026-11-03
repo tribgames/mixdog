@@ -74,14 +74,26 @@ test('a CONTINUATION finish is resumed with its token and presented as one turn'
       chunkOf([{ text: 'think 1', thought: true }, { text: 'Part one, ' }]),
       {
         ...chunkOf([], { finishReason: 'CONTINUATION', continuationToken: 'dG9rZW4x' }),
-        usageMetadata: { promptTokenCount: 100, candidatesTokenCount: 40, thoughtsTokenCount: 10, totalTokenCount: 150 },
+        usageMetadata: {
+          promptTokenCount: 100,
+          cachedContentTokenCount: 60,
+          candidatesTokenCount: 40,
+          thoughtsTokenCount: 10,
+          totalTokenCount: 150,
+        },
       },
     ],
     [
       chunkOf([{ text: 'think 2', thought: true }, { text: 'part two.' }]),
       {
         ...chunkOf([], { finishReason: 'STOP' }),
-        usageMetadata: { promptTokenCount: 150, candidatesTokenCount: 20, thoughtsTokenCount: 5, totalTokenCount: 175 },
+        usageMetadata: {
+          promptTokenCount: 150,
+          cachedContentTokenCount: 100,
+          candidatesTokenCount: 20,
+          thoughtsTokenCount: 5,
+          totalTokenCount: 175,
+        },
       },
     ],
   ]);
@@ -108,6 +120,12 @@ test('a CONTINUATION finish is resumed with its token and presented as one turn'
   assert.equal(result.usage.outputTokens, 75);
   assert.equal(result.usage.raw.totalTokenCount, 325);
   assert.equal(result.usage.raw.initialPromptTokenCount, 100);
+  // Billing keeps the summed prompt; the context measurement excludes the repeated hop input.
+  assert.equal(result.usage.promptTokens, 250);
+  assert.equal(result.usage.contextInputTokens, 100);
+  // Cached reads repeat across hops the same way: the context holds the first hop's.
+  assert.equal(result.usage.cachedTokens, 160);
+  assert.equal(result.usage.contextCachedTokens, 60);
 });
 
 test('a later hop that fails carries the earlier hops’ output and replay boundary on the error', async () => {

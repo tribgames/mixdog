@@ -69,12 +69,16 @@ export function usageDeltaEvent({
     // callers that ignore these fields keep working.
     deltaCachedRead: usage.cachedTokens || 0,
     deltaCacheWrite: usage.cacheWriteTokens || 0,
-    contextInputTokens: usage.inputTokens ?? 0,
+    // A provider whose billed input repeats context (Gemini long decode)
+    // reports the input the context really holds; the billed figures above
+    // stay untouched.
+    contextInputTokens: usage.contextInputTokens ?? usage.inputTokens ?? 0,
     contextOutputTokens: usage.outputTokens ?? 0,
-    contextPromptTokens: usage.promptTokens ?? 0,
-    contextCachedReadTokens: usage.cachedTokens ?? 0,
+    contextPromptTokens: usage.contextInputTokens ?? usage.promptTokens ?? 0,
+    contextCachedReadTokens: usage.contextCachedTokens ?? usage.cachedTokens ?? 0,
     contextCacheWriteTokens: usage.cacheWriteTokens ?? 0,
     contextMeasuredTokens: measuredContextTokens(usage),
+    ...(usage.contextInputTokens != null ? { contextOutputInWindow: true } : {}),
     sendTools,
     ts: Date.now(),
   };

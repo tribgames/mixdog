@@ -19,6 +19,7 @@ import {
   shouldCompactForSession,
 } from './loop/compact-policy.mjs';
 import { contextMessagesSignature, estimateMessagesTokens } from './context-utils.mjs';
+import { usageDeltaEvent } from './loop/usage.mjs';
 
 test('compaction rows report the last measured context, not a recomputed estimate', () => {
   // Idle-resumed session: the provider last measured ~960k while the
@@ -29,6 +30,31 @@ test('compaction rows report the last measured context, not a recomputed estimat
     1_756_616
   );
   assert.equal(compactDisplayBeforeTokens({ lastContextTokens: 0 }, 42_000), 42_000);
+});
+
+test('a billed prompt that repeats hop input does not count as context occupancy', () => {
+  // Gemini long decode: 2 hops billed 250 input (100 + 150) and 75 output, but
+  // the context holds the first hop's 100-token prompt plus the 75 generated.
+  const usage = { inputTokens: 250, promptTokens: 250, outputTokens: 75, contextInputTokens: 100 };
+  const messages = [{ role: 'user', content: 'hello' }];
+  const direct = { provider: 'gemini', contextWindow: 1_000_000 };
+  assert.equal(recordProviderContextBaseline(direct, messages, usage), true);
+  assert.equal(direct.contextPressureBaselineTokens, 175);
+  const event = usageDeltaEvent({ sessionId: 's', usage, sendTools: [] });
+  assert.equal(event.deltaInput, 250);
+  assert.equal(event.deltaPrompt, 250);
+  const viaEvent = { provider: 'gemini', contextWindow: 1_000_000 };
+  recordProviderContextBaseline(
+    viaEvent,
+    messages,
+    {
+      inputTokens: event.contextInputTokens,
+      outputTokens: event.contextOutputTokens,
+      promptTokens: event.contextPromptTokens,
+    },
+    {}
+  );
+  assert.equal(viaEvent.contextPressureBaselineTokens, 175);
 });
 
 test('Cursor main sessions preserve the configured 200k compact boundary', () => {

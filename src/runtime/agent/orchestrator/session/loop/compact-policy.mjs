@@ -319,10 +319,13 @@ export function invalidateContextUsageSnapshot(sessionRef) {
 
 function providerPressureTokens(sessionRef, usage) {
   if (!usage || typeof usage !== 'object') return 0;
-  const input = Math.max(0, Number(usage.inputTokens) || 0);
+  // Billed input can repeat context (Gemini long decode); the context input
+  // the provider reports then replaces both billed prompt figures.
+  const contextInput = Math.max(0, Number(usage.contextInputTokens) || 0);
+  const input = contextInput || Math.max(0, Number(usage.inputTokens) || 0);
   const cachedRead = Math.max(0, Number(usage.cachedTokens) || 0);
   const cacheWrite = Math.max(0, Number(usage.cacheWriteTokens) || 0);
-  const explicitPrompt = Math.max(0, Number(usage.promptTokens) || 0);
+  const explicitPrompt = contextInput || Math.max(0, Number(usage.promptTokens) || 0);
   const normalizedPrompt = providerInputExcludesCache(sessionRef?.provider) ? input + cachedRead + cacheWrite : input;
   const prompt = Math.max(explicitPrompt, normalizedPrompt);
   const output = Math.max(0, Number(usage.outputTokens) || 0);

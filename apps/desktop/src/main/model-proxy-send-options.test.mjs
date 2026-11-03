@@ -37,6 +37,10 @@ const NOT_SEND_OPTIONS = new Map([
     'effort-configuration.mjs::protocol',
     "the custom route's wire protocol, set by the adapter itself from its own provider config",
   ],
+  [
+    'anthropic-message-threads.mjs::inFlightOnly',
+    'option of the process-local connection-close hook (a turn abort), not a send option',
+  ],
   ['mimo-oauth-tokens.mjs::persist', 'token probe argument'],
   ['model-list-sanitize.mjs::provider', 'model-list helper argument'],
   ['oauth-usage.mjs::allowStale', 'usage-snapshot read options'],
