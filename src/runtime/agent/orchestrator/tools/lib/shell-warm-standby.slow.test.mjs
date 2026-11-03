@@ -88,9 +88,11 @@ test(
   }
 );
 
+// The cold `-Command` run is the semantic reference, not a timing check: no
+// spawn deadline (pwsh startup on a loaded machine is unbounded), and a hung
+// pwsh is bounded by the runner's per-file timeout.
 test('warm PowerShell preserves cold command status and output', {
   skip: process.platform !== 'win32' && 'Windows only',
-  timeout: 60000,
 }, () => {
   const cases = [
     ['Write-Output "success"', 0],
@@ -102,7 +104,7 @@ test('warm PowerShell preserves cold command status and output', {
     ['npm --mixdog-invalid-option run __mixdog_missing_script__', 1],
   ];
   for (const [script, expected] of cases) {
-    const options = { encoding: 'utf8', timeout: 10000, windowsHide: true, cwd: fixtureRoot };
+    const options = { encoding: 'utf8', windowsHide: true, cwd: fixtureRoot };
     const cold = spawnSync('pwsh', ['-NoLogo', '-NoProfile', '-NonInteractive', '-Command', script], options);
     const warm = spawnSync('pwsh', STANDBY_ARGS, { ...options, input: script });
     assert.ifError(cold.error);
