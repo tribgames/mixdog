@@ -496,10 +496,7 @@ function connectorLevelLabel(level: string): string {
 
 /** The connector card's sentence: which bot, which connector and tool, the
  *  level now and the one asked for. */
-function connectorChangeText(
-  agentName: string,
-  change: NonNullable<ReturnType<typeof connectorChange>>
-): string {
+function connectorChangeText(agentName: string, change: NonNullable<ReturnType<typeof connectorChange>>): string {
   return t("{{agent}} wants to change {{service}}'s {{tool}} permission from '{{from}}' to '{{to}}'", {
     agent: agentName,
     service: connectorServiceLabel(`mcp__${change.server}__${change.tool}`) || change.server,

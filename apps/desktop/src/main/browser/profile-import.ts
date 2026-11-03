@@ -789,7 +789,9 @@ export class BrowserProfileImportService {
     const names = (await readdir(directory).catch(() => [] as string[]))
       .filter((name) => /^cookies-auto-\d+-/.test(name))
       .sort();
-    await Promise.all(names.slice(0, -AUTOMATIC_BACKUPS_KEPT).map((name) => rm(join(directory, name), { force: true })));
+    await Promise.all(
+      names.slice(0, -AUTOMATIC_BACKUPS_KEPT).map((name) => rm(join(directory, name), { force: true }))
+    );
   }
 
   private async importCookies(profileId: string, automatic = false): Promise<number> {

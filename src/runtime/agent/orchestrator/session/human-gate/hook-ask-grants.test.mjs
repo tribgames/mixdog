@@ -102,7 +102,9 @@ test('a coding Lead hook ask offers once / this session / always, keyed by the t
   }
   assert.equal(normalizeHumanResponse(presented, true, { remember: 'agent' }).remember, 'once', 'not offered');
   // A request that names no key offers neither session nor always.
-  assert.deepEqual(humanRequestFields({ kind: 'approval', remember: ['once', 'session', 'always'] }).remember, ['once']);
+  assert.deepEqual(humanRequestFields({ kind: 'approval', remember: ['once', 'session', 'always'] }).remember, [
+    'once',
+  ]);
 });
 
 test('"always" saves one every-agent grant: no card for that tool in this or any other conversation', async (t) => {
@@ -135,7 +137,10 @@ test('"always" saves one every-agent grant: no card for that tool in this or any
     ]
   );
   const rows = await h.store.readAudit({ limit: 100 });
-  assert.deepEqual(rows.slice(-2).map((row) => row.decision), ['granted', 'approve']);
+  assert.deepEqual(
+    rows.slice(-2).map((row) => row.decision),
+    ['granted', 'approve']
+  );
 });
 
 test('the answered call keeps a hook rewrite and is not marked as an outbound approval', async (t) => {
@@ -155,10 +160,11 @@ test('"this session" covers the tool for that conversation only, ends on reset a
   assert.ok(asks(await h.decide(SHELL('b'), OTHER_LEAD)), 'another conversation still asks');
   assert.ok(asks(await h.decide(SHELL('b'), MIXY)));
   assert.ok(asks(await h.decide(EDIT, LEAD)), 'another tool still asks');
-  assert.deepEqual(
-    (await h.store.readAudit({ agentId: 'lead' })).map((row) => row.decision).slice(0, 3),
-    ['session-remembered', 'session-granted', 'approve']
-  );
+  assert.deepEqual((await h.store.readAudit({ agentId: 'lead' })).map((row) => row.decision).slice(0, 3), [
+    'session-remembered',
+    'session-granted',
+    'approve',
+  ]);
   h.reset(LEAD);
   assert.ok(asks(await h.decide(SHELL('b'), LEAD)), 'a reset session asks again');
   await h.choose(await h.decide(SHELL('a'), LEAD), 'session');
@@ -211,8 +217,10 @@ test('payments and permanent deletes are never offered, stored or honoured, and 
     assert.equal(card.request.grantAction, undefined, call.name);
     assert.equal(card.gate.action, undefined, call.name);
     for (const remember of ['session', 'always']) {
-      await h.answer({ ...card.gate, remember: ['once', 'session', 'always'], sessionId: LEAD, action: 'tool:' + call.name },
-        { approved: true, remember });
+      await h.answer(
+        { ...card.gate, remember: ['once', 'session', 'always'], sessionId: LEAD, action: 'tool:' + call.name },
+        { approved: true, remember }
+      );
     }
     // Even a stored or session grant for the tool's key answers nothing.
     assert.ok(asks(await h.decide(call, LEAD)), `${call.name} asks again`);
@@ -307,7 +315,7 @@ test('a bot hook ask on a classified send offers once / session / always and is 
   assert.equal((await h.decide(EMAIL, MAILER)).decision.action, 'deny');
 });
 
-test('a shared allow is listed in every agent\'s permissions and revoking it there turns it back to asking', async (t) => {
+test("a shared allow is listed in every agent's permissions and revoking it there turns it back to asking", async (t) => {
   const h = harness(t);
   await h.choose(await h.decide(SHELL('a'), LEAD), 'always');
   await h.choose(await h.decide(COMMENT, LEAD), 'always');

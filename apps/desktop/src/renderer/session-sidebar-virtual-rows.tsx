@@ -178,9 +178,7 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
       let hidden = false;
       return observeElementRect(instance, (rect) => {
         const shown = rect.height > 0;
-        notify(
-          shown ? rect : { width: rect.width, height: instance.scrollRect?.height || fallbackViewportHeight() }
-        );
+        notify(shown ? rect : { width: rect.width, height: instance.scrollRect?.height || fallbackViewportHeight() });
         // A hidden scroller (the view behind another rail page) reads scrollTop
         // 0 and ignores writes; showing it again restores its real position
         // without a scroll event, so the offset held from before is stale.

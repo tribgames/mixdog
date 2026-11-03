@@ -777,16 +777,20 @@ test('allow for this session: one card per kind, any page, ended by reset/expiry
     url: 'https://elsewhere.example/other',
   });
   assert.equal(otherPage, true);
-  assert.deepEqual(audits.filter(([, , d]) => d.startsWith('session')).map(([, , d]) => d), [
-    'session-granted',
-    'session-remembered',
-  ]);
+  assert.deepEqual(
+    audits.filter(([, , d]) => d.startsWith('session')).map(([, , d]) => d),
+    ['session-granted', 'session-remembered']
+  );
   // Another kind, another session, an operator confirm: still asked.
   assert.equal((await ask(grants, session, ['post'], 'deny', LIFE)).shown, true);
   assert.equal((await ask(grants, 'sess_home_other', ['submit'], 'deny', LIFE)).shown, true);
   const confirm = await ask(grants, session, ['submit', 'confirm'], 'session', LIFE);
   assert.equal(confirm.card.remember, null);
-  assert.equal((await ask(grants, session, ['submit', 'confirm'], 'deny', LIFE)).shown, true, 'a confirm card grants nothing');
+  assert.equal(
+    (await ask(grants, session, ['submit', 'confirm'], 'deny', LIFE)).shown,
+    true,
+    'a confirm card grants nothing'
+  );
   // A schedule/webhook run on the same session never uses it.
   setBrowserApprovalHooks({ ...grants, isBlocked: async () => false });
   const run = await requestBrowserApproval(fakeWindow(true), {
@@ -816,7 +820,11 @@ test('a browser session allowance is bound to the session life mark and needs on
   await ask(grants, session, ['submit'], 'session', { sessionLife: '5:0' });
   assert.equal((await ask(grants, session, ['submit'], 'deny', { sessionLife: '5:0' })).shown, false);
   assert.equal((await ask(grants, session, ['submit'], 'deny', { sessionLife: '5:900' })).shown, true, 'cleared');
-  assert.equal((await ask(grants, session, ['submit'], 'deny', { sessionLife: '5:0' })).shown, true, 'dropped, not hidden');
+  assert.equal(
+    (await ask(grants, session, ['submit'], 'deny', { sessionLife: '5:0' })).shown,
+    true,
+    'dropped, not hidden'
+  );
 });
 
 test('a payment step is a floor: once only, no grant of any kind, not skipped by Allow all actions, never in a run', async () => {
@@ -837,7 +845,10 @@ test('a payment step is a floor: once only, no grant of any kind, not skipped by
   grants.allowed.clear();
   assert.equal((await ask(grants, session, ['submit'], 'deny', { ...LIFE, payment: true })).shown, true);
   // Answering "session" on it stores nothing for ordinary submits either.
-  await ask({ ...grants, allowAllActions: async () => false }, session, ['submit'], 'session', { ...LIFE, payment: true });
+  await ask({ ...grants, allowAllActions: async () => false }, session, ['submit'], 'session', {
+    ...LIFE,
+    payment: true,
+  });
   assert.equal(
     (await ask({ ...grants, allowAllActions: async () => false }, session, ['submit'], 'deny', LIFE)).shown,
     true

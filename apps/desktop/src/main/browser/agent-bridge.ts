@@ -83,8 +83,16 @@ export function createBrowserAgentBridge(options: {
     dataDirectory: bridgeDiscoveryDirectory,
     execute: (command, signal) =>
       guarded(command, signal, (command, signal) => {
-        const { session_id, turn_id, internalStep, unattended_run, unattended_agent, session_life, mail_link, ...input } =
-          command;
+        const {
+          session_id,
+          turn_id,
+          internalStep,
+          unattended_run,
+          unattended_agent,
+          session_life,
+          mail_link,
+          ...input
+        } = command;
         if (internalStep !== undefined) throw new Error('internalStep is not a bridge input');
         // Runtime-only lifecycle messages: deliberately absent from tool schemas.
         if (command.action === 'begin_turn') {

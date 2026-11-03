@@ -163,7 +163,8 @@ export function mediaPartToReference(part, record = null) {
 export function attachedFilesNote(prompt, options, attachments) {
   const pasted = new Set();
   for (const part of Array.isArray(prompt) ? prompt : []) {
-    if (part?.type === 'text' && part.textKind === 'paste' && isAttachmentReference(part)) pasted.add(part.attachmentRef);
+    if (part?.type === 'text' && part.textKind === 'paste' && isAttachmentReference(part))
+      pasted.add(part.attachmentRef);
   }
   for (const raw of Object.values(options?.pastedTexts || {})) {
     if (raw && raw.source !== 'file' && isAttachmentReference(raw)) pasted.add(raw.attachmentRef);

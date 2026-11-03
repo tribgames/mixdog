@@ -100,8 +100,14 @@ foreach ($scenario in @('in_front', 'from_user_window', 'late_landing')) {
   const [inFront, fromUser, late] = rows;
   assert.deepEqual([inFront.focused, inFront.front, inFront.calls], [true, 2, []]);
   // The one switch away from the user's window still happens, exactly once.
-  assert.deepEqual([fromUser.focused, fromUser.front, count(fromUser, 'BringWindowToTop'), count(fromUser, 'SetFocus')], [true, 2, 1, 1]);
-  assert.deepEqual([late.focused, late.front, count(late, 'BringWindowToTop'), count(late, 'SetFocus')], [true, 2, 1, 1]);
+  assert.deepEqual(
+    [fromUser.focused, fromUser.front, count(fromUser, 'BringWindowToTop'), count(fromUser, 'SetFocus')],
+    [true, 2, 1, 1]
+  );
+  assert.deepEqual(
+    [late.focused, late.front, count(late, 'BringWindowToTop'), count(late, 'SetFocus')],
+    [true, 2, 1, 1]
+  );
 });
 
 test('a semantic step of a foreground operation leaves its target in front instead of bouncing focus to the user window', {

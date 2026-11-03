@@ -71,6 +71,7 @@ export function CookieAutoImportGroup({
       });
   }, [active, api, revision, refresh]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: refresh re-arms the timer after each status read while a run lasts
   useEffect(() => {
     if (!running) return undefined;
     const timer = window.setTimeout(() => setRefresh((count) => count + 1), RUNNING_REFRESH_MS);

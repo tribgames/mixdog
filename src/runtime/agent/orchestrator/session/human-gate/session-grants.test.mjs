@@ -75,8 +75,7 @@ function harness(t) {
     reset: (sessionId) => lives.set(sessionId, `reset-${clock}-${lives.size}`),
     end: (sessionId) => lives.set(sessionId, null),
     decide: (call, sessionId, hook = null) => humanGateDecision(call, hook, ctx(sessionId)),
-    answer: (gate, approval) =>
-      recordHumanDecision(gate, approval, { store, sessionGrants, sessionLife: life }),
+    answer: (gate, approval) => recordHumanDecision(gate, approval, { store, sessionGrants, sessionLife: life }),
   };
 }
 
@@ -120,10 +119,11 @@ test('"always" stays a saved, revocable allow and is audited like the session on
   assert.equal(grant.action, 'email');
   const again = await h.decide(EMAIL, HOME, { action: 'allow' });
   assert.equal(again.remembered, true);
-  assert.deepEqual(
-    (await h.store.readAudit({ agentId: 'mailer' })).map((row) => row.decision).slice(0, 3),
-    ['remembered', 'granted', 'approve']
-  );
+  assert.deepEqual((await h.store.readAudit({ agentId: 'mailer' })).map((row) => row.decision).slice(0, 3), [
+    'remembered',
+    'granted',
+    'approve',
+  ]);
   assert.equal(await h.store.revokeGrant(grant.id), true);
   assert.equal((await h.decide(EMAIL, HOME)).decision.action, 'ask');
 });
@@ -230,7 +230,7 @@ test('a grant for one kind never answers a payment, a delete or another kind', a
   assert.equal((await h.decide(PERMANENT_DELETE, HOME, { action: 'allow' })).decision.action, 'ask');
 });
 
-test('the bot\'s block still stops a kind that was allowed for the session', async (t) => {
+test("the bot's block still stops a kind that was allowed for the session", async (t) => {
   const h = harness(t);
   const first = await h.decide(EMAIL, HOME);
   await h.answer(first.gate, { approved: true, remember: 'session' });
@@ -259,7 +259,10 @@ test('secret, takeover, connector and permission requests are answered once, wha
   const requests = [
     { kind: 'secret', secret: { requestId: 'secret_abcdefgh' } },
     { kind: 'takeover', takeover: { surface: 'browser', instructions: 'sign in' } },
-    { kind: 'connector', connector: { server: 's', tool: 't', from: 'disabled', requested: 'auto', choices: ['auto'] } },
+    {
+      kind: 'connector',
+      connector: { server: 's', tool: 't', from: 'disabled', requested: 'auto', choices: ['auto'] },
+    },
   ];
   for (const input of requests) {
     const fields = humanRequestFields({ ...input, remember: listed });

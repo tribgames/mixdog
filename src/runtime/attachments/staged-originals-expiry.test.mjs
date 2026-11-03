@@ -39,4 +39,3 @@ test('daemon start expires an abandoned staged original within about the TTL wit
   assert.equal(existsSync(attachmentFilePath(attachmentRef)), false, 'blob removed');
   assert.deepEqual(JSON.parse(readFileSync(indexFile, 'utf8')), [], 'entry removed');
 });
-

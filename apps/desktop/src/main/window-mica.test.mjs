@@ -206,44 +206,42 @@ test('windows share one callback and leave their subclass before anything is rel
   assert.deepEqual(api.log.slice(5), ['set 3', 'remove 3', 'set 3']);
 });
 
-test(
-  'the real bindings install on two native windows and uninstall cleanly',
-  { skip: process.platform !== 'win32' },
-  () => {
-    const koffi = createRequire(import.meta.url)('koffi');
-    const user32 = koffi.load('user32.dll');
-    const createWindow = user32.func(
-      'uintptr_t __stdcall CreateWindowExW(uint32_t ex, str16 cls, str16 name, uint32_t style, int x, int y, int w, int h, uintptr_t parent, uintptr_t menu, uintptr_t inst, uintptr_t param)'
-    );
-    const sendMessage = user32.func(
-      'intptr_t __stdcall SendMessageW(uintptr_t hwnd, uint32_t message, uintptr_t wParam, intptr_t lParam)'
-    );
-    const destroyWindow = user32.func('bool __stdcall DestroyWindow(uintptr_t hwnd)');
-    // Hidden STATIC windows: never shown, never activated.
-    const handles = [0, 1].map(() => BigInt(createWindow(0, 'STATIC', '', 0, 0, 0, 0, 0, 0, 0, 0, 0)));
-    assert.ok(handles.every((hwnd) => hwnd !== 0n));
-    const windows = handles.map((hwnd) => micaWindow(hwnd, { visible: false, minimized: false, destroyed: false }));
-    try {
-      // Each install goes through nativeMica(), which used to redeclare its
-      // named koffi prototype and throw on the second window.
-      for (const window of windows) installMicaActiveAppearance(window);
-      for (const window of windows) {
-        sendMessage(handles[windows.indexOf(window)], 0x0086, 0, 0);
-        assert.equal(window.activationReads, 1);
-      }
-      // The first goes through WM_NCDESTROY, the second is closed while alive.
-      assert.ok(destroyWindow(handles[0]));
-      windows[0].state.destroyed = true;
-      windows[0].emit('closed');
-      windows[1].emit('closed');
-      // A window installed after both, through the same bindings, still works.
-      const later = micaWindow(handles[1], { visible: false, minimized: false, destroyed: false });
-      installMicaActiveAppearance(later);
-      sendMessage(handles[1], 0x0086, 0, 0);
-      assert.equal(later.activationReads, 1);
-      later.emit('closed');
-    } finally {
-      destroyWindow(handles[1]);
+test('the real bindings install on two native windows and uninstall cleanly', {
+  skip: process.platform !== 'win32',
+}, () => {
+  const koffi = createRequire(import.meta.url)('koffi');
+  const user32 = koffi.load('user32.dll');
+  const createWindow = user32.func(
+    'uintptr_t __stdcall CreateWindowExW(uint32_t ex, str16 cls, str16 name, uint32_t style, int x, int y, int w, int h, uintptr_t parent, uintptr_t menu, uintptr_t inst, uintptr_t param)'
+  );
+  const sendMessage = user32.func(
+    'intptr_t __stdcall SendMessageW(uintptr_t hwnd, uint32_t message, uintptr_t wParam, intptr_t lParam)'
+  );
+  const destroyWindow = user32.func('bool __stdcall DestroyWindow(uintptr_t hwnd)');
+  // Hidden STATIC windows: never shown, never activated.
+  const handles = [0, 1].map(() => BigInt(createWindow(0, 'STATIC', '', 0, 0, 0, 0, 0, 0, 0, 0, 0)));
+  assert.ok(handles.every((hwnd) => hwnd !== 0n));
+  const windows = handles.map((hwnd) => micaWindow(hwnd, { visible: false, minimized: false, destroyed: false }));
+  try {
+    // Each install goes through nativeMica(), which used to redeclare its
+    // named koffi prototype and throw on the second window.
+    for (const window of windows) installMicaActiveAppearance(window);
+    for (const window of windows) {
+      sendMessage(handles[windows.indexOf(window)], 0x0086, 0, 0);
+      assert.equal(window.activationReads, 1);
     }
+    // The first goes through WM_NCDESTROY, the second is closed while alive.
+    assert.ok(destroyWindow(handles[0]));
+    windows[0].state.destroyed = true;
+    windows[0].emit('closed');
+    windows[1].emit('closed');
+    // A window installed after both, through the same bindings, still works.
+    const later = micaWindow(handles[1], { visible: false, minimized: false, destroyed: false });
+    installMicaActiveAppearance(later);
+    sendMessage(handles[1], 0x0086, 0, 0);
+    assert.equal(later.activationReads, 1);
+    later.emit('closed');
+  } finally {
+    destroyWindow(handles[1]);
   }
-);
+});

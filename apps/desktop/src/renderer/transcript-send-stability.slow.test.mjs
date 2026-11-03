@@ -17,7 +17,6 @@ const resolveDir = fileURLToPath(new URL('.', import.meta.url));
 const loader = { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' };
 const PHONE_UA =
   'Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Mobile Safari/537.36';
-const SENT_KEY = 'fixture:sent-1';
 
 const HARNESS = `
   import { useLayoutEffect, useRef, useState } from 'react';

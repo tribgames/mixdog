@@ -41,9 +41,7 @@ export const PAYMENT_EVIDENCE_EXPRESSION = `(() => {
 })()`;
 
 /** Whether the guest page shows payment evidence; an unreadable page does. */
-export async function pageHasPaymentEvidence(
-  evaluate: (expression: string) => Promise<unknown>
-): Promise<boolean> {
+export async function pageHasPaymentEvidence(evaluate: (expression: string) => Promise<unknown>): Promise<boolean> {
   try {
     return (await evaluate(PAYMENT_EVIDENCE_EXPRESSION)) !== false;
   } catch {

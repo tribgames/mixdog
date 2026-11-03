@@ -235,7 +235,10 @@ test('automatic cookie import is off by default, keeps its profile, and rejects 
     enabled: true,
     profileId: 'Profile 1',
   });
-  assert.deepEqual(value.desktop, { keepAwake: false, browserCookieAutoImport: { enabled: true, profileId: 'Profile 1' } });
+  assert.deepEqual(value.desktop, {
+    keepAwake: false,
+    browserCookieAutoImport: { enabled: true, profileId: 'Profile 1' },
+  });
   // Turning it off keeps the chosen profile; turning off with no profile stores nothing.
   assert.deepEqual(await store.updateBrowserCookieAutoImport({ enabled: false, profileId: 'Profile 1' }), {
     enabled: false,

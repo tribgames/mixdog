@@ -11,4 +11,8 @@ export interface SessionGrants {
   has(key: SessionGrantKey): boolean;
   end(sessionId: string): void;
 }
-export function createSessionGrants(options?: { now?: () => number; ttlMs?: number; maxEntries?: number }): SessionGrants;
+export function createSessionGrants(options?: {
+  now?: () => number;
+  ttlMs?: number;
+  maxEntries?: number;
+}): SessionGrants;

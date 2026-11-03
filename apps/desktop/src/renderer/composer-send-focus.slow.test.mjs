@@ -12,7 +12,8 @@ import puppeteer from 'puppeteer-core';
 const resolveDir = fileURLToPath(new URL('.', import.meta.url));
 const loader = { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' };
 
-const PAGE = '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div></body></html>';
+const PAGE =
+  '<!doctype html><html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head><body><div id="root"></div></body></html>';
 
 test('send press keeps the composer field focused on a phone, and desktop focus is unchanged', async (t) => {
   const bundle = await build({
@@ -56,7 +57,8 @@ test('send press keeps the composer field focused on a phone, and desktop focus 
 
   const open = async ({ phone }) => {
     const page = await browser.newPage();
-    if (phone) await page.setViewport({ width: 412, height: 900, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
+    if (phone)
+      await page.setViewport({ width: 412, height: 900, isMobile: true, hasTouch: true, deviceScaleFactor: 1 });
     await page.setContent(PAGE);
     if (phone) await page.evaluate(() => document.documentElement.setAttribute('data-mixdog-mobile-tabs', ''));
     await page.addScriptTag({ content: bundle.outputFiles[0].text });

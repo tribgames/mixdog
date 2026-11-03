@@ -107,10 +107,7 @@ export function BrowserPermissionsGroup({ api, active }: { api: PermissionsApi; 
       {policy.sites.length > 0 && (
         <ul className="browser-permission-sites">
           {policy.sites.map((rule: BrowserPermissionSiteRule) => (
-            <li
-              key={`${rule.embedder ?? ''}|${rule.origin}|${rule.permission}`}
-              className="mixdog-settings__row"
-            >
+            <li key={`${rule.embedder ?? ''}|${rule.origin}|${rule.permission}`} className="mixdog-settings__row">
               <div className="mixdog-settings__copy">
                 <span className="mixdog-settings__row-title">{withoutScheme(rule.origin)}</span>
                 <span className="mixdog-settings__row-desc">
@@ -126,7 +123,10 @@ export function BrowserPermissionsGroup({ api, active }: { api: PermissionsApi; 
                   options={options}
                   onChange={(value) => {
                     // An existing exception is replaced in place, so this is never refused.
-                    const next = withBrowserPermissionSite(policy, { ...rule, setting: value as BrowserPermissionSetting });
+                    const next = withBrowserPermissionSite(policy, {
+                      ...rule,
+                      setting: value as BrowserPermissionSetting,
+                    });
                     if (next) save(next);
                   }}
                 />

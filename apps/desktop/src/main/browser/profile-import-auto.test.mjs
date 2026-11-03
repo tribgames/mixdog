@@ -37,7 +37,9 @@ function manualTimers() {
     async advance(ms) {
       const end = now + ms;
       for (;;) {
-        const due = [...entries.entries()].filter(([, entry]) => entry.due <= end).sort((a, b) => a[1].due - b[1].due)[0];
+        const due = [...entries.entries()]
+          .filter(([, entry]) => entry.due <= end)
+          .sort((a, b) => a[1].due - b[1].due)[0];
         if (!due) break;
         const [id, entry] = due;
         now = entry.due;

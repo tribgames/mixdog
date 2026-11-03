@@ -71,7 +71,6 @@ const HARNESS = `
   };
 `;
 
-const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const assets = { '.woff': 'dataurl', '.woff2': 'dataurl', '.ttf': 'dataurl', '.svg': 'dataurl' };
 
 async function buildHarness() {
@@ -95,9 +94,7 @@ async function openList(browser, script, count) {
   await page.setViewport({ width: 800, height: 400 });
   const errors = [];
   page.on('pageerror', (error) => errors.push(error.message));
-  await page.setContent(
-    '<!doctype html><html><body style="margin:0"><div id="root"></div></body></html>'
-  );
+  await page.setContent('<!doctype html><html><body style="margin:0"><div id="root"></div></body></html>');
   await page.addScriptTag({ content: script });
   await page.evaluate(async (rows) => {
     await window.nextFrames(2);

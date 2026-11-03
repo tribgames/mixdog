@@ -123,7 +123,8 @@ export function createBrowserLocalPrompts(host: {
     if (leave?.pending(guest)) {
       if (!leave.answer(guest, input.requestId, input.accept)) throw new Error(PROMPT_CHANGED);
     } else if (permissions?.pending(guest)) {
-      if (!permissions.answer(guest, input.requestId, input.accept, input.deviceId, input.remember)) throw new Error(PROMPT_CHANGED);
+      if (!permissions.answer(guest, input.requestId, input.accept, input.deviceId, input.remember))
+        throw new Error(PROMPT_CHANGED);
     } else if (dismissed && id(dismissed) === input.requestId) {
       acknowledged.add(dismissed);
     } else throw new Error(PROMPT_CHANGED);
