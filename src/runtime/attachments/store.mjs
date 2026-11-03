@@ -1155,4 +1155,6 @@ function scheduleAttachmentGc() {
 
 export function startAttachmentGc() {
   scheduleAttachmentGc();
+  // Dynamic: staged-originals.mjs imports this module.
+  void import('./staged-originals.mjs').then((staged) => staged.startStagedOriginalsPrune()).catch(() => {});
 }

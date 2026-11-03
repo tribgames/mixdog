@@ -78,7 +78,10 @@ export class AppBoundKeyStore {
   }
 
   /** Keep `key` for the blob `blobSha256`. False (nothing written) when the
-   *  key or hash is malformed or OS encryption is unavailable. */
+   *  key or hash is malformed or OS encryption is unavailable. safeStorage
+   *  takes and returns strings only, so the plaintext record made here and in
+   *  load() is a JS string that cannot be wiped; the at-rest copy is the
+   *  OS-encrypted file. */
   async save(blobSha256: string, key: Buffer): Promise<boolean> {
     if (key.length !== 32 || !SHA256_HEX.test(blobSha256) || !this.available()) return false;
     const sealed = this.encryption.encryptString(

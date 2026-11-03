@@ -157,6 +157,28 @@ export function claimStagedOriginals(refs) {
   }
 }
 
+// A quarter of the retention, so an original is gone by 1.25 x the TTL at worst.
+const PRUNE_INTERVAL_MS = STAGED_ORIGINALS_TTL_MS / 4;
+let pruneStarted = false;
+
+/** Expire staged originals on a timer, for the daemon (the sole writer):
+ *  without it an abandoned original would wait for the next stage or the
+ *  6-hourly census. Idempotent, also while a pass runs; the timer never keeps
+ *  the process alive and a failed pass (lock contention, disk) is retried at
+ *  the next tick. */
+export function startStagedOriginalsPrune() {
+  if (pruneStarted) return;
+  pruneStarted = true;
+  const arm = () => {
+    setTimeout(() => {
+      void pruneStagedOriginals()
+        .catch(() => {})
+        .then(arm);
+    }, PRUNE_INTERVAL_MS).unref?.();
+  };
+  arm();
+}
+
 /** Reconcile the staged set now (expiry, entries without a blob); every
  *  stage does the same. Returns the entries kept. */
 export async function pruneStagedOriginals({ now = Date.now(), ttlMs = STAGED_ORIGINALS_TTL_MS } = {}) {
