@@ -39,3 +39,36 @@ test('getLiveWorkspace of a watched project folder reads HEAD from the cache, wi
   syncBuiltinESMExports();
   assert.deepEqual(calls, []);
 });
+
+test('getLiveWorkspace of a managed worktree names the branch its checkout has now', (t) => {
+  const top = realpathSync(mkdtempSync(join(tmpdir(), 'mixdog-session-view-')));
+  t.after(() => rmSync(top, { recursive: true, force: true }));
+  mkdirSync(join(top, '.git'));
+  const head = (text) => writeFileSync(join(top, '.git', 'HEAD'), `${text}\n`);
+  head('ref: refs/heads/feat/place-review');
+  const workspace = {
+    projectPath: join(top, 'project'),
+    repoCommonDir: join(top, '.git'),
+    cwd: top,
+    worktreeId: 'feat-place-review',
+    branch: 'feat/place-review',
+    baseCommit: null,
+    mergeTarget: 'main',
+    revision: 3,
+    transition: { state: 'idle', txId: null },
+  };
+  const session = { id: 'sess_1', cwd: top, workspace };
+  const view = createSessionWorkspaceView({ getSession: () => session, getCurrentCwd: () => top });
+  assert.equal(view.getLiveWorkspace(), workspace);
+  // Renamed inside the checkout (`git branch -m`): the new name, nothing else changed.
+  head('ref: refs/heads/place');
+  const renamed = view.getLiveWorkspace();
+  assert.deepEqual(renamed, { ...workspace, branch: 'place' });
+  assert.equal(view.getLiveWorkspace(), renamed);
+  // Detached (a rebase, bisect or `switch --detach`): the branch last shown stays.
+  head('0123456789abcdef0123456789abcdef01234567');
+  assert.equal(view.getLiveWorkspace(), renamed);
+  // Renamed back: the stored record as it is.
+  head('ref: refs/heads/feat/place-review');
+  assert.equal(view.getLiveWorkspace(), workspace);
+});
