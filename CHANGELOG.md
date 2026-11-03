@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.4.4 - 2026-11-02
+
 Added a Request log in Usage, live sub-agent side panels, session navigation history, and custom provider request options.
 
 ### New features
