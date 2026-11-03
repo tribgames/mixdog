@@ -1826,6 +1826,11 @@ html[data-mixdog-mobile-tabs]
   place-items: center;
   color: var(--mx-text-muted);
 }
+/* A bare glyph (bubble, fork, branch) starts on the category text line, like
+   an avatar's edge does, instead of floating 3px in from the slot's centring. */
+.session-row-slot:not(.session-row-slot-room) {
+  justify-items: start;
+}
 .session-row-slot-room {
   border-radius: 6px;
   background: var(--mx-hover);
