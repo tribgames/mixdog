@@ -5,6 +5,30 @@ la section Unreleased est vide, et l'estampille avec la version publiée.
 
 ## Unreleased
 
+Cette version ajoute les approbations d'actions par session et entre conversations, les autorisations des sites du navigateur intégré et l'importation automatique des cookies Chrome, ainsi que des améliorations pour Computer Use et l'accès mobile à distance.
+
+### Nouvelles fonctionnalités
+
+- **Approbations d'actions** — Les cartes d'approbation proposent Autoriser pour cette session, les discussions de code prennent en charge Toujours autoriser, révocables via « Demander à nouveau » ; paiements et suppressions définitives demandent toujours.
+- **Autorisations des sites du navigateur** — Gérez les autorisations par défaut et exceptions par site dans Réglages › Authentification, avec des invites mémorisant le choix pour ce site, tous les sites ou jusqu'à la fermeture de l'app.
+- **Importation automatique des cookies Chrome** — Activez « Importer les cookies automatiquement » dans Réglages › Authentification pour réimporter les cookies à la fermeture de Chrome et garder les sites connectés dans le navigateur intégré.
+- **Codes de vérification automatiques** — Lit et remplit automatiquement les codes de connexion à usage unique depuis votre boîte mail connectée, et permet de saisir mots de passe et codes depuis votre téléphone.
+
+### Modifications
+
+- Modification des actions du navigateur pour cliquer directement à travers les étapes et essayer d'abord les sessions existantes ou identifiants enregistrés, ne déléguant que mots de passe, cartes, codes ou contrôles d'identité.
+- Modification de l'application Android pour afficher son propre écran de reconnexion, se reconnecter automatiquement au retour du réseau ou à la réouverture, et proposer « Choisir un autre PC ».
+- Ajustement du chat distant sur téléphone pour garder le clavier ouvert après l'envoi, éviter le saut des messages envoyés et conserver les fichiers originaux des pièces jointes.
+- Ajustement des icônes de session dans la barre latérale à 20px pour une meilleure lisibilité.
+
+### Corrections de bugs
+
+- Correction des clics Computer Use manquant leur cible sur les écrans HiDPI mis à l'échelle et des actions en arrière-plan volant le focus et faisant clignoter la fenêtre active.
+- Correction de l'échec de connexion au site des périphériques HID choisis dans le navigateur intégré (#313).
+- Correction du sélecteur de périphériques HID qui affichait des ovales plats étirés sur toute la ligne au lieu du nom des périphériques (#314).
+- Correction de la liste Sessions qui affichait des lignes vides en revenant d'un autre menu ou sautait tout en haut au-delà de 40 lignes (#315).
+- Correction du sélecteur de modèle dans l'éditeur d'agent qui s'étirait sur toute la largeur de la boîte de dialogue.
+
 ## v1.4.5 - 2026-11-03
 
 Cette version accélère les conversations Claude en cours, organise le panneau Sessions par projet et branche, et introduit les tableaux Studio, tout en améliorant la stabilité lors du travail en parallèle.

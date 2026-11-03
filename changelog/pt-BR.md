@@ -4,6 +4,30 @@ Principais mudanças, das mais recentes para as mais antigas. O pipeline de Depl
 
 ## Unreleased
 
+Esta versão adiciona aprovações de ações por sessão e entre conversas, permissões de sites no navegador integrado e importação automática de cookies do Chrome, além de melhorias no Computer Use e no acesso remoto pelo celular.
+
+### Novos recursos
+
+- **Aprovações de ações** — Os cartões de aprovação oferecem Permitir nesta sessão, conversas de código suportam Permitir sempre e as permissões podem ser revogadas com "Perguntar novamente"; pagamentos e exclusões permanentes sempre pedem confirmação.
+- **Permissões de sites do navegador** — Gerencie permissões padrão e exceções por site em Configurações › Autenticação, com avisos que lembram escolhas para este site, para todos os sites ou até o app ser fechado.
+- **Importação automática de cookies do Chrome** — Ative "Importar cookies automaticamente" em Configurações › Autenticação para reimportar cookies após o fechamento do Chrome, mantendo os sites conectados no navegador integrado.
+- **Códigos de verificação automáticos** — Lê e preenche automaticamente códigos únicos de login da sua caixa de entrada conectada e permite responder a solicitações de senha e código pelo celular.
+
+### Alterações
+
+- Alteradas as ações do navegador para clicar diretamente nas etapas e tentar primeiro sessões existentes ou logins salvos, repassando apenas senhas, números de cartão, códigos ou verificações de identidade.
+- Alterado o app Android para exibir sua própria tela de reconexão, reconectar automaticamente quando a rede voltar ou o app for reaberto e oferecer "Escolher outro PC".
+- Ajustado o chat remoto no celular para manter o teclado aberto após o envio, evitar que mensagens enviadas saltem para cima e preservar os arquivos originais dos anexos.
+- Ajustados os ícones de sessão na barra lateral para 20px para melhor visibilidade.
+
+### Correções de bugs
+
+- Corrigido o problema em que cliques do Computer Use erravam o alvo em telas HiDPI com escala e ações em segundo plano roubavam o foco fazendo a janela ativa piscar.
+- Corrigido o problema em que dispositivos HID escolhidos no navegador integrado não se conectavam ao site (#313).
+- Corrigido o problema em que o seletor de dispositivos HID exibia ovais achatados esticados pela linha em vez dos nomes dos dispositivos (#314).
+- Corrigido o problema em que a lista Sessões exibia linhas em branco ao retornar de outro menu ou saltava para o topo ao passar de 40 linhas (#315).
+- Corrigido o problema em que o seletor de modelo no editor de agentes se esticava por toda a janela de diálogo.
+
 ## v1.4.5 - 2026-11-03
 
 Esta versão acelera conversas contínuas com o Claude, organiza o painel Sessões por projeto e branch e introduz quadros do Studio, além de melhorias de estabilidade para trabalho em paralelo.

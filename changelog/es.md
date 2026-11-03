@@ -5,6 +5,30 @@ la sección Unreleased esté vacía, y la marca con la versión publicada.
 
 ## Unreleased
 
+Esta versión incorpora aprobaciones de acciones por sesión y entre conversaciones, permisos de sitios en el navegador integrado e importación automática de cookies de Chrome, junto con mejoras en Computer Use y el control remoto móvil.
+
+### Nuevas funciones
+
+- **Aprobaciones de acciones** — Las tarjetas de aprobación ofrecen Permitir en esta sesión, los chats de código admiten Permitir siempre y los permisos se revocan con "Preguntar nuevamente"; pagos y eliminaciones permanentes siempre preguntan.
+- **Permisos de sitios del navegador** — Gestione permisos predeterminados y excepciones por sitio en Configuración › Autenticación, con avisos que recuerdan opciones para este sitio, todos los sitios o hasta que se cierre la app.
+- **Importación automática de cookies de Chrome** — Active "Importar cookies automáticamente" en Configuración › Autenticación para reimportar cookies al cerrar Chrome, manteniendo las sesiones iniciadas en el navegador integrado.
+- **Códigos de verificación automáticos** — Lee y completa automáticamente códigos únicos de inicio de sesión desde su buzón conectado, y permite responder solicitudes de contraseñas y códigos desde el teléfono.
+
+### Cambios
+
+- Se cambiaron las acciones del navegador para hacer clic directamente en los pasos y probar primero sesiones existentes o inicios guardados, delegando solo contraseñas, tarjetas, códigos o verificaciones de identidad.
+- Se cambió la app de Android para mostrar su propia pantalla de reconexión, reconectarse automáticamente al volver la red o reabrir la app y ofrecer "Elegir otro PC".
+- Se ajustó el chat remoto en el teléfono para mantener el teclado abierto tras enviar, evitar que los mensajes enviados salten hacia arriba y conservar los archivos originales adjuntos.
+- Se ajustaron los iconos de sesión en la barra lateral a 20px para una visibilidad más clara.
+
+### Correcciones de errores
+
+- Se corrigió que los clics de Computer Use fallaran el objetivo en pantallas HiDPI escaladas y que las acciones en segundo plano quitaran el foco haciendo parpadear la ventana activa.
+- Se corrigió que los dispositivos HID elegidos en el navegador integrado no lograran conectarse al sitio (#313).
+- Se corrigió que el selector de dispositivos HID mostrara óvalos planos estirados a lo largo de la fila en lugar de los nombres de dispositivos (#314).
+- Se corrigió que la lista Sesiones mostrara filas en blanco al volver de otro menú o saltara al principio al superar las 40 filas (#315).
+- Se corrigió que el selector de modelo en el editor de agentes se estirara a lo ancho de todo el cuadro de diálogo.
+
 ## v1.4.5 - 2026-11-03
 
 Esta versión acelera las conversaciones en curso con Claude, organiza el panel Sesiones por proyecto y rama, e introduce tableros de Studio, junto con mejoras de estabilidad para el trabajo en paralelo.

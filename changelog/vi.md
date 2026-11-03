@@ -4,6 +4,30 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+Bản phát hành này bổ sung phê duyệt thao tác theo phiên và trên mọi cuộc trò chuyện, quyền trang web trong trình duyệt tích hợp và tự động nhập cookie Chrome, cùng các cải tiến cho Computer Use và điều khiển từ xa trên điện thoại.
+
+### Tính năng mới
+
+- **Phê duyệt thao tác** — Thẻ phê duyệt có thêm Cho phép trong phiên này, trò chuyện lập trình hỗ trợ Luôn cho phép và có thể thu hồi bằng "Hỏi lại"; thanh toán và xóa vĩnh viễn luôn hỏi xác nhận.
+- **Quyền trang web của trình duyệt** — Quản lý quyền mặc định và ngoại lệ từng trang tại Cài đặt › Xác thực, với lời nhắc ghi nhớ lựa chọn cho trang này, cho mọi trang hoặc cho đến khi thoát ứng dụng.
+- **Tự động nhập cookie Chrome** — Bật "Tự động nhập cookie" trong Cài đặt › Xác thực để nhập lại cookie sau khi đóng Chrome, giúp duy trì đăng nhập các trang trong trình duyệt tích hợp.
+- **Mã xác minh tự động** — Tự động đọc và điền mã đăng nhập dùng một lần từ hộp thư đã kết nối, đồng thời cho phép trả lời yêu cầu nhập mật khẩu và mã từ điện thoại.
+
+### Thay đổi
+
+- Thay đổi thao tác trình duyệt để trực tiếp nhấp qua các bước và thử phiên hiện có hoặc thông tin đăng nhập đã lưu trước, chỉ chuyển giao mật khẩu, số thẻ, mã hoặc bước xác minh danh tính.
+- Thay đổi ứng dụng Android để hiển thị màn hình kết nối lại riêng, tự động kết nối lại khi có mạng hoặc mở lại ứng dụng và có tùy chọn "Chọn máy tính khác".
+- Điều chỉnh trò chuyện từ xa trên điện thoại để giữ bàn phím mở sau khi gửi, tin nhắn đã gửi không bị nhảy lên và tệp đính kèm giữ nguyên tệp gốc.
+- Điều chỉnh biểu tượng phiên trên thanh bên lên 20px để hiển thị rõ nét hơn.
+
+### Sửa lỗi
+
+- Sửa lỗi nhấp chuột của Computer Use lệch mục tiêu trên màn hình HiDPI có thu phóng và thao tác chạy nền chiếm tiêu điểm làm nhấp nháy cửa sổ đang dùng.
+- Sửa lỗi thiết bị HID được chọn trong trình duyệt tích hợp không kết nối được với trang web (#313).
+- Sửa lỗi hộp thoại chọn thiết bị HID hiển thị các hình bầu dục dẹt kéo giãn ngang hàng thay vì tên thiết bị (#314).
+- Sửa lỗi danh sách Phiên hiển thị các hàng trống khi quay lại từ menu khác hoặc nhảy lên đầu khi vượt quá 40 hàng (#315).
+- Sửa lỗi menu chọn mô hình trong trình chỉnh sửa agent bị kéo giãn ra toàn bộ hộp thoại.
+
 ## v1.4.5 - 2026-11-03
 
 Bản phát hành này tăng tốc các cuộc trò chuyện Claude đang diễn ra, sắp xếp bảng Phiên theo dự án và nhánh, đồng thời ra mắt bảng Studio cùng các cải tiến về độ ổn định cho công việc song song.
