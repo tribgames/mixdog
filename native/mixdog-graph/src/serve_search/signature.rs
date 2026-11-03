@@ -654,6 +654,15 @@ pub(super) fn remember_content_signature(
     if !signature.complete {
         return;
     }
+    // A watcher-trusted entry is reused without a stat, but the watcher only
+    // sees changes under the resolved paths it watches, never to the file a
+    // link (the file itself or any directory above it) points at, often
+    // outside every watched root. A path that is not its own resolved form is
+    // therefore never kept: it is rebuilt on each use, like any file the
+    // watcher does not cover.
+    if !is_canonical_path(path) {
+        return;
+    }
     let Some((size, modified_ns)) = file_content_fingerprint(path) else {
         return;
     };

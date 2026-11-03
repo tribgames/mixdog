@@ -13,6 +13,13 @@ pub(super) fn normalized_operand(operand: &Path) -> PathBuf {
     PathBuf::from(wire_path(&canonical))
 }
 
+/// True when no component of `path` is a symlink or junction (and it exists):
+/// its resolved form is the same path, compared like every other prefix test.
+pub(super) fn is_canonical_path(path: &Path) -> bool {
+    std::fs::canonicalize(path)
+        .is_ok_and(|real| path_starts_with(&real, path) && path_starts_with(path, &real))
+}
+
 pub(super) fn path_starts_with(rooted: &Path, root: &Path) -> bool {
     if rooted.starts_with(root) {
         return true;

@@ -12,6 +12,20 @@ pub(super) fn overlaps_any_root(operand: &Path, roots: &[PathBuf]) -> bool {
         .any(|root| FileListStore::paths_overlap(operand, root))
 }
 
+/// The inventory walker never descends into symlinked directories, so the
+/// watcher must not either. Following them makes inotify register the link
+/// target's inode under the link spelling (one watch descriptor per inode; the
+/// last registered path wins), so events for a real directory can arrive as
+/// `<root>/<link>/file` and miss the cache keys, which hold the walked path.
+pub(super) fn new_watcher(
+    handler: impl notify::EventHandler,
+) -> notify::Result<RecommendedWatcher> {
+    RecommendedWatcher::new(
+        handler,
+        notify::Config::default().with_follow_symlinks(false),
+    )
+}
+
 const REPAIR_DEBOUNCE: Duration = Duration::from_millis(300);
 const REPAIR_MIN_GAP: Duration = Duration::from_millis(1_000);
 const REPAIR_BATCH_LIMIT: usize = 2_048;
@@ -336,11 +350,10 @@ impl FileListStore {
         let mut watcher = lock_recover(&self.watcher);
         if watcher.is_none() {
             let weak: Weak<Self> = Arc::downgrade(self);
-            let created =
-                notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
-                    let Some(store) = weak.upgrade() else { return };
-                    apply_watch_event(&store, event);
-                });
+            let created = new_watcher(move |event: notify::Result<notify::Event>| {
+                let Some(store) = weak.upgrade() else { return };
+                apply_watch_event(&store, event);
+            });
             let Ok(created) = created else { return false };
             *watcher = Some(created);
             self.watcher_healthy.store(true, Ordering::Release);
