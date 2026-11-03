@@ -8,7 +8,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { readJsonStateSync, writeJsonAtomicSync } from './atomic-file.mjs';
-import { createWatchedFileCache, fileStampSync } from './watched-file-cache.mjs';
+import { createWatchedFileCache } from './watched-file-cache.mjs';
 import { setBotRouteResolver } from './agent-route-config.mjs';
 
 export const BOTS_DIR = 'bots';
@@ -26,19 +26,31 @@ function requireObject(value) {
 // good copy (agent.json.bak, left by writeBotRoute) restored; otherwise it
 // stays in place — the connector policy reader treats a missing agent.json as
 // "every connector on" — and reads as absent. Any read failure reads as absent.
+const JSON_STATE = { validate: requireObject, keepWithoutBackup: true };
 function readJson(file) {
   try {
-    return readJsonStateSync(file, { validate: requireObject, keepWithoutBackup: true });
+    return readJsonStateSync(file, JSON_STATE);
   } catch {
     return null;
   }
 }
 
 // The store is read on route and catalog paths: warm reads come from memory
-// (watched-file-cache.mjs), reloaded only once the file changed.
-const fileCache = createWatchedFileCache((file) => {
-  const stamp = fileStampSync(file);
-  return { stamp, value: stamp === 'missing' ? null : readJson(file) };
+// (watched-file-cache.mjs), re-read once the file changed. A missing or
+// damaged file reads as absent; any other failure throws, so the cache keeps
+// what it had. The re-read is one synchronous read (no `loadAsync`): this
+// process replaces these files synchronously (route writes, the agent
+// editor, the bot split), and an async read's handle left open across loop
+// turns would fail that rename on Windows while its retries block the loop.
+const fileCache = createWatchedFileCache({
+  load(file) {
+    try {
+      return { value: readJsonStateSync(file, JSON_STATE) };
+    } catch (error) {
+      if (error?.code === 'ENOTDIR') return { value: null };
+      throw error;
+    }
+  },
 });
 /** For this process's writers that bypass this module (the bot-store
  *  migrations): what they rewrote under bots/ reads fresh at once. */

@@ -71,6 +71,8 @@ test('a unique original session recovers a legacy tag without widening ownership
   const session = original('lead-a');
   const { registry, read } = fixture(t, [session], [legacy()]);
   const before = read();
+  // A tool call resolves legacy owners first (execute.mjs); reads never list sessions.
+  registry.resolveTombstoneOwners();
   const recovered = registry.tagTombstoneForTag('shared', { callerSessionId: 'lead-a', clientHostPid: 9999 });
   assert.equal(recovered.sessionId, session.id);
   assert.equal(recovered.ownerSessionId, 'lead-a');

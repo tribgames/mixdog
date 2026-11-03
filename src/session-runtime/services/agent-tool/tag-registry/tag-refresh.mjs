@@ -3,8 +3,25 @@
 import { agentTagOf, sessionMatchesContext } from '../helpers.mjs';
 import { isLeadPoolAgent } from '../worker-rows.mjs';
 
-export function createTagRefresh({ tags, tagMaps, mgr, reaper, refreshTagsFromIndex, getLiveSession }) {
-  return function refreshTagsFromSessions({ scanSessions = false, context = {} } = {}) {
+export function createTagRefresh({
+  tags,
+  tagMaps,
+  mgr,
+  reaper,
+  refreshTagsFromIndex,
+  resolveTombstoneOwners,
+  getLiveSession,
+}) {
+  // `memoryOnly` (the status pulse): only the index rows bind tags. Reaping,
+  // the unbinding pass and legacy tombstone owners load session records or
+  // the catalog, so they run on tool calls and in the maintenance pass
+  // (maintenance-pass.mjs) instead.
+  return function refreshTagsFromSessions({ scanSessions = false, context = {}, memoryOnly = false } = {}) {
+    if (memoryOnly) {
+      refreshTagsFromIndex(context);
+      return;
+    }
+    resolveTombstoneOwners();
     reaper.transitionStaleNonterminalRows(context);
     const indexedRows = refreshTagsFromIndex(context);
     const indexedKeys = new Set(indexedRows.map((row) => `${row.tag}\0${row.sessionId}`));

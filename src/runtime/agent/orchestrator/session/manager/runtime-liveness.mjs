@@ -174,6 +174,8 @@ export function updateSessionStage(id, stage) {
   entry.lastProgressAt = now;
   entry.updatedAt = now;
   if (stage !== 'tool_running') _stopToolActivityHeartbeat(id);
+  // Agent status surfaces show the stage: they re-read on this pulse.
+  if (priorStage !== stage) emitSessionActivityChange(id);
 }
 
 /**
@@ -312,6 +314,7 @@ export async function markSessionStreamDelta(id, kind = 'semantic') {
   // mid-tool (tool_running has its own delta source if the tool streams back).
   if (entry.stage === 'connecting' || entry.stage === 'requesting') {
     entry.stage = 'streaming';
+    emitSessionActivityChange(id);
   }
   // Disk-side session.lastHeartbeatAt is the 60s zombie-reaper signal.
   const session = entry.session;
@@ -327,7 +330,9 @@ export function markSessionToolCall(id, toolName) {
   // revive a runtime from a late provider callback after the turn settled.
   const entry = _runtimeState.get(id);
   if (!entry || entry.closed || entry.controller?.signal?.aborted || TERMINAL_STAGES.has(entry.stage)) return;
+  const priorStage = entry.stage;
   entry.stage = 'tool_running';
+  if (priorStage !== 'tool_running') emitSessionActivityChange(id);
   entry.lastToolCall = toolName || null;
   // A new tool call invalidates the previous call's live-output tail.
   entry.toolOutputTail = null;

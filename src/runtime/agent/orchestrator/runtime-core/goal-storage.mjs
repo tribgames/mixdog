@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
   parseJsonText,
+  readJsonState,
   readJsonStateSync,
   unsupportedState,
   withFileLock,
@@ -10,7 +11,7 @@ import {
 } from '../../../shared/atomic-file.mjs';
 import { clean } from '../../../shared/clean.mjs';
 import { runtimeAsyncLocalStorage } from '../../../shared/root-async-context.mjs';
-import { createWatchedFileCache, fileStampSync, forgetWatchedFile } from '../../../shared/watched-file-cache.mjs';
+import { createWatchedFileCache, forgetWatchedFile } from '../../../shared/watched-file-cache.mjs';
 import {
   DEFAULT_COMPLETED_GOAL_TTL_MS,
   GOAL_FILE_VERSION,
@@ -108,8 +109,8 @@ export function reportGoalStorageError(error) {
 // restores the last good `.bak` when there is one, else the session has no
 // Goal. A record from a newer build is left in place and reads as no Goal.
 // Real I/O errors still throw.
-function readGoalRecordFile(path, sessionId, normalizeGoal, at) {
-  const record = readJsonStateSync(path, {
+function goalRecordReadOptions(sessionId, normalizeGoal, at) {
+  return {
     secret: true,
     fallback: null,
     validate(parsed) {
@@ -128,7 +129,16 @@ function readGoalRecordFile(path, sessionId, normalizeGoal, at) {
         throw new Error('invalid Goal value');
       return { version: GOAL_FILE_VERSION, goal: normalizeGoal(parsed.goal, sessionId, at) };
     },
-  });
+  };
+}
+
+function readGoalRecordFile(path, sessionId, normalizeGoal, at) {
+  const record = readJsonStateSync(path, goalRecordReadOptions(sessionId, normalizeGoal, at));
+  return record ?? { version: GOAL_FILE_VERSION, goal: null };
+}
+
+async function readGoalRecordFileAsync(path, sessionId, normalizeGoal, at) {
+  const record = await readJsonState(path, goalRecordReadOptions(sessionId, normalizeGoal, at));
   return record ?? { version: GOAL_FILE_VERSION, goal: null };
 }
 
@@ -159,11 +169,26 @@ async function refuseNewerRecord(path) {
   }
 }
 
-// A stat/read refused while the file is being replaced (Windows rename over
-// an open handle) or momentarily locked. The committed cache still holds the
-// last durable record, which is the right answer for a read that lands inside
-// another writer's critical section.
-const TRANSIENT_READ_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+// Process-wide: whichever runtime's storage noticed the change, every session
+// view of that Goal (the daemon's status scheduler) hears it.
+const goalRecordListeners = new Set();
+
+function notifyGoalRecordChange(sessionId) {
+  for (const listener of [...goalRecordListeners]) {
+    try {
+      listener(sessionId);
+    } catch {}
+  }
+}
+
+/** `listener(sessionId)`: a Goal record this process had read changed — a
+ *  re-read found another record (whoever wrote it; this process's own write
+ *  reads back unchanged), or this process deleted it. Reads now return the
+ *  change. A re-read that fails keeps the last record and tells nobody. */
+export function subscribeGoalRecordChange(listener) {
+  goalRecordListeners.add(listener);
+  return () => goalRecordListeners.delete(listener);
+}
 
 // `{ id, active }`: the session whose read-modify-write runs in this async context.
 const mutating = runtimeAsyncLocalStorage();
@@ -171,17 +196,28 @@ const mutating = runtimeAsyncLocalStorage();
 // Cached records are committed snapshots, never mutable working copies.
 // Publish only after the atomic writer succeeds; failed writes leave both
 // observers and later mutations on the last durable state.
-// Observation reads come from memory (watched-file-cache.mjs); only a change
-// by another process, seen by the directory watch or the safety re-check,
-// reloads. A mutation (`mutate`) holds the record's lock throughout and reads
+// Observation reads come from memory (watched-file-cache.mjs), which re-reads
+// the record off the loop whenever its directory reports a change. A mutation (`mutate`) holds the record's lock throughout and reads
 // the disk, so it never modifies a snapshot another writer has replaced.
 export function createGoalStorage({ pathFor, normalizeGoal, now, writeRecord = writeJsonAtomicAsync }) {
   const writing = new Set();
   const ids = new Map();
-  const cache = createWatchedFileCache((path) => {
-    const stamp = fileStampSync(path);
-    return { stamp, value: readGoalRecordFile(path, ids.get(path), normalizeGoal, now()) };
-  });
+  const cache = createWatchedFileCache(
+    {
+      load(path) {
+        return { value: readGoalRecordFile(path, ids.get(path), normalizeGoal, now()) };
+      },
+      async loadAsync(path) {
+        return { value: await readGoalRecordFileAsync(path, ids.get(path), normalizeGoal, now()) };
+      },
+    },
+    {
+      onChange(path) {
+        const id = ids.get(path);
+        if (id) notifyGoalRecordChange(id);
+      },
+    }
+  );
   const read = (id) => {
     const path = pathFor(id);
     const cached = cache.peek(path);
@@ -191,12 +227,9 @@ export function createGoalStorage({ pathFor, normalizeGoal, now, writeRecord = w
     ids.set(path, id);
     const scope = mutating.getStore();
     if (scope?.active && scope.id === id) return structuredClone(cache.get(path, { fresh: true }));
-    try {
-      return structuredClone(cache.get(path));
-    } catch (error) {
-      if (cached && TRANSIENT_READ_CODES.has(error?.code)) return structuredClone(cached);
-      throw error;
-    }
+    // A held record is served even when its last re-read failed (a read
+    // inside another writer's replace); the next watch event reads again.
+    return structuredClone(cache.get(path));
   };
   return {
     read,
@@ -238,8 +271,8 @@ export function createGoalStorage({ pathFor, normalizeGoal, now, writeRecord = w
           },
           { timeoutMs: 2_000 }
         );
-        // Visible at once. No stamp: a stat now could belong to another
-        // writer, so the next watch event or re-check reloads the file once.
+        // Visible at once; the cache reads the file back once (another
+        // writer's bytes may already have replaced these).
         cache.set(path, snapshot);
       } finally {
         writing.delete(id);

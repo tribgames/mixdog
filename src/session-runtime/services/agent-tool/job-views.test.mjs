@@ -64,7 +64,7 @@ test('list projects agent sessions and keeps only rows that can still do work un
     ],
   });
   const active = api.list({ scanSessions: true, context: { callerSessionId: 'lead' } });
-  assert.deepEqual(refreshes, [{ scanSessions: true, context: { callerSessionId: 'lead' } }]);
+  assert.deepEqual(refreshes, [{ scanSessions: true, context: { callerSessionId: 'lead' }, memoryOnly: false }]);
   assert.deepEqual(
     active.map((row) => [row.tag, row.status, row.stage]),
     [['a', 'streaming', 'streaming']]

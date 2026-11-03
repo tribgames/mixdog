@@ -207,7 +207,7 @@ function executeWithViews(views) {
   return createAgentExecute({
     mgr: {},
     awaitKeychainPrewarm: async () => {},
-    registry: { wantsSessionScan: () => false },
+    registry: { wantsSessionScan: () => false, resolveTombstoneOwners: () => {} },
     views,
   });
 }

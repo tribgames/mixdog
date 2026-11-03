@@ -1,11 +1,13 @@
 // worker-index/row-store.mjs
-// The on-disk worker index file: an mtime-keyed parse cache in front of it and
-// the single in-process writer queue that republishes rows + tombstones. Every
+// The on-disk worker index file: a watched parse cache in front of it and the
+// single in-process writer queue that republishes rows + tombstones. Every
 // worker index of a process over one file shares one store (acquireWorkerRowStore),
 // so all of them serialize through the same projection and queue.
-import { readFileSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
+import fsp from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 
+import { createWatchedFileCache } from '../../../../runtime/shared/watched-file-cache.mjs';
 import { createIndexWriteQueue } from '../index-write-queue.mjs';
 import { normalizeTagTombstones, tagTombstoneKey, workerRowKey } from '../worker-rows.mjs';
 import { RELEASED_FILE, createReleasedStore } from './released-store.mjs';
@@ -61,16 +63,103 @@ function rewriteIndexDocument(cur, mutator) {
   return { version: 2, updatedAt: new Date().toISOString(), workers, tombstones };
 }
 
+const EMPTY_DOC = Object.freeze({ parsed: null, rows: [], tombstones: [] });
+
+// Cold read of the index. A read that fails (a sharing violation, EPERM)
+// throws: it says nothing about these bytes. Bytes that do not parse read as
+// empty until the file changes.
+function loadIndexDoc(path) {
+  let text = '';
+  try {
+    text = readFileSync(path, 'utf8');
+  } catch (error) {
+    if (ABSENT_CODES.has(error?.code)) return { value: EMPTY_DOC };
+    throw error;
+  }
+  return { value: parseIndexDoc(text) };
+}
+
+/** loadIndexDoc off the loop; null when the file could not be read. */
+async function loadIndexDocAsync(path) {
+  let text = '';
+  try {
+    text = await fsp.readFile(path, 'utf8');
+  } catch (error) {
+    return ABSENT_CODES.has(error?.code) ? { value: EMPTY_DOC } : null;
+  }
+  return { value: parseIndexDoc(text) };
+}
+
+const ABSENT_CODES = new Set(['ENOENT', 'ENOTDIR']);
+const docOf = (parsed) => ({ parsed, rows: normalizeWorkerRows(parsed), tombstones: normalizeTagTombstones(parsed) });
+
+function parseIndexDoc(text) {
+  try {
+    return docOf(JSON.parse(text));
+  } catch {
+    return EMPTY_DOC;
+  }
+}
+
 /** `file` may be null (no data dir): reads are empty and writes are no-ops. */
 export function createWorkerRowStore(file) {
   // The release markers live in their own file beside the index, so a writer
   // that rebuilds the index document never drops them.
   const released = createReleasedStore(file ? join(dirname(file), RELEASED_FILE) : null);
-  // Mtime-keyed parse cache. A single spawn calls refreshTagsFromSessions /
-  // resolveTag / nextTag, which each re-read and re-parse this file; across a
-  // parallel fanout that is O(spawns^2) synchronous reads of the same bytes.
-  let cache = null; // { mtimeMs, size, parsed, rows, tombstones }
+  // Every Lead's agent-status pulse (every 2 s) and each spawn's tag
+  // resolution read this file, and none of them waits on it: reads serve
+  // `current`, the document as this process last read it — or, once its own
+  // write landed, the document that write put there. Every watch event on the file (whoever
+  // wrote it) has the watched cache re-read it off the loop, debounced; the
+  // old document is served until a differing one lands. The disk is read
+  // synchronously only when nothing was read yet (a store's first holder, at
+  // construction) or a caller asks for it fresh (a new holder, the base of a
+  // write).
+  // `onChange` (`changeListeners`): every write, and every re-read whose
+  // document differs from the one served.
+  const changeListeners = new Set();
+  const emitChange = () => {
+    for (const listener of [...changeListeners]) {
+      try {
+        listener();
+      } catch {
+        /* observers never affect the store */
+      }
+    }
+  };
+  let current = null; // { parsed, rows, tombstones }
+  let syncRead = false;
   let dirty = true;
+  const docs = file
+    ? createWatchedFileCache(
+        {
+          load(path) {
+            // Off a sync read the cache takes `current` back: changes are read
+            // by its re-read, never inside the read that stores a write.
+            if (current && !syncRead) return { value: current };
+            const loaded = loadIndexDoc(path);
+            current = loaded.value;
+            return loaded;
+          },
+          async loadAsync(path) {
+            const loaded = await loadIndexDocAsync(path);
+            if (!loaded) throw new Error('worker index unreadable');
+            return loaded;
+          },
+        },
+        {
+          // A re-read whose document differs (a failed one keeps the last
+          // good document; the next event reads again). The cache discards a
+          // re-read that started before a newer document was stored.
+          onChange: () => {
+            const next = docs.peek(file);
+            if (!next || next === current) return;
+            current = next;
+            emitChange();
+          },
+        }
+      )
+    : null;
   // Unpersisted writes: reads are served from the queue's projection so a
   // caller sees its own write before the async persist lands.
   let projected = null; // { version, rows, tombstones }
@@ -78,16 +167,29 @@ export function createWorkerRowStore(file) {
   const queue = createIndexWriteQueue({
     file,
     rewrite: rewriteIndexDocument,
-    // A fresh disk read: the cache stat can collide with another process's write.
+    // A fresh disk read: another process's write may not have been noticed yet.
     readDoc: () => {
       dirty = true;
-      readAll();
-      return cache?.parsed ?? null;
+      return diskDoc().parsed;
     },
-    // The file changed: force the next read to re-parse even if the new
-    // mtime/size happen to collide with the cached stat.
-    onPersisted: () => {
-      dirty = true;
+    // This process's write landed: `doc` (written under the lock, other
+    // processes' rows merged in) is what the file holds, stored at once so
+    // the write never reads as undone. Storing it supersedes any re-read
+    // already in flight (those bytes may predate the write). The file is read
+    // back on the write's own watch event, as after any change — not at once:
+    // a read still open when this process's next write renames over the file
+    // fails that rename on Windows (EPERM), and a synchronous flush retrying
+    // it holds the loop the read needs to finish.
+    onPersisted: (doc) => {
+      if (!doc || !docs) return;
+      const changed = JSON.stringify(doc) !== JSON.stringify(current?.parsed);
+      if (changed) current = docOf(doc);
+      try {
+        docs.get(file, { fresh: true }); // the loader hands `current` over
+      } catch {
+        /* the next read stores it */
+      }
+      if (changed) emitChange();
     },
     // The same rule against the locked document: a replayed row keeps the
     // flag that is on disk now, not the one the projection held.
@@ -103,40 +205,32 @@ export function createWorkerRowStore(file) {
     return projected;
   }
 
-  function readAll() {
-    if (!file) return [];
-    const view = projectedView();
-    if (view) return view.rows;
-    let st = null;
-    try {
-      st = statSync(file);
-    } catch {
-      cache = null;
-      return [];
-    }
-    if (!dirty && cache && cache.mtimeMs === st.mtimeMs && cache.size === st.size) return cache.rows;
-    let rows = [];
-    let tombstones = [];
-    let parsed = null;
-    try {
-      parsed = JSON.parse(readFileSync(file, 'utf8'));
-      rows = normalizeWorkerRows(parsed);
-      tombstones = normalizeTagTombstones(parsed);
-    } catch {
-      parsed = null;
-      rows = [];
-      tombstones = [];
-    }
-    cache = { mtimeMs: st.mtimeMs, size: st.size, parsed, rows, tombstones };
+  // The document on disk as this process knows it: `{ parsed, rows, tombstones }`.
+  function diskDoc() {
+    if (!docs) return EMPTY_DOC;
+    if (current && !dirty) return current;
     dirty = false;
-    return rows;
+    syncRead = true;
+    try {
+      return docs.get(file, { fresh: true });
+    } catch {
+      // The read failed: the last good document stands (empty before one);
+      // the next watch event re-reads the file, and a store that never read
+      // it tries again on its next read.
+      return current ?? EMPTY_DOC;
+    } finally {
+      syncRead = false;
+    }
   }
 
-  // Rows and tombstones must come from the same read/projection. In
-  // particular, do not stat and reload the file between the two collections.
+  // Rows and tombstones must come from the same read/projection.
   function readSnapshot() {
-    const rows = readAll();
-    return { rows, tombstones: (projectedView() || cache)?.tombstones || [] };
+    const view = projectedView() || diskDoc();
+    return { rows: view.rows, tombstones: view.tombstones };
+  }
+
+  function readAll() {
+    return readSnapshot().rows;
   }
 
   function readTombstones() {
@@ -146,7 +240,11 @@ export function createWorkerRowStore(file) {
   // Single writer path: the mutator runs now over keyed maps against the
   // in-process projection (see index-write-queue.mjs); its effect is
   // republished as rows + tombstones by one async locked writer.
-  const write = (mutator) => queue.write(typeof mutator === 'function' ? keepingAwaitingUser(mutator) : mutator);
+  const write = (mutator) => {
+    const next = queue.write(typeof mutator === 'function' ? keepingAwaitingUser(mutator) : mutator);
+    if (next) emitChange();
+    return next;
+  };
 
   return {
     readAll,
@@ -159,7 +257,17 @@ export function createWorkerRowStore(file) {
     /** Conditional field update: `mutator` runs now on the projection and again
      *  on the locked document when persisted, so its condition is re-checked
      *  against what is on disk. The one writer of `awaitingUser`. */
-    update: (mutator) => queue.write(mutator, { rerun: true }),
+    update: (mutator) => {
+      const next = queue.write(mutator, { rerun: true });
+      if (next) emitChange();
+      return next;
+    },
+    /** `listener()` runs when the rows may have changed; returns the unsubscribe. */
+    onChange(listener) {
+      if (typeof listener !== 'function') return () => {};
+      changeListeners.add(listener);
+      return () => changeListeners.delete(listener);
+    },
     /** Resolves once every write so far is on disk. */
     flush: async () => {
       await Promise.all([queue.flush(), released.flush()]);
@@ -174,6 +282,8 @@ export function createWorkerRowStore(file) {
       dirty = true;
       released.invalidate();
     },
+    /** Last holder gone: the directory watch closes. */
+    close: () => docs?.close(),
   };
 }
 
@@ -200,6 +310,7 @@ export function acquireWorkerRowStore(file) {
       const dropIfIdle = () => {
         if (entry.refs === 0 && !entry.store.hasUnpersisted() && sharedStores.get(key) === entry) {
           sharedStores.delete(key);
+          entry.store.close();
         }
       };
       // A store still holding unpersisted writes stays shared (a new holder

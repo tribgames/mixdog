@@ -1,10 +1,12 @@
 import assert from 'node:assert/strict';
-import fs, { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import fsp from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import { bridgeDiscoveryChanged, readBridgeDiscovery } from './bridge-discovery.mjs';
-import { SAFETY_RECHECK_MS, _resetWatchedFileCachesForTest } from './shared/watched-file-cache.mjs';
+import { _resetWatchedFileCachesForTest } from './shared/watched-file-cache.mjs';
 import { eventually, settle, spySyncFs } from './shared/watched-file-cache.test-helpers.mjs';
 
 const FILE = 'test-bridge.json';
@@ -48,19 +50,23 @@ test('an atomic replacement of the advertisement is seen through the watch', asy
   await eventually(() => port() === 4001);
 });
 
-test('without watch events the safety re-check sees a new advertisement', async (t) => {
-  t.mock.method(fs, 'watch', () => {
-    throw Object.assign(new Error('no watch'), { code: 'ENOSYS' });
-  });
-  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
+test('a re-read that cannot read the advertisement keeps the last one', async (t) => {
   const { publish } = discoveryFixture(t);
   publish(4000);
   assert.equal(port(), 4000);
+  const readFile = fsp.readFile;
+  let refused = 0;
+  t.mock.method(fsp, 'readFile', async (target, ...rest) => {
+    if (!String(target).endsWith(FILE)) return readFile(target, ...rest);
+    refused += 1;
+    throw Object.assign(new Error('sharing violation'), { code: 'EBUSY' });
+  });
+  syncBuiltinESMExports();
+  t.after(() => syncBuiltinESMExports());
   publish(4001);
-  await settle();
-  assert.equal(port(), 4000, 'no re-check before its interval');
-  t.mock.timers.tick(SAFETY_RECHECK_MS);
-  await eventually(() => port() === 4001);
+  await eventually(() => refused > 0);
+  await settle(100);
+  assert.equal(port(), 4000, 'a failed read is no missing advertisement');
 });
 
 test('a replacement advertisement is a different endpoint, never a missing file', () => {

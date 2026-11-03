@@ -32,7 +32,8 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
   const awaitingUser = createAwaitingUserSync(store, mgr);
   const batch = createMutationBatch(store.write, awaitingUser.reconcileDeferred);
   const settlement = createRestartSettlement({ store, cfgMod, mgr });
-  const { readWorkerRows, readAllTagTombstones } = createWorkerRowReads(store, mgr);
+  const reads = createWorkerRowReads(store, mgr);
+  const { readWorkerRows, readAllTagTombstones } = reads;
 
   // Every upsert also projects the row into the in-memory tag maps so tag
   // lookups never wait on a disk round-trip.
@@ -77,6 +78,7 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
   const unregisterApprovalWaits = registerApprovalWaitWriter(file, awaitingUser.setAwaitingUser);
 
   function teardown() {
+    reads.stop();
     stopTurnStartListener();
     unregisterExitFlush();
     unregisterApprovalWaits();
@@ -94,6 +96,15 @@ export function createWorkerIndex({ dataDir, cfgMod, mgr, tags, tagAgents, tagCw
     readAllTagTombstones,
     readTagTombstones: (context = {}) => readAllTagTombstones().filter((row) => rowMatchesContext(row, context)),
     readWorkerRows,
+    resolveTombstoneOwners: reads.resolveTombstoneOwners,
+    /** `listener()` runs when what the reads answer may have changed: the
+     *  rows or tombstones, or a legacy tombstone's resolved owner. */
+    onRowsChange(listener) {
+      const stops = [store.onChange(listener), reads.onOwnersResolved(listener)];
+      return () => {
+        for (const stop of stops) stop();
+      };
+    },
     writeWorkerRows: store.write,
     flushWorkerIndexMutations: batch.flush,
     /** Resolves once every queued index write is on disk. */

@@ -11,29 +11,44 @@ import { _readStoredSessionCached } from './load-cache.mjs';
 import { _ensureLifecycleFields } from './serialize.mjs';
 import { isSettledSessionStamp, sameSessionStamp, statSessionStamp } from './canonical-reader.mjs';
 
-export function loadSession(id) {
-  const path = sessionPath(id);
-  const pending = _savePending.get(id);
-  const live = _liveSessions.get(id);
-  const preferInMemory = (stored) => {
-    // Read-your-writes: queued state is newer than the payload being written.
-    const inMemory = (pending?.queued || pending?.payload)?.session;
-    if (inMemory?.id === id) return inMemory;
-    if (live?.id !== id) return null;
-    // A higher disk generation means another process took ownership. A
-    // dropped save is the exception: the live copy still contains unsaved
-    // content, so a generation bump must not discard the only complete copy.
-    const liveGen = typeof live.generation === 'number' ? live.generation : 0;
-    const storedGen = stored && typeof stored.generation === 'number' ? stored.generation : 0;
-    if (stored && storedGen > liveGen && !_droppedSaveIds.has(id)) return null;
-    return live;
+/** This process's in-memory copies of `id`, as resolveSessionCopy weighs them. */
+export function sessionMemoryCopies(id) {
+  return {
+    pending: _savePending.get(id),
+    live: _liveSessions.get(id),
+    droppedSave: _droppedSaveIds.has(id),
+    failedSave: () => getFailedSaveSnapshot(id),
   };
-  // An existing file owns this identity. Its contents must validate before
-  // fresher in-memory state is allowed to shadow it. The cache retains a
-  // validated disk header, rather than a second transcript, when that header
-  // proves the live/pending snapshot will be served.
-  const disk = _readStoredSessionCached(id, path, { preferInMemory });
-  if (disk.exists && !disk.session) {
+}
+
+/** The in-memory copy that speaks for `id` over its readable record `stored`
+ *  (a document or just its `{ id, generation }` header; null when there is no
+ *  record), or null when the record does. */
+export function inMemorySessionCopy(id, memory, stored) {
+  // Read-your-writes: queued state is newer than the payload being written.
+  const inMemory = (memory.pending?.queued || memory.pending?.payload)?.session;
+  if (inMemory?.id === id) return inMemory;
+  const live = memory.live;
+  if (live?.id !== id) return null;
+  // A higher disk generation means another process took ownership. A
+  // dropped save is the exception: the live copy still contains unsaved
+  // content, so a generation bump must not discard the only complete copy.
+  const liveGen = typeof live.generation === 'number' ? live.generation : 0;
+  const storedGen = stored && typeof stored.generation === 'number' ? stored.generation : 0;
+  if (stored && storedGen > liveGen && !memory.droppedSave) return null;
+  return live;
+}
+
+/**
+ * Which copy speaks for `id`, loadSession's precedence as a pure decision:
+ * `memory` from sessionMemoryCopies, `record` the disk read's `{ exists,
+ * session }` (`session` null for an existing record that cannot be read).
+ * Returns `{ session, from }`, `from` one of 'memory', 'failed-save',
+ * 'unreadable', 'record' or 'absent'. Lifecycle fields and dropping a live
+ * copy the record outranks are the caller's.
+ */
+export function resolveSessionCopy(id, memory, record) {
+  if (record.exists && !record.session) {
     // An existing-but-unreadable file OWNS the identity: an externally
     // corrupted, foreign, ambiguous or half-written file from another
     // writer is REPORTED (null), never masked by whatever this process
@@ -50,14 +65,28 @@ export function loadSession(id) {
     // Lifecycle and pending-ownership authorities do not come through
     // here at all (they read the durable record directly), so they keep
     // seeing 'unreadable' and failing closed.
-    const recovered = getFailedSaveSnapshot(id);
-    if (recovered?.id === id) return _ensureLifecycleFields(recovered);
-    return null;
+    const recovered = memory.failedSave();
+    return recovered?.id === id ? { session: recovered, from: 'failed-save' } : { session: null, from: 'unreadable' };
   }
-  const inMemory = preferInMemory(disk.session);
-  if (inMemory) return _ensureLifecycleFields(inMemory);
-  if (live?.id === id) _liveSessions.delete(id);
-  return disk.session ? _ensureLifecycleFields(disk.session) : null;
+  const inMemory = inMemorySessionCopy(id, memory, record.session);
+  if (inMemory) return { session: inMemory, from: 'memory' };
+  return record.session ? { session: record.session, from: 'record' } : { session: null, from: 'absent' };
+}
+
+export function loadSession(id) {
+  const path = sessionPath(id);
+  const memory = sessionMemoryCopies(id);
+  // An existing file owns this identity. Its contents must validate before
+  // fresher in-memory state is allowed to shadow it. The cache retains a
+  // validated disk header, rather than a second transcript, when that header
+  // proves the live/pending snapshot will be served.
+  const disk = _readStoredSessionCached(id, path, {
+    preferInMemory: (stored) => inMemorySessionCopy(id, memory, stored),
+  });
+  const { session, from } = resolveSessionCopy(id, memory, disk);
+  // The record (or its absence) outranks a live snapshot that no longer speaks for the id.
+  if ((from === 'record' || from === 'absent') && memory.live?.id === id) _liveSessions.delete(id);
+  return session ? _ensureLifecycleFields(session) : null;
 }
 
 // `status` of loadSession(id), for the agent-status pulse: it reads every

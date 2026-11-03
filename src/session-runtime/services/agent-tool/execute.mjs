@@ -48,6 +48,9 @@ export function createAgentExecute({
   return async function execute(args = {}, context = {}) {
     try {
       await awaitKeychainPrewarm();
+      // A tool call reads every legacy tombstone with its owner (status reads
+      // wait for its resolution instead, row-reads.mjs).
+      registry.resolveTombstoneOwners();
       const type = clean(args.type) || 'spawn';
       const request = {
         callerCwd: clean(context.cwd || context.callerCwd),

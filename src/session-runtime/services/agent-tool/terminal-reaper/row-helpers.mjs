@@ -34,9 +34,19 @@ export const SETTLED_ROW_RETENTION_MS = 24 * 60 * 60 * 1000;
 export function pastSettledRetention(getConfig, record, now = Date.now()) {
   const settledAtMs = sessionActivityAt(record);
   if (!(settledAtMs > 0) || now - settledAtMs < SETTLED_ROW_RETENTION_MS) return false;
+  return now >= settledRetentionDeadline(getConfig, record);
+}
+
+/** The moment pastSettledRetention turns true for `record` (ms), Infinity
+ *  when it never does: the retention floor and its continuation deadline. */
+export function settledRetentionDeadline(getConfig, record) {
+  const settledAtMs = sessionActivityAt(record);
+  if (!(settledAtMs > 0)) return Infinity;
+  const floor = settledAtMs + SETTLED_ROW_RETENTION_MS;
   const stamped = stampMs(record.reapAt);
-  if (stamped > 0) return now >= stamped;
-  return now >= settledAtMs + resolveAgentTerminalReapMs(getConfig(), record.provider);
+  if (stamped > 0) return Math.max(floor, stamped);
+  const end = settledAtMs + resolveAgentTerminalReapMs(getConfig(), record.provider);
+  return Number.isNaN(end) ? Infinity : Math.max(floor, end);
 }
 
 /** In-memory proof that a session is still in use (a running or just-resumed

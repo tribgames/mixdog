@@ -12,7 +12,8 @@ import { createTagLookup } from './tag-registry/tag-lookup.mjs';
 import { createTagRefresh } from './tag-registry/tag-refresh.mjs';
 import { createReapedSessions } from './tag-registry/reaped-sessions.mjs';
 
-export function createTagRegistry({ dataDir, cfgMod, mgr }) {
+// `sessionRecords`: the status pulse's session-record handle (job-views/session-record.mjs).
+export function createTagRegistry({ dataDir, cfgMod, mgr, sessionRecords = null }) {
   const tagMaps = createTagMaps();
   const { tags } = tagMaps;
   const index = createWorkerIndex({
@@ -81,6 +82,7 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     mgr,
     reaper,
     refreshTagsFromIndex,
+    resolveTombstoneOwners: index.resolveTombstoneOwners,
     getLiveSession,
   });
   const { resolveTag, agentSessionEntries, nextTag } = createTagLookup({
@@ -90,6 +92,7 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     reaper,
     getLiveSession,
     refreshTagsFromSessions,
+    sessionRecords,
   });
 
   function bindTag(tag, session, extra = {}) {
@@ -112,6 +115,8 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     readAllTagTombstones: index.readAllTagTombstones,
     readTagTombstones: index.readTagTombstones,
     readWorkerRows,
+    resolveTombstoneOwners: index.resolveTombstoneOwners,
+    onWorkerRowsChange: index.onRowsChange,
     writeWorkerRows: index.writeWorkerRows,
     flushWorkerIndexMutations: index.flushWorkerIndexMutations,
     recoverStaleWorkerRows: index.recoverStaleWorkerRows,
@@ -145,5 +150,7 @@ export function createTagRegistry({ dataDir, cfgMod, mgr }) {
     lastTagSession: reaped.lastTagSession,
     resumableTagSession: reaped.resumableTagSession,
     transitionStaleNonterminalRows: reaper.transitionStaleNonterminalRows,
+    nextStaleRowDeadline: reaper.nextStaleRowDeadline,
+    heldRowFor: reaper.heldRowFor,
   };
 }

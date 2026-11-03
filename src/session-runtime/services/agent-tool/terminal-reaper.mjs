@@ -17,7 +17,13 @@ export function createTerminalReaper({ cfgMod, mgr, tagMaps, index, getLiveSessi
   });
   const tombstoneBlocksScan = (session, tag, map) =>
     scan.scanSessionAgedOut(session) || tombstones.tombstoneBlocksScan(session, tag, map);
-  const { transitionStaleNonterminalRows } = createStaleRowTransition({ cfgMod, mgr, tagMaps, index, getLiveSession });
+  const { transitionStaleNonterminalRows, nextStaleRowDeadline, heldRowFor } = createStaleRowTransition({
+    cfgMod,
+    mgr,
+    tagMaps,
+    index,
+    getLiveSession,
+  });
 
   return {
     tagTombstoneIndex: tombstones.tagTombstoneIndex,
@@ -28,5 +34,7 @@ export function createTerminalReaper({ cfgMod, mgr, tagMaps, index, getLiveSessi
     tagTombstoneForTag: tombstones.tagTombstoneForTag,
     consumeTagTombstone: tombstones.consumeTagTombstone,
     transitionStaleNonterminalRows,
+    nextStaleRowDeadline,
+    heldRowFor,
   };
 }

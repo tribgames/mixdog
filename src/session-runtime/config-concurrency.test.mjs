@@ -40,7 +40,6 @@ test('real settings writes preserve peer settings, explicit provider OFF, and th
       deleteSecret: () => assert.fail('unexpected credential deletion'),
       invalidateSecretCache() {},
       prewarmSecrets: async () => {},
-      secretCacheVersion: () => 0,
       SERVICE: 'mixdog',
     };
     mock.module('./src/lib/keychain-cjs.cjs', { defaultExport: keychain, namedExports: keychain });

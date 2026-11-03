@@ -133,8 +133,12 @@ test('a half-written hand edit is never quarantined by the watch: the change is 
     fs.writeFileSync(configFile, '{"ui": {"theme": "aft');
     watcher.onChange('change', 'mixdog-config.json');
     await sleep(150);
-    // Finished within the settle wait: the retry reads it, no new event needed.
+    // Nothing re-reads it while it stays torn.
+    await sleep(400);
+    assert.deepEqual(seen, [], 'no pass ran a listener on the torn content');
+    // The completing write fires its own event; that pass reads it.
     fs.writeFileSync(configFile, JSON.stringify({ ui: { theme: 'after' } }));
+    watcher.onChange('change', 'mixdog-config.json');
     assert.ok(await waitFor(() => seen.includes('after')), `notified with ${JSON.stringify(seen)}`);
     assert.deepEqual(seen, ['after'], 'the torn content was never read');
     const corrupt = fs.readdirSync(path.dirname(configFile)).filter((name) => name.includes('.corrupt-'));
@@ -175,8 +179,9 @@ test('a partial save landing while a pass runs is never quarantined by the passâ
     watcher.onChange('change', 'mixdog-config.json');
     assert.ok(await waitFor(() => seen.length === 1), 'the pass ran');
     assert.deepEqual(seen, ['ECONFIG_MID_WRITE'], 'the read kept the current config');
-    // The save completes; the pass runs again without another event.
+    // The save completes and fires its own event; that pass reads it.
     fs.writeFileSync(configFile, JSON.stringify({ ui: { theme: 'three' } }));
+    watcher.onChange('change', 'mixdog-config.json');
     assert.ok(await waitFor(() => seen.length === 2), `notified with ${JSON.stringify(seen)}`);
     assert.equal(seen[1], 'three');
     const corrupt = fs.readdirSync(path.dirname(configFile)).filter((name) => name.includes('.corrupt-'));
