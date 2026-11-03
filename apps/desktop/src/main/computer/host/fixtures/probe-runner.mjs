@@ -19,10 +19,18 @@ export async function runComputerProbe(probe) {
   try {
     // Windows PowerShell needs a BOM for literal non-ASCII fixture text.
     await writeFile(path, `\uFEFF${script}`);
+    // Production always sets the ledger (host-worker-process.ts); without it the
+    // host delivers background input unprotected and can raise its target window.
+    const ledger = join(directory, 'computer-inactive.ledger');
     const { stdout } = await promisify(execFile)(
       'powershell.exe',
       ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path],
-      { encoding: 'utf8', timeout: 180_000, windowsHide: true }
+      {
+        encoding: 'utf8',
+        timeout: 180_000,
+        windowsHide: true,
+        env: { ...process.env, MIXDOG_COMPUTER_INACTIVE_LEDGER: ledger },
+      }
     );
     const line = stdout.split(/\r?\n/).find((value) => value.startsWith('@@MIXCU@@'));
     if (!line) throw new Error('native safety probe returned no result');
