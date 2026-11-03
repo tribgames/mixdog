@@ -219,10 +219,22 @@ export function _estimateGraphRetainedBytes(graph) {
 // on a large root. Same rules as _estimateValueBytes, so the total is unchanged.
 const _runtimeEntryBytes = new WeakMap();
 
-export function _noteRuntimeCacheEntryBytes(value) {
-  if (value && typeof value === 'object' && !_runtimeEntryBytes.has(value)) {
-    _runtimeEntryBytes.set(value, _estimateValueBytes(value));
+/**
+ * Measure a `{ fingerprint, lines }` entry (an array of strings) now rather
+ * than at the prune. The walk over the lines of a multi-MB file is its own
+ * 10 ms stretch (30+ ms on a slow CI runner), so it runs in `slice`d steps; the
+ * total is the one _estimateValueBytes gives: the entry with an empty array,
+ * plus a pointer and a string per line.
+ */
+export async function _noteRuntimeCacheEntryBytes(entry, slice) {
+  if (!entry || _runtimeEntryBytes.has(entry)) return;
+  const { lines } = entry;
+  let bytes = _estimateValueBytes({ ...entry, lines: [] }) + lines.length * 8;
+  for (let i = 0; i < lines.length; i++) {
+    bytes += 16 + lines[i].length * 2;
+    if ((i & 1023) === 1023 && slice.expired()) await slice.yield();
   }
+  _runtimeEntryBytes.set(entry, bytes);
 }
 
 function _estimateRuntimeCacheBytes(cache) {
