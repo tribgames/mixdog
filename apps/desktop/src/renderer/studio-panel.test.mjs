@@ -420,3 +420,249 @@ test('a board list read answered before a rename does not leave the renamed boar
   assert.equal(probe.read(), 'After', 'the list read after the rename wins');
   await view.unmount();
 });
+
+test('results added outside this pane (agent tool, another window) reach a shown gallery', async () => {
+  reset();
+  const api = studioApi();
+  const view = await mount(React.createElement(StudioPane, { api, tabKey: 'studio:a' }));
+  const { host } = view;
+  const tiles = () =>
+    [...host.querySelectorAll('.studio-tile[data-studio-asset-id]')].map((node) => node.dataset.studioAssetId);
+  assert.equal(tiles().length, 4);
+  api.works.unshift(asset('outside-1', 'Saved by the agent media tool', 10));
+  // jsdom reports a hidden document; the window coming back is a visible one.
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+  try {
+    await act(async () => {
+      window.dispatchEvent(new window.Event('focus'));
+      await settle(50);
+    });
+  } finally {
+    delete document.visibilityState;
+  }
+  assert.equal(tiles()[0], 'outside-1', 'the gallery reloads when the shown count moves');
+  await view.unmount();
+});
+
+// jsdom reports a hidden document; a shown window is a visible one.
+async function whileVisible(run) {
+  Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+  try {
+    return await run();
+  } finally {
+    delete document.visibilityState;
+  }
+}
+const windowFocus = () =>
+  whileVisible(() =>
+    act(async () => {
+      window.dispatchEvent(new window.Event('focus'));
+      await settle(50);
+    })
+  );
+const shownTiles = (host) =>
+  [...host.querySelectorAll('.studio-tile[data-studio-asset-id]')].map((node) => node.dataset.studioAssetId);
+
+test('an outside result folds into a scrolled gallery without dropping its loaded pages or the open asset', async () => {
+  reset();
+  const works = Array.from({ length: 130 }, (_, index) => asset(`old-${index}`, `Old ${index}`, (index + 1) * 60_000));
+  const base = studioApi();
+  const value = (result) => ({ value: result, snapshot: null });
+  const api = {
+    ...base,
+    invokeCapability: async (request) => {
+      const { capability, args = [] } = request;
+      if (capability === 'listMediaAssets') {
+        const { kind, offset = 0, limit = 60 } = args[0] ?? {};
+        const rows = works.filter((entry) => entry.kind === kind);
+        return value({ assets: rows.slice(offset, offset + limit), total: rows.length });
+      }
+      if (capability === 'listMediaBoards') return value({ total: works.length, boards: [] });
+      return base.invokeCapability(request);
+    },
+  };
+  const view = await mount(React.createElement(StudioPane, { api, tabKey: 'studio:a' }));
+  const { host } = view;
+  for (let page = 0; page < 2; page += 1) {
+    await act(async () => {
+      host.querySelector('.studio-results').dispatchEvent(new window.Event('scroll'));
+      await settle();
+    });
+  }
+  assert.equal(shownTiles(host).length, 130, 'scrolling loaded every page');
+  await act(async () => host.querySelector('.studio-tile[data-studio-asset-id="old-100"] .studio-tile-open').click());
+  works.unshift(asset('outside-1', 'Saved by the agent media tool', 10));
+  await windowFocus();
+  const tiles = shownTiles(host);
+  assert.equal(tiles[0], 'outside-1');
+  assert.equal(tiles.length, 131, 'the pages loaded past the first stay');
+  assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'Old 100', 'the open asset stays open');
+  await view.unmount();
+});
+
+test('a count change during a sync queues one follow-up instead of counting the same additions twice', async () => {
+  reset();
+  const works = Array.from({ length: 150 }, (_, index) => asset(`old-${index}`, `Old ${index}`, (index + 1) * 60_000));
+  const base = studioApi();
+  const value = (result) => ({ value: result, snapshot: null });
+  let hold = null;
+  const api = {
+    ...base,
+    invokeCapability: async (request) => {
+      const { capability, args = [] } = request;
+      if (capability === 'listMediaAssets') {
+        const { kind, offset = 0, limit = 60 } = args[0] ?? {};
+        const rows = works.filter((entry) => entry.kind === kind);
+        const reply = value({ assets: rows.slice(offset, offset + limit), total: rows.length });
+        // The first-page read of a sync answers now but lands when released.
+        if (hold && kind === 'image' && offset === 0) await hold;
+        return reply;
+      }
+      if (capability === 'listMediaBoards') return value({ total: works.length, boards: [] });
+      return base.invokeCapability(request);
+    },
+  };
+  const view = await mount(React.createElement(StudioPane, { api, tabKey: 'studio:a' }));
+  const { host } = view;
+  const scrollToEnd = () =>
+    act(async () => {
+      host.querySelector('.studio-results').dispatchEvent(new window.Event('scroll'));
+      await settle();
+    });
+  await scrollToEnd();
+  assert.equal(shownTiles(host).length, 120, '120 of 150 loaded');
+  let release;
+  hold = new Promise((resolve) => (release = resolve));
+  works.unshift(asset('outside-1', 'Outside 1', 20), asset('outside-2', 'Outside 2', 30));
+  await windowFocus();
+  works.unshift(asset('outside-3', 'Outside 3', 10));
+  await windowFocus();
+  hold = null;
+  release();
+  await act(async () => settle(50));
+  assert.equal(shownTiles(host).length, 123, 'every outside result folded in once');
+  await scrollToEnd();
+  assert.equal(shownTiles(host).length, 153, 'the next page starts where the loaded rows end, skipping none');
+  await view.unmount();
+});
+
+test('an unmounted gallery drops its queued sync and starts no read after', async () => {
+  reset();
+  const works = Array.from({ length: 80 }, (_, index) => asset(`old-${index}`, `Old ${index}`, (index + 1) * 60_000));
+  const base = studioApi();
+  const value = (result) => ({ value: result, snapshot: null });
+  let hold = null;
+  let reads = 0;
+  const api = {
+    ...base,
+    invokeCapability: async (request) => {
+      const { capability, args = [] } = request;
+      if (capability === 'listMediaAssets') {
+        reads += 1;
+        const { kind, offset = 0, limit = 60 } = args[0] ?? {};
+        const rows = works.filter((entry) => entry.kind === kind);
+        const reply = value({ assets: rows.slice(offset, offset + limit), total: rows.length });
+        if (hold && kind === 'image' && offset === 0) await hold;
+        return reply;
+      }
+      if (capability === 'listMediaBoards') return value({ total: works.length, boards: [] });
+      return base.invokeCapability(request);
+    },
+  };
+  const view = await mount(React.createElement(StudioPane, { api, tabKey: 'studio:a' }));
+  let release;
+  hold = new Promise((resolve) => (release = resolve));
+  works.unshift(asset('outside-1', 'Outside 1', 20));
+  await windowFocus();
+  works.unshift(asset('outside-2', 'Outside 2', 10));
+  await windowFocus();
+  await view.unmount();
+  const atUnmount = reads;
+  hold = null;
+  release();
+  await act(async () => settle(50));
+  assert.equal(reads, atUnmount, 'no media read starts after unmount');
+});
+
+test('the count poll runs only while the window has focus', async (t) => {
+  reset();
+  const calls = [];
+  const api = studioApi(calls);
+  t.mock.timers.enable({ apis: ['setInterval'] });
+  const hasFocus = document.hasFocus;
+  let focused = false;
+  document.hasFocus = () => focused;
+  const reads = () => calls.filter((call) => call.capability === 'listMediaBoards').length;
+  const Probe = () => {
+    boardsStore.useStudioBoardsWatch(api, true);
+    return null;
+  };
+  const view = await mount(React.createElement(Probe));
+  try {
+    await whileVisible(async () => {
+      t.mock.timers.tick(15_000);
+      await act(async () => settle());
+      assert.equal(reads(), 0, 'a visible but unfocused window does not poll');
+      focused = true;
+      t.mock.timers.tick(15_000);
+      await act(async () => settle());
+      assert.equal(reads(), 1, 'a focused window polls');
+    });
+    // Let any list read still in flight settle, so the focus read is a fresh one.
+    await boardsStore.refreshStudioBoards(api, { join: true });
+    const settled = reads();
+    await windowFocus();
+    assert.equal(reads(), settled + 1, 'the window coming back still re-reads');
+  } finally {
+    await view.unmount();
+    document.hasFocus = hasFocus;
+  }
+});
+
+test('an outside result waits until this view’s running generation settles', async () => {
+  reset();
+  const calls = [];
+  const base = studioApi(calls);
+  let jobDone = false;
+  const api = {
+    ...base,
+    invokeCapability: async (request) => {
+      if (request.capability === 'getMediaJob' && jobDone) {
+        calls.push(request);
+        return {
+          value: {
+            id: request.args[0],
+            status: 'done',
+            kind: 'image',
+            lane: 'gemini',
+            model: 'image-model',
+            progress: 1,
+            assetId: 'generated-1',
+            error: null,
+          },
+          snapshot: null,
+        };
+      }
+      return base.invokeCapability(request);
+    },
+  };
+  const view = await mount(React.createElement(StudioPane, { api, tabKey: 'studio:a' }));
+  const { host } = view;
+  await act(async () => typeInto(host.querySelector('.studio-composer textarea'), 'A glowing jellyfish'));
+  await act(async () => {
+    host.querySelector('button[aria-label="Generate"]').click();
+    await settle();
+  });
+  const assetReads = () => calls.filter((call) => call.capability === 'listMediaAssets').length;
+  const before = assetReads();
+  base.works.unshift(asset('outside-1', 'Saved by the agent media tool', 10));
+  await windowFocus();
+  assert.equal(shownTiles(host).includes('outside-1'), false, 'nothing folds in while the run is in flight');
+  assert.equal(assetReads(), before);
+  base.works.unshift(asset('generated-1', 'A glowing jellyfish', 5));
+  jobDone = true;
+  await act(async () => settle(1_800));
+  const tiles = shownTiles(host);
+  assert.ok(tiles.includes('generated-1') && tiles.includes('outside-1'), 'both land once the run settles');
+  await view.unmount();
+});

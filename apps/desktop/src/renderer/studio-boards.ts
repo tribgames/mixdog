@@ -114,6 +114,33 @@ export function useStudioBoards(api: StudioApi | undefined, active: boolean): St
   return current;
 }
 
+const WATCH_INTERVAL_MS = 15_000;
+
+/** Results also land from writers a pane never hears (the agent `media`
+ *  tool, another window or device), so while a Studio pane is shown it
+ *  re-reads the counts when the window comes back (focus, or visible again)
+ *  and every few seconds while the window has focus; the pane folds new
+ *  results in when the count it shows changes. */
+export function useStudioBoardsWatch(api: StudioApi | undefined, active: boolean): void {
+  useEffect(() => {
+    if (!active) return undefined;
+    const read = () => {
+      if (document.visibilityState === 'visible') void refreshStudioBoards(api, { join: true }).catch(() => {});
+    };
+    const tick = () => {
+      if (document.hasFocus()) read();
+    };
+    const timer = setInterval(tick, WATCH_INTERVAL_MS);
+    window.addEventListener('focus', read);
+    document.addEventListener('visibilitychange', read);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', read);
+      document.removeEventListener('visibilitychange', read);
+    };
+  }, [active, api]);
+}
+
 export function useOpenStudioBoardId(): string {
   return useSyncExternalStore(subscribe, () => snapshot().openId);
 }

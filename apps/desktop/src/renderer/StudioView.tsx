@@ -38,6 +38,7 @@ import {
   openStudioBoard,
   refreshStudioBoards,
   useStudioBoards,
+  useStudioBoardsWatch,
 } from './studio-boards';
 import { shouldFocusSurfaceInput } from './surface-input-focus';
 import { EAGER_THUMB_COUNT, TILE_SIZES, studioRouteRows } from './studio-pane-support';
@@ -90,10 +91,25 @@ export function StudioPane({
     useStudioDraft(active);
   // The open board (shared with the rail panel): the gallery shows only its
   // results and new runs join it; '' is "전체", every result.
-  const { boards, openId: boardId } = useStudioBoards(api, active);
-  const { assets, loadMoreAssets, moveAssets, reloadAssetKind, removeAsset, refreshAssetKind, visibleAssets } =
-    useStudioAssetGallery(api, kind, boardId);
-  const { selected, setSelected, promptOpen, togglePrompt, openDetail } = useStudioDetailView(visibleAssets);
+  const { boards, openId: boardId, total: allCount, loaded: boardsLoaded } = useStudioBoards(api, active);
+  useStudioBoardsWatch(api, active);
+  const {
+    assets,
+    loadedTotal,
+    loadMoreAssets,
+    moveAssets,
+    reloadAssetKind,
+    removeAsset,
+    refreshAssetKind,
+    syncAssetKind,
+    visibleAssets,
+  } = useStudioAssetGallery(api, kind, boardId);
+  const studioRootRef = useRef<HTMLDivElement>(null);
+  const { selected, setSelected, promptOpen, togglePrompt, openDetail } = useStudioDetailView(
+    visibleAssets,
+    studioRootRef,
+    active && focused
+  );
   const thumbnails = useStudioThumbnailState();
   const [copied, setCopied] = useState(false);
   // Tile hover chrome follows the Studio PANE, not the window — a split
@@ -124,7 +140,6 @@ export function StudioPane({
   const mediaForeground = useForegroundMedia(active);
   const gridRef = useRef<HTMLDivElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
-  const studioRootRef = useRef<HTMLDivElement>(null);
   const dockRef = useRef<HTMLDivElement>(null);
   const promptRef = useRef<HTMLTextAreaElement>(null);
   const onReadyRef = useRef(onReady);
@@ -312,6 +327,19 @@ export function StudioPane({
     () => (boardId ? jobs.filter((entry) => (entry.request?.boardId ?? '') === boardId) : jobs),
     [jobs, boardId]
   );
+  // The count the panel shows for this view; when it moves away from what the
+  // loaded pages were counted at, results came from elsewhere (the agent media
+  // tool, another window or device): fold them in, keeping loaded pages. A run
+  // of this view's own is still landing, so that waits until it settles.
+  const shownCount = boardId ? boards.find((board) => board.id === boardId)?.count : allCount;
+  const viewRunning = boardJobs.some((entry) => entry.status === 'running');
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the shown count and the run settling are the triggers
+  useEffect(() => {
+    if (!active || !boardsLoaded || shownCount === undefined || viewRunning) return;
+    const known = loadedTotal();
+    if (known === null || known === shownCount) return;
+    for (const assetKind of MEDIA_KINDS) void syncAssetKind(assetKind).catch(() => {});
+  }, [active, boardsLoaded, shownCount, viewRunning]);
 
   useStudioReadyReport({
     active,
