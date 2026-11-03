@@ -379,7 +379,11 @@ export async function _prewarmSymbolSources(graph, symbols, language, { declarin
       plainNames.push({ key: _symbolHitsKey(declaringOnly ? 'decl' : 'all', clean, language), clean, scanned });
       if (declaringOnly) continue;
     }
-    const leaf = clean.replace(/^\/+|\/+$/g, '').split('/').at(-1) || '';
+    const leaf =
+      clean
+        .replace(/^\/+|\/+$/g, '')
+        .split('/')
+        .at(-1) || '';
     if (leaf !== clean) nodes.push(..._tokenCandidateNodes(graph, leaf, language));
     if (symbol !== clean) nodes.push(..._tokenCandidateNodes(graph, symbol, language));
   }

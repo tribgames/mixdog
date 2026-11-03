@@ -168,11 +168,7 @@ export function ProjectRecoverySurface({
   };
   const needsReview = overview?.records.some((record) => !['completed', 'recovered', 'retired'].includes(record.phase));
   return (
-    <details
-      className="project-recovery"
-      open={open}
-      onToggle={(event) => setOpen(event.currentTarget.open)}
-    >
+    <details className="project-recovery" open={open} onToggle={(event) => setOpen(event.currentTarget.open)}>
       <summary>
         {labels.title}
         {overview?.records.length ? ` · ${overview.records.length}` : ''}

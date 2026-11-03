@@ -56,11 +56,7 @@ import { applyAnthropicErrorContract } from './anthropic-error-contract.mjs';
 import { adjustMaxTokensForContextOverflow } from './anthropic-max-tokens-recovery.mjs';
 import { createAnthropicOverloadTracker, takeAnthropicModelFallback } from './anthropic-overload-fallback.mjs';
 import { createAnthropicOAuthRecovery } from './anthropic-oauth-recovery.mjs';
-import {
-  THREAD_MESSAGE_STOP_WAIT_MS,
-  planAnthropicThread,
-  threadAccountKey,
-} from './anthropic-message-threads.mjs';
+import { THREAD_MESSAGE_STOP_WAIT_MS, planAnthropicThread, threadAccountKey } from './anthropic-message-threads.mjs';
 import { createMidState, createMidstreamRecovery } from './anthropic-oauth-midstream.mjs';
 import { assertAnthropicStreamNotEmpty } from './anthropic-midstream-recovery.mjs';
 import { applyAnthropicEffortToBody, shouldIncludeEffortBeta } from './anthropic-effort.mjs';
@@ -568,8 +564,7 @@ export class AnthropicOAuthProvider {
     // advanced-tool-use-2025-11-20 beta is only needed when this request
     // actually carries deferred (defer_loading) tools — gate the header on
     // that instead of sending it unconditionally on every request.
-    const hasDeferredTools =
-      Array.isArray(fullBody.tools) && fullBody.tools.some((t) => t && t.defer_loading === true);
+    const hasDeferredTools = Array.isArray(fullBody.tools) && fullBody.tools.some((t) => t && t.defer_loading === true);
     const knownToolNames = requestToolNames(fullBody);
     // Message thread (anthropic-message-threads.mjs): the same request as a
     // create, a delta continue, or unchanged. Its beta set is the full body's,
@@ -761,11 +756,11 @@ export class AnthropicOAuthProvider {
         thread && thread.mode !== 'none'
           ? thread.betas.join(',')
           : buildOAuthBetaHeaders(requestBody, {
-          fastMode: this.fastModeBetaHeaderLatched,
-          toolSearch: hasDeferredTools,
-          model: useModel,
-          opts,
-        }),
+              fastMode: this.fastModeBetaHeaderLatched,
+              toolSearch: hasDeferredTools,
+              model: useModel,
+              opts,
+            }),
       onStageChange,
     });
     const recovery = createAnthropicOAuthRecovery({

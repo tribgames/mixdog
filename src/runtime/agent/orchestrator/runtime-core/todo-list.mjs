@@ -292,10 +292,7 @@ export function executeTodoTool(session, args = {}) {
 export function notDoneReport(session) {
   const unfinished = unfinishedTodoItems(session);
   if (!unfinished.length) return '';
-  return [
-    'Not done:',
-    ...unfinished.map((task) => `- ${task.content}`),
-  ].join('\n');
+  return ['Not done:', ...unfinished.map((task) => `- ${task.content}`)].join('\n');
 }
 
 /** The open list as a hidden reminder (after compaction, or appended to a

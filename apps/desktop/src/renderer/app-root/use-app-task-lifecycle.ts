@@ -266,20 +266,18 @@ export function useAppTaskLifecycle({
     const focused = leaves.find((leaf) => leaf.id === focusedLeafIdRef.current);
     const blank = [...(focused ? [focused] : []), ...leaves]
       .flatMap((leaf) => leaf.tabs)
-      .find(
-        (tab): tab is Extract<NavigationSelection, { kind: 'new' }> => {
-          if (tab.kind !== 'new') return false;
-          const key = tab.draftId || 'default';
-          if (composerScopeHasContent(`draft:${key}`)) return false;
-          const prefs = draftPanePrefs.current.get(key);
-          return (
-            !prefs ||
-            Object.entries(prefs).every(([field, value]) =>
-              field === 'projectPath' ? value == null || value === '' : value == null
-            )
-          );
-        }
-      );
+      .find((tab): tab is Extract<NavigationSelection, { kind: 'new' }> => {
+        if (tab.kind !== 'new') return false;
+        const key = tab.draftId || 'default';
+        if (composerScopeHasContent(`draft:${key}`)) return false;
+        const prefs = draftPanePrefs.current.get(key);
+        return (
+          !prefs ||
+          Object.entries(prefs).every(([field, value]) =>
+            field === 'projectPath' ? value == null || value === '' : value == null
+          )
+        );
+      });
     startTask(blank, true, true);
   }, [draftPanePrefs, focusedLeafIdRef, paneLeavesRef, startTask]);
 

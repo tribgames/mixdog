@@ -1253,7 +1253,8 @@ unsubscribeServiceSettings = localService.subscribeDesktopEvents(({ name, value 
             // Only a confirmed request (args[0]) installs past running agent
             // tasks; otherwise the answer is the ready state saying why not.
             const confirmed = args[0] === true;
-            const held = !confirmed && desktopUpdater.getState().status === 'ready' && (await desktopUpdater.confirmBusy());
+            const held =
+              !confirmed && desktopUpdater.getState().status === 'ready' && (await desktopUpdater.confirmBusy());
             result = desktopUpdater.getState();
             installAfterAnswer = !held && desktopUpdater.getState().status === 'ready';
             confirmedInstall = confirmed;

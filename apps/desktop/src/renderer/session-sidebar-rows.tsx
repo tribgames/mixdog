@@ -230,7 +230,8 @@ const SessionRow = React.memo(function SessionRow({
   const [dragging, setDragging] = useState(false);
   const label = forkNumber ? forkDisplayTitle(sessionLabel(session), forkNumber) : sessionLabel(session);
   // A deleted bot's archived chat: the bot's face before its name.
-  const deletedBot = session.agentDeleted === true ? session.agentHome || '' : '';  const titleRef = useRef<HTMLElement>(null);
+  const deletedBot = session.agentDeleted === true ? session.agentHome || '' : '';
+  const titleRef = useRef<HTMLElement>(null);
   const [overflowing, setOverflowing] = useState(false);
   // Only a title that does not fit fades at the row edge.
   // biome-ignore lint/correctness/useExhaustiveDependencies: label is not read, but a new title changes the text width and must re-measure.
@@ -432,7 +433,8 @@ const SessionRow = React.memo(function SessionRow({
         <span className="session-row-copy">
           <b ref={titleRef} data-overflow={overflowing || undefined}>
             {label}
-          </b>        </span>
+          </b>{' '}
+        </span>
         {forkKind === 'root' && (
           // A span, not a button: it sits inside the row's button and the
           // click must not open the session.

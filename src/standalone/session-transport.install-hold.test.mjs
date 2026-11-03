@@ -34,7 +34,11 @@ test('install hold: idle closes new-work admission until released; reads and abo
   const status = { busy: 0 };
   const { transport, post, call, handled } = await harness(status);
   try {
-    assert.deepEqual(await (await post('/install-hold', { action: 'close' })).json(), { ok: true, held: true, busy: 0 });
+    assert.deepEqual(await (await post('/install-hold', { action: 'close' })).json(), {
+      ok: true,
+      held: true,
+      busy: 0,
+    });
     assert.equal((await call('session.submit')).status, 503);
     assert.equal((await call('desktop.invoke')).status, 503);
     assert.equal((await call('session.read')).status, 200);
@@ -52,7 +56,11 @@ test('install hold: busy at the barrier leaves admission open and reports the co
   const status = { busy: 2 };
   const { transport, post, call } = await harness(status);
   try {
-    assert.deepEqual(await (await post('/install-hold', { action: 'close' })).json(), { ok: true, held: false, busy: 2 });
+    assert.deepEqual(await (await post('/install-hold', { action: 'close' })).json(), {
+      ok: true,
+      held: false,
+      busy: 2,
+    });
     assert.equal((await call('session.submit')).status, 200);
   } finally {
     await transport.stop();
@@ -70,7 +78,6 @@ test('install hold lapses on its own when the installer never releases it', asyn
     await transport.stop();
   }
 });
-
 
 // One interactive call at a time, so a second call has to queue behind the first.
 async function withSingleInteractiveLane(fn) {
@@ -150,7 +157,6 @@ test('running memory agent work makes the hold report busy; a memory dispatch du
   }
 });
 
-
 test('a start still preparing counts as running, so a hold cannot slip in before it begins', async () => {
   const gate = createWorkGate();
   const preparing = Promise.withResolvers();
@@ -211,7 +217,6 @@ test('shutdown rejects every waiting start and leaves admission closed', async (
   await assert.rejects(start(), Error, 'a start after shutdown is refused too');
   assert.deepEqual(ran, []);
 });
-
 
 test('a start is refused when shutdown came first, even with the gate open', async () => {
   const gate = createWorkGate();

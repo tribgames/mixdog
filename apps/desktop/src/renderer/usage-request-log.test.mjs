@@ -139,10 +139,15 @@ function assertRowsSpanTheHeader() {
   const rows = [...document.querySelectorAll('.request-log-table tbody tr')];
   assert.ok(rows.length > 0);
   for (const row of rows) {
-    assert.equal([...row.children].reduce((sum, cell) => sum + cell.colSpan, 0), columns, row.className || row.textContent);
+    assert.equal(
+      [...row.children].reduce((sum, cell) => sum + cell.colSpan, 0),
+      columns,
+      row.className || row.textContent
+    );
   }
 }
-const option = (label) => [...document.querySelectorAll('.mx-menu [role="option"]')].find((node) => node.textContent === label);
+const option = (label) =>
+  [...document.querySelectorAll('.mx-menu [role="option"]')].find((node) => node.textContent === label);
 const openFilter = (index) =>
   act(async () => {
     const trigger = document.querySelectorAll('.request-log-filter .mx-select-trigger')[index];
@@ -222,7 +227,7 @@ test('a failed first page of a new filter clears the old rows and pages nothing 
   await act(async () => tab('Request log').click());
   assert.equal(bodyRows().length, 50);
   await scrollToEnd();
-  assert.ok(asked.at(-1).asOf > 0, 'later pages carry the first page\'s time');
+  assert.ok(asked.at(-1).asOf > 0, "later pages carry the first page's time");
   assert.equal(bodyRows().length, 100);
 
   control.failFirstPage = true;

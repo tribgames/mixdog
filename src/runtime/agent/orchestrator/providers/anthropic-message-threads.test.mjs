@@ -138,7 +138,11 @@ function errorReply(status, code, { message = 'thread error', unsupported } = {}
   return new Response(
     JSON.stringify({
       type: 'error',
-      error: { type: status === 404 ? 'not_found_error' : 'invalid_request_error', message, ...(details ? { details } : {}) },
+      error: {
+        type: status === 404 ? 'not_found_error' : 'invalid_request_error',
+        message,
+        ...(details ? { details } : {}),
+      },
     }),
     { status, headers: { 'content-type': 'application/json' } }
   );
@@ -158,22 +162,25 @@ function harness(kind, { config = {} } = {}) {
   };
   const oauth = kind === 'anthropic-oauth';
   const identity = { id: 'account-1' };
-  const provider = Object.assign(Object.create(oauth ? AnthropicOAuthProvider.prototype : AnthropicProvider.prototype), {
-    name: kind,
-    config: { apiKey: 'key-1', ...config },
-    apiKey: 'key-1',
-    fastModeBetaHeaderLatched: false,
-    ensureAuth: async () => ({ accessToken: 'token', identity }),
-    scrubTokens: (text) => String(text || ''),
-    _refreshModelCache: async () => null,
-    client: {
-      messages: {
-        create(params, options) {
-          return { asResponse: async () => next(params, options?.headers) };
+  const provider = Object.assign(
+    Object.create(oauth ? AnthropicOAuthProvider.prototype : AnthropicProvider.prototype),
+    {
+      name: kind,
+      config: { apiKey: 'key-1', ...config },
+      apiKey: 'key-1',
+      fastModeBetaHeaderLatched: false,
+      ensureAuth: async () => ({ accessToken: 'token', identity }),
+      scrubTokens: (text) => String(text || ''),
+      _refreshModelCache: async () => null,
+      client: {
+        messages: {
+          create(params, options) {
+            return { asResponse: async () => next(params, options?.headers) };
+          },
         },
       },
-    },
-  });
+    }
+  );
   if (!oauth) provider._currentClient = () => provider.client;
   const send = (messages, opts = {}, model = MODEL, tools = []) =>
     provider.send(messages, model, tools, {
@@ -211,7 +218,9 @@ async function twoTurns(h, opts = {}) {
 }
 
 const wireTexts = (body) =>
-  body.messages.map((m) => (typeof m.content === 'string' ? m.content : m.content.map((b) => b.text ?? b.type).join('|')));
+  body.messages.map((m) =>
+    typeof m.content === 'string' ? m.content : m.content.map((b) => b.text ?? b.type).join('|')
+  );
 
 function breakpoints(body, createBody) {
   return (
@@ -261,7 +270,12 @@ for (const kind of ['anthropic', 'anthropic-oauth']) {
     assert.equal(h.requests[1].body.thread.type, 'continue');
   });
 
-  for (const code of ['thread_not_found', 'thread_already_continued', 'thread_continue_in_flight', 'thread_fingerprint_mismatch']) {
+  for (const code of [
+    'thread_not_found',
+    'thread_already_continued',
+    'thread_continue_in_flight',
+    'thread_fingerprint_mismatch',
+  ]) {
     test(`${kind}: ${code} on a continue replays the full conversation as a create`, async () => {
       const h = harness(kind);
       const first = [SYSTEM, user('one')];
@@ -351,7 +365,9 @@ for (const kind of ['anthropic', 'anthropic-oauth']) {
 
   test(`${kind}: a tool turn continues with the tool result only`, async () => {
     const h = harness(kind);
-    h.script.push((n) => turnReply({ id: `msg_${n}`, text: 'calling', stop: 'tool_use', toolUse: { id: 'toolu_1', name: 'read' } }));
+    h.script.push((n) =>
+      turnReply({ id: `msg_${n}`, text: 'calling', stop: 'tool_use', toolUse: { id: 'toolu_1', name: 'read' } })
+    );
     const first = [SYSTEM, user('one')];
     const r1 = await h.send(first);
     assert.equal(r1.toolCalls?.[0]?.id, 'toolu_1');
@@ -370,7 +386,12 @@ for (const kind of ['anthropic', 'anthropic-oauth']) {
       compaction: () => [SYSTEM, user('summary of earlier work'), { role: 'assistant', content: 'ok' }, user('two')],
       retried: ({ first }) => first,
       otherReply: ({ first }) => [...first, { role: 'assistant', content: 'something else' }, user('two')],
-      systemChange: ({ first, r1 }) => [{ role: 'system', content: 'Changed.' }, ...first.slice(1), assistant(r1), user('two')],
+      systemChange: ({ first, r1 }) => [
+        { role: 'system', content: 'Changed.' },
+        ...first.slice(1),
+        assistant(r1),
+        user('two'),
+      ],
     };
     for (const [name, build] of Object.entries(cases)) {
       _threadTest.reset();
@@ -416,7 +437,12 @@ for (const kind of ['anthropic', 'anthropic-oauth']) {
         { role: 'system', content: 'Session marker.', cacheTier: 'tier3' },
       ];
       const opts = { cacheStrategy: strategy };
-      const first = [...system, user('one'), { role: 'assistant', content: 'a' }, { role: 'tool', toolCallId: 'x', content: 'y' }];
+      const first = [
+        ...system,
+        user('one'),
+        { role: 'assistant', content: 'a' },
+        { role: 'tool', toolCallId: 'x', content: 'y' },
+      ];
       const turn1 = [...system, user('one')];
       const r1 = await h.send(turn1, opts);
       const turn2 = [...turn1, assistant(r1), user('two')];
@@ -435,7 +461,11 @@ for (const kind of ['anthropic', 'anthropic-oauth']) {
       assert.ok(systemTtls.length >= 1);
       for (const ttl of systemTtls) assert.deepEqual(ttl, ONE_HOUR);
       // Message breakpoints on the new messages carry the messages-layer TTL.
-      const msgMarks = (body) => body.messages.flatMap((m) => (Array.isArray(m.content) ? m.content : [])).map((b) => b.cache_control).filter(Boolean);
+      const msgMarks = (body) =>
+        body.messages
+          .flatMap((m) => (Array.isArray(m.content) ? m.content : []))
+          .map((b) => b.cache_control)
+          .filter(Boolean);
       for (const body of [create, cont, replay]) for (const ttl of msgMarks(body)) assert.deepEqual(ttl, messageTtl);
       // The replay places exactly today's breakpoints, so a warmed cache is read.
       const { thread: _t, ...replayRest } = replay;
@@ -565,7 +595,12 @@ for (const kind of ['anthropic', 'anthropic-oauth']) {
 
   test(`${kind}: the background read is released by the send's abort signal`, async () => {
     const h = harness(kind);
-    const gated = gatedReply({ id: 'msg_1', text: 'calling', stop: 'tool_use', toolUse: { id: 'toolu_1', name: 'read' } });
+    const gated = gatedReply({
+      id: 'msg_1',
+      text: 'calling',
+      stop: 'tool_use',
+      toolUse: { id: 'toolu_1', name: 'read' },
+    });
     h.script.push(() => gated.response);
     const controller = new AbortController();
     await h.send([SYSTEM, user('one')], { signal: controller.signal });
@@ -579,7 +614,12 @@ for (const kind of ['anthropic', 'anthropic-oauth']) {
 
   test(`${kind}: the background read is released by session close`, async () => {
     const h = harness(kind);
-    const gated = gatedReply({ id: 'msg_1', text: 'calling', stop: 'tool_use', toolUse: { id: 'toolu_1', name: 'read' } });
+    const gated = gatedReply({
+      id: 'msg_1',
+      text: 'calling',
+      stop: 'tool_use',
+      toolUse: { id: 'toolu_1', name: 'read' },
+    });
     h.script.push(() => gated.response);
     await h.send([SYSTEM, user('one')]);
     const closedAt = Date.now();
@@ -604,7 +644,9 @@ for (const kind of ['anthropic', 'anthropic-oauth']) {
     ]) {
       _threadTest.reset();
       const h = harness(kind);
-      h.script.push((n) => turnReply({ id: `msg_${n}`, text: 'answer', thinking: { text: 'mull', signature: 'sig-1' } }));
+      h.script.push((n) =>
+        turnReply({ id: `msg_${n}`, text: 'answer', thinking: { text: 'mull', signature: 'sig-1' } })
+      );
       const first = [SYSTEM, user('one')];
       const r1 = await h.send(first);
       assert.equal(r1.thinkingBlocks?.[0]?.signature, 'sig-1');
@@ -635,7 +677,12 @@ for (const kind of ['anthropic', 'anthropic-oauth']) {
 
   test(`${kind}: a tool turn returns before message_stop and is stored when it arrives`, async () => {
     const h = harness(kind);
-    const gated = gatedReply({ id: 'msg_1', text: 'calling', stop: 'tool_use', toolUse: { id: 'toolu_1', name: 'read' } });
+    const gated = gatedReply({
+      id: 'msg_1',
+      text: 'calling',
+      stop: 'tool_use',
+      toolUse: { id: 'toolu_1', name: 'read' },
+    });
     h.script.push(() => gated.response);
     const started = Date.now();
     const r1 = await h.send([SYSTEM, user('one')]);
@@ -649,7 +696,12 @@ for (const kind of ['anthropic', 'anthropic-oauth']) {
 
   test(`${kind}: a tool turn whose stream ends without message_stop is not stored`, async () => {
     const h = harness(kind);
-    const gated = gatedReply({ id: 'msg_1', text: 'calling', stop: 'tool_use', toolUse: { id: 'toolu_1', name: 'read' } });
+    const gated = gatedReply({
+      id: 'msg_1',
+      text: 'calling',
+      stop: 'tool_use',
+      toolUse: { id: 'toolu_1', name: 'read' },
+    });
     h.script.push(() => gated.response);
     await h.send([SYSTEM, user('one')]);
     gated.end();
@@ -659,7 +711,12 @@ for (const kind of ['anthropic', 'anthropic-oauth']) {
 
   test(`${kind}: closing the session while message_stop is outstanding does not resurrect the thread`, async () => {
     const h = harness(kind);
-    const gated = gatedReply({ id: 'msg_1', text: 'calling', stop: 'tool_use', toolUse: { id: 'toolu_1', name: 'read' } });
+    const gated = gatedReply({
+      id: 'msg_1',
+      text: 'calling',
+      stop: 'tool_use',
+      toolUse: { id: 'toolu_1', name: 'read' },
+    });
     h.script.push(() => gated.response);
     await h.send([SYSTEM, user('one')]);
     globalThis.__mixdogCloseProviderConnectionsForSession('session-1', 'session-close:test');
@@ -670,7 +727,11 @@ for (const kind of ['anthropic', 'anthropic-oauth']) {
   });
 
   test(`${kind}: a legacy tail reminder is never threaded; a turn-scoped one is`, async () => {
-    const reminder = { role: 'user', content: '<system-reminder>x</system-reminder>', meta: { source: 'tail-reminder' } };
+    const reminder = {
+      role: 'user',
+      content: '<system-reminder>x</system-reminder>',
+      meta: { source: 'tail-reminder' },
+    };
     const h = harness(kind);
     await h.send([SYSTEM, user('one'), reminder], {}, 'claude-haiku-4-5-20251001');
     await h.send([SYSTEM, user('one'), reminder], { sessionId: 'session-2' }, MODEL);
@@ -717,7 +778,13 @@ test('the prefix hash ignores breakpoints but not cache_control keys in data', (
       { role: 'assistant', content: 'r' },
       { role: 'user', content: 'next' },
     ];
-    const next = planAnthropicThread({ provider: 'anthropic', config: {}, opts, body: { model: MODEL, messages }, account: 'a' });
+    const next = planAnthropicThread({
+      provider: 'anthropic',
+      config: {},
+      opts,
+      body: { model: MODEL, messages },
+      account: 'a',
+    });
     assert.equal(next.mode, expected, name);
   }
 });
@@ -761,7 +828,13 @@ test('an unrelated beta error is not a thread rejection and keeps threads on', (
   });
   assert.equal(plan.classify(400, unrelated), null);
   plan.settle();
-  const next = planAnthropicThread({ provider: 'anthropic', config: {}, opts: { sessionId: 's2' }, body, account: 'a' });
+  const next = planAnthropicThread({
+    provider: 'anthropic',
+    config: {},
+    opts: { sessionId: 's2' },
+    body,
+    account: 'a',
+  });
   assert.equal(next.mode, 'create', 'the account still threads');
   for (const message of [
     'thread: Extra inputs are not permitted',
@@ -781,7 +854,10 @@ test('a dropped continue is resent once, then the request replays in place', () 
   const create = planAnthropicThread({ provider: 'anthropic', config: {}, opts, body, account: 'a' });
   create.commit({ stopReason: 'end_turn', threadReceipt: receiptOf('msg_a', 'r') });
   create.settle();
-  const next = { ...body, messages: [...body.messages, { role: 'assistant', content: 'r' }, { role: 'user', content: 'y' }] };
+  const next = {
+    ...body,
+    messages: [...body.messages, { role: 'assistant', content: 'r' }, { role: 'user', content: 'y' }],
+  };
   const cont = planAnthropicThread({ provider: 'anthropic', config: {}, opts, body: next, account: 'a' });
   assert.equal(cont.mode, 'continue');
   const wire = cont.body;
@@ -800,7 +876,13 @@ test('a continue whose new messages would exceed 4 breakpoints is sent as a crea
   const first = planAnthropicThread({ provider: 'anthropic', config: {}, opts, body, account: 'a' });
   first.commit({ stopReason: 'end_turn', threadReceipt: receiptOf('msg_a', 'r') });
   first.settle();
-  const twoMarks = { role: 'user', content: [{ type: 'text', text: 'y', cache_control: marked }, { type: 'text', text: 'z', cache_control: marked }] };
+  const twoMarks = {
+    role: 'user',
+    content: [
+      { type: 'text', text: 'y', cache_control: marked },
+      { type: 'text', text: 'z', cache_control: marked },
+    ],
+  };
   const next = { ...body, messages: [...body.messages, { role: 'assistant', content: 'r' }, twoMarks] };
   const plan = planAnthropicThread({ provider: 'anthropic', config: {}, opts, body: next, account: 'a' });
   assert.notEqual(plan.mode, 'continue');
@@ -809,8 +891,26 @@ test('a continue whose new messages would exceed 4 breakpoints is sent as a crea
 test('unsupported models and context editing are never threaded', () => {
   const opts = { sessionId: 's' };
   const base = { messages: [{ role: 'user', content: 'x' }] };
-  assert.equal(planAnthropicThread({ provider: 'anthropic', config: {}, opts, body: { ...base, model: 'claude-3-opus' }, account: 'a' }).mode, 'none');
-  assert.equal(planAnthropicThread({ provider: 'anthropic', config: {}, opts, body: { ...base, model: 'claude-haiku-4-5' }, account: 'a' }).mode, 'create');
+  assert.equal(
+    planAnthropicThread({
+      provider: 'anthropic',
+      config: {},
+      opts,
+      body: { ...base, model: 'claude-3-opus' },
+      account: 'a',
+    }).mode,
+    'none'
+  );
+  assert.equal(
+    planAnthropicThread({
+      provider: 'anthropic',
+      config: {},
+      opts,
+      body: { ...base, model: 'claude-haiku-4-5' },
+      account: 'a',
+    }).mode,
+    'create'
+  );
   assert.equal(
     planAnthropicThread({
       provider: 'anthropic',

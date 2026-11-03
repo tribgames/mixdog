@@ -100,7 +100,11 @@ test('a version 2 ledger gains the request table and stays version 2; its rows r
   const ledger = new UsageLedger(path);
   try {
     assert.equal(ledger.db.prepare('PRAGMA user_version').get().user_version, 2);
-    assert.equal(ledger.db.prepare('PRAGMA table_info(usage_events)').all().length, 11, 'the record shape is unchanged');
+    assert.equal(
+      ledger.db.prepare('PRAGMA table_info(usage_events)').all().length,
+      11,
+      'the record shape is unchanged'
+    );
     const { requests, models } = everything(ledger.db);
     assert.equal(requests.length, 1, 'the abandoned attempt is not a request of its own');
     assert.equal(requests[0].status, 'completed');
@@ -212,9 +216,19 @@ test('a stream whose first output is silent thinking times generation from the t
     const parts = [
       [0, frame({ type: 'message_start', message: { model: 'claude-opus-5-5', usage: { input_tokens: 1 } } })],
       [0, frame({ type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } })],
-      [THINKING_MS, frame({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 's' } })],
+      [
+        THINKING_MS,
+        frame({ type: 'content_block_delta', index: 0, delta: { type: 'signature_delta', signature: 's' } }),
+      ],
       [0, frame({ type: 'content_block_stop', index: 0 })],
-      [0, frame({ type: 'content_block_start', index: 1, content_block: { type: 'tool_use', id: 't1', name: 'list', input: {} } })],
+      [
+        0,
+        frame({
+          type: 'content_block_start',
+          index: 1,
+          content_block: { type: 'tool_use', id: 't1', name: 'list', input: {} },
+        }),
+      ],
       [0, frame({ type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{}' } })],
       [0, frame({ type: 'content_block_stop', index: 1 })],
       [0, frame({ type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 400 } })],
@@ -407,14 +421,20 @@ test('a request answered on a configured fallback hop lists the primary route it
     session: hopped('anthropic-oauth'),
   });
   // Ordinary, same-provider-substituted and primary-route requests are unchanged.
-  await accountProviderSend('openai', {}, answer('gpt-5'), 'gpt-5', { sessionId: 'plain', session: { provider: 'openai' } });
+  await accountProviderSend('openai', {}, answer('gpt-5'), 'gpt-5', {
+    sessionId: 'plain',
+    session: { provider: 'openai' },
+  });
   await accountProviderSend('openai', {}, answer('gpt-5-mini'), 'gpt-5', { sessionId: 'swapped' });
   await accountProviderSend('anthropic-oauth', {}, answer(primary.model), primary.model, {
     sessionId: 'primary',
     session: hopped('anthropic-oauth'),
   });
   // A send that is not on the hop's route (another provider under the session) asks for itself.
-  await accountProviderSend('gemini', {}, answer('gemini-3'), 'gemini-3', { sessionId: 'other', session: hopped('openai') });
+  await accountProviderSend('gemini', {}, answer('gemini-3'), 'gemini-3', {
+    sessionId: 'other',
+    session: hopped('openai'),
+  });
 
   const rows = Object.fromEntries(read().map((row) => [row.sessionId, row]));
   const shape = (id) => [rows[id].status, rows[id].requestedProvider, rows[id].requestedModel, rows[id].provider];
@@ -629,12 +649,19 @@ test('a usage-less failure in another session adds no session to the statistics'
   }
 });
 
-test('getUsageRequests with asOf keeps the first page\'s rolling 24-hour bounds', async () => {
+test("getUsageRequests with asOf keeps the first page's rolling 24-hour bounds", async () => {
   const ledger = new UsageLedger(':memory:');
   try {
     const now = Date.now();
     ledger.record([
-      makeUsageRecord({ ts: now - 24 * 3_600_000 - 5000, provider: 'openai', model: 'gpt-5', sessionId: 's', sourceType: 'lead', inputTokens: 1 }),
+      makeUsageRecord({
+        ts: now - 24 * 3_600_000 - 5000,
+        provider: 'openai',
+        model: 'gpt-5',
+        sessionId: 's',
+        sourceType: 'lead',
+        inputTokens: 1,
+      }),
     ]);
     const api = createUsageStatsApi({ ledger: () => ledger, importHistory: async () => {} });
     assert.equal((await api.getUsageRequests({})).requests.length, 0, 'a fresh window has slid past the row');
@@ -704,7 +731,10 @@ test('getUsageRequests names an internal dispatch by its source type, even when 
       ['', ''],
     ]
   );
-  assert.ok(requests.every((row) => !('sourceType' in row)), 'the route detail stays inside the API');
+  assert.ok(
+    requests.every((row) => !('sourceType' in row)),
+    'the route detail stays inside the API'
+  );
 });
 
 test('a background request on a session the user can open keeps its label and adds the kind', async () => {
@@ -713,9 +743,34 @@ test('a background request on a session the user can open keeps its label and ad
   const now = Date.now();
   // A cache warm-up records under the real session id and its owner.
   ledger.record([
-    makeUsageRecord({ id: 'w0', ts: now - 60_000, provider: 'openai', model: 'gpt-5', sessionId: 'reviewer', ownerSessionId: 'dev', sourceType: 'cache-warm', inputTokens: 1 }),
-    makeUsageRecord({ id: 'w1', ts: now - 120_000, provider: 'openai', model: 'gpt-5', sessionId: 'dev', sourceType: 'cache-warm', inputTokens: 1 }),
-    makeUsageRecord({ id: 'w2', ts: now - 180_000, provider: 'openai', model: 'gpt-5', sessionId: 'dev', sourceType: 'lead', inputTokens: 1 }),
+    makeUsageRecord({
+      id: 'w0',
+      ts: now - 60_000,
+      provider: 'openai',
+      model: 'gpt-5',
+      sessionId: 'reviewer',
+      ownerSessionId: 'dev',
+      sourceType: 'cache-warm',
+      inputTokens: 1,
+    }),
+    makeUsageRecord({
+      id: 'w1',
+      ts: now - 120_000,
+      provider: 'openai',
+      model: 'gpt-5',
+      sessionId: 'dev',
+      sourceType: 'cache-warm',
+      inputTokens: 1,
+    }),
+    makeUsageRecord({
+      id: 'w2',
+      ts: now - 180_000,
+      provider: 'openai',
+      model: 'gpt-5',
+      sessionId: 'dev',
+      sourceType: 'lead',
+      inputTokens: 1,
+    }),
   ]);
   const metadata = {
     dev: { title: 'Dev session', sourceType: 'lead' },
@@ -791,7 +846,15 @@ test('getUsageRequests pages with a cursor, filters by status and model, and lis
   }
   // Older than the 24-hour view: in "all" only.
   rows.push(
-    makeUsageRecord({ id: 'old', ts: now - 3 * 86_400_000, provider: 'xai', model: 'grok-4.20', sessionId: 'x', sourceType: 'lead', inputTokens: 1 })
+    makeUsageRecord({
+      id: 'old',
+      ts: now - 3 * 86_400_000,
+      provider: 'xai',
+      model: 'grok-4.20',
+      sessionId: 'x',
+      sourceType: 'lead',
+      inputTokens: 1,
+    })
   );
   ledger.record(rows);
   const metadata = {
@@ -823,7 +886,11 @@ test('getUsageRequests pages with a cursor, filters by status and model, and lis
   assert.deepEqual((await api.getUsageRequests({ status: 'failed' })).requests.length, 1);
   const anthropic = await api.getUsageRequests({ model: 'claude-opus-4-8', limit: 2 });
   assert.ok(anthropic.requests.every((row) => row.model === 'claude-opus-4-8'));
-  const anthropicRest = await api.getUsageRequests({ model: 'claude-opus-4-8', limit: 2, cursor: anthropic.nextCursor });
+  const anthropicRest = await api.getUsageRequests({
+    model: 'claude-opus-4-8',
+    limit: 2,
+    cursor: anthropic.nextCursor,
+  });
   assert.equal(anthropic.requests.length + anthropicRest.requests.length, 3);
   const all = await api.getUsageRequests({ view: 'year' });
   assert.equal(all.requests.length, 8);
@@ -865,44 +932,92 @@ test('statistics and quota views count every reported token once, time only the 
   const scenarios = (send) => [
     // Retried success: one billed abandoned attempt, then the answer.
     () =>
-      send(provider, {}, async () => {
-        noteAbandonedUsage(usage(300, 30), model);
-        await new Promise((resolve) => setTimeout(resolve, 5));
-        return { content: 'x', model, usage: usage(1000, 200) };
-      }, model, { sessionId: 'a' }),
+      send(
+        provider,
+        {},
+        async () => {
+          noteAbandonedUsage(usage(300, 30), model);
+          await new Promise((resolve) => setTimeout(resolve, 5));
+          return { content: 'x', model, usage: usage(1000, 200) };
+        },
+        model,
+        { sessionId: 'a' }
+      ),
     // A failure carrying its usage.
-    () => send(provider, {}, async () => { throw Object.assign(new Error('e1'), { usage: usage(400, 40), model }); }, model, { sessionId: 'b' }),
+    () =>
+      send(
+        provider,
+        {},
+        async () => {
+          throw Object.assign(new Error('e1'), { usage: usage(400, 40), model });
+        },
+        model,
+        { sessionId: 'b' }
+      ),
     // A failure whose usage was noted as abandoned first.
     () =>
-      send(provider, {}, async () => {
-        const reported = usage(500, 50);
-        noteAbandonedUsage(reported, model);
-        throw Object.assign(new Error('e2'), { usage: reported, model });
-      }, model, { sessionId: 'c' }),
+      send(
+        provider,
+        {},
+        async () => {
+          const reported = usage(500, 50);
+          noteAbandonedUsage(reported, model);
+          throw Object.assign(new Error('e2'), { usage: reported, model });
+        },
+        model,
+        { sessionId: 'c' }
+      ),
     // A usage-less failure after a billed abandoned attempt.
     () =>
-      send(provider, {}, async () => {
-        noteAbandonedUsage(usage(600, 60), model);
-        throw new Error('e3');
-      }, model, { sessionId: 'd' }),
+      send(
+        provider,
+        {},
+        async () => {
+          noteAbandonedUsage(usage(600, 60), model);
+          throw new Error('e3');
+        },
+        model,
+        { sessionId: 'd' }
+      ),
     // A usage-less failure.
-    () => send(provider, {}, async () => { throw new Error('e4'); }, model, { sessionId: 'e' }),
+    () =>
+      send(
+        provider,
+        {},
+        async () => {
+          throw new Error('e4');
+        },
+        model,
+        { sessionId: 'e' }
+      ),
     // A cancel whose attempt noted its usage as it stopped.
     () => {
       const controller = new AbortController();
-      return send(provider, {}, async () => {
-        noteAbandonedUsage(usage(700, 70), model);
-        controller.abort(new Error('cancel'));
-        throw controller.signal.reason;
-      }, model, { sessionId: 'f', signal: controller.signal });
+      return send(
+        provider,
+        {},
+        async () => {
+          noteAbandonedUsage(usage(700, 70), model);
+          controller.abort(new Error('cancel'));
+          throw controller.signal.reason;
+        },
+        model,
+        { sessionId: 'f', signal: controller.signal }
+      );
     },
     // A cancel whose error carries its response's usage, recorded twice.
     ...[0, 1].map(() => () => {
       const controller = new AbortController();
       controller.abort(new Error('cancel'));
-      return send(provider, {}, async () => {
-        throw Object.assign(controller.signal.reason, { usage: usage(800, 80), model, responseId: 'resp-cancel' });
-      }, model, { sessionId: 'g', signal: controller.signal });
+      return send(
+        provider,
+        {},
+        async () => {
+          throw Object.assign(controller.signal.reason, { usage: usage(800, 80), model, responseId: 'resp-cancel' });
+        },
+        model,
+        { sessionId: 'g', signal: controller.signal }
+      );
     }),
   ];
   useLedger(t);
@@ -963,14 +1078,34 @@ test('a ledger this build touched is opened and written by the previous build', 
   const current = new UsageLedger(path);
   const ts = Date.now() - 1000;
   current.record([
-    makeUsageRecord({ id: 'new', ts, provider: 'openai', model: 'gpt-5', sessionId: 's', sourceType: 'lead', inputTokens: 5, status: 'failed', ttftMs: 3 }),
+    makeUsageRecord({
+      id: 'new',
+      ts,
+      provider: 'openai',
+      model: 'gpt-5',
+      sessionId: 's',
+      sourceType: 'lead',
+      inputTokens: 5,
+      status: 'failed',
+      ttftMs: 3,
+    }),
   ]);
   current.close();
 
   const older = new PreviousLedger(path);
   try {
     assert.equal(
-      older.record([previousRecord({ id: 'old', ts: ts + 1, provider: 'openai', model: 'gpt-5', sessionId: 's', sourceType: 'lead', inputTokens: 7 })]),
+      older.record([
+        previousRecord({
+          id: 'old',
+          ts: ts + 1,
+          provider: 'openai',
+          model: 'gpt-5',
+          sessionId: 's',
+          sourceType: 'lead',
+          inputTokens: 7,
+        }),
+      ]),
       1
     );
     assert.equal(older.db.prepare('SELECT COUNT(*) AS n FROM events').get().n, 2);
@@ -1019,7 +1154,14 @@ test('the deployed request-log build opens and writes a ledger holding fallback-
   try {
     assert.equal(
       deployed.record([
-        deployedRecord({ ...fields, id: 'older', ts: ts + 1, outputTokens: 7, requestedModel: 'gpt-5-mini', status: 'substituted' }),
+        deployedRecord({
+          ...fields,
+          id: 'older',
+          ts: ts + 1,
+          outputTokens: 7,
+          requestedModel: 'gpt-5-mini',
+          status: 'substituted',
+        }),
       ]),
       1
     );

@@ -177,10 +177,7 @@ const LINK_FREE_WATCH_PLATFORMS = new Set(['win32', 'darwin']);
  *  filesystem call; one that is not is still canonicalised. Every other
  *  source, and every watcher on another platform, may name paths through
  *  links, so each is canonicalised. `platform` exists for tests. */
-export function noteTurnWorktreeChange(
-  paths = null,
-  { canonical = false, platform = process.platform } = {}
-) {
+export function noteTurnWorktreeChange(paths = null, { canonical = false, platform = process.platform } = {}) {
   if (states.size === 0) return;
   const list = Array.isArray(paths) ? paths.filter((value) => clean(value)) : [];
   if (list.length === 0) {

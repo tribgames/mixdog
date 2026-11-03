@@ -194,7 +194,15 @@ function TodoRow({ task }: { task: TodoTask }) {
 type TodoItem = { task: TodoTask; phase: number };
 
 /** Rows in plan order; with headings, each phase's first row follows its name. */
-function TodoRows({ items, phases, headings }: { items: TodoItem[]; phases: TodoSnapshot['phases']; headings: boolean }) {
+function TodoRows({
+  items,
+  phases,
+  headings,
+}: {
+  items: TodoItem[];
+  phases: TodoSnapshot['phases'];
+  headings: boolean;
+}) {
   return (
     <>
       {items.map(({ task, phase }, index) => (

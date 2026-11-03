@@ -74,7 +74,10 @@ export function createJobRender({ progress }) {
         note: 'previous session reaped — fresh session, no prior context; re-supply anchors if needed',
       };
     } else if (meta.resumed === true) {
-      reapNote = { resumed: true, note: 'previous session reaped — resumed from its saved transcript, prior context kept' };
+      reapNote = {
+        resumed: true,
+        note: 'previous session reaped — resumed from its saved transcript, prior context kept',
+      };
     }
     const head = jobHead({ ...job, type: job.operation }, meta, reapNote);
     const tail = includeResult && job.result !== undefined ? { result: job.result } : {};

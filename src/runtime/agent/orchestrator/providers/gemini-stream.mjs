@@ -19,10 +19,7 @@ import { runAbortable } from '../../../shared/abort-race.mjs';
 import { createRestStreamWatchdogs } from './gemini-rest-stream/watchdogs.mjs';
 import { drainSseDataLines, sseDataPayload } from './gemini-rest-stream/sse-lines.mjs';
 import { noteAbandonedUsage } from '../../../shared/llm/usage-context.mjs';
-import {
-  assertNoGeminiInBandError,
-  geminiFinishReasonKind,
-} from './gemini-error-contract.mjs';
+import { assertNoGeminiInBandError, geminiFinishReasonKind } from './gemini-error-contract.mjs';
 
 export const GEMINI_FIRST_BYTE_TIMEOUT_MS = resolveTimeoutMs(
   'MIXDOG_GEMINI_FIRST_BYTE_TIMEOUT_MS',

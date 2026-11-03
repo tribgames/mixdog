@@ -116,14 +116,43 @@ test('pruning and scan admission share one age rule over the latest activity sta
   // Tombstones capped out: the scan alone must keep aged sessions out and let
   // the touched one in, matching what the prune keeps.
   const sessions = [
-    { id: 's-touched', agentTag: 'touched', agent: 'worker', status: 'idle', createdAt: old, finishedAt: old, updatedAt: iso(now - HOUR) },
-    { id: 's-aged', agentTag: 'aged', agent: 'worker', status: 'idle', createdAt: old, finishedAt: old, updatedAt: old },
+    {
+      id: 's-touched',
+      agentTag: 'touched',
+      agent: 'worker',
+      status: 'idle',
+      createdAt: old,
+      finishedAt: old,
+      updatedAt: iso(now - HOUR),
+    },
+    {
+      id: 's-aged',
+      agentTag: 'aged',
+      agent: 'worker',
+      status: 'idle',
+      createdAt: old,
+      finishedAt: old,
+      updatedAt: old,
+    },
   ];
   const root = mkdtempSync(join(tmpdir(), 'mixdog-stale-rows-'));
   const cfgMod = { loadConfig: () => ({}) };
   const mgr = { getSession: () => null, listSessions: () => sessions, getSessionRuntime: () => null };
-  const index = createWorkerIndex({ dataDir: root, cfgMod, mgr, tags: new Map(), tagAgents: new Map(), tagCwds: new Map() });
-  const reaper = createTerminalReaper({ cfgMod, mgr, tagMaps: { unbindIfOwned() {} }, index, getLiveSession: () => null });
+  const index = createWorkerIndex({
+    dataDir: root,
+    cfgMod,
+    mgr,
+    tags: new Map(),
+    tagAgents: new Map(),
+    tagCwds: new Map(),
+  });
+  const reaper = createTerminalReaper({
+    cfgMod,
+    mgr,
+    tagMaps: { unbindIfOwned() {} },
+    index,
+    getLiveSession: () => null,
+  });
   const none = new Map();
   assert.equal(reaper.tombstoneBlocksScan(sessions[1], 'aged', none), true);
   assert.equal(reaper.tombstoneBlocksScan(sessions[0], 'touched', none), false);

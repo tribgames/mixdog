@@ -28,11 +28,7 @@ import {
 import { enrichModels } from './model-catalog.mjs';
 import { sanitizeModelList } from './model-list-sanitize.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
-import {
-  THREAD_MESSAGE_STOP_WAIT_MS,
-  planAnthropicThread,
-  threadAccountKey,
-} from './anthropic-message-threads.mjs';
+import { THREAD_MESSAGE_STOP_WAIT_MS, planAnthropicThread, threadAccountKey } from './anthropic-message-threads.mjs';
 
 import {
   loadAnthropic,

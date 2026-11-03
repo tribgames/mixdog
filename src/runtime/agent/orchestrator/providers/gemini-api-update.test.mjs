@@ -222,10 +222,12 @@ test('before 2026-12-01 gemini-2.5 requests are unchanged', async () => {
 // ── 4. API key header ──
 test('the API key travels only in x-goog-api-key, never in a URL', async () => {
   const seen = [];
-  const record = (body) => async (url, init = {}) => {
-    seen.push({ url: String(url), headers: { ...init.headers } });
-    return typeof body === 'function' ? body() : new Response(JSON.stringify(body));
-  };
+  const record =
+    (body) =>
+    async (url, init = {}) => {
+      seen.push({ url: String(url), headers: { ...init.headers } });
+      return typeof body === 'function' ? body() : new Response(JSON.stringify(body));
+    };
   const stream = restProvider(ok());
   await stream.provider.send(HELLO, 'gemini-3.8-flash', [], {});
   seen.push(...stream.requests);

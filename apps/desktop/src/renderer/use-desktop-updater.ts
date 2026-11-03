@@ -93,12 +93,15 @@ export function useDesktopUpdater(invoke: Invoke) {
   const closeDialog = useCallback(() => setDialogOpen(false), []);
   // The dialog stays up when the install is held back for the user to confirm;
   // a started install leaves `ready`, which closes it.
-  const install = useCallback((confirmed?: boolean) => {
-    void invoke(async () => {
-      const next = await window.mixdogDesktop.showDesktopUpdate(confirmed === true);
-      setState(next);
-    });
-  }, [invoke, setState]);
+  const install = useCallback(
+    (confirmed?: boolean) => {
+      void invoke(async () => {
+        const next = await window.mixdogDesktop.showDesktopUpdate(confirmed === true);
+        setState(next);
+      });
+    },
+    [invoke, setState]
+  );
 
   return {
     state,

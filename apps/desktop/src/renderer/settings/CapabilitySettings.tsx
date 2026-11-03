@@ -292,20 +292,23 @@ export const CapabilitySettings = memo(function CapabilitySettings({
     }
   }, [api, hydrating, pending]);
 
-  const installDesktopUpdate = useCallback(async (confirmed?: boolean): Promise<void> => {
-    if (!api.showDesktopUpdate || updaterState.status !== 'ready' || pending || hydrating) return;
-    setPending('desktop-update');
-    setError('');
-    try {
-      const next = await api.showDesktopUpdate(confirmed === true);
-      latestUpdaterState.current = next;
-      if (activeRef.current) setUpdaterState(next);
-    } catch (reason) {
-      setError(errorMessage(reason));
-    } finally {
-      setPending('');
-    }
-  }, [api, hydrating, pending, updaterState.status]);
+  const installDesktopUpdate = useCallback(
+    async (confirmed?: boolean): Promise<void> => {
+      if (!api.showDesktopUpdate || updaterState.status !== 'ready' || pending || hydrating) return;
+      setPending('desktop-update');
+      setError('');
+      try {
+        const next = await api.showDesktopUpdate(confirmed === true);
+        latestUpdaterState.current = next;
+        if (activeRef.current) setUpdaterState(next);
+      } catch (reason) {
+        setError(errorMessage(reason));
+      } finally {
+        setPending('');
+      }
+    },
+    [api, hydrating, pending, updaterState.status]
+  );
 
   useEffect(() => {
     if (category !== 'system') {

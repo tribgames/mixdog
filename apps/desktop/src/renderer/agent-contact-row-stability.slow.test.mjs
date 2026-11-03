@@ -178,5 +178,6 @@ test('a working bot row keeps its height and its face, name and preview stay put
         );
       }
     }
-  }  assert.deepEqual(errors, []);
+  }
+  assert.deepEqual(errors, []);
 });

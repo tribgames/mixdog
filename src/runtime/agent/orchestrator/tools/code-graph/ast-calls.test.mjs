@@ -30,9 +30,7 @@ process.on('exit', () => {
 
 const { codeGraph } = await import('./dispatch.mjs');
 const { _attachGraphRuntimeCaches, _serializeGraph, _deserializeGraph, _estimateGraphBaseBytes, _estimateValueBytes } =
-  await import(
-  './graph-model.mjs'
-);
+  await import('./graph-model.mjs');
 const {
   _fileInfoFromRustRecord,
   _reuseFileInfo,

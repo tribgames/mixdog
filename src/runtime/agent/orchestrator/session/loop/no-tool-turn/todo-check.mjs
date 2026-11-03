@@ -15,12 +15,7 @@
 import { resolvePluginData } from '../../../../../shared/plugin-paths.mjs';
 import { awaitingBackgroundWork, beginUserCycle } from '../../../../../shared/background-wait.mjs';
 import { readStoredGoalSnapshot } from '../../../runtime-core/goal-storage.mjs';
-import {
-  clearTodo,
-  openTodoItems,
-  todoAllClosed,
-  todoPhases,
-} from '../../../runtime-core/todo-list.mjs';
+import { clearTodo, openTodoItems, todoAllClosed, todoPhases } from '../../../runtime-core/todo-list.mjs';
 import { TODO_TOOL } from '../../../runtime-core/todo-tool-defs.mjs';
 import { HIDDEN_AGENT_NAMES } from '../hidden-agents.mjs';
 import { _isMutationTool, _isShellTool } from '../tool-classify.mjs';

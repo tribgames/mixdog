@@ -1101,7 +1101,12 @@ test('the unstaged source carries the untracked files the status did not list; s
     unstagedDeletions: 0,
   };
   const view = mount(t, {
-    gitStatus: async () => ({ repository: true, root: 'C:/omitted', files: [untrackedFile], untrackedOmitted: 199_000 }),
+    gitStatus: async () => ({
+      repository: true,
+      root: 'C:/omitted',
+      files: [untrackedFile],
+      untrackedOmitted: 199_000,
+    }),
     gitDiff: async () => '',
   });
   let seen = null;

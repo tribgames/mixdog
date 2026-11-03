@@ -312,7 +312,8 @@ test('a long later branch of a split project windows against its own first row',
     }
     const height = heightOf(this);
     return { top: offset, bottom: offset + height, height, left: 0, right: 200, width: 200, x: 0, y: offset };
-  };  const workspace = (worktreeId, branch) => ({ projectPath: '/p', repoCommonDir: null, cwd: '/p', worktreeId, branch });
+  };
+  const workspace = (worktreeId, branch) => ({ projectPath: '/p', repoCommonDir: null, cwd: '/p', worktreeId, branch });
   const session = (id, activityAt, branch, worktreeId) => ({
     ...catalog()[0],
     id,
@@ -358,7 +359,9 @@ test('a long later branch of a split project windows against its own first row',
   assert.ok(mounted().includes('f-0'), 'the later branch starts windowed at its top');
   // The later branch's row 40 sits 40 slots below its first row; everything in
   // front of that row (Recent, main's rows, both sub-headings) is above it.
-  const origin = document.querySelector('section[aria-label="P"] .session-row[data-session-id="f-0"]').getBoundingClientRect().top;
+  const origin = document
+    .querySelector('section[aria-label="P"] .session-row[data-session-id="f-0"]')
+    .getBoundingClientRect().top;
   top = origin + 40 * 32;
   await act(async () => scroller.dispatchEvent(new window.Event('scroll')));
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));

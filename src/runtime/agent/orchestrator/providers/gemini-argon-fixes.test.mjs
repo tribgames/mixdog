@@ -127,7 +127,9 @@ for (const { name, consume } of protocols) {
 }
 
 test('API-key uncached send relays thoughts through onReasoningDelta, not the answer', async () => {
-  const { provider } = uncachedProvider([[chunkOf([{ text: 'thinking...', thought: true }, { text: 'Done.' }], 'STOP')]]);
+  const { provider } = uncachedProvider([
+    [chunkOf([{ text: 'thinking...', thought: true }, { text: 'Done.' }], 'STOP')],
+  ]);
   const reasoning = [];
   const result = await provider.send(HELLO, 'gemini-3.1-pro', [], { onReasoningDelta: (d) => reasoning.push(d) });
   assert.deepEqual(reasoning, ['thinking...']);

@@ -234,5 +234,3 @@ export function createSessionTurnCalls(ctx) {
 
   return { submitSession, materializeSession, recoverActiveGoals, abortSession, approveSession };
 }
-
-

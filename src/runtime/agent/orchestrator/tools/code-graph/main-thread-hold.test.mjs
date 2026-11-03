@@ -133,7 +133,10 @@ async function eventLoopGaps(run) {
 test('small files of batches the pool refuses or fails are masked before evaluation in yielding slices, under a hard cap', async () => {
   const graph = syntheticGraph(36);
   for (const [rel, entry] of graph._sourceTextCache) {
-    graph._sourceTextCache.set(rel, { ...entry, text: MASKABLE_LINE.repeat(Math.ceil(100_000 / MASKABLE_LINE.length)) });
+    graph._sourceTextCache.set(rel, {
+      ...entry,
+      text: MASKABLE_LINE.repeat(Math.ceil(100_000 / MASKABLE_LINE.length)),
+    });
   }
   // A saturated pool: the one admitted batch goes to a worker that never
   // answers (failed at its deadline), every other batch is refused.
@@ -195,7 +198,10 @@ test('a saturated pool makes an oversized file wait for admission instead of mas
   const worst = gaps.reduce((max, gap) => Math.max(max, gap), 0);
   // One slice plus the scavenges that land inside it (a few ms each with this
   // many line strings); masking this file on the main thread took ~100 ms.
-  assert.ok(worst <= 3 * MAIN_THREAD_SLICE_MS, `a ${worst.toFixed(1)}ms event-loop gap while a 4.2M-char file was masked`);
+  assert.ok(
+    worst <= 3 * MAIN_THREAD_SLICE_MS,
+    `a ${worst.toFixed(1)}ms event-loop gap while a 4.2M-char file was masked`
+  );
 });
 
 test('an oversized file whose pool requests crash twice is masked in slices, not in one stretch', async () => {
@@ -238,7 +244,7 @@ test('an oversized file whose pool requests crash twice is masked in slices, not
   assert.ok(worst <= 3 * MAIN_THREAD_SLICE_MS, `a ${worst.toFixed(1)}ms event-loop gap after two crashes`);
 });
 
-test('an oversized file\'s source lines are split and measured in slices, to the same lines and bytes', async (t) => {
+test("an oversized file's source lines are split and measured in slices, to the same lines and bytes", async (t) => {
   const graph = syntheticGraph(1);
   const [[rel, entry]] = graph._sourceTextCache;
   const unit = `${MASKABLE_LINE}x\r\n\r\n\ny\rz\n`;

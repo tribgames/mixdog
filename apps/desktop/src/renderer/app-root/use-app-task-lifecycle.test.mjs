@@ -49,7 +49,7 @@ async function mountLaunchLifecycle(tabs, prefs = new Map()) {
       preferredDraftProjectPath: '',
       resetNewTaskDraft: (...args) => state.resets.push(args),
       draftPanePrefs: { current: prefs },
-      inheritedDraftPrefs: () => ({ projectPath: '',modelSelection: null, workflow: null, orchestrationMode: null }),
+      inheritedDraftPrefs: () => ({ projectPath: '', modelSelection: null, workflow: null, orchestrationMode: null }),
       persistDraftPanePrefs: () => {},
       setDraftPrefsVersion: () => {},
       openSessionRef: { current: async () => {} },
@@ -95,7 +95,13 @@ test('a launch focuses an untouched draft tab instead of adding another blank on
   // launch takes the genuinely untouched one and leaves the project alone.
   const configured = { projectPath: '/work/a', modelSelection: null, workflow: null };
   const prefs = new Map([['cfg', configured]]);
-  const both = await mountLaunchLifecycle([{ kind: 'new', draftId: 'cfg' }, { kind: 'new', draftId: 'clean' }], prefs);
+  const both = await mountLaunchLifecycle(
+    [
+      { kind: 'new', draftId: 'cfg' },
+      { kind: 'new', draftId: 'clean' },
+    ],
+    prefs
+  );
   await act(async () => both.state.hook.startLaunchProjectlessTask());
   assert.deepEqual(both.state.selectionRef.current, { kind: 'new', draftId: 'clean' });
   assert.equal(prefs.get('cfg').projectPath, '/work/a');

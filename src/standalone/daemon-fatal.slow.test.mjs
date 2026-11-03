@@ -77,7 +77,11 @@ function startDaemon(t, mode) {
     FIXTURE_MODE: mode,
   };
   delete env.NODE_TEST_CONTEXT;
-  const child = spawn(process.execPath, [entry], { env, stdio: ['ignore', 'ignore', 'ignore', 'ipc'], windowsHide: true });
+  const child = spawn(process.execPath, [entry], {
+    env,
+    stdio: ['ignore', 'ignore', 'ignore', 'ipc'],
+    windowsHide: true,
+  });
   const exited = new Promise((resolve) => child.once('exit', (code) => resolve(code)));
   t.after(async () => {
     child.kill();
