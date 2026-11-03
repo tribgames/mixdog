@@ -139,6 +139,9 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
   // Read once: the virtualizer takes it only when it is created, and reading
   // window.innerHeight in every render laid the page out mid-render.
   const [initialRect] = useState(() => ({ width: 0, height: fallbackViewportHeight() }));
+  // Re-reads the scroller's offset into the live virtualizer (set while it is
+  // attached).
+  const syncOffset = useRef<(() => void) | null>(null);
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLElement>({
     count: items.length,
     enabled: windowed,
@@ -153,19 +156,38 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
     // synchronously inside it; the overscan keeps rows ready meanwhile.
     useFlushSync: false,
     initialRect,
-    observeElementOffset: (instance, notify) =>
-      observeElementOffset(instance, (offset, scrolling) => {
+    // Attaching writes the held offset back into the scroller, so it starts
+    // from the scroller's own position: from 0, a list crossing 40 rows threw
+    // the scroller to its top.
+    initialOffset: () => scrollerRef.current?.scrollTop ?? 0,
+    observeElementOffset: (instance, notify) => {
+      const report = (offset: number, scrolling: boolean) => {
         const step = VIRTUAL_ROWS_STEP * pitch;
         notify(Math.floor(offset / step) * step, scrolling);
-      }),
-    observeElementRect: (instance, notify) =>
-      observeElementRect(instance, (rect) =>
+      };
+      const stop = observeElementOffset(instance, report);
+      syncOffset.current = () => {
+        if (instance.scrollElement) report(instance.scrollElement.scrollTop, false);
+      };
+      return () => {
+        syncOffset.current = null;
+        stop?.();
+      };
+    },
+    observeElementRect: (instance, notify) => {
+      let hidden = false;
+      return observeElementRect(instance, (rect) => {
+        const shown = rect.height > 0;
         notify(
-          rect.height > 0
-            ? rect
-            : { width: rect.width, height: instance.scrollRect?.height || fallbackViewportHeight() }
-        )
-      ),
+          shown ? rect : { width: rect.width, height: instance.scrollRect?.height || fallbackViewportHeight() }
+        );
+        // A hidden scroller (the view behind another rail page) reads scrollTop
+        // 0 and ignores writes; showing it again restores its real position
+        // without a scroll event, so the offset held from before is stale.
+        if (shown && hidden) syncOffset.current?.();
+        hidden = !shown;
+      });
+    },
   });
   // Sizes are estimates only; a learned pitch replaces every cached one.
   // biome-ignore lint/correctness/useExhaustiveDependencies: pitch is the estimate the measure() call re-reads
