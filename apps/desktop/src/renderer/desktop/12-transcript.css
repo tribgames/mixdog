@@ -221,10 +221,11 @@
 /* Top scroll fade strip. Absolute sibling of the scroller, so scroll geometry
    and the virtual list's measurements are untouched. No fade above the
    composer. */
-.transcript-shell {
+.transcript-shell,
+.studio-stage-host {
   --mx-scroll-fade-surface: var(--mx-workspace-sheet);
 }
-html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
+html:is([data-window-material="mica"], [data-mixdog-skin]) :is(.transcript-shell, .studio-stage-host) {
   --mx-scroll-fade-surface: var(--mx-mica-layer);
 }
 /* A real element (conversation-pane-transcript.tsx), never a pseudo-element:

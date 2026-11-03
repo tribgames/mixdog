@@ -18,6 +18,7 @@ import {
   type ScmContextMenuItem,
   type ScmContextMenuState,
 } from './ScmContextMenu';
+import { useScrollProgress } from './scroll-progress';
 import type { StudioBoard } from './studio-boards';
 import type { StudioGridSection } from './studio-pane-layout';
 
@@ -151,6 +152,7 @@ export function StudioGallery({
   onTileSizeChange: (size: number) => void;
   onToggleChecked: (asset: MediaAsset) => void;
 }) {
+  useScrollProgress(resultsRef, ':scope > .transcript-scroll-fade');
   const pendingById = useMemo(() => new Map(pendingJobs.map((entry) => [entry.id, entry])), [pendingJobs]);
   const assetIndexById = useMemo(
     () => new Map(visibleAssets.map((asset, index) => [asset.id, index])),
@@ -250,6 +252,9 @@ export function StudioGallery({
           {cleanup}
         </div>
       </div>
+      {/* The session transcript's top fade (12-transcript.css), driven by the
+        results scroller's position; see 19-studio.css for where it sits. */}
+      <div className="transcript-scroll-fade" aria-hidden="true" />
       {/* biome-ignore lint/a11y/useAriaPropsSupportedByRole: label names the results region without adding a role, which would change screen-reader semantics */}
       <div className="studio-results" aria-label={t('Generated media')} ref={resultsRef} onScroll={onResultsScroll}>
         {visibleAssets.length === 0 && pendingJobs.length === 0 && !loading && (

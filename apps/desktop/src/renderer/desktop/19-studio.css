@@ -35,6 +35,32 @@
   flex-direction: column;
   overflow: hidden;
 }
+/* Scroll-edge fades, the session transcript's (12-transcript.css, 15-composer.css).
+   Top: the shared .transcript-scroll-fade strip, a zero-height flow item
+   between the topbar and the results (negative margin = its own height), so
+   it overlays the first rows only and never the Image/Video switch or the
+   scale/cleanup tools. It appears once the results have scrolled. */
+.studio-stage-host {
+  --transcript-fade: 24px;
+}
+.studio-stage-host > .transcript-scroll-fade {
+  position: relative;
+  flex: none;
+  /* Below the cleanup menu (z-index 5), which drops over the first rows. */
+  z-index: 4;
+  margin-bottom: -32px;
+}
+/* Bottom: the strip ends where the opaque dock band begins. */
+.studio-stage-host::after {
+  content: "";
+  position: absolute;
+  z-index: 8;
+  inset-inline: 0;
+  bottom: var(--studio-dock-overlay-height, 116px);
+  height: var(--transcript-fade);
+  pointer-events: none;
+  background: linear-gradient(to bottom, transparent, var(--studio-dock-band));
+}
 /* Mode stays centered; thumbnail scale occupies an independent right slot. */
 .studio-topbar {
   box-sizing: border-box;
@@ -769,23 +795,27 @@ html[data-mixdog-mobile-tabs] .studio-panel .studio-board-count {
      the pane, so the line never floats over thumbnails. */
   padding-top: 8px;
 }
+.studio-shell {
+  /* The dock band's colour; the bottom scroll fade ends in the same token. */
+  --studio-dock-band: var(--mx-workspace-sheet);
+}
 .studio-dock::before {
   content: "";
   position: absolute;
   z-index: -1;
   inset: 0 -100vmax;
-  background: var(--mx-workspace-sheet);
+  background: var(--studio-dock-band);
   pointer-events: none;
 }
 /* Mica and skins clear the sheet to transparent (03-titlebar.css). Mica's main
    panel paints the opaque root sheet (--mx-mica-layer), so the band takes that
    same tone; the deep paper read as a grey bar under Paper's white gallery.
    A skin's layer is a translucent veil, so it keeps the opaque plate paper. */
-html[data-window-material="mica"]:not([data-mixdog-skin]) .studio-dock::before {
-  background: var(--mx-mica-layer);
+html[data-window-material="mica"]:not([data-mixdog-skin]) .studio-shell {
+  --studio-dock-band: var(--mx-mica-layer);
 }
-html[data-mixdog-skin] .studio-dock::before {
-  background: var(--mx-bg-deep);
+html[data-mixdog-skin] .studio-shell {
+  --studio-dock-band: var(--mx-bg-deep);
 }
 /* PC: the chat composer's floor (agent-chat.css: 2px under the line, the
    line 4px under the card), so a Studio tab and a chat tab put their cards
@@ -1235,8 +1265,12 @@ html[data-mixdog-skin] .desktop-boot-cover > .desktop-loading-surface {
 }
 .studio-shell:has(.studio-detail) .studio-results,
 .studio-shell:has(.studio-detail) .studio-topbar,
+.studio-shell:has(.studio-detail) .studio-stage-host > .transcript-scroll-fade,
 .studio-shell:has(.studio-detail) .studio-dock {
   visibility: hidden;
+}
+.studio-shell:has(.studio-detail) .studio-stage-host::after {
+  display: none;
 }
 /* Detail card follows the shared dialog grammar (model picker / settings):
    rounded frame, hairline ring, overlay elevation over the scrim. */
