@@ -89,3 +89,5 @@ mod tests_runtime;
 mod tests_search;
 #[cfg(test)]
 mod tests_signature;
+#[cfg(test)]
+mod tests_watch_symlinks;
