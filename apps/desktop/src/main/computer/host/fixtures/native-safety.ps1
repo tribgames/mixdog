@@ -32,6 +32,28 @@ public sealed class MixdogMsaaActionFixture : Control {
     public override Rectangle Bounds { get { return owner.RectangleToScreen(owner.ClientRectangle); } }
   }
 }
+/// Counts a left press and release that both arrive inside its client area,
+/// judged from the delivered messages alone. A stock WinForms button confirms
+/// its click with WindowFromPoint at release and refocuses through activation,
+/// so another process's window over this off-screen point, or a foreground
+/// change, decides that button's click instead of the delivered messages.
+public sealed class MixdogPointerFixture : Control {
+  bool pressed;
+  public int Clicks { get; private set; }
+  bool Inside(IntPtr lParam) {
+    long packed = lParam.ToInt64();
+    return ClientRectangle.Contains((short)(packed & 0xFFFF), (short)((packed >> 16) & 0xFFFF));
+  }
+  protected override void WndProc(ref Message m) {
+    if (m.Msg == 0x0201) { pressed = Inside(m.LParam); return; }
+    if (m.Msg == 0x0202) {
+      if (pressed && Inside(m.LParam)) Clicks++;
+      pressed = false;
+      return;
+    }
+    base.WndProc(ref m);
+  }
+}
 '@
 $script:CurrentSession = Get-SessionState 'safety-probe'
 [Console]::Error.WriteLine('probe:session-and-windows')
@@ -78,9 +100,13 @@ $msaaValue.Size = New-Object System.Drawing.Size(200, 30)
 $msaaAction = New-Object MixdogMsaaActionFixture
 $msaaAction.Location = New-Object System.Drawing.Point(230, 190)
 $msaaAction.Size = New-Object System.Drawing.Size(200, 30)
+$pointerFixture = New-Object MixdogPointerFixture
+$pointerFixture.Location = New-Object System.Drawing.Point(230, 60)
+$pointerFixture.Size = New-Object System.Drawing.Size(100, 30)
 $script:nativeClickCount = 0
 $button.Add_Click({ $script:nativeClickCount++ })
 $form.Controls.Add($button)
+$form.Controls.Add($pointerFixture)
 $form.Controls.Add($textBox)
 $form.Controls.Add($checkBox)
 $form.Controls.Add($label)
@@ -100,6 +126,7 @@ $form.AddOwnedForm($owned)
 [void]$label.Handle
 [void]$msaaValue.Handle
 [void]$msaaAction.Handle
+[void]$pointerFixture.Handle
 [void]$owned.Handle
 [void][MixWin32]::ShowWindow($form.Handle, 4)
 [void][MixWin32]::ShowWindow($owned.Handle, 4)
@@ -198,16 +225,12 @@ $msaaSetResult.verified -eq $true -and $msaaValue.Text -eq 'ref-value'
     })
 $msaaValue.Text = ''
 [Console]::Error.WriteLine('probe:background-pointer')
-$buttonPoint = $button.PointToScreen((New-Object System.Drawing.Point(10, 10)))
-$nativePointerTarget = [MixWin32]::BackgroundPointer($form.Handle, $buttonPoint.X, $buttonPoint.Y, 'click', '')
-$nativePointerDeadline = [DateTime]::UtcNow.AddMilliseconds(200)
-do {
-    [System.Windows.Forms.Application]::DoEvents()
-    if ($script:nativeClickCount -ge 1) { break }
-    Start-Sleep -Milliseconds 5
-} while ([DateTime]::UtcNow -lt $nativePointerDeadline)
-$nativePointerOk = $script:nativeClickCount -eq 1 -and $nativePointerTarget -eq [MixWin32]::WindowId($button.Handle)
-$nativePointerError = 'clicks={0}; target={1}; expected={2}' -f $script:nativeClickCount, $nativePointerTarget, [MixWin32]::WindowId($button.Handle)
+$pointerPoint = $pointerFixture.PointToScreen((New-Object System.Drawing.Point(10, 10)))
+# Sent to this thread's own window, the press and release run the fixture's window
+# procedure before BackgroundPointer returns, so its click is already counted.
+$nativePointerTarget = [MixWin32]::BackgroundPointer($form.Handle, $pointerPoint.X, $pointerPoint.Y, 'click', '')
+$nativePointerOk = $pointerFixture.Clicks -eq 1 -and $nativePointerTarget -eq [MixWin32]::WindowId($pointerFixture.Handle)
+$nativePointerError = 'clicks={0}; target={1}; expected={2}' -f $pointerFixture.Clicks, $nativePointerTarget, [MixWin32]::WindowId($pointerFixture.Handle)
 [void]$probeResults.Add(@{ name = 'background-native-pointer'; ok = $nativePointerOk; error = $nativePointerError })
 $textPoint = $textBox.PointToScreen((New-Object System.Drawing.Point(20, 10)))
 $textEnd = $textBox.PointToScreen((New-Object System.Drawing.Point(120, 10)))
