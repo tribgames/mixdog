@@ -41,7 +41,13 @@ function stubDaemon({ pid = process.pid, registerStatuses = [] } = {}) {
           return json(200, { status: 'ok', pid });
         case '/client/register': {
           state.registers.push(parsed);
-          const status = registerStatuses.shift() ?? 200;
+          state.registerTimes = [...(state.registerTimes || []), Date.now()];
+          const reply = registerStatuses.shift() ?? 200;
+          if (typeof reply === 'object') {
+            res.writeHead(reply.status, { 'content-type': 'application/json', ...reply.headers });
+            return res.end(JSON.stringify(reply.body));
+          }
+          const status = reply;
           if (status !== 200) return json(status, { error: `register ${status}` });
           state.tokens += 1;
           return json(200, { token: `tok-${state.tokens}`, protocol: SESSION_PROTOCOL, revision: 42 });
@@ -54,6 +60,10 @@ function stubDaemon({ pid = process.pid, registerStatuses = [] } = {}) {
           return json(200, { ok: true });
         case '/call':
           state.calls.push(parsed);
+          if (parsed.name === 'session.later') {
+            return json(503, { error: 'not ready', code: 'EDAEMON_RETRY_LATER', retryAfterMs: 40 });
+          }
+          if (parsed.name === 'session.fenced') return json(503, { error: 'fenced', code: 'EDAEMON_FENCED' });
           if (parsed.name === 'session.boom') return json(200, { error: 'exploded', code: 'E_BOOM' });
           if (parsed.name === 'session.full') {
             return json(200, {
@@ -387,4 +397,47 @@ test('a daemon that stays unreachable exhausts the reconnect budget and signals 
   assert.match(fatal[0], /reconnect budget exhausted after \d+ms/);
   assert.equal(disconnects.length, 1);
   await handle.close();
+});
+
+test('register waits out a retry-later refusal for as long as its Retry-After says', async (context) => {
+  isolatedRuntimeRoot(context);
+  const daemon = await stubDaemon({
+    registerStatuses: [
+      { status: 503, headers: { 'retry-after': '1' }, body: { error: 'not ready', code: 'EDAEMON_RETRY_LATER' } },
+    ],
+  });
+  try {
+    const handle = await attachSession({ discovery: discoveryFor(daemon) });
+    assert.equal(handle.clientToken, 'tok-1');
+    const [refused, admitted] = daemon.state.registerTimes;
+    assert.equal(daemon.state.registerTimes.length, 2);
+    assert.ok(admitted - refused >= 950, `asked again after ${admitted - refused}ms`);
+    await handle.close();
+  } finally {
+    await daemon.close();
+  }
+});
+
+test('a retry-later call refusal is retryable, not a transport failure; a fenced one is', async (context) => {
+  isolatedRuntimeRoot(context);
+  const daemon = await stubDaemon();
+  try {
+    const handle = await attachSession({ discovery: discoveryFor(daemon) });
+    await assert.rejects(handle.call('session.later', {}, { callId: 'c-later' }), (err) => {
+      assert.equal(err.code, 'EDAEMON_RETRY_LATER');
+      assert.equal(err.retryable, true);
+      assert.equal(err.retryAfterMs, 40);
+      assert.notEqual(err.daemonTransportError, true);
+      return true;
+    });
+    await assert.rejects(handle.call('session.fenced'), (err) => {
+      assert.equal(err.code, 'EDAEMON_FENCED');
+      assert.equal(err.daemonTransportError, true);
+      assert.notEqual(err.retryable, true);
+      return true;
+    });
+    await handle.close();
+  } finally {
+    await daemon.close();
+  }
 });

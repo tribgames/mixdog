@@ -4,6 +4,7 @@
  * server token except /health (liveness probe is unauthed).
  */
 import { readBody, sendJson, sendError } from '../../runtime/memory/lib/http-wire.mjs';
+import { DAEMON_FENCED, sendDaemonRefusal } from '../daemon-refusal.mjs';
 import { replayIdOf } from './client-registry/registration-replays.mjs';
 
 const CHANNEL_HTTP_BODY_MAX_BYTES = 64 * 1024 * 1024;
@@ -21,6 +22,8 @@ export function createChannelRoutes({
   registry,
   dispatch,
   admitWork = () => true,
+  // Why admitWork just refused ({ code, message, retryAfterMs? }, daemon-refusal.mjs).
+  workRefusal = () => ({ code: DAEMON_FENCED, message: 'daemon owner lease is not held' }),
 }) {
   const { clients } = state;
 
@@ -35,7 +38,7 @@ export function createChannelRoutes({
   // request arriving during the lease's re-verification waits for it).
   async function refuseUnadmitted(res) {
     if (await admitWork()) return false;
-    sendError(res, 'daemon owner lease is not held', 503);
+    sendDaemonRefusal(res, workRefusal());
     return true;
   }
 

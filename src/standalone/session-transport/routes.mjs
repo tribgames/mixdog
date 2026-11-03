@@ -7,6 +7,7 @@
 import { readFileSync } from 'node:fs';
 import { sendJson, sendError } from '../../runtime/memory/lib/http-wire.mjs';
 import { modelProxyClientMode } from '../../runtime/shared/model-proxy-mode.mjs';
+import { DAEMON_FENCED, sendDaemonRefusal } from '../daemon-refusal.mjs';
 import {
   compareRuntimeVersions,
   SESSION_CAPABILITY_FINGERPRINT,
@@ -55,6 +56,8 @@ export function createTransportRoutes({
   onUpgradeRequested,
   workGate,
   admitWork = () => true,
+  // Why admitWork just refused ({ code, message, retryAfterMs? }, daemon-refusal.mjs).
+  workRefusal = () => ({ code: DAEMON_FENCED, message: 'daemon owner lease is not held' }),
 }) {
   // Checked on every register/call, last right before the work is handed on
   // (after the body is read): a daemon that lost (or cannot re-verify) its
@@ -62,7 +65,7 @@ export function createTransportRoutes({
   // request arriving during the lease's re-verification waits for it).
   const refuseUnadmitted = async (res) => {
     if (await admitWork()) return false;
-    sendError(res, 'daemon owner lease is not held', 503);
+    sendDaemonRefusal(res, workRefusal());
     return true;
   };
 

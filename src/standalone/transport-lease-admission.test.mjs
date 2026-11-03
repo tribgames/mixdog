@@ -36,7 +36,7 @@ function postInHalves(port, path, body, between = () => {}) {
         res.on('data', (chunk) => {
           text += chunk;
         });
-        res.on('end', () => resolve({ status: res.statusCode, body: text }));
+        res.on('end', () => resolve({ status: res.statusCode, body: text, headers: res.headers }));
       }
     );
     req.on('error', reject);
@@ -99,6 +99,33 @@ test('session transport: a lease fenced while the /call body arrives is not disp
   // Registration is gated after its body too.
   const late = await postInHalves(port, '/client/register', { protocol: SESSION_PROTOCOL, leadPid: process.pid });
   assert.equal(late.status, 503);
+});
+
+test('both front doors tell a retry-later refusal from a fenced one', async (t) => {
+  for (const create of [createSessionTransport, createChannelTransport]) {
+    let refusal = null;
+    const transport = create({
+      handleCall: async () => ({ ok: true }),
+      serverToken: TOKEN,
+      admitWork: () => false,
+      workRefusal: () => refusal,
+    });
+    const { port } = await transport.start();
+    t.after(() => transport.stop());
+    const body = { protocol: SESSION_PROTOCOL, leadPid: process.pid };
+
+    refusal = { code: 'EDAEMON_RETRY_LATER', message: 'not ready', retryAfterMs: 1500 };
+    const later = await post(port, '/client/register', body);
+    assert.equal(later.status, 503);
+    assert.deepEqual(JSON.parse(later.body), { error: 'not ready', code: 'EDAEMON_RETRY_LATER', retryAfterMs: 1500 });
+    assert.equal(later.headers['retry-after'], '2');
+
+    refusal = { code: 'EDAEMON_FENCED', message: 'daemon owner lease is not held' };
+    const fenced = await post(port, '/client/register', body);
+    assert.equal(fenced.status, 503);
+    assert.deepEqual(JSON.parse(fenced.body), { error: 'daemon owner lease is not held', code: 'EDAEMON_FENCED' });
+    assert.equal(fenced.headers['retry-after'], undefined);
+  }
 });
 
 test('channel transport: register, call and agent dispatch fenced mid-body are not handled', async (t) => {
