@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { PerformanceObserver } from 'node:perf_hooks';
 import { setFlagsFromString } from 'node:v8';
 import { runInNewContext } from 'node:vm';
 
@@ -110,15 +111,44 @@ test('a hit scan that met an unreadable source is not memoized, and a later quer
 
 const MASKABLE_LINE = '/* c */ const a = "s"; // target x\n';
 
-// Every event-loop gap while `run` is pending, in ms.
-async function eventLoopGaps(run) {
+const threadCpuMs = () => {
+  const { user, system } = process.threadCpuUsage();
+  return (user + system) / 1000;
+};
+
+// Step of the thread-time clock: microseconds on Linux and macOS, one 15.6 ms
+// timer tick on Windows.
+function threadCpuStepMs() {
+  const first = threadCpuMs();
+  let now = first;
+  while (now <= first) now = threadCpuMs();
+  return now - first;
+}
+
+// The longest stretch `run` held the event loop, in ms. The wall time between
+// two loop turns is more than the code controls: a time slice cannot cut short
+// a V8 GC pause that lands in it (a few ms for this many line strings, a
+// multiple on a slow runner), nor a runner descheduling the thread (30-70 ms
+// holes in a loop that did nothing were measured on a busy machine). So a gap
+// counts as its wall time less the GC pauses inside it, capped (where the
+// thread-time clock is fine enough) at the CPU the thread spent in it: a
+// stretch of work is on-CPU for as long as it lasts.
+async function worstEventLoopStretch(run) {
+  const pauses = [];
+  const observer = new PerformanceObserver((list) => pauses.push(...list.getEntries()));
+  observer.observe({ type: 'gc' });
+  const cpuClockFine = threadCpuStepMs() <= 1;
   const gaps = [];
-  let last = performance.now();
+  let lastAt = performance.now();
+  let lastCpu = threadCpuMs();
+  const startCpu = lastCpu;
   let running = true;
   const tick = () => {
-    const now = performance.now();
-    gaps.push(now - last);
-    last = now;
+    const at = performance.now();
+    const cpu = threadCpuMs();
+    if (at - lastAt > 1) gaps.push({ from: lastAt, to: at, cpu: cpu - lastCpu });
+    lastAt = at;
+    lastCpu = cpu;
     if (running) setImmediate(tick);
   };
   setImmediate(tick);
@@ -127,8 +157,85 @@ async function eventLoopGaps(run) {
   } finally {
     running = false;
   }
-  return gaps;
+  // The pending tick closes the last stretch; the GC entries of that stretch arrive by then.
+  await new Promise((resolve) => setImmediate(resolve));
+  pauses.push(...observer.takeRecords());
+  observer.disconnect();
+  return { ...measureStretches(gaps, pauses, cpuClockFine), cpuClockFine };
 }
+
+// `worst` is the gap with the greatest stretch, `longest` the one with the greatest wall time.
+function measureStretches(gaps, pauses, cpuClockFine) {
+  const none = { stretch: 0, wall: 0, gc: 0, cpu: 0 };
+  let worst = none;
+  let longest = none;
+  for (const { from, to, cpu } of gaps) {
+    let gc = 0;
+    for (const { startTime, duration } of pauses) {
+      gc += Math.max(0, Math.min(to, startTime + duration) - Math.max(from, startTime));
+    }
+    const stretch = cpuClockFine ? Math.min(to - from - gc, cpu) : to - from - gc;
+    const gap = { stretch, wall: to - from, gc, cpu };
+    if (stretch > worst.stretch) worst = gap;
+    if (gap.wall > longest.wall) longest = gap;
+  }
+  return { ...worst, longest };
+}
+
+const describeStretch = ({ stretch, wall, gc, cpu }) =>
+  `${stretch.toFixed(1)}ms (${wall.toFixed(1)}ms wall, ${gc.toFixed(1)}ms GC, ${cpu.toFixed(1)}ms CPU)`;
+
+test('the stretch measure charges the CPU a gap took, not the wall time it spanned', () => {
+  // A 60 ms gap that was nearly all off the CPU next to a 2 ms bookkeeping gap:
+  // `longest` is the 60 ms one, `worst` (greatest stretch) the 2 ms one.
+  const blocked = measureStretches(
+    [
+      { from: 0, to: 60, cpu: 0.1 },
+      { from: 100, to: 102, cpu: 2 },
+    ],
+    [],
+    true
+  );
+  assert.equal(blocked.longest.wall, 60);
+  assert.ok(blocked.longest.stretch < 1);
+  assert.equal(blocked.stretch, 2);
+  // 60 ms elapsed with 20 ms of CPU, 5 ms of it a GC pause: min(55, 20).
+  const descheduled = measureStretches([{ from: 0, to: 60, cpu: 20 }], [{ startTime: 10, duration: 5 }], true);
+  assert.equal(descheduled.stretch, 20);
+  // A coarse thread-time clock cannot cap: wall time less GC.
+  assert.equal(measureStretches([{ from: 0, to: 60, cpu: 0 }], [{ startTime: 10, duration: 5 }], false).stretch, 55);
+});
+
+test('the stretch measure counts a synchronous pass, and not time the thread spent off the CPU', async () => {
+  // Until the thread has itself run for `ms`, however long a busy runner takes
+  // to give it that CPU (the wall ceiling is only a hang guard).
+  const spin = (ms) => {
+    const target = threadCpuMs() + ms;
+    const ceiling = performance.now() + 10_000;
+    while (threadCpuMs() < target && performance.now() < ceiling) {
+      /* hold the thread */
+    }
+  };
+  const nextTurn = () => new Promise((resolve) => setImmediate(resolve));
+  const busy = await worstEventLoopStretch(async () => {
+    await nextTurn();
+    spin(60);
+    await nextTurn();
+  });
+  // 60 ms of CPU in one stretch; the margin is for a GC pause inside it and for the Windows clock step.
+  assert.ok(busy.stretch >= 40, `60 ms of synchronous CPU work measured ${describeStretch(busy)}`);
+  // The thread blocked without running: a runner that descheduled it looks the same.
+  const blocked = await worstEventLoopStretch(async () => {
+    await nextTurn();
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 60);
+    await nextTurn();
+  });
+  assert.ok(blocked.longest.wall >= 55, `a 60 ms block measured ${describeStretch(blocked.longest)}`);
+  // Only where the thread-time clock can tell: it ticks every 15.6 ms on Windows.
+  if (blocked.cpuClockFine) {
+    assert.ok(blocked.longest.stretch < 10, `${describeStretch(blocked.longest)} counted for time off the CPU`);
+  }
+});
 
 test('small files of batches the pool refuses or fails are masked before evaluation in yielding slices, under a hard cap', async () => {
   const graph = syntheticGraph(36);
@@ -187,20 +294,19 @@ test('a saturated pool makes an oversized file wait for admission instead of mas
   // Another query's request keeps the (real) pool saturated while this one prewarms.
   _configureMaskPoolForTest({ maxOutstandingChars: 1 });
   const occupying = _maskTextsOffThread([MASKABLE_LINE.repeat(200_000)], ['javascript']);
-  let gaps;
+  let worst;
   try {
-    gaps = await eventLoopGaps(() => _prewarmMaskedSourceNodes(graph, [...graph.nodes.values()]));
+    worst = await worstEventLoopStretch(() => _prewarmMaskedSourceNodes(graph, [...graph.nodes.values()]));
     await occupying;
   } finally {
     _configureMaskPoolForTest();
   }
   assert.deepEqual(graph._maskedLinesCache.get(rel)?.lines, _maskNonCodeText(text, 'javascript').split(/\r?\n/));
-  const worst = gaps.reduce((max, gap) => Math.max(max, gap), 0);
-  // One slice plus the scavenges that land inside it (a few ms each with this
-  // many line strings); masking this file on the main thread took ~100 ms.
+  // One slice, the copy of a result in and a step past the budget; masking
+  // this file on the main thread took ~100 ms.
   assert.ok(
-    worst <= 3 * MAIN_THREAD_SLICE_MS,
-    `a ${worst.toFixed(1)}ms event-loop gap while a 4.2M-char file was masked`
+    worst.stretch <= 3 * MAIN_THREAD_SLICE_MS,
+    `a ${describeStretch(worst)} event-loop gap while a 4.2M-char file was masked`
   );
 });
 
@@ -231,17 +337,16 @@ test('an oversized file whose pool requests crash twice is masked in slices, not
       };
     },
   });
-  let gaps;
+  let worst;
   try {
-    gaps = await eventLoopGaps(() => _prewarmMaskedSourceNodes(graph, [...graph.nodes.values()]));
+    worst = await worstEventLoopStretch(() => _prewarmMaskedSourceNodes(graph, [...graph.nodes.values()]));
   } finally {
     _configureMaskPoolForTest();
   }
   assert.equal(crashes, 2, 'the batch request and the admission retry both crashed');
   assert.deepEqual(graph._maskedLinesCache.get(rel)?.lines, _maskNonCodeText(text, 'javascript').split(/\r?\n/));
-  const worst = gaps.reduce((max, gap) => Math.max(max, gap), 0);
-  // As above: one slice plus the scavenges inside it.
-  assert.ok(worst <= 3 * MAIN_THREAD_SLICE_MS, `a ${worst.toFixed(1)}ms event-loop gap after two crashes`);
+  // As above: one slice and a step past the budget.
+  assert.ok(worst.stretch <= 3 * MAIN_THREAD_SLICE_MS, `a ${describeStretch(worst)} event-loop gap after two crashes`);
 });
 
 test("an oversized file's source lines are split and measured in slices, to the same lines and bytes", async (t) => {
