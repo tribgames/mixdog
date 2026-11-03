@@ -1189,9 +1189,10 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   display: none;
 }
 .session-sidebar-panels .workflows-models h2 {
-  height: 32px;
-  /* Compact section break ABOVE, tight binding to the list below. */
-  margin: 6px 0 0;
+  /* The shared category heading height (.sidebar-recent-heading). */
+  height: 28px;
+  /* With the page's 8px gap: the shared 12px band after an open list. */
+  margin: 4px 0 0;
   /* Bare section h2 (Default agents) walks the SAME gutter axis and ramp as
      the wrapped section heads — it sat at 14px on the 6px line while its
      siblings moved to 13px on the 14px gutter. */
@@ -1211,8 +1212,7 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
    above its own list. Pull exactly the
    internal centering slack so the first category TEXT sits on the same
    12px line; spacing below and every later section stay untouched. */
-.sidebar.session-sidebar > .session-sidebar-scroll > .sidebar-recent:first-child > .sidebar-recent-heading:first-child,
-.session-sidebar-panels .workflows-packs > .workflows-section-head {
+.sidebar.session-sidebar > .session-sidebar-scroll > .sidebar-recent:first-child > .sidebar-recent-heading:first-child {
   margin-top: -6px;
 }
 .session-sidebar-panels .workflows-packs > .workflows-section-head {
@@ -1221,7 +1221,7 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
 .session-sidebar-panels .workflows-section-head {
   align-items: center;
   gap: 8px;
-  padding: 6px 0 0;
+  padding: 4px 0 0;
 }
 .session-sidebar-panels .workflows-section-head h2 {
   flex: 1;
