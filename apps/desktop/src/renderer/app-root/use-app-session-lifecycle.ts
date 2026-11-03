@@ -47,6 +47,7 @@ export function useAppSessionLifecycle(shell: AppWorkspaceShell, nav: AppNavigat
     openSessionRef,
     stageNewTaskProject,
     sessions,
+    sessionCatalogReady,
     refreshSessions,
     subscribeSessionsRemoved,
     clearNewTaskPreferences,
@@ -93,7 +94,7 @@ export function useAppSessionLifecycle(shell: AppWorkspaceShell, nav: AppNavigat
     setCommandSurface,
     setCommandSurfaceSessionId,
   });
-  const { setTabs, activateSelection, startProjectlessTask } = taskLifecycle;
+  const { setTabs, activateSelection, startLaunchProjectlessTask } = taskLifecycle;
 
   const {
     state: updaterState,
@@ -118,7 +119,7 @@ export function useAppSessionLifecycle(shell: AppWorkspaceShell, nav: AppNavigat
     startupFocusedPaneSelection,
     startupNavigationSelection,
     startFresh,
-    startProjectlessTask,
+    startProjectlessTask: startLaunchProjectlessTask,
     projectCatalogReady,
     snapshot,
     // Hydration owns readiness. A first-run profile legitimately hydrates to
@@ -126,6 +127,7 @@ export function useAppSessionLifecycle(shell: AppWorkspaceShell, nav: AppNavigat
     // New Task restore in a permanent pre-start deadlock.
     snapshotReady: snapshotHydrated,
     sessions,
+    sessionCatalogReady,
     selectionRef,
     viewedSessionRef,
     unreadViewedSessionRef,

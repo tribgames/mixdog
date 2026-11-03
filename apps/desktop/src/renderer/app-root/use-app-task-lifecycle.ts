@@ -14,6 +14,7 @@ import { inheritSessionInPlace } from '../app-session-inheritance';
 import { useStableEvent } from '../use-stable-event';
 import { desktopFeatureEnabled } from '../desktop-feature-config';
 import { requestSessionRead } from '../app-snapshot-views';
+import { composerScopeHasContent } from '../composer-draft';
 import type { useSessionCatalog } from '../app-session-catalog';
 import type { useAppProjectCatalog } from '../use-app-project-catalog';
 import type { Snapshot } from '../desktop-types';
@@ -255,6 +256,33 @@ export function useAppTaskLifecycle({
 
   const startProjectlessTask = useCallback(() => startTask(undefined, true, true), [startTask]);
 
+  // The launch-time variant: a launch must not add a blank tab each time, so
+  // it focuses a draft tab nobody has touched (preferring the focused
+  // group's) and only opens a new one when there is none. A draft with text,
+  // attachments or any chosen preference is the user's and is left alone;
+  // "No project" is what a launch itself sets, so it still counts as untouched.
+  const startLaunchProjectlessTask = useCallback(() => {
+    const leaves = paneLeavesRef.current;
+    const focused = leaves.find((leaf) => leaf.id === focusedLeafIdRef.current);
+    const blank = [...(focused ? [focused] : []), ...leaves]
+      .flatMap((leaf) => leaf.tabs)
+      .find(
+        (tab): tab is Extract<NavigationSelection, { kind: 'new' }> => {
+          if (tab.kind !== 'new') return false;
+          const key = tab.draftId || 'default';
+          if (composerScopeHasContent(`draft:${key}`)) return false;
+          const prefs = draftPanePrefs.current.get(key);
+          return (
+            !prefs ||
+            Object.entries(prefs).every(([field, value]) =>
+              field === 'projectPath' ? value == null || value === '' : value == null
+            )
+          );
+        }
+      );
+    startTask(blank, true, true);
+  }, [draftPanePrefs, focusedLeafIdRef, paneLeavesRef, startTask]);
+
   // "Open new session here" (Settings → Worktrees): a New Task draft in the
   // worktree's project with its branch chosen, so the first send joins that
   // existing checkout.
@@ -434,6 +462,7 @@ export function useAppTaskLifecycle({
     finishPendingConversationHandoff,
     startTask,
     startProjectlessTask,
+    startLaunchProjectlessTask,
     clearSessionToNewTask,
     synchronizeActualHost,
     conversationNewTask,
