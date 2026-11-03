@@ -14,8 +14,9 @@ already holds — Lead makes them directly in every mode; the number of files or
 scopes does not change this.
 
 Dispatch all ready independent scopes in one turn. Only a scope that requires
-another's output waits. At most two scopes running builds or tests run at
-once.
+another's output waits. Run builds and tests side by side only as far as the
+machine's load allows; a check that measures timing or performance gets the
+machine to itself.
 A new independent need goes to a new agent. When scopes touch the same file, name one owner for
 that file in each brief.
 Use only available agents; when none fits a role, Lead does that work itself

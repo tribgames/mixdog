@@ -16,13 +16,13 @@ import {
 } from '../runtime/agent/orchestrator/runtime-core/orchestration.mjs';
 
 // sha256 of orchestrationInstructions(mode) for the shipped text: byte-identical to
-// the former hardcoded text except the concurrency line, which now names scopes
-// running builds or tests (#291) in focused, balanced and swarm.
+// the former hardcoded text except the concurrency line, which in focused,
+// balanced and swarm now leaves build/test concurrency to the machine's load.
 const FORMER = {
   none: '9be4bf61f9ba91c4caf53296adff2e8a787c3f71c4f4927315f4d1251f7c3a1a',
-  focused: 'e73b0d71f544900611b2d06f963472d4f544227a74584689c510d294bac04960',
-  balanced: 'ad1683ff1626ebabd4e027abe03fe29a82769d0c156d452847d96087598a0384',
-  swarm: '7fa3e68e0c53d16203384f5ca645765dac68ada58b8d09818f01a0fe55dd453b',
+  focused: '14ac6ec765b8c728dc040758e8e819d239440f94befadb71d31f89d43bfdf888',
+  balanced: 'a1948d55527805e121fee8e8fb213d1a5bad704f02a8035f8992aba4b1fb9cb8',
+  swarm: '11b243083ccd9a071daca556d244c107f1b38be8a85f82dd1e26dab2138d670a',
 };
 
 function fixture(t) {
