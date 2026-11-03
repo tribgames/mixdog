@@ -1,15 +1,10 @@
 /**
- * gemini-stream.mjs — Gemini stream consumption (REST + SDK) and stream guards.
+ * gemini-stream.mjs — Gemini REST stream consumption and stream guards.
  *
  * Owns chunk aggregation, completion assertions,
  * timeout/truncation error shapes and the text leak guard that recovers
  * tool calls emitted as plain text.
  */
-import {
-  GoogleGenerativeAIAbortError,
-  GoogleGenerativeAIError,
-  GoogleGenerativeAIFetchError,
-} from '@google/generative-ai';
 import {
   PROVIDER_FIRST_BYTE_TIMEOUT_MS,
   PROVIDER_MAX_BEFORE_WARN_MS,
@@ -21,13 +16,10 @@ import { traceHash, stableTraceStringify } from './trace-utils.mjs';
 import { parseGeminiTextPartMetadata } from './gemini-schema.mjs';
 import { parseProviderJsonBatch } from './stream-json-pool.mjs';
 import { runAbortable } from '../../../shared/abort-race.mjs';
-import { createSdkStreamCancellation } from './gemini-sdk-stream/cancellation.mjs';
-import { createSdkStreamReader } from './gemini-sdk-stream/reader.mjs';
 import { createRestStreamWatchdogs } from './gemini-rest-stream/watchdogs.mjs';
 import { drainSseDataLines, sseDataPayload } from './gemini-rest-stream/sse-lines.mjs';
 import { noteAbandonedUsage } from '../../../shared/llm/usage-context.mjs';
 import {
-  applyGeminiErrorContract,
   assertNoGeminiInBandError,
   geminiFinishReasonKind,
 } from './gemini-error-contract.mjs';
@@ -45,24 +37,6 @@ export function geminiTimeoutError(label, timeoutMs) {
   return err;
 }
 
-const GEMINI_RPC_CODES = new Set(['UNAVAILABLE', 'DEADLINE_EXCEEDED', 'ABORTED', 'INTERNAL', 'RESOURCE_EXHAUSTED']);
-
-/**
- * Copy a typed Gemini/gRPC status onto the error so classifyError can retry
- * UNAVAILABLE/DEADLINE_EXCEEDED/ABORTED/INTERNAL without an HTTP status.
- */
-function stampGeminiRpcError(err) {
-  if (!err || typeof err !== 'object') return err;
-  if (typeof err.geminiStatus === 'string' && err.geminiStatus) return err;
-  for (const field of [err.status, err.error?.status, err.cause?.status, err.cause?.geminiStatus]) {
-    if (typeof field === 'string' && GEMINI_RPC_CODES.has(field.toUpperCase())) {
-      err.geminiStatus = field.toUpperCase();
-      return err;
-    }
-  }
-  return err;
-}
-
 function geminiTruncatedStreamError(message) {
   return Object.assign(new Error(message), {
     name: 'TruncatedStreamError',
@@ -77,75 +51,6 @@ function geminiStreamCorruptionError(message, cause = null) {
     code: 'TRUNCATED_STREAM',
     truncatedStream: true,
     streamCorruption: true,
-  });
-}
-
-// The SDK's own base error class. Its subclasses for an HTTP status
-// (FetchError) and a cancellation (AbortError) carry typed evidence of their
-// own; the bare class is what the SDK throws for everything else, and it sets
-// no `name` of its own.
-function isBareGoogleSdkError(err) {
-  return (
-    err instanceof GoogleGenerativeAIError &&
-    !(err instanceof GoogleGenerativeAIFetchError) &&
-    !(err instanceof GoogleGenerativeAIAbortError)
-  );
-}
-
-function isGeminiSdkStreamParseError(err) {
-  let cursor = err;
-  const seen = new Set();
-  for (let depth = 0; cursor && depth < 5 && !seen.has(cursor); depth++) {
-    seen.add(cursor);
-    if (cursor instanceof SyntaxError) return true;
-    const message = String(cursor?.message || '');
-    if (
-      isBareGoogleSdkError(cursor) &&
-      /(?:parse|parsing|json|unexpected token|unexpected end|unterminated)/i.test(message)
-    ) {
-      return true;
-    }
-    cursor = cursor?.cause;
-  }
-  return false;
-}
-
-// The SDK rethrows a network failure as a bare GoogleGenerativeAIError and
-// discards the socket error with its errno, so the SDK's own fixed wording is
-// the only evidence left. A failed body read is a stream cut short; a failed
-// request keeps the runtime's own message (e.g. 'fetch failed') after the URL,
-// which the shared transport rules already classify.
-const SDK_STREAM_READ_FAILURE = '[GoogleGenerativeAI Error]: Error reading from the stream';
-const SDK_FETCH_FAILURE_RE = /^\[GoogleGenerativeAI Error\]: Error fetching from \S+: ([\s\S]+)$/;
-
-function geminiSdkTransportError(err, label) {
-  if (!isBareGoogleSdkError(err)) return null;
-  if (err.message === SDK_STREAM_READ_FAILURE) {
-    return Object.assign(new Error(`${label} stream read failed`, { cause: err }), {
-      name: 'TruncatedStreamError',
-      code: 'TRUNCATED_STREAM',
-      truncatedStream: true,
-    });
-  }
-  const fetchFailure = SDK_FETCH_FAILURE_RE.exec(err.message);
-  if (!fetchFailure) return null;
-  return Object.assign(new Error(fetchFailure[1].trim(), { cause: err }), { name: 'GeminiSdkFetchError' });
-}
-
-/** Typed shape of any SDK failure: transport loss, corrupt stream JSON, or an RPC status. */
-export function normalizeGeminiSdkError(err, label) {
-  const transport = geminiSdkTransportError(err, label);
-  if (transport) return transport;
-  const stamped = stampGeminiRpcError(err);
-  if (isGeminiSdkStreamParseError(stamped)) {
-    return geminiStreamCorruptionError(`${label} corrupt SDK SSE JSON`, stamped);
-  }
-  if (!stamped || typeof stamped !== 'object') return stamped;
-  return applyGeminiErrorContract(stamped, {
-    details: stamped.details,
-    errorDetails: stamped.errorDetails,
-    googleStatus: stamped.geminiStatus,
-    message: stamped.message,
   });
 }
 
@@ -365,7 +270,7 @@ function isCompleteFunctionCallPart(part) {
 
 // Concatenate the text parts of a single streamed Gemini chunk. Used to feed
 // the gateway live-text relay (onTextDelta) with the incremental text payload
-// as each SSE/SDK chunk arrives. Returns '' for tool-call / thought-only /
+// as each SSE chunk arrives. Returns '' for tool-call / thought-only /
 // malformed chunks so the caller can skip empty emits.
 function geminiChunkText(chunk) {
   const parts = chunk?.candidates?.[0]?.content?.parts;
@@ -738,130 +643,4 @@ export async function consumeGeminiRestStreamResponse(
     throw stampGeminiStreamFailure(err, { relayedText, textLeakGuard, chunks: allChunks, failureUsage });
   }
   return aggregated;
-}
-
-export async function consumeGeminiSdkStream(
-  streamResult,
-  {
-    signal,
-    onStreamDelta,
-    onTextDelta,
-    onReasoningDelta = null,
-    textLeakGuard,
-    label,
-    cancelGeneration,
-    firstByteTimeoutMs = GEMINI_FIRST_BYTE_TIMEOUT_MS,
-    cancellationGraceMs = 250,
-    failureUsage = null,
-  }
-) {
-  let relayedText = '';
-  const finalizeLeakGuard = createLeakGuardFinalizer(textLeakGuard);
-
-  const cancellation = createSdkStreamCancellation({ signal, label, cancelGeneration, cancellationGraceMs });
-  const { abortError } = cancellation;
-  let reader = null;
-  const onSignalAbort = () => {
-    const err = abortError();
-    reader?.rejectPending(err);
-    cancellation.cancelInFlight(err).catch(() => {});
-  };
-  const collectedChunks = [];
-
-  try {
-    // Observe the SDK's aggregate branch even when cancellation precedes
-    // consumption: aborting the acquired request can reject both branches.
-    let responsePromise;
-    try {
-      responsePromise = Promise.resolve(streamResult.response);
-    } catch (err) {
-      responsePromise = Promise.reject(err);
-    }
-    responsePromise.catch(() => {});
-    const iterator = streamResult.stream[Symbol.asyncIterator]();
-    cancellation.bindIterator(iterator);
-    reader = createSdkStreamReader({
-      iterator,
-      label,
-      firstByteTimeoutMs,
-      timeoutError: geminiTimeoutError,
-      cancellation,
-    });
-    if (signal?.aborted) throw abortError();
-    signal?.addEventListener('abort', onSignalAbort, { once: true });
-    reader.arm();
-    while (true) {
-      if (signal?.aborted) throw abortError();
-      if (reader.idleTimedOut) throw reader.idleError();
-      let step;
-      try {
-        step = await reader.next();
-      } catch (err) {
-        if (reader.idleTimedOut) throw reader.idleError();
-        if (signal?.aborted) throw abortError();
-        throw normalizeGeminiSdkError(err, label);
-      }
-      if (signal?.aborted) throw abortError();
-      if (step.done) break;
-      reader.noteChunk();
-      assertNoGeminiInBandError(step.value, label);
-      if (step.value) collectedChunks.push(step.value);
-      try {
-        onStreamDelta?.(geminiChunkProgressKind(step.value));
-      } catch {}
-      relayGeminiReasoning(step.value, onReasoningDelta);
-      if (onTextDelta || textLeakGuard) {
-        const t = geminiChunkText(step.value);
-        relayedText += relayGeminiStreamText(t, { onTextDelta, textLeakGuard });
-      }
-    }
-    if (reader.idleTimedOut) throw reader.idleError();
-    reader.stop();
-
-    // SDK 0.24.1 aggregation drops thoughtSignature. Preserve wire parts
-    // locally; retain the SDK response path only for an empty collection.
-    let raw;
-    if (collectedChunks.length > 0) {
-      raw = aggregateGeminiStreamChunks(collectedChunks, label);
-    } else {
-      let response;
-      try {
-        response = await runAbortable(signal, () => responsePromise);
-      } catch (err) {
-        throw normalizeGeminiSdkError(err, label);
-      }
-      raw = response?.candidates ? response : response?.response || response;
-      assertNoGeminiInBandError(raw, label);
-    }
-    const finishReason = raw?.candidates?.[0]?.finishReason || null;
-    const promptBlockReason = raw?.promptFeedback?.blockReason || null;
-    assertGeminiStreamCompleted({
-      sawStreamChunk: reader.sawStreamChunk,
-      finishReason,
-      promptBlockReason,
-      parts: raw?.candidates?.[0]?.content?.parts,
-      label,
-    });
-    return raw;
-  } catch (err) {
-    reader?.clearFirstByte();
-    const failure = signal?.aborted ? abortError() : err;
-    await cancellation.cancelInFlight(failure);
-    finalizeLeakGuard();
-    throw stampGeminiStreamFailure(failure, {
-      relayedText,
-      textLeakGuard,
-      chunks: collectedChunks,
-      failureUsage,
-      cancelled: signal?.aborted === true,
-    });
-  } finally {
-    reader?.stop();
-    if (signal) {
-      try {
-        signal.removeEventListener('abort', onSignalAbort);
-      } catch {}
-    }
-    finalizeLeakGuard();
-  }
 }

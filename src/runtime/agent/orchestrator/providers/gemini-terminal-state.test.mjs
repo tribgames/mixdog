@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { consumeGeminiRestStreamResponse, consumeGeminiSdkStream } from './gemini-stream.mjs';
+import { consumeGeminiRestStreamResponse } from './gemini-stream.mjs';
 import { geminiInvalidStreamReason } from './gemini-retry-policy.mjs';
 import { geminiFinishReasonKind, geminiPolicyFinishCode } from './gemini-error-contract.mjs';
 import { geminiBareModelId, geminiCacheCreateBody, geminiPrefixBelowMinimum } from './gemini-cache-policy.mjs';
@@ -12,20 +12,7 @@ const rest = (chunks, options = {}) =>
     label: 'fixture',
     ...options,
   });
-const sdk = (chunks, options = {}) =>
-  consumeGeminiSdkStream(
-    {
-      stream: (async function* () {
-        yield* chunks;
-      })(),
-      response: Promise.resolve({}),
-    },
-    { label: 'fixture', ...options }
-  );
-const transports = [
-  ['REST', rest],
-  ['SDK', sdk],
-];
+const transports = [['REST', rest]];
 const cand = (fields) => ({ candidates: [{ content: { role: 'model', parts: [] }, ...fields }] });
 
 for (const [name, consume] of transports) {
@@ -171,25 +158,15 @@ test('policy finish reasons carry policy codes', () => {
   }
 });
 
-function sdkProvider(chunks, captured = {}) {
+// Uncached provider streaming `chunks`; `captured.body` is the last request body.
+function uncachedProvider(chunks, captured = {}) {
   return new GeminiProvider({
     apiKey: 'fixture-key',
     preconnectFn: () => {},
     sleepFn: async () => {},
-    genAI: {
-      getGenerativeModel: (params) => {
-        captured.params = params;
-        return {
-          async generateContentStream() {
-            return {
-              stream: (async function* () {
-                yield* chunks;
-              })(),
-              response: Promise.resolve({}),
-            };
-          },
-        };
-      },
+    fetchFn: async (_url, init) => {
+      captured.body = JSON.parse(init.body);
+      return new Response(chunks.map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`).join(''));
     },
   });
 }
@@ -199,7 +176,7 @@ const send = (provider, opts = {}) => provider.send([{ role: 'user', content: 'h
 test('a failed candidate never dispatches its native tool calls; a STOP one does', async () => {
   const dispatched = [];
   const onToolCall = (c) => dispatched.push(c.name);
-  const failed = sdkProvider([
+  const failed = uncachedProvider([
     cand({
       content: { role: 'model', parts: [call] },
       finishReason: 'SAFETY',
@@ -215,7 +192,7 @@ test('a failed candidate never dispatches its native tool calls; a STOP one does
     return true;
   });
   assert.deepEqual(dispatched, []);
-  const ok = sdkProvider([cand({ content: { role: 'model', parts: [call] }, finishReason: 'STOP' })]);
+  const ok = uncachedProvider([cand({ content: { role: 'model', parts: [call] }, finishReason: 'STOP' })]);
   await send(ok, { onToolCall });
   assert.deepEqual(dispatched, ['read']);
 });
@@ -229,26 +206,24 @@ test('a call leaked as text is dispatched only when the response finishes cleanl
   const tools = [{ name: 'read', description: 'd', inputSchema: { type: 'object', properties: {} } }];
   const sendWithTools = (provider) =>
     provider.send([{ role: 'user', content: 'hi' }], 'gemini-test', tools, { onToolCall });
-  const failed = sdkProvider([cand({ content: { role: 'model', parts: [leaked] }, finishReason: 'SAFETY' })]);
+  const failed = uncachedProvider([cand({ content: { role: 'model', parts: [leaked] }, finishReason: 'SAFETY' })]);
   await assert.rejects(sendWithTools(failed), (error) => error.finishReason === 'SAFETY');
   assert.deepEqual(dispatched, []);
-  const ok = sdkProvider([cand({ content: { role: 'model', parts: [leaked] }, finishReason: 'STOP' })]);
+  const ok = uncachedProvider([cand({ content: { role: 'model', parts: [leaked] }, finishReason: 'STOP' })]);
   await sendWithTools(ok);
   assert.deepEqual(dispatched, ['read']);
 });
 
-test('CONTINUATION surfaces a typed unsupported error that keeps the token and partial text', async () => {
-  const provider = sdkProvider([
+test('a CONTINUATION finish without a token surfaces a typed unsupported error with the partial text', async () => {
+  const provider = uncachedProvider([
     cand({
       content: { role: 'model', parts: [{ text: 'partial' }] },
       finishReason: 'CONTINUATION',
-      continuationToken: 'dG9rZW4=',
     }),
   ]);
   await assert.rejects(send(provider), (error) => {
     assert.equal(error.code, 'CONTINUATION_UNSUPPORTED');
     assert.equal(error.continuationUnsupported, true);
-    assert.equal(error.continuationToken, 'dG9rZW4=');
     assert.equal(error.finishReason, 'CONTINUATION');
     assert.equal(error.partialContent, 'partial');
     return true;
@@ -256,7 +231,7 @@ test('CONTINUATION surfaces a typed unsupported error that keeps the token and p
 });
 
 test('a prompt block keeps its reason and ratings on the error', async () => {
-  const provider = sdkProvider([
+  const provider = uncachedProvider([
     { promptFeedback: { blockReason: 'PROHIBITED_CONTENT', safetyRatings: [{ category: 'C' }] } },
   ]);
   await assert.rejects(send(provider), (error) => {
@@ -278,7 +253,6 @@ test('the model id is canonicalized once for cache bodies and REST URLs', async 
   const provider = new GeminiProvider({
     apiKey: 'fixture-key',
     preconnectFn: () => {},
-    genAI: { getGenerativeModel: () => ({}) },
     fetchFn: async (url) => {
       urls.push(url);
       return new Response(
@@ -304,7 +278,7 @@ test('the explicit-cache minimum is per model, and unsupported models skip cachi
   assert.equal(geminiPrefixBelowMinimum({ ...huge, model: 'gemini-4-argon' }), true);
 });
 
-test('safetySettings are forwarded on the SDK and cached REST paths; absent stays byte-identical', async () => {
+test('safetySettings are forwarded on the uncached and cached REST paths; absent stays byte-identical', async () => {
   const safetySettings = [{ category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' }];
   const messages = [{ role: 'user', content: 'hi' }];
   const request = buildGeminiRequest(messages, 'gemini-2.5-pro', [], { safetySettings });
@@ -318,20 +292,19 @@ test('safetySettings are forwarded on the SDK and cached REST paths; absent stay
   );
 
   const captured = {};
-  const provider = sdkProvider(
+  const provider = uncachedProvider(
     [cand({ content: { role: 'model', parts: [{ text: 'ok' }] }, finishReason: 'STOP' })],
     captured
   );
   await send(provider, { safetySettings });
-  assert.deepEqual(captured.params.safetySettings, safetySettings);
+  assert.deepEqual(captured.body.safetySettings, safetySettings);
   await send(provider, {});
-  assert.equal('safetySettings' in captured.params, false);
+  assert.equal('safetySettings' in captured.body, false);
 
   const bodies = [];
   const cached = new GeminiProvider({
     apiKey: 'fixture-key',
     preconnectFn: () => {},
-    genAI: { getGenerativeModel: () => ({}) },
     fetchFn: async (_url, init) => {
       bodies.push(JSON.parse(init.body));
       return new Response(

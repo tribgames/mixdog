@@ -1,11 +1,11 @@
 /**
  * gemini-error-contract.mjs — Google RPC error details → the provider error
- * contract shared by Gemini (REST + SDK) and Antigravity:
+ * contract shared by Gemini and Antigravity:
  *   status, code (lowercased), retryAfterMs (uncapped), resetAt (epoch ms),
  *   quotaScope ('minute' | 'day' | undefined).
  *
- * Details come from `error.details` (REST body) or `errorDetails` (SDK
- * GoogleGenerativeAIFetchError). Entries are google.rpc.RetryInfo,
+ * Details come from `error.details` or `errorDetails` of the error body.
+ * Entries are google.rpc.RetryInfo,
  * QuotaFailure and ErrorInfo.
  */
 
@@ -267,9 +267,9 @@ export function geminiFinishErrorFields(response) {
 }
 
 /**
- * Typed result for a CONTINUATION finish, which this client cannot resume
- * (Gemini direct only). Keeps the original error's partial turn and the
- * token so a caller can continue it out of band.
+ * Typed result for a CONTINUATION finish that cannot be resumed here: a
+ * gateway route, or a CONTINUATION without a token (the direct Gemini API
+ * resumes tokened hops itself). Keeps the partial turn and any token.
  */
 export function geminiContinuationUnsupportedError(incomplete, response) {
   return Object.assign(incomplete, geminiFinishErrorFields(response), {

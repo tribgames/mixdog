@@ -11,13 +11,14 @@
 import { geminiThinkingConfig } from './gemini-thinking.mjs';
 import { geminiMaxOutputTokens } from './gemini-output-limit.mjs';
 import { toGeminiContents, toGeminiRequestTools, toGeminiToolConfig } from './gemini-schema.mjs';
+import { geminiIgnoresSamplingParams } from './gemini-model-redirect.mjs';
 
-// Request pieces shared by the cached REST path and the SDK path.
+// Request pieces shared by the cached and uncached REST bodies.
 // Caller-supplied generation controls the wire carries in generationConfig.
 // maxOutputTokens counts thought tokens too (see the thinking docs). Anything
 // invalid is rejected here instead of being dropped. (safetySettings is a
 // request-level field, forwarded separately.)
-function geminiGenerationControls(opts, useModel, outputLimit) {
+function geminiGenerationControls(opts, useModel, outputLimit, omitIgnoredSampling) {
   const controls = {};
   const maxOutputTokens = geminiMaxOutputTokens(useModel, opts, outputLimit);
   if (maxOutputTokens !== undefined) controls.maxOutputTokens = maxOutputTokens;
@@ -26,20 +27,29 @@ function geminiGenerationControls(opts, useModel, outputLimit) {
     if (!Number.isFinite(temperature) || temperature < 0 || temperature > 2) {
       throw new TypeError('temperature must be a number between 0 and 2.');
     }
-    controls.temperature = temperature;
+    if (!(omitIgnoredSampling && geminiIgnoresSamplingParams(useModel))) controls.temperature = temperature;
   }
   return controls;
 }
 
 // `outputLimit` is the provider roster's declared output limit for the model.
-export function buildGeminiRequest(messages, useModel, tools, opts, outputLimit = null) {
+// `omitIgnoredSampling` drops temperature for models the Gemini API documents
+// as ignoring it (the Gemini API-key route; other routes keep their wire).
+export function buildGeminiRequest(
+  messages,
+  useModel,
+  tools,
+  opts,
+  outputLimit = null,
+  { omitIgnoredSampling = false } = {}
+) {
   // Gemini returns thought summaries only when the request asks for them.
   // Without this the reasoning channel stays empty for the whole turn and
   // the model's only visible output is the plain pre-tool text, so every
   // round reads as another preamble. On by default for every model; an
   // explicit opts.includeThoughts still wins.
   const thinkingConfig = geminiThinkingConfig(useModel, opts, { includeThoughts: true });
-  const controls = geminiGenerationControls(opts, useModel, outputLimit);
+  const controls = geminiGenerationControls(opts, useModel, outputLimit, omitIgnoredSampling);
   let generationConfig;
   if (thinkingConfig || Object.keys(controls).length) {
     generationConfig = { ...(thinkingConfig ? { thinkingConfig } : {}), ...controls };
@@ -64,6 +74,25 @@ export function buildGeminiRequest(messages, useModel, tools, opts, outputLimit 
   }
   const safetySettings = opts.safetySettings?.length ? opts.safetySettings : undefined;
   return { generationConfig, systemInstruction, contents, geminiTools, toolConfig, safetySettings };
+}
+
+// The generateContent body without a cached prefix: the whole request.
+export function geminiUncachedRestBody({
+  contents,
+  systemInstruction,
+  geminiTools,
+  toolConfig,
+  generationConfig,
+  safetySettings,
+}) {
+  return {
+    contents,
+    ...(systemInstruction ? { systemInstruction: { role: 'system', parts: [{ text: systemInstruction }] } } : {}),
+    ...(geminiTools ? { tools: geminiTools } : {}),
+    ...(toolConfig ? { toolConfig } : {}),
+    ...(generationConfig ? { generationConfig } : {}),
+    ...(safetySettings ? { safetySettings } : {}),
+  };
 }
 
 // The generateContent body for a cached prefix. The cache carries the

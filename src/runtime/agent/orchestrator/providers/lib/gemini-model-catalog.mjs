@@ -29,10 +29,11 @@ export async function fetchGeminiModelPages(apiKey, fetchFn = fetch) {
   const items = [];
   let pageToken = '';
   do {
-    const params = new URLSearchParams({ key: apiKey, pageSize: '1000' });
+    const params = new URLSearchParams({ pageSize: '1000' });
     if (pageToken) params.set('pageToken', pageToken);
     const url = `https://generativelanguage.googleapis.com/v1beta/models?${params}`;
     const res = await fetchFn(url, {
+      headers: { 'x-goog-api-key': apiKey },
       signal: AbortSignal.timeout(60_000),
       dispatcher: getLlmDispatcher(),
     });
