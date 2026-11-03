@@ -42,14 +42,7 @@
  *     prompt_cache_options.ttl: "30m" (default, writes 1.25x input) or "12h"
  *     (writes 2.5x); reads 0.1x (0.05x on GPT-6.1 Sol) either way. Earlier
  *     models keep prompt_cache_retention '24h' on the extended-retention list.
- *     The request ttl is "30m" (moving tail); Lead-class sessions add one
- *     explicit "12h" breakpoint at the end of the stable prefix (tools +
- *     instructions + environment developer item; top-level instructions
- *     cannot carry a breakpoint). Break-even: the 12h write costs
- *     (2.5-1.25)=1.25x the prefix once per 12h window, every gap > 30m saves
- *     a 1.25x rewrite for a 0.1x read (1.15x), so it pays from ~1.09 long gaps
- *     per 12h — an hourly routine or a returning user pays it back many times;
- *     a short sub-agent never sees one, so agents stay on "30m".
+ *     Every session sends ttl "30m"; "12h" is not used.
  *   - OpenAI OAuth (Codex/ChatGPT login): prompt_cache_key only, request body
  *     unchanged. Since 2026-10-20 OpenAI keeps the cache of logged-in Codex
  *     users indefinitely ("we keep cache forever … guaranteed to hit the
@@ -150,7 +143,7 @@ export function resolveLeadMessagesTtl(autoClear) {
  * compacted transcript instead of the whole accumulated tail. Replayed agent
  * cost vs a 1h tail: -24.6% with that compaction, +2.7% without it.
  * (These tiers only drive explicit-breakpoint providers — Anthropic. OpenAI's
- * lifetimes are resolveOpenAiPrefixCacheTtl / providerTailCacheLifetimeMs;
+ * lifetime is providerTailCacheLifetimeMs;
  * the 5m-vs-1h reasoning does not apply to openai-oauth, whose cache does
  * not expire.)
  *
@@ -191,19 +184,10 @@ export function resolveCacheStrategy(agent, { autoClear, session = null } = {}) 
   return applyEnv({ tools: 'none', system: '1h', tier3: '1h', messages: resolveLeadMessagesTtl(autoClear) });
 }
 
-// OpenAI public API, GPT-5.6+ Responses: the moving tail rides the request
-// ttl "30m"; Lead-class sessions pin their stable prefix with one "12h"
-// breakpoint (header: break-even). Earlier models' typical retention is
-// ~30 min as well.
-const OPENAI_LEAD_PREFIX_CACHE_TTL = '12h';
 export const ANTHROPIC_TAIL_LIFETIME_MS = Object.freeze({ '5m': 5 * 60_000, '1h': 60 * 60_000 });
+// OpenAI public API, GPT-5.6+ Responses: request ttl "30m". Earlier models'
+// typical retention is ~30 min as well.
 const OPENAI_TAIL_LIFETIME_MS = 30 * 60_000;
-
-/** The OpenAI (API key) stable-prefix TTL for a session: '12h' for the Lead
- *  class, null (request default "30m" only) for sub-agents and hidden roles. */
-export function resolveOpenAiPrefixCacheTtl(agent, session = null) {
-  return isLeadCacheClass(agent, session) ? OPENAI_LEAD_PREFIX_CACHE_TTL : null;
-}
 
 /**
  * Single source of truth for how long a session's message-tail cache stays
@@ -212,7 +196,7 @@ export function resolveOpenAiPrefixCacheTtl(agent, session = null) {
  * or the provider exposes no tail lifetime. Any "compact or clear because the
  * tail cache expired" rule must read this.
  *   - openai-oauth → null (permanent; never compact for cache reasons)
- *   - openai       → 30m (request ttl "30m"; the Lead's 12h prefix survives)
+ *   - openai       → 30m (request ttl "30m")
  *   - Anthropic    → the session cacheStrategy.messages tier (5m / 1h)
  */
 export function providerTailCacheLifetimeMs(provider, cacheStrategy = null) {
@@ -559,7 +543,7 @@ function oneShotPromptCacheOpts(agent) {
  * schemas are the same bytes on every call (the explore tool's explorers):
  * keyed on that prefix, never per call, on the default 5m tier. The parallel
  * explorers of a fan-out and the next calls minutes later are its only
- * readers, so the Lead's 1h / 12h tiers would only raise the write price.
+ * readers, so the Lead's 1h tier would only raise the write price.
  */
 export function sharedPrefixProviderCacheOpts(provider) {
   const shared = { promptCacheScope: 'shared' };
@@ -569,8 +553,8 @@ export function sharedPrefixProviderCacheOpts(provider) {
 
 /**
  * Cache send options for a role's requests on `provider`: the breakpoint
- * strategy on explicit-breakpoint providers, the Lead-class 12h prefix TTL on
- * the OpenAI public API, plus the one-shot shared scope. Session and
+ * strategy on explicit-breakpoint providers, plus the one-shot shared scope.
+ * Session and
  * session-less callers use this one resolution; `options.session` (record or
  * create options) classifies agent-mode Leads such as bot home threads.
  */
@@ -580,12 +564,6 @@ export function roleProviderCacheOpts(provider, agent, options = {}) {
 
 export function buildProviderCacheOpts(provider, _sessionId, agent, options = {}) {
   const capability = cacheCapabilityForProvider(provider);
-  if (provider === 'openai') {
-    // Read by applyOpenAIDirectCachePolicy (GPT-5.6+ Responses only).
-    const prefixTtl = resolveOpenAiPrefixCacheTtl(agent, options.session);
-    const opts = { ...(prefixTtl ? { promptCachePrefixTtl: prefixTtl } : {}), ...oneShotPromptCacheOpts(agent) };
-    return Object.keys(opts).length ? opts : null;
-  }
   if (capability !== 'explicit-breakpoint') return oneShotPromptCacheOpts(agent);
   // 2026-03-06 Anthropic dropped default TTL 1h→5m. We request 1h via
   // cache_control ttl:"1h"; no beta header is required.

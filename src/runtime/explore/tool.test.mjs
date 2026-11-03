@@ -70,7 +70,6 @@ test('a string query runs one read-only explorer on the Explore route and return
   );
   assert.deepEqual(request.tools.map((t) => t.name).sort(), READ_ONLY);
   assert.equal(request.opts.promptCacheScope, 'shared');
-  assert.equal(request.opts.promptCachePrefixTtl, undefined);
   assert.equal(request.opts.sessionId, undefined);
   assert.equal(request.opts.session.ownerSessionId, 's1');
 });
