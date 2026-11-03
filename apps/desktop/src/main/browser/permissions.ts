@@ -18,7 +18,18 @@ type BrowserPermissionSession = Pick<
 
 type BrowserDeviceSession = BrowserPermissionSession & Pick<Session, 'on' | 'removeListener'>;
 
-type HidDeviceInfo = Pick<Electron.HIDDevice, 'deviceId' | 'name'>;
+type HidDeviceInfo = Pick<Electron.HIDDevice, 'deviceId' | 'name' | 'vendorId' | 'productId'> &
+  Partial<Pick<Electron.HIDDevice, 'serialNumber' | 'guid'>>;
+
+/** The device permission handler is given no `deviceId`, only what Chromium
+ *  stores for the device: its serial number (when it also has a product name)
+ *  or else its `guid`. Vendor and product alone would match every unit of a
+ *  model, so a device with neither has no identity and is never granted. */
+const hidIdentity = (device: Partial<HidDeviceInfo>): string => {
+  const unit =
+    device.serialNumber && device.name ? `serial:${device.serialNumber}` : device.guid && `guid:${device.guid}`;
+  return unit ? `${device.vendorId}:${device.productId}:${unit}` : '';
+};
 
 type DeviceFrame = WebFrameMain;
 
@@ -101,6 +112,8 @@ export interface PendingBrowserPermission {
   /** A device chooser (`hid`): the devices it offers, kept current while it
    *  waits. Its answer is one device, never remembered as a site decision. */
   devices?: BrowserPermissionDevice[];
+  /** Chooser device id -> the identity the device permission handler sees. */
+  identities?: Map<string, string>;
   settle: Array<(granted: boolean, deviceId?: string) => void>;
 }
 
@@ -189,7 +202,7 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
   };
   /** HID devices a person picked for an origin, until the app quits. */
   const deviceGrants = new Set<string>();
-  const deviceGrant = (origin: string, deviceId: string) => `${origin}\n${deviceId}`;
+  const deviceGrant = (origin: string, identity: string) => `${origin}\n${identity}`;
   /** Device choosers still waiting, with their page: uninstall cancels them. */
   const choosers = new Map<PendingBrowserPermission, PermissionGuest>();
   const pending = new WeakMap<PermissionGuest, PendingBrowserPermission[]>();
@@ -349,10 +362,12 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
       keys: ['hid'],
       frames: new Set([frameId(frame)]),
       devices: details.deviceList.map(deviceOf),
+      identities: new Map(details.deviceList.map((device) => [device.deviceId, hidIdentity(device)])),
       settle: [
         (granted, deviceId) => {
           choosers.delete(entry);
-          if (granted && deviceId) deviceGrants.add(deviceGrant(origin, deviceId));
+          const identity = deviceId && entry.identities?.get(deviceId);
+          if (granted && identity) deviceGrants.add(deviceGrant(origin, identity));
           callback(granted ? deviceId : undefined);
         },
       ],
@@ -369,7 +384,11 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
     for (const entry of pending.get(guest) ?? []) {
       if (!entry.devices || !entry.frames.has(asking)) continue;
       entry.devices = entry.devices.filter((device) => device.id !== details.device.deviceId);
-      if (added) entry.devices.push(deviceOf(details.device));
+      entry.identities?.delete(details.device.deviceId);
+      if (added) {
+        entry.devices.push(deviceOf(details.device));
+        entry.identities?.set(details.device.deviceId, hidIdentity(details.device));
+      }
     }
   }
   const onHidAdded = (_event: unknown, details: { device: HidDeviceInfo; frame: DeviceFrame | null }) =>
@@ -419,12 +438,11 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
       });
       // Electron consults only this handler once it is set, so the devices a
       // person picked are granted here; nothing else ever is.
-      session.setDevicePermissionHandler(
-        (details) =>
-          details.deviceType === 'hid' &&
-          hidAllowed() &&
-          deviceGrants.has(deviceGrant(originOf(details.origin), (details.device as Electron.HIDDevice).deviceId))
-      );
+      session.setDevicePermissionHandler((details) => {
+        if (details.deviceType !== 'hid' || !hidAllowed()) return false;
+        const identity = hidIdentity(details.device as Partial<HidDeviceInfo>);
+        return identity !== '' && deviceGrants.has(deviceGrant(originOf(details.origin), identity));
+      });
       session.on('select-hid-device', chooseHidDevice);
       session.on('hid-device-added', onHidAdded);
       session.on('hid-device-removed', onHidRemoved);
