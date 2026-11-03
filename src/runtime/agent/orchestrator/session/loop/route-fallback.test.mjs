@@ -23,6 +23,8 @@ let config = DEFAULT_CONFIG;
 mock.module('../../config.mjs', {
   namedExports: {
     loadConfig: () => config,
+    // Hot paths read the snapshot; it answers the same saved settings.
+    getConfigSnapshot: () => config,
   },
 });
 mock.module('../manager/session-lifecycle.mjs', {

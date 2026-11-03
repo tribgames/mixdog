@@ -23,21 +23,24 @@ mock.module('../../providers/registry.mjs', {
 const realConfig = await import('../../config.mjs');
 let chain = [];
 let primary = { provider: 'openai-oauth', model: 'gpt-fixture' };
+const savedConfig = () => ({
+  providers: {},
+  default: 'workflow-lead',
+  presets: [
+    {
+      id: 'workflow-lead',
+      name: 'WORKFLOW LEAD',
+      ...primary,
+      fallbacks: chain,
+    },
+  ],
+});
 mock.module('../../config.mjs', {
   namedExports: {
     ...realConfig,
-    loadConfig: () => ({
-      providers: {},
-      default: 'workflow-lead',
-      presets: [
-        {
-          id: 'workflow-lead',
-          name: 'WORKFLOW LEAD',
-          ...primary,
-          fallbacks: chain,
-        },
-      ],
-    }),
+    loadConfig: savedConfig,
+    // Hot paths read the snapshot; it answers the same saved settings.
+    getConfigSnapshot: savedConfig,
   },
 });
 
