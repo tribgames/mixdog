@@ -956,6 +956,23 @@ test('a scroller that does not carry the chart never dismisses the hover card', 
   assert.equal(document.querySelector('.stats-trend-detail'), null);
 });
 
+test('a request-log time with a date stays inside its column (#310)', (context) => {
+  const style = document.createElement('style');
+  style.textContent = readFileSync(new URL('./desktop/28-usage-explorer.css', import.meta.url), 'utf8');
+  const table = document.createElement('table');
+  table.className = 'request-log-table';
+  table.innerHTML = '<tbody><tr><td class="request-log-time">11. 2. 오후 07:08:12</td></tr></tbody>';
+  document.head.append(style);
+  document.body.append(table);
+  context.after(() => {
+    style.remove();
+    table.remove();
+  });
+  const cell = window.getComputedStyle(table.querySelector('.request-log-time'));
+  assert.equal(cell.overflow, 'hidden');
+  assert.equal(cell.textOverflow, 'ellipsis');
+});
+
 test('chart hover detail cannot capture the pointer outside the bars, but pinned detail stays interactive', async (context) => {
   const render = harness(context);
   const style = document.createElement('style');

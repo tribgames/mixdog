@@ -262,9 +262,12 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
               const internalHint = t(
                 'Internal session: a background run Mixdog started itself. You cannot open it as a conversation.'
               );
+              const time = requestTime(statsNumber(row.ts), today);
               return (
                 <tr key={String(row.id)}>
-                  <td className="request-log-time">{requestTime(statsNumber(row.ts), today)}</td>
+                  <td className="request-log-time" title={time}>
+                    {time}
+                  </td>
                   <td
                     className="request-log-session"
                     title={internal ? `${title} — ${internalHint}` : suffix ? `${title} · ${suffix}` : title}
