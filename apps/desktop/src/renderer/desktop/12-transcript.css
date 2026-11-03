@@ -352,12 +352,6 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
 .transcript-virtual-row-content[data-step-before="true"] {
   padding-top: 8px;
 }
-/* A closed work fold keeps the same 16px to its answer as the opened work's
-   last row does (8 here + the answer's 8px step); the opened header stays flush
-   with its rows so the frame runs unbroken. */
-.transcript-virtual-row-content[data-tag="WorkFold"]:has(> .transcript-work-fold[aria-expanded="false"]) {
-  padding-bottom: 8px;
-}
 /* A finished turn's work, folded into one row above its final answer. It is
    drawn like the changed-files card (27-search-review.css .turn-changes-card):
    a framed header line (icon, title, chevron) and, when opened, the work's
