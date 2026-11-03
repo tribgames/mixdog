@@ -352,50 +352,81 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
 .transcript-virtual-row-content[data-step-before="true"] {
   padding-top: 8px;
 }
-/* A finished turn's work, folded into one row above its final answer. It reads
-   like a tool group's summary line (13-tool-cards.css .tool-activity-header):
-   quiet muted words starting at the text edge, the chevron right after them. */
+/* A finished turn's work, folded into one row above its final answer. It is
+   drawn like the changed-files card (27-search-review.css .turn-changes-card):
+   a framed header line (icon, title, chevron) and, when opened, the work's
+   rows in the same frame below the header's divider. The rows are separate
+   virtual rows, so each one draws its own piece of the frame. */
 .transcript-work-fold {
   box-sizing: border-box;
-  max-width: 100%;
-  min-height: 24px;
-  display: inline-flex;
+  width: 100%;
+  min-height: 44px;
+  display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 0;
+  gap: 10px;
+  /* The icon cell's own 6px inset puts its glyph on the same 12px line as the
+     chevron and the opened rows' text. */
+  padding: 6px 12px 6px 6px;
   border: 0;
-  background: transparent;
-  color: var(--mx-text-muted);
+  border-radius: var(--mx-radius-lg);
+  background: var(--mx-card-header-surface);
+  box-shadow: inset 0 0 0 var(--mx-hairline) var(--mx-border);
+  color: var(--mx-text);
   font: inherit;
-  font-size: var(--mx-font-ui);
-  font-weight: var(--mx-weight-medium);
-  line-height: var(--mx-line-ui);
+  font-size: var(--mx-font-minor);
+  line-height: var(--mx-line-minor);
   text-align: left;
   cursor: pointer;
 }
 .transcript-work-fold:hover {
-  color: var(--mx-text);
+  background: var(--mx-hover);
+}
+.transcript-work-fold[aria-expanded="true"] {
+  border-radius: var(--mx-radius-lg) var(--mx-radius-lg) 0 0;
+}
+.transcript-work-fold-icon {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--mx-radius-md);
+  background: var(--mx-hover);
+  color: var(--mx-text-muted);
 }
 .transcript-work-fold-label {
   min-width: 0;
   overflow: hidden;
+  font-weight: var(--mx-weight-medium);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .transcript-work-fold-chevron {
   display: inline-flex;
-  flex: 0 0 auto;
+  flex: none;
+  margin-left: auto;
+  color: var(--mx-text-muted);
   transition: transform 0.2s ease;
 }
 .transcript-work-fold[aria-expanded="true"] .transcript-work-fold-chevron {
   transform: rotate(90deg);
 }
-/* The opened work: one thin rule down its rows, its interim text muted and a
-   step smaller than the answer. The step between its rows moves inside the
-   rule, so the rule runs unbroken. */
+/* The opened work: each row carries the card's side edges; the last one closes
+   the frame. The step between rows moves inside the frame so it runs
+   unbroken, and the card keeps the changed-files card's gap to the answer. */
 .transcript-work {
-  padding-left: 14px;
-  border-left: 1px solid var(--mx-border);
+  padding: 0 12px;
+  box-shadow:
+    inset var(--mx-hairline) 0 0 0 var(--mx-border),
+    inset calc(-1 * var(--mx-hairline)) 0 0 0 var(--mx-border);
+}
+.transcript-work[data-work-end="true"] {
+  padding-bottom: 12px;
+  border-radius: 0 0 var(--mx-radius-lg) var(--mx-radius-lg);
+  box-shadow:
+    inset var(--mx-hairline) 0 0 0 var(--mx-border),
+    inset calc(-1 * var(--mx-hairline)) 0 0 0 var(--mx-border),
+    inset 0 calc(-1 * var(--mx-hairline)) 0 0 var(--mx-border);
 }
 .transcript-virtual-row-content[data-work="true"][data-step-before="true"] {
   padding-top: 0;
@@ -403,9 +434,8 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .transcript-shell {
 .transcript-virtual-row-content[data-work="true"][data-step-before="true"] > .transcript-work {
   padding-top: 8px;
 }
-.transcript-work .message-body {
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-minor);
+.transcript-virtual-row-content[data-work="true"]:has(> .transcript-work[data-work-end="true"]) {
+  padding-bottom: 8px;
 }
 @media (prefers-reduced-motion: reduce) {
   .transcript-work-fold-chevron {
