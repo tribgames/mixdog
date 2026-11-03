@@ -126,7 +126,19 @@ function _admitWaiting() {
 function _dispatch() {
   _admitWaiting();
   while (_queue.length) {
-    const slot = _slots.find((candidate) => !candidate.request) || (_slots.length < POOL_SIZE ? _spawn() : null);
+    let slot = _slots.find((candidate) => !candidate.request);
+    if (!slot && _slots.length < POOL_SIZE) {
+      try {
+        slot = _spawn();
+      } catch (error) {
+        // Construction failed: fail the head request (the caller falls back)
+        // rather than leave it queued with its chars and abort listener.
+        const failed = _queue.shift();
+        _release(failed);
+        _settle(failed, error);
+        continue;
+      }
+    }
     if (!slot) return;
     const request = _queue.shift();
     slot.request = request;
