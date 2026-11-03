@@ -169,7 +169,7 @@ export function ProjectRecoverySurface({
   const needsReview = overview?.records.some((record) => !['completed', 'recovered', 'retired'].includes(record.phase));
   return (
     <details
-      style={{ padding: '8px 12px', overflowWrap: 'anywhere' }}
+      className="project-recovery"
       open={open}
       onToggle={(event) => setOpen(event.currentTarget.open)}
     >
