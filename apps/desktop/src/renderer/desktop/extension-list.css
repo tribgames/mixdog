@@ -71,22 +71,8 @@
   line-height: var(--mx-line-meta);
   text-align: center;
 }
-.extensions-pane .settings-group-body:has(> .settings-empty-list) {
-  min-width: 0;
-  min-height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-.extensions-pane .settings-empty-list {
-  box-sizing: border-box;
-  width: 100%;
-  min-height: 48px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 12px 0;
-}
+/* `.settings-empty-list` here is the side panels' one empty state
+   (10-rail-pages.css). */
 
 /* The capability surface gate is a plain block inside the page column: it must
    not claim the page height or open a second scroller. It also paints
@@ -133,7 +119,7 @@
 .session-sidebar-panels .schedules-row.utilities-row.extensions-row {
   display: grid;
   grid-template-columns: 16px minmax(0, 1fr) auto;
-  column-gap: 8px;
+  column-gap: 6px;
   row-gap: 3px;
   align-items: center;
 }
@@ -207,7 +193,9 @@
   align-content: stretch;
 }
 .session-sidebar-panels .extensions-pane .schedules-row.utilities-row.extensions-row {
-  min-height: 32px;
+  height: 31px;
+  min-height: 31px;
+  padding-block: 0;
 }
 .session-sidebar-panels .extensions-pane .extensions-row .utilities-row-copy > small {
   display: none;

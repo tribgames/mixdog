@@ -20,7 +20,7 @@ export const partiallyStaged = (file: DesktopGitFile): boolean =>
   stagedInIndex(file) && !file.untracked && file.worktree !== ' ';
 
 export const HISTORY_PAGE_SIZE = 40;
-export const SCM_FILE_ROW_HEIGHT = 29;
+export const SCM_FILE_ROW_HEIGHT = 31;
 export const SCM_COMMIT_ROW_HEIGHT = 46;
 const SCM_ROW_OVERSCAN = 6;
 export const HISTORY_PREFETCH_ROWS = 8;

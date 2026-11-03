@@ -43,7 +43,15 @@
    the "+" other panels carry there. */
 .utility-dock-header-actions {
   margin-left: auto;
+  gap: 4px;
   padding-bottom: 0;
+}
+/* Title-row actions are the panel header's 28px buttons (.session-panel-action). */
+.utility-dock-header-actions.workbench-explorer-actions > button {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--mx-radius-md);
+  color: var(--mx-icon-muted);
 }
 .workbench-explorer-actions > button {
   width: 22px;
@@ -78,9 +86,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Empty state: no override — the base .utility-dock-empty (13-tool-cards.css)
-   already stretches with flex:1 and centers on both axes, so Search and Files
-   read like every other dock tab. */
+/* Empty state: no override — Search and Files wear the side panels' one
+   empty state (10-rail-pages.css). */
 .workbench-search-name-row {
   min-height: 24px;
   width: 100%;
@@ -674,10 +681,12 @@
 }
 .session-diff-source-select .mx-select-trigger {
   min-width: 0;
-  height: 24px;
+  /* The side panels' 28px / 3px select. */
+  height: 28px;
   gap: 5px;
   padding: 0 6px;
   border: 0;
+  border-radius: var(--mx-radius-sm);
   background: transparent;
   box-shadow: none;
   font-size: var(--mx-font-meta);

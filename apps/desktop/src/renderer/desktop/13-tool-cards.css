@@ -2111,23 +2111,8 @@ button[data-copied="true"] > svg {
   display: flex;
   flex-direction: column;
 }
-/* The one panel-level empty state: text only, centred both ways in the
-   panel's content area. `.schedules-empty` is the Agents pane's legacy alias. */
-.utility-dock-empty,
-.schedules-empty {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 10px;
-  margin: 0;
-  padding: 16px 20px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-ui);
-  line-height: var(--mx-line-ui);
-  text-align: center;
-}
+/* `.utility-dock-empty` (and the Agents pane's legacy `.schedules-empty`)
+   share the side panels' one empty state in 10-rail-pages.css. */
 .live-activity {
   height: auto;
   /* ONE band height (24px) shared by the slot below and the status row inside

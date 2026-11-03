@@ -10,7 +10,8 @@
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  --mx-explorer-inset: 12px;
+  /* The twistie slot opens 8px inside the row fill, like a session row's. */
+  --mx-explorer-inset: 8px;
   padding: 0;
 }
 .workbench-explorer-root {
@@ -68,26 +69,28 @@
    same baseline. */
 /* Clear (×) matches the app's quiet icon-button grammar — the UA default
    button chrome read as a stray gray square. */
-/* Explorer row: fixed 22px item height, full-width
-   square highlight, a 16px twistie column reserved on EVERY row so file and
-   folder labels share one x per depth (tree.css .monaco-tl-twistie). */
+/* Explorer row: the side panels' 31px row with its 10px fill radius; the
+   16px twistie column is the leading slot, reserved on EVERY row so file and
+   folder labels share one x per depth (tree.css .monaco-tl-twistie), and the
+   label opens 6px after it. */
 .dock-file-row {
   display: flex;
   align-items: center;
+  gap: 6px;
   width: 100%;
-  height: 22px;
+  height: 31px;
   flex: none;
   border: 0;
   background: none;
-  padding: 0 var(--mx-explorer-inset, 12px) 0 0;
+  padding: 0 8px 0 0;
   color: var(--mx-text);
   font-size: var(--mx-font-ui);
   font-weight: var(--mx-weight-regular);
-  line-height: var(--mx-line-emphasis);
+  line-height: var(--mx-line-ui);
   letter-spacing: 0;
   cursor: pointer;
   text-align: left;
-  border-radius: 0;
+  border-radius: var(--mx-radius-lg);
 }
 .dock-file-row:hover {
   background-color: var(--mx-hover);
@@ -100,7 +103,6 @@
 .dock-file-icon {
   color: var(--mx-text-muted);
   flex: 0 0 auto;
-  margin-right: 5px;
 }
 /* Modified marker follows the warning semantic — same hue as tinted
    filenames, gutter stripes, and the minimap ruler. */
@@ -154,12 +156,13 @@
 }
 .workbench-search-results > button {
   width: 100%;
-  min-height: 30px;
+  min-height: 31px;
   display: flex;
   align-items: center;
-  gap: 7px;
-  padding: 4px 12px;
+  gap: 6px;
+  padding: 4px 8px;
   border: 0;
+  border-radius: var(--mx-radius-lg);
   color: var(--mx-text);
   background: transparent;
   text-align: left;
@@ -608,12 +611,13 @@
   /* The file rows' own left inset — the CHECKBOX COLUMN. The select-all
      header sits outside .dock-scm-scroll, so it pays the same inset itself and
      both checkboxes land on ONE x (asserted by scripts/scm-geometry-probe). */
-  --dock-scm-row-inset: 6px;
+  --dock-scm-row-inset: 8px;
   /* The two FIXED row bands the lists are windowed on (SourceControlDock.tsx
      `useRowWindow`, SCM_FILE_ROW_HEIGHT / SCM_COMMIT_ROW_HEIGHT): a row that
      is free to grow would make every spacer — and with it the scrollbar and
-     the scroll position — lie about the list. */
-  --dock-scm-file-row: 29px;
+     the scroll position — lie about the list. The file band is the side
+     panels' shared 31px row. */
+  --dock-scm-file-row: 31px;
   --dock-scm-commit-row: 46px;
   flex: 1;
   display: flex;
@@ -847,7 +851,7 @@
 .dock-scm-commit-split > button:first-child > svg {
   flex: 0 0 auto;
 }
-/* Changes header: the tri-state select-all row on a 29px band. */
+/* Changes header: the tri-state select-all row on the file-row band. */
 /* The header band sits OUTSIDE .dock-scm-scroll, so it pays the dock gutter
    itself: left = --dock-scm-gutter, right = that gutter plus the scrollbar
    reserve the scrolled rows already sit inside of — the same formula as the
@@ -865,13 +869,13 @@
 }
 /* Select-all header: the SAME left inset and the SAME checkbox box as the file
    rows below it, so the header checkbox and every row checkbox share one x
-   column and the labels start on one text axis (header 6 + 13 + 8 = row
-   6 + 13 + 6 + 2 of .dock-scm-file-main padding = 27px). */
+   column and the labels start on one text axis: the checkbox centres in the
+   rows' 16px leading slot and the label opens 6px after it (slot + 22). */
 .dock-scm-check-all {
-  height: 29px;
+  height: var(--dock-scm-file-row);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 0 2px 0 var(--dock-scm-row-inset);
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
@@ -917,7 +921,7 @@
   width: 13px;
   height: 13px;
   flex: 0 0 13px;
-  margin: 0;
+  margin: 0 1.5px;
   accent-color: var(--mx-focus);
   cursor: pointer;
 }
@@ -925,8 +929,8 @@
   cursor: default;
   opacity: var(--mx-op-disabled);
 }
-/* Row = checkbox + dim directory + file name + trailing status glyph, on a
-   29px row band. */
+/* Row = checkbox + dim directory + file name + trailing status glyph, on the
+   side panels' 31px row band and 10px row radius. */
 .dock-scm-file {
   position: relative;
   min-width: 0;
@@ -937,7 +941,7 @@
   align-items: center;
   gap: 6px;
   padding: 0 2px 0 var(--dock-scm-row-inset);
-  border-radius: var(--mx-radius-sm);
+  border-radius: var(--mx-radius-lg);
 }
 /* The rows a window does not mount are represented by these two spacers, so
    the scroll container keeps the whole list's height. */
@@ -962,6 +966,9 @@
 .dock-scm-file:hover,
 .dock-scm-file:focus-within {
   background: var(--mx-hover);
+}
+.dock-scm-file:is(:hover, :focus-within, [data-selected="true"]) .dock-scm-file-name {
+  color: var(--mx-text);
 }
 .dock-scm-file[data-selected="true"] {
   background: var(--mx-pressed);
@@ -1001,15 +1008,18 @@
   width: 16px;
   height: 18px;
   flex: 0 0 16px;
+  /* Centred on the side panels' trailing line, 12px in from the row fill:
+     the row's 2px pad plus this pull-in leave 4px to the glyph box. */
+  margin-right: -4px;
 }
 .dock-scm-file-main {
   min-width: 0;
-  min-height: 29px;
+  min-height: var(--dock-scm-file-row);
   flex: 1;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 2px;
+  padding: 0 2px 0 0;
   overflow: hidden;
   border: 0;
   color: var(--mx-text);
@@ -1032,14 +1042,15 @@
   align-items: baseline;
   gap: 0;
   overflow: hidden;
-  font-size: var(--mx-font-code);
-  line-height: var(--mx-line-minor);
+  font-size: var(--mx-font-item);
+  line-height: var(--mx-line-ui);
 }
+/* Row-name ink: soft at rest, full on the hovered or selected row. */
 .dock-scm-file-name {
   min-width: 0;
   flex: 0 0 auto;
   overflow: hidden;
-  color: var(--mx-text);
+  color: var(--mx-text-soft);
   font-size: inherit;
   font-weight: var(--mx-weight-regular);
   line-height: inherit;
@@ -1098,31 +1109,8 @@
     --dock-scm-gutter: 6px;
   }
 }
-/* Empty + loading states center in the SCM scrollers, the same grammar the PR
-   list uses further down: .dock-scm-scroll / .dock-scm-history are plain
-   blocks, so a message inside them hugged the top. The :not(:has()) guard keeps the rule to the states where the
-   scroller holds nothing but its zero-height row spacers — while paginating,
-   the same "Loading history…" line sits UNDER real rows and must not re-flow
-   them. */
-.dock-scm-scroll:not(:has(> :not(.dock-scm-row-spacer, .dock-scm-clean))),
-.dock-scm-history:not(:has(> :not(.dock-scm-row-spacer, .utility-dock-empty))) {
-  display: grid;
-  align-content: center;
-}
-/* Commit detail carries its own header: that stays pinned at the top and the
-   message centers in the band left under it. */
-.dock-scm-commit-detail:has(> .utility-dock-empty) {
-  display: grid;
-  grid-template-rows: auto 1fr;
-}
-.dock-scm-clean {
-  margin: 0;
-  /* Symmetric now that the box is centered instead of hanging off the header. */
-  padding: 14px;
-  color: var(--mx-text-muted);
-  font-size: var(--mx-font-meta);
-  text-align: center;
-}
+/* Empty + loading states are the side panels' one empty line
+   (10-rail-pages.css) at the top of the scroller, like every other panel. */
 /* History rows: ONE-line summary and a
    `author · relative age` byline (no avatar monogram), on a FIXED row height.
    Nothing inside the row may grow it: the byline, the ref badge and the push
@@ -3116,7 +3104,7 @@ button.inline-diff-fold:focus-visible {
   border: 1px solid var(--mx-border-muted);
   border-radius: var(--mx-radius-md);
   background: var(--mx-bg-base);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--mx-popup-shadow);
 }
 .workspace-tab-switcher > div {
   padding: 6px 10px;

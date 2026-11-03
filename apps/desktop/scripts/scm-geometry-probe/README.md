@@ -85,9 +85,9 @@ The rules the overlays must keep:
   characters to `…` (ScmPathText).
 - neither list carries a PAGER: no `.dock-scm-load-more`, no `Show N more` and
   no `Load more` button exists, at any width or fixture, and the changed-file
-  row keeps its 29px band (the height the window is computed on).
+  row keeps its 31px band (the side panels' shared row) (the height the window is computed on).
 - with the `:rows` fixture both lists are WINDOWED and honest about it:
-  `.dock-scm-scroll`'s scroll height is `2000 × 29px` plus its own padding
+  `.dock-scm-scroll`'s scroll height is `2000 × 31px` plus its own padding
   (so the scrollbar and every scroll position describe the whole set) while at
   most 40 `.dock-scm-file` rows are mounted, before and after scrolling; the
   container really scrolls to its own end and the LAST of the 2000 files is

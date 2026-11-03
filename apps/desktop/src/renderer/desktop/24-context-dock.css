@@ -172,7 +172,7 @@
   --ctx-color: var(--mx-chart-grey);
 }
 .context-surface-view [data-context-key="free"] {
-  --ctx-color: #6f777d;
+  --ctx-color: var(--mx-chart-grey);
 }
 @media (max-width: 640px) {
   .context-mix-grid {
@@ -722,17 +722,19 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: var(--mx-weight-semibold);
+  font-weight: var(--mx-weight-medium);
 }
 .utility-dock-project-row {
+  box-sizing: border-box;
   min-width: 0;
-  height: 41px;
-  flex: 0 0 41px;
+  /* The shared 31px row band (plus its hairline) around a 28px boxed select. */
+  height: 32px;
+  flex: 0 0 32px;
   display: flex;
   align-items: center;
   /* Boxes ride the dock's 12px box line (user: 오른쪽도 비슷하게 — same
      line as the header title and every band container). */
-  padding: 6px 12px;
+  padding: 0 12px;
   border-bottom: 1px solid var(--mx-border-muted);
   background: var(--mx-window-band);
 }
@@ -748,7 +750,7 @@
   align-items: center;
   padding: 0 7px;
   border: 0;
-  border-radius: var(--mx-radius-md);
+  border-radius: var(--mx-radius-sm);
   color: var(--mx-text);
   background: transparent;
   font-size: var(--mx-font-minor);

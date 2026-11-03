@@ -13,7 +13,9 @@
 }
 
 /* The page is in element fullscreen (a video's own button): the window is
-   fullscreen and this pane is all of it, the page alone on black. */
+   fullscreen and this pane is all of it, the page alone on black. Black is
+   the web viewport's own fullscreen backdrop (what the browser paints behind
+   fullscreen content), not app chrome, so it stays theme-independent. */
 .browser-pane.is-page-fullscreen {
   position: fixed;
   inset: 0;
@@ -57,9 +59,11 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  /* Navigation row only (back, forward, reload, address): 34px. */
+  /* Navigation row only (back, forward, reload, address): 34px. The first
+     button opens on the row-fill edge (8px); the last centres on the side
+     panels' trailing line, 26px in. */
   height: 34px;
-  padding: 0 6px;
+  padding: 0 12px 0 8px;
   border-bottom: 1px solid var(--mx-border-muted);
   flex: none;
 }
@@ -78,7 +82,8 @@
   padding: 0 10px;
   /* Outlined input: hairline border, no fill; stronger on hover, accent on focus. */
   border: 1px solid var(--mx-border);
-  border-radius: var(--mx-radius-pill);
+  /* The side panels' boxed-control radius. */
+  border-radius: var(--mx-radius-sm);
   background: transparent;
   color: var(--mx-text);
   font-size: var(--mx-font-ui);
@@ -165,7 +170,7 @@ html[data-mx-input="pointer"] .browser-pane-address:focus {
   align-items: center;
   justify-content: center;
   padding: 12px;
-  background: #111;
+  background: var(--mx-bg-deep);
 }
 
 .browser-pane-viewport {
@@ -216,7 +221,7 @@ html[data-mx-input="pointer"] .browser-pane-address:focus {
   position: relative;
   align-items: stretch;
   justify-content: stretch;
-  background: #111;
+  background: var(--mx-bg-deep);
   touch-action: none;
   user-select: none;
   /* Safari still needs the prefix, and the chrome-targeted build adds none:

@@ -817,13 +817,22 @@ html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .uti
   margin-inline: 0;
 }
 /* Search and Source Control (utility-dock panels hosted in the left column):
-   title on the content line; the 22px header actions centre on the trailing
-   line (26 in from the edge → 15 to their box); the project picker and the
-   query/mode stack take the row-fill box. */
+   title on the content line; the header's 28px actions (the Sessions header
+   buttons) centre on the trailing line (26 in from the edge → 12 to their
+   box); the project picker and the query/mode stack take the row-fill box. */
 html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock > .utility-dock-header:not(.session-panel-header) {
-  padding-inline: 16px 15px;
+  padding-inline: 16px 12px;
 }
 html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .utility-dock-project-row {
+  padding-inline: 8px 14px;
+}
+/* Rows below the stacks take the row-fill box (8 → 14). The scrollers
+   reserve an 8px scrollbar gutter, which is part of the 14. */
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock :is(.dock-files-tree, .workbench-search-results, .dock-scm-scroll) {
+  padding-inline: 8px 6px;
+  scrollbar-gutter: stable;
+}
+html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock :is(.dock-scm-list-header, .dock-scm-commit) {
   padding-inline: 8px 14px;
 }
 html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .utility-dock-project-row .dock-project-select .mx-select-trigger {
@@ -838,7 +847,7 @@ html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .uti
 /* Source Control history rows: fill from 8, subject on the content line, the
    22px push disc centred on the trailing line (26 in from the edge). */
 html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .dock-scm-history .dock-scm-commit-row {
-  margin-left: 8px;
+  margin-inline: 8px 6px;
   padding: 0 1px 0 8px;
 }
 /* The recovery disclosure's marker opens on the content line. */

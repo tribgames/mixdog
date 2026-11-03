@@ -14,7 +14,7 @@
   border-radius: 50%;
   background: var(--mx-bg-layer-2);
   box-shadow: 0 0 0 2px var(--mx-bg-layer-1);
-  color: #f2c94c;
+  color: var(--mx-chart-gold);
 }
 
 /* The Agents pane before Mixy exists: .utility-dock-empty centres the line

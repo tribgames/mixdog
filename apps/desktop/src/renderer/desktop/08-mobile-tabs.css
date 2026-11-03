@@ -212,7 +212,7 @@
      filter field and row checkboxes below it use. */
   padding: 0 4px 0 12px;
   font-size: var(--mx-rail-panel-title);
-  font-weight: var(--mx-weight-semibold);
+  font-weight: var(--mx-weight-medium);
   line-height: var(--mx-line-emphasis);
   letter-spacing: 0;
   /* A panel title reads like the app destinations beside it (Sessions,
