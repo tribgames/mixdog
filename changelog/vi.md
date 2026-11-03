@@ -4,6 +4,8 @@ Các thay đổi đáng chú ý, mới nhất ở trên cùng. Quy trình Deploy
 
 ## Unreleased
 
+## v1.4.5 - 2026-11-03
+
 Bản phát hành này tăng tốc các cuộc trò chuyện Claude đang diễn ra, sắp xếp bảng Phiên theo dự án và nhánh, đồng thời ra mắt bảng Studio cùng các cải tiến về độ ổn định cho công việc song song.
 
 ### Tính năng mới

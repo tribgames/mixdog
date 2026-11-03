@@ -5,6 +5,8 @@ the Unreleased section is empty, and stamps it with the released version.
 
 ## Unreleased
 
+## v1.4.5 - 2026-11-03
+
 This release speeds up ongoing Claude conversations, organizes the Sessions panel by project and branch, and introduces Studio boards, alongside stability improvements for parallel work.
 
 ### New features
