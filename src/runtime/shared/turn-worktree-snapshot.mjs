@@ -140,6 +140,9 @@ function stateForRoot(root) {
   if (state && state.gitDir === gitDir) return state;
   state = {
     root,
+    // Matched beside `root`'s own spelling: a watcher on a canonical root
+    // reports this one. Resolved once here, never per reported path.
+    canonicalKey: pathKey(canonicalPath(root)),
     gitDir,
     initialized: false,
     sourceIndexPath: null,
@@ -173,10 +176,11 @@ const LINK_FREE_WATCH_PLATFORMS = new Set(['win32', 'darwin']);
 /** Report written paths (or `null`: anything may have changed). The next
  *  review poll of an affected worktree captures instead of reusing.
  *  `canonical`: the paths come from a recursive watch on canonical roots. On a
- *  link-free backend a path under a root by its own spelling then needs no
- *  filesystem call; one that is not is still canonicalised. Every other
- *  source, and every watcher on another platform, may name paths through
- *  links, so each is canonicalised. `platform` exists for tests. */
+ *  link-free backend such a path never names a root through a link, so it is
+ *  matched by its own spelling with no filesystem call, whether or not it
+ *  falls under a root. Every other source, and every watcher on another
+ *  platform, may name paths through links, so each is canonicalised.
+ *  `platform` exists for tests. */
 export function noteTurnWorktreeChange(paths = null, { canonical = false, platform = process.platform } = {}) {
   if (states.size === 0) return;
   const list = Array.isArray(paths) ? paths.filter((value) => clean(value)) : [];
@@ -184,24 +188,24 @@ export function noteTurnWorktreeChange(paths = null, { canonical = false, platfo
     for (const state of states.values()) state.changeStamp += 1;
     return;
   }
-  const roots = [...states.values()].map((state) => ({ state, root: pathKey(state.root) }));
+  const roots = [...states.values()].flatMap((state) =>
+    [...new Set([pathKey(state.root), state.canonicalKey])].map((root) => ({ state, root }))
+  );
   const stamped = new Set();
   const stampMatches = (key) => {
-    let matched = false;
     for (const { state, root } of roots) {
-      if (key === root || key.startsWith(`${root}/`)) {
-        stamped.add(state);
-        matched = true;
-      }
+      if (key === root || key.startsWith(`${root}/`)) stamped.add(state);
     }
-    return matched;
   };
   const trustSpelling = canonical && LINK_FREE_WATCH_PLATFORMS.has(platform);
   const dirs = new Map();
+  const seen = new Set();
   for (const value of list) {
-    if (stamped.size === roots.length) break;
-    if (trustSpelling && stampMatches(pathKey(resolve(value)))) continue;
-    stampMatches(pathKey(canonicalPath(value, dirs)));
+    if (stamped.size === states.size) break;
+    const key = pathKey(resolve(value));
+    if (seen.has(key)) continue;
+    seen.add(key);
+    stampMatches(trustSpelling ? key : pathKey(canonicalPath(value, dirs)));
   }
   for (const state of stamped) state.changeStamp += 1;
 }

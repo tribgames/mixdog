@@ -527,6 +527,44 @@ test('native watcher paths on a link-free backend stamp by spelling with no file
   assert.deepEqual(counts, { existsSync: 0, lstatSync: 0, realpathSync: 0, readdirSync: 0 });
 });
 
+test('native watcher paths outside every root on a link-free backend make no filesystem call', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  _resetTurnWorktreeSnapshotsForTest();
+  const repoA = seedRepo('outside-a');
+  const repoB = seedRepo('outside-b');
+  const snapshots = [await createTurnWorktreeSnapshot(repoA), await createTurnWorktreeSnapshot(repoB)];
+  const elsewhere = join(root, 'outside-elsewhere');
+  mkdirSync(elsewhere, { recursive: true });
+  // Existing and missing paths elsewhere, a sibling sharing a root's name
+  // prefix, and repeats: none is under a tracked root.
+  const outside = Array.from({ length: 20_000 }, (_, i) =>
+    i % 3 === 0 ? join(`${repoA}-sibling`, `f${i}.txt`) : join(elsewhere, `d${i % 50}`, `f${i % 5_000}.txt`)
+  );
+  outside.push(elsewhere);
+  const counts = { existsSync: 0, lstatSync: 0, realpathSync: 0, statSync: 0, readdirSync: 0 };
+  for (const name of Object.keys(counts)) {
+    const original = fs[name];
+    t.mock.method(fs, name, (...args) => {
+      counts[name] += 1;
+      return original(...args);
+    });
+  }
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  const delta = (paths) => {
+    const before = snapshots.map((snapshot) => snapshot.state.changeStamp);
+    noteTurnWorktreeChange(paths, { canonical: true, platform: 'win32' });
+    return snapshots.map((snapshot, i) => snapshot.state.changeStamp - before[i]);
+  };
+  assert.deepEqual(delta(outside), [0, 0]);
+  assert.deepEqual(delta([...outside, join(repoB, 'a.txt')]), [0, 1]);
+  assert.deepEqual(counts, { existsSync: 0, lstatSync: 0, realpathSync: 0, statSync: 0, readdirSync: 0 });
+});
+
 test('a tool invalidation through a junction or a denied probe still stamps the target root', {
   skip: gitAvailable ? false : 'git is unavailable',
 }, async (t) => {
