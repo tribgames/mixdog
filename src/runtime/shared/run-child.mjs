@@ -31,6 +31,13 @@ export function killChildTree(child) {
 /** The child has exited (an exit code or the signal that ended it). */
 const childEnded = (child) => child.exitCode !== null || child.signalCode !== null;
 
+// How long an exited child's pipes may stay open before its output is taken
+// as complete. On Windows a process another thread of this process creates at
+// the same moment (a long-lived server, say) can inherit this child's pipe
+// ends and hold them open for its whole life, so 'close' would never come;
+// what the child wrote before exiting is already in the pipes.
+export const EXIT_DRAIN_MS = 1_000;
+
 /**
  * `waitForExitMs` (> 0): a timeout rejects only once the killed child has
  * exited, or after that many more ms; the error then carries `pid` and
@@ -68,10 +75,12 @@ export function runChild({
     let stdinError = null;
     let settled = false;
     let timedOut = false;
+    let drainTimer = null;
     const finish = (error, result) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
+      clearTimeout(drainTimer);
       if (error) rejectPromise(error);
       else resolvePromise(result);
     };
@@ -129,7 +138,7 @@ export function runChild({
       // An error while a timeout terminates the child (a failed kill) is the timeout's.
       if (!timedOut) finish(error);
     });
-    child.once('close', (code) => {
+    const complete = (code) => {
       // A timed-out child's close is the timeout's to report.
       if (timedOut) return;
       const result = {
@@ -144,6 +153,14 @@ export function runChild({
         return;
       }
       finish(null, result);
+    };
+    child.once('close', complete);
+    child.once('exit', (code) => {
+      drainTimer = setTimeout(() => {
+        child.stdout.destroy?.();
+        child.stderr.destroy?.();
+        complete(code);
+      }, EXIT_DRAIN_MS);
     });
     if (child.stdin) {
       // A short-lived child can close before stdin is flushed. Keep that

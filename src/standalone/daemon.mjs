@@ -944,7 +944,8 @@ async function main() {
       if (changed || incomplete || report.errors.length) {
         log(
           `worktree reconcile: removed ${report.removed.length}, recovered ${report.recovered.length}, ` +
-            `pruned ${report.pruned.length}, incomplete ${incomplete}, errors ${report.errors.length}`
+            `pruned ${report.pruned.length}, incomplete ${incomplete}, errors ${report.errors.length}` +
+            (report.errors.length ? ` ${JSON.stringify(report.errors).slice(0, 2000)}` : '')
         );
       }
     })
