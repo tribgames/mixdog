@@ -729,7 +729,7 @@ function projectFolderGroup(
                   onClick={() => onToggleProject(branchKey)}
                 >
                   <span className="session-row-slot" aria-hidden="true">
-                    <GitBranch size={16} strokeWidth={1.75} />
+                    <GitBranch size={14} />
                   </span>
                   <span className="session-subheading-name">{branch.name}</span>
                   {branchOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
