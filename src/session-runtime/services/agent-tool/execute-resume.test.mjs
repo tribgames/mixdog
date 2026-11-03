@@ -108,10 +108,7 @@ function setup(t, { record = {}, fileGone = false, cwdGone = false, released = f
   };
 }
 
-const RESUMED = [
-  { dispatched: 'sess_old', prompt: 'next', extras: { resumed: true } },
-  { settled: 'sess_old' },
-];
+const RESUMED = [{ dispatched: 'sess_old', prompt: 'next', extras: { resumed: true } }, { settled: 'sess_old' }];
 
 test('a send to a reaped tag continues its saved session and consumes the tombstone', async (t) => {
   const env = setup(t);
@@ -222,9 +219,8 @@ test('a turn completed after the owner close (the owner reused it) lifts the clo
 test('a missing saved working directory is an error naming it, never a spawn there', async (t) => {
   const env = setup(t, { cwdGone: true });
   env.reap();
-  await assert.rejects(
-    env.send({ tag: 'review', message: 'next' }),
-    (err) => err.message.includes(`working directory "${env.cwd}" no longer exists`)
+  await assert.rejects(env.send({ tag: 'review', message: 'next' }), (err) =>
+    err.message.includes(`working directory "${env.cwd}" no longer exists`)
   );
   await assert.rejects(env.spawn({ tag: 'review', prompt: 'next' }), /no longer exists/);
   await assert.rejects(
@@ -309,9 +305,7 @@ for (const [label, canonical] of [
     else {
       // The manager's cross-provider route change drops the old provider's
       // replay state and context baselines (session-lifecycle.mjs updateSessionRoute).
-      assert.deepEqual(env.routeUpdates, [
-        { id: 'sess_old', route: env.routeUpdates[0].route, crossProvider: true },
-      ]);
+      assert.deepEqual(env.routeUpdates, [{ id: 'sess_old', route: env.routeUpdates[0].route, crossProvider: true }]);
       assert.equal(env.routeUpdates[0].route.provider, 'anthropic');
     }
     assert.deepEqual(events.at(-1), ['startJob', 'sess_old', true]);

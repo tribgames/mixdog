@@ -717,11 +717,7 @@ export async function stopInTreeDaemon({
  *  `busy` — turns run, admission was left open, `busy` is the count;
  *  `none` — no in-tree daemon serves, so the install kills nothing;
  *  `unknown` — the daemon could not be asked. `release` reopens admission. */
-export async function holdInTreeDaemon({
-  release = false,
-  ttlMs,
-  discovery = readSessionDiscovery(),
-} = {}) {
+export async function holdInTreeDaemon({ release = false, ttlMs, discovery = readSessionDiscovery() } = {}) {
   const pids = [...inTreeDaemons.keys()].filter((pid) => isPidAlive(pid));
   if (!pids.length) return { status: 'none', busy: 0, error: null };
   if (discovery?.port && !pids.includes(Number(discovery.pid))) return { status: 'none', busy: 0, error: null };

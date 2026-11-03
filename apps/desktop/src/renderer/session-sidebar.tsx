@@ -444,9 +444,7 @@ function useProjectGroups({
     revealedNonceRef.current = revealedProject.nonce;
     updateProjectOpen((current) => withOpen(current, key, true));
     window.requestAnimationFrame(() =>
-      document
-        .querySelector(`[data-project-key="${CSS.escape(key)}"]`)
-        ?.scrollIntoView({ block: 'nearest' })
+      document.querySelector(`[data-project-key="${CSS.escape(key)}"]`)?.scrollIntoView({ block: 'nearest' })
     );
   }, [activityProjectGroups, revealedProject, updateProjectOpen]);
   const activityProjectKeys = useMemo(() => activityProjectGroups.map((group) => group.key), [activityProjectGroups]);

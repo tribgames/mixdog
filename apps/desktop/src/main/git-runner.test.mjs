@@ -70,7 +70,9 @@ test('status lists a bounded set of untracked files and counts the rest (off-thr
       ...Array.from({ length: total }, (_, index) => `? untracked/file-${index}.txt`),
     ].join('\0') + '\0';
   setGitProcessRunner((command, args, options) =>
-    args.includes('status') ? Promise.resolve({ code: 0, stdout, stderr: '' }) : runProcessOffThread(command, args, options)
+    args.includes('status')
+      ? Promise.resolve({ code: 0, stdout, stderr: '' })
+      : runProcessOffThread(command, args, options)
   );
   t.after(() => setGitProcessRunner(null));
   const status = await gitStatus(root);
@@ -89,7 +91,7 @@ test('review materialises at most its untracked limit and counts the rest', asyn
     [
       '# branch.oid ' + hash,
       '# branch.head main',
-      ...Array.from({ length: total }, (_, index) => `? untracked/${"d".repeat(180)}/file-${index}.txt`),
+      ...Array.from({ length: total }, (_, index) => `? untracked/${'d'.repeat(180)}/file-${index}.txt`),
     ].join('\0') + '\0';
   setGitProcessRunner((command, args, options) =>
     args.includes('status')

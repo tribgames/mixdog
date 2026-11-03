@@ -70,7 +70,11 @@ test('a worker-built graph arrives with its base size, matching a main-thread wa
   graph.signature = 'sig';
   let message = null;
   const receive = _codeGraphWorkerReceiver();
-  await _postCodeGraphWorkerSuccess(graph, (posted) => (message = receive(structuredClone(posted)) || message), () => {});
+  await _postCodeGraphWorkerSuccess(
+    graph,
+    (posted) => (message = receive(structuredClone(posted)) || message),
+    () => {}
+  );
   const fresh = structuredClone(message.graph);
   assert.equal(message.baseBytes, _estimateGraphBaseBytes(fresh));
   _seedGraphBaseBytes(message.graph, message.baseBytes);

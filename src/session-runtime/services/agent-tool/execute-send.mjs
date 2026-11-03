@@ -36,8 +36,7 @@ export function createSendDispatch({
     const record = row || tombstone ? null : registry.lastTagSession(fallbackTag, ownershipContext);
     if (!row && !tombstone && !record) return null;
     const agent = clean(args.agent) || clean(row?.agent) || clean(tombstone?.agent) || clean(record?.agent);
-    const cwd =
-      clean(args.cwd) || clean(row?.cwd) || clean(tombstone?.cwd) || clean(record?.cwd) || clean(callerCwd);
+    const cwd = clean(args.cwd) || clean(row?.cwd) || clean(tombstone?.cwd) || clean(record?.cwd) || clean(callerCwd);
     if (!agent || !cwd) return null;
     return {
       row,

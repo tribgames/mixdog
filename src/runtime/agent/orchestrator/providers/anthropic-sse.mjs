@@ -499,7 +499,6 @@ async function drainForMessageStop({ reader, decoder, rest, receipt, waitMs, lab
   }
 }
 
-
 function releaseReaderLock(reader, labels) {
   try {
     reader.releaseLock();

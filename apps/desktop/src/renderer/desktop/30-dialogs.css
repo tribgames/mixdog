@@ -758,30 +758,51 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock {
    = width − 16, plus its 8px scrollbar bleed), which pushes its content edge
    2px past the aside; the panels' scroller sits on the surface inset instead,
    so every page's right edge (rows, controls, section "+") was 2px short. */
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .sidebar.session-sidebar > .session-sidebar-panels {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .sidebar.session-sidebar
+  > .session-sidebar-panels {
   min-width: calc(var(--session-sidebar-min-width, 232px) - 8px);
 }
 @media (min-width: 761px) {
-  html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .sidebar.session-sidebar > .session-sidebar-panels {
+  html:not([data-mixdog-mobile-tabs])
+    .workbench-side-panel[data-side="left"]
+    .sidebar.session-sidebar
+    > .session-sidebar-panels {
     min-width: calc(var(--session-sidebar-width, 260px) - 8px);
   }
 }
 /* Card rows (Projects, Workflow, Extensions): the hover fill reaches 8px past
    the content line, like a session row's, not 6. */
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .schedules-row.utilities-row.utilities-row {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .session-sidebar-panels
+  .schedules-row.utilities-row.utilities-row {
   width: calc(100% + 8px);
   margin-left: -8px;
   padding-left: 8px;
 }
 /* Boxed controls (search field, view switcher, sort chips) open on the row
    fill's left edge so field, chips and hovered rows share one box line. */
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .schedules-page > :is(.schedules-search, .sidebar-section-toolbar) {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .session-sidebar-panels
+  .schedules-page
+  > :is(.schedules-search, .sidebar-section-toolbar) {
   margin-left: -8px;
 }
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .schedules-page > .sidebar-section-toolbar {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .session-sidebar-panels
+  .schedules-page
+  > .sidebar-section-toolbar {
   width: calc(100% + 8px);
 }
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .schedules-page > .routine-sort-chips {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .session-sidebar-panels
+  .schedules-page
+  > .routine-sort-chips {
   margin: 0 0 12px -8px;
 }
 /* Schedules / Webhooks: the grouped card spans the row-fill box, its bot face
@@ -792,10 +813,17 @@ html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .ses
   margin-left: -8px;
 }
 html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .routines-row,
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .routines-row[data-leading] {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .session-sidebar-panels
+  .routines-row[data-leading] {
   padding: 8px 0 8px 8px;
 }
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .routines-row .row-overflow-trigger {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .session-sidebar-panels
+  .routines-row
+  .row-overflow-trigger {
   width: 24px;
 }
 html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .session-sidebar-panels .routine-side-head {
@@ -805,23 +833,39 @@ html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .ses
    contact rows close on the Sessions axes. The contact avatar stays larger
    than a session icon on purpose (a messenger-style card), so the title
    starts after it; the avatar slot itself opens on the content line. */
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock > .utility-dock-header.session-panel-header {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .utility-dock
+  > .utility-dock-header.session-panel-header {
   padding-right: 12px;
 }
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .schedules-page.agent-activity-page {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .utility-dock
+  .schedules-page.agent-activity-page {
   padding-right: 6px;
 }
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .agent-chat-row[data-kind="contact"] {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .utility-dock
+  .agent-chat-row[data-kind="contact"] {
   --agent-contact-padding: 6px 12px 6px 8px;
 }
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .agent-activity-page > .connectors-pill {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .utility-dock
+  .agent-activity-page
+  > .connectors-pill {
   margin-inline: 0;
 }
 /* Search and Source Control (utility-dock panels hosted in the left column):
    title on the content line; the header's 28px actions (the Sessions header
    buttons) centre on the trailing line (26 in from the edge → 12 to their
    box); the project picker and the query/mode stack take the row-fill box. */
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock > .utility-dock-header:not(.session-panel-header) {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .utility-dock
+  > .utility-dock-header:not(.session-panel-header) {
   padding-inline: 16px 12px;
 }
 html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .utility-dock-project-row {
@@ -829,17 +873,31 @@ html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .uti
 }
 /* Rows below the stacks take the row-fill box (8 → 14). The scrollers
    reserve an 8px scrollbar gutter, which is part of the 14. */
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock :is(.dock-files-tree, .workbench-search-results, .dock-scm-scroll) {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .utility-dock
+  :is(.dock-files-tree, .workbench-search-results, .dock-scm-scroll) {
   padding-inline: 8px 6px;
   scrollbar-gutter: stable;
 }
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock :is(.dock-scm-list-header, .dock-scm-commit) {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .utility-dock
+  :is(.dock-scm-list-header, .dock-scm-commit) {
   padding-inline: 8px 14px;
 }
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .utility-dock-project-row .dock-project-select .mx-select-trigger {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .utility-dock
+  .utility-dock-project-row
+  .dock-project-select
+  .mx-select-trigger {
   padding-inline: 8px;
 }
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock :is(.workbench-explorer-search, .dock-scm-view-controls) {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .utility-dock
+  :is(.workbench-explorer-search, .dock-scm-view-controls) {
   padding-inline: 8px 14px;
 }
 html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .dock-scm-toolbar {
@@ -847,7 +905,11 @@ html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .uti
 }
 /* Source Control history rows: fill from 8, subject on the content line, the
    22px push disc centred on the trailing line (26 in from the edge). */
-html:not([data-mixdog-mobile-tabs]) .workbench-side-panel[data-side="left"] .utility-dock .dock-scm-history .dock-scm-commit-row {
+html:not([data-mixdog-mobile-tabs])
+  .workbench-side-panel[data-side="left"]
+  .utility-dock
+  .dock-scm-history
+  .dock-scm-commit-row {
   margin-inline: 8px 6px;
   padding: 0 1px 0 8px;
 }

@@ -269,7 +269,9 @@ test('unattended install: an unknown hold does not re-enter, a fresh idle view i
     },
     scheduleInstall: (install) => install(),
   });
-  startUnattendedInstall(controller, { log: (message) => logs.push(message), schedule: (retry) => {
+  startUnattendedInstall(controller, {
+    log: (message) => logs.push(message),
+    schedule: (retry) => {
       retries.push(retry);
       return () => {};
     },
@@ -424,6 +426,3 @@ test('packaged updater dev feeds are limited to credential-free loopback HTTP', 
   assert.equal(normalizeUpdaterDevFeed('http://127.0.0.1.example.test/feed'), null);
   assert.equal(normalizeUpdaterDevFeed('http://token@127.0.0.1:9123/feed'), null);
 });
-
-
-

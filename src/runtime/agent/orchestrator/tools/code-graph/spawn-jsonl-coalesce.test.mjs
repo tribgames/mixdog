@@ -34,16 +34,20 @@ else setTimeout(() => {
 let seq = 0;
 function run(mode, { stdinLines, signal, tag = mode } = {}) {
   const log = join(dir, `log-${tag}-${(seq += 1)}.txt`);
-  return { log, make: (overrides = {}) => spawnGraphJsonl({
-    binPath: process.execPath,
-    absRoot: script,
-    extraArgs: [mode, log],
-    stdinLines,
-    signal,
-    timeoutMs: 20_000,
-    requireRel: true,
-    ...overrides,
-  }) };
+  return {
+    log,
+    make: (overrides = {}) =>
+      spawnGraphJsonl({
+        binPath: process.execPath,
+        absRoot: script,
+        extraArgs: [mode, log],
+        stdinLines,
+        signal,
+        timeoutMs: 20_000,
+        requireRel: true,
+        ...overrides,
+      }),
+  };
 }
 const spawns = (log) => (existsSync(log) ? readFileSync(log, 'utf8').split('\n').filter(Boolean) : []);
 const alive = (pid) => {

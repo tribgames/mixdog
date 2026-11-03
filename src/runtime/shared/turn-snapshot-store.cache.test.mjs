@@ -28,7 +28,14 @@ test.after(() => {
   rmSync(dir, { recursive: true, force: true });
 });
 
-const bigFile = (path) => ({ path, status: 'M', additions: 1, deletions: 1, revertable: false, patch: 'x'.repeat(30_000) });
+const bigFile = (path) => ({
+  path,
+  status: 'M',
+  additions: 1,
+  deletions: 1,
+  revertable: false,
+  patch: 'x'.repeat(30_000),
+});
 const seed = async (sessionId, checkpointIds = ['cp-1', 'cp-2']) => {
   for (const checkpointId of checkpointIds) {
     await upsertTurnChangeRecord(sessionId, { checkpointId, kind: 'tracked', root: dir, files: [bigFile('a.txt')] });
@@ -50,12 +57,19 @@ test('concurrent and repeated record reads parse the changes file once', async (
 test('a write is never served stale', async () => {
   await seed('writes');
   const before = await loadTurnChangeRecord('writes', 'cp-1');
-  await updateTurnChangeRecord('writes', 'cp-1', (record) => record.files.map((file) => ({ ...file, state: 'reverted' })));
+  await updateTurnChangeRecord('writes', 'cp-1', (record) =>
+    record.files.map((file) => ({ ...file, state: 'reverted' }))
+  );
   const after = await loadTurnChangeRecord('writes', 'cp-1');
   assert.equal(after.revision, before.revision + 1);
   assert.equal(after.files[0].state, 'reverted');
   assert.equal(before.files[0].state, 'applied');
-  await upsertTurnChangeRecord('writes', { checkpointId: 'cp-3', kind: 'tracked', root: dir, files: [bigFile('b.txt')] });
+  await upsertTurnChangeRecord('writes', {
+    checkpointId: 'cp-3',
+    kind: 'tracked',
+    root: dir,
+    files: [bigFile('b.txt')],
+  });
   assert.equal(await loadTurnChangeRecord('writes', 'cp-3').then((record) => record.checkpointId), 'cp-3');
 });
 

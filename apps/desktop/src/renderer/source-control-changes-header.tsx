@@ -239,7 +239,12 @@ export function ChangedFilesHeader({
           <IconAction label={t('Unstage All')} disabled={disabled} onClick={() => onSetAllIncluded(false, files)}>
             <Minus size={14} aria-hidden="true" />
           </IconAction>
-          <IconAction label={t('Discard All')} className="danger" disabled={disabled || unlistedCount > 0} onClick={onDiscardAll}>
+          <IconAction
+            label={t('Discard All')}
+            className="danger"
+            disabled={disabled || unlistedCount > 0}
+            onClick={onDiscardAll}
+          >
             <Undo2 size={14} aria-hidden="true" />
           </IconAction>
           <IconAction

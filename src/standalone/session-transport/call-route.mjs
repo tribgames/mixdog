@@ -45,14 +45,7 @@ function cachedDispatch(cached, callId, signature) {
   return cached.promise;
 }
 
-export function createCallRoute({
-  handleCall,
-  clients,
-  lanes,
-  callCache,
-  nowMs,
-  workGate = createWorkGate(),
-}) {
+export function createCallRoute({ handleCall, clients, lanes, callCache, nowMs, workGate = createWorkGate() }) {
   return async function handleCallRequest(body, res) {
     const clientToken = body.token ? String(body.token) : null;
     const c = clientToken ? clients.get(clientToken) : null;
@@ -128,4 +121,3 @@ function jsonDetails(err) {
     return {};
   }
 }
-

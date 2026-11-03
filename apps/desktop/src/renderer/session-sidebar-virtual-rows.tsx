@@ -128,7 +128,8 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
       // The native drag source: its unmount would end the pane drag.
       const container = markerRef.current?.parentElement;
       if (container) {
-        for (const row of ownRows(container, indexById)) if (row.dataset.dragging === 'true') pin(row.dataset.sessionId);
+        for (const row of ownRows(container, indexById))
+          if (row.dataset.dragging === 'true') pin(row.dataset.sessionId);
       }
       return [...indexes].sort((left, right) => left - right);
     },
@@ -268,7 +269,8 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
     if (!focusRequest) return;
     const sessionId = items[focusRequest.index]?.sessionId;
     const container = markerRef.current?.parentElement;
-    const row = container && ownRows(container, indexById).find((candidate) => candidate.dataset.sessionId === sessionId);
+    const row =
+      container && ownRows(container, indexById).find((candidate) => candidate.dataset.sessionId === sessionId);
     setFocusRequest(null);
     if (!row) return;
     const stops = rowTabStops(row);

@@ -66,7 +66,8 @@ export function startUnattendedInstall(
       });
   };
   const unsubscribe = controller.subscribe((next) => {
-    const first = next.status === 'ready' && next.busyTasks === undefined && previous !== 'ready' && previous !== 'installing';
+    const first =
+      next.status === 'ready' && next.busyTasks === undefined && previous !== 'ready' && previous !== 'installing';
     previous = next.status;
     if (first) attempt();
   });

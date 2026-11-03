@@ -504,9 +504,7 @@ test('native watcher paths on a link-free backend stamp by spelling with no file
   const repoB = seedRepo('lexical-b');
   const snapshots = [await createTurnWorktreeSnapshot(repoA), await createTurnWorktreeSnapshot(repoB)];
   // Paths need not exist: a watcher burst reports deletions too.
-  const paths = Array.from({ length: 50_000 }, (_, i) =>
-    join(i % 2 ? repoA : repoB, `d${i % 500}`, `f${i}.txt`)
-  );
+  const paths = Array.from({ length: 50_000 }, (_, i) => join(i % 2 ? repoA : repoB, `d${i % 500}`, `f${i}.txt`));
   const counts = { existsSync: 0, lstatSync: 0, realpathSync: 0, readdirSync: 0 };
   for (const name of Object.keys(counts)) {
     const original = fs[name];

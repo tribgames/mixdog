@@ -264,21 +264,35 @@ test('committing a group order keeps forks after their original and paged-out gr
 });
 
 test('a project split across branches gets sub-headings (checkout first); one branch stays plain', async (t) => {
-  const ws = (worktreeId, branch) => ({ projectPath: '/p', repoCommonDir: null, cwd: '/p', worktreeId, branch, mergeTarget: 'main' });
+  const ws = (worktreeId, branch) => ({
+    projectPath: '/p',
+    repoCommonDir: null,
+    cwd: '/p',
+    worktreeId,
+    branch,
+    mergeTarget: 'main',
+  });
   const sess = (id, activityAt, workspace) =>
     row(id, { activityAt, updatedAt: activityAt, classification: 'project', projectPath: '/p', cwd: '/p', workspace });
-  const { document } = await mount(t, [
-    sess('a', 5, ws('w1', 'feat/boards')),
-    sess('b', 4, ws(null, 'main')),
-    sess('c', 3, ws('w2', 'fix/rail')),
-    sess('d', 2, null),
-  ], { projects: [{ name: 'P', path: '/p', alias: null }] });
+  const { document } = await mount(
+    t,
+    [
+      sess('a', 5, ws('w1', 'feat/boards')),
+      sess('b', 4, ws(null, 'main')),
+      sess('c', 3, ws('w2', 'fix/rail')),
+      sess('d', 2, null),
+    ],
+    { projects: [{ name: 'P', path: '/p', alias: null }] }
+  );
   const section = document.querySelector('section[aria-label="P"]');
   const heads = [...section.querySelectorAll('.session-subheading')];
-  assert.deepEqual(heads.map((h) => h.querySelector('.session-subheading-name').textContent), ['main', 'feat/boards', 'fix/rail']);
   assert.deepEqual(
-    [...section.querySelectorAll('.session-row[data-session-id], .session-subheading')].map((n) =>
-      n.dataset.sessionId ?? n.textContent
+    heads.map((h) => h.querySelector('.session-subheading-name').textContent),
+    ['main', 'feat/boards', 'fix/rail']
+  );
+  assert.deepEqual(
+    [...section.querySelectorAll('.session-row[data-session-id], .session-subheading')].map(
+      (n) => n.dataset.sessionId ?? n.textContent
     ),
     ['main', 'b', 'd', 'feat/boards', 'a', 'fix/rail', 'c']
   );

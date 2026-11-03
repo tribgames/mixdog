@@ -547,8 +547,7 @@ test('after a freeze, a denied verification keeps its deadline and a verificatio
     stallMs: 1000,
     staleMs: 60_000,
     monoNow: () => mono,
-    refresh: (_path, record) =>
-      new Promise((resolve) => answers.push((status) => resolve({ status, owner: record }))),
+    refresh: (_path, record) => new Promise((resolve) => answers.push((status) => resolve({ status, owner: record }))),
     onSuperseded: () => assert.fail('not superseded'),
     onFenced: (info) => fenced.push(info),
   });
@@ -599,8 +598,7 @@ test('after a freeze, a denied verification keeps its deadline and a verificatio
     stallMs: 1000,
     staleMs: 60_000,
     monoNow: () => mono,
-    refresh: (_path, record) =>
-      new Promise((resolve) => answers.push((status) => resolve({ status, owner: record }))),
+    refresh: (_path, record) => new Promise((resolve) => answers.push((status) => resolve({ status, owner: record }))),
     onSuperseded: () => assert.fail('not superseded'),
     onFenced: (info) => fenced.push(info),
   });

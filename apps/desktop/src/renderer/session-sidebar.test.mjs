@@ -800,10 +800,7 @@ test('a selected session reveals its collapsed branch sub-category', async () =>
   );
   const props = (selection) => ({
     open: true,
-    sessions: [
-      row('m1', { worktreeId: null, branch: 'main' }),
-      row('f1', { worktreeId: 'wt-1', branch: 'feat/x' }),
-    ],
+    sessions: [row('m1', { worktreeId: null, branch: 'main' }), row('f1', { worktreeId: 'wt-1', branch: 'feat/x' })],
     sessionsReady: true,
     projects: [{ name: 'Alpha', path: 'C:/Work/Alpha', alias: null }],
     selection,
