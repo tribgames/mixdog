@@ -621,6 +621,110 @@ test('after a freeze, a denied verification keeps its deadline and a verificatio
   assert.equal(denied.state, 'fenced');
 });
 
+test('split stalls ending inside the lease are judged by the verification pending when it runs out', async () => {
+  // The 21:51 incident (#316): stalls of 3.3 s, 8.9 s and 24.5 s, the last
+  // ending 39.1 s into the 40 s lease; the verifying refresh was still in
+  // flight when the lease ran out, and the next tick fenced the sole daemon.
+  const run = async (verdict) => {
+    let mono = 0;
+    // Set: every later refresh answers at once with it.
+    let instant = null;
+    const answers = [];
+    const fenced = [];
+    const superseded = [];
+    const logs = [];
+    const heartbeat = createOwnerHeartbeat({
+      ownerPath: 'unused',
+      owner: { pid: 4242, heartbeatAt: at(0) },
+      heartbeatMs: 10_000,
+      fenceMs: 40_000,
+      tickMs: 250,
+      stallMs: 1000,
+      staleMs: 60_000,
+      log: (line) => logs.push(line),
+      monoNow: () => mono,
+      refresh: (_path, record) => {
+        const reply = (status) => ({ status, owner: status === 'superseded' ? { pid: 7 } : record });
+        return instant ? reply(instant) : new Promise((resolve) => answers.push((status) => resolve(reply(status))));
+      },
+      onSuperseded: (record) => superseded.push(record),
+      onFenced: (info) => fenced.push(info),
+    });
+    const ticksTo = (end) => {
+      for (; mono < end; mono += 250) heartbeat.tick();
+    };
+    const turnAt = (time) => {
+      mono = time;
+      heartbeat.tick();
+    };
+    ticksTo(2500);
+    turnAt(5500);
+    assert.equal(answers.length, 1, 'the first stall starts a verifying refresh');
+    turnAt(5750);
+    turnAt(14_750);
+    turnAt(15_000);
+    turnAt(39_250);
+    // Starved, that refresh answers only now, refused: it was started before
+    // the later stalls and proves nothing about them.
+    answers[0]('busy');
+    assert.equal(await heartbeat.settled(), 'busy');
+    turnAt(39_500);
+    assert.equal(answers.length, 2, 'a refresh started after the last stall verifies the record');
+    ticksTo(45_000);
+    assert.deepEqual(fenced, [], 'the lease running out with that refresh in flight does not fence');
+    assert.equal(heartbeat.state, 'active');
+    assert.equal(heartbeat.admit(), false, 'nothing is served until the record is verified');
+    if (verdict === 'never') {
+      // Waited for only up to staleMs from the first turn that saw the lease expired.
+      ticksTo(100_000);
+      assert.deepEqual(fenced, [], 'still within the bound');
+      heartbeat.tick();
+      assert.match(logs.at(-1), /verification unanswered 60000ms after the loop resumed/);
+      return { heartbeat, fenced, superseded };
+    }
+    answers[1](verdict);
+    await heartbeat.settled();
+    if (verdict === 'busy') {
+      // Started before the lease ran out, that refusal is retried; refused
+      // again, fenced heartbeatMs after the expiry turn, still before staleMs.
+      instant = 'busy';
+      ticksTo(50_000);
+      assert.deepEqual(fenced, []);
+    }
+    heartbeat.tick();
+    return { heartbeat, fenced, superseded };
+  };
+
+  // The record still names this process: serving again, nothing was fenced.
+  const kept = await run('refreshed');
+  assert.equal(kept.heartbeat.state, 'active');
+  assert.equal(kept.heartbeat.admit(), true);
+  assert.deepEqual(kept.fenced, []);
+
+  // Another pid owns the record: superseded, never renewed over it.
+  const taken = await run('superseded');
+  assert.equal(taken.heartbeat.state, 'superseded');
+  assert.deepEqual(
+    taken.superseded.map((record) => record.pid),
+    [7]
+  );
+  assert.deepEqual(taken.fenced, []);
+
+  // Refused, or never answered: fenced at the existing bounds from the expiry turn.
+  for (const [verdict, sinceMs] of [
+    ['busy', 50_000],
+    ['never', 100_000],
+  ]) {
+    const unproven = await run(verdict);
+    assert.deepEqual(
+      unproven.fenced.map((info) => info.sinceMs),
+      [sinceMs]
+    );
+    assert.equal(unproven.heartbeat.state, 'fenced');
+    assert.equal(unproven.heartbeat.admit(), false);
+  }
+});
+
 test('an asynchronous refresh never holds the loop, and one unanswered at the lease still fences on time', async () => {
   let mono = 0;
   const answers = [];
@@ -659,7 +763,7 @@ test('an asynchronous refresh never holds the loop, and one unanswered at the le
   assert.equal(heartbeat.admit(), false);
 });
 
-test('only a lease that ran out inside one stall is re-verifiable; refreshes failing while the loop runs fence', () => {
+test('a lease that ran out in a stall is re-verified on resume; refreshes failing while the loop runs fence', () => {
   let mono = 0;
   let status = 'refreshed';
   const fenced = [];

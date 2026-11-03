@@ -15,11 +15,13 @@
 //   being renewed, and every register/call asks `admit()` first. After an
 //   event-loop stall nothing is served until a refresh under the claim lock
 //   proves the record still names it — a contender's claim takes that lock.
-//   A lease that ran out DURING such a stall (live when the loop stopped) is
-//   the one exception to the fence: the holder never had a turn to refresh
-//   or to fence, and a contender's reclaim is decided under the claim lock
-//   against the record's heartbeat there (daemonOwnerIsStale re-checks it),
-//   so a refresh that finds the record still naming this pid proves no
+//   A lease that ran out while that re-verification was pending — DURING
+//   the stall (live when the loop stopped), or after stalls the starved loop
+//   ended before it but too late to complete the refresh — is the one
+//   exception to the fence: nothing was admitted since the stall, and a
+//   contender's reclaim is decided under the claim lock against the record's
+//   heartbeat there (daemonOwnerIsStale re-checks it), so a refresh started
+//   after the stall that finds the record still naming this pid proves no
 //   contender took it and none can on its earlier proof. Without that, a sole
 //   daemon whose loop the machine starved past the lease killed itself and
 //   every running turn with no other daemon to take over.
@@ -265,13 +267,14 @@ export function daemonOwnerIsStale(
  * rewrites `owner` with a fresh wall-clock `heartbeatAt` under the claim lock
  * (recreating a deleted record), then calls `onBeat`.
  * - No successful refresh for `fenceMs`: fenced, never renewed (`onFenced`) —
- *   unless the lease ran out inside one stall (live when the loop stopped):
- *   then the refresh under the claim lock decides, however long it takes. It
- *   is retried every tick after the loop resumes; the record still naming
- *   this pid serves again, another pid's is `onSuperseded`, and fenced once a
- *   refresh started after the resume was refused and `heartbeatMs` of
- *   retries since then did not change that, or when none has answered
- *   `staleMs` after the resume.
+ *   unless the lease ran out with a stall's re-verification pending (inside
+ *   one stall, or across split stalls): then the refresh under the claim
+ *   lock decides, however long it takes. It is retried every tick; the
+ *   record still naming this pid serves again, another pid's is
+ *   `onSuperseded`, and fenced once a refresh started at or after the first
+ *   turn that saw the lease expired was refused and `heartbeatMs` of retries
+ *   since that turn did not change that, or when none has answered `staleMs`
+ *   after it.
  * - The record names another pid: `onSuperseded(record)`.
  * - A turn gap over `stallMs`: `admit()` refuses work until a refresh succeeds.
  *   The gap is logged once, with `describeStall(fromMono, toMono)` appended.
@@ -301,9 +304,11 @@ export function createOwnerHeartbeat({
   let lastBeatAt = leaseFrom;
   let lastTurnAt = leaseFrom;
   let needsVerify = false;
-  // Monotonic time the loop resumed from a stall that outlived the lease.
+  // The first turn that saw the lease expired with a stall's re-verification
+  // pending (the resume, for a stall that outlived the lease); the
+  // re-verification bounds count from it.
   let stallResumedAt = null;
-  // A refresh started since that resume was refused (claim lock busy, error).
+  // A refresh started since that turn was refused (claim lock busy, error).
   let verifyDenied = false;
   // The refresh in flight: a promise of its settled status, else null.
   let pending = null;
@@ -323,15 +328,18 @@ export function createOwnerHeartbeat({
   }
 
   // Expired and past re-verification: the refreshes failed while the loop
-  // ran, or a refresh started after the resume from a stall was refused and
-  // `heartbeatMs` of retries since then did not change that (a retry still in
-  // flight does not extend it). How long a verifying refresh takes proves
-  // nothing (the loop is often still starved right after a stall), so one not
-  // yet refused is waited for — but only for `staleMs` after the resume: a
-  // daemon that answers health probes while refusing all work would block
-  // every client with no one able to take over.
+  // ran with no stall to verify, or a refresh started since the expiry turn
+  // (`stallResumedAt`) was refused and `heartbeatMs` of retries since then
+  // did not change that (a retry still in flight does not extend it). How
+  // long a verifying refresh takes proves nothing (the loop is often still
+  // starved after a stall, and split stalls leave it unanswered across the
+  // expiry), so one not yet refused is waited for — but only for `staleMs`
+  // after the expiry turn: a daemon that answers health probes while refusing
+  // all work would block every client with no one able to take over.
   function mustFence(t) {
     if (!leaseExpired(t)) return false;
+    // Taken once per verification episode: later stalls never move its bounds.
+    if (stallResumedAt === null && needsVerify) stallResumedAt = t;
     if (stallResumedAt === null) return true;
     return resumeBoundPassed(t) || (verifyDenied && t - stallResumedAt >= heartbeatMs);
   }
@@ -360,7 +368,6 @@ export function createOwnerHeartbeat({
     if (t - from <= stallMs) return;
     needsVerify = true;
     stallNotedAt = t;
-    if (state === 'active' && !leaseExpired(from) && leaseExpired(t)) stallResumedAt = t;
     let detail = '';
     try {
       detail = describeStall?.(from, t) || '';
@@ -404,8 +411,8 @@ export function createOwnerHeartbeat({
       onSuperseded(result.owner);
     } else {
       if (result.status === 'busy') log('owner heartbeat skipped: claim lock busy');
-      // An older refresh (started before the resume) says nothing about the
-      // record now.
+      // An older refresh (started before the expiry turn) is retried, not
+      // counted as a denial.
       if (stallResumedAt !== null && t >= stallResumedAt) verifyDenied = true;
     }
     return result.status;
@@ -426,9 +433,9 @@ export function createOwnerHeartbeat({
     const t = monoNow();
     lastBeatAt = t;
     // Checked before every renewal: an overdue beat must fence, not extend a
-    // lease a contender may already have reclaimed — except right after a
-    // stall that outlived the lease, where the refresh itself (under the
-    // claim lock) answers whether one did.
+    // lease a contender may already have reclaimed — except while a stall's
+    // re-verification is pending past the lease, where the refresh itself
+    // (under the claim lock) answers whether one did.
     if (mustFence(t)) {
       fence(t);
       return 'fenced';
