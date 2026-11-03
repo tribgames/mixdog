@@ -101,6 +101,35 @@ const alive = (pid) => {
   }
 };
 
+test('a child that exited while another process holds its pipes open still settles with its output', async (t) => {
+  // The grandchild inherits the child's stdout/stderr and outlives it, as a
+  // process started at the same moment elsewhere can on Windows (detached:
+  // otherwise Windows ends it with the child).
+  const script = [
+    "const { spawn } = require('node:child_process');",
+    "const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], { stdio: 'inherit', detached: true, windowsHide: true });",
+    'holder.unref();',
+    "process.stdout.write('done ' + holder.pid, () => process.exit(0));",
+  ].join('\n');
+  const startedAt = Date.now();
+  const result = await runChild({
+    command: process.execPath,
+    args: ['-e', script],
+    timeoutMs: 20_000,
+    maxBytes: 1024,
+  });
+  const holderPid = Number(result.stdout.split(' ')[1]);
+  t.after(() => {
+    try {
+      process.kill(holderPid);
+    } catch {}
+  });
+  assert.equal(result.code, 0);
+  assert.match(result.stdout, /^done \d+$/);
+  assert.equal(alive(holderPid), true, 'the pipe holder was still running');
+  assert.ok(Date.now() - startedAt < 10_000, 'settled without waiting for the pipe holder');
+});
+
 test('waitForExitMs: a timed-out child is killed and has exited before the timeout rejects', async () => {
   const error = await runChild({
     command: process.execPath,
