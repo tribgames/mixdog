@@ -235,6 +235,7 @@ export interface RemoteShimCollaborators {
   providerModelsListeners: Set<(change: ProviderModelsChange) => void>;
   desktopNoticeListeners: Set<(notice: DesktopNotice) => void>;
   settingsChangedListeners: Set<(change: SettingsChange) => void>;
+  turnReviewChangedListeners: Set<() => void>;
   orchestrationModeListeners: Set<(change: OrchestrationModeChange) => void>;
   updaterListeners: Set<(state: DesktopUpdaterState) => void>;
   remoteBrowserFrameListeners: Set<(frame: DesktopRemoteBrowserStreamFrame) => void>;
@@ -511,6 +512,7 @@ export const createRemoteShimContext = (): RemoteShimContext => {
     providerModelsListeners: new Set(),
     desktopNoticeListeners: new Set(),
     settingsChangedListeners: new Set(),
+    turnReviewChangedListeners: new Set(),
     orchestrationModeListeners: new Set(),
     updaterListeners: new Set(),
     remoteBrowserFrameListeners: new Set(),

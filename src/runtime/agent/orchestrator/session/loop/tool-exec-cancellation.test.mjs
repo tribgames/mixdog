@@ -31,6 +31,18 @@ const { _touchRuntime, getSessionProgressSnapshot, getSessionRuntime, updateSess
 const { createJobViews } = await import('../../../../../session-runtime/services/agent-tool/job-views.mjs');
 const { createStandaloneHookBus } = await import('../../../../../session-runtime/services/hook-bus.mjs');
 const { attachSessionHooks } = await import('../../../../../session-runtime/session-hooks.mjs');
+const { onCommandToolSettled } = await import('../../../../shared/turn-boundary-signal.mjs');
+
+test('a finished shell command reports its working directory as a turn boundary', async (t) => {
+  const settled = [];
+  t.after(onCommandToolSettled((cwd) => settled.push(cwd)));
+  const session = { id: 'fixture-command-boundary', cwd: root };
+  await executeTool('shell', { command: 'echo boundary' }, root, session.id, session, {});
+  assert.deepEqual(settled, [root]);
+  // A non-command tool is no command boundary.
+  await executeTool('read', { path: join(root, 'missing.txt') }, root, session.id, session, {}).catch(() => {});
+  assert.deepEqual(settled, [root]);
+});
 
 for (const phase of ['before execution', 'during policy hook']) {
   test(`a native mutation cannot begin after cancellation ${phase}`, async () => {

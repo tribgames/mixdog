@@ -20,6 +20,8 @@ import { dispatchToolCall } from './tool-exec/dispatch.mjs';
 import { applyAfterToolHook } from './tool-exec/after-hook.mjs';
 import { runReadOnlyIoWithDeadline } from './tool-exec/read-only-deadline.mjs';
 import { guardShellCall, requestedShellType } from '../../tools/builtin/bash-tool/misuse-guard.mjs';
+import { effectiveToolCwd } from '../../tools/builtin/bash-tool/shell-cwd.mjs';
+import { COMMAND_TOOL_NAMES, noteCommandToolSettled } from '../../../../shared/turn-boundary-signal.mjs';
 
 export { runReadOnlyIoWithDeadline as _runReadOnlyIoWithDeadlineForTest };
 export {
@@ -123,24 +125,31 @@ async function executeToolOwned(name, args, cwd, callerSessionId, sessionRef, ex
   // Elevated launches skip Mixdog's own prompt; the OS elevation prompt confirms them.
   const elevation = applyShellElevationGate(call);
   throwIfAborted(executeOpts.signal);
-  const result = await runReadOnlyIoWithDeadline(call.name, executeOpts.signal || null, async (deadlineSignal) => {
-    let callOpts = executeOpts;
-    if (deadlineSignal !== executeOpts.signal) {
-      callOpts = { ...executeOpts, signal: deadlineSignal };
-      completionToolOpts.signal = deadlineSignal;
-    }
-    return await dispatchToolCall(call, {
-      cwd: call.cwd,
-      callerSessionId,
-      sessionRef,
-      executeOpts: callOpts,
-      toolOpts,
-      completionToolOpts,
-      notifyFn,
-      toolApprovalHook,
-      elevationApproved: elevation.elevationApproved === true,
+  let result;
+  try {
+    result = await runReadOnlyIoWithDeadline(call.name, executeOpts.signal || null, async (deadlineSignal) => {
+      let callOpts = executeOpts;
+      if (deadlineSignal !== executeOpts.signal) {
+        callOpts = { ...executeOpts, signal: deadlineSignal };
+        completionToolOpts.signal = deadlineSignal;
+      }
+      return await dispatchToolCall(call, {
+        cwd: call.cwd,
+        callerSessionId,
+        sessionRef,
+        executeOpts: callOpts,
+        toolOpts,
+        completionToolOpts,
+        notifyFn,
+        toolApprovalHook,
+        elevationApproved: elevation.elevationApproved === true,
+      });
     });
-  });
+  } finally {
+    // Whatever its outcome or classification, a finished command is a turn
+    // boundary for the review of the worktree it ran in.
+    if (COMMAND_TOOL_NAMES.has(call.name)) noteCommandToolSettled(effectiveToolCwd(call.name, call.args, call.cwd));
+  }
   return applyAfterToolHook(result, hookFrom(executeOpts, sessionRef, 'afterToolHook'), {
     name: call.name,
     args: call.args,

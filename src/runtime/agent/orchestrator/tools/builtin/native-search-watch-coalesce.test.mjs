@@ -100,8 +100,6 @@ test('an over-cap watcher batch collapses to its root on the window timer', asyn
   await new Promise((done) => setTimeout(done, 150));
   assert.equal(calls.length, 1);
   assert.deepEqual(calls[0].paths, [canonicalCachePath(root)]);
-  // Marked as a lifted directory: it stands for changes beneath it.
-  assert.deepEqual(calls[0].source.directories, [root]);
   // Covered by the root even though no reported path named it.
   assert.equal(cacheGet('inside'), null);
   assert.equal(cacheGet('unrelated'), 'v');

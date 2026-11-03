@@ -710,6 +710,7 @@ const api: DesktopApi = {
   setBrowserPermissions: (policy) => invokeIpc(DESKTOP_IPC.setBrowserPermissions, policy),
   previewNotificationSound: () => invokeIpc(DESKTOP_IPC.previewNotificationSound),
   subscribeSettingsChanged: (listener) => subscribeIpc(DESKTOP_IPC.settingsChanged, listener),
+  subscribeTurnReviewChanged: (listener) => subscribeIpc(DESKTOP_IPC.turnReviewChanged, () => listener()),
   subscribeOrchestrationModeChanged: (listener) => subscribeIpc(DESKTOP_IPC.orchestrationModeChanged, listener),
   readActivityRailPins: () => invokeIpc(DESKTOP_IPC.readActivityRailPins),
   updateActivityRailPins: (pins, initializeIfMissing) =>

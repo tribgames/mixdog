@@ -1,7 +1,6 @@
 import { type MutableRefObject, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TranscriptItem } from './desktop-types';
 import { turnReviewScope } from './renderer-logic.mjs';
-import { isMobileRemoteSurface } from './mobile-surface';
 import { useTurnChangesEpoch } from './turn-changes-model';
 import {
   beginTurnReviewRequest,
@@ -262,46 +261,43 @@ function useTurnReviewRefreshSchedule({
       // An idle entry asks the runtime's held snapshot first (fast), then the
       // fresh worktree read queues behind it.
       if (entryPendingRef.current && !busy) void refreshAgentReviews(false);
-      // A tool boundary inside a running turn is a `background` read, so the
-      // daemon's capture gap applies instead of forcing a worktree capture at
-      // every tool. The turn's end, an idle entry and an opening review still
-      // capture now (the runtime also seals the turn with a fresh capture).
+      // The runtime captures the worktree only when a boundary stamped it
+      // since its last capture, and seals the turn with a fresh capture.
       void refreshAgentReviews(true, boundaryInBackground);
     }
   }, [active, busy, refreshAgentReviews, hasTurnActivity, turnBoundaryKey, mutations]);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: turnBoundaryKey re-runs the schedule at each turn boundary
+  // Besides the transcript's boundaries, the review reads again when the
+  // runtime says it may read differently (a command or tool boundary stamped
+  // the worktree, the turn's end captured it, a worker's review changed) and
+  // when the window comes back into view, and after a remote reconnect (the
+  // relay does not replay pushes sent while the leg was down). No timer: a
+  // review without such an event still shows its last capture.
   useEffect(() => {
     if (!active || (!hasTurnActivity && agentReviewCount === 0)) return undefined;
-    // While a turn is active (or the review is open), keep the display fresh.
-    // Once idle, use a bounded backoff window to catch a late child completion
-    // without leaving every mounted session on a permanent six-second poll.
-    if (busy || expanded) {
-      void refreshAgentReviews(true, boundaryInBackground);
-      // Every tool/turn boundary already re-reads (effect above). On a phone
-      // each timed re-read of a working turn moves its whole diff over the
-      // relay and re-diffs the desktop worktree, so the timer only backstops.
-      const timer = window.setInterval(
-        () => {
-          void refreshAgentReviews(true, true);
-        },
-        isMobileRemoteSurface() ? 30_000 : 6_000
-      );
-      return () => window.clearInterval(timer);
-    }
-    const delays = [6_000, 12_000, 24_000, 48_000];
-    let index = 0;
-    let timer = 0;
-    const schedule = () => {
-      if (index >= delays.length) return;
-      timer = window.setTimeout(() => {
-        index += 1;
-        void refreshAgentReviews(false);
-        schedule();
-      }, delays[index]);
-    };
-    schedule();
-    return () => window.clearTimeout(timer);
-  }, [active, busy, expanded, refreshAgentReviews, hasTurnActivity, agentReviewCount, turnBoundaryKey]);
+    return subscribeTurnReviewRereads(() => void refreshAgentReviews(true, busy && !expanded));
+  }, [active, busy, expanded, refreshAgentReviews, hasTurnActivity, agentReviewCount]);
+}
+
+// Dispatched once an authenticated remote leg is ready again, on both the
+// legacy and the view-sync path (remote-shim-socket.ts, remote-shim-sync.ts).
+const REMOTE_RECONNECTED_EVENT = 'mixdog:remote-reconnected';
+
+/** Every event after which a shown review may read differently; `reread`
+ *  runs only while the document is visible. Returns the unsubscribe. */
+export function subscribeTurnReviewRereads(reread: () => void): () => void {
+  const onEvent = () => {
+    if (document.visibilityState !== 'hidden') reread();
+  };
+  const unsubscribe = window.mixdogDesktop?.subscribeTurnReviewChanged?.(onEvent);
+  window.addEventListener('focus', onEvent);
+  window.addEventListener(REMOTE_RECONNECTED_EVENT, onEvent);
+  document.addEventListener('visibilitychange', onEvent);
+  return () => {
+    unsubscribe?.();
+    window.removeEventListener('focus', onEvent);
+    window.removeEventListener(REMOTE_RECONNECTED_EVENT, onEvent);
+    document.removeEventListener('visibilitychange', onEvent);
+  };
 }
 
 /** The turn's authoritative review: scope, cached state, the coalesced
@@ -386,8 +382,8 @@ export function useTurnReviewReads({
   const reviewBoundaryKey = JSON.stringify([turnScopeKey, turnBoundaryKey, busy]);
   const { detailShown } = disclosure;
   const refreshAgentReviews = useCallback(
-    // `background` marks the interval timer's re-read: the daemon may answer
-    // it from a recent worktree capture. Every other read captures now.
+    // `background` marks a re-read inside a running turn (a boundary or a
+    // review-changed push) that coalesces behind a foreground read.
     async (refreshWorktree = false, background = false) =>
       requestTurnReview(
         {

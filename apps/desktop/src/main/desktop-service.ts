@@ -15,6 +15,8 @@ import { TERMINAL_RUN_REQUESTED_DESKTOP_EVENT } from '../shared/terminal-command
 import { PROVIDER_MODELS_EVENT } from '../shared/provider-models';
 import { SETTINGS_CHANGED_EVENT } from '../shared/settings-changed';
 import { DESKTOP_NOTICE_EVENT } from '../shared/desktop-notice';
+import { TURN_REVIEW_CHANGED_EVENT } from '../shared/turn-review-changed';
+import { onTurnReviewChanged } from '../../../../src/runtime/shared/turn-boundary-signal.mjs';
 import {
   deliverPendingDesktopNotices,
   type RaisedDesktopNotice,
@@ -1048,6 +1050,7 @@ export async function createDesktopService({
   const desktopEvents = createDesktopEventBus(host, emit);
   const publishDesktopEvent = desktopEvents.publish;
   const unregisterNotices = registerDesktopNoticeSink(desktopNoticeSink(emit, publishDesktopEvent));
+  const stopTurnReviewPush = onTurnReviewChanged(() => publishDesktopEvent(TURN_REVIEW_CHANGED_EVENT, null));
   const operations = createDesktopOperations({
     withRecoveryStore: worktreeRecoveryStore(runtime, options.userDataPath),
     userDataPath: options.userDataPath,
@@ -1251,6 +1254,7 @@ export async function createDesktopService({
       importProgress.dispose();
       stateSync.dispose();
       unregisterNotices();
+      stopTurnReviewPush();
       desktopEvents.clear();
       browserRemoteRequests.rejectAll('Desktop service is closing.');
       systemProxy.dispose();

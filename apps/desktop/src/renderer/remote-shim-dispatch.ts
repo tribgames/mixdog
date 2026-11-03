@@ -16,6 +16,7 @@ import type {
 import { type CodedErrorParams, codedErrorParams } from '../shared/coded-error';
 import { readSettingsChange, SETTINGS_CHANGED_EVENT, UPDATER_STATE_EVENT } from '../shared/settings-changed';
 import { ORCHESTRATION_MODE_EVENT, readOrchestrationModeChange } from '../shared/orchestration-mode';
+import { TURN_REVIEW_CHANGED_EVENT } from '../shared/turn-review-changed';
 import { BROWSER_APPROVAL_SESSIONS_EVENT, readBrowserApprovalSessions } from '../shared/browser-approval-sessions';
 import { isRemotePaintProbe } from '../shared/remote-performance';
 import { RELAY_ROUTING_CAPS_EVENT, readRelayPayloadRejection } from '../shared/remote-payload-limit';
@@ -284,6 +285,9 @@ export const installRemoteDispatch = (ctx: RemoteShimContext): void => {
       if (!authenticated) return;
       const change = readSettingsChange(message.payload);
       if (change) fanOut(ctx.settingsChangedListeners, change);
+    } else if (message.event === TURN_REVIEW_CHANGED_EVENT) {
+      if (!authenticated) return;
+      fanOut(ctx.turnReviewChangedListeners, undefined);
     } else if (message.event === ORCHESTRATION_MODE_EVENT) {
       if (!authenticated) return;
       const change = readOrchestrationModeChange(message.payload);

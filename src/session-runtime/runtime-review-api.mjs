@@ -14,6 +14,7 @@ import {
   revertTurnReviewFile,
 } from '../runtime/shared/turn-snapshot.mjs';
 import { noteTurnWorktreeChange } from '../runtime/shared/turn-worktree-snapshot.mjs';
+import { onCommandToolSettled } from '../runtime/shared/turn-boundary-signal.mjs';
 import { forgetSessionChangeHistoryMarker } from '../runtime/shared/turn-snapshot-store.mjs';
 import { forgetSessionBaselines } from '../runtime/shared/session-baseline-store.mjs';
 import { registerSessionPurgeHook } from '../runtime/agent/orchestrator/session/store.mjs';
@@ -28,13 +29,17 @@ registerSessionPurgeHook((sessionId) => {
   void forgetSessionBaselines(sessionId);
 });
 
-// Tool writes (apply_patch, mutating shell commands, git, watcher events)
-// reach the turn's worktree snapshot as its change signal: a session review
-// read right after them captures the worktree, an unsignaled one may reuse
-// the last capture.
-registerCacheInvalidationListener((paths, source) =>
-  noteTurnWorktreeChange(paths, { canonical: source?.canonical === true, directories: source?.directories })
-);
+// Tool boundaries (apply_patch writes, shell/terminal/git command
+// completions) reach the turn's worktree snapshot at once, so the next review
+// read captures; without one it reuses the last capture. Native search
+// watcher batches (`canonical`) only invalidate search caches: turn review
+// capture is driven by boundaries, never by a file watcher.
+registerCacheInvalidationListener((paths, source) => {
+  if (source?.canonical !== true) noteTurnWorktreeChange(paths);
+});
+// A command the shell classified read-only invalidates no cache, yet may have
+// written: its completion still stamps the worktree it ran in.
+onCommandToolSettled((cwd) => noteTurnWorktreeChange(cwd ? [cwd] : null));
 
 export function createRuntimeReviewApi({ getCwd, getSessionId }) {
   return {

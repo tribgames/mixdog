@@ -15,8 +15,12 @@ process.on('exit', () => {
 });
 
 const { createRuntimeReviewApi } = await import('./runtime-review-api.mjs');
-const { beginTurnSnapshot, recordTurnDiffChanges } = await import('../runtime/shared/turn-snapshot.mjs');
+const { _diffTrackerForTest, beginTurnSnapshot, completeTurnSnapshot, recordTurnDiffChanges } = await import(
+  '../runtime/shared/turn-snapshot.mjs'
+);
 const { invalidateBuiltinResultCache } = await import('../runtime/agent/orchestrator/tools/builtin/cache-layers.mjs');
+const { noteCommandToolSettled, onTurnReviewChanged } = await import('../runtime/shared/turn-boundary-signal.mjs');
+const { completeBackgroundTask, registerBackgroundTask } = await import('../runtime/shared/background-tasks.mjs');
 
 function git(cwd, ...args) {
   const result = spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], {
@@ -74,6 +78,70 @@ test('an external edit of an own file never joins the live review, whatever the 
     );
     assert.doesNotMatch(review.patch, /external/, label);
   }
+});
+
+// The review lists only files the session owns; what a read captured is the
+// turn's worktree snapshot, which the review scopes from.
+const capturedPaths = (snapshot) => snapshot.files.map(({ path }) => path).sort();
+
+test('a finished command stamps the worktree it ran in; without it a read reuses the capture', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async () => {
+  const repo = seedRepo('command-repo');
+  const sessionId = 'sess_command_boundary';
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp1' });
+  const api = createRuntimeReviewApi({ getCwd: () => repo, getSessionId: () => sessionId });
+  const snapshot = _diffTrackerForTest(sessionId).worktreeSnapshot;
+  await api.getSessionReviewDiff();
+  const before = snapshot.refreshSeq;
+  // A shell command (classified read-only, so it invalidated no cache) wrote.
+  writeFileSync(join(repo, 'made-by-shell.txt'), 'x\n');
+  await api.getSessionReviewDiff();
+  assert.equal(snapshot.refreshSeq, before, 'no stamp, no capture');
+  assert.deepEqual(capturedPaths(snapshot), []);
+  noteCommandToolSettled(join(repo, 'sub'));
+  await api.getSessionReviewDiff();
+  assert.deepEqual(capturedPaths(snapshot), ['made-by-shell.txt']);
+});
+
+test('a background task finishing stamps its working directory and pushes a review change', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  const repo = seedRepo('background-repo');
+  const sessionId = 'sess_background_boundary';
+  await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp1' });
+  const api = createRuntimeReviewApi({ getCwd: () => repo, getSessionId: () => sessionId });
+  const snapshot = _diffTrackerForTest(sessionId).worktreeSnapshot;
+  await api.getSessionReviewDiff();
+  let pushes = 0;
+  t.after(onTurnReviewChanged(() => (pushes += 1)));
+  // A shell command moved to the background, writing as it finishes.
+  const task = registerBackgroundTask({ surface: 'shell', input: { command: 'build', cwd: repo } });
+  writeFileSync(join(repo, 'built-late.txt'), 'x\n');
+  await api.getSessionReviewDiff();
+  assert.deepEqual(capturedPaths(snapshot), [], 'still running: no stamp yet');
+  completeBackgroundTask(task.taskId, { status: 'completed', notify: false });
+  await new Promise((done) => setImmediate(done));
+  assert.equal(pushes, 1, 'open reviews read again');
+  await api.getSessionReviewDiff();
+  assert.deepEqual(capturedPaths(snapshot), ['built-late.txt']);
+});
+
+test('an external edit during a turn shows once the turn ends', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async () => {
+  const repo = seedRepo('turn-end-repo');
+  const sessionId = 'sess_turn_end';
+  const token = await beginTurnSnapshot(repo, sessionId, { checkpointId: 'cp1' });
+  const api = createRuntimeReviewApi({ getCwd: () => repo, getSessionId: () => sessionId });
+  const snapshot = _diffTrackerForTest(sessionId).worktreeSnapshot;
+  // An editor outside Mixdog: no tool, no command, no stamp.
+  writeFileSync(join(repo, 'edited-outside.txt'), 'x\n');
+  await api.getSessionReviewDiff();
+  assert.deepEqual(capturedPaths(snapshot), []);
+  // The turn's end is a boundary: its seal captures the worktree.
+  await completeTurnSnapshot(sessionId, token);
+  assert.deepEqual(capturedPaths(snapshot), ['edited-outside.txt']);
 });
 
 test('a live turn review answers a matching tag with the unchanged reply', {

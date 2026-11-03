@@ -170,6 +170,7 @@ export const DESKTOP_IPC = {
   setBrowserPermissions: 'mixdog:set-browser-permissions',
   previewNotificationSound: 'mixdog:preview-notification-sound',
   settingsChanged: 'mixdog:settings-changed',
+  turnReviewChanged: 'mixdog:turn-review-changed',
   orchestrationModeChanged: 'mixdog:orchestration-mode-changed',
   readActivityRailPins: 'mixdog:read-activity-rail-pins',
   updateActivityRailPins: 'mixdog:update-activity-rail-pins',
