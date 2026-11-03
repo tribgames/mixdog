@@ -12,7 +12,10 @@ registerHooks({
         export const BrowserWindow = { getAllWindows: () => globalThis.captureFixture?.windows || [] };
         export const desktopCapturer = { getSources: async (options) => globalThis.captureFixture.sources(options) };
         export const nativeImage = { createFromBuffer: (buffer) => globalThis.captureFixture.decode(buffer) };
-        export const screen = { getDisplayMatching: () => ({ scaleFactor: globalThis.captureFixture?.scaleFactor ?? 1 }) };
+        export const screen = {
+          getDisplayMatching: () => ({ scaleFactor: globalThis.captureFixture?.scaleFactor ?? 1 }),
+          dipToScreenRect: (_window, rect) => rect,
+        };
       `),
           shortCircuit: true,
         }
@@ -27,6 +30,7 @@ const { createComputerExecutionPolicy } = await import('../host/execution-policy
 const { createCommandRouter } = await import('../host/command-router.ts');
 const { createWindowReads } = await import('../host/window-reads.ts');
 const { createWindowTargeting } = await import('../input/targeting.ts');
+const { framePoint } = await import('./analysis.ts');
 
 const WINDOWS_PERMISSIONS = {
   screen_capture: 'not_required_on_windows',
@@ -628,6 +632,44 @@ test('portrait captures register the final bounded image dimensions for coordina
   assert.match(shot.description, new RegExp(`${shot.frame.captureWidth}x${shot.frame.captureHeight}`));
 });
 
+test('a Windows composited frame maps clicks onto the rectangle the compositor drew', async () => {
+  // Measured on a Chrome window: Electron's thumbnail covers the window rect
+  // inset by the resize-frame metrics, which is neither its outer nor its client rect.
+  const drawn = { x: 2574, y: 272, width: 1357, height: 1282 };
+  const f = fixture({
+    native: (request) =>
+      request.action === 'window_capture' ? { ok: false, error: 'capture_source_unavailable|fixture' } : undefined,
+  });
+  Object.assign(f.bounds, {
+    x: 2570,
+    y: 271,
+    width: 1365,
+    height: 1287,
+    client_x: 2578,
+    client_y: 271,
+    client_width: 1349,
+    client_height: 1279,
+    composited_x: drawn.x,
+    composited_y: drawn.y,
+    composited_width: drawn.width,
+    composited_height: drawn.height,
+  });
+  globalThis.captureFixture.sources = async ({ thumbnailSize }) => [
+    { id: 'window:1:0', name: 'fixture', thumbnail: image(thumbnailSize.width, thumbnailSize.height) },
+  ];
+  const shot = await f.run(() =>
+    f.capture.captureScreenshot({ action: 'screenshot', window_id: 'hwnd:0x1', session_id: 'a' })
+  );
+  assert.equal(shot.route, 'composited');
+  const { frame } = shot;
+  assert.ok(frame.captureWidth < drawn.width, 'the frame is downscaled');
+  assert.deepEqual(framePoint(frame, 0, 0), { x: drawn.x, y: drawn.y });
+  // The frame's last pixel shows the last drawn pixel, to within the downscale.
+  const last = framePoint(frame, frame.captureWidth - 1, frame.captureHeight - 1);
+  assert.ok(Math.abs(last.x - (drawn.x + drawn.width - 1)) <= 1, JSON.stringify(last));
+  assert.ok(Math.abs(last.y - (drawn.y + drawn.height - 1)) <= 1, JSON.stringify(last));
+});
+
 test('client origin zero and app-owned zoom retain the observed surface coordinates', async () => {
   const f = fixture();
   const crops = [];
@@ -636,6 +678,7 @@ test('client origin zero and app-owned zoom retain the observed surface coordina
     webContents: { isDestroyed: () => false },
     getNativeWindowHandle: () => Buffer.from([1, 0, 0, 0]),
     getMediaSourceId: () => 'window:1:0',
+    getContentBounds: () => ({ x: 0, y: 0, width: 800, height: 600 }),
     capturePage: async () => image(800, 600, crops),
   };
   globalThis.captureFixture.windows = [owned];

@@ -30,6 +30,7 @@ function Get-WindowBounds($req) {
     if ($info.Width -le 0 -or $info.Height -le 0) {
         throw "window has no capturable bounds: $($info.Id)"
     }
+    $composited = [MixWin32]::CompositorWindowBounds($info.Handle)
     return @{
         text               = ('window bounds: ' + $info.Title)
         title              = $info.Title
@@ -43,6 +44,10 @@ function Get-WindowBounds($req) {
         client_y           = $info.ClientY
         client_width       = $info.ClientWidth
         client_height      = $info.ClientHeight
+        composited_x       = $composited.left
+        composited_y       = $composited.top
+        composited_width   = $composited.right - $composited.left
+        composited_height  = $composited.bottom - $composited.top
         related_window_ids = @([MixWin32]::RelatedWindowIds($info.Handle))
     }
 }

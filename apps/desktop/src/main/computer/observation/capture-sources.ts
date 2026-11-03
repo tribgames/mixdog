@@ -46,6 +46,7 @@ export function createCaptureSources(
     const memoryKey = captureBackendKey(host.sessionIdFor(input.command), input.windowId);
     const remembered = backendMemory.recall(memoryKey);
     const check = (surface: Surface) => {
+      if (surface.bounds) return frameQualityIssue(surface.image, surface.bounds.width, surface.bounds.height);
       const issue = frameQualityIssue(surface.image, width, height);
       return issue && clientWidth > 0 && clientHeight > 0
         ? frameQualityIssue(surface.image, clientWidth, clientHeight)

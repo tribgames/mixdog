@@ -74,7 +74,7 @@ const prompt = (extra = {}) => ({
   requester: 'Marketer › Worker',
   target: 'button "Create account"',
   paths: [],
-  remember: { kinds: ['submit'] },
+  remember: { kinds: ['submit'], session: true },
   ...extra,
 });
 
@@ -99,7 +99,7 @@ test('a browser approval docks in its top-level chat; with no such chat open it 
     assert.equal(docked.querySelector('.approval-title').textContent, 'Submit this form?');
     assert.equal(docked.querySelector('.approval-chip-name').textContent, 'Marketer › Worker');
     assert.ok(docked.querySelector('.approval-link'), 'the asking session is one click away');
-    assert.deepEqual(labels(docked), ['Deny', 'Always allow', 'Allow just once']);
+    assert.deepEqual(labels(docked), ['Deny', 'Allow for this session', 'Always allow', 'Allow just once']);
     // No text lines under the card: what "Always allow" changes is its tooltip.
     assert.equal(docked.querySelector('.approval-note, .approval-scope, .approval-reason'), null);
     assert.equal(
@@ -516,4 +516,25 @@ test('an approval answered on another device flashes "<action> · Allowed from <
     conversationIslandFlash({ approval: email, outcome: { approved: true, device: 'Pixel 9' } }, null, 'Pixel 9'),
     null
   );
+});
+
+
+test('a card without a session mark or with payment evidence offers no this-session choice; payment reads as a payment', async () => {
+  const api = desktop();
+  const host = createRoot(doc.getElementById('host'));
+  const chat = createRoot(doc.getElementById('chat'));
+  await act(async () => host.render(React.createElement(BrowserApprovalHost)));
+  await act(async () => chat.render(React.createElement(Dock, { sessionId: 'sess_home_marketer' })));
+  try {
+    const docked = doc.getElementById('chat');
+    await api.send(prompt({ id: 'n1', remember: { kinds: ['submit'] } }));
+    assert.deepEqual(labels(docked), ['Deny', 'Always allow', 'Allow just once']);
+    await api.send({ id: 'n1', closed: true });
+    await api.send(prompt({ id: 'p1', remember: null, payment: true }));
+    assert.deepEqual(labels(docked), ['Deny', 'Allow just once']);
+    assert.equal(docked.querySelector('.approval-title').textContent, 'Make this payment?');
+  } finally {
+    await act(async () => chat.unmount());
+    await act(async () => host.unmount());
+  }
 });

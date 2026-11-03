@@ -1768,6 +1768,38 @@ html[data-mixdog-mobile-tabs] .conn-qr-row {
 .mixdog-settings__row-desc.session-retention-warning {
   color: var(--mx-warning);
 }
+/* Settings › Browser › Site permissions: the sites with a setting of their
+   own, each a settings row with the choice and a Remove button. */
+.browser-permission-sites {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--mx-border-muted);
+}
+.browser-permission-sites > li .mixdog-settings__row-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.browser-permission-sites > li .settings-row-control {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.browser-permission-sites > li .settings-row-control > .settings-select.mx-select-root {
+  width: auto;
+  min-width: 112px;
+}
+@media (max-width: 640px) {
+  .browser-permission-sites > li {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .browser-permission-sites > li .settings-row-control {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+  }
+}
 .session-retention-note {
   margin: 8px 0 0;
   color: var(--mx-text-muted);

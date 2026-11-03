@@ -2,6 +2,11 @@
 
 ## Log in
 
+Order: the existing session first (navigate to the target page; if it is already
+signed in, you are done), then the saved login below, then Linked sign-in; only
+then one handoff for the whole sign-in. Never raise a takeover and then a secret
+card for the same login.
+
 Navigate to the sign-in form (or its password step). When the user has exactly
 one stored login for that HTTPS site, the host signs in by itself right after
 the command that shows the form: it waits for the page's human check
@@ -11,8 +16,8 @@ submits, and replies with one line:
 - `Saved sign-in: signed in to <site>` — done; verify with the returned page,
   do not fill or submit again.
 - `Saved sign-in: the site still needs the user at <site>` — a check that did
-  not finish, a code, CAPTCHA, passkey, or an error: hand the sign-in to the
-  user, do not retry.
+  not finish, a code, CAPTCHA, passkey, or an error: one handoff for the rest
+  of the sign-in, do not retry.
 
 It tries once per site per turn, and the password never appears in any reply.
 
@@ -22,11 +27,17 @@ sign-in did not run), call `fill` with `savedAccount:"<email or masked label>"`
 `savedAccount` fill that already used `submit:true`. A `savedAccount` miss lists
 the site's stored logins as masked labels; the user chooses which to use.
 
-Without a stored login, use the returned refs and `fill.fields` for user +
-password, then `click` submit (or `submit:true`) with `expect.url` or
-`expect.text`. A CAPTCHA, 2FA prompt (authenticator or SMS code, passkey), or
-identity check goes to the user as a `takeover` handoff; never solve or bypass
-it. A "check your e-mail" step is the next flow, not a handoff.
+Without a stored login, fill the username yourself and take one handoff for the
+password: a `secret` card on the password field, or, when the user must also do
+a CAPTCHA, 2FA or identity step, a single `takeover` (`need:"sign_in"`,
+`purpose:"login"`, `url`) that covers the whole sign-in. After the secret card,
+`click` submit (or `submit:true`) yourself with `expect.url` or `expect.text`.
+After the takeover, observe fresh state first and submit only if the sign-in is
+still pending; the user may already have submitted, and the takeover's
+instructions never bundle your own clicks. A CAPTCHA, 2FA
+prompt (authenticator or SMS code, passkey), or identity check is the user's;
+never solve or bypass it. A "check your e-mail" step is the next flow, not a
+handoff.
 
 ## E-mail verification
 

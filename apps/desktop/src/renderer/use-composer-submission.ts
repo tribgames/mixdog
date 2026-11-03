@@ -70,6 +70,9 @@ export function buildSubmissionContent(submittedDraft: string, submittedAttachme
         sizeBytes: base64Bytes(attachment.data),
         mediaType: attachment.mimeType,
         filename: attachment.name,
+        ...(attachment.originalRef
+          ? { originalRef: attachment.originalRef, originalMediaType: attachment.originalMimeType }
+          : {}),
         ...(attachment.metadataText ? { metadataText: attachment.metadataText } : {}),
       };
     }

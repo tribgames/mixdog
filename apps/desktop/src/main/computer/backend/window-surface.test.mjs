@@ -48,8 +48,7 @@ public sealed class SurfaceFixture : System.Windows.Forms.Form {
     base.WndProc(ref message);
   }
 }
-public static class SurfaceChecks {
-  public static string Focus(string scenario) {
+public static class SurfaceChecks {  public static string Focus(string scenario) {
     var values = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<System.IntPtr, int>>();
     values.Add(new System.Collections.Generic.KeyValuePair<System.IntPtr, int>(new System.IntPtr(2), 1));
     values.Add(new System.Collections.Generic.KeyValuePair<System.IntPtr, int>(new System.IntPtr(3), 1));
@@ -73,17 +72,31 @@ try {
   $window.Update()
   [Windows.Forms.Application]::DoEvents()
   $capture = [MixWin32]::CaptureWindowSurface($window.Handle)
+  $printFlags = [MixWin32]::LastPrintWindowFlags
+  $wheel = [MixWin32]::MessageScreenPoint($window.Handle, $window.Left + 50, $window.Top + 40)
   $memory = [IO.MemoryStream]::new([Convert]::FromBase64String($capture.PngBase64))
   $image = [Drawing.Bitmap]::new($memory)
   try {
     $pixel = $image.GetPixel(100, 90)
     $orange = $image.GetPixel(30, 30)
+    $composited = [MixWin32]::CompositorWindowBounds($window.Handle)
+    $physical = New-Object 'MixWin32+POINT'
+    $physical.x = 450; $physical.y = 300
+    $unaware = [MixWin32]::LogicalClientPoint($physical, 96, 144)
+    $physical.x = 100; $physical.y = 50
+    $systemAware = [MixWin32]::LogicalClientPoint($physical, 144, 96)
+    $perMonitor = [MixWin32]::LogicalClientPoint($physical, 144, 144)
     $invalid = ''
     try { [MixWin32]::ValidateBackgroundInput([IntPtr]::Zero,[IntPtr]::Zero,'key','^s') } catch { $invalid = $_.Exception.GetBaseException().Message }
     @{
       off_screen=(-not $window.Bounds.IntersectsWith([Windows.Forms.SystemInformation]::VirtualScreen))
       size=@($capture.Width,$capture.Height); color=@($pixel.R,$pixel.G,$pixel.B)
       marker=@($orange.R,$orange.G,$orange.B); foreground_unchanged=($before -eq [MixWin32]::Foreground())
+      composited=@($composited.left,$composited.top,($composited.right-$composited.left),($composited.bottom-$composited.top))
+      window=@($window.Left,$window.Top,$window.Width,$window.Height)
+      print_flags=$printFlags
+      wheel=@($wheel.x,$wheel.y); wheel_expected=@(($window.Left + 50),($window.Top + 40))
+      message_points=@($unaware.x,$unaware.y,$systemAware.x,$systemAware.y,$perMonitor.x,$perMonitor.y)
       deepest=[SurfaceChecks]::Focus('deepest'); ambiguous=[SurfaceChecks]::Focus('ambiguous')
       invalid_keys=$invalid
       chromium=[MixWin32]::SupportsBackgroundKeyboardClass('Chrome_WidgetWin_1')
@@ -107,6 +120,16 @@ try {
     assert.deepEqual(value.color, [40, 80, 120]);
     assert.deepEqual(value.marker, [255, 165, 0]);
     assert.equal(value.foreground_unchanged, true);
+    // A window without a transparent resize border is composited as its own rect.
+    assert.deepEqual(value.composited, value.window);
+    // Full content is asked for first; this never-composed fixture renders black
+    // that way, so the same attempt repaints it without the flag (the pixels above).
+    assert.equal(value.print_flags, '2,0');
+    // At this host's DPI the wheel's screen point is the physical one.
+    assert.deepEqual(value.wheel, value.wheel_expected);
+    // Pointer messages carry the target's own DPI: a DPI-unaware window on a
+    // 150% monitor, a 150% system-aware window on a 100% monitor, a per-monitor one.
+    assert.deepEqual(value.message_points, [300, 200, 150, 75, 100, 50]);
     assert.equal(value.deepest, '4');
     assert.match(value.ambiguous, /^background_target_ambiguous\|/);
     assert.match(value.invalid_keys, /^background_unsupported\|/);

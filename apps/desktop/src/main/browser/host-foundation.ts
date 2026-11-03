@@ -26,6 +26,7 @@ import { createBrowserLeaveConfirmation } from './leave-confirmation';
 import { createBrowserLinkedSignIns } from './linked-sign-in';
 import { LinkedSignInStore } from './linked-sign-in-store';
 import { createBrowserPartition } from './partition';
+import type { BrowserPermissionPolicyStore } from './permissions';
 import { CredentialVault } from './credential-vault';
 import { BrowserProfileImportService, defaultNativeBrowserImporterPath } from './profile-import';
 import { redactBrowserText } from './redaction';
@@ -113,11 +114,13 @@ function createBrowserHostStorage(
   sessions: BrowserSessionRegistry,
   urls: ReturnType<typeof createBrowserUrlAdmission>,
   onDiagnostic?: Diagnostic,
-  hidDevices?: () => boolean
+  hidDevices?: () => boolean,
+  permissionPolicy?: BrowserPermissionPolicyStore
 ) {
   const partition = createBrowserPartition({
     windowSession,
     hidDevices,
+    permissionPolicy,
     guestForFrame: (frame) => webContents.fromFrame(frame),
     assertResolvedResourceUrlAllowed: urls.assertResolvedResourceUrlAllowed,
     downloadsDirectory: () => app.getPath('downloads'),
@@ -232,6 +235,8 @@ export function createBrowserHostFoundation(
     requestApproval?: (request: BrowserApprovalRequest, signal?: AbortSignal) => Promise<boolean>;
     /** Sites may ask to connect a HID device (the `browserHidDevices` setting). */
     hidDevices?: () => boolean;
+    /** The saved site-permission defaults and exceptions. */
+    permissionPolicy?: BrowserPermissionPolicyStore;
   }
 ) {
   const state = new BrowserGuestStateStore(sameProcessGuests);
@@ -271,7 +276,8 @@ export function createBrowserHostFoundation(
     sessions,
     urls,
     options.onDiagnostic,
-    options.hidDevices
+    options.hidDevices,
+    options.permissionPolicy
   );
   const devtools = createBrowserHostDevtools(state, urlPolicy, storage.partition.permissions.refused);
   const displayTextures = createBrowserHostTextures(window, state);

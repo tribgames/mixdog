@@ -46,6 +46,12 @@ export interface BrowserApprovalRequest {
    *  display metadata); '' when it could not be established — the run is then
    *  refused (approval-dialog.ts). */
   unattendedAgent?: string;
+  /** Runtime-set life mark of the asking session (command `session_life`); a
+   *  session allowance is made and honoured only under one, and ends when it changes. */
+  sessionLife?: string;
+  /** The page holds payment evidence (payment-evidence.ts): the step asks once,
+   *  every time — no session or saved allow, and "Allow all actions" does not skip it. */
+  payment?: boolean;
 }
 
 /** Where an upload's files would land: `key` is bound by the approval,
@@ -153,7 +159,10 @@ export function createBrowserActionApproval(host: {
     uploadReceiver?: () => Promise<UploadReceiverBinding>,
     /** The command's clock: it stands still while the person is asked, so
      *  the time they take is not the page's slowness. */
-    userWait?: UserWait
+    userWait?: UserWait,
+    /** Whether the page the step acts on shows payment evidence
+     *  (payment-evidence.ts); read only for a submit or post step. */
+    paymentEvidence?: () => Promise<boolean>
   ): Promise<{ receiver?: string }> {
     const denied = actions(host.denyActions);
     const confirmation = actions(host.confirmActions);
@@ -183,6 +192,7 @@ export function createBrowserActionApproval(host: {
       command.paths = files.map((file) => file.path);
     }
     const receiver = isUpload ? await uploadReceiver?.() : undefined;
+    const payment = submits && paymentEvidence ? await paymentEvidence() : false;
     const original = target();
     const serialized = JSON.stringify(command);
     if (signal?.aborted) throw signal.reason || new Error('approval cancelled');
@@ -197,6 +207,8 @@ export function createBrowserActionApproval(host: {
           target: describeApprovalTargets(command, original.identity),
           paths: command.paths || [],
           kinds,
+          ...(command.session_life ? { sessionLife: command.session_life } : {}),
+          ...(payment ? { payment: true } : {}),
           ...(command.unattended_run === true
             ? { unattended: true, unattendedAgent: String(command.unattended_agent || '').trim() }
             : {}),

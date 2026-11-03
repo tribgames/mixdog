@@ -418,7 +418,8 @@ export interface ToolApprovalDecision {
   response?: 'approve' | 'deny' | 'edit-and-approve' | 'provide-secret' | 'skip' | 'done';
   /** edit-and-approve: the card's edited text for the request's editable fields. */
   editedArgs?: Record<string, string>;
-  remember?: 'once' | 'agent' | 'always';
+  /** `session`: allow this action kind for the rest of this session only. */
+  remember?: 'once' | 'session' | 'agent' | 'always';
   /** permission: the chosen scope id. */
   scope?: string;
   /** Host-stamped name of the device that answered. */
@@ -544,6 +545,9 @@ export interface DesktopPromptAttachment {
   filename?: string;
   sourcePath?: string;
   metadataText?: string;
+  /** Store ref and type of the file as picked, when `content` is a resized copy. */
+  originalRef?: string;
+  originalMediaType?: string;
 }
 
 export interface DesktopPastedText {

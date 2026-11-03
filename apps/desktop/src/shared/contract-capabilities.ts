@@ -153,6 +153,7 @@ export const DESKTOP_CAPABILITIES = [
   'transcribeAudio',
   'prepareTranscription',
   'resizeImage',
+  'stageAttachmentOriginal',
   'setAgentRoute',
   'getWorkflowPack',
   'saveWorkflowPack',
@@ -406,9 +407,14 @@ export interface DesktopAgentPermission {
     | 'trash'
     | 'browser_submit'
     | 'browser_post'
-    | 'browser_upload';
+    | 'browser_upload'
+    /** A tool a hook's ask was allowed for every agent: `tool:<name>`. */
+    | `tool:${string}`;
   mode: 'ask' | 'allow' | 'block';
   rememberable: boolean;
+  /** The allow is every agent's ("Always allow (all conversations)"); turning it
+   *  back to asking from any agent's table removes it for all. */
+  shared?: boolean;
 }
 
 /** One recorded file of a turn's changes. */

@@ -19,6 +19,8 @@ import { scrimDismiss } from '../scrim-dismiss';
 import { ScmContextMenu, type ScmContextMenuState } from '../ScmContextMenu';
 import { BrowserImportDialog } from '../BrowserImportDialog';
 import { ActionButton, Group, SettingsConfirmDialog, ToggleRow } from './capability-controls';
+import { BrowserPermissionsGroup } from './browser-permissions';
+import { CookieAutoImportGroup } from './cookie-auto-import';
 import { type AuthFilter, type AuthRow, authCounts, filterAuthRows, mergeAuthRows } from './auth-rows';
 import { loginSavePayload } from './auth-login-draft';
 
@@ -57,6 +59,7 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
   const [menu, setMenu] = useState<ScmContextMenuState | null>(null);
   const [dialog, setDialog] = useState<LoginDialogState | null>(null);
   const [importOpen, setImportOpen] = useState(false);
+  const [importRevision, setImportRevision] = useState(0);
   const [confirmClear, setConfirmClear] = useState(false);
   const [autoSignIn, setAutoSignIn] = useState<boolean | null>(null);
   const [saveChatLogins, setSaveChatLogins] = useState<boolean | null>(null);
@@ -325,6 +328,10 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
         )}
       </Group>
 
+      <BrowserPermissionsGroup api={api} active={active} />
+
+      <CookieAutoImportGroup api={api} active={active} revision={importRevision} />
+
       {!noLogins && logins !== null && (
         <button
           type="button"
@@ -354,6 +361,7 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
         open={importOpen}
         onClose={() => {
           setImportOpen(false);
+          setImportRevision((count) => count + 1);
           void reload();
         }}
       />

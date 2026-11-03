@@ -10,6 +10,7 @@
 import { BROWSER_OBSERVATION_ACTIONS, validateBrowserToolArgs } from './action-schema.mjs';
 import { bridgeDiscoveryChanged, readBridgeDiscovery, readBridgeDiscoveryDetail } from '../bridge-discovery.mjs';
 import { mailLinkFor } from './mail-links.mjs';
+import { sessionLifeMark } from '../agent/orchestrator/session/human-gate/session-life.mjs';
 import { traceBrowserTiming } from './timing.mjs';
 import { base64ByteLength, inlineFileKind } from '../shared/inline-file-kind.mjs';
 import { MAX_IMAGE_BYTES, SUPPORTED_IMAGE_MIME_TYPES } from '../attachments/limits.mjs';
@@ -345,6 +346,9 @@ export async function executeBrowserTool(args, options = {}) {
     ...(options.unattendedRun === true
       ? { unattended_run: true, unattended_agent: String(options.unattendedAgent || '') }
       : {}),
+    // Runtime-set: the life this session is in (cleared or replaced sessions
+    // change it), which a browser "allow for this session" is bound to.
+    ...(sessionLifeMark(sessionId) ? { session_life: sessionLifeMark(sessionId) } : {}),
     ...(Number.isFinite(Number(options.turnId)) && Number(options.turnId) > 0
       ? { turn_id: Math.trunc(Number(options.turnId)) }
       : {}),

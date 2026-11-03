@@ -86,6 +86,42 @@ export function bindComputerSecret(
 /** A computer input error that says its window or ref no longer exists. */
 const STALE_TARGET = /stale_target|\bis stale\b|stale or invalid/i;
 
+/** The bound field as a fresh read shows it after the background write. */
+interface BoundField {
+  /** The field's ref in that read: a read retires every earlier ref. */
+  ref: string;
+  value: string;
+  /** UIA IsPassword / MSAA protected, as the typing guard reads them; true when unreadable. */
+  isPassword: boolean;
+}
+
+/** Re-reads the window with the bound ref named: the host marks the element
+ *  that ref pointed at (`bound_ref`, by its runtime identity, which survives
+ *  the read's new refs) and says whether it is a password field. Nothing from
+ *  the read is returned or stored. Null when that element is not found. */
+async function readBoundField(
+  execute: (command: Record<string, unknown>) => Promise<unknown>,
+  sessionId: string,
+  binding: { windowId: string; ref: string }
+): Promise<BoundField | null> {
+  const reply = (await execute({
+    action: 'find',
+    session_id: sessionId,
+    window_id: binding.windowId,
+    ref: binding.ref,
+    max_elements: 1000,
+  })) as
+    | { elements?: Array<{ ref?: unknown; value?: unknown; bound_ref?: unknown; is_password?: unknown }> }
+    | undefined;
+  const field = reply?.elements?.find((element) => element?.bound_ref === true);
+  if (!field || typeof field.ref !== 'string' || !field.ref) return null;
+  return {
+    ref: field.ref,
+    value: typeof field.value === 'string' ? field.value : '',
+    isPassword: field.is_password !== false,
+  };
+}
+
 /**
  * Computer Use: type the request's value once into the window and field ref
  * it was bound to at request time (bindComputerSecret), never the focused
@@ -125,12 +161,34 @@ export async function typeComputerSecret(
   registry.remember(sessionId, value);
   registry.armFocus(sessionId);
   try {
+    // Every secret first goes in by the background value write: a password is
+    // never sent as keystrokes, which could land in another window.
     await execute({
       action: 'type',
       text: value,
       session_id: sessionId,
       ref: binding.ref,
       window_id: binding.windowId,
+    });
+    if ([...value].length === 1) return { text: 'entered' };
+    // A background write sets one control's value, so a segmented code input
+    // (one digit per box) keeps only the first digit. The field is read back
+    // and identified by the element the bound ref pointed at, not by a ref.
+    // Best effort: a read that fails or finds nothing leaves the result the
+    // write itself produced.
+    const field = await readBoundField(execute, sessionId, binding).catch(() => null);
+    // Real keystrokes (focus advancing box to box) only when the field is
+    // positively re-identified, is not a password, and holds just the first
+    // character: a one-character box. The foreground delivery is held to this
+    // window and refuses when the foreground moves.
+    if (!field || field.isPassword || field.value !== [...value][0]) return { text: 'entered' };
+    await execute({
+      action: 'type',
+      text: value,
+      session_id: sessionId,
+      ref: field.ref,
+      window_id: binding.windowId,
+      delivery: 'foreground',
     });
     return { text: 'entered' };
   } catch (error) {

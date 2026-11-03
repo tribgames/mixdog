@@ -82,6 +82,10 @@ export interface RelayE2EEChallenge {
    *  `resolveLocalPaths`/`readLocalFile` to project and assistant-linked
    *  files. Absent on an older host: downloads report `host-too-old`. */
   fileDownloads?: 1;
+  /** This host takes a handoff secret typed on the phone (`provideSecretInput`:
+   *  the value goes straight to the PC's one-shot slot, never to the runtime).
+   *  Absent on an older host: the phone keeps "Enter it on your PC". */
+  secretInput?: 1;
   /** This host serves the live view over WebRTC (shared/remote-webrtc.ts,
    *  value = REMOTE_WEBRTC_VERSION). Absent on an older host: JPEG only. */
   browserWebrtc?: 1;

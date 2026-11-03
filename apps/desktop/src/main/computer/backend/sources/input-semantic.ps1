@@ -36,7 +36,12 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
     # Restoring focus after the fact needs foreground rights Windows may refuse,
     # so a window that would activate itself is held disabled for the call: the
     # steal never happens instead of being undone.
-    $userElsewhere = $target -ne [IntPtr]::Zero -and $foregroundBefore -ne $target
+    # A foreground operation brings its target forward on purpose and keeps it
+    # there for its next step; the host gives the user's window back once, when
+    # the turn ends. Guarding or restoring the user's window around one of its
+    # semantic steps would bounce focus target -> user -> target between steps.
+    $foregroundDelivery = $script:CurrentRequest.delivery -eq 'foreground'
+    $userElsewhere = -not $foregroundDelivery -and $target -ne [IntPtr]::Zero -and $foregroundBefore -ne $target
     $shielded = $userElsewhere -and [MixWin32]::SelfActivatesOnSemanticInput($target)
     $wasEnabled = $false
     # Held through the steal watch below. A target that accepts the no-activate
@@ -58,7 +63,7 @@ function Invoke-BackgroundWindow($target, [scriptblock]$operation) {
     $lockMs = if ($shielded) { 250 } else { 100 }
     $locked = $false
     $sinceDispatch = $null
-    $canRestore = $inputBefore.Ready -and
+    $canRestore = -not $foregroundDelivery -and $inputBefore.Ready -and
     $foregroundBefore -ne [IntPtr]::Zero -and
     $foregroundBefore -ne $target -and
     [MixWin32]::IsWindowHandle($foregroundBefore)

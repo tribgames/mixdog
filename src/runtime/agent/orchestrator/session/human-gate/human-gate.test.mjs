@@ -257,7 +257,7 @@ test('"don\'t ask again" stores an agent + action-kind grant that later auto-all
       executeOpts: {},
       toolApprovalHook: async (request) => {
         asks += 1;
-        assert.deepEqual(request.remember, ['once', 'agent']);
+        assert.deepEqual(request.remember, ['once', 'session', 'agent']);
         assert.equal(request.agentId, sessionId.slice('sess_home_'.length));
         return { approved: true, response: 'approve', remember };
       },
@@ -493,7 +493,7 @@ test('Gmail trash_emails asks and may be remembered; payments and permanent dele
 
   const first = await humanGateDecision(call, null, { ...BOT, store, annotations: {} });
   assert.equal(first.decision.action, 'ask');
-  assert.deepEqual(first.request.remember, ['once', 'agent']);
+  assert.deepEqual(first.request.remember, ['once', 'session', 'agent']);
 
   const normalized = normalizeHumanResponse(first.request, true, { remember: 'agent' });
   assert.equal(normalized.remember, 'agent');
@@ -522,7 +522,10 @@ test('the outbound gate applies only when a bot acts', async (t) => {
   const hookAsk = await decide('sess_coding_1', { action: 'ask', reason: 'hook says' });
   assert.equal(hookAsk.decision.reason, 'hook says');
   assert.equal(hookAsk.request.kind, 'approval');
-  assert.deepEqual(hookAsk.request.remember, ['once']);
+  // The call is a classified comment, so its choices are for that kind (a coding
+  // Lead has no identity of its own: the saved one is the every-agent allow).
+  assert.deepEqual(hookAsk.request.remember, ['once', 'session', 'always']);
+  assert.equal(hookAsk.request.grantAction, 'comment');
   // A coding session is not blocked by a block set for Mixy or any bot either.
   await store.setMode({ agentId: 'lead', action: 'comment', mode: 'block' });
   assert.equal((await decide('sess_coding_1')).decision, null);

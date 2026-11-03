@@ -1,5 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react';
-import { actionLabel, actionQuestion, alwaysAllowScope } from './ApprovalCard';
+import { actionLabel, actionQuestion, alwaysAllowScope, sessionAllowScope } from './ApprovalCard';
 import { type ApprovalButton, ApprovalPrompt } from './approval-prompt';
 import { setBrowserApprovalSessionIds, setHostBrowserApprovalSessionIds } from './browser-approval-marks';
 import { showDesktopToast } from './desktop-toasts';
@@ -22,7 +22,9 @@ export type BrowserApprovalPrompt = {
   origin?: string;
   receiverOrigin?: string;
   files?: Array<{ name: string; path: string; size: number; outside: boolean }>;
-  remember: { kinds: string[] } | null;
+  remember: { kinds: string[]; session?: boolean } | null;
+  /** The page holds payment fields or a payment-processor frame: asked once, every time. */
+  payment?: boolean;
 };
 
 /** The store action a kind of gated step is allowed under (see main/browser/approval-dialog.ts). */
@@ -36,6 +38,11 @@ function fileSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+/** What "Allow for this session" would change, in the card's own words. */
+export function sessionAllowNote(requester: string, kinds: string[]): string {
+  return sessionAllowScope(requester, kinds.map((kind) => actionLabel(KIND_ACTION[kind] ?? kind)).join(', '));
 }
 
 /** What "Always allow" would change, in the card's own words. */
@@ -94,7 +101,7 @@ export function useBrowserApprovals(sessionId: string): BrowserApprovalPrompt[] 
   return sessionId ? queue.filter((prompt) => surfaceOf(prompt) === sessionId) : [];
 }
 
-function answer(prompt: BrowserApprovalPrompt, decision: 'once' | 'always' | 'deny', reason = '') {
+function answer(prompt: BrowserApprovalPrompt, decision: 'once' | 'session' | 'always' | 'deny', reason = '') {
   drop(prompt.id);
   void window.mixdogDesktop?.browserApprovalDecide?.(prompt.id, decision, reason || undefined);
 }
@@ -112,13 +119,24 @@ export function BrowserApprovalCard({ prompt, queueLabel }: { prompt: BrowserApp
   const risky = (files.length > 0 && !prompt.receiverOrigin) || files.some((file) => file.outside);
   const kind = prompt.remember?.kinds[0];
   let title = t('Allow this action?');
-  if (files.length) title = actionQuestion('browser_upload');
+  if (prompt.payment) title = actionQuestion('payment');
+  else if (files.length) title = actionQuestion('browser_upload');
   else if (kind && KIND_ACTION[kind]) title = actionQuestion(KIND_ACTION[kind]);
   // The tooltips: what "Always allow" changes, and why an allow takes a click.
   const riskNote = risky ? t('This is not confirmed, so allowing takes a click; Enter does not allow.') : '';
   const scope = prompt.remember ? alwaysAllowNote(requester, prompt.remember.kinds) : '';
   const buttons: ApprovalButton[] = [
     { label: t('Deny'), deny: true },
+    ...(prompt.remember?.session
+      ? [
+          {
+            label: t('Allow for this session'),
+            hint: [sessionAllowNote(requester, prompt.remember.kinds), riskNote].filter(Boolean).join(' '),
+            always: true,
+            onClick: () => answer(prompt, 'session'),
+          },
+        ]
+      : []),
     ...(prompt.remember
       ? [
           {

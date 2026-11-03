@@ -1,5 +1,16 @@
 import type { Session, WebContents, WebFrameMain } from 'electron';
 
+import {
+  BROWSER_PERMISSION_MAX_SITES,
+  type BrowserPermissionPolicy,
+  type BrowserPermissionSetting,
+  browserPermissionSetting,
+  defaultBrowserPermissionPolicy,
+  isBrowserPermissionKind,
+  withBrowserPermissionDefault,
+  withBrowserPermissionSite,
+} from '../../shared/browser-permission-policy';
+
 type BrowserPermissionSession = Pick<
   Session,
   'setDevicePermissionHandler' | 'setPermissionCheckHandler' | 'setPermissionRequestHandler'
@@ -30,6 +41,7 @@ const PROMPTED = new Set([
   'notifications',
   'geolocation',
   'clipboard-read',
+  'clipboard-write',
   'midi',
   'midiSysex',
   'idle-detection',
@@ -54,10 +66,13 @@ const STORAGE_ACCESS = 'storage-access';
 
 /** Clipboard operations that reach beyond the page: reading, and writing
  *  without a gesture (which Chromium asks for as `clipboard-read` or
- *  `clipboard-sanitized-write`). Neither is ever granted from a remembered
- *  answer alone: the requesting frame needs a live user activation, which
- *  only a request (never a permission check) can verify. */
+ *  `clipboard-sanitized-write`). Neither is ever granted from a setting or a
+ *  remembered answer alone: the requesting frame needs a live user
+ *  activation, which only a request (never a permission check) can verify. */
 const NEEDS_ACTIVATION = new Set(['clipboard-read', 'clipboard-sanitized-write']);
+
+/** The engine's permission name for a kind that has a different one. */
+const KIND_OF_PERMISSION: Record<string, string> = { 'clipboard-sanitized-write': 'clipboard-write' };
 
 /** The decision keys an engine permission name (as a `PermissionStatus`
  *  reports it) stands for. */
@@ -95,8 +110,12 @@ export interface BrowserPermissionPrompt {
   /** Only set when the asking frame is embedded in another site. */
   embedder?: string;
   keys: string[];
+  /** The exception list is full: "for this site" cannot be saved. */
+  siteListFull?: boolean;
   devices?: BrowserPermissionDevice[];
 }
+
+const SITE_LIST_FULL = `The site exception list is full (${BROWSER_PERMISSION_MAX_SITES}); remove sites in Settings or choose another option. Answer was not sent.`;
 
 export interface BrowserPermissionOptions {
   /** Whether every one of these frames has a live (transient) user activation. */
@@ -106,7 +125,20 @@ export interface BrowserPermissionOptions {
   hidDevices?(): boolean;
   /** The page a requesting frame belongs to. */
   guestForFrame?(frame: DeviceFrame): PermissionGuest | null | undefined;
+  /** The saved defaults and per-site exceptions, read per request. Absent:
+   *  the built-in defaults, kept in memory. */
+  policy?(): BrowserPermissionPolicy;
+  /** Called with the policy after a person's "remember" answer; the owner
+   *  keeps it (and returns it from `policy`). */
+  save?(next: BrowserPermissionPolicy): void;
 }
+
+/** Where the saved policy lives: read per request, written on a "remember". */
+export type BrowserPermissionPolicyStore = Required<Pick<BrowserPermissionOptions, 'policy' | 'save'>>;
+
+/** How long a person's answer to a prompt lasts: absent, until the app
+ *  quits; for this site; or as the default for every site. */
+export type BrowserPermissionRemember = 'site' | 'all';
 
 const frameId = (frame: Pick<WebFrameMain, 'processId' | 'routingId'>) => `${frame.processId}:${frame.routingId}`;
 
@@ -132,11 +164,13 @@ function originOf(url: string): string {
 }
 
 /**
- * Site permissions in the browser partition, decided the way Chrome decides
- * them: a site asks, a person answers in the pane, and the answer is
- * remembered for that site until the app quits. Nothing that reaches a
- * camera, microphone, location or device is ever granted without that
- * answer, and the agent has no way to give it. Requests that are not a
+ * Site permissions in the browser partition. Each kind has one saved default
+ * (allowed, ask or blocked) and a site may have its own exception; allowed
+ * and blocked apply silently. Only an "ask" kind prompts a person in the
+ * pane, and the answer lasts until the app quits unless the person asks to
+ * keep it for the site or for every site. Camera, microphone and device
+ * access is never granted unless a person set or answered it, and the agent
+ * has no way to give it. Requests that are not a
  * person's to grant here (external apps, screen capture, pointer lock,
  * USB, serial and Bluetooth devices) are refused outright. A HID device is
  * connected only while the `browserHidDevices` setting is on, and only the
@@ -145,7 +179,14 @@ function originOf(url: string): string {
 export function createBrowserPermissions(options: BrowserPermissionOptions = {}) {
   const userActivation = options.userActivation ?? frameActivations;
   const hidAllowed = () => options.hidDevices?.() === true;
+  /** Answers a person gave without asking to keep them: until the app quits. */
   const decisions = new Map<string, boolean>();
+  let ownPolicy = defaultBrowserPermissionPolicy();
+  const currentPolicy = () => options.policy?.() ?? ownPolicy;
+  const savePolicy = (next: BrowserPermissionPolicy) => {
+    ownPolicy = next;
+    options.save?.(next);
+  };
   /** HID devices a person picked for an origin, until the app quits. */
   const deviceGrants = new Set<string>();
   const deviceGrant = (origin: string, deviceId: string) => `${origin}\n${deviceId}`;
@@ -191,12 +232,24 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
     });
   }
 
-  /** What remembered answers say about a request: refused if any part was
-   *  refused, granted once every part was granted, else still undecided. */
-  function decided(embedder: string, origin: string, keys: string[]): boolean | undefined {
-    const known = keys.map((key) => decisions.get(decisionKey(embedder, origin, key)));
-    if (known.some((decision) => decision === false)) return false;
-    return known.every((decision) => decision === true) ? true : undefined;
+  /** What applies to one kind for an asking origin: its site exception, else
+   *  the default; where that is "ask", an answer given earlier this run. */
+  function settingFor(embedder: string, origin: string, key: string): BrowserPermissionSetting {
+    if (!isBrowserPermissionKind(key)) return 'block';
+    const configured = browserPermissionSetting(currentPolicy(), key, origin, embedder);
+    if (configured !== 'ask') return configured;
+    const remembered = decisions.get(decisionKey(embedder, origin, key));
+    if (remembered === undefined) return 'ask';
+    return remembered ? 'allow' : 'block';
+  }
+
+  /** What the settings say about a request: refused if any part is blocked,
+   *  granted once every part is allowed, else the parts a person must be asked. */
+  function evaluate(embedder: string, origin: string, keys: string[]): { verdict?: boolean; ask: string[] } {
+    const states = keys.map((key) => settingFor(embedder, origin, key));
+    if (states.includes('block')) return { verdict: false, ask: [] };
+    const ask = keys.filter((_key, index) => states[index] === 'ask');
+    return ask.length ? { ask } : { verdict: true, ask };
   }
 
   function request(
@@ -206,15 +259,15 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
     settle: (granted: boolean) => void
   ): void {
     const { origin, embedder } = asker;
-    const known = decided(embedder, origin, keys);
-    if (known !== undefined || guest.isDestroyed()) {
-      settle(known === true);
+    const { verdict, ask } = evaluate(embedder, origin, keys);
+    if (verdict !== undefined || guest.isDestroyed()) {
+      settle(verdict === true);
       return;
     }
     watch(guest);
     const queue = pending.get(guest) ?? [];
     const same = queue.find(
-      (entry) => entry.origin === origin && entry.embedder === embedder && entry.keys.join(',') === keys.join(',')
+      (entry) => entry.origin === origin && entry.embedder === embedder && entry.keys.join(',') === ask.join(',')
     );
     if (same) {
       same.settle.push(settle);
@@ -225,11 +278,31 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
       id: `permission_${++serial}`,
       origin,
       embedder,
-      keys,
+      keys: ask,
       frames: new Set(asker.frames),
       settle: [settle],
     });
     pending.set(guest, queue);
+  }
+
+  /** The policy with a site exception for each key a prompt asks about, or
+   *  null when the exception list has no room for them. */
+  function withSiteRules(
+    policy: BrowserPermissionPolicy,
+    entry: Pick<PendingBrowserPermission, 'origin' | 'embedder' | 'keys'>,
+    setting: BrowserPermissionSetting
+  ): BrowserPermissionPolicy | null {
+    let next: BrowserPermissionPolicy | null = policy;
+    for (const key of entry.keys) {
+      if (!next || !isBrowserPermissionKind(key)) continue;
+      next = withBrowserPermissionSite(next, {
+        origin: entry.origin,
+        ...(entry.embedder === entry.origin ? {} : { embedder: entry.embedder }),
+        permission: key,
+        setting,
+      });
+    }
+    return next;
   }
 
   /** The keys a request decides, or null for one nobody is asked about. */
@@ -238,7 +311,8 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
       const kinds = (details?.mediaTypes || []).filter((kind) => kind === 'video' || kind === 'audio');
       return kinds.length ? kinds.map((kind) => `media:${kind}`) : null;
     }
-    return PROMPTED.has(permission) ? [permission] : null;
+    const key = KIND_OF_PERMISSION[permission] ?? permission;
+    return PROMPTED.has(key) ? [key] : null;
   }
 
   /** The frames a request came from: the page itself, or the child frames
@@ -316,7 +390,7 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
         const embedder = originOf(details?.embeddingOrigin ?? '') || origin;
         const key =
           permission === 'media' ? `media:${(details as { mediaType?: string } | undefined)?.mediaType}` : permission;
-        return decisions.get(decisionKey(embedder, origin, key)) === true;
+        return settingFor(embedder, origin, key) === 'allow';
       });
       session.setPermissionRequestHandler((webContents, permission, callback, details) => {
         if (GRANTED_BY_DEFAULT.has(permission) || permission === STORAGE_ACCESS) {
@@ -329,19 +403,18 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
         const embedder = originOf(webContents.getURL());
         const frames = askingFrames(webContents, asked);
         const bad = (value: string) => !value || value === 'null';
-        if ((!keys && permission !== 'clipboard-sanitized-write') || bad(origin) || bad(embedder) || !frames.length) {
+        if (!keys || bad(origin) || bad(embedder) || !frames.length) {
           callback(false);
           return;
         }
         const asker = { origin, embedder, frames: frames.map(frameId) };
         if (!NEEDS_ACTIVATION.has(permission)) {
-          request(webContents, asker, keys as string[], callback);
+          request(webContents, asker, keys, callback);
           return;
         }
         void userActivation(frames).then((active) => {
-          if (!active) callback(false);
-          else if (keys) request(webContents, asker, keys, callback);
-          else callback(true);
+          if (active) request(webContents, asker, keys, callback);
+          else callback(false);
         });
       });
       // Electron consults only this handler once it is set, so the devices a
@@ -369,10 +442,11 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
         for (const settle of entry.settle) settle(false);
       }
     },
-    /** Whether a person refused the page's origin one of the permissions an
-     *  engine name stands for; an undecided permission is not refused. */
+    /** Whether the page's origin is blocked from one of the permissions an
+     *  engine name stands for, by the settings or a person's refusal; a
+     *  permission still to be asked is not refused. */
     refused(origin: string, engineName: string): boolean {
-      return (ENGINE_KEYS[engineName] ?? []).some((key) => decisions.get(decisionKey(origin, origin, key)) === false);
+      return (ENGINE_KEYS[engineName] ?? []).some((key) => settingFor(origin, origin, key) === 'block');
     },
     /** The prompt the pane offers for a page, oldest first. */
     pending(guest: PermissionGuest): BrowserPermissionPrompt | undefined {
@@ -383,15 +457,25 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
         origin: first.origin,
         ...(first.embedder === first.origin ? {} : { embedder: first.embedder }),
         keys: first.keys,
+        ...(!first.devices && withSiteRules(currentPolicy(), first, 'allow') === null ? { siteListFull: true } : {}),
         ...(first.devices ? { devices: first.devices } : {}),
       };
     },
-    /** A person's answer to the prompt `id`: remembered for the asking
-     *  origin in its embedding site, and applied to every waiting request it
-     *  decides. A device chooser is allowed only with one of its devices,
-     *  `deviceId`, and settles only itself. False when that prompt is no
-     *  longer the one shown or the device is not offered. */
-    answer(guest: PermissionGuest, id: string, allow: boolean, deviceId?: string): boolean {
+    /** A person's answer to the prompt `id`, applied to every waiting request
+     *  it decides. It lasts until the app quits for the asking origin in its
+     *  embedding site; with `remember` 'site' it becomes that site's saved
+     *  exception, and with 'all' the saved default for every site (only a
+     *  person's explicit choice ever sets either). A device chooser is
+     *  allowed only with one of its devices, `deviceId`, settles only itself
+     *  and is never remembered. False when that prompt is no longer the one
+     *  shown or the device is not offered. */
+    answer(
+      guest: PermissionGuest,
+      id: string,
+      allow: boolean,
+      deviceId?: string,
+      remember?: BrowserPermissionRemember
+    ): boolean {
       const queue = pending.get(guest);
       const answered = queue?.[0];
       if (!queue || !answered || answered.id !== id) return false;
@@ -404,12 +488,28 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
         for (const settle of answered.settle) settle(chosen !== undefined, chosen?.id);
         return true;
       }
-      for (const key of answered.keys) decisions.set(decisionKey(answered.embedder, answered.origin, key), allow);
+      const setting: BrowserPermissionSetting = allow ? 'allow' : 'block';
+      let policy = currentPolicy();
+      if (remember === 'site') {
+        // A full exception list refuses the answer: the prompt stays open rather than
+        // quietly lasting only until the app quits.
+        const withSite = withSiteRules(policy, answered, setting);
+        if (!withSite) throw new Error(SITE_LIST_FULL);
+        policy = withSite;
+      }
+      for (const key of answered.keys) {
+        // Also kept for this run, so a site exception set to "ask" still settles the waiting request.
+        decisions.set(decisionKey(answered.embedder, answered.origin, key), allow);
+        if (remember === 'all' && isBrowserPermissionKind(key)) {
+          policy = withBrowserPermissionDefault(policy, key, setting);
+        }
+      }
+      if (remember) savePolicy(policy);
       const remaining: PendingBrowserPermission[] = [];
       for (const entry of queue) {
-        const known = decided(entry.embedder, entry.origin, entry.keys);
-        if (known === undefined) remaining.push(entry);
-        else for (const settle of entry.settle) settle(known);
+        const { verdict } = entry.devices ? { verdict: undefined } : evaluate(entry.embedder, entry.origin, entry.keys);
+        if (verdict === undefined) remaining.push(entry);
+        else for (const settle of entry.settle) settle(verdict);
       }
       if (remaining.length) pending.set(guest, remaining);
       else pending.delete(guest);

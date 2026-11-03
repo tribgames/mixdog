@@ -40,6 +40,11 @@ export type ComposerAttachment = {
   token: string;
   source?: 'file' | 'paste';
   metadataText?: string;
+  /** An image whose `data` is a resized copy: the engine's stored copy of the
+   *  picked file's own bytes, and its type. They become the PC file; the model
+   *  still gets `data`. */
+  originalRef?: string;
+  originalMimeType?: string;
   /** Chip-only attachments keep their bracket token out of the editor text;
    * the token is appended internally at send time so daemon expansion and
    * transcript folding still work. */

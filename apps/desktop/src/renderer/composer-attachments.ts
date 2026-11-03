@@ -231,6 +231,28 @@ async function browserResizedImage(
   }
 }
 
+const isStoredRef = (value: unknown): value is string => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+
+/** Hands the picked file's own bytes to the engine once, so the PC copy of a
+ *  resized attachment is the original. Best effort: an original this link
+ *  cannot carry (past the relay's learned ceiling, a refused or failed call)
+ *  returns null and the attachment keeps the resized copy, as before. */
+export async function stageOriginalImage(raw: string, file: File, displayName: string): Promise<string | null> {
+  if (remoteAttachmentSizeError(displayName, file.size)) return null;
+  const invoke = window.mixdogDesktop?.invokeCapability;
+  if (typeof invoke !== 'function') return null;
+  try {
+    const result = await invoke<RecordValue>({
+      capability: 'stageAttachmentOriginal',
+      args: [{ data: raw, mimeType: file.type }],
+    });
+    const ref = asRecord(result?.value)?.originalRef;
+    return isStoredRef(ref) ? ref : null;
+  } catch {
+    return null;
+  }
+}
+
 // TUI parity: route images through the engine's optional-sharp resize pipeline
 // so desktop submits the same downscaled payload the terminal client would.
 // Hosts without the capability (older engines, test stubs) keep the raw attach,
@@ -244,6 +266,7 @@ async function resizedImage(
   data: string;
   mimeType: string;
   metadataText: string;
+  originalRef?: string;
 }> {
   // Browser-selected files and keyboard/clipboard screenshots already live in
   // this process. Resize them here instead of sending the full original over
@@ -262,6 +285,8 @@ async function resizedImage(
         data: value.data,
         mimeType: String(value.mimeType || mimeType),
         metadataText: String(value.metadataText || ''),
+        // The engine kept the picked bytes while it resized; nothing crossed twice.
+        ...(isStoredRef(value.originalRef) ? { originalRef: value.originalRef } : {}),
       };
     }
   } catch (reason) {
@@ -295,7 +320,14 @@ async function imageAttachment({
   if (cancelled()) return null;
   const image = await resizedImage(file, raw, file.type, displayName);
   if (cancelled()) return null;
+  // A resized copy goes to the model; the picked bytes are kept for the PC file
+  // (the desktop engine already did that while resizing). A payload that is the
+  // file itself needs no second copy.
+  const originalRef =
+    image.originalRef ?? (image.data === raw ? null : await stageOriginalImage(raw, file, displayName));
+  if (cancelled()) return null;
   return {
+    ...(originalRef ? { originalRef, originalMimeType: file.type } : {}),
     id,
     name: displayName,
     kind: 'image',

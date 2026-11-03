@@ -316,6 +316,22 @@ function Get-ElementStructure($el, $deadline = $null) {
     }
 }
 
+# Whether an observed element hides what is typed into it, read as the typing
+# guard reads it (Test-FocusMasked): a UIA record by IsPassword, then MSAA's
+# protected state of its window; an MSAA record by its own state (PROTECTED
+# means password, a readable state without it does not). Anything unreadable
+# counts as a password.
+function Test-RecordMasked($record) {
+    try {
+        if ($record.Kind -eq 'msaa') { return [bool]$record.Msaa.IsProtected() }
+        if ([bool]$record.Element.Current.IsPassword) { return $true }
+        $nativeHandle = [int]$record.Element.Current.NativeWindowHandle
+        if ($nativeHandle -eq 0) { return $false }
+        return [bool][MixMsaa]::IsProtectedInput([IntPtr]$nativeHandle)
+    }
+    catch { return $true }
+}
+
 function Snapshot-Window($req) {
     $snapshotClock = [System.Diagnostics.Stopwatch]::StartNew()
     # With a deadline every provider call below shares one budget on
@@ -330,6 +346,11 @@ function Snapshot-Window($req) {
     $state = Get-CurrentSession
     $expectedContinuation = $state.Continuation
     $state.Continuation = $null
+    # A ref named by the request is read before the map is cleared: the
+    # element it points at is marked in the reply (bound_ref, is_password) by an
+    # identity that survives this snapshot's new refs.
+    $boundKey = $null
+    if ($req.ref -and $state.Map.ContainsKey([string]$req.ref)) { $boundKey = [string]$state.Map[[string]$req.ref].RuntimeId }
     $state.Generation = [int]$state.Generation + 1
     $state.Map.Clear()
     $generation = $state.Generation
@@ -616,6 +637,13 @@ function Snapshot-Window($req) {
         }
         if ($observation.Accelerator) { $elementOut.accelerator = (Format-ObservationValue $observation.Accelerator 40) }
         if ($observation.AccessKey) { $elementOut.access_key = (Format-ObservationValue $observation.AccessKey 40) }
+        if ($boundKey) {
+            $recordKey = if ($record.Kind -eq 'msaa') { [string]$record.Msaa.Key } else { [string](Get-ElRuntimeKey $record.Element) }
+            if ($recordKey -eq $boundKey) {
+                $elementOut.bound_ref = $true
+                $elementOut.is_password = Test-RecordMasked $record
+            }
+        }
         if ($includeStructure -and $record.Kind -eq 'uia') {
             $structure = Get-ElementStructure $record.Element $deadline
             $elementOut.runtime_id = $structure.runtime_id

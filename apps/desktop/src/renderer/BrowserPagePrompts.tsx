@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { BROWSER_PERMISSION_MAX_SITES } from '../shared/browser-permission-policy';
 import type { DesktopBrowserPageAction, DesktopBrowserPageFrame } from '../shared/contract';
 import { t } from './i18n';
 
@@ -20,6 +21,8 @@ export function BrowserPagePrompts({
   const [busy, setBusy] = useState(false);
   // The device picked in a device chooser, for the prompt it was picked in.
   const [pick, setPick] = useState<{ prompt: string; device: string } | null>(null);
+  // The "remember" choice of a permission prompt, for the prompt it was made in.
+  const [keep, setKeep] = useState<{ prompt: string; value: '' | 'site' | 'all' } | null>(null);
   const answer = async (action: DesktopBrowserPageAction) => {
     if (busy) return;
     setBusy(true);
@@ -51,6 +54,12 @@ export function BrowserPagePrompts({
       ? pick.device
       : undefined;
   const cancellable = !waiting && !notice && dialog?.type !== 'alert';
+  // How long a permission answer lasts; Escape never keeps anything.
+  const siteListFull = asking && dialog?.permission?.siteListFull === true;
+  const chosen: '' | 'site' | 'all' = keep && keep.prompt === dialog?.id ? keep.value : '';
+  // A full exception list cannot take another site: the choice falls back to "until quit" visibly.
+  const remember = siteListFull && chosen === 'site' ? '' : chosen;
+  const rememberField = asking && !devices && dialog ? (remember ? { remember } : {}) : {};
   // Like an ordinary browser's page dialog: an opaque card naming the site,
   // focused on arrival so Enter accepts and Escape dismisses it.
   const accept = () => {
@@ -62,8 +71,12 @@ export function BrowserPagePrompts({
         promptText: text,
         ...(dialog.type === 'prompt' && !edited ? { keepDefault: true } : {}),
         ...(picked ? { deviceId: picked } : {}),
+        ...rememberField,
       });
     }
+  };
+  const deny = () => {
+    if (dialog) void answer({ type: 'answer-dialog', requestId: dialog.id, accept: false, ...rememberField });
   };
   const dismiss = () => {
     if (dialog) {
@@ -134,6 +147,29 @@ export function BrowserPagePrompts({
                 )}
               </>
             )}
+            {asking && !devices && (
+              <label className="browser-permission-remember">
+                <span>{t('Remember')}</span>
+                <select
+                  value={remember}
+                  disabled={busy}
+                  onChange={(event) =>
+                    setKeep({ prompt: dialog.id, value: event.target.value as '' | 'site' | 'all' })
+                  }
+                >
+                  <option value="">{t('Until the app quits')}</option>
+                  <option value="site" disabled={siteListFull}>
+                    {t('For this site')}
+                  </option>
+                  <option value="all">{t('For all sites')}</option>
+                </select>
+                {siteListFull && (
+                  <small className="browser-permission-remember-note" role="status">
+                    {t('Site list full ({{max}}) — remove sites in Settings', { max: BROWSER_PERMISSION_MAX_SITES })}
+                  </small>
+                )}
+              </label>
+            )}
             {dialog.type === 'prompt' && (
               <input
                 aria-label={t('Response')}
@@ -155,7 +191,7 @@ export function BrowserPagePrompts({
           {!waiting && (
             <footer>
               {cancellable && (
-                <button type="button" disabled={busy} onClick={dismiss}>
+                <button type="button" disabled={busy} onClick={asking && !devices ? deny : dismiss}>
                   {devices ? t('Cancel') : asking ? t('Deny') : t('Cancel')}
                 </button>
               )}
@@ -214,6 +250,8 @@ function permissionLabel(key: string): string {
       return t('Know your location');
     case 'clipboard-read':
       return t('Read the clipboard and put content on it');
+    case 'clipboard-write':
+      return t('Put content on the clipboard');
     case 'midi':
       return t('Use your MIDI devices');
     case 'midiSysex':

@@ -17,6 +17,7 @@ import { attachmentSummary, textWithoutAttachmentTokens } from './message-attach
 import { MxIcon } from './MxIcon';
 import { ProgressSpinner } from './ProgressSpinner';
 import { type desktopComposerSlashCommands, desktopSlashCommandDescription } from './slash-commands';
+import { holdFieldFocusOnPress } from './surface-input-focus';
 import { oneLine } from './text-format';
 import type { DictationState } from './use-composer-dictation';
 
@@ -551,6 +552,7 @@ export const SendButton = React.memo(function SendButton({
       type={stopOnly || voiceSend ? 'button' : 'submit'}
       className={`send-button${stopOnly ? ' stop' : ''}`}
       onClick={onClick}
+      onMouseDown={holdFieldFocusOnPress}
       disabled={disabled}
       aria-label={label}
       data-tooltip={tooltip}

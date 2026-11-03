@@ -26,16 +26,36 @@ interface NativeCookieImportFailures {
   invalidPartition: number;
 }
 
+/** A freshly unwrapped App-Bound key the importer was asked to hand back. */
+export interface NativeAppBoundKey {
+  key: string;
+  blobSha256: string;
+}
+
 interface NativeCookieImportReport {
   version: 2;
   sourceCount: number;
   expired: number;
   cookies: BrowserImportCookie[];
   failures: NativeCookieImportFailures;
+  appBoundKey?: NativeAppBoundKey;
 }
 
 const FAILURE_KEYS = ['decryption', 'domainMismatch', 'invalidEncoding', 'invalidPartition'] as const;
 const MAX_COOKIES = 1_000_000;
+
+function validAppBoundKey(value: unknown): value is NativeAppBoundKey {
+  if (!value || typeof value !== 'object') return false;
+  const { key, blobSha256 } = value as Partial<NativeAppBoundKey>;
+  return (
+    // Shape only (32 bytes = 43 base64 characters and one pad): decoding here
+    // would make a key copy that nothing wipes. The one decode is keepAppBoundKey's.
+    typeof key === 'string' &&
+    /^[A-Za-z0-9+/]{43}=$/.test(key) &&
+    typeof blobSha256 === 'string' &&
+    /^[0-9a-f]{64}$/.test(blobSha256)
+  );
+}
 
 /** Require source accounting: an old array-only helper cannot prove completeness. */
 export function parseBrowserCookieReport(output: unknown): NativeCookieImportReport {
@@ -57,7 +77,8 @@ export function parseBrowserCookieReport(output: unknown): NativeCookieImportRep
     !report.failures ||
     typeof report.failures !== 'object' ||
     !FAILURE_KEYS.every((key) => count(report.failures?.[key])) ||
-    report.cookies.some((cookie) => !cookie || typeof cookie !== 'object' || Array.isArray(cookie))
+    report.cookies.some((cookie) => !cookie || typeof cookie !== 'object' || Array.isArray(cookie)) ||
+    (report.appBoundKey !== undefined && !validAppBoundKey(report.appBoundKey))
   ) {
     throw new Error('Native cookie importer returned an invalid report.');
   }

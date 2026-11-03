@@ -11,6 +11,8 @@ import {
   materializePromptSubmission,
   preparePromptSubmissionForProvider,
 } from '../../../runtime/attachments/store.mjs';
+import { attachedFilesNote } from '../../../runtime/attachments/attachment-reference.mjs';
+import { claimStagedOriginals } from '../../../runtime/attachments/staged-originals.mjs';
 import { providerNativePdf } from '../../../runtime/agent/orchestrator/providers/registry.mjs';
 import { cancelBackgroundTasks } from '../../../runtime/shared/background-tasks.mjs';
 import { isAgentModeSession } from '../../../runtime/agent/orchestrator/session/agent-mode.mjs';
@@ -126,7 +128,32 @@ export function createSessionTurnCalls(ctx) {
     // Every send (desktop or paired device) reaches the engine here: the
     // message records its attachments by content hash, so any device can open
     // or download them by id later (and the store's census keeps the blobs).
+    // A picked original the composer staged is claimed first, so staging
+    // limits can no longer take it; one that is gone (or cannot be claimed in
+    // time) is dropped from the record, leaving the resized copy.
+    const pasted = intake.options?.pastedImages;
+    if (pasted && typeof pasted === 'object') {
+      // Synchronous on purpose: nothing may yield between the cancel check and the enqueue.
+      const claimed = claimStagedOriginals(Object.values(pasted).map((raw) => raw?.originalRef));
+      const lost = Object.entries(pasted).filter(([, raw]) => raw?.originalRef && !claimed.has(raw.originalRef));
+      if (lost.length) {
+        const kept = { ...pasted };
+        for (const [key, raw] of lost) {
+          const { originalRef: _ref, originalMediaType: _type, ...rest } = raw;
+          kept[key] = rest;
+        }
+        intake = { ...intake, options: { ...intake.options, pastedImages: kept } };
+        submissionOptions = intake.options;
+      }
+    }
     const attachments = attachmentsForIntake(intake.prompt, intake.options);
+    // The model is told where each attached file lives on this PC (inline or
+    // by reference), under its original name.
+    const filesNote = attachedFilesNote(intake.prompt, intake.options, attachments);
+    if (filesNote) {
+      const parts = typeof intake.prompt === 'string' ? [{ type: 'text', text: intake.prompt }] : intake.prompt;
+      intake = { ...intake, prompt: [...parts, filesNote] };
+    }
     if (attachments.length || entry.runtime.externalAction === true) {
       const transcriptMeta = intake.options?.transcriptMeta;
       const baseMeta = transcriptMeta && typeof transcriptMeta === 'object' ? transcriptMeta : {};

@@ -38,6 +38,9 @@ export interface ScreenshotTarget {
   targetWindow: Rect;
   ownerWindowId: string;
   client: Rect;
+  /** The window rectangle a composited thumbnail is drawn from, where the
+   *  worker knows it (Windows); it differs from both the outer and client rect. */
+  composited?: Rect;
   relatedWindowIds: string[] | null;
 }
 
@@ -94,6 +97,12 @@ export async function windowScreenshotTarget(
   const ids = Array.isArray(bounds.result?.related_window_ids)
     ? bounds.result.related_window_ids.map(String).filter(Boolean)
     : [];
+  const composited = {
+    x: Math.round(Number(bounds.result?.composited_x)),
+    y: Math.round(Number(bounds.result?.composited_y)),
+    width: Math.round(Number(bounds.result?.composited_width)),
+    height: Math.round(Number(bounds.result?.composited_height)),
+  };
   return {
     sourceType: 'window',
     sourceTitle,
@@ -110,6 +119,7 @@ export async function windowScreenshotTarget(
       width: Math.round(Number(bounds.result?.client_width) || 0),
       height: Math.round(Number(bounds.result?.client_height) || 0),
     },
+    ...(composited.width > 0 && composited.height > 0 ? { composited } : {}),
     relatedWindowIds: ids.includes(windowId) ? ids : [windowId, ...ids],
   };
 }
@@ -139,16 +149,18 @@ export function displayScreenshotTarget(command: ComputerCommand): ScreenshotTar
 }
 
 /** Where the captured pixels actually are. A surface that reports its own
- *  bounds wins outright; a composited window thumbnail is matched by aspect
- *  ratio to either the outer window or its client area — whichever the
- *  compositor really drew — so click coordinates map onto the right box. */
+ *  bounds wins outright: native surfaces, app-owned pages and Windows
+ *  composited thumbnails all know the rectangle they drew. Only a compositor
+ *  whose source rectangle no worker reports (macOS, Linux) is matched by
+ *  aspect ratio to either the outer window or its client area. */
 export function capturedGeometry(
   target: ScreenshotTarget,
-  surface: { bounds?: Rect; nativeBackend?: unknown },
+  surface: { bounds?: Rect },
   captureSize: { width: number; height: number }
 ): Rect {
-  let geometry: Rect = surface.bounds ? { ...surface.bounds } : { ...target.geometry };
-  if (target.windowId && !surface.nativeBackend && target.client.width > 0 && target.client.height > 0) {
+  if (surface.bounds) return { ...surface.bounds };
+  let geometry: Rect = { ...target.geometry };
+  if (target.windowId && target.client.width > 0 && target.client.height > 0) {
     const actualAspectRatio = captureSize.width / Math.max(1, captureSize.height);
     geometry = [geometry, target.client].reduce((best, candidate) => {
       const candidateRatio = candidate.width / Math.max(1, candidate.height);

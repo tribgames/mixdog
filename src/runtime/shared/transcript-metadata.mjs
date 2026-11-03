@@ -49,6 +49,16 @@ export function normalizeMessageAttachments(value) {
       name: String(raw.name || 'attachment').slice(0, 200),
       mimeType: String(raw.mimeType || 'application/octet-stream').slice(0, 100),
       size: Number.isFinite(Number(raw.size)) && Number(raw.size) >= 0 ? Number(raw.size) : 0,
+      // The picked file behind a resized image: its blob is kept (and its PC
+      // copy named) for as long as this record exists.
+      ...(ATTACHMENT_ID.test(String(raw.original?.attachmentRef || ''))
+        ? {
+            original: {
+              attachmentRef: raw.original.attachmentRef,
+              mimeType: String(raw.original.mimeType || '').slice(0, 100),
+            },
+          }
+        : {}),
     });
   }
   return out;

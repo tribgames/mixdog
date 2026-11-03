@@ -10,7 +10,12 @@ import {
   roomMemberSessionId,
   roomSessionId,
 } from '../../../../../src/runtime/agent/orchestrator/session/agent-room.mjs';
-import { decideBrowserApproval, requestBrowserApproval, setBrowserApprovalHooks } from './approval-dialog.ts';
+import {
+  decideBrowserApproval,
+  endBrowserApprovalSession,
+  requestBrowserApproval,
+  setBrowserApprovalHooks,
+} from './approval-dialog.ts';
 
 function fakeWindow(focused) {
   const sent = [];
@@ -308,11 +313,11 @@ async function cardOrSettled(window, pending) {
   for (let i = 0; i < 200 && window.sent.length === 0 && !settled; i += 1) await new Promise((r) => setTimeout(r, 5));
   return window.sent[0]?.payload ?? null;
 }
-const asRequest = (sessionId, kinds) => ({ ...request(), sessionId, kinds });
-async function ask(grants, sessionId, kinds, decision) {
+const asRequest = (sessionId, kinds, extra = {}) => ({ ...request(), sessionId, kinds, ...extra });
+async function ask(grants, sessionId, kinds, decision, extra = {}) {
   const window = fakeWindow(true);
   setBrowserApprovalHooks(grants);
-  const pending = requestBrowserApproval(window, asRequest(sessionId, kinds));
+  const pending = requestBrowserApproval(window, asRequest(sessionId, kinds, extra));
   const card = await cardOrSettled(window, pending);
   if (!card) return { shown: false, outcome: await pending, window };
   decideBrowserApproval(window.contents, card.id, decision);
@@ -751,4 +756,114 @@ test('an operator-listed upload (confirm) always asks and is never remembered', 
   const only = await askUpload(memoryGrants(), 'sess_home_marketer', ['confirm'], 'always');
   assert.equal(only.card.remember, null);
   setBrowserApprovalHooks({});
+});
+
+const LIFE = { sessionLife: '5:0' };
+
+test('allow for this session: one card per kind, any page, ended by reset/expiry, never for confirm or runs', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: 9_000_000 });
+  const audits = [];
+  const grants = { ...memoryGrants(), isBlocked: async () => false, audit: async (a, k, d) => audits.push([a, k, d]) };
+  const session = 'sess_home_sessiontest';
+  const first = await ask(grants, session, ['submit'], 'session', LIFE);
+  assert.equal(first.shown, true);
+  assert.deepEqual(first.card.remember, { kinds: ['submit'], session: true });
+  assert.equal(first.outcome, true);
+  assert.equal(grants.allowed.size, 0, 'nothing is saved for always');
+  // Another page, same kind and session: no card.
+  setBrowserApprovalHooks(grants);
+  const otherPage = await requestBrowserApproval(fakeWindow(true), {
+    ...asRequest(session, ['submit'], LIFE),
+    url: 'https://elsewhere.example/other',
+  });
+  assert.equal(otherPage, true);
+  assert.deepEqual(audits.filter(([, , d]) => d.startsWith('session')).map(([, , d]) => d), [
+    'session-granted',
+    'session-remembered',
+  ]);
+  // Another kind, another session, an operator confirm: still asked.
+  assert.equal((await ask(grants, session, ['post'], 'deny', LIFE)).shown, true);
+  assert.equal((await ask(grants, 'sess_home_other', ['submit'], 'deny', LIFE)).shown, true);
+  const confirm = await ask(grants, session, ['submit', 'confirm'], 'session', LIFE);
+  assert.equal(confirm.card.remember, null);
+  assert.equal((await ask(grants, session, ['submit', 'confirm'], 'deny', LIFE)).shown, true, 'a confirm card grants nothing');
+  // A schedule/webhook run on the same session never uses it.
+  setBrowserApprovalHooks({ ...grants, isBlocked: async () => false });
+  const run = await requestBrowserApproval(fakeWindow(true), {
+    ...asRequest(session, ['submit'], LIFE),
+    unattended: true,
+    unattendedAgent: 'sessiontest',
+  });
+  assert.equal(run, true);
+  assert.equal(audits.at(-1)[2], 'run-allowed');
+  // Expires after 12 h.
+  t.mock.timers.tick(12 * 60 * 60_000 + 1);
+  assert.equal((await ask(grants, session, ['submit'], 'deny', LIFE)).shown, true, 'expired');
+  // Granted again, then the session is reset (here and in the runtime).
+  await ask(grants, session, ['submit'], 'session', LIFE);
+  endBrowserApprovalSession(session);
+  assert.equal((await ask(grants, session, ['submit'], 'deny', LIFE)).shown, true, 'reset');
+});
+
+test('a browser session allowance is bound to the session life mark and needs one', async () => {
+  const grants = { ...memoryGrants(), isBlocked: async () => false };
+  const session = 'sess_home_lifemark';
+  // No life mark: no session choice is offered and "session" stores nothing.
+  const bare = await ask(grants, session, ['submit'], 'session');
+  assert.deepEqual(bare.card.remember, { kinds: ['submit'] });
+  assert.equal((await ask(grants, session, ['submit'], 'deny')).shown, true);
+  // Granted under one life, a runtime clear (another mark) asks again; the new life can grant anew.
+  await ask(grants, session, ['submit'], 'session', { sessionLife: '5:0' });
+  assert.equal((await ask(grants, session, ['submit'], 'deny', { sessionLife: '5:0' })).shown, false);
+  assert.equal((await ask(grants, session, ['submit'], 'deny', { sessionLife: '5:900' })).shown, true, 'cleared');
+  assert.equal((await ask(grants, session, ['submit'], 'deny', { sessionLife: '5:0' })).shown, true, 'dropped, not hidden');
+});
+
+test('a payment step is a floor: once only, no grant of any kind, not skipped by Allow all actions, never in a run', async () => {
+  const audits = [];
+  const allowAll = { ...memoryGrants(), isBlocked: async () => false, allowAllActions: async () => true };
+  const grants = { ...allowAll, audit: async (a, k, d) => audits.push([a, k, d]) };
+  const session = 'sess_home_payfloor';
+  // Saved and session allowances exist for the kind; a payment step still asks.
+  grants.allowed.add('payfloor\nbrowser_submit');
+  const pay = await ask({ ...grants, allowAllActions: async () => false }, session, ['submit'], 'always', {
+    ...LIFE,
+    payment: true,
+  });
+  assert.equal(pay.shown, true);
+  assert.equal(pay.card.remember, null, 'once or deny only');
+  assert.equal(pay.card.payment, true);
+  // "Allow all actions" does not skip it.
+  grants.allowed.clear();
+  assert.equal((await ask(grants, session, ['submit'], 'deny', { ...LIFE, payment: true })).shown, true);
+  // Answering "session" on it stores nothing for ordinary submits either.
+  await ask({ ...grants, allowAllActions: async () => false }, session, ['submit'], 'session', { ...LIFE, payment: true });
+  assert.equal(
+    (await ask({ ...grants, allowAllActions: async () => false }, session, ['submit'], 'deny', LIFE)).shown,
+    true
+  );
+  // A run never does a payment.
+  setBrowserApprovalHooks(grants);
+  await assert.rejects(
+    requestBrowserApproval(fakeWindow(true), {
+      ...asRequest(session, ['submit'], LIFE),
+      unattended: true,
+      unattendedAgent: 'payfloor',
+      payment: true,
+    }),
+    /payments aren't allowed/
+  );
+});
+
+test('a denied card or one that goes away stores no session allowance', async () => {
+  const grants = memoryGrants();
+  const session = 'sess_home_nostore';
+  assert.equal((await ask(grants, session, ['submit'], 'deny', LIFE)).outcome, false);
+  const window = fakeWindow(true);
+  setBrowserApprovalHooks(grants);
+  const pending = requestBrowserApproval(window, asRequest(session, ['submit'], LIFE));
+  await cardOrSettled(window, pending);
+  window.emit('closed');
+  assert.equal(await pending, false);
+  assert.equal((await ask(grants, session, ['submit'], 'deny', LIFE)).shown, true);
 });

@@ -7,6 +7,9 @@ public partial class MixWin32
     static bool TryFocusAttached(IntPtr h)
     {
         IntPtr foreground = GetForegroundWindow();
+        // An activation an earlier attempt queued may have landed meanwhile;
+        // raising and focusing the window again would only replay it.
+        if (InFront(h, foreground)) return true;
         uint foregroundThread = GetWindowThreadProcessId(foreground, IntPtr.Zero);
         uint targetThread = GetWindowThreadProcessId(h, IntPtr.Zero);
         uint currentThread = GetCurrentThreadId();
@@ -36,6 +39,11 @@ public partial class MixWin32
     // minimized: activation is SetForegroundWindow's job and must never resize
     // the window the user arranged.
     static void RestoreIfMinimized(IntPtr h) { if (IsIconic(h)) ShowWindow(h, 9); }
+    // Every foreground step of an operation asks for its target; once it is in
+    // front, activating it again re-sends activation and keyboard focus (the
+    // attached path ends in SetFocus on the frame) to a window that already
+    // has both, which the user sees as the window flickering.
+    static bool InFront(IntPtr h, IntPtr foreground) { return foreground == h && !IsIconic(h); }
     const uint SPI_GETFOREGROUNDLOCKTIMEOUT = 0x2000;
     const uint SPI_SETFOREGROUNDLOCKTIMEOUT = 0x2001;
     /// The foreground lock is a timeout, not a permission, and a background
@@ -65,6 +73,7 @@ public partial class MixWin32
     public static bool Focus(IntPtr h)
     {
         if (h == IntPtr.Zero || !IsWindow(h)) return false;
+        if (InFront(h, GetForegroundWindow())) return true;
         RestoreIfMinimized(h);
         SetForegroundWindow(h);
         if (GetForegroundWindow() == h) return true;

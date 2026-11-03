@@ -14,7 +14,7 @@ import { rememberBrowserIdentity } from './browser-identity';
 import { BROWSER_PARTITION } from './command';
 import { createBrowserDownloadLedger } from './downloads';
 import { installBrowserPageZoom } from './page-zoom';
-import { createBrowserPermissions } from './permissions';
+import { type BrowserPermissionPolicyStore, createBrowserPermissions } from './permissions';
 import { redactBrowserText } from './redaction';
 import { browserRequestDisposition } from './request-scheme';
 import { browserAcceptLanguages, browserPartitionUserAgent } from './user-agent';
@@ -50,14 +50,21 @@ interface BrowserPartitionHost {
   onNavigationPost?(webContentsId: number, url: string, chunks: Buffer[]): void;
   /** The `browserHidDevices` setting: sites may ask to connect a HID device. */
   hidDevices?(): boolean;
+  /** The saved site-permission defaults and exceptions. */
+  permissionPolicy?: BrowserPermissionPolicyStore;
   /** The page a frame asking for a device belongs to. */
   guestForFrame?(frame: WebFrameMain): WebContents | null | undefined;
 }
 
 export function createBrowserPartition(host: BrowserPartitionHost) {
   const partitionSession: Session = session.fromPartition(BROWSER_PARTITION);
-  // A site gets a permission only from a person's answer in the pane.
-  const permissions = createBrowserPermissions({ hidDevices: host.hidDevices, guestForFrame: host.guestForFrame });
+  // A site gets a permission only as the saved settings or a person's answer in the pane say.
+  const permissions = createBrowserPermissions({
+    hidDevices: host.hidDevices,
+    guestForFrame: host.guestForFrame,
+    policy: host.permissionPolicy?.policy,
+    save: host.permissionPolicy?.save,
+  });
   permissions.install(partitionSession);
   // Pages see the Chrome build that renders them, with the language list a
   // Chrome profile seeds from the system's own languages. The string is the

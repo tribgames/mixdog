@@ -3,6 +3,14 @@ import test from 'node:test';
 
 import { EventEmitter } from 'node:events';
 import { clearBrowserPermissionHandlers, createBrowserPermissions } from './permissions.ts';
+import {
+  BROWSER_PERMISSION_MAX_SITES,
+  defaultBrowserPermissionPolicy,
+  normalizeBrowserPermissionPolicy,
+  storableBrowserPermissionPolicy,
+  withBrowserPermissionDefault,
+  withBrowserPermissionSite,
+} from '../../shared/browser-permission-policy.ts';
 
 function fixture(options = {}) {
   const handlers = {};
@@ -80,17 +88,17 @@ test('nothing is granted until a person answers, and devices are never offered',
 test("an answer is remembered for the site and settles that site's waiting requests", () => {
   const { handlers, permissions, page, ask } = fixture();
   const guest = page('https://site.test/');
-  const first = ask(guest, 'notifications');
-  const again = ask(guest, 'notifications');
-  const location = ask(guest, 'geolocation');
-  assert.deepEqual(permissions.pending(guest).keys, ['notifications']);
+  const first = ask(guest, 'midi');
+  const again = ask(guest, 'midi');
+  const idle = ask(guest, 'idle-detection');
+  assert.deepEqual(permissions.pending(guest).keys, ['midi']);
   permissions.answer(guest, permissions.pending(guest).id, false);
   assert.deepEqual([first.granted, again.granted], [false, false]);
-  assert.equal(ask(guest, 'notifications').granted, false, 'a refusal is not asked again');
-  assert.deepEqual(permissions.pending(guest).keys, ['geolocation']);
-  assert.equal(location.granted, undefined);
-  assert.equal(ask(page('https://other.test/'), 'notifications').granted, undefined, 'another site is asked');
-  assert.equal(handlers.check(guest, 'notifications', 'https://site.test', {}), false);
+  assert.equal(ask(guest, 'midi').granted, false, 'a refusal is not asked again');
+  assert.deepEqual(permissions.pending(guest).keys, ['idle-detection']);
+  assert.equal(idle.granted, undefined);
+  assert.equal(ask(page('https://other.test/'), 'midi').granted, undefined, 'another site is asked');
+  assert.equal(handlers.check(guest, 'midi', 'https://site.test', {}), false);
 });
 
 test('a permission belongs to the frame that asked, isolated by the site embedding it', () => {
@@ -124,8 +132,8 @@ test('a permission belongs to the frame that asked, isolated by the site embeddi
 test("a prompt is withdrawn when the asking frame navigates, and not for another frame's", () => {
   const { permissions, page, askFrame } = fixture();
   const top = page('https://site.test/', ['https://a.test/', 'https://b.test/']);
-  const a = askFrame(top, 'geolocation', 'https://a.test/');
-  const b = askFrame(top, 'notifications', 'https://b.test/');
+  const a = askFrame(top, 'idle-detection', 'https://a.test/');
+  const b = askFrame(top, 'midi', 'https://b.test/');
   top.emit('did-start-navigation', {
     isMainFrame: false,
     isSameDocument: false,
@@ -133,7 +141,7 @@ test("a prompt is withdrawn when the asking frame navigates, and not for another
   });
   assert.equal(b.granted, false, 'the navigating frame lost its prompt');
   assert.equal(a.granted, undefined);
-  assert.deepEqual(permissions.pending(top).keys, ['geolocation']);
+  assert.deepEqual(permissions.pending(top).keys, ['idle-detection']);
   top.emit('did-start-navigation', {
     isMainFrame: false,
     isSameDocument: true,
@@ -318,13 +326,158 @@ test('a HID device connects only with the setting on and only the one device a p
   assert.equal(handlers.device, null);
 });
 
-test('only a person refusal reads as refused to a page', () => {
+test('only a blocked or refused permission reads as refused to a page', () => {
   const { permissions, page, ask } = fixture();
   const guest = page('https://site.test/');
-  ask(guest, 'notifications');
-  assert.equal(permissions.refused('https://site.test', 'notifications'), false, 'undecided');
+  assert.equal(permissions.refused('https://site.test', 'audio_capture'), false, 'undecided');
+  ask(guest, 'media', { mediaTypes: ['audio'] });
   permissions.answer(guest, permissions.pending(guest).id, false);
-  assert.equal(permissions.refused('https://site.test', 'notifications'), true);
-  assert.equal(permissions.refused('https://other.test', 'notifications'), false);
-  assert.equal(permissions.refused('https://site.test', 'geolocation'), false);
+  assert.equal(permissions.refused('https://site.test', 'audio_capture'), true);
+  assert.equal(permissions.refused('https://other.test', 'audio_capture'), false);
+  assert.equal(permissions.refused('https://site.test', 'video_capture'), false);
+  assert.equal(permissions.refused('https://site.test', 'notifications'), true, 'blocked by default');
+});
+
+function policyFixture() {
+  const store = { policy: defaultBrowserPermissionPolicy(), saves: 0 };
+  const f = fixture({
+    policy: () => store.policy,
+    save: (next) => {
+      store.policy = next;
+      store.saves += 1;
+    },
+  });
+  return { ...f, store };
+}
+
+test('defaults apply silently: notifications and location blocked, clipboard write allowed', async () => {
+  const { handlers, permissions, page, ask, settled } = policyFixture();
+  const guest = page('https://site.test/');
+  assert.equal(ask(guest, 'notifications').granted, false);
+  assert.equal(ask(guest, 'geolocation').granted, false);
+  const write = ask(guest, 'clipboard-sanitized-write');
+  await settled();
+  assert.equal(write.granted, true);
+  assert.equal(permissions.pending(guest), undefined, 'no prompt for any of them');
+  assert.equal(handlers.check(guest, 'notifications', 'https://site.test', {}), false);
+  assert.equal(ask(guest, 'media', { mediaTypes: ['video'] }).granted, undefined, 'camera asks');
+  assert.deepEqual(permissions.pending(guest).keys, ['media:video']);
+});
+
+test('remember for all sites sets the default and persists; for this site, an exception that wins', () => {
+  const { handlers, permissions, page, ask, store } = policyFixture();
+  const guest = page('https://site.test/');
+  const first = ask(guest, 'media', { mediaTypes: ['audio'] });
+  assert.equal(permissions.answer(guest, permissions.pending(guest).id, true, undefined, 'all'), true);
+  assert.equal(first.granted, true);
+  assert.equal(store.policy.defaults['media:audio'], 'allow');
+  assert.equal(store.saves, 1);
+  const other = page('https://other.test/');
+  assert.equal(ask(other, 'media', { mediaTypes: ['audio'] }).granted, true, 'any site, no prompt');
+  assert.equal(handlers.check(other, 'media', 'https://other.test', { mediaType: 'audio' }), true);
+
+  // A site exception beats the default, in both directions.
+  const camera = ask(guest, 'media', { mediaTypes: ['video'] });
+  permissions.answer(guest, permissions.pending(guest).id, false, undefined, 'site');
+  assert.equal(camera.granted, false);
+  assert.deepEqual(store.policy.sites, [
+    { origin: 'https://site.test', permission: 'media:video', setting: 'block' },
+  ]);
+  store.policy = withBrowserPermissionDefault(store.policy, 'media:video', 'allow');
+  assert.equal(ask(guest, 'media', { mediaTypes: ['video'] }).granted, false, 'exception over default');
+  assert.equal(ask(other, 'media', { mediaTypes: ['video'] }).granted, true);
+  store.policy = withBrowserPermissionDefault(store.policy, 'notifications', 'allow');
+  store.policy = withBrowserPermissionSite(store.policy, {
+    origin: 'https://site.test',
+    permission: 'notifications',
+    setting: 'block',
+  });
+  assert.equal(ask(guest, 'notifications').granted, false);
+  assert.equal(ask(other, 'notifications').granted, true);
+});
+
+test('a full exception list refuses a new site and never drops an existing block', () => {
+  const { handlers, permissions, page, ask, store } = policyFixture();
+  store.policy = withBrowserPermissionDefault(store.policy, 'media:video', 'allow');
+  store.policy = withBrowserPermissionSite(store.policy, {
+    origin: 'https://blocked.test',
+    permission: 'media:video',
+    setting: 'block',
+  });
+  for (let index = 1; store.policy.sites.length < BROWSER_PERMISSION_MAX_SITES; index += 1) {
+    store.policy = withBrowserPermissionSite(store.policy, {
+      origin: `https://s${index}.test`,
+      permission: 'midi',
+      setting: 'allow',
+    });
+  }
+  assert.equal(store.policy.sites.length, BROWSER_PERMISSION_MAX_SITES);
+  const extra = { origin: 'https://new.test', permission: 'midi', setting: 'allow' };
+  assert.equal(withBrowserPermissionSite(store.policy, extra), null, 'refused at capacity');
+  assert.ok(withBrowserPermissionSite(store.policy, { ...store.policy.sites[1], setting: 'block' }), 'edit in place');
+  const before = store.policy;
+  const guest = page('https://new.test/');
+  const asked = ask(guest, 'midi');
+  assert.equal(permissions.pending(guest).siteListFull, true, 'the prompt says the list is full');
+  const promptId = permissions.pending(guest).id;
+  assert.throws(() => permissions.answer(guest, promptId, true, undefined, 'site'), /exception list is full/);
+  assert.equal(asked.granted, undefined, 'the answer is rejected, not downgraded to until-quit');
+  assert.equal(permissions.pending(guest).id, promptId, 'the prompt stays open');
+  assert.equal(store.policy, before, 'nothing persisted');
+  assert.equal(store.saves, 0);
+  assert.equal(permissions.answer(guest, promptId, true, undefined, 'all'), true, 'other choices still work');
+  assert.equal(asked.granted, true);  assert.equal(ask(page('https://blocked.test/'), 'media', { mediaTypes: ['video'] }).granted, false);
+  assert.equal(handlers.check(page('https://blocked.test/'), 'media', 'https://blocked.test', { mediaType: 'video' }), false);
+  assert.equal(normalizeBrowserPermissionPolicy(before).sites.length, BROWSER_PERMISSION_MAX_SITES, 'load keeps all');
+  const over = { ...before, sites: [...before.sites, { ...extra }] };
+  assert.equal(normalizeBrowserPermissionPolicy(over).sites.length, BROWSER_PERMISSION_MAX_SITES + 1, 'no truncation');
+});
+
+test('an answer without remember changes no saved setting', () => {
+  const { permissions, page, ask, store } = policyFixture();
+  const guest = page('https://site.test/');
+  ask(guest, 'media', { mediaTypes: ['video'] });
+  permissions.answer(guest, permissions.pending(guest).id, true);
+  assert.equal(store.saves, 0);
+  assert.deepEqual(store.policy, defaultBrowserPermissionPolicy());
+});
+
+test('settings survive a restart: the stored form reads back to the same policy', () => {
+  const { permissions, page, ask, store } = policyFixture();
+  const guest = page('https://site.test/', ['https://ad.test/x']);
+  ask(guest, 'midi');
+  permissions.answer(guest, permissions.pending(guest).id, true, undefined, 'all');
+  const frame = ask(guest, 'media', { mediaTypes: ['video'] });
+  permissions.answer(guest, permissions.pending(guest).id, true, undefined, 'site');
+  assert.equal(frame.granted, true);
+  const stored = JSON.parse(JSON.stringify(storableBrowserPermissionPolicy(store.policy)));
+  assert.deepEqual(Object.keys(stored.defaults), ['midi'], 'only differences are stored');
+  assert.deepEqual(normalizeBrowserPermissionPolicy(stored), store.policy);
+  assert.deepEqual(normalizeBrowserPermissionPolicy({ defaults: { midi: 'maybe', bogus: 'allow' }, sites: [{}] }), defaultBrowserPermissionPolicy());
+});
+
+test('clipboard read is only ever allowed by an explicit remember, and still needs a gesture', async () => {
+  const { handlers, permissions, page, ask, activation, settled, store } = policyFixture();
+  const guest = page('https://site.test/');
+  assert.equal(store.policy.defaults['clipboard-read'], 'ask');
+  const first = ask(guest, 'clipboard-read');
+  await settled();
+  assert.equal(first.granted, undefined, 'asked, not granted by default');
+  permissions.answer(guest, permissions.pending(guest).id, true);
+  assert.equal(store.policy.defaults['clipboard-read'], 'ask', 'a plain answer does not change the default');
+  const second = ask(guest, 'clipboard-read', { requestingUrl: 'https://site.test/' });
+  await settled();
+  assert.equal(second.granted, true, 'a plain answer lasted only this run, for this site');
+  const stranger = page('https://other.test/');
+  const third = ask(stranger, 'clipboard-read');
+  await settled();
+  assert.equal(third.granted, undefined, 'another site is still asked');
+  permissions.answer(stranger, permissions.pending(stranger).id, true, undefined, 'all');
+  assert.equal(third.granted, true);
+  assert.equal(store.policy.defaults['clipboard-read'], 'allow');
+  assert.equal(handlers.check(guest, 'clipboard-read', 'https://site.test', {}), false, 'never a standing check');
+  activation.active = false;
+  const idle = ask(guest, 'clipboard-read');
+  await settled();
+  assert.equal(idle.granted, false, 'even allowed everywhere, a gesture is needed');
 });

@@ -10,7 +10,14 @@ import { remoteConnectionInterruptedError } from './remote-connection-state';
 import type { RemoteShimContext } from './remote-shim-state';
 
 /** Calls that must reach a running turn now: they skip the view-sync gate. */
-const UNGATED_CALLS = new Set(['abortSession', 'resolveToolApprovalForSession', 'answerApprovalNotification']);
+const UNGATED_CALLS = new Set([
+  'abortSession',
+  'resolveToolApprovalForSession',
+  'answerApprovalNotification',
+  // A secret request waits only 120 s on the PC (secret-requests.ts): its
+  // value goes out before the card's decision, as soon as the leg is up.
+  'provideSecretInput',
+]);
 /** The view sync and the ungated calls: they draw on the priority reserve. */
 const PRIORITY_CALLS = new Set(['synchronizeViews', ...UNGATED_CALLS]);
 

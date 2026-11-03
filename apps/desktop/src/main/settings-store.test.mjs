@@ -9,6 +9,7 @@ import { DesktopSettingsStore, desktopSettingsFromConfig, settingsConfigModuleUr
 import { registerDesktopIpc } from './ipc.ts';
 import { requiredDesktopCapabilityRequest, requiredDesktopSettingKey } from './ipc-validation.ts';
 import { DESKTOP_IPC } from '../shared/contract.ts';
+import { defaultBrowserPermissionPolicy } from '../shared/browser-permission-policy.ts';
 import { registerWindowSettingsIpc } from './ipc-window-settings.ts';
 
 test('desktop zoom ignores legacy values and rejects changes without rewriting unrelated settings', async () => {
@@ -117,6 +118,7 @@ test('desktop settings read the canonical agent section and desktop defaults', (
     browserControl: false,
     browserAutoSignIn: true,
     browserHidDevices: false,
+    browserPermissions: defaultBrowserPermissionPolicy(),
     saveChatLogins: true,
     computerInstalled: false,
     browserInstalled: false,
@@ -153,6 +155,7 @@ test('desktop settings read the canonical agent section and desktop defaults', (
       browserControl: false,
       browserAutoSignIn: true,
       browserHidDevices: false,
+      browserPermissions: defaultBrowserPermissionPolicy(),
       saveChatLogins: true,
       computerInstalled: false,
       browserInstalled: false,
@@ -184,6 +187,73 @@ test('notification volume stores only a non-default percent and rejects invalid 
   assert.equal(Object.hasOwn(value.desktop, 'notificationVolume'), false);
   await assert.rejects(store.updateNotificationVolume(401), /invalid/);
   await assert.rejects(store.updateNotificationVolume(12.5), /invalid/);
+});
+
+test('browser permissions persist only what differs and read back after a restart', async () => {
+  let value = { desktop: { keepAwake: false } };
+  const loadConfig = async () => ({
+    readConfig: () => value,
+    updateConfigAsync: async (updater) => {
+      value = updater(value);
+      return value;
+    },
+  });
+  const store = new DesktopSettingsStore({ loadConfig });
+  const policy = defaultBrowserPermissionPolicy();
+  policy.defaults['media:video'] = 'allow';
+  policy.sites.push({ origin: 'https://a.test', permission: 'notifications', setting: 'allow' });
+  const saved = await store.updateBrowserPermissions(policy);
+  assert.deepEqual(saved.browserPermissions, policy);
+  assert.deepEqual(value.desktop.browserPermissions, {
+    defaults: { 'media:video': 'allow' },
+    sites: policy.sites,
+  });
+  assert.deepEqual((await new DesktopSettingsStore({ loadConfig }).read()).browserPermissions, policy);
+  const full = defaultBrowserPermissionPolicy();
+  for (let index = 0; index < 301; index += 1) {
+    full.sites.push({ origin: `https://s${index}.test`, permission: 'midi', setting: 'allow' });
+  }
+  await assert.rejects(store.updateBrowserPermissions(full), /at most 300/);
+  assert.deepEqual((await store.read()).browserPermissions, policy, 'a refused write changes nothing');
+  await store.updateBrowserPermissions(defaultBrowserPermissionPolicy());
+  assert.equal(Object.hasOwn(value.desktop, 'browserPermissions'), false);
+});
+
+test('automatic cookie import is off by default, keeps its profile, and rejects an unusable request', async () => {
+  let value = { desktop: { keepAwake: false } };
+  const store = new DesktopSettingsStore({
+    loadConfig: async () => ({
+      readConfig: () => value,
+      updateConfigAsync: async (updater) => {
+        value = updater(value);
+        return value;
+      },
+    }),
+  });
+  assert.deepEqual(await store.readBrowserCookieAutoImport(), { enabled: false, profileId: '' });
+  assert.deepEqual(await store.updateBrowserCookieAutoImport({ enabled: true, profileId: 'Profile 1' }), {
+    enabled: true,
+    profileId: 'Profile 1',
+  });
+  assert.deepEqual(value.desktop, { keepAwake: false, browserCookieAutoImport: { enabled: true, profileId: 'Profile 1' } });
+  // Turning it off keeps the chosen profile; turning off with no profile stores nothing.
+  assert.deepEqual(await store.updateBrowserCookieAutoImport({ enabled: false, profileId: 'Profile 1' }), {
+    enabled: false,
+    profileId: 'Profile 1',
+  });
+  await store.updateBrowserCookieAutoImport({ enabled: false, profileId: '' });
+  assert.deepEqual(value.desktop, { keepAwake: false });
+  for (const bad of [
+    { enabled: true, profileId: '' },
+    { enabled: true, profileId: '../Default' },
+    { enabled: 'yes', profileId: 'Default' },
+    { enabled: false, profileId: 'x'.repeat(121) },
+  ]) {
+    await assert.rejects(store.updateBrowserCookieAutoImport(bad), /Automatic cookie import/);
+  }
+  // A stored "enabled" without a profile cannot run.
+  value = { desktop: { browserCookieAutoImport: { enabled: true } } };
+  assert.deepEqual(await store.readBrowserCookieAutoImport(), { enabled: false, profileId: '' });
 });
 
 test('session retention defaults to 7-day archive and 90-day delete, stores only other choices, and an invalid value disables the pass', async () => {
@@ -320,6 +390,7 @@ test('writes are atomic core updates that retain unrelated config and nested fie
     browserControl: false,
     browserAutoSignIn: true,
     browserHidDevices: false,
+    browserPermissions: defaultBrowserPermissionPolicy(),
     saveChatLogins: true,
     computerInstalled: false,
     browserInstalled: false,

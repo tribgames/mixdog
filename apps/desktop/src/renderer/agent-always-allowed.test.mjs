@@ -248,3 +248,25 @@ test('a grant made while the list is open appears on the settings-changed broadc
   dom.window.dispatchEvent(new dom.window.CustomEvent('mixdog:setup-changed'));
   assert.equal(reads, 0);
 });
+
+test('a shared allow (every agent) and a tool allow are listed as such and revoked back to asking', () => {
+  const items = alwaysAllowedItems(
+    'lead',
+    [
+      { action: 'comment', mode: 'allow', rememberable: true, shared: true },
+      { action: 'email', mode: 'allow', rememberable: true },
+      { action: 'tool:shell', mode: 'allow', rememberable: true, shared: true },
+      { action: 'tool:mcp__acme__write_it', mode: 'allow', rememberable: true, shared: true },
+    ],
+    []
+  );
+  assert.deepEqual(
+    items.map((item) => [item.label, item.revoke.args]),
+    [
+      ['Post a comment (all conversations)', ['lead', 'comment', 'ask']],
+      ['Send an email', ['lead', 'email', 'ask']],
+      ['shell (all conversations)', ['lead', 'tool:shell', 'ask']],
+      ['write_it (acme) (all conversations)', ['lead', 'tool:mcp__acme__write_it', 'ask']],
+    ]
+  );
+});

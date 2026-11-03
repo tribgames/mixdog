@@ -1,6 +1,6 @@
 /** The ordered backends one capture may try for its target: the app's own
  *  window, the window-owned native surfaces, then the compositor. */
-import { desktopCapturer, type NativeImage } from 'electron';
+import { desktopCapturer, screen, type BrowserWindow, type NativeImage } from 'electron';
 import { DESKTOP_CAPTURE_TIMEOUT_MS, OWNED_CAPTURE_TIMEOUT_MS, withTimeout } from '../shared/common';
 import type { CaptureAttempt, CaptureBackend } from '../shared/capture-attempts';
 import type { ComputerCommand } from '../shared/types';
@@ -26,6 +26,8 @@ export interface CaptureSourceRequest {
   clientWidth: number;
   clientHeight: number;
   client?: Bounds;
+  /** The rectangle the compositor draws for this window, when known. */
+  compositedBounds?: Bounds;
   maxWidth: number;
   preserveResolution?: boolean;
   attempts: CaptureAttempt[];
@@ -71,7 +73,9 @@ async function gnomeShellSurface(request: CaptureSourceRequest): Promise<Surface
 
 async function compositedSurface(request: CaptureSourceRequest): Promise<Surface> {
   if (usesGnomeHelper()) return gnomeShellSurface(request);
-  const { sourceType, windowId, displayId, width, height, maxWidth, preserveResolution = false } = request;
+  const { sourceType, windowId, displayId, maxWidth, preserveResolution = false, compositedBounds } = request;
+  // Asked for at the size of the rectangle it draws, the thumbnail is not resampled.
+  const { width, height } = compositedBounds ?? request;
   const sources = await withTimeout(
     desktopCapturer.getSources({
       types: [sourceType],
@@ -89,7 +93,22 @@ async function compositedSurface(request: CaptureSourceRequest): Promise<Surface
             Number.isFinite(handle) && value.id.startsWith('window:') && Number(value.id.split(':')[1]) === handle
         );
   if (!source) throw new CaptureSourceError(`capture_source_unavailable: exact ${sourceType} source is unavailable`);
-  return { image: source.thumbnail, sourceId: source.id, sourceName: source.name, route: 'composited' };
+  return {
+    image: source.thumbnail,
+    sourceId: source.id,
+    sourceName: source.name,
+    route: 'composited',
+    ...(compositedBounds ? { bounds: { ...compositedBounds } } : {}),
+  };
+}
+
+/** The page an app-owned capture draws, in native coordinates: physical
+ *  pixels on Windows, the points Electron already reports on macOS. Linux has
+ *  no `dipToScreenRect`, so its frames keep the aspect-matched geometry. */
+function nativeContentBounds(window: BrowserWindow): Bounds | undefined {
+  const content = window.getContentBounds();
+  if (process.platform === 'darwin') return content;
+  return process.platform === 'win32' ? screen.dipToScreenRect(window, content) : undefined;
 }
 
 /** The default order, then the window's remembered winner moved to the front.
@@ -126,11 +145,13 @@ function defaultCapturePlan(host: NativeSurfaceHost, request: CaptureSourceReque
           OWNED_CAPTURE_TIMEOUT_MS,
           'capture_timeout: app-owned capture'
         );
+        const ownedBounds = nativeContentBounds(owned);
         return {
           image: preserveResolution ? image : fitCaptureImage(image, maxWidth),
           sourceId: `browser-window:${windowId}`,
           sourceName: sourceTitle,
           route: 'app_owned',
+          ...(ownedBounds ? { bounds: ownedBounds } : {}),
         };
       },
     });

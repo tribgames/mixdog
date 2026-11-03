@@ -40,6 +40,31 @@ export interface DesktopBrowserImportResult {
   errors: Partial<Record<DesktopBrowserImportItem, string>>;
 }
 
+/** The opt-in automatic cookie import from Chrome (설정 › 인증 관리): whether it
+ *  is on, for which profile, the saved Chrome key it reuses so no prompt
+ *  appears, and how the last run went. */
+export interface DesktopCookieAutoImportStatus {
+  enabled: boolean;
+  profileId: string;
+  /** An encrypted Chrome key is saved and still matches Chrome's current one. */
+  keySaved: boolean;
+  /** False when the OS cannot protect a saved key: none is ever saved. */
+  keyStorageAvailable: boolean;
+  /** A run is in progress. */
+  running: boolean;
+  /** Epoch ms of the last successful import (manual or automatic). */
+  lastImportAt?: number;
+  lastCount?: number;
+  lastError?: string;
+  /** Automatic runs stopped: one manual import (one prompt) saves the key again. */
+  needsManualImport: boolean;
+}
+
+export interface DesktopCookieAutoImportRequest {
+  enabled: boolean;
+  profileId: string;
+}
+
 export interface DesktopBrowserHistoryEntry {
   url: string;
   title: string;
@@ -262,6 +287,8 @@ export interface DesktopBrowserPageDialog {
     embedder?: string;
     /** What it asks for (`notifications`, `media:video`, `clipboard-read`, ...). */
     keys: string[];
+    /** The site exception list is full, so "for this site" cannot be saved. */
+    siteListFull?: boolean;
     /** A device chooser (`hid`): the devices a person may pick one of. */
     devices?: Array<{ id: string; name: string }>;
   };
@@ -278,6 +305,9 @@ export type DesktopBrowserPageAction =
       keepDefault?: boolean;
       /** The device picked in a device chooser; required to allow one. */
       deviceId?: string;
+      /** A permission prompt answer kept beyond this run: for this site, or
+       *  as the default for every site. */
+      remember?: 'site' | 'all';
     }
   | { type: 'choose-files'; requestId: string; cancel?: boolean }
   /** `requestId`: the agent's open this tab is for; absent for a user's "+". */

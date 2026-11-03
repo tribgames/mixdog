@@ -3,25 +3,52 @@
  * itself with its progress, history search, stored credentials, and the
  * signed-in sites with their sign-out.
  */
-import type { DesktopBrowserImportProgress } from '../../shared/contract';
+import type {
+  DesktopBrowserImportProgress,
+  DesktopCookieAutoImportRequest,
+  DesktopCookieAutoImportStatus,
+} from '../../shared/contract';
 import { DESKTOP_IPC } from '../../shared/contract';
 import type { BrowserCredentialFillResult, createBrowserCredentialFill } from './credential-autofill';
 import type { CredentialVault, VaultLoginSummary } from './credential-vault';
 import type { LinkedSignIn } from './linked-sign-in';
 import type { LinkedSignInStore } from './linked-sign-in-store';
-import type {
-  BrowserCredentialSuggestion,
-  BrowserHistoryEntry,
-  BrowserImportRequest,
-  BrowserImportResult,
-  BrowserImportSource,
-  BrowserProfileImportService,
+import {
+  type BrowserCredentialSuggestion,
+  type BrowserHistoryEntry,
+  type BrowserImportRequest,
+  type BrowserImportResult,
+  type BrowserImportSource,
+  type BrowserProfileImportService,
+  isChromeRunning,
 } from './profile-import';
+import { CookieAutoImporter, type CookieAutoImporterDeps } from './profile-import-auto';
 import { type BrowserSessionRegistry, browserSessionId } from './session-registry';
 import type { BrowserSignedInSite, createBrowserSignIns } from './signed-in-sites';
 
+/** The automatic cookie import over this host's importer (Windows only: Chrome's
+ *  cookies are read from the Windows profile). The caller starts and stops it. */
+export function createCookieAutoImporter(options: {
+  profileImporter: BrowserProfileImportService;
+  settings: CookieAutoImporterDeps['settings'];
+  onError: (error: unknown) => void;
+}): CookieAutoImporter {
+  const { profileImporter } = options;
+  return new CookieAutoImporter({
+    settings: options.settings,
+    state: profileImporter.cookieAutoImportState,
+    run: (profileId) => profileImporter.runAutomaticCookieImport(profileId),
+    chromeRunning: () => isChromeRunning(),
+    keyStatus: () => profileImporter.savedKeyStatus(),
+    forgetKey: () => profileImporter.forgetSavedKey(),
+    onError: options.onError,
+  });
+}
+
 export function createBrowserProfileHostMethods(options: {
   profileImporter: BrowserProfileImportService;
+  /** Absent where automatic cookie import does not exist (not Windows, or no settings store). */
+  cookieAutoImport: Pick<CookieAutoImporter, 'status' | 'configure' | 'forgetKey'> | null;
   signIns: ReturnType<typeof createBrowserSignIns>;
   vault: Pick<CredentialVault, 'list' | 'saveManual' | 'remove' | 'mergeImport'>;
   /** The remembered "Continue with Google/GitHub" sign-ins (linked-sign-in-store.ts). */
@@ -35,6 +62,10 @@ export function createBrowserProfileHostMethods(options: {
   publishRemoteImportProgress?: (progress: DesktopBrowserImportProgress) => Promise<void>;
 }) {
   const { profileImporter, vault } = options;
+  const requiredCookieAutoImport = () => {
+    if (!options.cookieAutoImport) throw new Error('Automatic cookie import is unavailable on this system.');
+    return options.cookieAutoImport;
+  };
   return {
     /** The saved logins, no passwords or authenticator keys (설정 › 인증 관리). */
     browserVaultLogins: (): Promise<VaultLoginSummary[]> => vault.list(),
@@ -59,6 +90,15 @@ export function createBrowserProfileHostMethods(options: {
         options.sendToRenderer(DESKTOP_IPC.browserProfileImportProgress, progress);
         void options.publishRemoteImportProgress?.(progress)?.catch(() => undefined);
       });
+    },
+    browserCookieAutoImportStatus(): Promise<DesktopCookieAutoImportStatus> {
+      return requiredCookieAutoImport().status();
+    },
+    browserCookieAutoImportConfigure(request: DesktopCookieAutoImportRequest): Promise<DesktopCookieAutoImportStatus> {
+      return requiredCookieAutoImport().configure(request);
+    },
+    browserCookieAutoImportForgetKey(): Promise<DesktopCookieAutoImportStatus> {
+      return requiredCookieAutoImport().forgetKey();
     },
     browserSignedInSites: (): Promise<BrowserSignedInSite[]> => options.signIns.list(),
     browserSignOutSite: (site: string): Promise<number> => options.signIns.signOut(site),

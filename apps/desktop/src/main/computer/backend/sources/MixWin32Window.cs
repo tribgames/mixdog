@@ -145,6 +145,42 @@ public partial class MixWin32
         }
         return GetWindowRect(h, out bounds);
     }
+    // Electron's desktopCapturer draws a window through WebRTC's window capturer,
+    // which does not ask DWM for the visible frame: it insets the window rect by
+    // the system's resize-frame metrics (GetCroppedWindowRect). A composited
+    // window frame covers exactly that rectangle, which is neither the outer nor
+    // the client rect, so pixel coordinates read off the frame map through it.
+    public static RECT CompositorWindowBounds(IntPtr h)
+    {
+        const int WS_THICKFRAME = 0x00040000, DS_MODALFRAME = 0x80;
+        const int SM_CYBORDER = 6, SM_CXSIZEFRAME = 32, SM_CYSIZEFRAME = 33;
+        RECT bounds;
+        if (!GetWindowRect(h, out bounds))
+        {
+            throw new InvalidOperationException("capture_source_unavailable|could not read exact native window bounds");
+        }
+        // A visible frame that starts where the window rect does has no
+        // transparent border to remove; neither has a window without a resize frame.
+        RECT visible;
+        DwmGetWindowAttribute(h, 9, out visible, Marshal.SizeOf(typeof(RECT)));
+        if (visible.left == bounds.left || (GetWindowLongW(h, -16) & (WS_THICKFRAME | DS_MODALFRAME)) == 0) return bounds;
+        int side = GetSystemMetrics(SM_CXSIZEFRAME);
+        bounds.left += side;
+        bounds.right -= side;
+        bounds.top += GetSystemMetrics(SM_CYBORDER);
+        bounds.bottom -= GetSystemMetrics(SM_CYSIZEFRAME);
+        return bounds;
+    }
+    // PW_RENDERFULLCONTENT reads the composed surface, without which GPU and
+    // DirectComposition windows (Chromium, Electron) render black and the
+    // capture falls to WGC. A window with no composed surface (never shown on
+    // screen) renders black that way but still paints on request, so a black
+    // full-content frame is asked for once more without the flag. Either way
+    // the bitmap spans GetWindowRect from its top-left, so the frame's bounds
+    // and coordinate mapping do not depend on the flag.
+    public const uint PW_RENDERFULLCONTENT = 0x2;
+    /// The PrintWindow flags the last capture tried, in order ("2" or "2,0").
+    public static string LastPrintWindowFlags = "";
     public static WindowCaptureInfo CaptureWindowSurface(IntPtr h)
     {
         WindowCaptureTarget target = BeginWindowCapture(h, false);
@@ -152,16 +188,50 @@ public partial class MixWin32
         using (Graphics graphics = Graphics.FromImage(bitmap))
         using (MemoryStream stream = new MemoryStream())
         {
-            // Ask the exact window to render into our bitmap. Never read a desktop DC.
-            IntPtr dc = graphics.GetHdc();
-            bool rendered;
-            try { rendered = PrintWindow(h, dc, 0); }
-            finally { graphics.ReleaseHdc(dc); }
+            LastPrintWindowFlags = PW_RENDERFULLCONTENT.ToString();
+            bool rendered = RenderWindowInto(h, graphics, PW_RENDERFULLCONTENT);
+            if (!rendered || IsBlankBlack(bitmap))
+            {
+                LastPrintWindowFlags += ",0";
+                graphics.Clear(Color.Black);
+                rendered = RenderWindowInto(h, graphics, 0);
+            }
             if (!rendered) throw new InvalidOperationException("capture_source_unavailable|window-owned rendering is unavailable");
             AssertWindowCaptureStable(target);
             bitmap.Save(stream, ImageFormat.Png);
             return target.Result(Convert.ToBase64String(stream.ToArray()));
         }
+    }
+    // Ask the exact window to render into our bitmap. Never read a desktop DC.
+    static bool RenderWindowInto(IntPtr h, Graphics graphics, uint flags)
+    {
+        IntPtr dc = graphics.GetHdc();
+        try { return PrintWindow(h, dc, flags); }
+        finally { graphics.ReleaseHdc(dc); }
+    }
+    /// The host's blank_black_frame judgment (frame-quality.ts): at least 99.5%
+    /// of up to 4096 sampled pixels have every channel at or below 4.
+    public static bool IsBlankBlack(Bitmap bitmap)
+    {
+        Rectangle area = new Rectangle(0, 0, bitmap.Width, bitmap.Height);
+        BitmapData data = bitmap.LockBits(area, ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
+        try
+        {
+            long total = (long)bitmap.Width * bitmap.Height;
+            long stride = Math.Max(1, total / 4096);
+            long sampled = 0, black = 0;
+            for (long pixel = 0; pixel < total; pixel += stride)
+            {
+                int offset = (int)(pixel / bitmap.Width) * data.Stride + (int)(pixel % bitmap.Width) * 4;
+                byte blue = Marshal.ReadByte(data.Scan0, offset);
+                byte green = Marshal.ReadByte(data.Scan0, offset + 1);
+                byte red = Marshal.ReadByte(data.Scan0, offset + 2);
+                sampled++;
+                if (red <= 4 && green <= 4 && blue <= 4) black++;
+            }
+            return black >= sampled * 0.995;
+        }
+        finally { bitmap.UnlockBits(data); }
     }
     public sealed class WindowCaptureTarget
     {

@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 
 use aes_gcm::{aead::Aead, Aes256Gcm, KeyInit, Nonce};
 use anyhow::{anyhow, Result};
+use base64::{engine::general_purpose::STANDARD as BASE64_STANDARD, Engine as _};
 use chromium_importer::chromium::crypt_unprotect_data;
 use rusqlite::{Connection, OpenFlags};
 use serde::Serialize;
@@ -91,6 +92,22 @@ pub struct CookieImportFailures {
     invalid_partition: usize,
 }
 
+/// A freshly unwrapped App-Bound key the desktop asked to keep, plus the hash
+/// of the `app_bound_encrypted_key` it belongs to. Leaves only inside the
+/// sealed report.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AppBoundKeyGrant {
+    key: String,
+    blob_sha256: String,
+}
+
+impl Drop for AppBoundKeyGrant {
+    fn drop(&mut self) {
+        self.key.zeroize();
+    }
+}
+
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CookieImportReport {
@@ -99,6 +116,8 @@ pub struct CookieImportReport {
     expired: usize,
     cookies: Vec<Cookie>,
     failures: CookieImportFailures,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    app_bound_key: Option<AppBoundKeyGrant>,
 }
 
 enum DecodeError {
@@ -278,7 +297,65 @@ impl CookieDb {
             expired,
             cookies,
             failures,
+            app_bound_key: None,
         }
+    }
+
+    /// Whether `key` decrypts at least one live v20 value: the proof that it
+    /// belongs to this profile, since AES-GCM authentication fails otherwise.
+    fn decrypts_any_v20(&self, key: &[u8], now: f64) -> bool {
+        self.raws
+            .iter()
+            .filter(|raw| !raw.expired(now) && raw.encrypted_value.starts_with(b"v20"))
+            .any(|raw| {
+                decrypt_gcm(key, &raw.encrypted_value[3..])
+                    .map(Zeroizing::new)
+                    .is_ok()
+            })
+    }
+
+    /// A saved v20 key that decrypts nothing is refused so the desktop discards
+    /// it; a freshly unwrapped one is handed back for the desktop to keep only
+    /// when `return_key` is set and it is proven to decrypt.
+    fn vet_v20(
+        &self,
+        bound: keys::BoundV20Key,
+        saved: bool,
+        return_key: bool,
+        now: f64,
+    ) -> Result<(Zeroizing<Vec<u8>>, Option<AppBoundKeyGrant>)> {
+        let proven = self.decrypts_any_v20(&bound.key, now);
+        if saved && !proven {
+            // `bound` drops here and wipes its key.
+            return Err(Failure::SavedKeyRejected.into());
+        }
+        let grant = (!saved && return_key && proven).then(|| AppBoundKeyGrant {
+            key: BASE64_STANDARD.encode(bound.key.as_slice()),
+            blob_sha256: bound.blob_sha256,
+        });
+        Ok((bound.key, grant))
+    }
+
+    async fn resolve_keys(
+        &self,
+        local_state: &Path,
+        route: &keys::V20Route<'_>,
+        return_key: bool,
+        now: f64,
+    ) -> Result<(DecryptKeys, Option<AppBoundKeyGrant>)> {
+        let (needs_v10, needs_v20) = self.versions_present(now);
+        let mut keys = DecryptKeys::default();
+        let mut grant = None;
+        if needs_v10 {
+            keys.v10 = Some(keys::v10_key(local_state)?);
+        }
+        if needs_v20 {
+            let bound = keys::bound_v20_key(local_state, route).await?;
+            let (mut key, fresh) = self.vet_v20(bound, route.saved_key.is_some(), return_key, now)?;
+            keys.v20 = Some(std::mem::take(&mut *key));
+            grant = fresh;
+        }
+        Ok((keys, grant))
     }
 }
 
@@ -364,10 +441,12 @@ fn cookie_db_path(profile_dir: &Path) -> Option<PathBuf> {
 }
 
 /// Decrypt every cookie for a Chrome profile, resolving the v20 (App-Bound)
-/// key through `route` only when a v20 cookie is present.
+/// key through `route` only when a v20 cookie is present. With `return_key`, a
+/// freshly unwrapped key that proved correct is added to the report.
 pub async fn import_chrome_cookies(
     profile: &str,
     route: &keys::V20Route<'_>,
+    return_key: bool,
 ) -> Result<CookieImportReport> {
     let user_data = chrome_user_data_dir()?;
     let local_state = user_data.join("Local State");
@@ -381,17 +460,11 @@ pub async fn import_chrome_cookies(
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|_| anyhow!("system clock is before the cookie expiry epoch"))?
         .as_secs_f64();
-    let (needs_v10, needs_v20) = db.versions_present(now);
+    let (keys, grant) = db.resolve_keys(&local_state, route, return_key, now).await?;
 
-    let mut keys = DecryptKeys::default();
-    if needs_v10 {
-        keys.v10 = Some(keys::v10_key(&local_state)?);
-    }
-    if needs_v20 {
-        keys.v20 = Some(keys::v20_key(&local_state, route).await?);
-    }
-
-    Ok(db.decrypt(&keys, now))
+    let mut report = db.decrypt(&keys, now);
+    report.app_bound_key = grant;
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -475,6 +548,103 @@ mod tests {
                 assert_eq!(report.cookies[0].domain, ".example.test");
             }
         }
+    }
+
+    const NOW: f64 = 1_000_000.0;
+
+    fn v20_db(key: &[u8]) -> CookieDb {
+        let conn = fixture(24, true);
+        let mut plaintext = Sha256::digest(b".example.test").to_vec();
+        plaintext.extend_from_slice(b"fixture-token");
+        insert(
+            &conn,
+            ".example.test",
+            "",
+            &encrypt_v(b"v20", key, &plaintext),
+        );
+        CookieDb::from_connection(&conn).unwrap()
+    }
+
+    fn bound(key: &[u8]) -> keys::BoundV20Key {
+        keys::BoundV20Key {
+            key: Zeroizing::new(key.to_vec()),
+            blob_sha256: "ab".repeat(32),
+        }
+    }
+
+    #[test]
+    fn a_saved_key_is_accepted_only_when_it_decrypts_a_live_v20_value() {
+        let right = [0x42_u8; 32];
+        let db = v20_db(&right);
+        let (_, grant) = db.vet_v20(bound(&right), true, true, NOW).ok().expect("right key");
+        assert!(grant.is_none(), "a saved key is never reported back");
+        let error = db
+            .vet_v20(bound(&[0x43_u8; 32]), true, false, NOW)
+            .err()
+            .expect("wrong key");
+        assert_eq!(
+            crate::failure::user_message(&error),
+            "The saved Chrome key was rejected."
+        );
+    }
+
+    #[test]
+    fn a_fresh_key_is_returned_only_when_requested_and_proven() {
+        let right = [0x42_u8; 32];
+        let db = v20_db(&right);
+        let (_, not_requested) = db.vet_v20(bound(&right), false, false, NOW).ok().expect("key");
+        assert!(not_requested.is_none());
+        let (key, grant) = db.vet_v20(bound(&right), false, true, NOW).ok().expect("key");
+        assert_eq!(key.as_slice(), right);
+        let json = serde_json::to_value(grant.as_ref().expect("grant")).unwrap();
+        assert_eq!(json["key"], BASE64_STANDARD.encode(right));
+        assert_eq!(json["blobSha256"], "ab".repeat(32));
+        let (_, unproven) = db
+            .vet_v20(bound(&[0x43_u8; 32]), false, true, NOW)
+            .ok()
+            .expect("unproven fresh key");
+        assert!(unproven.is_none(), "a key that decrypts nothing is never kept");
+    }
+
+    #[tokio::test]
+    async fn resolving_keys_never_elevates_for_a_saved_key_or_a_forbidden_prompt() {
+        let key = [0x42_u8; 32];
+        let db = v20_db(&key);
+        let local_state =
+            std::env::temp_dir().join(format!("mx-cookie-ls-{:016x}.json", rand::random::<u64>()));
+        std::fs::write(
+            &local_state,
+            r#"{"os_crypt":{"app_bound_encrypted_key":"QVBQQgEAAADQjJ3fARXREYx6AMBPwpfr"}}"#,
+        )
+        .unwrap();
+        // No admin helper is configured, so any attempt to elevate fails.
+        let saved = keys::V20Route {
+            admin_exe: None,
+            saved_key: Some(&key),
+            allow_elevation: false,
+        };
+        let (resolved, grant) = db
+            .resolve_keys(&local_state, &saved, true, NOW)
+            .await
+            .ok()
+            .expect("saved key");
+        assert_eq!(resolved.v20.as_deref(), Some(&key[..]));
+        assert!(grant.is_none());
+        let forbidden = keys::V20Route {
+            admin_exe: None,
+            saved_key: None,
+            allow_elevation: false,
+        };
+        let error = db
+            .resolve_keys(&local_state, &forbidden, true, NOW)
+            .await
+            .err()
+            .expect("no key without elevation");
+        assert_eq!(
+            crate::failure::user_message(&error),
+            "A saved Chrome key is required."
+        );
+        std::fs::remove_file(&local_state).ok();
     }
 
     #[test]

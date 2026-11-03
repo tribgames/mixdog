@@ -10,6 +10,9 @@
 // hook decision unchanged. Other surfaces (group rooms) call it with their own
 // decision to get the same outbound rule. After the user answered,
 // recordHumanDecision stores a "don't ask again" grant and the audit line.
+// A hook's own `ask` offers once / this session / always (every agent, in each
+// agent's permissions): keyed by the action kind where the call is a classified
+// send or post, else by the tool (`tool:<name>`, outbound-policy.mjs).
 // Schedule and webhook runs never ask (run-policy.mjs): ordinary actions are
 // allowed, payments and permanent deletes denied. Group-room members register
 // a port here (session-runtime/held-requests.mjs) that turns their asks into
@@ -26,10 +29,23 @@ import { developerOptionEnabledStrict } from '../../../../shared/developer-optio
 import { mixdogRoot, resolvePluginData } from '../../../../shared/plugin-paths.mjs';
 import { roomMemberOfSession } from '../agent-room.mjs';
 import { agentDisplayName } from '../../context/role-instructions.mjs';
+import { sessionLifeMark } from './session-life.mjs';
 import { delegationOf } from './delegation.mjs';
 import { setUnattendedApprovalPort, unattendedApprovalPort } from './unattended-port.mjs';
-import { classifyAsDelete, classifyOutboundCall, isAlwaysAskAction, isRememberableAction } from './outbound-policy.mjs';
-import { DEV_ALLOW_ALL_DECISION, humanGateStore } from './store.mjs';
+import {
+  classifyAsDelete,
+  classifyOutboundCall,
+  isAlwaysAskAction,
+  isRememberableAction,
+  toolActionOf,
+} from './outbound-policy.mjs';
+import { createSessionGrants } from './session-grants.mjs';
+import {
+  DEV_ALLOW_ALL_DECISION,
+  SESSION_GRANTED_DECISION,
+  SESSION_REMEMBERED_DECISION,
+  humanGateStore,
+} from './store.mjs';
 import {
   AUTOMATION_GRANT_REASON,
   RUN_FORBIDDEN_REASON,
@@ -40,9 +56,45 @@ import {
 
 const OUTBOUND_APPROVAL_REASON = 'This sends or posts outside Mixdog; it needs your approval.';
 export const BLOCKED_ACTION_REASON = "This agent's permission blocks this action.";
-/** Outbound grants may be remembered for this agent, never for every agent;
- *  payments and deletes never. */
-const outboundRemember = (category) => (isRememberableAction(category) ? ['once', 'agent'] : ['once']);
+/** What a card for an action kind lets the person choose: just once, for this
+ *  session (only where a person is attending it), or always for this agent —
+ *  never for every agent; payments and deletes only once. */
+const outboundRemember = (category, attended) => {
+  if (!isRememberableAction(category)) return ['once'];
+  return attended ? ['once', 'session', 'agent'] : ['once', 'agent'];
+};
+
+/** What a card for a hook's own `ask` lets the person choose: once, this
+ *  session (only where a person attends it) and always for every agent (a
+ *  saved every-agent allow, shown and revocable in each agent's permissions);
+ *  payments and permanent deletes only once. */
+const hookAskRemember = (action, attended) =>
+  attended && isRememberableAction(action) ? ['once', 'session', 'always'] : ['once'];
+
+const processSessionGrants = createSessionGrants();
+
+export { sessionLifeMark };
+
+/** Whether a person is attending `sessionId`: no schedule, webhook or room run owns it. */
+const attendedSession = (sessionId) => !unattendedApprovalPort()?.runOf?.(sessionId);
+
+/** Whether `action` was allowed for this session, as this agent, and that
+ *  allowance is still in force. An unattended run never inherits one. */
+function sessionAllows(ctx, agentId, action) {
+  if (!isRememberableAction(action) || !attendedSession(ctx.sessionId)) return false;
+  const life = (ctx.sessionLife || sessionLifeMark)(ctx.sessionId);
+  if (life === null) return false;
+  return (ctx.sessionGrants || processSessionGrants).has({ sessionId: ctx.sessionId, agentId, action, mark: life });
+}
+
+/** The audit decision of the allowance that answers a hook `ask` for `action`
+ *  (an action kind, or a tool's key): a saved every-agent allow, else this
+ *  session's own; '' when none does. A bot's own "this agent" allow is not one
+ *  of them: it was never an answer to a hook's ask. */
+async function allowanceForHookAsk(ctx, store, agentId, action) {
+  if ((await store.modeFor({ agentId, action, sharedOnly: true })) === 'allow') return 'remembered';
+  return sessionAllows(ctx, agentId, action) ? SESSION_REMEMBERED_DECISION : '';
+}
 
 // The unattended runs' port lives in unattended-port.mjs; its setter and
 // getter are re-exported here.
@@ -213,17 +265,38 @@ export async function humanGateDecision(call, decision, ctx = {}) {
   const outbound = classified && actingBotId(ctx.sessionId) ? classified : null;
   if (!outbound) {
     if (action !== 'ask') return { decision, request: null, gate: null };
-    const gate = { agentId, kind: 'approval', tool: String(call?.name || ''), target: '' };
+    const tool = String(call?.name || '');
+    const gate = { agentId, kind: 'approval', tool, target: '' };
     if (skipsApproval(classified)) {
       const store = ctx.store || (await humanGateStore());
       await store.recordAudit({ ...gate, decision: DEV_ALLOW_ALL_DECISION, device: '' });
       return { decision: withoutAsk(decision), request: null, gate: null };
     }
+    // A hook's `ask` on a call no bot's outbound rule covers (a coding Lead's
+    // call, any tool a hook rule names) is remembered by the action kind when
+    // the call is a classified send or post, else per TOOL (outbound-policy.mjs
+    // toolActionOf) — never per argument, and never for a payment or permanent
+    // delete (the floors) nor a tool that changes what agents may do. It is
+    // answered by a saved every-agent allow or this session's own, or else the
+    // person is asked: once, for this session, or always for every agent.
+    const category = classified?.category;
+    let grantAction = toolActionOf(tool);
+    if (isAlwaysAskAction(category)) grantAction = '';
+    else if (isRememberableAction(category)) grantAction = category;
+    if (grantAction) {
+      const store = ctx.store || (await humanGateStore());
+      const answered = await allowanceForHookAsk(ctx, store, agentId, grantAction);
+      if (answered) {
+        await store.recordAudit({ ...gate, action: grantAction, decision: answered, device: '' });
+        return { decision: withoutAsk(decision), request: null, gate: null };
+      }
+    }
+    const remember = grantAction ? hookAskRemember(grantAction, attendedSession(ctx.sessionId)) : ['once'];
     return {
       // Saving a schedule or webhook says plainly what the approval grants.
       decision: savesAutomation(call) ? { ...decision, reason: AUTOMATION_GRANT_REASON } : decision,
-      request: { kind: 'approval', agentId, remember: ['once'] },
-      gate,
+      request: { kind: 'approval', agentId, remember, ...(grantAction ? { grantAction } : {}) },
+      gate: grantAction ? { ...gate, action: grantAction, sessionId: ctx.sessionId, remember } : gate,
     };
   }
   const gate = { agentId, kind: 'outbound', action: outbound.category, tool: outbound.tool, target: outbound.target };
@@ -238,8 +311,14 @@ export async function humanGateDecision(call, decision, ctx = {}) {
       editable: outbound.editable,
       details: outbound.details,
     },
-    // "Don't ask again" is the bot's permission.
-    remember: outboundRemember(outbound.category),
+    // "Don't ask again" is the bot's permission; "this session" only where a person
+    // attends. A hook's own `ask` offers once, this session and always for every
+    // agent: it is answered by exactly those (allowanceForHookAsk), not by a
+    // bot's own saved allow.
+    remember:
+      action === 'ask'
+        ? hookAskRemember(outbound.category, attendedSession(ctx.sessionId))
+        : outboundRemember(outbound.category, attendedSession(ctx.sessionId)),
   };
   const store = ctx.store || (await humanGateStore());
   const mode = await store.modeFor({ agentId, action: outbound.category });
@@ -253,10 +332,22 @@ export async function humanGateDecision(call, decision, ctx = {}) {
     await store.recordAudit({ ...gate, decision: DEV_ALLOW_ALL_DECISION, device: '' });
     return { decision: withoutAsk(decision), request: null, gate: null };
   }
-  if (action !== 'ask' && mode === 'allow') {
-    await store.recordAudit({ ...gate, decision: 'remembered', device: '' });
+  // A saved allow, or this session's own allowance for the kind (never an
+  // unattended run's, never a payment or permanent delete's), answers the call.
+  const standing = mode === 'allow';
+  if (action !== 'ask' && (standing || sessionAllows(ctx, agentId, outbound.category))) {
+    await store.recordAudit({ ...gate, decision: standing ? 'remembered' : SESSION_REMEMBERED_DECISION, device: '' });
     // The remembered grant answers this call: no later layer asks it again.
     return { decision, request: null, gate: null, remembered: true };
+  }
+  if (action === 'ask') {
+    const answered = await allowanceForHookAsk(ctx, store, agentId, outbound.category);
+    if (answered) {
+      await store.recordAudit({ ...gate, decision: answered, device: '' });
+      // It answers the hook's ask only: not `remembered`, so the connector's own
+      // approval layer still asks its own question.
+      return { decision: withoutAsk(decision), request: null, gate: null };
+    }
   }
   const described = await describeEmails(call, outbound, ctx);
   if (described) {
@@ -274,24 +365,40 @@ export async function humanGateDecision(call, decision, ctx = {}) {
     decision: { ...(rewriting ? base : unrewritten), action: 'ask', reason: base.reason || OUTBOUND_APPROVAL_REASON },
     request,
     // The scopes this request offered: a grant is stored only for one of them.
-    gate: { ...gate, remember: request.remember },
+    gate: { ...gate, sessionId: ctx.sessionId, remember: request.remember },
   };
 }
 
-/** Audit one answered request and store its remembered grant. `approval` is
- *  the waiter's result ({ approved, response, remember, device, timedOut }). */
-export async function recordHumanDecision(gate, approval, { store } = {}) {
+/** Audit one answered request and store its remembered grant: "always"
+ *  (`agent`) in the store, "this session" in memory for the asking session.
+ *  `approval` is the waiter's result ({ approved, response, remember, device,
+ *  timedOut }). A timeout, a denial and a scope the request did not offer (a
+ *  payment or permanent delete is only ever answered once) store nothing. */
+export async function recordHumanDecision(gate, approval, { store, sessionGrants, sessionLife } = {}) {
   if (!gate) return;
   const target = store || (await humanGateStore());
   let decision = approval?.response || (approval?.approved === true ? 'approve' : 'deny');
   if (approval?.timedOut) decision = 'timeout';
   const device = typeof approval?.device === 'string' ? approval.device : '';
-  // A scope the request did not offer (a payment or permanent delete is only
-  // ever answered once) stores nothing.
   const offered = !Array.isArray(gate.remember) || gate.remember.includes(approval?.remember);
-  if (approval?.approved === true && gate.action && offered) {
-    await target.grant({ agentId: gate.agentId, action: gate.action, scope: approval.remember, device });
+  const { remember: _offered, sessionId, ...audit } = gate;
+  let granted = '';
+  if (approval?.approved === true && approval.timedOut !== true && gate.action && offered) {
+    if (approval.remember === 'session') {
+      const life = attendedSession(sessionId) ? (sessionLife || sessionLifeMark)(sessionId) : null;
+      const stored =
+        life !== null &&
+        (sessionGrants || processSessionGrants).grant({
+          sessionId,
+          agentId: gate.agentId,
+          action: gate.action,
+          mark: life,
+        });
+      if (stored) granted = SESSION_GRANTED_DECISION;
+    } else if (await target.grant({ agentId: gate.agentId, action: gate.action, scope: approval.remember, device })) {
+      granted = 'granted';
+    }
   }
-  const { remember: _offered, ...audit } = gate;
   await target.recordAudit({ ...audit, decision, device });
+  if (granted) await target.recordAudit({ ...audit, decision: granted, device });
 }

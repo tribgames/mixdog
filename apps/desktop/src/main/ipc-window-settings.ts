@@ -13,6 +13,7 @@ import {
   requiredDesktopCapabilityReadRequests,
   requiredDesktopCapabilityRequest,
   requiredDesktopSettingKey,
+  requiredBrowserPermissionPolicy,
   requiredNotificationVolume,
   requiredSessionRetentionSetting,
   requiredString,
@@ -28,7 +29,13 @@ interface WindowSettingsIpcOptions {
   invokeDesktopOperation: <T>(method: string, args: unknown[]) => Promise<T>;
   settingsStore?: Pick<
     DesktopSettingsStore,
-    'read' | 'update' | 'updateNotificationVolume' | 'updateSessionRetention' | 'readZoom' | 'updateZoom'
+    | 'read'
+    | 'update'
+    | 'updateNotificationVolume'
+    | 'updateBrowserPermissions'
+    | 'updateSessionRetention'
+    | 'readZoom'
+    | 'updateZoom'
   >;
   /** Fires after a successful desktop-settings write (keep-awake wiring). */
   onDesktopSettingsChanged?: (settings: DesktopSettings) => void;
@@ -232,6 +239,15 @@ export function registerWindowSettingsIpc({
     const saved = settingsStore
       ? await settingsStore.updateNotificationVolume(volume)
       : await invokeDesktopOperation<DesktopSettings>('updateNotificationVolume', [volume]);
+    onDesktopSettingsChanged?.(saved);
+    void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
+    return saved;
+  });
+  handle(DESKTOP_IPC.setBrowserPermissions, async (_event, value) => {
+    const policy = requiredBrowserPermissionPolicy(value);
+    const saved = settingsStore
+      ? await settingsStore.updateBrowserPermissions(policy)
+      : await invokeDesktopOperation<DesktopSettings>('updateBrowserPermissions', [policy]);
     onDesktopSettingsChanged?.(saved);
     void invokeDesktopOperation('notifySettingsChanged', ['desktop']).catch(() => {});
     return saved;

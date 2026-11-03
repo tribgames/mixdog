@@ -34,9 +34,39 @@ export const ACTION_KINDS = Object.freeze([
 ]);
 const UNREMEMBERED_ACTIONS = new Set(['payment', 'delete']);
 
-/** Whether "don't ask again" (an `allow` grant) may exist for `kind`. */
+// A hook's own `ask` on a call that is no classified send or post (a coding
+// Lead's shell or edit, any tool a hook rule names) is remembered per TOOL, never per
+// argument: the grant key is `tool:<the tool's name as it will run>`, so one
+// answer covers that tool and nothing else — not another tool, and not a
+// payment or permanent delete (the gate never keys those, gate.mjs). What
+// asked is a PreToolUse hook the user configured (a handler or a rule file
+// entry); its decision carries only `ask` and a reason, so the hook itself
+// cannot be told apart and does not take part in the key.
+const TOOL_ACTION_PATTERN = /^tool:[A-Za-z0-9_.:-]{1,120}$/;
+const TOOL_ACTION_PREFIX = 'tool:';
+/** Tools whose approvals change what agents may do or are the user prompt
+ *  itself: always answered once, whatever asked. */
+const UNREMEMBERED_TOOLS = new Set(['setup', 'ask_user', 'handoff_user']);
+
+/** Whether `value` is a per-tool grant key (`tool:<name>`) that may be remembered. */
+export function isToolAction(value) {
+  return (
+    typeof value === 'string' &&
+    TOOL_ACTION_PATTERN.test(value) &&
+    !UNREMEMBERED_TOOLS.has(value.slice(TOOL_ACTION_PREFIX.length))
+  );
+}
+
+/** The grant key of a tool's hook ask, or '' when that tool is never remembered. */
+export function toolActionOf(name) {
+  const key = `${TOOL_ACTION_PREFIX}${name}`;
+  return isToolAction(key) ? key : '';
+}
+
+/** Whether "don't ask again" (an `allow` grant) may exist for `kind`: an action
+ *  kind other than a payment or permanent delete, or a per-tool key. */
 export function isRememberableAction(kind) {
-  return ACTION_KINDS.includes(kind) && !UNREMEMBERED_ACTIONS.has(kind);
+  return (ACTION_KINDS.includes(kind) && !UNREMEMBERED_ACTIONS.has(kind)) || isToolAction(kind);
 }
 
 /** Whether `kind` is a payment or permanent delete: it asks every time,

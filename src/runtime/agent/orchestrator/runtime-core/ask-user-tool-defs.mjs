@@ -65,9 +65,9 @@ export const HANDOFF_USER_TOOL_DEFS = Object.freeze([
     name: 'handoff_user',
     title: 'Hand Off To User',
     trigger:
-      'Hand the user a page or app step (CAPTCHA, sign-in, 2FA, a secret); loads with the browser-use and computer-use skills.',
+      'Hand the user a page or app step only they can supply (unsaved password, payment credentials, 2FA, identity, CAPTCHA); loads with the browser-use and computer-use skills.',
     description:
-      'A step only the user can do on a page or app (CAPTCHA, human check, sign-in, 2FA, a password) is a handoff here, never a request in plain chat.',
+      'Input only the user can supply (an unsaved password, card numbers or payment credentials, SMS/authenticator/passkey steps, identity verification, a CAPTCHA or human check you cannot pass) is a handoff here, never a request in plain chat. Never for authorization: with the user\'s go-ahead in chat, click submit/upgrade/accept/confirm yourself. Try the existing session and saved login first; one card per human-only step, never a takeover then a secret for the same login; after a skip or denial do not raise it again, say in chat what is blocked.',
     annotations: {
       title: 'Hand Off To User',
       readOnlyHint: true,
@@ -82,7 +82,7 @@ export const HANDOFF_USER_TOOL_DEFS = Object.freeze([
         handoff: {
           type: 'object',
           description:
-            'secret = the user types a password, sign-in, new password or one-time code into that field of the page (you never see it; result entered/user_skipped/no_field/page_changed/blocked/expired); takeover = the user does a step and says done.',
+            'secret = the user types a password, sign-in, new password or a one-time code you cannot read yourself (SMS, authenticator app) into that field of the page (you never see it; result entered/user_skipped/no_field/page_changed/blocked/expired); an e-mailed code readable from a connected mailbox for a flow you started is yours to type, not a handoff; takeover = the user does a step and says done.',
           properties: {
             kind: { type: 'string', enum: ['secret', 'takeover'] },
             surface: { type: 'string', enum: ['browser', 'computer'] },
@@ -93,7 +93,7 @@ export const HANDOFF_USER_TOOL_DEFS = Object.freeze([
               type: 'string',
               enum: ['sign_in', 'action', 'confirmation'],
               description:
-                'takeover: sign_in (sign-in, 2FA), action (CAPTCHA, other step), confirmation (identity/payment check). Default action.',
+                'takeover: sign_in (sign-in, 2FA), action (CAPTCHA, other human-only step), confirmation (identity verification or payment-credential entry, never a button click you may press). Default action.',
             },
             purpose: {
               type: 'string',

@@ -8,6 +8,14 @@ export interface NativeBrowserImporter {
   sha256: string;
 }
 
+/** The importer's fixed stderr messages the desktop reacts to
+ *  (native/mixdog-browser-import/src/failure.rs). */
+export const NATIVE_FAILURE = {
+  chromeRunning: 'Chrome is still running. Close Chrome and try again.',
+  savedKeyRejected: 'The saved Chrome key was rejected.',
+  savedKeyRequired: 'A saved Chrome key is required.',
+} as const;
+
 interface NativeBrowserImporterEnvironment {
   isPackaged: boolean;
   platform: NodeJS.Platform;

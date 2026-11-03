@@ -62,6 +62,22 @@ public sealed class MixMsaaNode
         }
     }
 
+    /// <summary>
+    /// Whether this element's own state, read now, is STATE_SYSTEM_PROTECTED (it
+    /// hides what is typed into it). A state that cannot be read counts as
+    /// protected: only a readable state without PROTECTED is not a password.
+    /// </summary>
+    public bool IsProtected()
+    {
+        try
+        {
+            object state = Accessible.get_accState(ChildId);
+            if (state == null) return true;
+            return (Convert.ToUInt32(state, CultureInfo.InvariantCulture) & 0x20000000u) != 0;
+        }
+        catch { return true; }
+    }
+
     public bool Refresh()
     {
         try

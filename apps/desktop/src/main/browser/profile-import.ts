@@ -9,11 +9,26 @@ import type { BrowserCookieJar } from './cookie-jar';
 import { clearPendingPauses, readVaultFile } from './credential-vault-file';
 import { CredentialVault, maskedCredentialLabel, secureOrigin } from './credential-vault';
 import {
+  NATIVE_FAILURE,
   nativeBrowserImporterPath,
   resolvePackagedBrowserImporter,
   type NativeBrowserImporter,
 } from './profile-import-native';
-import { CookieImportError, importBrowserCookies, parseBrowserCookieReport } from './profile-import-cookies';
+import {
+  CookieImportError,
+  importBrowserCookies,
+  parseBrowserCookieReport,
+  type NativeAppBoundKey,
+} from './profile-import-cookies';
+import {
+  APP_BOUND_KEY_FILE,
+  AppBoundKeyStore,
+  SavedKeyUnavailableError,
+  base64Bytes,
+  readAppBoundBlobSha256,
+  type KeyEncryption,
+} from './profile-import-key';
+import { CookieAutoImportStateStore, type AutoCookieImportOutcome } from './profile-import-auto';
 import { type BrowserHistoryEntry, importChromeHistory } from './profile-import-history';
 import { requireSensitiveImportApproval } from './profile-import-approval';
 export type { BrowserImportCookie } from './profile-import-cookies';
@@ -24,6 +39,11 @@ const HISTORY_SEARCH_LIMIT = 12;
 const NATIVE_OUTPUT_LIMIT = 64 * 1024 * 1024;
 const NATIVE_IMPORT_TIMEOUT_MS = 120_000;
 const CHROME_CLOSE_TIMEOUT_MS = 30_000;
+const CAPABILITY_PROBE_TIMEOUT_MS = 5_000;
+/** Automatic runs back the cookie jar up like any import; only this many of their snapshots are kept. */
+const AUTOMATIC_BACKUPS_KEPT = 3;
+const AUTOMATIC_JOB_ID = 'automatic-cookie-import';
+const AUTO_STATE_FILE = 'browser-cookie-auto-import.json';
 const execFileAsync = promisify(execFile);
 const unsealVault = (sealed: Buffer): string => safeStorage.decryptString(sealed);
 
@@ -113,7 +133,21 @@ interface BrowserProfileImportOptions {
   chromeUserDataDirectory?: string;
   prepareChromeForImport?: () => Promise<void>;
   readNativeCredentials?: (profileId: string) => Promise<NativeCredential[]>;
-  readNativeCookies?: (profileId: string) => Promise<unknown>;
+  readNativeCookies?: (profileId: string, route: NativeCookieRoute) => Promise<unknown>;
+  /** Test seam: the native importer to run instead of the packaged one. */
+  nativeImporterOverride?: NativeBrowserImporter;
+  /** Test seam: OS encryption for the saved Chrome key; defaults to `safeStorage`. */
+  keyEncryption?: KeyEncryption;
+}
+
+/** How one native cookie import may obtain Chrome's App-Bound key. */
+export interface NativeCookieRoute {
+  /** The saved key, sent over stdin so the elevated helper is not needed. Wiped after the call. */
+  savedKey?: Buffer;
+  /** Whether the elevated helper (a UAC prompt) may run. Automatic runs never allow it. */
+  allowElevation: boolean;
+  /** Ask the importer to hand back a freshly unwrapped key to keep. */
+  returnKey: boolean;
 }
 
 interface BrowserProcessCloseTarget {
@@ -248,6 +282,14 @@ $processIds = [uint32[]](ConvertFrom-Json -InputObject $env:MIXDOG_BROWSER_IMPOR
   throw new Error('Google Chrome이 정상 종료되지 않아 가져오기를 중단했습니다. 열린 작업을 확인한 뒤 다시 시도하세요.');
 }
 
+/** Whether any Chrome process is alive (while one is, it holds the Cookies
+ *  database). One short `tasklist` call, cheap enough to poll every few minutes. */
+export async function isChromeRunning(imageName = 'chrome.exe'): Promise<boolean> {
+  if (process.platform !== 'win32') return false;
+  const tasklist = join(String(process.env.SystemRoot || 'C:\\Windows'), 'System32', 'tasklist.exe');
+  return (await browserProcessIds(tasklist, imageName)).length > 0;
+}
+
 async function sha256File(path: string): Promise<string> {
   return createHash('sha256')
     .update(await readFile(path))
@@ -281,7 +323,7 @@ function exactTemporaryJob(root: string, jobId: string): string {
 async function runNativeChild(
   executable: string,
   args: string[],
-  input: string
+  input: Buffer
 ): Promise<{ exitCode: number; stdout: Buffer; stderr: Buffer; stdoutBytes: number }> {
   const child = spawn(executable, args, {
     windowsHide: true,
@@ -322,19 +364,33 @@ async function runNativeChild(
   return { exitCode, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr), stdoutBytes };
 }
 
-/** `createTransportKey` is a test seam: the default is the production key. */
+/** `createTransportKey` is a test seam: the default is the production key.
+ *  `savedKey` (the Chrome v20 key, with `--v20-key-stdin`) follows the
+ *  transport key on a second stdin line: never in arguments or the environment. */
 export async function readEncryptedChildJson(
   executable: string,
   args: string[],
   expectedSha256: string,
-  createTransportKey: () => Buffer = () => randomBytes(32)
+  createTransportKey: () => Buffer = () => randomBytes(32),
+  savedKey?: Buffer
 ): Promise<unknown> {
   if ((await sha256File(executable)) !== expectedSha256) {
     throw new Error('Native browser importer changed after signature verification.');
   }
   const transportKey = createTransportKey();
   try {
-    const child = await runNativeChild(executable, args, transportKey.toString('base64'));
+    // Built from bytes, not strings, so every copy of the keys can be wiped.
+    const encodedTransport = base64Bytes(transportKey);
+    const encodedSaved = savedKey ? base64Bytes(savedKey) : Buffer.alloc(0);
+    const input = savedKey ? Buffer.concat([encodedTransport, Buffer.from('\n'), encodedSaved]) : encodedTransport;
+    let child: Awaited<ReturnType<typeof runNativeChild>>;
+    try {
+      child = await runNativeChild(executable, args, input);
+    } finally {
+      input.fill(0);
+      encodedTransport.fill(0);
+      encodedSaved.fill(0);
+    }
     if (child.stdoutBytes > NATIVE_OUTPUT_LIMIT) throw new Error('Native browser importer returned too much data.');
     if (child.exitCode !== 0) {
       throw new Error(
@@ -365,10 +421,47 @@ export async function readEncryptedChildJson(
 
 export class BrowserProfileImportService {
   private readonly historyFile: string;
+  private readonly keyStore: AppBoundKeyStore;
+  private readonly autoState: CookieAutoImportStateStore;
+  private readonly keyReuseSupport = new Map<string, boolean>();
   private activeJobId = '';
 
   constructor(private readonly options: BrowserProfileImportOptions) {
     this.historyFile = join(options.userDataDirectory, 'browser-imported-history.json');
+    this.keyStore = new AppBoundKeyStore(
+      join(options.userDataDirectory, APP_BOUND_KEY_FILE),
+      options.keyEncryption ?? safeStorage
+    );
+    this.autoState = new CookieAutoImportStateStore(join(options.userDataDirectory, AUTO_STATE_FILE));
+  }
+
+  /** The record of the latest automatic/manual cookie imports (no secrets). */
+  get cookieAutoImportState(): CookieAutoImportStateStore {
+    return this.autoState;
+  }
+
+  /** Whether a Chrome key is saved for Chrome's current key, and whether the OS can protect one. */
+  async savedKeyStatus(): Promise<{ available: boolean; saved: boolean }> {
+    const available = this.keyStore.available();
+    const blob = await this.currentKeyBinding();
+    const key = available && blob ? await this.keyStore.load(blob) : null;
+    key?.fill(0);
+    return { available, saved: key !== null };
+  }
+
+  /** The hash a saved key must be bound to now: Chrome's current `app_bound_encrypted_key`.
+   *  Undefined when Chrome has none (older Chrome) or its Local State is not readable. */
+  private async currentKeyBinding(): Promise<string | undefined> {
+    try {
+      return await readAppBoundBlobSha256(join(this.chromeUserData(), 'Local State'));
+    } catch {
+      // This account has no Chrome profile location: nothing to match a key against.
+      return undefined;
+    }
+  }
+
+  async forgetSavedKey(): Promise<void> {
+    await this.keyStore.forget();
   }
 
   /** Delete everything an import copied out of Chrome: the password vault,
@@ -391,6 +484,9 @@ export class BrowserProfileImportService {
       ...vaultCopies.map((name) => rm(join(root, name), { force: true })),
       rm(this.historyFile, { force: true }),
       rm(join(root, 'browser-import-backups'), { recursive: true, force: true }),
+      // The saved Chrome key is imported data too; the import record goes with it.
+      this.keyStore.forget(),
+      this.autoState.clear(),
     ]);
   }
 
@@ -399,6 +495,7 @@ export class BrowserProfileImportService {
   }
 
   private async nativeImporter(item: 'passwords' | 'cookies'): Promise<NativeBrowserImporter | undefined> {
+    if (this.options.nativeImporterOverride) return this.options.nativeImporterOverride;
     if (
       (item === 'passwords' && this.options.readNativeCredentials) ||
       (item === 'cookies' && this.options.readNativeCookies)
@@ -654,40 +751,163 @@ export class BrowserProfileImportService {
     }
   }
 
-  private async importCookies(profileId: string): Promise<number> {
-    const output = this.options.readNativeCookies
-      ? await this.options.readNativeCookies(profileId)
-      : await this.readNativeCookies(profileId);
-    const report = parseBrowserCookieReport(output);
-    return await importBrowserCookies(
+  /** One cookie import with no window: for the scheduler, which only calls it
+   *  while Chrome is closed. It never launches the elevated helper (no UAC
+   *  prompt) and records how it went for the settings page. */
+  async runAutomaticCookieImport(profileId: string): Promise<AutoCookieImportOutcome> {
+    if (this.activeJobId) return { state: 'skipped', reason: 'busy' };
+    this.activeJobId = AUTOMATIC_JOB_ID;
+    try {
+      const source = (await this.sources()).find((candidate) => candidate.id === CHROME_SOURCE_ID);
+      if (!source?.profiles.some((profile) => profile.id === profileId) || !source.supports.cookies) {
+        throw new Error('The selected Chrome profile is no longer available for cookie import.');
+      }
+      return { state: 'imported', count: await this.importCookies(profileId, true) };
+    } catch (error) {
+      return await this.recordAutomaticFailure(error);
+    } finally {
+      this.activeJobId = '';
+      // Housekeeping only: a leftover snapshot is harmless and the next run prunes again.
+      await this.pruneAutomaticBackups().catch(() => undefined);
+    }
+  }
+
+  private async recordAutomaticFailure(error: unknown): Promise<AutoCookieImportOutcome> {
+    if (error instanceof SavedKeyUnavailableError) {
+      await this.autoState.update({ needsManualImport: true, lastError: undefined });
+      return { state: 'needs-manual-import' };
+    }
+    // Chrome opened after the process check: not a failure, the next run retries.
+    if (errorMessage(error) === NATIVE_FAILURE.chromeRunning) return { state: 'skipped', reason: 'chrome-running' };
+    const message = cleanError(error);
+    await this.autoState.update({ lastError: message });
+    return { state: 'failed', error: message };
+  }
+
+  private async pruneAutomaticBackups(): Promise<void> {
+    const directory = join(this.options.userDataDirectory, 'browser-import-backups');
+    const names = (await readdir(directory).catch(() => [] as string[]))
+      .filter((name) => /^cookies-auto-\d+-/.test(name))
+      .sort();
+    await Promise.all(names.slice(0, -AUTOMATIC_BACKUPS_KEPT).map((name) => rm(join(directory, name), { force: true })));
+  }
+
+  private async importCookies(profileId: string, automatic = false): Promise<number> {
+    const report = parseBrowserCookieReport(await this.readCookieReport(profileId, automatic));
+    if (report.appBoundKey) {
+      const grant = report.appBoundKey;
+      // Drop the report's reference so the key text is not kept for the rest of the import.
+      delete report.appBoundKey;
+      await this.keepAppBoundKey(grant);
+    }
+    const encryption = this.options.keyEncryption ?? safeStorage;
+    const imported = await importBrowserCookies(
       { cookies: this.options.cookieJar || this.options.partition.cookies },
       report.cookies,
       async (existing) => {
-        if (!safeStorage.isEncryptionAvailable()) {
+        if (!encryption.isEncryptionAvailable()) {
           throw new Error('Credential encryption is unavailable; cookie import was not started.');
         }
         const backupDirectory = join(this.options.userDataDirectory, 'browser-import-backups');
         await mkdir(backupDirectory, { recursive: true });
         await writeFile(
-          join(backupDirectory, `cookies-${Date.now()}-${randomUUID()}.bin`),
-          safeStorage.encryptString(JSON.stringify({ version: 1, cookies: existing })),
+          join(backupDirectory, `cookies-${automatic ? 'auto-' : ''}${Date.now()}-${randomUUID()}.bin`),
+          encryption.encryptString(JSON.stringify({ version: 1, cookies: existing })),
           { mode: 0o600, flag: 'wx' }
         );
       },
       report.failures
     );
+    // Status for the settings page; failing to write it must not undo an import that worked.
+    await this.autoState
+      .update({ lastImportAt: Date.now(), lastCount: imported, lastError: undefined, needsManualImport: false })
+      .catch(() => undefined);
+    return imported;
   }
 
-  private async readNativeCookies(profileId: string): Promise<unknown> {
+  /** The native cookie report, using the saved Chrome key whenever one still
+   *  fits so no UAC prompt appears. A key Chrome rotated, or one that decrypts
+   *  nothing, is discarded: a manual import then elevates once (and saves the
+   *  new key), while an automatic one stops and asks for that manual import. */
+  private async readCookieReport(profileId: string, automatic: boolean): Promise<unknown> {
+    const read = (route: NativeCookieRoute): Promise<unknown> =>
+      this.options.readNativeCookies
+        ? this.options.readNativeCookies(profileId, route)
+        : this.readNativeCookies(profileId, route);
+    const importer = await this.nativeImporter('cookies');
+    if (!importer) throw new Error('The packaged native browser importer is not installed.');
+    if (!this.options.readNativeCookies && !(await this.importerReusesKeys(importer))) {
+      // An importer built before key reuse always elevates, so it cannot run unattended.
+      if (automatic) throw new Error('The installed browser importer cannot reuse a saved key; update the app.');
+      return await read({ allowElevation: true, returnKey: false });
+    }
+    const blob = await this.currentKeyBinding();
+    const saved = blob ? await this.keyStore.load(blob) : null;
+    try {
+      if (saved) {
+        try {
+          return await read({ savedKey: saved, allowElevation: false, returnKey: false });
+        } catch (error) {
+          if (errorMessage(error) !== NATIVE_FAILURE.savedKeyRejected) throw error;
+          await this.keyStore.forget();
+          if (automatic) throw new SavedKeyUnavailableError();
+        }
+      }
+      return await read({ allowElevation: !automatic, returnKey: !automatic && this.keyStore.available() });
+    } catch (error) {
+      if (automatic && errorMessage(error) === NATIVE_FAILURE.savedKeyRequired) throw new SavedKeyUnavailableError();
+      throw error;
+    } finally {
+      saved?.fill(0);
+    }
+  }
+
+  /** Keep a key the elevated unwrap just produced and the importer proved correct. */
+  private async keepAppBoundKey(grant: NativeAppBoundKey): Promise<void> {
+    const key = Buffer.from(grant.key, 'base64');
+    try {
+      await this.keyStore.save(grant.blobSha256, key);
+    } catch {
+      // Only costs the next import another prompt; the cookies themselves were read.
+    } finally {
+      key.fill(0);
+    }
+  }
+
+  /** Whether the importer build can take a saved key. Only a definitive answer
+   *  is cached per binary: a build that answers, or one that rejects the
+   *  `capabilities` command with an exit code (older builds). A timeout or a
+   *  failure to start is transient: it fails this import and the next one probes again. */
+  private async importerReusesKeys(importer: NativeBrowserImporter): Promise<boolean> {
+    const known = this.keyReuseSupport.get(importer.sha256);
+    if (known !== undefined) return known;
+    let supported: boolean;
+    try {
+      const { stdout } = await execFileAsync(importer.executable, ['capabilities'], {
+        windowsHide: true,
+        timeout: CAPABILITY_PROBE_TIMEOUT_MS,
+        maxBuffer: 4096,
+      });
+      supported = (JSON.parse(stdout) as { savedAppBoundKey?: unknown }).savedAppBoundKey === 1;
+    } catch (error) {
+      const failure = error as { code?: unknown; killed?: unknown; signal?: unknown };
+      if (typeof failure.code !== 'number' || failure.killed || failure.signal) throw error;
+      supported = false;
+    }
+    this.keyReuseSupport.set(importer.sha256, supported);
+    return supported;
+  }
+
+  private async readNativeCookies(profileId: string, route: NativeCookieRoute): Promise<unknown> {
     const importer = await this.nativeImporter('cookies');
     if (!importer) {
       throw new Error('The packaged native browser importer is not installed.');
     }
-    return await readEncryptedChildJson(
-      importer.executable,
-      ['import-cookies', '--browser', 'chrome', '--profile', profileId, '--json'],
-      importer.sha256
-    );
+    const args = ['import-cookies', '--browser', 'chrome', '--profile', profileId, '--json'];
+    if (route.savedKey) args.push('--v20-key-stdin');
+    if (!route.allowElevation) args.push('--no-elevation');
+    if (route.returnKey) args.push('--return-v20-key');
+    return await readEncryptedChildJson(importer.executable, args, importer.sha256, undefined, route.savedKey);
   }
 
   private async importHistory(profileId: string, jobId: string): Promise<number> {
