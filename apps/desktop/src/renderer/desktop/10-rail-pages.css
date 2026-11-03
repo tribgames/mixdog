@@ -1815,16 +1815,20 @@ html[data-mixdog-mobile-tabs]
 .session-sidebar .project-folder > .project-folder-toggle {
   padding-right: 40px;
 }
-/* The 20px leading slot every row opens with, so all row names share one x:
+/* The 16px leading slot every row opens with, so all row names share one x (slot + 22):
    bots show the avatar (.session-agent-avatar), rooms the people glyph,
    sessions the chat bubble, a conversation with forks the fork glyph. */
 .session-row-slot {
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
   display: grid;
   place-items: center;
   color: var(--mx-text-muted);
+}
+/* Slot-to-title gap is 6px (the tab strip's bubble-to-title gap). */
+.session-sidebar .session-row-main:has(> .session-row-slot, > .session-agent-avatar) {
+  gap: 6px;
 }
 /* A bare glyph (bubble, fork, branch) starts on the category text line, like
    an avatar's edge does, instead of floating 3px in from the slot's centring. */
@@ -1845,7 +1849,7 @@ html[data-mixdog-mobile-tabs]
   margin-top: 8px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 0 8px;
   border: 0;
   background: transparent;
@@ -1854,9 +1858,9 @@ html[data-mixdog-mobile-tabs]
   text-align: left;
   cursor: pointer;
 }
-/* Under sub-headings the rows step in to the branch name's x (slot + 28). */
+/* Under sub-headings the rows step in to the branch name's x (slot + 22). */
 .session-sidebar .project-session-list-split .session-row:not(.editing) {
-  padding-left: 36px;
+  padding-left: 30px;
 }
 .project-session-list > .session-subheading:first-child {
   margin-top: 0;
@@ -1875,12 +1879,12 @@ html[data-mixdog-mobile-tabs]
   flex: none;
 }
 /* An empty project's note sits on its sessions' title line (8px row inset +
-   20px slot + 8px gap). */
+   16px slot + 6px gap). */
 .project-session-list > .sidebar-section-empty {
   height: 28px;
   display: flex;
   align-items: center;
-  padding: 0 8px 0 36px;
+  padding: 0 8px 0 30px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-item);
 }
@@ -2016,9 +2020,9 @@ html[data-mixdog-mobile-tabs]
    avatar, scaled) before the name; an unread reply is only the row's dot. */
 .session-agent-avatar {
   position: relative;
-  width: 20px;
-  height: 20px;
-  flex: 0 0 20px;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 16px;
   display: grid;
   place-items: center;
   color: var(--mx-text-soft);
