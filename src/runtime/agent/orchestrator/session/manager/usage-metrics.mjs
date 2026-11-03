@@ -399,7 +399,8 @@ export function applyAskTerminalUsageTotals(session, result, options = {}) {
     });
   }
   const lastTurn = result.lastTurnUsage || result.usage || {};
-  const measuredInput = Number(lastTurn.inputTokens) || 0;
+  const contextInput = lastTurn.contextInputTokens ?? lastTurn.inputTokens;
+  const measuredInput = Number(contextInput) || 0;
   const measuredCache = providerInputExcludesCache(session.provider)
     ? (Number(lastTurn.cachedTokens) || 0) + (Number(lastTurn.cacheWriteTokens) || 0)
     : 0;
@@ -414,10 +415,11 @@ export function applyAskTerminalUsageTotals(session, result, options = {}) {
     return;
   }
   setLastContextTokens(session, {
-    input: lastTurn.inputTokens ?? 0,
+    input: contextInput ?? 0,
     output: lastTurn.outputTokens ?? 0,
-    cachedRead: lastTurn.cachedTokens ?? 0,
+    cachedRead: lastTurn.contextCachedTokens ?? lastTurn.cachedTokens ?? 0,
     cacheWrite: lastTurn.cacheWriteTokens ?? 0,
+    outputInWindow: lastTurn.contextInputTokens != null,
   });
 }
 
@@ -440,13 +442,18 @@ function clearLastContextTokens(session, ts) {
 // cache (cache_read is a separate field), so the cached portion must be
 // added back to reflect real context size; openai/grok/gemini already fold
 // cached tokens INTO the input count, so input alone is the footprint.
-function setLastContextTokens(session, { input, output, cachedRead, cacheWrite, ts }) {
+// `outputInWindow`: the input is the context's prompt part and the generated
+// output is in the window too (a billed input that repeats hop input, Gemini
+// long decode), so the footprint adds it as the compaction pressure does.
+function setLastContextTokens(session, { input, output, cachedRead, cacheWrite, outputInWindow = false, ts }) {
   session.lastInputTokens = input;
   session.lastOutputTokens = output;
   session.lastCachedReadTokens = cachedRead;
   session.lastCacheWriteTokens = cacheWrite;
   session.lastUncachedInputTokens = uncachedInputTokensForProvider(session.provider, input, cachedRead, cacheWrite);
-  session.lastContextTokens = providerInputExcludesCache(session.provider) ? input + cachedRead + cacheWrite : input;
+  session.lastContextTokens =
+    (providerInputExcludesCache(session.provider) ? input + cachedRead + cacheWrite : input) +
+    (outputInWindow ? output : 0);
   session.lastContextTokensUpdatedAt = ts || Date.now();
   session.lastContextTokensStaleAfterCompact = false;
 }
@@ -485,6 +492,7 @@ function recordLastContextTokens(session, context) {
     contextCachedReadTokens,
     contextCacheWriteTokens,
     contextMeasuredTokens,
+    contextOutputInWindow,
     ts,
   } = context;
   const inputExcludesCache = providerInputExcludesCache(session.provider);
@@ -504,6 +512,7 @@ function recordLastContextTokens(session, context) {
     output: contextOutputTokens || 0,
     cachedRead: contextCachedReadTokens || 0,
     cacheWrite: contextCacheWriteTokens || 0,
+    outputInWindow: contextOutputInWindow === true,
     ts,
   });
 }
@@ -522,6 +531,7 @@ function iterationContext(delta) {
     contextCachedReadTokens = delta.deltaCachedRead,
     contextCacheWriteTokens = delta.deltaCacheWrite,
     contextMeasuredTokens = null,
+    contextOutputInWindow = false,
     ts,
   } = delta;
   return {
@@ -530,6 +540,7 @@ function iterationContext(delta) {
     contextCachedReadTokens,
     contextCacheWriteTokens,
     contextMeasuredTokens,
+    contextOutputInWindow,
     ts,
   };
 }

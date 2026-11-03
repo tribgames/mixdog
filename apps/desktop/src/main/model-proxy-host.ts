@@ -233,6 +233,9 @@ export const MODEL_PROXY_SEND_OPTION_KEYS: ReadonlySet<string> = new Set([
   'max_output_tokens',
   'max_tokens',
   'maxAttempts',
+  // Request shaping that only switches the Anthropic message-thread
+  // continuation off for one send; thread state stays on the PC that runs it.
+  'messageThreads',
   'maxOutputTokens',
   'maxOutputTokensOverride',
   'maxTokens',

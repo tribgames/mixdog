@@ -105,7 +105,8 @@ const USAGE_COUNT_FIELDS = [
 
 // Usage of a long-decode turn: every hop is billed, so every count is the sum
 // over the hops; initialPromptTokenCount keeps the first hop's prompt (the
-// context size, which the summed prompt count overstates).
+// context size, which the summed prompt count overstates). Context occupancy
+// is that prompt plus the summed generated tokens.
 function sumGeminiHopUsage(hops) {
   const metas = hops.map((hop) => hop.usageMetadata).filter(Boolean);
   if (!metas.length) return undefined;
@@ -116,6 +117,7 @@ function sumGeminiHopUsage(hops) {
     }
   }
   summed.initialPromptTokenCount = Number(metas[0].promptTokenCount) || 0;
+  summed.initialCachedContentTokenCount = Number(metas[0].cachedContentTokenCount) || 0;
   return summed;
 }
 

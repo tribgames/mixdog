@@ -104,6 +104,16 @@ export function normalizeGeminiUsage(um, opts, cachedContent) {
     // subset). Alias the resolver's normalized total directly.
     promptTokens: inputTokens,
   };
+  // A long-decode turn bills every hop's prompt, but the context only holds
+  // the first hop's prompt plus what was generated. The summed input stays the
+  // billing figure; this is the input the context gauge and compaction count.
+  const initialPromptTokens = Number(um.initialPromptTokenCount);
+  if (initialPromptTokens > 0 && initialPromptTokens < inputTokens) {
+    resolvedUsage.contextInputTokens = initialPromptTokens;
+    // The cached reads of the billed hops repeat the same way; the context
+    // holds only the first hop's.
+    resolvedUsage.contextCachedTokens = Math.min(Number(um.initialCachedContentTokenCount) || 0, initialPromptTokens);
+  }
   return { resolvedUsage, cache };
 }
 
