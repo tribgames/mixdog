@@ -151,20 +151,15 @@ test('todo progress counts finished steps of the counted ones; abandoned work is
     { content: 'a', status: 'completed' },
     { content: 'b', status: 'in_progress' },
     { content: 'c', status: 'abandoned' },
-    { content: 'd', status: 'blocked', blocker: 'No token' },
+    { content: 'd', status: 'pending' },
   ];
   assert.deepEqual(todoProgress(todoOf(tasks)), {
     completed: 1,
     total: 3,
     abandoned: 1,
-    blocked: true,
     inProgress: true,
   });
-  assert.equal(
-    todoStateKind(todoProgress(todoOf(tasks))),
-    'active',
-    'a blocked step (waiting on an agent or a shell) does not turn the list into an alarm'
-  );
+  assert.equal(todoStateKind(todoProgress(todoOf(tasks))), 'active');
   assert.equal(todoStateKind(todoProgress(todoOf([{ content: 'a', status: 'in_progress' }]))), 'active');
   assert.equal(todoStateKind(todoProgress(todoOf([{ content: 'a', status: 'completed' }]))), 'complete');
   assert.equal(
@@ -180,7 +175,7 @@ test('a Goal segment carries the ring, n/m and a label from the step list', asyn
   const tasks = [
     { content: 'Write code', status: 'completed', note: 'merged' },
     { content: 'Run migration', status: 'in_progress' },
-    { content: 'Ship it', status: 'blocked', blocker: 'No token' },
+    { content: 'Ship it', status: 'pending' },
     { content: 'Old idea', status: 'abandoned', note: 'out of scope' },
     { content: 'Write docs', status: 'pending' },
   ];
@@ -210,8 +205,6 @@ test('a Goal segment carries the ring, n/m and a label from the step list', asyn
       })
     );
     assert.equal(trigger.querySelector('.session-goal-progress').textContent, '1/4');
-    assert.equal(host.querySelector('li[data-status="blocked"] svg')?.dataset.glyph, 'stalled');
-    assert.equal(host.querySelector('li[data-status="blocked"] .session-goal-task-blocker').textContent, `${t('Blocked')}: No token`);
     assert.equal(host.querySelector('li[data-status="completed"] .session-goal-task-note').textContent, 'merged');
     assert.equal(host.querySelector('li[data-status="abandoned"] .session-goal-task-note').textContent, 'out of scope');
     assert.ok(host.querySelector('.session-goal-controls'), 'a Goal keeps its controls');
@@ -275,7 +268,7 @@ test('a list without a Goal shows a To-do segment and panel with no time or cont
       'a list whose steps were all dropped still shows its count'
     );
     await render({
-      todo: todoOf([{ content: 'Ship it', status: 'blocked', blocker: 'No token', note: 'asked owner' }]),
+      todo: todoOf([{ content: 'Ship it', status: 'pending', note: 'asked owner' }]),
     });
     assert.equal(host.querySelector('.session-goal-task-note').textContent, 'asked owner', 'a note shows on any step');
   } finally {
@@ -290,7 +283,6 @@ test('step rows carry accessible status text', async () => {
   const root = createRoot(host);
   const tasks = [
     { content: 'Run migration', status: 'in_progress' },
-    { content: 'Ship it', status: 'blocked', blocker: 'No token' },
     { content: 'Write docs', status: 'pending' },
     { content: 'Old idea', status: 'abandoned' },
   ];
@@ -300,7 +292,6 @@ test('step rows carry accessible status text', async () => {
     });
     const rowText = (selector) => host.querySelector(selector).textContent;
     assert.equal(rowText('li[data-status="in_progress"]'), `${t('In progress')}: Run migration`);
-    assert.equal(rowText('li[data-status="blocked"]'), `${t('Blocked')}: Ship it${t('Blocked')}: No token`);
     assert.equal(rowText('li[data-status="pending"]'), 'Write docs');
     assert.equal(rowText('li[data-status="abandoned"]'), `${t('Dropped')}: Old idea`);
   } finally {
@@ -427,7 +418,7 @@ test('to-do rows put the note under the title and group rows under phase heading
       {
         name: 'Release',
         tasks: [
-          { content: 'Tag', status: 'blocked', blocker: 'No token' },
+          { content: 'Tag', status: 'pending' },
           { content: 'Publish', status: 'completed' },
         ],
       },
@@ -436,8 +427,6 @@ test('to-do rows put the note under the title and group rows under phase heading
     assert.equal(note.parentElement.tagName, 'DIV', 'the note shares the title column');
     assert.equal(note.parentElement.parentElement.tagName, 'LI');
     assert.equal(note.getAttribute('title'), 'long note');
-    const blocker = host.querySelector('li[data-status="blocked"] .session-goal-task-blocker');
-    assert.equal(blocker.parentElement.tagName, 'DIV');
     const headings = [...host.querySelectorAll('.session-goal-phase')].map((el) => el.textContent);
     assert.deepEqual(headings, ['Build', 'Release', 'Release'], 'remaining and done groups each head their phases');
     // The runtime's unnamed phase reads in the user's language; a named one as written.

@@ -31,9 +31,9 @@ function normalizeTask(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const content = oneLine(raw.content);
   if (!content) return null;
+  // Stored lists from when `blocked` existed load as pending.
   const status = TODO_STATUSES.includes(raw.status) ? raw.status : 'pending';
   const task = { content, status };
-  if (status === 'blocked' && oneLine(raw.blocker)) task.blocker = oneLine(raw.blocker);
   if (oneLine(raw.note)) task.note = oneLine(raw.note);
   return task;
 }
@@ -52,7 +52,7 @@ export function todoPhases(session) {
 const allTasks = (phases) => phases.flatMap((phase) => phase.tasks);
 
 /** Exactly one in_progress while actionable work exists: several keep the
- *  earliest, none starts the earliest pending. Blocked never starts itself. */
+ *  earliest, none starts the earliest pending. */
 function normalizeTodoPhases(phases) {
   const tasks = allTasks(phases);
   const active = tasks.filter((task) => task.status === 'in_progress');
@@ -78,8 +78,8 @@ export function openTodoItems(session) {
   return allTasks(todoPhases(session)).filter((task) => OPEN_STATUSES.has(task.status));
 }
 
-/** Every item not completed or dropped (blocked included): what an agent
- *  leaves undone when it ends. */
+/** Every item not completed or dropped: what an agent leaves undone when it
+ *  ends. */
 export function unfinishedTodoItems(session) {
   return allTasks(todoPhases(session)).filter((task) => task.status !== 'completed' && task.status !== 'abandoned');
 }
@@ -145,7 +145,7 @@ function publish(session) {
   }
 }
 
-const MARKS = { completed: 'x', in_progress: '>', pending: ' ', blocked: '!', abandoned: '-' };
+const MARKS = { completed: 'x', in_progress: '>', pending: ' ', abandoned: '-' };
 
 function progressLabel(phases) {
   const { completed, abandoned, total } = todoCounts(phases);
@@ -159,7 +159,7 @@ function renderTodoList(phases) {
   for (const phase of phases) {
     lines.push(phase.name);
     for (const task of phase.tasks) {
-      const detail = task.blocker ? ` — blocked: ${task.blocker}` : task.note ? ` — ${task.note}` : '';
+      const detail = task.note ? ` — ${task.note}` : '';
       lines.push(`  [${MARKS[task.status]}] ${task.content}${detail}`);
     }
   }
@@ -171,7 +171,6 @@ function summaryLine(phases, op, content) {
   const parts = [progressLabel(phases), `${op}: ${content}`];
   const current = tasks.find((task) => task.status === 'in_progress');
   if (current) parts.push(`next: ${current.content}`);
-  else if (tasks.some((task) => task.status === 'blocked')) parts.push('next: none (blocked items wait)');
   else parts.push('all closed');
   return parts.join(' · ');
 }
@@ -218,7 +217,6 @@ const OPS = {
   start(phases, args) {
     const { task } = findTask(phases, args.item);
     if (task.status === 'completed') throw new Error(`todo: "${task.content}" is completed and stays closed`);
-    if (task.status === 'blocked') throw new Error(`todo: "${task.content}" is blocked; unblock it first`);
     for (const other of allTasks(phases)) if (other.status === 'in_progress') other.status = 'pending';
     task.status = 'in_progress';
     return task.content;
@@ -226,7 +224,6 @@ const OPS = {
   done(phases, args) {
     const { task } = findTask(phases, args.item);
     task.status = 'completed';
-    delete task.blocker;
     const note = oneLine(args.note);
     if (note) task.note = note;
     return task.content;
@@ -235,23 +232,6 @@ const OPS = {
     const { task } = findTask(phases, args.item);
     if (task.status === 'completed') throw new Error(`todo: "${task.content}" is completed and stays closed`);
     task.status = 'abandoned';
-    delete task.blocker;
-    return task.content;
-  },
-  block(phases, args) {
-    const { task } = findTask(phases, args.item);
-    if (task.status === 'completed' || task.status === 'abandoned') {
-      throw new Error(`todo: "${task.content}" is ${task.status}; only open items can block`);
-    }
-    task.status = 'blocked';
-    task.blocker = itemText(args.reason, 'block reason');
-    return task.content;
-  },
-  unblock(phases, args) {
-    const { task } = findTask(phases, args.item);
-    if (task.status !== 'blocked') throw new Error(`todo: "${task.content}" is not blocked`);
-    task.status = 'pending';
-    delete task.blocker;
     return task.content;
   },
   append(phases, args) {
@@ -314,7 +294,7 @@ export function notDoneReport(session) {
   if (!unfinished.length) return '';
   return [
     'Not done:',
-    ...unfinished.map((task) => `- ${task.content}${task.blocker ? ` (blocked: ${task.blocker})` : ''}`),
+    ...unfinished.map((task) => `- ${task.content}`),
   ].join('\n');
 }
 
@@ -335,7 +315,7 @@ const LEGACY_GOAL_TASK_STATUS = {
   in_progress: 'in_progress',
   completed: 'completed',
   dropped: 'abandoned',
-  awaiting_approval: 'blocked',
+  awaiting_approval: 'pending',
 };
 
 /** Move a legacy Goal record's tasks into the session's list (once; the Goal
@@ -352,7 +332,7 @@ export function adoptLegacyGoalTasks(session, legacyTasks) {
     if (!content || existing.has(content)) continue;
     existing.add(content);
     const status = LEGACY_GOAL_TASK_STATUS[oneLine(raw?.status).toLowerCase()] || 'pending';
-    adopted.push(status === 'blocked' ? { content, status, blocker: 'awaiting user approval' } : { content, status });
+    adopted.push({ content, status });
   }
   if (!adopted.length) return false;
   const name = phases.length ? 'Goal' : DEFAULT_TODO_PHASE;

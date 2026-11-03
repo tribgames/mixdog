@@ -158,8 +158,6 @@ function todoStatusText(status: TodoStatus): string {
       return t('Done');
     case 'abandoned':
       return t('Dropped');
-    case 'blocked':
-      return t('Blocked');
     case 'in_progress':
       return t('In progress');
     default:
@@ -170,11 +168,9 @@ function todoStatusText(status: TodoStatus): string {
 function TodoRow({ task }: { task: TodoTask }) {
   const status = task.status || 'pending';
   const statusText = todoStatusText(status);
-  // The title takes the full row; its note (and a blocked step's reason) sit
-  // under it as muted lines, the full text on hover.
+  // The title takes the full row; its note sits under it as a muted line,
+  // the full text on hover.
   const note = String(task.note || '');
-  const blocker = status === 'blocked' ? String(task.blocker || '') : '';
-  const blockerText = blocker ? `${statusText}: ${blocker}` : '';
   return (
     <li data-status={status}>
       <span>
@@ -185,13 +181,6 @@ function TodoRow({ task }: { task: TodoTask }) {
           {statusText && <span className="sr-only">{statusText}: </span>}
           {String(task.content || '')}
         </span>
-        {blocker && (
-          <span className="session-goal-task-blocker" title={blockerText}>
-            {/* The title's screen-reader prefix already announces Blocked. */}
-            <span aria-hidden="true">{statusText}: </span>
-            {blocker}
-          </span>
-        )}
         {note && (
           <small className="session-goal-task-note" title={note}>
             {note}
@@ -223,23 +212,11 @@ function TodoRows({ items, phases, headings }: { items: TodoItem[]; phases: Todo
 }
 
 function TodoGlyph({ status }: { status: TodoStatus }) {
-  // A blocked step is a ringed "!" in its row's 14px glyph slot.
-  if (status === 'blocked') {
-    return (
-      <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true" focusable="false" data-glyph="stalled">
-        <circle cx="8" cy="8" r="5.8" fill="none" stroke="currentColor" strokeWidth="1.5" />
-        <g fill="currentColor">
-          <rect x="7.25" y="4.6" width="1.5" height="4.3" rx=".7" />
-          <circle cx="8" cy="11.1" r=".9" />
-        </g>
-      </svg>
-    );
-  }
   const name = (status && TODO_GLYPHS[status as keyof typeof TODO_GLYPHS]) || 'pending';
   return <MxIcon name={name} size={14} />;
 }
 
-/** The step list: remaining rows (the first few, working and blocked ones
+/** The step list: remaining rows (the first few, working ones
  *  always, the rest folded) and a fold for the finished and dropped ones. */
 function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishedOpenByDefault: boolean }) {
   const [showDone, setShowDone] = useState<boolean | null>(null);
@@ -252,10 +229,10 @@ function TodoList({ todo, finishedOpenByDefault }: { todo: TodoSnapshot; finishe
   const done = tasks.filter(({ task }) => task.status === 'completed' || task.status === 'abandoned');
   const completedCount = done.filter(({ task }) => task.status === 'completed').length;
   const abandonedCount = done.length - completedCount;
-  // The first rows stay; every working or blocked row always makes the cut.
+  // The first rows stay; every working row always makes the cut.
   const shownIndexes = new Set<number>();
   remaining.forEach(({ task }, index) => {
-    if (task.status === 'in_progress' || task.status === 'blocked') shownIndexes.add(index);
+    if (task.status === 'in_progress') shownIndexes.add(index);
   });
   for (let index = 0; index < remaining.length && shownIndexes.size < REMAINING_VISIBLE; index += 1) {
     shownIndexes.add(index);

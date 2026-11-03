@@ -1726,11 +1726,6 @@ html[data-mixdog-mobile-tabs] [data-component="text-shimmer"] [data-slot="text-s
   line-height: var(--mx-line-minor);
   overflow-wrap: anywhere;
 }
-/* A blocked step is waiting, not failing: muted, with its reason beside it. */
-.session-goal-tasks li[data-status="blocked"] > span {
-  color: var(--mx-text-muted);
-}
-.session-goal-tasks li > div > .session-goal-task-blocker,
 .session-goal-task-note {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);

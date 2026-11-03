@@ -482,7 +482,7 @@ test('header snapshot equality ignores unrelated stats but tracks visible contex
 const todoFrom = (tasks) => {
   const rows = tasks.map((task) => ({
     content: task.text,
-    status: task.status === 'dropped' ? 'abandoned' : task.status === 'awaiting_approval' ? 'blocked' : task.status,
+    status: task.status === 'dropped' ? 'abandoned' : task.status === 'awaiting_approval' ? 'pending' : task.status,
   }));
   const abandoned = rows.filter((row) => row.status === 'abandoned').length;
   return {
@@ -749,7 +749,6 @@ test('task rows carry no badges; five remaining rows show and the rest folds', a
   try {
     const tasks = [
       { id: 'run', text: 'Running', status: 'in_progress' },
-      { id: 'ask', text: 'Asking', status: 'awaiting_approval' },
       ...Array.from({ length: 6 }, (_, i) => ({ id: `p${i}`, text: `Pending ${i}`, status: 'pending' })),
     ];
     await act(async () => {
@@ -770,13 +769,12 @@ test('task rows carry no badges; five remaining rows show and the rest folds', a
     assert.doesNotMatch(document.body.textContent, /Needs your answer/);
     const rows = [...document.querySelectorAll('.session-goal-task-list')];
     assert.equal(rows[0].children.length, 5, 'first five remaining rows');
-    assert.equal(rows[0].querySelector('li[data-status="blocked"] svg')?.getAttribute('data-glyph'), 'stalled');
-    assert.equal(document.querySelector('.session-goal-group-label')?.textContent, 'Remaining 8');
+    assert.equal(document.querySelector('.session-goal-group-label')?.textContent, 'Remaining 7');
     const rest = document.querySelector('.session-goal-fold[data-fold="rest"]');
-    assert.equal(rest?.textContent, 'Rest 3');
+    assert.equal(rest?.textContent, 'Rest 2');
     assert.equal(rest?.getAttribute('aria-expanded'), 'false');
     assert.equal(rows[1].hasAttribute('hidden'), true);
-    assert.equal(rows[1].children.length, 3);
+    assert.equal(rows[1].children.length, 2);
     await act(async () => {
       rest?.dispatchEvent(new window.MouseEvent('click', { bubbles: true }));
     });
@@ -810,30 +808,12 @@ test('running and awaiting rows always make the five-row cut', async () => {
     );
   };
   try {
-    // Running first, awaiting beyond the cutoff: both stay, order kept.
-    let rows = await shown([
-      { id: 'run', text: 'Running', status: 'in_progress' },
-      ...pending(6),
-      { id: 'ask', text: 'Asking', status: 'awaiting_approval' },
-    ]);
-    assert.equal(rows.length, 5);
-    assert.ok(rows.includes('Running') && rows.includes('Asking'));
-    assert.deepEqual(rows, ['Running', 'Pending 0', 'Pending 1', 'Pending 2', 'Asking']);
-    // One protected row inside the cutoff, one across it.
-    rows = await shown([
-      ...pending(3),
-      { id: 'run', text: 'Running', status: 'in_progress' },
-      { id: 'ask', text: 'Asking', status: 'awaiting_approval' },
-      ...pending(2).map((t, i) => ({ ...t, id: `q${i}`, text: `Late ${i}` })),
-    ]);
-    assert.deepEqual(rows, ['Pending 0', 'Pending 1', 'Pending 2', 'Running', 'Asking']);
-    // Both beyond the cutoff.
-    rows = await shown([
-      ...pending(7),
-      { id: 'run', text: 'Running', status: 'in_progress' },
-      { id: 'ask', text: 'Asking', status: 'awaiting_approval' },
-    ]);
-    assert.deepEqual(rows, ['Pending 0', 'Pending 1', 'Pending 2', 'Running', 'Asking']);
+    // Running inside the cutoff.
+    let rows = await shown([{ id: 'run', text: 'Running', status: 'in_progress' }, ...pending(6)]);
+    assert.deepEqual(rows, ['Running', 'Pending 0', 'Pending 1', 'Pending 2', 'Pending 3']);
+    // Running beyond the cutoff.
+    rows = await shown([...pending(7), { id: 'run', text: 'Running', status: 'in_progress' }]);
+    assert.deepEqual(rows, ['Pending 0', 'Pending 1', 'Pending 2', 'Pending 3', 'Running']);
   } finally {
     await act(async () => dom.root.unmount());
     dom.close();

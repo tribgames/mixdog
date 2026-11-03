@@ -112,11 +112,10 @@ export type Toast = RecordValue & {
   message?: string;
   tone?: string;
 };
-export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'abandoned' | 'blocked';
+export type TodoStatus = 'pending' | 'in_progress' | 'completed' | 'abandoned';
 export type TodoTask = {
   content: string;
   status: TodoStatus;
-  blocker?: string;
   note?: string;
 };
 export type TodoPhase = { name: string; tasks: TodoTask[] };

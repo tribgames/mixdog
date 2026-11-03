@@ -153,7 +153,6 @@ export type TodoProgress = {
   /** Steps still meant to be done: the list minus the abandoned ones. */
   total: number;
   abandoned: number;
-  blocked: boolean;
   inProgress: boolean;
 };
 
@@ -171,14 +170,12 @@ export function todoProgress(todo: TodoSnapshot | null | undefined): TodoProgres
     completed: Math.max(0, Number(todo?.completed) || 0),
     total: Math.max(0, (Number(todo?.total) || 0) - abandoned),
     abandoned,
-    blocked: tasks.some((task) => task.status === 'blocked'),
     inProgress: tasks.some((task) => task.status === 'in_progress'),
   };
 }
 
 /** The ring state of a list shown without a Goal: finished only when something
- *  was accomplished and nothing is left. A blocked step is routine (waiting on
- *  an agent or a shell) and is shown on its own row, never as an alarm here. */
+ *  was accomplished and nothing is left. */
 export function todoStateKind(progress: TodoProgress): GoalStateKind {
   if (progress.total > 0 && progress.completed >= progress.total) return 'complete';
   return 'active';

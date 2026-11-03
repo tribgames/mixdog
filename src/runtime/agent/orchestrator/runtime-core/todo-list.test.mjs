@@ -62,23 +62,18 @@ test('a follow-up init cannot erase unfinished items; append keeps them and init
   assert.deepEqual(statuses(session), ['in_progress']);
 });
 
-test('every op keeps exactly one item in progress, blocked never starts and completed never reopens', () => {
+test('every op keeps exactly one item in progress and completed never reopens', () => {
   const session = { id: 'sess_todo_normalize' };
   executeTodoTool(session, { op: 'init', items: ['One', 'Two', 'Three'] });
   assert.equal(
     executeTodoTool(session, { op: 'done', item: 'One', note: 'root cause in parser' }),
     '1/3 · done: One · next: Two'
   );
-  executeTodoTool(session, { op: 'block', item: 'Two', reason: 'waiting on the review agent' });
-  assert.deepEqual(statuses(session), ['completed', 'blocked', 'in_progress']);
+  assert.deepEqual(statuses(session), ['completed', 'in_progress', 'pending']);
   executeTodoTool(session, { op: 'start', item: 'Three' });
-  assert.throws(() => executeTodoTool(session, { op: 'start', item: 'Two' }), /unblock it first/);
   assert.throws(() => executeTodoTool(session, { op: 'start', item: 'One' }), /stays closed/);
   assert.throws(() => executeTodoTool(session, { op: 'drop', item: 'One' }), /stays closed/);
   executeTodoTool(session, { op: 'done', item: 'Three' });
-  // Only the blocked item is left: nothing starts by itself.
-  assert.deepEqual(statuses(session), ['completed', 'blocked', 'completed']);
-  executeTodoTool(session, { op: 'unblock', item: 'Two' });
   assert.deepEqual(statuses(session), ['completed', 'in_progress', 'completed']);
   executeTodoTool(session, { op: 'append', items: ['Four'], phase: 'Later' });
   executeTodoTool(session, { op: 'start', item: 'Four' });
@@ -119,9 +114,8 @@ test('agent rows show progress without dropped items; unfinished work becomes th
   executeTodoTool(session, { op: 'init', items: ['Read code', 'Change code', 'Skip docs', 'Run tests'] });
   executeTodoTool(session, { op: 'done', item: 'Read code' });
   executeTodoTool(session, { op: 'drop', item: 'Skip docs' });
-  executeTodoTool(session, { op: 'block', item: 'Run tests', reason: 'shell busy' });
   assert.deepEqual(todoProgress(session), { completed: 1, total: 3, current: 'Change code' });
-  assert.equal(notDoneReport(session), 'Not done:\n- Change code\n- Run tests (blocked: shell busy)');
+  assert.equal(notDoneReport(session), 'Not done:\n- Change code\n- Run tests');
   assert.equal(notDoneReport({ id: 'empty' }), '');
 });
 
@@ -138,16 +132,25 @@ test('legacy Goal tasks move into the todo list with mapped statuses', () => {
   );
   const tasks = todoSnapshot(session).phases[0].tasks;
   assert.deepEqual(
-    tasks.map((task) => [task.content, task.status, task.blocker]),
+    tasks.map((task) => [task.content, task.status]),
     [
-      ['Done part', 'completed', undefined],
-      ['Dropped part', 'abandoned', undefined],
-      ['Approval part', 'blocked', 'awaiting user approval'],
-      ['Open part', 'in_progress', undefined],
+      ['Done part', 'completed'],
+      ['Dropped part', 'abandoned'],
+      ['Approval part', 'in_progress'],
+      ['Open part', 'pending'],
     ]
   );
   // Adopting the same tasks again adds nothing.
   assert.equal(adoptLegacyGoalTasks(session, [{ text: 'Done part', status: 'completed' }]), false);
+});
+
+test('a stored blocked item loads as pending with its blocker dropped', () => {
+  const session = {
+    id: 'sess_todo_stored_blocked',
+    todo: { phases: [{ name: 'Tasks', tasks: [{ content: 'Old', status: 'blocked', blocker: 'waiting' }] }] },
+  };
+  assert.deepEqual(todoSnapshot(session).phases[0].tasks, [{ content: 'Old', status: 'pending' }]);
+  assert.throws(() => executeTodoTool(session, { op: 'block', item: 'Old' }), /op must be one of/);
 });
 
 test('the tool definition stays near its drafted size', () => {
