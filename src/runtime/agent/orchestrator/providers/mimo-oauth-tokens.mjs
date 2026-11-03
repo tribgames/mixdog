@@ -6,6 +6,8 @@ import { readFileSync, existsSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+// Every credential write bumps it: the agent config snapshot probes this file.
+import { bumpConfigInputEpoch } from '../../../shared/config-epoch.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { accountIdentityFields, fileMtimeMs, scrubOAuthSecrets } from './lib/oauth-token-utils.mjs';
 import { modelProxyClientMode } from '../../../shared/model-proxy-mode.mjs';
@@ -120,6 +122,7 @@ export function loadTokens() {
 export function saveTokens({ apiKey, uid, baseUrl }) {
   const tokens = { apiKey, uid: uid ? String(uid) : '', baseUrl: baseUrl || DEFAULT_BASE_URL };
   writeJsonAtomicSync(getOwnTokenPath(), tokens, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
+  bumpConfigInputEpoch();
   return tokens;
 }
 
@@ -237,5 +240,6 @@ export function forgetMimoOAuthCredentials() {
   const path = getOwnTokenPath();
   if (!existsSync(path)) return { removed: false };
   unlinkSync(path);
+  bumpConfigInputEpoch();
   return { removed: true };
 }

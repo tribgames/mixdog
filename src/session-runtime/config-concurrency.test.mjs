@@ -40,6 +40,7 @@ test('real settings writes preserve peer settings, explicit provider OFF, and th
       deleteSecret: () => assert.fail('unexpected credential deletion'),
       invalidateSecretCache() {},
       prewarmSecrets: async () => {},
+      secretCacheVersion: () => 0,
       SERVICE: 'mixdog',
     };
     mock.module('./src/lib/keychain-cjs.cjs', { defaultExport: keychain, namedExports: keychain });
@@ -54,6 +55,8 @@ test('real settings writes preserve peer settings, explicit provider OFF, and th
         hasGrokOAuthCredentials: () => false,
         hasAntigravityOAuthCredentials: () => false,
         hasCursorOAuthCredentials: () => false,
+        oauthCredentialFiles: () => [],
+        observeOAuthCredentialExpiry: (run) => ({ value: run(), expiresAt: Number.POSITIVE_INFINITY }),
       },
     });
     const cfgMod = await import('./src/runtime/agent/orchestrator/config.mjs');

@@ -4,7 +4,7 @@
 // tells the model once that a skill it holds instructions for changed, as a
 // new runtime message after the history, never by rewriting what was sent.
 import { createHash } from 'node:crypto';
-import { loadConfig } from '../config.mjs';
+import { getConfigSnapshot } from '../config.mjs';
 import { collectSkillsCached, currentSkillDelivery } from '../context/collect.mjs';
 import { latestSkillBodies, skillMessageText } from '../context/skill-state.mjs';
 
@@ -37,7 +37,7 @@ function skillUpdateNotice(name, version) {
 export function appendSkillUpdateNotices(messages, cwd) {
   const bodies = latestSkillBodies(messages);
   if (!bodies.length) return [];
-  const config = loadConfig({ secrets: false });
+  const config = getConfigSnapshot({ secrets: false });
   const skills = collectSkillsCached(cwd);
   const notices = [];
   for (const { name, message } of bodies) {

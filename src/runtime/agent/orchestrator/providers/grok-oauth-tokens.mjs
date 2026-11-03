@@ -6,6 +6,8 @@ import { readFileSync, existsSync, mkdirSync, statSync, unlinkSync } from 'node:
 import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
+// Every credential write bumps it: the agent config snapshot probes this file.
+import { bumpConfigInputEpoch } from '../../../shared/config-epoch.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { createTimeoutSignal } from '../stall-policy.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
@@ -224,6 +226,7 @@ export function saveTokens(tokens) {
     },
     { lock: true, fsyncDir: true, mode: 0o600, secret: true }
   );
+  bumpConfigInputEpoch();
 }
 
 export function _scrubTokens(text) {
@@ -278,6 +281,7 @@ export function forgetGrokOAuthCredentials() {
   const ownPath = getOwnTokenPath();
   if (existsSync(ownPath)) {
     unlinkSync(ownPath);
+    bumpConfigInputEpoch();
     removed = true;
   }
   return { removed };

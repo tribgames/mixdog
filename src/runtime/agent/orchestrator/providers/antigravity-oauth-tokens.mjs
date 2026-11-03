@@ -17,6 +17,8 @@ import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { getPluginData } from '../config.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+// Every credential write bumps it: the agent config snapshot probes this file.
+import { bumpConfigInputEpoch } from '../../../shared/config-epoch.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { modelProxyClientMode } from '../../../shared/model-proxy-mode.mjs';
 import {
@@ -229,6 +231,7 @@ export function saveTokens(tokens) {
     },
     { lock: true, fsyncDir: true, mode: 0o600, secret: true }
   );
+  bumpConfigInputEpoch();
 }
 
 export function _scrubTokens(text, secretValues = []) {
@@ -289,6 +292,7 @@ export function forgetAntigravityOAuthCredentials() {
   try {
     // Overwrite before unlink so the secret does not survive in a freed block.
     writeJsonAtomicSync(path, {}, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
+    bumpConfigInputEpoch();
     return true;
   } catch {
     return false;

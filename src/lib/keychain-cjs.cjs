@@ -26,6 +26,14 @@ const KEYCHAIN_CACHE_TTL_MS = (() => {
 const _secretCache = new Map();
 const _cacheGenerations = new Map();
 let _cacheEpoch = 0;
+// Moves whenever what a read may answer could have changed (a cached value set,
+// dropped or expired, a Linux snapshot loaded, the keyring's status): the agent
+// config snapshot compares it on every read, so a value the cache now answers
+// differently is never served stale. Exported as secretCacheVersion().
+let _contentVersion = 0;
+function _noteContentChange() {
+  _contentVersion += 1;
+}
 // A desktop process can create several session runtimes, and the preload path
 // also warms credentials before the first runtime exists. All callers share
 // this one process-wide operation so Windows never launches duplicate batch
@@ -45,6 +53,7 @@ function _cacheGet(account) {
   if (!entry) return undefined;
   if (entry.expiresAt <= Date.now()) {
     _secretCache.delete(key);
+    _noteContentChange();
     return undefined;
   }
   return entry.value;
@@ -52,6 +61,7 @@ function _cacheGet(account) {
 
 function _cacheSet(account, value) {
   if (value == null || KEYCHAIN_CACHE_TTL_MS === 0) return;
+  if (_secretCache.get(`${SERVICE}\0${account}`)?.value !== value) _noteContentChange();
   _secretCache.set(`${SERVICE}\0${account}`, {
     value,
     expiresAt:
@@ -64,9 +74,11 @@ function _cacheSet(account, value) {
 function _cacheInvalidate(account) {
   _secretCache.delete(`${SERVICE}\0${account}`);
   _cacheGenerations.set(account, (_cacheGenerations.get(account) || 0) + 1);
+  _noteContentChange();
 }
 
 function invalidateSecretCache(account) {
+  _noteContentChange();
   // Linux reads are cache-only after one snapshot: an external invalidation
   // means the snapshot may be stale, so the next read reloads it.
   if (process.platform === 'linux') {
@@ -564,6 +576,7 @@ const _recoveryListeners = new Set();
 let _keychainStatus = { state: 'unknown', message: '' };
 
 function _noteKeychainOk() {
+  if (_keychainStatus.state !== 'ok') _noteContentChange();
   _keychainStatus = { state: 'ok', message: '' };
   _linuxBgAttempt = 0;
   clearTimeout(_linuxBgTimer);
@@ -688,6 +701,7 @@ function _noteKeychainFailure(error) {
   // Only a confirmed missing provider counts. A failed passive probe
   // (KEYRING_UNREACHABLE: gdbus missing, unparsable reply) proves nothing, so
   // it keeps its warning and recovery action.
+  if (_keychainStatus.state !== state) _noteContentChange();
   _keychainStatus = { state, message, unavailable: error?.code === KEYRING_UNAVAILABLE };
   // No provider at all means the private secrets file serves instead (a
   // working store), and an inconclusive passive probe proves no failure.
@@ -847,6 +861,7 @@ async function _prewarmLinuxOnce() {
       if ((_cacheGenerations.get(account) || 0) !== (generations.get(account) || 0)) continue;
       if (!fresh.has(account)) {
         _secretCache.delete(key);
+        _noteContentChange();
         changed = true;
       }
     }
@@ -865,6 +880,8 @@ async function _prewarmLinuxOnce() {
       throw error;
     }
     _linuxSnapshotAt = Date.now();
+    // Before a snapshot every Linux read answers nothing; after it, the values.
+    if (!_linuxLoaded()) _noteContentChange();
     _linuxLoadedUntil =
       KEYCHAIN_CACHE_TTL_MS === Number.POSITIVE_INFINITY
         ? Number.POSITIVE_INFINITY
@@ -1055,6 +1072,7 @@ async function refreshKeychainStatus({ force = false } = {}) {
   }
   const found = await searchMixdogItems();
   if (found && found.locked.length > 0) {
+    if (_keychainStatus.state !== 'locked') _noteContentChange();
     _keychainStatus = { state: 'locked', message: LINUX_LOCKED_MESSAGE };
     _scheduleLinuxBackgroundRetry();
   }
@@ -1475,5 +1493,6 @@ module.exports = {
   retryKeychain,
   refreshKeychainStatus,
   onKeychainRecovered,
+  secretCacheVersion: () => _contentVersion,
   SERVICE,
 };

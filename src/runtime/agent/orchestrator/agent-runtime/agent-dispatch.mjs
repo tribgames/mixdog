@@ -25,7 +25,7 @@
  * lease.
  */
 
-import { loadConfig } from '../config.mjs';
+import { getConfigSnapshot } from '../config.mjs';
 import { prepareAgentSession } from './session-builder.mjs';
 import {
   askSession,
@@ -127,7 +127,7 @@ async function dispatchAdmitted(agent, opts, callArgs, { prepare, ask, updateSta
     idleTimeoutMs: callIdleTimeoutMs,
     cwd: callCwd,
   } = callArgs;
-  const config = opts.config || loadConfig({ secrets: false });
+  const config = opts.config || getConfigSnapshot({ secrets: false });
   const { preset, presetName, runtimeSpec } = resolveDispatchPreset({
     presetArg,
     optsPreset: opts.preset,

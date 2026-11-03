@@ -54,14 +54,16 @@ registerHooks({
         shortCircuit: true,
         source: `
           const secrets = new Map();
+          let version = 0;
           module.exports = {
             SERVICE: 'mixdog',
             getSecret: (key) => secrets.get(key) ?? null,
-            setSecret: (key, value) => { secrets.set(key, value); },
-            deleteSecret: (key) => { secrets.delete(key); },
+            setSecret: (key, value) => { secrets.set(key, value); version += 1; },
+            deleteSecret: (key) => { secrets.delete(key); version += 1; },
             hasSecret: (key) => secrets.has(key),
             invalidateSecretCache() {},
             async prewarmSecrets() {},
+            secretCacheVersion: () => version,
           };
         `,
       };

@@ -10,7 +10,7 @@
 // New Task) is a deliberate choice and gets none. Route changes recompute it
 // (updateSessionRoute `routeFallbacks`); a fallback hop reads it from the
 // owner's route at that moment (route-fallback-chain.mjs).
-import { loadConfig } from '../../config.mjs';
+import { getConfigSnapshot } from '../../config.mjs';
 import { findPreset } from '../../runtime-core/config-helpers.mjs';
 import { normalizeWorkflowRoute } from '../../runtime-core/workflow.mjs';
 import { canonicalRouteProvider, executionFallbacks } from '../../../../shared/model-route-chain.mjs';
@@ -28,7 +28,7 @@ export const sameRouteModel = (a, b) =>
  *  the owner has none or it cannot be read. */
 export function ownerConfiguredRoute({ sessionMode, agentId, config = null }) {
   if (!agentId) return null;
-  const cfg = () => config || loadConfig({ secrets: false });
+  const cfg = () => config || getConfigSnapshot({ secrets: false });
   let stored;
   if (sessionMode === CODING_MODE) {
     const loaded = cfg();

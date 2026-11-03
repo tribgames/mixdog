@@ -12,6 +12,8 @@ import { createServer } from 'node:http';
 import { randomBytes } from 'node:crypto';
 import { updateJsonAtomicSync, writeJsonAtomicSync, withFileLock } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
+// Every credential write bumps it: the agent config snapshot probes this file.
+import { bumpConfigInputEpoch } from '../../../shared/config-epoch.mjs';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { modelProxyClientMode, serverModelCredentialsDisabledError } from '../../../shared/model-proxy-mode.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
@@ -132,10 +134,13 @@ function _saveCredentialsFile(path, raw) {
   // Secret file, not parent-dir ACL mutation. `secret: true` clamps the file
   // itself on Windows; it deliberately leaves the data dir inheritance alone.
   writeJsonAtomicSync(path, raw, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
+  bumpConfigInputEpoch();
 }
 
 function _updateCredentialsFile(path, mutator) {
-  return updateJsonAtomicSync(path, mutator, { fsyncDir: true, mode: 0o600, secret: true });
+  const result = updateJsonAtomicSync(path, mutator, { fsyncDir: true, mode: 0o600, secret: true });
+  bumpConfigInputEpoch();
+  return result;
 }
 
 // Cheap stat-only probe so ensureAuth can detect Mixdog-updated credentials

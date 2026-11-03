@@ -15,6 +15,8 @@ import {
   writeJsonAtomicSync,
 } from '../../../shared/atomic-file.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
+// Every credential write bumps it: the agent config snapshot probes this file.
+import { bumpConfigInputEpoch } from '../../../shared/config-epoch.mjs';
 import { getLlmDispatcher } from '../../../shared/llm/http-agent.mjs';
 import { modelProxyClientMode, serverModelCredentialsDisabledError } from '../../../shared/model-proxy-mode.mjs';
 import {
@@ -102,6 +104,7 @@ const tokenDocument = (tokens) => ({
 export function saveTokens(tokens) {
   const doc = tokenDocument(tokens);
   writeJsonAtomicSync(getOwnTokenPath(), doc, { lock: true, fsyncDir: true, mode: 0o600, secret: true });
+  bumpConfigInputEpoch();
   return { ...doc, mtimeMs: fileMtimeMs(getOwnTokenPath()) };
 }
 
@@ -123,7 +126,10 @@ function replaceTokens(previous, tokens) {
     },
     { fsyncDir: true, mode: 0o600, secret: true }
   );
-  if (replaced) return { ...doc, mtimeMs: fileMtimeMs(path) };
+  if (replaced) {
+    bumpConfigInputEpoch();
+    return { ...doc, mtimeMs: fileMtimeMs(path) };
+  }
   const current = loadTokens();
   if (!current) throw openCodeGoReauthError('credentials removed');
   return current;
@@ -181,6 +187,7 @@ export function forgetOpenCodeGoOAuthCredentials() {
     () => {
       if (!existsSync(path)) return { removed: false };
       unlinkSync(path);
+      bumpConfigInputEpoch();
       return { removed: true };
     },
     { secret: true }

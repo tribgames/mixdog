@@ -1,6 +1,6 @@
 import { configuredAgentRouteCandidates, isAgentDisabled } from '../../../shared/agent-route-config.mjs';
 import { normalizeContextTokens } from '../../../shared/llm/default-context-window.mjs';
-import { loadConfig } from '../config.mjs';
+import { getConfigSnapshot } from '../config.mjs';
 import { getHiddenAgent } from '../internal-agents.mjs';
 
 // The settings agent whose route a hidden role runs on.
@@ -39,7 +39,7 @@ export function resolveMaintenanceRoute({ preset, optsPreset, agent, config: cfg
   const hidden = getHiddenAgent(agent);
   if (hidden) {
     try {
-      const config = cfgIn || loadConfig({ secrets: false });
+      const config = cfgIn || getConfigSnapshot({ secrets: false });
       const key = hidden.maintKey || hidden.slot;
       const role = ROLE_BY_MAINT_KEY[key] || '';
       if (!role) return config?.maintenance?.[key] ?? null;

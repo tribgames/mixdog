@@ -3,7 +3,7 @@
 // review of one session's recent conversation (NOTHING, or a short note of
 // what happened there), and the gate that reads the reviewed digest and
 // answers NOTHING, or WAKE with the items worth Mixy's attention.
-import { loadConfig } from '../config.mjs';
+import { getConfigSnapshot, loadConfig } from '../config.mjs';
 import { getProvider, initProviders } from '../providers/registry.mjs';
 import { resultText } from './completion-text.mjs';
 import { resolveMaintenanceRoute } from './maintenance-route.mjs';
@@ -106,7 +106,7 @@ function maintainerRoute(resolveRoute, config) {
 /** Identity of the configured Maintainer route ('' when there is none): a
  *  change of it resets the heartbeat's circuit breaker. */
 export function heartbeatRouteKey(deps = {}) {
-  const load = deps.loadConfig || loadConfig;
+  const load = deps.loadConfig || getConfigSnapshot;
   const route = maintainerRoute(deps.resolveMaintenanceRoute || resolveMaintenanceRoute, load({ secrets: false }));
   return route ? `${route.provider}/${route.model}/${route.effort || ''}` : '';
 }

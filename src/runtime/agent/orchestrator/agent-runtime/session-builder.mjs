@@ -20,7 +20,7 @@
 import { createSession } from '../session/manager.mjs';
 import { traceAgentPreset } from '../agent-trace.mjs';
 import { resolveAgentSessionPermission } from '../internal-agents.mjs';
-import { loadConfig } from '../config.mjs';
+import { getConfigSnapshot } from '../config.mjs';
 import { RETIRED_COMPACTION_FIELDS } from '../config-storage.mjs';
 import {
   liveFeatureDisallowedTools,
@@ -103,7 +103,7 @@ export function prepareAgentSession({
   // included) never reaches the agent's schema or dispatch.
   let featureDenied = [];
   try {
-    const cfg = loadConfig({ secrets: false });
+    const cfg = getConfigSnapshot({ secrets: false });
     featureDenied = liveFeatureDisallowedTools(cfg);
     if (cfg?.compaction && typeof cfg.compaction === 'object') {
       compaction = normalizeAgentCompactionConfig(cfg.compaction);
@@ -170,7 +170,7 @@ export function reconcileAgentSession(session) {
   if (!session?.id) return null;
   let cfg;
   try {
-    cfg = loadConfig({ secrets: false });
+    cfg = getConfigSnapshot({ secrets: false });
   } catch {
     return null;
   }

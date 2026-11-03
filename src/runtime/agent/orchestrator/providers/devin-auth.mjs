@@ -4,6 +4,8 @@ import { createServer } from 'node:http';
 import { join, resolve } from 'node:path';
 import { resolvePluginData } from '../../../shared/plugin-paths.mjs';
 import { writeJsonAtomicSync } from '../../../shared/atomic-file.mjs';
+// Every credential write bumps it: the agent config snapshot probes this file.
+import { bumpConfigInputEpoch } from '../../../shared/config-epoch.mjs';
 import { boundProviderAuthPath } from '../../../shared/provider-auth-binding.mjs';
 import { modelProxyClientMode } from '../../../shared/model-proxy-mode.mjs';
 import { openLoginUrl } from './lib/open-login-url.mjs';
@@ -102,6 +104,7 @@ function saveCredentials(tokens) {
     mode: 0o600,
     secret: true,
   });
+  bumpConfigInputEpoch();
 }
 
 function tokenRecord(accessToken) {
@@ -151,6 +154,7 @@ export function forgetDevinOAuthCredentials() {
   const path = credentialsPath();
   if (!existsSync(path)) return { removed: false };
   unlinkSync(path);
+  bumpConfigInputEpoch();
   return { removed: true };
 }
 
