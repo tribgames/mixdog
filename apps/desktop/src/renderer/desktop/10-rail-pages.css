@@ -964,6 +964,10 @@ html:not([data-mixdog-mobile-tabs]) .utility-dock > .utility-dock-header.session
   flex-direction: column;
   align-items: flex-end;
   gap: 4px;
+  /* Zero height: the status badge hangs under the time inside the block's
+     two-line floor, but never sizes the grid rows. Taller than a one-line
+     preview, it pushed the rows apart and moved the name when a turn started. */
+  height: 0;
 }
 .utility-dock .agent-chat-row[data-kind="contact"] .agent-contact-aside > .agent-chat-time {
   margin: 0;

@@ -70,6 +70,15 @@ function rowTabStops(row: HTMLElement): HTMLElement[] {
   );
 }
 
+/** The rows of one list among its container's children. Sibling lists (a
+ *  project split into branches) share one parent, so the container's session
+ *  rows are filtered to this list's own. */
+function ownRows(container: Element, indexById: ReadonlyMap<string, number>): HTMLElement[] {
+  return [...container.querySelectorAll<HTMLElement>(':scope > .session-row[data-session-id]')].filter((row) =>
+    indexById.has(row.dataset.sessionId ?? '')
+  );
+}
+
 /** A Tab press that leaves a row toward a neighbour the window has not
  *  mounted: that row mounts, then takes focus on its first stop (Tab) or its
  *  last (Shift+Tab). */
@@ -119,8 +128,7 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
       // The native drag source: its unmount would end the pane drag.
       const container = markerRef.current?.parentElement;
       if (container) {
-        for (const row of container.querySelectorAll<HTMLElement>(':scope > .session-row[data-dragging="true"]'))
-          pin(row.dataset.sessionId);
+        for (const row of ownRows(container, indexById)) if (row.dataset.dragging === 'true') pin(row.dataset.sessionId);
       }
       return [...indexes].sort((left, right) => left - right);
     },
@@ -184,7 +192,7 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
     // this commit (a closing drawer paid the whole Settings layout here). It
     // measures in the render that shows it.
     if (scroller.closest('[hidden]')) return;
-    const rows = container.querySelectorAll<HTMLElement>(':scope > .session-row[data-session-id]');
+    const rows = ownRows(container, indexById);
     // Unwindowed, every item is mounted in order.
     const indexes = windowed ? renderedRef.current : rows.length > 1 ? [0, 1] : [0];
     const first = rows[0];
@@ -207,7 +215,7 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
       Math.abs(gap - geometry.gap) > 0.1
     )
       setGeometry({ origin, height, gap });
-  }, [items, windowed, measured, scrollerRef]);
+  }, [items, indexById, windowed, measured, scrollerRef]);
   const live = useRef({ items, indexById, windowed, origin: geometry.origin, pitch });
   live.current = { items, indexById, windowed, origin: geometry.origin, pitch };
   // Focus tracking and Tab across the window edge. The listeners sit on the
@@ -218,7 +226,7 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
     if (!container) return undefined;
     const ownRow = (target: EventTarget | null) => {
       const row = (target as Element | null)?.closest?.<HTMLElement>('.session-row[data-session-id]');
-      return row?.parentElement === container ? row : null;
+      return row?.parentElement === container && live.current.indexById.has(row.dataset.sessionId ?? '') ? row : null;
     };
     const onFocusIn = (event: FocusEvent) => {
       const sessionId = ownRow(event.target)?.dataset.sessionId;
@@ -259,15 +267,13 @@ export function VirtualSessionRows<T extends VirtualRowItem>({
   useLayoutEffect(() => {
     if (!focusRequest) return;
     const sessionId = items[focusRequest.index]?.sessionId;
-    const row = [
-      ...(markerRef.current?.parentElement?.querySelectorAll<HTMLElement>(':scope > .session-row[data-session-id]') ??
-        []),
-    ].find((candidate) => candidate.dataset.sessionId === sessionId);
+    const container = markerRef.current?.parentElement;
+    const row = container && ownRows(container, indexById).find((candidate) => candidate.dataset.sessionId === sessionId);
     setFocusRequest(null);
     if (!row) return;
     const stops = rowTabStops(row);
     (focusRequest.last ? stops.at(-1) : stops[0])?.focus({ preventScroll: true });
-  }, [focusRequest, items]);
+  }, [focusRequest, items, indexById]);
   const marker = <span key="virtual-origin" ref={markerRef} hidden />;
   // A stand-in for `count` rows: their slots minus the one gap the stand-in
   // itself adds as a list item.
