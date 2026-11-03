@@ -215,11 +215,14 @@ export async function _prewarmSourceTextNodes(
 // enough that copying one batch in or out is a short main-thread stretch.
 const MASK_BATCH_CHARS = 1 << 20;
 const MASK_BATCHES_IN_FLIGHT = 2;
-// Largest file masked inline when the pool refuses or fails its batch: a few
-// ms of masking, well inside one main-thread slice.
+// Largest file of a refused or failed batch masked here at once instead of
+// waiting for pool admission; also the size from which a line split runs in
+// slices (a split of a 4 MB file is a ~10 ms stretch, ~35 ms on a slow runner).
 const INLINE_MASK_MAX_CHARS = 128 * 1024;
-// Source chars a resumable mask scans between slice checks (well under 1 ms).
-const MASK_STEP_CHARS = 16 * 1024;
+// Source chars a resumable mask scans between slice checks: ~0.06 ms warm, but
+// the first steps of a cold process run before the JIT has the scanner (2.4 ms
+// at 4K chars, 6 ms at 16K).
+const MASK_STEP_CHARS = 4 * 1024;
 
 // `text.split(/\r?\n/)` in yielding slices, for texts too large to split in one.
 async function _splitLinesSliced(text, slice) {
@@ -235,6 +238,23 @@ async function _splitLinesSliced(text, slice) {
     start = end + 1;
     if ((lines.length & 1023) === 0 && slice.expired()) await slice.yield();
   }
+}
+
+// _getSourceLinesForNode, with the split of a large text in slices.
+async function _prewarmSourceLines(graph, node, text, slice) {
+  const fingerprint = node.fingerprint || '';
+  if (text.length > INLINE_MASK_MAX_CHARS && graph._sourceLinesCache?.get(node.rel)?.fingerprint !== fingerprint) {
+    const lines = await _splitLinesSliced(text, slice);
+    // Lines must come from the text the synchronous path would read.
+    if (
+      graph._sourceTextCache?.get(node.rel)?.text === text &&
+      graph._sourceLinesCache?.get(node.rel)?.fingerprint !== fingerprint
+    ) {
+      graph._sourceLinesCache?.set(node.rel, { fingerprint, lines });
+    }
+  }
+  _getSourceLinesForNode(graph, node);
+  await _noteRuntimeCacheEntryBytes(graph._sourceLinesCache?.get(node.rel), slice);
 }
 
 // Source text, source lines and (unless `masked:false`) masked lines of
@@ -284,10 +304,9 @@ export async function _prewarmMaskedSourceNodes(graph, nodes, { masked = true, s
     inFlight.push({ batch, reply: _maskTextsOffThread(texts, langs, { signal }).catch(() => null) });
   };
   while (inFlight.length < MASK_BATCHES_IN_FLIGHT && nextBatch < batches.length) launch();
-  for (const { node } of ready) {
+  for (const { node, text } of ready) {
     if (signal?.aborted) return sourceNodes;
-    _getSourceLinesForNode(graph, node);
-    _noteRuntimeCacheEntryBytes(graph._sourceLinesCache?.get(node.rel));
+    await _prewarmSourceLines(graph, node, text, slice);
     if (slice.expired()) await slice.yield();
   }
   // Files over INLINE_MASK_MAX_CHARS of a refused or failed batch: masking one
@@ -298,8 +317,8 @@ export async function _prewarmMaskedSourceNodes(graph, nodes, { masked = true, s
     // Masked lines must come from the text the synchronous path would read.
     if (graph._sourceTextCache?.get(node.rel)?.text !== text) return;
     if (graph._maskedLinesCache?.get(node.rel)?.fingerprint === fingerprint) return;
-    if (masked === null && text.length > INLINE_MASK_MAX_CHARS) {
-      // The pool failed this file twice: mask it here, resumably, in slices.
+    if (masked === null) {
+      // The pool refused or failed this file: mask it here, resumably, in slices.
       const masker = _createNonCodeMasker(text, node.lang);
       while (!masker.advance(MASK_STEP_CHARS)) {
         if (slice.expired()) await slice.yield();
@@ -307,17 +326,12 @@ export async function _prewarmMaskedSourceNodes(graph, nodes, { masked = true, s
       }
       masked = masker.result();
     }
-    if (masked !== null) {
-      const lines =
-        masked.length > INLINE_MASK_MAX_CHARS ? await _splitLinesSliced(masked, slice) : masked.split(/\r?\n/);
-      if (graph._maskedLinesCache?.get(node.rel)?.fingerprint === fingerprint) return;
-      const entry = { fingerprint, lines };
-      graph._maskedLinesCache?.set(node.rel, entry);
-      _noteRuntimeCacheEntryBytes(entry);
-    } else {
-      _getMaskedLinesForNode(graph, node);
-      _noteRuntimeCacheEntryBytes(graph._maskedLinesCache?.get(node.rel));
-    }
+    const lines =
+      masked.length > INLINE_MASK_MAX_CHARS ? await _splitLinesSliced(masked, slice) : masked.split(/\r?\n/);
+    if (graph._maskedLinesCache?.get(node.rel)?.fingerprint === fingerprint) return;
+    const entry = { fingerprint, lines };
+    graph._maskedLinesCache?.set(node.rel, entry);
+    await _noteRuntimeCacheEntryBytes(entry, slice);
     if (slice.expired()) await slice.yield();
   };
   while (inFlight.length) {

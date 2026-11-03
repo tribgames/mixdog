@@ -8,7 +8,7 @@ import { join } from 'node:path';
 import { setFlagsFromString } from 'node:v8';
 import { runInNewContext } from 'node:vm';
 
-import { _attachGraphRuntimeCaches } from './graph-model.mjs';
+import { _attachGraphRuntimeCaches, _estimateGraphRetainedBytes } from './graph-model.mjs';
 import { _maskNonCodeText } from './text-mask.mjs';
 import { _findSymbolHits, _prewarmMaskedSourceNodes, _prewarmSymbolSources, _runCodeGraphQuery } from './search.mjs';
 import { _ensureTokenIndex } from './symbol-index.mjs';
@@ -236,6 +236,39 @@ test('an oversized file whose pool requests crash twice is masked in slices, not
   const worst = gaps.reduce((max, gap) => Math.max(max, gap), 0);
   // As above: one slice plus the scavenges inside it.
   assert.ok(worst <= 3 * MAIN_THREAD_SLICE_MS, `a ${worst.toFixed(1)}ms event-loop gap after two crashes`);
+});
+
+test('an oversized file\'s source lines are split and measured in slices, to the same lines and bytes', async (t) => {
+  const graph = syntheticGraph(1);
+  const [[rel, entry]] = graph._sourceTextCache;
+  const unit = `${MASKABLE_LINE}x\r\n\r\n\ny\rz\n`;
+  const text = `${unit.repeat(Math.ceil(4_200_000 / unit.length))}\r`;
+  graph._sourceTextCache.set(rel, { ...entry, text });
+  // The same caches, filled without prewarming: the byte estimate is the plain walk.
+  const walked = syntheticGraph(1);
+  walked._sourceTextCache.set(rel, graph._sourceTextCache.get(rel));
+  walked._sourceLinesCache.set(rel, { fingerprint: entry.fingerprint, lines: text.split(/\r?\n/) });
+  // A clock that moves 1 ms per reading: a slice expires after a fixed number
+  // of checks, however fast the machine is.
+  let now = 0;
+  const clock = t.mock.method(performance, 'now', () => now++);
+  let turns = 0;
+  let running = true;
+  const tick = () => {
+    turns += 1;
+    if (running) setImmediate(tick);
+  };
+  setImmediate(tick);
+  try {
+    await _prewarmMaskedSourceNodes(graph, [...graph.nodes.values()], { masked: false });
+  } finally {
+    running = false;
+    clock.mock.restore();
+  }
+  // Splitting and measuring 150k lines in one stretch took ~18 ms here (60+ ms on a CI runner).
+  assert.ok(turns >= 10, `only ${turns} event-loop turns while a 4.2M-char file's lines were split`);
+  assert.deepEqual(graph._sourceLinesCache.get(rel).lines, walked._sourceLinesCache.get(rel).lines);
+  assert.equal(_estimateGraphRetainedBytes(graph), _estimateGraphRetainedBytes(walked));
 });
 
 test('a finished query leaves no path from the shared mask pool to its hit memo', async () => {
