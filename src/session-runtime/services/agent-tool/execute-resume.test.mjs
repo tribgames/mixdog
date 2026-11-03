@@ -89,8 +89,9 @@ function setup(t, { record = {}, fileGone = false, cwdGone = false, released = f
   const { send } = createSendDispatch(deps);
   const { spawn } = createSpawnDispatch({ ...deps, terminalTrace: createTerminalTrace({ registry }) });
   const request = (context = OWNER) => ({ scopedContext: context, context, notifyContext: context, callerCwd: root });
-  t.after(() => {
-    registry.dispose();
+  t.after(async () => {
+    // Queued index writes land in root: drain them before removing it.
+    await registry.disposeAsync();
     if (previousDataDir === undefined) delete process.env.MIXDOG_DATA_DIR;
     else process.env.MIXDOG_DATA_DIR = previousDataDir;
     rmSync(root, { recursive: true, force: true });
