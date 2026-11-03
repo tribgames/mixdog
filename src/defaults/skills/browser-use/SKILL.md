@@ -130,7 +130,7 @@ non-breaking ones, but keep line breaks: write the phrase as one line reads.
 ## Reading and extracting
 
 - `read` — rendered page text, paged with `maxChars` / `offset`, filtered by
-  `query`. Prefer it over screenshots for content. A snapshot's visible text
+  `query` to the matching lines. Prefer it over screenshots for content. A snapshot's visible text
   is only an excerpt and says when it stops early; read the document rather
   than answering from the excerpt.
 - `query` (snapshot, read, wait): space-separated keywords match with OR and

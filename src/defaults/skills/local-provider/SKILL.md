@@ -42,7 +42,11 @@ changes, app deployment and app restarts are outside it.
    download. `remainingDownloadBytes` estimates a resumable download; the
    installer validates the partial file and enforces disk headroom. GGUF
    inspection and missing disk/hardware evidence are not proof of
-   compatibility or successful loading. After explicit approval,
+   compatibility or successful loading. GPU coverage is all NVIDIA GPUs on
+   Windows or the Apple Silicon GPU on a Mac (Metal, unified memory); loading
+   picks a compatible GPU with enough free memory for the catalog's estimate,
+   and that estimate is a guard, not a guarantee against driver/runtime
+   allocation failure. Never bypass a failed resource check. After explicit approval,
    `register_hf_model` with the returned `previewId` and `licenseAccepted: true`
    registers metadata only; use its returned model id to install. Repeat an
    expired inspection; never fabricate a preview id. Follow the active

@@ -164,7 +164,8 @@ wins.
    reports an error, run `diagnose` first (an OCR error alone does not block
    usable vision).
 3. `act` with 1–6 simple actions. Prefer semantic `ref` > SOM/OCR `element` >
-   coordinates. `set_value` writes a field, slider or select without focus or
+   coordinates. Later actions may be `type`, `key`, `key_down`, `key_up` or
+   `wait` reusing focus. `set_value` writes a field, slider or select without focus or
    keystrokes — the route when background keys are unsupported. Marks,
    coordinates, drags and held buttons stay first-action only. `mouse_down` is
    background-only and `key_down` foreground-only; pair each with `mouse_up` /
@@ -190,6 +191,8 @@ wins.
 - Add no trailing `wait`. Use `wait` inside `act` only for a known async delay
   (5 s each, 10 s total); `quiet:true` ends it early when window set,
   foreground, title and bounds stop changing, but does not see content changes.
+- `wait_for_user` waits for control to return without holding the input queue;
+  a successful response alone does not mean it resumed, so read its status.
 - For anything longer or a real condition use `verify` (reads state only, so
   refs stay valid). Never loop on `capture` to poll.
 - `verify` stopping with `unknown`/`unknown_reason` (tree unusable or reads
@@ -215,7 +218,8 @@ code with `type`/`set_value`, even one shown on screen.
 ## Read when
 
 - `references/platforms.md` — on macOS or Linux (Wayland), or when a permission,
-  `/dev/uinput` or compositor error appears.
+  `/dev/uinput` or compositor error appears, or `foreground_unavailable` (also
+  on Windows, where the foreground lock can cause it).
 - `references/operations.md` — before `menu`, `window`, `launch`, `clipboard`,
   `diagnose`, or listing apps/history.
 - `references/flows.md` — for a field/keyboard/dialog walkthrough, reading a

@@ -42,7 +42,7 @@ unattended run (schedule, webhook, group room, delegated agent) may write;
 common and Project memory change only while the user is chatting. Confirm the
 target before destructive changes.
 
-Indices are per scope. Edit or delete only from a fresh list; after a
+Indices are per scope; new memories append after the scope's last index. Edit or delete only from a fresh list; after a
 stale-version error, list again and re-identify the intended entry. A recall record ID or internal database key
 is never a memory index.
 
