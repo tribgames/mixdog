@@ -3,10 +3,34 @@
 // session_index.jsonl and state_<N>.sqlite. No real user content.
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import * as realFs from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import test from 'node:test';
+import test, { mock } from 'node:test';
+
+// Opening a rollout can be held until the test lets it go. Discovery classifies records on a background
+// queue, so which of them are classified when a page returns is otherwise decided by I/O timing.
+const { default: realFsDefault, ...realFsNamed } = realFs;
+let hold = null; // { matches(path), released: Promise } while a held read is pending
+mock.module('node:fs/promises', {
+  namedExports: {
+    ...realFsNamed,
+    async open(path, ...args) {
+      if (hold?.matches(String(path))) await hold.released;
+      return realFsNamed.open(path, ...args);
+    },
+  },
+  defaultExport: realFsDefault,
+});
+function holdReads(matches) {
+  const { promise, resolve } = Promise.withResolvers();
+  hold = { matches, released: promise };
+  return () => {
+    hold = null;
+    resolve();
+  };
+}
 
 const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'mixdog-conversation-internal-')));
 process.env.MIXDOG_DATA_DIR = join(root, 'data');
@@ -354,12 +378,22 @@ test('the first page returns before every record is classified, and counts cover
     );
   }
   const api = freshApi(fixture.env);
-  const first = await api.listImportableConversations({ source: 'codex', limit: 1 });
-  // Only the awaited first page (and a few queued reads) is classified: the conversations are not yet.
+  // The conversations' reads wait for the test, so they are unclassified when the first page returns
+  // however fast the guardian reads in front of them go.
+  const release = holdReads((path) => /-chat-\d+\.jsonl$/.test(path));
+  let first;
+  try {
+    first = await api.listImportableConversations({ source: 'codex', limit: 1 });
+  } finally {
+    release();
+  }
   assert.equal(first.complete, false);
   assert.deepEqual([first.matchedCount, first.selectableCount, first.rows.length], [0, 0, 0]);
   assert.deepEqual(first.projects, []);
-  const done = await listUntilComplete(api, { source: 'codex', limit: 1 });
+  // A page as wide as the listing waits for every classification, so completing needs no polling.
+  await api.listImportableConversations({ source: 'codex', limit: 100 });
+  const done = await api.listImportableConversations({ source: 'codex', limit: 1 });
+  assert.equal(done.complete, true);
   assert.deepEqual([done.matchedCount, done.selectableCount], [2, 2]);
   assert.deepEqual(done.projects, [{ cwd, count: 2 }]);
   const next = await api.listImportableConversations({ source: 'codex', limit: 1, cursor: done.nextCursor });
