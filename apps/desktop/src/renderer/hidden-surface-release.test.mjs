@@ -79,6 +79,43 @@ test('folder watch registry closes a watcher whose native watch errored', () => 
   assert.equal(watchers[1].closed, 1);
 });
 
+test('a recursive folder watch also follows the git dirs outside the folder, skipping the object store', async (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const watchers = [];
+  const fakeWatch = (dir, _options, listener) => {
+    const watcher = new EventEmitter();
+    Object.assign(watcher, { dir, listener, closed: 0, close: () => (watcher.closed += 1) });
+    watchers.push(watcher);
+    return watcher;
+  };
+  const events = [];
+  const registry = createFolderWatchRegistry(
+    (event) => events.push(event),
+    fakeWatch,
+    async () => ['/repo/.git/worktrees/wt', '/repo/.git', '/wt/.git']
+  );
+  registry.watch('/wt', true);
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.deepEqual(
+    watchers.map((watcher) => watcher.dir),
+    ['/wt', '/repo/.git/worktrees/wt', '/repo/.git'],
+    'a git dir inside the folder is already covered by its own watch'
+  );
+  const [, gitDir, commonDir] = watchers;
+  commonDir.listener('change', 'objects/ab/cdef');
+  t.mock.timers.tick(250);
+  assert.deepEqual(events, []);
+  gitDir.listener('change', 'index');
+  t.mock.timers.tick(250);
+  assert.deepEqual(events, [{ name: 'folder-changed', value: '/wt' }]);
+  registry.unwatch('/wt', true);
+  assert.deepEqual(
+    watchers.map((watcher) => watcher.closed),
+    [1, 1, 1]
+  );
+});
+
 function domHarness(t) {
   const clock = createRendererClock();
   const { dom, restore } = installTestDom(null, {

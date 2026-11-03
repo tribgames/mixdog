@@ -37,12 +37,11 @@ const pick = (rows, settings, favoriteSessionIds = []) =>
     favoriteSessionIds,
   });
 
-test('defaults: on, at most 15, 30 days unused, archive cleanup on, branches kept', () => {
+test('defaults: on, at most 15, 30 days unused, archive cleanup on', () => {
   assert.equal(WORKTREE_SETTINGS_DEFAULTS.autoCleanup, true);
   assert.equal(WORKTREE_SETTINGS_DEFAULTS.maxWorktrees, 15);
   assert.equal(WORKTREE_SETTINGS_DEFAULTS.unusedDays, 30);
   assert.equal(WORKTREE_SETTINGS_DEFAULTS.cleanupArchived, true);
-  assert.equal(WORKTREE_SETTINGS_DEFAULTS.deleteBranch, false);
   assert.equal(WORKTREE_CLEANUP_MIN_AGE_MS, 60 * 60_000);
   assert.equal(WORKTREE_CLEANUP_MAX_REMOVALS, 20);
 });

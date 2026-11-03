@@ -61,7 +61,7 @@ after(() => cleanupTempDirs());
 
 const worktreeCount = (repo) => git(repo, 'worktree', 'list', '--porcelain').match(/^worktree /gm).length;
 
-test('removal refuses dirty or unmerged worktrees, deletes merged branches, and force keeps the lost tip', async () => {
+test('removal refuses dirty or unmerged worktrees, deletes the merged branch, and keeps an unmerged one forced', async () => {
   const repo = makeRepo();
   const cleanups = [];
   const unregister = registerRootCleanup(`test-${counter}`, (root) => cleanups.push(root));
@@ -80,28 +80,24 @@ test('removal refuses dirty or unmerged worktrees, deletes merged branches, and 
 
     const merged = await mergeWorktreeIntoProject({ entryId: entry.id, target: 'main', confirmed: true });
     assert.equal(merged.merged, true);
-    const mergedTip = git(entry.path, 'rev-parse', 'HEAD');
     const removed = await removeManagedWorktree({ entryId: entry.id });
-    assert.deepEqual(removed, { removed: true, branchDeleted: true, tip: mergedTip });
+    assert.deepEqual(removed, { removed: true, branchDeleted: true });
     assert.equal(existsSync(entry.path), false);
     assert.deepEqual(prefixedBranches(repo), []);
     assert.equal(await getRecord(entry.id), null);
     assert.ok(cleanups.some((root) => samePath(root, entry.path)));
     assert.equal(worktreeCount(repo), 1);
 
-    // Forced past unmerged work: the tip stays reachable at refs/mixdog/removed/<id>.
+    // Forced past unmerged work: its branch keeps the commits and is reported.
     const forced = await create(repo, { nameHint: 'forced' });
     const lostTip = commitFile(forced.entry.path, 'lost.txt', 'lost\n');
     writeFileSync(join(forced.entry.path, 'dirty.txt'), 'dirty\n');
     assert.deepEqual(await removeManagedWorktree({ entryId: forced.entry.id, force: true }), {
       removed: true,
-      branchDeleted: true,
-      tip: lostTip,
-      recoveryRef: `refs/mixdog/removed/${forced.entry.id}`,
+      preservedBranch: { name: forced.entry.branch, head: lostTip },
     });
-    assert.deepEqual(prefixedBranches(repo), []);
-    assert.equal(git(repo, 'rev-parse', `refs/mixdog/removed/${forced.entry.id}`), lostTip);
-    assert.equal(git(repo, 'show', `refs/mixdog/removed/${forced.entry.id}:lost.txt`), 'lost');
+    assert.equal(git(repo, 'rev-parse', forced.entry.branch), lostTip);
+    assert.equal(git(repo, 'show', `${forced.entry.branch}:lost.txt`), 'lost');
     await assert.rejects(removeManagedWorktree({ entryId: forced.entry.id }), { code: 'WORKTREE_MISSING' });
   } finally {
     unregister();
@@ -410,7 +406,7 @@ test('startup reconcile recovers interrupted creations, resumes deletions and ke
   const branches = prefixedBranches(repo);
   assert.ok(branches.includes(retainedCrash.entry.branch));
   assert.ok(branches.includes(retained.entry.branch));
-  assert.equal(branches.includes(orphan.entry.branch), false);
+  assert.equal(branches.includes(orphan.entry.branch), false, "a removed worktree's merged branch goes");
 });
 
 test('a lease held by a running process keeps its worktree through reconcile and prune', async () => {
@@ -549,7 +545,8 @@ test('a squash- or cherry-merged branch counts as merged; partly merged, reverte
   }
   assert.deepEqual(
     prefixedBranches(repo).sort(),
-    [partial.entry.branch, reverted.entry.branch, merging.entry.branch].sort()
+    [partial.entry.branch, reverted.entry.branch, merging.entry.branch].sort(),
+    'the squash- and cherry-merged branches go with their worktrees'
   );
   assert.equal(git(reverted.entry.path, 'rev-parse', 'HEAD'), revertedTip, 'the reverted change is kept');
 });
@@ -776,4 +773,31 @@ test('a failed folder-only removal restores a file link with its own type and th
   assert.equal(readFileSync(linked, 'utf8'), '{"cfg":1}\n');
   assert.match(git(repo, 'worktree', 'list', '--porcelain'), new RegExp(`locked mixdog session=${sessionId}`));
   assert.equal(readFileSync(join(repo, 'config.json'), 'utf8'), '{"cfg":1}\n');
+});
+
+const inProgressRefusal = (error) => error.code === 'WORKTREE_DIRTY' && /Git operation/.test(error.message);
+
+test('a merge in progress over clean files refuses removal and keeps the checkout in cleanup', async () => {
+  const repo = makeRepo();
+  const { entry } = await create(repo);
+  const mergeHead = git(entry.path, 'rev-parse', '--path-format=absolute', '--git-path', 'MERGE_HEAD');
+  writeFileSync(mergeHead, `${git(repo, 'rev-parse', 'main')}\n`);
+  assert.equal(git(entry.path, 'status', '--porcelain'), '');
+  await assert.rejects(removeManagedWorktree({ entryId: entry.id }), inProgressRefusal);
+  const report = await reconcileManagedWorktrees({ removeOrphans: true });
+  assert.ok(report.kept.some((item) => item.id === entry.id && item.reason === 'dirty'));
+  assert.ok(existsSync(entry.path));
+  rmSync(mergeHead);
+  assert.equal((await removeManagedWorktree({ entryId: entry.id })).removed, true);
+});
+
+test('a rebase in progress refuses removal', async () => {
+  const repo = makeRepo();
+  const { entry } = await create(repo);
+  // The todo list becomes one `break`: the rebase stops with clean files and HEAD on main.
+  const editor = `"${process.execPath.replaceAll('\\', '/')}" -e "require('fs').writeFileSync(process.argv[1], 'break\\n')"`;
+  git(entry.path, '-c', `sequence.editor=${editor}`, 'rebase', '-q', '-i', 'main');
+  assert.ok(existsSync(git(entry.path, 'rev-parse', '--path-format=absolute', '--git-path', 'rebase-merge')));
+  await assert.rejects(removeManagedWorktree({ entryId: entry.id }), inProgressRefusal);
+  assert.ok(existsSync(entry.path));
 });

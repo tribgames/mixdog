@@ -441,8 +441,13 @@ markers are read with `status desktop`.
   scheduled-task targets and sessions with unread replies are never archived.
 - `set_worktree_settings`: `maxWorktrees` / `unusedDays` of `0` disable that
   cleanup criterion; setting a positive value where it was `0`, or lowering a
-  positive one, makes cleanup remove more, and `deleteBranch:true` also
-  deletes the cleaned-up worktrees' branches: confirm with the user first. The
+  positive one, makes cleanup remove more: confirm with the user first.
+  Cleanup also deletes a removed worktree's branch when Mixdog created it,
+  once git considers it merged (into the merge target or the branch's
+  upstream); its commits stay reachable, and any other branch stays.
+  Commits a removal would drop are kept under `refs/mixdog/recovered/`
+  (earlier builds used `refs/mixdog/removed/`; neither is cleaned up): list
+  them with `git for-each-ref refs/mixdog/recovered/ refs/mixdog/removed/`. The
   size warning is bytes in the tool (the page shows GB); `0` never asks.
 - `set_cache_warming_enabled` covers Anthropic models only (their cache
   expires): it warms a conversation's cache only once its own return times show

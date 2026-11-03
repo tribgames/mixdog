@@ -1023,10 +1023,10 @@ test('a partly failed removal is WORKTREE_REMOVAL_INCOMPLETE: the session stays 
     h.state.retained = { ...h.entry, state: 'deleting' };
     h.manager.removeImpl = async () => {
       h.state.retained = null;
-      return { removed: true, branchDeleted: true };
+      return { removed: true };
     };
     const done = await h.api.removeWorktree({ force: true });
-    assert.deepEqual(done.removed, { removed: true, branchDeleted: true });
+    assert.deepEqual(done.removed, { removed: true });
     assert.equal(done.workspace.cwd, h.project);
   } finally {
     h.cleanup();
@@ -1068,7 +1068,6 @@ test('list and prune pass the stored and live sessions; deleted-session cleanup 
     assert.equal(prune.removeOrphans, true);
     // No desktop reports favorites here: the count/age limits select nothing.
     assert.deepEqual(prune.removeEntryIds, []);
-    assert.equal(prune.preserveBranch, true, 'deleteBranch is off by default');
     h.state.retained = h.entry;
     assert.deepEqual(await h.api.cleanupDeletedSession('gone'), { entryId: 'fix', removed: true });
     assert.deepEqual(seen[2], ['disposable', 'fix']);

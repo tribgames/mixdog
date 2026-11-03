@@ -59,17 +59,14 @@ export function createSessionWorkspaceView({
 
   /**
    * A worktree-bound record with the branch its checkout has now (a
-   * `git branch -m` inside it), from the shared HEAD cache. A detached HEAD
-   * (a rebase, bisect, `switch --detach`) keeps the branch last shown for this
-   * record: a worktree-bound workspace always names one.
+   * `git branch -m` or switch inside it), from the shared HEAD cache. A
+   * detached HEAD (a rebase, bisect, `switch --detach`) shows the recorded
+   * branch, as the worktree manager acts on it.
    */
   function boundWorkspace(recorded) {
     const head = readGitHead(recorded.cwd);
-    const shown =
-      liveWorkspace?.worktreeId === recorded.worktreeId && liveWorkspace.revision === recorded.revision
-        ? liveWorkspace.branch
-        : recorded.branch;
-    const branch = head && samePath(head.repoCommonDir, recorded.repoCommonDir) ? (head.branch ?? shown) : recorded.branch;
+    const branch =
+      head?.branch && samePath(head.repoCommonDir, recorded.repoCommonDir) ? head.branch : recorded.branch;
     const next = branch === recorded.branch ? recorded : { ...recorded, branch };
     if (!liveWorkspace || !isDeepStrictEqual(liveWorkspace, next)) liveWorkspace = next;
     return liveWorkspace;

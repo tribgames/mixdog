@@ -136,12 +136,16 @@ export function validateWorktreeCapabilityArgs(capability: DesktopWorktreeCapabi
       const input = objectArg(args[0], 'manageProjectBranch input');
       allowKeys(
         input,
-        ['projectPath', 'branch', 'action', 'commit', 'target', 'targetCommit', 'confirmed'],
+        ['projectPath', 'branch', 'action', 'commit', 'target', 'targetCommit', 'confirmed', 'force'],
         'manageProjectBranch input'
       );
       projectPathText(input.projectPath, 'projectPath');
       refText(input.branch, 'branch');
       commitIdText(input.commit, 'commit');
+      optionalBoolean(input, 'force', 'manageProjectBranch input');
+      if (input.force !== undefined && input.action !== 'delete-branch') {
+        throw new TypeError('manageProjectBranch input.force applies to delete-branch only.');
+      }
       if (!['merge', 'remove-worktree', 'delete-branch'].includes(String(input.action)) || input.confirmed !== true) {
         throw new TypeError('A supported branch action and explicit confirmation are required.');
       }
@@ -247,7 +251,6 @@ export function validateWorktreeCapabilityArgs(capability: DesktopWorktreeCapabi
           'maxWorktrees',
           'unusedDays',
           'cleanupArchived',
-          'deleteBranch',
         ],
         'worktree settings'
       );
@@ -273,7 +276,6 @@ export function validateWorktreeCapabilityArgs(capability: DesktopWorktreeCapabi
       }
       optionalBoolean(input, 'autoCleanup', 'worktree settings');
       optionalBoolean(input, 'cleanupArchived', 'worktree settings');
-      optionalBoolean(input, 'deleteBranch', 'worktree settings');
       for (const [key, limit] of [
         ['maxWorktrees', DESKTOP_WORKTREE_MAX_WORKTREES_LIMIT],
         ['unusedDays', DESKTOP_WORKTREE_UNUSED_DAYS_LIMIT],

@@ -155,8 +155,9 @@ export interface DesktopWorktreeSettings {
   branchPrefix: string;
   /** Repository size that asks for confirmation first; 0 never asks. Default 2 GiB. */
   sizeWarnBytes: number;
-  /** Remove clean, merged worktrees when their task ends. Default true; the
-   *  four settings below apply only while it is on. */
+  /** Remove clean, merged worktrees when their task ends (with the branch
+   *  Mixdog created, once git considers it merged; its commits stay
+   *  reachable). Default true; the three settings below apply only while it is on. */
   autoCleanup: boolean;
   /** Keep at most this many worktrees, least recently used cleaned first; 0 = no limit. Default 15. */
   maxWorktrees: number;
@@ -164,8 +165,6 @@ export interface DesktopWorktreeSettings {
   unusedDays: number;
   /** Archiving a session cleans up its worktrees. Default true. */
   cleanupArchived: boolean;
-  /** Cleanup deletes the branch too (its tip stays under a recovery ref). Default false. */
-  deleteBranch: boolean;
 }
 
 /** Upper bounds of maxWorktrees / unusedDays (runtime settings.mjs). */
@@ -302,7 +301,10 @@ export interface DesktopManagedWorktreeRow extends DesktopRetainedWorktree {
 }
 
 /** deleteWorktree's input: the row's id; `force` deletes despite uncommitted
- *  or unmerged work (an unmerged tip stays under refs/mixdog/removed/<id>). */
+ *  or unmerged work. The branch Mixdog created goes with it once git considers
+ *  it merged (`removed.branchDeleted`); any other stays (`removed.preservedBranch`).
+ *  A HEAD commit or deleted branch tip no ref reaches stays under
+ *  refs/mixdog/recovered/<id>/<oid> (`removed.recoveryRefs`). */
 export interface DesktopDeleteWorktreeInput {
   entryId: string;
   force?: boolean;

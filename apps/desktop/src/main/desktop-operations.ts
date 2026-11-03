@@ -1,8 +1,9 @@
 import { execFile } from 'node:child_process';
 import { watch, type FSWatcher } from 'node:fs';
-import { join } from 'node:path';
+import { isAbsolute, join, relative } from 'node:path';
 
 import { childEnvironment } from './child-environment';
+import { runRead } from './git-runner';
 import { listHostDirectories, listServerDirectories } from './host-directories';
 import * as editorBackups from './editor-backups';
 import * as gh from './gh-cli';
@@ -151,27 +152,47 @@ function createTerminalOutputCoalescer(
   };
 }
 
+/** The git dir and common dir of the checkout holding `dir` (absolute), or none outside one. */
+function gitDirsOf(dir: string): Promise<string[]> {
+  return runRead(dir, ['--no-optional-locks', 'rev-parse', '--path-format=absolute', '--git-dir', '--git-common-dir'])
+    .then((out) => [...new Set(out.split(/\r?\n/).map((line) => line.trim()).filter(Boolean))])
+    .catch(() => []);
+}
+
+const isWithinDir = (parent: string, child: string) => {
+  const rel = relative(parent, child);
+  return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+};
+
 /** Reference-counted directory watches, debounced per directory. One entry per
- *  (directory, recursive) pair, because both forms watch different trees. */
+ *  (directory, recursive) pair, because both forms watch different trees. A
+ *  recursive watch of a checkout whose git dirs lie outside it (a linked
+ *  worktree, a subfolder Project) also watches those, so a commit, stage,
+ *  switch or fetch run anywhere reaches it as an event of `dir`; the object
+ *  store is not followed (a write there always moves the index or a ref). */
 export function createFolderWatchRegistry(
   emit: (event: DesktopOperationEvent) => void,
-  watchDirectory: typeof watch = watch
+  watchDirectory: typeof watch = watch,
+  resolveGitDirs: (dir: string) => Promise<string[]> = gitDirsOf
 ) {
-  const watchers = new Map<
-    string,
-    {
-      watcher: FSWatcher;
-      count: number;
-      timer: NodeJS.Timeout | null;
-    }
-  >();
+  interface WatchState {
+    watcher: FSWatcher;
+    gitWatchers: FSWatcher[];
+    count: number;
+    timer: NodeJS.Timeout | null;
+  }
+  const watchers = new Map<string, WatchState>();
   const watchKey = (path: string) => (process.platform === 'win32' ? path.toLocaleLowerCase() : path);
   const registryKey = (dir: string, recursive: boolean) => `${watchKey(dir)}\0${recursive ? 'recursive' : 'direct'}`;
-  const closeWatch = (state: { watcher: FSWatcher; timer: NodeJS.Timeout | null }) => {
-    if (state.timer) clearTimeout(state.timer);
+  const close = (watcher: FSWatcher) => {
     try {
-      state.watcher.close();
+      watcher.close();
     } catch {}
+  };
+  const closeWatch = (state: Pick<WatchState, 'watcher' | 'timer'> & { gitWatchers?: FSWatcher[] }) => {
+    if (state.timer) clearTimeout(state.timer);
+    close(state.watcher);
+    for (const watcher of state.gitWatchers ?? []) close(watcher);
   };
   return {
     watch(dir: string, recursive: boolean): void {
@@ -181,19 +202,37 @@ export function createFolderWatchRegistry(
         existing.count += 1;
         return;
       }
-      const watcher = watchDirectory(dir, { persistent: false, recursive }, () => {
+      const changed = () => {
         const state = watchers.get(key);
         if (!state || state.timer) return;
         state.timer = setTimeout(() => {
           state.timer = null;
           emit({ name: 'folder-changed', value: dir });
         }, 250);
-      });
+      };
+      const watcher = watchDirectory(dir, { persistent: false, recursive }, changed);
       watcher.on('error', () => {
-        closeWatch({ watcher, timer: watchers.get(key)?.timer ?? null });
+        closeWatch(watchers.get(key) ?? { watcher, timer: null });
         watchers.delete(key);
       });
-      watchers.set(key, { watcher, count: 1, timer: null });
+      const state: WatchState = { watcher, gitWatchers: [], count: 1, timer: null };
+      watchers.set(key, state);
+      if (!recursive) return;
+      void resolveGitDirs(dir).then((gitDirs) => {
+        if (watchers.get(key) !== state) return;
+        for (const gitDir of gitDirs) {
+          if (isWithinDir(dir, gitDir)) continue;
+          try {
+            const gitWatcher = watchDirectory(gitDir, { persistent: false, recursive: true }, (_event, name) => {
+              const first = String(name ?? '').split(/[\\/]/)[0];
+              if (first !== 'objects') changed();
+            });
+            // A git dir that cannot be watched only loses its own events.
+            gitWatcher.on('error', () => close(gitWatcher));
+            state.gitWatchers.push(gitWatcher);
+          } catch {}
+        }
+      });
     },
     unwatch(dir: string, recursive: boolean): void {
       const key = registryKey(dir, recursive);

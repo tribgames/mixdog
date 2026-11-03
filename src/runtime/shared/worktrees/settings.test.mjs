@@ -12,16 +12,27 @@ test('defaults: worktrees off for new tasks, no branch prefix, 2 GiB warning, co
     maxWorktrees: 15,
     unusedDays: 30,
     cleanupArchived: true,
-    deleteBranch: false,
   });
   assert.deepEqual(normalizeWorktreeSettings({}), WORKTREE_SETTINGS_DEFAULTS);
 });
 
+test('a stored deleteBranch from an older version is ignored, dropped on the next save, and no longer settable', () => {
+  assert.deepEqual(normalizeWorktreeSettings({ deleteBranch: true }), WORKTREE_SETTINGS_DEFAULTS);
+  assert.deepEqual(applyWorktreeSettingsPatch({ deleteBranch: true, unusedDays: 7 }, { autoCleanup: false }), {
+    ...WORKTREE_SETTINGS_DEFAULTS,
+    unusedDays: 7,
+    autoCleanup: false,
+  });
+  assert.throws(() => applyWorktreeSettingsPatch({}, { deleteBranch: true }), /is not a worktree setting/);
+});
+
 test('cleanup settings: counts and days are bounded integers, toggles booleans; 0 turns a limit off', () => {
-  assert.deepEqual(
-    applyWorktreeSettingsPatch({}, { maxWorktrees: 0, unusedDays: 7, cleanupArchived: false, deleteBranch: true }),
-    { ...WORKTREE_SETTINGS_DEFAULTS, maxWorktrees: 0, unusedDays: 7, cleanupArchived: false, deleteBranch: true }
-  );
+  assert.deepEqual(applyWorktreeSettingsPatch({}, { maxWorktrees: 0, unusedDays: 7, cleanupArchived: false }), {
+    ...WORKTREE_SETTINGS_DEFAULTS,
+    maxWorktrees: 0,
+    unusedDays: 7,
+    cleanupArchived: false,
+  });
   for (const patch of [
     { maxWorktrees: -1 },
     { maxWorktrees: 1001 },
@@ -29,7 +40,6 @@ test('cleanup settings: counts and days are bounded integers, toggles booleans; 
     { unusedDays: '30' },
     { unusedDays: 3651 },
     { cleanupArchived: 'no' },
-    { deleteBranch: 0 },
   ]) {
     assert.throws(() => applyWorktreeSettingsPatch({}, patch), TypeError, JSON.stringify(patch));
   }

@@ -65,8 +65,8 @@ function applyEditorAnsiDecorations({
   styleElement.current.textContent = plan.cssText;
 }
 
-/** Gutter quick-diff against the Git worktree: file-watch evidence plus a slow
- *  safety pass, paused while the window is hidden. Returns its own teardown. */
+/** Gutter quick-diff against the Git worktree, refreshed on Git evidence and
+ *  paused while the window is hidden. Returns its own teardown. */
 function startEditorQuickDiff({
   gitDiff,
   projectPath,

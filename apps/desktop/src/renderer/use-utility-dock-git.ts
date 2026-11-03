@@ -43,9 +43,9 @@ export function useUtilityDockGit({
     },
     [dockProjectPath]
   );
-  // Git I/O follows intent and evidence. A recursive project watcher plus
-  // explicit Git actions drive refreshes; the slow safety lane only protects
-  // platforms where native watch delivery is unavailable or overflowed.
+  // Git I/O follows intent and evidence: a recursive project watcher (with
+  // the checkout's git dirs), window focus and explicit Git actions drive
+  // every refresh; nothing re-reads on a clock.
   const gitSurfaceSelected = tab === 'source-control' || tab === 'pull-requests';
   useEffect(() => {
     if (!open || !contentReady || !dockProjectPath || !gitSurfaceSelected) return undefined;
@@ -59,10 +59,8 @@ export function useUtilityDockGit({
         await refreshDockGitStatus(showLoading);
       },
       {
-        safetyIntervalMs: 30_000,
         activityDebounceMs: 125,
         activityMinGapMs: 3_000,
-        slowTaskMultiplier: 5,
       }
     );
     const signal = () => scheduler.signal();

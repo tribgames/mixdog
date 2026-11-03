@@ -898,7 +898,6 @@ test('worktree settings: status reads defaults, set_worktree_settings patches an
     maxWorktrees: 15,
     unusedDays: 30,
     cleanupArchived: true,
-    deleteBranch: false,
   });
   const saved = await run(api, {
     action: 'set_worktree_settings',
@@ -914,7 +913,6 @@ test('worktree settings: status reads defaults, set_worktree_settings patches an
     maxWorktrees: 15,
     unusedDays: 30,
     cleanupArchived: true,
-    deleteBranch: false,
   });
   assert.deepEqual(config.profile, { title: 'unchanged' });
   for (const worktree of [{}, { newTaskDefault: 'on' }, { sizeWarnBytes: -1 }, { other: true }]) {

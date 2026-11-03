@@ -251,45 +251,40 @@ test('steady-state HEAD reads of a watched repository touch no sync fs', (t) => 
   assert.deepEqual(calls, []);
 });
 
-/** Yields to real I/O while fake timers advance, until `done()` holds. */
-async function until(t, done, stepMs = 250) {
-  const deadline = performance.now() + 3000;
-  while (!done()) {
-    assert.ok(performance.now() < deadline, 'condition never held');
-    t.mock.timers.tick(stepMs);
-    await fs.promises.stat(tmpdir());
-  }
-}
-
-test('a HEAD change the watch missed is caught by the safety poll', async (t) => {
+test('a HEAD change is served from the cache until its watch event, then published', async (t) => {
   const top = repo(sandbox(t), 'proj', 'ref: refs/heads/main\n');
-  fakeWatch(t);
-  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const opened = fakeWatch(t);
   let changes = 0;
   const watcher = createGitHeadWatcher({ getCwd: () => top, onChange: () => changes++, debounceMs: 10 });
   t.after(() => watcher.dispose());
   watcher.retarget();
   writeFileSync(join(top, '.git', 'HEAD'), 'ref: refs/heads/feature\n');
-  assert.equal(readGitHead(top).branch, 'main', 'served from the cache until a refresh');
-  await until(t, () => changes > 0);
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(readGitHead(top).branch, 'main', 'no event, no re-read');
+  assert.equal(changes, 0);
+  live(join(top, '.git'), opened)[0].fire('HEAD');
+  await settle(() => changes > 0);
   assert.equal(readGitHead(top).branch, 'feature');
-  watcher.dispose(); // clears the shared poll while its fake timer is current
 });
 
-test('a non-repository folder that becomes one is attached by the safety poll', async (t) => {
+test('a non-repository folder that becomes one is attached on the `.git` event', async (t) => {
   const cwd = join(sandbox(t), 'plain');
   mkdirSync(cwd);
-  fakeWatch(t);
-  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
+  const opened = fakeWatch(t);
   let changes = 0;
   const watcher = createGitHeadWatcher({ getCwd: () => cwd, onChange: () => changes++, debounceMs: 10 });
   t.after(() => watcher.dispose());
   watcher.retarget();
   assert.equal(readGitHead(cwd), null);
   repo(dirname(cwd), 'plain', 'ref: refs/heads/main\n');
-  await until(t, () => changes > 0);
+  opened.find((handle) => handle.dir === cwd && !handle.closed).fire('.git');
+  await settle(() => changes > 0);
   assert.equal(readGitHead(cwd).branch, 'main');
-  watcher.dispose();
+  assert.equal(
+    opened.filter((handle) => !handle.closed && handle.dir === cwd).length,
+    0,
+    'the folder watch for `.git` is released once attached'
+  );
 });
 
 test('a session moving to another repository releases its reference', (t) => {
@@ -320,16 +315,16 @@ test('a session moving to another repository releases its reference', (t) => {
   assert.equal(readGitHead(one).branch, 'dev');
 });
 
-/** Awaits real I/O (fake timers stay put) until `done()` holds. */
+/** Yields to the event loop (real I/O, timers) until `done()` holds. */
 async function settle(done) {
   const deadline = performance.now() + 3000;
   while (!done()) {
     assert.ok(performance.now() < deadline, 'condition never held');
-    await fs.promises.stat(tmpdir());
+    await new Promise((resolve) => setTimeout(resolve, 5));
   }
 }
 
-test('disposing during a blocked async refresh opens no watch handles', async (t) => {
+test('disposing during a blocked event check opens no watch handles', async (t) => {
   const top = repo(sandbox(t), 'proj', 'ref: refs/heads/main\n');
   const opened = fakeWatch(t);
   const watcher = createGitHeadWatcher({ getCwd: () => top, onChange: () => {} });
@@ -337,11 +332,11 @@ test('disposing during a blocked async refresh opens no watch handles', async (t
   watcher.retarget();
   const gate = Promise.withResolvers();
   let reads = 0;
-  const readFile = fs.promises.readFile;
-  t.mock.method(fs.promises, 'readFile', async (...args) => {
+  const stat = fs.promises.stat;
+  t.mock.method(fs.promises, 'stat', async (...args) => {
     reads++;
     await gate.promise;
-    return readFile(...args);
+    return stat(...args);
   });
   syncBuiltinESMExports();
   live(top, opened)[0].fire('HEAD');
@@ -351,21 +346,6 @@ test('disposing during a blocked async refresh opens no watch handles', async (t
   gate.resolve();
   for (let i = 0; i < 20; i++) await fs.promises.stat(tmpdir());
   assert.equal(live(top, opened).length, 0, 'the refresh result of a released repository opens nothing');
-});
-
-test('a symref chain change with no watch event is caught by the next safety poll', async (t) => {
-  const top = repo(sandbox(t), 'proj', 'ref: refs/heads/alias\n');
-  writeRef(top, 'refs/heads/alias', 'ref: refs/heads/main\n');
-  fakeWatch(t);
-  t.mock.timers.enable({ apis: ['setInterval', 'setTimeout'] });
-  const watcher = createGitHeadWatcher({ getCwd: () => top, onChange: () => {} });
-  t.after(() => watcher.dispose());
-  watcher.retarget();
-  assert.equal(readGitHead(top).branch, 'main');
-  writeRef(top, 'refs/heads/alias', 'ref: refs/heads/next\n');
-  t.mock.timers.tick(1000);
-  await settle(() => readGitHead(top).branch === 'next');
-  watcher.dispose();
 });
 
 /** Starts a real watch on `top`, waits for the watch to settle, applies `change`, awaits the publish. */
