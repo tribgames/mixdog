@@ -206,6 +206,7 @@ function _teardown(error, { countFailure = true, detail = '' } = {}) {
   const server = _server;
   _server = null;
   if (!server) return;
+  flushNativeWatcherInvalidations();
   const failure = processFailure(error, server, detail);
   if (countFailure) noteProcessFailure(failure);
   for (const pending of server.pending.values()) {
@@ -281,6 +282,113 @@ function dropAliasSpelledInventorySnapshot() {
   }
 }
 
+// Watcher invalidations are applied once per window: a checkout or a build
+// reports thousands of `invalidate` lines, and applying each walked every
+// cache and listener on the daemon main thread. Tool writes never come
+// through here; they invalidate synchronously at their own call site.
+const WATCH_COALESCE_MS = 50;
+// Above this many distinct paths a pending batch is lifted to covering
+// directories (see collapseWatchPaths).
+const WATCH_BATCH_MAX_PATHS = 512;
+let _watchPending = null; // Set of reported paths, or 'all' (unknown boundary)
+// The pending paths that are directories a burst was lifted to: they stand
+// for changes beneath them, not for a change of the entry itself.
+let _watchLifted = new Set();
+let _watchTimer = null;
+
+function pathDepth(path) {
+  return path.split(/[\\/]/).filter(Boolean).length;
+}
+
+// The deepest paths are replaced by their parent directories until at most
+// `max` remain, so every reported path stays under one kept path, and a
+// shallow path is not lifted for a deep burst elsewhere. Lexical only: the
+// paths come from a watch on canonical roots.
+function collapseWatchPaths(paths, lifted, max) {
+  let depths = new Map([...paths].map((path) => [path, pathDepth(path)]));
+  while (depths.size > max) {
+    let deepest = 0;
+    for (const depth of depths.values()) deepest = Math.max(deepest, depth);
+    const next = new Map();
+    let raised = false;
+    for (const [path, depth] of depths) {
+      const parent = depth === deepest ? dirname(path) : path;
+      if (parent !== path) {
+        raised = true;
+        lifted.add(parent);
+      }
+      if (!next.has(parent)) next.set(parent, parent === path ? depth : depth - 1);
+    }
+    if (!raised) break;
+    depths = next;
+  }
+  for (const path of lifted) if (!depths.has(path)) lifted.delete(path);
+  return new Set(depths.keys());
+}
+
+function queueWatcherInvalidation(paths) {
+  if (paths.length === 0) _watchPending = 'all';
+  if (_watchPending !== 'all') {
+    _watchPending ??= new Set();
+    for (const path of paths) _watchPending.add(String(path));
+    if (_watchPending.size > WATCH_BATCH_MAX_PATHS) {
+      _watchPending = collapseWatchPaths(_watchPending, _watchLifted, WATCH_BATCH_MAX_PATHS);
+    }
+  }
+  if (_watchTimer) return;
+  _watchTimer = setTimeout(flushNativeWatcherInvalidations, WATCH_COALESCE_MS);
+  _watchTimer.unref?.();
+}
+
+/** Applies the pending watcher invalidations now. Runs on its timer, before
+ *  any server response is handled (a response must never be read, or cached,
+ *  ahead of a change the server reported before it), and at teardown. */
+export function flushNativeWatcherInvalidations() {
+  if (_watchTimer) clearTimeout(_watchTimer);
+  _watchTimer = null;
+  const pending = _watchPending;
+  const lifted = _watchLifted;
+  _watchPending = null;
+  _watchLifted = new Set();
+  if (!pending) return;
+  if (pending === 'all') {
+    invalidateBuiltinResultCache(null, { canonical: true });
+    return;
+  }
+  invalidateBuiltinResultCache([...pending], { canonical: true, ...(lifted.size ? { directories: [...lifted] } : {}) });
+}
+
+function onServerLine(server, line) {
+  let message;
+  try {
+    message = JSON.parse(line);
+  } catch {
+    return;
+  }
+  if (message?.event === 'invalidate' && Array.isArray(message.paths)) {
+    queueWatcherInvalidation(message.paths);
+    return;
+  }
+  flushNativeWatcherInvalidations();
+  if (message?.ready === true) {
+    server.readyState = true;
+    server.resolveReady?.(true);
+    return;
+  }
+  if (message?.event === 'cancelled') {
+    completeNativeCancellation(server, Number(message?.id));
+    clearProcessFailures();
+    return;
+  }
+  const pending = server.pending.get(Number(message?.id));
+  if (!pending) return;
+  server.pending.delete(Number(message.id));
+  clearProcessFailures();
+  pending.resolve(message);
+}
+
+export { onServerLine as _onNativeSearchLineForTest };
+
 function _ensureServer() {
   if (_server) return _server;
   if (
@@ -325,33 +433,7 @@ function _ensureServer() {
   transport.on('stderr', (chunk) => {
     server.stderrTail = `${server.stderrTail}${String(chunk || '')}`.slice(-8192);
   });
-  transport.on('line', (line) => {
-    let message;
-    try {
-      message = JSON.parse(line);
-    } catch {
-      return;
-    }
-    if (message?.ready === true) {
-      server.readyState = true;
-      server.resolveReady?.(true);
-      return;
-    }
-    if (message?.event === 'invalidate' && Array.isArray(message.paths)) {
-      invalidateBuiltinResultCache(message.paths.map(String), { canonical: true });
-      return;
-    }
-    if (message?.event === 'cancelled') {
-      completeNativeCancellation(server, Number(message?.id));
-      clearProcessFailures();
-      return;
-    }
-    const pending = server.pending.get(Number(message?.id));
-    if (!pending) return;
-    server.pending.delete(Number(message.id));
-    clearProcessFailures();
-    pending.resolve(message);
-  });
+  transport.on('line', (line) => onServerLine(server, line));
   transport.on('error', (error) => {
     markExited(true);
     if (_server === server) _teardown(error);

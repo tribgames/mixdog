@@ -33,7 +33,7 @@ registerSessionPurgeHook((sessionId) => {
 // read right after them captures the worktree, an unsignaled one may reuse
 // the last capture.
 registerCacheInvalidationListener((paths, source) =>
-  noteTurnWorktreeChange(paths, { canonical: source?.canonical === true })
+  noteTurnWorktreeChange(paths, { canonical: source?.canonical === true, directories: source?.directories })
 );
 
 export function createRuntimeReviewApi({ getCwd, getSessionId }) {

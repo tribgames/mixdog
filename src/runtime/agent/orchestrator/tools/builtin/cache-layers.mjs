@@ -108,18 +108,38 @@ export function canPublishReadCache(targets = null) {
   });
 }
 
-function cacheEntryOverlapsPaths(entry, affectedPaths) {
-  const entryPaths = Array.isArray(entry?.paths) ? entry.paths : [];
-  const entryScopes = Array.isArray(entry?.scopes) ? entry.scopes : [];
-  for (const affected of affectedPaths) {
-    for (const p of entryPaths) {
-      if (cachePathsOverlap(p, affected)) return true;
-    }
-    for (const scope of entryScopes) {
-      if (cachePathsOverlap(scope, affected)) return true;
-    }
+const withTrailingSep = (path) => (path.endsWith(sep) ? path : `${path}${sep}`);
+
+// `visit` gets every prefix of `path` that ends at a separator, shortest
+// first; a true return stops the walk and is returned.
+function someSepPrefix(path, visit) {
+  for (let at = path.indexOf(sep); at >= 0; at = path.indexOf(sep, at + 1)) {
+    if (visit(path.slice(0, at + 1))) return true;
   }
   return false;
+}
+
+/** `cachePathsOverlap(path, affected)` against every affected path at once:
+ *  the affected paths are indexed by their separator-terminated prefixes, so
+ *  one check costs the path's own length, not the affected list's. */
+function cachePathMatcher(affectedPaths) {
+  const exact = new Set(affectedPaths);
+  // An entry path under an affected path starts with one of these.
+  const covering = new Set(affectedPaths.map(withTrailingSep));
+  // An entry path containing an affected path is one of these.
+  const contained = new Set();
+  for (const affected of affectedPaths) someSepPrefix(affected, (prefix) => void contained.add(prefix));
+  return (path) =>
+    Boolean(path) &&
+    (exact.has(path) ||
+      contained.has(withTrailingSep(path)) ||
+      someSepPrefix(path, (prefix) => covering.has(prefix)));
+}
+
+function cacheEntryOverlapsPaths(entry, matches) {
+  const entryPaths = Array.isArray(entry?.paths) ? entry.paths : [];
+  const entryScopes = Array.isArray(entry?.scopes) ? entry.scopes : [];
+  return entryPaths.some(matches) || entryScopes.some(matches);
 }
 
 export function cacheGetEntry(key) {
@@ -523,36 +543,34 @@ function cacheInvalidatePaths(paths, source) {
     cacheInvalidateAll();
     return;
   }
+  const matches = cachePathMatcher(affectedPaths);
   for (const [path, slot] of ACTIVE_READ_CACHE_PATHS) {
-    if (affectedPaths.some((affected) => cachePathsOverlap(path, affected))) slot.generation++;
+    if (matches(path)) slot.generation++;
   }
   for (const inFlight of [RAW_CONTENT_INFLIGHT, READ_ONLY_STAT_INFLIGHT]) {
     for (const [key, entry] of inFlight) {
-      if (affectedPaths.some((affected) => cachePathsOverlap(entry.path, affected))) inFlight.delete(key);
+      if (matches(entry.path)) inFlight.delete(key);
     }
   }
   for (const [key, entry] of RESULT_CACHE_INFLIGHT) {
     const scopes = Array.isArray(entry.scopes) ? entry.scopes : [];
-    if (
-      scopes.length === 0 ||
-      scopes.some((scope) => affectedPaths.some((affected) => cachePathsOverlap(scope, affected)))
-    ) {
+    if (scopes.length === 0 || scopes.some(matches)) {
       entry.invalidated = true;
       RESULT_CACHE_INFLIGHT.delete(key);
     }
   }
   for (const [key, entry] of RESULT_CACHE) {
-    if (cacheEntryOverlapsPaths(entry, affectedPaths)) {
+    if (cacheEntryOverlapsPaths(entry, matches)) {
       resultCacheDelete(key);
     }
   }
   for (const key of [...STAT_CACHE.keys()]) {
-    if (affectedPaths.some((affected) => cachePathsOverlap(canonicalCachePath(key), affected))) {
+    if (matches(canonicalCachePath(key))) {
       STAT_CACHE.delete(key);
     }
   }
   for (const key of [...RAW_CONTENT_CACHE.keys()]) {
-    if (affectedPaths.some((affected) => cachePathsOverlap(key, affected))) {
+    if (matches(key)) {
       rawContentCacheDelete(key);
     }
   }

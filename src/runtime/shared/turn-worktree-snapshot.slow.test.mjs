@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import childProcess, { spawnSync } from 'node:child_process';
 import fs, { mkdirSync, mkdtempSync, rmSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
+import fsPromises from 'node:fs/promises';
 import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -23,6 +24,10 @@ const {
   refreshTurnWorktreeSnapshot,
   resumeTurnWorktreeFilePatch,
 } = await import('./turn-worktree-snapshot.mjs');
+const { registerCacheInvalidationListener } = await import('../agent/orchestrator/tools/builtin/cache-layers.mjs');
+const { _onNativeSearchLineForTest: onNativeLine, flushNativeWatcherInvalidations } = await import(
+  '../agent/orchestrator/tools/builtin/native-search-client.mjs'
+);
 
 function git(cwd, ...args) {
   const result = spawnSync('git', ['-c', 'user.email=t@t', '-c', 'user.name=t', ...args], {
@@ -527,6 +532,319 @@ test('native watcher paths on a link-free backend stamp by spelling with no file
   assert.deepEqual(counts, { existsSync: 0, lstatSync: 0, realpathSync: 0, readdirSync: 0 });
 });
 
+// A gate on fs.promises.realpath for paths naming `marker`, so a test can hold
+// a watcher batch's resolution open.
+function gateRealpath(t, marker) {
+  const gate = Promise.withResolvers();
+  const original = fsPromises.realpath;
+  const calls = { count: 0 };
+  t.mock.method(fsPromises, 'realpath', async (path, ...rest) => {
+    calls.count += 1;
+    if (String(path).includes(marker)) await gate.promise;
+    return original(path, ...rest);
+  });
+  t.after(() => t.mock.restoreAll());
+  return { release: gate.resolve, calls };
+}
+
+function countSyncFs(t) {
+  const counts = { existsSync: 0, lstatSync: 0, realpathSync: 0, statSync: 0, readdirSync: 0 };
+  for (const name of Object.keys(counts)) {
+    const original = fs[name];
+    t.mock.method(fs, name, (...args) => {
+      counts[name] += 1;
+      return original(...args);
+    });
+  }
+  syncBuiltinESMExports();
+  t.after(() => {
+    t.mock.restoreAll();
+    syncBuiltinESMExports();
+  });
+  return counts;
+}
+
+test('a 10,000-path watcher batch on Linux resolves each directory once, off the main thread', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  _resetTurnWorktreeSnapshotsForTest();
+  const repoA = seedRepo('linux-a');
+  const repoB = seedRepo('linux-b');
+  const snapshots = [await createTurnWorktreeSnapshot(repoA), await createTurnWorktreeSnapshot(repoB)];
+  for (let i = 0; i < 100; i += 1) mkdirSync(join(root, 'linux-elsewhere', `d${i}`), { recursive: true });
+  const paths = Array.from({ length: 9_998 }, (_, i) => join(root, 'linux-elsewhere', `d${i % 100}`, `f${i}.txt`));
+  paths.push(join(repoA, 'a.txt'), join(repoB, 'a.txt'));
+  const { calls } = gateRealpath(t, '\0never');
+  const counts = countSyncFs(t);
+  const before = snapshots.map((snapshot) => snapshot.state.changeStamp);
+  const startedAt = performance.now();
+  const resolution = noteTurnWorktreeChange(paths, { canonical: true, platform: 'linux' });
+  const syncMs = performance.now() - startedAt;
+  assert.deepEqual(counts, { existsSync: 0, lstatSync: 0, realpathSync: 0, statSync: 0, readdirSync: 0 });
+  await resolution;
+  const totalMs = performance.now() - startedAt;
+  assert.deepEqual(
+    snapshots.map((snapshot, i) => snapshot.state.changeStamp - before[i]),
+    [1, 1]
+  );
+  // 102 directories: one realpath each, no per-entry probe.
+  assert.equal(calls.count, 102);
+  assert.deepEqual(counts, { existsSync: 0, lstatSync: 0, realpathSync: 0, statSync: 0, readdirSync: 0 });
+  t.diagnostic(`main-thread ${syncMs.toFixed(1)}ms, resolved in ${totalMs.toFixed(1)}ms`);
+  assert.ok(syncMs < 50, `${syncMs}ms`);
+});
+
+test('a burst under a link the client collapses resolves the link and stamps its target', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  _resetTurnWorktreeSnapshotsForTest();
+  const repoA = seedRepo('alias-a');
+  const repoB = seedRepo('alias-b');
+  const alias = join(repoB, 'alias');
+  symlinkSync(repoA, alias, 'junction');
+  const snapshots = [await createTurnWorktreeSnapshot(repoA), await createTurnWorktreeSnapshot(repoB)];
+  // The real chain: native line → coalescing → cache invalidation → listener.
+  const resolutions = [];
+  t.after(
+    registerCacheInvalidationListener((paths, source) => {
+      resolutions.push(
+        noteTurnWorktreeChange(paths, { canonical: source?.canonical === true, directories: source?.directories, platform: 'linux' })
+      );
+    })
+  );
+  const server = { pending: new Map(), cancelWatchdogs: new Map(), resolveReady() {} };
+  const paths = Array.from({ length: 600 }, (_, i) => join(alias, `f${i}.txt`));
+  onNativeLine(server, JSON.stringify({ event: 'invalidate', paths }));
+  const before = snapshots.map((snapshot) => snapshot.state.changeStamp);
+  flushNativeWatcherInvalidations();
+  await Promise.all(resolutions);
+  const delta = snapshots.map((snapshot, i) => snapshot.state.changeStamp - before[i]);
+  assert.equal(delta[0], 1, 'the link target root is stamped');
+});
+
+test('while a Linux watcher batch resolves, every tracked root reads as changed', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  _resetTurnWorktreeSnapshotsForTest();
+  const repoA = seedRepo('pending-a');
+  const repoB = seedRepo('pending-b');
+  const snapshots = [await createTurnWorktreeSnapshot(repoA), await createTurnWorktreeSnapshot(repoB)];
+  const gated = join(root, 'pending-gated');
+  mkdirSync(gated, { recursive: true });
+  const { release } = gateRealpath(t, 'pending-gated');
+  const resolution = noteTurnWorktreeChange([join(gated, 'x.txt')], { canonical: true, platform: 'linux' });
+  // Within MIN_RECAPTURE_GAP_MS and with no stamp: only the hold forces these.
+  for (const snapshot of snapshots) {
+    const mark = snapshot.captured;
+    await refreshTurnWorktreeSnapshot(snapshot);
+    assert.notEqual(snapshot.captured, mark, `${snapshot.root} recaptured while pending`);
+  }
+  release();
+  await resolution;
+  for (const snapshot of snapshots) {
+    const mark = snapshot.captured;
+    await refreshTurnWorktreeSnapshot(snapshot);
+    assert.equal(snapshot.captured, mark, `${snapshot.root} reused once resolved as unaffected`);
+  }
+});
+
+test('a late Linux watcher resolution never releases a newer hold or lowers a stamp', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  _resetTurnWorktreeSnapshotsForTest();
+  const repoA = seedRepo('late-a');
+  const repoB = seedRepo('late-b');
+  const lateLink = join(root, 'late-gated-link');
+  symlinkSync(repoA, lateLink, 'junction');
+  const [a, b] = [await createTurnWorktreeSnapshot(repoA), await createTurnWorktreeSnapshot(repoB)];
+  const { release } = gateRealpath(t, 'late-gated-link');
+  const before = [a.state.changeStamp, b.state.changeStamp];
+  const older = noteTurnWorktreeChange([join(lateLink, 'x.txt')], { canonical: true, platform: 'linux' });
+  await noteTurnWorktreeChange([join(repoB, 'b.txt')], { canonical: true, platform: 'linux' });
+  noteTurnWorktreeChange([join(repoA, 'a.txt')]);
+  assert.deepEqual([a.state.changeStamp - before[0], b.state.changeStamp - before[1]], [1, 1]);
+  // The newer batch is done, but the older one still holds both roots.
+  assert.deepEqual([a.state.watchPending.size, b.state.watchPending.size], [1, 1]);
+  release();
+  await older;
+  assert.deepEqual([a.state.changeStamp - before[0], b.state.changeStamp - before[1]], [2, 1]);
+  assert.deepEqual([a.state.watchPending.size, b.state.watchPending.size], [0, 0]);
+});
+
+test('a Linux watcher lookup that fails other than "missing" stamps every held root', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  _resetTurnWorktreeSnapshotsForTest();
+  const repoA = seedRepo('denied-a');
+  const repoB = seedRepo('denied-b');
+  const alias = join(repoB, 'denied-alias');
+  symlinkSync(repoA, alias, 'junction');
+  const [a, b] = [await createTurnWorktreeSnapshot(repoA), await createTurnWorktreeSnapshot(repoB)];
+  const original = fsPromises.realpath;
+  t.mock.method(fsPromises, 'realpath', async (path, ...rest) => {
+    if (String(path).includes('denied-alias')) throw Object.assign(new Error('denied'), { code: 'EACCES' });
+    return original(path, ...rest);
+  });
+  t.after(() => t.mock.restoreAll());
+  const before = [a.state.changeStamp, b.state.changeStamp];
+  // Reached through B's link into A, but the link cannot be resolved.
+  await noteTurnWorktreeChange([join(alias, 'x.txt')], { canonical: true, platform: 'linux' });
+  assert.deepEqual([a.state.changeStamp - before[0], b.state.changeStamp - before[1]], [1, 1]);
+  assert.deepEqual([a.state.watchPending.size, b.state.watchPending.size], [0, 0]);
+});
+
+test('a stalled Linux watcher lookup fails closed at the deadline; its late answer is a no-op', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  _resetTurnWorktreeSnapshotsForTest();
+  const repoA = seedRepo('stall-a');
+  const repoB = seedRepo('stall-b');
+  const [a, b] = [await createTurnWorktreeSnapshot(repoA), await createTurnWorktreeSnapshot(repoB)];
+  const gates = { 'stall-one': Promise.withResolvers(), 'stall-two': Promise.withResolvers() };
+  const original = fsPromises.realpath;
+  t.mock.method(fsPromises, 'realpath', async (path, ...rest) => {
+    for (const [marker, gate] of Object.entries(gates)) if (String(path).includes(marker)) await gate.promise;
+    return original(path, ...rest);
+  });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => {
+    for (const gate of Object.values(gates)) gate.resolve();
+    t.mock.timers.reset();
+    t.mock.restoreAll();
+  });
+  const settle = () => new Promise((done) => setImmediate(done));
+  const stamps = () => [a.state.changeStamp, b.state.changeStamp];
+  const holds = () => [a.state.watchPending.size, b.state.watchPending.size];
+  for (const marker of Object.keys(gates)) mkdirSync(join(root, marker), { recursive: true });
+  const before = stamps();
+  void noteTurnWorktreeChange([join(root, 'stall-one', 'x.txt')], { canonical: true, platform: 'linux' });
+  await settle();
+  t.mock.timers.tick(4_999);
+  await settle();
+  assert.deepEqual(holds(), [1, 1], 'held until the deadline');
+  t.mock.timers.tick(1);
+  await settle();
+  assert.deepEqual(holds(), [0, 0], 'released at the deadline');
+  assert.deepEqual(stamps(), [before[0] + 1, before[1] + 1], 'every held root stamped');
+  // A newer batch is held while the timed-out one finally answers.
+  const newer = noteTurnWorktreeChange([join(root, 'stall-two', 'y.txt')], { canonical: true, platform: 'linux' });
+  gates['stall-one'].resolve();
+  await settle();
+  await settle();
+  assert.deepEqual(holds(), [1, 1], "the late answer releases no other batch's hold");
+  assert.deepEqual(stamps(), [before[0] + 1, before[1] + 1], 'the late answer stamps nothing');
+  gates['stall-two'].resolve();
+  await newer;
+  assert.deepEqual(holds(), [0, 0]);
+  assert.deepEqual(stamps(), [before[0] + 1, before[1] + 1], 'an unrelated path stamps nothing');
+});
+
+test('stalled watcher lookups keep their slots; a batch finding none fails closed with no lookup', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  _resetTurnWorktreeSnapshotsForTest();
+  const repoA = seedRepo('slots-a');
+  const repoB = seedRepo('slots-b');
+  const [a, b] = [await createTurnWorktreeSnapshot(repoA), await createTurnWorktreeSnapshot(repoB)];
+  const gates = { 'slots-one': Promise.withResolvers(), 'slots-two': Promise.withResolvers() };
+  for (const marker of Object.keys(gates)) mkdirSync(join(root, marker), { recursive: true });
+  const original = fsPromises.realpath;
+  const calls = [];
+  const lookups = [];
+  t.mock.method(fsPromises, 'realpath', (path, ...rest) => {
+    calls.push(String(path));
+    const lookup = (async () => {
+      for (const [marker, gate] of Object.entries(gates)) if (String(path).includes(marker)) await gate.promise;
+      return original(path, ...rest);
+    })();
+    lookups.push(lookup);
+    return lookup;
+  });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => {
+    for (const gate of Object.values(gates)) gate.resolve();
+    t.mock.timers.reset();
+    t.mock.restoreAll();
+  });
+  const settle = () => new Promise((done) => setImmediate(done));
+  const stamps = () => [a.state.changeStamp, b.state.changeStamp];
+  const holds = () => [a.state.watchPending.size, b.state.watchPending.size];
+  // Two lookups stall; their batch times out, but the lookups stay submitted.
+  void noteTurnWorktreeChange([join(root, 'slots-one', 'x.txt'), join(root, 'slots-two', 'y.txt')], {
+    canonical: true,
+    platform: 'linux',
+  });
+  await settle();
+  t.mock.timers.tick(5_000);
+  await settle();
+  assert.deepEqual(holds(), [0, 0]);
+  const before = stamps();
+  const submitted = calls.length;
+  const elsewhere = join(root, 'slots-elsewhere');
+  mkdirSync(elsewhere, { recursive: true });
+  await noteTurnWorktreeChange([join(elsewhere, 'z.txt')], { canonical: true, platform: 'linux' });
+  assert.equal(calls.length, submitted, 'no lookup queued behind the stalled ones');
+  assert.deepEqual(stamps(), [before[0] + 1, before[1] + 1], 'failed closed: every held root stamped');
+  assert.deepEqual(holds(), [0, 0]);
+  // A slot frees only when its own lookup settles.
+  gates['slots-one'].resolve();
+  await lookups[calls.findIndex((path) => path.includes('slots-one'))];
+  await settle();
+  await noteTurnWorktreeChange([join(elsewhere, 'w.txt')], { canonical: true, platform: 'linux' });
+  assert.equal(calls.length, submitted + 1, 'the freed slot serves a new lookup');
+  assert.deepEqual(stamps(), [before[0] + 1, before[1] + 1], 'resolved precisely: an unrelated path stamps nothing');
+});
+
+test('a lookup answering "missing" after its batch stopped walks no further', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async (t) => {
+  _resetTurnWorktreeSnapshotsForTest();
+  const repo = seedRepo('late-missing');
+  await createTurnWorktreeSnapshot(repo);
+  const gate = Promise.withResolvers();
+  const original = fsPromises.realpath;
+  const calls = [];
+  t.mock.method(fsPromises, 'realpath', async (path, ...rest) => {
+    calls.push(String(path));
+    if (String(path).includes('late-missing-gone')) {
+      await gate.promise;
+      throw Object.assign(new Error('gone'), { code: 'ENOENT' });
+    }
+    return original(path, ...rest);
+  });
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  t.after(() => {
+    gate.resolve();
+    t.mock.timers.reset();
+    t.mock.restoreAll();
+  });
+  const settle = () => new Promise((done) => setImmediate(done));
+  void noteTurnWorktreeChange([join(root, 'late-missing-gone', 'x.txt')], { canonical: true, platform: 'linux' });
+  await settle();
+  assert.equal(calls.length, 1);
+  t.mock.timers.tick(5_000);
+  await settle();
+  gate.resolve();
+  await settle();
+  await settle();
+  assert.deepEqual(calls, [join(root, 'late-missing-gone')], 'no ancestor lookup after the batch stopped');
+});
+
+test('a collapsed watcher directory above a root stamps that root', {
+  skip: gitAvailable ? false : 'git is unavailable',
+}, async () => {
+  _resetTurnWorktreeSnapshotsForTest();
+  const parent = join(root, 'collapsed-parent');
+  mkdirSync(parent, { recursive: true });
+  const repo = seedRepo(join('collapsed-parent', 'repo'));
+  const snapshot = await createTurnWorktreeSnapshot(repo);
+  const before = snapshot.state.changeStamp;
+  await noteTurnWorktreeChange([join(root, 'collapsed-parent-sibling')], { canonical: true });
+  assert.equal(snapshot.state.changeStamp, before);
+  await noteTurnWorktreeChange([parent], { canonical: true });
+  assert.equal(snapshot.state.changeStamp, before + 1);
+});
+
 test('native watcher paths outside every root on a link-free backend make no filesystem call', {
   skip: gitAvailable ? false : 'git is unavailable',
 }, async (t) => {
@@ -581,13 +899,15 @@ test('a tool invalidation through a junction or a denied probe still stamps the 
   };
   assert.deepEqual(delta([join(link, 'a.txt')]), [1, 0]);
   // A watcher on a backend that follows links can report the alias spelling.
-  const watched = (platform) => {
+  const watched = async (paths, platform) => {
     const before = snapshots.map((snapshot) => snapshot.state.changeStamp);
-    noteTurnWorktreeChange([join(link, 'a.txt')], { canonical: true, platform });
+    await noteTurnWorktreeChange(paths, { canonical: true, platform });
     return snapshots.map((snapshot, i) => snapshot.state.changeStamp - before[i]);
   };
-  assert.deepEqual(watched('linux'), [1, 0]);
-  assert.deepEqual(watched('freebsd'), [1, 0]);
+  assert.deepEqual(await watched([join(link, 'a.txt')], 'linux'), [1, 0]);
+  assert.deepEqual(await watched([join(link, 'a.txt')], 'freebsd'), [1, 0]);
+  // The link entry itself is a change in the root that holds it.
+  assert.deepEqual(await watched([link], 'linux'), [0, 1]);
   // A refused probe (or listing) must resolve the path, never read as "not a link".
   for (const name of ['lstatSync', 'readdirSync']) {
     t.mock.method(fs, name, () => {
