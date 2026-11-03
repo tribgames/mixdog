@@ -27,6 +27,11 @@ export function createGitRefreshScheduler(
     activityMinGapMs: number;
     slowTaskMultiplier?: number;
     maxIntervalMs?: number;
+    /** A task that rejects is retried after `minMs`, doubling per failure up
+     *  to `maxMs`, and reset by a success; its duration (a read cut off at a
+     *  deadline) never feeds the slow-task backoff. Unset, a rejection counts
+     *  as an ordinary run. */
+    failureRetry?: { minMs: number; maxMs: number };
   }
 ): GitRefreshScheduler {
   let disposed = false;
@@ -38,6 +43,7 @@ export function createGitRefreshScheduler(
   let safetyTimer = 0;
   let lastRunEndedAt = -Infinity;
   let lastRunDurationMs = 0;
+  let failures = 0;
 
   const clearActivity = () => {
     if (activityTimer) globalThis.clearTimeout(activityTimer);
@@ -53,10 +59,14 @@ export function createGitRefreshScheduler(
   const scheduleSafety = () => {
     if (!enabled || disposed) return;
     clearSafety();
-    const delay = Math.max(
-      options.safetyIntervalMs,
-      Math.min(maxIntervalMs, lastRunDurationMs * (options.slowTaskMultiplier ?? 5))
-    );
+    const retry = options.failureRetry;
+    const delay =
+      retry && failures > 0
+        ? Math.min(retry.maxMs, retry.minMs * 2 ** (failures - 1))
+        : Math.max(
+            options.safetyIntervalMs,
+            Math.min(maxIntervalMs, lastRunDurationMs * (options.slowTaskMultiplier ?? 5))
+          );
     safetyTimer = globalThis.setTimeout(() => {
       safetyTimer = 0;
       start('safety');
@@ -91,12 +101,19 @@ export function createGitRefreshScheduler(
     clearSafety();
     inFlight = true;
     const startedAt = Date.now();
+    let failed = false;
     void Promise.resolve()
       .then(() => task(reason))
-      .catch(() => undefined)
+      .catch(() => {
+        failed = Boolean(options.failureRetry);
+      })
       .finally(() => {
         lastRunEndedAt = Date.now();
-        lastRunDurationMs = Math.max(0, lastRunEndedAt - startedAt);
+        if (failed) failures += 1;
+        else {
+          failures = 0;
+          lastRunDurationMs = Math.max(0, lastRunEndedAt - startedAt);
+        }
         inFlight = false;
         if (!enabled || disposed) return;
         if (pendingActivity) {
