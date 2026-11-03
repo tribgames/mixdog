@@ -107,7 +107,16 @@ try {
 } finally { $window.Dispose() }
 `;
   try {
-    await writeFile(join(directory, 'native.cs'), `${MIXDOG_HOST_CSHARP}\n${harness}`);
+    // Whether a full-content print comes back black depends on whether anything,
+    // in any process, printed the window before. The compiled copy blackens the
+    // successful full-content result so the product's black-frame fallback runs.
+    const fullContentRender = 'bool rendered = RenderWindowInto(h, graphics, PW_RENDERFULLCONTENT);';
+    const parts = MIXDOG_HOST_CSHARP.split(fullContentRender);
+    assert.equal(parts.length, 2, 'native source has exactly one full-content render');
+    const native = parts.join(`${fullContentRender}
+            if (!rendered) throw new InvalidOperationException("fixture full-content render failed");
+            graphics.Clear(Color.Black);`);
+    await writeFile(join(directory, 'native.cs'), `${native}\n${harness}`);
     await writeFile(join(directory, 'check.ps1'), script);
     const { stdout } = await promisify(execFile)(
       'powershell.exe',
@@ -122,8 +131,8 @@ try {
     assert.equal(value.foreground_unchanged, true);
     // A window without a transparent resize border is composited as its own rect.
     assert.deepEqual(value.composited, value.window);
-    // Full content is asked for first; this never-composed fixture renders black
-    // that way, so the same attempt repaints it without the flag (the pixels above).
+    // Full content is asked for first; its result is blackened above, so the
+    // same attempt repaints it without the flag (the pixels above).
     assert.equal(value.print_flags, '2,0');
     // At this host's DPI the wheel's screen point is the physical one.
     assert.deepEqual(value.wheel, value.wheel_expected);
