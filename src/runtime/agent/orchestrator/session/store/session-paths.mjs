@@ -69,3 +69,9 @@ function _sessionFilePath(id, extension) {
 export function sessionPath(id) {
   return _sessionFilePath(id, '.json');
 }
+/** sessionPath without ensuring the store folder: for a reader that only
+ *  stats or reads the record and must not block on that check. */
+export function sessionRecordPath(id) {
+  _assertSessionId(id);
+  return _memoFilePath(_storeDirPath(), id, '.json');
+}

@@ -4,7 +4,6 @@
 import { ACTIVE_STAGES } from '../tool-def.mjs';
 import { isTerminalWorkerStatus } from '../worker-rows.mjs';
 import { sessionUsageTotals } from '../../../../runtime/shared/session-usage-totals.mjs';
-
 const CANCELLED_WORKER_STATUS = /^(?:cancelled|canceled|killed|cancel[-_\s]?(?:unconfirmed|pending))$/;
 
 // Idle, closed, errored and reaped/unknown rows are history and stay reachable
@@ -90,17 +89,20 @@ function agentRow({ tag, session, runtime, progress, now, indexRow = null }) {
 }
 
 export function createAgentList({ mgr, refreshTagsFromSessions, agentSessionEntries, progress }) {
+  // `memoryOnly` (the status pulse): rows come from the in-memory worker index
+  // and live sessions alone; no session record is read (tag-refresh.mjs).
   return function list({
     scanSessions = false,
     context = {},
     includeTerminal = false,
     includeIdle = false,
     includeClosed = false,
+    memoryOnly = false,
   } = {}) {
-    refreshTagsFromSessions({ scanSessions, context });
+    refreshTagsFromSessions({ scanSessions, context, memoryOnly });
     const now = Date.now();
     const rows = [];
-    for (const { tag, session, indexRow, loaded } of agentSessionEntries({ scanSessions, context })) {
+    for (const { tag, session, indexRow, loaded } of agentSessionEntries({ scanSessions, context, memoryOnly })) {
       const runtime = mgr.getSessionRuntime?.(session.id);
       // Whether a row is listed depends on its status and stage alone, so a
       // finished worker is dropped before its progress is read: that read
@@ -122,13 +124,18 @@ export function createAgentList({ mgr, refreshTagsFromSessions, agentSessionEntr
           indexRow,
           runtime,
           // A tag-bound entry is the getSession answer itself; an index row or
-          // a scanned summary is only a projection and still reads the session.
+          // a scanned summary is only a projection and still reads the session
+          // (the pulse from memory: session-record.mjs).
           progress: progress.sessionProgressExtras(
             session.id,
             session.agent || null,
             now,
             null,
-            loaded ? { loaded: session } : {}
+            loaded
+              ? { loaded: session, memoryOnly }
+              : memoryOnly
+                ? { loaded: progress.memorySession(session.id), memoryOnly }
+                : {}
           ),
           now,
         })

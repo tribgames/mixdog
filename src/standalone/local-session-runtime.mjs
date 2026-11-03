@@ -44,6 +44,7 @@ import {
   sweepStaleTranscriptSpillDirsOnce,
 } from '../tui/session/transcript-spill.mjs';
 import { importInStages } from './staged-import.mjs';
+import { sessionStatusScheduler } from './session-status-scheduler.mjs';
 
 const SESSION_RUNTIME_MODULE = '../mixdog-session-runtime.mjs';
 // Its one module (only mixdog-session-runtime.mjs imports it): its boot
@@ -110,9 +111,11 @@ export {
 export { parseBackgroundTaskEnvelope } from '../tui/session/agent-envelope.mjs';
 
 /**
- * The 2s runtime pulse picks up runtime-derived state that changes without a
- * notification: the route (model/effort/context window/cwd/Goal), the context
- * gauge stats, and agent status. It publishes ONLY when one of those values
+ * The runtime pulse picks up runtime-derived state that changes without a
+ * notification of its own: the route (model/effort/context window/cwd/Goal),
+ * the context gauge stats, and agent status. The daemon's status scheduler
+ * runs it when the session's inputs may have moved (createSessionStatusWatch).
+ * It publishes ONLY when one of those values
  * actually differs from the draft or the published snapshot. Re-publishing an
  * unchanged session minted a fresh snapshot every 2s, which the session
  * service projected as a new revision and which kept its idle-projection
@@ -165,6 +168,51 @@ export function createRuntimePulse({
     publishChanged({ workspace: liveWorkspace() });
   };
   return pulse;
+}
+
+// Keys a streaming turn rewrites per delta or per line. They present the
+// stream and move no runtime state a pass reads.
+const STREAM_PRESENTATION_KEYS = new Set(['streamingTail', 'streamingPartial', 'thinking']);
+// The spinner's counters (response length, token counts, elapsed) move per
+// delta; its presence and mode move with the turn's stage.
+const spinnerStage = (spinner) => (spinner ? (spinner.mode ?? '') : null);
+
+/** Whether a set() patch can mark a moment a pass input moved: a turn state or
+ *  stage change, a step's usage, an approval, agent, Goal, todo, quota or route
+ *  publication — anything but the stream's own presentation. */
+function marksPassInput(patch, previous) {
+  for (const [key, value] of Object.entries(patch)) {
+    if (Object.is(previous?.[key], value) || STREAM_PRESENTATION_KEYS.has(key)) continue;
+    if (key === 'spinner' && spinnerStage(value) === spinnerStage(previous?.spinner)) continue;
+    return true;
+  }
+  return false;
+}
+
+/**
+ * One session's place in the daemon's status scheduler. `set` is the session's
+ * store set: a change it makes that can mark a pass-input move (marksPassInput)
+ * marks the session dirty, wherever it comes from — a listener reacting inside
+ * the pass included, so nothing it changes waits for the sweep. The pass
+ * publishes through the store's own set, which marks nothing.
+ * `start(scheduler, recompute)` registers the pass (which runs right away
+ * once) and returns its dispose.
+ */
+export function createSessionStatusWatch({ set, getState, isDisposed }) {
+  let entry = null;
+  return {
+    set(patch) {
+      const previous = getState();
+      const changed = set(patch);
+      if (changed && marksPassInput(patch, previous)) entry?.markDirty();
+      return changed;
+    },
+    markDirty: () => entry?.markDirty(),
+    start(scheduler, recompute) {
+      entry = scheduler.register({ recompute, isDisposed });
+      return entry.dispose;
+    },
+  };
 }
 
 export async function createLocalSessionRuntime({
@@ -237,7 +285,6 @@ export async function createLocalSessionRuntime({
     pendingTranscriptMeta: null,
   };
   const lifecycle = {
-    runtimePulseTimer: null,
     unsubscribeRuntimeNotifications: null,
     unsubscribeAgentStatus: null,
     unsubscribeRemoteState: null,
@@ -281,7 +328,9 @@ export async function createLocalSessionRuntime({
       bag.scheduleGoalContinuation?.();
     },
   });
-  const { getState, getPublishedState, set, flushEmit, flushEmitImmediate } = store;
+  const { getState, getPublishedState, flushEmit, flushEmitImmediate } = store;
+  const statusWatch = createSessionStatusWatch({ set: store.set, getState, isDisposed: () => flags.disposed });
+  const { set } = statusWatch;
 
   const itemIndexById = new Map();
   // stderr is daemon.log in the daemon: a pinned spill must not stay silent.
@@ -322,7 +371,10 @@ export async function createLocalSessionRuntime({
     replaceItems,
   });
   // A sub-agent's approvals also show in the top-level chat (human-gate/gate.mjs).
-  const { approvalSurface } = await import('../runtime/agent/orchestrator/session/human-gate/gate.mjs');
+  const [{ approvalSurface }, { subscribeGoalRecordChange }] = await Promise.all([
+    import('../runtime/agent/orchestrator/session/human-gate/gate.mjs'),
+    import('../runtime/agent/orchestrator/runtime-core/goal-storage.mjs'),
+  ]);
   const {
     presentNextToolApproval,
     finishToolApproval,
@@ -341,30 +393,42 @@ export async function createLocalSessionRuntime({
     flags,
     getState,
     getPublishedState,
-    set,
+    // The pass's own publication: it marks nothing (createSessionStatusWatch).
+    set: store.set,
     emit: store.emit,
     routeState,
-    agentStatusState,
+    // Every pass answers a mark, so it reads agent status fresh: the 250 ms
+    // cache may predate the event the pass is for.
+    agentStatusState: () => agentStatusState({ force: true }),
     syncContextStats,
     // routeState()'s workspace field, without recomputing the whole route.
     liveWorkspace: () => runtime.getLiveWorkspace?.() ?? runtime.getWorkspace?.() ?? null,
   });
   // A `git switch` from any terminal reaches the island within ~a frame. HEAD
-  // is read from the shared per-repository cache; the pulse's retarget only
+  // is read from the shared per-repository cache; the pass's retarget only
   // re-resolves when the session's folder moved (a committed workspace change).
   const headWatch = createGitHeadWatcher({
     getCwd: () => runtime.getLiveWorkspace?.()?.cwd || runtime.cwd,
     onChange: runtimePulse.publishWorkspace,
   });
   headWatch.retarget();
-  lifecycle.unsubscribeGitHeadWatch = headWatch.dispose;
-  lifecycle.runtimePulseTimer = setInterval(() => {
+  const stopStatusWatch = statusWatch.start(sessionStatusScheduler(), () => {
     headWatch.retarget();
     runtimePulse();
     // A sub-agent's approval made before this session loaded (or bound its id).
     adoptDelegatedApprovals();
-  }, 2000);
-  lifecycle.runtimePulseTimer.unref?.();
+  });
+  // This session's Goal record changed on disk (any writer; an unchanged
+  // re-read publishes nothing).
+  const unsubscribeGoalRecord = subscribeGoalRecordChange((sessionId) => {
+    if (sessionId === String(getState().sessionId || runtime.id || '')) statusWatch.markDirty();
+  });
+  // dispose.mjs releases this key: the session's HEAD watch and status pass.
+  lifecycle.unsubscribeGitHeadWatch = () => {
+    stopStatusWatch();
+    unsubscribeGoalRecord();
+    headWatch.dispose();
+  };
 
   const {
     kickExecutionPendingResume,
@@ -420,7 +484,7 @@ export async function createLocalSessionRuntime({
     set({ todo: todoSnapshot(runtime.session) });
   });
 
-  const { patchToolCardResult, flushToolResults } = createToolCardResults({
+  const { patchToolCardResult, flushToolResults: flushToolCardResults } = createToolCardResults({
     getState,
     set,
     patchItem,
@@ -430,6 +494,14 @@ export async function createLocalSessionRuntime({
     agentStatusState,
     itemIndexById,
   });
+  // A tool result landed: the step's judged effort, a cwd / Project /
+  // worktree move or a workflow switch the tool made are pass inputs whose
+  // card patches go through the transcript store, not set().
+  const flushToolResults = (...args) => {
+    const result = flushToolCardResults(...args);
+    statusWatch.markDirty();
+    return result;
+  };
 
   Object.assign(bag, {
     runtime,

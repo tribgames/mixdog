@@ -49,6 +49,9 @@ const {
   onKeychainRecovered: _onKeychainRecovered,
   prewarmSecrets: _prewarmSecrets,
 } = _keychain;
+// Every secret write, deletion or invalidation (this process's own, or another
+// process's applied through the change marker) moves the agent config inputs.
+_keychain.onSecretsChanged?.(bumpConfigInputEpoch);
 const _setSecretAsync = _setSecretAsyncImpl ?? (async (account, value) => _setSecret(account, value));
 const _deleteSecretAsync = _deleteSecretAsyncImpl ?? (async (account) => _deleteSecret(account));
 
@@ -232,25 +235,45 @@ function stripGeneratedMarker(data) {
   return rest;
 }
 
+// The last config text that parsed on the read path, for withLastGoodConfigReads.
+let _lastGoodConfig = null; // { path, raw } | null
+// Inside withLastGoodConfigReads.
+let _lastGoodReads = false;
+
+// A config that cannot be read or parsed right now, read inside
+// withLastGoodConfigReads: the last one that parsed here stands in for it.
+function lastGoodConfigOr(error) {
+  if (!_lastGoodReads || _lastGoodConfig?.path !== configPath()) throw error;
+  return parseJsonText(_lastGoodConfig.raw);
+}
+
 function readConfigFile() {
   // Non-RMW read path: served from the short-TTL raw-string cache. Returning
   // {} on a read error here would let a subsequent updateSection() serialize
   // an empty object over an existing-but-temporarily-unreadable config and
   // erase every other section, so read errors surface (throw) uncached.
-  const raw = readConfigRawCached();
-  if (raw == null) return null;
+  let raw;
   try {
-    return parseJsonText(raw);
+    raw = readConfigRawCached();
+  } catch (err) {
+    return lastGoodConfigOr(err);
+  }
+  if (raw == null) return null;
+  let parsed;
+  try {
+    parsed = parseJsonText(raw);
   } catch (err) {
     // Quarantine a malformed mixdog-config.json so the next boot starts fresh
     // instead of looping on a broken file. A cached raw string that fails to
     // parse must not be re-served; drop it so the post-quarantine/restore read
     // hits disk fresh (malformed = never cached).
     dropConfigReadCache();
-    if (_inNotificationPass) throw configMidWriteError(err);
+    if (_inNotificationPass) return lastGoodConfigOr(configMidWriteError(err));
     quarantineMalformedConfig(err);
     return null;
   }
+  _lastGoodConfig = { path: configPath(), raw };
+  return parsed;
 }
 
 function writeConfigFile(data, postBackupReason = 'post-config-write') {
@@ -553,7 +576,6 @@ function finishSecretChange(account, token, deleted) {
   // cache), so its own change is recorded as applied.
   _secretsSeen = withSecretChange(_secretsSeen, account, token, deleted);
   _secretsMarkerStat = secretsMarkerStat(secretsMarkerPath());
-  bumpConfigInputEpoch();
   notifyConfigChanged();
 }
 
@@ -635,24 +657,13 @@ function watchedContent() {
 // is usually a write in progress (a hand edit saved half-typed or torn, maybe
 // landing after the pass began): every read of the pass (readConfigFile,
 // readAllForRmW) then throws instead of quarantining it, so the listeners keep
-// their current config, and the pass runs again once shortly. Only reads
-// outside a pass (boot, explicit reads, writes) quarantine it.
-const CONFIG_SETTLE_RETRY_MS = 300;
-let _configSettleTimer = null;
-let _configSettleRetried = false;
-
+// their current config. The write completing changes the file after that
+// read, and its watch event runs the next pass. Only reads outside a pass
+// (boot, explicit reads, writes) quarantine it.
 function configMidWriteError(parseErr) {
-  // The retry runs the listeners even when the bytes then equal the ones this
-  // pass saw (the save completed back to them).
+  // That next pass runs the listeners even when the completed bytes equal the
+  // ones the previous pass recorded (the save completed back to them).
   _configChangeForced = true;
-  if (!_configSettleRetried && !_configSettleTimer && _configChangeListeners.size) {
-    _configSettleTimer = setTimeout(() => {
-      _configSettleTimer = null;
-      _configSettleRetried = true;
-      void runConfigChangeListeners();
-    }, CONFIG_SETTLE_RETRY_MS);
-    _configSettleTimer.unref?.();
-  }
   const error = new Error(
     `[config] mixdog-config.json does not parse yet (${parseErr.message}); keeping the current config`
   );
@@ -667,7 +678,8 @@ async function runConfigChangeListeners() {
   const last = _watchedContent;
   if (!forced && Array.isArray(last) && last.every((value, index) => value === content[index])) return;
   _watchedContent = content;
-  dropConfigReadCache();
+  // Before any listener runs, so each one reads the changed config.
+  invalidateConfigReadCache();
   // A Linux keyring is read only through a snapshot, which the invalidation
   // dropped: re-take it so listeners reload the changed keys.
   if (syncSecretsMarker().length && process.platform === 'linux') {
@@ -692,7 +704,7 @@ async function runConfigChangeListeners() {
 function notifyConfigChanged({ fromWatch = false } = {}) {
   if (!_configChangeListeners.size) return;
   if (!fromWatch) _configChangeForced = true;
-  _configSettleRetried = false;
+  // Trailing debounce: the pass reads after the last event of a burst.
   if (_configChangeTimer) clearTimeout(_configChangeTimer);
   _configChangeTimer = setTimeout(() => {
     _configChangeTimer = null;
@@ -734,34 +746,28 @@ function ensureConfigWatcher() {
   }
 }
 
-/** Run `fn` with the reads of a notification pass: a config that does not parse
- *  is taken for a write in progress and throws ECONFIG_MID_WRITE instead of
- *  being quarantined, and the pass is retried once shortly. For a reader that
- *  keeps its last good result (the agent config snapshot). */
-export function withMidWriteTolerantReads(fn) {
-  const previous = _inNotificationPass;
+/** Run `fn` with the reads of a notification pass, except that a config that
+ *  cannot be read or parsed right now (a write in progress) answers the last
+ *  one that parsed in this process instead of throwing; it is never
+ *  quarantined, and the completing write's watch event runs the next pass.
+ *  Writes inside still refuse to start from it (ECONFIG_MID_WRITE). With no
+ *  config parsed yet the error stands. For the agent config snapshot: the
+ *  config part stays last good while everything else is read fresh. */
+export function withLastGoodConfigReads(fn) {
+  const previous = [_inNotificationPass, _lastGoodReads];
   _inNotificationPass = true;
+  _lastGoodReads = true;
   try {
     return fn();
   } finally {
-    _inNotificationPass = previous;
+    [_inNotificationPass, _lastGoodReads] = previous;
   }
-}
-
-/** Moves whenever a keychain read may answer differently (see keychain-cjs). */
-export function secretCacheVersion() {
-  return _keychain.secretCacheVersion?.() ?? 0;
-}
-
-/** The files beside the config whose change a config-change subscriber hears:
- *  the config itself and the secret change marker. */
-export function configInputFiles() {
-  return [configPath(), secretsMarkerPath()];
 }
 
 /** Subscribe to persisted config and secret changes (this process or another). Returns unsubscribe. */
 export function subscribeConfigChange(listener) {
-  if (!_configChangeListeners.size) _watchedContent = watchedContent();
+  // Another data dir's bytes are no baseline: equal bytes there would hide a change here.
+  if (!_configChangeListeners.size || _configWatchDir !== dirname(configPath())) _watchedContent = watchedContent();
   _configChangeListeners.add(listener);
   // The first subscriber fixes the secret baseline this process applies from.
   if (_secretsSeen === null) syncSecretsMarker();
@@ -771,8 +777,6 @@ export function subscribeConfigChange(listener) {
     if (!_configChangeListeners.size) {
       if (_configChangeTimer) clearTimeout(_configChangeTimer);
       _configChangeTimer = null;
-      clearTimeout(_configSettleTimer);
-      _configSettleTimer = null;
       if (_configWatchRetryTimer) clearTimeout(_configWatchRetryTimer);
       _configWatchRetryTimer = null;
       stopConfigWatcher();
@@ -1050,12 +1054,10 @@ export const keychainSecretStore = Object.freeze({
   async setSecretAsync(account, value, { announce = true } = {}) {
     await _keychain.setSecretAsync(account, value);
     if (announce) await publishSecretChangeAsync(account);
-    else bumpConfigInputEpoch();
   },
   async deleteSecretAsync(account, { announce = true } = {}) {
     await _keychain.deleteSecretAsync(account);
     if (announce) await publishSecretChangeAsync(account, true);
-    else bumpConfigInputEpoch();
   },
 });
 

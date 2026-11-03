@@ -66,10 +66,69 @@ export function liveAgentStatusRow(row) {
   return stable;
 }
 
-export function createSessionProgress({ mgr }) {
+// The role default watchdog policy of a worker whose watchdog is not armed.
+// Resolving one re-checks the shipped agent definitions (a sync stat at most
+// once a second), so a status read from memory never resolves one: a role
+// seen for the first time reads as having none until its policy is resolved
+// on the next turn (onRolePolicyResolved announces it), and the maintenance
+// pass re-resolves what is held (refreshRolePolicies).
+const rolePolicies = new Map(); // role -> policy | null (being resolved)
+const rolePolicyListeners = new Set();
+
+function resolveRolePolicy(role) {
+  try {
+    rolePolicies.set(role, resolveAgentWatchdogPolicy(role));
+  } catch {
+    rolePolicies.delete(role);
+    return;
+  }
+  for (const listener of [...rolePolicyListeners]) {
+    try {
+      listener(role);
+    } catch {
+      /* observers never affect the policy */
+    }
+  }
+}
+
+function rolePolicy(role, memoryOnly) {
+  if (!memoryOnly) return resolveAgentWatchdogPolicy(role);
+  if (!rolePolicies.has(role)) {
+    rolePolicies.set(role, null);
+    setImmediate(() => resolveRolePolicy(role));
+  }
+  return rolePolicies.get(role);
+}
+
+/** `listener(role)` runs when a role's policy was resolved for status reads
+ *  (first, or again by the maintenance pass); returns the unsubscribe. */
+export function onRolePolicyResolved(listener) {
+  if (typeof listener !== 'function') return () => {};
+  rolePolicyListeners.add(listener);
+  return () => rolePolicyListeners.delete(listener);
+}
+
+/** Re-resolve every held role policy (off the status pulse). */
+export function refreshRolePolicies() {
+  for (const role of [...rolePolicies.keys()]) resolveRolePolicy(role);
+}
+
+/** `sessionRecords`: the holder's session-record handle (session-record.mjs),
+ *  the status pulse's getSession from memory; without one, getSession. */
+export function createSessionProgress({ mgr, sessionRecords = null }) {
+  const memorySession = (sessionId) =>
+    sessionRecords ? sessionRecords.session(sessionId) : (sessionId && mgr.getSession?.(sessionId)) || null;
+
   /** `loaded`: the caller's own getSession(sessionId) answer from this same
-   *  read, so the session is not loaded a second time. */
-  function sessionProgressExtras(sessionId, role, now = Date.now(), taskStatus = null, { loaded } = {}) {
+   *  read, so the session is not loaded a second time. `memoryOnly`: a status
+   *  read from memory (role policies held, see rolePolicy). */
+  function sessionProgressExtras(
+    sessionId,
+    role,
+    now = Date.now(),
+    taskStatus = null,
+    { loaded, memoryOnly = false } = {}
+  ) {
     if (!sessionId) return {};
     // Only the session's status is read here: the manager's stamp-validated
     // status lookup spares a whole-transcript read per idle worker per pulse.
@@ -83,7 +142,7 @@ export function createSessionProgress({ mgr }) {
     // The armed watchdog's own policy (agent definition and provider budget
     // applied); the role default only when none is registered.
     const watchdogState = getProgressWatchdogState(mgr, sessionId);
-    const policy = watchdogState.policy || (role ? resolveAgentWatchdogPolicy(role) : null);
+    const policy = watchdogState.policy || (role ? rolePolicy(role, memoryOnly) : null);
     const queuedFollowups =
       typeof mgr.getSessionPendingMessageDepth === 'function' ? mgr.getSessionPendingMessageDepth(sessionId) : null;
     return buildAgentTaskProgressFields({
@@ -101,13 +160,21 @@ export function createSessionProgress({ mgr }) {
     });
   }
 
-  function jobWorkerSnapshot(sessionId) {
+  /** `memoryOnly` (the status pulse): the session is memorySession's, the
+   *  same answer without a file check per read. */
+  function jobWorkerSnapshot(sessionId, { memoryOnly = false } = {}) {
     if (!sessionId) return null;
-    const session = mgr.getSession(sessionId);
+    const session = memoryOnly ? memorySession(sessionId) : mgr.getSession(sessionId);
     if (!session) return null;
     const runtime = mgr.getSessionRuntime?.(sessionId);
     const status = session.closed === true ? 'closed' : session.status || 'idle';
-    const progress = sessionProgressExtras(sessionId, session.agent || null);
+    const progress = sessionProgressExtras(
+      sessionId,
+      session.agent || null,
+      Date.now(),
+      null,
+      memoryOnly ? { loaded: session, memoryOnly } : {}
+    );
     return {
       workerStatus: status,
       stage: progress.worker_stage || runtime?.stage || status,
@@ -121,5 +188,5 @@ export function createSessionProgress({ mgr }) {
     };
   }
 
-  return { sessionProgressExtras, jobWorkerSnapshot };
+  return { sessionProgressExtras, jobWorkerSnapshot, memorySession };
 }

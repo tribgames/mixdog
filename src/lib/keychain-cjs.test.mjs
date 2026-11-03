@@ -1079,6 +1079,47 @@ test('linux snapshot refresh picks up external add / replace / delete (replace, 
   );
 });
 
+test('the secrets-changed event fires when what a read answers changes, never for a read that fills the cache', async () => {
+  const store = { a: 'one' };
+  const search = () => ({
+    stdout: Object.keys(store)
+      .map((_, i) => `[/org/x/${i}]\nsecret = s\n`)
+      .join(''),
+    stderr: Object.keys(store)
+      .map((k) => `attribute.account = ${k}\n`)
+      .join(''),
+  });
+  await withLinuxKeychain(
+    (args) =>
+      args[0] === 'search'
+        ? search()
+        : args[0] === 'lookup'
+          ? args[4] in store
+            ? { stdout: store[args[4]] }
+            : { code: 1 }
+          : { code: 0 },
+    { MIXDOG_KEYCHAIN_SNAPSHOT_TTL_MS: '0' },
+    async (keychain) => {
+      let events = 0;
+      keychain.onSecretsChanged(() => events++);
+      await keychain.prewarmSecrets();
+      assert.equal(events, 1, 'the first snapshot makes reads answer');
+      assert.equal(keychain.getSecret('a'), 'one');
+      assert.equal(await keychain.getSecretAsync('a'), 'one');
+      assert.equal(events, 1, 'reads alone change nothing');
+      store.a = 'two';
+      assert.equal(await keychain.refreshKeychainStatus(), true);
+      assert.equal(events, 2, 'an external replace picked up by the snapshot');
+      assert.equal(await keychain.refreshKeychainStatus(), false);
+      assert.equal(events, 2, 'an unchanged snapshot');
+      await keychain.setSecretAsync('b', 'bee');
+      assert.equal(events, 3, 'this process’s write');
+      keychain.invalidateSecretCache();
+      assert.equal(events, 4, 'an invalidation');
+    }
+  );
+});
+
 test('linux snapshot never overwrites a newer same-process set / delete', async () => {
   await withLinuxKeychain(
     (args) =>

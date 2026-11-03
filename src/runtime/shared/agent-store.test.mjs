@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fs, { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import fsp from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import fs from 'node:fs';
 import { botStoreActive, readBotRoute, readMixyRoute, writeBotRoute, writeMixyRoute } from './agent-store.mjs';
-import { SAFETY_RECHECK_MS, _resetWatchedFileCachesForTest } from './watched-file-cache.mjs';
-import { eventually, gateFirstAsyncStat, settle, spySyncFs } from './watched-file-cache.test-helpers.mjs';
+import { _resetWatchedFileCachesForTest } from './watched-file-cache.mjs';
+import { eventually, settle, spySyncFs } from './watched-file-cache.test-helpers.mjs';
 
 function storeFixture(t) {
   const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-agent-store-'));
@@ -85,30 +86,66 @@ test('another process’s route write is seen through the directory watch', asyn
   await eventually(() => readMixyRoute(dataDir)?.model === 'foreign');
 });
 
-test('without watch events the safety re-check sees a foreign route, and a late re-check never clobbers a local write', async (t) => {
-  t.mock.method(fs, 'watch', () => {
-    throw Object.assign(new Error('no watch'), { code: 'ENOSYS' });
-  });
-  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
-  const { dataDir, mixyFile } = mixyFixture(t);
-  writeFileSync(mixyFile, JSON.stringify({ route: route('one') }));
-  assert.deepEqual(readMixyRoute(dataDir), route('one'));
-  writeFileSync(mixyFile, JSON.stringify({ route: route('foreign') }));
-  await settle();
-  assert.deepEqual(readMixyRoute(dataDir), route('one'), 'no re-check before its interval');
-  t.mock.timers.tick(SAFETY_RECHECK_MS);
-  await eventually(() => readMixyRoute(dataDir)?.model === 'foreign');
+// Every read of `file` (sync, and through fs/promises) fails as a sharing violation.
+function refuseReads(t, file) {
+  const refused = { count: 0 };
+  const refuse = (original) =>
+    function (target, ...rest) {
+      if (String(target) !== file) return original.call(this, target, ...rest);
+      refused.count += 1;
+      throw Object.assign(new Error('sharing violation'), { code: 'EBUSY' });
+    };
+  t.mock.method(fs, 'readFileSync', refuse(fs.readFileSync));
+  const readFile = refuse(fsp.readFile);
+  t.mock.method(fsp, 'readFile', async (...args) => readFile(...args));
+  syncBuiltinESMExports();
+  t.after(() => syncBuiltinESMExports());
+  return refused;
+}
 
-  t.mock.timers.tick(SAFETY_RECHECK_MS);
-  const releaseStat = gateFirstAsyncStat(t);
-  assert.deepEqual(readMixyRoute(dataDir), route('foreign'));
-  writeMixyRoute(dataDir, route('local'));
-  assert.deepEqual(readMixyRoute(dataDir), route('local'));
-  await settle();
-  assert.deepEqual(readMixyRoute(dataDir), route('local'));
-  releaseStat();
-  await settle();
-  const calls = spySyncFs(t);
-  assert.deepEqual(readMixyRoute(dataDir), route('local'), 'the late re-check did not replace the local write');
-  assert.deepEqual([...calls], [], 'nor forced a reload');
+test('a route re-read that cannot read the file keeps the last route', async (t) => {
+  const { dataDir, mixyFile } = mixyFixture(t);
+  writeFileSync(mixyFile, JSON.stringify({ route: route('kept') }));
+  assert.deepEqual(readMixyRoute(dataDir), route('kept'));
+  const refused = refuseReads(t, mixyFile);
+  writeFileSync(mixyFile, JSON.stringify({ route: route('unread') }));
+  await eventually(() => refused.count > 0);
+  await settle(100);
+  assert.deepEqual(readMixyRoute(dataDir), route('kept'), 'a failed read is no missing file');
 });
+
+test('a synchronous route write right after its file changed lands: no re-read keeps the file open', async (t) => {
+  const { dataDir, mixyFile } = mixyFixture(t);
+  writeMixyRoute(dataDir, route('one'));
+  assert.deepEqual(readMixyRoute(dataDir), route('one'));
+  // An async read of the file, should the re-read make one, holds a real
+  // handle on it until the test ends: Windows then refuses any rename over it.
+  const readFile = fsp.readFile;
+  let held = false;
+  let release;
+  const gate = new Promise((resolve) => {
+    release = resolve;
+  });
+  t.mock.method(fsp, 'readFile', async (target, ...rest) => {
+    if (String(target) !== mixyFile) return readFile(target, ...rest);
+    const handle = await fsp.open(target, 'r');
+    held = true;
+    try {
+      await gate;
+      return await handle.readFile(...rest);
+    } finally {
+      await handle.close();
+    }
+  });
+  syncBuiltinESMExports();
+  t.after(() => {
+    release();
+    syncBuiltinESMExports();
+  });
+  writeFileSync(mixyFile, JSON.stringify({ route: route('foreign') }));
+  await eventually(() => held || readMixyRoute(dataDir)?.model === 'foreign');
+  writeMixyRoute(dataDir, route('two'));
+  assert.deepEqual(readMixyRoute(dataDir), route('two'));
+  assert.equal(held, false, 'the re-read closed the file before returning');
+});
+

@@ -140,7 +140,8 @@ function reportFailure(file, what, error) {
  * @param {(cur: any, mutator: Function) => any} options.rewrite
  *        builds the next document from a raw one; `mutator` receives the keyed collections
  * @param {() => any} options.readDoc      fresh raw document from disk (sync read)
- * @param {() => void} [options.onPersisted]  the file changed on disk
+ * @param {(doc: any) => void} [options.onPersisted]  the file changed on
+ *        disk: `doc` is the document written
  * @param {(index: number, prev: any, next: any) => any} [options.mergeSet]
  *        value a recorded set leaves in Map argument `index`, given the locked
  *        document's current value there; default: the recorded value
@@ -178,13 +179,20 @@ export function createIndexWriteQueue({
     timer = setImmediate(drain);
   }
 
+  // Resolves to the document now on disk: the batch replayed over the locked one.
   async function persist(batch) {
     for (let attempt = 0; ; attempt += 1) {
       try {
-        await updateJsonAtomic(file, (cur) => rewrite(cur, (...args) => replayBatch(batch, args, mergeSet)), {
-          lock: true,
-        });
-        return;
+        let doc;
+        await updateJsonAtomic(
+          file,
+          (cur) => {
+            doc = rewrite(cur, (...args) => replayBatch(batch, args, mergeSet));
+            return doc;
+          },
+          { lock: true }
+        );
+        return doc;
       } catch (error) {
         if (attempt >= RETRY_DELAYS_MS.length) {
           reportFailure(file, `${batch.length} unpersisted write(s) kept queued after retries`, error);
@@ -202,10 +210,10 @@ export function createIndexWriteQueue({
     pending = [];
     const batch = inflight;
     const job = persist(batch).then(
-      () => {
+      (doc) => {
         inflight = [];
         running = null;
-        onPersisted();
+        onPersisted(doc);
         if (pending.length === 0) {
           projection = null;
           unsettled.delete(self);
@@ -260,11 +268,16 @@ export function createIndexWriteQueue({
     if (ops.length === 0) return true;
     clearTimer();
     pending = [];
+    let doc;
     try {
-      updateJsonAtomicSync(file, (cur) => rewrite(cur, (...args) => replayBatch(ops, args, mergeSet)), {
-        lock: true,
-        timeoutMs: EXIT_LOCK_TIMEOUT_MS,
-      });
+      updateJsonAtomicSync(
+        file,
+        (cur) => {
+          doc = rewrite(cur, (...args) => replayBatch(ops, args, mergeSet));
+          return doc;
+        },
+        { lock: true, timeoutMs: EXIT_LOCK_TIMEOUT_MS }
+      );
     } catch (error) {
       reportFailure(file, `synchronous flush of ${ops.length} write(s) failed; kept queued`, error);
       pending = [...ops, ...pending];
@@ -273,7 +286,7 @@ export function createIndexWriteQueue({
     }
     projection = null;
     unsettled.delete(self);
-    onPersisted();
+    onPersisted(doc);
     return true;
   }
 

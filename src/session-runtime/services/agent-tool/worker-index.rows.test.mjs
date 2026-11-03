@@ -9,6 +9,7 @@ import { isActiveWorkerRow } from './worker-index/row-liveness.mjs';
 import { isActiveWorkerRow as isActiveAgentListRow } from './job-views/agent-list.mjs';
 
 import { makeTempDirSync } from '../../../../scripts/lib/scoped-temp.mjs';
+import { eventually } from '../../../runtime/shared/watched-file-cache.test-helpers.mjs';
 // The worker index as its callers see it: a session upsert projects into the
 // tag maps and the file, deferred upserts batch into one write, removals and
 // reads honour the caller context, lead-pool projections are purged from the
@@ -203,10 +204,10 @@ test('refreshTagsFromIndex binds worker rows; lead-pool projections and tagless 
   }
 });
 
-test('the parse cache serves repeated reads and refreshes after an external rewrite', () => {
+test('the parse cache serves repeated reads and follows an external rewrite once it lands', async () => {
   const root = makeTempDirSync('worker-rows');
+  const { index } = workerIndex(root);
   try {
-    const { index } = workerIndex(root);
     index.upsertWorkerSession({ id: 's1' }, 'one', { status: 'idle' });
     const first = index.readAllWorkerRows();
     assert.equal(index.readAllWorkerRows(), first, 'same array while the file is unchanged');
@@ -215,16 +216,17 @@ test('the parse cache serves repeated reads and refreshes after an external rewr
     const current = JSON.parse(readFileSync(file, 'utf8'));
     current.workers.extra = { tag: 'two', sessionId: 's2', status: 'idle' };
     writeFileSync(file, `${JSON.stringify(current)}\n`);
-    assert.deepEqual(
+    const tags = () =>
       index
         .readAllWorkerRows()
         .map((r) => r.tag)
-        .sort(),
-      ['one', 'two']
-    );
+        .sort();
+    await eventually(() => tags().length === 2);
+    assert.deepEqual(tags(), ['one', 'two']);
     rmSync(file);
-    assert.deepEqual(index.readAllWorkerRows(), []);
+    await eventually(() => index.readAllWorkerRows().length === 0);
   } finally {
+    index.dispose();
     rmSync(root, { recursive: true, force: true });
   }
 });

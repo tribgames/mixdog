@@ -30,7 +30,9 @@ function jobHead({ taskId, type, status, startedAt, finishedAt, error }, source,
 }
 
 export function createJobRender({ progress }) {
-  function listJobs(context = {}) {
+  /** `memoryOnly` (the status pulse): worker sessions come from memory
+   *  (session-progress memorySession), never from their records. */
+  function listJobs(context = {}, { memoryOnly = false } = {}) {
     const wantedPid = terminalPidForContext(context);
     const now = Date.now();
     const rows = listBackgroundTasks({ surface: 'agent', context }).map((task) => {
@@ -38,8 +40,14 @@ export function createJobRender({ progress }) {
       if (isTerminalJobStatus(task.status)) return { ...head, ...terminalJobFrozenFields(task.status, now) };
       return {
         ...head,
-        ...progress.jobWorkerSnapshot(task.sessionId),
-        ...progress.sessionProgressExtras(task.sessionId, task.agent || null, now, task.status),
+        ...progress.jobWorkerSnapshot(task.sessionId, { memoryOnly }),
+        ...progress.sessionProgressExtras(
+          task.sessionId,
+          task.agent || null,
+          now,
+          task.status,
+          memoryOnly ? { loaded: progress.memorySession(task.sessionId), memoryOnly } : {}
+        ),
       };
     });
     if (!wantedPid) return rows;

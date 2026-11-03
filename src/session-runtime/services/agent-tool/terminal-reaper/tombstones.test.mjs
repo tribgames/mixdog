@@ -26,6 +26,7 @@ const { flushAllIndexWritesSync } = await import('../index-write-queue.mjs');
 const { createWorkerIndex } = await import('../worker-index.mjs');
 const { createTagTombstones } = await import('./tombstones.mjs');
 const { clean } = await import('../helpers.mjs');
+const { eventually } = await import('../../../../runtime/shared/watched-file-cache.test-helpers.mjs');
 const { TAG_TOMBSTONE_TTL_MS, findTagTombstone, tagTombstoneKey, tombstoneBlocksWork } = await import(
   '../../../../runtime/shared/agent-reap-state.mjs'
 );
@@ -215,7 +216,11 @@ test('findTagTombstone matches the spread-based lookup', () => {
   }
 });
 
-test('scan decisions match the previous implementation across tombstone changes', () => {
+// Another process's write reaches this process's index through its directory
+// watch: wait until the oracle (reading the same store) sees `ready`.
+const landed = (ctx, ready) => eventually(() => ready(ctx.oracle()));
+
+test('scan decisions match the previous implementation across tombstone changes', async () => {
   const ctx = setup();
   try {
     // prettier-ignore
@@ -230,6 +235,7 @@ test('scan decisions match the previous implementation across tombstone changes'
       workers,
       tombstones: { ...rest, z: tombstone('live', 's-live', iso(Date.now())) },
     });
+    await landed(ctx, (decisions) => decisions[0] === false);
     const changed = ctx.oracle();
     assert.deepEqual(changed.slice(0, 4), [false, true, true, true]);
     assert.deepEqual(ctx.decisions(), changed);
@@ -254,6 +260,7 @@ test('scan decisions match the previous implementation across tombstone changes'
     // file through the async writer queue; land them before pulling the file.
     flushAllIndexWritesSync();
     rmSync(ctx.file);
+    await landed(ctx, (decisions) => decisions.every((blocked) => blocked === false));
     assert.deepEqual(ctx.decisions(), ctx.oracle());
     assert.ok(ctx.decisions().every((blocked) => blocked === false));
   } finally {
@@ -261,7 +268,7 @@ test('scan decisions match the previous implementation across tombstone changes'
   }
 });
 
-test('repeated checks with unchanged tombstones do no file reads or row rebuilds', () => {
+test('repeated checks with unchanged tombstones do no file reads or row rebuilds', async () => {
   const ctx = setup();
   try {
     const first = ctx.decisions();
@@ -275,13 +282,14 @@ test('repeated checks with unchanged tombstones do no file reads or row rebuilds
     assert.equal(indexFileReads, reads);
     assert.equal(ctx.readWorkerRowsCalls(), rebuilds);
 
-    // A foreign write is observed on the very next check.
+    // A foreign write is observed once its watch event lands and it is read
+    // back off the loop: no check ever reads the file itself.
     const { a: _dropped, ...rest } = ctx.doc.tombstones;
     foreignWrite(ctx.file, { workers: ctx.doc.workers, tombstones: rest });
+    await eventually(() => ctx.decisions()[0] === false);
     const next = ctx.decisions();
-    assert.equal(next[0], false);
     assert.deepEqual(next, ctx.oracle());
-    assert.equal(indexFileReads, reads + 1);
+    assert.equal(indexFileReads, reads);
   } finally {
     rmSync(ctx.root, { recursive: true, force: true });
   }

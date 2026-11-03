@@ -54,16 +54,17 @@ registerHooks({
         shortCircuit: true,
         source: `
           const secrets = new Map();
-          let version = 0;
+          const listeners = new Set();
+          const changed = () => { for (const listener of [...listeners]) listener(); };
           module.exports = {
             SERVICE: 'mixdog',
             getSecret: (key) => secrets.get(key) ?? null,
-            setSecret: (key, value) => { secrets.set(key, value); version += 1; },
-            deleteSecret: (key) => { secrets.delete(key); version += 1; },
+            setSecret: (key, value) => { secrets.set(key, value); changed(); },
+            deleteSecret: (key) => { secrets.delete(key); changed(); },
             hasSecret: (key) => secrets.has(key),
             invalidateSecretCache() {},
             async prewarmSecrets() {},
-            secretCacheVersion: () => version,
+            onSecretsChanged: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
           };
         `,
       };

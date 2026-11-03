@@ -14,17 +14,13 @@ import { join } from 'node:path';
 import test from 'node:test';
 
 import fs from 'node:fs';
-import { SAFETY_RECHECK_MS } from '../../../shared/watched-file-cache.mjs';
-import {
-  eventually,
-  gateFirstAsyncStat,
-  settle,
-  spySyncFs,
-  trackWatchers,
-} from '../../../shared/watched-file-cache.test-helpers.mjs';
+import fsp from 'node:fs/promises';
+import { syncBuiltinESMExports } from 'node:module';
+import { withFileLock, writeJsonAtomicAsync } from '../../../shared/atomic-file.mjs';
+import { eventually, settle, spySyncFs, trackWatchers } from '../../../shared/watched-file-cache.test-helpers.mjs';
 import { createGoalRuntime } from './goal-runtime.mjs';
 import { GOAL_LIVE_HEARTBEAT_MS } from './goal-state.mjs';
-import { createGoalStorage, deleteStoredGoalFile } from './goal-storage.mjs';
+import { createGoalStorage, deleteStoredGoalFile, subscribeGoalRecordChange } from './goal-storage.mjs';
 
 const normalize = (goal) => goal;
 
@@ -40,6 +36,127 @@ function fixture(t, writeRecord) {
   });
   return { dir, path, storage };
 }
+
+test("after this process's heartbeat write, another writer's change is announced", async (t) => {
+  const { path, storage } = fixture(t);
+  t.after(() => storage.close());
+  const announced = [];
+  t.after(subscribeGoalRecordChange((sessionId) => announced.push(sessionId)));
+  writeFileSync(path, JSON.stringify({ version: 1, goal: { id: 'g1', status: 'active', liveAt: 1 } }));
+  assert.equal(storage.read('s').goal.liveAt, 1);
+  // The heartbeat (goal-store.mjs stampLive): this process's own write.
+  await storage.write('s', { version: 1, goal: { id: 'g1', status: 'active', liveAt: 2 } });
+  await settle(300);
+  // Its own write may be announced too (the reader finds it unchanged); only the next is checked.
+  announced.length = 0;
+  writeFileSync(path, JSON.stringify({ version: 1, goal: { id: 'g1', status: 'paused', liveAt: 2 } }));
+  await eventually(() => announced.length > 0, { timeoutMs: 2_000 });
+  assert.deepEqual([...new Set(announced)], ['s']);
+  assert.equal(storage.read('s').goal.status, 'paused');
+});
+
+test('deleting a Goal record in this process announces it, and reads find no Goal', async (t) => {
+  const dataDir = mkdtempSync(join(tmpdir(), 'mixdog-goal-storage-'));
+  t.after(() => rmSync(dataDir, { recursive: true, force: true }));
+  const goals = join(dataDir, 'goals');
+  fs.mkdirSync(goals);
+  const path = join(goals, 's.json');
+  const storage = createGoalStorage({ pathFor: () => path, normalizeGoal: normalize, now: () => 1_000 });
+  t.after(() => storage.close());
+  const announced = [];
+  t.after(subscribeGoalRecordChange((sessionId) => announced.push(sessionId)));
+  writeFileSync(path, JSON.stringify({ version: 1, goal: { id: 'g1', status: 'completed' } }));
+  assert.equal(storage.read('s').goal.id, 'g1');
+  assert.equal(deleteStoredGoalFile(dataDir, 's'), true);
+  assert.deepEqual(announced, ['s']);
+  assert.equal(storage.read('s').goal, null);
+});
+
+test('a Goal re-read that fails keeps the last record, announces nothing and reads no disk', async (t) => {
+  const { path, storage } = fixture(t);
+  t.after(() => storage.close());
+  const announced = [];
+  t.after(subscribeGoalRecordChange((sessionId) => announced.push(sessionId)));
+  writeFileSync(path, JSON.stringify({ version: 1, goal: { id: 'kept' } }));
+  assert.equal(storage.read('s').goal.id, 'kept');
+  const readFile = fsp.readFile;
+  let failures = 0;
+  t.mock.method(fsp, 'readFile', async (target, ...rest) => {
+    if (String(target) !== path) return readFile(target, ...rest);
+    failures += 1;
+    throw Object.assign(new Error('sharing violation'), { code: 'EBUSY' });
+  });
+  syncBuiltinESMExports();
+  t.after(() => syncBuiltinESMExports());
+  writeFileSync(path, JSON.stringify({ version: 1, goal: { id: 'unread' } }));
+  await eventually(() => failures > 0);
+  await settle(100);
+  const calls = spySyncFs(t);
+  assert.equal(storage.read('s').goal.id, 'kept');
+  assert.deepEqual([...calls], [], 'the failed re-read forced no synchronous read');
+  assert.deepEqual(announced, []);
+  t.mock.restoreAll();
+  syncBuiltinESMExports();
+  writeFileSync(path, JSON.stringify({ version: 1, goal: { id: 'next' } }));
+  await eventually(() => storage.read('s').goal.id === 'next');
+  assert.deepEqual([...new Set(announced)], ['s']);
+});
+
+test('a change made while our write waits for the lock is announced, and our failed write hides nothing', async (t) => {
+  const failure = Object.assign(new Error('injected write failure'), { code: 'EIO' });
+  const { path, storage } = fixture(t, async () => {
+    throw failure;
+  });
+  t.after(() => storage.close());
+  const announced = [];
+  t.after(subscribeGoalRecordChange((sessionId) => announced.push(sessionId)));
+  writeFileSync(path, JSON.stringify({ version: 1, goal: { id: 'g1', status: 'active' } }));
+  storage.read('s');
+  // Another process holds the record's lock ...
+  let releaseLock;
+  let acquired;
+  const lockTaken = new Promise((resolve) => {
+    acquired = resolve;
+  });
+  const holder = withFileLock(
+    `${path}.lock`,
+    async () => {
+      acquired();
+      await new Promise((resolve) => {
+        releaseLock = resolve;
+      });
+    },
+    { timeoutMs: 2_000 }
+  );
+  await lockTaken;
+  // ... while ours waits for it, that process changes the record.
+  const ours = storage.write('s', { version: 1, goal: { id: 'g1', status: 'active', liveAt: 2 } }).catch((e) => e);
+  await settle(50);
+  writeFileSync(path, JSON.stringify({ version: 1, goal: { id: 'g1', status: 'paused' } }));
+  try {
+    await eventually(() => announced.length > 0, { timeoutMs: 1_500 });
+  } finally {
+    releaseLock();
+    await holder;
+  }
+  assert.equal((await ours).code, 'EIO');
+  assert.equal(storage.read('s').goal.status, 'paused');
+});
+
+test('a write that fails after its file landed announces the record', async (t) => {
+  const { path, storage } = fixture(t, async (target, value, opts) => {
+    await writeJsonAtomicAsync(target, value, opts);
+    throw Object.assign(new Error('injected failure after publication'), { code: 'EIO' });
+  });
+  t.after(() => storage.close());
+  const announced = [];
+  t.after(subscribeGoalRecordChange((sessionId) => announced.push(sessionId)));
+  writeFileSync(path, JSON.stringify({ version: 1, goal: { id: 'g1', status: 'active' } }));
+  storage.read('s');
+  await assert.rejects(storage.write('s', { version: 1, goal: { id: 'g1', status: 'complete' } }), { code: 'EIO' });
+  await eventually(() => announced.length > 0, { timeoutMs: 2_000 });
+  assert.equal(storage.read('s').goal.status, 'complete');
+});
 
 test('a read inside our own in-flight write answers from the committed cache', async (t) => {
   let release;
@@ -160,35 +277,6 @@ test('another process’s Goal write is seen through the directory watch', async
   assert.equal(storage.read('s').goal.id, 'g1');
   writeFileSync(path, JSON.stringify({ version: 1, goal: { id: 'foreign' } }));
   await eventually(() => storage.read('s').goal.id === 'foreign');
-});
-
-test('without watch events the safety re-check sees another process’s write, and a late re-check never clobbers a newer local write', async (t) => {
-  t.mock.method(fs, 'watch', () => {
-    throw Object.assign(new Error('no watch'), { code: 'ENOSYS' });
-  });
-  t.mock.timers.enable({ apis: ['Date'], now: 1_000_000 });
-  const { path, storage } = fixture(t, async (target, value) => writeFileSync(target, JSON.stringify(value)));
-  writeFileSync(path, JSON.stringify({ version: 1, goal: { id: 'g1' } }));
-  assert.equal(storage.read('s').goal.id, 'g1');
-  writeFileSync(path, JSON.stringify({ version: 1, goal: { id: 'foreign' } }));
-  await settle();
-  assert.equal(storage.read('s').goal.id, 'g1', 'no re-check before its interval');
-  t.mock.timers.tick(SAFETY_RECHECK_MS);
-  await eventually(() => storage.read('s').goal.id === 'foreign');
-
-  // A re-check whose stat is still in flight when we write locally.
-  t.mock.timers.tick(SAFETY_RECHECK_MS);
-  const releaseStat = gateFirstAsyncStat(t);
-  assert.equal(storage.read('s').goal.id, 'foreign');
-  await storage.write('s', { version: 1, goal: { id: 'local' } });
-  assert.equal(storage.read('s').goal.id, 'local');
-  await settle();
-  assert.equal(storage.read('s').goal.id, 'local');
-  releaseStat();
-  await settle();
-  const calls = spySyncFs(t);
-  assert.equal(storage.read('s').goal.id, 'local', 'the late re-check did not replace the newer local write');
-  assert.deepEqual([...calls], [], 'nor forced a reload');
 });
 
 const SESSION = 'sess_goal_storage_cache';

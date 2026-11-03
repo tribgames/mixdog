@@ -3,7 +3,16 @@
 import { agentTagOf, clean, rowMatchesContext, sessionMatchesContext } from '../helpers.mjs';
 import { isLeadPoolAgent, isTerminalWorkerStatus, workerRowToSession } from '../worker-rows.mjs';
 
-export function createTagLookup({ tags, mgr, readWorkerRows, reaper, getLiveSession, refreshTagsFromSessions }) {
+// `sessionRecords`: the holder's session-record handle (session-record.mjs).
+export function createTagLookup({
+  tags,
+  mgr,
+  readWorkerRows,
+  reaper,
+  getLiveSession,
+  refreshTagsFromSessions,
+  sessionRecords = null,
+}) {
   function resolveTag(target, context = {}, options = {}) {
     const scanSessions = options.scanSessions === true;
     const excludeTerminalTraces = options.excludeTerminalTraces === true;
@@ -28,7 +37,14 @@ export function createTagLookup({ tags, mgr, readWorkerRows, reaper, getLiveSess
     return session && sessionMatchesContext(session, context) ? sessionId : null;
   }
 
-  function agentSessionEntries({ scanSessions = false, context = {}, excludeTerminalTraces = false } = {}) {
+  // `memoryOnly` (the status pulse): a tag without an index row resolves its
+  // session from memory (`sessionRecords`), never with a file check.
+  function agentSessionEntries({
+    scanSessions = false,
+    context = {},
+    excludeTerminalTraces = false,
+    memoryOnly = false,
+  } = {}) {
     const rows = [];
     const seen = new Set();
     const tombstones = reaper.tagTombstoneIndex();
@@ -75,7 +91,7 @@ export function createTagLookup({ tags, mgr, readWorkerRows, reaper, getLiveSess
       // add() drops an id already listed; loading it first (a whole-session
       // read for an idle worker) was pure cost on every status pulse.
       if (seen.has(sessionId)) continue;
-      const session = getLiveSession(sessionId);
+      const session = memoryOnly && sessionRecords ? sessionRecords.session(sessionId) : getLiveSession(sessionId);
       if (session && reaper.tombstoneBlocksScan(session, tag, tombstones)) continue;
       add(session, tag, true);
     }

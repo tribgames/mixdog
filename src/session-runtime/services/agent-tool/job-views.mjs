@@ -20,6 +20,7 @@ export function createJobViews({
   DEFAULT_SPAWN_PREP_TIMEOUT_MS,
   refreshTagsFromSessions,
   agentSessionEntries,
+  sessionRecords = null,
   tags,
   cfgMod,
 }) {
@@ -36,7 +37,7 @@ export function createJobViews({
   // chain-gate defaults to the spawn-prep cap (see provider-init.mjs comments).
   const { ensureProvider } = createProviderInit(reg, DEFAULT_SPAWN_PREP_TIMEOUT_MS);
 
-  const progress = createSessionProgress({ mgr });
+  const progress = createSessionProgress({ mgr, sessionRecords });
   const list = createAgentList({ mgr, refreshTagsFromSessions, agentSessionEntries, progress });
   const lookup = createJobLookup({ mgr, tags, refreshTagsFromSessions });
   const render = createJobRender({ progress });
