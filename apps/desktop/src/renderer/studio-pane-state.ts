@@ -34,12 +34,17 @@ export function useStudioDraft(active: boolean) {
 }
 
 /** The media detail viewer: the opened asset, arrow-key paging, and its
- *  prompt, clamped to two lines until tapped. */
-export function useStudioDetailView(visibleAssets: readonly MediaAsset[]) {
+ *  prompt, clamped to two lines until tapped. `paneRef` and `ownsPage` (this
+ *  pane is shown and focused) decide which Escape is the viewer's. */
+export function useStudioDetailView(
+  visibleAssets: readonly MediaAsset[],
+  paneRef: RefObject<HTMLElement | null>,
+  ownsPage: boolean
+) {
   const [selected, setSelected] = useState<MediaAsset | null>(null);
   // ABB: the media detail viewer closes on hardware back.
   useMobileBack(Boolean(selected), () => setSelected(null));
-  useStudioDetailKeyboardNav(selected, visibleAssets, setSelected);
+  useStudioDetailKeyboardNav(selected, visibleAssets, setSelected, paneRef, ownsPage);
   // Compact detail sheet: the prompt is clamped to two lines and expands on tap.
   const [promptOpen, setPromptOpen] = useState(false);
   // ABB: an expanded prompt folds before the detail itself closes.

@@ -269,6 +269,25 @@ test('Studio detail opens media, reveals its folder, and navigates with plain ar
     });
     assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'Older image');
 
+    const pressEscape = async (target) => {
+      const event = new window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true });
+      await act(async () => target.dispatchEvent(event));
+      return event;
+    };
+    const composerEscape = await pressEscape(prompt);
+    assert.ok(host.querySelector('.studio-detail'), 'the composer keeps its own Escape');
+    assert.equal(composerEscape.defaultPrevented, false);
+    document.activeElement?.blur();
+    await act(async () => root.render(React.createElement(StudioPane, { api, referenceStore, focused: false })));
+    const otherPaneEscape = await pressEscape(document.body);
+    assert.ok(host.querySelector('.studio-detail'), 'a page Escape belongs to the focused pane, not this one');
+    assert.equal(otherPaneEscape.defaultPrevented, false);
+    await act(async () => root.render(React.createElement(StudioPane, { api, referenceStore, focused: true })));
+    await pressEscape(document.body);
+    assert.equal(host.querySelector('.studio-detail'), null, 'Escape with focus on body closes the detail viewer');
+    await act(async () => host.querySelectorAll('.studio-tile-open')[1].click());
+    assert.equal(host.querySelector('.studio-detail-prompt')?.textContent, 'Older image');
+
     const regenerate = [...host.querySelectorAll('.studio-detail-actions button')].find((button) =>
       button.textContent.includes('Regenerate')
     );

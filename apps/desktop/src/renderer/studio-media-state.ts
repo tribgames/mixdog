@@ -17,6 +17,8 @@ import {
 } from './studio-support';
 
 const ASSET_PAGE_SIZE = 60;
+/** Pages an external-change sync reads looking for the loaded set. */
+const SYNC_PAGE_LIMIT = 5;
 const MEDIA_KIND_LIST: readonly MediaKind[] = ['image', 'video'];
 const POLL_INTERVAL_MS = 1_500;
 
@@ -246,13 +248,126 @@ export function useStudioAssetGallery(api: StudioApi, kind: MediaKind, boardId =
     [reloadAssetKind, removeAsset]
   );
 
+  /** Another writer changed the store: fold its newest results in and drop
+   *  the ones gone from the span read, keeping every loaded page (and so the
+   *  scroll and the open asset). Pages are read from the top until one
+   *  overlaps what is loaded; with nothing to anchor on after a few pages the
+   *  loaded set is stale anyway and the kind restarts from its first page.
+   *  Single-flight per kind (see syncAssetKind): a run's additions are
+   *  counted against the rows loaded when it starts. */
+  // Set on unmount: syncs then drop their queued follow-up and late results.
+  const disposedRef = useRef(false);
+  useEffect(() => {
+    disposedRef.current = false;
+    return () => {
+      disposedRef.current = true;
+    };
+  }, []);
+  const runAssetSync = useCallback(
+    async (assetKind: MediaKind): Promise<void> => {
+      const board = boardRef.current;
+      const known = new Set(assetsRef.current.filter((asset) => asset.kind === assetKind).map((asset) => asset.id));
+      if (!pagingRef.current[assetKind].initialized || !known.size) {
+        await refreshAssetKind(assetKind);
+        return;
+      }
+      const fetched: MediaAsset[] = [];
+      let total = 0;
+      let reachedEnd = false;
+      let anchored = false;
+      for (let offset = 0; offset < ASSET_PAGE_SIZE * SYNC_PAGE_LIMIT; offset += ASSET_PAGE_SIZE) {
+        const page = await requestAssetPage(assetKind, offset);
+        if (disposedRef.current || page.board !== boardRef.current) return;
+        fetched.push(...page.assets);
+        total = page.total;
+        reachedEnd = !page.assets.length || offset + page.assets.length >= page.total;
+        anchored = page.assets.some((asset) => known.has(asset.id));
+        if (anchored || reachedEnd) break;
+      }
+      if (board !== boardRef.current) return;
+      if (!anchored && !reachedEnd) {
+        await reloadAssetKind(assetKind, []);
+        return;
+      }
+      const fetchedIds = new Set(fetched.map((asset) => asset.id));
+      const floor = fetched.length ? Number(fetched[fetched.length - 1].createdAt || 0) : Number.POSITIVE_INFINITY;
+      const gone = new Set(
+        assetsRef.current
+          .filter(
+            (asset) =>
+              asset.kind === assetKind &&
+              !fetchedIds.has(asset.id) &&
+              (reachedEnd || Number(asset.createdAt || 0) > floor)
+          )
+          .map((asset) => asset.id)
+      );
+      const added = fetched.filter((asset) => !known.has(asset.id)).length;
+      const merge = (current: MediaAsset[]) =>
+        mergeMediaAssets(
+          current.filter((asset) => !gone.has(asset.id)),
+          fetched
+        );
+      // The next run snapshots the loaded rows before React re-renders.
+      assetsRef.current = merge(assetsRef.current);
+      setAssets(merge);
+      const latest = pagingRef.current[assetKind];
+      pagingRef.current = {
+        ...pagingRef.current,
+        [assetKind]: {
+          ...latest,
+          initialized: true,
+          total,
+          nextOffset: reachedEnd ? total : Math.min(total, Math.max(0, latest.nextOffset + added - gone.size)),
+        },
+      };
+    },
+    [refreshAssetKind, reloadAssetKind, requestAssetPage]
+  );
+
+  /** One sync per kind at a time: overlapping runs would each count the same
+   *  additions and push the paging offset past rows never loaded. A change
+   *  during a run queues one follow-up that reads again once it ends. */
+  const syncFlights = useRef(new Map<MediaKind, { running: Promise<void>; queued: Promise<void> | null }>());
+  const syncAssetKind = useCallback(
+    (assetKind: MediaKind): Promise<void> => {
+      // An unmounted gallery starts no read; a queued follow-up is dropped.
+      if (disposedRef.current) return Promise.resolve();
+      const flights = syncFlights.current;
+      const flight = flights.get(assetKind);
+      if (flight) {
+        flight.queued ??= flight.running.catch(() => {}).then(() => syncAssetKind(assetKind));
+        return flight.queued;
+      }
+      const running: Promise<void> = runAssetSync(assetKind).finally(() => {
+        if (flights.get(assetKind)?.running === running) flights.delete(assetKind);
+      });
+      flights.set(assetKind, { running, queued: null });
+      return running;
+    },
+    [runAssetSync]
+  );
+
+  /** The store's count behind the loaded pages (every kind), or null until
+   *  each kind has its first page. */
+  const loadedTotal = useCallback((): number | null => {
+    let sum = 0;
+    for (const assetKind of MEDIA_KIND_LIST) {
+      const paging = pagingRef.current[assetKind];
+      if (!paging.initialized) return null;
+      sum += paging.total;
+    }
+    return sum;
+  }, []);
+
   return {
     assets,
+    loadedTotal,
     moveAssets,
     loadMoreAssets,
     reloadAssetKind,
     removeAsset,
     refreshAssetKind,
+    syncAssetKind,
     visibleAssets,
   };
 }

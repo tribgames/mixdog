@@ -777,9 +777,14 @@ html[data-mixdog-mobile-tabs] .studio-panel .studio-board-count {
   background: var(--mx-workspace-sheet);
   pointer-events: none;
 }
-/* Mica and skins clear the sheet to transparent (03-titlebar.css); the band
-   keeps the deep paper instead so it stays opaque there too. */
-html:is([data-window-material="mica"], [data-mixdog-skin]) .studio-dock::before {
+/* Mica and skins clear the sheet to transparent (03-titlebar.css). Mica's main
+   panel paints the opaque root sheet (--mx-mica-layer), so the band takes that
+   same tone; the deep paper read as a grey bar under Paper's white gallery.
+   A skin's layer is a translucent veil, so it keeps the opaque plate paper. */
+html[data-window-material="mica"]:not([data-mixdog-skin]) .studio-dock::before {
+  background: var(--mx-mica-layer);
+}
+html[data-mixdog-skin] .studio-dock::before {
   background: var(--mx-bg-deep);
 }
 /* PC: the chat composer's floor (agent-chat.css: 2px under the line, the
@@ -1050,7 +1055,8 @@ html:not([data-mixdog-mobile-tabs]) .studio-dock {
   background: var(--mx-hover);
   outline: none;
 }
-.studio-board-menu-item > span {
+/* Only the label grows; the board icon is a span slot too and must stay 16px. */
+.studio-board-menu-label {
   flex: 1;
   min-width: 0;
   overflow: hidden;

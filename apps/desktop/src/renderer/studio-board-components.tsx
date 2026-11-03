@@ -137,7 +137,7 @@ export function StudioBoardPicker({
               onClick={() => choose('')}
             >
               <LayoutGrid size={16} strokeWidth={1.75} aria-hidden="true" />
-              <span>{t('No board')}</span>
+              <span className="studio-board-menu-label">{t('No board')}</span>
               {!current && <Check size={14} aria-hidden="true" />}
             </button>
             {boards.map((board) => (
@@ -150,7 +150,7 @@ export function StudioBoardPicker({
                 onClick={() => choose(board.id)}
               >
                 <StudioBoardIcon />
-                <span>{board.name}</span>
+                <span className="studio-board-menu-label">{board.name}</span>
                 {board.id === openId && <Check size={14} aria-hidden="true" />}
               </button>
             ))}
