@@ -416,17 +416,17 @@ const SessionRow = React.memo(function SessionRow({
           onOpenMenu(session, elementMenuPoint(event.currentTarget));
         }}
       >
-        {/* The 20px leading slot: every row's name starts on one line. */}
+        {/* The 16px leading slot: every row's name starts on one line. */}
         <span className="session-row-slot" aria-hidden="true">
           {forkKind === 'root' ? (
-            <GitFork className="session-row-fork-icon" data-fork="root" size={14} aria-hidden="true" />
+            <GitFork className="session-row-fork-icon" data-fork="root" size={16} strokeWidth={1.75} aria-hidden="true" />
           ) : forkKind === 'child' ? (
-            <CornerDownRight className="session-row-fork-icon" data-fork="child" size={14} aria-hidden="true" />
+            <CornerDownRight className="session-row-fork-icon" data-fork="child" size={16} strokeWidth={1.75} aria-hidden="true" />
           ) : deletedBot ? (
             <DeletedBotFace agentId={deletedBot} />
           ) : (
             // The tab strip's session icon (WorkspaceTabStrip sessionTabGlyph).
-            <MessageCircle className="session-row-chat-icon" size={14} aria-hidden="true" />
+            <MessageCircle className="session-row-chat-icon" size={16} strokeWidth={1.75} aria-hidden="true" />
           )}
         </span>
         <span className="session-row-copy">
