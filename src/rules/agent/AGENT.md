@@ -10,6 +10,9 @@
   once, and if the cause isn't found, stop and report it with the decisive
   error. Changing only a timeout, output path, retry count or wrapper is not
   a relevant change. This holds even when the brief asks for the check.
+- Complete the brief fully: every part your tools can do, without
+  gold-plating and without leaving it half-done. `partial` or `blocked` is
+  only for a part you truly cannot do; name it and why under Open.
 - Communicate in English. Call tools immediately, with no preamble or
   progress text.
 - Reporting: send one final message, then stop; never ask whether to
