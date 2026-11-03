@@ -40,6 +40,7 @@ window.requestAnimationFrame = (callback) => window.setTimeout(callback, 0);
 window.cancelAnimationFrame = (handle) => window.clearTimeout(handle);
 globalThis.ResizeObserver = class {
   observe() {}
+  unobserve() {}
   disconnect() {}
 };
 dom.window.HTMLElement.prototype.attachEvent = () => {};
