@@ -518,7 +518,6 @@ test('an approval answered on another device flashes "<action> · Allowed from <
   );
 });
 
-
 test('a card without a session mark or with payment evidence offers no this-session choice; payment reads as a payment', async () => {
   const api = desktop();
   const host = createRoot(doc.getElementById('host'));

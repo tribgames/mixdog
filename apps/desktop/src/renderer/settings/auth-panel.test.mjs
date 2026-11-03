@@ -342,7 +342,9 @@ test('automatic cookie import: toggle, status line and forget-key act on the hos
   assert.deepEqual(configured, [{ enabled: true, profileId: 'Default' }], 'the first listed profile is used');
   assert.equal(toggle().checked, true);
   assert.ok(doc.body.textContent.includes('Chrome key saved on this PC'), 'the saved key is shown');
-  const forget = [...doc.querySelectorAll('.settings-action')].find((button) => button.textContent === 'Forget saved key');
+  const forget = [...doc.querySelectorAll('.settings-action')].find(
+    (button) => button.textContent === 'Forget saved key'
+  );
   await act(async () => forget.click());
   await settle();
   assert.equal(forgotten, 1);

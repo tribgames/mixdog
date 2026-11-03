@@ -41,7 +41,10 @@ test('the binding is the SHA-256 of the exact app_bound_encrypted_key text from 
   const { dir } = fixture(t);
   assert.equal(appBoundBlobSha256(BLOB_A), sha256(BLOB_A));
   const localState = join(dir, 'Local State');
-  writeFileSync(localState, JSON.stringify({ os_crypt: { encrypted_key: 'REBBUEkAAQID', app_bound_encrypted_key: BLOB_A } }));
+  writeFileSync(
+    localState,
+    JSON.stringify({ os_crypt: { encrypted_key: 'REBBUEkAAQID', app_bound_encrypted_key: BLOB_A } })
+  );
   assert.equal(await readAppBoundBlobSha256(localState), sha256(BLOB_A));
   // No App-Bound key (older Chrome), unreadable or malformed Local State: no binding, never a throw.
   writeFileSync(localState, JSON.stringify({ os_crypt: { encrypted_key: 'REBBUEkAAQID' } }));
@@ -86,7 +89,10 @@ test('a key file that cannot be decrypted or parsed is discarded', async (t) => 
   // Decrypts, but is not a record of this version with a 32-byte key.
   const encryption = fakeEncryption();
   const wrongSize = new AppBoundKeyStore(file, encryption);
-  writeFileSync(file, encryption.encryptString(JSON.stringify({ version: 1, blobSha256: sha256(BLOB_A), key: 'AAAA' })));
+  writeFileSync(
+    file,
+    encryption.encryptString(JSON.stringify({ version: 1, blobSha256: sha256(BLOB_A), key: 'AAAA' }))
+  );
   assert.equal(await wrongSize.load(sha256(BLOB_A)), null);
   assert.equal(existsSync(file), false);
 });

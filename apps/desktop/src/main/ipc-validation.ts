@@ -1838,7 +1838,8 @@ export function requiredToolApprovalDecision(value: unknown): ToolApprovalDecisi
     result.response = decision.response;
   }
   if (decision.remember !== undefined) {
-    if (!['once', 'session', 'agent', 'always'].includes(decision.remember)) throw new TypeError('decision.remember is invalid.');
+    if (!['once', 'session', 'agent', 'always'].includes(decision.remember))
+      throw new TypeError('decision.remember is invalid.');
     result.remember = decision.remember;
   }
   if (decision.scope !== undefined) {

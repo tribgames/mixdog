@@ -27,8 +27,7 @@ export function createSessionGrants({
   /** `session\naction` → { agentId, mark, expiresAt }, oldest grant first. */
   const grants = new Map();
   const keyOf = (sessionId, action) => `${sessionId}\n${action}`;
-  const live = (entry, agentId, mark) =>
-    entry.expiresAt > now() && entry.agentId === agentId && entry.mark === mark;
+  const live = (entry, agentId, mark) => entry.expiresAt > now() && entry.agentId === agentId && entry.mark === mark;
   const prune = () => {
     const at = now();
     for (const [key, entry] of grants) if (entry.expiresAt <= at) grants.delete(key);

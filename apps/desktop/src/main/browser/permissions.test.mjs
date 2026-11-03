@@ -405,9 +405,7 @@ test('remember for all sites sets the default and persists; for this site, an ex
   const camera = ask(guest, 'media', { mediaTypes: ['video'] });
   permissions.answer(guest, permissions.pending(guest).id, false, undefined, 'site');
   assert.equal(camera.granted, false);
-  assert.deepEqual(store.policy.sites, [
-    { origin: 'https://site.test', permission: 'media:video', setting: 'block' },
-  ]);
+  assert.deepEqual(store.policy.sites, [{ origin: 'https://site.test', permission: 'media:video', setting: 'block' }]);
   store.policy = withBrowserPermissionDefault(store.policy, 'media:video', 'allow');
   assert.equal(ask(guest, 'media', { mediaTypes: ['video'] }).granted, false, 'exception over default');
   assert.equal(ask(other, 'media', { mediaTypes: ['video'] }).granted, true);
@@ -451,8 +449,12 @@ test('a full exception list refuses a new site and never drops an existing block
   assert.equal(store.policy, before, 'nothing persisted');
   assert.equal(store.saves, 0);
   assert.equal(permissions.answer(guest, promptId, true, undefined, 'all'), true, 'other choices still work');
-  assert.equal(asked.granted, true);  assert.equal(ask(page('https://blocked.test/'), 'media', { mediaTypes: ['video'] }).granted, false);
-  assert.equal(handlers.check(page('https://blocked.test/'), 'media', 'https://blocked.test', { mediaType: 'video' }), false);
+  assert.equal(asked.granted, true);
+  assert.equal(ask(page('https://blocked.test/'), 'media', { mediaTypes: ['video'] }).granted, false);
+  assert.equal(
+    handlers.check(page('https://blocked.test/'), 'media', 'https://blocked.test', { mediaType: 'video' }),
+    false
+  );
   assert.equal(normalizeBrowserPermissionPolicy(before).sites.length, BROWSER_PERMISSION_MAX_SITES, 'load keeps all');
   const over = { ...before, sites: [...before.sites, { ...extra }] };
   assert.equal(normalizeBrowserPermissionPolicy(over).sites.length, BROWSER_PERMISSION_MAX_SITES + 1, 'no truncation');
@@ -478,7 +480,10 @@ test('settings survive a restart: the stored form reads back to the same policy'
   const stored = JSON.parse(JSON.stringify(storableBrowserPermissionPolicy(store.policy)));
   assert.deepEqual(Object.keys(stored.defaults), ['midi'], 'only differences are stored');
   assert.deepEqual(normalizeBrowserPermissionPolicy(stored), store.policy);
-  assert.deepEqual(normalizeBrowserPermissionPolicy({ defaults: { midi: 'maybe', bogus: 'allow' }, sites: [{}] }), defaultBrowserPermissionPolicy());
+  assert.deepEqual(
+    normalizeBrowserPermissionPolicy({ defaults: { midi: 'maybe', bogus: 'allow' }, sites: [{}] }),
+    defaultBrowserPermissionPolicy()
+  );
 });
 
 test('clipboard read is only ever allowed by an explicit remember, and still needs a gesture', async () => {

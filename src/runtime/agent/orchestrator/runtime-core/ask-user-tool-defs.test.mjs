@@ -48,10 +48,7 @@ test('handoff_user is a deferred, Lead-only tool carrying the handoff rules', ()
   assert.ok(def.trigger);
   assert.equal(def.annotations.agentHidden, true);
   assert.equal(def.annotations.readOnlyHint, true);
-  assert.match(
-    def.description,
-    /Input only the user can supply .* is a handoff here, never a request in plain chat\./
-  );
+  assert.match(def.description, /Input only the user can supply .* is a handoff here, never a request in plain chat\./);
   assert.match(def.description, /Never for authorization/);
   assert.match(def.description, /never a takeover then a secret for the same login/);
   const handoff = def.inputSchema.properties.handoff;

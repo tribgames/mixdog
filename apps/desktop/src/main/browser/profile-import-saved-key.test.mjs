@@ -132,7 +132,10 @@ function world(t, { scenario = {}, encryption = fakeEncryption() } = {}) {
   const writeLocalState = (blob) =>
     writeFileSync(
       join(chrome, 'Local State'),
-      JSON.stringify({ profile: { info_cache: { Default: { name: 'Fixture' } } }, os_crypt: { app_bound_encrypted_key: blob } })
+      JSON.stringify({
+        profile: { info_cache: { Default: { name: 'Fixture' } } },
+        os_crypt: { app_bound_encrypted_key: blob },
+      })
     );
   writeLocalState(BLOB);
   const callsFile = join(process.env.MX_FAKE_IMPORTER_DIR, 'calls.jsonl');
@@ -182,21 +185,34 @@ function world(t, { scenario = {}, encryption = fakeEncryption() } = {}) {
         : [],
     manual: () =>
       service.importProfile(
-        { jobId: `job${sequence}${Date.now()}`, sourceId: 'chrome', profileId: 'Default', items: ['cookies'], administratorApproved: true },
+        {
+          jobId: `job${sequence}${Date.now()}`,
+          sourceId: 'chrome',
+          profileId: 'Default',
+          items: ['cookies'],
+          administratorApproved: true,
+        },
         () => {}
       ),
   };
 }
 
-const flagsOf = (call) => call.args.filter((arg) => arg.startsWith('--') && !['--browser', '--profile', '--json'].includes(arg));
+const flagsOf = (call) =>
+  call.args.filter((arg) => arg.startsWith('--') && !['--browser', '--profile', '--json'].includes(arg));
 const elevations = (calls) => calls.filter((call) => call.elevated).length;
 
-test('a manual import elevates once, keeps the key encrypted, and the next one needs no elevation', { skip: !isWindows }, async (t) => {
+test('a manual import elevates once, keeps the key encrypted, and the next one needs no elevation', {
+  skip: !isWindows,
+}, async (t) => {
   const w = world(t);
   const first = await w.manual();
   assert.deepEqual(first.errors, {});
   assert.equal(first.counts.cookies, 1);
-  assert.deepEqual(flagsOf(w.calls()[0]), ['--return-v20-key'], 'the first import may elevate and asks for the key back');
+  assert.deepEqual(
+    flagsOf(w.calls()[0]),
+    ['--return-v20-key'],
+    'the first import may elevate and asks for the key back'
+  );
   assert.equal(elevations(w.calls()), 1);
   assert.equal(readFileSync(w.keyFile).includes(VALID_KEY), false, 'the key is encrypted at rest');
   assert.deepEqual(await w.service.savedKeyStatus(), { available: true, saved: true });
@@ -210,7 +226,9 @@ test('a manual import elevates once, keeps the key encrypted, and the next one n
   assert.equal(elevations(w.calls()), 1, 'still one elevation in total');
 });
 
-test('an automatic import with the saved key imports without ever allowing elevation', { skip: !isWindows }, async (t) => {
+test('an automatic import with the saved key imports without ever allowing elevation', {
+  skip: !isWindows,
+}, async (t) => {
   const w = world(t);
   await w.manual();
   const outcome = await w.service.runAutomaticCookieImport('Default');
@@ -224,7 +242,9 @@ test('an automatic import with the saved key imports without ever allowing eleva
   assert.equal(state.needsManualImport, undefined);
 });
 
-test('an automatic import with no saved key never elevates and records that one manual import is needed', { skip: !isWindows }, async (t) => {
+test('an automatic import with no saved key never elevates and records that one manual import is needed', {
+  skip: !isWindows,
+}, async (t) => {
   const w = world(t);
   const outcome = await w.service.runAutomaticCookieImport('Default');
   assert.deepEqual(outcome, { state: 'needs-manual-import' });
@@ -245,7 +265,9 @@ test('a profile with nothing App-Bound imports automatically with no key at all'
   assert.equal(existsSync(w.keyFile), false);
 });
 
-test('when Chrome rotates its key the saved one is discarded: automatic stops, manual elevates once and re-saves', { skip: !isWindows }, async (t) => {
+test('when Chrome rotates its key the saved one is discarded: automatic stops, manual elevates once and re-saves', {
+  skip: !isWindows,
+}, async (t) => {
   const w = world(t);
   await w.manual();
   assert.equal(existsSync(w.keyFile), true);
@@ -268,7 +290,9 @@ test('when Chrome rotates its key the saved one is discarded: automatic stops, m
   assert.equal(elevations(w.calls()), 2);
 });
 
-test('a saved key the importer rejects is discarded: automatic stops, manual falls back to one elevation', { skip: !isWindows }, async (t) => {
+test('a saved key the importer rejects is discarded: automatic stops, manual falls back to one elevation', {
+  skip: !isWindows,
+}, async (t) => {
   const w = world(t);
   await w.manual();
   // Same blob, but the importer no longer accepts the saved key.
@@ -297,7 +321,9 @@ test('a saved key the importer rejects is discarded: automatic stops, manual fal
   assert.deepEqual(await w.service.savedKeyStatus(), { available: true, saved: true });
 });
 
-test('without OS encryption nothing is stored, the importer is not asked for the key, and automatic import cannot run', { skip: !isWindows }, async (t) => {
+test('without OS encryption nothing is stored, the importer is not asked for the key, and automatic import cannot run', {
+  skip: !isWindows,
+}, async (t) => {
   const w = world(t, { encryption: fakeEncryption(false) });
   // The backup of the cookie jar needs OS encryption too, so only the importer side is observed.
   await w.manual();
@@ -314,7 +340,9 @@ test('an automatic run while Chrome holds the database is skipped quietly', { sk
   assert.deepEqual(await w.service.cookieAutoImportState.read(), {});
 });
 
-test('a failed automatic import is recorded without secrets and does not claim "needs a manual import"', { skip: !isWindows }, async (t) => {
+test('a failed automatic import is recorded without secrets and does not claim "needs a manual import"', {
+  skip: !isWindows,
+}, async (t) => {
   const w = world(t, { scenario: { needsV20: false } });
   const outcome = await w.service.runAutomaticCookieImport('Gone');
   assert.equal(outcome.state, 'failed');
@@ -332,7 +360,9 @@ test('an automatic run is skipped while a manual import is in progress', { skip:
   await running;
 });
 
-test('an importer built before key reuse keeps the old behaviour for manual imports and cannot run unattended', { skip: !isWindows }, async (t) => {
+test('an importer built before key reuse keeps the old behaviour for manual imports and cannot run unattended', {
+  skip: !isWindows,
+}, async (t) => {
   const w = world(t, { scenario: { legacy: true } });
   const manual = await w.manual();
   assert.deepEqual(manual.errors, {});
@@ -365,7 +395,11 @@ test('automatic runs keep only the latest recovery snapshots of the cookie jar',
   await w.manual();
   const backups = readdirSync(join(w.data, 'browser-import-backups'));
   assert.equal(backups.filter((name) => name.startsWith('cookies-auto-')).length, 3);
-  assert.equal(backups.filter((name) => /^cookies-\d/.test(name)).length, 1, 'a manual import snapshot is never pruned');
+  assert.equal(
+    backups.filter((name) => /^cookies-\d/.test(name)).length,
+    1,
+    'a manual import snapshot is never pruned'
+  );
 });
 
 test('clearing imported data also forgets the saved key and the import record', { skip: !isWindows }, async (t) => {

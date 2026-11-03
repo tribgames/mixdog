@@ -153,9 +153,7 @@ export function BrowserPagePrompts({
                 <select
                   value={remember}
                   disabled={busy}
-                  onChange={(event) =>
-                    setKeep({ prompt: dialog.id, value: event.target.value as '' | 'site' | 'all' })
-                  }
+                  onChange={(event) => setKeep({ prompt: dialog.id, value: event.target.value as '' | 'site' | 'all' })}
                 >
                   <option value="">{t('Until the app quits')}</option>
                   <option value="site" disabled={siteListFull}>

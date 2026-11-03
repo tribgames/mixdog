@@ -67,7 +67,7 @@ export const HANDOFF_USER_TOOL_DEFS = Object.freeze([
     trigger:
       'Hand the user a page or app step only they can supply (unsaved password, payment credentials, 2FA, identity, CAPTCHA); loads with the browser-use and computer-use skills.',
     description:
-      'Input only the user can supply (an unsaved password, card numbers or payment credentials, SMS/authenticator/passkey steps, identity verification, a CAPTCHA or human check you cannot pass) is a handoff here, never a request in plain chat. Never for authorization: with the user\'s go-ahead in chat, click submit/upgrade/accept/confirm yourself. Try the existing session and saved login first; one card per human-only step, never a takeover then a secret for the same login; after a skip or denial do not raise it again, say in chat what is blocked.',
+      "Input only the user can supply (an unsaved password, card numbers or payment credentials, SMS/authenticator/passkey steps, identity verification, a CAPTCHA or human check you cannot pass) is a handoff here, never a request in plain chat. Never for authorization: with the user's go-ahead in chat, click submit/upgrade/accept/confirm yourself. Try the existing session and saved login first; one card per human-only step, never a takeover then a secret for the same login; after a skip or denial do not raise it again, say in chat what is blocked.",
     annotations: {
       title: 'Hand Off To User',
       readOnlyHint: true,

@@ -28,8 +28,14 @@ test('payment evidence: card fields and payment-processor frames, never labels',
   assert.equal(evidenceOf({ frames: ['https://assets.braintreegateway.com/x'] }), true);
   assert.equal(evidenceOf({ frames: ['https://checkoutshopper-live.adyen.com/x'] }), true);
   // An ordinary form, a payment-like word in a label or an unrelated frame is no evidence.
-  assert.equal(evidenceOf({ inputs: [input({ name: 'email', autocomplete: 'email' }), input({ name: 'comment' })] }), false);
-  assert.equal(evidenceOf({ frames: ['https://www.youtube.com/embed/x', 'https://evil.example/js.stripe.com'] }), false);
+  assert.equal(
+    evidenceOf({ inputs: [input({ name: 'email', autocomplete: 'email' }), input({ name: 'comment' })] }),
+    false
+  );
+  assert.equal(
+    evidenceOf({ frames: ['https://www.youtube.com/embed/x', 'https://evil.example/js.stripe.com'] }),
+    false
+  );
 });
 
 test('an unreadable page counts as payment evidence (fail closed)', async () => {
@@ -46,7 +52,14 @@ test('the host asks with payment set only for a submit or post step on a page wi
   const submit = { action: 'click', submit: true, target: { name: 'Continue' }, session_id: 's', session_life: '1:0' };
   await approval.approve({ ...submit }, target, undefined, undefined, undefined, async () => true);
   await approval.approve({ ...submit }, target, undefined, undefined, undefined, async () => false);
-  await approval.approve({ action: 'click', target: { name: 'Read more' }, session_id: 's' }, target, undefined, undefined, undefined, async () => assert.fail('not read for a step that is not gated'));
+  await approval.approve(
+    { action: 'click', target: { name: 'Read more' }, session_id: 's' },
+    target,
+    undefined,
+    undefined,
+    undefined,
+    async () => assert.fail('not read for a step that is not gated')
+  );
   assert.equal(asked.length, 2);
   assert.equal(asked[0].payment, true);
   assert.equal(asked[0].sessionLife, '1:0');

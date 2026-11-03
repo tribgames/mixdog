@@ -4,10 +4,14 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
 export function holdStagedLock(dataDir, holdMs) {
-  const child = spawn(process.execPath, [fileURLToPath(new URL('./staged-lock-holder.test-helper.mjs', import.meta.url)), String(holdMs)], {
-    env: { ...process.env, MIXDOG_DATA_DIR: dataDir },
-    stdio: ['ignore', 'pipe', 'inherit'],
-  });
+  const child = spawn(
+    process.execPath,
+    [fileURLToPath(new URL('./staged-lock-holder.test-helper.mjs', import.meta.url)), String(holdMs)],
+    {
+      env: { ...process.env, MIXDOG_DATA_DIR: dataDir },
+      stdio: ['ignore', 'pipe', 'inherit'],
+    }
+  );
   const exited = new Promise((resolve) => child.on('exit', resolve));
   return new Promise((resolve, reject) => {
     child.on('error', reject);

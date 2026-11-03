@@ -33,5 +33,15 @@ test('a browser command carries the session life mark, which changes when the se
   assert.equal(first, '9:0');
   setLiveSession({ id, owner: 'cli', agent: 'lead', createdAt: 9, compaction: { lastClearAt: 50 } });
   assert.equal(await run(), '9:50');
-  assert.equal('session_life' in (await (async () => { await executeBrowserTool({ action: 'navigate', input: { url: 'https://example.test' } }, { sessionId: 'sess_unknown_zzz', turnId: 1 }); return requests.at(-1); })()), false);
+  assert.equal(
+    'session_life' in
+      (await (async () => {
+        await executeBrowserTool(
+          { action: 'navigate', input: { url: 'https://example.test' } },
+          { sessionId: 'sess_unknown_zzz', turnId: 1 }
+        );
+        return requests.at(-1);
+      })()),
+    false
+  );
 });

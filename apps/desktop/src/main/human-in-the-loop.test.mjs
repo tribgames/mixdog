@@ -50,8 +50,11 @@ test('secret input: a segmented code input (one digit per box) is filled complet
       const digits = [...String(command.text)];
       // Foreground keystrokes land in the focused box and advance focus; a
       // background write sets the control's value, which holds one digit.
-      if (command.delivery === 'foreground') digits.forEach((digit, at) => (boxes[at] = digit));
-      else boxes[0] = digits[0];
+      if (command.delivery === 'foreground') {
+        digits.forEach((digit, at) => {
+          boxes[at] = digit;
+        });
+      } else boxes[0] = digits[0];
       return { text: 'ok' };
     };
     return { boxes, sent, execute };
