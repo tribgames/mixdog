@@ -3,6 +3,7 @@ import test from 'node:test';
 import { createRequire } from 'node:module';
 import { rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { eventually } from '../../../shared/watched-file-cache.test-helpers.mjs';
 import { applyDeferredToolSurface } from './tool-catalog.mjs';
 import { HEADLESS_MODEL_TOOL_NAMES, filterModelToolsForProfile, modelToolSchemaAllowlist } from './tool-profile.mjs';
 
@@ -184,7 +185,7 @@ test('installed features with live bridges expose the full tool surface', () => 
   ]);
 });
 
-test('visualize needs no install: bridge presence and the module toggle gate it, env wins', () => {
+test('visualize needs no install: bridge presence and the module toggle gate it, env wins', async () => {
   assert.equal(INSTALLABLE_BUILTIN_IDS.includes('visualize'), false);
   const config = withGrandfatheredBuiltins({});
   assert.equal(builtinFeatureActive(config, 'visualize'), false);
@@ -193,7 +194,8 @@ test('visualize needs no install: bridge presence and the module toggle gate it,
     JSON.stringify({ version: 1, port: 1, token: 't', pid: process.pid })
   );
   try {
-    assert.equal(builtinFeatureActive(config, 'visualize'), true);
+    // The discovery cache sees the new file through its directory watch.
+    await eventually(() => builtinFeatureActive(config, 'visualize'));
     assert.equal(featureDisallowedToolsFor(config).includes('visualize'), false);
     const off = { ...config, modules: { visualize: { enabled: false } } };
     assert.equal(builtinFeatureActive(off, 'visualize'), false);
@@ -205,6 +207,7 @@ test('visualize needs no install: bridge presence and the module toggle gate it,
   } finally {
     delete process.env.MIXDOG_FEATURE_VISUALIZE;
     rmSync(join(process.env.MIXDOG_DATA_DIR, 'visualize-bridge.json'), { force: true });
+    await eventually(() => !builtinFeatureActive(config, 'visualize'));
   }
 });
 

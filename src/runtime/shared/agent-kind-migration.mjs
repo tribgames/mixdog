@@ -28,7 +28,7 @@ import { evidenceKind } from './agent-kind.mjs';
 import { DEFAULT_DISABLED_AGENT_ROSTER, WORKFLOW_AGENT_KIND } from './agent-route-config.mjs';
 import { BOT_MIGRATION_LOCK, definitionFile } from './bot-split-migration.mjs';
 import { readMarkdownDocument } from './markdown-frontmatter.mjs';
-import { BOT_MIGRATION_MANIFEST, BOT_MIGRATION_VERSION, BOTS_DIR } from './agent-store.mjs';
+import { BOT_MIGRATION_MANIFEST, BOT_MIGRATION_VERSION, BOTS_DIR, forgetBotStoreCache } from './agent-store.mjs';
 
 export const AGENT_KIND_MIGRATION_FILE = 'agent-kind-migration.json';
 export const AGENT_KIND_MIGRATION_VERSION = 1;
@@ -105,7 +105,11 @@ export function migrateAgentKinds({
       () => {
         if (readJson(record)?.version === AGENT_KIND_MIGRATION_VERSION)
           return { skipped: true, stamped: [], restored: [] };
-        return run({ dataDir, shippedRoot, backup, restoreRoute, step, record });
+        try {
+          return run({ dataDir, shippedRoot, backup, restoreRoute, step, record });
+        } finally {
+          forgetBotStoreCache(dataDir);
+        }
       },
       { timeoutMs: lockWaitMs }
     );

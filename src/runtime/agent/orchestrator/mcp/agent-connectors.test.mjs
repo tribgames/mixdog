@@ -3,6 +3,8 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
+import { botStoreActive } from '../../../shared/agent-store.mjs';
+import { eventually } from '../../../shared/watched-file-cache.test-helpers.mjs';
 
 const root = mkdtempSync(join(tmpdir(), 'mixdog-agent-connectors-'));
 const previousDataDir = process.env.MIXDOG_DATA_DIR;
@@ -237,6 +239,8 @@ test("Mixy's policy is read where her profile saves it, and a coding Lead never 
   // The bot store is active: Mixy's identity (and her policy) lives in bots/mixy.
   mkdirSync(join(botsDir, 'mixy'), { recursive: true });
   writeFileSync(join(botsDir, 'migration.json'), JSON.stringify({ version: 1, bots: [] }));
+  // Written behind the bot store's back: its cache sees it through the watch.
+  await eventually(() => botStoreActive(dataDir));
   // What the pre-split Mixy left in agents/lead: stale, and nothing writes it any more.
   saveConnectors('lead', { off: ['beta'] });
   t.after(() => {
@@ -287,6 +291,7 @@ test("Mixy's policy is read where her profile saves it, and a coding Lead never 
 
   // Before the bot store exists Mixy's identity folder is agents/lead.
   rmSync(join(botsDir, 'migration.json'));
+  await eventually(() => !botStoreActive(dataDir));
   assert.ok(denies(mixy, 'mcp__beta__ping'), 'no store: agents/lead is her policy');
   assert.ok(!denies(coding, 'mcp__beta__ping'));
 });

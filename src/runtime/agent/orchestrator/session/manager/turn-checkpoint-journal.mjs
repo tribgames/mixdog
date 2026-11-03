@@ -65,10 +65,41 @@ function checkpointDirPath() {
   return join(getPluginData(), 'turn-checkpoints');
 }
 
+// Ensured once per process (per data dir); a write that then fails with
+// ENOENT (the directory was removed under us) re-ensures it and retries once.
+let ensuredDir = '';
 function checkpointDir() {
   const dir = checkpointDirPath();
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true });
+  if (ensuredDir !== dir) {
+    mkdirSync(dir, { recursive: true });
+    ensuredDir = dir;
+  }
   return dir;
+}
+
+function reensureOnMissingDir(error) {
+  if (error?.code !== 'ENOENT') return false;
+  ensuredDir = '';
+  checkpointDir();
+  return true;
+}
+
+function withCheckpointDirSync(write) {
+  try {
+    return write();
+  } catch (error) {
+    if (!reensureOnMissingDir(error)) throw error;
+    return write();
+  }
+}
+
+async function withCheckpointDir(write) {
+  try {
+    return await write();
+  } catch (error) {
+    if (!reensureOnMissingDir(error)) throw error;
+    return write();
+  }
 }
 
 function assertSessionId(sessionId) {
@@ -178,7 +209,7 @@ export function writeCheckpointHeader(checkpoint) {
   // Durable (fsynced through its handle, then renamed): a crash must not
   // publish a header whose bytes never landed. A damaged header already reads
   // as "no checkpoint" (parseTurnCheckpointHeader) and the next turn rewrites it.
-  writeFileAtomicSync(target, JSON.stringify(payload));
+  withCheckpointDirSync(() => writeFileAtomicSync(target, JSON.stringify(payload)));
   return true;
 }
 
@@ -311,9 +342,8 @@ export function setAsideTurnCheckpoint(sessionId) {
   const text = readFileOrNull(turnCheckpointReadPath(sessionId));
   if (text === null) return pending || null;
   const key = headerKey(text);
-  checkpointDir();
   _setAsideFault?.('intent');
-  writeFileAtomicSync(setAsideIntentPath(sessionId), JSON.stringify({ key }));
+  withCheckpointDirSync(() => writeFileAtomicSync(setAsideIntentPath(sessionId), JSON.stringify({ key })));
   completeSetAside(sessionId, key);
   return key;
 }
@@ -409,11 +439,11 @@ function _warnJournalOnce(sessionId, error) {
 
 function _runJournalOpSync(op) {
   if (op.kind === 'append') {
-    appendFileSync(op.path, op.data, 'utf8');
+    withCheckpointDirSync(() => appendFileSync(op.path, op.data, 'utf8'));
     return;
   }
   if (op.kind === 'reset') {
-    writeFileSync(op.path, op.data, 'utf8');
+    withCheckpointDirSync(() => writeFileSync(op.path, op.data, 'utf8'));
     return;
   }
   try {
@@ -425,8 +455,8 @@ function _runJournalOpSync(op) {
 
 async function _runJournalOpAsync(op) {
   if (_journalOpGate) await _journalOpGate(op);
-  if (op.kind === 'append') return appendFile(op.path, op.data, 'utf8');
-  if (op.kind === 'reset') return writeFile(op.path, op.data, 'utf8');
+  if (op.kind === 'append') return withCheckpointDir(() => appendFile(op.path, op.data, 'utf8'));
+  if (op.kind === 'reset') return withCheckpointDir(() => writeFile(op.path, op.data, 'utf8'));
   try {
     await unlink(op.path);
   } catch (error) {
@@ -552,7 +582,7 @@ export function openJournalForTurn(sessionId, openLines) {
   const data = (Array.isArray(openLines) ? openLines : []).join('');
   cancelJournalWrites(sessionId);
   if (!_journalWrites.has(sessionId)) {
-    writeFileSync(path, data, 'utf8');
+    withCheckpointDirSync(() => writeFileSync(path, data, 'utf8'));
     return true;
   }
   _enqueueJournalOp(sessionId, { kind: 'reset', path, data });

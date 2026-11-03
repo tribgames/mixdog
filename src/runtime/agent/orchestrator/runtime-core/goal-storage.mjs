@@ -1,4 +1,4 @@
-import { readdirSync, rmSync, statSync } from 'node:fs';
+import { readdirSync, rmSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import {
@@ -9,6 +9,8 @@ import {
   writeJsonAtomicAsync,
 } from '../../../shared/atomic-file.mjs';
 import { clean } from '../../../shared/clean.mjs';
+import { runtimeAsyncLocalStorage } from '../../../shared/root-async-context.mjs';
+import { createWatchedFileCache, fileStampSync, forgetWatchedFile } from '../../../shared/watched-file-cache.mjs';
 import {
   DEFAULT_COMPLETED_GOAL_TTL_MS,
   GOAL_FILE_VERSION,
@@ -30,11 +32,15 @@ function goalFilePath(dataDir, sessionId) {
 }
 
 export function deleteStoredGoalFile(dataDir, sessionId) {
+  const path = goalFilePath(dataDir, sessionId);
   try {
-    rmSync(goalFilePath(dataDir, sessionId), { force: true });
+    rmSync(path, { force: true });
     return true;
   } catch {
     return false;
+  } finally {
+    // Same-process changes are immediate: no cached copy outlives the file.
+    forgetWatchedFile(path);
   }
 }
 
@@ -159,45 +165,61 @@ async function refuseNewerRecord(path) {
 // another writer's critical section.
 const TRANSIENT_READ_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
 
+// `{ id, active }`: the session whose read-modify-write runs in this async context.
+const mutating = runtimeAsyncLocalStorage();
+
 // Cached records are committed snapshots, never mutable working copies.
 // Publish only after the atomic writer succeeds; failed writes leave both
 // observers and later mutations on the last durable state.
+// Observation reads come from memory (watched-file-cache.mjs); only a change
+// by another process, seen by the directory watch or the safety re-check,
+// reloads. A mutation (`mutate`) holds the record's lock throughout and reads
+// the disk, so it never modifies a snapshot another writer has replaced.
 export function createGoalStorage({ pathFor, normalizeGoal, now, writeRecord = writeJsonAtomicAsync }) {
-  const cache = new Map();
   const writing = new Set();
+  const ids = new Map();
+  const cache = createWatchedFileCache((path) => {
+    const stamp = fileStampSync(path);
+    return { stamp, value: readGoalRecordFile(path, ids.get(path), normalizeGoal, now()) };
+  });
   const read = (id) => {
-    const cached = cache.get(id);
+    const path = pathFor(id);
+    const cached = cache.peek(path);
     // Our own write is in flight: the file is mid-replace, and the cache is
     // the committed state until that write lands. Do not touch the disk.
-    if (cached && writing.has(id)) return structuredClone(cached.record);
-    const path = pathFor(id);
-    let stamp = null;
+    if (cached && writing.has(id)) return structuredClone(cached);
+    ids.set(path, id);
+    const scope = mutating.getStore();
+    if (scope?.active && scope.id === id) return structuredClone(cache.get(path, { fresh: true }));
     try {
-      const stat = statSync(path, { bigint: true });
-      // Atomic replacements may preserve mtime and size. File identity and
-      // change time distinguish them without treating an epoch mtime as absent.
-      stamp = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
+      return structuredClone(cache.get(path));
     } catch (error) {
-      if (cached && TRANSIENT_READ_CODES.has(error?.code)) return structuredClone(cached.record);
-      if (error?.code !== 'ENOENT') throw error;
-    }
-    if (cached && stamp !== null && cached.stamp === stamp) return structuredClone(cached.record);
-    let record;
-    try {
-      record = readGoalRecordFile(path, id, normalizeGoal, now());
-    } catch (error) {
-      if (cached && TRANSIENT_READ_CODES.has(error?.code)) {
-        return structuredClone(cached.record);
-      }
+      if (cached && TRANSIENT_READ_CODES.has(error?.code)) return structuredClone(cached);
       throw error;
     }
-    cache.set(id, { record, stamp });
-    return structuredClone(record);
   };
   return {
     read,
-    forget(id) {
-      cache.delete(id);
+    /** Run a read-modify-write of `id`'s record under its lock; its reads
+     *  inside come from disk, and its writes re-enter the lock. */
+    mutate(id, operation) {
+      // Timers armed inside keep this context; once it ends they read as observers.
+      const scope = { id, active: true };
+      return withFileLock(
+        `${pathFor(id)}.lock`,
+        async () => {
+          try {
+            return await mutating.run(scope, operation);
+          } finally {
+            scope.active = false;
+          }
+        },
+        { timeoutMs: 2_000 }
+      );
+    },
+    close() {
+      cache.close();
+      ids.clear();
     },
     async write(id, record) {
       const snapshot = structuredClone(record);
@@ -216,9 +238,9 @@ export function createGoalStorage({ pathFor, normalizeGoal, now, writeRecord = w
           },
           { timeoutMs: 2_000 }
         );
-        // The write lock has already been released. A subsequent stat could
-        // belong to another writer, so validate the file on the next read.
-        cache.set(id, { record: snapshot, stamp: null });
+        // Visible at once. No stamp: a stat now could belong to another
+        // writer, so the next watch event or re-check reloads the file once.
+        cache.set(path, snapshot);
       } finally {
         writing.delete(id);
       }

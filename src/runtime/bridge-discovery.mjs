@@ -9,6 +9,7 @@
 import { readFileSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
+import { createWatchedFileCache, fileStampSync } from './shared/watched-file-cache.mjs';
 
 const DISCOVERY_VERSION = 1;
 /** Bridge heartbeat touches the file every 60s; anything older is a crash
@@ -50,17 +51,33 @@ export function bridgeDiscoveryChanged(current, replacement) {
   return Boolean(replacement && (replacement.port !== current?.port || replacement.token !== current?.token));
 }
 
-export function readBridgeDiscoveryDetail(fileName) {
-  const path = join(bridgeDiscoveryDirectory(), fileName);
-  let parsed;
+// Status pulses ask on every tick: the file is kept in memory and reloaded
+// once it changed (a heartbeat touch included), seen by watch or re-check.
+const discoveryCache = createWatchedFileCache((path) => {
   try {
-    if (Date.now() - statSync(path).mtimeMs >= DISCOVERY_MAX_AGE_MS) {
-      return { discovery: null, reason: 'expired' };
-    }
-    parsed = JSON.parse(readFileSync(path, 'utf8'));
+    const stat = statSync(path, { bigint: true });
+    return {
+      stamp: `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`,
+      value: { mtimeMs: Number(stat.mtimeMs), parsed: JSON.parse(readFileSync(path, 'utf8')) },
+    };
   } catch {
-    return { discovery: null, reason: 'missing' };
+    return { stamp: fileStampSafe(path), value: null };
   }
+});
+
+function fileStampSafe(path) {
+  try {
+    return fileStampSync(path);
+  } catch {
+    return null;
+  }
+}
+
+export function readBridgeDiscoveryDetail(fileName) {
+  const entry = discoveryCache.get(join(bridgeDiscoveryDirectory(), fileName));
+  if (!entry) return { discovery: null, reason: 'missing' };
+  if (Date.now() - entry.mtimeMs >= DISCOVERY_MAX_AGE_MS) return { discovery: null, reason: 'expired' };
+  const { parsed } = entry;
   const version = Number(parsed?.version);
   const port = Number(parsed?.port);
   const token = String(parsed?.token || '');

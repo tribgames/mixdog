@@ -48,6 +48,7 @@ import {
   BOT_MIGRATION_VERSION,
   BOTS_DIR,
   MIXY_BOT_ID,
+  forgetBotStoreCache,
   migratedBotIds,
   readBotMigration,
 } from './agent-store.mjs';
@@ -273,9 +274,17 @@ function readManifestNow(botsRoot) {
 export function migrateBotsToOwnStore(options) {
   const { dataDir, log, lockWaitMs = LOCK_WAIT_MS } = options;
   try {
-    return withFileLockSync(join(dataDir, BOT_MIGRATION_LOCK), () => migrateLocked(options), {
-      timeoutMs: lockWaitMs,
-    });
+    return withFileLockSync(
+      join(dataDir, BOT_MIGRATION_LOCK),
+      () => {
+        try {
+          return migrateLocked(options);
+        } finally {
+          forgetBotStoreCache(dataDir);
+        }
+      },
+      { timeoutMs: lockWaitMs }
+    );
   } catch (error) {
     // Only the lock fails here (migrateLocked reports its own failures).
     const done = readBotMigration(dataDir);
