@@ -63,8 +63,8 @@ const PAGES = {
         <div class="session-sidebar-scroll">
           <section class="sidebar-recent sidebar-agents">
             <div class="sidebar-category-header"><button class="sidebar-recent-heading sidebar-heading-toggle" type="button"><span>봇</span></button></div>
-            <nav class="session-list agent-session-list agent-session-strip">
-              <div class="agent-strip-item"><button class="agent-strip-button" type="button"><span class="session-agent-avatar"><span class="agent-contact-mascot"></span></span></button></div>
+            <nav class="session-list agent-session-list">
+              <div class="session-row agent-session-row"><button class="session-row-main" type="button"><span class="session-agent-avatar"><span class="agent-contact-mascot"></span></span><span class="session-row-copy"><b>봇</b></span></button></div>
             </nav>
           </section>
           <section class="sidebar-recent">
@@ -100,7 +100,6 @@ const MEASURE = () => {
     chips: '.routine-sort-chips',
     card: '.routine-side-list',
     heading: '.sidebar-recent-heading > span',
-    botAvatar: '.agent-strip-item .session-agent-avatar',
     list: '.session-list',
     leadRow: '#lead',
     plainRow: '#plain',
@@ -206,10 +205,9 @@ test('every phone drawer page opens on one inset line, highlights bleed equally,
       'schedules: the pinned search bar paints the drawer sheet tone'
     );
 
-    // Sessions: headings and row text on the line; bot avatars sit on the line; row highlights bleed equally.
+    // Sessions: headings and row text on the line; row highlights bleed equally.
     near(sessions.heading.left, line, `sessions, ${frameLabel}: the section heading starts on the line`);
     near(sessions.rowText.left, line, `sessions, ${frameLabel}: row text starts on the line`);
-    near(sessions.botAvatar.left, line, `sessions, ${frameLabel}: the bot avatar strip starts on the line`);
     for (const key of ['plainRow', 'selectedRow']) {
       near(
         sessions[key].left,

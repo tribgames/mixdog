@@ -6,10 +6,3 @@
 [data-bot-drop="after"] {
   box-shadow: inset 0 -2px 0 0 var(--mx-accent);
 }
-/* In the Bots avatar strip the neighbours sit side by side: a vertical edge. */
-.agent-strip-item[data-bot-drop="before"] {
-  box-shadow: inset 2px 0 0 0 var(--mx-accent);
-}
-.agent-strip-item[data-bot-drop="after"] {
-  box-shadow: inset -2px 0 0 0 var(--mx-accent);
-}

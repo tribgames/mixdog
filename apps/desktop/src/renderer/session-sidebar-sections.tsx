@@ -3,11 +3,10 @@ import { AgentAvatar } from './agent-avatar';
 import type { AgentContact } from './agent-contacts-model';
 import { RoomAvatar } from './agent-room-parts';
 import { useSessionDragSource } from './agent-row-parts';
-import { NotificationMuteMark } from './notification-controls';
-import { useNotificationState } from './notification-overrides';
 import { useBotReorder } from './bot-reorder';
 import type { SidebarRoomRow } from './session-sidebar-agents';
 import { MxIcon } from './MxIcon';
+import { NotificationMuteMark } from './notification-controls';
 import { contextMenuRowProps, elementMenuPoint, isContextMenuKey, pointerMenuPoint } from './ScmContextMenu';
 import type { usePersistedListOrder } from './use-persisted-list-order';
 import React, { useContext } from 'react';
@@ -185,22 +184,16 @@ function AgentBotRow({
     contact.name,
     contact.mixy ? undefined : contact.agentId
   );
-  const muteTarget = { kind: 'agent', id: contact.agentId } as const;
-  // A status mark owns the avatar's corner; the mute then rides the name.
-  const mutedBehindStatus = useNotificationState(muteTarget)?.kind === 'muted' && Boolean(status);
-  const label = mutedBehindStatus ? `${contact.name} · ${t('Notifications off')}` : contact.name;
   return (
     <div
-      className={`agent-strip-item${selected ? ' selected' : ''}`}
+      className={`session-row agent-session-row${selected ? ' selected' : ''}${status === 'running' ? ' working' : ''}`}
       data-agent-contact={contact.agentId}
       {...reorderProps}
       {...(onOpenMenu ? contextMenuRowProps((point) => onOpenMenu(contact, point)) : {})}
     >
       <button
         type="button"
-        className="agent-strip-button"
-        aria-label={label}
-        data-tooltip={label}
+        className="session-row-main"
         aria-current={selected ? 'page' : undefined}
         aria-haspopup={onOpenMenu ? 'menu' : undefined}
         aria-keyshortcuts={onReorderKey ? 'Alt+ArrowUp Alt+ArrowDown' : undefined}
@@ -223,6 +216,10 @@ function AgentBotRow({
             </span>
           )}
         </span>
+        <span className="session-row-copy">
+          <b>{contact.name}</b>
+        </span>
+        <NotificationMuteMark target={{ kind: 'agent', id: contact.agentId }} />
       </button>
       {status && status !== 'unread' && (
         <span className="session-row-status" data-working={status === 'running' || undefined}>
@@ -230,7 +227,6 @@ function AgentBotRow({
         </span>
       )}
       {status === 'unread' && <SessionRowUnreadDot name={contact.name} />}
-      {!status && <NotificationMuteMark target={muteTarget} />}
     </div>
   );
 }
@@ -277,11 +273,7 @@ function AgentsSection({
         </button>
       </div>
       {open && (
-        <nav
-          className="session-list agent-session-list agent-session-strip"
-          aria-label={t('Bots')}
-          {...botList.listProps}
-        >
+        <nav className="session-list agent-session-list" aria-label={t('Bots')} {...botList.listProps}>
           {contacts.map((contact) => {
             const selected = Boolean(contact.session) && contact.session?.id === selectedSessionId;
             const status = contactAttention(contact, attentionOf);
@@ -298,65 +290,39 @@ function AgentsSection({
               />
             );
           })}
-          {rooms.map((row) => (
-            <AgentRoomStripItem
-              key={row.sessionId}
-              row={row}
-              selected={row.sessionId === selectedSessionId}
-              onOpenRoom={onOpenRoom}
-              onOpenRoomMenu={onOpenRoomMenu}
-            />
-          ))}
+          {rooms.map((row) => {
+            const selected = row.sessionId === selectedSessionId;
+            const { indicator } = row;
+            return (
+              <div
+                key={row.sessionId}
+                className={`session-row agent-session-row${selected ? ' selected' : ''}`}
+                data-agent-room={row.room.id}
+                {...(onOpenRoomMenu ? contextMenuRowProps((point) => onOpenRoomMenu(row, point)) : {})}
+              >
+                <button
+                  type="button"
+                  className="session-row-main"
+                  aria-current={selected ? 'page' : undefined}
+                  aria-haspopup={onOpenRoomMenu ? 'menu' : undefined}
+                  onClick={() => onOpenRoom?.(row)}
+                >
+                  <span className="session-agent-avatar">
+                    <RoomAvatar members={row.members} />
+                  </span>
+                  <span className="session-row-copy">
+                    <b>{row.name}</b>
+                  </span>
+                  <NotificationMuteMark target={{ kind: 'room', id: row.room.id }} />
+                </button>
+                {indicator?.kind === 'running' && <SessionRowStatusIcon status="running" name={row.name} />}
+                {indicator?.kind === 'unread' && <SessionRowUnreadDot name={row.name} />}
+              </div>
+            );
+          })}
         </nav>
       )}
     </section>
-  );
-}
-
-/** One group room's avatar in the Bots strip; status as for a bot. */
-function AgentRoomStripItem({
-  row,
-  selected,
-  onOpenRoom,
-  onOpenRoomMenu,
-}: {
-  row: SidebarRoomRow;
-  selected: boolean;
-  onOpenRoom?(row: SidebarRoomRow): void;
-  onOpenRoomMenu?(row: SidebarRoomRow, point: { x: number; y: number }): void;
-}) {
-  const { indicator } = row;
-  const muteTarget = { kind: 'room', id: row.room.id } as const;
-  // A status mark owns the avatar's corner; the mute then rides the name.
-  const mutedBehindStatus = useNotificationState(muteTarget)?.kind === 'muted' && Boolean(indicator);
-  const label = mutedBehindStatus ? `${row.name} · ${t('Notifications off')}` : row.name;
-  return (
-    <div
-      className={`agent-strip-item${selected ? ' selected' : ''}`}
-      data-agent-room={row.room.id}
-      {...(onOpenRoomMenu ? contextMenuRowProps((point) => onOpenRoomMenu(row, point)) : {})}
-    >
-      <button
-        type="button"
-        className="agent-strip-button"
-        aria-label={label}
-        data-tooltip={label}
-        aria-current={selected ? 'page' : undefined}
-        aria-haspopup={onOpenRoomMenu ? 'menu' : undefined}
-        onClick={() => onOpenRoom?.(row)}
-      >
-        <span className="session-agent-avatar">
-          <RoomAvatar members={row.members} />
-        </span>
-      </button>
-      {!indicator && <NotificationMuteMark target={muteTarget} />}
-      {indicator?.kind === 'running' && (
-        <span className="session-row-status" data-working>
-          <SessionRowStatusIcon status="running" name={row.name} />
-        </span>
-      )}
-      {indicator?.kind === 'unread' && <SessionRowUnreadDot name={row.name} />}
-    </div>
   );
 }
 
